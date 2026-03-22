@@ -225,8 +225,10 @@ You must size the exploration configurations to ensure they finish well within t
 ### Run
 
 ```bash
-timeout 120 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_targeted.json -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 120 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_targeted.json -y --output-dir $OUTPUT_DIR $1 2>&1
 ```
+
+The `RUST_LOG=info` prefix shows per-run progress. If many runs hit `max_iterations`, this often indicates a **deadlock** rather than the target bug — investigate with `debug combined` on those runs.
 
 ### Analyze
 
@@ -269,7 +271,7 @@ Mutate the config based on Phase 2 trace analysis. Create `$OUTPUT_DIR/find_bug_
 3. Choose your parameter ranges and `num_runs_per_config` such that the Estimated Time (E = T / R_actual) safely fits within the 300s timeout (e.g., target ~240s).
 
 ```bash
-timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR $1 2>&1
 ```
 
 Run traceanalyzer and Porcupine as in Phase 2.
@@ -281,7 +283,7 @@ If violation found → verify and report. If not → Phase 4.
 Use the genetic algorithm explorer with a broad config:
 
 ```bash
-timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e genetic --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e genetic --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR $1 2>&1
 ```
 
 Run Porcupine. If violation found → verify and report. If not → Phase 5.
@@ -326,3 +328,4 @@ Combine all evidence — simulator results from all phases and code analysis fro
 - When crafting plans, **causal dependencies** (write → crash → recover → read) are critical for reproducing ordering-sensitive bugs
 - A violation found by Porcupine may be a _different_ bug than the one being searched for — always verify against the description
 - `ClientInterface` must have `Read` and `Write` — these are what Porcupine checks
+- **Re-run Porcupine after each explorer invocation.** Run IDs are not stable across explorer runs — changing the config or explorer mode (`standard` vs `genetic`) can produce different run numbering. Do not rely on Porcupine results from a previous explorer run.

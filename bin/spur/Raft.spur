@@ -50,6 +50,7 @@ role Node {
 
     // Timeout tracking
     var received_leader_message: bool = false;
+    var known_leader: int = -1; // last known leader, -1 = unknown
 
     fn Init(me: int, peers: list<Node>) {
         self = me;
@@ -205,6 +206,7 @@ role Node {
         println("Node {self} became leader for term {current_term}");
         state = 2;
         votes_received = 0;
+        known_leader = self;
 
         // Initialize nextIndex and matchIndex (§5.3)
         next_index = {};
@@ -230,6 +232,7 @@ role Node {
         current_term = current_term + 1;
         voted_for = self;
         votes_received = 1; // vote for self
+        known_leader = -1;
         persist();
 
         println("Node {self} starting election for term {current_term}");
@@ -290,6 +293,7 @@ role Node {
 
         // Valid AppendEntries from leader — reset election timer
         received_leader_message = true;
+        known_leader = leader_id;
 
         // If we're a candidate and see a leader with >= our term, become follower
         if (state == 1) {
@@ -466,11 +470,16 @@ role Node {
     fn NewEntry(cmd: Command): chan<ClientResponse> {
         if (state != 2) {
             var ch: chan<ClientResponse> = make();
+            // Redirect to known leader; if unknown, round-robin to next node
+            var redirect_to: Node = replicas[(self + 1) % len(replicas)];
+            if (known_leader >= 0) {
+                redirect_to = replicas[known_leader];
+            }
             var resp: ClientResponse = ClientResponse{
                 is_leader: false,
                 key: nil,
                 value: nil,
-                leader: replicas[self]
+                leader: redirect_to
             };
             send_async(ch, resp);
             return ch;

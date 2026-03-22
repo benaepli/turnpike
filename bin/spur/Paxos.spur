@@ -1,0 +1,488 @@
+// Multi-Paxos (Paxos Made Moderately Complex)
+// Co-located Replica + Acceptor + Leader per node.
+// Scouts and Commanders are async tasks with callback-based quorum collection.
+
+type Command {
+    client_node: int;
+    req_id: int;
+    kind: int;
+    key: string;
+    value: string?;
+};
+
+type Ballot {
+    round: int;
+    leader: int;
+};
+
+type PValue {
+    ballot: Ballot;
+    slot: int;
+    command: Command;
+};
+
+type ClientResponse {
+    success: bool;
+    key: string?;
+    value: string?;
+    leader: Node;
+};
+
+type PersistentState {
+    acceptor_ballot: Ballot;
+    accepted: list<PValue>;
+    decisions: map<int, Command>;
+    slot_num: int;
+};
+
+role Node {
+    var self: int = 0;
+    var replicas: list<Node> = [];
+
+    // ── Replica state ────────────────────────────────────────
+    var slot_num: int = 1;
+    var proposals: map<int, Command> = {};
+    var decisions: map<int, Command> = {};
+    var kv_store: map<string, string> = {};
+    var pending_requests: map<int, chan<ClientResponse>> = {};
+    var next_req_id: int = 0;
+
+    // ── Acceptor state ───────────────────────────────────────
+    var acceptor_ballot: Ballot = Ballot{ round: -1, leader: -1 };
+    var accepted: list<PValue> = [];
+
+    // ── Leader state ─────────────────────────────────────────
+    var leader_ballot: Ballot = Ballot{ round: 0, leader: 0 };
+    var active: bool = false;
+    var leader_proposals: map<int, Command> = {};
+
+    // ── Scout tracking ───────────────────────────────────────
+    var scout_ballot: Ballot = Ballot{ round: 0, leader: 0 };
+    var scout_responses: int = 0;
+    var scout_pvalues: list<PValue> = [];
+    var scout_done: bool = true;
+
+    // ── Commander tracking (per slot) ────────────────────────
+    var cmd_responses: map<int, int> = {};
+    var cmd_done: map<int, bool> = {};
+
+    // ── Liveness ─────────────────────────────────────────────
+    var heard_decision: bool = false;
+
+    // ─────────────────────────────────────────────────────────
+    // Init / Recovery
+    // ─────────────────────────────────────────────────────────
+
+    fn Init(me: int, peers: list<Node>) {
+        self = me;
+        replicas = peers;
+        leader_ballot = Ballot{ round: 0, leader: self };
+        println("Node {self} initialized");
+        run_scout(leader_ballot);
+        monitor_timeouts();
+    }
+
+    @trace
+    async fn RecoverInit(me: int, peers: list<Node>) {
+        self = me;
+        replicas = peers;
+
+        var saved: PersistentState? = retrieve_data<PersistentState>();
+        if saved != nil {
+            var s = saved!;
+            acceptor_ballot = s.acceptor_ballot;
+            accepted = s.accepted;
+            decisions = s.decisions;
+            slot_num = s.slot_num;
+        } else {
+            decisions = {};
+            slot_num = 1;
+        }
+
+        // Rebuild kv_store from persisted decisions
+        var kv: map<string, string> = {};
+        for var i = 1; i < slot_num; i = i + 1 {
+            if exists(decisions, i) {
+                var cmd = decisions[i];
+                if cmd.kind == 1 {
+                    kv = kv[cmd.key] := cmd.value!;
+                }
+            }
+        }
+        kv_store = kv;
+
+        // Reset volatile state
+        active = false;
+        pending_requests = {};
+        leader_proposals = {};
+        cmd_responses = {};
+        cmd_done = {};
+        scout_done = true;
+        heard_decision = false;
+        next_req_id = slot_num;
+
+        leader_ballot = Ballot{ round: acceptor_ballot.round + 1, leader: self };
+        println("Node {self} recovered");
+        run_scout(leader_ballot);
+        monitor_timeouts();
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────
+
+    fn ballot_gt(a: Ballot, b: Ballot): bool {
+        a.round > b.round or (a.round == b.round and a.leader > b.leader)
+    }
+
+    fn ballot_gte(a: Ballot, b: Ballot): bool {
+        a.round > b.round or (a.round == b.round and a.leader >= b.leader)
+    }
+
+    fn ballot_eq(a: Ballot, b: Ballot): bool {
+        a.round == b.round and a.leader == b.leader
+    }
+
+    fn persist_state() {
+        persist_data(PersistentState{
+            acceptor_ballot: acceptor_ballot,
+            accepted: accepted,
+            decisions: decisions,
+            slot_num: slot_num
+        });
+    }
+
+    async fn resolve(ch: chan<ClientResponse>, resp: ClientResponse) {
+        send(ch, resp);
+    }
+
+    fn majority(): int {
+        len(replicas) / 2 + 1
+    }
+
+    fn commands_eq(a: Command, b: Command): bool {
+        a.client_node == b.client_node and a.req_id == b.req_id
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Replica
+    // ─────────────────────────────────────────────────────────
+
+    fn command_decided(cmd: Command): bool {
+        for (_, c) in decisions {
+            if commands_eq(c, cmd) { return true; }
+        }
+        false
+    }
+
+    fn lowest_unused_slot(): int {
+        var s = 1;
+        for ;; {
+            if !exists(proposals, s) and !exists(decisions, s) { return s; }
+            s = s + 1;
+        }
+        1
+    }
+
+    // Propose command c: assign it the lowest unused slot and send to all leaders
+    fn propose(cmd: Command) {
+        if command_decided(cmd) { return (); }
+        var s = lowest_unused_slot();
+        proposals = proposals[s] := cmd;
+        for node in replicas {
+            node->HandlePropose(s, cmd);
+        }
+    }
+
+    fn already_performed(cmd: Command): bool {
+        for (s, c) in decisions {
+            if s < slot_num and commands_eq(c, cmd) { return true; }
+        }
+        false
+    }
+
+    // Execute a decided command on the state machine
+    fn perform(cmd: Command) {
+        // Skip if this exact command was already decided in an earlier slot
+        if already_performed(cmd) {
+            slot_num = slot_num + 1;
+            return ();
+        }
+
+        var result: string? = nil;
+        if cmd.kind == 1 {
+            kv_store = kv_store[cmd.key] := cmd.value!;
+            println("Perform: slot {slot_num} WRITE key={cmd.key}");
+        } else {
+            result = if exists(kv_store, cmd.key) { kv_store[cmd.key] } else { nil };
+            println("Perform: slot {slot_num} READ key={cmd.key}");
+        }
+        slot_num = slot_num + 1;
+
+        // Resolve pending client request if this command originated here
+        if cmd.client_node == self and exists(pending_requests, cmd.req_id) {
+            resolve(pending_requests[cmd.req_id], ClientResponse{
+                success: true, key: cmd.key, value: result, leader: replicas[self]
+            });
+            pending_requests = erase(pending_requests, cmd.req_id);
+        }
+    }
+
+    // Decision handler — called by commanders when a slot is decided
+    @trace
+    async fn HandleDecision(slot: int, cmd: Command) {
+        heard_decision = true;
+        decisions = decisions[slot] := cmd;
+
+        // Process all consecutive decided slots starting from slot_num
+        for ; exists(decisions, slot_num); {
+            var decided = decisions[slot_num];
+            // If we proposed a different command for this slot, re-propose ours
+            if exists(proposals, slot_num) {
+                var ours = proposals[slot_num];
+                if !commands_eq(ours, decided) {
+                    propose(ours);
+                }
+            }
+            perform(decided);
+        }
+        persist_state();
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Acceptor
+    // ─────────────────────────────────────────────────────────
+
+    // Phase 1a: scout requests a promise for ballot
+    @trace
+    async fn HandleP1a(sender: Node, ballot: Ballot) {
+        if ballot_gt(ballot, acceptor_ballot) {
+            acceptor_ballot = ballot;
+        }
+        persist_state();
+        // Respond with: original ballot (for routing), current ballot, accepted pvalues
+        sender->HandleP1bResponse(replicas[self], ballot, acceptor_ballot, accepted);
+    }
+
+    // Phase 2a: commander requests acceptance of a pvalue
+    @trace
+    async fn HandleP2a(sender: Node, pvalue: PValue) {
+        if ballot_gte(pvalue.ballot, acceptor_ballot) {
+            acceptor_ballot = pvalue.ballot;
+            accepted = append(accepted, pvalue);
+        }
+        persist_state();
+        // Respond with: slot, original ballot (for routing), current ballot
+        sender->HandleP2bResponse(replicas[self], pvalue.slot, pvalue.ballot, acceptor_ballot);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Scout (Phase 1)
+    // ─────────────────────────────────────────────────────────
+
+    // Start a scout: send p1a to all acceptors and initialize tracking state
+    fn run_scout(ballot: Ballot) {
+        scout_ballot = ballot;
+        scout_responses = 0;
+        scout_pvalues = [];
+        scout_done = false;
+        println("RunScout: ballot=({ballot.round},{ballot.leader})");
+        for node in replicas {
+            node->HandleP1a(replicas[self], ballot);
+        }
+    }
+
+    // pmax: for each slot in pvals, keep the command with the highest ballot
+    fn pmax(pvals: list<PValue>): map<int, Command> {
+        var result: map<int, Command> = {};
+        var best: map<int, Ballot> = {};
+        for pv in pvals {
+            if !exists(best, pv.slot) or ballot_gt(pv.ballot, best[pv.slot]) {
+                result = result[pv.slot] := pv.command;
+                best = best[pv.slot] := pv.ballot;
+            }
+        }
+        result
+    }
+
+    // Phase 1b response — scout collects promises from acceptors
+    @trace
+    async fn HandleP1bResponse(from: Node, original_ballot: Ballot, resp_ballot: Ballot, pvals: list<PValue>) {
+        // Ignore stale responses
+        if scout_done or !ballot_eq(original_ballot, scout_ballot) { return (); }
+
+        if ballot_eq(resp_ballot, original_ballot) {
+            // Acceptor promised — collect its accepted pvalues
+            for pv in pvals {
+                scout_pvalues = append(scout_pvalues, pv);
+            }
+            scout_responses = scout_responses + 1;
+
+            if scout_responses >= majority() {
+                scout_done = true;
+                println("Adopted: ballot=({leader_ballot.round},{leader_ballot.leader})");
+
+                // proposals ⊲ pmax(pvals): pmax entries take priority over existing proposals
+                var pm = pmax(scout_pvalues);
+                for (slot, cmd) in leader_proposals {
+                    if !exists(pm, slot) {
+                        pm = pm[slot] := cmd;
+                    }
+                }
+                leader_proposals = pm;
+
+                // Become active and spawn commanders for all proposals
+                active = true;
+                cmd_responses = {};
+                cmd_done = {};
+                for (slot, cmd) in leader_proposals {
+                    spawn_commander(slot, cmd);
+                }
+            }
+        } else {
+            // Preempted — acceptor has a higher ballot
+            scout_done = true;
+            handle_preempted(resp_ballot);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Commander (Phase 2)
+    // ─────────────────────────────────────────────────────────
+
+    // Start a commander: send p2a to all acceptors for (leader_ballot, slot, cmd)
+    fn spawn_commander(slot: int, cmd: Command) {
+        cmd_responses = cmd_responses[slot] := 0;
+        cmd_done = cmd_done[slot] := false;
+        var pv = PValue{ ballot: leader_ballot, slot: slot, command: cmd };
+        for node in replicas {
+            node->HandleP2a(replicas[self], pv);
+        }
+    }
+
+    // Phase 2b response — commander collects acceptances
+    @trace
+    async fn HandleP2bResponse(from: Node, slot: int, original_ballot: Ballot, resp_ballot: Ballot) {
+        // Ignore if leader moved on or commander already finished
+        if !ballot_eq(original_ballot, leader_ballot) or !active { return (); }
+        if exists(cmd_done, slot) and cmd_done[slot] { return (); }
+
+        if ballot_eq(resp_ballot, original_ballot) {
+            // Accepted — count it
+            cmd_responses = cmd_responses[slot] := cmd_responses[slot] + 1;
+
+            if cmd_responses[slot] >= majority() {
+                cmd_done = cmd_done[slot] := true;
+                // Decided! Notify all replicas
+                var cmd = leader_proposals[slot];
+                for node in replicas {
+                    node->HandleDecision(slot, cmd);
+                }
+            }
+        } else {
+            // Preempted
+            cmd_done = cmd_done[slot] := true;
+            handle_preempted(resp_ballot);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Leader
+    // ─────────────────────────────────────────────────────────
+
+    fn handle_preempted(higher_ballot: Ballot) {
+        if ballot_gt(higher_ballot, leader_ballot) {
+            println("Preempted: saw ballot=({higher_ballot.round},{higher_ballot.leader})");
+            active = false;
+            leader_ballot = Ballot{ round: higher_ballot.round + 1, leader: self };
+            cmd_responses = {};
+            cmd_done = {};
+            // Don't immediately retry — wait for timeout to avoid livelock
+        }
+    }
+
+    // Receive a proposal from a replica: store it, start commander if active
+    @trace
+    async fn HandlePropose(slot: int, cmd: Command) {
+        if !exists(leader_proposals, slot) {
+            leader_proposals = leader_proposals[slot] := cmd;
+            if active {
+                spawn_commander(slot, cmd);
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Client-facing handlers
+    // ─────────────────────────────────────────────────────────
+
+    async fn ClientWrite(key: string, value: string): ClientResponse {
+        println("ClientWrite: key={key} value={value}");
+        var req_id = next_req_id;
+        next_req_id = next_req_id + 1;
+        var cmd = Command{ client_node: self, req_id: req_id, kind: 1, key: key, value: value };
+        var ch: chan<ClientResponse> = make();
+        pending_requests = pending_requests[req_id] := ch;
+        propose(cmd);
+        <- ch
+    }
+
+    async fn ClientRead(key: string): ClientResponse {
+        println("ClientRead: key={key}");
+        var req_id = next_req_id;
+        next_req_id = next_req_id + 1;
+        var cmd = Command{ client_node: self, req_id: req_id, kind: 0, key: key, value: nil };
+        var ch: chan<ClientResponse> = make();
+        pending_requests = pending_requests[req_id] := ch;
+        propose(cmd);
+        <- ch
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Timeout monitor
+    // ─────────────────────────────────────────────────────────
+
+    async fn monitor_timeouts() {
+        for ;; {
+            <- set_timer("leader");
+
+            // Active leader: no need to start a new scout
+            if active { continue; }
+
+            // Heard a decision recently: a leader is working
+            if heard_decision {
+                heard_decision = false;
+                continue;
+            }
+
+            // Scout already in progress: wait for it
+            if !scout_done { continue; }
+
+            // Timeout: bump ballot and try to become leader
+            println("Timeout: Node {self} starting new scout");
+            leader_ballot = Ballot{ round: leader_ballot.round + 1, leader: self };
+            run_scout(leader_ballot);
+        }
+    }
+}
+
+ClientInterface {
+    async fn Write(dest: Node, key: string, value: string) {
+        var target = dest;
+        for ;; {
+            var resp = <- target->ClientWrite(key, value);
+            if resp.success { return (); }
+            target = resp.leader;
+        }
+    }
+
+    async fn Read(dest: Node, key: string): string? {
+        var target = dest;
+        for ;; {
+            var resp = <- target->ClientRead(key);
+            if resp.success { return resp.value; }
+            target = resp.leader;
+        }
+        nil
+    }
+}

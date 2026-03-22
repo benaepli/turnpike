@@ -17,9 +17,11 @@ You are debugging a distributed protocol specification written in the Spur langu
 ## Pre-flight
 
 1. **Create a unique output directory**: Generate a unique directory name to avoid conflicts with other concurrent runs:
+
 ```bash
 OUTPUT_DIR=$(mktemp -d /tmp/spur_debug_XXXXXX)
 ```
+
 Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Print the directory name so the user knows where results are.
 
 2. **Verify files exist**: Check that the spec file (`$1`) and config file (`$2`) exist. If not, stop and report.
@@ -29,6 +31,7 @@ Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Print t
 4. **Read pseudocode reference** (if `$3` provided): Read the pseudocode file. Keep it as context for diagnosing protocol logic bugs. Cross-reference the spec against it when looking for errors.
 
 5. **Build Go tools** (once):
+
 ```bash
 cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go build -o main main.go && cd ..
 ```
@@ -40,10 +43,13 @@ Repeat up to **5 iterations**. Track the iteration count.
 ### Step 1: Run Explorer
 
 ```bash
-timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $2 -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $2 -y --output-dir $OUTPUT_DIR $1 2>&1
 ```
 
+The `RUST_LOG=info` prefix shows per-run progress, including whether runs are hitting `max_iterations` limits. If many runs hit the limit, this often indicates a **deadlock** — investigate with `debug combined` on those runs.
+
 Handle exit codes:
+
 - **Exit 0**: Explorer completed successfully. Proceed to Step 2.
 - **Exit 124**: Explorer timed out (5 min limit). Report this to the user and suggest reducing config parameters (fewer `max_iterations`, `num_runs_per_config`, or narrower ranges). Stop the loop.
 - **Other non-zero**: Likely a compilation error. Read the error output, fix the spec file automatically, and re-run this step. This does NOT count as an iteration.
@@ -67,6 +73,7 @@ Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output
 ### Step 4: Diagnose
 
 **If exit code is 2 (linearizability violations found):**
+
 - Extract failing run IDs by grepping for non-linearizable runs:
   ```bash
   grep 'Linearizable? false' $OUTPUT_DIR/porcupine_output.txt
@@ -80,6 +87,7 @@ Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output
 - If pseudocode was provided, cross-reference the spec logic against the paper's algorithm
 
 **If exit code is 0 (all runs linearizable):**
+
 - Do NOT assume everything is fine. Spot-check 2-3 runs with `debug combined` to look for deadlocks:
   ```bash
   cargo run --release --manifest-path spur/Cargo.toml --bin spur -- debug combined --db $OUTPUT_DIR --run-id N
@@ -93,6 +101,7 @@ Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output
 **Compile errors**: Fix automatically and re-run (not counted as iteration).
 
 **Protocol logic bugs**:
+
 1. Present your diagnosis clearly:
    - Which runs failed and why
    - What the root cause appears to be
@@ -106,6 +115,8 @@ Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output
 ### Step 6: Iterate
 
 After applying a fix, go back to Step 1. Increment the iteration counter.
+
+**Important**: Mostly re-run Porcupine after re-running the explorer, even if you're checking the same runs. Run IDs are not stable across explorer invocations — a different config or explorer mode. Never rely on Porcupine results from a previous explorer run.
 
 ## Iteration Summary
 
@@ -124,6 +135,7 @@ After each iteration, output a summary:
 ## Stopping Conditions
 
 Stop the loop when any of these are true:
+
 - **Success**: All porcupine runs pass AND spot-checks show no deadlocks
 - **Max iterations**: 5 iterations reached — summarize remaining issues
 - **Stuck**: Same error pattern after 2 fix attempts — explain and ask for guidance
