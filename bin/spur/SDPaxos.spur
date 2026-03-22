@@ -245,7 +245,7 @@ role Node {
             };
         }
 
-        println("Node " + int_to_string(self) + " initialized. Peer count: " + int_to_string(len(peers)));
+        println("Node {self} initialized. Peer count: {len(peers)}");
 
         monitor_execution();
         do_view_changes();
@@ -281,34 +281,34 @@ role Node {
             };
         }
 
-        println("Node " + int_to_string(self) + " recovered. Peer count: " + int_to_string(len(peers)));
+        println("Node {self} recovered. Peer count: {len(peers)}");
 
         monitor_execution();
         do_view_changes();
     }
 
     fn is_valid(msg_view: int): bool {
-        return msg_view >= view;
+        msg_view >= view
     }
 
     fn new_c_number(): int {
         var current = c_counter;
         c_counter = c_counter + 1;
-        return current;
+        current
     }
 
     fn new_o_number(): int {
         var counter = sequencer_state!.o_counter;
         sequencer_state = sequencer_state!.o_counter := counter + 1;
-        return counter;
+        counter
     }
 
     fn majority(): int {
-        return len(peers) / 2 + 1;
+        len(peers) / 2 + 1
     }
 
     fn sequencer(): Node {
-        return peers[view % len(peers)];
+        peers[view % len(peers)]
     }
 
     fn handle_new_view(new_view: int) {
@@ -339,7 +339,7 @@ role Node {
             replica: peers[self],
         };
 
-        println("Submit: Starting request for C-instance (" + role_to_string(peers[self]) + ", " + int_to_string(i) + ") at view " + int_to_string(view));
+        println("Submit: Starting request for C-instance ({role_to_string(peers[self])}, {i}) at view {view}");
 
         c_instances = c_instances[peers[self]][i] := CInstanceState.Accepted(CAcceptedArgs{
             promised: ballot,
@@ -416,7 +416,7 @@ role Node {
             }
         }
         
-        println("HandleClientWrite: key=" + msg.key + ", value=" + msg.value);
+        println("HandleClientWrite: key={msg.key}, value={msg.value}");
 
         var response_ch: chan<Reply> = make();
         submit(Command.Write(WriteArgs{
@@ -427,7 +427,7 @@ role Node {
         
         save_state();
 
-        return match result {
+        match result {
             Reply.ClientWriteReply(h) => h,
             _ => ClientWriteReply{
                 success: false,
@@ -443,7 +443,7 @@ role Node {
             }
         }
 
-        println("HandleClientRead: key=" + msg.key);
+        println("HandleClientRead: key={msg.key}");
 
         var response_ch: chan<Reply> = make();
         submit(Command.Read(msg.key), response_ch);
@@ -451,7 +451,7 @@ role Node {
         
         save_state();
         
-        return match result {
+        match result {
             Reply.ClientReadReply(h) => h,
             _ => ClientReadReply{
                 value: nil,
@@ -461,7 +461,7 @@ role Node {
     }
 
     async fn HandleCAccept(msg: CAccept): CAck? {
-        println("HandleCAccept: Received CAccept for instance (" + role_to_string(msg.replica) + ", " + int_to_string(msg.instance) + ") at view " + int_to_string(msg.view));
+        println("HandleCAccept: Received CAccept for instance ({role_to_string(msg.replica)}, {msg.instance}) at view {msg.view}");
         if !is_valid(msg.view) {
             return nil;
         }
@@ -498,16 +498,16 @@ role Node {
 
         save_state();
 
-        return CAck {
+        CAck {
             view: view,
             replica: peers[self],
             instance: msg.instance,
             ballot: msg.ballot,
-        };
+        }
     }
 
     async fn HandleCCommit(msg: CCommit) {
-        println("HandleCCommit: Committing C-instance (" + role_to_string(msg.replica) + ", " + int_to_string(msg.instance) + ") at view " + int_to_string(msg.view));
+        println("HandleCCommit: Committing C-instance ({role_to_string(msg.replica)}, {msg.instance}) at view {msg.view}");
         if !is_valid(msg.view) {
             return;
         }
@@ -547,7 +547,7 @@ role Node {
                 ballot: ballot,
                 assigned: msg.replica,
             };
-            println("Sequencer: Assigning O-instance " + int_to_string(o_number) + " to C-instance (" + role_to_string(msg.replica) + ", " + int_to_string(current_count) + ")");
+            println("Sequencer: Assigning O-instance {o_number} to C-instance ({role_to_string(msg.replica)}, {current_count})");
             for peer in peers {
                 peer->HandleOAccept(accept_msg);
             }
@@ -558,7 +558,7 @@ role Node {
     }
 
     async fn HandleOAccept(msg: OAccept) {
-        println("HandleOAccept: Received OAccept for instance " + int_to_string(msg.instance) + " at view " + int_to_string(msg.view));
+        println("HandleOAccept: Received OAccept for instance {msg.instance} at view {msg.view}");
         if !is_valid(msg.view) {
             return;
         }
@@ -683,13 +683,13 @@ role Node {
         var rep_str = role_to_string(assigned_rep);
         match cmd {
             Command.Read(key) => {
-                println("Execute: O-inst " + int_to_string(execution_pointer) + " -> C-inst (" + rep_str + ", " + int_to_string(c_idx) + ") READ key=" + key);
+                println("Execute: O-inst {execution_pointer} -> C-inst ({rep_str}, {c_idx}) READ key={key}");
             },
             Command.Write(args) => {
-                println("Execute: O-inst " + int_to_string(execution_pointer) + " -> C-inst (" + rep_str + ", " + int_to_string(c_idx) + ") WRITE key=" + args.key);
+                println("Execute: O-inst {execution_pointer} -> C-inst ({rep_str}, {c_idx}) WRITE key={args.key}");
             },
             Command.NoOp => {
-                println("Execute: O-inst " + int_to_string(execution_pointer) + " -> C-inst (" + rep_str + ", " + int_to_string(c_idx) + ") NOOP");
+                println("Execute: O-inst {execution_pointer} -> C-inst ({rep_str}, {c_idx}) NOOP");
             },
         };
     }
@@ -706,7 +706,7 @@ role Node {
         o_ack_counts = o_ack_counts[msg.instance][msg.sender] := true;
 
         var count = len(o_ack_counts[msg.instance]);
-        println("HandleOAck: Received OAck for instance " + int_to_string(msg.instance) + " from " + role_to_string(msg.sender) + " (count: " + int_to_string(count) + "/" + int_to_string(majority()) + ")");
+        println("HandleOAck: Received OAck for instance {msg.instance} from {role_to_string(msg.sender)} (count: {count}/{majority()})");
 
         if count >= majority() {
             if !exists(o_ack_handled, msg.instance) or !o_ack_handled[msg.instance] {
@@ -760,7 +760,7 @@ role Node {
     }
 
     async fn HandleOCommit(msg: OCommit) {
-        println("HandleOCommit: Committing O-instance " + int_to_string(msg.instance) + " at view " + int_to_string(msg.view));
+        println("HandleOCommit: Committing O-instance {msg.instance} at view {msg.view}");
         if !is_valid(msg.view) {
             return;
         }
@@ -780,11 +780,11 @@ role Node {
             return 0;
         }
 
-        return match c_instances[target][instance] {
+        match c_instances[target][instance] {
             CInstanceState.Promised(b) => b.round,
             CInstanceState.Accepted(args) => args.promised.round,
             CInstanceState.Committed(_) => 0, 
-        };
+        }
     }
 
     fn start_c_recovery(target: Node, instance: int) { 
@@ -803,14 +803,14 @@ role Node {
             instance: instance,
             ballot: ballot
         };
-        println("Recovery: Starting C-recovery for instance (" + role_to_string(target) + ", " + int_to_string(instance) + ") at round " + int_to_string(this_round));
+        println("Recovery: Starting C-recovery for instance ({role_to_string(target)}, {instance}) at round {this_round}");
         for peer in peers {
             peer->HandleCPrepare(msg);
         }
     }
 
     async fn HandleCPrepare(msg: CPrepare) {
-        println("HandleCPrepare: Received CPrepare for instance (" + role_to_string(msg.target) + ", " + int_to_string(msg.instance) + ") at round " + int_to_string(msg.ballot.round));
+        println("HandleCPrepare: Received CPrepare for instance ({role_to_string(msg.target)}, {msg.instance}) at round {msg.ballot.round}");
         if !is_valid(msg.view) { return; }
         
         if !exists(c_instances, msg.target) { 
@@ -880,7 +880,7 @@ role Node {
 
         c_recovery_state = c_recovery_state[key][msg.replica] := msg;
 
-        println("HandleCPromise: Received CPromise for instance (" + role_to_string(msg.target_node) + ", " + int_to_string(msg.instance) + ") from " + role_to_string(msg.replica) + " (count: " + int_to_string(len(c_recovery_state[key])) + "/" + int_to_string(majority()) + ")");
+        println("HandleCPromise: Received CPromise for instance ({role_to_string(msg.target_node)}, {msg.instance}) from {role_to_string(msg.replica)} (count: {len(c_recovery_state[key])}/{majority()})");
 
         if len(c_recovery_state[key]) >= majority() {
             // Erase immediately so late-arriving promises don't re-trigger this block
@@ -904,12 +904,12 @@ role Node {
             }
 
             if !found_value {
-                println("Recovery: No value found for (" + role_to_string(msg.target_node) + ", " + int_to_string(msg.instance) + "). Proposing NoOp.");
+                println("Recovery: No value found for ({role_to_string(msg.target_node)}, {msg.instance}). Proposing NoOp.");
             } else {
-                println("Recovery: Found existing value for (" + role_to_string(msg.target_node) + ", " + int_to_string(msg.instance) + "). Reproposing.");
+                println("Recovery: Found existing value for ({role_to_string(msg.target_node)}, {msg.instance}). Reproposing.");
             }
 
-            println("Recovery: Collected majority promises for (" + role_to_string(msg.target_node) + ", " + int_to_string(msg.instance) + "). Sending CAccept.");
+            println("Recovery: Collected majority promises for ({role_to_string(msg.target_node)}, {msg.instance}). Sending CAccept.");
 
             var my_ballot = msg.ballot;
 
@@ -945,7 +945,7 @@ role Node {
                 }
             }
 
-            println("Recovery: Received majority ACKs for (" + role_to_string(msg.target_node) + ", " + int_to_string(msg.instance) + "). Committing.");
+            println("Recovery: Received majority ACKs for ({role_to_string(msg.target_node)}, {msg.instance}). Committing.");
 
             var c_commit = CCommit{
                 view: view,
@@ -1002,7 +1002,7 @@ role Node {
         view = view + 1;
         view_phase = ViewPhase.Candidate;
 
-        println("Node " + int_to_string(self) + " starting view change to view " + int_to_string(view));
+        println("Node {self} starting view change to view {view}");
         var msg = VRequest {
             new_view: view,
             candidate: peers[self]
@@ -1049,7 +1049,7 @@ role Node {
             view_phase = ViewPhase.Voted(msg.candidate);
         }
 
-        println("HandleVRequest: Voting for " + role_to_string(msg.candidate) + " in view " + int_to_string(view));
+        println("HandleVRequest: Voting for {role_to_string(msg.candidate)} in view {view}");
         
         var o_replies: map<int, OPrepareReply> = {};
         for (idx, state) in o_instances {
@@ -1100,15 +1100,15 @@ role Node {
 
         save_state();
 
-        return Vote {
+        Vote {
             view: view,
             o_prepare_replies: o_replies,
             max_c_accepted: max_c_map
-        };
+        }
     }
 
     async fn become_sequencer(votes: map<Node, Vote>) {
-        println("Reconstructing Log from " + int_to_string(len(votes)) + " votes...");
+        println("Reconstructing Log from {len(votes)} votes...");
         var candidates: map<int, (Ballot, Node)> = {};
         var max_o_index = -1;
 
@@ -1156,7 +1156,7 @@ role Node {
             });
         }
 
-        println("Log reconstructed. Max index: " + int_to_string(max_o_index) + ". Broadcasting NewView and waiting for ACKs...");
+        println("Log reconstructed. Max index: {max_o_index}. Broadcasting NewView and waiting for ACKs...");
         
         var nv = NewView {
             view: view,
@@ -1181,7 +1181,7 @@ role Node {
             }
         }
 
-        println("View " + int_to_string(view) + " synchronized. Broadcasting Commit.");
+        println("View {view} synchronized. Broadcasting Commit.");
 
         var commit_msg = NewViewCommit { view: view };
         for peer in peers {
@@ -1203,7 +1203,7 @@ role Node {
             return nil;
         }
 
-        println("HandleNewView: Installing view " + int_to_string(msg.view) + ". waiting for commit.");
+        println("HandleNewView: Installing view {msg.view}. waiting for commit.");
         view = msg.view;
         view_phase = ViewPhase.Normal; 
         received_sequencer_message = true;
@@ -1234,7 +1234,7 @@ role Node {
 
         save_state();
         
-        return NewViewAck { view: view, sender: peers[self] };
+        NewViewAck { view: view, sender: peers[self] }
     }
 
     async fn HandleNewViewCommit(msg: NewViewCommit) {
@@ -1274,6 +1274,6 @@ ClientInterface {
             }
         }
 
-        return nil;
+        nil
     }
 }

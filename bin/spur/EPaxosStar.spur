@@ -112,15 +112,15 @@ role Node {
         f = (n - 1) / 2;
         e = (n - f + 1) / 2;
         
-        println("Initialized node. Node count: " + int_to_string(node_count) + " F: " + int_to_string(f) + " E: " + int_to_string(e));
+        println("Initialized node. Node count: {node_count} F: {f} E: {e}");
     }
 
     fn fastQuorum(): int {
-        return len(replicas) - e;
+        len(replicas) - e
     }
 
     fn slowQuorum(): int {
-        return len(replicas) - f;
+        len(replicas) - f
     }
 
     fn localConflicts(c: Payload): DependencySet {
@@ -131,15 +131,16 @@ role Node {
                 result = result[id] := true;
             }
         }
-        return result;
+        result
     }
 
     fn conflicts(c1: Payload, c2: Payload): bool {
         // Nop (kind 2) conflicts with everything
         if (c1.kind == 2 or c2.kind == 2) {
-            return true;
+            true
+        } else {
+            (c1.kind != 0 or c2.kind != 0) and (c1.key == c2.key)
         }
-        return (c1.kind != 0 or c2.kind != 0) and (c1.key == c2.key);
     }
 
     fn union(fst: DependencySet, snd: DependencySet): DependencySet {
@@ -150,15 +151,16 @@ role Node {
         for (id, _) in snd {
             result = result[id] := true;
         }
-        return result;
+        result
     }
 
     // Helper to check if a command is locally committed
     fn isCommitted(id: int): bool {
         if (!exists(commands, id)) {
-            return false;
+            false
+        } else {
+            commands[id].phase == 3
         }
-        return commands[id].phase == 3;
     }
 
     fn depsToString(deps: DependencySet): string {
@@ -192,7 +194,7 @@ role Node {
 
     // Submit handles starting a new request. Figure 3 of EPaxos*.
     async fn Submit(c: Payload, id: int) {
-        println("Submit: Starting request ID " + int_to_string(id) + " for key: " + c.key);
+        println("Submit: Starting request ID {id} for key: {c.key}");
         var localDeps: DependencySet = localConflicts(c);
         
         var request: PreAcceptRequest = PreAcceptRequest{
@@ -202,7 +204,7 @@ role Node {
             dependencies: localDeps,
         };
 
-        println("Submit: Request ID " + int_to_string(id) + " local conflicts found: " + int_to_string(len(localDeps)));
+        println("Submit: Request ID {id} local conflicts found: {len(localDeps)}");
 
         // We need to handle our own node first because of the potential the PreAcceptOK
         // precondition check fails due to a race condition.
@@ -217,13 +219,13 @@ role Node {
 
     // PreAccept handles an incoming PreAccept request. Figure 3 of EPaxos*.
     async fn PreAccept(request: PreAcceptRequest) {
-        println("PreAccept: Received request ID " + int_to_string(request.id) + " from sender.");
+        println("PreAccept: Received request ID {request.id} from sender.");
         
         // Precondition: we haven't started working on it.
         if (exists(commands, request.id)) {
             var command: Command = commands[request.id];
             if (command.ballot != 0 or command.phase != 0) {
-                println("PreAccept: Ignoring ID " + int_to_string(request.id) + " - already in phase " + int_to_string(command.phase));
+                println("PreAccept: Ignoring ID {request.id} - already in phase {command.phase}");
                 return ();
             }
         }
@@ -231,7 +233,7 @@ role Node {
         var newConflicts: DependencySet = localConflicts(request.payload);
         var allConflicts: DependencySet = union(request.dependencies, newConflicts);
 
-        println("PreAccept: ID " + int_to_string(request.id) + " merged deps count: " + int_to_string(len(allConflicts)));
+        println("PreAccept: ID {request.id} merged deps count: {len(allConflicts)}");
 
         var cmd: Command = Command{
             payload: request.payload,
@@ -291,9 +293,9 @@ role Node {
         var isFastPath: bool = hasFastCount and depsMatch;
 
         if (isFastPath) {
-            println("Quorum: ID " + int_to_string(id) + " taking fast path");
+            println("Quorum: ID {id} taking fast path");
         } else {
-            println("Quorum: ID " + int_to_string(id) + " taking slow path (depsMatch: " + bool_to_string(depsMatch) + ")"); // Using 0 for false log
+            println("Quorum: ID {id} taking slow path (depsMatch: {depsMatch})"); // Using 0 for false log
         }
 
         if (isFastPath) {
@@ -316,17 +318,17 @@ role Node {
         commands = commands[request.id] := cmd;
         var responseCount: int = len(cmd.preAcceptResponses);
         
-        println("PreAcceptOK: ID " + int_to_string(request.id) + " response count: " + int_to_string(responseCount));
+        println("PreAcceptOK: ID {request.id} response count: {responseCount}");
 
         // Scenario A: Fast Quorum reached - proceed immediately
         if (!cmd.preAcceptQuorumMet and responseCount >= fastQuorum()) {
-            println("PreAcceptOK: ID " + int_to_string(request.id) + " reached Fast Quorum.");
+            println("PreAcceptOK: ID {request.id} reached Fast Quorum.");
             cmd = cmd.preAcceptQuorumMet := true;
             commands = commands[request.id] := cmd;
             preAcceptOKWithQuorum(request.id);
         } 
         else if (!cmd.preAcceptQuorumMet and !cmd.optimisticWaitTriggered and responseCount >= slowQuorum()) {
-            println("PreAcceptOK: ID " + int_to_string(request.id) + " reached Slow Quorum. Starting optimistic wait.");
+            println("PreAcceptOK: ID {request.id} reached Slow Quorum. Starting optimistic wait.");
             cmd = cmd.optimisticWaitTriggered := true;
             commands = commands[request.id] := cmd;
             startOptimisticWaitTimer(request.id); 
@@ -355,7 +357,7 @@ role Node {
 
     // Accept handles all Accept requests in the slow path (Figure 3).
     async fn Accept(request: AcceptRequest) {
-        println("Accept: Received Accept for ID " + int_to_string(request.id) + " ballot " + int_to_string(request.ballot) + " deps count: " + int_to_string(len(request.dependencies)));
+        println("Accept: Received Accept for ID {request.id} ballot {request.ballot} deps count: {len(request.dependencies)}");
         if (!exists(commands, request.id)) {
             return ();
         }
@@ -405,17 +407,17 @@ role Node {
         
         command = command.acceptResponses := append(command.acceptResponses, request);
         commands = commands[request.id] := command;
-        println("AcceptOK: ID " + int_to_string(request.id) + " responses: " + int_to_string(len(command.acceptResponses)) + " deps count: " + int_to_string(len(command.dependencies)));
+        println("AcceptOK: ID {request.id} responses: {len(command.acceptResponses)} deps count: {len(command.dependencies)}");
 
         if (len(command.acceptResponses) >= slowQuorum()) {
-            println("AcceptOK: ID " + int_to_string(request.id) + " slow quorum met. Committing.");
+            println("AcceptOK: ID {request.id} slow quorum met. Committing.");
             BroadcastCommit(request.ballot, request.id, command.payload, command.dependencies);
         }
     }
 
     // Commit handles commit requests as in Figure 3.
     async fn Commit(request: CommitRequest) {
-        println("Commit: ID " + int_to_string(request.id) + " is now COMMITTED.");
+        println("Commit: ID {request.id} is now COMMITTED.");
         if (!exists(commands, request.id)) {
             return ();
         }
@@ -459,7 +461,7 @@ role Node {
                 if (is_invalidator) {
                     BroadcastAccept(waiting_cmd.ballot, waiting_id, Payload{kind: 2, key: "", value: nil}, {});
                 } else {
-                    println("Commit: resuming " + int_to_string(waiting_id) + " after harmless commit of " + int_to_string(request.id));
+                    println("Commit: resuming {waiting_id} after harmless commit of {request.id}");
                     BroadcastAccept(waiting_cmd.ballot, waiting_id, waiting_cmd.payload, waiting_cmd.dependencies);
                 }
                 waiting_cmd = waiting_cmd.isWaiting := false;
@@ -487,7 +489,7 @@ role Node {
                 }
             }
         }
-        return graphNodes;
+        graphNodes
     }
 
     // Recursive validity check for graph inclusion
@@ -538,7 +540,7 @@ role Node {
                 tarjanDFS(id);
             }
         }
-        return t_sccs;
+        t_sccs
     }
 
     fn tarjanDFS(at: int) {
@@ -603,22 +605,22 @@ role Node {
             }
             i = i + 1;
         }
-        return ids;
+        ids
     }
 
     fn executeCommand(id: int, payload: Payload) {
         if (payload.kind == 2) {
-             println("ExecuteAction: ID " + int_to_string(id) + " is a NOP.");
+             println("ExecuteAction: ID {id} is a NOP.");
              return ();
         }
 
         var result: string? = nil;
         if (payload.kind == 1) { // Write
-             println("ExecuteAction: ID " + int_to_string(id) + " WRITE key: " + payload.key);
+             println("ExecuteAction: ID {id} WRITE key: {payload.key}");
              kv_store = kv_store[payload.key] := payload.value!;
              result = payload.value;
         } else if (payload.kind == 0) { // Read
-             println("ExecuteAction: ID " + int_to_string(id) + " READ key: " + payload.key);
+             println("ExecuteAction: ID {id} READ key: {payload.key}");
              if (exists(kv_store, payload.key)) {
                  result = kv_store[payload.key];
              }
@@ -637,18 +639,18 @@ role Node {
     fn TryExecute() {
         println("Execute: Building execution graph...");
         var G: list<int> = buildExecutionGraph();
-        println("Execute: Graph size: " + int_to_string(len(G)));
+        println("Execute: Graph size: {len(G)}");
 
         var sccs: list<list<int>> = getSCCs(G);
-        println("Execute: Found " + int_to_string(len(sccs)) + " SCCs to process.");
+        println("Execute: Found {len(sccs)} SCCs to process.");
 
         for scc in sccs {
             var sortedSCC: list<int> = sortIDs(scc);
-            println("Execute: Processing SCC: " + listIntToString(sortedSCC));
+            println("Execute: Processing SCC: {listIntToString(sortedSCC)}");
             for id in sortedSCC {
                 var cmd: Command = commands[id];
                 if (!exists(executed, id)) {
-                    println("Execute: Running ID " + int_to_string(id) + " with deps: " + depsToString(cmd.dependencies));
+                    println("Execute: Running ID {id} with deps: {depsToString(cmd.dependencies)}");
                     executeCommand(id, cmd.payload);
                     executed = executed[id] := true;
                 }
@@ -664,7 +666,7 @@ role Node {
 
     fn leader_detector(id: int): Node {
         var n: int = len(replicas);
-        return replicas[id % n];
+        replicas[id % n]
     }
 
     async fn CheckAndTriggerRecovery(id: int) {
@@ -686,7 +688,7 @@ role Node {
 
     // Figure 5 of EPaxos*
     async fn recover(id: int) {
-        println("Recovery: Initiating recovery for ID " + int_to_string(id));
+        println("Recovery: Initiating recovery for ID {id}");
         // Pick a higher ballot number to take over
         var current_bal: int = 0;
         if (exists(commands, id)) {
@@ -730,7 +732,7 @@ role Node {
             }
         }
         // This should not be reached if anyInU was called first
-        return U[0];
+        U[0]
     }
 
     async fn BroadcastCommit(b: int, id: int, c: Payload, D: DependencySet) {
@@ -823,19 +825,19 @@ role Node {
              var initCoord: Node = replicas[request.id % node_count];
              
              if (request.phase == 3) {
-                 println("RecoverOK: Late COMMITTED received for ID " + int_to_string(request.id) + ". Finishing recovery.");
+                 println("RecoverOK: Late COMMITTED received for ID {request.id}. Finishing recovery.");
                  BroadcastCommit(cmd.ballot, request.id, request.payload, request.dependencies);
                  return ();
              }
              
              else if (request.phase == 2) {
-                 println("RecoverOK: Late ACCEPTED received for ID " + int_to_string(request.id) + ". Finishing recovery.");
+                 println("RecoverOK: Late ACCEPTED received for ID {request.id}. Finishing recovery.");
                  BroadcastAccept(cmd.ballot, request.id, request.payload, request.dependencies);
                  return ();
              }
              
              else if (request.sender == initCoord) {
-                 println("RecoverOK: Late message from InitCoord for ID " + int_to_string(request.id) + ". Aborting to Nop.");
+                 println("RecoverOK: Late message from InitCoord for ID {request.id}. Aborting to Nop.");
                  BroadcastAccept(cmd.ballot, request.id, Payload{kind: 2, key: "", value: nil}, {});
                  return ();
              }
@@ -955,7 +957,7 @@ role Node {
                 }
             }
         }
-        return I;
+        I
     }
 
     async fn HandleValidateOK(b: int, id: int, I_from_q: list<int>) {
@@ -1024,7 +1026,7 @@ role Node {
             r_size: cmd.validatingQuorumSize,
         };
 
-        println("Waiting: ID " + int_to_string(id) + " is blocked. Broadcasting to all.");
+        println("Waiting: ID {id} is blocked. Broadcasting to all.");
 
         for node in replicas {
             node->HandleWaiting(req);
@@ -1039,7 +1041,7 @@ role Node {
                     var threshold: int = node_count - f - e;
                     
                     if (req.r_size > threshold) {
-                        println("HandleWaiting: Aborting " + int_to_string(my_id) + " to break deadlock with " + int_to_string(req.id));
+                        println("HandleWaiting: Aborting {my_id} to break deadlock with {req.id}");
                         
                         // Abort our recovery (Propose Nop)
                         BroadcastAccept(my_cmd.ballot, my_id, Payload{kind: 2, key: "", value: nil}, {});
@@ -1081,7 +1083,7 @@ role Node {
 ClientInterface {
     async fn Read(dest: Node, key: string): string? {
         var promise: chan<string?> = dest->ClientRead(key);
-        return <-promise;
+        <-promise
     }
 
     async fn Write(dest: Node, key: string, value: string) {

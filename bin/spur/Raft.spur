@@ -56,7 +56,7 @@ role Node {
         for var i = 0; i < len(peers); i = i + 1 {
             replicas = append(replicas, peers[i]);
         }
-        println("Node " + int_to_string(self) + " initialized");
+        println("Node {self} initialized");
         monitor_timeouts();
     }
 
@@ -86,7 +86,7 @@ role Node {
         votes_received = 0;
         received_leader_message = false;
 
-        println("Node " + int_to_string(self) + " recovered. term=" + int_to_string(current_term) + " log_len=" + int_to_string(len(log)));
+        println("Node {self} recovered. term={current_term} log_len={len(log)}");
 
         // First yield point — after this, messages start being delivered
         monitor_timeouts();
@@ -106,21 +106,23 @@ role Node {
     }
 
     fn last_log_index(): int {
-        return len(log);
+        len(log)
     }
 
     fn last_log_term(): int {
         if (len(log) == 0) {
-            return 0;
+            0
+        } else {
+            log[len(log) - 1].term
         }
-        return log[len(log) - 1].term;
     }
 
     fn log_term_at(index: int): int {
         if (index <= 0 or index > len(log)) {
-            return 0;
+            0
+        } else {
+            log[index - 1].term
         }
-        return log[index - 1].term;
     }
 
     // Apply committed but unapplied entries to the state machine
@@ -133,12 +135,12 @@ role Node {
 
             if (cmd.kind == 1) {
                 kv_store = kv_store[cmd.key] := cmd.value!;
-                println("Apply: index " + int_to_string(last_applied) + " WRITE key=" + cmd.key);
+                println("Apply: index {last_applied} WRITE key={cmd.key}");
             } else if (cmd.kind == 0) {
                 if (exists(kv_store, cmd.key)) {
                     result = kv_store[cmd.key];
                 }
-                println("Apply: index " + int_to_string(last_applied) + " READ key=" + cmd.key);
+                println("Apply: index {last_applied} READ key={cmd.key}");
             }
 
             if (exists(pending_requests, last_applied)) {
@@ -179,7 +181,7 @@ role Node {
 
     // Step down to follower if we see a higher term
     fn step_down(new_term: int) {
-        println("Node " + int_to_string(self) + " stepping down. old_term=" + int_to_string(current_term) + " new_term=" + int_to_string(new_term));
+        println("Node {self} stepping down. old_term={current_term} new_term={new_term}");
         current_term = new_term;
         voted_for = -1;
         state = 0;
@@ -200,7 +202,7 @@ role Node {
     }
 
     fn become_leader() {
-        println("Node " + int_to_string(self) + " became leader for term " + int_to_string(current_term));
+        println("Node {self} became leader for term {current_term}");
         state = 2;
         votes_received = 0;
 
@@ -230,7 +232,7 @@ role Node {
         votes_received = 1; // vote for self
         persist();
 
-        println("Node " + int_to_string(self) + " starting election for term " + int_to_string(current_term));
+        println("Node {self} starting election for term {current_term}");
 
         var last_idx: int = last_log_index();
         var last_term: int = last_log_term();
@@ -273,7 +275,7 @@ role Node {
         entries: list<LogEntry>,
         leader_commit: int
     ) {
-        println("AppendEntries: from leader " + int_to_string(leader_id) + " term=" + int_to_string(leader_term) + " prev_idx=" + int_to_string(prev_log_index) + " entries=" + int_to_string(len(entries)));
+        println("AppendEntries: from leader {leader_id} term={leader_term} prev_idx={prev_log_index} entries={len(entries)}");
 
         // Rule for all servers: if term > currentTerm, step down
         if (leader_term > current_term) {
@@ -359,7 +361,7 @@ role Node {
     async fn AppendEntriesReply(follower_id: int, resp_term: int, success: bool, resp_match_index: int) {
         var success_str: string = "false";
         if (success) { success_str = "true"; }
-        println("AppendEntriesReply: from " + int_to_string(follower_id) + " term=" + int_to_string(resp_term) + " success=" + success_str);
+        println("AppendEntriesReply: from {follower_id} term={resp_term} success={success_str}");
 
         // Rule: if term > currentTerm, step down
         if (resp_term > current_term) {
@@ -395,7 +397,7 @@ role Node {
         candidate_last_log_index: int,
         candidate_last_log_term: int
     ) {
-        println("RequestVote: from candidate " + int_to_string(candidate_id) + " term=" + int_to_string(candidate_term));
+        println("RequestVote: from candidate {candidate_id} term={candidate_term}");
 
         // Rule: if term > currentTerm, step down
         if (candidate_term > current_term) {
@@ -424,7 +426,7 @@ role Node {
                 voted_for = candidate_id;
                 received_leader_message = true; // reset election timer on grant
                 persist();
-                println("Node " + int_to_string(self) + " voted for " + int_to_string(candidate_id) + " in term " + int_to_string(current_term));
+                println("Node {self} voted for {candidate_id} in term {current_term}");
                 replicas[candidate_id]->RequestVoteReply(current_term, true);
                 return ();
             }
@@ -438,7 +440,7 @@ role Node {
     async fn RequestVoteReply(resp_term: int, vote_granted: bool) {
         var granted_str: string = "false";
         if (vote_granted) { granted_str = "true"; }
-        println("RequestVoteReply: term=" + int_to_string(resp_term) + " granted=" + granted_str);
+        println("RequestVoteReply: term={resp_term} granted={granted_str}");
 
         // Rule: if term > currentTerm, step down
         if (resp_term > current_term) {
@@ -496,19 +498,19 @@ role Node {
             }
         }
 
-        return ch;
+        ch
     }
 
     async fn Write(key: string, value: string): ClientResponse {
-        println("HandleClientWrite: key=" + key + ", value=" + value);
+        println("HandleClientWrite: key={key}, value={value}");
         var cmd: Command = Command{ kind: 1, key: key, value: value };
-        return <- NewEntry(cmd);
+        <- NewEntry(cmd)
     }
 
     async fn Read(key: string): ClientResponse {
-        println("HandleClientRead: key=" + key);
+        println("HandleClientRead: key={key}");
         var cmd: Command = Command{ kind: 0, key: key, value: nil };
-        return <- NewEntry(cmd);
+        <- NewEntry(cmd)
     }
 
     async fn monitor_timeouts() {
@@ -532,7 +534,7 @@ role Node {
             }
 
             // Election timeout — start new election
-            println("Node " + int_to_string(self) + " election timeout at term " + int_to_string(current_term));
+            println("Node {self} election timeout at term {current_term}");
             start_election();
         }
     }
@@ -559,6 +561,6 @@ ClientInterface {
             }
             current_target = resp.leader;
         }
-        return nil;
+        nil
     }
 }
