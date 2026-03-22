@@ -1,0 +1,564 @@
+type Command {
+    kind: int; // 0: Read, 1: Write
+    key: string;
+    value: string?;
+};
+
+type LogEntry {
+    term: int;
+    op: Command;
+};
+
+type ClientResponse {
+    is_leader: bool;
+    key: string?;
+    value: string?;
+    leader: Node;
+};
+
+type PersistentState {
+    current_term: int;
+    voted_for: int;
+    log: list<LogEntry>;
+};
+
+role Node {
+    // Identity
+    var self: int = 0;
+    var replicas: list<Node> = [];
+
+    // Persistent state (saved via persist_data)
+    var current_term: int = 0;
+    var voted_for: int = -1; // -1 means none
+    var log: list<LogEntry> = [];
+
+    // Volatile state
+    var commit_index: int = 0;
+    var last_applied: int = 0;
+    var state: int = 0; // 0: follower, 1: candidate, 2: leader
+
+    // State machine
+    var kv_store: map<string, string> = {};
+    var pending_requests: map<int, chan<ClientResponse>> = {};
+
+    // Leader volatile state
+    var next_index: map<int, int> = {};
+    var match_index: map<int, int> = {};
+
+    // Candidate volatile state
+    var votes_received: int = 0;
+
+    // Timeout tracking
+    var received_leader_message: bool = false;
+
+    fn Init(me: int, peers: list<Node>) {
+        self = me;
+        for var i = 0; i < len(peers); i = i + 1 {
+            replicas = append(replicas, peers[i]);
+        }
+        println("Node " + int_to_string(self) + " initialized");
+        monitor_timeouts();
+    }
+
+    @trace
+    async fn RecoverInit(me: int, peers: list<Node>) {
+        self = me;
+        for var i = 0; i < len(peers); i = i + 1 {
+            replicas = append(replicas, peers[i]);
+        }
+
+        // Restore persistent state
+        var saved: PersistentState? = retrieve_data<PersistentState>();
+        if (saved != nil) {
+            var s: PersistentState = saved!;
+            current_term = s.current_term;
+            voted_for = s.voted_for;
+            log = s.log;
+        }
+
+        // Volatile state resets on recovery
+        state = 0;
+        commit_index = 0;
+        last_applied = 0;
+        pending_requests = {};
+        next_index = {};
+        match_index = {};
+        votes_received = 0;
+        received_leader_message = false;
+
+        println("Node " + int_to_string(self) + " recovered. term=" + int_to_string(current_term) + " log_len=" + int_to_string(len(log)));
+
+        // First yield point — after this, messages start being delivered
+        monitor_timeouts();
+    }
+
+    // Helper to send on a channel from a sync context
+    async fn send_async(ch: chan<ClientResponse>, resp: ClientResponse) {
+        send(ch, resp);
+    }
+
+    fn persist() {
+        persist_data(PersistentState{
+            current_term: current_term,
+            voted_for: voted_for,
+            log: log
+        });
+    }
+
+    fn last_log_index(): int {
+        return len(log);
+    }
+
+    fn last_log_term(): int {
+        if (len(log) == 0) {
+            return 0;
+        }
+        return log[len(log) - 1].term;
+    }
+
+    fn log_term_at(index: int): int {
+        if (index <= 0 or index > len(log)) {
+            return 0;
+        }
+        return log[index - 1].term;
+    }
+
+    // Apply committed but unapplied entries to the state machine
+    fn apply_committed_entries() {
+        for ; last_applied < commit_index and last_applied < len(log); {
+            last_applied = last_applied + 1;
+            var entry: LogEntry = log[last_applied - 1];
+            var cmd: Command = entry.op;
+            var result: string? = nil;
+
+            if (cmd.kind == 1) {
+                kv_store = kv_store[cmd.key] := cmd.value!;
+                println("Apply: index " + int_to_string(last_applied) + " WRITE key=" + cmd.key);
+            } else if (cmd.kind == 0) {
+                if (exists(kv_store, cmd.key)) {
+                    result = kv_store[cmd.key];
+                }
+                println("Apply: index " + int_to_string(last_applied) + " READ key=" + cmd.key);
+            }
+
+            if (exists(pending_requests, last_applied)) {
+                var resp: ClientResponse = ClientResponse{
+                    is_leader: true,
+                    key: cmd.key,
+                    value: result,
+                    leader: replicas[self]
+                };
+                send_async(pending_requests[last_applied], resp);
+                pending_requests = erase(pending_requests, last_applied);
+            }
+        }
+    }
+
+    // Check if we can advance commitIndex (leader only)
+    // Only commits entries from the current term (§5.4.2)
+    fn advance_commit_index() {
+        for var n = len(log); n > commit_index; n = n - 1 {
+            if (log_term_at(n) != current_term) {
+                continue;
+            }
+            // Count replicas with matchIndex >= n (including self)
+            var count: int = 1;
+            for var i = 0; i < len(replicas); i = i + 1 {
+                if (i != self and exists(match_index, i) and match_index[i] >= n) {
+                    count = count + 1;
+                }
+            }
+            var majority: int = len(replicas) / 2 + 1;
+            if (count >= majority) {
+                commit_index = n;
+                apply_committed_entries();
+                return ();
+            }
+        }
+    }
+
+    // Step down to follower if we see a higher term
+    fn step_down(new_term: int) {
+        println("Node " + int_to_string(self) + " stepping down. old_term=" + int_to_string(current_term) + " new_term=" + int_to_string(new_term));
+        current_term = new_term;
+        voted_for = -1;
+        state = 0;
+        votes_received = 0;
+        persist();
+
+        // Reject all pending client requests so they retry
+        for (idx, ch) in pending_requests {
+            var resp: ClientResponse = ClientResponse{
+                is_leader: false,
+                key: nil,
+                value: nil,
+                leader: replicas[self]
+            };
+            send_async(ch, resp);
+        }
+        pending_requests = {};
+    }
+
+    fn become_leader() {
+        println("Node " + int_to_string(self) + " became leader for term " + int_to_string(current_term));
+        state = 2;
+        votes_received = 0;
+
+        // Initialize nextIndex and matchIndex (§5.3)
+        next_index = {};
+        match_index = {};
+        var last_idx: int = last_log_index();
+        for var i = 0; i < len(replicas); i = i + 1 {
+            if (i != self) {
+                next_index = next_index[i] := last_idx + 1;
+                match_index = match_index[i] := 0;
+            }
+        }
+
+        // Send initial heartbeats to establish authority
+        for var i = 0; i < len(replicas); i = i + 1 {
+            if (i != self) {
+                send_append_entries(i);
+            }
+        }
+    }
+
+    fn start_election() {
+        state = 1;
+        current_term = current_term + 1;
+        voted_for = self;
+        votes_received = 1; // vote for self
+        persist();
+
+        println("Node " + int_to_string(self) + " starting election for term " + int_to_string(current_term));
+
+        var last_idx: int = last_log_index();
+        var last_term: int = last_log_term();
+
+        for var i = 0; i < len(replicas); i = i + 1 {
+            if (i != self) {
+                replicas[i]->RequestVote(current_term, self, last_idx, last_term);
+            }
+        }
+    }
+
+    // Build and send AppendEntries to a follower (fire-and-forget; response comes via AppendEntriesReply)
+    fn send_append_entries(peer_idx: int) {
+        var ni: int = next_index[peer_idx];
+        var prev_log_index: int = ni - 1;
+        var prev_log_term: int = log_term_at(prev_log_index);
+
+        var entries: list<LogEntry> = [];
+        for var i = ni; i <= len(log); i = i + 1 {
+            entries = append(entries, log[i - 1]);
+        }
+
+        replicas[peer_idx]->AppendEntries(
+            current_term,
+            self,
+            prev_log_index,
+            prev_log_term,
+            entries,
+            commit_index
+        );
+    }
+
+    // AppendEntries RPC handler (receiver implementation from Figure 2)
+    @trace
+    async fn AppendEntries(
+        leader_term: int,
+        leader_id: int,
+        prev_log_index: int,
+        prev_log_term: int,
+        entries: list<LogEntry>,
+        leader_commit: int
+    ) {
+        println("AppendEntries: from leader " + int_to_string(leader_id) + " term=" + int_to_string(leader_term) + " prev_idx=" + int_to_string(prev_log_index) + " entries=" + int_to_string(len(entries)));
+
+        // Rule for all servers: if term > currentTerm, step down
+        if (leader_term > current_term) {
+            step_down(leader_term);
+        }
+
+        // 1. Reply false if term < currentTerm
+        if (leader_term < current_term) {
+            replicas[leader_id]->AppendEntriesReply(self, current_term, false, 0);
+            return ();
+        }
+
+        // Valid AppendEntries from leader — reset election timer
+        received_leader_message = true;
+
+        // If we're a candidate and see a leader with >= our term, become follower
+        if (state == 1) {
+            state = 0;
+            voted_for = -1;
+            votes_received = 0;
+        }
+
+        // 2. Reply false if log doesn't contain entry at prevLogIndex with matching term
+        if (prev_log_index > 0) {
+            if (prev_log_index > len(log)) {
+                persist();
+                replicas[leader_id]->AppendEntriesReply(self, current_term, false, 0);
+                return ();
+            }
+            if (log[prev_log_index - 1].term != prev_log_term) {
+                // Delete conflicting entry and all that follow
+                var new_log: list<LogEntry> = [];
+                for var i = 0; i < prev_log_index - 1; i = i + 1 {
+                    new_log = append(new_log, log[i]);
+                }
+                log = new_log;
+                persist();
+                replicas[leader_id]->AppendEntriesReply(self, current_term, false, 0);
+                return ();
+            }
+        }
+
+        // 3 & 4. If existing entry conflicts with new one, delete it and all that follow.
+        //         Append any new entries not already in the log.
+        var insert_index: int = prev_log_index;
+        for var i = 0; i < len(entries); i = i + 1 {
+            var log_index: int = insert_index + 1 + i;
+            if (log_index <= len(log)) {
+                if (log[log_index - 1].term != entries[i].term) {
+                    // Conflict: truncate from here and append rest
+                    var new_log: list<LogEntry> = [];
+                    for var j = 0; j < log_index - 1; j = j + 1 {
+                        new_log = append(new_log, log[j]);
+                    }
+                    log = new_log;
+                    for var j = i; j < len(entries); j = j + 1 {
+                        log = append(log, entries[j]);
+                    }
+                    break;
+                }
+                // Entry matches — skip (already in log)
+            } else {
+                // Beyond current log — append
+                log = append(log, entries[i]);
+            }
+        }
+
+        persist();
+
+        // 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+        if (leader_commit > commit_index) {
+            var last_new_entry: int = prev_log_index + len(entries);
+            commit_index = min(leader_commit, last_new_entry);
+            apply_committed_entries();
+        }
+
+        var my_match: int = prev_log_index + len(entries);
+        replicas[leader_id]->AppendEntriesReply(self, current_term, true, my_match);
+    }
+
+    // AppendEntries response callback (processed by leader)
+    @trace
+    async fn AppendEntriesReply(follower_id: int, resp_term: int, success: bool, resp_match_index: int) {
+        var success_str: string = "false";
+        if (success) { success_str = "true"; }
+        println("AppendEntriesReply: from " + int_to_string(follower_id) + " term=" + int_to_string(resp_term) + " success=" + success_str);
+
+        // Rule: if term > currentTerm, step down
+        if (resp_term > current_term) {
+            step_down(resp_term);
+            return ();
+        }
+
+        // Ignore if no longer leader
+        if (state != 2) {
+            return ();
+        }
+
+        if (success) {
+            if (resp_match_index > 0) {
+                next_index = next_index[follower_id] := resp_match_index + 1;
+                match_index = match_index[follower_id] := resp_match_index;
+            }
+            advance_commit_index();
+        } else {
+            // Decrement nextIndex and retry
+            if (exists(next_index, follower_id) and next_index[follower_id] > 1) {
+                next_index = next_index[follower_id] := next_index[follower_id] - 1;
+            }
+            send_append_entries(follower_id);
+        }
+    }
+
+    // RequestVote RPC handler (receiver implementation from Figure 2)
+    @trace
+    async fn RequestVote(
+        candidate_term: int,
+        candidate_id: int,
+        candidate_last_log_index: int,
+        candidate_last_log_term: int
+    ) {
+        println("RequestVote: from candidate " + int_to_string(candidate_id) + " term=" + int_to_string(candidate_term));
+
+        // Rule: if term > currentTerm, step down
+        if (candidate_term > current_term) {
+            step_down(candidate_term);
+        }
+
+        // 1. Reply false if term < currentTerm
+        if (candidate_term < current_term) {
+            replicas[candidate_id]->RequestVoteReply(current_term, false);
+            return ();
+        }
+
+        // 2. If votedFor is null (-1) or candidateId, and candidate's log is at least as up-to-date
+        if (voted_for == -1 or voted_for == candidate_id) {
+            var my_last_term: int = last_log_term();
+            var my_last_index: int = last_log_index();
+
+            var log_ok: bool = false;
+            if (candidate_last_log_term > my_last_term) {
+                log_ok = true;
+            } else if (candidate_last_log_term == my_last_term and candidate_last_log_index >= my_last_index) {
+                log_ok = true;
+            }
+
+            if (log_ok) {
+                voted_for = candidate_id;
+                received_leader_message = true; // reset election timer on grant
+                persist();
+                println("Node " + int_to_string(self) + " voted for " + int_to_string(candidate_id) + " in term " + int_to_string(current_term));
+                replicas[candidate_id]->RequestVoteReply(current_term, true);
+                return ();
+            }
+        }
+
+        replicas[candidate_id]->RequestVoteReply(current_term, false);
+    }
+
+    // RequestVote response callback (processed by candidate)
+    @trace
+    async fn RequestVoteReply(resp_term: int, vote_granted: bool) {
+        var granted_str: string = "false";
+        if (vote_granted) { granted_str = "true"; }
+        println("RequestVoteReply: term=" + int_to_string(resp_term) + " granted=" + granted_str);
+
+        // Rule: if term > currentTerm, step down
+        if (resp_term > current_term) {
+            step_down(resp_term);
+            return ();
+        }
+
+        // Ignore if no longer candidate
+        if (state != 1) {
+            return ();
+        }
+
+        if (vote_granted) {
+            votes_received = votes_received + 1;
+            var majority: int = len(replicas) / 2 + 1;
+            if (votes_received >= majority) {
+                become_leader();
+            }
+        }
+    }
+
+    // Accept a client command, replicate it
+    fn NewEntry(cmd: Command): chan<ClientResponse> {
+        if (state != 2) {
+            var ch: chan<ClientResponse> = make();
+            var resp: ClientResponse = ClientResponse{
+                is_leader: false,
+                key: nil,
+                value: nil,
+                leader: replicas[self]
+            };
+            send_async(ch, resp);
+            return ch;
+        }
+
+        // Append to local log
+        log = append(log, LogEntry{ term: current_term, op: cmd });
+        persist();
+        var new_index: int = len(log);
+
+        // Create promise for client
+        var ch: chan<ClientResponse> = make();
+        pending_requests = pending_requests[new_index] := ch;
+
+        // Single-node cluster: commit immediately
+        if (len(replicas) == 1) {
+            commit_index = new_index;
+            apply_committed_entries();
+        } else {
+            // Replicate to all followers
+            for var i = 0; i < len(replicas); i = i + 1 {
+                if (i != self) {
+                    send_append_entries(i);
+                }
+            }
+        }
+
+        return ch;
+    }
+
+    async fn Write(key: string, value: string): ClientResponse {
+        println("HandleClientWrite: key=" + key + ", value=" + value);
+        var cmd: Command = Command{ kind: 1, key: key, value: value };
+        return <- NewEntry(cmd);
+    }
+
+    async fn Read(key: string): ClientResponse {
+        println("HandleClientRead: key=" + key);
+        var cmd: Command = Command{ kind: 0, key: key, value: nil };
+        return <- NewEntry(cmd);
+    }
+
+    async fn monitor_timeouts() {
+        for ;; {
+            <- set_timer("election");
+
+            if (state == 2) {
+                // Leader: send heartbeats to maintain authority
+                for var i = 0; i < len(replicas); i = i + 1 {
+                    if (i != self) {
+                        send_append_entries(i);
+                    }
+                }
+                continue;
+            }
+
+            // Follower or candidate: check if we heard from leader
+            if (received_leader_message) {
+                received_leader_message = false;
+                continue;
+            }
+
+            // Election timeout — start new election
+            println("Node " + int_to_string(self) + " election timeout at term " + int_to_string(current_term));
+            start_election();
+        }
+    }
+}
+
+ClientInterface {
+    async fn Write(dest: Node, key: string, value: string) {
+        var current_target: Node = dest;
+        for ;; {
+            var resp: ClientResponse = <- current_target->Write(key, value);
+            if (resp.is_leader == true) {
+                return ();
+            }
+            current_target = resp.leader;
+        }
+    }
+
+    async fn Read(dest: Node, key: string): string? {
+        var current_target: Node = dest;
+        for ;; {
+            var resp: ClientResponse = <- current_target->Read(key);
+            if (resp.is_leader == true) {
+                return resp.value;
+            }
+            current_target = resp.leader;
+        }
+        return nil;
+    }
+}

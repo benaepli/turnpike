@@ -34,10 +34,11 @@ This mechanism simulates a network where packets sent during a temporary outage 
 
 ## Timeouts
 
-Spur models timeouts with the `set_timer()` built-in. It takes no arguments and returns a `chan<()>`.
+Spur models timeouts with the `set_timer()` built-in. It accepts an optional string label and returns a `chan<()>`.
 
 ```
-var timeout_ch: chan<()> = set_timer();
+var timeout_ch: chan<()> = set_timer();          // unlabeled timer
+var election_ch: chan<()> = set_timer("election"); // labeled timer
 <- timeout_ch;
 // timeout has fired
 ```
@@ -54,6 +55,23 @@ async fn monitor_timeouts() {
     }
 }
 ```
+
+### Labeled Timers and DAG Plans
+
+Labels give the plan system fine-grained control over timer ordering. When `strict_timers` is enabled in a plan config, labeled timers only fire when explicitly allowed by an `AllowTimer` event in the DAG:
+
+```json
+{
+  "strict_timers": true,
+  "events": {
+    "w1": { "write": [0, "x", "1"] },
+    "allow_election": { "allow_timer": [2, "election"] }
+  },
+  "dependencies": [["w1", "allow_election"]]
+}
+```
+
+This means node 2's `"election"` timer can only fire after the write `w1` completes. Unlabeled timers are unaffected by `strict_timers` and may fire at any time.
 
 ### Timers and Crashes
 

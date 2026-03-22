@@ -15,20 +15,24 @@ Parse the arguments from the input:
 - `$1`: Path to the `.spur` spec file (required)
 - `$2`: Path to a plain text bug description file (required)
 - `--pdf PATH`: Optional paper PDF for additional context
+- `--tag-timers`: Optional flag allowing the skill to add labels to `set_timer()` calls in the spec
 
 ### Example invocations
 
 ```
 /find-bug bin/spur/VR.spur bugs/stale-read.txt
 /find-bug bin/spur/VR.spur bugs/lost-write.txt --pdf papers/vr-revisited.pdf
+/find-bug bin/spur/VR.spur bugs/election-timing.txt --tag-timers
 ```
 
 ## Phase 0: Setup
 
 1. **Create a unique output directory**: Generate a unique directory name to avoid conflicts with other concurrent runs:
+
 ```bash
 OUTPUT_DIR=$(mktemp -d /tmp/spur_findbug_XXXXXX)
 ```
+
 Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Also use `$OUTPUT_DIR` for temporary config/plan JSON files. Print the directory name so the user knows where results are.
 
 2. **Read the spec file** (`$1`). Verify it exists and has a `ClientInterface` with `Read` and `Write`.
@@ -42,19 +46,44 @@ Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Also us
    - **Specific**: the description gives enough detail to construct a deterministic scenario (e.g., "write to node 0, crash node 0 before replication completes, read from node 1 returns stale value"). Proceed to Phase 1.
    - **Vague**: only symptoms described without a precise trigger (e.g., "stale reads happen under crashes"). Skip Phase 1, go directly to Phase 2.
 
-5. **If PDF provided**: Read the paper for context on the protocol's correctness invariants.
+5. **Check timer sensitivity**: If the trigger conditions involve timer/timeout behavior (election timeout, heartbeat timeout, view change timeout, recovery timeout, etc.), flag the bug as **timer-sensitive**. Timer-sensitive bugs with specific triggers are the best candidates for labeled timer plans — this should almost always be the first approach tried when both conditions hold.
 
-6. **Build Go tools** (once):
+6. **If PDF provided**: Read the paper for context on the protocol's correctness invariants.
+
+7. **Build Go tools** (once):
 
 ```bash
 cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go build -o main main.go && cd ..
 ```
 
-7. **Parallel code analysis**: While building tools, grep the spec for code patterns related to the bug. For example:
+8. **Parallel code analysis**: While building tools, grep the spec for code patterns related to the bug. For example:
    - Bug mentions "view change" → search for view change handling, vote counting, state reset
    - Bug mentions "stale read" → search for how Read handles non-primary nodes, commit checks
    - Bug mentions "lost write" → search for write acknowledgment, quorum counting
    - Report findings immediately. If the code clearly does or doesn't have the bug pattern, note this — it may short-circuit later phases.
+
+## Phase 0.5: Tag Timers (conditional)
+
+Only enter this phase if `--tag-timers` was passed AND the bug is **timer-sensitive**.
+
+1. **Find all `set_timer()` calls** in the spec:
+
+   ```bash
+   grep -n 'set_timer()' $1
+   ```
+
+2. **Infer labels** from surrounding context for each call:
+   - Function name containing the call (e.g., `start_election` → `"election"`, `heartbeat_monitor` → `"heartbeat"`, `start_view_change` → `"view_change"`)
+   - If multiple `set_timer()` calls exist in the same function, disambiguate with suffixes (e.g., `"election_retry"`)
+   - Comments near the call may also hint at the purpose
+
+3. **Modify the spec**: Replace each `set_timer()` with `set_timer("label")` using the inferred labels. Report every change made so the user can verify.
+
+4. **Verify compilation**: Run a quick compile check to ensure the labeled timers don't break anything:
+   ```bash
+   cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config scheduler_configs/quick_check.json -y --output-dir $OUTPUT_DIR $1 2>&1 | head -5
+   ```
+   If compilation fails, revert and report.
 
 ## Phase 1: Targeted Plan (up to 3 iterations)
 
@@ -62,7 +91,31 @@ Only enter this phase if the bug was classified as **specific**.
 
 ### Iteration 1: Craft the initial plan
 
-Create a `run-plan` JSON file at `$OUTPUT_DIR/find_bug_plan.json` encoding the scenario from the bug description. Follow the plan format (see `scheduler_configs/example_plan.json`):
+**If the bug is timer-sensitive AND the spec has labeled timers** (either pre-existing or added in Phase 0.5), start with a labeled timer plan. This is almost always the best first approach for timer-sensitive bugs with specific triggers, because it lets you control exactly when each timer fires relative to other events.
+
+Create a `run-plan` JSON file at `$OUTPUT_DIR/find_bug_plan.json`. For timer-sensitive bugs, use `strict_timers: true` and `allow_timer` events:
+
+```json
+{
+  "num_servers": 3,
+  "num_runs": 1000,
+  "max_iterations": 5000,
+  "strict_timers": true,
+  "events": {
+    "w1": { "write": [0, "x", "1"] },
+    "allow_election": { "allow_timer": [1, "election"] },
+    "r1": { "read": [1, "x"] },
+    "r2": { "read": [2, "x"] }
+  },
+  "dependencies": [
+    ["w1", "allow_election"],
+    ["allow_election", "r1"],
+    ["allow_election", "r2"]
+  ]
+}
+```
+
+For non-timer bugs, use the standard plan format (see `scheduler_configs/example_plan.json`):
 
 ```json
 {
@@ -80,6 +133,14 @@ Key principles for plan construction:
 - **Sufficient trailing reads**: a linearizability violation only manifests when a Read _observes_ broken state. Add enough Read events on the affected keys _after_ the scenario plays out. At least 2-3 reads on each key that was written.
 - **Target the right nodes**: reads should go to nodes that would expose the bug (e.g., a recovered node with stale state, a non-primary that didn't get the latest commit)
 - **Choose a good number of runs**: refer to the calculations later in this document.
+
+**Labeled timer plan principles:**
+
+- Use `strict_timers: true` when the bug requires a specific timer to fire at a specific point in the sequence (e.g., "election timeout fires after write but before replication completes")
+- `allow_timer` events take `[node_index, "label"]` — the timer only fires on the specified node
+- Don't use `strict_timers` when the bug is about general timer racing or unpredictable timing — random exploration handles that better
+- You can combine `allow_timer` with `crash`/`recover` events (e.g., allow an election timeout, then crash the new leader)
+- If `strict_timers` is true, unlabeled timers still fire freely — only labeled timers are gated
 
 ### Run the plan
 
@@ -140,7 +201,6 @@ Craft a narrow exploration config at `$OUTPUT_DIR/find_bug_targeted.json`:
     "num_read_ops": { "min": 6, "max": 10, "step": 2 },
     "num_crashes": { "min": C, "max": C, "step": 1 },
     "dependency_density": [D],
-    "randomly_delay_msgs": true,
     "num_runs_per_config": 100,
     "max_iterations": 5000
 }
@@ -152,7 +212,6 @@ Tuning guidelines:
 - `num_crashes`: match trigger conditions (typically 1)
 - **Read ops should be at least 2x write ops** to ensure broken state is observed
 - `dependency_density`: higher (0.3-0.5) if bug needs ordered events, lower (0.0-0.1) if it needs concurrency
-- `randomly_delay_msgs: true` if bug involves message reordering or timing
 
 ### Config Sizing Math
 

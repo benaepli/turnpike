@@ -23,7 +23,6 @@
         0.0,
         0.3
     ],
-    "randomly_delay_msgs": true,
     "num_runs_per_config": 500,
     "max_iterations": 10000
 }

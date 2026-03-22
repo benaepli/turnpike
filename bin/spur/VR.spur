@@ -590,7 +590,7 @@ role Node {
 
     async fn monitor_timeouts() {
         for ;; {
-            <- set_timer();
+            <- set_timer("timeout");
 
             if (status == 2) { 
                 continue; 
