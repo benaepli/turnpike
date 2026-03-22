@@ -19,11 +19,6 @@
         "max": 1,
         "step": 1
     },
-    "num_timeouts": {
-        "min": 0,
-        "max": 0,
-        "step": 1
-    },
     "num_crashes": {
         "min": 5,
         "max": 5,

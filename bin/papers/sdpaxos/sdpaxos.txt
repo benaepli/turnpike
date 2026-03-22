@@ -1,0 +1,57 @@
+# SDPaxos Protocol (Absence of Failures)
+
+1   C-phase
+2   Replica Rn on receiving a client request for command a:
+3       send C-accept(n, i, a, bal_i) to at least a majority
+4       if the C-accept is not sent to the sequencer then
+5           send C-request(n, i) to the sequencer
+6       increment the C-instance counter i
+
+7   Any replica R on accepting C-accept(n, i, a, bal_i):
+8       send C-ACK(n, i, a, bal_i) to Rn
+
+9   Rn on receiving C-ACKs from a majority of replicas:
+10      commit Cni and broadcast C-commit(n, i, a, bal_i)
+
+
+11  O-phase
+12  Sequencer Rm on receiving C-accept(n, i, a, bal_i) or C-request(n, i) from Rn
+13      if i > number of O-instances for Rn in sequencer's assignment log then
+14          send O-accept(j, n, bal_j) to at least a majority including Rn
+15          increment the O-instance counter j
+
+16  Any replica R on accepting O-accept(j, n, bal_j)
+17      send O-ACK(j, n, bal_j) to Rn
+
+
+18  Ready condition for three or more than five replicas
+19  if Rn receives O-ACKs from a majority of replicas then
+20      commit Oj and broadcast O-commit(j, n, bal_j)
+21  if Rn has committed Cni and at least i O-instances for Rn then
+22      respond to client
+
+
+23  Ready condition for five replicas
+24  if Rn is the sequencer then
+25      commit Oj and broadcast O-commit(j, n, bal_j) on receiving O-ACKs from a majority of replicas
+26      if Rn has committed Cni and any Ok with k <= j (Oj is the ith O-instance for Rn) is accepted by a majority then
+27          respond to client
+28  else
+29      commit Oj and broadcast O-commit(j, n, bal_j) on receiving the O-accept from the sequencer
+30      if Rn has committed Cni and any Ok with k <= j (Oj is the ith O-instance for Rn) is accepted by itself and the sequencer then
+31          respond to client
+
+
+# Recovery of O-instances
+
+Input: C[m]: number of C-instances of Rm accepted by the majority voters; 
+       O[m]: number of O-instances for Rm (Rm is the replica other than the old sequencer and the majority voters in five-replica groups)
+
+32  if N == 5 then
+33      repeat
+34          propose Rm's ID in the first empty O-instance
+35          O[m] <- O[m] + 1
+36      until O[m] >= C[m] and there is no empty O-instance preceding the C[m]th one for Rm
+
+37  foreach empty O-instance between non-empty ones do
+38      propose no-cl

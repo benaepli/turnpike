@@ -584,22 +584,7 @@ role Node {
         return <- NewEntry(cmd);
     }
     
-    async fn SimulateTimeout() {
-        println("SimulateTimeout: Node " + int_to_string(self) + " timeout triggered at view " + int_to_string(view_number));
-        if (status == 2) { 
-            return (); 
-        }
 
-        var current_primary: Node = primary_of(view_number);
-        if (replicas[self] != current_primary) { 
-            enter_view_change(view_number + 1);
-            for var i = 0; i < len(replicas); i = i + 1 {
-                 if (i != self) {
-                    replicas[i]->StartViewChange(view_number, replicas[self]);
-                 }
-            }
-        }
-    }
 
     async fn monitor_timeouts() {
         for ;; {
@@ -673,8 +658,4 @@ ClientInterface {
         return <-dest->GetKVStore();
     }
 
-    // Triggers a simulated timeout at the destination node.
-    async fn SimulateTimeout(dest: Node) {
-        dest->SimulateTimeout();
-    }
 }

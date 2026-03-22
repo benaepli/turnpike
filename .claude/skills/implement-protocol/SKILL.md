@@ -79,7 +79,7 @@ Write the spec file to `bin/spur/<ProtocolName>.spur`. Follow this structure:
 3. **`ClientInterface`** block:
    - `async fn Write(dest: Node, key: string, value: string)` — must retry until committed
    - `async fn Read(dest: Node, key: string): string?` — must retry until read completes
-   - Both functions must handle redirects (e.g., if contacted node is not the leader)
+   - Both functions may handle redirects if appropriate
    - Both must NOT return until the operation truly completes
 
 ### If modifying an existing spec (`--spec`):
@@ -94,7 +94,6 @@ Write the spec file to `bin/spur/<ProtocolName>.spur`. Follow this structure:
 - Use `@trace` on key protocol functions (message handlers, state transitions)
 - Mark out-of-scope features with `// TODO: <feature>` comments
 - Use `persist_data()` before yield points if crash recovery is in scope
-- Remember: `f()` returns `(n-1)/2` for fault tolerance threshold
 - Collections are immutable — use `:=` for updates
 - Sync functions are atomic and cannot use channel ops
 - Calling an async function spawns a background task — don't await if you want it to run concurrently
@@ -107,8 +106,7 @@ Before moving to testing:
 2. Verify ClientInterface `Read`/`Write` don't return prematurely
 3. Verify `Init` sets up all required state and spawns background tasks (timeout monitors, etc.)
 4. If crash recovery is in scope: verify `persist_data` is called for critical state before yield points
-5. Check quorum calculations use `f()` correctly
-6. Check all message type match arms are handled
+5. Check all message type match arms are handled
 
 Present the complete spec to the user for final review.
 
