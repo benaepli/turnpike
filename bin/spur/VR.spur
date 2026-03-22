@@ -298,17 +298,19 @@ role Node {
                     replicas[i]->StartViewChange(view_number, replicas[self]);
                 }
             }
-        } else if (new_view == view_number and status == 1) {
+        }
+
+        if (new_view == view_number and status == 1) {
             if (exists(start_view_change_senders, replica_id)) {
                 return (); // Already have a message from this sender
             }
             start_view_change_senders = start_view_change_senders[replica_id] := true;
-            
+
             var quorum: int = len(replicas) / 2 + 1;
 
             if (len(start_view_change_senders) == quorum) {
                 var new_primary: Node = primary_of(view_number);
-                
+
                 // Pass our own ID (replicas[self]) as the sender
                 new_primary->DoViewChange(view_number, log, normal_view, op_number, commit_number, replicas[self]);
             }

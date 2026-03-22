@@ -16,13 +16,19 @@ You are debugging a distributed protocol specification written in the Spur langu
 
 ## Pre-flight
 
-1. **Verify files exist**: Check that the spec file (`$1`) and config file (`$2`) exist. If not, stop and report.
+1. **Create a unique output directory**: Generate a unique directory name to avoid conflicts with other concurrent runs:
+```bash
+OUTPUT_DIR=$(mktemp -d /tmp/spur_debug_XXXXXX)
+```
+Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Print the directory name so the user knows where results are.
 
-2. **Check ClientInterface contract**: Read the spec file and verify it has a `ClientInterface` block containing `Read` and `Write` functions. These are required for linearizability checking. If missing, stop and tell the user.
+2. **Verify files exist**: Check that the spec file (`$1`) and config file (`$2`) exist. If not, stop and report.
 
-3. **Read pseudocode reference** (if `$3` provided): Read the pseudocode file. Keep it as context for diagnosing protocol logic bugs. Cross-reference the spec against it when looking for errors.
+3. **Check ClientInterface contract**: Read the spec file and verify it has a `ClientInterface` block containing `Read` and `Write` functions. These are required for linearizability checking. If missing, stop and tell the user.
 
-4. **Build Go tools** (once):
+4. **Read pseudocode reference** (if `$3` provided): Read the pseudocode file. Keep it as context for diagnosing protocol logic bugs. Cross-reference the spec against it when looking for errors.
+
+5. **Build Go tools** (once):
 ```bash
 cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go build -o main main.go && cd ..
 ```
@@ -34,7 +40,7 @@ Repeat up to **5 iterations**. Track the iteration count.
 ### Step 1: Run Explorer
 
 ```bash
-timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $2 -y --output-dir output $1 2>&1
+timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $2 -y --output-dir $OUTPUT_DIR $1 2>&1
 ```
 
 Handle exit codes:
@@ -45,7 +51,7 @@ Handle exit codes:
 ### Step 2: Run Trace Analysis
 
 ```bash
-./traceanalyzer/main -input output
+./traceanalyzer/main -input $OUTPUT_DIR
 ```
 
 Note any anomalies: runs with 0 completed operations, unusually short durations, or other red flags.
@@ -53,22 +59,22 @@ Note any anomalies: runs with 0 completed operations, unusually short durations,
 ### Step 3: Run Porcupine
 
 ```bash
-./porcupine/main -input output -type duckdb -model kv -output-dir output 2>&1 | tee /tmp/porcupine_output.txt
+./porcupine/main -input $OUTPUT_DIR -type duckdb -model kv -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
 ```
 
-Capture the exit code. The output is also saved to `/tmp/porcupine_output.txt` for parsing.
+Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output.txt` for parsing.
 
 ### Step 4: Diagnose
 
 **If exit code is 2 (linearizability violations found):**
 - Extract failing run IDs by grepping for non-linearizable runs:
   ```bash
-  grep 'Linearizable? false' /tmp/porcupine_output.txt
+  grep 'Linearizable? false' $OUTPUT_DIR/porcupine_output.txt
   ```
   Each matching line has the format `Run N: Linearizable? false` — extract the run number N from each line.
 - For the first 2-3 failing runs, query the combined debug view:
   ```bash
-  cargo run --release --manifest-path spur/Cargo.toml --bin spur -- debug combined --db output --run-id N
+  cargo run --release --manifest-path spur/Cargo.toml --bin spur -- debug combined --db $OUTPUT_DIR --run-id N
   ```
 - Analyze the execution timeline: look for stale reads, lost writes, split-brain scenarios, incorrect commit ordering
 - If pseudocode was provided, cross-reference the spec logic against the paper's algorithm
@@ -76,7 +82,7 @@ Capture the exit code. The output is also saved to `/tmp/porcupine_output.txt` f
 **If exit code is 0 (all runs linearizable):**
 - Do NOT assume everything is fine. Spot-check 2-3 runs with `debug combined` to look for deadlocks:
   ```bash
-  cargo run --release --manifest-path spur/Cargo.toml --bin spur -- debug combined --db output --run-id N
+  cargo run --release --manifest-path spur/Cargo.toml --bin spur -- debug combined --db $OUTPUT_DIR --run-id N
   ```
 - Look for: runs where client operations never completed, nodes stuck waiting, no progress after a certain point
 - Check the traceanalyzer output for runs with very few completed operations relative to what the config specifies
