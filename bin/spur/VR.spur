@@ -531,7 +531,7 @@ role Node {
                 primary: current_primary 
             };
             send_async(p_err, resp);
-            p_err
+            return p_err;
         }
         if (status != 0) {
             var p_err: chan<ClientResponse> = make();
@@ -542,7 +542,7 @@ role Node {
                 primary: current_primary 
             };
             send_async(p_err, resp);
-            p_err
+            return p_err;
         }
 
         op_number = op_number + 1;

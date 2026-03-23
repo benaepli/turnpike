@@ -26,11 +26,56 @@ During a crash, a node is offline and unable to process its message queue. This 
 
 Spur handles this transparently:
 
-- Messages sent _to_ a crashed node (from an alive origin) are **not dropped**.
+- Messages sent _to_ a crashed node are **not dropped**, regardless of whether the sending node is alive or crashed.
 - Instead, the simulator identifies the recipient is offline and buffers these records.
 - Upon recovery, all buffered incoming messages are automatically re-injected into the node's runnable tasks queue.
 
 This mechanism simulates a network where packets sent during a temporary outage are eventually delivered upon the target's return, preventing silent message loss.
+
+### Return channels for buffered messages
+
+When a message is buffered because the destination is crashed, it retains its original return channel (the `Continuation::Async` channel created by the RPC call). If the _sender_ also crashes before the destination recovers, the sender's record that was waiting on the return channel is dropped along with all of its in-memory state. When the destination eventually recovers and processes the buffered message, the return value is sent into the channel — but since no record is waiting to receive from it, the value is simply buffered in the channel and never consumed. This is safe and requires no special handling.
+
+## Network Partitions
+
+Spur supports network partitions that block message delivery between groups of nodes without crashing them. During a partition, nodes continue executing locally but cross-partition messages are buffered instead of delivered.
+
+### Partition Types
+
+Four partition shapes are available:
+
+- **`isolate_one`** — One node is completely isolated from all others. No messages flow to or from the isolated node.
+- **`halves`** — Nodes are split into two explicit groups. Cross-group messages are blocked; intra-group messages flow normally.
+- **`majorities_ring`** — Each node can reach `floor(n/2)+1` nearest neighbors (including itself) arranged in a ring. No global quorum exists, which can expose bugs in majority-based protocols.
+- **`bridge`** — Two halves connected only through a single bridge node. The bridge can communicate with everyone; non-bridge nodes can only reach nodes in their own half.
+
+### Message Buffering During Partitions
+
+Messages blocked by a partition are buffered in a **separate partition queue**, distinct from the crash queue:
+
+- When a partition is activated, existing runnable messages that cross the partition boundary are moved to the partition queue.
+- New messages created during the partition are checked at both creation time (for async RPCs) and dispatch time (for all message types). If the sender and receiver are on opposite sides of the partition, the message is buffered.
+- Messages to the _same_ side of the partition are delivered normally.
+
+### Crash–Partition Implementation and Interaction
+
+Crashes and partitions are orthogonal. When both are active, the **crash check takes priority** over the partition check:
+
+- A message to a crashed node always goes to the **crash queue**, even if a partition would also block it.
+- A message to an alive node on the other side of a partition goes to the **partition queue**.
+- A message to an alive node on the same side of the partition is delivered normally.
+
+### Healing
+
+When a partition is healed, all messages in the partition queue are drained with crash-awareness:
+
+- Records destined for alive nodes are converted back to runnable tasks.
+- Records destined for crashed nodes are moved to the crash queue (they will be delivered when that node recovers).
+- Channel sends destined for crashed nodes are dropped, matching crash semantics for channel sends.
+
+### Double Partition
+
+Activating a partition when one is already active is a **no-op with a warning**, consistent with how `crash_node` handles double-crashes. Heal the existing partition before activating a new one.
 
 ## Timeouts
 

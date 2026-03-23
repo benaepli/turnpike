@@ -38,8 +38,8 @@ Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Also us
 2. **Read the spec file** (`$1`). Verify it exists and has a `ClientInterface` with `Read` and `Write`.
 
 3. **Read the bug description** (`$2`). Extract:
-   - **Symptom**: what goes wrong (stale read, lost write, deadlock, split-brain, etc.)
-   - **Trigger conditions**: what scenario causes it (leader crash during replication, concurrent writes, recovery after partition, etc.)
+   - **Symptom**: what goes wrong (stale read, lost write, deadlock, split-brain, minority partition accepts writes, etc.)
+   - **Trigger conditions**: what scenario causes it (leader crash during replication, concurrent writes, recovery after partition, network split during replication, etc.)
    - **Minimum topology**: how many nodes and faults are needed (infer from trigger conditions if not stated)
 
 4. **Classify the bug**:
@@ -48,18 +48,21 @@ Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Also us
 
 5. **Check timer sensitivity**: If the trigger conditions involve timer/timeout behavior (election timeout, heartbeat timeout, view change timeout, recovery timeout, etc.), flag the bug as **timer-sensitive**. Timer-sensitive bugs with specific triggers are the best candidates for labeled timer plans — this should almost always be the first approach tried when both conditions hold.
 
-6. **If PDF provided**: Read the paper for context on the protocol's correctness invariants.
+6. **Check partition sensitivity**: If the trigger conditions involve network partitions, split-brain, minority/majority quorum issues, or message loss between node groups, flag the bug as **partition-sensitive**. Partition-sensitive bugs are best tested with `partition`/`heal` events in plans (Phase 1) or the `num_partitions` parameter in explorer configs (Phases 2-3).
 
-7. **Build Go tools** (once):
+7. **If PDF provided**: Read the paper for context on the protocol's correctness invariants.
+
+8. **Build Go tools** (once):
 
 ```bash
 cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go build -o main main.go && cd ..
 ```
 
-8. **Parallel code analysis**: While building tools, grep the spec for code patterns related to the bug. For example:
+9. **Parallel code analysis**: While building tools, grep the spec for code patterns related to the bug. For example:
    - Bug mentions "view change" → search for view change handling, vote counting, state reset
    - Bug mentions "stale read" → search for how Read handles non-primary nodes, commit checks
    - Bug mentions "lost write" → search for write acknowledgment, quorum counting
+   - Bug mentions "split-brain" or "partition" → search for quorum checks, majority logic, leader election guards
    - Report findings immediately. If the code clearly does or doesn't have the bug pattern, note this — it may short-circuit later phases.
 
 ## Phase 0.5: Tag Timers (conditional)
@@ -142,6 +145,44 @@ Key principles for plan construction:
 - You can combine `allow_timer` with `crash`/`recover` events (e.g., allow an election timeout, then crash the new leader)
 - If `strict_timers` is true, unlabeled timers still fire freely — only labeled timers are gated
 
+**If the bug is partition-sensitive**, use `partition` and `heal` events. Partition events specify a type:
+
+```json
+{
+  "num_servers": 5,
+  "num_runs": 1000,
+  "max_iterations": 5000,
+  "events": {
+    "w1": { "write": [0, "x", "1"] },
+    "p1": { "partition": { "type": "isolate_one", "node": 0 } },
+    "r1": { "read": [1, "x"] },
+    "r2": { "read": [2, "x"] },
+    "h1": "heal",
+    "r3": { "read": [0, "x"] }
+  },
+  "dependencies": [
+    ["w1", "p1"],
+    ["p1", "r1"], ["p1", "r2"],
+    ["r1", "h1"], ["r2", "h1"],
+    ["h1", "r3"]
+  ]
+}
+```
+
+Available partition types:
+- `{ "type": "isolate_one", "node": N }` — isolate one node from all others
+- `{ "type": "halves", "side_a": [0, 1] }` — split into two groups (nodes not in `side_a` form `side_b`)
+- `{ "type": "majorities_ring" }` — overlapping majorities in a ring, no global quorum
+- `{ "type": "bridge", "bridge": N }` — two halves connected only through one bridge node
+
+**Partition plan principles:**
+
+- Use partitions when the bug involves split-brain, minority writes, or message loss during network splits
+- `partition` and `heal` are paired — always heal before the next partition (only one partition active at a time)
+- Combine with `crash`/`recover` for complex scenarios — crashes and partitions are orthogonal
+- Read from nodes on _both sides_ of the partition after heal to observe inconsistent state
+- `majorities_ring` is especially useful for exposing bugs in majority-quorum protocols
+
 ### Run the plan
 
 ```bash
@@ -200,6 +241,7 @@ Craft a narrow exploration config at `$OUTPUT_DIR/find_bug_targeted.json`:
     "num_write_ops": { "min": 3, "max": 5, "step": 1 },
     "num_read_ops": { "min": 6, "max": 10, "step": 2 },
     "num_crashes": { "min": C, "max": C, "step": 1 },
+    "num_partitions": { "min": P, "max": P, "step": 1 },
     "dependency_density": [D],
     "num_runs_per_config": 100,
     "max_iterations": 5000
@@ -210,6 +252,7 @@ Tuning guidelines:
 
 - `num_servers`: match the bug's minimum topology (typically 3)
 - `num_crashes`: match trigger conditions (typically 1)
+- `num_partitions`: set to 1 if the bug involves network partitions (defaults to 0 if omitted). The partition type is randomly chosen from `isolate_one`, `halves`, `majorities_ring`, `bridge` for each generated plan.
 - **Read ops should be at least 2x write ops** to ensure broken state is observed
 - `dependency_density`: higher (0.3-0.5) if bug needs ordered events, lower (0.0-0.1) if it needs concurrency
 
@@ -217,7 +260,7 @@ Tuning guidelines:
 
 You must size the exploration configurations to ensure they finish well within the 120s timeout.
 
-1. **Total Configurations (C)**: Calculate the cartesian product of all discrete parameter values. For example, `num_write_ops` from 3 to 5 (step 1) is 3 values. `num_read_ops` from 6 to 10 (step 2) is 3 values. C = 3 \* 3 = 9 configs.
+1. **Total Configurations (C)**: Calculate the cartesian product of all discrete parameter values (including `num_partitions` if set). For example, `num_write_ops` from 3 to 5 (step 1) is 3 values. `num_read_ops` from 6 to 10 (step 2) is 3 values. C = 3 \* 3 = 9 configs.
 2. **Total Traces (T)**: C _ `num_runs_per_config` (e.g., 9 _ 100 = 900 traces).
 3. **Estimated Time (E)**: Assume an initial conservative trace rate of **R = 300 traces/second**. E = T / R seconds (e.g., 900 / 300 = 3 seconds).
 4. Scale `num_runs_per_config` or parameter ranges so that E takes up most of the allowed time but remains safe (e.g., ~80% of the 120s timeout).
@@ -241,6 +284,7 @@ The `RUST_LOG=info` prefix shows per-run progress. If many runs hit `max_iterati
 Check:
 
 - Are crashes/recoveries actually happening?
+- Are partitions/heals occurring (if configured)?
 - Are operations completing or deadlocking?
 - Is the right causal ordering occurring?
 
@@ -259,6 +303,7 @@ Check:
 Mutate the config based on Phase 2 trace analysis. Create `$OUTPUT_DIR/find_bug_wide.json` with systematic widening:
 
 - Widen crash range (e.g., `"min": 0, "max": 2`)
+- Add or widen partitions (e.g., `"num_partitions": { "min": 0, "max": 1 }`) for partition-sensitive bugs
 - Lower dependency density for more concurrency
 - Increase ops count (more opportunities for the bug)
 - Increase reads relative to writes (more observation points)
