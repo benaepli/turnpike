@@ -84,7 +84,7 @@ Only enter this phase if `--tag-timers` was passed AND the bug is **timer-sensit
 
 4. **Verify compilation**: Run a quick compile check to ensure the labeled timers don't break anything:
    ```bash
-   cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config scheduler_configs/quick_check.json -y --output-dir $OUTPUT_DIR $1 2>&1 | head -5
+   cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config scheduler_configs/quick_check.json -y --output-dir $OUTPUT_DIR/output $1 2>&1 | head -5
    ```
    If compilation fails, revert and report.
 
@@ -186,7 +186,7 @@ Available partition types:
 ### Run the plan
 
 ```bash
-timeout 60 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- run-plan -p $OUTPUT_DIR/find_bug_plan.json -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 60 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- run-plan -p $OUTPUT_DIR/find_bug_plan.json -y --output-dir $OUTPUT_DIR/output $1 2>&1
 ```
 
 Handle exit codes:
@@ -268,7 +268,7 @@ You must size the exploration configurations to ensure they finish well within t
 ### Run
 
 ```bash
-RUST_LOG=info timeout 120 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_targeted.json -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 120 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_targeted.json -y --output-dir $OUTPUT_DIR/output $1 2>&1
 ```
 
 The `RUST_LOG=info` prefix shows per-run progress. If many runs hit `max_iterations`, this often indicates a **deadlock** rather than the target bug — investigate with `debug combined` on those runs.
@@ -316,7 +316,7 @@ Mutate the config based on Phase 2 trace analysis. Create `$OUTPUT_DIR/find_bug_
 3. Choose your parameter ranges and `num_runs_per_config` such that the Estimated Time (E = T / R_actual) safely fits within the 300s timeout (e.g., target ~240s).
 
 ```bash
-RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR/output $1 2>&1
 ```
 
 Run traceanalyzer and Porcupine as in Phase 2.
@@ -328,7 +328,7 @@ If violation found → verify and report. If not → Phase 4.
 Use the genetic algorithm explorer with a broad config:
 
 ```bash
-RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e genetic --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e genetic --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR/output $1 2>&1
 ```
 
 Run Porcupine. If violation found → verify and report. If not → Phase 5.
