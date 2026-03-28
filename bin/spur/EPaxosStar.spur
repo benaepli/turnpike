@@ -369,15 +369,12 @@ role Node {
             return ();
         }
 
-        commands = commands[request.id] := Command{
+        commands = commands[request.id] := command with {
             payload: request.payload,
             phase: 2,
             dependencies: request.dependencies,
             ballot: request.ballot,
             acceptedBallot: request.ballot,
-            initialPayload: command.initialPayload,
-            initialDependencies: command.initialDependencies,
-            leader: command.leader,
             preAcceptResponses: [],
             preAcceptQuorumMet: false,
             optimisticWaitTriggered: false,
@@ -425,15 +422,12 @@ role Node {
         if (command.ballot != request.ballot) {
             return ();
         }
-        commands = commands[request.id] := Command{
+        commands = commands[request.id] := command with {
             payload: request.payload,
             phase: 3,
             dependencies: request.dependencies,
             ballot: request.ballot,
             acceptedBallot: request.ballot,
-            initialPayload: command.initialPayload,
-            initialDependencies: command.initialDependencies,
-            leader: command.leader,
             preAcceptResponses: [],
             preAcceptQuorumMet: false,
             optimisticWaitTriggered: false,
@@ -464,8 +458,7 @@ role Node {
                     println("Commit: resuming {waiting_id} after harmless commit of {request.id}");
                     BroadcastAccept(waiting_cmd.ballot, waiting_id, waiting_cmd.payload, waiting_cmd.dependencies);
                 }
-                waiting_cmd = waiting_cmd.isWaiting := false;
-                waiting_cmd = waiting_cmd.waitingOn := {};
+                waiting_cmd = waiting_cmd with { isWaiting: false, waitingOn: {} };
                 commands = commands[waiting_id] := waiting_cmd;
             }
         }
@@ -1006,9 +999,7 @@ role Node {
             } else {
                 // Case: Potential Invalidators -> Enter Waiting State
                 // We store the specific IDs we are waiting on to check later.
-                cmd = cmd.isWaiting := true;
-
-                cmd = cmd.waitingOn := I_total;
+                cmd = cmd with { isWaiting: true, waitingOn: I_total };
                 commands = commands[id] := cmd;
 
                 BroadcastWaiting(id);
@@ -1047,8 +1038,7 @@ role Node {
                         BroadcastAccept(my_cmd.ballot, my_id, Payload{kind: 2, key: "", value: nil}, {});
                         
                         // Clear wait state
-                        my_cmd = my_cmd.isWaiting := false;
-                        my_cmd = my_cmd.waitingOn := {};
+                        my_cmd = my_cmd with { isWaiting: false, waitingOn: {} };
                         commands = commands[my_id] := my_cmd;
                     }
                 }
