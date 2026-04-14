@@ -1,0 +1,37 @@
+{
+  "num_servers": 3,
+  "num_runs": 2000000,
+  "max_iterations": 5000,
+  "strict_timers": true,
+  "events": {
+    "w1": { "write": [0, "x", "1"] },
+    "allow_t1": { "allow_timer": [1, "timeout"] },
+    "allow_t2": { "allow_timer": [2, "timeout"] },
+    "crash1": { "crash": 1 },
+    "recover1": { "recover": 1 },
+    "crash2": { "crash": 2 },
+    "recover2": { "recover": 2 },
+    "allow_t1b": { "allow_timer": [1, "timeout"] },
+    "allow_t2b": { "allow_timer": [2, "timeout"] },
+    "w2": { "write": [0, "x", "2"] },
+    "r1": { "read": [0, "x"] },
+    "r2": { "read": [1, "x"] },
+    "r3": { "read": [2, "x"] }
+  },
+  "dependencies": [
+    ["w1", "allow_t1"],
+    ["w1", "allow_t2"],
+    ["allow_t1", "crash1"],
+    ["allow_t2", "crash1"],
+    ["crash1", "recover1"],
+    ["recover1", "crash2"],
+    ["crash2", "recover2"],
+    ["recover2", "allow_t1b"],
+    ["recover2", "allow_t2b"],
+    ["allow_t1b", "w2"],
+    ["allow_t2b", "w2"],
+    ["w2", "r1"],
+    ["w2", "r2"],
+    ["w2", "r3"]
+  ]
+}

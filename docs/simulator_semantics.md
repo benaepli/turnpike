@@ -77,6 +77,55 @@ When a partition is healed, all messages in the partition queue are drained with
 
 Activating a partition when one is already active is a **no-op with a warning**, consistent with how `crash_node` handles double-crashes. Heal the existing partition before activating a new one.
 
+## Three-Queue Architecture
+
+The scheduler maintains three queue groups rather than a single flat queue:
+
+- **Local queues** — one per node, for local continuations and fault events.
+- **Network queue** — a single shared queue for cross-node messages and partition/heal events.
+- **Timer queue** — a single shared queue for all pending timers.
+
+### Routing Rules
+
+When a new runnable is created, it is routed to its queue based on type:
+
+| Runnable type                      | Destination                    |
+| ---------------------------------- | ------------------------------ |
+| `Timer`                            | Timer queue                    |
+| `ChannelSend`, `Partition`, `Heal` | Network queue                  |
+| `Crash`, `Recover`                 | Local queue of the target node |
+| `Record` (local: origin == node)   | Local queue of the node        |
+| `Record` (remote: origin != node)  | Network queue                  |
+
+### Scheduling
+
+Each simulation step proceeds in two phases:
+
+1. **Queue selection** — the configured queue policy (`Probabilistic` or `Preemptive`) picks which queue group to draw from, falling through to non-empty alternatives if the chosen group is empty.
+2. **Beam selection** — a K-tournament (K=10) over the chosen queue scores each candidate as `0.25 × novelty + 0.75 × priority` and picks the highest-scoring entry.
+
+## Purgatory (Message Delays)
+
+Purgatory is an optional mechanism that temporarily removes network messages from the scheduler's view, simulating variable message latency.
+
+- Only **remote `ChannelSend`** runnables can be delayed. Local sends, Records, Timers, and fault events are never delayed.
+- When a remote `ChannelSend` is created, it has a `delay_probability` chance of entering purgatory instead of the network queue.
+- The delay duration is sampled log-uniformly from `delay_duration_range` (measured in simulation steps). The item becomes eligible for release after `current_step + duration` steps.
+- At the start of each simulation step, eligible items are released from purgatory into the network queue. Normal crash and partition checks then apply at scheduling time.
+
+### Partition Interaction
+
+Purgatory bypasses partition checks at entry time — a message can be delayed even if no partition is active. On release, the message enters the normal scheduling path where partition checks apply. If a partition is active at release time and blocks the message, it is moved to the partition buffer.
+
+## Quick-Fire Priority Boosting
+
+When beam selection encounters a `Recover` event whose target node is currently crashed, the priority component of the score is boosted by `quick_fire_multiplier` (default 5.0):
+
+- Normal score: `(0.25 × novelty + 0.75 × priority)`
+- Quick-fire score: `(0.25 × novelty + w × priority) / (0.25 + w)` where `w = 0.75 × quick_fire_multiplier`
+
+This makes recovery events more likely to be scheduled promptly after a crash.
+
 ## Timeouts
 
 Spur models timeouts with the `set_timer()` built-in. It accepts an optional string label and returns a `chan<()>`.

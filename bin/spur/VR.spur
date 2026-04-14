@@ -70,8 +70,6 @@ role Node {
     var recovery_responses: list<RecoveryResponseMsg> = [];
     var recovery_response_senders: map<Node, bool> = {};
     
-    var received_primary_message: bool = false;
-    
     @trace
     async fn Init(me: int, peers: list<Node>) {
         self = me;
@@ -164,7 +162,6 @@ role Node {
 
     @trace
     async fn Prepare(other_view: int, other_request: Command, other_op_number: int, other_commit_number: int) {
-        received_primary_message = true;
         println("HandlePrepare: Received Prepare for op_number {other_op_number} at view {other_view}");
         if (other_view != view_number) { return (); }
         if (status != 0) { return (); }
@@ -217,7 +214,6 @@ role Node {
 
     @trace
     async fn Commit(other_view: int, other_commit_number: int) {
-        received_primary_message = true;
         println("HandleCommit: Committing up to op_number {other_commit_number} at view {other_view}");
         if (other_view == view_number and status == 0 and other_commit_number > commit_number) {
             commit_number = other_commit_number;
@@ -370,7 +366,6 @@ role Node {
 
     @trace
     async fn StartView(new_view: int, new_log: list<LogEntry>, new_op_number: int, new_commit_number: int) {
-        received_primary_message = true;
         println("HandleStartView: Installing view {new_view} with op_number {new_op_number} commit_number {new_commit_number}");
         if (status == 2) {
             return ();
@@ -502,7 +497,6 @@ role Node {
 
         println("Node {self} recovery complete. view={view_number} op_number={op_number} commit_number={commit_number}");
         status = 0;
-        received_primary_message = true;
 
         recovery_responses = [];
         recovery_response_senders = {};
@@ -598,11 +592,6 @@ role Node {
 
             var current_primary: Node = primary_of(view_number);
             if (replicas[self] == current_primary) { 
-                continue;
-            }
-
-            if (received_primary_message) {
-                received_primary_message = false;
                 continue;
             }
 

@@ -1017,7 +1017,7 @@ role Node {
         var count = 0;
 
         for ;; {
-            var (voter, vote_data) = <- vote_ch;
+            var voter, var vote_data = <- vote_ch;
             if vote_data.view != view or exists(votes_collected, voter) {
                 continue;
             } 
@@ -1119,11 +1119,11 @@ role Node {
                 }
 
                 if reply.accepted != nil {
-                    var (b, val) = reply.accepted!;
+                    var b, var val = reply.accepted!;
                     
                     var update = true;
                     if exists(candidates, idx) {
-                        var (current_best_bal, a) = candidates[idx];
+                        var current_best_bal, var a = candidates[idx];
                         if b.round <= current_best_bal.round {
                             update = false;
                         }
