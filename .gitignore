@@ -13,3 +13,4 @@ output.db
 target
 perf.data
 output2
+tmp/

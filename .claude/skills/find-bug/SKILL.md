@@ -30,7 +30,7 @@ Parse the arguments from the input:
 1. **Create a unique output directory**: Generate a unique directory name to avoid conflicts with other concurrent runs:
 
 ```bash
-OUTPUT_DIR=$(mktemp -d /tmp/spur_findbug_XXXXXX)
+mkdir -p tmp && OUTPUT_DIR=$(mktemp -d tmp/spur_findbug_XXXXXX)
 ```
 
 Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Also use `$OUTPUT_DIR` for temporary config/plan JSON files. Print the directory name so the user knows where results are.
@@ -145,6 +145,28 @@ Key principles for plan construction:
 - You can combine `allow_timer` with `crash`/`recover` events (e.g., allow an election timeout, then crash the new leader)
 - If `strict_timers` is true, unlabeled timers still fire freely — only labeled timers are gated
 
+**If the bug trace requires an exact sequence of internal message deliveries**, use `deliver` checkpoints to fully constrain the scheduler. This is the most deterministic way to reproduce a complex bug:
+
+```json
+{
+  "events": {
+    "w1": { "write": [0, "x", "1"] },
+    "deliver_prepare_0_to_1": {
+      "deliver": { "function": "Node.Prepare", "from": 0, "to": 1 }
+    },
+    ...
+  },
+  "dependencies": [
+    ["w1", "deliver_prepare_0_to_1"]
+  ]
+}
+```
+
+**Deliver plan principles:**
+- A `deliver` event **reserves** a matching internal `Runnable` (by the original function name that created the Record, such as `"Node.Prepare"` or `"Node.PrepareOK"`) and optionally filters by `from` / `to` node indexes.
+- It prevents the scheduler from consuming the message early. Once dependencies are met, the reservation lifts.
+- Build heavily constrained plans first to reliably trigger the bug, then proceed to the Relaxation Experiment.
+
 **If the bug is partition-sensitive**, use `partition` and `heal` events. Partition events specify a type:
 
 ```json
@@ -221,9 +243,18 @@ Handle exit codes:
   - **Wrong node targeted**: reads went to a node that wasn't affected → change read targets
   - **Scenario played out correctly but no violation**: the bug may not exist via this exact path → proceed to Phase 2
 
+### Relaxation Experiment (Delta Debugging)
+
+If you successfully reproduced the bug using a fully-constrained **deliver plan**, you must understand the capability boundary of the scheduler using the relaxation method:
+
+1. Systematically remove `deliver` events from the plan (starting from the end, or un-restricting `from`/`to` fields).
+2. Re-run after each removal (e.g., another 1000 runs) and check Porcupine.
+3. If the bug still reproduces reliably without the constraint, the constraint was unnecessary.
+4. Stop when removing any further constraints causes the bug to stop reproducing. You have now identified the exact scheduling bounds of the random scheduler, which yields valuable insights for protocol and scheduler improvement. **Do not skip this!**
+
 ### Revise and retry (up to 3 total plan attempts)
 
-If the plan didn't trigger the bug and the diagnosis suggests a fixable issue:
+If the plan didn't trigger the bug initially and the diagnosis suggests a fixable issue:
 
 1. Revise `$OUTPUT_DIR/find_bug_plan.json` based on the diagnosis
 2. Re-run with `timeout 60`

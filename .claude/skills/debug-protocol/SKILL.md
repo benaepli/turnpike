@@ -19,7 +19,7 @@ You are debugging a distributed protocol specification written in the Spur langu
 1. **Create a unique output directory**: Generate a unique directory name to avoid conflicts with other concurrent runs:
 
 ```bash
-OUTPUT_DIR=$(mktemp -d /tmp/spur_debug_XXXXXX)
+mkdir -p tmp && OUTPUT_DIR=$(mktemp -d tmp/spur_debug_XXXXXX)
 ```
 
 Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Print the directory name so the user knows where results are.
@@ -94,8 +94,8 @@ Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output
   ```
 - Look for: runs where client operations never completed, nodes stuck waiting, no progress after a certain point
 - Check the traceanalyzer output for runs with very few completed operations relative to what the config specifies
+- **Elusive Bugs**: If you strongly suspect a specific bug (e.g., from pseudocode or trace analysis) but the generalized explorer isn't hitting it, construct a targeted plan with `deliver` checkpoints (`{"deliver": {"function": "Node.Message", "from": X, "to": Y}}`) to forcefully guide the scheduler down that specific path.
 - If everything looks good, declare success and stop the loop
-
 ### Step 5: Fix or Report
 
 **Compile errors**: Fix automatically and re-run (not counted as iteration).
@@ -109,6 +109,7 @@ Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output
 2. Propose a specific fix (show the code change)
 3. **Wait for user approval before applying the edit**
 4. After the user approves, apply the fix
+5. **Verification tip**: If the bug was an ordering-specific issue reproduced via a fully-constrained `deliver` plan, run that specific plan again after fixing to definitively verify it resolves that exact problematic interleaving.
 
 **Same bug persists after 2 fix attempts**: Stop the loop. Explain what you've tried, what the bug appears to be, and why your fixes haven't resolved it. Ask the user for guidance.
 
