@@ -3,8 +3,8 @@
     "num_runs": 50,
     "max_iterations": 5000,
     "events": {
-        "w1": { "write": [0, "key1", "val1"] },
-        "w2": { "write": [1, "key1", "val2"] },
+        "w1": { "write": [0, "key1"] },
+        "w2": { "write": [1, "key1"] },
         "r1": { "read": [2, "key1"] },
         "crash1": { "crash": 1 },
         "recover1": { "recover": 1 }

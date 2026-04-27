@@ -7,7 +7,7 @@ type Command {
     req_id: int;
     kind: int;
     key: string;
-    value: string?;
+    uid: int?; // Write's unique id; nil for reads
 };
 
 type Ballot {
@@ -24,7 +24,7 @@ type PValue {
 type ClientResponse {
     success: bool;
     key: string?;
-    value: string?;
+    value: list<int>;
     leader: Node;
 };
 
@@ -43,7 +43,7 @@ role Node {
     var slot_num: int = 1;
     var proposals: map<int, Command> = {};
     var decisions: map<int, Command> = {};
-    var kv_store: map<string, string> = {};
+    var kv_store: map<string, list<int>> = {};
     var pending_requests: map<int, chan<ClientResponse>> = {};
     var next_req_id: int = 0;
 
@@ -100,12 +100,16 @@ role Node {
         }
 
         // Rebuild kv_store from persisted decisions
-        var kv: map<string, string> = {};
+        var kv: map<string, list<int>> = {};
         for var i = 1; i < slot_num; i = i + 1 {
             if exists(decisions, i) {
                 var cmd = decisions[i];
                 if cmd.kind == 1 {
-                    kv = kv[cmd.key] := cmd.value!;
+                    var prior: list<int> = [];
+                    if exists(kv, cmd.key) {
+                        prior = kv[cmd.key];
+                    }
+                    kv = kv[cmd.key] := append(prior, cmd.uid!);
                 }
             }
         }
@@ -209,12 +213,18 @@ role Node {
             return ();
         }
 
-        var result: string? = nil;
+        var result: list<int> = [];
         if cmd.kind == 1 {
-            kv_store = kv_store[cmd.key] := cmd.value!;
+            var prior: list<int> = [];
+            if exists(kv_store, cmd.key) {
+                prior = kv_store[cmd.key];
+            }
+            kv_store = kv_store[cmd.key] := append(prior, cmd.uid!);
             println("Perform: slot {slot_num} WRITE key={cmd.key}");
         } else {
-            result = if exists(kv_store, cmd.key) { kv_store[cmd.key] } else { nil };
+            if exists(kv_store, cmd.key) {
+                result = kv_store[cmd.key];
+            }
             println("Perform: slot {slot_num} READ key={cmd.key}");
         }
         slot_num = slot_num + 1;
@@ -416,11 +426,11 @@ role Node {
     // Client-facing handlers
     // ─────────────────────────────────────────────────────────
 
-    async fn ClientWrite(key: string, value: string): ClientResponse {
-        println("ClientWrite: key={key} value={value}");
+    async fn ClientWrite(key: string, uid: int): ClientResponse {
+        println("ClientWrite: key={key} uid={int_to_string(uid)}");
         var req_id = next_req_id;
         next_req_id = next_req_id + 1;
-        var cmd = Command{ client_node: self, req_id: req_id, kind: 1, key: key, value: value };
+        var cmd = Command{ client_node: self, req_id: req_id, kind: 1, key: key, uid: uid };
         var ch: chan<ClientResponse> = make();
         pending_requests = pending_requests[req_id] := ch;
         propose(cmd);
@@ -431,7 +441,7 @@ role Node {
         println("ClientRead: key={key}");
         var req_id = next_req_id;
         next_req_id = next_req_id + 1;
-        var cmd = Command{ client_node: self, req_id: req_id, kind: 0, key: key, value: nil };
+        var cmd = Command{ client_node: self, req_id: req_id, kind: 0, key: key, uid: nil };
         var ch: chan<ClientResponse> = make();
         pending_requests = pending_requests[req_id] := ch;
         propose(cmd);
@@ -467,22 +477,22 @@ role Node {
 }
 
 ClientInterface {
-    async fn Write(dest: Node, key: string, value: string) {
+    async fn Write(dest: Node, key: string, uid: int) {
         var target = dest;
         for ;; {
-            var resp = <- target->ClientWrite(key, value);
+            var resp = <- target->ClientWrite(key, uid);
             if resp.success { return (); }
             target = resp.leader;
         }
     }
 
-    async fn Read(dest: Node, key: string): string? {
+    async fn Read(dest: Node, key: string): list<int> {
         var target = dest;
         for ;; {
             var resp = <- target->ClientRead(key);
             if resp.success { return resp.value; }
             target = resp.leader;
         }
-        nil
+        []
     }
 }

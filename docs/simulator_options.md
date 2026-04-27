@@ -38,7 +38,7 @@ Plan configs support `partition` and `heal` events alongside `crash`, `recover`,
   "events": {
     "p1": { "partition": { "type": "isolate_one", "node": 0 } },
     "h1": "heal",
-    "w1": { "write": [1, "x", "1"] },
+    "w1": { "write": [1, "x"] },
     "r1": { "read": [0, "x"] }
   },
   "dependencies": [
@@ -77,6 +77,31 @@ Controls which queue group the scheduler draws from on each step. Specified as a
 
 - `p_timer`: probability of selecting the timer queue (checked first each step)
 - `preempt_interval`: maximum steps between forced network queue pulls
+
+### `within_queue_selector`
+
+Controls how a single runnable is picked from the eligible items *within* the queue chosen by `queue_policy`. Each runnable has a score in `[0, 1]` combining novelty and priority; this selector decides how that score maps to selection probability.
+
+**`Tournament`** (default) — sample `k` indices uniformly with replacement, take the highest score. Near-greedy for typical k, since the top item wins with probability `1 − (1 − 1/N)^k` on a queue of size N.
+
+```json
+"within_queue_selector": { "type": "Tournament", "k": 10 }
+```
+
+- `k` (default 10): tournament size. Capped at the number of eligible items per pick.
+
+**`Proportional`** — Waldspurger-style lottery. Selection probability is proportional to `score^exponent`, computed in one pass via the Efraimidis–Spirakis weighted reservoir trick. Slides between uniform and greedy with a single knob.
+
+```json
+"within_queue_selector": { "type": "Proportional", "exponent": 1.0 }
+```
+
+- `exponent` (default 1.0): sharpness of the weighting.
+  - `0.0` → all eligible items equally likely (uniform exploration).
+  - `1.0` → classic proportional lottery (`P(i) ∝ score_i`).
+  - Larger values approach greedy. Items with score 0 are floored to a small ε so they remain reachable.
+
+For scores `0.2 / 0.5 / 0.9` on a 3-item queue, `exponent = 1.0` gives selection probabilities ≈ `0.125 / 0.313 / 0.563`, while the default `Tournament { k: 10 }` is approximately greedy on the top item.
 
 ### `schedule_policy`
 
@@ -128,6 +153,30 @@ Configures probabilistic message delays for remote `ChannelSend` runnables. Disa
 
 See [Simulator Semantics](simulator_semantics.md#purgatory-message-delays) for details on crash and partition interactions.
 
+### `max_concurrent_writes`
+
+Caps the number of generator-produced Write operations that can be in flight simultaneously. Only applies to `explore` configs (the plan generator). Unset (the default) disables the cap; `0` is invalid.
+
+When set to `K >= 1`, `generate_plan` adds a mandatory edge from `write[i - K]` to `write[i]` in declaration order, forcing earlier writes to complete before later ones can start. This is the primary knob for controlling Porcupine's cost on the `kv` model: concurrent Writes multiply per-key state combinatorially, and the cap upper-bounds that explosion.
+
+The chain is global across keys — it is an over-approximation when write keys are diverse, but gives a strict bound regardless.
+
+```json
+"max_concurrent_writes": { "min": 2, "max": 3, "step": 1 }
+```
+
+### `num_keys`
+
+Controls how many distinct keys the plan generator samples from when producing client `Write` and `Read` invocations. Only applies to `explore` configs (the plan generator) — in `run-plan` mode, each event specifies its own key string directly. Defaults to `1` (a single key, `key1`).
+
+Spreading operations over many keys dilutes per-key concurrency and masks most linearizability bugs, which typically manifest per-key (stale reads, lost writes, split-brain on one register). Keeping the default at 1 concentrates contention and tends to surface violations sooner. Raise `num_keys` only when the protocol's correctness depends on cross-key interactions (e.g. sharding, batching across keys).
+
+When set to `K`, each generated Write/Read uniformly picks a key from `key1`..`keyK`.
+
+```json
+"num_keys": { "min": 1, "max": 3, "step": 1 }
+```
+
 ## Logging & Output Formats
 
 By utilizing the `HistoryWriter` trait, Spur can decouple execution logic from persistence.
@@ -145,3 +194,5 @@ Depending on the chosen backend, the simulator emits files encompassing several 
 Porcupine is the linearizability checker that integrates natively with the `executions` output of the Spur simulator.
 
 By running `porcupine/main` on the resulting SQLite/Parquet files, developers can ascertain if a generated schedule violated the guarantees of the protocol (e.g. key-value constraints). Porcupine also yields a useful HTML visualization that diagrams the execution interleavings of node invocations, facilitating debugging when a simulation trace violates linearizability.
+
+The `kv` model treats each key's value as an append-only log of write uids — `Write(dest, key, uid)` appends `uid` to that key's log, and `Read(dest, key)` must return the full committed log as a `list<int>`. Because the state space of ordered logs grows combinatorially with concurrent writes, large configurations should use [`max_concurrent_writes`](#max_concurrent_writes) to keep the check tractable.

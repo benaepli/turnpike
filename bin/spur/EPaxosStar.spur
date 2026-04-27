@@ -1,7 +1,7 @@
 type Payload {
-    kind: int; // 0: Read, 1: Write
+    kind: int; // 0: Read, 1: Write, 2: Nop
     key: string;
-    value: string?;
+    uid: int?; // Write's unique id; nil for reads and nops
 };
 
 type DependencySet = map<int, bool>;
@@ -98,8 +98,10 @@ role Node {
     var v_valid: map<int, bool> = {};
     var v_visiting: map<int, bool> = {};
 
-    var kv_store: map<string, string> = {};
-    var pending: map<int, chan<string?>> = {};
+    var kv_store: map<string, list<int>> = {};
+    // Dedup: per-key set of already-applied uids
+    var applied_uids: map<string, map<int, bool>> = {};
+    var pending: map<int, chan<list<int>>> = {};
 
     var node_count: int = 0;
 
@@ -453,7 +455,7 @@ role Node {
                 }
 
                 if (is_invalidator) {
-                    BroadcastAccept(waiting_cmd.ballot, waiting_id, Payload{kind: 2, key: "", value: nil}, {});
+                    BroadcastAccept(waiting_cmd.ballot, waiting_id, Payload{kind: 2, key: "", uid: nil}, {});
                 } else {
                     println("Commit: resuming {waiting_id} after harmless commit of {request.id}");
                     BroadcastAccept(waiting_cmd.ballot, waiting_id, waiting_cmd.payload, waiting_cmd.dependencies);
@@ -607,11 +609,24 @@ role Node {
              return ();
         }
 
-        var result: string? = nil;
+        var result: list<int> = [];
         if (payload.kind == 1) { // Write
              println("ExecuteAction: ID {id} WRITE key: {payload.key}");
-             kv_store = kv_store[payload.key] := payload.value!;
-             result = payload.value;
+             var seen: map<int, bool> = {};
+             if (exists(applied_uids, payload.key)) {
+                 seen = applied_uids[payload.key];
+             }
+             if (!exists(seen, payload.uid!)) {
+                 var prior: list<int> = [];
+                 if (exists(kv_store, payload.key)) {
+                     prior = kv_store[payload.key];
+                 }
+                 kv_store = kv_store[payload.key] := append(prior, payload.uid!);
+                 applied_uids = applied_uids[payload.key] := (seen[payload.uid!] := true);
+             }
+             if (exists(kv_store, payload.key)) {
+                 result = kv_store[payload.key];
+             }
         } else if (payload.kind == 0) { // Read
              println("ExecuteAction: ID {id} READ key: {payload.key}");
              if (exists(kv_store, payload.key)) {
@@ -622,7 +637,7 @@ role Node {
         notify(id, result);
     }
 
-    async fn notify(id: int, result: string?) {
+    async fn notify(id: int, result: list<int>) {
         if (exists(pending, id)) {
             send(pending[id], result);
             pending = erase(pending, id);
@@ -765,12 +780,12 @@ role Node {
         if (!exists(commands, id) or commands[id].ballot < b) {
             if (!exists(commands, id)) {
                 commands = commands[id] := Command{
-                    payload: Payload{kind: 2, key: "", value: nil}, // Default to Nop
+                    payload: Payload{kind: 2, key: "", uid: nil}, // Default to Nop
                     phase: 0,          
                     dependencies: {},      
                     ballot: b,             // Adopt the recovery ballot 
                     acceptedBallot: 0,
-                    initialPayload: Payload{kind: 2, key: "", value: nil},
+                    initialPayload: Payload{kind: 2, key: "", uid: nil},
                     initialDependencies: {},
                     leader: q,             // The node currently trying to recover it
                     preAcceptResponses: [],
@@ -831,7 +846,7 @@ role Node {
              
              else if (request.sender == initCoord) {
                  println("RecoverOK: Late message from InitCoord for ID {request.id}. Aborting to Nop.");
-                 BroadcastAccept(cmd.ballot, request.id, Payload{kind: 2, key: "", value: nil}, {});
+                 BroadcastAccept(cmd.ballot, request.id, Payload{kind: 2, key: "", uid: nil}, {});
                  return ();
              }
             return ();
@@ -879,7 +894,7 @@ role Node {
                 }
 
                 if (initCoordInQuorum) {
-                    BroadcastAccept(b, id, Payload{kind: 2, key: "", value: nil}, {});
+                    BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
                 } else {
                     // Check for potential Fast Path recovery
                     var R: list<RecoverResponse> = [];
@@ -893,7 +908,7 @@ role Node {
                     if (len(R) >= (currentRecoveryQuorumSize - e)) { 
                         StartValidation(b, id, R[0].payload, R[0].dependencies);
                     } else {
-                        BroadcastAccept(b, id, Payload{kind: 2, key: "", value: nil}, {});
+                        BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
                     }
                 }
             }
@@ -992,7 +1007,7 @@ role Node {
 
             if (has_strict_invalidator) {
                 // Case: Strict invalidator found -> Abort Recovery (Nop)
-                BroadcastAccept(b, id, Payload{kind: 2, key: "", value: nil}, {});
+                BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
             } else if (len(I_total) == 0) {
                 // Case: No invalidators -> Proceed with Recovery
                 BroadcastAccept(b, id, cmd.payload, cmd.dependencies);
@@ -1035,7 +1050,7 @@ role Node {
                         println("HandleWaiting: Aborting {my_id} to break deadlock with {req.id}");
                         
                         // Abort our recovery (Propose Nop)
-                        BroadcastAccept(my_cmd.ballot, my_id, Payload{kind: 2, key: "", value: nil}, {});
+                        BroadcastAccept(my_cmd.ballot, my_id, Payload{kind: 2, key: "", uid: nil}, {});
                         
                         // Clear wait state
                         my_cmd = my_cmd with { isWaiting: false, waitingOn: {} };
@@ -1047,37 +1062,37 @@ role Node {
     }
 
 
-    async fn ClientWrite(key: string, value: string): string? {
+    async fn ClientWrite(key: string, uid: int): list<int> {
         var id: int = unique_id();
-        var p: chan<string?> = make();
+        var p: chan<list<int>> = make();
         pending = pending[id] := p;
-        
-        var payload: Payload = Payload{kind: 1, key: key, value: value};
+
+        var payload: Payload = Payload{kind: 1, key: key, uid: uid};
         Submit(payload, id);
-        
+
         return <-p;
     }
 
-    async fn ClientRead(key: string): string? {
+    async fn ClientRead(key: string): list<int> {
         var id: int = unique_id();
-        var p: chan<string?> = make();
+        var p: chan<list<int>> = make();
         pending = pending[id] := p;
-        
-        var payload: Payload = Payload{kind: 0, key: key, value: nil};
+
+        var payload: Payload = Payload{kind: 0, key: key, uid: nil};
         Submit(payload, id);
-        
+
         return <-p;
     }
 }
 
 ClientInterface {
-    async fn Read(dest: Node, key: string): string? {
-        var promise: chan<string?> = dest->ClientRead(key);
+    async fn Read(dest: Node, key: string): list<int> {
+        var promise: chan<list<int>> = dest->ClientRead(key);
         <-promise
     }
 
-    async fn Write(dest: Node, key: string, value: string) {
-        var promise: chan<string?> = dest->ClientWrite(key, value);
+    async fn Write(dest: Node, key: string, uid: int) {
+        var promise: chan<list<int>> = dest->ClientWrite(key, uid);
         <-promise;
     }
 }

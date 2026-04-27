@@ -1,7 +1,7 @@
 type Command {
     kind: int; // 0: Read, 1: Write
     key: string;
-    value: string?;
+    uid: int?; // Write's unique id; nil for reads
 };
 
 type LogEntry {
@@ -12,7 +12,7 @@ type LogEntry {
 type ClientResponse {
     is_leader: bool;
     key: string?;
-    value: string?;
+    value: list<int>;
     leader: Node;
 };
 
@@ -37,8 +37,10 @@ role Node {
     var last_applied: int = 0;
     var state: int = 0; // 0: follower, 1: candidate, 2: leader
 
-    // State machine
-    var kv_store: map<string, string> = {};
+    // State machine: per-key log of write uids
+    var kv_store: map<string, list<int>> = {};
+    // Dedup: per-key set of already-applied uids
+    var applied_uids: map<string, map<int, bool>> = {};
     var pending_requests: map<int, chan<ClientResponse>> = {};
 
     // Leader volatile state
@@ -132,11 +134,24 @@ role Node {
             last_applied = last_applied + 1;
             var entry: LogEntry = log[last_applied - 1];
             var cmd: Command = entry.op;
-            var result: string? = nil;
+            var result: list<int> = [];
 
             if (cmd.kind == 1) {
-                kv_store = kv_store[cmd.key] := cmd.value!;
-                println("Apply: index {last_applied} WRITE key={cmd.key}");
+                var seen: map<int, bool> = {};
+                if (exists(applied_uids, cmd.key)) {
+                    seen = applied_uids[cmd.key];
+                }
+                if (exists(seen, cmd.uid!)) {
+                    println("Apply: index {last_applied} WRITE key={cmd.key} DEDUP");
+                } else {
+                    var prior: list<int> = [];
+                    if (exists(kv_store, cmd.key)) {
+                        prior = kv_store[cmd.key];
+                    }
+                    kv_store = kv_store[cmd.key] := append(prior, cmd.uid!);
+                    applied_uids = applied_uids[cmd.key] := (seen[cmd.uid!] := true);
+                    println("Apply: index {last_applied} WRITE key={cmd.key}");
+                }
             } else if (cmd.kind == 0) {
                 if (exists(kv_store, cmd.key)) {
                     result = kv_store[cmd.key];
@@ -194,7 +209,7 @@ role Node {
             var resp: ClientResponse = ClientResponse{
                 is_leader: false,
                 key: nil,
-                value: nil,
+                value: [],
                 leader: replicas[self]
             };
             send_async(ch, resp);
@@ -478,7 +493,7 @@ role Node {
             var resp: ClientResponse = ClientResponse{
                 is_leader: false,
                 key: nil,
-                value: nil,
+                value: [],
                 leader: redirect_to
             };
             send_async(ch, resp);
@@ -510,15 +525,15 @@ role Node {
         ch
     }
 
-    async fn Write(key: string, value: string): ClientResponse {
-        println("HandleClientWrite: key={key}, value={value}");
-        var cmd: Command = Command{ kind: 1, key: key, value: value };
+    async fn Write(key: string, uid: int): ClientResponse {
+        println("HandleClientWrite: key={key}, uid={int_to_string(uid)}");
+        var cmd: Command = Command{ kind: 1, key: key, uid: uid };
         <- NewEntry(cmd)
     }
 
     async fn Read(key: string): ClientResponse {
         println("HandleClientRead: key={key}");
-        var cmd: Command = Command{ kind: 0, key: key, value: nil };
+        var cmd: Command = Command{ kind: 0, key: key, uid: nil };
         <- NewEntry(cmd)
     }
 
@@ -550,10 +565,10 @@ role Node {
 }
 
 ClientInterface {
-    async fn Write(dest: Node, key: string, value: string) {
+    async fn Write(dest: Node, key: string, uid: int) {
         var current_target: Node = dest;
         for ;; {
-            var resp: ClientResponse = <- current_target->Write(key, value);
+            var resp: ClientResponse = <- current_target->Write(key, uid);
             if (resp.is_leader == true) {
                 return ();
             }
@@ -561,7 +576,7 @@ ClientInterface {
         }
     }
 
-    async fn Read(dest: Node, key: string): string? {
+    async fn Read(dest: Node, key: string): list<int> {
         var current_target: Node = dest;
         for ;; {
             var resp: ClientResponse = <- current_target->Read(key);
@@ -570,6 +585,6 @@ ClientInterface {
             }
             current_target = resp.leader;
         }
-        nil
+        []
     }
 }

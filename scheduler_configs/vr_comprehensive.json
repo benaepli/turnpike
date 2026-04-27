@@ -19,6 +19,11 @@
         "max": 2,
         "step": 1
     },
+    "max_concurrent_writes": {
+        "min": 2,
+        "max": 3,
+        "step": 1
+    },
     "dependency_density": [
         0.0,
         0.3

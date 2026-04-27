@@ -1,7 +1,10 @@
 role Node {
     // --- State Variables ---
     var r: string = "";
-    var db: map<string, string> = {};
+    // Per-key log of committed write uids
+    var db: map<string, list<int>> = {};
+    // Dedup: per-key set of already-applied uids
+    var applied_uids: map<string, map<int, bool>> = {};
     var is_committed: map<string, bool> = {};
     
     var predecessor: Node? = nil;
@@ -14,11 +17,11 @@ role Node {
     
     var inFailover: bool = false;
 
-    async fn Read(key: string): string? {
+    async fn Read(key: string): list<int> {
         if (inFailover == true) {
             spin_await (inFailover == false);
         }
-        
+
         if (r == "Head" or r == "Mid") {
             if (exists(is_committed, key) == false or is_committed[key] == false) {
                 return @rpc_call(tl!, Read(key));
@@ -26,60 +29,87 @@ role Node {
                 if (exists(db, key)) {
                     return db[key];
                 }
-                return nil; // Key is committed but not in db? Return nil.
+                return []; // Key is committed but not in db? Return empty log.
             }
         } else {
             // Tail node always has the committed version
             if (exists(db, key)) {
                 return db[key];
             }
-            return nil;
+            return [];
         }
     }
 
-    async fn Write(key: string, value: string): () {
+    async fn Write(key: string, uid: int): () {
         if (inFailover == true) {
             spin_await (inFailover == false);
         }
+
+        var seen: map<int, bool> = {};
+        if (exists(applied_uids, key)) {
+            seen = applied_uids[key];
+        }
+        var already_applied: bool = exists(seen, uid);
 
         if (r == "Head") {
             // Wait for any previous write to the same key to commit
             if (exists(is_committed, key) and is_committed[key] == false) {
                 spin_await (is_committed[key] == true);
             }
-            
-            db[key] = value;
+
+            if (!already_applied) {
+                var prior: list<int> = [];
+                if (exists(db, key)) {
+                    prior = db[key];
+                }
+                db[key] = append(prior, uid);
+                applied_uids[key] = (seen[uid] := true);
+            }
             is_committed[key] = false;
-            
-            rpc_call(successor!, Write(key, value));
-            
+
+            rpc_call(successor!, Write(key, uid));
+
             // Wait for the write to be acknowledged up the chain
             spin_await (is_committed[key] == true);
-            
+
         } elseif (r == "Mid") {
-            db[key] = value;
+            if (!already_applied) {
+                var prior: list<int> = [];
+                if (exists(db, key)) {
+                    prior = db[key];
+                }
+                db[key] = append(prior, uid);
+                applied_uids[key] = (seen[uid] := true);
+            }
             is_committed[key] = false;
-            
+
             // Propagate write to successor
-            rpc_call(successor!, Write(key, value));
-            
+            rpc_call(successor!, Write(key, uid));
+
             // Wait for successor to commit
             spin_await (is_committed[key] == true);
-            
+
             // Acknowledge predecessor
-            rpc_call(predecessor!, AckWrite(key, value));
-            
+            rpc_call(predecessor!, AckWrite(key, uid));
+
         } else {
             // r == "Tail"
-            db[key] = value;
+            if (!already_applied) {
+                var prior: list<int> = [];
+                if (exists(db, key)) {
+                    prior = db[key];
+                }
+                db[key] = append(prior, uid);
+                applied_uids[key] = (seen[uid] := true);
+            }
             is_committed[key] = true; // Tail commits immediately
-            
+
             // Acknowledge predecessor
-            rpc_call(predecessor!, AckWrite(key, value));
+            rpc_call(predecessor!, AckWrite(key, uid));
         }
     }
-    
-    async fn AckWrite(key: string, value: string): () {
+
+    async fn AckWrite(key: string, uid: int): () {
         if (inFailover == true) {
             spin_await (inFailover == false);
         }
@@ -89,11 +119,11 @@ role Node {
     
     async fn TriggerFailover(failed_node: Node, new_tail: Node): () {
         inFailover = true;
-        
+
         if (failed_node == successor) {
             successor = succ_successor;
-            var dirty_logs: map<string, string> = {};
-            
+            var dirty_logs: map<string, list<int>> = {};
+
             // Spur map iteration syntax: for ((key, value) in map)
             for ((key, committed) in is_committed) {
                 if (committed == false) {
@@ -102,11 +132,11 @@ role Node {
             }
             @rpc_call(successor!, PropagateDirtyLogs(dirty_logs));
         }
-        
+
         if (failed_node == predecessor!) {
             predecessor = pred_predecessor;
-            var clean_logs: map<string, string> = {};
-            
+            var clean_logs: map<string, list<int>> = {};
+
             for ((key, committed) in is_committed) {
                 if (committed == true) {
                     clean_logs[key] = db[key];
@@ -130,10 +160,10 @@ role Node {
     }
 
 
-    async fn Init(assigned_role: string, pred: Node?, pred_pred: Node?, 
-              succ: Node?, succ_succ: Node?, h: Node?, t: Node?, 
-              s_node: Node?, data: map<string, string>): () {
-        
+    async fn Init(assigned_role: string, pred: Node?, pred_pred: Node?,
+              succ: Node?, succ_succ: Node?, h: Node?, t: Node?,
+              s_node: Node?, data: map<string, list<int>>): () {
+
         r = assigned_role;
         predecessor = pred;
         pred_predecessor = pred_pred;
@@ -142,73 +172,99 @@ role Node {
         hd = h;
         tl = t;
         self_node = s_node;
-        
+
         db = {};
+        applied_uids = {};
         is_committed = {};
         inFailover = false;
-        
+
         for ((key, value) in data) {
-            var temp: int = 1; // Unused in original, kept for fidelity
             db[key] = value;
+            var seen: map<int, bool> = {};
+            for var i = 0; i < len(value); i = i + 1 {
+                seen = (seen[value[i]] := true);
+            }
+            applied_uids[key] = seen;
             is_committed[key] = true; // Initial data is committed
         }
     }
 
-    // Receiving dirty logs from new predecessor
-    async fn PropagateDirtyLogs(dirty_logs: map<string, string>): () {
-        var diff_dirty_logs: map<string, string> = {}; // Unused in original
-        for ((key, value) in dirty_logs) {
-            // Check for existence and mismatch
-            if (exists(db, key) and value != db[key] and 
+    // Receiving dirty logs from new predecessor.
+    // Each dirty log is the sender's local uid log for a key; we adopt it if ours is shorter
+    // (the sender had more uncommitted appends) and forward the trailing uid to our successor.
+    async fn PropagateDirtyLogs(dirty_logs: map<string, list<int>>): () {
+        for ((key, sender_log) in dirty_logs) {
+            var our_log: list<int> = [];
+            if (exists(db, key)) {
+                our_log = db[key];
+            }
+            if (len(sender_log) > len(our_log) and
                 exists(is_committed, key) and is_committed[key] == true) {
-                
-                db[key] = value;
+
+                db[key] = sender_log;
+                var seen: map<int, bool> = {};
+                if (exists(applied_uids, key)) {
+                    seen = applied_uids[key];
+                }
+                for var i = 0; i < len(sender_log); i = i + 1 {
+                    seen = (seen[sender_log[i]] := true);
+                }
+                applied_uids[key] = seen;
                 if (r != "Tail") {
                     is_committed[key] = false;
-                    rpc_call(successor!, Write(key, value));
+                    var last_uid: int = sender_log[len(sender_log) - 1];
+                    rpc_call(successor!, Write(key, last_uid));
                 }
             }
         }
     }
 
     // Receiving clean logs from new successor
-    async fn BackPropagateCleanLogs(clean_logs: map<string, string>): () {
-        var diff_clean_logs: map<string, string> = {}; // Unused in original
-        for ((key, value) in clean_logs) {
-            // Check for existence and mismatch
-            if (exists(db, key) and value == db[key] and 
+    async fn BackPropagateCleanLogs(clean_logs: map<string, list<int>>): () {
+        for ((key, sender_log) in clean_logs) {
+            var our_log: list<int> = [];
+            if (exists(db, key)) {
+                our_log = db[key];
+            }
+            if (len(sender_log) == len(our_log) and
                 exists(is_committed, key) and is_committed[key] == false) {
-                
+
                 is_committed[key] = true;
                 if (r != "Head") {
-                    rpc_call(predecessor!, AckWrite(key, value));
+                    var last_uid: int = sender_log[len(sender_log) - 1];
+                    rpc_call(predecessor!, AckWrite(key, last_uid));
                 }
             }
         }
     }
-    
+
     // New tail receiving full state from old tail
-    async fn PropagateLogsToTail(other_db: map<string, string>): () {
+    async fn PropagateLogsToTail(other_db: map<string, list<int>>): () {
         r = "Tail";
         for ((key, value) in other_db) {
             db[key] = value;
+            var seen: map<int, bool> = {};
+            for var i = 0; i < len(value); i = i + 1 {
+                seen = (seen[value[i]] := true);
+            }
+            applied_uids[key] = seen;
             // Assuming the old tail's db is fully committed
             is_committed[key] = true;
         }
     }
 }
 
-ClientInterface { 
-    
-    async fn read(dest: Node, key: string): string? {
+ClientInterface {
+
+    async fn Read(dest: Node, key: string): list<int> {
         // Client awaits the result of the read
-        var val: string? = @rpc_call(dest, Read(key));
+        var val: list<int> = @rpc_call(dest, Read(key));
         return val;
     }
 
-    async fn write(dest: Node, key: string, val: string): () {
+    async fn Write(dest: Node, key: string, uid: int): () {
         // Client awaits the write to complete
-        @rpc_call(dest, Write(key, val));
+        @rpc_call(dest, Write(key, uid));
     }
 
     async fn triggerFailover(dest: Node, failed_node: Node, new_tail: Node): () {
@@ -219,10 +275,10 @@ ClientInterface {
         @rpc_call(dest, EndFailover());
     }
 
-    async fn init(dest: Node, name: string, pred: Node?, pred_pred: Node?, 
-              succ: Node?, succ_succ: Node?, hd: Node?, tl: Node?, 
-              s_node: Node?, data: map<string, string>): () {
-        
+    async fn init(dest: Node, name: string, pred: Node?, pred_pred: Node?,
+              succ: Node?, succ_succ: Node?, hd: Node?, tl: Node?,
+              s_node: Node?, data: map<string, list<int>>): () {
+
         @rpc_call(dest, Init(name, pred, pred_pred, succ, succ_succ, hd, tl, s_node, data));
     }
 }

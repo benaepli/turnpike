@@ -4,7 +4,7 @@
   "max_iterations": 10000,
   "strict_timers": true,
   "events": {
-    "w1": { "write": [0, "x", "1"] },
+    "w1": { "write": [0, "x"] },
     "allow_t1": { "allow_timer": [1, "timeout"] },
     "crash_nl": { "crash": 1 },
     "recover_nl": { "recover": 1 },
@@ -17,7 +17,7 @@
     "deliver_svc_2_to_0": { "deliver": { "function": "Node.StartViewChange", "from": 2, "to": 0 } },
     "deliver_sv_to_0": { "deliver": { "function": "Node.StartView", "from": 1, "to": 0 } },
     "deliver_sv_to_2": { "deliver": { "function": "Node.StartView", "from": 1, "to": 2 } },
-    "w2": { "write": [0, "x", "2"] },
+    "w2": { "write": [0, "x"] },
     "r1": { "read": [0, "x"] },
     "r2": { "read": [1, "x"] },
     "r3": { "read": [2, "x"] }

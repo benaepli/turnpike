@@ -18,17 +18,17 @@ role Node {
 }
 
 ClientInterface {
-    async fn Write(dest: Node, key: string, value: string) { ... }
-    async fn Read(dest: Node, key: string): string? { ... }
+    async fn Write(dest: Node, key: string, uid: int) { ... }
+    async fn Read(dest: Node, key: string): list<int> { ... }
 }
 ```
 
 ## ClientInterface Contract (Linearizability)
 
-The simulator verifies linearizability by feeding `ClientInterface` `Read`/`Write` call-response pairs to Porcupine. These functions are **required**:
+The simulator verifies linearizability by feeding `ClientInterface` `Read`/`Write` call-response pairs to Porcupine under an **append-log `kv` model**: each key's committed value is the ordered list of write uids that have been applied. These functions are **required**:
 
-- `async fn Write(dest: Node, key: string, value: string)` — must return `()` only after the write is committed
-- `async fn Read(dest: Node, key: string): string?` — must return the value (or nil) only after the read completes
+- `async fn Write(dest: Node, key: string, uid: int)` — must return `()` only after the write is committed. The simulator injects `uid` as a unique identifier; the protocol appends it to the log for `key`.
+- `async fn Read(dest: Node, key: string): list<int>` — must return the full committed log of write uids for `key` (empty list if nothing has been committed), only after the read completes.
 
 If these are missing, have wrong signatures, or return prematurely, linearizability results are meaningless. Retry loops (e.g., redirect to primary) are common — the function must not return until the operation truly succeeds.
 

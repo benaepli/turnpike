@@ -1,7 +1,7 @@
 type Command {
     kind: int; // 0: Read, 1: Write
     key: string;
-    value: string?;
+    uid: int?; // Write's unique id; nil for reads
 };
 
 // Represents a single entry in a replica's log.
@@ -20,7 +20,7 @@ type DoViewChangeMsg {
 type ClientResponse {
     is_primary: bool;
     key: string?;
-    value: string?;
+    value: list<int>;
     primary: Node;
 };
 
@@ -46,8 +46,10 @@ role Node {
     var view_number: int = 0;
     var log: list<LogEntry> = [];
 
-    // State machine state
-    var kv_store: map<string, string> = {};
+    // State machine state: per-key log of write uids
+    var kv_store: map<string, list<int>> = {};
+    // Dedup: per-key set of already-applied uids
+    var applied_uids: map<string, map<int, bool>> = {};
     var applied_op_count: int = 0;
     
     // Concurrency state
@@ -128,11 +130,24 @@ role Node {
             var entry: LogEntry = log[i];
             var cmd: Command = entry.op;
 
-            var result: string? = nil;
+            var result: list<int> = [];
 
             if (cmd.kind == 1) { // Write
-                kv_store = kv_store[cmd.key] := cmd.value!;
-                println("Execute: op_number {op_n} WRITE key={cmd.key}");
+                var seen: map<int, bool> = {};
+                if (exists(applied_uids, cmd.key)) {
+                    seen = applied_uids[cmd.key];
+                }
+                if (exists(seen, cmd.uid!)) {
+                    println("Execute: op_number {op_n} WRITE key={cmd.key} DEDUP");
+                } else {
+                    var prior: list<int> = [];
+                    if (exists(kv_store, cmd.key)) {
+                        prior = kv_store[cmd.key];
+                    }
+                    kv_store = kv_store[cmd.key] := append(prior, cmd.uid!);
+                    applied_uids = applied_uids[cmd.key] := (seen[cmd.uid!] := true);
+                    println("Execute: op_number {op_n} WRITE key={cmd.key}");
+                }
             } else if (cmd.kind == 0) { // Read
                 if (exists(kv_store, cmd.key)) {
                     result = kv_store[cmd.key];
@@ -230,7 +245,7 @@ role Node {
         var resp: ClientResponse = ClientResponse{
             is_primary: false,
             key: nil,
-            value: nil,
+            value: [],
             primary: new_primary 
         };
 
@@ -269,7 +284,7 @@ role Node {
         var resp: ClientResponse = ClientResponse{
             is_primary: false,
             key: nil,
-            value: nil,
+            value: [],
             primary: new_primary 
         };
         for (op_n, ch) in pending_requests {
@@ -521,7 +536,7 @@ role Node {
             var resp: ClientResponse = ClientResponse{
                 is_primary: false,
                 key: nil,
-                value: nil,
+                value: [],
                 primary: current_primary 
             };
             send_async(p_err, resp);
@@ -532,7 +547,7 @@ role Node {
             var resp: ClientResponse = ClientResponse{
                 is_primary: false,
                 key: nil,
-                value: nil,
+                value: [],
                 primary: current_primary 
             };
             send_async(p_err, resp);
@@ -565,9 +580,9 @@ role Node {
     }
 
     // Accepts a new Write command from a client.
-    async fn Write(key: string, value: string): ClientResponse {
-        println("HandleClientWrite: key={key}, value={value}");
-        var cmd: Command = Command{ kind: 1, key: key, value: value };
+    async fn Write(key: string, uid: int): ClientResponse {
+        println("HandleClientWrite: key={key}, uid={int_to_string(uid)}");
+        var cmd: Command = Command{ kind: 1, key: key, uid: uid };
         var response: chan<ClientResponse> = NewEntry(cmd);
         <- response
     }
@@ -576,7 +591,7 @@ role Node {
     async fn Read(key: string): ClientResponse {
         println("HandleClientRead: key={key}");
         // A Read is also a log entry to ensure linearizability
-        var cmd: Command = Command{ kind: 0, key: key, value: nil };
+        var cmd: Command = Command{ kind: 0, key: key, uid: nil };
         <- NewEntry(cmd)
     }
     
@@ -605,7 +620,7 @@ role Node {
         }
     }
 
-    async fn GetKVStore(): map<string, string> {
+    async fn GetKVStore(): map<string, list<int>> {
         kv_store
     }
 }
@@ -614,11 +629,11 @@ ClientInterface {
     var responses: list<(ClientResponse, string)> = [];
 
     // Sends a new write command to a specific replica, retrying on redirect.
-    async fn Write(dest: Node, key: string, value: string) {
+    async fn Write(dest: Node, key: string, uid: int) {
         var current_target: Node = dest;
 
         for ;; {
-            var resp: ClientResponse = <- current_target->Write(key, value);
+            var resp: ClientResponse = <- current_target->Write(key, uid);
 
             if (resp.is_primary == true) {
                 responses = append(responses, (resp, key));
@@ -629,7 +644,7 @@ ClientInterface {
     }
 
     // Sends a new read command to a specific replica, retrying on redirect.
-    async fn Read(dest: Node, key: string): string? {
+    async fn Read(dest: Node, key: string): list<int> {
         var current_target: Node = dest;
 
         for ;; {
@@ -641,11 +656,11 @@ ClientInterface {
             current_target = resp.primary;
         }
 
-        nil
+        []
     }
 
     // Gets the entire KV store from a replica (for debugging/testing).
-    async fn GetKVStore(dest: Node): map<string, string> {
+    async fn GetKVStore(dest: Node): map<string, list<int>> {
         <-dest->GetKVStore()
     }
 

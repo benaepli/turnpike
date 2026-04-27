@@ -15,13 +15,15 @@ if [ ! -f "$SPEC_FILE" ]; then
     exit 1
 fi
 
-# Run spur compiler from the spur subdirectory
+# Run spur compiler from the spur subdirectory.
+# `compile` now writes a directory containing program.json, cfg.svg, and
+# program.pir (Pure / SSA IR).
 echo "Compiling $SPEC_FILE using spur..."
-cd spur && cargo run --release --bin spur -- compile "../$SPEC_FILE" --output ../output.json
+cd spur && cargo run --release --bin spur -- compile "../$SPEC_FILE" --output-dir ../output -y
 
 # Check if compilation was successful
 if [ $? -eq 0 ]; then
-    echo "Successfully compiled to output.json"
+    echo "Successfully compiled to output/"
 else
     echo "Compilation failed"
     exit 1

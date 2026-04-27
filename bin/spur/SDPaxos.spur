@@ -1,4 +1,5 @@
-type Value = string;
+// A write's unique id; per-key log of these is what Read returns.
+type Value = int;
 
 type Ballot {
     round: int;
@@ -7,7 +8,7 @@ type Ballot {
 
 type WriteArgs {
     key: string;
-    value: Value;
+    uid: Value;
 };
 
 type Command enum {
@@ -144,12 +145,12 @@ type ClientRead {
 
 type ClientReadReply {
     success: bool;
-    value: Value?;
+    value: list<int>;
 };
 
 type ClientWrite {
     key: string;
-    value: string;
+    uid: int;
 };
 
 type ClientWriteReply {
@@ -194,7 +195,8 @@ type PersistentState {
     o_instances: map<int, OInstanceState>;
     execution_pointer: int;
     exec_c_next: map<Node, int>;
-    kv_store: map<string, string>;
+    kv_store: map<string, list<int>>;
+    applied_uids: map<string, map<int, bool>>;
 }
 
 role Node {
@@ -221,7 +223,9 @@ role Node {
     var o_ack_counts: map<int, map<Node, bool>> = {};
     var o_ack_handled: map<int, bool> = {};
 
-    var kv_store: map<string, string> = {};
+    var kv_store: map<string, list<int>> = {};
+    // Dedup: per-key set of already-applied uids
+    var applied_uids: map<string, map<int, bool>> = {};
     var pending_client_responses: map<(Node, int), chan<Reply>> = {};
     
     // Track if we heard from the sequencer recently
@@ -271,6 +275,7 @@ role Node {
             execution_pointer = saved!.execution_pointer;
             exec_c_next = saved!.exec_c_next;
             kv_store = saved!.kv_store;
+            applied_uids = saved!.applied_uids;
         }
 
         if peers[self] == sequencer() {
@@ -327,7 +332,8 @@ role Node {
             o_instances: o_instances,
             execution_pointer: execution_pointer,
             exec_c_next: exec_c_next,
-            kv_store: kv_store
+            kv_store: kv_store,
+            applied_uids: applied_uids
         });
     }
 
@@ -416,12 +422,12 @@ role Node {
             }
         }
         
-        println("HandleClientWrite: key={msg.key}, value={msg.value}");
+        println("HandleClientWrite: key={msg.key}, uid={int_to_string(msg.uid)}");
 
         var response_ch: chan<Reply> = make();
         submit(Command.Write(WriteArgs{
             key: msg.key,
-            value: msg.value,
+            uid: msg.uid,
         }), response_ch);
         var result = <- response_ch;
         
@@ -439,7 +445,7 @@ role Node {
         if view_phase != ViewPhase.Normal {
             return ClientReadReply {
                 success: false,
-                value: nil,
+                value: [],
             }
         }
 
@@ -448,13 +454,13 @@ role Node {
         var response_ch: chan<Reply> = make();
         submit(Command.Read(msg.key), response_ch);
         var result = <- response_ch;
-        
+
         save_state();
-        
+
         match result {
             Reply.ClientReadReply(h) => h,
             _ => ClientReadReply{
-                value: nil,
+                value: [],
                 success: false,
             },
         }
@@ -644,7 +650,7 @@ role Node {
             var reply: Reply? = nil;
             match cmd_to_run! {
                 Command.Read(key) => {
-                    var val: string? = nil;
+                    var val: list<int> = [];
                     if exists(kv_store, key) {
                         val = kv_store[key];
                     }
@@ -654,7 +660,18 @@ role Node {
                     });
                 },
                 Command.Write(args) => {
-                    kv_store = kv_store[args.key] := args.value;
+                    var seen: map<int, bool> = {};
+                    if exists(applied_uids, args.key) {
+                        seen = applied_uids[args.key];
+                    }
+                    if !exists(seen, args.uid) {
+                        var prior: list<int> = [];
+                        if exists(kv_store, args.key) {
+                            prior = kv_store[args.key];
+                        }
+                        kv_store = kv_store[args.key] := append(prior, args.uid);
+                        applied_uids = applied_uids[args.key] := (seen[args.uid] := true);
+                    }
                     reply = Reply.ClientWriteReply(ClientWriteReply{
                         success: true,
                     });
@@ -1257,16 +1274,16 @@ role Node {
 }
 
 ClientInterface {
-    async fn Write(dest: Node, key: string, value: string) {
+    async fn Write(dest: Node, key: string, uid: int) {
         for ;; {
-            var resp: ClientWriteReply = <- dest->HandleClientWrite(ClientWrite{key: key, value: value});
+            var resp: ClientWriteReply = <- dest->HandleClientWrite(ClientWrite{key: key, uid: uid});
             if (resp.success == true) {
                 return ();
             }
         }
     }
 
-    async fn Read(dest: Node, key: string): string? {
+    async fn Read(dest: Node, key: string): list<int> {
         for ;; {
             var resp: ClientReadReply = <- dest->HandleClientRead(ClientRead{key: key});
             if (resp.success == true) {
@@ -1274,6 +1291,6 @@ ClientInterface {
             }
         }
 
-        nil
+        []
     }
 }
