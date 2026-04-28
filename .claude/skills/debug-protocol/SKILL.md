@@ -68,6 +68,8 @@ Note any anomalies: runs with 0 completed operations, unusually short durations,
 ./porcupine/main -input $OUTPUT_DIR -type duckdb -model kv -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
 ```
 
+If the spec declares `ClientInterface.RMW` and stores `list<(int?, int)>` in `kv_store`, swap `-model kv` for `-model kv_rmw`.
+
 Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output.txt` for parsing.
 
 ### Step 4: Diagnose
@@ -102,14 +104,20 @@ Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output
 
 **Protocol logic bugs**:
 
-1. Present your diagnosis clearly:
+1. **Classify the bug** before proposing any fix:
+   - **Paper bug**: The Spur spec faithfully follows the pseudocode, but the pseudocode itself is wrong or incomplete. Do NOT fix the spec to diverge from the paper — instead, report the finding to the user with a clear description of the paper's flaw.
+   - **Implementation bug**: The Spur spec diverges from the pseudocode in a way that introduces the bug. Propose a fix that brings the spec back in line with the paper.
+   - **Ambiguous**: The pseudocode is silent or unclear on the point in question. Flag this to the user — it may be a real underspecification in the paper.
+
+2. Present your diagnosis clearly:
    - Which runs failed and why
    - What the root cause appears to be
    - What the correct behavior should be (reference pseudocode if available)
-2. Propose a specific fix (show the code change)
-3. **Wait for user approval before applying the edit**
-4. After the user approves, apply the fix
-5. **Verification tip**: If the bug was an ordering-specific issue reproduced via a fully-constrained `deliver` plan, run that specific plan again after fixing to definitively verify it resolves that exact problematic interleaving.
+   - Bug classification (paper bug, implementation bug, or ambiguous) with reasoning
+3. Propose a specific fix (show the code change)
+4. **Wait for user approval before applying the edit**
+5. After the user approves, apply the fix
+6. **Verification tip**: If the bug was an ordering-specific issue reproduced via a fully-constrained `deliver` plan, run that specific plan again after fixing to definitively verify it resolves that exact problematic interleaving.
 
 **Same bug persists after 2 fix attempts**: Stop the loop. Explain what you've tried, what the bug appears to be, and why your fixes haven't resolved it. Ask the user for guidance.
 

@@ -222,6 +222,8 @@ Handle exit codes:
 ./porcupine/main -input $OUTPUT_DIR -type duckdb -model kv -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
 ```
 
+If the spec declares `ClientInterface.RMW` and stores `list<(int?, int)>` in `kv_store`, swap `-model kv` for `-model kv_rmw` (use this same substitution everywhere `-model kv` appears below).
+
 ### Analyze results
 
 **If Porcupine exit 2 (violation found)**:
@@ -373,6 +375,17 @@ Combine all evidence — simulator results from all phases and code analysis fro
 - The bug was reproduced
 - Include: failing run IDs, trace excerpt from `debug combined`, root cause explanation
 - Cross-reference with the bug description to confirm it matches
+- **Classify the root cause**:
+  - **Paper bug**: The Spur spec faithfully follows the pseudocode, but the pseudocode is wrong or incomplete. This is a finding about the protocol itself.
+  - **Implementation bug**: The Spur spec diverges from the pseudocode. This is a translation error.
+  - Include reasoning for your classification.
+
+### Ambiguity in Paper
+
+- The pseudocode is underspecified at the point where the bug manifests
+- The implementation had to make a choice not dictated by the paper, and that choice led to the violation
+- Document exactly what the pseudocode omits and what choices were made
+- This is a valuable finding — it reveals gaps in the protocol's specification
 
 ### Bug Likely Absent
 
@@ -385,6 +398,7 @@ Combine all evidence — simulator results from all phases and code analysis fro
 - Code shows suspicious patterns that _could_ cause the described bug
 - But simulation didn't reproduce it — possibly needs a very specific interleaving
 - Point to the specific code locations that look suspicious
+- Note whether the suspicious pattern exists in the pseudocode itself (paper bug) or was introduced in the Spur translation (implementation bug)
 - Suggest what else to try (more runs, different topology, manual code review at specific locations)
 
 ### Inconclusive

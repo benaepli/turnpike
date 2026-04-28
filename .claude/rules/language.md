@@ -25,12 +25,24 @@ ClientInterface {
 
 ## ClientInterface Contract (Linearizability)
 
-The simulator verifies linearizability by feeding `ClientInterface` `Read`/`Write` call-response pairs to Porcupine under an **append-log `kv` model**: each key's committed value is the ordered list of write uids that have been applied. These functions are **required**:
+The simulator verifies linearizability by feeding `ClientInterface` call-response pairs to Porcupine under an **append-log `kv` model**: each key's committed value is the ordered list of write uids that have been applied. These functions are **required**:
 
 - `async fn Write(dest: Node, key: string, uid: int)` — must return `()` only after the write is committed. The simulator injects `uid` as a unique identifier; the protocol appends it to the log for `key`.
 - `async fn Read(dest: Node, key: string): list<int>` — must return the full committed log of write uids for `key` (empty list if nothing has been committed), only after the read completes.
 
 If these are missing, have wrong signatures, or return prematurely, linearizability results are meaningless. Retry loops (e.g., redirect to primary) are common — the function must not return until the operation truly succeeds.
+
+### Optional: RMW (Read-Modify-Write)
+
+For protocols like Gryff that combine blind writes with read-modify-write commands, `ClientInterface` may also declare:
+
+- `async fn RMW(dest: Node, key: string, uid: int)` — void; semantically appends a `(prev_uid, uid)` entry to the key's log, where `prev_uid` is the uid of the latest applied entry observed by the RMW (or `nil` if the log was empty). Like `Write`, it must return only after the operation is committed.
+
+When RMW is in play, the spec's `kv_store` becomes `map<string, list<(int?, int)>>` (each entry is `(prev_uid, uid)` instead of a bare uid), and `Read` returns that tagged log. The corresponding Porcupine model is `-model kv_rmw`.
+
+**Two model variants** — `kv` expects `Read` to return `list<int>`; `kv_rmw` expects `list<(int?, int)>`. A spec picks one shape for `kv_store` and the matching `-model` flag — they don't mix.
+
+**Validation is deferred to GET.** The `kv_rmw` model authoritatively records what `prev_uid` the linearization implies and only catches a wrong choice when a subsequent `Read` returns the tagged log. Configs with `num_rmw_ops > 0` should keep `num_read_ops > 0` — RMWs alone exercise none of the new checking logic.
 
 ## Type System
 
@@ -38,6 +50,7 @@ If these are missing, have wrong signatures, or return prematurely, linearizabil
 - **Tuples/unit**: `()`, `(T, U)`, ...
 - **Collections**: `list<T>`, `map<K, V>` (all immutable)
 - **Channels**: `chan<T>`
+- **FIFO links**: `FifoLink<Role>` — ordered RPC channel to a peer (see below)
 - **Optionals**: `T?` — either a value of type `T` or `nil`
 - **Structs**: `type Name { field: Type; ... };`
 - **Enums**: `type Name enum { Variant1, Variant2(T), ... };`
@@ -50,6 +63,27 @@ If these are missing, have wrong signatures, or return prematurely, linearizabil
 var result_chan: chan<Response> = other_node->some_handler(arg1, arg2);
 var result: Response = <- result_chan;   // blocks until response
 ```
+
+Direct RPCs have **no ordering guarantee** between successive calls from A to B.
+
+### FIFO RPC links
+
+For protocols that assume TCP-like ordering between a pair of nodes, route
+RPCs through a `FifoLink<T>`:
+
+```
+var link: FifoLink<Node> = fifo(peer);
+var ch1 = link->Handler(args1);
+var ch2 = link->Handler(args2);   // guaranteed to be delivered after ch1
+```
+
+- Multiple `fifo(peer)` calls create independent links (independent ordering).
+- Link state is simulator-side, so ordering **survives receiver crash** —
+  messages buffer across the crash and deliver in send order on recovery.
+- Sender crash drops the in-memory link. Messages already enqueued drain in
+  order; post-recovery `fifo(peer)` returns a fresh link unrelated to the old.
+- FIFO orders *delivery* (handler dispatch), not handler execution. Handlers
+  at the receiver still run concurrently.
 
 ### Channels
 

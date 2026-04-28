@@ -46,6 +46,28 @@ Shows a unified timeline of all events for a run. Key things to look for:
 - The output identifies which runs failed
 - HTML visualization files (`run_N.html`) in the output directory show the operation timeline with crossing lines indicating violations
 
+## Bug Classification: Paper vs. Implementation
+
+When diagnosing a violation, **always** classify the root cause before proposing a fix:
+
+**Paper/pseudocode bug** — the violation occurs because the protocol itself is flawed:
+- The pseudocode is missing handling for a specific scenario (e.g., what happens when a node receives a stale message after recovery)
+- The ordering of operations in the pseudocode is ambiguous (e.g., "send then update state" vs "update state then send")
+- The pseudocode's correctness argument has a gap that the violation exploits
+- The fault model assumptions are wrong (e.g., the protocol claims to tolerate f faults but actually doesn't)
+
+**Implementation bug** — the Spur spec diverges from the pseudocode in a way that introduces a bug:
+- Wrong translation of pseudocode logic (off-by-one, wrong condition, missing case)
+- Missing Spur-specific patterns (persistence before yield points, proper channel handling)
+- ClientInterface returning prematurely (Read/Write contract violation)
+
+**Ambiguous** — the pseudocode is silent or unclear:
+- The paper doesn't specify what happens in a particular edge case
+- Two readings of the pseudocode are equally plausible, and the implementation chose one
+- The paper assumes something about the system model that isn't explicit
+
+If you cannot clearly classify a bug, flag it explicitly and report to the user rather than guessing.
+
 ## Debugging Strategy
 
 1. Start with the porcupine output to identify failing runs
@@ -53,4 +75,5 @@ Shows a unified timeline of all events for a run. Key things to look for:
 3. Look for the specific operation that violated linearizability
 4. Trace backwards from that operation to find where the protocol diverged from correct behavior
 5. Cross-reference with the paper's pseudocode if available
-6. For deadlocks: look at runs where operations never completed, check for missing timeouts
+6. **Classify the bug** as paper, implementation, or ambiguous (see above)
+7. For deadlocks: look at runs where operations never completed, check for missing timeouts

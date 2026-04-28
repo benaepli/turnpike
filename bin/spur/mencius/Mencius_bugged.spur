@@ -1,0 +1,726 @@
+// Mencius: Efficient Replicated State Machines for WANs (Mao, Junqueira, Marzullo)
+//
+// ┌──────────────────────────────────────────────────────────────────────┐
+// │ BUGGED VERSION — FAITHFUL TRANSLATION OF THE PAPER'S PSEUDOCODE.     │
+// │ This spec reproduces a safety bug in Mencius's Protocol P where      │
+// │ Rule 2 gap-filling can mark a committed value as no-op on one        │
+// │ replica while other replicas commit the real value. See bug.md.      │
+// │ The corrected version lives in Mencius.spur.                         │
+// └──────────────────────────────────────────────────────────────────────┘
+//
+// This spec implements Protocol P (the base Mencius without Optimizations 1-3 /
+// Accelerator 1). Each instance runs Coordinated Paxos: the owner has an
+// implicit promise at ballot (0, owner(i)). Non-owners must use ballot > 0
+// (via Revoke) to propose a value.
+//
+// Scope implemented:
+//   - Rotating coordinators (owner(i) = i % n)
+//   - Suggest (PROPOSE(0, cmd)) and Skip (PROPOSE(0, no-op))
+//   - OnSuggestion / OnAcceptSuggestion (Rule 2 gap filling)
+//   - OnLearned re-suggest (Rule 4)
+//   - Revoke: full Paxos Phase 1 + 2 at ballot > 0 (Rule 3, minus beta window)
+//   - Crash recovery via persist_data/retrieve_data
+//
+// Out of scope (TODO):
+//   - Optimization 1 (piggyback SKIP on ACCEPT)
+//   - Optimization 2 + Accelerator 1 (batched skip propagation)
+//   - Optimization 3 (beta-window bulk revocation)
+//   - Out-of-order commit
+//
+// Channel model: the paper assumes FIFO (TCP-like) channels between each
+// pair of servers. Rule 2 in OnSuggestion/OnAcceptSuggestion is load-bearing
+// on FIFO — without it, receiving SUGGEST(i) from q does NOT imply q has
+// handled all of its earlier owned instances, so unilaterally learning those
+// as no-op would violate safety. We route every inter-server RPC through a
+// per-peer FifoLink<Node>, which matches the paper's assumption.
+// Sender-crash drops the link in memory; on recovery we build fresh links,
+// relying on the revoke path to repair any in-flight state.
+
+type Command {
+    client_node: int;
+    req_id: int;
+    kind: int;      // 0 = Read, 1 = Write
+    key: string;
+    uid: int?;      // Write's unique id; nil for reads
+};
+
+type Ballot {
+    round: int;
+    leader: int;
+};
+
+// Phase 1b (ACK) response content.
+type AckInfo {
+    prepared_ballot: Ballot;
+    has_accepted: bool;
+    accepted_ballot: Ballot;
+    accepted_value: Command?; // when has_accepted: nil => no-op, else the cmd
+};
+
+type ClientResponse {
+    success: bool;
+    key: string?;
+    value: list<int>;
+    redirect: Node;
+};
+
+type PersistentState {
+    prepared_ballot: map<int, Ballot>;
+    has_prepared: map<int, bool>;
+    accepted_ballot: map<int, Ballot>;
+    has_accepted: map<int, bool>;
+    accepted_value: map<int, Command?>;
+    learned_flags: map<int, bool>;
+    learned_value: map<int, Command?>;
+    expected: int;
+    my_index: int;
+    proposed: map<int, Command>;
+};
+
+role Node {
+    // ── Identity ─────────────────────────────────────────────
+    var self: int = 0;
+    var replicas: list<Node> = [];
+    var n: int = 0;
+
+    // ── Mencius server state ─────────────────────────────────
+    var proposed: map<int, Command> = {};  // my suggested values (by slot)
+    var expected: int = 0;                  // next slot to commit
+    var my_index: int = 0;                  // next slot I will coordinate
+    var est_index: map<int, int> = {};      // next slot peer q is expected to coordinate
+
+    // ── Per-slot acceptor state ──────────────────────────────
+    // prepared_ballot[i] is the highest ballot promised for slot i.
+    // If unset, the implicit promise is (0, owner(i)).
+    var prepared_ballot: map<int, Ballot> = {};
+    var has_prepared: map<int, bool> = {};
+    var accepted_ballot: map<int, Ballot> = {};
+    var has_accepted: map<int, bool> = {};
+    var accepted_value: map<int, Command?> = {}; // nil => no-op
+
+    // ── Per-slot committed value ─────────────────────────────
+    var learned_flags: map<int, bool> = {};
+    var learned_value: map<int, Command?> = {}; // nil => no-op
+
+    // ── Revoke state (proposer side, per slot) ───────────────
+    var revoke_ballot: map<int, Ballot> = {};    // ballot I am driving
+    var revoke_phase: map<int, int> = {};        // 1 = phase 1, 2 = phase 2, 0 = idle
+    var revoke_ack_count: map<int, int> = {};
+    var revoke_best_ballot: map<int, Ballot> = {};
+    var revoke_best_has_val: map<int, bool> = {};
+    var revoke_best_value: map<int, Command?> = {};
+    var revoke_accept_count: map<int, int> = {};
+
+    // ── State machine / client tracking ──────────────────────
+    var kv_store: map<string, list<int>> = {};
+    var pending_requests: map<int, chan<ClientResponse>> = {};
+    var next_req_id: int = 0;
+    var applied_cmds: map<string, bool> = {};
+
+    // ── FIFO links to peers (one per peer index) ─────────────
+    // Volatile: rebuilt on Init and RecoverInit.
+    var links: map<int, FifoLink<Node>> = {};
+
+    // ─────────────────────────────────────────────────────────
+    // Init / Recover
+    // ─────────────────────────────────────────────────────────
+
+    fn Init(me: int, peers: list<Node>) {
+        self = me;
+        replicas = peers;
+        n = len(peers);
+        my_index = self; // first slot owned by self (owner(i) = i % n)
+        for var q = 0; q < n; q = q + 1 {
+            est_index = est_index[q] := q;
+            links = links[q] := fifo(peers[q]);
+        }
+        next_req_id = self; // unique across nodes: use stride of n
+        println("Node {self} initialized. n={n}");
+        monitor_suspicions();
+    }
+
+    @trace
+    async fn RecoverInit(me: int, peers: list<Node>) {
+        self = me;
+        replicas = peers;
+        n = len(peers);
+
+        var saved: PersistentState? = retrieve_data<PersistentState>();
+        if saved != nil {
+            var s = saved!;
+            prepared_ballot = s.prepared_ballot;
+            has_prepared = s.has_prepared;
+            accepted_ballot = s.accepted_ballot;
+            has_accepted = s.has_accepted;
+            accepted_value = s.accepted_value;
+            learned_flags = s.learned_flags;
+            learned_value = s.learned_value;
+            expected = s.expected;
+            my_index = s.my_index;
+            proposed = s.proposed;
+        } else {
+            my_index = self;
+        }
+
+        // Reset volatile state
+        est_index = {};
+        links = {};
+        for var q = 0; q < n; q = q + 1 {
+            est_index = est_index[q] := q;
+            links = links[q] := fifo(peers[q]);
+        }
+        revoke_ballot = {};
+        revoke_phase = {};
+        revoke_ack_count = {};
+        revoke_best_ballot = {};
+        revoke_best_has_val = {};
+        revoke_best_value = {};
+        revoke_accept_count = {};
+        pending_requests = {};
+        applied_cmds = {};
+        next_req_id = self + n * 1000; // avoid colliding with pre-crash req_ids
+
+        // Rebuild kv_store by applying all learned committed slots in order.
+        kv_store = {};
+        for var i = 0; i < expected; i = i + 1 {
+            if exists(learned_flags, i) and learned_flags[i] {
+                var v = learned_value[i];
+                if v != nil {
+                    apply_to_kv(v!);
+                }
+            }
+        }
+
+        println("Node {self} recovered. expected={expected} my_index={my_index}");
+        // First yield point — messages start flowing after this.
+        monitor_suspicions();
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────
+
+    fn owner_of(i: int): int {
+        i % n
+    }
+
+    // Smallest j >= start with owner(j) = q.
+    fn first_owned_from(start: int, q: int): int {
+        var j = start;
+        for ;; {
+            if j % n == q { return j; }
+            j = j + 1;
+        }
+        0
+    }
+
+    // Smallest j > after with owner(j) = q.
+    fn next_owned(after: int, q: int): int {
+        first_owned_from(after + 1, q)
+    }
+
+    fn majority(): int {
+        n / 2 + 1
+    }
+
+    fn ballot_gt(a: Ballot, b: Ballot): bool {
+        a.round > b.round or (a.round == b.round and a.leader > b.leader)
+    }
+
+    fn ballot_gte(a: Ballot, b: Ballot): bool {
+        a.round > b.round or (a.round == b.round and a.leader >= b.leader)
+    }
+
+    fn ballot_eq(a: Ballot, b: Ballot): bool {
+        a.round == b.round and a.leader == b.leader
+    }
+
+    fn get_prepared(slot: int): Ballot {
+        if exists(has_prepared, slot) and has_prepared[slot] {
+            prepared_ballot[slot]
+        } else {
+            // Implicit promise: the owner holds ballot 0.
+            Ballot{ round: 0, leader: owner_of(slot) }
+        }
+    }
+
+    fn get_accepted_ballot(slot: int): Ballot {
+        if exists(has_accepted, slot) and has_accepted[slot] {
+            accepted_ballot[slot]
+        } else {
+            Ballot{ round: -1, leader: -1 }
+        }
+    }
+
+    fn is_learned(slot: int): bool {
+        exists(learned_flags, slot) and learned_flags[slot]
+    }
+
+    fn persist() {
+        persist_data(PersistentState{
+            prepared_ballot: prepared_ballot,
+            has_prepared: has_prepared,
+            accepted_ballot: accepted_ballot,
+            has_accepted: has_accepted,
+            accepted_value: accepted_value,
+            learned_flags: learned_flags,
+            learned_value: learned_value,
+            expected: expected,
+            my_index: my_index,
+            proposed: proposed,
+        });
+    }
+
+    fn cmd_key(cmd: Command): string {
+        "{int_to_string(cmd.client_node)}-{int_to_string(cmd.req_id)}"
+    }
+
+    fn cmds_eq(a: Command, b: Command): bool {
+        a.client_node == b.client_node and a.req_id == b.req_id
+    }
+
+    fn apply_to_kv(cmd: Command) {
+        var k = cmd_key(cmd);
+        if exists(applied_cmds, k) { return (); }
+        applied_cmds = applied_cmds[k] := true;
+
+        if cmd.kind == 1 {
+            var prior: list<int> = [];
+            if exists(kv_store, cmd.key) {
+                prior = kv_store[cmd.key];
+            }
+            kv_store = kv_store[cmd.key] := append(prior, cmd.uid!);
+        }
+    }
+
+    async fn resolve_ch(ch: chan<ClientResponse>, resp: ClientResponse) {
+        resp >- ch;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Learning / CheckCommit (the log → state machine path)
+    // ─────────────────────────────────────────────────────────
+
+    // Set slot i's learned value, and walk forward from `expected` committing
+    // consecutive learned slots into the state machine.
+    fn learn_slot(i: int, value: Command?) {
+        if is_learned(i) { return (); }
+        learned_flags = learned_flags[i] := true;
+        learned_value = learned_value[i] := value;
+        on_learned(i, value);
+        check_commit();
+    }
+
+    fn on_learned(i: int, value: Command?) {
+        // Rule 4: if I suggested v for slot i but no-op was chosen, re-submit v.
+        if owner_of(i) == self and exists(proposed, i) {
+            var my_val = proposed[i];
+            var lost = false;
+            if value == nil {
+                lost = true;
+            } else {
+                var learned_cmd = value!;
+                if !cmds_eq(learned_cmd, my_val) {
+                    lost = true;
+                }
+            }
+            if lost and !is_committed_cmd(my_val) {
+                // Re-issue on a new owned slot.
+                on_client_request(my_val);
+            }
+        }
+    }
+
+    fn is_committed_cmd(cmd: Command): bool {
+        for var i = 0; i < expected; i = i + 1 {
+            if exists(learned_flags, i) and learned_flags[i] {
+                var v = learned_value[i];
+                if v != nil and cmds_eq(v!, cmd) { return true; }
+            }
+        }
+        false
+    }
+
+    fn check_commit() {
+        for ; is_learned(expected); {
+            var v = learned_value[expected];
+            if v != nil {
+                on_commit(v!);
+            }
+            expected = expected + 1;
+        }
+    }
+
+    fn on_commit(cmd: Command) {
+        var already = exists(applied_cmds, cmd_key(cmd));
+        var result: list<int> = [];
+
+        if !already {
+            apply_to_kv(cmd);
+        }
+
+        if cmd.kind == 0 and exists(kv_store, cmd.key) {
+            result = kv_store[cmd.key];
+        }
+
+        if cmd.client_node == self and exists(pending_requests, cmd.req_id) {
+            var ch = pending_requests[cmd.req_id];
+            pending_requests = erase(pending_requests, cmd.req_id);
+            resolve_ch(ch, ClientResponse{
+                success: true,
+                key: cmd.key,
+                value: result,
+                redirect: replicas[self],
+            });
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // OnSuggestion / OnAcceptSuggestion (Rule 2 gap filling)
+    // ─────────────────────────────────────────────────────────
+
+    // Learn all of q's instances in [est_index[q], i) as no-op.
+    // Direct translation of Protocol P (Mencius paper, Appendix B):
+    //
+    //   OnSuggestion(i): QSkipSet ← {j : est_index[q] ≤ j < i ∧ owner(j) = q};
+    //                    forall j ∈ QSkipSet do learned(j) ← no-op
+    //
+    // This is what the paper's pseudocode prescribes. See bug.md — this
+    // rule is unsafe when combined with Rule 3 revocation.
+    fn fill_q_skips(q: int, i: int) {
+        var j = est_index[q];
+        for ; j < i; {
+            if j % n == q {
+                learn_slot(j, nil);
+            }
+            j = j + 1;
+        }
+        if i >= est_index[q] {
+            est_index = est_index[q] := next_owned(i, q);
+        }
+    }
+
+    // Triggered on the proposer side when acceptor q sends ACCEPT(0, v) for
+    // slot i. Implies q has moved past all its own instances < i.
+    fn on_accept_suggestion(i: int, q: int) {
+        if q == self { return (); }
+        fill_q_skips(q, i);
+    }
+
+    // Triggered on any peer p when it receives PROPOSE(0, v) with v != no-op
+    // for slot i (owned by q = owner(i)). p must skip its own unused instances
+    // < i and update est_index for q.
+    fn on_suggestion(i: int) {
+        var q = owner_of(i);
+        fill_q_skips(q, i);
+
+        // Skip my own unused instances in [my_index, i).
+        var k = my_index;
+        for ; k < i; {
+            if k % n == self and !is_learned(k) {
+                // Locally learn no-op and broadcast PROPOSE(0, no-op) to peers.
+                learn_slot(k, nil);
+                broadcast_propose(k, Ballot{ round: 0, leader: self }, nil);
+            }
+            k = k + 1;
+        }
+        if i > my_index {
+            my_index = next_owned(i, self);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Client entry (Rule 1)
+    // ─────────────────────────────────────────────────────────
+
+    fn on_client_request(cmd: Command) {
+        var i = my_index;
+        proposed = proposed[i] := cmd;
+        my_index = next_owned(i, self);
+        persist();
+        broadcast_propose(i, Ballot{ round: 0, leader: self }, cmd);
+    }
+
+    async fn ClientWrite(key: string, uid: int): ClientResponse {
+        println("ClientWrite: key={key} uid={int_to_string(uid)}");
+        var req_id = next_req_id;
+        next_req_id = next_req_id + n;
+        var cmd = Command{ client_node: self, req_id: req_id, kind: 1, key: key, uid: uid };
+        var ch: chan<ClientResponse> = make();
+        pending_requests = pending_requests[req_id] := ch;
+        on_client_request(cmd);
+        <- ch
+    }
+
+    async fn ClientRead(key: string): ClientResponse {
+        println("ClientRead: key={key}");
+        var req_id = next_req_id;
+        next_req_id = next_req_id + n;
+        var cmd = Command{ client_node: self, req_id: req_id, kind: 0, key: key, uid: nil };
+        var ch: chan<ClientResponse> = make();
+        pending_requests = pending_requests[req_id] := ch;
+        on_client_request(cmd);
+        <- ch
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Broadcast helpers
+    // ─────────────────────────────────────────────────────────
+
+    fn broadcast_propose(slot: int, ballot: Ballot, value: Command?) {
+        for var i = 0; i < n; i = i + 1 {
+            links[i]->HandlePropose(self, slot, ballot, value);
+        }
+    }
+
+    fn broadcast_prepare(slot: int, ballot: Ballot) {
+        for var i = 0; i < n; i = i + 1 {
+            links[i]->HandlePrepare(self, slot, ballot);
+        }
+    }
+
+    fn broadcast_learn(slot: int, value: Command?) {
+        for var i = 0; i < n; i = i + 1 {
+            links[i]->HandleLearn(slot, value);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Paxos message handlers
+    // ─────────────────────────────────────────────────────────
+
+    // PROPOSE (SUGGEST / SKIP / Phase 2a for a revoker).
+    @trace
+    async fn HandlePropose(sender_id: int, slot: int, ballot: Ballot, value: Command?) {
+        if is_learned(slot) {
+            // Help the sender catch up.
+            links[sender_id]->HandleLearn(slot, learned_value[slot]);
+            return ();
+        }
+
+        // Fast path: SKIP at ballot 0. The sender is the owner unilaterally
+        // choosing no-op for its slot.
+        if ballot.round == 0 and value == nil {
+            learn_slot(slot, nil);
+            persist();
+            return ();
+        }
+
+        var prep = get_prepared(slot);
+        var acc = get_accepted_ballot(slot);
+        // prepared_ballot ≤ ballot AND accepted_ballot < ballot
+        if ballot_gte(ballot, prep) and ballot_gt(ballot, acc) {
+            if ballot.round == 0 and owner_of(slot) != self {
+                // SUGGEST (real command) from the owner, received by a
+                // non-owner — fill gaps on this replica per Rule 2. Safe
+                // under FIFO: every earlier message from the owner has
+                // already been delivered.
+                on_suggestion(slot);
+                if is_learned(slot) { return (); }
+            }
+            accepted_ballot = accepted_ballot[slot] := ballot;
+            has_accepted = has_accepted[slot] := true;
+            accepted_value = accepted_value[slot] := value;
+            persist();
+            links[sender_id]->HandleAccept(self, slot, ballot, value);
+        } else {
+            persist();
+        }
+    }
+
+    // ACCEPT — response to the proposer (coordinator or revoker).
+    @trace
+    async fn HandleAccept(sender_id: int, slot: int, ballot: Ballot, value: Command?) {
+        if is_learned(slot) { return (); }
+
+        if ballot.round == 0 {
+            // Proposer is the owner. sender_id sending ACCEPT for slot i
+            // implies (under FIFO) sender_id has handled all its earlier
+            // owned instances.
+            on_accept_suggestion(slot, sender_id);
+        }
+
+        // Phase 2b tally — the proposer is the only one that processes this,
+        // but the protocol is written as if all do. Only count for the ballot
+        // we currently care about.
+        var active: Ballot = Ballot{ round: -1, leader: -1 };
+        var have_active = false;
+
+        if ballot.round == 0 and owner_of(slot) == self {
+            active = Ballot{ round: 0, leader: self };
+            have_active = true;
+        } else if exists(revoke_ballot, slot) and exists(revoke_phase, slot) and revoke_phase[slot] == 2 {
+            active = revoke_ballot[slot];
+            have_active = true;
+        }
+
+        if !have_active or !ballot_eq(ballot, active) { return (); }
+
+        var count = 1;
+        if exists(revoke_accept_count, slot) {
+            count = revoke_accept_count[slot] + 1;
+        }
+        revoke_accept_count = revoke_accept_count[slot] := count;
+
+        if count >= majority() {
+            // Learn locally and propagate. Future ACCEPTs will early-exit on
+            // the is_learned check at the top of this function.
+            learn_slot(slot, value);
+            persist();
+            broadcast_learn(slot, value);
+        }
+    }
+
+    // LEARN — peer tells us a slot was chosen.
+    @trace
+    async fn HandleLearn(slot: int, value: Command?) {
+        if is_learned(slot) { return (); }
+        learn_slot(slot, value);
+        persist();
+    }
+
+    // PREPARE — revoker's Phase 1a.
+    @trace
+    async fn HandlePrepare(sender_id: int, slot: int, ballot: Ballot) {
+        if is_learned(slot) {
+            links[sender_id]->HandleLearn(slot, learned_value[slot]);
+            return ();
+        }
+
+        var prep = get_prepared(slot);
+        if ballot_gt(ballot, prep) {
+            prepared_ballot = prepared_ballot[slot] := ballot;
+            has_prepared = has_prepared[slot] := true;
+            persist();
+
+            var info = AckInfo{
+                prepared_ballot: ballot,
+                has_accepted: exists(has_accepted, slot) and has_accepted[slot],
+                accepted_ballot: get_accepted_ballot(slot),
+                accepted_value: if exists(has_accepted, slot) and has_accepted[slot] {
+                    accepted_value[slot]
+                } else {
+                    nil
+                },
+            };
+            links[sender_id]->HandleAck(self, slot, ballot, info);
+        } else {
+            persist();
+        }
+    }
+
+    // ACK — revoker's Phase 1b.
+    @trace
+    async fn HandleAck(sender_id: int, slot: int, ballot: Ballot, info: AckInfo) {
+        if is_learned(slot) { return (); }
+        if !exists(revoke_ballot, slot) { return (); }
+        if !ballot_eq(revoke_ballot[slot], ballot) { return (); }
+        if !exists(revoke_phase, slot) or revoke_phase[slot] != 1 { return (); }
+
+        if info.has_accepted {
+            if !exists(revoke_best_has_val, slot) or !revoke_best_has_val[slot]
+                or ballot_gt(info.accepted_ballot, revoke_best_ballot[slot]) {
+                revoke_best_has_val = revoke_best_has_val[slot] := true;
+                revoke_best_ballot = revoke_best_ballot[slot] := info.accepted_ballot;
+                revoke_best_value = revoke_best_value[slot] := info.accepted_value;
+            }
+        }
+
+        var count = revoke_ack_count[slot] + 1;
+        revoke_ack_count = revoke_ack_count[slot] := count;
+
+        if count >= majority() {
+            // Phase 2: propose hv, or no-op if no value seen.
+            revoke_phase = revoke_phase[slot] := 2;
+            revoke_accept_count = revoke_accept_count[slot] := 0;
+
+            var hv: Command? = nil;
+            if exists(revoke_best_has_val, slot) and revoke_best_has_val[slot] {
+                hv = revoke_best_value[slot];
+            }
+            println("Revoke slot {slot}: phase2 ballot=({ballot.round},{ballot.leader})");
+            broadcast_propose(slot, ballot, hv);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Revoke (on suspicion of peer q)
+    // ─────────────────────────────────────────────────────────
+
+    // Start a revoke for slot i at a fresh ballot. Caller ensures slot is
+    // not yet learned.
+    fn start_revoke(slot: int) {
+        if is_learned(slot) { return (); }
+
+        var prior = get_prepared(slot);
+        var new_round = prior.round + 1;
+        var b = Ballot{ round: new_round, leader: self };
+
+        revoke_ballot = revoke_ballot[slot] := b;
+        revoke_phase = revoke_phase[slot] := 1;
+        revoke_ack_count = revoke_ack_count[slot] := 0;
+        revoke_best_has_val = revoke_best_has_val[slot] := false;
+        revoke_best_ballot = revoke_best_ballot[slot] := Ballot{ round: -1, leader: -1 };
+        revoke_best_value = revoke_best_value[slot] := nil;
+        revoke_accept_count = revoke_accept_count[slot] := 0;
+
+        println("Revoke start: slot={slot} ballot=({new_round},{self})");
+        broadcast_prepare(slot, b);
+    }
+
+    fn on_suspect(q: int) {
+        // C_q = smallest unlearned slot owned by q.
+        var c = first_owned_from(est_index[q], q);
+        // Bound how many of q's instances we revoke at once so we don't flood.
+        var limit = 3;
+        var revoked = 0;
+        var i = c;
+        for ; revoked < limit; {
+            if i >= my_index + n { return (); }
+            if i % n == q and !is_learned(i) and !exists(revoke_ballot, i) {
+                start_revoke(i);
+                revoked = revoked + 1;
+            }
+            i = i + 1;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Suspicion monitor
+    // ─────────────────────────────────────────────────────────
+
+    async fn monitor_suspicions() {
+        for ;; {
+            <- set_timer("suspect");
+            // On each timeout, revoke pending slots for every peer that seems
+            // stuck. This is a coarse failure detector — the simulator decides
+            // when this timer fires.
+            for var q = 0; q < n; q = q + 1 {
+                if q != self {
+                    on_suspect(q);
+                }
+            }
+        }
+    }
+}
+
+ClientInterface {
+    async fn Write(dest: Node, key: string, uid: int) {
+        var target = dest;
+        for ;; {
+            var resp = <- target->ClientWrite(key, uid);
+            if resp.success { return (); }
+            target = resp.redirect;
+        }
+    }
+
+    async fn Read(dest: Node, key: string): list<int> {
+        var target = dest;
+        for ;; {
+            var resp = <- target->ClientRead(key);
+            if resp.success { return resp.value; }
+            target = resp.redirect;
+        }
+        []
+    }
+}

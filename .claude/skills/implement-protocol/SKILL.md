@@ -49,6 +49,13 @@ Parse the arguments from the input:
    - **No persistence**: skip `persist_data`/`retrieve_data`/`RecoverInit`
    - **Add feature X**: modify existing spec to add a specific feature
 
+6. **Flag ambiguities and underspecifications**: As you read the pseudocode, actively look for and record:
+   - Cases where the pseudocode doesn't specify what happens in an error or edge case
+   - Ambiguous ordering (does step A happen before or after step B?)
+   - Implicit assumptions not stated in the paper (e.g., "messages arrive in order")
+   - Missing state transitions or unhandled message types
+   - Do NOT silently resolve these — note each one and report them to the user.
+
 ## Phase 2: Design
 
 Present a design to the user for approval before writing any code. Include:
@@ -107,6 +114,8 @@ Before moving to testing:
 3. Verify `Init` sets up all required state and spawns background tasks (timeout monitors, etc.)
 4. If crash recovery is in scope: verify `persist_data` is called for critical state before yield points
 5. Check all message type match arms are handled
+6. **Report implementation choices**: Explicitly list every point where the implementation had to make a choice not dictated by the pseudocode (e.g., "the paper doesn't specify whether to reset the vote counter on duplicate votes — I chose to ignore duplicates"). These are potential sources of bugs and may represent real underspecifications in the paper.
+7. **Report flagged ambiguities**: Present the list of ambiguities and underspecifications identified in Phase 1. These are candidates for protocol bugs that testing may expose.
 
 Present the complete spec to the user for final review.
 

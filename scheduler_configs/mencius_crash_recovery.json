@@ -1,0 +1,27 @@
+{
+  "num_servers": 3,
+  "num_runs": 500000,
+  "max_iterations": 8000,
+  "events": {
+    "w0":    { "write": [0, "x"] },
+    "w1":    { "write": [1, "y"] },
+    "crash1":{ "crash": 1 },
+    "w2":    { "write": [2, "z"] },
+    "w0b":   { "write": [0, "x"] },
+    "rec1":  { "recover": 1 },
+    "r0":    { "read": [0, "x"] },
+    "r1":    { "read": [1, "y"] },
+    "r2":    { "read": [2, "z"] }
+  },
+  "dependencies": [
+    ["w0",     "crash1"],
+    ["w1",     "crash1"],
+    ["crash1", "w2"],
+    ["crash1", "w0b"],
+    ["w2",     "rec1"],
+    ["w0b",    "rec1"],
+    ["rec1",   "r0"],
+    ["rec1",   "r1"],
+    ["rec1",   "r2"]
+  ]
+}

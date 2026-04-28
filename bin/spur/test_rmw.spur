@@ -1,0 +1,53 @@
+role Node {
+    var kv_store: map<string, list<(int?, int)>> = {};
+
+    fn Init(me: int, peers: list<Node>) {
+        kv_store = {};
+    }
+
+    async fn Read(key: string): list<(int?, int)> {
+        if (exists(kv_store, key)) {
+            return kv_store[key];
+        }
+        return [];
+    }
+
+    async fn Write(key: string, uid: int) {
+        var prior: list<(int?, int)> = [];
+        if (exists(kv_store, key)) {
+            prior = kv_store[key];
+        }
+        var no_prev: int? = nil;
+        var entry: (int?, int) = (no_prev, uid);
+        kv_store = kv_store[key] := append(prior, entry);
+    }
+
+    async fn RMW(key: string, uid: int) {
+        var prior: list<(int?, int)> = [];
+        if (exists(kv_store, key)) {
+            prior = kv_store[key];
+        }
+        var prev: int? = nil;
+        if (len(prior) > 0) {
+            var last_entry: (int?, int) = prior[len(prior) - 1];
+            prev = last_entry.1;
+        }
+        var entry: (int?, int) = (prev, uid);
+        kv_store = kv_store[key] := append(prior, entry);
+    }
+}
+
+ClientInterface {
+    async fn Read(dest: Node, key: string): list<(int?, int)> {
+        var val = <- dest->Read(key);
+        return val;
+    }
+
+    async fn Write(dest: Node, key: string, uid: int) {
+        <- dest->Write(key, uid);
+    }
+
+    async fn RMW(dest: Node, key: string, uid: int) {
+        <- dest->RMW(key, uid);
+    }
+}

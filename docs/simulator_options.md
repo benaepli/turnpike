@@ -155,15 +155,25 @@ See [Simulator Semantics](simulator_semantics.md#purgatory-message-delays) for d
 
 ### `max_concurrent_writes`
 
-Caps the number of generator-produced Write operations that can be in flight simultaneously. Only applies to `explore` configs (the plan generator). Unset (the default) disables the cap; `0` is invalid.
+Caps the number of generator-produced write-like operations (Write and RMW) that can be in flight simultaneously. Only applies to `explore` configs (the plan generator). Unset (the default) disables the cap; `0` is invalid.
 
-When set to `K >= 1`, `generate_plan` adds a mandatory edge from `write[i - K]` to `write[i]` in declaration order, forcing earlier writes to complete before later ones can start. This is the primary knob for controlling Porcupine's cost on the `kv` model: concurrent Writes multiply per-key state combinatorially, and the cap upper-bounds that explosion.
+When set to `K >= 1`, `generate_plan` adds a mandatory edge from `op[i - K]` to `op[i]` in declaration order across the combined Write/RMW sequence, forcing earlier write-like ops to complete before later ones can start. This is the primary knob for controlling Porcupine's cost on the `kv` and `kv_rmw` models: concurrent state-mutating ops multiply per-key state combinatorially, and the cap upper-bounds that explosion.
 
-The chain is global across keys — it is an over-approximation when write keys are diverse, but gives a strict bound regardless.
+The chain is global across keys and across the Write/RMW distinction — it is an over-approximation when write keys are diverse, but gives a strict bound regardless.
 
 ```json
 "max_concurrent_writes": { "min": 2, "max": 3, "step": 1 }
 ```
+
+### `num_rmw_ops`
+
+Controls how many `ClientInterface.RMW` invocations the plan generator emits per run. Only applies to `explore` configs and is **opt-in** — defaults to `{min: 0, max: 0, step: 1}`, so existing configs and specs are unaffected. Set this to a positive value only when the spec under test declares a void `RMW(dest, key, uid)` in `ClientInterface` and stores `map<string, list<(int?, int)>>` in `kv_store` (the Gryff-style shape).
+
+```json
+"num_rmw_ops": { "min": 1, "max": 3, "step": 1 }
+```
+
+RMW invocations share the [`max_concurrent_writes`](#max_concurrent_writes) budget with `Write` since both mutate per-key state. The corresponding Porcupine model is `-model kv_rmw`; `prev_uid` correctness is validated only when a `Read` returns the tagged log, so configs with `num_rmw_ops > 0` should keep `num_read_ops > 0` (the explorer logs a warning otherwise).
 
 ### `num_keys`
 
@@ -196,3 +206,5 @@ Porcupine is the linearizability checker that integrates natively with the `exec
 By running `porcupine/main` on the resulting SQLite/Parquet files, developers can ascertain if a generated schedule violated the guarantees of the protocol (e.g. key-value constraints). Porcupine also yields a useful HTML visualization that diagrams the execution interleavings of node invocations, facilitating debugging when a simulation trace violates linearizability.
 
 The `kv` model treats each key's value as an append-only log of write uids — `Write(dest, key, uid)` appends `uid` to that key's log, and `Read(dest, key)` must return the full committed log as a `list<int>`. Because the state space of ordered logs grows combinatorially with concurrent writes, large configurations should use [`max_concurrent_writes`](#max_concurrent_writes) to keep the check tractable.
+
+The `kv_rmw` model is the read-modify-write variant. Each key's value is a `list<(int?, int)>` of `(prev_uid, uid)` entries: blind `Write` appends `(nil, uid)`, and `RMW` appends `(prior_tail_uid?, uid)` where the model authoritatively records the `prev_uid` implied by the linearization. `Read` returns this tagged log. Validation is **deferred to Read**: the model accepts any RMW invocation but rejects a `Read` whose observed log disagrees with the model's chain (including the `prev_uid` fields). A protocol that records the wrong `prev_uid` for an RMW is therefore caught only when a subsequent `Read` exposes it — pair `num_rmw_ops > 0` with `num_read_ops > 0`. The `kv` and `kv_rmw` models are not interchangeable: the response shapes differ, so a spec picks one and uses the matching `-model` flag.
