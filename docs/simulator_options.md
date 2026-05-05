@@ -80,7 +80,7 @@ Controls which queue group the scheduler draws from on each step. Specified as a
 
 ### `within_queue_selector`
 
-Controls how a single runnable is picked from the eligible items *within* the queue chosen by `queue_policy`. Each runnable has a score in `[0, 1]` combining novelty and priority; this selector decides how that score maps to selection probability.
+Controls how a single runnable is picked from the eligible items _within_ the queue chosen by `queue_policy`. Each runnable has a score in `[0, 1]` combining novelty and priority; this selector decides how that score maps to selection probability.
 
 **`Tournament`** (default) — sample `k` indices uniformly with replacement, take the highest score. Near-greedy for typical k, since the top item wins with probability `1 − (1 − 1/N)^k` on a queue of size N.
 
@@ -167,13 +167,13 @@ The chain is global across keys and across the Write/RMW distinction — it is a
 
 ### `num_rmw_ops`
 
-Controls how many `ClientInterface.RMW` invocations the plan generator emits per run. Only applies to `explore` configs and is **opt-in** — defaults to `{min: 0, max: 0, step: 1}`, so existing configs and specs are unaffected. Set this to a positive value only when the spec under test declares a void `RMW(dest, key, uid)` in `ClientInterface` and stores `map<string, list<(int?, int)>>` in `kv_store` (the Gryff-style shape).
+Controls how many `ClientInterface.RMW` invocations the plan generator emits per run. Only applies to `explore` configs and is **opt-in** — defaults to `{min: 0, max: 0, step: 1}`, so existing configs and specs are unaffected. Set this to a positive value only when the spec under test declares `RMW(dest, key, uid): list<int>` in `ClientInterface` and stores `map<string, list<int>>` in `kv_store` under the `kv_rmw` Write/RMW semantics (Write overwrites, RMW appends).
 
 ```json
 "num_rmw_ops": { "min": 1, "max": 3, "step": 1 }
 ```
 
-RMW invocations share the [`max_concurrent_writes`](#max_concurrent_writes) budget with `Write` since both mutate per-key state. The corresponding Porcupine model is `-model kv_rmw`; `prev_uid` correctness is validated only when a `Read` returns the tagged log, so configs with `num_rmw_ops > 0` should keep `num_read_ops > 0` (the explorer logs a warning otherwise).
+RMW invocations share the [`max_concurrent_writes`](#max_concurrent_writes) budget with `Write` since both mutate per-key state. The corresponding Porcupine model is `-model kv_rmw`. Each RMW's return value is checked directly against the model's state, so RMW errors surface without needing a follow-up `Read` — though reads still add useful coverage.
 
 ### `num_keys`
 
@@ -207,4 +207,4 @@ By running `porcupine/main` on the resulting SQLite/Parquet files, developers ca
 
 The `kv` model treats each key's value as an append-only log of write uids — `Write(dest, key, uid)` appends `uid` to that key's log, and `Read(dest, key)` must return the full committed log as a `list<int>`. Because the state space of ordered logs grows combinatorially with concurrent writes, large configurations should use [`max_concurrent_writes`](#max_concurrent_writes) to keep the check tractable.
 
-The `kv_rmw` model is the read-modify-write variant. Each key's value is a `list<(int?, int)>` of `(prev_uid, uid)` entries: blind `Write` appends `(nil, uid)`, and `RMW` appends `(prior_tail_uid?, uid)` where the model authoritatively records the `prev_uid` implied by the linearization. `Read` returns this tagged log. Validation is **deferred to Read**: the model accepts any RMW invocation but rejects a `Read` whose observed log disagrees with the model's chain (including the `prev_uid` fields). A protocol that records the wrong `prev_uid` for an RMW is therefore caught only when a subsequent `Read` exposes it — pair `num_rmw_ops > 0` with `num_read_ops > 0`. The `kv` and `kv_rmw` models are not interchangeable: the response shapes differ, so a spec picks one and uses the matching `-model` flag.
+The `kv_rmw` model is the read-modify-write variant and exposes three operations on a `map<string, list<int>>` state. `Write(dest, key, uid)` is a **blind overwrite**: `state[key] = [uid]`, with no output check. `RMW(dest, key, uid)` appends `uid` to `state[key]` and must return the prior list — the model rejects an RMW whose return value disagrees with what the linearization implies (a pending RMW with no response skips this check). `Read(dest, key)` must return the current `state[key]`, exactly as in the `kv` model. Because RMW errors are caught from the RMW response itself, `num_rmw_ops > 0` no longer requires `num_read_ops > 0`, though reads still add coverage. The `kv` and `kv_rmw` models are not interchangeable: `Write` appends under `kv` and overwrites under `kv_rmw`, so a spec picks one set of semantics and the matching `-model` flag.

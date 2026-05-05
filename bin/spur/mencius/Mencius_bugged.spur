@@ -20,10 +20,16 @@
 //   - OnLearned re-suggest (Rule 4)
 //   - Revoke: full Paxos Phase 1 + 2 at ballot > 0 (Rule 3, minus beta window)
 //   - Crash recovery via persist_data/retrieve_data
+//   - Optimization 1: piggyback SKIP from p on the ACCEPT p sends to slot
+//     owner q. q infers p's skipped slots in HandleAccept via
+//     on_accept_suggestion → fill_q_skips. p suppresses the explicit SKIP
+//     send to q in on_suggestion.
+//   - Optimization 2 + Accelerator 1: defer SKIPs from p to other peers r.
+//     Skipped slots accumulate in need_to_skip[r] and propagate when (a) p
+//     sends a future SUGGEST(j) to r, (b) len(need_to_skip[r]) reaches α, or
+//     (c) the τ-timer for r fires.
 //
 // Out of scope (TODO):
-//   - Optimization 1 (piggyback SKIP on ACCEPT)
-//   - Optimization 2 + Accelerator 1 (batched skip propagation)
 //   - Optimization 3 (beta-window bulk revocation)
 //   - Out-of-order commit
 //
@@ -75,6 +81,7 @@ type PersistentState {
     expected: int;
     my_index: int;
     proposed: map<int, Command>;
+    links: map<int, FifoLink<Node>>;
 };
 
 role Node {
@@ -118,8 +125,17 @@ role Node {
     var applied_cmds: map<string, bool> = {};
 
     // ── FIFO links to peers (one per peer index) ─────────────
-    // Volatile: rebuilt on Init and RecoverInit.
+    // Persisted so cross-crash FIFO ordering is preserved: post-recovery
+    // sends arrive after any pre-crash in-flight messages on the same link.
     var links: map<int, FifoLink<Node>> = {};
+
+    // ── Opt 2 + Accelerator 1: pending skip propagation ──────
+    // need_to_skip[r] = self-owned slots that self has locally learned as
+    // no-op but has not yet told r about. Cleared when a piggyback channel
+    // fires (next SUGGEST to r in on_client_request, threshold α, or τ-timer).
+    // Not persisted — on recovery we rebuild via revoke / future SUGGESTs.
+    var need_to_skip: map<int, list<int>> = {};
+    var skip_timer_active: map<int, bool> = {};
 
     // ─────────────────────────────────────────────────────────
     // Init / Recover
@@ -135,6 +151,7 @@ role Node {
             links = links[q] := fifo(peers[q]);
         }
         next_req_id = self; // unique across nodes: use stride of n
+        persist(); // save fresh FIFO links so they survive a future crash
         println("Node {self} initialized. n={n}");
         monitor_suspicions();
     }
@@ -158,16 +175,20 @@ role Node {
             expected = s.expected;
             my_index = s.my_index;
             proposed = s.proposed;
+            // Restore persisted FIFO links so post-recovery sends are
+            // ordered after any pre-crash in-flight messages.
+            links = s.links;
         } else {
             my_index = self;
+            links = {};
+            for var q = 0; q < n; q = q + 1 {
+                links = links[q] := fifo(peers[q]);
+            }
         }
 
-        // Reset volatile state
         est_index = {};
-        links = {};
         for var q = 0; q < n; q = q + 1 {
             est_index = est_index[q] := q;
-            links = links[q] := fifo(peers[q]);
         }
         revoke_ballot = {};
         revoke_phase = {};
@@ -268,6 +289,7 @@ role Node {
             expected: expected,
             my_index: my_index,
             proposed: proposed,
+            links: links,
         });
     }
 
@@ -414,18 +436,85 @@ role Node {
         var q = owner_of(i);
         fill_q_skips(q, i);
 
-        // Skip my own unused instances in [my_index, i).
+        // Locally skip my own unused instances in [my_index, i).
+        var skip_set: list<int> = [];
         var k = my_index;
         for ; k < i; {
             if k % n == self and !is_learned(k) {
-                // Locally learn no-op and broadcast PROPOSE(0, no-op) to peers.
                 learn_slot(k, nil);
-                broadcast_propose(k, Ballot{ round: 0, leader: self }, nil);
+                skip_set = append(skip_set, k);
             }
             k = k + 1;
         }
         if i > my_index {
             my_index = next_owned(i, self);
+        }
+
+        // Opt 1: do NOT send a separate SKIP to q (= owner(i)). The ACCEPT
+        // we'll send back for slot i piggybacks the skip — q's HandleAccept
+        // calls on_accept_suggestion(i, self) → fill_q_skips(self, i).
+        //
+        // Opt 2 + Accelerator 1: for every other peer r, accumulate the
+        // skipped slots in need_to_skip[r] and let one of three triggers
+        // propagate them.
+        if len(skip_set) > 0 {
+            defer_skips(q, skip_set);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Opt 2 + Accelerator 1: deferred / batched SKIP propagation
+    // ─────────────────────────────────────────────────────────
+
+    // Batch threshold (Accelerator 1): once need_to_skip[r] reaches α slots,
+    // flush immediately instead of waiting for the timer.
+    fn skip_alpha(): int { 5 }
+
+    // Add skip_set to need_to_skip[r] for every peer r ∉ {self, q}, and
+    // either flush (threshold α) or arm the τ-timer.
+    fn defer_skips(q: int, skip_set: list<int>) {
+        for var r = 0; r < n; r = r + 1 {
+            if r != self and r != q {
+                var pending: list<int> = [];
+                if exists(need_to_skip, r) { pending = need_to_skip[r]; }
+                for s in skip_set {
+                    pending = append(pending, s);
+                }
+                need_to_skip = need_to_skip[r] := pending;
+
+                if len(pending) >= skip_alpha() {
+                    send_skips_to(r);
+                } else if !exists(skip_timer_active, r) or !skip_timer_active[r] {
+                    // Arm a τ-timer for r. We can't truly cancel a Spur timer,
+                    // so the handler re-checks skip_timer_active[r] before
+                    // sending — stale fires after a flush become no-ops.
+                    skip_timer_active = skip_timer_active[r] := true;
+                    skip_timer_for(r);
+                }
+            }
+        }
+    }
+
+    // Flush all pending skips to r as PROPOSE(0, nil) over the FIFO link.
+    fn send_skips_to(r: int) {
+        if !exists(need_to_skip, r) { return (); }
+        var pending = need_to_skip[r];
+        need_to_skip = need_to_skip[r] := [];
+        skip_timer_active = skip_timer_active[r] := false;
+        if len(pending) == 0 { return (); }
+        for s in pending {
+            links[r]->HandlePropose(self, s, Ballot{ round: 0, leader: self }, nil);
+        }
+    }
+
+    // τ-timer driver per peer. The simulator decides when this fires; we just
+    // flush if a flush is still wanted (skip_timer_active[r] still true).
+    // The label is fixed (set_timer takes only a string literal); each call
+    // returns a distinct channel, so per-peer timers fire independently.
+    async fn skip_timer_for(r: int) {
+        <- set_timer("skip");
+        if exists(skip_timer_active, r) and skip_timer_active[r] {
+            send_skips_to(r);
         }
     }
 
@@ -438,6 +527,19 @@ role Node {
         proposed = proposed[i] := cmd;
         my_index = next_owned(i, self);
         persist();
+
+        // Opt 2: the SUGGEST(i) we're about to broadcast piggybacks every
+        // pending skip — each recipient r runs on_suggestion(i) →
+        // fill_q_skips(self, i), which subsumes need_to_skip[r] (all entries
+        // are self-owned slots < i). Clear pending state and logically cancel
+        // any τ-timers (the handler re-checks skip_timer_active[r]).
+        for var r = 0; r < n; r = r + 1 {
+            if r != self {
+                need_to_skip = need_to_skip[r] := [];
+                skip_timer_active = skip_timer_active[r] := false;
+            }
+        }
+
         broadcast_propose(i, Ballot{ round: 0, leader: self }, cmd);
     }
 

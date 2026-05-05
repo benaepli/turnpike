@@ -14,3 +14,4 @@ target
 perf.data
 output2
 tmp/
+output_*/

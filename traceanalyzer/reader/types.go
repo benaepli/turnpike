@@ -28,6 +28,7 @@ type ExecutionRow struct {
 	Kind     string // "Invocation", "Response", "Crash", "Recover"
 	Action   string
 	Payload  string
+	Step     int32
 }
 
 // Invocation represents a paired Enter+Exit for one trace_id.

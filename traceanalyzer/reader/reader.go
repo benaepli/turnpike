@@ -166,7 +166,7 @@ func ReadExecutions(dbPath string, runID int64) ([]ExecutionRow, error) {
 
 	if runID >= 0 {
 		query = fmt.Sprintf(`
-			SELECT run_id, seq_num, unique_id, client_id, kind, action, payload
+			SELECT run_id, seq_num, unique_id, client_id, kind, action, payload, step
 			FROM %s
 			WHERE run_id = ?
 			ORDER BY run_id, seq_num ASC
@@ -174,7 +174,7 @@ func ReadExecutions(dbPath string, runID int64) ([]ExecutionRow, error) {
 		rows, err = db.Query(query, runID)
 	} else {
 		query = fmt.Sprintf(`
-			SELECT run_id, seq_num, unique_id, client_id, kind, action, payload
+			SELECT run_id, seq_num, unique_id, client_id, kind, action, payload, step
 			FROM %s
 			ORDER BY run_id, seq_num ASC
 		`, src)
@@ -190,7 +190,7 @@ func ReadExecutions(dbPath string, runID int64) ([]ExecutionRow, error) {
 		var e ExecutionRow
 		if err := rows.Scan(
 			&e.RunID, &e.SeqNum, &e.UniqueID, &e.ClientID,
-			&e.Kind, &e.Action, &e.Payload,
+			&e.Kind, &e.Action, &e.Payload, &e.Step,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan execution row: %w", err)
 		}

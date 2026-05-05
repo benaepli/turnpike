@@ -56,10 +56,10 @@ cd porcupine && go build -o main main.go && cd ..
 - **Exit code 0** = all runs linearizable
 - **Exit code 2** = linearizability violations found
 
-Two model variants exist; pick one based on the spec's `kv_store` shape:
+Two model variants exist; pick one based on what operations the spec exposes:
 
-- `-model kv` — for protocols with only `Read`/`Write` whose `kv_store` is `map<string, list<int>>` (Paxos, Raft, VR, Mencius, CRAQ, …).
-- `-model kv_rmw` — for protocols that also expose `ClientInterface.RMW` and store `map<string, list<(int?, int)>>` (each entry is `(prev_uid, uid)` — Gryff and similar). The two are not interchangeable: a spec uses one shape and one model.
+- `-model kv` — for protocols with only `Read`/`Write`. `Write(key, uid)` appends `uid` to `kv_store[key]`. State: `map<string, list<int>>` (Paxos, Raft, VR, Mencius, CRAQ, …).
+- `-model kv_rmw` — for protocols that also expose `ClientInterface.RMW`. `Write(key, uid)` is a **blind overwrite** (`kv_store[key] = [uid]`); `RMW(key, uid)` appends `uid` and returns the prior list. State: `map<string, list<int>>` (same shape, different Write semantics). The two models are not interchangeable: Write means append under `kv` and overwrite under `kv_rmw`.
 
 ## Project Layout
 
@@ -78,4 +78,4 @@ Two model variants exist; pick one based on the spec's `kv_store` shape:
 - The simulator uses DuckDB as its default log backend
 - Porcupine checks linearizability by analyzing `ClientInterface` `Read`/`Write` call-response pairs
 - Every spec must have a `ClientInterface` with `Read` and `Write` functions for linearizability verification to work
-- `ClientInterface.RMW(dest, key, uid)` is optional; it is exercised when the scheduler config sets `num_rmw_ops > 0` and is checked under `-model kv_rmw`
+- `ClientInterface.RMW(dest, key, uid): list<int>` is optional; it returns the prior committed list for `key` and is exercised when the scheduler config sets `num_rmw_ops > 0`. Checked under `-model kv_rmw`.

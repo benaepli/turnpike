@@ -1,0 +1,781 @@
+type Carstamp {
+    ts: int;
+    id: int;
+    rmwc: int;
+};
+
+type Base {
+    v: list<int>;
+    cs: Carstamp;
+};
+
+type DependencySet = map<int, bool>;
+
+// RMW instance status: 0=pre-accepted, 1=accepted, 2=committed, 3=executed
+type Instance {
+    key: string;
+    uid: int;
+    deps: DependencySet;
+    seq: int;
+    base: Base;
+    status: int;
+    coordinator: int;
+};
+
+type Read1ReplyData {
+    v: list<int>;
+    cs: Carstamp;
+};
+
+type ReadOp {
+    key: string;
+    phase: int;
+    r1_replies: list<Read1ReplyData>;
+    r2_count: int;
+    result_ch: chan<list<int>>;
+};
+
+type WriteOp {
+    key: string;
+    uid: int;
+    phase: int;
+    w1_replies: list<Carstamp>;
+    w2_count: int;
+    done_ch: chan<()>;
+};
+
+type PreAcceptMsg {
+    sender: int;
+    inst_id: int;
+    key: string;
+    uid: int;
+    seq: int;
+    deps: DependencySet;
+    base: Base;
+};
+
+type PreAcceptOKMsg {
+    inst_id: int;
+    seq: int;
+    deps: DependencySet;
+    base: Base;
+};
+
+type AcceptMsg {
+    sender: int;
+    inst_id: int;
+    key: string;
+    uid: int;
+    seq: int;
+    deps: DependencySet;
+    base: Base;
+};
+
+type CommitMsg {
+    sender: int;
+    inst_id: int;
+    key: string;
+    uid: int;
+    seq: int;
+    deps: DependencySet;
+    base: Base;
+};
+
+type ExecutedMsg {
+    inst_id: int;
+    base_v: list<int>;
+};
+
+role Node {
+    var self: int = 0;
+    var replicas: list<Node> = [];
+    var n: int = 0;
+    var f_val: int = 0;
+    var e_val: int = 0;
+
+    // Per-key register state
+    var values: map<string, list<int>> = {};
+    var carstamps: map<string, Carstamp> = {};
+
+    // Per-key prev state for RMW execution
+    var prev_state: map<string, Base> = {};
+
+    // RMW instances
+    var instances: map<int, Instance> = {};
+    var executed: map<int, bool> = {};
+
+    // RMW PreAccept response tracking
+    var pa_replies: map<int, list<PreAcceptOKMsg>> = {};
+    var pa_quorum_met: map<int, bool> = {};
+
+    // RMW Accept response tracking
+    var acc_count: map<int, int> = {};
+
+    // RMW Executed response tracking
+    var exec_replies: map<int, list<list<int>>> = {};
+    var rmw_result_ch: map<int, chan<list<int>>> = {};
+
+    // Read/Write operation tracking
+    var read_ops: map<int, ReadOp> = {};
+    var write_ops: map<int, WriteOp> = {};
+
+    // Tarjan SCC state
+    var t_index: int = 0;
+    var t_stack: list<int> = [];
+    var t_onStack: map<int, bool> = {};
+    var t_ids: map<int, int> = {};
+    var t_low: map<int, int> = {};
+    var t_sccs: list<list<int>> = [];
+    var v_valid: map<int, bool> = {};
+
+    fn Init(me: int, peers: list<Node>) {
+        self = me;
+        replicas = peers;
+        n = len(peers);
+        f_val = (n - 1) / 2;
+        e_val = (n - f_val + 1) / 2;
+    }
+
+    // ===== Helpers =====
+
+    fn cs_less(a: Carstamp, b: Carstamp): bool {
+        if (a.ts < b.ts) { return true; }
+        if (a.ts > b.ts) { return false; }
+        if (a.id < b.id) { return true; }
+        if (a.id > b.id) { return false; }
+        a.rmwc < b.rmwc
+    }
+
+    fn cs_greater(a: Carstamp, b: Carstamp): bool {
+        cs_less(b, a)
+    }
+
+    fn cs_max(a: Carstamp, b: Carstamp): Carstamp {
+        if (cs_less(a, b)) { b } else { a }
+    }
+
+    fn cs_eq(a: Carstamp, b: Carstamp): bool {
+        a.ts == b.ts and a.id == b.id and a.rmwc == b.rmwc
+    }
+
+    fn get_cs(key: string): Carstamp {
+        if (exists(carstamps, key)) { carstamps[key] }
+        else { Carstamp{ ts: 0, id: 0, rmwc: 0 } }
+    }
+
+    fn get_val(key: string): list<int> {
+        if (exists(values, key)) { values[key] }
+        else { [] }
+    }
+
+    fn apply(key: string, v: list<int>, cs: Carstamp) {
+        if (cs_greater(cs, get_cs(key))) {
+            carstamps = carstamps[key] := cs;
+            values = values[key] := v;
+        }
+    }
+
+    fn majority(): int {
+        f_val + 1
+    }
+
+    fn fastQuorum(): int {
+        n - e_val
+    }
+
+    fn dep_union(a: DependencySet, b: DependencySet): DependencySet {
+        var result: DependencySet = {};
+        for (id, _) in a { result = result[id] := true; }
+        for (id, _) in b { result = result[id] := true; }
+        result
+    }
+
+    fn deps_equal(a: DependencySet, b: DependencySet): bool {
+        if (len(a) != len(b)) { return false; }
+        for (id, _) in a {
+            if (!exists(b, id)) { return false; }
+        }
+        true
+    }
+
+    fn localConflicts(key: string, exclude_id: int): DependencySet {
+        var result: DependencySet = {};
+        for (id, inst) in instances {
+            if (id != exclude_id and inst.key == key) {
+                result = result[id] := true;
+            }
+        }
+        result
+    }
+
+    fn maxSeqFromDeps(deps: DependencySet): int {
+        var m: int = 0;
+        for (id, _) in deps {
+            if (exists(instances, id)) {
+                var s: int = instances[id].seq;
+                if (s > m) { m = s; }
+            }
+        }
+        m
+    }
+
+    // ===== Read Coordinator =====
+
+    async fn CoordinateRead(key: string): list<int> {
+        var op_id: int = unique_id();
+        var result_ch: chan<list<int>> = make();
+        read_ops = read_ops[op_id] := ReadOp{
+            key: key, phase: 1, r1_replies: [], r2_count: 0, result_ch: result_ch,
+        };
+        <- HandleRead1(self, op_id, key);
+        for node in replicas {
+            if (node != replicas[self]) {
+                node->HandleRead1(self, op_id, key);
+            }
+        }
+        <- result_ch
+    }
+
+    @trace
+    async fn HandleRead1(sender_id: int, op_id: int, key: string) {
+        var v: list<int> = get_val(key);
+        var cs: Carstamp = get_cs(key);
+        replicas[sender_id]->HandleRead1Reply(op_id, v, cs);
+    }
+
+    async fn HandleRead1Reply(op_id: int, v: list<int>, cs: Carstamp) {
+        if (!exists(read_ops, op_id)) { return (); }
+        var op: ReadOp = read_ops[op_id];
+        if (op.phase != 1) { return (); }
+
+        op = op.r1_replies := append(op.r1_replies, Read1ReplyData{ v: v, cs: cs });
+        read_ops = read_ops[op_id] := op;
+
+        if (len(op.r1_replies) >= majority()) {
+            // Find max carstamp and associated value
+            var max_cs: Carstamp = op.r1_replies[0].cs;
+            var max_v: list<int> = op.r1_replies[0].v;
+            var all_equal: bool = true;
+            for var i = 1; i < len(op.r1_replies); i = i + 1 {
+                var reply: Read1ReplyData = op.r1_replies[i];
+                if (cs_greater(reply.cs, max_cs)) {
+                    max_cs = reply.cs;
+                    max_v = reply.v;
+                }
+                if (!cs_eq(reply.cs, op.r1_replies[0].cs)) {
+                    all_equal = false;
+                }
+            }
+
+            if (all_equal) {
+                // Fast path: all quorum members agree
+                read_ops = erase(read_ops, op_id);
+                send(op.result_ch, max_v);
+            } else {
+                // Slow path: propagate max to a quorum
+                op = op with { phase: 2, r2_count: 0 };
+                read_ops = read_ops[op_id] := op;
+                <- HandleRead2(self, op_id, op.key, max_v, max_cs);
+                for node in replicas {
+                    if (node != replicas[self]) {
+                        node->HandleRead2(self, op_id, op.key, max_v, max_cs);
+                    }
+                }
+            }
+        }
+    }
+
+    @trace
+    async fn HandleRead2(sender_id: int, op_id: int, key: string, v: list<int>, cs: Carstamp) {
+        apply(key, v, cs);
+        replicas[sender_id]->HandleRead2Reply(op_id);
+    }
+
+    async fn HandleRead2Reply(op_id: int) {
+        if (!exists(read_ops, op_id)) { return (); }
+        var op: ReadOp = read_ops[op_id];
+        if (op.phase != 2) { return (); }
+
+        op = op.r2_count := op.r2_count + 1;
+        read_ops = read_ops[op_id] := op;
+
+        if (op.r2_count >= majority()) {
+            // Find max value from phase 1
+            var max_cs: Carstamp = op.r1_replies[0].cs;
+            var max_v: list<int> = op.r1_replies[0].v;
+            for var i = 1; i < len(op.r1_replies); i = i + 1 {
+                if (cs_greater(op.r1_replies[i].cs, max_cs)) {
+                    max_cs = op.r1_replies[i].cs;
+                    max_v = op.r1_replies[i].v;
+                }
+            }
+            read_ops = erase(read_ops, op_id);
+            send(op.result_ch, max_v);
+        }
+    }
+
+    // ===== Write Coordinator =====
+
+    async fn CoordinateWrite(key: string, uid: int): () {
+        var op_id: int = unique_id();
+        var done_ch: chan<()> = make();
+        write_ops = write_ops[op_id] := WriteOp{
+            key: key, uid: uid, phase: 1, w1_replies: [], w2_count: 0, done_ch: done_ch,
+        };
+        <- HandleWrite1(self, op_id, key);
+        for node in replicas {
+            if (node != replicas[self]) {
+                node->HandleWrite1(self, op_id, key);
+            }
+        }
+        <- done_ch;
+    }
+
+    @trace
+    async fn HandleWrite1(sender_id: int, op_id: int, key: string) {
+        var cs: Carstamp = get_cs(key);
+        replicas[sender_id]->HandleWrite1Reply(op_id, cs);
+    }
+
+    async fn HandleWrite1Reply(op_id: int, cs: Carstamp) {
+        if (!exists(write_ops, op_id)) { return (); }
+        var op: WriteOp = write_ops[op_id];
+        if (op.phase != 1) { return (); }
+
+        op = op.w1_replies := append(op.w1_replies, cs);
+        write_ops = write_ops[op_id] := op;
+
+        if (len(op.w1_replies) >= majority()) {
+            // Compute fresh carstamp: (max_ts + 1, self, 0)
+            var max_cs: Carstamp = op.w1_replies[0];
+            for var i = 1; i < len(op.w1_replies); i = i + 1 {
+                max_cs = cs_max(max_cs, op.w1_replies[i]);
+            }
+            var new_cs: Carstamp = Carstamp{ ts: max_cs.ts + 1, id: self, rmwc: 0 };
+            var new_v: list<int> = [op.uid];
+
+            op = op with { phase: 2, w2_count: 0 };
+            write_ops = write_ops[op_id] := op;
+
+            <- HandleWrite2(self, op_id, op.key, new_v, new_cs);
+            for node in replicas {
+                if (node != replicas[self]) {
+                    node->HandleWrite2(self, op_id, op.key, new_v, new_cs);
+                }
+            }
+        }
+    }
+
+    @trace
+    async fn HandleWrite2(sender_id: int, op_id: int, key: string, v: list<int>, cs: Carstamp) {
+        apply(key, v, cs);
+        replicas[sender_id]->HandleWrite2Reply(op_id);
+    }
+
+    async fn HandleWrite2Reply(op_id: int) {
+        if (!exists(write_ops, op_id)) { return (); }
+        var op: WriteOp = write_ops[op_id];
+        if (op.phase != 2) { return (); }
+
+        op = op.w2_count := op.w2_count + 1;
+        write_ops = write_ops[op_id] := op;
+
+        if (op.w2_count >= majority()) {
+            write_ops = erase(write_ops, op_id);
+            send(op.done_ch, ());
+        }
+    }
+
+    // ===== RMW Coordinator (Algorithm 3) =====
+
+    async fn CoordinateRMW(key: string, uid: int): list<int> {
+        var inst_id: int = unique_id();
+        var result_ch: chan<list<int>> = make();
+        rmw_result_ch = rmw_result_ch[inst_id] := result_ch;
+
+        var local_deps: DependencySet = localConflicts(key, inst_id);
+        var seq: int = 1 + maxSeqFromDeps(local_deps);
+        var base: Base = Base{ v: get_val(key), cs: get_cs(key) };
+
+        instances = instances[inst_id] := Instance{
+            key: key, uid: uid, deps: local_deps, seq: seq,
+            base: base, status: 0, coordinator: self,
+        };
+        pa_replies = pa_replies[inst_id] := [];
+        pa_quorum_met = pa_quorum_met[inst_id] := false;
+
+        var msg: PreAcceptMsg = PreAcceptMsg{
+            sender: self, inst_id: inst_id, key: key, uid: uid,
+            seq: seq, deps: local_deps, base: base,
+        };
+        <- HandlePreAccept(msg);
+        for node in replicas {
+            if (node != replicas[self]) {
+                node->HandlePreAccept(msg);
+            }
+        }
+
+        <- result_ch
+    }
+
+    // ===== RMW Replica Handlers (Algorithm 4) =====
+
+    @trace
+    async fn HandlePreAccept(msg: PreAcceptMsg) {
+        var local_deps: DependencySet = localConflicts(msg.key, msg.inst_id);
+        var merged_deps: DependencySet = dep_union(msg.deps, local_deps);
+        var new_seq: int = 1 + maxSeqFromDeps(merged_deps);
+        if (msg.seq > new_seq) { new_seq = msg.seq; }
+
+        // Merge base: if our local carstamp is newer, use ours
+        var local_cs: Carstamp = get_cs(msg.key);
+        var merged_base: Base = msg.base;
+        if (cs_greater(local_cs, msg.base.cs)) {
+            merged_base = Base{ v: get_val(msg.key), cs: local_cs };
+        }
+
+        instances = instances[msg.inst_id] := Instance{
+            key: msg.key, uid: msg.uid, deps: merged_deps, seq: new_seq,
+            base: merged_base, status: 0, coordinator: msg.sender,
+        };
+
+        replicas[msg.sender]->HandlePreAcceptOK(PreAcceptOKMsg{
+            inst_id: msg.inst_id, seq: new_seq, deps: merged_deps, base: merged_base,
+        });
+    }
+
+    async fn HandlePreAcceptOK(msg: PreAcceptOKMsg) {
+        if (!exists(instances, msg.inst_id)) { return (); }
+        if (exists(pa_quorum_met, msg.inst_id) and pa_quorum_met[msg.inst_id]) { return (); }
+
+        var replies: list<PreAcceptOKMsg> = [];
+        if (exists(pa_replies, msg.inst_id)) { replies = pa_replies[msg.inst_id]; }
+        replies = append(replies, msg);
+        pa_replies = pa_replies[msg.inst_id] := replies;
+
+        if (len(replies) >= fastQuorum()) {
+            pa_quorum_met = pa_quorum_met[msg.inst_id] := true;
+
+            // Check fast path: all replies agree on seq, deps, base
+            var all_agree: bool = true;
+            for var i = 1; i < len(replies); i = i + 1 {
+                if (replies[i].seq != replies[0].seq) { all_agree = false; }
+                if (!deps_equal(replies[i].deps, replies[0].deps)) { all_agree = false; }
+                if (!cs_eq(replies[i].base.cs, replies[0].base.cs)) { all_agree = false; }
+            }
+
+            var inst: Instance = instances[msg.inst_id];
+
+            if (all_agree) {
+                // Fast path: commit directly
+                inst = inst with {
+                    deps: replies[0].deps, seq: replies[0].seq,
+                    base: replies[0].base, status: 2,
+                };
+                instances = instances[msg.inst_id] := inst;
+                broadcastCommit(msg.inst_id, inst);
+            } else {
+                // Slow path: merge and run Accept phase
+                var merged_deps: DependencySet = {};
+                var max_seq: int = 0;
+                var max_base: Base = replies[0].base;
+                for reply in replies {
+                    merged_deps = dep_union(merged_deps, reply.deps);
+                    if (reply.seq > max_seq) { max_seq = reply.seq; }
+                    if (cs_greater(reply.base.cs, max_base.cs)) {
+                        max_base = reply.base;
+                    }
+                }
+
+                inst = inst with {
+                    deps: merged_deps, seq: max_seq, base: max_base, status: 1,
+                };
+                instances = instances[msg.inst_id] := inst;
+                acc_count = acc_count[msg.inst_id] := 0;
+
+                var accept_msg: AcceptMsg = AcceptMsg{
+                    sender: self, inst_id: msg.inst_id, key: inst.key, uid: inst.uid,
+                    seq: max_seq, deps: merged_deps, base: max_base,
+                };
+                <- HandleAccept(accept_msg);
+                for node in replicas {
+                    if (node != replicas[self]) {
+                        node->HandleAccept(accept_msg);
+                    }
+                }
+            }
+        }
+    }
+
+    @trace
+    async fn HandleAccept(msg: AcceptMsg) {
+        instances = instances[msg.inst_id] := Instance{
+            key: msg.key, uid: msg.uid, deps: msg.deps, seq: msg.seq,
+            base: msg.base, status: 1, coordinator: msg.sender,
+        };
+        replicas[msg.sender]->HandleAcceptOK(msg.inst_id);
+    }
+
+    async fn HandleAcceptOK(inst_id: int) {
+        if (!exists(instances, inst_id)) { return (); }
+        var inst: Instance = instances[inst_id];
+        if (inst.status != 1) { return (); }
+
+        var count: int = 0;
+        if (exists(acc_count, inst_id)) { count = acc_count[inst_id]; }
+        count = count + 1;
+        acc_count = acc_count[inst_id] := count;
+
+        if (count >= majority()) {
+            inst = inst.status := 2;
+            instances = instances[inst_id] := inst;
+            broadcastCommit(inst_id, inst);
+        }
+    }
+
+    fn broadcastCommit(inst_id: int, inst: Instance) {
+        var commit_msg: CommitMsg = CommitMsg{
+            sender: self, inst_id: inst_id, key: inst.key, uid: inst.uid,
+            seq: inst.seq, deps: inst.deps, base: inst.base,
+        };
+        for node in replicas {
+            if (node != replicas[self]) {
+                node->HandleCommit(commit_msg);
+            }
+        }
+        TryExecute();
+    }
+
+    @trace
+    async fn HandleCommit(msg: CommitMsg) {
+        instances = instances[msg.inst_id] := Instance{
+            key: msg.key, uid: msg.uid, deps: msg.deps, seq: msg.seq,
+            base: msg.base, status: 2, coordinator: msg.sender,
+        };
+        TryExecute();
+    }
+
+    async fn HandleExecuted(msg: ExecutedMsg) {
+        if (!exists(rmw_result_ch, msg.inst_id)) { return (); }
+
+        var replies: list<list<int>> = [];
+        if (exists(exec_replies, msg.inst_id)) { replies = exec_replies[msg.inst_id]; }
+        replies = append(replies, msg.base_v);
+        exec_replies = exec_replies[msg.inst_id] := replies;
+
+        if (len(replies) >= majority()) {
+            var ch: chan<list<int>> = rmw_result_ch[msg.inst_id];
+            rmw_result_ch = erase(rmw_result_ch, msg.inst_id);
+            exec_replies = erase(exec_replies, msg.inst_id);
+            send(ch, replies[0]);
+        }
+    }
+
+    // ===== Execution Engine =====
+
+    fn TryExecute() {
+        var graph: list<int> = buildExecutionGraph();
+        if (len(graph) == 0) { return (); }
+
+        var sccs: list<list<int>> = getSCCs(graph);
+        for scc in sccs {
+            var sorted: list<int> = sortBySeq(scc);
+            for id in sorted {
+                if (!exists(executed, id)) {
+                    executeInstance(id);
+                    executed = executed[id] := true;
+                }
+            }
+        }
+    }
+
+    fn executeInstance(id: int) {
+        var inst: Instance = instances[id];
+
+        // Resolve base: max of committed base vs prev
+        var base: Base = inst.base;
+        if (exists(prev_state, inst.key)) {
+            var prev: Base = prev_state[inst.key];
+            if (cs_greater(prev.cs, base.cs)) {
+                base = prev;
+            }
+        }
+
+        // Apply RMW: append uid to base value
+        var new_v: list<int> = append(base.v, inst.uid);
+        var new_cs: Carstamp = Carstamp{
+            ts: base.cs.ts, id: base.cs.id, rmwc: base.cs.rmwc + 1,
+        };
+
+        // Update prev
+        prev_state = prev_state[inst.key] := Base{ v: new_v, cs: new_cs };
+
+        // Apply to register
+        apply(inst.key, new_v, new_cs);
+
+        // Notify coordinator with the base value (value BEFORE this RMW)
+        replicas[inst.coordinator]->HandleExecuted(ExecutedMsg{
+            inst_id: id, base_v: base.v,
+        });
+    }
+
+    fn buildExecutionGraph(): list<int> {
+        v_valid = {};
+        var graph: list<int> = [];
+        for (id, inst) in instances {
+            if (inst.status == 2 and !exists(executed, id)) {
+                if (checkValidity(id)) {
+                    graph = append(graph, id);
+                }
+            }
+        }
+        graph
+    }
+
+    fn checkValidity(id: int): bool {
+        if (exists(v_valid, id)) { return v_valid[id]; }
+        if (!exists(instances, id)) {
+            v_valid = v_valid[id] := false;
+            return false;
+        }
+        if (instances[id].status != 2) {
+            v_valid = v_valid[id] := false;
+            return false;
+        }
+        if (exists(executed, id)) {
+            v_valid = v_valid[id] := true;
+            return true;
+        }
+
+        // Check all transitively reachable nodes are committed
+        if (allDepsCommitted(id)) {
+            v_valid = v_valid[id] := true;
+            return true;
+        }
+        v_valid = v_valid[id] := false;
+        false
+    }
+
+    fn allDepsCommitted(start: int): bool {
+        // BFS/DFS to check all reachable nodes from start are committed
+        var visited: map<int, bool> = {};
+        var stack: list<int> = [start];
+        for ;len(stack) > 0; {
+            var idx: int = len(stack) - 1;
+            var current: int = stack[idx];
+            // Pop
+            var new_stack: list<int> = [];
+            for var k = 0; k < idx; k = k + 1 {
+                new_stack = append(new_stack, stack[k]);
+            }
+            stack = new_stack;
+
+            if (exists(visited, current)) { continue; }
+            visited = visited[current] := true;
+
+            if (!exists(instances, current)) { return false; }
+            if (instances[current].status != 2 and !exists(executed, current)) { return false; }
+
+            var deps: DependencySet = instances[current].deps;
+            for (dep_id, _) in deps {
+                if (!exists(visited, dep_id)) {
+                    stack = append(stack, dep_id);
+                }
+            }
+        }
+        true
+    }
+
+    fn getSCCs(graph: list<int>): list<list<int>> {
+        t_index = 0;
+        t_stack = [];
+        t_onStack = {};
+        t_ids = {};
+        t_low = {};
+        t_sccs = [];
+        for id in graph {
+            if (!exists(t_ids, id)) {
+                tarjanDFS(id);
+            }
+        }
+        t_sccs
+    }
+
+    fn tarjanDFS(at: int) {
+        t_stack = append(t_stack, at);
+        t_onStack = t_onStack[at] := true;
+        t_ids = t_ids[at] := t_index;
+        t_low = t_low[at] := t_index;
+        t_index = t_index + 1;
+
+        var inst: Instance = instances[at];
+        for (dep, _) in inst.deps {
+            if (exists(v_valid, dep) and v_valid[dep]) {
+                if (!exists(t_ids, dep)) {
+                    tarjanDFS(dep);
+                    t_low = t_low[at] := min(t_low[at], t_low[dep]);
+                } else {
+                    if (exists(t_onStack, dep) and t_onStack[dep]) {
+                        t_low = t_low[at] := min(t_low[at], t_ids[dep]);
+                    }
+                }
+            }
+        }
+
+        if (t_ids[at] == t_low[at]) {
+            var scc: list<int> = [];
+            var node: int = -1;
+            for ;node != at; {
+                var idx: int = len(t_stack) - 1;
+                node = t_stack[idx];
+                var new_stack: list<int> = [];
+                for var k = 0; k < idx; k = k + 1 {
+                    new_stack = append(new_stack, t_stack[k]);
+                }
+                t_stack = new_stack;
+                t_onStack = t_onStack[node] := false;
+                scc = append(scc, node);
+            }
+            t_sccs = append(t_sccs, scc);
+        }
+    }
+
+    fn sortBySeq(ids: list<int>): list<int> {
+        var n_ids: int = len(ids);
+        for var i = 0; i < n_ids - 1; i = i + 1 {
+            for var j = 0; j < n_ids - i - 1; j = j + 1 {
+                var seq_j: int = instances[ids[j]].seq;
+                var seq_j1: int = instances[ids[j + 1]].seq;
+                var swap: bool = false;
+                if (seq_j > seq_j1) {
+                    swap = true;
+                } else if (seq_j == seq_j1 and ids[j] > ids[j + 1]) {
+                    swap = true;
+                }
+                if (swap) {
+                    var tmp: int = ids[j];
+                    ids = ids[j] := ids[j + 1];
+                    ids = ids[j + 1] := tmp;
+                }
+            }
+        }
+        ids
+    }
+}
+
+ClientInterface {
+    async fn Write(dest: Node, key: string, uid: int) {
+        var ch: chan<()> = dest->CoordinateWrite(key, uid);
+        <- ch;
+    }
+
+    async fn Read(dest: Node, key: string): list<int> {
+        var ch: chan<list<int>> = dest->CoordinateRead(key);
+        <- ch
+    }
+
+    async fn RMW(dest: Node, key: string, uid: int): list<int> {
+        var ch: chan<list<int>> = dest->CoordinateRMW(key, uid);
+        <- ch
+    }
+}

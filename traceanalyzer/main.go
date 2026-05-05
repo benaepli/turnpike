@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/benaepli/turnpike-traceanalyzer/metrics"
+	"github.com/benaepli/turnpike-traceanalyzer/metrics/dagorder"
 	"github.com/benaepli/turnpike-traceanalyzer/reader"
 	"github.com/benaepli/turnpike-traceanalyzer/report"
 )
@@ -16,6 +17,8 @@ func main() {
 	inputPath := flag.String("input", "", "Path to DuckDB file or Parquet output directory (required)")
 	runID := flag.Int64("run", -1, "Run ID to analyze (-1 for all runs)")
 	format := flag.String("format", "table", "Output format: table or json")
+	dagConfig := flag.String("dag-config", "", "Path to plan_config.json for DAG-ordering metric (optional)")
+	dagSwaps := flag.Int("dag-swaps", 200, "Local-search swap budget per run for DAG matching")
 	flag.Parse()
 
 	if *inputPath == "" {
@@ -85,6 +88,15 @@ func main() {
 	r.Fingerprint, err = metrics.ComputeFingerprint(*inputPath, *runID)
 	if err != nil {
 		log.Printf("Warning: fingerprint metrics failed: %v", err)
+	}
+
+	// DAG-ordering metric (opt-in via -dag-config)
+	if *dagConfig != "" {
+		fmt.Fprintln(os.Stderr, "  Computing DAG-ordering metrics...")
+		r.DagOrder, err = dagorder.ComputeDagOrder(*inputPath, *dagConfig, *runID, *dagSwaps)
+		if err != nil {
+			log.Printf("Warning: dag-order metrics failed: %v", err)
+		}
 	}
 
 	// Output

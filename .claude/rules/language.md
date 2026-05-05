@@ -34,15 +34,15 @@ If these are missing, have wrong signatures, or return prematurely, linearizabil
 
 ### Optional: RMW (Read-Modify-Write)
 
-For protocols like Gryff that combine blind writes with read-modify-write commands, `ClientInterface` may also declare:
+For protocols that combine blind writes with read-modify-write commands, `ClientInterface` may also declare:
 
-- `async fn RMW(dest: Node, key: string, uid: int)` — void; semantically appends a `(prev_uid, uid)` entry to the key's log, where `prev_uid` is the uid of the latest applied entry observed by the RMW (or `nil` if the log was empty). Like `Write`, it must return only after the operation is committed.
+- `async fn RMW(dest: Node, key: string, uid: int): list<int>` — appends `uid` to the key's log and returns the **prior** committed list (empty if the log was empty). Like `Write`, it must return only after the operation is committed.
 
-When RMW is in play, the spec's `kv_store` becomes `map<string, list<(int?, int)>>` (each entry is `(prev_uid, uid)` instead of a bare uid), and `Read` returns that tagged log. The corresponding Porcupine model is `-model kv_rmw`.
+Under the `kv_rmw` model, `Write` is a **blind overwrite** rather than an append: `Write(key, uid)` sets `kv_store[key] = [uid]`. RMW is the operation that grows the log. `kv_store` keeps the same shape as the `kv` model — `map<string, list<int>>` — and `Read` still returns `list<int>`.
 
-**Two model variants** — `kv` expects `Read` to return `list<int>`; `kv_rmw` expects `list<(int?, int)>`. A spec picks one shape for `kv_store` and the matching `-model` flag — they don't mix.
+**Two model variants** — `kv`: `Write` appends, no RMW. `kv_rmw`: `Write` overwrites, `RMW` appends-and-returns-old. The corresponding Porcupine flag is `-model kv` or `-model kv_rmw`; a spec picks one set of semantics.
 
-**Validation is deferred to GET.** The `kv_rmw` model authoritatively records what `prev_uid` the linearization implies and only catches a wrong choice when a subsequent `Read` returns the tagged log. Configs with `num_rmw_ops > 0` should keep `num_read_ops > 0` — RMWs alone exercise none of the new checking logic.
+**Validation.** The model checks `Read` against current state (same as `kv`) and additionally checks each `RMW`'s return value against the state observed at that linearization point. RMW errors are caught directly from the RMW response; reads still add useful coverage.
 
 ## Type System
 
@@ -82,7 +82,7 @@ var ch2 = link->Handler(args2);   // guaranteed to be delivered after ch1
   messages buffer across the crash and deliver in send order on recovery.
 - Sender crash drops the in-memory link. Messages already enqueued drain in
   order; post-recovery `fifo(peer)` returns a fresh link unrelated to the old.
-- FIFO orders *delivery* (handler dispatch), not handler execution. Handlers
+- FIFO orders _delivery_ (handler dispatch), not handler execution. Handlers
   at the receiver still run concurrently.
 
 ### Channels

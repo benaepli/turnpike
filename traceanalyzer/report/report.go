@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/benaepli/turnpike-traceanalyzer/metrics"
+	"github.com/benaepli/turnpike-traceanalyzer/metrics/dagorder"
 )
 
 // FullReport is the top-level structure for all metrics output.
@@ -17,6 +19,7 @@ type FullReport struct {
 	Interleaving *metrics.InterleavingResult `json:"interleaving,omitempty"`
 	Fault        *metrics.FaultResult        `json:"fault,omitempty"`
 	Fingerprint  *metrics.FingerprintResult  `json:"fingerprint,omitempty"`
+	DagOrder     *dagorder.DagOrderResult    `json:"dag_order,omitempty"`
 }
 
 // WriteJSON writes the report as JSON to the given writer.
@@ -39,6 +42,7 @@ func WriteTable(w io.Writer, r *FullReport) {
 	writeInterleavingTable(w, r.Interleaving)
 	writeFaultTable(w, r.Fault)
 	writeFingerprintTable(w, r.Fingerprint)
+	writeDagOrderTable(w, r.DagOrder)
 }
 
 func writeDurationTable(w io.Writer, d *metrics.DurationResult) {
@@ -196,6 +200,73 @@ func writeFingerprintTable(w io.Writer, fp *metrics.FingerprintResult) {
 		}
 		fmt.Fprintln(w)
 	}
+}
+
+func writeDagOrderTable(w io.Writer, d *dagorder.DagOrderResult) {
+	if d == nil {
+		return // silently skip when -dag-config wasn't passed
+	}
+
+	fmt.Fprintf(w, "## DAG-Ordering Conformance (%s)\n", d.ConfigPath)
+	fmt.Fprintf(w, "  Total runs:      %d\n", d.TotalRuns)
+	fmt.Fprintf(w, "  Mean score:      %.4f\n", d.MeanScore)
+	fmt.Fprintf(w, "  Min / Max:       %.4f / %.4f\n", d.MinScore, d.MaxScore)
+	fmt.Fprintf(w, "  P50 / P95:       %.4f / %.4f\n", d.P50Score, d.P95Score)
+	if d.TotalEdgeCount > 0 {
+		fmt.Fprintf(w, "  Dropped edges:   %d / %d (unmatchable events: allow_timer/partition/heal)\n",
+			d.DroppedEdgeCount, d.TotalEdgeCount)
+	}
+	if d.DroppedMajority {
+		fmt.Fprintf(w, "  !! WARNING: >50%% of edges touch unmatchable events; score covers the matchable subset only.\n")
+	}
+	fmt.Fprintln(w)
+
+	// Top runs (best scores first) — most useful for bug-hunting.
+	if len(d.PerRun) > 0 {
+		top := topNRuns(d.PerRun, 10)
+		fmt.Fprintf(w, "### Top Runs by Score\n")
+		fmt.Fprintf(w, "%-10s %10s %8s %8s %8s %8s %8s %8s\n",
+			"RunID", "Score", "Satisfied", "Eligible", "Matched", "Labels", "ZeroCnd", "Crowded")
+		fmt.Fprintf(w, "%s\n", strings.Repeat("-", 80))
+		for _, r := range top {
+			satisfied := int(r.EdgeSatisfaction * float64(r.EligibleEdges))
+			fmt.Fprintf(w, "%-10d %10.4f %8d %8d %8d %8d %8d %8d\n",
+				r.RunID, r.EdgeSatisfaction, satisfied, r.EligibleEdges,
+				r.MatchedLabels, r.TotalLabels,
+				len(r.ZeroCandidateLabels), len(r.CrowdedOutLabels))
+		}
+		fmt.Fprintln(w)
+	}
+
+	// Per-edge frequencies, worst-first (already sorted that way in dagorder.go).
+	if len(d.PerEdge) > 0 {
+		fmt.Fprintf(w, "### Per-Edge Satisfaction (worst first)\n")
+		fmt.Fprintf(w, "%-30s %-30s %10s %10s %10s\n",
+			"From", "To", "Satisfied", "Eligible", "Fraction")
+		fmt.Fprintf(w, "%s\n", strings.Repeat("-", 96))
+		for _, e := range d.PerEdge {
+			fmt.Fprintf(w, "%-30s %-30s %10d %10d %9.3f\n",
+				truncate(e.From, 30), truncate(e.To, 30),
+				e.SatisfiedCount, e.EligibleCount, e.Fraction)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+// topNRuns returns up to n runs sorted by EdgeSatisfaction desc (ties → RunID asc).
+func topNRuns(runs []dagorder.RunResult, n int) []dagorder.RunResult {
+	out := make([]dagorder.RunResult, len(runs))
+	copy(out, runs)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].EdgeSatisfaction != out[j].EdgeSatisfaction {
+			return out[i].EdgeSatisfaction > out[j].EdgeSatisfaction
+		}
+		return out[i].RunID < out[j].RunID
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
 }
 
 func truncate(s string, maxLen int) string {

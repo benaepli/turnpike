@@ -151,11 +151,13 @@ ballot information that was lost to rejection.
 
 ## The fix
 
+Two changes, applied in `bin/spur/mencius/Mencius.spur`:
+
+### 1. Safety: ballot guard in `fill_q_skips`
+
 Only apply the Rule-2 `no-op` learn when the local `prepared_ballot[j]`
 is still the owner's implicit `(0, q)`. If any higher ballot has been
 seen, a revoker is active; the gap-fill must defer to consensus.
-
-Applied in `bin/spur/mencius/Mencius.spur` at lines **381–396**:
 
 ```spur
 fn fill_q_skips(q: int, i: int) {
@@ -176,10 +178,42 @@ fn fill_q_skips(q: int, i: int) {
 }
 ```
 
-With this guard, ~700 no-crash explorer runs all pass Porcupine
-linearizability. Without it, ~19 / 700 violate. The fix preserves
-Rule 2's throughput benefit in the common (no-revoke) case and falls
-back to ordinary Coordinated Paxos otherwise.
+The guard alone converts the safety violation into a liveness hazard:
+`est_index[q]` advances past the contested slot, orphaning it from
+future gap-fills. If the revoker stalls, the slot is never resolved.
+
+### 2. Liveness: NACK on rejected SUGGEST → owner self-revoke
+
+When `HandlePropose` rejects a ballot-0 SUGGEST from the owner (because
+a revoker raised `prepared_ballot`), it sends a **NACK** back carrying
+the higher ballot. The owner, on receiving the NACK, starts a
+self-revoke (full Paxos Phase 1 + Phase 2 at a ballot above the NACK'd
+one). Phase 1 discovers the value accepted by the majority at ballot 0
+and re-proposes it, ensuring the slot converges correctly.
+
+```spur
+// In HandlePropose, else branch:
+if ballot.round == 0 and owner_of(slot) == sender_id {
+    links[sender_id]->HandleNack(self, slot, prep);
+}
+
+// New handler on the owner:
+async fn HandleNack(sender_id: int, slot: int, nack_ballot: Ballot) {
+    if is_learned(slot) { return (); }
+    if owner_of(slot) != self { return (); }
+    if exists(revoke_ballot, slot) { return (); }
+    var prep = get_prepared(slot);
+    if ballot_gt(nack_ballot, prep) {
+        prepared_ballot = prepared_ballot[slot] := nack_ballot;
+        has_prepared = has_prepared[slot] := true;
+    }
+    start_revoke(slot);
+}
+```
+
+With both the guard and the NACK, the fix preserves Rule 2's throughput
+benefit in the common (no-revoke) case and falls back to proper Paxos
+consensus when a revoke is active.
 
 ## Reproducing
 
