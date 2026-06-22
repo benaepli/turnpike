@@ -1,0 +1,559 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Mencius Protocol P — Rule-2 / Rule-3 paper-bug Lamport diagram.
+
+  Companion to bug.md (narrative) and bug.puml (PlantUML source).
+  Scenario: 3 servers (p0,p1,p2), no crashes, all RPCs over FifoLink<Node>.
+  Canonical run from bug.md, extended through the linearizability-violating
+  client Reads. Source spec: Mencius_bugged.spur.
+
+  Open in any browser. To embed in LaTeX: rsvg-convert / Inkscape → PDF.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 2880"
+     font-family="'DejaVu Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+     font-size="13">
+
+  <!-- ─────────── Styles ─────────── -->
+  <defs>
+    <style><![CDATA[
+      .bg          { fill: #FAFAFA; }
+      .title       { font-size: 22px; font-weight: 700; fill: #212121; }
+      .subtitle    { font-size: 13px; font-style: italic; fill: #424242; }
+      .section     { font-size: 14px; font-weight: 700; fill: #1A237E; }
+      .lane-line   { stroke: #9E9E9E; stroke-width: 1; }
+      .lane-label  { font-weight: 700; font-size: 14px; }
+      .lane-sub    { font-size: 11px; fill: #616161; font-style: italic; }
+      .evno        { font-weight: 700; font-size: 12px; fill: #FAFAFA; }
+      .evlbl       { font-size: 12px; fill: #212121; }
+      .evlbl-w     { font-size: 12px; fill: #FFFFFF; font-weight: 600; }
+      .arrow       { fill: none; stroke-linecap: round; }
+      .slot2       { stroke: #C62828; }
+      .slot5       { stroke: #1565C0; }
+      .revoke      { stroke: #6A1B9A; }
+      .client      { stroke: #00695C; }
+      .discarded   { stroke-dasharray: 5,4; opacity: 0.75; }
+      .thin        { stroke-width: 1.6; }
+      .thick       { stroke-width: 2.6; }
+      .note        { stroke: #BDBDBD; stroke-width: 0.8; rx: 4; ry: 4; }
+      .note-state-p0 { fill: #E8F5E9; }
+      .note-state-p1 { fill: #FFEBEE; }
+      .note-state-p2 { fill: #E8F5E9; }
+      .note-trigger  { fill: #FFF3E0; }
+      .note-revoke   { fill: #F3E5F5; }
+      .note-bug      { fill: #FFCDD2; stroke: #C62828; stroke-width: 1.4; }
+      .note-glue     { fill: #ECEFF1; }
+      .note-init     { fill: #E8F0FE; }
+      .note-text     { font-size: 11px; fill: #212121; }
+      .note-mono     { font-size: 11px; fill: #212121; font-family: 'DejaVu Sans Mono', monospace; }
+      .note-title    { font-size: 12px; font-weight: 700; fill: #212121; }
+      .divider       { stroke: #1A237E; stroke-width: 1.2; stroke-dasharray: 3,4; }
+      .divider-text  { font-size: 13px; font-weight: 700; fill: #1A237E; }
+      .strike        { stroke: #C62828; stroke-width: 1.4; }
+      .legend-text   { font-size: 11px; fill: #212121; }
+      .table-h       { font-size: 11px; font-weight: 700; fill: #212121; }
+      .table-c       { font-size: 11px; fill: #212121; font-family: 'DejaVu Sans Mono', monospace; }
+      .footer-pass   { fill: #1B5E20; font-weight: 700; }
+      .footer-fail   { fill: #B71C1C; font-weight: 700; }
+    ]]></style>
+
+    <!-- Arrowhead markers, one per stroke color -->
+    <marker id="ah-s2" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#C62828"/>
+    </marker>
+    <marker id="ah-s5" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1565C0"/>
+    </marker>
+    <marker id="ah-rv" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6A1B9A"/>
+    </marker>
+    <marker id="ah-cl" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#00695C"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1320" height="2880"/>
+
+  <!-- ─────────── Title ─────────── -->
+  <text class="title" x="40" y="36">Mencius Protocol 𝒫 — Rule-2 / Rule-3 safety bug</text>
+  <text class="subtitle" x="40" y="56">Canonical 3-server, no-crash Lamport diagram of the scenario in bug.md.  Source: Mencius_bugged.spur.</text>
+
+  <!-- ─────────── Legend ─────────── -->
+  <g transform="translate(40, 72)">
+    <rect x="0" y="0" width="1240" height="68" class="note note-init"/>
+    <text class="note-title" x="12" y="18">Legend</text>
+
+    <!-- color swatches -->
+    <line class="arrow slot2 thin"  x1="80"  y1="36" x2="130" y2="36" marker-end="url(#ah-s2)"/>
+    <text class="legend-text" x="138" y="40">slot 2 (PROPOSE/ACCEPT/LEARN @ ballot 0)</text>
+
+    <line class="arrow slot5 thin"  x1="400" y1="36" x2="450" y2="36" marker-end="url(#ah-s5)"/>
+    <text class="legend-text" x="458" y="40">slot 5 (PROPOSE/ACCEPT/LEARN @ ballot 0)</text>
+
+    <line class="arrow revoke thin" x1="720" y1="36" x2="770" y2="36" marker-end="url(#ah-rv)"/>
+    <text class="legend-text" x="778" y="40">revoke (PREPARE / ACK / Phase-2 PROPOSE @ ballot (1,p1))</text>
+
+    <line class="arrow client thin" x1="80"  y1="56" x2="130" y2="56" marker-end="url(#ah-cl)"/>
+    <text class="legend-text" x="138" y="60">client RPC (Write / Read)</text>
+
+    <line class="arrow slot2 thin discarded" x1="400" y1="56" x2="450" y2="56" marker-end="url(#ah-s2)"/>
+    <line class="strike" x1="420" y1="50" x2="430" y2="62"/>
+    <line class="strike" x1="430" y1="50" x2="420" y2="62"/>
+    <text class="legend-text" x="458" y="60">discarded / short-circuited (handler returned early)</text>
+
+    <text class="legend-text" x="900" y="40">Ballot = (round, leader).  Owner(slot) = slot mod 3.</text>
+    <text class="legend-text" x="900" y="60">All inter-node RPCs over per-pair FifoLink&lt;Node&gt;.</text>
+  </g>
+
+  <!-- ─────────── Starting state table ─────────── -->
+  <g transform="translate(40, 154)">
+    <rect x="0" y="0" width="1240" height="248" class="note note-init"/>
+    <text class="note-title" x="12" y="18">Starting state — after Init(me, peers) (Mencius_bugged.spur:144–157)</text>
+
+    <!-- Header row -->
+    <text class="table-h" x="12"  y="44">Variable</text>
+    <text class="table-h" x="320" y="44">p0  (me = 0)</text>
+    <text class="table-h" x="620" y="44">p1  (me = 1)</text>
+    <text class="table-h" x="920" y="44">p2  (me = 2)</text>
+    <line x1="12" y1="50" x2="1228" y2="50" stroke="#9E9E9E" stroke-width="0.5"/>
+
+    <!-- rows -->
+    <text class="table-c" x="12"  y="68">self, n</text>
+    <text class="table-c" x="320" y="68">0, 3</text>
+    <text class="table-c" x="620" y="68">1, 3</text>
+    <text class="table-c" x="920" y="68">2, 3</text>
+
+    <text class="table-c" x="12"  y="86">my_index</text>
+    <text class="table-c" x="320" y="86">0  (next owned)</text>
+    <text class="table-c" x="620" y="86">1</text>
+    <text class="table-c" x="920" y="86">2</text>
+
+    <text class="table-c" x="12"  y="104">expected</text>
+    <text class="table-c" x="320" y="104">0</text>
+    <text class="table-c" x="620" y="104">0</text>
+    <text class="table-c" x="920" y="104">0</text>
+
+    <text class="table-c" x="12"  y="122">est_index</text>
+    <text class="table-c" x="320" y="122">{0:0, 1:1, 2:2}</text>
+    <text class="table-c" x="620" y="122">{0:0, 1:1, 2:2}</text>
+    <text class="table-c" x="920" y="122">{0:0, 1:1, 2:2}</text>
+
+    <text class="table-c" x="12"  y="140">prepared_ballot, has_prepared</text>
+    <text class="table-c" x="320" y="140">{}  →  implicit (0, owner(j))</text>
+    <text class="table-c" x="620" y="140">{}</text>
+    <text class="table-c" x="920" y="140">{}</text>
+
+    <text class="table-c" x="12"  y="158">accepted_*, learned_*, revoke_*</text>
+    <text class="table-c" x="320" y="158">{}  (all empty)</text>
+    <text class="table-c" x="620" y="158">{}</text>
+    <text class="table-c" x="920" y="158">{}</text>
+
+    <text class="table-c" x="12"  y="176">kv_store, applied_cmds, pending</text>
+    <text class="table-c" x="320" y="176">{}</text>
+    <text class="table-c" x="620" y="176">{}</text>
+    <text class="table-c" x="920" y="176">{}</text>
+
+    <text class="table-c" x="12"  y="194">next_req_id</text>
+    <text class="table-c" x="320" y="194">0  (stride n = 3)</text>
+    <text class="table-c" x="620" y="194">1</text>
+    <text class="table-c" x="920" y="194">2</text>
+
+    <text class="table-c" x="12"  y="212">links</text>
+    <text class="table-c" x="320" y="212">{0:fifo(p0), 1:fifo(p1), 2:fifo(p2)}</text>
+    <text class="table-c" x="620" y="212">{0:fifo(p0), 1:fifo(p1), 2:fifo(p2)}</text>
+    <text class="table-c" x="920" y="212">{0:fifo(p0), 1:fifo(p1), 2:fifo(p2)}</text>
+
+    <text class="table-c" x="12"  y="230">need_to_skip, skip_timer_active</text>
+    <text class="table-c" x="320" y="230">{}</text>
+    <text class="table-c" x="620" y="230">{}</text>
+    <text class="table-c" x="920" y="230">{}</text>
+  </g>
+
+  <!-- ─────────── Lane headers ─────────── -->
+  <g transform="translate(0, 420)">
+    <rect x="100" y="0" width="120" height="40" rx="6" ry="6" fill="#E0F2F1" stroke="#00695C"/>
+    <text class="lane-label" x="160" y="22" text-anchor="middle" fill="#004D40">client</text>
+    <text class="lane-sub"   x="160" y="36" text-anchor="middle">Write / Read driver</text>
+
+    <rect x="380" y="0" width="120" height="40" rx="6" ry="6" fill="#FFEBEE" stroke="#C62828"/>
+    <text class="lane-label" x="440" y="22" text-anchor="middle" fill="#B71C1C">p0</text>
+    <text class="lane-sub"   x="440" y="36" text-anchor="middle">owns slots 0, 3, …</text>
+
+    <rect x="660" y="0" width="120" height="40" rx="6" ry="6" fill="#F3E5F5" stroke="#6A1B9A"/>
+    <text class="lane-label" x="720" y="22" text-anchor="middle" fill="#4A148C">p1  (revoker)</text>
+    <text class="lane-sub"   x="720" y="36" text-anchor="middle">owns slots 1, 4, …</text>
+
+    <rect x="940" y="0" width="120" height="40" rx="6" ry="6" fill="#E3F2FD" stroke="#1565C0"/>
+    <text class="lane-label" x="1000" y="22" text-anchor="middle" fill="#0D47A1">p2  (proposer)</text>
+    <text class="lane-sub"   x="1000" y="36" text-anchor="middle">owns slots 2, 5, …</text>
+  </g>
+
+  <!-- Lifelines (extend through the timeline) -->
+  <line class="lane-line" x1="160"  y1="460" x2="160"  y2="2780"/>
+  <line class="lane-line" x1="440"  y1="460" x2="440"  y2="2780"/>
+  <line class="lane-line" x1="720"  y1="460" x2="720"  y2="2780"/>
+  <line class="lane-line" x1="1000" y1="460" x2="1000" y2="2780"/>
+
+  <!-- ─────────── PHASE A — Triggers ─────────── -->
+  <line class="divider" x1="40" y1="478" x2="1280" y2="478"/>
+  <text class="divider-text" x="40" y="473">Phase A — Triggers</text>
+
+  <!-- ① ClientWrite v -->
+  <line class="arrow client thin" x1="170" y1="500" x2="990" y2="500" marker-end="url(#ah-cl)"/>
+  <circle cx="160" cy="500" r="11" fill="#00695C"/><text class="evno" x="160" y="504" text-anchor="middle">①</text>
+  <text class="evlbl" x="580" y="494" text-anchor="middle">ClientWrite("k", uid = v)</text>
+
+  <!-- p2 note: on_client_request -->
+  <g transform="translate(1020, 510)">
+    <rect x="0" y="0" width="260" height="74" class="note note-trigger"/>
+    <text class="note-title" x="8" y="14">p2 · on_client_request(v)</text>
+    <text class="note-mono"  x="8" y="30">proposed[2] = v</text>
+    <text class="note-mono"  x="8" y="44">my_index: 2 → 5;  persist()</text>
+    <text class="note-mono"  x="8" y="58">broadcast_propose(2, (0,2), v)</text>
+    <text class="note-mono"  x="8" y="70">(spur line 543)</text>
+  </g>
+
+  <!-- ② suspect timer fires at p1 -->
+  <g transform="translate(540, 596)">
+    <rect x="0" y="0" width="360" height="74" class="note note-revoke"/>
+    <text class="note-title" x="8" y="14">② p1 · "suspect" timer fires</text>
+    <text class="note-mono"  x="8" y="30">on_suspect(2) → start_revoke(2)</text>
+    <text class="note-mono"  x="8" y="44">ballot = (round=1, leader=p1)</text>
+    <text class="note-mono"  x="8" y="58">broadcast_prepare(2, (1, 1))</text>
+    <text class="note-mono"  x="8" y="70">(spur lines 754 / 770)</text>
+  </g>
+
+  <!-- ─────────── PHASE B — broadcasts race ─────────── -->
+  <line class="divider" x1="40" y1="694" x2="1280" y2="694"/>
+  <text class="divider-text" x="40" y="689">Phase B — Two broadcasts race on independent FIFO links</text>
+
+  <!-- ③ p2 → p0 PROPOSE(2,(0,2),v) -->
+  <line class="arrow slot2 thin" x1="990" y1="714" x2="450" y2="714" marker-end="url(#ah-s2)"/>
+  <circle cx="1000" cy="714" r="11" fill="#C62828"/><text class="evno" x="1000" y="718" text-anchor="middle">③</text>
+  <text class="evlbl" x="720" y="708" text-anchor="middle">PROPOSE(slot=2, b=(0,2), v)</text>
+
+  <!-- ④ p2 → p1 PROPOSE(2,(0,2),v) -->
+  <line class="arrow slot2 thin" x1="990" y1="740" x2="730" y2="740" marker-end="url(#ah-s2)"/>
+  <circle cx="1000" cy="740" r="11" fill="#C62828"/><text class="evno" x="1000" y="744" text-anchor="middle">④</text>
+  <text class="evlbl" x="860" y="734" text-anchor="middle">PROPOSE(slot=2, b=(0,2), v)</text>
+
+  <!-- ⑤ p2 → p2 self -->
+  <path class="arrow slot2 thin" d="M 1000 766 C 1080 766 1080 786 1010 786" marker-end="url(#ah-s2)"/>
+  <circle cx="1000" cy="766" r="11" fill="#C62828"/><text class="evno" x="1000" y="770" text-anchor="middle">⑤</text>
+  <text class="evlbl" x="1095" y="780">⑤ self (via fifo(p2))</text>
+
+  <!-- ⑥ p1 → p0 PREPARE -->
+  <line class="arrow revoke thin" x1="710" y1="808" x2="450" y2="808" marker-end="url(#ah-rv)"/>
+  <circle cx="720" cy="808" r="11" fill="#6A1B9A"/><text class="evno" x="720" y="812" text-anchor="middle">⑥</text>
+  <text class="evlbl" x="580" y="802" text-anchor="middle">PREPARE(slot=2, b=(1,1))</text>
+
+  <!-- ⑦ p1 → p1 self -->
+  <path class="arrow revoke thin" d="M 720 834 C 800 834 800 854 730 854" marker-end="url(#ah-rv)"/>
+  <circle cx="720" cy="834" r="11" fill="#6A1B9A"/><text class="evno" x="720" y="838" text-anchor="middle">⑦</text>
+  <text class="evlbl" x="815" y="848">⑦ self (via fifo(p1))</text>
+
+  <!-- ⑧ p1 → p2 PREPARE -->
+  <line class="arrow revoke thin" x1="730" y1="876" x2="990" y2="876" marker-end="url(#ah-rv)"/>
+  <circle cx="720" cy="876" r="11" fill="#6A1B9A"/><text class="evno" x="720" y="880" text-anchor="middle">⑧</text>
+  <text class="evlbl" x="860" y="870" text-anchor="middle">PREPARE(slot=2, b=(1,1))</text>
+
+  <!-- ─────────── PHASE C — Handler effects ─────────── -->
+  <line class="divider" x1="40" y1="902" x2="1280" y2="902"/>
+  <text class="divider-text" x="40" y="897">Phase C — Handler effects (FIFO ordering breaks symmetrically across the pair)</text>
+
+  <!-- p0 effect note A: receives PROPOSE first -->
+  <g transform="translate(40, 914)">
+    <rect x="0" y="0" width="360" height="106" class="note note-state-p0"/>
+    <text class="note-title" x="8" y="14">p0 · HandlePropose(2,(0,2),v)  [PROPOSE arrives before PREPARE]</text>
+    <text class="note-mono"  x="8" y="30">owner ≠ self → on_suggestion(2):</text>
+    <text class="note-mono"  x="8" y="44">  fill_q_skips(2, 2):  est_index[2] = 5</text>
+    <text class="note-mono"  x="8" y="58">  skip own [my_index=0, 2): learn_slot(0, nil)</text>
+    <text class="note-mono"  x="8" y="72">  my_index: 0 → 3;  defer_skips(2, [0])</text>
+    <text class="note-mono"  x="8" y="86">accept: accepted[2] = (0,2)/v;  has_accepted[2] = T</text>
+    <text class="note-mono"  x="8" y="100">(spur lines 596 / 412 / 435)</text>
+  </g>
+
+  <!-- ⑨ p0 → p2 ACCEPT(2,(0,2),v) -->
+  <line class="arrow slot2 thin" x1="450" y1="1038" x2="990" y2="1038" marker-end="url(#ah-s2)"/>
+  <circle cx="440" cy="1038" r="11" fill="#C62828"/><text class="evno" x="440" y="1042" text-anchor="middle">⑨</text>
+  <text class="evlbl" x="720" y="1032" text-anchor="middle">ACCEPT(slot=2, b=(0,2), v)</text>
+
+  <!-- p0 effect note B: PREPARE then arrives -->
+  <g transform="translate(40, 1054)">
+    <rect x="0" y="0" width="360" height="58" class="note note-state-p0"/>
+    <text class="note-title" x="8" y="14">p0 · HandlePrepare(2,(1,1))  [PREPARE then arrives]</text>
+    <text class="note-mono"  x="8" y="30">ballot &gt; prep=(0,2) → prepared_ballot[2] = (1,1)</text>
+    <text class="note-mono"  x="8" y="44">ack carries prior accept (spur line 686)</text>
+  </g>
+
+  <!-- ⑩ p0 → p1 ACK -->
+  <line class="arrow revoke thin" x1="450" y1="1130" x2="710" y2="1130" marker-end="url(#ah-rv)"/>
+  <circle cx="440" cy="1130" r="11" fill="#6A1B9A"/><text class="evno" x="440" y="1134" text-anchor="middle">⑩</text>
+  <text class="evlbl" x="580" y="1124" text-anchor="middle">ACK(2, (1,1), has_acc=T, acc=(0,2)/v)</text>
+
+  <!-- p1 effect note A: PREPARE self first -->
+  <g transform="translate(540, 1150)">
+    <rect x="0" y="0" width="360" height="58" class="note note-state-p1"/>
+    <text class="note-title" x="8" y="14">p1 · HandlePrepare (self-link)  [PREPARE first]</text>
+    <text class="note-mono"  x="8" y="30">prepared_ballot[2] = (1,1);  no prior accept</text>
+    <text class="note-mono"  x="8" y="44">ack to self (spur line 708)</text>
+  </g>
+
+  <!-- ⑪ p1 → p1 self ACK -->
+  <path class="arrow revoke thin" d="M 720 1226 C 800 1226 800 1246 730 1246" marker-end="url(#ah-rv)"/>
+  <circle cx="720" cy="1226" r="11" fill="#6A1B9A"/><text class="evno" x="720" y="1230" text-anchor="middle">⑪</text>
+  <text class="evlbl" x="815" y="1240">⑪ self ACK(2,(1,1), has_acc=F)</text>
+
+  <!-- p1 effect note B: REJECT -->
+  <g transform="translate(540, 1262)">
+    <rect x="0" y="0" width="360" height="78" class="note note-state-p1"/>
+    <text class="note-title" x="8" y="14">p1 · HandlePropose(2,(0,2),v)  [PROPOSE then arrives]</text>
+    <text class="note-mono"  x="8" y="30">guard:  ballot_gte((0,2), prep=(1,1))  =  FALSE</text>
+    <text class="note-mono" fill="#B71C1C" x="8" y="46">→ ✗ REJECTED  (no ACCEPT, no ACK)</text>
+    <text class="note-mono"  x="8" y="62">load-bearing rejection — Mencius_bugged.spur:614</text>
+  </g>
+
+  <!-- p2 effect note A: own PROPOSE accepted -->
+  <g transform="translate(540, 1356)">
+    <rect x="0" y="0" width="360" height="58" class="note note-state-p2"/>
+    <text class="note-title" x="8" y="14">p2 · HandlePropose (self)  [own PROPOSE first]</text>
+    <text class="note-mono"  x="8" y="30">owner == self → accept directly:</text>
+    <text class="note-mono"  x="8" y="44">accepted[2] = (0,2)/v</text>
+  </g>
+
+  <!-- ⑫ p2 → p2 self ACCEPT -->
+  <path class="arrow slot2 thin" d="M 1000 1430 C 1080 1430 1080 1450 1010 1450" marker-end="url(#ah-s2)"/>
+  <circle cx="1000" cy="1430" r="11" fill="#C62828"/><text class="evno" x="1000" y="1434" text-anchor="middle">⑫</text>
+  <text class="evlbl" x="1095" y="1444">⑫ self ACCEPT(2,(0,2),v)</text>
+
+  <!-- p2 effect note B: PREPARE arrives -->
+  <g transform="translate(540, 1466)">
+    <rect x="0" y="0" width="360" height="58" class="note note-state-p2"/>
+    <text class="note-title" x="8" y="14">p2 · HandlePrepare(2,(1,1))  [PREPARE then arrives]</text>
+    <text class="note-mono"  x="8" y="30">prepared_ballot[2] = (1,1);  ack with</text>
+    <text class="note-mono"  x="8" y="44">has_acc=T, acc=(0,2), acc_value=v</text>
+  </g>
+
+  <!-- ⑬ p2 → p1 ACK -->
+  <line class="arrow revoke thin" x1="990" y1="1542" x2="730" y2="1542" marker-end="url(#ah-rv)"/>
+  <circle cx="1000" cy="1542" r="11" fill="#6A1B9A"/><text class="evno" x="1000" y="1546" text-anchor="middle">⑬</text>
+  <text class="evlbl" x="860" y="1536" text-anchor="middle">ACK(2, (1,1), has_acc=T, acc=(0,2)/v)</text>
+
+  <!-- ─────────── PHASE D — Quorum at {p0, p2} ─────────── -->
+  <line class="divider" x1="40" y1="1568" x2="1280" y2="1568"/>
+  <text class="divider-text" x="40" y="1563">Phase D — Ballot-0 quorum at {p0, p2} chooses v</text>
+
+  <g transform="translate(540, 1580)">
+    <rect x="0" y="0" width="360" height="60" class="note note-state-p2"/>
+    <text class="note-title" x="8" y="14">p2 · HandleAccept tally for slot 2 ballot (0,2)</text>
+    <text class="note-mono"  x="8" y="30">self ⑫ + p0 ⑨  →  count = 2 ≥ majority(2)</text>
+    <text class="note-mono"  x="8" y="44">learn_slot(2, v);  broadcast_learn(2, v)</text>
+  </g>
+
+  <!-- ⑭ p2 → p0 LEARN -->
+  <line class="arrow slot2 thin" x1="990" y1="1660" x2="450" y2="1660" marker-end="url(#ah-s2)"/>
+  <circle cx="1000" cy="1660" r="11" fill="#C62828"/><text class="evno" x="1000" y="1664" text-anchor="middle">⑭</text>
+  <text class="evlbl" x="720" y="1654" text-anchor="middle">LEARN(slot=2, v)</text>
+
+  <!-- ⑮ p2 → p1 LEARN (queued on p2→p1 link AFTER ⑤'s reply; will arrive at p1 AFTER ④ but BEFORE ⑲) -->
+  <line class="arrow slot2 thin" x1="990" y1="1686" x2="730" y2="1686" marker-end="url(#ah-s2)"/>
+  <circle cx="1000" cy="1686" r="11" fill="#C62828"/><text class="evno" x="1000" y="1690" text-anchor="middle">⑮</text>
+  <text class="evlbl" x="860" y="1680" text-anchor="middle">LEARN(slot=2, v)  ← will be discarded by p1 (see Phase G)</text>
+
+  <!-- ⑯ p2 → p2 self LEARN -->
+  <path class="arrow slot2 thin" d="M 1000 1712 C 1080 1712 1080 1732 1010 1732" marker-end="url(#ah-s2)"/>
+  <circle cx="1000" cy="1712" r="11" fill="#C62828"/><text class="evno" x="1000" y="1716" text-anchor="middle">⑯</text>
+  <text class="evlbl" x="1095" y="1726">⑯ self LEARN(2, v)</text>
+
+  <!-- ─────────── PHASE E — Second client write ─────────── -->
+  <line class="divider" x1="40" y1="1754" x2="1280" y2="1754"/>
+  <text class="divider-text" x="40" y="1749">Phase E — Second client write at p2 (the trigger for fill_q_skips)</text>
+
+  <!-- ⑰ ClientWrite v' -->
+  <line class="arrow client thin" x1="170" y1="1776" x2="990" y2="1776" marker-end="url(#ah-cl)"/>
+  <circle cx="160" cy="1776" r="11" fill="#00695C"/><text class="evno" x="160" y="1780" text-anchor="middle">⑰</text>
+  <text class="evlbl" x="580" y="1770" text-anchor="middle">ClientWrite("k", uid = v')</text>
+
+  <g transform="translate(1020, 1790)">
+    <rect x="0" y="0" width="260" height="58" class="note note-trigger"/>
+    <text class="note-title" x="8" y="14">p2 · on_client_request(v')</text>
+    <text class="note-mono"  x="8" y="30">proposed[5] = v';  my_index: 5 → 8</text>
+    <text class="note-mono"  x="8" y="44">broadcast_propose(5, (0,2), v')</text>
+  </g>
+
+  <!-- ⑱ p2 → p0 PROPOSE slot 5 -->
+  <line class="arrow slot5 thin" x1="990" y1="1864" x2="450" y2="1864" marker-end="url(#ah-s5)"/>
+  <circle cx="1000" cy="1864" r="11" fill="#1565C0"/><text class="evno" x="1000" y="1868" text-anchor="middle">⑱</text>
+  <text class="evlbl" x="720" y="1858" text-anchor="middle">PROPOSE(slot=5, b=(0,2), v')</text>
+
+  <!-- ⑲ p2 → p1 PROPOSE slot 5 — bug trigger -->
+  <line class="arrow slot5 thick" x1="990" y1="1894" x2="730" y2="1894" marker-end="url(#ah-s5)"/>
+  <circle cx="1000" cy="1894" r="11" fill="#1565C0"/><text class="evno" x="1000" y="1898" text-anchor="middle">⑲</text>
+  <text class="evlbl" x="860" y="1888" text-anchor="middle">PROPOSE(slot=5, b=(0,2), v')   ← bug trigger</text>
+
+  <!-- ⑳ p2 → p2 self PROPOSE slot 5 -->
+  <path class="arrow slot5 thin" d="M 1000 1920 C 1080 1920 1080 1940 1010 1940" marker-end="url(#ah-s5)"/>
+  <circle cx="1000" cy="1920" r="11" fill="#1565C0"/><text class="evno" x="1000" y="1924" text-anchor="middle">⑳</text>
+  <text class="evlbl" x="1095" y="1934">⑳ self PROPOSE(5,…)</text>
+
+  <!-- ─────────── PHASE F — BUG ─────────── -->
+  <line class="divider" x1="40" y1="1962" x2="1280" y2="1962"/>
+  <text class="divider-text" x="40" y="1957">Phase F — The bug fires on p1</text>
+
+  <g transform="translate(540, 1974)">
+    <rect x="0" y="0" width="540" height="158" class="note note-bug"/>
+    <text class="note-title" fill="#B71C1C" x="8" y="16">⚠ BUG — p1 on_suggestion(5) inside HandlePropose(⑲)</text>
+    <text class="note-mono"  x="8" y="34">Critical race: on the p2 → p1 FIFO link, ⑮ (LEARN(2,v)) was enqueued</text>
+    <text class="note-mono"  x="8" y="48">BEFORE ⑲ (PROPOSE(5,…)) — but ⑲'s HandlePropose task is dispatched</text>
+    <text class="note-mono"  x="8" y="62">and runs to on_suggestion before HandleLearn flips learned_flags[2].</text>
+    <text class="note-mono"  x="8" y="80">on_suggestion(5)  (Mencius_bugged.spur:435):</text>
+    <text class="note-mono"  x="8" y="94">  fill_q_skips(q=2, i=5):  j=2, owner(2)=2  →</text>
+    <text class="note-mono"  fill="#B71C1C" x="8" y="108">      learn_slot(2, nil)    ← p1 commits slot 2 = no-op</text>
+    <text class="note-mono"  x="8" y="122">  est_index[2] = 8;  also learn_slot(1, nil), learn_slot(4, nil);</text>
+    <text class="note-mono"  x="8" y="136">  my_index: 1 → 7</text>
+    <text class="note-mono"  x="8" y="150">then accept slot 5: accepted[5] = (0,2)/v'</text>
+  </g>
+
+  <!-- ㉑ p1 → p2 ACCEPT slot 5 -->
+  <line class="arrow slot5 thin" x1="730" y1="2150" x2="990" y2="2150" marker-end="url(#ah-s5)"/>
+  <circle cx="720" cy="2150" r="11" fill="#1565C0"/><text class="evno" x="720" y="2154" text-anchor="middle">㉑</text>
+  <text class="evlbl" x="860" y="2144" text-anchor="middle">ACCEPT(slot=5, b=(0,2), v')</text>
+
+  <!-- ─────────── PHASE G — Masked LEARN and stalled revoke ─────────── -->
+  <line class="divider" x1="40" y1="2178" x2="1280" y2="2178"/>
+  <text class="divider-text" x="40" y="2173">Phase G — Masked LEARN and revoke that can no longer repair the divergence</text>
+
+  <!-- ⑮ delivered (struck through) -->
+  <line class="arrow slot2 thin discarded" x1="990" y1="2200" x2="730" y2="2200" marker-end="url(#ah-s2)"/>
+  <line class="strike" x1="855" y1="2192" x2="867" y2="2208"/>
+  <line class="strike" x1="867" y1="2192" x2="855" y2="2208"/>
+  <text class="evlbl" x="860" y="2186" text-anchor="middle">⑮' LEARN(2, v) delivered at p1 — is_learned(2)==T → ✗ discarded (line 679)</text>
+
+  <!-- Revoke phase 2 explanation -->
+  <g transform="translate(40, 2218)">
+    <rect x="0" y="0" width="500" height="58" class="note note-revoke"/>
+    <text class="note-title" x="8" y="14">p1 · revoke Phase 1 → Phase 2</text>
+    <text class="note-mono"  x="8" y="30">ACKs ⑪ + ⑩ + ⑬ → majority. Best accept: (0,2)/v</text>
+    <text class="note-mono"  x="8" y="44">Phase 2: broadcast_propose(2, (1,1), v)  (line 744)</text>
+  </g>
+
+  <!-- ㉒ p1 → p0 PROPOSE Phase 2 -->
+  <line class="arrow revoke thick" x1="710" y1="2294" x2="450" y2="2294" marker-end="url(#ah-rv)"/>
+  <circle cx="720" cy="2294" r="11" fill="#6A1B9A"/><text class="evno" x="720" y="2298" text-anchor="middle">㉒</text>
+  <text class="evlbl" x="580" y="2288" text-anchor="middle">PROPOSE(slot=2, b=(1,1), v)</text>
+
+  <!-- ㉓ p1 → p1 self Phase 2 -->
+  <path class="arrow revoke thick" d="M 720 2320 C 800 2320 800 2340 730 2340" marker-end="url(#ah-rv)"/>
+  <circle cx="720" cy="2320" r="11" fill="#6A1B9A"/><text class="evno" x="720" y="2324" text-anchor="middle">㉓</text>
+  <text class="evlbl" x="815" y="2334">㉓ self PROPOSE(2,(1,1),v)</text>
+
+  <!-- ㉔ p1 → p2 PROPOSE Phase 2 -->
+  <line class="arrow revoke thick" x1="730" y1="2362" x2="990" y2="2362" marker-end="url(#ah-rv)"/>
+  <circle cx="720" cy="2362" r="11" fill="#6A1B9A"/><text class="evno" x="720" y="2366" text-anchor="middle">㉔</text>
+  <text class="evlbl" x="860" y="2356" text-anchor="middle">PROPOSE(slot=2, b=(1,1), v)</text>
+
+  <!-- ack short-circuit explanation -->
+  <g transform="translate(40, 2388)">
+    <rect x="0" y="0" width="500" height="40" class="note note-glue"/>
+    <text class="note-title" x="8" y="14">all receivers · HandlePropose for Phase 2</text>
+    <text class="note-mono"  x="8" y="30">is_learned(2)==T → reply HandleLearn(2, learned_value[2])  (line 599)</text>
+  </g>
+
+  <!-- ㉕ p0 → p1 LEARN(2,v) discarded -->
+  <line class="arrow slot2 thin discarded" x1="450" y1="2444" x2="710" y2="2444" marker-end="url(#ah-s2)"/>
+  <circle cx="440" cy="2444" r="11" fill="#C62828"/><text class="evno" x="440" y="2448" text-anchor="middle">㉕</text>
+  <line class="strike" x1="575" y1="2436" x2="587" y2="2452"/>
+  <line class="strike" x1="587" y1="2436" x2="575" y2="2452"/>
+  <text class="evlbl" x="580" y="2438" text-anchor="middle">LEARN(2, v) — ✗ p1 already learned ⊥</text>
+
+  <!-- ㉖ p1 → p1 self LEARN -->
+  <path class="arrow slot2 thin discarded" d="M 720 2470 C 800 2470 800 2490 730 2490" marker-end="url(#ah-s2)"/>
+  <circle cx="720" cy="2470" r="11" fill="#C62828"/><text class="evno" x="720" y="2474" text-anchor="middle">㉖</text>
+  <text class="evlbl" x="815" y="2484">㉖ self LEARN(2, ⊥)</text>
+
+  <!-- ㉗ p2 → p1 LEARN(2,v) discarded -->
+  <line class="arrow slot2 thin discarded" x1="990" y1="2510" x2="730" y2="2510" marker-end="url(#ah-s2)"/>
+  <circle cx="1000" cy="2510" r="11" fill="#C62828"/><text class="evno" x="1000" y="2514" text-anchor="middle">㉗</text>
+  <line class="strike" x1="855" y1="2502" x2="867" y2="2518"/>
+  <line class="strike" x1="867" y1="2502" x2="855" y2="2518"/>
+  <text class="evlbl" x="860" y="2504" text-anchor="middle">LEARN(2, v) — ✗ p1 already learned ⊥</text>
+
+  <!-- Slot 5 quorum and LEARN broadcast -->
+  <g transform="translate(540, 2528)">
+    <rect x="0" y="0" width="360" height="40" class="note note-state-p2"/>
+    <text class="note-title" x="8" y="14">p2 · slot 5 quorum (㉑ + ⑳-self)</text>
+    <text class="note-mono"  x="8" y="30">learn_slot(5, v');  broadcast_learn(5, v')</text>
+  </g>
+
+  <!-- ㉘ p2 → p0 LEARN(5,v') -->
+  <line class="arrow slot5 thin" x1="990" y1="2586" x2="450" y2="2586" marker-end="url(#ah-s5)"/>
+  <circle cx="1000" cy="2586" r="11" fill="#1565C0"/><text class="evno" x="1000" y="2590" text-anchor="middle">㉘</text>
+  <text class="evlbl" x="720" y="2580" text-anchor="middle">LEARN(slot=5, v')</text>
+
+  <!-- ㉙ p2 → p1 LEARN(5,v') -->
+  <line class="arrow slot5 thin" x1="990" y1="2612" x2="730" y2="2612" marker-end="url(#ah-s5)"/>
+  <circle cx="1000" cy="2612" r="11" fill="#1565C0"/><text class="evno" x="1000" y="2616" text-anchor="middle">㉙</text>
+  <text class="evlbl" x="860" y="2606" text-anchor="middle">LEARN(slot=5, v')</text>
+
+  <!-- ㉚ p2 → p2 self LEARN(5,v') -->
+  <path class="arrow slot5 thin" d="M 1000 2638 C 1080 2638 1080 2658 1010 2658" marker-end="url(#ah-s5)"/>
+  <circle cx="1000" cy="2638" r="11" fill="#1565C0"/><text class="evno" x="1000" y="2642" text-anchor="middle">㉚</text>
+  <text class="evlbl" x="1095" y="2652">㉚ self LEARN(5, v')</text>
+
+  <!-- ─────────── PHASE H — Observable violation ─────────── -->
+  <line class="divider" x1="40" y1="2680" x2="1280" y2="2680"/>
+  <text class="divider-text" x="40" y="2675">Phase H — The violation becomes observable</text>
+
+  <g transform="translate(40, 2694)">
+    <rect x="0" y="0" width="500" height="44" class="note note-glue"/>
+    <text class="note-title" x="8" y="14">Glue</text>
+    <text class="note-mono"  x="8" y="30">A subsequent ClientWrite at p0 (or flushed need_to_skip) fills slot 0/3,</text>
+    <text class="note-mono"  x="8" y="44">advancing every node's `expected` past slot 2 so kv_store reflects it.</text>
+  </g>
+
+  <!-- ㉛ client → p1 Read -->
+  <line class="arrow client thin" x1="170" y1="2756" x2="710" y2="2756" marker-end="url(#ah-cl)"/>
+  <circle cx="160" cy="2756" r="11" fill="#00695C"/><text class="evno" x="160" y="2760" text-anchor="middle">㉛</text>
+  <text class="evlbl" x="440" y="2750" text-anchor="middle">Read("k")</text>
+
+  <!-- ㉛r reply -->
+  <line class="arrow client thin discarded" x1="710" y1="2776" x2="170" y2="2776" marker-end="url(#ah-cl)"/>
+  <text class="evlbl" fill="#B71C1C" x="440" y="2770" text-anchor="middle">returns [u_{v'}]  ← slot 2 applied as no-op</text>
+
+  <!-- ㉜ client → p0 Read -->
+  <line class="arrow client thin" x1="170" y1="2806" x2="430" y2="2806" marker-end="url(#ah-cl)"/>
+  <circle cx="160" cy="2806" r="11" fill="#00695C"/><text class="evno" x="160" y="2810" text-anchor="middle">㉜</text>
+  <text class="evlbl" x="300" y="2800" text-anchor="middle">Read("k")</text>
+
+  <line class="arrow client thin discarded" x1="430" y1="2826" x2="170" y2="2826" marker-end="url(#ah-cl)"/>
+  <text class="evlbl" fill="#1B5E20" x="300" y="2820" text-anchor="middle">returns [u_v, u_{v'}]</text>
+
+  <!-- ─────────── Divergence footer ─────────── -->
+  <g transform="translate(740, 2694)">
+    <rect x="0" y="0" width="540" height="160" class="note note-bug"/>
+    <text class="note-title" fill="#B71C1C" x="8" y="16">Divergence — linearizability violated</text>
+    <text class="table-h" x="12" y="38">node</text>
+    <text class="table-h" x="120" y="38">learned_value[2]</text>
+    <text class="table-h" x="300" y="38">Read("k")</text>
+    <line x1="8" y1="44" x2="528" y2="44" stroke="#9E9E9E" stroke-width="0.5"/>
+
+    <text class="table-c" x="12"  y="62">p0</text>
+    <text class="table-c footer-pass" x="120" y="62">v</text>
+    <text class="table-c footer-pass" x="300" y="62">[u_v, u_{v'}]</text>
+
+    <text class="table-c" x="12"  y="80">p1</text>
+    <text class="table-c footer-fail" x="120" y="80">⊥  (no-op)</text>
+    <text class="table-c footer-fail" x="300" y="80">[u_{v'}]   ← missing v</text>
+
+    <text class="table-c" x="12"  y="98">p2</text>
+    <text class="table-c footer-pass" x="120" y="98">v</text>
+    <text class="table-c footer-pass" x="300" y="98">[u_v, u_{v'}]</text>
+
+    <text class="note-mono" x="8" y="124">Root cause: fill_q_skips on ⑲ unilaterally learned slot 2 = no-op</text>
+    <text class="note-mono" x="8" y="138">on p1 even though {p0, p2} had already committed slot 2 = v at ballot 0.</text>
+    <text class="note-mono" x="8" y="152">Classification: paper bug. See bug.md §"The fix" for the safety guard.</text>
+  </g>
+</svg>

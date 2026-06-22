@@ -65,11 +65,11 @@ type assignment struct {
 func bestMatching(
 	labels []string,
 	cands map[string][]Event,
-	deps [][2]string,
+	directDeps, allDeps [][2]string,
 	seed int64,
 	nSwaps int,
 ) (map[string]Event, float64, []string, []string, []string, int, int) {
-	a := newAssignment(labels, cands, deps)
+	a := newAssignment(labels, cands, directDeps, allDeps)
 
 	// Greedy pass in topological order.
 	for _, li := range a.topo {
@@ -84,7 +84,7 @@ func bestMatching(
 		// Collect label indices that have alternatives.
 		var swappable []int
 		for li, lbl := range a.labels {
-			if len(a.cands[lbl]) >= 2 {
+			if len(a.cands[lbl]) >= 1 {
 				swappable = append(swappable, li)
 			}
 		}
@@ -93,24 +93,28 @@ func bestMatching(
 				li := swappable[rng.IntN(len(swappable))]
 				lbl := a.labels[li]
 				candList := a.cands[lbl]
-				newChoice := rng.IntN(len(candList))
+				newChoice := rng.IntN(len(candList)+1) - 1 // -1 means unassign
 				if newChoice == a.choice[li] {
 					continue
 				}
 				// Save current assignment for this label, try the swap.
 				oldChoice := a.choice[li]
-				newEvent := candList[newChoice]
-				newKey := keyOf(newEvent)
-				// Reject if injectivity would be violated.
-				if _, clash := a.usedKey[newKey]; clash {
-					continue
+				// Check injectivity for assignment (not needed for unassign).
+				if newChoice >= 0 {
+					newEvent := candList[newChoice]
+					newKey := keyOf(newEvent)
+					if _, clash := a.usedKey[newKey]; clash {
+						continue
+					}
 				}
 				// Apply
 				if oldChoice >= 0 {
 					delete(a.usedKey, keyOf(candList[oldChoice]))
 				}
 				a.choice[li] = newChoice
-				a.usedKey[newKey] = struct{}{}
+				if newChoice >= 0 {
+					a.usedKey[keyOf(candList[newChoice])] = struct{}{}
+				}
 
 				sat, elig := a.edgeSatisfaction()
 				if better(sat, elig, bestSat, bestElig) {
@@ -118,7 +122,9 @@ func bestMatching(
 					bestChoice = append(bestChoice[:0], a.choice...)
 				} else {
 					// Revert
-					delete(a.usedKey, newKey)
+					if newChoice >= 0 {
+						delete(a.usedKey, keyOf(candList[newChoice]))
+					}
 					a.choice[li] = oldChoice
 					if oldChoice >= 0 {
 						a.usedKey[keyOf(candList[oldChoice])] = struct{}{}
@@ -171,7 +177,7 @@ func better(satA, eligA, satB, eligB int) bool {
 	return satA*eligB > satB*eligA
 }
 
-func newAssignment(labels []string, cands map[string][]Event, deps [][2]string) *assignment {
+func newAssignment(labels []string, cands map[string][]Event, directDeps, allDeps [][2]string) *assignment {
 	// Stable label order for determinism.
 	sortedLabels := append([]string(nil), labels...)
 	sort.Strings(sortedLabels)
@@ -195,14 +201,24 @@ func newAssignment(labels []string, cands map[string][]Event, deps [][2]string) 
 		a.choice[i] = -1
 	}
 
-	for _, dep := range deps {
+	// Direct edges for topo sort and greedy predecessor checks.
+	for _, dep := range directDeps {
 		from, okF := idxOf[dep[0]]
 		to, okT := idxOf[dep[1]]
 		if !okF || !okT {
-			continue // shouldn't happen (validated upstream)
+			continue
 		}
 		a.depOut[from] = append(a.depOut[from], to)
 		a.depIn[to] = append(a.depIn[to], from)
+	}
+
+	// All edges (including transitive) for scoring.
+	for _, dep := range allDeps {
+		from, okF := idxOf[dep[0]]
+		to, okT := idxOf[dep[1]]
+		if !okF || !okT {
+			continue
+		}
 		a.edges = append(a.edges, [2]int{from, to})
 	}
 
@@ -264,8 +280,11 @@ func topoSort(n int, depIn, depOut map[int][]int) []int {
 
 // assignEarliestAfterPredecessors picks the earliest unused candidate for `li`
 // that strictly follows every already-assigned predecessor in the lessThan
-// order. Falls back to the earliest unused candidate if none respects the
-// constraint.
+// order. If no predecessor-respecting candidate exists, the label is left
+// unassigned — under the scoring model where unassigned edges count as
+// unsatisfied, forcing a bad pick would give the same score on violated
+// edges but risk stealing a candidate from another label via injectivity.
+// The swap phase can assign or unassign later with global scoring.
 func (a *assignment) assignEarliestAfterPredecessors(li int) {
 	lbl := a.labels[li]
 	cand := a.cands[lbl]
@@ -293,32 +312,17 @@ func (a *assignment) assignEarliestAfterPredecessors(li int) {
 		return true
 	}
 
-	pick := -1
-	// First pass: respect predecessor constraint.
 	for i, ev := range cand {
 		if _, used := a.usedKey[keyOf(ev)]; used {
 			continue
 		}
 		if respectsPreds(ev) {
-			pick = i
-			break
+			a.choice[li] = i
+			a.usedKey[keyOf(cand[i])] = struct{}{}
+			return
 		}
 	}
-	// Second pass: any unused candidate.
-	if pick < 0 {
-		for i, ev := range cand {
-			if _, used := a.usedKey[keyOf(ev)]; used {
-				continue
-			}
-			pick = i
-			break
-		}
-	}
-	if pick < 0 {
-		return
-	}
-	a.choice[li] = pick
-	a.usedKey[keyOf(cand[pick])] = struct{}{}
+	// No predecessor-respecting candidate; leave unassigned.
 }
 
 // longestSatisfiableChain computes the length of the longest path through the
@@ -365,9 +369,11 @@ func (a *assignment) longestSatisfiableChain() (longest int, criticalPath int) {
 	return
 }
 
-// edgeSatisfaction counts edges where both endpoints are assigned and
-// lessThan(matched(u), matched(v)). Edges with either endpoint unmatched
-// or unmatchable are excluded from both numerator and denominator.
+// edgeSatisfaction counts how many DAG edges are satisfied. Edges touching
+// a zero-candidate (structurally unmatchable) label are excluded entirely.
+// All other edges are eligible: if both endpoints are assigned and ordered
+// correctly the edge is satisfied; if either endpoint is unassigned or
+// misordered the edge is unsatisfied but still counted in the denominator.
 func (a *assignment) edgeSatisfaction() (satisfied, eligible int) {
 	for _, e := range a.edges {
 		u, v := e[0], e[1]
@@ -377,11 +383,11 @@ func (a *assignment) edgeSatisfaction() (satisfied, eligible int) {
 		if _, um := a.unmatch[v]; um {
 			continue
 		}
+		eligible++
 		cu, cv := a.choice[u], a.choice[v]
 		if cu < 0 || cv < 0 {
-			continue
+			continue // unsatisfied; already counted in denominator
 		}
-		eligible++
 		eu := a.cands[a.labels[u]][cu]
 		ev := a.cands[a.labels[v]][cv]
 		if lessThan(eu, ev) {

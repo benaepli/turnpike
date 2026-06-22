@@ -1,0 +1,259 @@
+@startuml
+' ──────────────────────────────────────────────────────────────────────
+' Mencius Rule-2 / Rule-3 paper bug — canonical Lamport / sequence
+' diagram for the scenario in bug.md.
+'
+' Render: plantuml bug.puml  → bug.png
+'         plantuml -tsvg bug.puml → bug.svg
+'
+' Companion artifact: bug.svg (hand-built, publication-quality).
+' Source spec:        Mencius_bugged.spur
+' Narrative:          bug.md
+' ──────────────────────────────────────────────────────────────────────
+
+title **Mencius Protocol 𝒫 — Rule-2 / Rule-3 safety bug**\n//Canonical 3-server, no-crash scenario from bug.md//
+
+skinparam backgroundColor #FAFAFA
+skinparam sequenceMessageAlign center
+skinparam shadowing false
+skinparam roundCorner 4
+skinparam noteFontSize 11
+skinparam noteFontName "DejaVu Sans Mono"
+skinparam sequenceArrowThickness 1.4
+skinparam participantPadding 18
+skinparam BoxPadding 12
+
+participant "**client**"      as cl
+participant "**p0**\nowns {0,3,…}"   as p0
+participant "**p1**\nowns {1,4,…}\n//revoker//"   as p1
+participant "**p2**\nowns {2,5,…}\n//proposer//"  as p2
+
+' ──────────────────────────────────────────────────────────────────────
+' Starting-state header (identical across nodes after Init(me, peers))
+' ──────────────────────────────────────────────────────────────────────
+note across #E8F0FE
+**Starting state** (post-`Init`, Mencius_bugged.spur:144–157)
+====
+For every node pᵢ ∈ {p0, p1, p2}, n = 3:
+| variable             | value                                          |
+| ``self``             | ``i``                                          |
+| ``my_index``         | ``i``  (next slot it owns; owner(j) = j % 3)  |
+| ``expected``         | ``0``                                          |
+| ``est_index``        | ``{0:0, 1:1, 2:2}``                            |
+| ``prepared_ballot``, ``has_prepared``       | ``{}`` (implicit ``(0, owner(j))``) |
+| ``accepted_ballot``, ``has_accepted``, ``accepted_value`` | ``{}`` |
+| ``learned_flags``, ``learned_value``        | ``{}``               |
+| ``revoke_*``                                | ``{}``               |
+| ``kv_store``, ``applied_cmds``, ``pending_requests`` | ``{}``      |
+| ``next_req_id``      | ``i`` (strides by n)                           |
+| ``links``            | ``{0:fifo(p0), 1:fifo(p1), 2:fifo(p2)}``       |
+| ``need_to_skip``, ``skip_timer_active``     | ``{}``               |
+----
+**Legend.** Ballots = ``(round, leader)``.  Owner(slot) = slot mod 3.
+Every inter-node message travels over a **per-pair FIFO link** —
+ordering is preserved //within// a link but pairs are independent.
+Slot 2 messages: **red**.  Slot 5 messages: **blue**.
+Revoke messages (ballot ≥ 1): **purple**.  Discarded: dashed with ✗.
+end note
+
+' ──────────────────────────────────────────────────────────────────────
+== Phase A — Triggers ==
+
+cl -> p2 : **①** ClientWrite("k", uid=//v//)
+note right of p2 #FFF3E0
+``on_client_request(v)`` (line 525):
+``proposed[2] = v``;
+``my_index: 2 → 5``;
+``persist()``;
+``broadcast_propose(2, (0,2), v)``
+end note
+
+rnote over p1 #F3E5F5
+**②** //"suspect" timer fires//
+``on_suspect(2)`` → ``start_revoke(2)``
+ballot = ``(1, p1)``
+``broadcast_prepare(2, (1,1))``
+end rnote
+
+' ──────────────────────────────────────────────────────────────────────
+== Phase B — Two broadcasts race on independent FIFO links ==
+
+p2 -[#C62828]> p0 : **③** PROPOSE(2, (0,2), v)
+p2 -[#C62828]> p1 : **④** PROPOSE(2, (0,2), v)
+p2 -[#C62828]> p2 : **⑤** PROPOSE(2, (0,2), v)
+
+p1 -[#6A1B9A]> p0 : **⑥** PREPARE(2, (1,1))
+p1 -[#6A1B9A]> p1 : **⑦** PREPARE(2, (1,1))
+p1 -[#6A1B9A]> p2 : **⑧** PREPARE(2, (1,1))
+
+' ──────────────────────────────────────────────────────────────────────
+== Phase C — Handler effects (per-pair link ordering breaks symmetrically) ==
+
+note over p0 #E8F5E9
+At **p0**, on link ``p2 → p0`` event ③ is delivered //before// ⑥.
+``HandlePropose(2, (0,2), v)`` (line 596):
+guard passes, owner ≠ self → ``on_suggestion(2)`` (line 435):
+  ``fill_q_skips(2, 2)``: ``est_index[2] = 5``
+  skip p0's own ``[my_index=0, 2)``:
+    ``learn_slot(0, nil)``;  ``my_index: 0 → 3``
+  ``defer_skips(q=2, [0])``: ``need_to_skip[1] = [0]``
+then accept: ``accepted[2] = (0,2)/v``, ``has_accepted[2]=true``.
+end note
+p0 -[#C62828]> p2 : **⑨** ACCEPT(2, (0,2), v)
+
+note over p0 #E8F5E9
+Then ⑥ arrives at p0:
+``HandlePrepare(2, (1,1))`` (line 686): ballot > prep=(0,2) →
+``prepared_ballot[2] = (1,1)``.
+end note
+p0 -[#6A1B9A]> p1 : **⑩** ACK(2, (1,1), //has_accepted=true, acc=(0,2)/v//)
+
+rnote over p1 #FFEBEE
+At **p1**, the self-link delivers ⑦ first:
+``HandlePrepare(2, (1,1))`` → ``prepared_ballot[2] = (1,1)``.
+end rnote
+p1 -[#6A1B9A]> p1 : **⑪** ACK(2, (1,1), //has_accepted=false//)
+
+rnote over p1 #FFEBEE
+Then ④ arrives at p1:
+``HandlePropose(2, (0,2), v)`` (line 614):
+``ballot_gte((0,2), (1,1))`` is **false** → **✗ REJECTED**
+//no ACCEPT sent — this is the load-bearing rejection.//
+end rnote
+
+note over p2 #E8F5E9
+At **p2**, self-link delivers ⑤ first:
+``HandlePropose(2, (0,2), v)``: owner == self, accept directly:
+``accepted[2] = (0,2)/v``.
+end note
+p2 -[#C62828]> p2 : **⑫** ACCEPT(2, (0,2), v)
+
+note over p2 #E8F5E9
+Then ⑧ arrives at p2:
+``HandlePrepare(2, (1,1))`` → ``prepared_ballot[2] = (1,1)``,
+includes prior accept in ACK.
+end note
+p2 -[#6A1B9A]> p1 : **⑬** ACK(2, (1,1), //has_accepted=true, acc=(0,2)/v//)
+
+' ──────────────────────────────────────────────────────────────────────
+== Phase D — Ballot-0 quorum at {p0, p2} chooses //v// ==
+
+note over p2 #E8F5E9
+``HandleAccept`` tallies for slot 2 at ballot (0,2):
+self ⑫ + p0 ⑨ → count = 2 ≥ majority.
+``learn_slot(2, v)``;  ``broadcast_learn(2, v)``.
+end note
+
+p2 -[#C62828]> p0 : **⑭** LEARN(2, v)
+p2 -[#C62828]> p1 : **⑮** LEARN(2, v)
+p2 -[#C62828]> p2 : **⑯** LEARN(2, v)
+
+' ──────────────────────────────────────────────────────────────────────
+== Phase E — Second client write (the trigger) ==
+
+cl -> p2 : **⑰** ClientWrite("k", uid=//v'//)
+note right of p2 #FFF3E0
+``on_client_request(v')``:
+``proposed[5] = v'``;  ``my_index: 5 → 8``;
+``broadcast_propose(5, (0,2), v')``
+end note
+
+p2 -[#1565C0]> p0 : **⑱** PROPOSE(5, (0,2), v')
+p2 -[#1565C0]> p1 : **⑲** PROPOSE(5, (0,2), v')
+p2 -[#1565C0]> p2 : **⑳** PROPOSE(5, (0,2), v')
+
+' ──────────────────────────────────────────────────────────────────────
+== Phase F — The bug fires on p1 ==
+
+rnote over p1 #FFCDD2
+**⚠ BUG.**  The ``p2 → p1`` FIFO link ordered ⑮ before ⑲.
+If ⑲'s ``HandlePropose`` task is dispatched and runs through
+``on_suggestion(5)`` before ⑮'s ``HandleLearn`` sets
+``learned_flags[2]``, then:
+
+``on_suggestion(5)`` (line 435) at p1:
+  ``fill_q_skips(2, 5)`` (line 412):
+    j=2, owner(2)=2  →  **``learn_slot(2, nil)``**   ← //BUG//
+    j=3 (owner p0, skip), j=4 (owner p1, skip)
+  ``est_index[2] = 8``
+  skip p1's own ``[my_index=1, 5)``:
+    ``learn_slot(1, nil)``, ``learn_slot(4, nil)``;
+    ``my_index: 1 → 7``
+then accept slot 5: ``accepted[5] = (0,2)/v'``.
+
+**p1's** ``learned_value[2] = ⊥`` (no-op).
+**p0/p2's** ``learned_value[2] = v``.
+end rnote
+
+p1 -[#1565C0]> p2 : **㉑** ACCEPT(5, (0,2), v')
+
+' ──────────────────────────────────────────────────────────────────────
+== Phase G — Masked LEARN and stalled revoke ==
+
+p2 -[#C62828,dashed]->x p1 : **⑮'** LEARN(2, v) //(delivered, but `is_learned(2)` already true → **✗ discarded**, line 679)//
+
+note over p1 #F3E5F5
+p1's revoke Phase 1 tallies ACKs ⑪ + ⑩ + ⑬ → majority.
+``revoke_best_value[2] = v`` (highest accepted_ballot = (0,2)).
+Phase 2: ``broadcast_propose(2, (1,1), v)``.
+end note
+
+p1 -[#6A1B9A]> p0 : **㉒** PROPOSE(2, (1,1), v)
+p1 -[#6A1B9A]> p1 : **㉓** PROPOSE(2, (1,1), v)
+p1 -[#6A1B9A]> p2 : **㉔** PROPOSE(2, (1,1), v)
+
+note over p0, p2 #ECEFF1
+At every receiver ``is_learned(2) == true`` →
+``HandlePropose`` short-circuits to **``HandleLearn(2, learned_value[2])``**
+back to p1 (line 599).
+end note
+
+p0 -[#C62828,dashed]->x p1 : **㉕** LEARN(2, v)   //(✗ p1 already has nil)//
+p1 -[#C62828,dashed]->x p1 : **㉖** LEARN(2, ⊥)   //(self, no-op)//
+p2 -[#C62828,dashed]->x p1 : **㉗** LEARN(2, v)   //(✗ p1 already has nil)//
+
+note over p2 #E8F5E9
+Slot 5 quorum: ⑳-self + ㉑ → majority. ``learn_slot(5, v')``.
+//Slot 5 commits cleanly on every node — only slot 2 diverges.//
+end note
+
+p2 -[#1565C0]> p0 : **㉘** LEARN(5, v')
+p2 -[#1565C0]> p1 : **㉙** LEARN(5, v')
+p2 -[#1565C0]> p2 : **㉚** LEARN(5, v')
+
+' ──────────────────────────────────────────────────────────────────────
+== Phase H — The violation becomes observable ==
+
+note over p0 #FFF3E0
+//(Glue:)// once a ClientWrite from p0 fills slot 0
+//or// p0's deferred ``need_to_skip[1]=[0]`` flushes to p1 and a
+symmetric p1 SUGGEST advances both ``expected`` counters past slot 2,
+the divergent values become observable to clients.
+end note
+
+cl -> p1 : **㉛** Read("k")
+note right of p1 #FFCDD2
+p1 applies committed log:
+  slot 0 = nil, slot 1 = nil, slot 2 = **nil**, slot 4 = nil, slot 5 = v'
+``kv_store["k"] = [u_{v'}]``  //(only v', no v)//
+end note
+p1 --> cl : returns ``[u_{v'}]``
+
+cl -> p0 : **㉜** Read("k")
+note right of p0 #E8F5E9
+p0 applies committed log:
+  slot 0 = nil, …, slot 2 = **v**, …, slot 5 = v'
+``kv_store["k"] = [u_v, u_{v'}]``
+end note
+p0 --> cl : returns ``[u_v, u_{v'}]``
+
+' ──────────────────────────────────────────────────────────────────────
+note across #FFCDD2
+**Divergence (linearizability violated).**
+| node | ``learned_value[2]`` | ``Read("k")`` |
+| p0   | **v**                | ``[u_v, u_{v'}]`` |
+| p1   | **⊥** (no-op)        | ``[u_{v'}]`` |
+| p2   | **v**                | ``[u_v, u_{v'}]`` |
+end note
+
+@enduml

@@ -3,8 +3,10 @@
 ## Summary
 
 The Mencius paper (Mao, Junqueira, Marzullo, *Mencius: Building Efficient
-Replicated State Machines for WANs*, OSDI 2008) presents Protocol 𝒫 in
-Appendix B, combining four rules:
+Replicated State Machines for WANs*, OSDI 2008) gives the full *Mencius*
+algorithm in Appendix C — Protocol P (Appendix B) augmented with Optimizations
+1–3 and Accelerator 1. Its Rule 2 is the optimized `QSkipSet` gap-fill (Opt 1/2),
+combining four rules:
 
 - **Rule 1** — servers take turns proposing in their assigned instances.
 - **Rule 2** — on receiving a SUGGEST at instance `i` from `q`, fill every
@@ -14,7 +16,8 @@ Appendix B, combining four rules:
   pending instances via a higher-ballot Coordinated Paxos round.
 - **Rule 4** — a proposer whose value is learned as `no-op` re-submits it.
 
-The paper claims Protocol 𝒫 is correct (Lemma 6). **It is not.** Rule 2
+The paper claims Mencius (Protocol P + Optimizations 1–2 + Accelerator 1) is
+correct (Lemmas 5–6). **It is not.** Rule 2
 and Rule 3 interact unsoundly: the Rule-2 gap-fill can unilaterally mark
 a slot as `no-op` on one replica while a majority of the cluster has
 already committed a real client command at that slot. Replicated state
@@ -22,15 +25,17 @@ machines then diverge.
 
 ## Classification
 
-**Paper bug.** The pseudocode in Appendix B, translated faithfully,
-exhibits the violation. The paper's correctness argument for Rule 2
-silently assumes the ballot dimension stays at 0, which Rule 3 actively
+**Paper bug.** The pseudocode in Appendix C (Mencius), translated faithfully,
+exhibits the violation. (Bare Protocol P in Appendix B does *not* have this bug
+— see "Why Protocol P is safe" below.) The paper's correctness argument for
+Rule 2 silently assumes the ballot dimension stays at 0, which Rule 3 actively
 breaks. The issue does not require crashes, message loss, or network
 partitions — only a concurrent revoke.
 
 ## The buggy rule in the paper
 
-Appendix B, procedure `OnSuggestion(i)`:
+Appendix C (Mencius), procedure `OnSuggestion(i)` (the same `QSkipSet` also
+appears in `OnAcceptSuggestion`, Optimization 1):
 
 ```
 q ← owner(i)
@@ -42,7 +47,7 @@ end
 ```
 
 The corresponding code in this spec lives at
-`bin/spur/mencius/Mencius_bugged.spur` lines **390–401**:
+`bin/spur/mencius/Mencius_opt1_2.spur` lines **420–431**:
 
 ```spur
 fn fill_q_skips(q: int, i: int) {
@@ -61,9 +66,9 @@ fn fill_q_skips(q: int, i: int) {
 
 `fill_q_skips` is invoked from:
 
-- `on_accept_suggestion` (line 405–408) — proposer-side, when `q` sends
+- `on_accept_suggestion` (line 435–438) — proposer-side, when `q` sends
   an ACCEPT at ballot 0.
-- `on_suggestion` (line 413–430) — receiver-side, when a ballot-0
+- `on_suggestion` (line 443–471) — receiver-side, when a ballot-0
   SUGGEST arrives with a real value.
 
 ## Reproducing scenario
@@ -79,13 +84,13 @@ Three servers p₀, p₁, p₂, no crashes. All RPCs go over FIFO links
    suspicion.
 
 2. **p₂ submits a client write `v`** and calls `on_client_request(v)`
-   (line 436). That sets `my_index = 5` (next `p₂`-owned slot) and
+   (line 533). That sets `my_index = 5` (next `p₂`-owned slot) and
    broadcasts `PROPOSE(slot=2, ballot=(0,p₂), value=v)` — the SUGGEST.
 
 3. **Messages race.** On p₁, the PREPARE (to self) is processed first:
    `prepared_ballot[2] = (1,p₁)`. When the SUGGEST arrives (via
-   `HandlePropose`, line 494), the guard
-   `ballot_gte(ballot, prep) and ballot_gt(ballot, acc)` at line 512
+   `HandlePropose`, line 604), the guard
+   `ballot_gte(ballot, prep) and ballot_gt(ballot, acc)` at line 622
    fails — `(0,p₂) < (1,p₁)` — so p₁ **rejects** the SUGGEST.
 
 4. **Meanwhile, p₀ and p₂ accept `v` at ballot 0.** The cluster reaches
@@ -101,13 +106,13 @@ Three servers p₀, p₁, p₂, no crashes. All RPCs go over FIFO links
    ACCEPT triggering quorum may still be in flight).
 
 7. **p₁ processes SUGGEST(5).** It passes the ballot check, so
-   `on_suggestion(5)` is invoked (line 518). Inside,
+   `on_suggestion(5)` is invoked (line 628). Inside,
    `fill_q_skips(2, 5)` walks `j ∈ {2}` (the only `p₂`-owned slot below
-   5) and calls `learn_slot(2, nil)` at line 394. **p₁ now believes
+   5) and calls `learn_slot(2, nil)` at line 424. **p₁ now believes
    slot 2 = `no-op`.**
 
 8. **p₀ and p₂'s LEARN(slot=2, `v`) arrives later** but `learn_slot` at
-   line 307 short-circuits via `if is_learned(i) { return; }`. p₁ keeps
+   line 337 short-circuits via `if is_learned(i) { return; }`. p₁ keeps
    its `no-op`.
 
 9. **Divergence.** When p₁ applies committed slots to its state
@@ -128,6 +133,25 @@ LEARN is discarded.
 
 So the revoke, which should have repaired the divergence, is silently
 masked by the stale Rule-2 no-op.
+
+## Why Protocol P (Appendix B) does not have this bug
+
+Protocol P's Rule 2 (`OnSuggestion`, Appendix B) only skips the *receiver's
+own* unused instances:
+
+```
+SkipSet ← {k : k ≥ index ∧ k < i ∧ owner(k) = p};   // owner(k) = p (SELF)
+forall k ∈ SkipSet do DownCall Skip(k);
+```
+
+It has no `est_index`, no `QSkipSet`, and never unilaterally marks *q's*
+instances as no-op. In the scenario above, Protocol-P p₁ would reject
+SUGGEST(2) (ballot too low) and leave slot 2 untouched; its own Revoke would
+then complete Phase 1, discover `hv = v` from p₀/p₂'s ACKs, and learn slot 2
+= **v** — no divergence. The bug is introduced specifically by the `QSkipSet`
+no-op inference that Mencius adds (Optimization 1 via `OnAcceptSuggestion`,
+Optimization 2 via `OnSuggestion`), which is why it falsifies Lemmas 5–6
+rather than Protocol P's own agreement lemma.
 
 ## Why the paper's proof doesn't catch this
 
@@ -151,7 +175,7 @@ ballot information that was lost to rejection.
 
 ## The fix
 
-Two changes, applied in `bin/spur/mencius/Mencius.spur`:
+Two changes, applied in `bin/spur/mencius/Mencius_opt1_2_fixed.spur`:
 
 ### 1. Safety: ballot guard in `fill_q_skips`
 
@@ -224,7 +248,7 @@ cargo run --release --manifest-path spur/Cargo.toml --bin spur -- \
     explore -e standard \
     --config scheduler_configs/mencius_nocrash.json \
     -y --output-dir output_mencius_bug \
-    bin/spur/mencius/Mencius_bugged.spur
+    bin/spur/mencius/Mencius_opt1_2.spur
 
 ./porcupine/main -input output_mencius_bug -type duckdb -model kv \
     -output-dir output_mencius_bug
@@ -233,3 +257,11 @@ cargo run --release --manifest-path spur/Cargo.toml --bin spur -- \
 Expected: `Some runs are NOT linearizable.` Use `debug combined` on a
 failing run to see the diverging `LEARN slot X = no-op` vs.
 `LEARN slot X uid=…` events across nodes.
+
+## See also
+
+`bug_opt1_2_3.md` documents the **same root cause** (unguarded `fill_q_skips`)
+under the faithful **Optimization 3** β-window revocation. There the block
+revoke rejects the owner's SUGGESTs to *all* its slots, so the bug is forced
+through the proposer's **own** slot via `on_accept_suggestion` (Optimization 1)
+rather than a peer's slot via `on_suggestion`. The fix is identical.

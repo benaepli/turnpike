@@ -1,34 +1,46 @@
-// Mencius Protocol P (Appendix B) over Coordinated Paxos (Appendix A).
-//   Mao, Junqueira, Marzullo. "Mencius: Building Efficient Replicated State
-//   Machines for WANs." OSDI 2008.
+// Mencius: Efficient Replicated State Machines for WANs (Mao, Junqueira, Marzullo)
+// This spec implements Mencius (Appendix C) — Protocol P (Appendix B) plus
+// Optimization 1, Optimization 2, and Accelerator 1, but WITHOUT Optimization 3
+// (the β-window bulk revocation). It is the *corrected* version of
+// Mencius_opt1_2.spur: it adds a ballot guard to `fill_q_skips` (Rule 2 may
+// only gap-fill a slot while it is still at the owner's implicit ballot) and a
+// NACK/self-revoke path so a rejected SUGGEST converges. Each instance runs
+// Coordinated Paxos (Appendix A): the owner has an implicit promise at ballot
+// (0, owner(i)). Non-owners must use ballot > 0 (via Revoke) to propose a
+// value. The standalone, optimization-free Protocol P lives in Mencius_P.spur.
 //
-// This is the *standalone* Protocol P — none of the optimizations from
-// Section 4 are applied. Each instance i has owner owner(i) = i % n. Owners
-// suggest at ballot (0, owner(i)); non-owners must Revoke (full Phase 1 +
-// Phase 2 at a higher ballot) to propose. Skipped slots are propagated by
-// explicit SKIP messages — there is no piggyback, no deferred batching, no
-// est_index tracking, and no Accelerator-1 timers.
-//
-// In scope:
+// Scope implemented:
 //   - Rotating coordinators (owner(i) = i % n)
 //   - Suggest (PROPOSE(0, cmd)) and Skip (PROPOSE(0, no-op))
-//   - OnSuggestion: when receiving SUGGEST(i), explicitly Skip every
-//     self-owned slot in [my_index, i)
+//   - OnSuggestion / OnAcceptSuggestion (Rule 2 gap filling via the
+//     Optimization 1/2 QSkipSet inference — guarded by a ballot check here;
+//     the unguarded version's bug is documented in bug_opt1_2.md)
 //   - OnLearned re-suggest (Rule 4)
-//   - OnSuspect: full Paxos Phase 1 + 2 Revoke at ballot > 0
-//   - Persistence + crash recovery via persist_data/retrieve_data
+//   - Revoke: full Paxos Phase 1 + 2 at ballot > 0 (Rule 3, minus beta window)
+//   - Crash recovery via persist_data/retrieve_data
+//   - Optimization 1: piggyback SKIP from p on the ACCEPT p sends to slot
+//     owner q. q infers p's skipped slots in HandleAccept via
+//     on_accept_suggestion → fill_q_skips. p suppresses the explicit SKIP
+//     send to q in on_suggestion.
+//   - Optimization 2 + Accelerator 1: defer SKIPs from p to other peers r.
+//     Skipped slots accumulate in need_to_skip[r]. They propagate to r when
+//     (a) p sends a future SUGGEST(j) to r (r runs fill_q_skips(p, j) which
+//     subsumes them), (b) len(need_to_skip[r]) reaches α, or (c) the τ-timer
+//     for r fires. on_client_request clears need_to_skip + cancels timers
+//     because the new SUGGEST piggybacks all pending skips.
 //
-// Out of scope (these are the things Mencius_opt1_2.spur adds):
-//   - Optimization 1 (piggyback SKIP on the ACCEPT for SUGGEST)
-//   - Optimization 2 + Accelerator 1 (defer SKIPs, batch via α/τ)
-//   - Optimization 3 (β-bounded revoke window)
-//   - est_index[] tracking
+// Out of scope (TODO):
+//   - Optimization 3 (beta-window bulk revocation)
+//   - Out-of-order commit
 //
-// Channel model: direct RPCs (no FifoLink). Bare Protocol P never infers
-// no-ops from another server's progress — every no-op is communicated by
-// an explicit Skip(k) from k's owner. Reordering between Skip and Suggest
-// from the same sender is harmless because each PROPOSE acts on a distinct
-// slot.
+// Channel model: the paper assumes FIFO (TCP-like) channels between each
+// pair of servers. Rule 2 in OnSuggestion/OnAcceptSuggestion is load-bearing
+// on FIFO — without it, receiving SUGGEST(i) from q does NOT imply q has
+// handled all of its earlier owned instances, so unilaterally learning those
+// as no-op would violate safety. We route every inter-server RPC through a
+// per-peer FifoLink<Node>, which matches the paper's assumption.
+// Sender-crash drops the link in memory; on recovery we build fresh links,
+// relying on the revoke path to repair any in-flight state.
 
 type Command {
     client_node: int;
@@ -69,6 +81,7 @@ type PersistentState {
     expected: int;
     my_index: int;
     proposed: map<int, Command>;
+    links: map<int, FifoLink<Node>>;
 };
 
 role Node {
@@ -77,12 +90,13 @@ role Node {
     var replicas: list<Node> = [];
     var n: int = 0;
 
-    // ── Protocol P state ─────────────────────────────────────
-    var proposed: map<int, Command> = {};  // values I suggested per slot
+    // ── Mencius server state ─────────────────────────────────
+    var proposed: map<int, Command> = {};  // my suggested values (by slot)
     var expected: int = 0;                  // next slot to commit
     var my_index: int = 0;                  // next slot I will coordinate
+    var est_index: map<int, int> = {};      // next slot peer q is expected to coordinate
 
-    // ── Per-slot Coordinated Paxos acceptor state ────────────
+    // ── Per-slot acceptor state ──────────────────────────────
     // prepared_ballot[i] is the highest ballot promised for slot i.
     // If unset, the implicit promise is (0, owner(i)).
     var prepared_ballot: map<int, Ballot> = {};
@@ -96,7 +110,7 @@ role Node {
     var learned_value: map<int, Command?> = {}; // nil => no-op
 
     // ── Revoke state (proposer side, per slot) ───────────────
-    var revoke_ballot: map<int, Ballot> = {};
+    var revoke_ballot: map<int, Ballot> = {};    // ballot I am driving
     var revoke_phase: map<int, int> = {};        // 1 = phase 1, 2 = phase 2, 0 = idle
     var revoke_ack_count: map<int, int> = {};
     var revoke_best_ballot: map<int, Ballot> = {};
@@ -110,6 +124,19 @@ role Node {
     var next_req_id: int = 0;
     var applied_cmds: map<string, bool> = {};
 
+    // ── FIFO links to peers (one per peer index) ─────────────
+    // Persisted so cross-crash FIFO ordering is preserved: post-recovery
+    // sends arrive after any pre-crash in-flight messages on the same link.
+    var links: map<int, FifoLink<Node>> = {};
+
+    // ── Opt 2 + Accelerator 1: pending skip propagation ──────
+    // need_to_skip[r] = self-owned slots that self has locally learned as
+    // no-op but has not yet told r about. Cleared when a piggyback channel
+    // fires (next SUGGEST to r in on_client_request, threshold α, or τ-timer).
+    // Not persisted — on recovery we rebuild via revoke / future SUGGESTs.
+    var need_to_skip: map<int, list<int>> = {};
+    var skip_timer_active: map<int, bool> = {};
+
     // ─────────────────────────────────────────────────────────
     // Init / Recover
     // ─────────────────────────────────────────────────────────
@@ -118,9 +145,13 @@ role Node {
         self = me;
         replicas = peers;
         n = len(peers);
-        my_index = self;          // first slot owned by self (owner(i) = i % n)
-        next_req_id = self;       // unique across nodes via stride n
-        persist();
+        my_index = self; // first slot owned by self (owner(i) = i % n)
+        for var q = 0; q < n; q = q + 1 {
+            est_index = est_index[q] := q;
+            links = links[q] := fifo(peers[q]);
+        }
+        next_req_id = self; // unique across nodes: use stride of n
+        persist(); // save fresh FIFO links so they survive a future crash
         println("Node {self} initialized. n={n}");
         monitor_suspicions();
     }
@@ -144,10 +175,21 @@ role Node {
             expected = s.expected;
             my_index = s.my_index;
             proposed = s.proposed;
+            // Restore persisted FIFO links so post-recovery sends are
+            // ordered after any pre-crash in-flight messages.
+            links = s.links;
         } else {
             my_index = self;
+            links = {};
+            for var q = 0; q < n; q = q + 1 {
+                links = links[q] := fifo(peers[q]);
+            }
         }
 
+        est_index = {};
+        for var q = 0; q < n; q = q + 1 {
+            est_index = est_index[q] := q;
+        }
         revoke_ballot = {};
         revoke_phase = {};
         revoke_ack_count = {};
@@ -159,7 +201,7 @@ role Node {
         applied_cmds = {};
         next_req_id = self + n * 1000; // avoid colliding with pre-crash req_ids
 
-        // Rebuild kv_store by replaying committed slots in order.
+        // Rebuild kv_store by applying all learned committed slots in order.
         kv_store = {};
         for var i = 0; i < expected; i = i + 1 {
             if exists(learned_flags, i) and learned_flags[i] {
@@ -183,6 +225,7 @@ role Node {
         i % n
     }
 
+    // Smallest j >= start with owner(j) = q.
     fn first_owned_from(start: int, q: int): int {
         var j = start;
         for ;; {
@@ -192,6 +235,7 @@ role Node {
         0
     }
 
+    // Smallest j > after with owner(j) = q.
     fn next_owned(after: int, q: int): int {
         first_owned_from(after + 1, q)
     }
@@ -245,6 +289,7 @@ role Node {
             expected: expected,
             my_index: my_index,
             proposed: proposed,
+            links: links,
         });
     }
 
@@ -278,8 +323,8 @@ role Node {
     // Learning / CheckCommit (the log → state machine path)
     // ─────────────────────────────────────────────────────────
 
-    // Set slot i's learned value, then walk forward from `expected`,
-    // committing consecutive learned slots into the state machine.
+    // Set slot i's learned value, and walk forward from `expected` committing
+    // consecutive learned slots into the state machine.
     fn learn_slot(i: int, value: Command?) {
         if is_learned(i) { return (); }
         learned_flags = learned_flags[i] := true;
@@ -295,9 +340,7 @@ role Node {
     }
 
     fn on_learned(i: int, value: Command?) {
-        // Rule 4: if I suggested v for slot i but a different value was
-        // chosen, re-suggest. (Under Coordinated Paxos, "different" implies
-        // no-op for an owner's own slot.)
+        // Rule 4: if I suggested v for slot i but no-op was chosen, re-submit v.
         if owner_of(i) == self and exists(proposed, i) {
             var my_val = proposed[i];
             var lost = false;
@@ -310,6 +353,7 @@ role Node {
                 }
             }
             if lost and !is_committed_cmd(my_val) {
+                // Re-issue on a new owned slot.
                 on_client_request(my_val);
             }
         }
@@ -363,25 +407,128 @@ role Node {
     }
 
     // ─────────────────────────────────────────────────────────
-    // OnSuggestion (Rule 2)
+    // OnSuggestion / OnAcceptSuggestion (Rule 2 gap filling)
     // ─────────────────────────────────────────────────────────
 
-    // Triggered on a non-owner p when it receives PROPOSE(0, v) with v != no-op
-    // for slot i (owner(i) = q, q != p). p Skips its own unused slots in
-    // [my_index, i) — explicit Skip messages, no piggybacking, no batching.
+    // Learn all of q's instances in [est_index[q], i) as no-op — but ONLY
+    // if the local prepared_ballot[j] is still at the owner's implicit
+    // (0, q). If some revoker raised the ballot, we cannot unilaterally
+    // mark slot j as no-op: a majority elsewhere may have already accepted
+    // q's real value at ballot 0, and the active revoke will drive that
+    // value to consensus. (Gap in Mencius paper: Rule 2 as written is
+    // unsafe when concurrent Rule 3 revocation has raised our prepared
+    // ballot above the owner's implicit promise.)
+    fn fill_q_skips(q: int, i: int) {
+        var j = est_index[q];
+        for ; j < i; {
+            if j % n == q and !is_learned(j) {
+                var prep = get_prepared(j);
+                var owner_ballot = Ballot{ round: 0, leader: q };
+                if ballot_eq(prep, owner_ballot) {
+                    learn_slot(j, nil);
+                }
+            }
+            j = j + 1;
+        }
+        if i >= est_index[q] {
+            est_index = est_index[q] := next_owned(i, q);
+        }
+    }
+
+    // Triggered on the proposer side when acceptor q sends ACCEPT(0, v) for
+    // slot i. Implies q has moved past all its own instances < i.
+    fn on_accept_suggestion(i: int, q: int) {
+        if q == self { return (); }
+        fill_q_skips(q, i);
+    }
+
+    // Triggered on any peer p when it receives PROPOSE(0, v) with v != no-op
+    // for slot i (owned by q = owner(i)). p must skip its own unused instances
+    // < i and update est_index for q.
     fn on_suggestion(i: int) {
+        var q = owner_of(i);
+        fill_q_skips(q, i);
+
+        // Locally skip my own unused instances in [my_index, i).
+        var skip_set: list<int> = [];
         var k = my_index;
         for ; k < i; {
             if k % n == self and !is_learned(k) {
-                // DownCall Skip(k): broadcast PROPOSE(0, no-op) for slot k.
-                broadcast_propose(k, Ballot{ round: 0, leader: self }, nil);
-                // Locally learn (matches the SKIP fast-path in HandlePropose).
                 learn_slot(k, nil);
+                skip_set = append(skip_set, k);
             }
             k = k + 1;
         }
         if i > my_index {
             my_index = next_owned(i, self);
+        }
+
+        // Opt 1: do NOT send a separate SKIP to q (= owner(i)). The ACCEPT
+        // we'll send back for slot i piggybacks the skip — q's HandleAccept
+        // calls on_accept_suggestion(i, self) → fill_q_skips(self, i), which
+        // marks every self-owned slot in [est_index[self], i) as no-op on q.
+        //
+        // Opt 2 + Accelerator 1: for every other peer r, accumulate the
+        // skipped slots in need_to_skip[r] and let one of three triggers
+        // propagate them.
+        if len(skip_set) > 0 {
+            defer_skips(q, skip_set);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Opt 2 + Accelerator 1: deferred / batched SKIP propagation
+    // ─────────────────────────────────────────────────────────
+
+    // Batch threshold (Accelerator 1): once need_to_skip[r] reaches α slots,
+    // flush immediately instead of waiting for the timer.
+    fn skip_alpha(): int { 5 }
+
+    // Add skip_set to need_to_skip[r] for every peer r ∉ {self, q}, and
+    // either flush (threshold α) or arm the τ-timer.
+    fn defer_skips(q: int, skip_set: list<int>) {
+        for var r = 0; r < n; r = r + 1 {
+            if r != self and r != q {
+                var pending: list<int> = [];
+                if exists(need_to_skip, r) { pending = need_to_skip[r]; }
+                for s in skip_set {
+                    pending = append(pending, s);
+                }
+                need_to_skip = need_to_skip[r] := pending;
+
+                if len(pending) >= skip_alpha() {
+                    send_skips_to(r);
+                } else if !exists(skip_timer_active, r) or !skip_timer_active[r] {
+                    // Arm a τ-timer for r. We can't truly cancel a Spur timer,
+                    // so the handler re-checks skip_timer_active[r] before
+                    // sending — stale fires after a flush become no-ops.
+                    skip_timer_active = skip_timer_active[r] := true;
+                    skip_timer_for(r);
+                }
+            }
+        }
+    }
+
+    // Flush all pending skips to r as PROPOSE(0, nil) over the FIFO link.
+    fn send_skips_to(r: int) {
+        if !exists(need_to_skip, r) { return (); }
+        var pending = need_to_skip[r];
+        need_to_skip = need_to_skip[r] := [];
+        skip_timer_active = skip_timer_active[r] := false;
+        if len(pending) == 0 { return (); }
+        for s in pending {
+            links[r]->HandlePropose(self, s, Ballot{ round: 0, leader: self }, nil);
+        }
+    }
+
+    // τ-timer driver per peer. The simulator decides when this fires; we just
+    // flush if a flush is still wanted (skip_timer_active[r] still true).
+    // The label is fixed (set_timer takes only a string literal); each call
+    // returns a distinct channel, so per-peer timers fire independently.
+    async fn skip_timer_for(r: int) {
+        <- set_timer("skip");
+        if exists(skip_timer_active, r) and skip_timer_active[r] {
+            send_skips_to(r);
         }
     }
 
@@ -394,7 +541,19 @@ role Node {
         proposed = proposed[i] := cmd;
         my_index = next_owned(i, self);
         persist();
-        // DownCall Suggest(i, cmd): broadcast PROPOSE(0, cmd).
+
+        // Opt 2: the SUGGEST(i) we're about to broadcast piggybacks every
+        // pending skip — each recipient r runs on_suggestion(i) →
+        // fill_q_skips(self, i), which subsumes need_to_skip[r] (all entries
+        // are self-owned slots < i). Clear pending state and logically cancel
+        // any τ-timers (the handler re-checks skip_timer_active[r]).
+        for var r = 0; r < n; r = r + 1 {
+            if r != self {
+                need_to_skip = need_to_skip[r] := [];
+                skip_timer_active = skip_timer_active[r] := false;
+            }
+        }
+
         broadcast_propose(i, Ballot{ round: 0, leader: self }, cmd);
     }
 
@@ -426,36 +585,37 @@ role Node {
 
     fn broadcast_propose(slot: int, ballot: Ballot, value: Command?) {
         for var i = 0; i < n; i = i + 1 {
-            replicas[i]->HandlePropose(self, slot, ballot, value);
+            links[i]->HandlePropose(self, slot, ballot, value);
         }
     }
 
     fn broadcast_prepare(slot: int, ballot: Ballot) {
         for var i = 0; i < n; i = i + 1 {
-            replicas[i]->HandlePrepare(self, slot, ballot);
+            links[i]->HandlePrepare(self, slot, ballot);
         }
     }
 
     fn broadcast_learn(slot: int, value: Command?) {
         for var i = 0; i < n; i = i + 1 {
-            replicas[i]->HandleLearn(slot, value);
+            links[i]->HandleLearn(slot, value);
         }
     }
 
     // ─────────────────────────────────────────────────────────
-    // Coordinated Paxos message handlers (Appendix A)
+    // Paxos message handlers
     // ─────────────────────────────────────────────────────────
 
-    // PROPOSE — SUGGEST (b=0, v≠no-op), SKIP (b=0, v=no-op), or revoker Phase 2a.
+    // PROPOSE (SUGGEST / SKIP / Phase 2a for a revoker).
     @trace
     async fn HandlePropose(sender_id: int, slot: int, ballot: Ballot, value: Command?) {
         if is_learned(slot) {
-            // OnMessage ANY OnCondition learned ≠ ⊥ → reply with LEARN.
-            replicas[sender_id]->HandleLearn(slot, learned_value[slot]);
+            // Help the sender catch up.
+            links[sender_id]->HandleLearn(slot, learned_value[slot]);
             return ();
         }
 
-        // Fast path: SKIP at ballot 0 — the owner unilaterally chose no-op.
+        // Fast path: SKIP at ballot 0. The sender is the owner unilaterally
+        // choosing no-op for its slot.
         if ballot.round == 0 and value == nil {
             learn_slot(slot, nil);
             persist();
@@ -467,7 +627,10 @@ role Node {
         // prepared_ballot ≤ ballot AND accepted_ballot < ballot
         if ballot_gte(ballot, prep) and ballot_gt(ballot, acc) {
             if ballot.round == 0 and owner_of(slot) != self {
-                // SUGGEST from the owner, received by a non-owner.
+                // SUGGEST (real command) from the owner, received by a
+                // non-owner — fill gaps on this replica per Rule 2. Safe
+                // under FIFO: every earlier message from the owner has
+                // already been delivered.
                 on_suggestion(slot);
                 if is_learned(slot) { return (); }
             }
@@ -475,19 +638,33 @@ role Node {
             has_accepted = has_accepted[slot] := true;
             accepted_value = accepted_value[slot] := value;
             persist();
-            replicas[sender_id]->HandleAccept(self, slot, ballot, value);
+            links[sender_id]->HandleAccept(self, slot, ballot, value);
         } else {
+            // NACK: if we rejected the owner's ballot-0 SUGGEST because a
+            // revoker raised our prepared_ballot, tell the owner so it can
+            // self-revoke and drive its value through a higher ballot.
+            if ballot.round == 0 and owner_of(slot) == sender_id {
+                links[sender_id]->HandleNack(self, slot, prep);
+            }
             persist();
         }
     }
 
-    // ACCEPT — Phase 2b ack to the proposer (coordinator or revoker).
+    // ACCEPT — response to the proposer (coordinator or revoker).
     @trace
     async fn HandleAccept(sender_id: int, slot: int, ballot: Ballot, value: Command?) {
         if is_learned(slot) { return (); }
 
-        // The proposer is the only one that should count toward quorum.
-        // Pick the active ballot we are driving for this slot, if any.
+        if ballot.round == 0 {
+            // Proposer is the owner. sender_id sending ACCEPT for slot i
+            // implies (under FIFO) sender_id has handled all its earlier
+            // owned instances.
+            on_accept_suggestion(slot, sender_id);
+        }
+
+        // Phase 2b tally — the proposer is the only one that processes this,
+        // but the protocol is written as if all do. Only count for the ballot
+        // we currently care about.
         var active: Ballot = Ballot{ round: -1, leader: -1 };
         var have_active = false;
 
@@ -508,6 +685,8 @@ role Node {
         revoke_accept_count = revoke_accept_count[slot] := count;
 
         if count >= majority() {
+            // Learn locally and propagate. Future ACCEPTs will early-exit on
+            // the is_learned check at the top of this function.
             learn_slot(slot, value);
             persist();
             broadcast_learn(slot, value);
@@ -522,11 +701,36 @@ role Node {
         persist();
     }
 
-    // PREPARE — revoker Phase 1a.
+    // NACK — sent by a peer that rejected our ballot-0 SUGGEST because a
+    // revoker raised its prepared_ballot above our implicit (0, self).
+    // The owner self-revokes: runs full Paxos Phase 1 + 2 at a ballot
+    // higher than the one that caused the rejection. Phase 1 will
+    // discover the accepted value (if a majority accepted it at ballot 0)
+    // and re-propose it, ensuring the slot converges correctly.
+    @trace
+    async fn HandleNack(sender_id: int, slot: int, nack_ballot: Ballot) {
+        if is_learned(slot) { return (); }
+        if owner_of(slot) != self { return (); }
+        // Already revoking this slot? Don't start another.
+        if exists(revoke_ballot, slot) { return (); }
+
+        // Update local prepared_ballot so start_revoke picks a ballot
+        // higher than the one that caused the rejection.
+        var prep = get_prepared(slot);
+        if ballot_gt(nack_ballot, prep) {
+            prepared_ballot = prepared_ballot[slot] := nack_ballot;
+            has_prepared = has_prepared[slot] := true;
+        }
+
+        println("NACK received: slot={slot} from={sender_id} nack_ballot=({nack_ballot.round},{nack_ballot.leader})");
+        start_revoke(slot);
+    }
+
+    // PREPARE — revoker's Phase 1a.
     @trace
     async fn HandlePrepare(sender_id: int, slot: int, ballot: Ballot) {
         if is_learned(slot) {
-            replicas[sender_id]->HandleLearn(slot, learned_value[slot]);
+            links[sender_id]->HandleLearn(slot, learned_value[slot]);
             return ();
         }
 
@@ -546,13 +750,13 @@ role Node {
                     nil
                 },
             };
-            replicas[sender_id]->HandleAck(self, slot, ballot, info);
+            links[sender_id]->HandleAck(self, slot, ballot, info);
         } else {
             persist();
         }
     }
 
-    // ACK — revoker Phase 1b.
+    // ACK — revoker's Phase 1b.
     @trace
     async fn HandleAck(sender_id: int, slot: int, ballot: Ballot, info: AckInfo) {
         if is_learned(slot) { return (); }
@@ -573,7 +777,7 @@ role Node {
         revoke_ack_count = revoke_ack_count[slot] := count;
 
         if count >= majority() {
-            // Phase 2: propose hv (highest accepted), or no-op if none seen.
+            // Phase 2: propose hv, or no-op if no value seen.
             revoke_phase = revoke_phase[slot] := 2;
             revoke_accept_count = revoke_accept_count[slot] := 0;
 
@@ -587,9 +791,11 @@ role Node {
     }
 
     // ─────────────────────────────────────────────────────────
-    // Revoke (Rule 3 — on suspicion of peer q)
+    // Revoke (on suspicion of peer q)
     // ─────────────────────────────────────────────────────────
 
+    // Start a revoke for slot i at a fresh ballot. Caller ensures slot is
+    // not yet learned.
     fn start_revoke(slot: int) {
         if is_learned(slot) { return (); }
 
@@ -609,16 +815,15 @@ role Node {
         broadcast_prepare(slot, b);
     }
 
-    // OnSuspect(q): Revoke every q-owned unlearned slot in [first q-slot, my_index).
-    // We bound the per-tick revoke count so a single suspicion doesn't flood the
-    // network; the simulator keeps firing the timer until liveness is restored.
     fn on_suspect(q: int) {
-        var c = first_owned_from(0, q);
+        // C_q = smallest unlearned slot owned by q.
+        var c = first_owned_from(est_index[q], q);
+        // Bound how many of q's instances we revoke at once so we don't flood.
         var limit = 3;
         var revoked = 0;
         var i = c;
         for ; revoked < limit; {
-            if i >= my_index { return (); }
+            if i >= my_index + n { return (); }
             if i % n == q and !is_learned(i) and !exists(revoke_ballot, i) {
                 start_revoke(i);
                 revoked = revoked + 1;
@@ -628,12 +833,15 @@ role Node {
     }
 
     // ─────────────────────────────────────────────────────────
-    // Suspicion monitor (drives OnSuspect)
+    // Suspicion monitor
     // ─────────────────────────────────────────────────────────
 
     async fn monitor_suspicions() {
         for ;; {
             <- set_timer("suspect");
+            // On each timeout, revoke pending slots for every peer that seems
+            // stuck. This is a coarse failure detector — the simulator decides
+            // when this timer fires.
             for var q = 0; q < n; q = q + 1 {
                 if q != self {
                     on_suspect(q);

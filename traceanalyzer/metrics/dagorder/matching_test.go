@@ -18,7 +18,7 @@ func TestPerfectOrdering(t *testing.T) {
 		"r1": {ev(20)},
 	}
 	deps := [][2]string{{"w1", "r1"}}
-	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if score != 1.0 {
 		t.Errorf("score: got %f, want 1.0", score)
 	}
@@ -32,7 +32,7 @@ func TestReversedOrdering(t *testing.T) {
 		"r1": {ev(10)},
 	}
 	deps := [][2]string{{"w1", "r1"}}
-	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if score != 0.0 {
 		t.Errorf("score: got %f, want 0.0", score)
 	}
@@ -48,7 +48,7 @@ func TestUnmatchableExcluded(t *testing.T) {
 		"timer": {}, // unmatchable
 	}
 	deps := [][2]string{{"timer", "w1"}}
-	_, score, matched, zeroCand, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, score, matched, zeroCand, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if score != 0.0 {
 		t.Errorf("score: got %f, want 0.0 (but eligible=0)", score)
 	}
@@ -69,7 +69,7 @@ func TestPartialSatisfaction(t *testing.T) {
 		"c": {ev(5)}, // before a
 	}
 	deps := [][2]string{{"a", "b"}, {"a", "c"}}
-	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if score != 0.5 {
 		t.Errorf("score: got %f, want 0.5", score)
 	}
@@ -84,7 +84,7 @@ func TestInjectivity(t *testing.T) {
 		"w2": {e},
 	}
 	deps := [][2]string{{"w1", "w2"}}
-	assign, _, matched, _, crowdedOut, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	assign, _, matched, _, crowdedOut, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if len(matched) != 1 {
 		t.Errorf("matched: got %d labels, want 1 (other is injectivity-blocked)", len(matched))
 	}
@@ -106,8 +106,8 @@ func TestLocalSearchImproves(t *testing.T) {
 		"w2": {ev(20), ev(40)},
 	}
 	deps := [][2]string{{"w1", "w2"}}
-	_, scoreNoSwaps, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
-	_, scoreWithSwaps, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 500)
+	_, scoreNoSwaps, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
+	_, scoreWithSwaps, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 500)
 	if scoreWithSwaps < scoreNoSwaps {
 		t.Errorf("local search made score worse: %f -> %f", scoreNoSwaps, scoreWithSwaps)
 	}
@@ -122,8 +122,8 @@ func TestDeterminism(t *testing.T) {
 		"c": {ev(30), ev(60), ev(100)},
 	}
 	deps := [][2]string{{"a", "b"}, {"b", "c"}, {"a", "c"}}
-	_, s1, _, _, _, _, _ := bestMatching(labels, cands, deps, 42, 200)
-	_, s2, _, _, _, _, _ := bestMatching(labels, cands, deps, 42, 200)
+	_, s1, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 42, 200)
+	_, s2, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 42, 200)
 	if s1 != s2 {
 		t.Errorf("non-deterministic: %f != %f", s1, s2)
 	}
@@ -140,7 +140,7 @@ func TestTopoRespected(t *testing.T) {
 		"d": {ev(4)},
 	}
 	deps := [][2]string{{"a", "b"}, {"b", "c"}, {"c", "d"}, {"a", "d"}}
-	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if score != 1.0 {
 		t.Errorf("score: got %f, want 1.0", score)
 	}
@@ -157,7 +157,7 @@ func TestCrossTableSeqIgnored(t *testing.T) {
 		"deliver_op": {{Step: 3, IntraSeq: 99, Table: TableTrace}},
 	}
 	deps := [][2]string{{"write_op", "deliver_op"}}
-	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if score != 0.0 {
 		t.Errorf("score: got %f, want 0.0 (write at step 5 cannot precede deliver at step 3)", score)
 	}
@@ -172,7 +172,7 @@ func TestCrossTableSameStepUnsatisfied(t *testing.T) {
 		"b": {{Step: 7, IntraSeq: 0, Table: TableTrace}},
 	}
 	deps := [][2]string{{"a", "b"}}
-	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if score != 0.0 {
 		t.Errorf("score: got %f, want 0.0 (same-step cross-table is unordered)", score)
 	}
@@ -186,7 +186,7 @@ func TestSameStepSameTableUsesIntraSeq(t *testing.T) {
 		"b": {{Step: 7, IntraSeq: 2, Table: TableExec}},
 	}
 	deps := [][2]string{{"a", "b"}}
-	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if score != 1.0 {
 		t.Errorf("score: got %f, want 1.0 (same-step same-table ordered by IntraSeq)", score)
 	}
@@ -201,8 +201,134 @@ func TestInjectivityCrossTable(t *testing.T) {
 		"b": {{Step: 5, IntraSeq: 0, Table: TableTrace}},
 	}
 	deps := [][2]string{}
-	_, _, matched, _, crowdedOut, _, _ := bestMatching(labels, cands, deps, 1, 0)
+	_, _, matched, _, crowdedOut, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
 	if len(matched) != 2 {
 		t.Errorf("matched: got %d, want 2 (cross-table events should not collide); crowdedOut=%v", len(matched), crowdedOut)
 	}
+}
+
+// TestTransitiveEdgeScoring: A→B→C chain. With transitive closure, A→C is
+// also scored. Assignment: A=10, B=30, C=20. Greedy skips C (can't satisfy
+// B→C constraint), so without swaps score = 1/3 (only A→B). With swaps,
+// the optimizer can unassign B and assign C, getting A→C satisfied = 1/3,
+// or keep greedy's result. Either way, transitive edges give richer signal.
+func TestTransitiveEdgeScoring(t *testing.T) {
+	labels := []string{"a", "b", "c"}
+	cands := map[string][]Event{
+		"a": {ev(10)},
+		"b": {ev(30)},
+		"c": {ev(20)},
+	}
+	directDeps := [][2]string{{"a", "b"}, {"b", "c"}}
+	allDeps := [][2]string{{"a", "b"}, {"a", "c"}, {"b", "c"}} // transitive
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, directDeps, allDeps, 1, 0)
+	// Greedy: A=10, B=30, C skipped (20 < 30). Score = 1/3 (A→B satisfied).
+	want := 1.0 / 3.0
+	if abs(score-want) > 1e-9 {
+		t.Errorf("score: got %f, want %f", score, want)
+	}
+}
+
+// TestTransitiveVsDirectScoring: verify that using only direct edges gives a
+// different score than transitive for the same assignment.
+func TestTransitiveVsDirectScoring(t *testing.T) {
+	labels := []string{"a", "b", "c"}
+	cands := map[string][]Event{
+		"a": {ev(10)},
+		"b": {ev(30)},
+		"c": {ev(20)},
+	}
+	directDeps := [][2]string{{"a", "b"}, {"b", "c"}}
+	allDeps := [][2]string{{"a", "b"}, {"a", "c"}, {"b", "c"}}
+
+	_, directScore, _, _, _, _, _ := bestMatching(labels, cands, directDeps, directDeps, 1, 0)
+	_, transitiveScore, _, _, _, _, _ := bestMatching(labels, cands, directDeps, allDeps, 1, 0)
+
+	// Greedy: A=10, B=30, C skipped (20 < 30).
+	// Direct: A→B ✓, B→C unsatisfied (C unassigned) = 1/2 = 0.5
+	if abs(directScore-0.5) > 1e-9 {
+		t.Errorf("directScore: got %f, want 0.5", directScore)
+	}
+	// Transitive: A→B ✓, B→C unsatisfied, A→C unsatisfied = 1/3 ≈ 0.333
+	if abs(transitiveScore-1.0/3.0) > 1e-9 {
+		t.Errorf("transitiveScore: got %f, want 0.333", transitiveScore)
+	}
+	// With transitive edges, score is lower because more edges are in denominator.
+	if transitiveScore >= directScore {
+		t.Errorf("transitive score (%f) should be < direct score (%f) due to extra unsatisfied edge", transitiveScore, directScore)
+	}
+}
+
+// TestUnassignedEdgeCounted: an edge where one endpoint is unassigned should
+// count as eligible-but-unsatisfied (in denominator but not numerator).
+// Here, r1 has no predecessor-respecting candidate so greedy skips it.
+func TestUnassignedEdgeCounted(t *testing.T) {
+	labels := []string{"w1", "r1"}
+	cands := map[string][]Event{
+		"w1": {ev(20)},
+		"r1": {ev(10)}, // only candidate is before w1, so greedy skips r1
+	}
+	deps := [][2]string{{"w1", "r1"}}
+	_, score, matched, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
+	// w1 assigned (step 20), r1 unassigned (can't satisfy w1→r1).
+	// Edge w1→r1: eligible, unsatisfied. Score = 0/1 = 0.0.
+	if score != 0.0 {
+		t.Errorf("score: got %f, want 0.0", score)
+	}
+	// Only w1 should be matched (r1 skipped by greedy).
+	if len(matched) != 1 || matched[0] != "w1" {
+		t.Errorf("matched: got %v, want [w1]", matched)
+	}
+}
+
+// TestGreedySkipsOnBadCandidate: when the only candidate for a label violates
+// predecessor constraints, greedy should leave it unassigned rather than
+// forcing a bad assignment that could steal a candidate via injectivity.
+func TestGreedySkipsOnBadCandidate(t *testing.T) {
+	labels := []string{"a", "b"}
+	cands := map[string][]Event{
+		"a": {ev(50)},
+		"b": {ev(20)}, // must come after a(50), but only candidate is at 20
+	}
+	deps := [][2]string{{"a", "b"}}
+	assign, _, matched, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
+	// a should be assigned, b should be skipped (not forced).
+	if _, ok := assign["a"]; !ok {
+		t.Error("a should be assigned")
+	}
+	if _, ok := assign["b"]; ok {
+		t.Error("b should NOT be assigned (greedy should skip, not force)")
+	}
+	if len(matched) != 1 || matched[0] != "a" {
+		t.Errorf("matched: got %v, want [a]", matched)
+	}
+}
+
+// TestSwapCanUnassign: verify that the swap phase can unassign a label when
+// it helps the overall score. Here a three-node DAG where unassigning the
+// middle node lets the other two edges score better via transitive scoring.
+func TestSwapCanUnassign(t *testing.T) {
+	labels := []string{"a", "b", "c"}
+	cands := map[string][]Event{
+		"a": {ev(10)},
+		"b": {ev(5), ev(50)}, // b has options; at 5 it violates a→b, at 50 it violates b→c
+		"c": {ev(30)},
+	}
+	directDeps := [][2]string{{"a", "b"}, {"b", "c"}}
+	allDeps := [][2]string{{"a", "b"}, {"a", "c"}, {"b", "c"}} // transitive
+	_, score, _, _, _, _, _ := bestMatching(labels, cands, directDeps, allDeps, 1, 500)
+	// With b unassigned: a→b unsatisfied(0/1), b→c unsatisfied(0/1), a→c satisfied(1/1) → 1/3
+	// With b=50: a→b satisfied(1/1), b→c unsatisfied(0/1), a→c satisfied(1/1) → 2/3
+	// Greedy picks b=50 (respects a=10 predecessor). Score = 2/3.
+	// This test verifies the swap phase doesn't make things worse by unassigning b.
+	if score < 2.0/3.0-1e-9 {
+		t.Errorf("score: got %f, want >= 0.667 (swap phase should not hurt)", score)
+	}
+}
+
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

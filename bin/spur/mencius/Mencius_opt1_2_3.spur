@@ -1,24 +1,30 @@
 // Mencius: Efficient Replicated State Machines for WANs (Mao, Junqueira, Marzullo)
 //
 // ┌──────────────────────────────────────────────────────────────────────┐
-// │ BUGGED VERSION — FAITHFUL TRANSLATION OF THE PAPER'S PSEUDOCODE.     │
-// │ This spec reproduces a safety bug in Mencius's Protocol P where      │
-// │ Rule 2 gap-filling can mark a committed value as no-op on one        │
-// │ replica while other replicas commit the real value. See bug.md.      │
-// │ The corrected version lives in Mencius.spur.                         │
+// │ BUGGED VARIANT — full Mencius Appendix C: Opt 1 + 2 + 3 (β-window).  │
+// │ Reproduces the Opt 1 × Opt 3 safety bug: the Optimization 1          │
+// │ skip-inference (on_accept_suggestion → fill_q_skips) fabricates a    │
+// │ no-op over a slot a quorum already committed, because the Opt 3      │
+// │ β-window revoke rejects the owner's SUGGESTs to ALL its slots,       │
+// │ forcing the inference through the proposer's OWN slot. See           │
+// │ bug_opt1_2_3.md. Corrected in Mencius_opt1_2_3_fixed.spur.           │
+// │ Bare Protocol P (Mencius_P.spur, Appendix B) does NOT have this bug. │
 // └──────────────────────────────────────────────────────────────────────┘
 //
-// This spec implements Protocol P (the base Mencius without Optimizations 1-3 /
-// Accelerator 1). Each instance runs Coordinated Paxos: the owner has an
-// implicit promise at ballot (0, owner(i)). Non-owners must use ballot > 0
-// (via Revoke) to propose a value.
+// This spec implements the FULL Mencius (Appendix C) — Protocol P (Appendix
+// B) plus Optimization 1, Optimization 2, Optimization 3 (the β-window bulk
+// revocation), and Accelerator 1. Each instance runs Coordinated Paxos
+// (Appendix A): the owner has an implicit promise at ballot (0, owner(i)).
+// Non-owners must use ballot > 0 (via Revoke) to propose a value.
 //
 // Scope implemented:
 //   - Rotating coordinators (owner(i) = i % n)
 //   - Suggest (PROPOSE(0, cmd)) and Skip (PROPOSE(0, no-op))
-//   - OnSuggestion / OnAcceptSuggestion (Rule 2 gap filling)
+//   - OnSuggestion / OnAcceptSuggestion (Rule 2 gap filling via the
+//     Optimization 1/2 QSkipSet inference — THIS is where the bug lives)
 //   - OnLearned re-suggest (Rule 4)
-//   - Revoke: full Paxos Phase 1 + 2 at ballot > 0 (Rule 3, minus beta window)
+//   - Revoke: full Paxos Phase 1 + 2 at ballot > 0 (Rule 3)
+//   - Optimization 3: β-window bulk revocation in on_suspect (beta_window())
 //   - Crash recovery via persist_data/retrieve_data
 //   - Optimization 1: piggyback SKIP from p on the ACCEPT p sends to slot
 //     owner q. q infers p's skipped slots in HandleAccept via
@@ -30,7 +36,6 @@
 //     (c) the τ-timer for r fires.
 //
 // Out of scope (TODO):
-//   - Optimization 3 (beta-window bulk revocation)
 //   - Out-of-order commit
 //
 // Channel model: the paper assumes FIFO (TCP-like) channels between each
@@ -407,7 +412,7 @@ role Node {
     //   OnSuggestion(i): QSkipSet ← {j : est_index[q] ≤ j < i ∧ owner(j) = q};
     //                    forall j ∈ QSkipSet do learned(j) ← no-op
     //
-    // This is what the paper's pseudocode prescribes. See bug.md — this
+    // This is what the paper's pseudocode prescribes. See bug_opt1_2_3.md — this
     // rule is unsafe when combined with Rule 3 revocation.
     fn fill_q_skips(q: int, i: int) {
         var j = est_index[q];
@@ -770,20 +775,26 @@ role Node {
         broadcast_prepare(slot, b);
     }
 
+    // Optimization 3 (β-window): Mencius Appendix C OnSuspect. The paper uses
+    // β=100000; we use a small β (beta_window()) so the simulator's state space
+    // stays bounded while preserving opt-3 semantics — revoke a *block* of q's
+    // slots in [C_q, my_index + 2β], gated on C_q < my_index + β. β=2 is the
+    // minimum that revokes slot 5 when my_index=1, which forces the
+    // Opt1×Opt3 bug through p's own slot 4 (see bug_opt1_2_3.md).
+    fn beta_window(): int { 2 }
+
     fn on_suspect(q: int) {
         // C_q = smallest unlearned slot owned by q.
-        var c = first_owned_from(est_index[q], q);
-        // Bound how many of q's instances we revoke at once so we don't flood.
-        var limit = 3;
-        var revoked = 0;
-        var i = c;
-        for ; revoked < limit; {
-            if i >= my_index + n { return (); }
-            if i % n == q and !is_learned(i) and !exists(revoke_ballot, i) {
-                start_revoke(i);
-                revoked = revoked + 1;
+        var c_q = first_owned_from(est_index[q], q);
+        if c_q < my_index + beta_window() {
+            var upper = my_index + 2 * beta_window();
+            var i = c_q;
+            for ; i <= upper; {
+                if i % n == q and !is_learned(i) and !exists(revoke_ballot, i) {
+                    start_revoke(i);
+                }
+                i = i + 1;
             }
-            i = i + 1;
         }
     }
 

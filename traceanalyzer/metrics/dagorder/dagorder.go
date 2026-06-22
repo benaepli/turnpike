@@ -35,22 +35,23 @@ type EdgeFreq struct {
 
 // DagOrderResult is the aggregate metric output.
 type DagOrderResult struct {
-	ConfigPath       string      `json:"config_path"`
-	TotalRuns        int         `json:"total_runs"`
-	MeanScore        float64     `json:"mean_score"`
-	MinScore         float64     `json:"min_score"`
-	MaxScore         float64     `json:"max_score"`
-	P50Score         float64     `json:"p50_score"`
-	P95Score         float64     `json:"p95_score"`
-	MeanChainScore   float64     `json:"mean_chain_score"`
-	MinChainScore    float64     `json:"min_chain_score"`
-	P50ChainScore    float64     `json:"p50_chain_score"`
-	P95ChainScore    float64     `json:"p95_chain_score"`
-	DroppedEdgeCount int         `json:"dropped_edge_count"`
-	TotalEdgeCount   int         `json:"total_edge_count"`
-	DroppedMajority  bool        `json:"dropped_majority"`
-	PerRun           []RunResult `json:"per_run,omitempty"`
-	PerEdge          []EdgeFreq  `json:"per_edge,omitempty"`
+	ConfigPath          string      `json:"config_path"`
+	TotalRuns           int         `json:"total_runs"`
+	MeanScore           float64     `json:"mean_score"`
+	MinScore            float64     `json:"min_score"`
+	MaxScore            float64     `json:"max_score"`
+	P50Score            float64     `json:"p50_score"`
+	P95Score            float64     `json:"p95_score"`
+	MeanChainScore      float64     `json:"mean_chain_score"`
+	MinChainScore       float64     `json:"min_chain_score"`
+	P50ChainScore       float64     `json:"p50_chain_score"`
+	P95ChainScore       float64     `json:"p95_chain_score"`
+	DroppedEdgeCount    int         `json:"dropped_edge_count"`
+	TotalEdgeCount      int         `json:"total_edge_count"`
+	TransitiveEdgeCount int         `json:"transitive_edge_count"`
+	DroppedMajority     bool        `json:"dropped_majority"`
+	PerRun              []RunResult `json:"per_run,omitempty"`
+	PerEdge             []EdgeFreq  `json:"per_edge,omitempty"`
 }
 
 // ComputeDagOrder loads the plan config, joins it against trace/execution output,
@@ -85,6 +86,9 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 			configPath, dropped, total, 100*float64(dropped)/float64(total),
 		)
 	}
+
+	// Compute transitive closure for scoring.
+	allDeps := transitiveClosure(cfg.Dependencies)
 
 	execs, err := reader.ReadExecutions(dbPath, runID)
 	if err != nil {
@@ -127,21 +131,22 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 	}
 	sort.Strings(labels)
 
-	// Accumulators for per-edge stats.
+	// Accumulators for per-edge stats (over transitive closure).
 	type edgeAgg struct {
 		satisfied int
 		eligible  int
 	}
-	edgeAggs := make(map[[2]string]*edgeAgg, len(cfg.Dependencies))
-	for _, dep := range cfg.Dependencies {
+	edgeAggs := make(map[[2]string]*edgeAgg, len(allDeps))
+	for _, dep := range allDeps {
 		edgeAggs[dep] = &edgeAgg{}
 	}
 
 	result := &DagOrderResult{
-		ConfigPath:       configPath,
-		DroppedEdgeCount: dropped,
-		TotalEdgeCount:   total,
-		DroppedMajority:  droppedMajority,
+		ConfigPath:          configPath,
+		DroppedEdgeCount:    dropped,
+		TotalEdgeCount:      total,
+		TransitiveEdgeCount: len(allDeps),
+		DroppedMajority:     droppedMajority,
 	}
 	scores := make([]float64, 0, len(runIDs))
 	chainScores := make([]float64, 0, len(runIDs))
@@ -165,20 +170,21 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 			)
 		}
 
-		assign, score, matched, zeroCand, crowdedOut, longestChain, criticalPath := bestMatching(labels, cands, cfg.Dependencies, rid, nSwaps)
+		assign, score, matched, zeroCand, crowdedOut, longestChain, criticalPath := bestMatching(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)
 
-		// Eligible edge count from assignment (excludes unmatchable + unmatched).
+		// Eligible edge count from assignment (over transitive closure).
 		eligible := 0
-		for _, dep := range cfg.Dependencies {
+		for _, dep := range allDeps {
 			eu, eok := assign[dep[0]]
 			ev, vok := assign[dep[1]]
-			if !eok || !vok {
+			// Skip edges touching structurally unmatchable labels.
+			if structuralUnmatchable[dep[0]] || structuralUnmatchable[dep[1]] {
 				continue
 			}
 			eligible++
 			agg := edgeAggs[dep]
 			agg.eligible++
-			if lessThan(eu, ev) {
+			if eok && vok && lessThan(eu, ev) {
 				agg.satisfied++
 			}
 		}
@@ -235,8 +241,8 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 
 	// PerEdge, sorted worst-first (lowest fraction first) so the hardest edges
 	// surface at the top.
-	result.PerEdge = make([]EdgeFreq, 0, len(cfg.Dependencies))
-	for _, dep := range cfg.Dependencies {
+	result.PerEdge = make([]EdgeFreq, 0, len(allDeps))
+	for _, dep := range allDeps {
 		agg := edgeAggs[dep]
 		var frac float64
 		if agg.eligible > 0 {
@@ -276,4 +282,52 @@ func percentile(sorted []float64, q float64) float64 {
 	}
 	idx := int(q * float64(len(sorted)-1))
 	return sorted[idx]
+}
+
+// transitiveClosure computes the transitive closure of a DAG's edge set,
+// returning all implied (a,c) pairs where a path a→...→c exists.
+// The result is deduplicated and sorted for determinism.
+func transitiveClosure(deps [][2]string) [][2]string {
+	adj := make(map[string]map[string]bool)
+	nodes := make(map[string]bool)
+	for _, d := range deps {
+		nodes[d[0]] = true
+		nodes[d[1]] = true
+		if adj[d[0]] == nil {
+			adj[d[0]] = make(map[string]bool)
+		}
+		adj[d[0]][d[1]] = true
+	}
+	// For each source, DFS forward and add all reachable pairs.
+	for src := range nodes {
+		visited := make(map[string]bool)
+		stack := []string{src}
+		for len(stack) > 0 {
+			cur := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			for next := range adj[cur] {
+				if !visited[next] {
+					visited[next] = true
+					if adj[src] == nil {
+						adj[src] = make(map[string]bool)
+					}
+					adj[src][next] = true
+					stack = append(stack, next)
+				}
+			}
+		}
+	}
+	var out [][2]string
+	for from := range adj {
+		for to := range adj[from] {
+			out = append(out, [2]string{from, to})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i][0] != out[j][0] {
+			return out[i][0] < out[j][0]
+		}
+		return out[i][1] < out[j][1]
+	})
+	return out
 }
