@@ -33,7 +33,7 @@ Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Print t
 5. **Build Go tools** (once):
 
 ```bash
-cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go build -o main main.go && cd ..
+cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go build -o main ./cmd/porcupine && cd ..
 ```
 
 ## Debug Loop

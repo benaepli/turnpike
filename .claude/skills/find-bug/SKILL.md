@@ -55,7 +55,7 @@ Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Also us
 8. **Build Go tools** (once):
 
 ```bash
-cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go build -o main main.go && cd ..
+cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go build -o main ./cmd/porcupine && cd ..
 ```
 
 9. **Parallel code analysis**: While building tools, grep the spec for code patterns related to the bug. For example:

@@ -9,7 +9,7 @@ cd "$PROJECT_ROOT"
 # 1. Compile Porcupine
 echo "Compiling Porcupine..."
 cd porcupine
-go build -o main main.go
+go build -o main ./cmd/porcupine
 cd ..
 
 # 2. Run Porcupine on output/ (auto-detects DuckDB file or Parquet directory)

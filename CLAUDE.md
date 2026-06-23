@@ -49,7 +49,7 @@ cd traceanalyzer && go build -o main main.go && cd ..
 ### Porcupine (linearizability checker)
 
 ```bash
-cd porcupine && go build -o main main.go && cd ..
+cd porcupine && go build -o main ./cmd/porcupine && cd ..
 ./porcupine/main -input output -type duckdb -model kv -output-dir output
 ```
 

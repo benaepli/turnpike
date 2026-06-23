@@ -42,7 +42,7 @@ Porcupine can ingest the execution traces produced by the simulator to verify if
 
 ```bash
 cd porcupine
-go build -o main main.go
+go build -o main ./cmd/porcupine
 cd ..
 ```
 

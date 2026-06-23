@@ -1,0 +1,1201 @@
+             Feedback-guided Adaptive Testing of Distributed Systems Designs
+
+                                      Ao Li1 , Ankush Desai2 , Rohan Padhye1
+                                1 Carnegie Mellon University, 2 Amazon Web Services
+
+
+
+
+                         Abstract                                    Search Space
+   Validating distributed systems for correctness poses signif-                                Bounded Search Space
+icant challenges. Practitioners often rely on formal models
+of core system designs, which are then tested by exploring
+possible component interactions. Unfortunately, standard test-
+ing approaches based on random sampling of the state space
+are inefficient and prone to missing subtle bugs, as they lack
+guidance from the system’s behavior.                                   Schedules explored by RSBT
+   To address this, we present Fest, a new testing system              Schedules explored by feedback-guided adaptive RSBT
+for formal models of distributed systems. Fest incorporates            Schedules representing the same abstract system behavior
+feedback-guided adaptive schedule generation, drawing in-
+spiration from grey-box fuzzing, to steer exploration towards     Figure 1: Overview of the search performed by RSBT and
+maximizing behavioral coverage and uncovering bugs more           feedback-guided adaptive RSBT. Each edge connects two
+effectively. Our implementation in the P programming frame-       schedules, indicating that the target schedule is generated
+work demonstrates significant improvements across 94 dis-         adaptively based on the source schedule.
+tributed system model configurations: up to 41× (1.5× av-
+erage) improvement in behavioral coverage, 278× (15× av-
+erage) improvement in scenario coverage, and 33% more             cover potential issues. This lightweight, bug-finding approach
+bugs detected compared to existing methods. These results         trades exhaustive guarantees for practical scalability, revealing
+highlight Fest’s effectiveness in ensuring the robustness of      subtle design flaws before they escalate into costly implemen-
+distributed systems through improved testing efficiency.          tation bugs.
+                                                                     Design testing frameworks typically model distributed sys-
+1   Introduction                                                  tems as communicating state machines. The testing tool con-
+Distributed systems underpin critical cloud infrastructure        trols the message ordering, exploring system behavior under
+and services, demanding correctness assurance in both de-         different schedules (sequences of events). The effectiveness
+sign and implementation. To avoid costly refactoring and          of testing hinges on the scheduling algorithm used to generate
+redesign, leading practitioners such as Amazon Web Services       these schedules from the vast search space of possible event
+(AWS) and DeepSeek adopt a model-first approach: they im-         interleavings. A key objective for scheduling algorithms is
+plement core algorithms in modeling languages like P [18]         maximizing behavior coverage—exploring as many unique
+and TLA+ [30], which enable verification and testing of de-       system states and transitions as possible within a given time
+signs before any code is written.                                 budget—as exhaustive exploration is infeasible.
+   While exhaustive state-space exploration provides the             Current state-of-the-art techniques are often variants
+strongest correctness guarantees, it becomes computationally      of randomized search-based bounded concurrency testing
+intractable for complex, real-world systems. A widely adopted     (RSBT) [12, 56, 57], such as Probabilistic Concurrency Test-
+and practical alternative, particularly in industry, is model-    ing (PCT) [12] and Partial Order Sampling (POS) [57]. These
+based design testing. In this approach, developers model core     algorithms prune the search space using scheduling con-
+system algorithms using high-level specification languages        straints (e.g., limiting context switches [12] or focusing on
+and then employ lightweight formal methods [10, 11], which        partial-order dependencies [57]), focusing exploration on
+amount to randomized testing of distributed systems, to un-       schedules deemed more likely to expose unique behaviors or
+bugs (visualized by the blue ellipse in Figure 1). This con-         for future mutation and exploration (illustrated by the arrows
+strained approach has proven effective in practice for finding       and stars in Figure 1).
+bugs compared to unconstrained random exploration.                      With adaptive schedule generation, developers can also
+   Existing RSBT algorithms suffer from a fundamental lim-           optionally guide the scheduling algorithm to prioritize crit-
+itation: they rely primarily on random sampling within the           ical scenarios, a specific sequence of events or messages
+constrained space. Randomness, akin to black-box fuzzing [8],        processed by the distributed system. This is important be-
+is inefficient for maximizing behavioral coverage because it         cause focusing on critical scenarios ensures that the system’s
+lacks guidance from past executions. It does not learn which         most significant and potentially vulnerable behaviors are thor-
+types of schedules are more likely to reveal new behaviors           oughly tested, increasing the likelihood of detecting faults
+or trigger corner-case bugs. Consequently, developers using          that may only manifest under specific conditions. To support
+these tools often lack confidence in the testing thoroughness        this, F EST introduces a novel scenario language to guide the
+achieved within their time budgets. While adaptive techniques        algorithm toward desired or otherwise interesting system be-
+like Q-learning (QL) [39]—which learn scheduling actions             haviors. Using this approach, F EST can prioritize generating
+based on system state and rewards—seem a natural solution,           schedules that align with the scenario specifications.
+they have proven surprisingly ineffective. Our experiments              We integrate the F EST approach into the P programming
+(Section 5.3), consistent with prior studies [17], show QL           framework. We evaluated F EST on 5 open-sourced models,
+performing even worse than RSBT methods on complex sys-              including the recently released distributed file system model
+tems. This underscores the value of RSBT’s constraints but           from DeepSeek [1], and 14 industrial distributed systems
+highlights that effective exploration within these constraints       models from AWS. The results demonstrate that F EST out-
+requires a different approach than random sampling.                  performs existing RSBT algorithms such as PCT and POS
+   This paper proposes integrating feedback-guided adaptive          as well as Q-learning. Specifically, F EST achieves up to 41×
+schedule generation into RSBT algorithms, replacing ineffec-         (1.5× on average) more behavioral coverage, 278× (15× on
+tive random sampling. Inspired by the success of grey-box            average) more scenario coverage, and detects 33% more bugs.
+fuzzing [8] in software testing, our goal is to leverage infor-      Moreover, our evaluation demonstrates that diversity-based
+mation from executed schedules to intelligently guide the            priority sampling enables F EST to achieve a 1.22× improve-
+generation of subsequent schedules towards unexplored be-            ment in timeline coverage.
+haviors, while respecting the beneficial constraints of RSBT.           In this paper, we make the following key contributions:
+   However, applying this idea to distributed system testing         1. We introduce a novel feedback-guided adaptive schedule
+presents two key challenges: (1) Directly mutating a schedule,           generation algorithm for distributed system models de-
+such as altering the execution order between machines, can               signed to maximize behavioral coverage of existing state-
+produce infeasible schedules, such as causing a machine to               of-the-art randomized search-based bounded concurrency
+become unschedulable (e.g., being blocked from receiving a               testing algorithms. Our implementation is now part of the
+necessary message). Additionally, such mutations may violate             official P repository and is used by the P community. The
+the scheduling constraints of RSBT algorithms, for instance,             artifact of F EST is available at: https://github.com/aoli-
+by exceeding the permitted number of context switches. (2)               al/Fest-artifact
+Given the vast search space of possible schedules, the genera-       2. We introduce a scenario specification language enabling
+tion algorithm must effectively identify and prioritize sched-          developers to optionally define critical and corner-case sce-
+ules that are more likely to uncover unique behaviors.                  narios, which the feedback algorithm then uses to guide the
+   This paper presents F EST, the first distributed design testing      fuzzer in generating schedules that satisfy these scenarios.
+technique aimed at maximizing behavioral coverage. F EST
+                                                                     3. Our extensive evaluation includes 19 distributed systems
+addresses the challenges above with two innovative designs.
+                                                                        modeled in P, covering 94 distinct configurations, and
+First, F EST integrates record-and-replay [16, 41] techniques
+                                                                        demonstrated significant improvements in behavioral cov-
+with parametric input generation [46]. It records the execution
+                                                                        erage, scenario coverage, and bug detection capabilities.
+of RSBT algorithms and applies small, controlled mutations
+to the recorded execution. These mutated recordings are then         2     Background
+replayed to generate new schedules that are similar yet distinct
+from the original, facilitating adaptive schedule generation.        2.1    P Framework
+To tackle the second challenge—identifying schedules likely          P [6, 18, 21] is a programming language for modeling dis-
+to uncover unique behaviors—F EST introduces a diversity             tributed systems as communicating state machines. It pro-
+feedback mechanism that evaluates the uniqueness of a sched-         vides full control over event sequencing, enabling support for
+ule’s behavior. This evaluation is based on abstract Lamport         various testing techniques, including model checking [18],
+timelines [29, 38], which capture the happens-before relation-       concurrency testing [19], and symbolic execution [48], to ver-
+ships between system events. Schedules exhibiting higher             ify that the system model satisfies its desired specifications.
+diversity (i.e., novel happens-before orderings) are prioritized     P is used across industry (e.g., AWS [5], Microsoft [18], and
+              Write/Read                              Write/Read                 1   event readReq: (key: str, rId: int);
+                                                                                 2   event readResp: (key: str, val: int, rId: int);
+                                                                                 3   event writeReq: (key: str, val: int, rId: int);
+                                                                                 4   event writeResp: (status: bool, rId: int);
+                           R1(Leader)   R1 (failed)                R3(Leader)    5   event newLeaderElected: (leader: Replica);
+                                                                                 6   machine Replica {
+      Read     Replicate                  Read         Replicate                 7     var kvStore: map<str, int>;
+                Writes                                  Writes                   8     var allReplicas: set[Replica];
+                                                                                 9     var currLeader: Replica;
+                                                                                10     ...
+                                                                                11     state Leader {
+                                                                                12       on readReq (req) do {
+        R2         R3         R4            R2                         R4       13         // on read request, look up the local store and
+    (Follower) (Follower) (Follower)    (Follower)                 (Follower)   14         // send response to client
+                                                                                15         send req.sender, readResp, (key = req.key, val =
+                                                                                     ,→ kvStore[req.key], rId = req.rId);
+ Figure 2: A distributed storage system with four replicas.                     16       }
+                                                                                17       on newLeaderElected(nle) do {
+                                                                                18         currLeader = nle.leader;
+                                                                                19         if (nle.leader != this) goto Follower;
+DeepSeek [1]) and academia [20, 21, 22] for reasoning about                     20       }
+                                                                                21       on writeReq (req) do {
+distributed protocols. At AWS, we use P for reasoning about                     22         // apply write locally, reliably replicate it
+the correctness of core distributed protocols driving our ser-                       ,→ and
+                                                                                23         // send response back
+vices across compute, databases, and storage systems.                           24         kvStore[req.key] = req.val;
+Replicated storage system modeled in P. We consider a                           25         var status = ReplicateWriteReq(allReplicas, req);
+                                                                                26         send req.sender, writeResp, (status = status, rId =
+simple replicated key-value store consisting of one leader                           ,→ req.Id);
+
+and three follower replicas (Figure 2). The leader replica                      27       }
+                                                                                28     }
+processes all write requests, and the leader is responsible for                 29     state Follower {
+reliably replicating these write operations to the other replicas.              30       on readReq (req) do {
+                                                                                31         // on read request, look up the local store and
+Read requests can be serviced by any replica, as each replica                   32         // send response to client
+maintains a consistent version of the replicated data. When                     33         send req.sender, readResp, (key = req.key, val =
+                                                                                     ,→ kvStore[req.key], rId = req.rId);
+the leader fails, a leader-election service is used to elect a new              34       }
+leader and return the system to a stable state (Figure 2 right                  35       on newLeaderElected (nle) do {
+                                                                                36         currLeader = nle.leader;
+side).                                                                          37         if (nle.leader == this) goto Leader;
+   Figure 3 presents the P state machine for each Replica                       38       }
+                                                                                39       on writeReq (req) do {
+node. The state machines communicate by sending events,                         40         // forward the request to correct leader
+defined between Line 1 and Line 5. The Replica machine                          41         send currLeader, writeReq, req;
+                                                                                42   } } }
+has two states: Leader and Follower. In both states, upon                       43   // Entry machine creates 4 replicas
+receiving a readReq event, the replica retrieves the value                      44   machine TestFourReplica {
+                                                                                45     var replicas: set[Replica];
+from its store and responds to the client (Line 15 and Line 33).                46     var i: int;
+In the Leader state, it handles write requests by applying                      47     start state init {
+                                                                                48       entry {
+the write locally (Line 24) and reliably replicating it on all                  49         while (i < 4) {
+follower replicas (Line 25). If a follower receives a writeReq,                 50           replicas += new Replica();
+                                                                                51           i += 1;
+it will forward the request to the correct leader. We assume a                  52         }
+leader election service detects leader node failures, elects a                  53         ...
+                                                                                54   } } }
+new leader, and informs all replicas of the new leader using
+newLeaderElected events. The replica uses this event to
+                                                                                            Figure 3: Replica state machine in P.
+transition between the leader and follower states (Line 19
+and Line 37). The main property the key-value store must
+satisfy is the consistency (linearizability) of write and read
+operations, ensuring that the distributed system behaves like                   plored) by precisely controlling the interleavings of messages
+local storage (e.g., a hash map).                                               sent between various machines—a sequence of machine inter-
+   The machine TestFourReplica serves as the entry point                        leavings is called a schedule. The search space of all possible
+of the P program, analogous to the main function in C or Java.                  schedules is massively large. So, state-of-the-art techniques
+This machine typically configures the distributed system and                    for testing system models improve scalability by perform-
+generates payloads; in this example, it creates four replicas.                  ing random sampling of schedules within a reduced search
+                                                                                space that is more likely to reveal bugs. For example, prob-
+2.2 Schedules and Randomized Search-based
+                                                                                abilistic concurrency testing (PCT) restricts exploration to
+    Bounded Concurrency Testing                                                 schedules with few context switches, leveraging empirical
+The advantage of modeling distributed system designs in                         findings that most concurrency bugs manifest under such con-
+frameworks like P is that they can be extensively tested (or ex-                ditions [12]. Partial order sampling (POS) applies partial order
+ Algorithm 1: The testing loop using an RSBT algo-                non-deterministic events during the execution of a program—
+ rithm.                                                           such as time, thread interleaving, and random numbers—in
+1  Function RSBTTesting(Program P, RSBT algorithm A):             such a way that the exact same execution can be deterministi-
+ 2    repeat                                                      cally reproduced later.
+           // Sample a new schedule S.                               One key property for the existing RSBT algorithms is that
+ 3         S ← A(P)
+           // Get execution trace E.                              the execution of the algorithm is purely determined by the
+ 4         E ← Execute(P, S)                                      input program and pseudo-random numbers provided by the
+ 5         if E violates specification assertions then            operating system. With record-and-replay techniques, these
+ 6              raise error(E)                                    random choices can be recorded during the original execution
+ 7     until out of time budget                                   and replayed exactly to produce the same schedule.
+                                                                     Algorithm 2 describes how deterministic record and replay
+                                                                  works for an RSBT algorithm. Both Record() and Replay()
+ Algorithm 2: The deterministic record and replay                 methods override the original RandInt method provided by
+ algorithm given an RSBT algorithm.                               the operating system. For RSBT, a recording is simply a list of
+1  Function Record(Program P, RSBT algorithm A):                  integers. In the recording phase, the algorithm logs all random
+ 2    R ←new Recording()                                          choices made during the execution of the program (Line 6). In
+ 3    originalRandInt ← RandInt                                   the replay phase, instead of generating new random choices,
+ 4    override Function RandInt(bound b):
+           // Getting a random integer from OS.
+                                                                  the algorithm returns the recorded values (Line 12), ensuring
+ 5         r ← originalRandInt(b)                                 A reads the same value. If a schedule S and recording R are
+ 6         R.append(r)                                            produced during the recording phase Record(P, A), the algo-
+ 7         return r                                               rithm guarantees that the same schedule S will be faithfully
+       // Running RSBT with overridden RandInt.                   reproduced during the replay phase Replay(P, A, R).
+ 8     S ← A(P)
+ 9     return S, R
+                                                                        S, R = Record(P, A) =⇒ S = Replay(P, A, R)
+10 Function Replay(Program P, RSBT algorithm A, Recording R):
+11    override Function RandInt(bound b):
+           // Fetching a saved random from recording.             2.4 Behavioral Coverage for Distributed Sys-
+           r ← R.next()
+12
+13         return r (mod b)
+                                                                      tems
+       // Running RSBT with overridden RandInt.                   Given the efficient sampling-based approach of RSBT, how
+14     S ← A(P)                                                   does a user gain confidence in whether their system is thor-
+15     return S                                                   oughly tested (perhaps when the testing tools do not report
+                                                                  new bugs)? In sequential program testing, code coverage ap-
+                                                                  proximates testing thoroughness by measuring the fraction
+reduction [24] to avoid exploring equivalent schedules that       of code exercised by test cases. However, such measurement
+exhibit identical partial order behaviors.                        is insufficient for distributed systems, where schedules influ-
+                                                                  ence behavior much more than intra-machine control flow.
+   We call such approaches randomized search-based
+                                                                  Prior studies have shown that code coverage tends to satu-
+bounded concurrency testing (RSBT). An RSBT algorithm
+                                                                  rate quickly because the same codebase is deployed across
+is defined by a function (e.g., nextSchedule(P)) that re-
+                                                                  multiple machines [38]. Recently, researchers have proposed
+turns a new schedule for the program P based on the pseudo-
+                                                                  to measure behavioral coverage in distributed systems via
+randomness provided by the operating system. These RSBT
+                                                                  abstract Lamport timelines (timeline coverage) [38]. Time-
+algorithms have been successfully adopted in several testing
+                                                                  lines capture the happens-before relationships between events
+tools [12, 17, 19, 40] and have helped uncover real-world
+                                                                  or messages exchanged. In this paper, we use the notion of
+bugs in concurrent [12, 40], distributed systems [17, 56].
+                                                                  such timeline coverage as a proxy for behavioral coverage; a
+   Algorithm 1 shows the high-level design of an RSBT-based
+                                                                  timeline for a P program is the happens-before relationship
+testing framework. The algorithm takes an input program P
+                                                                  between events exchanged by the state machines. Developers
+and an RSBT algorithm A as input. In each iteration, the
+                                                                  can utilize timeline coverage to assess the effectiveness of
+algorithm generates a new schedule S, runs the program P
+                                                                  automated tools in exploring their distributed systems.
+using this schedule, and records the execution events E. If
+any execution E violates a specification assertion, an error is   3     Problem and Solution Overview
+raised and recorded.
+                                                                  3.1    Problem Statement
+2.3    Deterministic Record and Replay                            Our main hypothesis is that while RSBT techniques like PCT
+Record-and-replay techniques have been successful in debug-       and POS effectively reduce the search space to find bugs, the
+ging complex software [16, 41]. The core idea is to record the    sampling-based approach is not adaptive and, therefore, not
+tailored to maximize timeline coverage. This is analogous          Challenge 2: effective schedule prioritization. Complex
+to black-box fuzz testing in sequential programs: randomly         distributed systems have a very large scheduling space, where
+sampling inputs rarely results in good code coverage [8].          thousands of schedules may correspond to a unique timeline.
+   Our goal is to extend any existing RSBT approach to             Exploring all saved schedules with equal priority is both in-
+achieve better timeline coverage. We accomplish this by incor-     efficient and time-consuming, as prior research has shown
+porating timeline coverage as feedback to RSBT algorithms,         that mutating different saved inputs varies in their likelihood
+allowing them to generate schedules adaptively.                    of revealing new coverage [9, 47]. Thus, it is necessary to
+                                                                   prioritize the exploration of schedules that are more likely to
+3.2    Feedback-Guided Adaptive Scheduling                         expose unexplored timelines, thereby maximizing coverage
+In this work, we aim to combine the feedback-guided                and reducing the time required to uncover unique timelines.
+mutation-based input generation technique with the approach        Our solution. F EST assigns a priority to each schedule by
+of sampling schedules in RSBT for distributed systems to           evaluating its diversity feedback, which measures how unique
+achieve high timeline coverage. To achieve this, we need to        the new timeline is from those previously explored. A sched-
+address two challenges.                                            ule receives a higher diversity score if its corresponding time-
+Challenge 1: adaptive schedule generation. The first chal-         line significantly differs from others. By prioritizing the muta-
+lenge is how to adaptively generate new schedules while main-      tion of schedules with higher diversity scores, F EST enhances
+taining the same search-space bounding as RSBT algorithms          the likelihood of uncovering new, unique execution paths.
+like PCT and POS. This requires creating schedules that re-
+spond to feedback but still respect the constraints imposed        3.3    Scenario-Guided Schedule Generation
+by these sampling techniques. Note that directly mutating a        At AWS, one common request from the developer is to guide
+schedule of machine interleavings will often lead to infeasible     the scheduling algorithm towards a specific scenario. Sce-
+schedules since not every sequence of machine interleavings         narios are behaviors of the distributed system that specific
+is actually realizable in a given system; a mutated schedule        schedules can reach. For instance, in the case of the replicated
+is also not guaranteed to remain within the bounded search          storage store, the following are some scenarios that service
+space imposed by RSBT algorithms. For example, consider a           teams at AWS wrote, with increasing levels of complexity:
+schedule for the replica state machine shown in Figure 2. In       - S1: Read-After-Write. The system processes a write request
+this scenario, one machine sends a newLeaderElected event           and then handles a read request for the same key.
+to the current leader, signaling the election of a new leader      - S2: Write then read with a leader change. A leader node
+and causing the old leader to transition to the follower state.     processes a write request for a specified key. Later, a new
+Following this, another machine sends a writeReq to the old         leader is elected and handles a read request for the same key.
+leader. The old leader, now a follower, correctly forwards the     - S3: Read and write when leader flip-flops. The scenario
+request to the new leader. However, if we mutate this sched-        starts with a leader node processing a write request for a
+ule by simply swapping the order of these events—so that            specific key. A new leader is then elected due to a temporary
+the writeReq is sent before the new leader is elected—the           partition, but as the network recovers, the original leader is
+old leader will handle the writeReq without forwarding it.          reelected and processes a read request for the same key.
+This results in an infeasible schedule, as the new leader never        Developers are often interested in testing specific scenarios
+receives the writeReq.                                             whose correctness may be impacted by their development
+Our solution. F EST integrates the concepts of record-and-          activities. For example, when implementing a new failure
+replay [16, 41] and parametric generators [46]. F EST treats the    resolution algorithm, developers would typically be interested
+RSBT algorithm as parametric generators, where the sched-           in checking the system’s correctness under scenarios S2 and
+ule generation process is purely determined by the distributed      S3 that involve leader transition. The current state-of-the-art
+system model and some pseudo-random choices. A record-              techniques for automated testing, like RSBT, do not provide
+ing contains all pseudo-random choices taken by the RSBT            any mechanism to guide the sampling process toward these
+algorithm, and replaying the recording given the same RSBT          scenarios of interest specifically.
+algorithm and program will produce the same schedule. With             Our primary evaluation indicates that popular RSBT al-
+this capability, F EST can sample a new schedule similar to the     gorithms such as PCT and POS achieve poor coverage for
+recorded one. By mutating the recording—instead of strictly         many subtle yet critical scenarios. For example, a 1-hour test
+adhering to the original recording, F EST introduces devia-         of AWS’s internal storage protocol using PCT failed to ex-
+tions by returning different random values during the replay        plore any timeline that involved concurrent split-merge opera-
+process. Consequently, the new schedule is slightly altered         tions (SC in Figure 8). Consequently, many scenarios remain
+from the previous one. Since the replay process uses the same       unexplored for years, which poses significant risks. These
+RSBT algorithm as a generator, the new schedule also satis-         unexplored scenarios have led to bugs in our experience.
+fies the scheduling constraints. Hence, continuing to leverage         F EST utilizes the abstract execution events to capture the
+the benefits of performing RSBT.                                    behaviors of distributed systems. The execution events are
+a sequence of P events (e.g., readReq and writeReq in Fig-           Algorithm 3: Feedback-guided adaptive scheduling
+ure 3) transmitted during the execution. Given the execution         algorithm for distributed system models. Four main
+events of a schedule, F EST provides a specification language        components are highlighted in different colors.
+for developers to define scenarios. We show the detailed de-        1  Function Main(Program P, RSBT algorithm A, optional Scenario
+sign of our specification language in Section 4.5. If a scenario        scen):
+is provided, F EST translates these scenarios into constraints             // Initial recording is a random sample.
+used to compute the compliance feedback, measuring the ex-           2     S, R ← Record(P, A)
+                                                                     3     R ← {R}
+tent to which specified scenarios are explored. Next, F EST          4     S, E ← 0/
+prioritizes the mutation process of schedules with higher com-       5     repeat
+pliance scores. This helps F EST prioritize exploring schedules      6          R ← R.Dequeue()
+that are more likely to satisfy the defined scenarios.               7          repeat
+                                                                     8               // Adaptive Schedule Generation (§4.2)
+                                                                     9               R′ ← Mutate(R)
+3.4    Scope and Limitations                                        10               S′ ← Replay(P, A, R′ )
+                                                                    11               // System Execution (§4.3)
+F EST only works for stateless RSBT algorithms, meaning
+                                                                    12               E ← Execute(P, S′ )
+that pseudo-random choices and the input distributed systems        13               if E violates specification assertions then
+purely determine the schedule generated by these algorithms.        14                    raise error(E)
+F EST does not support learning-based concurrency testing           15              // Diversity Feedback (§4.4)
+algorithms such as Q-learning. While F EST is designed and          16              diversity ← Diversity(E, E)
+implemented to test distributed system models, the core al-         17              if diversity = 0 then
+                                                                    18                    continue
+gorithm can be applied to all concurrent system testing if the
+                                                                    19              // Compliance Feedback (§4.6)
+testing framework controls the message/thread order.
+                                                                    20              if scen is provided then
+                                                                    21                    compliance ← Compliance(scen, E)
+4     F EST Design
+                                                                    22              else
+4.1    Main Algorithm                                               23                     compliance ← 1
+                                                                    24               E ← E ∪ {E}
+Algorithm 3 shows the feedback-guided adaptive scheduling           25               S ← S ∪ {S′ }
+algorithm. F EST takes a program P, an RSBT algorithm A             26               R.Insert(R′ , diversity ∗ compliance)
+and an optional user-specified scenario scen as input. Upon         27          until out of exploration budget
+completion, F EST outputs a collection of schedules, each rep-      28     until out of time budget
+                                                                    29     return S
+resenting a unique timeline. The algorithm starts by running
+the RSBT algorithm A with pseudo-randomness values gen-
+erated by the operating system and saves the recording in a
+priority queue, R.                                                    Finally, F EST saves the new schedule to S, the new ex-
+   During each iteration, the algorithm dequeues a saved            ecution event to E, and inserts the new recording R′ into
+recording R with the highest priority (Line 6). For each record-    the priority queue R with a priority based on the product of
+ing, F EST invokes the Mutate method to modify R, followed          diversity and compliance (Line 24-Line 26).
+by the Replay method to generate a new schedule S′ based on            F EST allocates a mutation budget proportional to the
+the mutated recording R′ . The details of the adaptive schedule     diversity and compliance score of each saved schedule—
+generation algorithm are described in detail in Section 4.2.        schedules with higher scores receive more mutations—and
+   With the new schedule S′ , F EST orchestrates the program        continues until the budget is exhausted (Line 27).
+P and stores the execution events in E (Line 12).
+   F EST gathers diversity feedback for the new schedule (de-       4.2    Adaptive Schedule Generation
+tails of this computation are presented in Section 4.4). The        A schedule S is defined as a sequence of machine interleav-
+Diversity function returns an integer diversity (Line 16),          ings m1 , m2 , . . . where each scheduled machine either sends a
+used to 1) decide whether F EST should save the newly gener-        message to another machine or receives a message from its
+ated schedule S′ and its recording R′ , and 2) assign a priority    buffer. Given a schedule S, the goal of the adaptive schedule
+to this schedule. If diversity is not zero, it indicates a previ-   generation is to generate a new schedule S′ , which shares
+ously unexplored timeline that should be saved for further          similarities with S. For two reasons, F EST does not directly
+exploration. Otherwise, the algorithm should not save this          mutate schedules in its testing loop. First, we aim to generate
+schedule and continue (Line 17).                                    schedules satisfying scheduling constraints defined by the
+   If a scenario is provided (Line 20), the algorithm computes      RSBT algorithm, as these strategies have been proven more
+the compliance feedback (Line 21) as detailed in Section 4.6.       effective in bug detection. Second, not all schedules are valid
+Otherwise, it sets compliance to 1 (Line 23), indicating that       for executing system P. Given a prefix of interleavings S̄, only
+all schedules have the same compliance score.                       a subset of available machines may be schedulable immedi-
+ Algorithm 4: The PCT algorithm. The function calls                  Therefore, given a bug depth, the minimum number of context
+ to pseudo-randomness is highlighted in blue.                        switches needed to trigger a bug, PCT samples schedules
+1 Function PCT(Program P):
+                                                                     with a limited number of thread interleavings by controlling
+2    depth ← user configured hyperparameter                          the points at which context switches are introduced through
+3    Q ← PriorityQueue(initial = {entryMachine})                     priority-based scheduling.
+4    S, K ← 0/                                                           Algorithm 4 illustrates the PCT algorithm, with the func-
+5    for idx ∈ {1, . . . , depth} do
+6         k ← RandInt(max schedule length)                           tion calls to pseudo-randomness highlighted in blue to empha-
+7         K ← K ∪ {k}                                                size the points where random choices influence the schedule
+8     repeat                                                         generation. The algorithm uses a hyperparameter depth to
+          // Pick highest priority enabled machine                   limit the number of context switches in generated schedules.
+ 9        for idx ∈ {0, ..., |Q| − 1} do                             The algorithm begins by initializing a priority queue Q, an
+10             if QJidxK ∈ Enabled(P, S) then
+11                  m ← QJidxK
+                                                                     empty schedule S, an empty set of context switch points K,
+12                  break                                            and an empty recording R′ (Line 3-4). The priority queue Q is
+                                                                     populated with only the main thread—in our case, the machine
+13         S←Sm
+           // Change the priority of m if a switch point
+                                                                     containing the entry point—to start the execution. It then sam-
+                is hit.                                              ples depth context switch points stored in K (Line 5-Line 7)
+14         if |S| ∈ K then                                           by calling RandInt method. At each scheduling point, the
+15               Q.MoveToTail(m)                                     algorithm selects the highest-priority machine that is ready to
+           // Add new spawned machine to Q.                          execute (Lines 9-12) and appends it to the schedule (Line 13).
+16         for m′ ∈ Enabled(P, S) do                                 When K contains the trace length of the current execution S,
+17              if m′ ̸∈ Q then
+18                    prio ← RandInt(|Q|)                            the algorithm lowers the priority of the currently scheduled
+19                   Q.Insert(prio, m′ )                             machine (e.g., by moving it to the tail of the priority queue),
+                                                                     thereby introducing a context switch occurring at the next
+20    until Enabled(P, S) = 0/
+21    return S
+                                                                     scheduling point (Line 15). Finally, if the schedule enables a
+                                                                     new machine m′ which is not in Q, PCT inserts m′ to Q with
+                                                                     a random priority (Line 16-19).
+                                                                     Partial Order Sampling Algorithm 5 presents the schedule
+ately after S̄. We denote the set of such enabled machines           generation algorithm that employs partial order sampling [57].
+when program P is executed with schedule prefix S̄ as En-            At each iteration, the algorithm selects a machine m with the
+abled(P, S̄). Random point mutations on a schedule will not          highest priority that is ready to execute (Lines 5 to 8). POS
+always result in a valid schedule; changing one scheduling           resets the priority of a machine according to partial order
+decision in the sequence will affect the validity of every sub-      reduction rules [24] and removes machines from Q if they
+sequent scheduling decision. So, F EST combines the concept          access the same resource as machine m (Lines 9- 11). Finally,
+of parametric input generation with deterministic record-and-        it adds m to the schedule S (Line 12) and inserts new machines
+replay and introduces small mutations while replaying the            to Q with a random priority (Line 13-16).
+schedule generation algorithm, as described next.                    Adopt Other Schedule Generation Algorithm. Note that
+   The key to our mutation algorithm is to mutate record-            our adaptive schedule generation algorithm is generic and
+ings instead of mutating schedules; by adding this indirection,      accommodates various RSBT algorithms. For example, our
+F EST controls the generation of the schedule by mutating            evaluation includes POS+, an extension of the POS [57] algo-
+the corresponding recording. Recall that a recording is rep-         rithm with conflict analysis [56]. Section 5.3 presents a com-
+resented as a list of integers. Given a schedule S and its cor-      parative analysis of each feedback-guided strategy against
+responding recording R, the Mutate method generates a new            its random-sampling-based equivalent, highlighting improve-
+recording R′ by modifying a subset of integers in R. The Re-         ments in both timeline coverage and bug-finding capabilities.
+play(P, A, R′ ) method then produces a new schedule S′ . The
+degree of similarity between S and S′ is governed by the Mu-         4.3    System Execution
+tate method. If Mutate is the identity function, S′ will be          Back to Algorithm 3, the next step after generating the sched-
+identical to S. Conversely, if every integer in R is modified, the   ule of interleavings S is to execute the program P with that
+Replay function will generate a completely different sched-          schedule S and observe various events being generated by
+ule, akin to random sampling. In F EST, our objective is to          machines during execution (Line 12). To ensure the reliability
+create schedules that are similar but not identical. To archive      and correctness of P, we employ runtime monitors within the
+this, F EST mutates an average of five integers per recording.       execution framework. These monitors check system execu-
+Probabilistic Concurrency Testing. The core idea behind the          tion against protocol specifications (Line 14). The execution,
+probabilistic concurrency testing algorithm (PCT) is that most       represented as a sequence of events E, is processed to evaluate
+bugs can be revealed using a small number of context switches.       the feedback of generated schedule S.
+                                                                                                     S1(e0 , e1 ) :
+ Algorithm 5: The POS algorithm. The function calls                                                     e0 ≺ e1 ∧ e1 .key = e0 .key ∧
+                                                                                                 ∗
+ to pseudo-randomness is highlighted in blue.                       S := ⟨name⟩(Event(, Event) ) :      e0 .name = "writeReq"∧
+1 Function POS(Program P):                                              C (∧C )∗                        e1 .name = "readReq"∧
+2    Q ← PriorityQueue(initial = {entryMachine})                    C := Event(≺ Event)+
+3    S ← 0/                                                                                          S2(e0 , e1 , e2 , e3 ) :
+4    repeat                                                             | V =V
+                                                                                                        e0 ≺ e1 ≺ e2 ≺ e3 ∧
+5         for idx ∈ {0, ..., |Q| − 1} do                                | V ̸= V
+6              if QJidxK ∈ Enabled(P, S) then                                                           e1 .name = "writeReq"∧
+                                                                    V := Event.name
+7                   m ← QJidxK                                                                          e3 .name = "readReq"∧
+8                   break                                               | Event.sender
+                                                                                                        e3 .key = e1 .key ∧
+                                                                        | Event.receiver
+           // Reset priorities                                                                          e0 .name = "newLeaderElected"∧
+                                                                        | Event.⟨payload_ f ield⟩
+ 9         for m′ ∈ Enabled(P, S) do                                                                    e2 .name = "newLeaderElected"∧
+10              if IsRacing(m′ , m) then                                | ⟨const⟩
+11                   Q ← Q\{m′ }                                                                        e0 .leader ̸= e2 .leader
+                                                                        (a) Scenario Language.                   (b) Examples.
+12         S←Sm
+13         for m′ ∈ Enabled(P, S) do                              Figure 4: Scenario specification language and example sce-
+14              if m′ ̸∈ Q then
+15                    prio ← RandInt(|Q|)                         narios for the key-value store in § 3.3
+16                   Q.Insert(prio, m′ )
+
+17     until enP = 0/                                             line function shown in Algorithm 6 shows how to transform
+18     return S
+                                                                  the execution events E to an abstract Lamport timeline. It
+                                                                  iterates over pairs of events with the same receiver and creates
+                                                                  tuples that capture their happens-before relationship.
+ Algorithm 6: Diversity feedback algorithm.                          Algorithm 6 presents the Diversity function, which cal-
+1 Function ToTimeline(Execution events E):                        culates diversity feedback based on execution history E and
+2    T ← 0/                                                       current execution events E. It first generates explored abstract
+3    for e, e′ ∈ E do
+4         if e′ ≺ e ∧ e′ .receiver = e.receiver then              timelines T from E (Line 8) and the new abstract timeline
+5               T ← T ∪ {⟨e.receiver, e′ .name, e.name⟩}          T from E (Line 9). To measure diversity between two sets,
+                                                                  F EST employs a diversity index, defined as 1 − J(T1 , T2 ) =
+6      return T                                                        |T1 ∩T2 |
+                                                                  1 − |T         , where J(T1 , T2 ) is the Jaccard index. The Jaccard
+7  Function S
+            Diversity(Execution history E, List of Events E):            1 ∪T2 |
+ 8    T ← E ′ ∈E ToTimeline(E’)                                   index computes the similarity of two sets by measuring the ra-
+ 9    T ← ToTimeline(E)                                           tio of their intersection to their union. A higher diversity index
+10    return minT ′ ∈T (1 − J(T, T ′ ))                           indicates greater diversity (less similarity) between the sets,
+                                                                  while a lower index indicates they are more similar (less di-
+                                                                  verse). Finally, the Diversity function returns the minimum
+                                                                  diversity index between the new timeline T and all previously
+4.4    Diversity Feedback
+                                                                  explored timelines T (Line 10), with zero indicating that T is
+Feedback is important in guiding F EST in generating sched-       identical to a timeline T ′ in T.
+ules that achieve high timeline coverage. Post execution, F EST
+processes the event sequence E to extract diversity feedback      4.5     Scenario Specification Language
+(Algorithm 3, Line 16). Diversity feedback aims to identify       Drawing inspiration from complex event processing tools like
+schedules that are more likely to uncover unique behaviors        FlinkCEP [3] and Esper [2], we design a scenario specification
+during future exploration. However, directly comparing sched-     language to guide F EST toward exploring targeted behaviors.
+ules or sequences of machine interleavings is too detailed.          Figure 4a presents the simplified grammar for the scenario
+Many different schedules can result in the same high-level        specification language. Each scenario (S ) has a name ⟨name⟩,
+program behavior, especially when the differences involve         a list of events, and a set of constraints over these events. The
+independent local computations that do not affect information     language supports two types of constraints (C ): (1) happens-
+exchange between machines. We need a better way to measure        before constraint (Event ≺ Event) that capture the expected
+differences in higher-level effects between executions.           temporal order of these events; (2) equality constraints like
+   Inspired by prior work [38], we use abstract Lamport time-     values equal (V = V ) and values unequal (V ̸= V ) that are
+lines to measure the uniqueness of schedules. The abstract        used for adding constraints over the contents of the events.
+Lamport timeline is defined as T :: {⟨M, e1 , e2 ⟩}, which is a   Every event has the following fields over which constraints
+set of tuples each tuple captures a happens-before relation-      can be defined: name (name of the event), sender (sender of
+ship: that on a machine M, an event of type e1 is received and    the event), receiver (receiver of the event), and the payload
+processed before another of type e2 [29, 38]. The ToTime-         associated with the event referred to as payload_ f ield.
+   Figure 4b shows the scenarios S1 and S2 described in § 3.3           P repository and is now used by the entire P community. Note
+specified in our scenario language. S1 scenario is defined              that the ideas implemented in F EST can be applied to test
+over two events writeReq and readReq where we would like                any other distributed system that supports an orchestrator to
+to ensure that a write (e0 ) is followed by a read (e1 ), both          control schedules and collect feedback.
+operations performed on the same key. Scenario S2 describes
+a sequence of four events, a write (e1 ) and a read (e3 ) with          5.2    Comparison and Benchmarks
+the same key occurring before and after an election event (e2 )
+and processed by different leaders (e0 .leader ̸= e2 .leader).          In our evaluation, we compare the feedback-guided adap-
+   Now that we can define custom scenarios, we say that an              tive scheduling approach in F EST against four state-of-the-
+execution having event sequence E satisfies a scenario Scen             art testing approaches for distributed systems: PCT [12, 17],
+which is parameterized on events e1 , . . . , en if and only if there   POS [57], POS with conflict analysis (POS+) [56] and tra-
+exists a (not necessarily contiguous) subsequence of events             ditional RL based schedule generation (QL) [17, 39] F EST
+e1 , . . . , en in E such that Scen(e1 , . . . , en ) is true.          implements three feedback-guided adaptive schedule genera-
+4.6    Compliance Feedback                                              tion algorithms, which are referred to as F ESTPCT , F ESTPOS ,
+                                                                        and F ESTPOS+ . For PCT and F ESTPCT , we use the bound of
+Given a scenario, the purpose of the compliance measurement             depth = 3, 15, 50, which performed best for our benchmarks.
+is to determine to what extent the user-provided scenarios              As PCT and POS were originally designed for concurrency
+are satisfied by generated schedules. Ideally, we want to find          testing, we adapt these algorithms for distributed systems as
+schedules that satisfy all constraints in the scenario. How-            proposed in prior works [17, 56]. For RQ4, we implemented
+ever, finding schedules that partially satisfy the scenario may         a baseline approach (NoPrio) that performs feedback-guided
+indicate that the schedule is close to our objective. So, the           adaptive scheduling without priority-based scheduling by as-
+compliance measurement calculates the fraction of constraints           signing a uniform diversity value of 1 to all saved recordings
+satisfied in a scenario.                                                (as referenced in Algorithm 3, Line 26).
+   For example, given scenario S1 (ref. Fig. 4b), if the exe-
+cution results in an event sequence [..., writeReq("key1", ...),        Comparison metric. We use abstract Lamport timeline [29,
+..., readReq("key2", ...), ...], then F EST identifies that the first   38] to represent abstract system behavior explored. If a sce-
+three constraints are satisfied—there was a write before a read.        nario is provided, we measure the number of unique timelines
+However, the fourth constraint, stipulating that the write and          explored that satisfy the input scenario. We run each technique
+read requests should have the same key, is not satisfied. So,           for 1 hour for each benchmark and repeat the experiment 5
+the scenario compliance in this case is 34 .                            times to account for randomness. All experiments were per-
+                                                                        formed on a cloud instance with an AMD EPIC processor
+5     Evaluation                                                        with 64 cores and 256 GB memory.
+Our evaluation addresses the following research questions by            Benchmarks. To evaluate behavior coverage and bug-finding
+comparing F EST with state-of-the-art testing techniques:               capability in real-world systems, we applied F EST to 19 P
+(RQ1) How does F EST perform when the goal is to improve                models of distributed services, as shown in Table 1, covering
+      behavioral coverage?                                              94 test cases. Each test case includes different system config-
+                                                                        urations, initial states, and assertions. Four models, with 13
+(RQ2) How does F EST perform as a bug-finding technique?                test cases, are from prior research [18, 21, 48], while 14 pro-
+                                                                        tocol models from AWS span databases, storage, networking,
+(RQ3) How does F EST perform when testing specific sce-                 and routing, accounting for 69 test cases. Examples include
+      narios?                                                           a control plane protocol for merging and splitting partitions
+(RQ4) Does F EST priority-based schedule generation help                in distributed storage, a leader election protocol, and a con-
+      F EST in covering more timelines?                                 flict resolution protocol for an in-memory database. We also
+                                                                        included the latest released DeepSeek 3FS model [1], which
+5.1    Implementation                                                   contains 12 test cases. The benchmark includes 27 known
+We implemented F EST on top of the open-source P frame-                 bugs, and the entire evaluation took over 200 CPU days, mak-
+work [18]. F EST extends P in three important ways: (1) ex-             ing it the largest evaluation of distributed system model testing
+tending the existing P language to added support for specify-           to date.
+ing scenarios, (2) extending the existing P checker to collect             To evaluate the coverage of the scenario, we collaborated
+feedback dynamically, (3) and a feedback-guided adaptive                with developers and implemented 7 scenarios derived from
+schedule generator for P checker. F EST is implemented as an            their testing case studies shown in Table 2 and applied these
+external guiding tool that observes, generates schedules, and           scenarios to 4 models. We present the aggregated results in the
+forwards them to the system orchestrator (P Checker in our              following sections, with detailed tables for each benchmark
+case). Our implementation has been merged into the official             and technique available in Appendix A.
+Table 1: Description of case studies from AWS and open-
+source models. ‘LOC’ indicates the P line of code of the
+
+
+
+
+                                                                                             Best Performance Count
+                                                                                                                      30
+formal model of the system.
+
+  AWS System                                LOC        AWS System               LOC                                   20
+  Elastic Storage                           4539       CDN                      1291
+  Leader Election                           2748       Bucket Storage            994
+                                                       Financial Service        4095                                  10
+  Stream Log                                1495
+  Memory Database                           3219       Message Broker           1456
+  Network Dynamic Scaling                   4295       Open-source System       LOC                                    0
+  Network Routing                           5392       German [48]               282                                       Fest Fest Fest POS Fest PCT15 Fest PCT50 PCT3
+  Database Storage Engine                   3955       OSR [48]                  381                                       PCT3 POS PCT15     PCT50      POS+
+  Access Management                         3298       Paxos [48]                598                                                          Technique
+  Concurrency Control                       3056       2PhaseCommit [18]         822
+  FreeRTOS                                  1485       DeepSeek-3FS [1]         4648       Figure 6: Best performance count: Number of test cases for
+                                                                                           which each technique achieves the highest timeline coverage.
+                     Table 2: Description of testing scenarios.
+
+ Name                AWS Target                Description
+ SC                  Elastic Storage           Perform concurrent splits and merge
+                                               twice on the same partition.                ilar improvements are observed for PCT15 and PCT50, with
+ SR                  Leader Election           A stable leader processes read requests.    average timeline coverage improvements of 133% and 95%,
+ CR                  Leader Election           A new leader is elected while an old
+                                                                                           respectively. For POS, F EST achieves a 2.2× improvement,
+                                               leader is servicing read requests.
+ RD                  Stream Log                Stream log replicator handles read re-      and for POS+, a 2.4× improvement, with maximum improve-
+                                               quests.                                     ments reaching 41× and 39×, respectively. F EST has im-
+ RT                  Stream Log                Stream log replicator handles a             proved or achieved the same timeline coverage for 88% of
+                                               rotation requests while servicing reads.    cases. On average, F EST achieves a 1.53× improvement in
+ SL                  Stream Log                Stream log replicator handles a replica
+                                               partition requests while servicing reads.   timeline coverage, with a maximum improvement of up to
+ CI                  Memory Database           During a node failure, two requests set     41× as compared to the original technique.
+                                               and increase the same key concurrently.
+                                                                                              There are a few cases (12%) where F EST achieves lower
+                                                                                           timeline coverage, with 75% of the reductions being less than
+               1.0
+                                                                                           4%. The reason for this was that the number of timelines
+               0.8                                                                         explored is roughly proportional to the number of schedules
+                                                                                           generated for these models. Since the feedback algorithm
+  Proportion
+
+
+
+
+               0.6
+                                                                 Comparison                introduces a small overhead, F EST generates fewer schedules
+                                                               FestPCT3 vs. PCT3           per unit of time, leading to lower timeline coverage.
+               0.4                                             FestPCT15 vs. PCT15
+                                                               FestPCT50 vs. PCT50
+               0.2                                             FestPOS vs. POS
+                                                                                           Achieve Highest Timeline Coverage. Figure 6 illustrates
+                                                               FestPOS+ vs. POS+           the number of test cases for which each technique achieves
+               0.0                                                                         the highest timeline coverage. The F ESTPCT technique with a
+                       -0.5x   0x         1x                         10x
+                                    Improvements of Timeline Coverage                      bound of 3 performs best, achieving the highest timeline cov-
+                                                                                           erage in 36 test cases. The F ESTPOS technique and F ESTPCT
+Figure 5: Cumulative distribution function of improvements                                 technique with a bound of 15 achieve the highest timeline cov-
+over the original approach without feedback (e.g., F ESTPCT3                               erage in 22 and 19 test cases, respectively. Additionally, the
+versus PCT3) for different schedule generation algorithms.                                 F ESTPCT technique with a bound of 50 achieves the highest
+                                                                                           timeline coverage in 6 test cases. Overall, one of the F EST-
+                                                                                           based approaches achieves the highest timeline coverage in
+5.3              RQ1: Timeline Coverage Improvement                                        88% of the test cases. Our result also shows that QL is inef-
+                                                                                           fective in exploring diverse timelines and does not achieve
+Figure 5 shows the timeline coverage improvements using                                    the highest timeline coverage in any test case. QL imposes no
+F EST. The x-axis represents the improvement factor on a                                   scheduling constraints, creating an exponentially large search
+logarithmic scale, while the y-axis shows the proportion of                                space that its feedback mechanism cannot navigate efficiently.
+instances achieving at least that level of improvement. The                                This highlights the importance of feedback-guided adaptive
+results demonstrate that the feedback-guided schedule gen-                                 design with a bounded search space.
+eration approach (F EST) improves the existing techniques.
+Specifically, F EST enhances timeline coverage for PCT3 in                                 Answer to RQ1: F EST improves existing RSBT algorithms
+95% of test cases, with an average improvement of 86%. Sim-                                to achieve higher timeline coverage.
+                      16 16 15 14                                                                                                                       Figure 8 shows the scenario coverage achieved by different
+                                                                    12 12 10 10 10 10 10
+                                                                                                                                                     techniques. To save space, we present results from PCT15
+                                                                                                                                                     and F ESTPCT15 . Across all benchmarks, F ESTPCT either out-
+                      FestPCT15
+
+
+                                             FestPCT50
+                                                         FestPOS+
+                                  FestPCT3
+
+
+
+
+                                                                         FestPOS
+                                                                                                                                                     performs or matches NoScen, highlighting the value of incor-
+
+
+                                                                                          PCT50
+
+
+
+
+                                                                                                               PCT15
+                                                                                                  POS+
+                                                                                   PCT3
+
+
+
+
+                                                                                                         POS
+                                                                                                                                                     porating scenario feedback into feedback guidance. Moreover,
+                                                                    QL
+
+
+                                                                                                                            1                        F ESTPCT consistently outperforms PCT on all benchmarks.
+                                                                                                                            1                        In the elastic storage model with the concurrent split-merge
+                                                                                                                                2
+                                                                                                                                2
+                                                                                                                                                     (SC) scenario, F ESTPCT identifies up to 39× more unique
+                                                                                                                                2                    timelines than both PCT and NoScen. For leader election
+                                                                                                                                                 8   protocol with concurrent read (SR) and stable read (CR) sce-
+                                                                                                                            Intersection size        narios, F EST shows 2.7× and 1.7× improvements compared
+                                                                                                                                                     to PCT, respectively. For stream log scenarios (RD, RT, and
+Figure 7: Upset plot for bug counts across different scheduling                                                                                      SL) and memory DB with transition read scenario (CI), the
+algorithms. Higher is better.                                                                                                                        improvement F ESTPCT is between 10% to 20%. This dimin-
+                                                                                                                                                     ished advantage stems from the inherent simplicity of the two
+                                                                    FestPCT15                                    NoScen                  PCT15       systems (Stream Log and Memory Database), leading to a
+                                                                                                                                                     smaller state space to explore.
+                        1250
+                                                                                                                                                        Our findings notably reveal that, in the absence of scenario
+                                                                                                                                                     coverage, developers utilizing the P checker with the PCT
+  Scenario Coverage
+
+
+
+
+                        1000
+                                                                                                                                                     technique remain unaware of significant coverage gaps in var-
+                            750                                                                                                                      ious scenarios, such as Elastic Storage with SC scenario. This
+                            500
+                                                                                                                                                     underlines the critical need to incorporate scenario coverage
+                                                                                                                                                     in the testing process. This feedback is essential for develop-
+                            250                                                                                                                      ers to accurately gauge and enhance the thoroughness of the
+                                  0                                                                                                                  tests conducted on their systems.
+                                                    SC                   CR                SR              RD          RT           SL     CI
+                                                                                                     Benchmark
+                                                                                                                                                     Scenarios helped find new bugs: F EST also helped uncover
+                                                                                                                                                     new bugs in AWS Elastic Storage design that other techniques
+Figure 8: Comparison of timeline coverage that satisfies the                                                                                         failed to find. In the Elastic Storage model, it failed to generate
+specified scenario across different techniques.                                                                                                      enough requests to trigger split-merge operations, resulting
+                                                                                                                                                     in low timeline coverage in the SC scenario. Once this bug
+                                                                                                                                                     was fixed, F EST immediately identified another bug related to
+5.4                               RQ2: Bug Finding Capabilities                                                                                      how the model handles failures during the split-merge opera-
+                                                                                                                                                     tion. Hence, F EST helped eliminate a critical bug during the
+Figure 7 displays the results using an upset plot, a type of visu-                                                                                   design phase, which was missed by other search techniques
+alization that showcases the intersections of sets, highlighting                                                                                     in P checker. These findings emphasize the pivotal role of
+the bug-detection capabilities of each technique for rediscov-                                                                                       scenario-based feedback, helping developers ensure that criti-
+ering the known bugs in our benchmark. Overall, F ESTPCT3                                                                                            cal scenarios are explored during design validation and that
+and F ESTPCT15 proved superior, identifying 16 bugs, while                                                                                           the test generators can trigger these scenarios.
+PCT3, PCT15, PCT50, POS, and POS+ identified only 10 and                                                                                             Answer to RQ3: The scenario feedback significantly en-
+QL only identified 12. Notably, F ESTPCT3 and F ESTPCT15 cap-                                                                                        hances scenario coverage, especially in complex models. The
+ture all bugs detected by PCT, POS, and QL and exclusively                                                                                           scenario coverage also helps developers gain feedback about
+discovered an additional 2 bugs missed by the other algo-                                                                                            scenarios that are inadequately tested.
+rithms. This demonstrates that exploring diverse schedules
+helps discover more bugs.                                                                                                                            5.6 RQ4: Priority-based Schedule Generation
+Answer to RQ2: F EST demonstrates superior bug detection                                                                                             Figure 9 illustrates the timeline coverage improvement of
+capabilities in distributed system testing by identifying the                                                                                        F ESTPCT15 compared to the approach without priority-based
+highest number of unique bugs.                                                                                                                       scheduling (NoPrio). The x-axis shows the benchmarks, while
+                                                                                                                                                     the y-axis represents the improvement in timeline cover-
+5.5                               RQ3: Scenario Coverage                                                                                             age. Across all benchmarks, the priority-based scheduling
+To evaluate the contribution of scenario-guided schedule gen-                                                                                        approach achieves better coverage for 84% benchmarks, with
+eration, we compare F EST with scenarios against F EST imple-                                                                                        an average improvement factor of 1.22×. This demonstrates
+mentation that ignores the given scenario feedback (NoScen).                                                                                         that incorporating priority into the schedule generation en-
+Both F EST and NoScen uses the diversity feedback. We use                                                                                            ables F EST to explore more diverse timelines more effectively.
+the input scenario described in Table 2.                                                                                                             Answer to RQ4: Priority-based schedule generation enhances
+                                    ≥ 2×                          adopted lightweight formal methods that integrate formal
+    Timeline Coverage Improvement
+
+                                           Fest
+                                           NoPrio                 specifications with property-based testing and fuzzing, strik-
+                                    1.5×                          ing a pragmatic balance between bug detection and correct-
+                                                                  ness assurance [10].
+                                     1×                           Coverage Measurements for Distributed Systems. Re-
+                                                                  searchers have explored various coverage measurements to
+                                    0.5×                          assess the unique behaviors explored by testing tools [17, 18,
+                                                                  38, 50]. Similar to abstract Lamport timelines, location pairs
+                                                                  leverage the "happens before" relationships [50]. F EST uses
+                                                    Benchmarks
+                                                                  the abstract Lamport timeline to measure the behavior cov-
+                                                                  erage. Additionally, the algorithm can be easily extended to
+Figure 9: Timeline coverage improvement of F ESTPCT15 com-
+                                                                  support other coverage measurements.
+pared to the version without priority-based scheduling (No-
+                                                                  Concurrency Testing. Like distributed system testing, con-
+Prio). The y-axis is cut off at 2× due to space limitations.
+                                                                  currency testing is primarily concerned with evaluating a
+                                                                  target program under various thread inter-leavings [13, 40,
+the efficiency of F EST in covering more unique timelines.        44, 51, 52, 53, 55]. RFF leverages read-write relationships
+                                                                  to construct abstract schedules, guiding the schedule gen-
+6                                   Related Work                  eration process [53]. PERIOD utilizes the DEADLINE
+Greybox Fuzzing. Greybox fuzzing [7, 8, 14, 15, 23, 25, 31,       scheduler implemented in Linux kernel, which parallelizes
+34, 36, 45, 46] strikes a balance between white-box analysis,     threads within defined periods rather than searching through
+an expensive symbolic technique with deep introspection           interleavings [52]. None of the existing work integrates
+of the system under test, and black-box testing, an efficient     the bounded-concurrency testing algorithms with feedback-
+approach devoid of system-internal knowledge. Starting with       guided mutation-based fuzzing, resulting in an inability to
+an initial corpus of seed inputs, a greybox fuzzer iteratively    explore unique behaviors efficiently. Also, they cannot guide
+enhances this corpus by synthesizing new inputs that exhibit      the schedule generation algorithm towards a specific scenario.
+desirable characteristics, such as increased line coverage.       7   Conclusion
+Distributed System Testing. Research in distributed system
+                                                                  F EST advances distributed system design testing by intro-
+testing can be broadly categorized into approaches with com-
+                                                                  ducing feedback-driven adaptive schedule generation. It ad-
+plete control over scheduling (e.g., [26, 32, 33, 43, 54, 56])
+                                                                  dresses the limitations of existing randomized search-based
+and those with partial or no control (e.g., [4, 38, 49]). Many
+                                                                  bounded concurrency testing techniques by combining adap-
+prior works reduce the search space using system semantics
+                                                                  tive schedule generation with diversity feedback to enhance
+through techniques like dynamic partial order reduction [54],
+                                                                  behavioral exploration. Our approach integrates record-and-
+dynamic interface reduction [26], and semantic-aware model
+                                                                  replay techniques with parametric input generation, allow-
+checking [32]. These approaches effectively prune the search
+                                                                  ing for controlled mutations of schedules while preserving
+space but still use random exploration for scheduling. F EST
+                                                                  scheduling constraints. The diversity feedback mechanism
+is orthogonal to these techniques—it improves the scheduling
+                                                                  effectively prioritizes schedules that are more likely to re-
+algorithm itself to maximize behavioral coverage. Combin-
+                                                                  veal unique behaviors by evaluating the uniqueness of each
+ing these reduction approaches with F EST would likely be
+                                                                  schedule using abstract Lamport timeline. Additionally, F EST
+most effective, as better scheduling would work on an already-
+                                                                  introduces a novel scenario specification language, enabling
+pruned search space. In contrast to these approaches, Mallory
+                                                                  developers to guide testing toward specific, critical scenarios.
+employs reinforcement learning for heuristic insertion of fail-
+                                                                  Our evaluation demonstrates that F EST significantly improves
+ures in distributed systems [38]. However, the learning-based
+                                                                  both behavioral and scenario coverage compared to state-of-
+approach (similar to QL in our evaluation) cannot integrate
+                                                                  the-art algorithms, resulting in the detection of more bugs
+with existing bounded-concurrency testing methods, and also,
+                                                                  across a diverse set of distributed system models.
+as demonstrated by our results, F EST performs better than QL
+for coverage.                                                     8   Acknowledgments
+Distributed System Verification. Distributed system veri-
+                                                                  This work was partially conducted at Amazon as part of an
+fication has garnered significant attention in both industry
+                                                                  AWS Applied Science internship, and partially supported by
+and academia, focusing on both their implementation [27, 28,
+                                                                  the National Science Foundation through grant number CCF-
+42, 54] and protocol design [18, 30, 35, 37, 48]. While sys-
+                                                                  2453432. We thank the anonymous reviewers for their insight-
+tematic verification of distributed system correctness remains
+                                                                  ful comments and constructive feedback, and Doug Terry and
+the gold standard, it has become increasingly impractical for
+                                                                  Vyas Sekar for their feedback on earlier drafts.
+modern systems due to their growing scale and accelerated
+development cycles [11]. Consequently, practitioners have
+References                                                       [12] Sebastian Burckhardt, Pravesh Kothari, Madanlal Musu-
+                                                                      vathi, and Santosh Nagarakatte. A randomized sched-
+ [1] Fire-flyer file system. https://github.com/
+                                                                      uler with probabilistic guarantees of finding bugs. SIG-
+     deepseek-ai/3FS/tree/main/specs.
+                                                                      PLAN Not., 45(3):167–178, mar 2010. ISSN 0362-
+ [2] Complex Event Processing, Streaming SQL and Event                1340. doi: 10.1145/1735971.1736040. URL https:
+     Series Analysis for Java. https://github.com/                    //doi.org/10.1145/1735971.1736040.
+     espertechinc/esper.                                         [13] Hongxu Chen, Shengjian Guo, Yinxing Xue, Yulei
+                                                                      Sui, Cen Zhang, Yuekang Li, Haijun Wang, and
+ [3] FlinkCEP - Complex event processing for
+                                                                      Yang Liu. MUZZ: Thread-aware grey-box fuzzing
+     Flink.  https://nightlies.apache.org/flink/
+                                                                      for effective bug hunting in multithreaded pro-
+     flink-docs-master/docs/libs/cep/.
+                                                                      grams.      In 29th USENIX Security Symposium
+                                                                      (USENIX Security 20), pages 2325–2342. USENIX
+ [4] Jepsen: Distributed systems safety research. https:
+                                                                      Association, August 2020. ISBN 978-1-939133-17-
+     //jepsen.io/.
+                                                                      5. URL https://www.usenix.org/conference/
+ [5] P - Case Studies.     https://p-org.github.io/P/                 usenixsecurity20/presentation/chen-hongxu.
+     casestudies/.                                               [14] Peng Chen and Hao Chen. Angora: Efficient fuzzing by
+                                                                      principled search. In 2018 IEEE Symposium on Security
+ [6] Formal modeling and analysis of distributed (event-
+                                                                      and Privacy (SP), pages 711–725. IEEE, 2018. doi:
+     driven) systems. https://github.com/p-org/P.
+                                                                      10.1109/SP.2018.00046.
+ [7] Cornelius Aschermann, Sergej Schumilo, Tim Blazytko,        [15] E. M. Clarke, E. A. Emerson, and A. P. Sistla. Au-
+     Robert Gawlik, and Thorsten Holz. Redqueen: Fuzzing              tomatic verification of finite-state concurrent systems
+     with input-to-state correspondence. In NDSS, volume 19,          using temporal logic specifications. ACM Trans. Pro-
+     pages 1–15, 2019. doi: 10.14722/ndss.2019.23371.                 gram. Lang. Syst., 8(2):244–263, apr 1986. ISSN
+                                                                      0164-0925. doi: 10.1145/5397.5399. URL https:
+ [8] Marcel Böhme, Van-Thuan Pham, and Abhik Roychoud-                //doi.org/10.1145/5397.5399.
+     hury. Coverage-based greybox fuzzing as markov chain.
+     In Proceedings of the 2016 ACM SIGSAC Conference on         [16] Frank Cornelis, Andy Georges, Mark Christiaens,
+     Computer and Communications Security, CCS, pages                 Michiel Ronsse, Tom Ghesquiere, and Koen De Boss-
+     1032–1043, 2016. doi: 10.1145/2976749.2978428.                   chere. A taxonomy of execution replay systems. 01
+                                                                      2003.
+ [9] Marcel Böhme, Valentin J. M. Manès, and Sang Kil Cha.
+     Boosting fuzzer efficiency: An information theoretic        [17] Pantazis Deligiannis, Aditya Senthilnathan, Fahad Nay-
+     perspective. Commun. ACM, 66(11):89–97, oct 2023.                yar, Chris Lovett, and Akash Lal. Industrial-strength
+     ISSN 0001-0782. doi: 10.1145/3611019. URL https:                 controlled concurrency testing for c# programs with
+     //doi.org/10.1145/3611019.                                       coyote. In TACAS, April 2023.
+
+                                                                 [18] Ankush Desai, Vivek Gupta, Ethan Jackson, Shaz
+[10] James Bornholt, Rajeev Joshi, Vytautas Astrauskas,
+                                                                      Qadeer, Sriram Rajamani, and Damien Zufferey. P:
+     Brendan Cully, Bernhard Kragl, Seth Markle, Kyle
+                                                                      Safe asynchronous event-driven programming. SIG-
+     Sauri, Drew Schleit, Grant Slatton, Serdar Tasiran, Jacob
+                                                                      PLAN Not., 48(6):321–332, jun 2013. ISSN 0362-
+     Van Geffen, and Andrew Warfield. Using lightweight
+                                                                      1340. doi: 10.1145/2499370.2462184. URL https:
+     formal methods to validate a key-value storage node in
+                                                                      //doi.org/10.1145/2499370.2462184.
+     amazon s3. In Proceedings of the ACM SIGOPS 28th
+     Symposium on Operating Systems Principles, SOSP ’21,        [19] Ankush Desai, Shaz Qadeer, and Sanjit A. Seshia. Sys-
+     page 836–850, New York, NY, USA, 2021. Association               tematic testing of asynchronous reactive systems. In
+     for Computing Machinery. ISBN 9781450387095. doi:                Proceedings of the 2015 10th Joint Meeting on Founda-
+     10.1145/3477132.3483540. URL https://doi.org/                    tions of Software Engineering, ESEC/FSE 2015, page
+     10.1145/3477132.3483540.                                         73–83, New York, NY, USA, 2015. Association for
+                                                                      Computing Machinery. ISBN 9781450336758. doi:
+[11] Marc Brooker and Ankush Desai. Systems correct-                  10.1145/2786805.2786861. URL https://doi.org/
+     ness practices at amazon web services. Commun.                   10.1145/2786805.2786861.
+     ACM, 68(6):38–42, June 2025. ISSN 0001-0782. doi:
+     10.1145/3729175. URL https://doi.org/10.1145/               [20] Ankush Desai, Sanjit A. Seshia, Shaz Qadeer, David
+     3729175.                                                         Broman, and John C. Eidson. Approximate synchrony:
+     An abstraction for distributed almost-synchronous sys-   [27] Chris Hawblitzel, Jon Howell, Manos Kapritsos, Ja-
+     tems. In Daniel Kroening and Corina S. Pasare-                cob R. Lorch, Bryan Parno, Michael L. Roberts, Srinath
+     anu, editors, Computer Aided Verification - 27th In-          Setty, and Brian Zill. Ironfleet: Proving practical dis-
+     ternational Conference, CAV 2015, San Francisco,              tributed systems correct. In Proceedings of the 25th
+     CA, USA, July 18-24, 2015, Proceedings, Part II, vol-         Symposium on Operating Systems Principles, SOSP ’15,
+     ume 9207 of Lecture Notes in Computer Science,                page 1–17, New York, NY, USA, 2015. Association for
+     pages 429–448. Springer, 2015.          doi: 10.1007/         Computing Machinery. ISBN 9781450338349. doi:
+     978-3-319-21668-3\_25. URL https://doi.org/10.                10.1145/2815400.2815428. URL https://doi.org/
+     1007/978-3-319-21668-3_25.                                    10.1145/2815400.2815428.
+
+[21] Ankush Desai, Amar Phanishayee, Shaz Qadeer, and         [28] Nouraldin Jaber, Swen Jacobs, Christopher Wagner,
+     Sanjit A. Seshia. Compositional programming and               Milind Kulkarni, and Roopsha Samanta. Parameter-
+     testing of dynamic distributed systems. Proc. ACM             ized verification of systems with global synchronization
+     Program. Lang., 2(OOPSLA), oct 2018. doi: 10.                 and guards. In Shuvendu K. Lahiri and Chao Wang,
+     1145/3276529. URL https://doi.org/10.1145/                    editors, Computer Aided Verification, pages 299–323,
+     3276529.                                                      Cham, 2020. Springer International Publishing. ISBN
+                                                                   978-3-030-53288-8.
+[22] Ankush Desai, Shromona Ghosh, Sanjit A. Seshia,
+     Natarajan Shankar, and Ashish Tiwari. Soter: A runtime   [29] Leslie Lamport. Time, clocks, and the ordering of events
+     assurance framework for programming safe robotics             in a distributed system. Commun. ACM, 21(7):558–565,
+     systems. In 2019 49th Annual IEEE/IFIP Interna-               jul 1978. ISSN 0001-0782. doi: 10.1145/359545.
+     tional Conference on Dependable Systems and Networks          359563. URL https://doi.org/10.1145/359545.
+     (DSN), pages 138–150, 2019. doi: 10.1109/DSN.2019.            359563.
+     00027.                                                   [30] Leslie Lamport. The temporal logic of actions. ACM
+                                                                   Trans. Program. Lang. Syst., 16(3):872–923, may 1994.
+[23] Zhen Yu Ding and Claire Le Goues. An empirical study
+                                                                   ISSN 0164-0925. doi: 10.1145/177492.177726. URL
+     of oss-fuzz bugs. In 2021 IEEE/ACM 18th International
+                                                                   https://doi.org/10.1145/177492.177726.
+     Conference on Mining Software Repositories (MSR),
+     pages 131–142. IEEE, 2021. doi: 10.1109/MSR52588.        [31] Leonidas Lampropoulos, Michael Hicks, and Ben-
+     2021.00026.                                                   jamin C Pierce. Coverage guided, property based testing.
+                                                                   Proceedings of the ACM on Programming Languages, 3
+[24] Cormac Flanagan and Patrice Godefroid.            Dy-         (OOPSLA):1–29, 2019. doi: 10.1145/3360607.
+     namic partial-order reduction for model checking soft-
+     ware. In Proceedings of the 32nd ACM SIGPLAN-            [32] Tanakorn Leesatapornwongsa, Mingzhe Hao, Pallavi
+     SIGACT Symposium on Principles of Programming Lan-            Joshi, Jeffrey F. Lukman, and Haryadi S. Gunawi.
+     guages, POPL ’05, page 110–121, New York, NY, USA,            SAMC: Semantic-Aware model checking for fast
+     2005. Association for Computing Machinery. ISBN               discovery of deep bugs in cloud systems. In 11th
+     158113830X. doi: 10.1145/1040305.1040315. URL                 USENIX Symposium on Operating Systems Design and
+     https://doi.org/10.1145/1040305.1040315.                      Implementation (OSDI 14), pages 399–414, Broomfield,
+                                                                   CO, October 2014. USENIX Association. ISBN
+[25] Shuitao Gan, Chao Zhang, Peng Chen, Bodong Zhao,              978-1-931971-16-4.    URL https://www.usenix.
+     Xiaojun Qin, Dong Wu, and Zuoning Chen. GREYONE:              org/conference/osdi14/technical-sessions/
+     Data flow sensitive fuzzing. In 29th USENIX Security          presentation/leesatapornwongsa.
+     Symposium (USENIX Security 20), pages 2577–2594,
+     2020. doi: 10.5555/3489212.3489357.                      [33] Jeffrey F. Lukman, Huan Ke, Cesar A. Stuardo, Riza O.
+                                                                   Suminto, Daniar H. Kurniawan, Dikaimin Simon, Sa-
+[26] Huayang Guo, Ming Wu, Lidong Zhou, Gang Hu, Jun-              tria Priambada, Chen Tian, Feng Ye, Tanakorn Leesa-
+     feng Yang, and Lintao Zhang. Practical software model         tapornwongsa, Aarti Gupta, Shan Lu, and Haryadi S.
+     checking via dynamic interface reduction. In Proceed-         Gunawi. Flymc: Highly scalable testing of com-
+     ings of the Twenty-Third ACM Symposium on Oper-               plex interleavings in distributed systems. In Proceed-
+     ating Systems Principles, SOSP ’11, page 265–278,             ings of the Fourteenth EuroSys Conference 2019, Eu-
+     New York, NY, USA, 2011. Association for Comput-              roSys ’19, New York, NY, USA, 2019. Association for
+     ing Machinery. ISBN 9781450309776. doi: 10.1145/              Computing Machinery. ISBN 9781450362818. doi:
+     2043556.2043582. URL https://doi.org/10.1145/                 10.1145/3302424.3303986. URL https://doi.org/
+     2043556.2043582.                                              10.1145/3302424.3303986.
+[34] Chenyang Lyu, Shouling Ji, Chao Zhang, Yuwei Li, Wei-            https://www.usenix.org/conference/atc17/
+     Han Lee, Yu Song, and Raheem Beyah. MOPT: Opti-                  technical-sessions/presentation/ocallahan.
+     mized mutation scheduling for fuzzers. In 28th USENIX
+     Security Symposium (USENIX Security 19), pages 1949–        [42] Lingzhi Ouyang, Xudong Sun, Ruize Tang, Yu Huang,
+     1966, 2019. doi: 10.5555/3361338.3361473.                        Madhav Jivrajani, Xiaoxing Ma, and Tianyin Xu. Multi-
+                                                                      grained specifications for distributed system model
+[35] Haojun Ma, Aman Goel, Jean-Baptiste Jeannin, Manos               checking and verification. In Proceedings of the
+     Kapritsos, Baris Kasikci, and Karem A. Sakallah. I4:             Twentieth European Conference on Computer Systems,
+     Incremental inference of inductive invariants for verifi-        EuroSys ’25, page 379–395, New York, NY, USA,
+     cation of distributed protocols. In Proceedings of the           2025. Association for Computing Machinery. ISBN
+     27th ACM Symposium on Operating Systems Princi-                  9798400711961. doi: 10.1145/3689031.3696069. URL
+     ples, SOSP ’19, page 370–384, New York, NY, USA,                 https://doi.org/10.1145/3689031.3696069.
+     2019. Association for Computing Machinery. ISBN
+     9781450368735. doi: 10.1145/3341301.3359651. URL            [43] Burcu Kulahcioglu Ozkan, Rupak Majumdar, Filip
+     https://doi.org/10.1145/3341301.3359651.                         Niksic, Mitra Tabaei Befrouei, and Georg Weis-
+                                                                      senbacher. Randomized testing of distributed systems
+[36] Valentin Jean Marie Manès, HyungSeok Han, Choong-
+                                                                      with probabilistic guarantees. Proc. ACM Program.
+     woo Han, Sang Kil Cha, Manuel Egele, Edward J
+                                                                      Lang., 2(OOPSLA), oct 2018. doi: 10.1145/3276530.
+     Schwartz, and Maverick Woo. The art, science, and
+                                                                      URL https://doi.org/10.1145/3276530.
+     engineering of fuzzing: A survey. IEEE Transactions
+     on Software Engineering, 2019. doi: 10.1109/TSE.2019.
+                                                                 [44] Burcu Kulahcioglu Ozkan, Rupak Majumdar, and Simin
+     2946563.
+                                                                      Oraee. Trace aware random testing for distributed sys-
+[37] Kenneth L. McMillan and Oded Padon. Ivy: A multi-                tems. Proc. ACM Program. Lang., 3(OOPSLA), oct
+     modal verification tool for distributed algorithms. In           2019. doi: 10.1145/3360606. URL https://doi.org/
+     Computer Aided Verification: 32nd International Con-             10.1145/3360606.
+     ference, CAV 2020, Los Angeles, CA, USA, July 21–24,
+     2020, Proceedings, Part II, page 190–202, Berlin, Hei-      [45] Rohan Padhye, Caroline Lemieux, and Koushik Sen.
+     delberg, 2020. Springer-Verlag. ISBN 978-3-030-53290-            JQF: Coverage-guided property-based testing in Java.
+     1. doi: 10.1007/978-3-030-53291-8_12. URL https:                 In Proceedings of the 28th ACM SIGSOFT Interna-
+     //doi.org/10.1007/978-3-030-53291-8_12.                          tional Symposium on Software Testing and Analysis,
+                                                                      ISSTA’19, pages 398–401, 2019. ISBN 978-1-4503-
+[38] Ruijie Meng, George Pîrlea, Abhik Roychoudhury, and              6224-5. doi: 10.1145/3293882.3339002. URL http:
+     Ilya Sergey. Greybox fuzzing of distributed systems,             //doi.acm.org/10.1145/3293882.3339002.
+     2023. URL https://doi.org/10.1145/3576915.
+     3623097.                                                    [46] Rohan Padhye, Caroline Lemieux, Koushik Sen, Mike
+                                                                      Papadakis, and Yves Le Traon. Semantic fuzzing with
+[39] Suvam Mukherjee, Pantazis Deligiannis, Arpita Biswas,
+                                                                      zest. In Proceedings of the 28th ACM SIGSOFT In-
+     and Akash Lal. Learning-based controlled concurrency
+                                                                      ternational Symposium on Software Testing and Analy-
+     testing. Proc. ACM Program. Lang., 4(OOPSLA), nov
+                                                                      sis, ISSTA 2019, page 329–340, New York, NY, USA,
+     2020. doi: 10.1145/3428298. URL https://doi.org/
+                                                                      2019. Association for Computing Machinery. ISBN
+     10.1145/3428298.
+                                                                      9781450362245. doi: 10.1145/3293882.3330576. URL
+[40] Madanlal Musuvathi, Shaz Qadeer, Thomas Ball, Ger-               https://doi.org/10.1145/3293882.3330576.
+     ard Basler, Piramanayagam Arumuga Nainar, and Iulian
+     Neamtiu. Finding and reproducing heisenbugs in concur-      [47] Rohan Padhye, Caroline Lemieux, Koushik Sen, Lau-
+     rent programs. In Proceedings of the 8th USENIX Con-             rent Simon, and Hayawardh Vijayakumar. Fuzzfac-
+     ference on Operating Systems Design and Implemen-                tory: Domain-specific fuzzing with waypoints. Proc.
+     tation, OSDI’08, page 267–280, USA, 2008. USENIX                 ACM Program. Lang., 3(OOPSLA), oct 2019. doi:
+     Association.                                                     10.1145/3360600. URL https://doi.org/10.1145/
+                                                                      3360600.
+[41] Robert O’Callahan, Chris Jones, Nathan Froyd, Kyle
+     Huey, Albert Noll, and Nimrod Partush. Engineer-            [48] Lauren Pick, Ankush Desai, and Aarti Gupta. Psym:
+     ing record and replay for deployability. In 2017                 Efficient symbolic exploration of distributed systems.
+     USENIX Annual Technical Conference (USENIX                       Proc. ACM Program. Lang., 7(PLDI), jun 2023. doi:
+     ATC 17), pages 377–389, Santa Clara, CA, July 2017.              10.1145/3591247. URL https://doi.org/10.1145/
+     USENIX Association. ISBN 978-1-931971-38-6. URL                  3591247.
+[49] Xudong Sun, Wenqing Luo, Jiawei Tyler Gu, Aish-                   for multithreaded programs. In Gary T. Leavens and
+     warya Ganesan, Ramnatthan Alagappan, Michael Gasch,               Matthew B. Dwyer, editors, Proceedings of the 27th An-
+     Lalith Suresh, and Tianyin Xu. Automatic reliability test-        nual ACM SIGPLAN Conference on Object-Oriented
+     ing for cluster management controllers. In 16th USENIX            Programming, Systems, Languages, and Applications,
+     Symposium on Operating Systems Design and Imple-                  OOPSLA 2012, part of SPLASH 2012, Tucson, AZ, USA,
+     mentation (OSDI 22), pages 143–159, Carlsbad, CA,                 October 21-25, 2012, pages 485–502. ACM, 2012. doi:
+     July 2022. USENIX Association. ISBN 978-1-939133-                 10.1145/2384616.2384651. URL https://doi.org/
+     28-1. URL https://www.usenix.org/conference/                      10.1145/2384616.2384651.
+     osdi22/presentation/sun.
+                                                                  [56] Xinhao Yuan and Junfeng Yang. Effective concur-
+[50] Serdar Tasiran, M. Keremoğlu, and Kivanç Muşlu.                 rency testing for distributed systems. In Proceedings
+     Location pairs: A test coverage metric for shared-                of the Twenty-Fifth International Conference on Ar-
+     memory concurrent programs. Empirical Software                    chitectural Support for Programming Languages and
+     Engineering, 17:129–165, 06 2012. doi: 10.1007/                   Operating Systems, ASPLOS ’20, page 1141–1156,
+     s10664-011-9166-8.                                                New York, NY, USA, 2020. Association for Comput-
+                                                                       ing Machinery. ISBN 9781450371025. doi: 10.1145/
+[51] Cheng Wen, Mengda He, Bohao Wu, Zhiwu Xu, and                     3373376.3378484. URL https://doi.org/10.1145/
+     Shengchao Qin. Controlled concurrency testing via                 3373376.3378484.
+     periodical scheduling. In Proceedings of the 44th In-
+     ternational Conference on Software Engineering, ICSE         [57] Xinhao Yuan, Junfeng Yang, and Ronghui Gu. Partial
+     ’22, page 474–486, New York, NY, USA, 2022. Associ-               order aware concurrency sampling. In Hana Chock-
+     ation for Computing Machinery. ISBN 9781450392211.                ler and Georg Weissenbacher, editors, Computer Aided
+     doi: 10.1145/3510003.3510178. URL https://doi.                    Verification - 30th International Conference, CAV 2018,
+     org/10.1145/3510003.3510178.                                      Held as Part of the Federated Logic Conference, FloC
+                                                                       2018, Oxford, UK, July 14-17, 2018, Proceedings, Part
+[52] Cheng Wen, Mengda He, Bohao Wu, Zhiwu Xu, and                     II, volume 10982 of Lecture Notes in Computer Sci-
+     Shengchao Qin. Controlled concurrency testing via                 ence, pages 317–335. Springer, 2018. doi: 10.1007/
+     periodical scheduling. In Proceedings of the 44th In-             978-3-319-96142-2\_20. URL https://doi.org/10.
+     ternational Conference on Software Engineering, ICSE              1007/978-3-319-96142-2_20.
+     ’22, page 474–486, New York, NY, USA, 2022. Associ-
+     ation for Computing Machinery. ISBN 9781450392211.
+     doi: 10.1145/3510003.3510178. URL https://doi.
+     org/10.1145/3510003.3510178.
+
+[53] Dylan Wolff, Zheng Shi, Gregory J. Duck, Umang
+     Mathur, and Abhik Roychoudhury. Greybox fuzzing for
+     concurrency testing. In Proceedings of the 29th ACM In-
+     ternational Conference on Architectural Support for Pro-
+     gramming Languages and Operating Systems, Volume
+     2, ASPLOS ’24, page 482–498, New York, NY, USA,
+     2024. Association for Computing Machinery. ISBN
+     9798400703850. doi: 10.1145/3620665.3640389. URL
+     https://doi.org/10.1145/3620665.3640389.
+
+[54] Junfeng Yang, Tisheng Chen, Ming Wu, Zhilei Xu,
+     Xuezheng Liu, Haoxiang Lin, Mao Yang, Fan Long,
+     Lintao Zhang, and Lidong Zhou. MODIST: Trans-
+     parent model checking of unmodified distributed
+     systems. In 6th USENIX Symposium on Networked
+     Systems Design and Implementation (NSDI 09),
+     Boston, MA, April 2009. USENIX Association. URL
+     https://www.usenix.org/conference/nsdi-09/
+     modist-transparent-model-checking-unmodified-distributed-systems.
+
+[55] Jie Yu, Satish Narayanasamy, Cristiano Pereira, and
+     Gilles Pokam. Maple: a coverage-driven testing tool
+                                   PCT3              PCT15            PCT50             POS             POS+          QL
+Name                             Ori     F EST     Ori    F EST     Ori    F EST     Ori    F EST     Ori    F EST
+3FS01                            33         61     272      322     375      421    1893    2384       45      518    106
+3FS02                            67        116     337      399     397      485    5677    7250       69      873    270
+3FS03                            32         66     290      362     396      474    4473    4886      190      604    127
+3FS04                            31         73     280      338     416      478    3163    3521      165      571    120
+3FS05                            27         59     253      304     363      424    2808    2965      117      452    107
+3FS06                            26         61     238      314     365      486    1251    1232       37       74     59
+3FS07                            19         55     161      290     452      572     859      787      17       37     33
+3FS08                            27         69     268      342     373      482    2104    1967       48      151     66
+3FS09                            65        118     337      416     386      513    4677    4620      244      674    220
+3FS10                            31         75     282      356     400      539    2182    2489       35      191     77
+3FS11                            35         77     306      371     409      556    2330    2706       46      208     85
+3FS12                            28         51     250      332     361      494    1837    1756       54      177     91
+Access Management01            1183       1494     575    1271      166      302      27       32      17      100    532
+Access Management02              42         68       5        4       4        4       2        2       2        2     28
+Access Management03            1343       1685    2265    2573      399      968      45      276      41      132    908
+Bucket Storage01                603        473     334      702     133      137     120       90      58       53    106
+CDN01                           138        367      37      205      30      112       1        1       1        1     23
+CDN02                            56        167      10       64      10       10       1        1       2        2      1
+Concurrency Control01          5610       8319    5198    6535     4150    4864     3714    4650     4023    4922     626
+Concurrency Control02         19362     25058    21760   26357    20450   27101    17419   25521    17709  25590     3169
+Concurrency Control03         13588     16085    16408   18564    17215   18524    14822   17891    14774  16503     4001
+Concurrency Control04          9826     14515     6344   12375     2398    6024     2864    9467     3847  10658      937
+Concurrency Control05         37897     39027    45741   39470    31990   33252    24655   35265    24704  34765     5525
+Concurrency Control06         37909     37676    42682   39391    40604   36570    35654   37224    35791  36350     4796
+Database Storage Engine01       401        996      67      523      24      159      13      343       9      227    342
+Database Storage Engine02       456       1018     142      736      70      290      41      481      30      318    153
+Database Storage Engine03       418        961     269      807     350      472     140      499     180      358    189
+Database Storage Engine04       512       1218     138      881      23      407      14      588      10      396    281
+Database Storage Engine05       391       1052      60      542      26      138      15      339      11      245    200
+Database Storage Engine06       404       1259      44      551      41       71      26       48      16       27    126
+Database Storage Engine07       302        348     349       70     359       41     163       26      29       14      7
+Database Storage Engine08       405       1216      60      521      47       73      30       45      20       31    126
+Database Storage Engine09       378       1187      41      490      36       56      25       41      15       23    109
+Database Storage Engine10       554       1136     141      654      75      234      40      403      43      264    314
+Database Storage Engine11       390        953      62      595      23      157      13      348       9      223    248
+Elastic Storage01               737        629     802      934     848      787     678      558     603      611      2
+Elastic Storage02              6316       8151    5832    5923     5494    5820     5907    6945     5307    6242       2
+Elastic Storage03              1002       1494    1473    1549     1325    1121     1149    1789      903    1175       2
+Elastic Storage04               342       1112     390      664     380      635     498    1271      470    1088      56
+Elastic Storage05               208        646     250      389     278      536     398      858     329      807     30
+Elastic Storage06              1578       1604    1721    1716     1473    1649     1595    1824     1564    1586       2
+Elastic Storage07               293        371     273      478     287      498     392      789     371      728      2
+Elastic Storage08               374        404     391      413     374      372     321      332     364      362      2
+Elastic Storage09               183        215     199      227     203      218     143      163     163      183      2
+Elastic Storage10                76         92      42       65      17       14      16       25      13       15      3
+Elastic Storage11                65         68      49       61      31       31      32       32      32       32      2
+Elastic Storage12              5679       5941    5561    5846     5542    5811     6053    5914     5159    5199       2
+Elastic Storage13                68         74      47       58      30       29      30       29      29       28      2
+Elastic Storage14               324        405     405      385     278      294     258      296     180      184      2
+Elastic Storage15               367        604     363      413     263      317     281      451     226      330      2
+Elastic Storage16               727        830     792      849     679      726     533      564     547      574      2
+Elastic Storage17               330        385     329      355     241      229     238      266     138      141      2
+Elastic Storage18               532       1073     519      881     551      629     692    1409      561    1175       2
+Elastic Storage19               207        223     219      225     177      205     125      161     158      211      2
+Elastic Storage20              1114       1920    1226    1829     1146    1810      885    1633      755    1447       2
+Elastic Storage21              1585       2282    1831    2523     1613    2062     1302    2600     1013    1820       2
+Elastic Storage22               265        310     269      311     218      270     160      227     197      294      2
+Elastic Storage23               300        508     382      459     319      590     468    1014      378      626      2
+Elastic Storage24               275        314     219      280     172      174     126      133     116      130      2
+Elastic Storage25              1094       1890    1272    1836     1205    1454      927    1952      737    1397       2
+Elastic Storage26              1690       2862    1741    2573     1535    2112     1262    2087     1070    2163       2
+Elastic Storage27                57         72      43       43      24       24      24       24      18       18      3
+Elastic Storage28               454        565     378      604     368      572     423      922     348      813      2
+Elastic Storage29              2278       2088    1759    2367     1976    1678     2198    2478     1825    2071       2
+                        Continued on next page
+                                      PCT3             PCT15            PCT50                POS             POS+            QL
+      Name                          Ori    F EST     Ori    F EST     Ori    F EST        Ori    F EST     Ori    F EST
+      Elastic Storage30            1509    1603     1427    1806     1656    1439        1801    2076     1447    1701         2
+      Elastic Storage31             698    1409      806    1078     1231    1131        1645    2061     1308    1691         2
+      Elastic Storage32             551    1090      726      885     999      985       1389    1703     1195    1597         2
+      Financial Service01           268      319     264      263     251      229        142      132     166      155        5
+      Financial Service02            58       63      55       54      36       39          7        5      33       33        1
+      Financial Service03           233      209     216      202     199      204        142      127     151      132        3
+      Financial Service04           177      245     173      186     170      161        132      114     114       96        4
+      FreeRTOS01                   2067    2896     1867    2619      997    1344        1111    2221     1134    2131       540
+      FreeRTOS02                   2132    2889     1866    2608     1009    1378        1138    2170     1124    2053       549
+      FreeRTOS03                   2061    2814     1894    2541     1000    1464        1113    2223     1126    2064       526
+      FreeRTOS04                   2064    2940     1870    2561      997    1336        1109    2196     1125    2113       570
+      German01                      227      229     229      230      60       60        209      209     209      209       87
+      Leader Election01            3725    4839    10301   14557    27919   25184       41932   35925    34706  28720      31645
+      MemoryDB01                     79       92      81       92      82       87         44       44      16       16        6
+      Message Broker01               21       56      34       69      60       65         12       12       8        9       20
+      Network Dynamic Scaling01     949    1526      966    1461      929    1556         939    1491      427      617        4
+      Network Routing01            1206    2494     1619    3338     1583    3413         973    1544      378    1134       185
+      Network Routing02            1217    2361     1389    2720     1474    3605         233    2888      318      896      231
+      OSR01                        1170    1694     1224    2026      125      853       1718    2679     2465    2994       162
+      Paxos01                        93    1284       92    1258       95    1253          94    1249       89    1258         2
+      Paxos02                      2541    8201     2610    8237     2562    8149        2556    8108     2462    8126        63
+      Paxos03                       571    3880      553    3897      569    3955         555    3912      557    3817         1
+      Paxos04                     19221  20859     19213   20812    19315   20906       19087   20858    18989  20726         26
+      Stream Log01                 1009    1454     1697    1981      733    1192        1124    2110     1124    1556       311
+      TwoPhaseCommit01             2136    3039     2763    3780     1240    1808         723    1645     1566    2367       788
+      TwoPhaseCommit02             1979    2719     2355    3237     1097    1833         605    1579     1357    2187       774
+      TwoPhaseCommit03             1507    2263     1763    2595      814    1289         341      841    1164    1772       604
+      TwoPhaseCommit04             1253    1525     1548    1626      754      980        342      367     372      374      552
+      TwoPhaseCommit05             1360    1591     1607    1712      821    1015         372      393     398      401      570
+      TwoPhaseCommit06             1108    1287     1218    1319      624      854        262      305     339      350      471
+
+
+   Table 3: Timeline coverage for different models and techniques each row shows a distributed system implemented in P.
+
+
+                 PCT3                    PCT15                    PCT50                     POS                    POS+              QL
+ Name    Ori    NoScen    F EST    Ori   NoScen    F EST   Ori   NoScen   F EST   Ori     NoScen    F EST   Ori   NoScen     F EST
+ CI       38        48       53     36       47       47    38       49      49    32         34       34    12       12        12     1
+ CR       40        20       77    127       18      348    90       42     659    13         24    2625     13       32     3633      3
+ RD      617       943      976   1083     1248    1301    566      792     779   900       1401    1387    851     1026     1061    267
+ RT       79       159      176    333      365      395   289      324     316   387        455      484   354      378       394   128
+ SC        0         0        5      0        0       39     0        0       2     0          0        0     0        0         0     0
+ SL       96       152      164    232      254      273   193      223     223   275        327      350   255      271       287    74
+ SR      209       106      248    656      149    1140    964      339   2526    216        291    4315    161      283     5583    400
+
+Table 4: Scenario coverage for different models and techniques. Each row shows a distributed system and its scenario coverage.
+A    Timeline Coverage
+Table 3 shows the timeline coverage achieved by each tech-
+nique. Each cell in the table displays the average unique
+timelines explored by each technique over five iterations. For
+each technique, except QL, we compare the timeline cover-
+age achieved by the original random sampling method (Ori)
+and the feedback-guided schedule generation (F EST). Shaded
+cells indicate instances where F EST achieves higher timeline
+coverage than its random sampling counterpart. Additionally,
+cells with bold red values indicates that the corresponding
+technique achieves the highest timeline coverage.
+   Table 4 shows the scenario coverage achieved by each tech-
+nique. Similar to timeline coverage, each cell in the table
+displays the average unique timelines that satisfy the input
+scenario explored by each technique over five iterations. For
+each technique, except QL, we compare the timeline cover-
+age achieved by the original random sampling method (Ori),
+the feedback-guided schedule generation (F EST), and the
+feedback-guided schedule generation without scenario feed-
+back (NoScen).
+
