@@ -94,7 +94,7 @@ function evalJsonPath(iteration: number, id: string): string {
 
 interface MergeOutcome { prUrls: string[]; merged: boolean; detail: string }
 
-function mergeFlow(iteration: number, h: Hypothesis, branch: string, evidence: unknown, autoMerge: boolean): MergeOutcome {
+export function mergeFlow(iteration: number, h: Hypothesis, branch: string, evidence: unknown, autoMerge: boolean): MergeOutcome {
   const prUrls: string[] = [];
   // Persist the evidence file into the super branch before the PR.
   mkdirSync(path.dirname(evalJsonPath(iteration, h.id)), { recursive: true });
