@@ -57,12 +57,44 @@ function exec(bin: "git" | "gh", args: string[], cwd: string): ExecResult {
 }
 
 /** Like exec, but a non-zero exit is unexpected: throws GitError. */
+// Synchronous sleep (gitops is deliberately synchronous).
+function sleepMs(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// index.lock contention comes from concurrent git users (IDEs, other
+// sessions) holding the lock for a moment; retry with backoff instead of
+// failing the iteration.
+const LOCK_BACKOFF_MS = [500, 1000, 2000, 4000, 8000];
+function isLockContention(stderr: string): boolean {
+  return /index\.lock|Another git process/.test(stderr);
+}
+
 function must(bin: "git" | "gh", args: string[], cwd: string): string {
-  const r = exec(bin, args, cwd);
+  let r = exec(bin, args, cwd);
+  for (let attempt = 0; !r.ok && bin === "git" && isLockContention(r.stderr) && attempt < LOCK_BACKOFF_MS.length; attempt++) {
+    sleepMs(LOCK_BACKOFF_MS[attempt] ?? 1000);
+    r = exec(bin, args, cwd);
+  }
   if (!r.ok) {
     throw new GitError(`${bin} ${args.join(" ")} (cwd=${cwd})`, r.stderr);
   }
   return r.stdout;
+}
+
+// Snapshot everything a hypothesis changed (committed on its branch or still
+// in the working tree, tracked or untracked) so failed iterations leave a
+// recoverable reference diff.
+export function snapshotWork(repo: string, baseRef: string): string {
+  const parts: string[] = [];
+  const tracked = exec("git", ["diff", baseRef, "--"], repo);
+  if (tracked.stdout.trim()) parts.push(tracked.stdout);
+  const untracked = exec("git", ["ls-files", "--others", "--exclude-standard"], repo).stdout.split("\n").filter((f) => f.length > 0);
+  for (const f of untracked.slice(0, 50)) {
+    const shown = exec("git", ["diff", "--no-index", "--", "/dev/null", f], repo);
+    if (shown.stdout.trim()) parts.push(shown.stdout);
+  }
+  return parts.join("\n");
 }
 
 function statusLines(repo: string): string[] {

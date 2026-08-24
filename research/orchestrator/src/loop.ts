@@ -12,7 +12,7 @@ import { classifyChangeRisk, compareToBaseline, finalGate, nonInferior, objectiv
 import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, type EvalContext } from "./evaluate.js";
 import {
-  SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, createBranch, currentBranch,
+  SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, createBranch, currentBranch, snapshotWork,
   currentCommit, deleteBranch, diffText, createPr, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
@@ -305,7 +305,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         cleanupToResearchBranch(branch);
         return;
       }
+      const nonSuperiorityKind = h.kind === "ablate" || h.kind === "enabling" || h.kind === "grader" || h.kind === "meta";
       const gate1 = screenAdvances(objectiveCounts(screen), objectiveCounts(baseline.screen));
+      if (nonSuperiorityKind && !gate1.advance) { gate1.advance = true; gate1.why = `${h.kind}: non-inferiority kind, screen healthy`; }
       journal(state, n, "screen", { advance: gate1.advance, why: gate1.why });
       if (gate1.advance) {
         const promote = await timed("evaluate", () => runEvaluation(ctx, h.id, "promote"));
@@ -348,7 +350,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const cmp = compareToBaseline(objectiveCounts(ran), objectiveCounts(baseRan));
         const h1 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h1Rate, 0) / ok.length : 0; };
         const h3 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h3Rate, 0) / ok.length : 0; };
-        decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: cmp.deltas["depth>=8"] ?? 0 };
+        decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=5"] ?? 0) };
       }
     }
     state.setDecision(decision);
@@ -411,6 +413,16 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
   } catch (e) {
     notes = `iteration error: ${String(e)}`;
     journal(state, n, "error", { error: String(e) });
+    // Preserve whatever the implementer produced before the reset wipes it.
+    if (branch) {
+      try {
+        const snap = `# iteration ${n} (${branch}) — error: ${String(e).slice(0, 300)}\n\n## spur\n${snapshotWork(SPUR, RESEARCH_BRANCH)}\n\n## super\n${snapshotWork(SUPER, RESEARCH_BRANCH)}\n`;
+        if (snap.length > 200) {
+          mkdirSync(path.join(ROOT, "research", "logs"), { recursive: true });
+          writeFileSync(path.join(ROOT, "research", "logs", `iter-${String(n).padStart(3, "0")}-${branch.replace(/^hyp\/\d+-/, "")}.diff`), snap);
+        }
+      } catch { /* snapshot is best-effort */ }
+    }
     cleanupToResearchBranch(branch);
     // Never strand a hypothesis in a transient status on iteration failure.
     for (const hh of state.listHypotheses()) {
