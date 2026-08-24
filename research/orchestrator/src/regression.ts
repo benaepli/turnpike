@@ -166,7 +166,7 @@ export async function runRegression(
       }
       const outputDir = caseDir(name);
       prepDir(outputDir);
-      const configPath = path.join(outputDir, "config.json");
+      const configPath = `${outputDir}.config.json`; // outside outputDir: explore -y clears it
       materializeConfig(resolveRoot(ctx.policy.evaluation.configTemplate), configPath, {
         runsPerConfig: ctx.policy.fidelities.screen.runsPerConfig,
         sessionSeed: 999,

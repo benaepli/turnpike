@@ -56,6 +56,21 @@ function journal(state: LoopState, iteration: number, event: string, data: unkno
   state.appendJournal({ atIso: new Date().toISOString(), iteration, event, data });
 }
 
+const stopRequested = (): boolean => existsSync(path.join(ROOT, "research", "STOP"));
+
+// Graceful stop mid-iteration: keep whatever exists on the hypothesis branch
+// (committed), park the hypothesis with a pointer to that branch, and return
+// to the research branch WITHOUT deleting the work. Startup recovery requeues
+// [stop]-parked hypotheses.
+function parkForStop(state: LoopState, n: number, h: Hypothesis, branch: string, phase: string): void {
+  try {
+    commitHypothesisPair({ branch, spurMessage: `wip ${h.id} (stopped at ${phase})`, superMessage: `wip ${h.id} (stopped at ${phase})` });
+  } catch { /* nothing to commit is fine */ }
+  state.upsertHypothesis({ ...h, status: "parked", branch, notes: `[stop] parked at ${phase} in iteration ${n}; partial work on branch ${branch}` });
+  journal(state, n, "stopped", { phase, branch });
+  cleanupToResearchBranch(null);
+}
+
 function readStatusMd(): string {
   const p = path.join(ROOT, "research/STATUS.md");
   return existsSync(p) ? readFileSync(p, "utf8") : "(no status yet)";
@@ -208,7 +223,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     createBranch(SUPER, branch);
 
     const impl = await timed("implement", () => implementHypothesis(policy, h));
-    journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, summary: impl.summary.slice(0, 2000) });
+    journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, summary: impl.summary.slice(0, 2000) });
+    if (impl.aborted || stopRequested()) { parkForStop(state, n, h, branch, "implement"); return; }
 
     const { spurCommit, superCommit } = commitHypothesisPair({
       branch,
@@ -237,7 +253,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     }
 
     const lintFailures = [
-      ...lintProtectedPaths(superFiles),
+      ...lintProtectedPaths(h.kind === "meta" ? superFiles.filter((f) => f !== "research/policy.json") : superFiles),
       ...lintRulerSubject(h.kind, superFiles),
       ...(h.kind === "grader" && spurFiles.length > 0 ? [`grader hypothesis touched spur: ${spurFiles.join(",")}`] : []),
       ...lintVrNames(diffText(SPUR, RESEARCH_BRANCH) + diffText(SUPER, RESEARCH_BRANCH)),
@@ -259,6 +275,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
       const bench = await timed("bench", () => runBench(policy, SPUR_BIN, baselineBin));
       journal(state, n, "bench", bench);
+      if (stopRequested()) { parkForStop(state, n, h, branch, "bench"); return; }
       if (bench.pass) {
         const screen = await timed("evaluate", () => runEvaluation(ctx, h.id, "screen"));
         allEvals["screen"] = screen;
@@ -292,6 +309,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       const screen = await timed("evaluate", () => runEvaluation(ctx, h.id, "screen"));
       allEvals["screen"] = screen;
       for (const e of screen) state.addEvaluation(e);
+      if (stopRequested()) { parkForStop(state, n, h, branch, "screen"); return; }
       if (screen.length > 0 && screen.every((e) => !e.ok)) {
         const failure = screen[0]?.error ?? "evaluation failed";
         const d: GateDecision = {
@@ -313,6 +331,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const promote = await timed("evaluate", () => runEvaluation(ctx, h.id, "promote"));
         allEvals["promote"] = promote;
         for (const e of promote) state.addEvaluation(e);
+        if (stopRequested()) { parkForStop(state, n, h, branch, "promote"); return; }
         const cmp = compareToBaseline(objectiveCounts(promote), objectiveCounts(baseline.promote));
         const promoteOk = cmp.improved.length > 0 && cmp.regressed.length === 0;
         const abl = h.kind === "ablate" || h.kind === "enabling" || h.kind === "grader" || h.kind === "meta";
@@ -321,6 +340,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           confirmEvals = await timed("evaluate", () => runEvaluation(ctx, h.id, "confirm"));
           allEvals["confirm"] = confirmEvals;
           for (const e of confirmEvals) state.addEvaluation(e);
+          if (stopRequested()) { parkForStop(state, n, h, branch, "confirm"); return; }
           const screenRps = screen.filter((e) => e.ok).map((e) => e.metrics.runsPerSec);
           const meanRps = screenRps.length ? screenRps.reduce((a, b) => a + b, 0) / screenRps.length : 0;
           throughputRatio = baseline.runsPerSec > 0 ? meanRps / baseline.runsPerSec : null;
@@ -447,7 +467,7 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
   // Crash recovery: requeue hypotheses stranded mid-iteration and clear
   // leftover evaluation corpora from a killed run.
   for (const h of deps.state.listHypotheses()) {
-    if (h.status === "selected" || h.status === "implementing") {
+    if (h.status === "selected" || h.status === "implementing" || (h.status === "parked" && h.notes.startsWith("[stop]"))) {
       deps.state.upsertHypothesis({ ...h, status: "proposed", branch: null, notes: `${h.notes} [requeued after restart]`.trim() });
     }
   }

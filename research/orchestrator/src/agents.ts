@@ -2,7 +2,7 @@
 // JSON validated against schemas); the harness owns every side effect except
 // the implementer's file edits, which are fenced by canUseTool below.
 import { query, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
 import { ROOT } from "./runners.js";
@@ -10,6 +10,19 @@ import { AuditReport, Hypothesis, ProposedHypotheses, Reflection } from "./schem
 import type { Policy } from "./policy.js";
 
 export { ROOT };
+
+export const STOP_PATH = path.join(ROOT, "research", "STOP");
+
+// An AbortController that fires when the STOP sentinel appears, so agent
+// phases end within seconds of a stop request instead of running to
+// completion. Partial implementer edits stay in the working tree.
+export function stopController(): { controller: AbortController; dispose: () => void } {
+  const controller = new AbortController();
+  const timer = setInterval(() => {
+    if (existsSync(STOP_PATH)) controller.abort();
+  }, 3000);
+  return { controller, dispose: () => clearInterval(timer) };
+}
 
 export interface RoleResult<T> {
   value: T | null;
@@ -103,9 +116,11 @@ async function textRole<T>(opts: {
     const prompt = attempt === 0
       ? opts.prompt
       : `${opts.prompt}\n\nYour previous reply did not validate: ${lastErr}\nReply with ONLY the corrected JSON.`;
+    const sc = stopController();
     const r = await collect(query({
       prompt,
       options: {
+        abortController: sc.controller,
         model: opts.model,
         systemPrompt: opts.system,
         maxTurns: opts.maxTurns ?? 3,
@@ -115,10 +130,11 @@ async function textRole<T>(opts: {
         cwd: ROOT,
       },
     }));
+    sc.dispose();
     raw = r.text;
     cost += r.costUsd;
     turns += r.turns;
-    if (r.isError) { lastErr = r.errText; continue; }
+    if (r.isError) { lastErr = r.errText; if (sc.controller.signal.aborted) break; continue; }
     const json = extractJson(r.text);
     if (!json) { lastErr = "no JSON found in reply"; continue; }
     try {
@@ -201,6 +217,7 @@ const SAFE_BASH = [
 function editAllowed(kind: Hypothesis["kind"], relPath: string): boolean {
   const p = relPath.replace(/^\.\//, "");
   if (/^(bin\/spur|porcupine|research\/oracle|research\/corpus)\//.test(p)) return false;
+  if (kind === "meta" && p === "research/policy.json") return true;
   if (/^research\/(?!observations\/)/.test(p)) return false;
   if (/^scheduler_configs\/(?!loop\/)/.test(p)) return false;
   if (kind === "grader") return /^traceanalyzer\//.test(p);
@@ -229,11 +246,13 @@ export function makeImplementerGate(kind: Hypothesis["kind"]): (toolName: string
   };
 }
 
-export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean }> {
+export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean; aborted: boolean }> {
   const goal = readIfExists(path.join(ROOT, "research/GOAL.md"));
+  const sc = stopController();
   const r = await collect(query({
     prompt: `${goal}\n\n## Hypothesis to implement (id: ${h.id}, kind: ${h.kind})\n${h.title}\n\n${h.description}\n\nRationale: ${h.rationale}\n\n## Instructions\n- Implement exactly this hypothesis, minimally and idiomatically. Opt-in: new behavior behind a config field defaulting to today's semantics (except pure ablations/grader work as described).\n- Rust subject work lives in spur/spur-core; general configs in scheduler_configs/loop/. Grader work (only if kind=grader) lives in traceanalyzer/.\n- Build with cargo build --release --manifest-path spur/Cargo.toml --bin spur (or go build in traceanalyzer for grader work) and fix errors until it compiles. Run cargo test -p spur-core if you touched spur-core logic.\n- If the hypothesis needs the new mechanism enabled in the evaluation config, edit scheduler_configs/loop/general_vr.json to enable it (this is the config the evaluation runs).\n- Do NOT run git or gh. Do not create commits. Leave changes in the working tree.\n- The permission fence is final and there is NO human watching: if a Bash command is denied, do not stop to ask — accomplish the same thing with the Read/Edit/Write tools (all JSON/config/Rust edits go through Edit/Write, never shell text tools). Never end your turn with a question; end it with the work done or a clear statement of what blocked you after genuinely exhausting the allowed tools.\n- Keep verification minimal: compile, and at most ONE short smoke run of the changed path. Smoke runs MUST write to --output-dir tmp/loop/<name> (the fence rejects anything else; other locations contaminate the repo). The harness runs all real evaluations afterwards — re-verifying existing mechanisms or exploring old output directories is wasted budget. Target under 5 minutes of work for config-only changes.\n- End with a concise summary: what changed (files), the config field that gates it, and what you expect it to do to the ladder.`,
     options: {
+      abortController: sc.controller,
       model: policy.models.implement,
       maxTurns: policy.budgets.maxImplementTurns,
       cwd: ROOT,
@@ -247,7 +266,8 @@ export async function implementHypothesis(policy: Policy, h: Hypothesis): Promis
       systemPrompt: "You are a careful systems engineer working inside a fenced research harness. You implement one hypothesis at a time, keep diffs minimal, and never touch protected paths (the permission gate enforces this — if a path is denied, work within the allowed lanes instead of fighting it).",
     },
   }));
-  return { summary: r.text, costUsd: r.costUsd, turns: r.turns, isError: r.isError };
+  sc.dispose();
+  return { summary: r.text, costUsd: r.costUsd, turns: r.turns, isError: r.isError, aborted: sc.controller.signal.aborted };
 }
 
 export async function reflectOnOutcome(policy: Policy, h: Hypothesis, evidence: string): Promise<RoleResult<Reflection>> {
