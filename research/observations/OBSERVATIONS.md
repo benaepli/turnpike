@@ -52,3 +52,5 @@ Dated notes appended by the research loop.
                                    --1.12%--imbl::vector::GenericVector<A,P>::promote_front
 
 ```
+
+(publish selftest 2026-08-24T09:16:27.977Z)
