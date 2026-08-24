@@ -24,3 +24,5 @@ research/corpus/*/
 tmp/loop/
 research/orchestrator/node_modules/
 research/orchestrator/dist/
+research/journal.jsonl
+research/STATUS.md

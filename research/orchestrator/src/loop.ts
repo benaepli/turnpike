@@ -328,6 +328,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       journal(state, n, "publish", outcome);
       const status = decision.verdict === "auto_merge" && outcome.merged ? "merged" : "needs_human";
       state.upsertHypothesis({ ...h, status, branch, prUrls: outcome.prUrls });
+      if (status === "needs_human") cleanupToResearchBranch(null); // PR lives on the pushed remote branch
       if (status === "merged") {
         const newBaseline: BaselineMeta = {
           screen: allEvals["screen"] ?? baseline.screen,
