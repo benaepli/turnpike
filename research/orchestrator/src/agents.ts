@@ -89,7 +89,7 @@ async function textRole<T>(opts: {
       options: {
         model: opts.model,
         systemPrompt: opts.system,
-        maxTurns: opts.maxTurns ?? 1,
+        maxTurns: opts.maxTurns ?? 3,
         allowedTools: [],
         disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
         settingSources: [],
@@ -168,7 +168,7 @@ const SAFE_BASH = [
   /^cargo (build|check|test)\b[^;&|]*$/,
   /^go (build|test|vet)\b[^;&|]*$/,
   /^gofmt\b[^;&|]*$/,
-  /^timeout \d+ \.\/spur\/target\/release\/spur (explore|run-plan)\b[^;&|]*$/,
+  /^timeout \d+ \.\/spur\/target\/release\/spur (explore|run-plan)\b[^;&|]*--output-dir tmp\/loop\/[^;&|]*$/,
   /^\.\/traceanalyzer\/main\b[^;&|]*$/,
   /^\.\/porcupine\/batch\b[^;&|]*$/,
   /^(ls|cat|head|tail|wc|grep|rg|find|duckdb)\b[^;&|]*$/,
@@ -208,7 +208,7 @@ export function makeImplementerGate(kind: Hypothesis["kind"]): (toolName: string
 export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean }> {
   const goal = readIfExists(path.join(ROOT, "research/GOAL.md"));
   const r = await collect(query({
-    prompt: `${goal}\n\n## Hypothesis to implement (id: ${h.id}, kind: ${h.kind})\n${h.title}\n\n${h.description}\n\nRationale: ${h.rationale}\n\n## Instructions\n- Implement exactly this hypothesis, minimally and idiomatically. Opt-in: new behavior behind a config field defaulting to today's semantics (except pure ablations/grader work as described).\n- Rust subject work lives in spur/spur-core; general configs in scheduler_configs/loop/. Grader work (only if kind=grader) lives in traceanalyzer/.\n- Build with cargo build --release --manifest-path spur/Cargo.toml --bin spur (or go build in traceanalyzer for grader work) and fix errors until it compiles. Run cargo test -p spur-core if you touched spur-core logic.\n- If the hypothesis needs the new mechanism enabled in the evaluation config, edit scheduler_configs/loop/general_vr.json to enable it (this is the config the evaluation runs).\n- Do NOT run git or gh. Do not create commits. Leave changes in the working tree.\n- The permission fence is final and there is NO human watching: if a Bash command is denied, do not stop to ask — accomplish the same thing with the Read/Edit/Write tools (all JSON/config/Rust edits go through Edit/Write, never shell text tools). Never end your turn with a question; end it with the work done or a clear statement of what blocked you after genuinely exhausting the allowed tools.\n- Keep verification minimal: compile, and at most ONE short smoke run of the changed path. The harness runs all real evaluations afterwards — re-verifying existing mechanisms or exploring old output directories is wasted budget. Target under 5 minutes of work for config-only changes.\n- End with a concise summary: what changed (files), the config field that gates it, and what you expect it to do to the ladder.`,
+    prompt: `${goal}\n\n## Hypothesis to implement (id: ${h.id}, kind: ${h.kind})\n${h.title}\n\n${h.description}\n\nRationale: ${h.rationale}\n\n## Instructions\n- Implement exactly this hypothesis, minimally and idiomatically. Opt-in: new behavior behind a config field defaulting to today's semantics (except pure ablations/grader work as described).\n- Rust subject work lives in spur/spur-core; general configs in scheduler_configs/loop/. Grader work (only if kind=grader) lives in traceanalyzer/.\n- Build with cargo build --release --manifest-path spur/Cargo.toml --bin spur (or go build in traceanalyzer for grader work) and fix errors until it compiles. Run cargo test -p spur-core if you touched spur-core logic.\n- If the hypothesis needs the new mechanism enabled in the evaluation config, edit scheduler_configs/loop/general_vr.json to enable it (this is the config the evaluation runs).\n- Do NOT run git or gh. Do not create commits. Leave changes in the working tree.\n- The permission fence is final and there is NO human watching: if a Bash command is denied, do not stop to ask — accomplish the same thing with the Read/Edit/Write tools (all JSON/config/Rust edits go through Edit/Write, never shell text tools). Never end your turn with a question; end it with the work done or a clear statement of what blocked you after genuinely exhausting the allowed tools.\n- Keep verification minimal: compile, and at most ONE short smoke run of the changed path. Smoke runs MUST write to --output-dir tmp/loop/<name> (the fence rejects anything else; other locations contaminate the repo). The harness runs all real evaluations afterwards — re-verifying existing mechanisms or exploring old output directories is wasted budget. Target under 5 minutes of work for config-only changes.\n- End with a concise summary: what changed (files), the config field that gates it, and what you expect it to do to the ladder.`,
     options: {
       model: policy.models.implement,
       maxTurns: policy.budgets.maxImplementTurns,

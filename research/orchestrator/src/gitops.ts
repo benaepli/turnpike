@@ -152,6 +152,10 @@ export function push(
   branch: string,
   opts?: { setUpstream?: boolean },
 ): void {
+  // The loop only publishes its own branches; refuse anything else.
+  if (!/^(research\/vr-loop|hyp\/)/.test(branch)) {
+    throw new GitError(`push refused: branch ${branch} is not loop-owned`, "policy");
+  }
   const args =
     opts?.setUpstream === true
       ? ["push", "-u", "origin", branch]
@@ -329,13 +333,22 @@ const BANNED_VR_IDENTIFIERS: readonly string[] = [
  * containing StartViewChange also matches StartView — both are reported,
  * which is fine since either alone fails the lint.
  */
+// Only source-ish files are linted for VR names: generated artifacts
+// (SVGs, parquet listings, HTML) legitimately contain handler names.
+export const VR_LINT_FILES = /\.(rs|go|ts|json|toml|md)$/;
 export function lintVrNames(diff: string): string[] {
   const hits: string[] = [];
+  let fileLintable = true;
   for (const line of diff.split("\n")) {
-    if (!line.startsWith("+") || line.startsWith("+++")) continue;
+    if (line.startsWith("+++ ")) {
+      const fp = line.slice(4).replace(/^b\//, "");
+      fileLintable = VR_LINT_FILES.test(fp) && !fp.startsWith("research/oracle/");
+      continue;
+    }
+    if (!fileLintable || !line.startsWith("+")) continue;
     for (const banned of BANNED_VR_IDENTIFIERS) {
       if (line.includes(banned)) {
-        hits.push(`${banned}: ${line.slice(1).trim()}`);
+        hits.push(`${banned}: ${line.slice(1).trim().slice(0, 120)}`);
       }
     }
   }

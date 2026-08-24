@@ -62,8 +62,14 @@ function readStatusMd(): string {
 }
 
 function preflight(): void {
+  // Hard-reset both repos to the research branch: any stray working-tree
+  // state (a killed implement, an operator slip) must never leak into the
+  // next hypothesis's diff. Implementer edits only survive via
+  // commitHypothesisPair onto the hyp/* branch within the same iteration.
   for (const repo of [SPUR, SUPER]) {
     if (currentBranch(repo) !== RESEARCH_BRANCH) checkout(repo, RESEARCH_BRANCH);
+    resetHard(repo, RESEARCH_BRANCH);
+    run0("git", ["clean", "-fd", "--", "."], repo);
   }
 }
 
