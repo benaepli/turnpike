@@ -1,0 +1,11 @@
+{
+  "num_servers": { "min": 3, "max": 3, "step": 1 },
+  "num_write_ops": { "min": 3, "max": 5, "step": 1 },
+  "num_read_ops": { "min": 4, "max": 8, "step": 2 },
+  "num_keys": { "min": 1, "max": 2, "step": 1 },
+  "num_crashes": { "min": 0, "max": 2, "step": 1 },
+  "max_concurrent_writes": { "min": 2, "max": 3, "step": 1 },
+  "dependency_density": [0.0, 0.3],
+  "num_runs_per_config": 100,
+  "max_iterations": 6000
+}

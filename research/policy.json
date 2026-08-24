@@ -1,0 +1,78 @@
+{
+  "models": {
+    "propose": "claude-opus-5",
+    "judge": "claude-opus-5",
+    "implement": "claude-opus-5",
+    "diagnose": "claude-opus-5",
+    "reflect": "claude-opus-5",
+    "audit": "claude-opus-5"
+  },
+  "bandit": {
+    "explorationQuota": 0.3,
+    "ucbC": 1.2
+  },
+  "fidelities": {
+    "screen": {
+      "exploreWallSec": 150,
+      "runsPerConfig": 60,
+      "gradeMaxRuns": 600,
+      "gradeBudgetMs": 45000,
+      "seeds": [
+        11
+      ]
+    },
+    "promote": {
+      "exploreWallSec": 600,
+      "runsPerConfig": 250,
+      "gradeMaxRuns": 1500,
+      "gradeBudgetMs": 120000,
+      "seeds": [
+        11,
+        23
+      ]
+    },
+    "confirm": {
+      "exploreWallSec": 900,
+      "runsPerConfig": 800,
+      "gradeMaxRuns": 3000,
+      "gradeBudgetMs": 300000,
+      "seeds": [
+        11,
+        23,
+        37
+      ]
+    }
+  },
+  "budgets": {
+    "maxWallMinutesPerHypothesis": 90,
+    "maxLineageDepth": 6,
+    "stagnationWindow": 8,
+    "dailyWallHours": 20,
+    "maxImplementTurns": 80,
+    "maxBuildSeconds": 600,
+    "minFreeDiskGb": 40
+  },
+  "audit": {
+    "everyK": 5
+  },
+  "proposal": {
+    "lenses": 4,
+    "maxPoolSize": 60
+  },
+  "evaluation": {
+    "spec": "bin/spur/VR.spur",
+    "configTemplate": "scheduler_configs/loop/general_vr.json",
+    "oracleDags": [
+      "research/oracle/relax_minimal.json"
+    ],
+    "rayonThreads": 14
+  },
+  "regression": {
+    "menciusBugSpec": "bin/spur/mencius/Mencius_opt1_2.spur",
+    "menciusBugConfig": "scheduler_configs/loop/regression_mencius.json",
+    "menciusFixedSpec": "bin/spur/mencius/Mencius_opt1_2_fixed.spur",
+    "vrNoFaultConfig": "scheduler_configs/loop/regression_vr_nofault.json",
+    "throughputTolerance": 0.2,
+    "wallSecPerCase": 240
+  }
+}

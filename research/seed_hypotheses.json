@@ -1,0 +1,149 @@
+[
+  {
+    "id": "send-anchored-crash-points",
+    "parent": null,
+    "kind": "add",
+    "title": "Crash points anchored to message dispatch events",
+    "description": "Add an opt-in explorer config field crash_after_send_probability (default 0.0). When a generated plan contains a Crash event for node N that is dependency-eligible, and the scheduler observes node N dispatch a remote message, with probability p immediately prioritize that Crash runnable (boost its selection score to ~1.0 for the next few steps). Implement in spur-core/src/simulator/core/scheduler.rs score path + a small state hook where dispatches are recorded; thread config through ExplorerConfig -> SingleRunConfig -> scheduler state. Enable at 0.3 in scheduler_configs/loop/general_vr.json.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 8,
+    "expectedCost": 3,
+    "rationale": "The oracle bug (and many crash-recovery protocol bugs) requires a node to crash in the narrow window after sending a message and before its delivery. Random crash placement almost never lands there; H1 hazard rate is ~28% per run but the crash rarely hits the critical sender.",
+    "generalityArgument": "Anchors crashes to a universal protocol event (any remote send by any node), no function names or protocol structure involved.",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  },
+  {
+    "id": "orphan-message-purgatory",
+    "parent": null,
+    "kind": "add",
+    "title": "Hold in-flight messages of a crashed sender until it recovers",
+    "description": "Add opt-in config field orphan_hold_probability (default 0.0). When a node crashes while messages it dispatched are still undelivered, with probability p per message move those messages into purgatory with release scheduled at/after the sender's Recover event (or a bounded delay if it never recovers). Implement alongside the existing purgatory in core/exec.rs + scheduler crash path (crash_node already walks queues). Enable at 0.5 in general_vr.json.",
+    "category": "scheduler",
+    "buildsOn": [
+      "purgatory"
+    ],
+    "expectedGain": 9,
+    "expectedCost": 4,
+    "rationale": "Directly manufactures the H2 stale-incarnation hazard: a message from a dead incarnation delivered after the node is back. H2 measured at ~19-26% incidentally; making it deliberate should sharply lift P(depth>=5..7) where the oracle chain needs pre-crash StartViewChange-class messages delivered post-recovery.",
+    "generalityArgument": "Purely about crash/dispatch/delivery timing relationships; applies to every message type on every protocol.",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  },
+  {
+    "id": "enable-purgatory-general-config",
+    "parent": null,
+    "kind": "enabling",
+    "title": "Turn on message-delay purgatory in the general config",
+    "description": "Set purgatory: {delay_probability: 0.15, delay_duration_range: [5, 100]} in scheduler_configs/loop/general_vr.json. No Rust changes.",
+    "category": "config",
+    "buildsOn": [
+      "purgatory"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 0.5,
+    "rationale": "Purgatory exists but is disabled by default and the loop config never enables it; delayed messages are a precondition for several oracle chain links (old messages arriving after recovery).",
+    "generalityArgument": "Config-only, protocol-agnostic delay mechanism that already exists.",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  },
+  {
+    "id": "enable-timeline-feedback-general-config",
+    "parent": null,
+    "kind": "enabling",
+    "title": "Turn on timeline feedback + steer in the general config",
+    "description": "Set feedback: {mode: \"timeline\", steer: true} in scheduler_configs/loop/general_vr.json. No Rust changes. Measure ladder + utilization (steer divergent picks) vs baseline.",
+    "category": "config",
+    "buildsOn": [
+      "timeline-feedback",
+      "steer"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 0.5,
+    "rationale": "The feedback/steer machinery exists but the loop's general config runs feedback off; the utilization counters show whether steer actually changes decisions, and the ladder shows whether that helps.",
+    "generalityArgument": "Existing generic novelty mechanism; no protocol knowledge.",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  },
+  {
+    "id": "ablate-dead-randomly-drop-msgs",
+    "parent": null,
+    "kind": "ablate",
+    "title": "Remove the dead randomly_drop_msgs code path",
+    "description": "The schedule_runnable parameter randomly_drop_msgs is hardwired false at both call sites; the 30% drop branch is dead code. Remove the parameter and branch (flag-off stage is trivially satisfied since it is already off). Non-inferiority expected to be exact.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 2,
+    "expectedCost": 1,
+    "rationale": "Dead code in the scheduler hot path is noise for every future hypothesis; removing it is free simplification and validates the ablation pipeline end to end.",
+    "generalityArgument": "Removes nothing observable; pure code hygiene.",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  },
+  {
+    "id": "incarnation-timeline-tuples",
+    "parent": null,
+    "kind": "add",
+    "title": "Incarnation-aware timeline novelty tuples",
+    "description": "Track a per-node incarnation counter (increments on Recover) in run state. Extend TimelineTuple (feedback.rs) with a small incarnation-crossing flag: whether the delivered message was dispatched in an earlier incarnation of the sender or delivered to a node in a later incarnation than at dispatch time. Behind config field incarnation_novelty: bool (default false). With steer on, novel crossing tuples get chased automatically.",
+    "category": "feedback",
+    "buildsOn": [
+      "timeline-feedback",
+      "steer"
+    ],
+    "expectedGain": 7,
+    "expectedCost": 5,
+    "rationale": "Post-recovery deliveries of pre-crash messages are exactly the transitions the oracle chain needs (links 4-7); making them first-class novelty targets lets existing steer machinery hunt them.",
+    "generalityArgument": "Incarnation counting is protocol-independent (crash/recover are simulator events).",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  },
+  {
+    "id": "exclusive-timer-firing",
+    "parent": null,
+    "kind": "add",
+    "title": "Fire timers on at most one node per window",
+    "description": "Add queue-policy option timer_exclusive: bool (default false): when the timer queue is selected, prefer timers belonging to a single 'active timeout node' chosen per window (e.g. rotate every K steps), instead of any node's timer. Implement as a wrapper in core/queue_selector.rs. Enable in general_vr.json.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 6,
+    "expectedCost": 3,
+    "rationale": "The oracle scenario needs exactly one backup to time out (starting a view change) while others stay quiet; when all backups race, view changes trample each other and the single-suspect pattern almost never occurs.",
+    "generalityArgument": "One-suspect-at-a-time is a generic failure-detector pattern, not a VR concept.",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  },
+  {
+    "id": "pct-priority-selector",
+    "parent": null,
+    "kind": "add",
+    "title": "PCT-style priority change points selector",
+    "description": "Add within_queue_selector variant {type: \"Pct\", depth: d}: assign random static priorities to runnables and at d random steps during the run demote the currently-highest class (classic probabilistic concurrency testing). Implement in core/queue_selector.rs behind the existing selector enum; default remains Tournament. Try depth 3-8 in general_vr.json.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 6,
+    "expectedCost": 6,
+    "rationale": "PCT gives provable lower bounds on hitting bugs of small depth; the oracle bug's depth may be within reach where uniform random is hopeless.",
+    "generalityArgument": "PCT is a general-purpose concurrency testing algorithm.",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  },
+  {
+    "id": "hazard-fitness-for-guided-modes",
+    "parent": null,
+    "kind": "add",
+    "title": "Use hazard events as fitness for genetic/AOS modes",
+    "description": "Count H1/H2-style hazard events in-run (sender-crash-with-inflight, post-recovery delivery of pre-crash message \u2014 the simulator knows dispatch/crash/recover/delivery ordering) into cheap per-run counters; add feedback mode \"hazard\" (or blend weight) so plan_score rewards runs that manufacture hazards. Behind config; default off. Then run genetic/AOS with hazard fitness in a variant general config.",
+    "category": "feedback",
+    "buildsOn": [
+      "timeline-feedback"
+    ],
+    "expectedGain": 7,
+    "expectedCost": 6,
+    "rationale": "Timeline novelty rewards any new ordering; hazard fitness rewards exactly the crash-recovery races the ladder measures, closing the loop between grading and searching without leaking the oracle.",
+    "generalityArgument": "Hazard definitions reference only simulator-level events (dispatch, crash, recover, deliver).",
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": ""
+  }
+]
