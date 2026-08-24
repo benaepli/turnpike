@@ -166,11 +166,16 @@ export async function proposeHypotheses(policy: Policy, lens: string, statusMd: 
   return r;
 }
 
-export async function judgeHypotheses(policy: Policy, candidates: unknown[], poolSummaries: string[]): Promise<RoleResult<{ hypotheses: unknown[] }>> {
+const JUDGE_RUBRIC = `## Scoring rubric (you assign expectedGain/expectedCost; proposer values are advisory only)
+expectedCost anchors: config-only change 0.5 | <=50 lines Rust 2 | scheduler-core change 4 | new instrumentation/plumbing 6 | +2 if it touches execution semantics (core/exec.rs, history.rs — routes to needs-human).
+expectedGain anchors: must name WHICH ladder rung's conditional probability it lifts (depth>=4, >=5, >=6, violations, h2) and the causal path to a specific crash/recovery/delivery event. Rung-specific causal story with a plausible >=1.5x effect: 6-8. Same but indirect/partial: 3-5. "More novelty/coverage in general": 1-2. Cannot state a falsifying screen result: 0-1.
+Process: for EACH candidate first write the strongest argument that it will NOT move the ladder (red team), then score. Rank candidates against each other and the pool; two proposals promising the same mechanism cannot both score high. Output the falsification statement in the notes field.`;
+
+export async function judgeHypotheses(policy: Policy, candidates: unknown[], poolSummaries: string[], calibration: string): Promise<RoleResult<{ hypotheses: unknown[] }>> {
   return textRole({
     model: policy.models.judge,
-    system: "You are a skeptical research lead. You reject duplicates, protocol-specific hacks, vague proposals, and anything that cannot be evaluated against the metric ladder. You keep proposals that are concrete, opt-in, and generic.",
-    prompt: `## Existing pool (summaries)\n${poolSummaries.join("\n") || "(empty)"}\n\n## Candidates\n${JSON.stringify(candidates, null, 2).slice(0, 30000)}\n\nReturn only the candidates worth keeping (deduplicated against pool and each other, rejecting rule-violating ones). You may edit fields for clarity. ${HYPOTHESIS_JSON_GUIDE}`,
+    system: "You are an adversarial research lead scoring proposals for a bandit that will spend real compute on them. Proposers are systematically optimistic; your job is to normalize their claims against the rubric and against what past hypotheses actually delivered. You reject duplicates, protocol-specific hacks, vague proposals, and anything that cannot be evaluated against the metric ladder.",
+    prompt: `## Existing pool (summaries)\n${poolSummaries.join("\n") || "(empty)"}\n\n## Calibration: predicted vs realized for evaluated hypotheses\n${calibration || "(no completed evaluations yet)"}\n\n${JUDGE_RUBRIC}\n\n## Candidates\n${JSON.stringify(candidates, null, 2).slice(0, 30000)}\n\nReturn only the candidates worth keeping (deduplicated against pool and each other, rejecting rule-violating ones), with YOUR expectedGain/expectedCost. ${HYPOTHESIS_JSON_GUIDE}`,
     schema: z.object({ hypotheses: z.array(z.unknown()) }),
     retries: 1,
   });

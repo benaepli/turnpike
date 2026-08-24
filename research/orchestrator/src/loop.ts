@@ -85,7 +85,13 @@ async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
   journal(state, iteration, "propose", { lenses: lenses.length, candidates: candidates.length, cost: results.reduce((a, r) => a + r.costUsd, 0) });
   if (candidates.length === 0) return;
   const poolSummaries = state.listHypotheses().map((h) => `${h.id} [${h.kind}/${h.status}]: ${h.title}`);
-  const judged = await judgeHypotheses(policy, candidates, poolSummaries);
+  const calibration = state.listHypotheses()
+    .map((x) => ({ x, d: state.getDecision(x.id) }))
+    .filter((p): p is { x: Hypothesis; d: NonNullable<ReturnType<typeof state.getDecision>> } => p.d !== null)
+    .map(({ x, d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> verdict ${d.verdict}, realized primary delta ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
+    .slice(-30)
+    .join("\n");
+  const judged = await judgeHypotheses(policy, candidates, poolSummaries, calibration);
   const kept = judged.value?.hypotheses ?? candidates;
   const { valid, rejected } = validateProposed(kept);
   const room = Math.max(0, policy.proposal.maxPoolSize - state.listHypotheses("proposed").length);
@@ -336,6 +342,14 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     if (!perfDecision && !decisionInputsReady && lintFailures.length === 0) {
       decision.verdict = "closed";
       decision.reasons = ["did not clear screen/promote gates"];
+      const ran = allEvals["promote"] ?? allEvals["screen"] ?? [];
+      const baseRan = allEvals["promote"] ? baseline.promote : baseline.screen;
+      if (ran.length > 0) {
+        const cmp = compareToBaseline(objectiveCounts(ran), objectiveCounts(baseRan));
+        const h1 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h1Rate, 0) / ok.length : 0; };
+        const h3 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h3Rate, 0) / ok.length : 0; };
+        decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: cmp.deltas["depth>=8"] ?? 0 };
+      }
     }
     state.setDecision(decision);
     journal(state, n, "decision", decision);
@@ -382,10 +396,12 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     if (n % policy.audit.everyK === 0) {
       await timed("audit", async () => {
         const util0 = await collectUtilization(policy);
+        if (util0.trim().startsWith("{")) state.setMeta("utilization", util0);
         const profile = await collectProfile(policy, SPUR_BIN);
         const util = `${util0}\n\n## perf profile (top symbols)\n${profile}`;
         const ledger = JSON.stringify(state.countByStatus()) + "\n" + JSON.stringify(timings);
-        const audit = await runAudit(policy, n, readStatusMd(), ledger, util);
+        const evalConfig = readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8");
+        const audit = await runAudit(policy, n, readStatusMd(), ledger, `## Evaluation config (mechanisms not enabled here are expected to read zero)\n${evalConfig}\n\n${util}`);
         if (audit.value) {
           appendObservation(`### Audit @${n}\n${audit.value.budgetConcentration}\n\nGoodhart: ${audit.value.goodhartSignals.join("; ") || "none"}\n\nUtilization: ${audit.value.utilizationFindings.map((u) => `${u.mechanism}=${u.classification}`).join(", ")}\n\nPolicy suggestions: ${audit.value.recommendedPolicyChanges.join("; ") || "none"}`);
           journal(state, n, "audit", audit.value);
@@ -429,6 +445,10 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
     }
   }
   let consecutiveFailures = 0;
+  try {
+    const util0 = await collectUtilization(deps.policy);
+    if (util0.trim().startsWith("{")) deps.state.setMeta("utilization", util0);
+  } catch { /* gating simply stays open without a snapshot */ }
   for (;;) {
     if (existsSync(path.join(ROOT, "research/STOP"))) {
       console.log("STOP sentinel found; exiting loop.");

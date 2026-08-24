@@ -52,9 +52,55 @@ export function scoreHypothesis(
   return 0.5 * priorNorm + Math.max(-1, Math.min(measured, 1)) + ucb;
 }
 
+// Mechanism utilization (from utilization.json collected on the evaluation
+// config). A hypothesis that builds on a mechanism recording zero activity
+// cannot be evaluated meaningfully — its enabler must merge first.
+export interface Utilization { [group: string]: { [counter: string]: number } }
+export function parseUtilization(raw: string | null): Utilization | null {
+  if (!raw) return null;
+  try { return JSON.parse(raw) as Utilization; } catch { return null; }
+}
+const MECHANISM_COUNTERS: Record<string, [string, string]> = {
+  "purgatory": ["purgatory", "delayed_sends"],
+  "timeline-feedback": ["feedback", "scored_runs"],
+  "feedback": ["feedback", "scored_runs"],
+  "steer": ["feedback", "scored_runs"],
+  "aos": ["aos", "tape_wins"],
+  "dedup": ["dedup", "checks"],
+};
+export function buildsOnSatisfied(h: Hypothesis, util: Utilization | null): boolean {
+  if (h.kind === "enabling" || !util) return true;
+  for (const dep of h.buildsOn) {
+    const key = MECHANISM_COUNTERS[dep.toLowerCase()];
+    if (!key) continue;
+    const v = util[key[0]]?.[key[1]] ?? 0;
+    if (v <= 0) return false;
+  }
+  return true;
+}
+
 // selectNext picks the next hypothesis. Quota rule: if fewer than
 // explorationQuota of the last 10 selections were fresh lineages (no parent),
 // force the best parentless candidate when one exists.
+// Empirical calibration factor: mean realized primary delta (as a fraction of
+// a "full" 0.1 = +10pp gain) over mean predicted gain, across evaluated
+// hypotheses. Proposer optimism is discounted automatically as evidence
+// accumulates. Floored so the prior never vanishes entirely.
+export function calibrationFactor(state: LoopState): number {
+  let predicted = 0;
+  let realized = 0;
+  let n = 0;
+  for (const h of state.listHypotheses()) {
+    const d = state.getDecision(h.id);
+    if (!d) continue;
+    n++;
+    predicted += h.expectedGain;
+    realized += Math.max(0, (d.objectiveDeltas["primary"] ?? 0)) / 0.1 * 10;
+  }
+  if (n < 3 || predicted <= 0) return 1;
+  return Math.max(0.15, Math.min(1, realized / predicted));
+}
+
 export function selectNext(state: LoopState, policy: Policy): Hypothesis | null {
   const all = state.listHypotheses();
   const byId = new Map<string, Hypothesis>(all.map((h) => [h.id, h]));
@@ -90,12 +136,18 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
     measuredDelta,
   };
 
-  const eligible = pool.filter((h) => lineageDepth(h, byId) <= policy.budgets.maxLineageDepth);
+  const util = parseUtilization(state.getMeta("utilization"));
+  const eligible = pool.filter((h) =>
+    lineageDepth(h, byId) <= policy.budgets.maxLineageDepth && buildsOnSatisfied(h, util),
+  );
   if (eligible.length === 0) return null;
 
-  const ranked = [...eligible].sort(
-    (a, b) => scoreHypothesis(b, inputs, byId, policy.bandit.ucbC) - scoreHypothesis(a, inputs, byId, policy.bandit.ucbC),
-  );
+  const calib = calibrationFactor(state);
+  const score = (h: Hypothesis): number => {
+    const shrunk: Hypothesis = { ...h, expectedGain: h.expectedGain * calib };
+    return scoreHypothesis(shrunk, inputs, byId, policy.bandit.ucbC);
+  };
+  const ranked = [...eligible].sort((a, b) => score(b) - score(a));
   if (freshShare < policy.bandit.explorationQuota) {
     const fresh = ranked.find((h) => h.parent === null);
     if (fresh) return fresh;

@@ -185,7 +185,10 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   }
 
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
-  const primary = cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=8"] ?? 0);
+  // Primary: violations when they move; otherwise depth>=5 — the deepest rung
+  // with measurable baseline support (depth>=6..8 are 0 at baseline and act
+  // as jackpot indicators, not gradients).
+  const primary = cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=5"] ?? 0);
   return {
     hypothesisId: i.hypothesis.id,
     verdict,
