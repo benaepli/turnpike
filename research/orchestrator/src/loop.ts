@@ -383,6 +383,12 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     notes = `iteration error: ${String(e)}`;
     journal(state, n, "error", { error: String(e) });
     cleanupToResearchBranch(branch);
+    // Never strand a hypothesis in a transient status on iteration failure.
+    for (const hh of state.listHypotheses()) {
+      if (hh.status === "selected" || hh.status === "implementing") {
+        state.upsertHypothesis({ ...hh, status: "blocked", branch: null, notes: `${hh.notes} [iteration ${n} error: ${String(e).slice(0, 200)}]`.trim() });
+      }
+    }
   } finally {
     try {
       const baseline = loadBaseline(state);

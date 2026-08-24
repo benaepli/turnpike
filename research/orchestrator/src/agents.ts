@@ -25,6 +25,24 @@ async function collect(gen: AsyncGenerator<SDKMessage, void>): Promise<{ text: s
   let turns = 0;
   let isError = false;
   let errText = "";
+  try {
+    return await collectInner(gen, (t, c, n, e, et) => { text = t; costUsd = c; turns = n; isError = e; errText = et; });
+  } catch (e) {
+    // The SDK throws on some terminal results (e.g. max turns). Convert to a
+    // clean error outcome so an iteration never aborts on an agent failure.
+    return { text, costUsd, turns, isError: true, errText: String(e) };
+  }
+}
+
+async function collectInner(
+  gen: AsyncGenerator<SDKMessage, void>,
+  save: (t: string, c: number, n: number, e: boolean, et: string) => void,
+): Promise<{ text: string; costUsd: number; turns: number; isError: boolean; errText: string }> {
+  let text = "";
+  let costUsd = 0;
+  let turns = 0;
+  let isError = false;
+  let errText = "";
   for await (const m of gen) {
     if (m.type === "result") {
       costUsd = m.total_cost_usd ?? 0;
@@ -38,6 +56,7 @@ async function collect(gen: AsyncGenerator<SDKMessage, void>): Promise<{ text: s
         errText = m.subtype;
       }
     }
+    save(text, costUsd, turns, isError, errText);
   }
   return { text, costUsd, turns, isError, errText };
 }
