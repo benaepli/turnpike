@@ -1,24 +1,24 @@
 # Research Loop Status
 
-Generated: 2026-08-24T08:40:23.100Z
+Generated: 2026-08-24T08:47:25.443Z
 Grader version: ta:0de6d9d+porc:b49e339
 
 ## Metric ladder
 
 | Metric | Baseline | Latest merged |
 | --- | --- | --- |
-| violations | — | — |
-| meanPrefixDepth | — | — |
-| P(depth>=4) | — | — |
-| P(depth>=5) | — | — |
-| P(depth>=6) | — | — |
-| P(depth>=7) | — | — |
-| P(depth>=8) | — | — |
-| h1Rate | — | — |
-| h2Rate | — | — |
-| h2bRate | — | — |
-| h3Rate | — | — |
-| runsPerSec | — | — |
+| violations | 0 | — |
+| meanPrefixDepth | 0.00 | — |
+| P(depth>=4) | 0.000 | — |
+| P(depth>=5) | 0.000 | — |
+| P(depth>=6) | 0.000 | — |
+| P(depth>=7) | 0.000 | — |
+| P(depth>=8) | 0.000 | — |
+| h1Rate | 0 | — |
+| h2Rate | 0 | — |
+| h2bRate | 0 | — |
+| h3Rate | 0 | — |
+| runsPerSec | 0.0 | — |
 
 ## Hypothesis pool
 
@@ -49,6 +49,6 @@ None.
 - Models: propose=claude-opus-5, judge=claude-opus-5, implement=claude-opus-5, diagnose=claude-opus-5, reflect=claude-opus-5, audit=claude-opus-5
 - Budgets: 90 wall-min/hypothesis, 20 wall-h/day, 80 implement turns, 600s build, 40GB free disk floor
 - Bandit: explorationQuota=0.3, ucbC=1.2
-- Fidelity explore wall (s): screen=150, promote=600, confirm=1800
+- Fidelity explore wall (s): screen=150, promote=600, confirm=900
 - Evaluation: spec=bin/spur/VR.spur, audit every 5 iterations
 
