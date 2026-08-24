@@ -109,6 +109,7 @@ export async function runEvaluation(
       const configPath = `${outputDir}.config.json`;
       materializeConfig(template, configPath, { runsPerConfig: fid.runsPerConfig, sessionSeed: seed });
 
+      console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: exploring (wall ${fid.exploreWallSec}s) -> ${outputDir}`);
       const exploreRes = await explore({
         binary: ctx.binary,
         configPath,
@@ -139,8 +140,16 @@ export async function runEvaluation(
         ? null
         : `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`;
       evals.push({ ...base, metrics, exploreWallMs: exploreRes.wallMs, ok, error });
+      console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
+      if (!ok) {
+        try {
+          fs.mkdirSync(path.join(ROOT, "research", "logs"), { recursive: true });
+          fs.copyFileSync(`${outputDir}.log`, path.join(ROOT, "research", "logs", `eval-${hypothesisId}-${fidelity}-${seed}.log`));
+        } catch { /* log may not exist */ }
+      }
     } finally {
       fs.rmSync(`${outputDir}.config.json`, { force: true });
+      fs.rmSync(`${outputDir}.log`, { force: true });
       try {
         cleanupDir(outputDir);
       } catch {

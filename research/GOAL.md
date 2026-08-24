@@ -47,3 +47,16 @@ PCT-style priority change points; hazard-predicate fitness for genetic/AOS modes
 miswired knobs (randomly_delay_msgs is silently ignored; randomly_drop_msgs is dead code);
 enabling unexercised mechanisms (CFG feedback is never turned on in loop configs);
 ablating mechanisms whose utilization counters stay at zero.
+
+## The performance lane
+
+Explorer throughput multiplies every rung (bug-finding rate = runs/sec x
+probability-per-run) and shrinks every future evaluation. perf-kind hypotheses
+optimize runs/sec, evaluated by an interleaved A/B benchmark against the
+preserved baseline binary (strict dominance + >=5% mean improvement), gated by
+ladder non-inferiority + the regression suite so "optimizations" that break
+scheduling semantics or grader instrumentation are rejected. Profile snapshots
+(perf record on the bench workload) are collected at audit time and stored in
+observations — aim perf hypotheses at measured hotspots, not guesses. The
+easiest false win — removing instrumentation the grader needs — fails the
+ladder/regression gates; do not propose it.

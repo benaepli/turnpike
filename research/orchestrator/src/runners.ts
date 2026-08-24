@@ -2,7 +2,7 @@
 // spawned via execFile (argv array, never a shell string) with a hard
 // timeout that SIGKILLs. Nonzero exit is a *result*, not an exception —
 // only spawn failures (ENOENT, EACCES, ...) throw.
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -144,19 +144,53 @@ export interface ExploreOpts {
  * valid partial corpus and should still be graded/checked.
  */
 export function explore(opts: ExploreOpts): Promise<CmdResult> {
-  return run(
-    opts.binary,
-    ["explore", "-e", "standard", "--config", opts.configPath, "-y", "--output-dir", opts.outputDir, opts.spec],
-    {
-      timeoutMs: opts.wallSec * 1000 + 30_000, // wall budget + 30s grace
-      cwd: ROOT,
-      env: {
-        ...process.env,
-        RAYON_NUM_THREADS: String(opts.rayonThreads),
-        RUST_LOG: "warn",
-      },
-    },
-  );
+  // Stream output to <outputDir>.log so long runs are observable live
+  // (tail -f) instead of buffered invisibly until exit.
+  const logPath = `${opts.outputDir}.log`;
+  const args = ["explore", "-e", "standard", "--config", opts.configPath, "-y", "--output-dir", opts.outputDir, opts.spec];
+  const env = {
+    ...process.env,
+    RAYON_NUM_THREADS: String(opts.rayonThreads),
+    RUST_LOG: "info",
+  };
+  return new Promise<CmdResult>((resolve, reject) => {
+    const started = Date.now();
+    let fd: number;
+    try {
+      fd = fs.openSync(logPath, "w");
+    } catch (e) {
+      reject(new Error(`cannot open explore log ${logPath}: ${String(e)}`));
+      return;
+    }
+    const child = spawn(opts.binary, args, { cwd: ROOT, env, stdio: ["ignore", fd, fd] });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, opts.wallSec * 1000 + 30_000);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      fs.closeSync(fd);
+      reject(e);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      fs.closeSync(fd);
+      let tailText = "";
+      try {
+        const full = fs.readFileSync(logPath, "utf8");
+        tailText = full.slice(-8192);
+      } catch { /* log unreadable — leave tail empty */ }
+      resolve({
+        ok: code === 0 && !timedOut,
+        exitCode: code,
+        stdout: "",
+        stderr: tailText,
+        wallMs: Date.now() - started,
+        timedOut,
+      });
+    });
+  });
 }
 
 export interface GradeOpts {

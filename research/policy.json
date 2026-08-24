@@ -14,8 +14,8 @@
   "fidelities": {
     "screen": {
       "exploreWallSec": 150,
-      "runsPerConfig": 60,
-      "gradeMaxRuns": 600,
+      "runsPerConfig": 100,
+      "gradeMaxRuns": 1200,
       "gradeBudgetMs": 45000,
       "seeds": [
         11
@@ -24,7 +24,7 @@
     "promote": {
       "exploreWallSec": 600,
       "runsPerConfig": 250,
-      "gradeMaxRuns": 1500,
+      "gradeMaxRuns": 3000,
       "gradeBudgetMs": 120000,
       "seeds": [
         11,
@@ -34,7 +34,7 @@
     "confirm": {
       "exploreWallSec": 900,
       "runsPerConfig": 800,
-      "gradeMaxRuns": 3000,
+      "gradeMaxRuns": 6000,
       "gradeBudgetMs": 300000,
       "seeds": [
         11,
@@ -56,7 +56,7 @@
     "everyK": 5
   },
   "proposal": {
-    "lenses": 4,
+    "lenses": 6,
     "maxPoolSize": 60
   },
   "evaluation": {
@@ -74,5 +74,12 @@
     "vrNoFaultConfig": "scheduler_configs/loop/regression_vr_nofault.json",
     "throughputTolerance": 0.2,
     "wallSecPerCase": 240
+  },
+  "perf": {
+    "benchConfig": "scheduler_configs/loop/bench.json",
+    "rounds": 4,
+    "warmupRounds": 1,
+    "minImprovement": 0.05,
+    "roundWallSec": 150
   }
 }

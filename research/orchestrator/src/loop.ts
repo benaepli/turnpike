@@ -2,13 +2,14 @@
 // clearly fenced phases. Every phase is timed, journaled, and recoverable —
 // an exception resets both repos to research/vr-loop and the loop continues.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import {
   PROPOSAL_LENSES, ROOT, implementHypothesis, judgeHypotheses, proposeHypotheses,
   reflectOnOutcome, runAudit, validateProposed,
 } from "./agents.js";
-import { compareToBaseline, finalGate, objectiveCounts, screenAdvances } from "./decide.js";
+import { classifyChangeRisk, compareToBaseline, finalGate, nonInferior, objectiveCounts, perfGate, screenAdvances } from "./decide.js";
+import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, type EvalContext } from "./evaluate.js";
 import {
   SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, createBranch, currentBranch,
@@ -18,7 +19,7 @@ import {
 import type { Policy } from "./policy.js";
 import { buildSpur, SPUR_BIN, cleanupDir, explore, materializeConfig, run } from "./runners.js";
 import { runRegression } from "./regression.js";
-import { Evaluation, Hypothesis, type FidelityName } from "./schemas.js";
+import { Evaluation, Hypothesis, type GateDecision } from "./schemas.js";
 import type { LoopState } from "./state.js";
 import { writeStatus, appendObservation } from "./render.js";
 import { z } from "zod";
@@ -207,6 +208,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
 
     const build = await timed("build", async () => {
       if (h.kind === "grader") return run("go", ["build", "-o", "main", "."], { timeoutMs: 120000, cwd: path.join(ROOT, "traceanalyzer") });
+      if (spurFiles.length === 0) {
+        return { ok: true, exitCode: 0, stdout: "", stderr: "build skipped (no spur changes)", wallMs: 0, timedOut: false };
+      }
       return buildSpur(policy.budgets.maxBuildSeconds);
     });
     if (!build.ok) {
@@ -232,8 +236,42 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     let throughputRatio: number | null = null;
     let regressionPassed = false;
     const allEvals: Record<string, Evaluation[]> = {};
+    let perfDecision: GateDecision | null = null;
 
-    if (lintFailures.length === 0) {
+    if (lintFailures.length === 0 && h.kind === "perf") {
+      const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
+      const bench = await timed("bench", () => runBench(policy, SPUR_BIN, baselineBin));
+      journal(state, n, "bench", bench);
+      if (bench.pass) {
+        const screen = await timed("evaluate", () => runEvaluation(ctx, h.id, "screen"));
+        allEvals["screen"] = screen;
+        for (const e of screen) state.addEvaluation(e);
+        const screenNI = nonInferior(objectiveCounts(screen), objectiveCounts(baseline.screen), 0.02);
+        journal(state, n, "perf-screen-ni", screenNI);
+        const touchesSemantics = classifyChangeRisk(spurFiles) === "semantics";
+        let promoteNI: boolean | null = null;
+        if (screenNI.ok && touchesSemantics) {
+          const promote = await timed("evaluate", () => runEvaluation(ctx, h.id, "promote"));
+          allEvals["promote"] = promote;
+          for (const e of promote) state.addEvaluation(e);
+          promoteNI = nonInferior(objectiveCounts(promote), objectiveCounts(baseline.promote), 0.02).ok;
+          journal(state, n, "perf-promote-ni", { ok: promoteNI });
+        }
+        if (screenNI.ok) {
+          const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
+          regressionPassed = regr.passed;
+          journal(state, n, "regression", regr);
+        }
+        throughputRatio = 1 + bench.improvement;
+        perfDecision = perfGate({ hypothesis: h, bench, screenNI, promoteNI, touchesSemantics, regressionPassed, lintFailures });
+      } else {
+        perfDecision = {
+          hypothesisId: h.id, verdict: "closed", reasons: [`bench: ${bench.detail}`],
+          objectiveDeltas: { primary: bench.improvement, throughput: bench.improvement },
+          regressionPassed: null, lintPassed: true,
+        };
+      }
+    } else if (lintFailures.length === 0) {
       const screen = await timed("evaluate", () => runEvaluation(ctx, h.id, "screen"));
       allEvals["screen"] = screen;
       for (const e of screen) state.addEvaluation(e);
@@ -262,7 +300,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       }
     }
 
-    const decision = finalGate({
+    const decision = perfDecision ?? finalGate({
       hypothesis: h,
       confirmEvals,
       baselineEvals: baseline.confirm,
@@ -271,7 +309,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       changedSpurFiles: spurFiles,
       throughputRatio,
     });
-    if (!decisionInputsReady && lintFailures.length === 0) {
+    if (!perfDecision && !decisionInputsReady && lintFailures.length === 0) {
       decision.verdict = "closed";
       decision.reasons = ["did not clear screen/promote gates"];
     }
@@ -293,6 +331,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           runsPerSec: baseline.runsPerSec * (throughputRatio ?? 1),
         };
         state.setMeta("baseline", JSON.stringify(newBaseline));
+        if (spurFiles.length > 0) {
+          try { copyFileSync(SPUR_BIN, path.join(ROOT, "tmp", "loop", "spur-baseline")); } catch { /* non-fatal */ }
+        }
       }
     } else {
       state.upsertHypothesis({ ...h, status: decision.verdict === "blocked" ? "blocked" : "closed", branch });
@@ -315,7 +356,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
 
     if (n % policy.audit.everyK === 0) {
       await timed("audit", async () => {
-        const util = await collectUtilization(policy);
+        const util0 = await collectUtilization(policy);
+        const profile = await collectProfile(policy, SPUR_BIN);
+        const util = `${util0}\n\n## perf profile (top symbols)\n${profile}`;
         const ledger = JSON.stringify(state.countByStatus()) + "\n" + JSON.stringify(timings);
         const audit = await runAudit(policy, n, readStatusMd(), ledger, util);
         if (audit.value) {

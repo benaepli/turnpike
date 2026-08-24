@@ -52,6 +52,13 @@ export const Policy = z.object({
     throughputTolerance: z.number().positive(),
     wallSecPerCase: z.number().int().positive(),
   }),
+  perf: z.object({
+    benchConfig: z.string(),
+    rounds: z.number().int().min(2).max(10),
+    warmupRounds: z.number().int().min(0).max(3),
+    minImprovement: z.number().positive(),
+    roundWallSec: z.number().int().positive(),
+  }),
 });
 export type Policy = z.infer<typeof Policy>;
 

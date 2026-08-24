@@ -3,7 +3,7 @@
 // the harness refuses anything that does not parse.
 import { z } from "zod";
 
-export const HypothesisKind = z.enum(["add", "ablate", "meta", "enabling", "grader"]);
+export const HypothesisKind = z.enum(["add", "ablate", "meta", "enabling", "grader", "perf"]);
 export type HypothesisKind = z.infer<typeof HypothesisKind>;
 
 export const HypothesisStatus = z.enum([
@@ -26,7 +26,7 @@ export const Hypothesis = z.object({
   kind: HypothesisKind,
   title: z.string().min(8).max(120),
   description: z.string().min(40),
-  category: z.enum(["scheduler", "config", "feedback", "tooling", "policy", "grader"]),
+  category: z.enum(["scheduler", "config", "feedback", "tooling", "policy", "grader", "performance"]),
   buildsOn: z.array(z.string()).default([]),
   expectedGain: z.number().min(0).max(10),
   expectedCost: z.number().min(0.1).max(10),

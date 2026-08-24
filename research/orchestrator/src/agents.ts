@@ -117,9 +117,9 @@ function readIfExists(p: string): string {
 }
 
 const HYPOTHESIS_JSON_GUIDE = `Reply with ONLY a JSON object: {"hypotheses": [...]}. Each hypothesis:
-{"id": "kebab-case-slug", "parent": null or "existing-id", "kind": "add"|"ablate"|"meta"|"enabling"|"grader",
+{"id": "kebab-case-slug", "parent": null or "existing-id", "kind": "add"|"ablate"|"meta"|"enabling"|"grader"|"perf",
  "title": "...", "description": "what to change, concretely, incl. which files/mechanisms and the config field that gates it",
- "category": "scheduler"|"config"|"feedback"|"tooling"|"policy"|"grader",
+ "category": "scheduler"|"config"|"feedback"|"tooling"|"policy"|"grader"|"performance",
  "buildsOn": ["mechanism names this depends on"], "expectedGain": 0-10, "expectedCost": 0.1-10,
  "rationale": "why this should move the ladder", "generalityArgument": "why this is protocol-agnostic (rule 1)",
  "createdAtIso": "<now>", "notes": ""}`;
@@ -130,6 +130,7 @@ export const PROPOSAL_LENSES = [
   "feedback/novelty: what coverage signal would make the scheduler chase crash-recovery message races; incarnation-awareness",
   "ablation and salvage: mechanisms with zero utilization, dead or miswired knobs, unexercised code paths — remove, fix, or enable them",
   "scheduling theory: PCT priority change points, partial-order methods, queue-policy shapes that concentrate schedules near fault windows",
+  "profile-guided performance (kind: perf): read the latest perf profile in observations; propose hotspot reductions that raise runs/sec without changing scheduling semantics or instrumentation the grader needs",
 ];
 
 export async function proposeHypotheses(policy: Policy, lens: string, statusMd: string, existingIds: string[]): Promise<RoleResult<{ hypotheses: unknown[] }>> {
@@ -156,6 +157,12 @@ export async function judgeHypotheses(policy: Policy, candidates: unknown[], poo
 }
 
 // The implementer: an agentic session fenced to the hypothesis's lane.
+const PERF_BASH = [
+  /^perf (stat|record|report|script|annotate)\b[^;&|]*$/,
+  /^hyperfine\b[^;&|]*$/,
+  /^cargo bench\b[^;&|]*$/,
+];
+
 const SAFE_BASH = [
   /^cargo (build|check|test)\b[^;&|]*$/,
   /^go (build|test|vet)\b[^;&|]*$/,
@@ -183,6 +190,7 @@ export function makeImplementerGate(kind: Hypothesis["kind"]): (toolName: string
         return { behavior: "deny", message: "git/gh/network/package commands are harness-owned; do not use them" };
       }
       if (SAFE_BASH.some((re) => re.test(cmd))) return { behavior: "allow", updatedInput: input };
+      if (kind === "perf" && PERF_BASH.some((re) => re.test(cmd))) return { behavior: "allow", updatedInput: input };
       return { behavior: "deny", message: "command not in the implementer allowlist (cargo/go build+test, spur explore under timeout, traceanalyzer, porcupine batch, read-only shell)" };
     }
     if (toolName === "Edit" || toolName === "Write" || toolName === "NotebookEdit") {
