@@ -10,6 +10,7 @@ LOG="$ROOT/research/logs/loop-$(date +%Y%m%d-%H%M%S).log"
 rm -f "$ROOT/research/STOP"
 if command -v systemd-run >/dev/null; then
   systemd-run --user --unit=spur-research-loop --collect \
+    --property=MemoryMax=26G \
     --property=Restart=on-failure --property=RestartSec=60 \
     --property=WorkingDirectory="$ROOT/research/orchestrator" \
     --property=StandardOutput=append:"$LOG" \

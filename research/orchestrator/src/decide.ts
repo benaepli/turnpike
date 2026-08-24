@@ -74,17 +74,23 @@ export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, 
 export function screenAdvances(cand: ObjectiveCounts, base: ObjectiveCounts): { advance: boolean; why: string } {
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
   if (cand.violations.succ > 0 && base.violations.succ === 0) return { advance: true, why: "violations appeared" };
-  const exceeds2Sigma = (succ: number, n: number, baseRate: number): boolean => {
-    const expected = baseRate * n;
-    return succ >= 5 && succ > expected + 2 * Math.sqrt(Math.max(expected, 1));
+  // Use the baseline's Wilson UPPER bound as the expectation rate: a rung the
+  // baseline sample never hit (0 observed in a small n) must not read as
+  // "expected 0" — that fooled the gate once (iteration 14).
+  const exceeds2Sigma = (succ: number, n: number, b: { succ: number; n: number }): { hit: boolean; expected: number } => {
+    const [, upper] = wilson(b.succ, b.n);
+    const expected = upper * n;
+    return { hit: succ >= 5 && succ > expected + 2 * Math.sqrt(Math.max(expected, 1)), expected };
   };
   for (const d of cand.depth) {
     const b = base.depth.find((x) => x.k === d.k);
-    if (b && exceeds2Sigma(d.succ, d.n, rate(b))) {
-      return { advance: true, why: `depth>=${d.k}: ${d.succ} successes vs ${(rate(b) * d.n).toFixed(1)} expected (+2sigma)` };
+    if (!b) continue;
+    const r = exceeds2Sigma(d.succ, d.n, b);
+    if (r.hit) {
+      return { advance: true, why: `depth>=${d.k}: ${d.succ} successes vs ${r.expected.toFixed(1)} expected (+2sigma over baseline CI)` };
     }
   }
-  if (exceeds2Sigma(cand.h2.succ, cand.h2.n, rate(base.h2))) return { advance: true, why: "h2 +2sigma" };
+  if (exceeds2Sigma(cand.h2.succ, cand.h2.n, base.h2).hit) return { advance: true, why: "h2 +2sigma" };
   return { advance: false, why: "no 2-sigma exceedance on any objective" };
 }
 
