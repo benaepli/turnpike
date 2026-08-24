@@ -20,6 +20,8 @@ type FullReport struct {
 	Fault        *metrics.FaultResult        `json:"fault,omitempty"`
 	Fingerprint  *metrics.FingerprintResult  `json:"fingerprint,omitempty"`
 	DagOrder     *dagorder.DagOrderResult    `json:"dag_order,omitempty"`
+	Grade        *metrics.GradeResult        `json:"grade,omitempty"`
+	GradeDags    []*dagorder.DagOrderResult  `json:"grade_dags,omitempty"`
 }
 
 // WriteJSON writes the report as JSON to the given writer.
@@ -43,6 +45,45 @@ func WriteTable(w io.Writer, r *FullReport) {
 	writeFaultTable(w, r.Fault)
 	writeFingerprintTable(w, r.Fingerprint)
 	writeDagOrderTable(w, r.DagOrder)
+	writeGradeTable(w, r.Grade)
+	for _, d := range r.GradeDags {
+		writeDagOrderTable(w, d)
+		writeDepthTable(w, d)
+	}
+}
+
+func writeGradeTable(w io.Writer, g *metrics.GradeResult) {
+	if g == nil {
+		return
+	}
+	fmt.Fprintf(w, "## Grade: throughput & hazards\n")
+	fmt.Fprintf(w, "  Runs: %d  Invocations: %d  Responses: %d  Unpaired: %d (%.4f) in %d runs\n",
+		g.TotalRuns, g.Invocations, g.Responses, g.UnpairedInvocations, g.UnpairedFraction, g.RunsWithUnpaired)
+	if h := g.Hazards; h != nil {
+		fmt.Fprintf(w, "  H1 crash-with-in-flight-send:  %6d runs (%.4f)\n", h.CrashInflightRuns, h.CrashInflightRate)
+		fmt.Fprintf(w, "  H2 stale-incarnation delivery: %6d runs (%.4f)\n", h.StaleIncarnationRuns, h.StaleIncarnationRate)
+		fmt.Fprintf(w, "  H2b receiver-stale delivery:   %6d runs (%.4f)\n", h.ReceiverStaleRuns, h.ReceiverStaleRate)
+		fmt.Fprintf(w, "  H3 two-node crash+recover:     %6d runs (%.4f)\n", h.TwoNodeCrashRecoverRuns, h.TwoNodeCrashRecoverRate)
+	}
+	fmt.Fprintf(w, "  Wall: %d ms\n\n", g.WallMs)
+}
+
+func writeDepthTable(w io.Writer, d *dagorder.DagOrderResult) {
+	if d == nil {
+		return
+	}
+	fmt.Fprintf(w, "### Prefix Depth (%s)\n", d.ConfigPath)
+	fmt.Fprintf(w, "  Graded: %d/%d runs (sampled=%v, budget_exhausted=%v)\n",
+		d.GradedRuns, d.AvailableRuns, d.Sampled, d.BudgetExhausted)
+	fmt.Fprintf(w, "  Max: %d  Mean: %.3f  P95: %d\n", d.MaxPrefixDepth, d.MeanPrefixDepth, d.P95PrefixDepth)
+	denom := d.GradedRuns
+	if denom < 1 {
+		denom = 1
+	}
+	for k, n := range d.DepthAtLeast {
+		fmt.Fprintf(w, "  depth >= %2d: %6d runs (%.5f)\n", k+1, n, float64(n)/float64(denom))
+	}
+	fmt.Fprintln(w)
 }
 
 func writeDurationTable(w io.Writer, d *metrics.DurationResult) {

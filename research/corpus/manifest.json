@@ -1,0 +1,271 @@
+{
+  "generated_at": "2026-08-24T08:23:29.905333+00:00",
+  "generator_spur_commit": "b04c56f0eff869d474e8ab3da65b691548345a9b",
+  "oracle_dag": "research/oracle/relax_minimal.json",
+  "grader_settings": {
+    "dag_swaps": 200,
+    "grade_max_runs": 2000
+  },
+  "notes": "Labels come from porcupine_batch (ground truth) and the plans that generated each corpus, never from the grader. Measured calibration invariants a grader change must preserve (within tolerance): (1) every plan-driven corpus has mean_prefix_depth > unconstrained_c0 by a margin >= 1.0; (2) on findbug_archive, ALL violating runs have prefix_depth == max (8) \u2014 min depth over violating runs must stay at max; (3) 372 runs reach depth 8, of which 266 violate (71% precision at full depth); (4) porcupine verdicts per corpus are fixed ground truth. Note: relax-tier ordering by depth is NOT monotone in constraint count under the b04c56f binary (constrained plans stall more), so tier-vs-tier ordering is not an invariant.",
+  "corpora": {
+    "find_bug_plan": {
+      "plan": "research/oracle/tiers/find_bug_plan.json",
+      "total_runs": 3000,
+      "violations": 11,
+      "unknown": 0,
+      "violating_run_ids": [
+        572,
+        594,
+        791,
+        828,
+        1024,
+        1447,
+        1646,
+        1802,
+        1824,
+        2345,
+        2721
+      ],
+      "mean_prefix_depth": 3.8235,
+      "max_prefix_depth": 8,
+      "depth_at_least": [
+        2000,
+        2000,
+        2000,
+        496,
+        496,
+        496,
+        95,
+        64
+      ],
+      "graded_runs": 2000,
+      "hazard_rates": {
+        "h1_rate": 0.2683333333333333,
+        "h2_rate": 0.26366666666666666,
+        "h2b_rate": 0.13866666666666666,
+        "h3_rate": 0.25033333333333335
+      },
+      "unpaired_fraction": 0.14926108374384237,
+      "sha256": {
+        "executions": "fa95cc60e942ce46aa78d028dca422b9e4fc8a8d054a98a68ad6e3ea1b2a7c32",
+        "traces": "ffac4a2fd8ca18d9c2faf092ba7c2ed39ad438ab5b82086e434e47c4bf3b0349"
+      }
+    },
+    "relax_3": {
+      "plan": "research/oracle/tiers/relax_3.json",
+      "total_runs": 3000,
+      "violations": 0,
+      "unknown": 0,
+      "violating_run_ids": [],
+      "mean_prefix_depth": 4.1385,
+      "max_prefix_depth": 7,
+      "depth_at_least": [
+        2000,
+        2000,
+        2000,
+        2000,
+        161,
+        99,
+        17
+      ],
+      "graded_runs": 2000,
+      "hazard_rates": {
+        "h1_rate": 0.319,
+        "h2_rate": 0.30666666666666664,
+        "h2b_rate": 0.584,
+        "h3_rate": 1
+      },
+      "unpaired_fraction": 0.07341147439851943,
+      "sha256": {
+        "executions": "812370ff4ba3d46cd79c6dec6075f8409dd406415eeabdb246407f0cd752e907",
+        "traces": "c6ef96e34fc44fad8032e30723dea006fa184193bf23d54f50fa2c7d0ba2c316"
+      }
+    },
+    "relax_5": {
+      "plan": "research/oracle/tiers/relax_5.json",
+      "total_runs": 3000,
+      "violations": 1,
+      "unknown": 0,
+      "violating_run_ids": [
+        1645
+      ],
+      "mean_prefix_depth": 3.977,
+      "max_prefix_depth": 8,
+      "depth_at_least": [
+        2000,
+        2000,
+        2000,
+        496,
+        496,
+        496,
+        440,
+        26
+      ],
+      "graded_runs": 2000,
+      "hazard_rates": {
+        "h1_rate": 0.2683333333333333,
+        "h2_rate": 0.2633333333333333,
+        "h2b_rate": 0.16033333333333333,
+        "h3_rate": 0.25033333333333335
+      },
+      "unpaired_fraction": 0.1825232678386763,
+      "sha256": {
+        "executions": "3f39363644749375cbdf1732be33334c430c50dbe1235d804707fb9b7262bb3c",
+        "traces": "9bc10e9e7b115a281e022aa53f5a90a278e90b6efd003e63900f3b475b23a642"
+      }
+    },
+    "relax_minimal": {
+      "plan": "research/oracle/tiers/relax_minimal.json",
+      "total_runs": 5000,
+      "violations": 4,
+      "unknown": 0,
+      "violating_run_ids": [
+        26,
+        572,
+        1212,
+        3212
+      ],
+      "mean_prefix_depth": 3.902,
+      "max_prefix_depth": 8,
+      "depth_at_least": [
+        2000,
+        2000,
+        2000,
+        496,
+        496,
+        496,
+        158,
+        158
+      ],
+      "graded_runs": 2000,
+      "hazard_rates": {
+        "h1_rate": 0.2612,
+        "h2_rate": 0.2568,
+        "h2b_rate": 0.1472,
+        "h3_rate": 0.2446
+      },
+      "unpaired_fraction": 0.16962952910842719,
+      "sha256": {
+        "executions": "5a92c1851e964a52b9b4eeb715f21b9843f8399ef6adab8fc9b82541ed222b40",
+        "traces": "d3d04f518f36a3461585e7be8c1156fadfd7165bd683f705e5fc4df68b7d8e79"
+      }
+    },
+    "findbug_archive": {
+      "plan": null,
+      "total_runs": 5000,
+      "violations": 266,
+      "unknown": 0,
+      "violating_run_ids": [
+        2,
+        36,
+        54,
+        75,
+        137,
+        154,
+        180,
+        200,
+        204,
+        240,
+        270,
+        291,
+        299,
+        304,
+        376,
+        389,
+        402,
+        447,
+        457,
+        474,
+        486,
+        530,
+        536,
+        541,
+        586,
+        594,
+        612,
+        635,
+        677,
+        726,
+        739,
+        747,
+        768,
+        776,
+        855,
+        885,
+        901,
+        907,
+        910,
+        951,
+        968,
+        979,
+        999,
+        1018,
+        1036,
+        1037,
+        1053,
+        1059,
+        1081,
+        1088
+      ],
+      "mean_prefix_depth": 3.85,
+      "max_prefix_depth": 8,
+      "depth_at_least": [
+        2000,
+        2000,
+        2000,
+        468,
+        468,
+        468,
+        148,
+        148
+      ],
+      "graded_runs": 2000,
+      "hazard_rates": {
+        "h1_rate": 0.2628,
+        "h2_rate": 0.2596,
+        "h2b_rate": 0.1542,
+        "h3_rate": 0.2436
+      },
+      "unpaired_fraction": 0.16376969038565997,
+      "sha256": {
+        "executions": "341708be2cdb8a4ead01990fd3e5403501986b845dec53df610d8778202fca0d",
+        "traces": "0d2c951cfbb2a9844b5846bb2672210378971b89ace97fc960f5a71a1060b9bd"
+      }
+    },
+    "unconstrained_c0": {
+      "plan": null,
+      "total_runs": 5040,
+      "violations": 0,
+      "unknown": 7,
+      "violating_run_ids": [],
+      "mean_prefix_depth": 2.1985,
+      "max_prefix_depth": 4,
+      "depth_at_least": [
+        1985,
+        1857,
+        493,
+        62
+      ],
+      "graded_runs": 2000,
+      "hazard_rates": {
+        "h1_rate": 0.2837301587301587,
+        "h2_rate": 0.18988095238095237,
+        "h2b_rate": 0.22043650793650793,
+        "h3_rate": 0.1376984126984127
+      },
+      "unpaired_fraction": 0.14026957229277956,
+      "sha256": {
+        "executions": "8e7a094f492ffe61a3d1e531940ab28dba1814a64e5717960cdad2cf0fd82673",
+        "traces": "c5662d28e7b2cff311dfe0b2b0c02775a588686bbb6845ee062bc2af19c47f8d"
+      }
+    }
+  },
+  "measured": {
+    "findbug_archive_full_grade": {
+      "violating_runs_depth": "all 266 at depth 8",
+      "clean_mean_depth": 3.652,
+      "runs_at_max_depth": 372,
+      "precision_at_full_depth": 0.71
+    }
+  }
+}

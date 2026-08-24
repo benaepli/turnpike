@@ -1,0 +1,12 @@
+{
+  "input": "research/corpus/relax_3",
+  "model": "kv",
+  "total_runs": 3000,
+  "ok": 3000,
+  "violations": 0,
+  "unknown": 0,
+  "skipped_ops": 0,
+  "violating_run_ids": [],
+  "unknown_run_ids": [],
+  "wall_ms": 553
+}

@@ -55,20 +55,30 @@ type assignment struct {
 	unmatch map[int]struct{}      // label indices with zero candidates
 }
 
-// bestMatching runs greedy topo assignment + random local swaps. This is a
+// matchOutcome bundles everything bestMatchingFull derives from one run's
+// assignment.
+type matchOutcome struct {
+	Assign       map[string]Event
+	Score        float64  // edge-satisfaction in [0, 1]
+	Matched      []string // labels with an assigned event
+	ZeroCand     []string // labels with zero candidates
+	CrowdedOut   []string // labels that lost all candidates to injectivity
+	LongestChain int      // unanchored longest satisfied path (vertices)
+	CriticalPath int      // longest path ignoring satisfaction (vertices)
+	PrefixDepth  int      // root-anchored longest satisfied chain (vertices, 0 possible)
+	PrefixPath   []string // labels forming the winning prefix chain, in order
+}
+
+// bestMatchingFull runs greedy topo assignment + random local swaps. This is a
 // heuristic: greedy can claim a successor's only candidate for an earlier
 // label, and the swap budget is bounded — there is no optimality guarantee.
-// Returns the best assignment found (as label -> Event), the edge-satisfaction
-// score in [0, 1], the matched labels, the labels with zero candidates, the
-// labels that had candidates but lost to injectivity ("crowded out"), and the
-// longest satisfiable chain / critical path lengths.
-func bestMatching(
+func bestMatchingFull(
 	labels []string,
 	cands map[string][]Event,
 	directDeps, allDeps [][2]string,
 	seed int64,
 	nSwaps int,
-) (map[string]Event, float64, []string, []string, []string, int, int) {
+) matchOutcome {
 	a := newAssignment(labels, cands, directDeps, allDeps)
 
 	// Greedy pass in topological order.
@@ -164,7 +174,96 @@ func bestMatching(
 	sort.Strings(zeroCand)
 	sort.Strings(crowdedOut)
 	longestChain, criticalPath := a.longestSatisfiableChain()
-	return assign, score, matched, zeroCand, crowdedOut, longestChain, criticalPath
+	prefixDepth, prefixPath := a.rootAnchoredPrefix()
+	return matchOutcome{
+		Assign:       assign,
+		Score:        score,
+		Matched:      matched,
+		ZeroCand:     zeroCand,
+		CrowdedOut:   crowdedOut,
+		LongestChain: longestChain,
+		CriticalPath: criticalPath,
+		PrefixDepth:  prefixDepth,
+		PrefixPath:   prefixPath,
+	}
+}
+
+// bestMatching is the legacy tuple-returning wrapper kept for existing tests.
+func bestMatching(
+	labels []string,
+	cands map[string][]Event,
+	directDeps, allDeps [][2]string,
+	seed int64,
+	nSwaps int,
+) (map[string]Event, float64, []string, []string, []string, int, int) {
+	o := bestMatchingFull(labels, cands, directDeps, allDeps, seed, nSwaps)
+	return o.Assign, o.Score, o.Matched, o.ZeroCand, o.CrowdedOut, o.LongestChain, o.CriticalPath
+}
+
+// rootAnchoredPrefix computes the longest satisfied chain that starts at a
+// chain root, over the transitive-closure edge set restricted to labels that
+// have candidates in this run. A label is a root when every one of its
+// closure predecessors is unmatchable in this run (zero candidates) — i.e.
+// nothing observable was required before it. Unlike longestSatisfiableChain
+// (which is unanchored and never below 1), this measures true prefix
+// progress along the plan DAG and is 0 when not even a root was matched.
+// Returns the depth in vertices and the winning chain's labels in order.
+func (a *assignment) rootAnchoredPrefix() (int, []string) {
+	n := len(a.labels)
+	closIn := make(map[int][]int, n)
+	for _, e := range a.edges {
+		closIn[e[1]] = append(closIn[e[1]], e[0])
+	}
+	assigned := func(li int) bool { return a.choice[li] >= 0 }
+	eventOf := func(li int) Event { return a.cands[a.labels[li]][a.choice[li]] }
+
+	dp := make([]int, n)
+	parent := make([]int, n)
+	for i := range parent {
+		parent[i] = -1
+	}
+	for _, li := range a.topo {
+		if _, um := a.unmatch[li]; um {
+			continue
+		}
+		isRoot := true
+		best, bestParent := 0, -1
+		for _, u := range closIn[li] {
+			if _, um := a.unmatch[u]; um {
+				continue
+			}
+			isRoot = false
+			if dp[u] >= 1 && assigned(u) && assigned(li) && lessThan(eventOf(u), eventOf(li)) && dp[u]+1 > best {
+				best, bestParent = dp[u]+1, u
+			}
+		}
+		switch {
+		case isRoot && assigned(li):
+			dp[li] = 1
+		case isRoot:
+			dp[li] = 0
+		default:
+			dp[li], parent[li] = best, bestParent
+		}
+	}
+
+	depth, argmax := 0, -1
+	for li, d := range dp {
+		if d > depth {
+			depth, argmax = d, li
+		}
+	}
+	if argmax < 0 {
+		return 0, nil
+	}
+	var path []string
+	for v := argmax; v >= 0; v = parent[v] {
+		path = append(path, a.labels[v])
+	}
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
+	}
+	return depth, path
 }
 
 // better returns true iff (satA/eligA) > (satB/eligB). Ties -> false.

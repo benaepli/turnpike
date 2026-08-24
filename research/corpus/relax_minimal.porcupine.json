@@ -1,0 +1,17 @@
+{
+  "input": "research/corpus/relax_minimal",
+  "model": "kv",
+  "total_runs": 5000,
+  "ok": 4996,
+  "violations": 4,
+  "unknown": 0,
+  "skipped_ops": 0,
+  "violating_run_ids": [
+    26,
+    572,
+    1212,
+    3212
+  ],
+  "unknown_run_ids": [],
+  "wall_ms": 1309
+}

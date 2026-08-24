@@ -17,3 +17,10 @@ tmp/
 output_*/
 ab/
 traceanalyzer/main
+# research loop
+research/state.sqlite
+research/logs/
+research/corpus/*/
+tmp/loop/
+research/orchestrator/node_modules/
+research/orchestrator/dist/

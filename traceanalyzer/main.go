@@ -19,6 +19,10 @@ func main() {
 	format := flag.String("format", "table", "Output format: table or json")
 	dagConfig := flag.String("dag-config", "", "Path to plan_config.json for DAG-ordering metric (optional)")
 	dagSwaps := flag.Int("dag-swaps", 200, "Local-search swap budget per run for DAG matching")
+	grade := flag.Bool("grade", false, "Grade mode: L0/L1 SQL metrics + budgeted DAG prefix depth per -dag-config (comma-separated), skipping the standard metrics")
+	gradeMaxRuns := flag.Int("grade-max-runs", 2000, "Grade mode: deterministic sample cap per DAG config (0 = all runs)")
+	gradeBudgetMs := flag.Int64("grade-budget-ms", 60000, "Grade mode: wall budget per DAG config in ms (0 = unbounded)")
+	gradePerRun := flag.Bool("grade-per-run", false, "Grade mode: include full per_run arrays instead of top_runs")
 	flag.Parse()
 
 	if *inputPath == "" {
@@ -54,6 +58,43 @@ func main() {
 	}
 
 	r := &report.FullReport{RunID: *runID}
+
+	if *grade {
+		fmt.Fprintln(os.Stderr, "  Computing grade metrics (L0/L1)...")
+		r.Grade, err = metrics.ComputeGrade(*inputPath, *runID)
+		if err != nil {
+			log.Printf("Warning: grade metrics failed: %v", err)
+		}
+		if *dagConfig != "" {
+			opts := dagorder.Options{
+				MaxRuns:       *gradeMaxRuns,
+				BudgetMs:      *gradeBudgetMs,
+				IncludePerRun: *gradePerRun,
+			}
+			for _, cfgPath := range strings.Split(*dagConfig, ",") {
+				cfgPath = strings.TrimSpace(cfgPath)
+				if cfgPath == "" {
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "  Computing DAG prefix depth for %s...\n", cfgPath)
+				d, derr := dagorder.ComputeDagOrderOpts(*inputPath, cfgPath, *runID, *dagSwaps, opts)
+				if derr != nil {
+					log.Printf("Warning: dag grade for %s failed: %v", cfgPath, derr)
+					continue
+				}
+				r.GradeDags = append(r.GradeDags, d)
+			}
+		}
+		switch formatNorm {
+		case "json":
+			if err := report.WriteJSON(os.Stdout, r); err != nil {
+				log.Fatalf("failed to write JSON: %v", err)
+			}
+		case "table":
+			report.WriteTable(os.Stdout, r)
+		}
+		return
+	}
 
 	// Duration metrics
 	fmt.Fprintln(os.Stderr, "  Computing duration metrics...")

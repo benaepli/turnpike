@@ -3,8 +3,10 @@ package dagorder
 import (
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/benaepli/turnpike-traceanalyzer/reader"
 )
@@ -22,6 +24,8 @@ type RunResult struct {
 	ChainScore          float64  `json:"chain_score"`
 	LongestChain        int      `json:"longest_chain"`
 	CriticalPath        int      `json:"critical_path"`
+	PrefixDepth         int      `json:"prefix_depth"`
+	PrefixPath          []string `json:"prefix_path,omitempty"`
 }
 
 // EdgeFreq reports how often a given DAG edge was satisfied across all runs.
@@ -50,13 +54,38 @@ type DagOrderResult struct {
 	TotalEdgeCount      int         `json:"total_edge_count"`
 	TransitiveEdgeCount int         `json:"transitive_edge_count"`
 	DroppedMajority     bool        `json:"dropped_majority"`
+	AvailableRuns       int         `json:"available_runs"`
+	GradedRuns          int         `json:"graded_runs"`
+	Sampled             bool        `json:"sampled"`
+	BudgetExhausted     bool        `json:"budget_exhausted"`
+	MaxPrefixDepth      int         `json:"max_prefix_depth"`
+	MeanPrefixDepth     float64     `json:"mean_prefix_depth"`
+	P95PrefixDepth      int         `json:"p95_prefix_depth"`
+	DepthAtLeast        []int       `json:"depth_at_least,omitempty"` // [i] = graded runs with prefix_depth >= i+1
 	PerRun              []RunResult `json:"per_run,omitempty"`
+	TopRuns             []RunResult `json:"top_runs,omitempty"` // deepest runs, kept when per_run is omitted
 	PerEdge             []EdgeFreq  `json:"per_edge,omitempty"`
+}
+
+// Options controls sampling and budgeting for ComputeDagOrderOpts. The zero
+// value reproduces the historical unbounded, per-run-inclusive behavior
+// except IncludePerRun, which must be set explicitly.
+type Options struct {
+	MaxRuns       int   // >0: deterministically sample at most this many runs
+	BudgetMs      int64 // >0: stop grading further runs once exceeded (reported, never silent)
+	IncludePerRun bool  // emit the full per_run array (large); otherwise only top_runs
+	TopN          int   // size of top_runs when per_run is omitted (default 10)
 }
 
 // ComputeDagOrder loads the plan config, joins it against trace/execution output,
 // and reports per-run and aggregate edge-satisfaction scores.
 func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOrderResult, error) {
+	return ComputeDagOrderOpts(dbPath, configPath, runID, nSwaps, Options{IncludePerRun: true})
+}
+
+// ComputeDagOrderOpts is ComputeDagOrder with sampling and wall-budget
+// controls, for use by the grade pipeline over large corpora.
+func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opts Options) (*DagOrderResult, error) {
 	cfg, err := LoadPlanConfig(configPath)
 	if err != nil {
 		return nil, err
@@ -90,13 +119,42 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 	// Compute transitive closure for scoring.
 	allDeps := transitiveClosure(cfg.Dependencies)
 
-	execs, err := reader.ReadExecutions(dbPath, runID)
-	if err != nil {
-		return nil, fmt.Errorf("read executions: %w", err)
-	}
-	traces, err := reader.ReadTraces(dbPath, runID)
-	if err != nil {
-		return nil, fmt.Errorf("read traces: %w", err)
+	var execs []reader.ExecutionRow
+	var traces []reader.TraceRow
+	availableRuns := 0
+	sampledFlag := false
+	if runID < 0 {
+		ids, err := reader.ListRunIDs(dbPath)
+		if err != nil {
+			return nil, fmt.Errorf("list run ids: %w", err)
+		}
+		availableRuns = len(ids)
+		if opts.MaxRuns > 0 && len(ids) > opts.MaxRuns {
+			ids = sampleRunIDs(ids, opts.MaxRuns)
+			sampledFlag = true
+			if execs, err = reader.ReadExecutionsForRuns(dbPath, ids); err != nil {
+				return nil, fmt.Errorf("read executions: %w", err)
+			}
+			if traces, err = reader.ReadTracesForRuns(dbPath, ids); err != nil {
+				return nil, fmt.Errorf("read traces: %w", err)
+			}
+		} else {
+			if execs, err = reader.ReadExecutions(dbPath, runID); err != nil {
+				return nil, fmt.Errorf("read executions: %w", err)
+			}
+			if traces, err = reader.ReadTraces(dbPath, runID); err != nil {
+				return nil, fmt.Errorf("read traces: %w", err)
+			}
+		}
+	} else {
+		availableRuns = 1
+		var err error
+		if execs, err = reader.ReadExecutions(dbPath, runID); err != nil {
+			return nil, fmt.Errorf("read executions: %w", err)
+		}
+		if traces, err = reader.ReadTraces(dbPath, runID); err != nil {
+			return nil, fmt.Errorf("read traces: %w", err)
+		}
 	}
 
 	// Partition by run_id.
@@ -147,11 +205,19 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 		TotalEdgeCount:      total,
 		TransitiveEdgeCount: len(allDeps),
 		DroppedMajority:     droppedMajority,
+		AvailableRuns:       availableRuns,
+		Sampled:             sampledFlag,
 	}
 	scores := make([]float64, 0, len(runIDs))
 	chainScores := make([]float64, 0, len(runIDs))
+	prefixDepths := make([]int, 0, len(runIDs))
+	gradeStart := time.Now()
 
 	for _, rid := range runIDs {
+		if opts.BudgetMs > 0 && time.Since(gradeStart).Milliseconds() > opts.BudgetMs {
+			result.BudgetExhausted = true
+			break
+		}
 		idx := buildRunIndex(execsByRun[rid], tracesByRun[rid])
 		cands := make(map[string][]Event, len(cfg.Events))
 		var truncated []string
@@ -170,7 +236,10 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 			)
 		}
 
-		assign, score, matched, zeroCand, crowdedOut, longestChain, criticalPath := bestMatching(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)
+		o := bestMatchingFull(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)
+		assign, score, matched := o.Assign, o.Score, o.Matched
+		zeroCand, crowdedOut := o.ZeroCand, o.CrowdedOut
+		longestChain, criticalPath := o.LongestChain, o.CriticalPath
 
 		// Eligible edge count from assignment (over transitive closure).
 		eligible := 0
@@ -205,13 +274,17 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 			ChainScore:          chainScore,
 			LongestChain:        longestChain,
 			CriticalPath:        criticalPath,
+			PrefixDepth:         o.PrefixDepth,
+			PrefixPath:          o.PrefixPath,
 		}
 		result.PerRun = append(result.PerRun, rr)
 		scores = append(scores, score)
 		chainScores = append(chainScores, chainScore)
+		prefixDepths = append(prefixDepths, o.PrefixDepth)
 	}
 
 	result.TotalRuns = len(scores)
+	result.GradedRuns = len(scores)
 	if len(scores) > 0 {
 		sum := 0.0
 		sorted := append([]float64(nil), scores...)
@@ -237,6 +310,49 @@ func ComputeDagOrder(dbPath, configPath string, runID int64, nSwaps int) (*DagOr
 		result.MinChainScore = sorted[0]
 		result.P50ChainScore = percentile(sorted, 0.50)
 		result.P95ChainScore = percentile(sorted, 0.95)
+	}
+
+	if len(prefixDepths) > 0 {
+		maxD, sum := 0, 0
+		for _, d := range prefixDepths {
+			sum += d
+			if d > maxD {
+				maxD = d
+			}
+		}
+		result.MaxPrefixDepth = maxD
+		result.MeanPrefixDepth = float64(sum) / float64(len(prefixDepths))
+		sortedD := append([]int(nil), prefixDepths...)
+		sort.Ints(sortedD)
+		result.P95PrefixDepth = sortedD[int(0.95*float64(len(sortedD)-1))]
+		result.DepthAtLeast = make([]int, maxD)
+		for _, d := range prefixDepths {
+			for k := 1; k <= d; k++ {
+				result.DepthAtLeast[k-1]++
+			}
+		}
+	}
+
+	if !opts.IncludePerRun {
+		topN := opts.TopN
+		if topN <= 0 {
+			topN = 10
+		}
+		top := append([]RunResult(nil), result.PerRun...)
+		sort.Slice(top, func(i, j int) bool {
+			if top[i].PrefixDepth != top[j].PrefixDepth {
+				return top[i].PrefixDepth > top[j].PrefixDepth
+			}
+			if top[i].EdgeSatisfaction != top[j].EdgeSatisfaction {
+				return top[i].EdgeSatisfaction > top[j].EdgeSatisfaction
+			}
+			return top[i].RunID < top[j].RunID
+		})
+		if len(top) > topN {
+			top = top[:topN]
+		}
+		result.TopRuns = top
+		result.PerRun = nil
 	}
 
 	// PerEdge, sorted worst-first (lowest fraction first) so the hardest edges
@@ -329,5 +445,22 @@ func transitiveClosure(deps [][2]string) [][2]string {
 		}
 		return out[i][1] < out[j][1]
 	})
+	return out
+}
+
+// sampleRunIDs deterministically samples k of the given ids (uniform, without
+// replacement) and returns them sorted. Seeded from the id list shape so the
+// same corpus always yields the same sample — required for reproducible
+// evaluations.
+func sampleRunIDs(ids []int64, k int) []int64 {
+	out := append([]int64(nil), ids...)
+	seed := uint64(len(ids))*0x9E3779B97F4A7C15 + uint64(ids[0]) + uint64(ids[len(ids)-1])
+	rng := rand.New(rand.NewPCG(seed, seed^0xD1B54A32D192ED03))
+	for i := 0; i < k; i++ {
+		j := i + rng.IntN(len(out)-i)
+		out[i], out[j] = out[j], out[i]
+	}
+	out = out[:k]
+	slices.Sort(out)
 	return out
 }

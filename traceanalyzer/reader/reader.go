@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "github.com/marcboeker/go-duckdb"
 )
@@ -197,4 +198,96 @@ func ReadExecutions(dbPath string, runID int64) ([]ExecutionRow, error) {
 		result = append(result, e)
 	}
 	return result, rows.Err()
+}
+
+// ReadTracesForRuns reads trace rows for an explicit set of run_ids.
+// Used by budgeted/sampled metrics to avoid materializing every run.
+func ReadTracesForRuns(dbPath string, runIDs []int64) ([]TraceRow, error) {
+	if len(runIDs) == 0 {
+		return nil, nil
+	}
+	db, err := openDB(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	defer db.Close()
+
+	src := TracesSource(dbPath)
+	query := fmt.Sprintf(`
+		SELECT run_id, seq_num, node_id, step, function_name, trace_kind,
+		       payload, schedulable_count, trace_id, causal_operation_id
+		FROM %s
+		WHERE run_id IN (%s)
+		ORDER BY run_id, seq_num ASC
+	`, src, joinInt64s(runIDs))
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query traces: %w", err)
+	}
+	defer rows.Close()
+
+	var result []TraceRow
+	for rows.Next() {
+		var t TraceRow
+		if err := rows.Scan(
+			&t.RunID, &t.SeqNum, &t.NodeID, &t.Step, &t.FunctionName,
+			&t.TraceKind, &t.Payload, &t.SchedulableCount, &t.TraceID,
+			&t.CausalOperationID,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan trace row: %w", err)
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+// ReadExecutionsForRuns reads execution rows for an explicit set of run_ids.
+func ReadExecutionsForRuns(dbPath string, runIDs []int64) ([]ExecutionRow, error) {
+	if len(runIDs) == 0 {
+		return nil, nil
+	}
+	db, err := openDB(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	defer db.Close()
+
+	src := ExecutionsSource(dbPath)
+	query := fmt.Sprintf(`
+		SELECT run_id, seq_num, unique_id, client_id, kind, action, payload, step
+		FROM %s
+		WHERE run_id IN (%s)
+		ORDER BY run_id, seq_num ASC
+	`, src, joinInt64s(runIDs))
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query executions: %w", err)
+	}
+	defer rows.Close()
+
+	var result []ExecutionRow
+	for rows.Next() {
+		var e ExecutionRow
+		if err := rows.Scan(
+			&e.RunID, &e.SeqNum, &e.UniqueID, &e.ClientID, &e.Kind,
+			&e.Action, &e.Payload, &e.Step,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan execution row: %w", err)
+		}
+		result = append(result, e)
+	}
+	return result, rows.Err()
+}
+
+// joinInt64s renders ids as a comma-separated SQL list. Values are integers,
+// so direct interpolation is injection-safe.
+func joinInt64s(ids []int64) string {
+	var b strings.Builder
+	for i, id := range ids {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, "%d", id)
+	}
+	return b.String()
 }

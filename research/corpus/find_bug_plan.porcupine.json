@@ -1,0 +1,24 @@
+{
+  "input": "research/corpus/find_bug_plan",
+  "model": "kv",
+  "total_runs": 3000,
+  "ok": 2989,
+  "violations": 11,
+  "unknown": 0,
+  "skipped_ops": 0,
+  "violating_run_ids": [
+    572,
+    594,
+    791,
+    828,
+    1024,
+    1447,
+    1646,
+    1802,
+    1824,
+    2345,
+    2721
+  ],
+  "unknown_run_ids": [],
+  "wall_ms": 407
+}

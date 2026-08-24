@@ -1,0 +1,150 @@
+{
+  "num_servers": 3,
+  "num_runs": 3000,
+  "max_iterations": 10000,
+  "strict_timers": true,
+  "events": {
+    "w1": {
+      "write": [
+        0,
+        "x"
+      ]
+    },
+    "allow_t1": {
+      "allow_timer": [
+        1,
+        "timeout"
+      ]
+    },
+    "crash_nl": {
+      "crash": 1
+    },
+    "recover_nl": {
+      "recover": 1
+    },
+    "crash_2": {
+      "crash": 2
+    },
+    "recover_2": {
+      "recover": 2
+    },
+    "deliver_svc_2_to_1": {
+      "deliver": {
+        "function": "Node.StartViewChange",
+        "from": 2,
+        "to": 1
+      }
+    },
+    "deliver_dvc_2_to_1": {
+      "deliver": {
+        "function": "Node.DoViewChange",
+        "from": 2,
+        "to": 1
+      }
+    },
+    "deliver_svc_1_to_0": {
+      "deliver": {
+        "function": "Node.StartViewChange",
+        "from": 1,
+        "to": 0
+      }
+    },
+    "deliver_sv_to_0": {
+      "deliver": {
+        "function": "Node.StartView",
+        "from": 1,
+        "to": 0
+      }
+    },
+    "w2": {
+      "write": [
+        0,
+        "x"
+      ]
+    },
+    "r1": {
+      "read": [
+        0,
+        "x"
+      ]
+    },
+    "r2": {
+      "read": [
+        1,
+        "x"
+      ]
+    },
+    "r3": {
+      "read": [
+        2,
+        "x"
+      ]
+    }
+  },
+  "dependencies": [
+    [
+      "w1",
+      "allow_t1"
+    ],
+    [
+      "allow_t1",
+      "crash_nl"
+    ],
+    [
+      "crash_nl",
+      "recover_nl"
+    ],
+    [
+      "crash_nl",
+      "crash_2"
+    ],
+    [
+      "crash_2",
+      "recover_2"
+    ],
+    [
+      "recover_nl",
+      "deliver_svc_2_to_1"
+    ],
+    [
+      "recover_nl",
+      "deliver_dvc_2_to_1"
+    ],
+    [
+      "recover_2",
+      "deliver_svc_2_to_1"
+    ],
+    [
+      "recover_2",
+      "deliver_dvc_2_to_1"
+    ],
+    [
+      "deliver_svc_2_to_1",
+      "w2"
+    ],
+    [
+      "deliver_dvc_2_to_1",
+      "w2"
+    ],
+    [
+      "w2",
+      "deliver_svc_1_to_0"
+    ],
+    [
+      "w2",
+      "deliver_sv_to_0"
+    ],
+    [
+      "deliver_sv_to_0",
+      "r1"
+    ],
+    [
+      "deliver_sv_to_0",
+      "r2"
+    ],
+    [
+      "deliver_sv_to_0",
+      "r3"
+    ]
+  ]
+}
