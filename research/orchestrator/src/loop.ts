@@ -2,7 +2,7 @@
 // clearly fenced phases. Every phase is timed, journaled, and recoverable —
 // an exception resets both repos to research/vr-loop and the loop continues.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import {
   PROPOSAL_LENSES, ROOT, implementHypothesis, judgeHypotheses, proposeHypotheses,
@@ -251,7 +251,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const screen = await timed("evaluate", () => runEvaluation(ctx, h.id, "screen"));
         allEvals["screen"] = screen;
         for (const e of screen) state.addEvaluation(e);
-        const screenNI = nonInferior(objectiveCounts(screen), objectiveCounts(baseline.screen), 0.02);
+        const screenNI = nonInferior(objectiveCounts(screen), objectiveCounts(baseline.screen));
         journal(state, n, "perf-screen-ni", screenNI);
         const touchesSemantics = classifyChangeRisk(spurFiles) === "semantics";
         let promoteNI: boolean | null = null;
@@ -259,7 +259,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           const promote = await timed("evaluate", () => runEvaluation(ctx, h.id, "promote"));
           allEvals["promote"] = promote;
           for (const e of promote) state.addEvaluation(e);
-          promoteNI = nonInferior(objectiveCounts(promote), objectiveCounts(baseline.promote), 0.02).ok;
+          promoteNI = nonInferior(objectiveCounts(promote), objectiveCounts(baseline.promote)).ok;
           journal(state, n, "perf-promote-ni", { ok: promoteNI });
         }
         if (screenNI.ok) {
@@ -391,6 +391,18 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
 }
 
 export async function runLoop(deps: LoopDeps): Promise<void> {
+  // Crash recovery: requeue hypotheses stranded mid-iteration and clear
+  // leftover evaluation corpora from a killed run.
+  for (const h of deps.state.listHypotheses()) {
+    if (h.status === "selected" || h.status === "implementing") {
+      deps.state.upsertHypothesis({ ...h, status: "proposed", branch: null, notes: `${h.notes} [requeued after restart]`.trim() });
+    }
+  }
+  for (const d of readdirSync(path.join(ROOT, "tmp", "loop"))) {
+    if (/^(eval-|bench-|regr-)/.test(d)) {
+      rmSync(path.join(ROOT, "tmp", "loop", d), { recursive: true, force: true });
+    }
+  }
   let consecutiveFailures = 0;
   for (;;) {
     if (existsSync(path.join(ROOT, "research/STOP"))) {

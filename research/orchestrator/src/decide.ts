@@ -37,7 +37,11 @@ export interface Comparison {
   deltas: Record<string, number>;
 }
 
-export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts): Comparison {
+// z defaults to 1.96 (promote: spends compute, not merges). The merge gate
+// passes MERGE_Z = 2.7 — Bonferroni over the ~7 objectives tested, holding
+// familywise false-positive near 5% per hypothesis.
+export const MERGE_Z = 2.7;
+export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96): Comparison {
   const improved: string[] = [];
   const regressed: string[] = [];
   const deltas: Record<string, number> = {};
@@ -45,45 +49,58 @@ export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts):
 
   deltas["violations"] = rate(cand.violations) - rate(base.violations);
   if (cand.violations.succ > 0 && base.violations.succ === 0) improved.push("violations");
-  else if (rateImprovesCI(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n)) improved.push("violations");
-  if (rateImprovesCI(base.violations.succ, base.violations.n, cand.violations.succ, cand.violations.n)) regressed.push("violations");
+  else if (rateImprovesCI(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, z)) improved.push("violations");
+  if (rateImprovesCI(base.violations.succ, base.violations.n, cand.violations.succ, cand.violations.n, z)) regressed.push("violations");
 
   for (const d of cand.depth) {
     const b = base.depth.find((x) => x.k === d.k);
     if (!b) continue;
     deltas[`depth>=${d.k}`] = rate(d) - rate(b);
-    if (rateImprovesCI(d.succ, d.n, b.succ, b.n)) improved.push(`depth>=${d.k}`);
-    if (d.k <= 4 && rateImprovesCI(b.succ, b.n, d.succ, d.n)) regressed.push(`depth>=${d.k}`);
+    if (rateImprovesCI(d.succ, d.n, b.succ, b.n, z)) improved.push(`depth>=${d.k}`);
+    if (d.k <= 4 && rateImprovesCI(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
   }
 
   deltas["h2"] = rate(cand.h2) - rate(base.h2);
-  if (rateImprovesCI(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n)) improved.push("h2");
+  if (rateImprovesCI(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n, z)) improved.push("h2");
 
   return { improved, regressed, deltas };
 }
 
-// Screen gate: cheap, permissive — point estimates only. Its job is to decide
-// what deserves more budget, not to accept anything.
+// Screen gate: 2-sigma Poisson exceedance. For each objective the candidate
+// must show more successes than expected-under-baseline plus two standard
+// deviations (sqrt of expectation), with an absolute floor of 5 successes so
+// single-digit counts can never advance (derivation: research/PARAMETERS.md;
+// the old "+15% point estimate" rule advanced on 4-vs-3.6 Poisson noise).
 export function screenAdvances(cand: ObjectiveCounts, base: ObjectiveCounts): { advance: boolean; why: string } {
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
   if (cand.violations.succ > 0 && base.violations.succ === 0) return { advance: true, why: "violations appeared" };
+  const exceeds2Sigma = (succ: number, n: number, baseRate: number): boolean => {
+    const expected = baseRate * n;
+    return succ >= 5 && succ > expected + 2 * Math.sqrt(Math.max(expected, 1));
+  };
   for (const d of cand.depth) {
     const b = base.depth.find((x) => x.k === d.k);
-    if (b && rate(d) > rate(b) * 1.15 && d.succ >= 3) return { advance: true, why: `depth>=${d.k} point estimate +15%` };
+    if (b && exceeds2Sigma(d.succ, d.n, rate(b))) {
+      return { advance: true, why: `depth>=${d.k}: ${d.succ} successes vs ${(rate(b) * d.n).toFixed(1)} expected (+2sigma)` };
+    }
   }
-  if (rate(cand.h2) > rate(base.h2) * 1.2 && cand.h2.succ >= 5) return { advance: true, why: "h2 point estimate +20%" };
-  return { advance: false, why: "no point-estimate movement" };
+  if (exceeds2Sigma(cand.h2.succ, cand.h2.n, rate(base.h2))) return { advance: true, why: "h2 +2sigma" };
+  return { advance: false, why: "no 2-sigma exceedance on any objective" };
 }
 
-// Non-inferiority for ablations/enabling: candidate must not be worse than
-// baseline by more than `margin` (absolute rate) on violations, depth>=4, h2.
-export function nonInferior(cand: ObjectiveCounts, base: ObjectiveCounts, margin: number): { ok: boolean; failures: string[] } {
+// Non-inferiority for ablations/enabling: margins are RELATIVE (default 25%
+// of the baseline rate per objective, floored at 0.2pp) so the tolerance
+// scales with each rung — an absolute margin either swamps rare rungs or
+// over-constrains common ones (derivation: research/PARAMETERS.md).
+export function nonInferior(cand: ObjectiveCounts, base: ObjectiveCounts, relMargin = 0.25): { ok: boolean; failures: string[] } {
   const failures: string[] = [];
-  if (!rateNonInferior(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, margin)) failures.push("violations");
+  const marginFor = (b: { succ: number; n: number }): number =>
+    Math.max(relMargin * (b.n > 0 ? b.succ / b.n : 0), 0.002);
+  if (!rateNonInferior(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, marginFor(base.violations))) failures.push("violations");
   const c4 = cand.depth.find((d) => d.k === 4);
   const b4 = base.depth.find((d) => d.k === 4);
-  if (c4 && b4 && !rateNonInferior(c4.succ, c4.n, b4.succ, b4.n, margin)) failures.push("depth>=4");
-  if (!rateNonInferior(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n, margin)) failures.push("h2");
+  if (c4 && b4 && !rateNonInferior(c4.succ, c4.n, b4.succ, b4.n, marginFor(b4))) failures.push("depth>=4");
+  if (!rateNonInferior(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n, marginFor(base.h2))) failures.push("h2");
   return { ok: failures.length === 0, failures };
 }
 
@@ -113,7 +130,7 @@ export interface FinalGateInputs {
 export function finalGate(i: FinalGateInputs): GateDecision {
   const cand = objectiveCounts(i.confirmEvals);
   const base = objectiveCounts(i.baselineEvals);
-  const cmp = compareToBaseline(cand, base);
+  const cmp = compareToBaseline(cand, base, MERGE_Z);
   const reasons: string[] = [];
   let verdict: GateDecision["verdict"];
 
@@ -127,7 +144,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     const kind = i.hypothesis.kind;
     if (kind === "add" || kind === "enabling") {
       const superior = cmp.improved.length > 0 && cmp.regressed.length === 0;
-      const ni = nonInferior(cand, base, 0.02);
+      const ni = nonInferior(cand, base);
       const pass = kind === "add" ? superior : superior || ni.ok;
       if (!pass) {
         verdict = "closed";
@@ -140,7 +157,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
         reasons.push(`improved: ${cmp.improved.join(", ") || "(enabling, non-inferior)"}`);
       }
     } else if (kind === "ablate") {
-      const ni = nonInferior(cand, base, 0.02);
+      const ni = nonInferior(cand, base);
       const cheaper = (i.throughputRatio ?? 1) >= 1.0 || i.changedSpurFiles.length > 0;
       if (!ni.ok) {
         verdict = "closed";

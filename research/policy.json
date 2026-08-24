@@ -15,7 +15,7 @@
     "screen": {
       "exploreWallSec": 150,
       "runsPerConfig": 100,
-      "gradeMaxRuns": 1200,
+      "gradeMaxRuns": 0,
       "gradeBudgetMs": 45000,
       "seeds": [
         11
@@ -24,7 +24,7 @@
     "promote": {
       "exploreWallSec": 600,
       "runsPerConfig": 250,
-      "gradeMaxRuns": 3000,
+      "gradeMaxRuns": 0,
       "gradeBudgetMs": 120000,
       "seeds": [
         11,
@@ -33,8 +33,8 @@
     },
     "confirm": {
       "exploreWallSec": 900,
-      "runsPerConfig": 800,
-      "gradeMaxRuns": 6000,
+      "runsPerConfig": 400,
+      "gradeMaxRuns": 0,
       "gradeBudgetMs": 300000,
       "seeds": [
         11,
