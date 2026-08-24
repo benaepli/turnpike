@@ -15,3 +15,5 @@ perf.data
 output2
 tmp/
 output_*/
+ab/
+traceanalyzer/main
