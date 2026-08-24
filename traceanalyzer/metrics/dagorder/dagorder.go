@@ -179,21 +179,13 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 			stop = len(allIDs)
 		}
 		chunk := allIDs[start:stop]
-		execs, err := reader.ReadExecutionsForRuns(dbPath, chunk)
+		execsByRun, err := reader.ReadExecutionsByRun(dbPath, chunk)
 		if err != nil {
 			return nil, fmt.Errorf("read executions: %w", err)
 		}
-		traces, err := reader.ReadTracesForRuns(dbPath, chunk)
+		tracesByRun, err := reader.ReadTracesByRun(dbPath, chunk)
 		if err != nil {
 			return nil, fmt.Errorf("read traces: %w", err)
-		}
-		execsByRun := make(map[int64][]reader.ExecutionRow, len(chunk))
-		for _, e := range execs {
-			execsByRun[e.RunID] = append(execsByRun[e.RunID], e)
-		}
-		tracesByRun := make(map[int64][]reader.TraceRow, len(chunk))
-		for _, t := range traces {
-			tracesByRun[t.RunID] = append(tracesByRun[t.RunID], t)
 		}
 		for _, rid := range chunk {
 			if opts.BudgetMs > 0 && time.Since(gradeStart).Milliseconds() > opts.BudgetMs {
@@ -260,6 +252,11 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 				PrefixPath:          o.PrefixPath,
 			}
 			result.PerRun = append(result.PerRun, rr)
+			// Only the top N survive when per-run output was not requested, so
+			// trim periodically instead of holding a RunResult for every run.
+			if !opts.IncludePerRun && len(result.PerRun) >= 4*topRunCount(opts) {
+				result.PerRun = trimToTopRuns(result.PerRun, topRunCount(opts))
+			}
 			scores = append(scores, score)
 			chainScores = append(chainScores, chainScore)
 			prefixDepths = append(prefixDepths, o.PrefixDepth)
@@ -317,24 +314,7 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 	}
 
 	if !opts.IncludePerRun {
-		topN := opts.TopN
-		if topN <= 0 {
-			topN = 10
-		}
-		top := append([]RunResult(nil), result.PerRun...)
-		sort.Slice(top, func(i, j int) bool {
-			if top[i].PrefixDepth != top[j].PrefixDepth {
-				return top[i].PrefixDepth > top[j].PrefixDepth
-			}
-			if top[i].EdgeSatisfaction != top[j].EdgeSatisfaction {
-				return top[i].EdgeSatisfaction > top[j].EdgeSatisfaction
-			}
-			return top[i].RunID < top[j].RunID
-		})
-		if len(top) > topN {
-			top = top[:topN]
-		}
-		result.TopRuns = top
+		result.TopRuns = trimToTopRuns(result.PerRun, topRunCount(opts))
 		result.PerRun = nil
 	}
 
@@ -446,4 +426,32 @@ func sampleRunIDs(ids []int64, k int) []int64 {
 	out = out[:k]
 	slices.Sort(out)
 	return out
+}
+
+// topRunCount is how many runs the TopRuns summary keeps.
+func topRunCount(opts Options) int {
+	if opts.TopN > 0 {
+		return opts.TopN
+	}
+	return 10
+}
+
+// trimToTopRuns returns the best n runs by (prefix depth, edge satisfaction,
+// run id). Ranking is a total order, so trimming a superset that still contains
+// the true top n yields the same answer as ranking everything at the end.
+func trimToTopRuns(runs []RunResult, n int) []RunResult {
+	top := append([]RunResult(nil), runs...)
+	sort.Slice(top, func(i, j int) bool {
+		if top[i].PrefixDepth != top[j].PrefixDepth {
+			return top[i].PrefixDepth > top[j].PrefixDepth
+		}
+		if top[i].EdgeSatisfaction != top[j].EdgeSatisfaction {
+			return top[i].EdgeSatisfaction > top[j].EdgeSatisfaction
+		}
+		return top[i].RunID < top[j].RunID
+	})
+	if len(top) > n {
+		top = top[:n]
+	}
+	return top
 }

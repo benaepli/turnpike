@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"database/sql"
 	"fmt"
 	"math"
 
@@ -30,98 +29,82 @@ type DurationResult struct {
 	Functions []FunctionDurationStats `json:"functions"`
 }
 
-// ComputeDuration computes function duration distributions using DuckDB SQL.
-func ComputeDuration(dbPath string, runID int64) (*DurationResult, error) {
+// ComputeDuration computes function duration distributions, one batch of runs
+// at a time. Each batch returns a compact (function, duration, count)
+// histogram; every statistic reported here derives from the merged histogram,
+// so the result matches a whole-corpus query exactly.
+func ComputeDuration(dbPath string, runID int64, batchSize int) (*DurationResult, error) {
 	db, err := reader.OpenDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
-	src := reader.TracesSource(dbPath)
-
-	// Build the paired invocations CTE via self-join on (run_id, trace_id)
-	whereClause := ""
-	if runID >= 0 {
-		whereClause = fmt.Sprintf("WHERE e.run_id = %d", runID)
-	}
-
-	query := fmt.Sprintf(`
-		WITH latest_enter AS (
-			SELECT run_id, trace_id, function_name, step
-			FROM %[1]s
-			WHERE trace_kind = 'Enter'
-			QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id, trace_id ORDER BY step DESC) = 1
-		),
-		paired AS (
-			SELECT
-				e.function_name,
-				x.step - e.step AS duration
-			FROM latest_enter e
-			JOIN %[1]s x
-			  ON e.run_id = x.run_id
-			  AND e.trace_id = x.trace_id
-			  AND x.trace_kind = 'Exit'
-			%[2]s
-		),
-		enter_counts AS (
-			SELECT function_name, COUNT(*) AS total_enters
-			FROM %[1]s
-			WHERE trace_kind = 'Enter'
-			%[3]s
-			GROUP BY function_name
-		),
-		exit_counts AS (
-			SELECT function_name, COUNT(*) AS total_exits
-			FROM %[1]s
-			WHERE trace_kind = 'Exit'
-			%[3]s
-			GROUP BY function_name
-		)
-		SELECT
-			p.function_name,
-			COUNT(*) AS cnt,
-			COALESCE(ec.total_enters, 0) - COUNT(*) AS unpaired_count,
-			MIN(p.duration) AS min_dur,
-			MAX(p.duration) AS max_dur,
-			AVG(p.duration) AS mean_dur,
-			STDDEV_POP(p.duration) AS stddev_dur,
-			PERCENTILE_DISC(0.50) WITHIN GROUP (ORDER BY p.duration) AS p50,
-			PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY p.duration) AS p95,
-			PERCENTILE_DISC(0.99) WITHIN GROUP (ORDER BY p.duration) AS p99,
-			COALESCE(ec.total_enters, 0) AS total_enters
-		FROM paired p
-		LEFT JOIN enter_counts ec ON p.function_name = ec.function_name
-		GROUP BY p.function_name, ec.total_enters
-		ORDER BY p.function_name
-	`, src, whereClause, runIDFilter(runID))
-
-	rows, err := db.Query(query)
+	batches, err := batchesFor(dbPath, runID, batchSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query duration stats: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
 
-	var result DurationResult
-	for rows.Next() {
-		var s FunctionDurationStats
-		var meanDur, stddevDur sql.NullFloat64
-		var totalEnters int
+	durations := make(Hist)
+	enters := make(Counters)
 
-		if err := rows.Scan(
-			&s.FunctionName, &s.Count, &s.UnpairedCount,
-			&s.Min, &s.Max, &meanDur, &stddevDur,
-			&s.P50, &s.P95, &s.P99, &totalEnters,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan duration row: %w", err)
+	for _, sel := range batches {
+		src := reader.TracesSource(dbPath, sel)
+
+		// The latest Enter per (run, trace) paired with its Exit. The run
+		// filter lives in src, so it applies to the window function too rather
+		// than only to the join result.
+		histQuery := fmt.Sprintf(`
+			WITH latest_enter AS (
+				SELECT run_id, trace_id, function_name, step
+				FROM %[1]s
+				WHERE trace_kind = 'Enter'
+				QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id, trace_id ORDER BY step DESC) = 1
+			),
+			paired AS (
+				SELECT e.function_name, x.step - e.step AS duration
+				FROM latest_enter e
+				JOIN %[1]s x
+				  ON e.run_id = x.run_id
+				  AND e.trace_id = x.trace_id
+				  AND x.trace_kind = 'Exit'
+			)
+			SELECT function_name, duration, COUNT(*) AS n
+			FROM paired
+			GROUP BY function_name, duration
+		`, src)
+		if err := scanHist(db, histQuery, durations); err != nil {
+			return nil, fmt.Errorf("failed to query duration stats: %w", err)
 		}
 
-		if meanDur.Valid {
-			s.Mean = meanDur.Float64
+		enterQuery := fmt.Sprintf(`
+			SELECT function_name, COUNT(*) AS total_enters
+			FROM %s
+			WHERE trace_kind = 'Enter'
+			GROUP BY function_name
+		`, src)
+		if err := scanCounters(db, enterQuery, enters); err != nil {
+			return nil, fmt.Errorf("failed to query enter counts: %w", err)
 		}
-		if stddevDur.Valid {
-			s.Stddev = stddevDur.Float64
+	}
+
+	result := &DurationResult{}
+	for _, fn := range durations.Functions() {
+		st := durations.Stats(fn)
+		s := FunctionDurationStats{
+			FunctionName: fn,
+			Count:        int(st.Count),
+			Min:          int(st.Min),
+			Max:          int(st.Max),
+			Mean:         st.Mean,
+			Stddev:       st.Stddev,
+			P50:          int(durations.Percentile(fn, 0.50)),
+			P95:          int(durations.Percentile(fn, 0.95)),
+			P99:          int(durations.Percentile(fn, 0.99)),
 		}
+
+		totalEnters := enters[fn]
+		s.UnpairedCount = int(totalEnters - st.Count)
 		if totalEnters > 0 {
 			s.UnpairedRatio = float64(s.UnpairedCount) / float64(totalEnters)
 		}
@@ -132,17 +115,9 @@ func ComputeDuration(dbPath string, runID int64) (*DurationResult, error) {
 
 		result.Functions = append(result.Functions, s)
 	}
-
-	return &result, rows.Err()
+	return result, nil
 }
 
-// runIDFilter returns a SQL AND clause for filtering by run_id, or empty string.
-func runIDFilter(runID int64) string {
-	if runID >= 0 {
-		return fmt.Sprintf("AND run_id = %d", runID)
-	}
-	return ""
-}
 
 // Round helper for display.
 func roundFloat(val float64, precision int) float64 {

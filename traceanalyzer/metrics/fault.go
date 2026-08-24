@@ -3,6 +3,7 @@ package metrics
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 
 	"github.com/benaepli/turnpike-traceanalyzer/reader"
 )
@@ -36,242 +37,213 @@ type FaultResult struct {
 	CrashCoverage   []FunctionCrashCoverage `json:"crash_coverage"`
 }
 
-// ComputeFault computes crash proximity metrics by joining traces and executions.
-func ComputeFault(dbPath string, runID int64) (*FaultResult, error) {
+// ComputeFault computes crash proximity metrics by joining traces and
+// executions, batching over runs. Interrupt and coverage counts sum across
+// batches; the crash-distance aggregate merges as min/max plus a running
+// sum and count.
+func ComputeFault(dbPath string, runID int64, batchSize int) (*FaultResult, error) {
 	db, err := reader.OpenDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
+	batches, err := batchesFor(dbPath, runID, batchSize)
+	if err != nil {
+		return nil, err
+	}
+
+	interrupts := make(Counters)
+	crashRuns := make(Counters)
+	var totalRuns int64
+	dist := crashDistanceAcc{}
+
+	for _, sel := range batches {
+		tSrc := reader.TracesSource(dbPath, sel)
+		eSrc := reader.ExecutionsSource(dbPath, sel)
+
+		if err := collectCrashDuringFunc(db, tSrc, eSrc, interrupts); err != nil {
+			return nil, err
+		}
+		if err := collectCrashDistance(db, tSrc, eSrc, &dist); err != nil {
+			return nil, err
+		}
+		batchRuns, err := collectCrashCoverage(db, tSrc, eSrc, crashRuns)
+		if err != nil {
+			return nil, err
+		}
+		totalRuns += batchRuns
+	}
+
 	result := &FaultResult{}
 
-	if err := computeCrashDuringFunc(db, dbPath, runID, result); err != nil {
-		return nil, err
+	for fn, n := range interrupts {
+		result.CrashDuringFunc = append(result.CrashDuringFunc, CrashDuringFunction{
+			FunctionName:   fn,
+			InterruptCount: int(n),
+		})
 	}
-	if err := computeCrashDistance(db, dbPath, runID, result); err != nil {
-		return nil, err
+	sort.Slice(result.CrashDuringFunc, func(i, j int) bool {
+		a, b := result.CrashDuringFunc[i], result.CrashDuringFunc[j]
+		if a.InterruptCount != b.InterruptCount {
+			return a.InterruptCount > b.InterruptCount
+		}
+		return a.FunctionName < b.FunctionName
+	})
+
+	for fn, n := range crashRuns {
+		c := FunctionCrashCoverage{
+			FunctionName:  fn,
+			RunsWithCrash: int(n),
+			TotalRuns:     int(totalRuns),
+		}
+		if totalRuns > 0 {
+			c.CoverageFraction = float64(n) / float64(totalRuns)
+		}
+		result.CrashCoverage = append(result.CrashCoverage, c)
 	}
-	if err := computeCrashCoverage(db, dbPath, runID, result); err != nil {
-		return nil, err
+	sort.Slice(result.CrashCoverage, func(i, j int) bool {
+		a, b := result.CrashCoverage[i], result.CrashCoverage[j]
+		if a.CoverageFraction != b.CoverageFraction {
+			return a.CoverageFraction > b.CoverageFraction
+		}
+		return a.FunctionName < b.FunctionName
+	})
+
+	if dist.count > 0 {
+		result.CrashDistance = &CrashDistanceStats{
+			CrashCount:   int(dist.count),
+			MinDistance:  int(dist.min),
+			MaxDistance:  int(dist.max),
+			MeanDistance: float64(dist.sum) / float64(dist.count),
+		}
 	}
 
 	return result, nil
 }
 
-func computeCrashDuringFunc(db *sql.DB, dbPath string, runID int64, result *FaultResult) error {
-	tSrc := reader.TracesSource(dbPath)
-	eSrc := reader.ExecutionsSource(dbPath)
-	filter := runIDFilter(runID)
+// crashDistanceAcc merges per-batch crash-distance aggregates. Keeping the sum
+// and count separately makes the mean exact regardless of how runs are split
+// into batches.
+type crashDistanceAcc struct {
+	count int64
+	min   int64
+	max   int64
+	sum   int64
+}
 
-	// Find invocations that were active when a crash happened on the same node.
-	// Crash events in executions have action ending with 'System.Crash'.
-	// We use seq_num from executions as the ordering proxy for crash timing.
+// collectCrashDuringFunc counts invocations that were still active when a crash
+// landed in the same run.
+func collectCrashDuringFunc(db *sql.DB, tSrc, eSrc string, interrupts Counters) error {
 	query := fmt.Sprintf(`
 		WITH paired AS (
-			SELECT
-				e.run_id,
-				e.node_id,
-				e.function_name,
-				e.step AS enter_step,
-				x.step AS exit_step
+			SELECT e.run_id, e.node_id, e.function_name,
+			       e.step AS enter_step, x.step AS exit_step
 			FROM %[1]s e
 			JOIN %[1]s x
 			  ON e.run_id = x.run_id
 			  AND e.trace_id = x.trace_id
 			  AND e.trace_kind = 'Enter'
 			  AND x.trace_kind = 'Exit'
-			WHERE 1=1 %[3]s
 		),
 		crashes AS (
 			SELECT run_id, seq_num
 			FROM %[2]s
 			WHERE kind = 'Invocation' AND action LIKE '%%System.Crash'
-			%[3]s
 		)
-		SELECT
-			p.function_name,
-			COUNT(*) AS interrupt_count
+		SELECT p.function_name, COUNT(*) AS interrupt_count
 		FROM paired p
 		JOIN crashes c
 		  ON p.run_id = c.run_id
 		  AND c.seq_num >= p.enter_step
 		  AND c.seq_num <= p.exit_step
 		GROUP BY p.function_name
-		ORDER BY interrupt_count DESC
-	`, tSrc, eSrc, filter)
+	`, tSrc, eSrc)
 
-	rows, err := db.Query(query)
-	if err != nil {
+	if err := scanCounters(db, query, interrupts); err != nil {
 		return fmt.Errorf("failed to query crash-during-function: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var s CrashDuringFunction
-		if err := rows.Scan(&s.FunctionName, &s.InterruptCount); err != nil {
-			return fmt.Errorf("failed to scan crash-during-function row: %w", err)
-		}
-		result.CrashDuringFunc = append(result.CrashDuringFunc, s)
-	}
-	return rows.Err()
+	return nil
 }
 
-func computeCrashDistance(db *sql.DB, dbPath string, runID int64, result *FaultResult) error {
-	tSrc := reader.TracesSource(dbPath)
-	eSrc := reader.ExecutionsSource(dbPath)
-	filter := runIDFilter(runID)
-
-	// For each crash event, find the minimum distance to any trace event on the same node/run.
+// collectCrashDistance folds one batch's crash-to-trace distances into acc.
+func collectCrashDistance(db *sql.DB, tSrc, eSrc string, acc *crashDistanceAcc) error {
 	query := fmt.Sprintf(`
 		WITH crashes AS (
 			SELECT run_id, seq_num
 			FROM %[2]s
 			WHERE kind = 'Invocation' AND action LIKE '%%System.Crash'
-			%[3]s
 		),
-		distances AS (
-			SELECT
-				ABS(c.seq_num - t.step) AS dist
+		crash_trace_dist AS (
+			SELECT c.run_id, c.seq_num AS crash_seq, MIN(ABS(c.seq_num - t.step)) AS min_dist
 			FROM crashes c
-			JOIN %[1]s t
-			  ON c.run_id = t.run_id
+			JOIN %[1]s t ON c.run_id = t.run_id
+			GROUP BY c.run_id, c.seq_num
 		)
-		SELECT
-			COUNT(DISTINCT c.seq_num || '-' || c.run_id) AS crash_count,
-			MIN(d.min_dist) AS min_distance,
-			MAX(d.min_dist) AS max_distance,
-			AVG(d.min_dist) AS mean_distance
-		FROM crashes c
-		CROSS JOIN LATERAL (
-			SELECT MIN(ABS(c.seq_num - t.step)) AS min_dist
-			FROM %[1]s t
-			WHERE t.run_id = c.run_id
-		) d
-	`, tSrc, eSrc, filter)
+		SELECT COUNT(*), MIN(min_dist), MAX(min_dist), SUM(min_dist)
+		FROM crash_trace_dist
+	`, tSrc, eSrc)
 
-	// Try the LATERAL join version first; fall back to a simpler query if not supported
-	var s CrashDistanceStats
-	var meanDist sql.NullFloat64
-	var minDist, maxDist sql.NullInt64
-	err := db.QueryRow(query).Scan(&s.CrashCount, &minDist, &maxDist, &meanDist)
-	if err != nil {
-		// Fallback: simpler approach without LATERAL
-		query = fmt.Sprintf(`
-			WITH crashes AS (
-				SELECT run_id, seq_num
-				FROM %[2]s
-				WHERE kind = 'Invocation' AND action LIKE '%%System.Crash'
-				%[3]s
-			),
-			crash_trace_dist AS (
-				SELECT
-					c.run_id,
-					c.seq_num AS crash_seq,
-					MIN(ABS(c.seq_num - t.step)) AS min_dist
-				FROM crashes c
-				JOIN %[1]s t ON c.run_id = t.run_id
-				GROUP BY c.run_id, c.seq_num
-			)
-			SELECT
-				COUNT(*) AS crash_count,
-				MIN(min_dist) AS min_distance,
-				MAX(min_dist) AS max_distance,
-				AVG(min_dist) AS mean_distance
-			FROM crash_trace_dist
-		`, tSrc, eSrc, filter)
-
-		err = db.QueryRow(query).Scan(&s.CrashCount, &minDist, &maxDist, &meanDist)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				result.CrashDistance = nil
-				return nil
-			}
-			return fmt.Errorf("failed to query crash distance: %w", err)
+	var count int64
+	var minDist, maxDist, sumDist sql.NullInt64
+	if err := db.QueryRow(query).Scan(&count, &minDist, &maxDist, &sumDist); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
 		}
+		return fmt.Errorf("failed to query crash distance: %w", err)
+	}
+	if count == 0 {
+		return nil
 	}
 
-	if minDist.Valid {
-		s.MinDistance = int(minDist.Int64)
+	if acc.count == 0 || (minDist.Valid && minDist.Int64 < acc.min) {
+		acc.min = minDist.Int64
 	}
-	if maxDist.Valid {
-		s.MaxDistance = int(maxDist.Int64)
+	if acc.count == 0 || (maxDist.Valid && maxDist.Int64 > acc.max) {
+		acc.max = maxDist.Int64
 	}
-	if meanDist.Valid {
-		s.MeanDistance = meanDist.Float64
-	}
-	if s.CrashCount > 0 {
-		result.CrashDistance = &s
-	}
+	acc.count += count
+	acc.sum += sumDist.Int64
 	return nil
 }
 
-func computeCrashCoverage(db *sql.DB, dbPath string, runID int64, result *FaultResult) error {
-	tSrc := reader.TracesSource(dbPath)
-	eSrc := reader.ExecutionsSource(dbPath)
-	filter := runIDFilter(runID)
-
+// collectCrashCoverage counts, per function, the runs where it was active
+// during a crash, and returns the batch's total run count.
+func collectCrashCoverage(db *sql.DB, tSrc, eSrc string, crashRuns Counters) (int64, error) {
 	query := fmt.Sprintf(`
 		WITH paired AS (
-			SELECT
-				e.run_id,
-				e.node_id,
-				e.function_name,
-				e.step AS enter_step,
-				x.step AS exit_step
+			SELECT e.run_id, e.node_id, e.function_name,
+			       e.step AS enter_step, x.step AS exit_step
 			FROM %[1]s e
 			JOIN %[1]s x
 			  ON e.run_id = x.run_id
 			  AND e.trace_id = x.trace_id
 			  AND e.trace_kind = 'Enter'
 			  AND x.trace_kind = 'Exit'
-			WHERE 1=1 %[3]s
 		),
 		crashes AS (
 			SELECT run_id, seq_num
 			FROM %[2]s
 			WHERE kind = 'Invocation' AND action LIKE '%%System.Crash'
-			%[3]s
-		),
-		func_crash_runs AS (
-			SELECT DISTINCT
-				p.function_name,
-				p.run_id
-			FROM paired p
-			JOIN crashes c
-			  ON p.run_id = c.run_id
-			  AND c.seq_num >= p.enter_step
-			  AND c.seq_num <= p.exit_step
-		),
-		total_runs AS (
-			SELECT COUNT(DISTINCT run_id) AS cnt FROM %[1]s WHERE 1=1 %[3]s
 		)
-		SELECT
-			fcr.function_name,
-			COUNT(DISTINCT fcr.run_id) AS runs_with_crash,
-			tr.cnt AS total_runs,
-			CASE WHEN tr.cnt > 0
-				THEN CAST(COUNT(DISTINCT fcr.run_id) AS DOUBLE) / tr.cnt
-				ELSE 0
-			END AS coverage_fraction
-		FROM func_crash_runs fcr
-		CROSS JOIN total_runs tr
-		GROUP BY fcr.function_name, tr.cnt
-		ORDER BY coverage_fraction DESC
-	`, tSrc, eSrc, filter)
+		SELECT p.function_name, COUNT(DISTINCT p.run_id) AS runs_with_crash
+		FROM paired p
+		JOIN crashes c
+		  ON p.run_id = c.run_id
+		  AND c.seq_num >= p.enter_step
+		  AND c.seq_num <= p.exit_step
+		GROUP BY p.function_name
+	`, tSrc, eSrc)
 
-	rows, err := db.Query(query)
-	if err != nil {
-		return fmt.Errorf("failed to query crash coverage: %w", err)
+	if err := scanCounters(db, query, crashRuns); err != nil {
+		return 0, fmt.Errorf("failed to query crash coverage: %w", err)
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var s FunctionCrashCoverage
-		if err := rows.Scan(&s.FunctionName, &s.RunsWithCrash, &s.TotalRuns, &s.CoverageFraction); err != nil {
-			return fmt.Errorf("failed to scan crash coverage row: %w", err)
-		}
-		result.CrashCoverage = append(result.CrashCoverage, s)
+	var totalRuns int64
+	if err := db.QueryRow(fmt.Sprintf(
+		`SELECT COUNT(DISTINCT run_id) FROM %s`, tSrc,
+	)).Scan(&totalRuns); err != nil {
+		return 0, fmt.Errorf("failed to query total runs: %w", err)
 	}
-	return rows.Err()
+	return totalRuns, nil
 }

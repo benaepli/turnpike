@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -43,76 +45,119 @@ type GradeResult struct {
 	WallMs              int64         `json:"wall_ms"`
 }
 
-// ComputeGrade computes L0/L1 over the executions and traces tables with
-// aggregate DuckDB queries (no per-run Go loop, so it stays cheap on large
-// corpora).
-func ComputeGrade(dbPath string, runID int64) (*GradeResult, error) {
+// ComputeGrade computes L0/L1 over the executions and traces tables. It runs
+// one batch of runs at a time: every figure it reports is either a row count or
+// a count(DISTINCT run_id), and batches cover disjoint run ranges, so summing
+// the partials is exact.
+func ComputeGrade(dbPath string, runID int64, batchSize int) (*GradeResult, error) {
 	db, err := reader.OpenDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
-	exec := reader.ExecutionsSource(dbPath)
-	traces := reader.TracesSource(dbPath)
-	filter := runIDFilter(runID)
+	batches, err := batchesFor(dbPath, runID, batchSize)
+	if err != nil {
+		return nil, err
+	}
+
 	start := time.Now()
 	result := &GradeResult{}
+	h := &HazardResult{}
 
-	// Total runs (any executions row).
-	if err := db.QueryRow(fmt.Sprintf(
-		`SELECT count(DISTINCT run_id) FROM %s WHERE 1=1 %s`, exec, filter,
-	)).Scan(&result.TotalRuns); err != nil {
-		return nil, fmt.Errorf("total runs: %w", err)
+	for _, sel := range batches {
+		exec := reader.ExecutionsSource(dbPath, sel)
+		traces := reader.TracesSource(dbPath, sel)
+
+		var totalRuns int64
+		if err := db.QueryRow(fmt.Sprintf(
+			`SELECT count(DISTINCT run_id) FROM %s`, exec,
+		)).Scan(&totalRuns); err != nil {
+			return nil, fmt.Errorf("total runs: %w", err)
+		}
+		result.TotalRuns += totalRuns
+
+		// L0: client invocation/response pairing (unpaired = deadlock/waste proxy).
+		var invocations, responses, unpaired, runsWithUnpaired int64
+		if err := db.QueryRow(fmt.Sprintf(`
+			WITH inv AS (
+				SELECT run_id, count(*) AS n FROM %[1]s
+				WHERE kind = 'Invocation' AND action LIKE 'ClientInterface.%%'
+				GROUP BY run_id
+			), resp AS (
+				SELECT run_id, count(*) AS n FROM %[1]s
+				WHERE kind = 'Response' AND action LIKE 'ClientInterface.%%'
+				GROUP BY run_id
+			)
+			SELECT
+				coalesce(sum(inv.n), 0),
+				coalesce(sum(coalesce(resp.n, 0)), 0),
+				coalesce(sum(CASE WHEN inv.n > coalesce(resp.n, 0) THEN inv.n - coalesce(resp.n, 0) ELSE 0 END), 0),
+				coalesce(sum(CASE WHEN inv.n > coalesce(resp.n, 0) THEN 1 ELSE 0 END), 0)
+			FROM inv LEFT JOIN resp USING (run_id)
+		`, exec)).Scan(&invocations, &responses, &unpaired, &runsWithUnpaired); err != nil {
+			return nil, fmt.Errorf("invocation pairing: %w", err)
+		}
+		result.Invocations += invocations
+		result.Responses += responses
+		result.UnpairedInvocations += unpaired
+		result.RunsWithUnpaired += runsWithUnpaired
+
+		if err := accumulateHazards(db, exec, traces, h); err != nil {
+			return nil, err
+		}
 	}
 
-	// L0: client invocation/response pairing (unpaired = deadlock/waste proxy).
-	if err := db.QueryRow(fmt.Sprintf(`
-		WITH inv AS (
-			SELECT run_id, count(*) AS n FROM %s
-			WHERE kind = 'Invocation' AND action LIKE 'ClientInterface.%%' %s
-			GROUP BY run_id
-		), resp AS (
-			SELECT run_id, count(*) AS n FROM %s
-			WHERE kind = 'Response' AND action LIKE 'ClientInterface.%%' %s
-			GROUP BY run_id
-		)
-		SELECT
-			coalesce(sum(inv.n), 0),
-			coalesce(sum(coalesce(resp.n, 0)), 0),
-			coalesce(sum(CASE WHEN inv.n > coalesce(resp.n, 0) THEN inv.n - coalesce(resp.n, 0) ELSE 0 END), 0),
-			coalesce(sum(CASE WHEN inv.n > coalesce(resp.n, 0) THEN 1 ELSE 0 END), 0)
-		FROM inv LEFT JOIN resp USING (run_id)
-	`, exec, filter, exec, filter)).Scan(
-		&result.Invocations, &result.Responses,
-		&result.UnpairedInvocations, &result.RunsWithUnpaired,
-	); err != nil {
-		return nil, fmt.Errorf("invocation pairing: %w", err)
-	}
 	if result.Invocations > 0 {
 		result.UnpairedFraction = float64(result.UnpairedInvocations) / float64(result.Invocations)
 	}
+	if result.TotalRuns > 0 {
+		n := float64(result.TotalRuns)
+		h.CrashInflightRate = float64(h.CrashInflightRuns) / n
+		h.StaleIncarnationRate = float64(h.StaleIncarnationRuns) / n
+		h.ReceiverStaleRate = float64(h.ReceiverStaleRuns) / n
+		h.TwoNodeCrashRecoverRate = float64(h.TwoNodeCrashRecoverRuns) / n
+	}
+	result.Hazards = h
+	result.WallMs = time.Since(start).Milliseconds()
+	return result, nil
+}
 
-	// L1 hazards. Shared CTE prelude: crash/recover rows (node from the VNode
-	// payload), dispatches (node_id = sender), and first-Enter deliveries.
-	prelude := fmt.Sprintf(`
-		WITH crashes AS (
+// accumulateHazards adds one batch's L1 hazard run-counts into h.
+//
+// The four hazard queries share the same crash/recover/dispatch/delivery
+// relations, so they are materialised once into temp tables rather than
+// re-derived per query -- previously each hazard re-scanned executions twice
+// and traces twice, rebuilding the delivery group-by four times over.
+func accumulateHazards(db *sql.DB, exec, traces string, h *HazardResult) error {
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		return fmt.Errorf("hazard connection: %w", err)
+	}
+	defer conn.Close()
+
+	ctx := context.Background()
+	setup := []string{
+		`CREATE OR REPLACE TEMP TABLE crashes AS
 			SELECT run_id, CAST(json_extract(payload, '$[0].value.index') AS BIGINT) AS node, step
-			FROM %s WHERE kind = 'Crash' %s
-		), recovers AS (
+			FROM ` + exec + ` WHERE kind = 'Crash'`,
+		`CREATE OR REPLACE TEMP TABLE recovers AS
 			SELECT run_id, CAST(json_extract(payload, '$[0].value.index') AS BIGINT) AS node, step
-			FROM %s WHERE kind = 'Recover' %s
-		), d AS (
+			FROM ` + exec + ` WHERE kind = 'Recover'`,
+		`CREATE OR REPLACE TEMP TABLE d AS
 			SELECT run_id, node_id AS sender, step, trace_id
-			FROM %s WHERE trace_kind = 'Dispatch' %s
-		), e AS (
+			FROM ` + traces + ` WHERE trace_kind = 'Dispatch'`,
+		`CREATE OR REPLACE TEMP TABLE e AS
 			SELECT run_id, trace_id, min(node_id) AS receiver, min(step) AS estep
-			FROM %s WHERE trace_kind = 'Enter' %s
-			GROUP BY run_id, trace_id
-		)
-	`, exec, filter, exec, filter, traces, filter, traces, filter)
+			FROM ` + traces + ` WHERE trace_kind = 'Enter'
+			GROUP BY run_id, trace_id`,
+	}
+	for _, stmt := range setup {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("hazard prelude: %w", err)
+		}
+	}
 
-	h := &HazardResult{}
 	queries := []struct {
 		dst  *int64
 		name string
@@ -143,18 +188,11 @@ func ComputeGrade(dbPath string, runID int64) (*GradeResult, error) {
 			)`},
 	}
 	for _, q := range queries {
-		if err := db.QueryRow(prelude + q.sql).Scan(q.dst); err != nil {
-			return nil, fmt.Errorf("hazard %s: %w", q.name, err)
+		var n int64
+		if err := conn.QueryRowContext(ctx, q.sql).Scan(&n); err != nil {
+			return fmt.Errorf("hazard %s: %w", q.name, err)
 		}
+		*q.dst += n
 	}
-	if result.TotalRuns > 0 {
-		n := float64(result.TotalRuns)
-		h.CrashInflightRate = float64(h.CrashInflightRuns) / n
-		h.StaleIncarnationRate = float64(h.StaleIncarnationRuns) / n
-		h.ReceiverStaleRate = float64(h.ReceiverStaleRuns) / n
-		h.TwoNodeCrashRecoverRate = float64(h.TwoNodeCrashRecoverRuns) / n
-	}
-	result.Hazards = h
-	result.WallMs = time.Since(start).Milliseconds()
-	return result, nil
+	return nil
 }

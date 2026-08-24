@@ -3,6 +3,7 @@ package metrics
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 
 	"github.com/benaepli/turnpike-traceanalyzer/reader"
 )
@@ -24,110 +25,130 @@ type CausalChainDiversity struct {
 	TotalInvocations int    `json:"total_invocations"`
 }
 
-// ComputeFingerprint computes exploration diversity metrics using DuckDB SQL.
-func ComputeFingerprint(dbPath string, runID int64) (*FingerprintResult, error) {
+// ComputeFingerprint computes exploration diversity metrics.
+//
+// The distinct-counts here cannot simply be summed across batches: a run
+// fingerprint is unique per run, but causal_operation_id values recur across
+// runs. So each batch returns its raw keys and the distinct-counting happens in
+// Go over an accumulated set, which keeps the answer exact while bounding what
+// the engine has to hold at once.
+func ComputeFingerprint(dbPath string, runID int64, batchSize int) (*FingerprintResult, error) {
 	db, err := reader.OpenDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
-	result := &FingerprintResult{}
-
-	if err := computeTraceFingerprint(db, dbPath, runID, result); err != nil {
-		return nil, err
-	}
-	if err := computeNodeProfiles(db, dbPath, runID, result); err != nil {
-		return nil, err
-	}
-	if err := computeCausalChains(db, dbPath, runID, result); err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func computeTraceFingerprint(db *sql.DB, dbPath string, runID int64, result *FingerprintResult) error {
-	src := reader.TracesSource(dbPath)
-	filter := runIDFilter(runID)
-
-	// Per run, hash the ordered (function_name, trace_kind) sequence.
-	// Count distinct fingerprints across all runs.
-	query := fmt.Sprintf(`
-		WITH per_run_seq AS (
-			SELECT
-				run_id,
-				MD5(STRING_AGG(function_name || ':' || trace_kind, ',' ORDER BY seq_num)) AS fingerprint
-			FROM %s
-			WHERE 1=1 %s
-			GROUP BY run_id
-		)
-		SELECT
-			COUNT(*) AS total_runs,
-			COUNT(DISTINCT fingerprint) AS unique_fingerprints
-		FROM per_run_seq
-	`, src, filter)
-
-	err := db.QueryRow(query).Scan(&result.TotalRuns, &result.UniqueFingerprints)
+	batches, err := batchesFor(dbPath, runID, batchSize)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil
-		}
-		return fmt.Errorf("failed to query trace fingerprints: %w", err)
+		return nil, err
 	}
 
+	result := &FingerprintResult{}
+	fingerprints := make(map[string]struct{})
+	profiles := make(map[string]struct{})
+	chains := make(map[string]map[int64]struct{})
+	invocations := make(Counters)
+
+	for _, sel := range batches {
+		src := reader.TracesSource(dbPath, sel)
+		if err := collectTraceFingerprints(db, src, &result.TotalRuns, fingerprints); err != nil {
+			return nil, err
+		}
+		if err := collectNodeProfiles(db, src, profiles); err != nil {
+			return nil, err
+		}
+		if err := collectCausalChains(db, src, chains, invocations); err != nil {
+			return nil, err
+		}
+	}
+
+	result.UniqueFingerprints = len(fingerprints)
+	result.UniqueNodeProfiles = len(profiles)
 	if result.TotalRuns > 0 {
 		result.DiversityRatio = float64(result.UniqueFingerprints) / float64(result.TotalRuns)
 	}
-	return nil
+
+	names := make([]string, 0, len(chains))
+	for fn := range chains {
+		names = append(names, fn)
+	}
+	sort.Strings(names)
+	for _, fn := range names {
+		result.CausalChains = append(result.CausalChains, CausalChainDiversity{
+			FunctionName:     fn,
+			DistinctChains:   len(chains[fn]),
+			TotalInvocations: int(invocations[fn]),
+		})
+	}
+	return result, nil
 }
 
-func computeNodeProfiles(db *sql.DB, dbPath string, runID int64, result *FingerprintResult) error {
-	src := reader.TracesSource(dbPath)
-	filter := runIDFilter(runID)
-
-	// Per (run, node), build function_name -> call_count vector, then count distinct profiles.
+// collectTraceFingerprints hashes each run's ordered (function_name, trace_kind)
+// sequence and adds the hashes to seen.
+func collectTraceFingerprints(db *sql.DB, src string, totalRuns *int, seen map[string]struct{}) error {
 	query := fmt.Sprintf(`
-		WITH per_node_profile AS (
-			SELECT
-				run_id,
-				node_id,
-				MD5(STRING_AGG(function_name || ':' || CAST(cnt AS VARCHAR), ',' ORDER BY function_name)) AS profile
-			FROM (
-				SELECT run_id, node_id, function_name, COUNT(*) AS cnt
-				FROM %s
-				WHERE trace_kind = 'Enter' %s
-				GROUP BY run_id, node_id, function_name
-			) sub
-			GROUP BY run_id, node_id
-		)
-		SELECT COUNT(DISTINCT profile) FROM per_node_profile
-	`, src, filter)
+		SELECT MD5(STRING_AGG(function_name || ':' || trace_kind, ',' ORDER BY seq_num)) AS fingerprint
+		FROM %s
+		GROUP BY run_id
+	`, src)
 
-	err := db.QueryRow(query).Scan(&result.UniqueNodeProfiles)
-	if err != nil && err != sql.ErrNoRows {
+	rows, err := db.Query(query)
+	if err != nil {
+		return fmt.Errorf("failed to query trace fingerprints: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var fp string
+		if err := rows.Scan(&fp); err != nil {
+			return fmt.Errorf("failed to scan fingerprint: %w", err)
+		}
+		*totalRuns++
+		seen[fp] = struct{}{}
+	}
+	return rows.Err()
+}
+
+// collectNodeProfiles hashes each (run, node) function-call-count vector.
+func collectNodeProfiles(db *sql.DB, src string, seen map[string]struct{}) error {
+	query := fmt.Sprintf(`
+		SELECT MD5(STRING_AGG(function_name || ':' || CAST(cnt AS VARCHAR), ',' ORDER BY function_name)) AS profile
+		FROM (
+			SELECT run_id, node_id, function_name, COUNT(*) AS cnt
+			FROM %s
+			WHERE trace_kind = 'Enter'
+			GROUP BY run_id, node_id, function_name
+		) sub
+		GROUP BY run_id, node_id
+	`, src)
+
+	rows, err := db.Query(query)
+	if err != nil {
 		return fmt.Errorf("failed to query node profiles: %w", err)
 	}
-	return nil
+	defer rows.Close()
+
+	for rows.Next() {
+		var profile string
+		if err := rows.Scan(&profile); err != nil {
+			return fmt.Errorf("failed to scan node profile: %w", err)
+		}
+		seen[profile] = struct{}{}
+	}
+	return rows.Err()
 }
 
-func computeCausalChains(db *sql.DB, dbPath string, runID int64, result *FingerprintResult) error {
-	src := reader.TracesSource(dbPath)
-	filter := runIDFilter(runID)
-
-	// Count distinct causal_operation_id values per function across all runs.
+// collectCausalChains records the causal operation ids seen per function, plus
+// the invocation count. The ids recur across runs, so they are unioned rather
+// than counted per batch.
+func collectCausalChains(db *sql.DB, src string, chains map[string]map[int64]struct{}, invocations Counters) error {
 	query := fmt.Sprintf(`
-		SELECT
-			function_name,
-			COUNT(DISTINCT causal_operation_id) AS distinct_chains,
-			COUNT(*) AS total_invocations
+		SELECT function_name, causal_operation_id, COUNT(*) AS n
 		FROM %s
-		WHERE trace_kind = 'Enter'
-		  AND causal_operation_id IS NOT NULL
-		  %s
-		GROUP BY function_name
-		ORDER BY function_name
-	`, src, filter)
+		WHERE trace_kind = 'Enter' AND causal_operation_id IS NOT NULL
+		GROUP BY function_name, causal_operation_id
+	`, src)
 
 	rows, err := db.Query(query)
 	if err != nil {
@@ -136,11 +157,16 @@ func computeCausalChains(db *sql.DB, dbPath string, runID int64, result *Fingerp
 	defer rows.Close()
 
 	for rows.Next() {
-		var c CausalChainDiversity
-		if err := rows.Scan(&c.FunctionName, &c.DistinctChains, &c.TotalInvocations); err != nil {
+		var fn string
+		var id, n int64
+		if err := rows.Scan(&fn, &id, &n); err != nil {
 			return fmt.Errorf("failed to scan causal chain row: %w", err)
 		}
-		result.CausalChains = append(result.CausalChains, c)
+		if chains[fn] == nil {
+			chains[fn] = make(map[int64]struct{})
+		}
+		chains[fn][id] = struct{}{}
+		invocations.Add(fn, n)
 	}
 	return rows.Err()
 }

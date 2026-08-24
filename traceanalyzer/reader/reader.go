@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/marcboeker/go-duckdb/v2"
 )
 
 // isParquetDir returns true if the given path is a Parquet output directory.
@@ -35,10 +35,11 @@ func isParquetDir(path string) bool {
 // openDB opens an in-memory DuckDB when path is a Parquet directory, or opens
 // the DuckDB file directly otherwise.
 func openDB(path string) (*sql.DB, error) {
+	opts := duckDBDSNOptions()
 	if isParquetDir(path) {
-		return sql.Open("duckdb", "")
+		return sql.Open("duckdb", opts)
 	}
-	return sql.Open("duckdb", path)
+	return sql.Open("duckdb", path+opts)
 }
 
 // OpenDB opens the database for external use (metrics queries).
@@ -51,11 +52,40 @@ func IsParquetDir(path string) bool {
 	return isParquetDir(path)
 }
 
-// TracesSource returns the SQL table expression for the traces relation.
-func TracesSource(path string) string {
+// RunSel selects a half-open range of run ids, [Lo, Hi). Metrics run one
+// selection at a time so their working set stays proportional to the batch
+// rather than to the whole corpus.
+type RunSel struct {
+	Lo, Hi int64
+	All    bool
+}
+
+// AllRuns selects every run.
+func AllRuns() RunSel { return RunSel{All: true} }
+
+// SingleRun selects exactly one run.
+func SingleRun(id int64) RunSel { return RunSel{Lo: id, Hi: id + 1} }
+
+// Selection maps the -run flag onto a RunSel: negative means all runs.
+func Selection(runID int64) RunSel {
+	if runID < 0 {
+		return AllRuns()
+	}
+	return SingleRun(runID)
+}
+
+// scoped wraps a table expression so the run filter applies to every scan that
+// interpolates it, including the ones inside CTEs.
+func scoped(raw string, sel RunSel) string {
+	if sel.All {
+		return raw
+	}
+	return fmt.Sprintf("(SELECT * FROM %s WHERE run_id >= %d AND run_id < %d)", raw, sel.Lo, sel.Hi)
+}
+
+func rawTracesSource(path string) string {
 	if isParquetDir(path) {
-		base := filepath.Base(path)
-		if base == "traces" {
+		if filepath.Base(path) == "traces" {
 			return fmt.Sprintf("read_parquet('%s', union_by_name=true)", filepath.Join(path, "*.parquet"))
 		}
 		return fmt.Sprintf("read_parquet('%s', union_by_name=true)", filepath.Join(path, "traces", "*.parquet"))
@@ -63,16 +93,49 @@ func TracesSource(path string) string {
 	return "traces"
 }
 
-// ExecutionsSource returns the SQL table expression for the executions relation.
-func ExecutionsSource(path string) string {
+func rawExecutionsSource(path string) string {
 	if isParquetDir(path) {
-		base := filepath.Base(path)
-		if base == "executions" {
+		if filepath.Base(path) == "executions" {
 			return fmt.Sprintf("read_parquet('%s', union_by_name=true)", filepath.Join(path, "*.parquet"))
 		}
 		return fmt.Sprintf("read_parquet('%s', union_by_name=true)", filepath.Join(path, "executions", "*.parquet"))
 	}
 	return "executions"
+}
+
+// TracesSource returns the SQL table expression for the traces relation,
+// restricted to sel.
+func TracesSource(path string, sel RunSel) string {
+	return scoped(rawTracesSource(path), sel)
+}
+
+// ExecutionsSource returns the SQL table expression for the executions
+// relation, restricted to sel.
+func ExecutionsSource(path string, sel RunSel) string {
+	return scoped(rawExecutionsSource(path), sel)
+}
+
+// RunBatches groups the corpus's run ids into contiguous half-open ranges of at
+// most batchSize runs. Ranges are contiguous so DuckDB can prune Parquet row
+// groups on the run_id predicate. batchSize <= 0 yields a single all-runs
+// selection.
+func RunBatches(dbPath string, batchSize int) ([]RunSel, error) {
+	if batchSize <= 0 {
+		return []RunSel{AllRuns()}, nil
+	}
+	ids, err := ListRunIDs(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var batches []RunSel
+	for i := 0; i < len(ids); i += batchSize {
+		j := min(i+batchSize, len(ids))
+		batches = append(batches, RunSel{Lo: ids[i], Hi: ids[j-1] + 1})
+	}
+	return batches, nil
 }
 
 // ListRunIDs returns all available run IDs from traces (works for both DuckDB and Parquet).
@@ -83,7 +146,7 @@ func ListRunIDs(dbPath string) ([]int64, error) {
 	}
 	defer db.Close()
 
-	src := TracesSource(dbPath)
+	src := TracesSource(dbPath, AllRuns())
 	query := fmt.Sprintf(`SELECT DISTINCT run_id FROM %s ORDER BY run_id ASC`, src)
 
 	rows, err := db.Query(query)
@@ -103,42 +166,35 @@ func ListRunIDs(dbPath string) ([]int64, error) {
 	return runIDs, rows.Err()
 }
 
-// ReadTraces reads all trace rows for a given run_id (or all runs if runID < 0).
-func ReadTraces(dbPath string, runID int64) ([]TraceRow, error) {
+
+
+// ReadTracesByRun reads trace rows for an explicit set of run_ids, grouped by
+// run. Scanning straight into the map avoids holding a flat slice and the
+// grouped copy at the same time.
+func ReadTracesByRun(dbPath string, runIDs []int64) (map[int64][]TraceRow, error) {
+	if len(runIDs) == 0 {
+		return nil, nil
+	}
 	db, err := openDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
-	src := TracesSource(dbPath)
-	var query string
-	var rows *sql.Rows
-
-	if runID >= 0 {
-		query = fmt.Sprintf(`
-			SELECT run_id, seq_num, node_id, step, function_name, trace_kind,
-			       payload, schedulable_count, trace_id, causal_operation_id
-			FROM %s
-			WHERE run_id = ?
-			ORDER BY run_id, seq_num ASC
-		`, src)
-		rows, err = db.Query(query, runID)
-	} else {
-		query = fmt.Sprintf(`
-			SELECT run_id, seq_num, node_id, step, function_name, trace_kind,
-			       payload, schedulable_count, trace_id, causal_operation_id
-			FROM %s
-			ORDER BY run_id, seq_num ASC
-		`, src)
-		rows, err = db.Query(query)
-	}
+	query := fmt.Sprintf(`
+		SELECT run_id, seq_num, node_id, step, function_name, trace_kind,
+		       payload, schedulable_count, trace_id, causal_operation_id
+		FROM %s
+		WHERE run_id IN (%s)
+		ORDER BY run_id, seq_num ASC
+	`, TracesSource(dbPath, AllRuns()), joinInt64s(runIDs))
+	rows, err := db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query traces: %w", err)
 	}
 	defer rows.Close()
 
-	var result []TraceRow
+	result := make(map[int64][]TraceRow, len(runIDs))
 	for rows.Next() {
 		var t TraceRow
 		if err := rows.Scan(
@@ -148,45 +204,36 @@ func ReadTraces(dbPath string, runID int64) ([]TraceRow, error) {
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan trace row: %w", err)
 		}
-		result = append(result, t)
+		result[t.RunID] = append(result[t.RunID], t)
 	}
 	return result, rows.Err()
 }
 
-// ReadExecutions reads all execution rows for a given run_id (or all runs if runID < 0).
-func ReadExecutions(dbPath string, runID int64) ([]ExecutionRow, error) {
+// ReadExecutionsByRun reads execution rows for an explicit set of run_ids,
+// grouped by run.
+func ReadExecutionsByRun(dbPath string, runIDs []int64) (map[int64][]ExecutionRow, error) {
+	if len(runIDs) == 0 {
+		return nil, nil
+	}
 	db, err := openDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
-	src := ExecutionsSource(dbPath)
-	var query string
-	var rows *sql.Rows
-
-	if runID >= 0 {
-		query = fmt.Sprintf(`
-			SELECT run_id, seq_num, unique_id, client_id, kind, action, payload, step
-			FROM %s
-			WHERE run_id = ?
-			ORDER BY run_id, seq_num ASC
-		`, src)
-		rows, err = db.Query(query, runID)
-	} else {
-		query = fmt.Sprintf(`
-			SELECT run_id, seq_num, unique_id, client_id, kind, action, payload, step
-			FROM %s
-			ORDER BY run_id, seq_num ASC
-		`, src)
-		rows, err = db.Query(query)
-	}
+	query := fmt.Sprintf(`
+		SELECT run_id, seq_num, unique_id, client_id, kind, action, payload, step
+		FROM %s
+		WHERE run_id IN (%s)
+		ORDER BY run_id, seq_num ASC
+	`, ExecutionsSource(dbPath, AllRuns()), joinInt64s(runIDs))
+	rows, err := db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query executions: %w", err)
 	}
 	defer rows.Close()
 
-	var result []ExecutionRow
+	result := make(map[int64][]ExecutionRow, len(runIDs))
 	for rows.Next() {
 		var e ExecutionRow
 		if err := rows.Scan(
@@ -195,89 +242,12 @@ func ReadExecutions(dbPath string, runID int64) ([]ExecutionRow, error) {
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan execution row: %w", err)
 		}
-		result = append(result, e)
+		result[e.RunID] = append(result[e.RunID], e)
 	}
 	return result, rows.Err()
 }
 
-// ReadTracesForRuns reads trace rows for an explicit set of run_ids.
-// Used by budgeted/sampled metrics to avoid materializing every run.
-func ReadTracesForRuns(dbPath string, runIDs []int64) ([]TraceRow, error) {
-	if len(runIDs) == 0 {
-		return nil, nil
-	}
-	db, err := openDB(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-	defer db.Close()
 
-	src := TracesSource(dbPath)
-	query := fmt.Sprintf(`
-		SELECT run_id, seq_num, node_id, step, function_name, trace_kind,
-		       payload, schedulable_count, trace_id, causal_operation_id
-		FROM %s
-		WHERE run_id IN (%s)
-		ORDER BY run_id, seq_num ASC
-	`, src, joinInt64s(runIDs))
-	rows, err := db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query traces: %w", err)
-	}
-	defer rows.Close()
-
-	var result []TraceRow
-	for rows.Next() {
-		var t TraceRow
-		if err := rows.Scan(
-			&t.RunID, &t.SeqNum, &t.NodeID, &t.Step, &t.FunctionName,
-			&t.TraceKind, &t.Payload, &t.SchedulableCount, &t.TraceID,
-			&t.CausalOperationID,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan trace row: %w", err)
-		}
-		result = append(result, t)
-	}
-	return result, rows.Err()
-}
-
-// ReadExecutionsForRuns reads execution rows for an explicit set of run_ids.
-func ReadExecutionsForRuns(dbPath string, runIDs []int64) ([]ExecutionRow, error) {
-	if len(runIDs) == 0 {
-		return nil, nil
-	}
-	db, err := openDB(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-	defer db.Close()
-
-	src := ExecutionsSource(dbPath)
-	query := fmt.Sprintf(`
-		SELECT run_id, seq_num, unique_id, client_id, kind, action, payload, step
-		FROM %s
-		WHERE run_id IN (%s)
-		ORDER BY run_id, seq_num ASC
-	`, src, joinInt64s(runIDs))
-	rows, err := db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query executions: %w", err)
-	}
-	defer rows.Close()
-
-	var result []ExecutionRow
-	for rows.Next() {
-		var e ExecutionRow
-		if err := rows.Scan(
-			&e.RunID, &e.SeqNum, &e.UniqueID, &e.ClientID, &e.Kind,
-			&e.Action, &e.Payload, &e.Step,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan execution row: %w", err)
-		}
-		result = append(result, e)
-	}
-	return result, rows.Err()
-}
 
 // joinInt64s renders ids as a comma-separated SQL list. Values are integers,
 // so direct interpolation is injection-safe.
