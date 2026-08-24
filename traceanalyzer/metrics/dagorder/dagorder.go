@@ -119,10 +119,12 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 	// Compute transitive closure for scoring.
 	allDeps := transitiveClosure(cfg.Dependencies)
 
-	var execs []reader.ExecutionRow
-	var traces []reader.TraceRow
+	// Determine the run-id set up front; rows are read in bounded chunks
+	// below (memory is ~2.4 GB per 1000 materialized runs, so reading a whole
+	// corpus at once is not viable for grade-everything mode).
 	availableRuns := 0
 	sampledFlag := false
+	var allIDs []int64
 	if runID < 0 {
 		ids, err := reader.ListRunIDs(dbPath)
 		if err != nil {
@@ -132,55 +134,13 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 		if opts.MaxRuns > 0 && len(ids) > opts.MaxRuns {
 			ids = sampleRunIDs(ids, opts.MaxRuns)
 			sampledFlag = true
-			if execs, err = reader.ReadExecutionsForRuns(dbPath, ids); err != nil {
-				return nil, fmt.Errorf("read executions: %w", err)
-			}
-			if traces, err = reader.ReadTracesForRuns(dbPath, ids); err != nil {
-				return nil, fmt.Errorf("read traces: %w", err)
-			}
-		} else {
-			if execs, err = reader.ReadExecutions(dbPath, runID); err != nil {
-				return nil, fmt.Errorf("read executions: %w", err)
-			}
-			if traces, err = reader.ReadTraces(dbPath, runID); err != nil {
-				return nil, fmt.Errorf("read traces: %w", err)
-			}
 		}
+		allIDs = ids
 	} else {
 		availableRuns = 1
-		var err error
-		if execs, err = reader.ReadExecutions(dbPath, runID); err != nil {
-			return nil, fmt.Errorf("read executions: %w", err)
-		}
-		if traces, err = reader.ReadTraces(dbPath, runID); err != nil {
-			return nil, fmt.Errorf("read traces: %w", err)
-		}
+		allIDs = []int64{runID}
 	}
-
-	// Partition by run_id.
-	execsByRun := make(map[int64][]reader.ExecutionRow)
-	for _, e := range execs {
-		execsByRun[e.RunID] = append(execsByRun[e.RunID], e)
-	}
-	tracesByRun := make(map[int64][]reader.TraceRow)
-	for _, t := range traces {
-		tracesByRun[t.RunID] = append(tracesByRun[t.RunID], t)
-	}
-	runIDs := make([]int64, 0, len(execsByRun))
-	seen := make(map[int64]bool)
-	for id := range execsByRun {
-		if !seen[id] {
-			runIDs = append(runIDs, id)
-			seen[id] = true
-		}
-	}
-	for id := range tracesByRun {
-		if !seen[id] {
-			runIDs = append(runIDs, id)
-			seen[id] = true
-		}
-	}
-	slices.Sort(runIDs)
+	const chunkSize = 500
 
 	// Stable label list for bestMatching.
 	labels := make([]string, 0, len(cfg.Events))
@@ -208,79 +168,102 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 		AvailableRuns:       availableRuns,
 		Sampled:             sampledFlag,
 	}
-	scores := make([]float64, 0, len(runIDs))
-	chainScores := make([]float64, 0, len(runIDs))
-	prefixDepths := make([]int, 0, len(runIDs))
+	scores := make([]float64, 0, len(allIDs))
+	chainScores := make([]float64, 0, len(allIDs))
+	prefixDepths := make([]int, 0, len(allIDs))
 	gradeStart := time.Now()
 
-	for _, rid := range runIDs {
-		if opts.BudgetMs > 0 && time.Since(gradeStart).Milliseconds() > opts.BudgetMs {
-			result.BudgetExhausted = true
-			break
+	for start := 0; start < len(allIDs) && !result.BudgetExhausted; start += chunkSize {
+		stop := start + chunkSize
+		if stop > len(allIDs) {
+			stop = len(allIDs)
 		}
-		idx := buildRunIndex(execsByRun[rid], tracesByRun[rid])
-		cands := make(map[string][]Event, len(cfg.Events))
-		var truncated []string
-		for id, spec := range cfg.Events {
-			c, hitCap := buildCandidates(idx, spec)
-			cands[id] = c
-			if hitCap {
-				truncated = append(truncated, id)
+		chunk := allIDs[start:stop]
+		execs, err := reader.ReadExecutionsForRuns(dbPath, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("read executions: %w", err)
+		}
+		traces, err := reader.ReadTracesForRuns(dbPath, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("read traces: %w", err)
+		}
+		execsByRun := make(map[int64][]reader.ExecutionRow, len(chunk))
+		for _, e := range execs {
+			execsByRun[e.RunID] = append(execsByRun[e.RunID], e)
+		}
+		tracesByRun := make(map[int64][]reader.TraceRow, len(chunk))
+		for _, t := range traces {
+			tracesByRun[t.RunID] = append(tracesByRun[t.RunID], t)
+		}
+		for _, rid := range chunk {
+			if opts.BudgetMs > 0 && time.Since(gradeStart).Milliseconds() > opts.BudgetMs {
+				result.BudgetExhausted = true
+				break
 			}
-		}
-		if len(truncated) > 0 {
-			sort.Strings(truncated)
-			log.Printf(
-				"Warning: dag-order run %d hit candidate cap (%d) for labels: %v",
-				rid, maxCandidates, truncated,
-			)
-		}
-
-		o := bestMatchingFull(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)
-		assign, score, matched := o.Assign, o.Score, o.Matched
-		zeroCand, crowdedOut := o.ZeroCand, o.CrowdedOut
-		longestChain, criticalPath := o.LongestChain, o.CriticalPath
-
-		// Eligible edge count from assignment (over transitive closure).
-		eligible := 0
-		for _, dep := range allDeps {
-			eu, eok := assign[dep[0]]
-			ev, vok := assign[dep[1]]
-			// Skip edges touching structurally unmatchable labels.
-			if structuralUnmatchable[dep[0]] || structuralUnmatchable[dep[1]] {
-				continue
+			idx := buildRunIndex(execsByRun[rid], tracesByRun[rid])
+			cands := make(map[string][]Event, len(cfg.Events))
+			var truncated []string
+			for id, spec := range cfg.Events {
+				c, hitCap := buildCandidates(idx, spec)
+				cands[id] = c
+				if hitCap {
+					truncated = append(truncated, id)
+				}
 			}
-			eligible++
-			agg := edgeAggs[dep]
-			agg.eligible++
-			if eok && vok && lessThan(eu, ev) {
-				agg.satisfied++
+			if len(truncated) > 0 {
+				sort.Strings(truncated)
+				log.Printf(
+					"Warning: dag-order run %d hit candidate cap (%d) for labels: %v",
+					rid, maxCandidates, truncated,
+				)
 			}
-		}
 
-		var chainScore float64
-		if criticalPath > 0 {
-			chainScore = float64(longestChain) / float64(criticalPath)
+			o := bestMatchingFull(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)
+			assign, score, matched := o.Assign, o.Score, o.Matched
+			zeroCand, crowdedOut := o.ZeroCand, o.CrowdedOut
+			longestChain, criticalPath := o.LongestChain, o.CriticalPath
+
+			// Eligible edge count from assignment (over transitive closure).
+			eligible := 0
+			for _, dep := range allDeps {
+				eu, eok := assign[dep[0]]
+				ev, vok := assign[dep[1]]
+				// Skip edges touching structurally unmatchable labels.
+				if structuralUnmatchable[dep[0]] || structuralUnmatchable[dep[1]] {
+					continue
+				}
+				eligible++
+				agg := edgeAggs[dep]
+				agg.eligible++
+				if eok && vok && lessThan(eu, ev) {
+					agg.satisfied++
+				}
+			}
+
+			var chainScore float64
+			if criticalPath > 0 {
+				chainScore = float64(longestChain) / float64(criticalPath)
+			}
+			rr := RunResult{
+				RunID:               rid,
+				EdgeSatisfaction:    score,
+				EligibleEdges:       eligible,
+				MatchedLabels:       len(matched),
+				TotalLabels:         len(cfg.Events),
+				ZeroCandidateLabels: zeroCand,
+				CrowdedOutLabels:    crowdedOut,
+				TruncatedLabels:     truncated,
+				ChainScore:          chainScore,
+				LongestChain:        longestChain,
+				CriticalPath:        criticalPath,
+				PrefixDepth:         o.PrefixDepth,
+				PrefixPath:          o.PrefixPath,
+			}
+			result.PerRun = append(result.PerRun, rr)
+			scores = append(scores, score)
+			chainScores = append(chainScores, chainScore)
+			prefixDepths = append(prefixDepths, o.PrefixDepth)
 		}
-		rr := RunResult{
-			RunID:               rid,
-			EdgeSatisfaction:    score,
-			EligibleEdges:       eligible,
-			MatchedLabels:       len(matched),
-			TotalLabels:         len(cfg.Events),
-			ZeroCandidateLabels: zeroCand,
-			CrowdedOutLabels:    crowdedOut,
-			TruncatedLabels:     truncated,
-			ChainScore:          chainScore,
-			LongestChain:        longestChain,
-			CriticalPath:        criticalPath,
-			PrefixDepth:         o.PrefixDepth,
-			PrefixPath:          o.PrefixPath,
-		}
-		result.PerRun = append(result.PerRun, rr)
-		scores = append(scores, score)
-		chainScores = append(chainScores, chainScore)
-		prefixDepths = append(prefixDepths, o.PrefixDepth)
 	}
 
 	result.TotalRuns = len(scores)

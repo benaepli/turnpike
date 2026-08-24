@@ -68,3 +68,14 @@ exploration quota 0.3 · UCB c 1.2 · stagnation window 8 · lineage depth 6 ·
 per-hypothesis 90 min · daily wall 20 h · audit every 5. These are priors;
 the audit role exists to retune them from accumulated iteration data via
 meta-hypotheses (inside compiled hard limits).
+
+## Grader memory (measured 2026-08-24, after two OOM kills)
+
+Explorer peak RSS on a 13.5k-run session: **2.4 GB**. The grader
+(traceanalyzer -grade) materialized every graded run's rows in memory at
+**~2.4 GB per 1000 runs** (4.3G @ 2000, 10G @ 4000) — grade-everything on a
+13.5k-run promote projected to ~32G and OOM-killed the box twice. dagorder now
+reads runs in chunks of 500 (peak 2.5 GB for all 13.5k runs, 50 s), so
+`gradeMaxRuns: 0` (grade all) stays the derived default at every fidelity.
+Lesson recorded: parameter changes that alter *which code runs at what scale*
+need a resource measurement, not only a statistical derivation.
