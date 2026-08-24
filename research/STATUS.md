@@ -1,6 +1,6 @@
 # Research Loop Status
 
-Generated: 2026-08-24T08:47:25.443Z
+Generated: 2026-08-24T09:13:48.646Z
 Grader version: ta:0de6d9d+porc:b49e339
 
 ## Metric ladder
@@ -8,17 +8,17 @@ Grader version: ta:0de6d9d+porc:b49e339
 | Metric | Baseline | Latest merged |
 | --- | --- | --- |
 | violations | 0 | — |
-| meanPrefixDepth | 0.00 | — |
-| P(depth>=4) | 0.000 | — |
-| P(depth>=5) | 0.000 | — |
+| meanPrefixDepth | 2.25 | — |
+| P(depth>=4) | 0.036 | — |
+| P(depth>=5) | 0.002 | — |
 | P(depth>=6) | 0.000 | — |
 | P(depth>=7) | 0.000 | — |
 | P(depth>=8) | 0.000 | — |
-| h1Rate | 0 | — |
-| h2Rate | 0 | — |
-| h2bRate | 0 | — |
-| h3Rate | 0 | — |
-| runsPerSec | 0.0 | — |
+| h1Rate | 0.491 | — |
+| h2Rate | 0.393 | — |
+| h2bRate | 0.417 | — |
+| h3Rate | 0.340 | — |
+| runsPerSec | 122.3 | — |
 
 ## Hypothesis pool
 
