@@ -9,8 +9,11 @@ mkdir -p "$ROOT/research/logs"
 LOG="$ROOT/research/logs/loop-$(date +%Y%m%d-%H%M%S).log"
 rm -f "$ROOT/research/STOP"
 if command -v systemd-run >/dev/null; then
+  # Capped below total RAM so a runaway kills only the loop, not the desktop.
   systemd-run --user --unit=spur-research-loop --collect \
-    --property=MemoryMax=26G \
+    --property=MemoryHigh="${SPUR_LOOP_MEM_HIGH:-10G}" \
+    --property=MemoryMax="${SPUR_LOOP_MEM_MAX:-14G}" \
+    --property=MemorySwapMax=0 \
     --property=Restart=on-failure --property=RestartSec=60 \
     --property=WorkingDirectory="$ROOT/research/orchestrator" \
     --property=StandardOutput=append:"$LOG" \
