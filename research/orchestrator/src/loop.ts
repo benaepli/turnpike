@@ -112,9 +112,7 @@ export function mergeFlow(iteration: number, h: Hypothesis, branch: string, evid
     prUrls.push(url);
     if (autoMerge) {
       if (!mergePrSquash(SPUR, url)) return { prUrls, merged: false, detail: "spur PR merge failed" };
-      run0("git", ["fetch", "origin", RESEARCH_BRANCH], SPUR);
-      checkout(SPUR, RESEARCH_BRANCH);
-      run0("git", ["pull", "--ff-only", "origin", RESEARCH_BRANCH], SPUR);
+      syncToOrigin(SPUR);
       // Re-point the super branch's submodule at the merged head.
       run0("git", ["add", "spur"], SUPER);
       run0("git", ["commit", "--allow-empty", "-m", `bump spur to merged ${h.id}\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>`], SUPER);
@@ -125,15 +123,22 @@ export function mergeFlow(iteration: number, h: Hypothesis, branch: string, evid
   prUrls.push(superUrl);
   if (!autoMerge) return { prUrls, merged: false, detail: "left open for human review" };
   if (!mergePrSquash(SUPER, superUrl)) return { prUrls, merged: false, detail: "super PR merge failed" };
-  checkout(SUPER, RESEARCH_BRANCH);
-  run0("git", ["pull", "--ff-only", "origin", RESEARCH_BRANCH], SUPER);
+  syncToOrigin(SUPER);
   tag(SUPER, `loop/${String(iteration).padStart(3, "0")}`);
   pushTag(SUPER, `loop/${String(iteration).padStart(3, "0")}`);
   return { prUrls, merged: true, detail: "merged" };
 }
 
 function run0(cmd: string, args: string[], cwd: string): void {
-  execFileSync(cmd, args, { cwd, stdio: "pipe" });
+  execFileSync(cmd, args, { cwd, stdio: "pipe", encoding: "utf8" });
+}
+
+// After a squash-merge, origin is the source of truth and local branch
+// history may legitimately diverge — sync by reset, never by merge/pull.
+function syncToOrigin(repo: string): void {
+  run0("git", ["fetch", "origin", RESEARCH_BRANCH], repo);
+  run0("git", ["checkout", "--force", RESEARCH_BRANCH], repo);
+  run0("git", ["reset", "--hard", `origin/${RESEARCH_BRANCH}`], repo);
 }
 
 function cleanupToResearchBranch(branch: string | null): void {
