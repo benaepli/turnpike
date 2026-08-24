@@ -18,7 +18,7 @@ output_*/
 ab/
 traceanalyzer/main
 # research loop
-research/state.sqlite
+research/state.sqlite*
 research/logs/
 research/corpus/*/
 tmp/loop/
