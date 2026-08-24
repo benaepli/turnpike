@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-24T09:13:48.651Z
+Generated: 2026-08-24T17:46:14.196Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -24,9 +24,9 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 
 | Rung | exploreWallSec | runsPerConfig | gradeMaxRuns | gradeBudgetMs | seeds |
 | --- | --- | --- | --- | --- | --- |
-| screen | 150 | 60 | 600 | 45000 | 11 |
-| promote | 600 | 250 | 1500 | 120000 | 11, 23 |
-| confirm | 900 | 800 | 3000 | 300000 | 11, 23, 37 |
+| screen | 150 | 100 | 0 | 45000 | 11 |
+| promote | 600 | 250 | 0 | 120000 | 11, 23 |
+| confirm | 900 | 400 | 0 | 300000 | 11, 23, 37 |
 
 ## Budgets
 
@@ -40,7 +40,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 
 ## Proposal / Audit
 
-- proposal.lenses: 4
+- proposal.lenses: 6
 - proposal.maxPoolSize: 60
 - audit.everyK: 5
 
