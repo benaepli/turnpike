@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Evaluation, FidelityName, LadderMetrics, PorcupineJson, TraceGradeJson } from "./schemas.js";
 import type { Policy } from "./policy.js";
-import { ROOT, cleanupDir, explore, freeDiskGb, grade, materializeConfig, porcupine } from "./runners.js";
+import { ROOT, cleanupDir, explore, freeDiskGb, grade, materializeConfig, porcupine, resolveRoot } from "./runners.js";
 
 export interface EvalContext {
   policy: Policy;
@@ -76,8 +76,8 @@ export async function runEvaluation(
   fidelity: FidelityName,
 ): Promise<Evaluation[]> {
   const fid = ctx.policy.fidelities[fidelity];
-  const spec = ctx.specOverride ?? ctx.policy.evaluation.spec;
-  const template = ctx.configTemplateOverride ?? ctx.policy.evaluation.configTemplate;
+  const spec = resolveRoot(ctx.specOverride ?? ctx.policy.evaluation.spec);
+  const template = resolveRoot(ctx.configTemplateOverride ?? ctx.policy.evaluation.configTemplate);
   const evals: Evaluation[] = [];
 
   for (const seed of fid.seeds) {
@@ -125,7 +125,7 @@ export async function runEvaluation(
 
       const gr = await grade({
         inputDir: outputDir,
-        dagConfigs: ctx.policy.evaluation.oracleDags,
+        dagConfigs: ctx.policy.evaluation.oracleDags.map(resolveRoot),
         maxRuns: fid.gradeMaxRuns,
         budgetMs: fid.gradeBudgetMs,
         timeoutMs: fid.gradeBudgetMs + 120_000,

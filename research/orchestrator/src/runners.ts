@@ -14,6 +14,12 @@ import { TraceGradeJson, PorcupineJson } from "./schemas.js";
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 export const SPUR_BIN = path.join(ROOT, "spur", "target", "release", "spur");
 
+// Resolve a repo-relative path (as used throughout research/policy.json)
+// against ROOT; absolute paths pass through.
+export function resolveRoot(p: string): string {
+  return path.isAbsolute(p) ? p : path.join(ROOT, p);
+}
+
 const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024; // 64 MB
 
 export interface CmdResult {

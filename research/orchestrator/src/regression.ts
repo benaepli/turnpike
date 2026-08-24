@@ -4,7 +4,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { EvalContext } from "./evaluate.js";
-import { ROOT, cleanupDir, explore, materializeConfig, porcupine } from "./runners.js";
+import { ROOT, cleanupDir, explore, materializeConfig, porcupine, resolveRoot } from "./runners.js";
 
 export interface RegressionCase {
   name: string;
@@ -113,8 +113,8 @@ export async function runRegression(
       const name = "mencius-bug-found";
       const outputDir = caseDir(name);
       prepDir(outputDir);
-      const model = modelForSpec(reg.menciusBugSpec);
-      const r = await exploreAndCheck(ctx, outputDir, reg.menciusBugSpec, reg.menciusBugConfig, model);
+      const model = modelForSpec(resolveRoot(reg.menciusBugSpec));
+      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(reg.menciusBugSpec), resolveRoot(reg.menciusBugConfig), model);
       if (r.porcupineFailure !== null) return { name, passed: false, detail: r.porcupineFailure };
       return {
         name,
@@ -130,8 +130,8 @@ export async function runRegression(
       const name = "mencius-fixed-clean";
       const outputDir = caseDir(name);
       prepDir(outputDir);
-      const model = modelForSpec(reg.menciusFixedSpec);
-      const r = await exploreAndCheck(ctx, outputDir, reg.menciusFixedSpec, reg.menciusBugConfig, model);
+      const model = modelForSpec(resolveRoot(reg.menciusFixedSpec));
+      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(reg.menciusFixedSpec), resolveRoot(reg.menciusBugConfig), model);
       if (r.porcupineFailure !== null) return { name, passed: false, detail: r.porcupineFailure };
       return {
         name,
@@ -147,7 +147,7 @@ export async function runRegression(
       const name = "vr-nofault-clean";
       const outputDir = caseDir(name);
       prepDir(outputDir);
-      const r = await exploreAndCheck(ctx, outputDir, ctx.policy.evaluation.spec, reg.vrNoFaultConfig, "kv");
+      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(ctx.policy.evaluation.spec), resolveRoot(reg.vrNoFaultConfig), "kv");
       if (r.porcupineFailure !== null) return { name, passed: false, detail: r.porcupineFailure };
       return {
         name,
@@ -167,11 +167,11 @@ export async function runRegression(
       const outputDir = caseDir(name);
       prepDir(outputDir);
       const configPath = path.join(outputDir, "config.json");
-      materializeConfig(ctx.policy.evaluation.configTemplate, configPath, {
+      materializeConfig(resolveRoot(ctx.policy.evaluation.configTemplate), configPath, {
         runsPerConfig: ctx.policy.fidelities.screen.runsPerConfig,
         sessionSeed: 999,
       });
-      const r = await exploreAndCheck(ctx, outputDir, ctx.policy.evaluation.spec, configPath, "kv");
+      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(ctx.policy.evaluation.spec), configPath, "kv");
       if (r.porcupineFailure !== null) return { name, passed: false, detail: r.porcupineFailure };
       const runsPerSec = r.exploreWallMs > 0 ? r.totalRuns / (r.exploreWallMs / 1000) : 0;
       const floor = baselineRunsPerSec * (1 - reg.throughputTolerance);
