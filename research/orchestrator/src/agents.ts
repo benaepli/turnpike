@@ -218,6 +218,7 @@ export async function implementHypothesis(policy: Policy, h: Hypothesis): Promis
       // decisions route through canUseTool, making the fence the decider.
       permissionMode: "default",
       settingSources: [],
+      disallowedTools: ["WebFetch", "WebSearch", "Task", "Agent", "Skill"],
       canUseTool: makeImplementerGate(h.kind),
       systemPrompt: "You are a careful systems engineer working inside a fenced research harness. You implement one hypothesis at a time, keep diffs minimal, and never touch protected paths (the permission gate enforces this — if a path is denied, work within the allowed lanes instead of fighting it).",
     },
