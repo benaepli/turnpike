@@ -219,9 +219,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
 
     const build = await timed("build", async () => {
       if (h.kind === "grader") return run("go", ["build", "-o", "main", "."], { timeoutMs: 120000, cwd: path.join(ROOT, "traceanalyzer") });
-      if (spurFiles.length === 0) {
-        return { ok: true, exitCode: 0, stdout: "", stderr: "build skipped (no spur changes)", wallMs: 0, timedOut: false };
-      }
+      // Always rebuild: the implementer may have built arbitrary intermediate
+      // states during its session, so the on-disk binary is untrusted until
+      // rebuilt from the committed tree (cheap no-op when nothing changed).
       return buildSpur(policy.budgets.maxBuildSeconds);
     });
     if (!build.ok) {
@@ -286,6 +286,19 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       const screen = await timed("evaluate", () => runEvaluation(ctx, h.id, "screen"));
       allEvals["screen"] = screen;
       for (const e of screen) state.addEvaluation(e);
+      if (screen.length > 0 && screen.every((e) => !e.ok)) {
+        const failure = screen[0]?.error ?? "evaluation failed";
+        const d: GateDecision = {
+          hypothesisId: h.id, verdict: "blocked",
+          reasons: [`screen evaluation degenerate/failed: ${failure}`],
+          objectiveDeltas: {}, regressionPassed: null, lintPassed: true,
+        };
+        state.setDecision(d);
+        journal(state, n, "blocked", { reason: failure });
+        state.upsertHypothesis({ ...h, status: "blocked", branch, notes: failure.slice(0, 300) });
+        cleanupToResearchBranch(branch);
+        return;
+      }
       const gate1 = screenAdvances(objectiveCounts(screen), objectiveCounts(baseline.screen));
       journal(state, n, "screen", { advance: gate1.advance, why: gate1.why });
       if (gate1.advance) {

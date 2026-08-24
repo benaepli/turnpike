@@ -135,10 +135,13 @@ export async function runEvaluation(
       });
 
       const metrics = assembleMetrics(porc.parsed, gr.parsed, exploreRes.wallMs);
-      const ok = porc.parsed !== null;
+      const gradeDegenerate = gr.parsed === null || (metrics.runs > 0 && metrics.gradedRuns === 0);
+      const ok = porc.parsed !== null && !gradeDegenerate;
       const error = ok
         ? null
-        : `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`;
+        : porc.parsed === null
+          ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`
+          : `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""})`;
       evals.push({ ...base, metrics, exploreWallMs: exploreRes.wallMs, ok, error });
       console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
       if (!ok) {

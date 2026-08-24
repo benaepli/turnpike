@@ -187,6 +187,12 @@ export function commitHypothesisPair(opts: {
   }
   let spurCommit: string | null = null;
   if (statusLines(SPUR).length > 0) {
+    // Commit on the hypothesis branch (pre-created by createBranch), never on
+    // the research branch itself — otherwise changedFiles(SPUR, research)
+    // compares the branch to itself and reports an empty diff.
+    if (currentBranch(SPUR) !== opts.branch) {
+      checkout(SPUR, opts.branch);
+    }
     spurCommit = commitAll(SPUR, opts.spurMessage);
   }
   // Stage the submodule pointer explicitly (no-op when spur is unchanged);
