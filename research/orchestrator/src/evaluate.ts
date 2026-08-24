@@ -104,7 +104,9 @@ export async function runEvaluation(
         return evals;
       }
 
-      const configPath = path.join(outputDir, "config.json");
+      // The config must live OUTSIDE outputDir: `spur explore -y` clears the
+      // output dir, which would delete the config before/while it is read.
+      const configPath = `${outputDir}.config.json`;
       materializeConfig(template, configPath, { runsPerConfig: fid.runsPerConfig, sessionSeed: seed });
 
       const exploreRes = await explore({
@@ -138,6 +140,7 @@ export async function runEvaluation(
         : `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`;
       evals.push({ ...base, metrics, exploreWallMs: exploreRes.wallMs, ok, error });
     } finally {
+      fs.rmSync(`${outputDir}.config.json`, { force: true });
       try {
         cleanupDir(outputDir);
       } catch {
