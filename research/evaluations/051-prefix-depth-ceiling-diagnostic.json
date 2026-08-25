@@ -1,0 +1,140 @@
+{
+  "hypothesis": {
+    "id": "prefix-depth-ceiling-diagnostic",
+    "parent": "state-conditioned-timer-eligibility",
+    "kind": "meta",
+    "title": "Instrument why prefix depth saturates at 5 before adding more scheduler knobs",
+    "description": "Add a diagnostic dump (behind explore flag --depth-census, in spur-core/src/simulator/explorer.rs + path.rs) that, for runs reaching depth 3-5, records the event class actually taken at each frontier step and the set of enabled-but-unchosen classes. Emit a histogram to the run summary alongside depthAtLeast. No policy change, no config param: pure observability, evaluated by inspecting the histogram rather than by ladder deltas. Answers whether depth>=6 is unreachable (no enabled event extends the prefix), rarely-selected (enabled but low probability under any queue policy), or grader-truncated.",
+    "category": "tooling",
+    "buildsOn": [
+      "explorer",
+      "path"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 3,
+    "rationale": "Two consecutive queue-priority hypotheses (counter-based and state-based) both returned exact nulls at depth>=6/7/8, with maxPrefixDepth pinned at 5 across every seed. That pattern says the ceiling is structural, not a matter of which queue we prefer. Further blind scheduler knobs will keep sampling the same null; a census tells us which of the three failure modes to attack and retires an entire branch of the pool.",
+    "generalityArgument": "Counts event classes at the exploration frontier using the simulator's own enabled-set, reading no protocol-specific state or VR message names; applies to any spec the explorer runs.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-25T11:00:00.000000+00:00",
+    "notes": "[unparked iteration 50] Down-scored: partially redundant with end-run-at-plan-stall's diagnosis and depth-tail-power-analysis, but the enabled-but-unchosen census is distinct; falsified if the histogram shows frontier steps have no enabled extending event, which would make it a spec/grader limit and kill every queue-policy proposal."
+  },
+  "decision": {
+    "hypothesisId": "prefix-depth-ceiling-diagnostic",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": -0.0005092592592592579,
+      "depth>=5": -0.00013425925925925931,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": -0.001046296296296323,
+      "primary": -0.00013425925925925931,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "prefix-depth-ceiling-diagnostic-sequential-1000-1787671601904",
+        "hypothesisId": "prefix-depth-ceiling-diagnostic",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "f1e771ed65971c6d090c01cf7a5939bcf6e82067",
+        "superCommit": "f23aa25ab6f3f7752a45c826c0efa44e3445d68a",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-25T15:26:41.904Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 267.4313221507421,
+          "unpairedFraction": 0.48671786478660456,
+          "h1Rate": 0.49944444444444447,
+          "h2Rate": 0.4008333333333333,
+          "h2bRate": 0.41738888888888886,
+          "h3Rate": 0.3341851851851852,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.3167222222222223,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            54000,
+            47446,
+            20730,
+            2725,
+            202
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4928,
+          "gradeWallMs": 180318
+        },
+        "exploreWallMs": 201921,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "prefix-depth-ceiling-diagnostic-sequential-1001-1787671989364",
+        "hypothesisId": "prefix-depth-ceiling-diagnostic",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "f1e771ed65971c6d090c01cf7a5939bcf6e82067",
+        "superCommit": "f23aa25ab6f3f7752a45c826c0efa44e3445d68a",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-25T15:33:09.364Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 262.5654590276326,
+          "unpairedFraction": 0.4882024066447816,
+          "h1Rate": 0.49737037037037035,
+          "h2Rate": 0.3977962962962963,
+          "h2bRate": 0.41485185185185186,
+          "h3Rate": 0.33890740740740743,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.320148148148148,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            53998,
+            47457,
+            21016,
+            2613,
+            204
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4853,
+          "gradeWallMs": 180598
+        },
+        "exploreWallMs": 205663,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-cli/src/main.rs",
+    "spur-core/src/simulator.rs",
+    "spur-core/src/simulator/census.rs",
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/path.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 12
+  }
+}
