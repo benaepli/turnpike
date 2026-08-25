@@ -22,7 +22,11 @@ export function resolveRoot(p: string): string {
 
 const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024; // 64 MB
 
+// Durations are measured with performance.now() (CLOCK_MONOTONIC: does not
+// advance while the machine is suspended). suspendedMs = wall - active, so an
+// evaluation that straddled a sleep is visible without corrupting its rates.
 export interface CmdResult {
+  suspendedMs?: number;
   ok: boolean;
   exitCode: number | null;
   stdout: string;
@@ -50,7 +54,8 @@ interface ExecFileError extends Error {
  * exits; rejects only when the process could not be spawned at all.
  */
 export function run(cmd: string, args: string[], opts: RunOpts): Promise<CmdResult> {
-  const startedAt = Date.now();
+  const startedAt = performance.now();
+  const wallStartedAt = Date.now();
   return new Promise<CmdResult>((resolve, reject) => {
     execFile(
       cmd,
@@ -64,9 +69,10 @@ export function run(cmd: string, args: string[], opts: RunOpts): Promise<CmdResu
         encoding: "utf8",
       },
       (error, stdout, stderr) => {
-        const wallMs = Date.now() - startedAt;
+        const wallMs = Math.round(performance.now() - startedAt);
+        const suspendedMs = Math.max(0, (Date.now() - wallStartedAt) - wallMs);
         if (error === null) {
-          resolve({ ok: true, exitCode: 0, stdout, stderr, wallMs, timedOut: false });
+          resolve({ suspendedMs, ok: true, exitCode: 0, stdout, stderr, wallMs, timedOut: false });
           return;
         }
         const err = error as ExecFileError;
@@ -154,7 +160,8 @@ export function explore(opts: ExploreOpts): Promise<CmdResult> {
     RUST_LOG: "info",
   };
   return new Promise<CmdResult>((resolve, reject) => {
-    const started = Date.now();
+    const started = performance.now();
+    const wallStarted = Date.now();
     let fd: number;
     try {
       fd = fs.openSync(logPath, "w");
@@ -186,7 +193,8 @@ export function explore(opts: ExploreOpts): Promise<CmdResult> {
         exitCode: code,
         stdout: "",
         stderr: tailText,
-        wallMs: Date.now() - started,
+        wallMs: Math.round(performance.now() - started),
+        suspendedMs: Math.max(0, (Date.now() - wallStarted) - Math.round(performance.now() - started)),
         timedOut,
       });
     });

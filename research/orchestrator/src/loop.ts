@@ -127,11 +127,14 @@ export function mergeFlow(iteration: number, h: Hypothesis, branch: string, evid
   // Persist the evidence file into the super branch before the PR.
   mkdirSync(path.dirname(evalJsonPath(iteration, h.id)), { recursive: true });
   writeFileSync(evalJsonPath(iteration, h.id), JSON.stringify(evidence, null, 2));
-  const { spurCommit } = commitHypothesisPair({
+  commitHypothesisPair({
     branch,
     spurMessage: `${h.id}: ${h.title}\n\n${h.description.slice(0, 1200)}`,
     superMessage: `${h.id}: ${h.title} (evidence + pointer bump)`,
   });
+  // The Rust work was committed earlier in the iteration; what matters is
+  // whether spur's branch differs from the research branch at all.
+  const spurCommit: string | null = changedFiles(SPUR, RESEARCH_BRANCH).length > 0 ? currentCommit(SPUR) : null;
   const body = `Hypothesis: ${h.id} (${h.kind})\n\n${h.description}\n\nEvidence: research/evaluations/${String(iteration).padStart(3, "0")}-${h.id}.json\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
   if (spurCommit) {
     push(SPUR, branch, { setUpstream: true });
@@ -201,8 +204,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
   const n = state.beginIteration();
   const timings: Record<string, number> = {};
   const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
-    const t0 = Date.now();
-    try { return await fn(); } finally { timings[name] = (timings[name] ?? 0) + (Date.now() - t0) / 1000; }
+    const t0 = performance.now(); // monotonic: phase timings exclude suspend
+    try { return await fn(); } finally { timings[name] = (timings[name] ?? 0) + (performance.now() - t0) / 1000; }
   };
   let branch: string | null = null;
   let notes = "";
@@ -492,7 +495,7 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
       await new Promise((r) => setTimeout(r, 30 * 60 * 1000));
       continue;
     }
-    const t0 = Date.now();
+    const t0 = performance.now(); // daily budget counts active time only
     try {
       await runIteration(deps);
       consecutiveFailures = 0;
@@ -505,6 +508,6 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
       }
       await new Promise((r) => setTimeout(r, 60_000));
     }
-    deps.state.addDailyWallSeconds((Date.now() - t0) / 1000);
+    deps.state.addDailyWallSeconds((performance.now() - t0) / 1000);
   }
 }

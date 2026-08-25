@@ -100,7 +100,7 @@ export async function runEvaluation(
       fs.mkdirSync(outputDir, { recursive: true });
 
       if (freeDiskGb(ROOT) < ctx.policy.budgets.minFreeDiskGb) {
-        evals.push({ ...base, metrics: ZERO_METRICS, exploreWallMs: 0, ok: false, error: "disk guard" });
+        evals.push({ ...base, metrics: ZERO_METRICS, exploreWallMs: 0, suspendedMs: 0, ok: false, error: "disk guard" });
         return evals;
       }
 
@@ -142,8 +142,8 @@ export async function runEvaluation(
         : porc.parsed === null
           ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`
           : `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""})`;
-      evals.push({ ...base, metrics, exploreWallMs: exploreRes.wallMs, ok, error });
-      console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
+      evals.push({ ...base, metrics, exploreWallMs: exploreRes.wallMs, suspendedMs: exploreRes.suspendedMs ?? 0, ok, error });
+      console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s${(exploreRes.suspendedMs ?? 0) > 0 ? ` (suspended ${Math.round((exploreRes.suspendedMs ?? 0) / 1000)}s)` : ""} porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
       if (!ok) {
         try {
           fs.mkdirSync(path.join(ROOT, "research", "logs"), { recursive: true });

@@ -78,6 +78,7 @@ export const Evaluation = z.object({
   seed: z.number().int(),
   metrics: LadderMetrics,
   exploreWallMs: z.number().int(),
+  suspendedMs: z.number().int().default(0),
   startedAtIso: z.string(),
   ok: z.boolean(),
   error: z.string().nullable().default(null),
