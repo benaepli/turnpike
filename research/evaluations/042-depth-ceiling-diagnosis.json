@@ -1,0 +1,138 @@
+{
+  "hypothesis": {
+    "id": "depth-ceiling-diagnosis",
+    "parent": "crash-recover-density-knob",
+    "kind": "meta",
+    "title": "Diagnose why maxPrefixDepth is hard-capped at 5 on VR",
+    "description": "Diagnostic, not a mechanism. maxPrefixDepth was exactly 5 across all 5 evals and ~54k runs of this hypothesis, and depth>=7/>=8 were identically 0 -- suggesting a structural cap rather than a search-difficulty gradient. Instrument spur-core/src/simulator/path.rs and curriculum.rs to record, for the runs that reach depth 5, what terminates them: run-length/step budget exhaustion, curriculum stage boundary, prefix-tree width cap, or genuine absence of an extending event. Emit a histogram of termination causes at depth>=4 in the eval metrics. No new general config params; reuse existing plan_config budgets and only report.",
+    "category": "feedback",
+    "buildsOn": [
+      "path",
+      "curriculum",
+      "explorer"
+    ],
+    "expectedGain": 8,
+    "expectedCost": 2,
+    "rationale": "Every recent hypothesis is scored on depth>=6/7/8, all of which are structurally zero. If a budget or stage boundary is the binding constraint, no scheduler-side novelty mechanism can ever move the primary objective and the whole hypothesis pool is scoring against a saturated metric.",
+    "generalityArgument": "Examines only the explorer's own termination bookkeeping (budgets, stage boundaries, tree structure), which is protocol-independent.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-25T07:35:00.000Z",
+    "notes": "the flat-zero tail of depthAtLeast across 54k runs is the signal here, not the crash/recover result specifically [rejudged merge of ablate-dead-randomly-drop-msgs: Evidence hardens this: depth>=6/7/8 are identically 0.0 in every one of the 15 scored arms, so every add-arm is being graded on rungs that may be structurally unreachable; falsified if the histogram shows depth-5 runs terminate on genui"
+  },
+  "decision": {
+    "hypothesisId": "depth-ceiling-diagnosis",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0002962962962962945,
+      "depth>=5": 0.00036574074074074113,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": -0.0006851851851851776,
+      "primary": 0.00036574074074074113,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "depth-ceiling-diagnosis-sequential-1000-1787655839374",
+        "hypothesisId": "depth-ceiling-diagnosis",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "26201c60ce50a90b6fcb6df10544ad50c5cd3c13",
+        "superCommit": "600c96b78c914988b3f9caba61f84ada209fbfa4",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-25T11:03:59.374Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 267.8850475495959,
+          "unpairedFraction": 0.48457531301310885,
+          "h1Rate": 0.5005555555555555,
+          "h2Rate": 0.3998333333333333,
+          "h2bRate": 0.41544444444444445,
+          "h3Rate": 0.33435185185185184,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.319425925925926,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            54000,
+            47417,
+            20824,
+            2784,
+            224
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4828,
+          "gradeWallMs": 5412
+        },
+        "exploreWallMs": 201579,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "depth-ceiling-diagnosis-sequential-1001-1787656226089",
+        "hypothesisId": "depth-ceiling-diagnosis",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "26201c60ce50a90b6fcb6df10544ad50c5cd3c13",
+        "superCommit": "600c96b78c914988b3f9caba61f84ada209fbfa4",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-25T11:10:26.089Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 259.5916719145847,
+          "unpairedFraction": 0.48744154190255023,
+          "h1Rate": 0.4984074074074074,
+          "h2Rate": 0.3995185185185185,
+          "h2bRate": 0.4139074074074074,
+          "h3Rate": 0.33835185185185185,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.320888888888889,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            53999,
+            47454,
+            20998,
+            2641,
+            236
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4775,
+          "gradeWallMs": 5175
+        },
+        "exploreWallMs": 208019,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/curriculum.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/path/plan.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 12
+  }
+}
