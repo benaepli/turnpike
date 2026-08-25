@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { EvalContext } from "./evaluate.js";
 import { ROOT, cleanupDir, explore, materializeConfig, porcupine, resolveRoot } from "./runners.js";
+import { runBench } from "./bench.js";
 
 export interface RegressionCase {
   name: string;
@@ -164,24 +165,23 @@ export async function runRegression(
       if (baselineRunsPerSec === null) {
         return { name, passed: true, detail: "no baseline yet" };
       }
-      const outputDir = caseDir(name);
-      prepDir(outputDir);
-      const configPath = `${outputDir}.config.json`; // outside outputDir: explore -y clears it
-      materializeConfig(resolveRoot(ctx.policy.evaluation.configTemplate), configPath, {
+      // Interleaved A/B against the preserved baseline binary on the
+      // evaluation grid: both sides are measured in the same window, so
+      // machine load affects them equally.
+      const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
+      if (!fs.existsSync(baselineBin)) return { name, passed: true, detail: "no baseline binary snapshot; skipped" };
+      const b = await runBench(ctx.policy, ctx.binary, baselineBin, {
+        templatePath: resolveRoot(ctx.policy.evaluation.configTemplate),
         runsPerConfig: ctx.policy.fidelities.screen.runsPerConfig,
-        sessionSeed: 999,
+        rounds: 2,
       });
-      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(ctx.policy.evaluation.spec), configPath, "kv");
-      if (r.porcupineFailure !== null) return { name, passed: false, detail: r.porcupineFailure };
-      const runsPerSec = r.exploreWallMs > 0 ? r.totalRuns / (r.exploreWallMs / 1000) : 0;
-      const floor = baselineRunsPerSec * (1 - reg.throughputTolerance);
+      if (b.baseMean <= 0) return { name, passed: false, detail: `bench failed: ${b.detail}` };
+      const ratio = b.candMean / b.baseMean;
+      const floor = 1 - ctx.policy.regression.throughputTolerance;
       return {
         name,
-        passed: runsPerSec >= floor,
-        detail:
-          `runsPerSec=${runsPerSec.toFixed(2)} baseline=${baselineRunsPerSec.toFixed(2)} ` +
-          `floor=${floor.toFixed(2)} runs=${r.totalRuns} exploreWallMs=${r.exploreWallMs}` +
-          (r.exploreTimedOut ? " (explore timed out)" : ""),
+        passed: ratio >= floor,
+        detail: `candidate ${b.candMean.toFixed(1)} rps vs baseline ${b.baseMean.toFixed(1)} rps in the same window (ratio ${ratio.toFixed(3)}, floor ${floor.toFixed(2)}); rounds cand=${JSON.stringify(b.candidateRps)} base=${JSON.stringify(b.baselineRps)}`,
       };
     }),
   );

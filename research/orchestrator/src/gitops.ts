@@ -313,6 +313,10 @@ export function prExistsFor(cwd: string, head: string): string | null {
  * hypothesis kind by lintRulerSubject, not blanket-protected. SPUR-repo files
  * have no protected paths.
  */
+// The regression suite and the bench workload gate merges; a hypothesis
+// must not be able to edit its own gate.
+export const GATE_CONFIGS = /^scheduler_configs\/loop\/(regression_[^/]+|bench)\.json$/;
+
 export const PROTECTED: readonly RegExp[] = [
   /^bin\/spur\//,
   /^porcupine\//,
@@ -324,6 +328,12 @@ export const PROTECTED: readonly RegExp[] = [
 
 /** SUPER-relative paths that touch a protected area (empty = pass). */
 export function lintProtectedPaths(superFiles: string[]): string[] {
+  const gateHits = superFiles.filter((f) => GATE_CONFIGS.test(f));
+  if (gateHits.length > 0) return [...gateHits, ...lintProtectedPathsInner(superFiles)];
+  return lintProtectedPathsInner(superFiles);
+}
+
+function lintProtectedPathsInner(superFiles: string[]): string[] {
   return superFiles.filter((f) => PROTECTED.some((re) => re.test(f)));
 }
 

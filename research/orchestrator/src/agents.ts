@@ -221,6 +221,7 @@ function editAllowed(kind: Hypothesis["kind"], relPath: string): boolean {
   if (kind === "meta" && p === "research/policy.json") return true;
   if (/^research\/(?!observations\/)/.test(p)) return false;
   if (/^scheduler_configs\/(?!loop\/)/.test(p)) return false;
+  if (/^scheduler_configs\/loop\/(regression_[^/]+|bench)\.json$/.test(p)) return false;
   if (kind === "grader") return /^traceanalyzer\//.test(p);
   return /^(spur\/|scheduler_configs\/loop\/|tmp\/loop\/)/.test(p);
 }

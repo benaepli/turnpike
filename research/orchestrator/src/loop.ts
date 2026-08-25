@@ -149,7 +149,13 @@ function recentEvidence(state: LoopState, limit: number): string {
 }
 
 export async function rejudge(state: LoopState, policy: Policy, n: number, trigger: string): Promise<void> {
-  const pool = state.listHypotheses("proposed");
+  // Entries the re-judge itself parked are reconsidered too, so a blocker
+  // that later clears (a merged enabler, a new measurement) can bring them
+  // back. Operator- and stop-parked entries are left alone.
+  const pool = [
+    ...state.listHypotheses("proposed"),
+    ...state.listHypotheses("parked").filter((h) => h.notes.startsWith("[rejudged")),
+  ];
   if (pool.length === 0) return;
   const r = await rejudgePool(policy, pool, calibrationTable(state), recentEvidence(state, 12), state.getMeta("utilization") ?? "(no snapshot)");
   if (!r.value) { journal(state, n, "rejudge", { trigger, error: r.error }); return; }
@@ -157,7 +163,12 @@ export async function rejudge(state: LoopState, policy: Policy, n: number, trigg
   let rescored = 0;
   for (const u of r.value.updates) {
     const h = state.getHypothesis(u.id);
-    if (!h || h.status !== "proposed") continue;
+    if (!h || (h.status !== "proposed" && h.status !== "parked")) continue;
+    if (u.action === "keep" && h.status === "parked") {
+      state.upsertHypothesis({ ...h, status: "proposed", expectedGain: u.expectedGain, expectedCost: u.expectedCost, notes: `[unparked ${trigger}] ${u.reason}`.slice(0, 400) });
+      rescored++;
+      continue;
+    }
     if (u.action === "park") {
       state.upsertHypothesis({ ...h, status: "parked", notes: `[rejudged ${trigger}] ${u.reason}`.slice(0, 400) });
       parked++;
@@ -497,6 +508,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const ledger = JSON.stringify(state.countByStatus()) + "\n" + JSON.stringify(timings);
         const evalConfig = readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8");
         const audit = await runAudit(policy, n, readStatusMd(), ledger, `## Evaluation config (mechanisms not enabled here are expected to read zero)\n${evalConfig}\n\n${util}`);
+        if (!audit.value) journal(state, n, "audit_error", { error: audit.error, cost: audit.costUsd });
         if (audit.value) {
           appendObservation(`### Audit @${n}\n${audit.value.budgetConcentration}\n\nGoodhart: ${audit.value.goodhartSignals.join("; ") || "none"}\n\nUtilization: ${audit.value.utilizationFindings.map((u) => `${u.mechanism}=${u.classification}`).join(", ")}\n\nPolicy suggestions: ${audit.value.recommendedPolicyChanges.join("; ") || "none"}`);
           journal(state, n, "audit", audit.value);

@@ -67,10 +67,10 @@ async function oneRound(
   }
 }
 
-export async function runBench(policy: Policy, candidateBin: string, baselineBin: string): Promise<BenchResult> {
-  const template = resolveRoot(policy.perf.benchConfig);
+export async function runBench(policy: Policy, candidateBin: string, baselineBin: string, workload?: { templatePath: string; runsPerConfig: number; rounds: number }): Promise<BenchResult> {
+  const template = workload?.templatePath ?? resolveRoot(policy.perf.benchConfig);
   const configPath = path.join(ROOT, "tmp", "loop", "bench.config.json");
-  materializeConfig(template, configPath, {});
+  materializeConfig(template, configPath, workload ? { runsPerConfig: workload.runsPerConfig, sessionSeed: 999 } : {});
   const totalRuns = totalRunsOf(JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>);
 
   const cand: number[] = [];
@@ -80,7 +80,7 @@ export async function runBench(policy: Policy, candidateBin: string, baselineBin
     improvement: 0, strictDominance: false, totalRunsPerRound: totalRuns, pass: false, detail,
   });
 
-  const rounds = policy.perf.warmupRounds + policy.perf.rounds;
+  const rounds = policy.perf.warmupRounds + (workload?.rounds ?? policy.perf.rounds);
   for (let i = 0; i < rounds; i++) {
     // ABBA interleave: alternate which side goes first each round.
     const order: Array<["cand" | "base", string]> = i % 2 === 0
