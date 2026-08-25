@@ -236,6 +236,14 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     await timed("propose", () => refillPool(deps, n));
     const h = (await import("./select.js")).selectNext(state, policy);
     if (!h) { notes = "empty pool"; journal(state, n, "select", { none: true }); return; }
+    if (h.kind === "grader") {
+      // Changes to the grader change what progress means; they are queued
+      // for an operator decision instead of implemented by the loop.
+      state.upsertHypothesis({ ...h, status: "parked", notes: `[grader-review] awaiting operator evaluation (iteration ${n})` });
+      journal(state, n, "grader_review", { id: h.id, title: h.title, description: h.description, rationale: h.rationale, buildsOn: h.buildsOn, expectedGain: h.expectedGain, expectedCost: h.expectedCost });
+      notes = `grader proposal ${h.id} queued for review`;
+      return;
+    }
     state.upsertHypothesis({ ...h, status: "selected" });
     journal(state, n, "select", { id: h.id, kind: h.kind, title: h.title });
 

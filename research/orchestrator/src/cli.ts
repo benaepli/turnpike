@@ -78,6 +78,12 @@ async function main(): Promise<void> {
         console.log(`seeded ${added} hypotheses (${rejected.length} rejected: ${rejected.join("; ")})`);
         break;
       }
+      case "grader-queue": {
+        for (const h of state.listHypotheses("parked").filter((x) => x.notes.startsWith("[grader-review]"))) {
+          console.log(`\n== ${h.id} (gain ${h.expectedGain} / cost ${h.expectedCost})\n${h.title}\n${h.description}\nRationale: ${h.rationale}\n${h.notes}`);
+        }
+        break;
+      }
       case "baseline": await cmdBaseline(state); break;
       case "once": {
         const { policy } = loadPolicy(POLICY_PATH);
