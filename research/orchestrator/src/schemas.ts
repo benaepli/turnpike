@@ -17,6 +17,7 @@ export const HypothesisStatus = z.enum([
   "closed",      // evaluated, did not clear its gate
   "blocked",     // implementation failed (build errors etc.)
   "parked",      // deprioritized (stagnant lineage / salvage lost the race)
+  "inconclusive", // positive but underpowered; branch kept, may be resumed
 ]);
 export type HypothesisStatus = z.infer<typeof HypothesisStatus>;
 
@@ -42,7 +43,7 @@ export type Hypothesis = z.infer<typeof Hypothesis>;
 
 export const ProposedHypotheses = z.object({ hypotheses: z.array(Hypothesis.omit({ status: true, branch: true, prUrls: true })) });
 
-export const FidelityName = z.enum(["screen", "promote", "confirm"]);
+export const FidelityName = z.enum(["screen", "promote", "confirm", "sequential"]);
 export type FidelityName = z.infer<typeof FidelityName>;
 
 // One rung snapshot of the metric ladder, assembled from traceanalyzer -grade,
@@ -128,6 +129,29 @@ export const AuditReport = z.object({
   recommendedPolicyChanges: z.array(z.string()).default([]),
 });
 export type AuditReport = z.infer<typeof AuditReport>;
+
+// Pooled state of a sequential evaluation, persisted so an inconclusive
+// hypothesis can resume sampling later.
+export const SeqState = z.object({
+  hypothesisId: z.string(),
+  chunks: z.number().int(),
+  runs: z.number().int(),
+  graded: z.number().int(),
+  depth4: z.number().int(),
+  depth5: z.number().int(),
+  depth6plus: z.number().int(),
+  violations: z.number().int(),
+  h2Count: z.number().int(),
+  resumes: z.number().int(),
+  nextSeed: z.number().int(),
+  posteriors: z.record(z.string(), z.number()).default({}),
+  lastVerdict: z.string().default(""),
+  lastIteration: z.number().int().default(0),
+  // Identity of the baseline the counts were compared against; counts from
+  // a superseded baseline are discarded on resume.
+  baselineKey: z.string().default(""),
+});
+export type SeqState = z.infer<typeof SeqState>;
 
 // A single journal line (journal.jsonl). The journal is append-only.
 export const JournalEntry = z.object({

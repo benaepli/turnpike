@@ -4,6 +4,7 @@
 import type { Hypothesis } from "./schemas.js";
 import type { Policy } from "./policy.js";
 import type { LoopState } from "./state.js";
+import { loadSeqState } from "./sequential.js";
 
 export interface SelectInputs {
   pool: Hypothesis[];              // status === "proposed"
@@ -104,7 +105,15 @@ export function calibrationFactor(state: LoopState): number {
 export function selectNext(state: LoopState, policy: Policy): Hypothesis | null {
   const all = state.listHypotheses();
   const byId = new Map<string, Hypothesis>(all.map((h) => [h.id, h]));
-  const pool = all.filter((h) => h.status === "proposed");
+  // An inconclusive hypothesis is resumable once its cooldown has passed;
+  // its posterior replaces the proposer's guess as the prior.
+  const lastIteration = state.recentIterations(1)[0]?.n ?? 0;
+  const resumable = all.filter((h) => {
+    if (h.status !== "inconclusive" || h.branch === null) return false;
+    const seq = loadSeqState(state, h.id);
+    return seq !== null && lastIteration - seq.lastIteration >= policy.sequential.resumeCooldown;
+  });
+  const pool = [...all.filter((h) => h.status === "proposed"), ...resumable];
   if (pool.length === 0) return null;
 
   const terminal = new Set(["merged", "needs_human", "closed", "blocked", "parked"]);
@@ -144,6 +153,14 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
 
   const calib = calibrationFactor(state);
   const score = (h: Hypothesis): number => {
+    const seq = h.status === "inconclusive" ? loadSeqState(state, h.id) : null;
+    if (seq && seq.lastVerdict === "inconclusive") {
+      const best = Math.max(seq.posteriors["depth>=4:pGreater"] ?? 0, seq.posteriors["depth>=5:pGreater"] ?? 0);
+      // Resuming costs only sampling time, so the evidence stands in for
+      // the gain/cost prior; a probable effect outranks any fresh guess.
+      return 0.5 * best + best;
+    }
+    // Sampling interrupted before a verdict ranks as the proposal did.
     const shrunk: Hypothesis = { ...h, expectedGain: h.expectedGain * calib };
     return scoreHypothesis(shrunk, inputs, byId, policy.bandit.ucbC);
   };

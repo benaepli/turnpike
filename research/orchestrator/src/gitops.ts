@@ -158,6 +158,13 @@ export function commitAll(repo: string, message: string): string {
   return currentCommit(repo);
 }
 
+/** Rebase the current branch onto base; a conflicting rebase is aborted and reported as false. */
+export function rebaseOnto(repo: string, base: string): boolean {
+  if (exec("git", ["rebase", base], repo).ok) return true;
+  exec("git", ["rebase", "--abort"], repo);
+  return false;
+}
+
 export function resetHard(repo: string, ref: string): void {
   must("git", ["reset", "--hard", ref], repo);
 }

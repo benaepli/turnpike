@@ -63,111 +63,104 @@ function assembleMetrics(
   };
 }
 
-/**
- * Run one evaluation per seed of the given fidelity rung. A timed-out explore
- * is NOT a failure: the explorer writes parquet incrementally, so the output
- * dir is a valid partial corpus. If the disk guard trips, a single ok=false
- * "disk guard" record is appended and the remaining seeds are skipped.
- * Every seed's output dir is removed in a finally.
- */
-export async function runEvaluation(
+export interface OneEvalOpts {
+  runsPerConfig: number;
+  exploreWallSec: number;
+  gradeMaxRuns: number;
+  gradeBudgetMs: number;
+}
+
+// Run a single explore -> porcupine -> grade evaluation at one seed. A
+// timed-out explore is not a failure by itself (the corpus written so far is
+// graded); unparseable porcupine output or degenerate grading is. The output
+// dir is always removed; the explore log is kept under research/logs on
+// failure.
+export async function runOneEvaluation(
   ctx: EvalContext,
   hypothesisId: string,
   fidelity: FidelityName,
-): Promise<Evaluation[]> {
-  const fid = ctx.policy.fidelities[fidelity];
+  seed: number,
+  opts: OneEvalOpts,
+): Promise<Evaluation> {
   const spec = resolveRoot(ctx.specOverride ?? ctx.policy.evaluation.spec);
   const template = resolveRoot(ctx.configTemplateOverride ?? ctx.policy.evaluation.configTemplate);
-  const evals: Evaluation[] = [];
-
-  for (const seed of fid.seeds) {
-    const outputDir = path.join(ROOT, "tmp", "loop", `eval-${hypothesisId}-${fidelity}-${seed}`);
-    const base = {
-      id: `${hypothesisId}-${fidelity}-${seed}-${Date.now()}`,
-      hypothesisId,
-      fidelity,
-      graderVersion: ctx.graderVersion,
-      spurCommit: ctx.spurCommit,
-      superCommit: ctx.superCommit,
-      configPath: template,
-      spec,
-      seed,
-      startedAtIso: new Date().toISOString(),
-    };
-
-    try {
-      if (fs.existsSync(outputDir)) cleanupDir(outputDir);
-      fs.mkdirSync(outputDir, { recursive: true });
-
-      if (freeDiskGb(ROOT) < ctx.policy.budgets.minFreeDiskGb) {
-        evals.push({ ...base, metrics: ZERO_METRICS, exploreWallMs: 0, suspendedMs: 0, ok: false, error: "disk guard" });
-        return evals;
-      }
-
-      // The config must live OUTSIDE outputDir: `spur explore -y` clears the
-      // output dir, which would delete the config before/while it is read.
-      const configPath = `${outputDir}.config.json`;
-      materializeConfig(template, configPath, { runsPerConfig: fid.runsPerConfig, sessionSeed: seed });
-
-      console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: exploring (wall ${fid.exploreWallSec}s) -> ${outputDir}`);
-      const exploreRes = await explore({
-        binary: ctx.binary,
-        configPath,
-        spec,
-        outputDir,
-        wallSec: fid.exploreWallSec,
-        rayonThreads: ctx.policy.evaluation.rayonThreads,
-      });
-
-      const porc = await porcupine({
-        inputDir: outputDir,
-        model: "kv",
-        timeoutMsPerRun: 3_000,
-        timeoutMs: 900_000,
-      });
-
-      const gr = await grade({
-        inputDir: outputDir,
-        dagConfigs: ctx.policy.evaluation.oracleDags.map(resolveRoot),
-        maxRuns: fid.gradeMaxRuns,
-        budgetMs: fid.gradeBudgetMs,
-        timeoutMs: fid.gradeBudgetMs + 120_000,
-      });
-
-      const metrics = assembleMetrics(porc.parsed, gr.parsed, exploreRes.wallMs);
-      const gradeDegenerate = gr.parsed === null || (metrics.runs > 0 && metrics.gradedRuns === 0);
-      const ok = porc.parsed !== null && !gradeDegenerate;
-      const error = ok
-        ? null
-        : porc.parsed === null
-          ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`
-          : `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""})`;
-      evals.push({ ...base, metrics, exploreWallMs: exploreRes.wallMs, suspendedMs: exploreRes.suspendedMs ?? 0, ok, error });
-      console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s${(exploreRes.suspendedMs ?? 0) > 0 ? ` (suspended ${Math.round((exploreRes.suspendedMs ?? 0) / 1000)}s)` : ""} porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
-      if (!ok) {
-        try {
-          fs.mkdirSync(path.join(ROOT, "research", "logs"), { recursive: true });
-          fs.copyFileSync(`${outputDir}.log`, path.join(ROOT, "research", "logs", `eval-${hypothesisId}-${fidelity}-${seed}.log`));
-        } catch { /* log may not exist */ }
-      }
-    } finally {
-      fs.rmSync(`${outputDir}.config.json`, { force: true });
-      fs.rmSync(`${outputDir}.log`, { force: true });
-      try {
-        cleanupDir(outputDir);
-      } catch {
-        // Cleanup failure must not mask the evaluation result.
-      }
+  const outputDir = path.join(ROOT, "tmp", "loop", `eval-${hypothesisId}-${fidelity}-${seed}`);
+  const base = {
+    id: `${hypothesisId}-${fidelity}-${seed}-${Date.now()}`,
+    hypothesisId,
+    fidelity,
+    graderVersion: ctx.graderVersion,
+    spurCommit: ctx.spurCommit,
+    superCommit: ctx.superCommit,
+    configPath: template,
+    spec,
+    seed,
+    startedAtIso: new Date().toISOString(),
+  };
+  try {
+    if (fs.existsSync(outputDir)) cleanupDir(outputDir);
+    fs.mkdirSync(outputDir, { recursive: true });
+    if (freeDiskGb(ROOT) < ctx.policy.budgets.minFreeDiskGb) {
+      return { ...base, metrics: ZERO_METRICS, exploreWallMs: 0, suspendedMs: 0, ok: false, error: "disk guard" };
     }
+    const configPath = `${outputDir}.config.json`;
+    materializeConfig(template, configPath, { runsPerConfig: opts.runsPerConfig, sessionSeed: seed });
+    console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: exploring (wall ${opts.exploreWallSec}s) -> ${outputDir}`);
+    const exploreRes = await explore({
+      binary: ctx.binary, configPath, spec, outputDir,
+      wallSec: opts.exploreWallSec, rayonThreads: ctx.policy.evaluation.rayonThreads,
+    });
+    const porc = await porcupine({ inputDir: outputDir, model: "kv", timeoutMsPerRun: 3_000, timeoutMs: 900_000 });
+    const gr = await grade({
+      inputDir: outputDir,
+      dagConfigs: ctx.policy.evaluation.oracleDags.map(resolveRoot),
+      maxRuns: opts.gradeMaxRuns,
+      budgetMs: opts.gradeBudgetMs,
+      timeoutMs: opts.gradeBudgetMs + 120_000,
+    });
+    const metrics = assembleMetrics(porc.parsed, gr.parsed, exploreRes.wallMs);
+    const gradeDegenerate = gr.parsed === null || (metrics.runs > 0 && metrics.gradedRuns === 0);
+    const ok = porc.parsed !== null && !gradeDegenerate;
+    const error = ok
+      ? null
+      : porc.parsed === null
+        ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`
+        : `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""})`;
+    console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s${(exploreRes.suspendedMs ?? 0) > 0 ? ` (suspended ${Math.round((exploreRes.suspendedMs ?? 0) / 1000)}s)` : ""} porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
+    if (!ok) {
+      try {
+        fs.mkdirSync(path.join(ROOT, "research", "logs"), { recursive: true });
+        fs.copyFileSync(`${outputDir}.log`, path.join(ROOT, "research", "logs", `eval-${hypothesisId}-${fidelity}-${seed}.log`));
+      } catch { /* log may not exist */ }
+    }
+    return { ...base, metrics, exploreWallMs: exploreRes.wallMs, suspendedMs: exploreRes.suspendedMs ?? 0, ok, error };
+  } finally {
+    fs.rmSync(`${outputDir}.config.json`, { force: true });
+    fs.rmSync(`${outputDir}.log`, { force: true });
+    try { cleanupDir(outputDir); } catch { /* cleanup failure must not mask the result */ }
   }
+}
 
+// Run the fixed-fidelity rung (every seed of the rung); used by the baseline
+// and by the confirm stage.
+export async function runEvaluation(
+  ctx: EvalContext,
+  hypothesisId: string,
+  fidelity: Exclude<FidelityName, "sequential">,
+): Promise<Evaluation[]> {
+  const fid = ctx.policy.fidelities[fidelity];
+  const evals: Evaluation[] = [];
+  for (const seed of fid.seeds) {
+    const e = await runOneEvaluation(ctx, hypothesisId, fidelity, seed, {
+      runsPerConfig: fid.runsPerConfig, exploreWallSec: fid.exploreWallSec,
+      gradeMaxRuns: fid.gradeMaxRuns, gradeBudgetMs: fid.gradeBudgetMs,
+    });
+    evals.push(e);
+    if (e.error === "disk guard") break;
+  }
   return evals;
 }
 
-/**
- * Pooled depth counts across evaluations: succ = graded runs whose prefix
- * depth is >= k (depthAtLeast[k-1]), n = graded runs.
- */
 export function aggregateDepthCounts(evals: Evaluation[], k: number): { succ: number; n: number } {
   let succ = 0;
   let n = 0;

@@ -61,7 +61,8 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
    iteration parks its hypothesis with a `[stop]` note; the daemon exits.
    Wait for the event watcher's ALERT (unit inactive).
 2. Verify both repos on `research/vr-loop`, clean. Delete leftover local
-   `hyp/*` branches in both repos.
+   `hyp/*` branches in both repos, except the branches of `inconclusive`
+   hypotheses (`cli status` lists them): those hold work that resumes.
 3. Apply staged scripts from `research/orchestrator/`; `npx tsc --noEmit`
    must be clean before anything is committed.
 4. If a hypothesis was parked or closed by a harness bug (not by evidence),
@@ -90,8 +91,14 @@ boundary procedure (step 7).
 ## Reporting
 
 - Heartbeat ticks: one line, only what changed.
-- Journal events with content (screen/promote/decision/audit/publish):
-  interpret them. Ladder semantics: depth>=4/5 are the measurable frontier
+- Journal events with content (seq_chunk/sequential/inconclusive/decision/
+  audit/publish): interpret them. `seq_chunk` carries the running posteriors
+  (`depth>=5:pGreater`, `:pMei`, `:ratio`); `sequential` is the verdict
+  (advance -> confirm rung; reject -> closed; inconclusive -> branch kept,
+  resumable after the cooldown, up to 2 resumes). An inconclusive result is
+  neither a negative nor a positive; report it as "probable, unresolved".
+  The perf lane still uses screen/promote for its non-inferiority check.
+  Ladder semantics: depth>=4/5 are the measurable frontier
   rungs; depth>=6..8 and violations are zero at baseline and act as jackpot
   indicators; H1 = crash with an in-flight send, H2 = stale-incarnation
   delivery, H3 = two nodes crash and recover. A mechanism that raises H1 but

@@ -58,5 +58,7 @@ must report 266 violations.
 ## Resource reference (measured)
 
 Explorer peak RSS ~2.4 GB on a 13.5k-run session; grader ~80 MB on 5000
-runs; explore ~140-290 runs/s depending on the merged binary. Screen ~40 s,
-promote ~2 min, confirm ~3 min per seed, regression ~2 min.
+runs; explore ~140-290 runs/s depending on the merged binary. One sequential
+chunk (5.4k runs) ~1 min; a typical verdict takes 2-4 chunks, the cap is 18;
+confirm ~3 min per seed, regression ~2 min. Perf lane: screen ~40 s, promote
+~2 min.

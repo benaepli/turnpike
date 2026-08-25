@@ -37,6 +37,26 @@ export const Policy = z.object({
     minFreeDiskGb: z.number().positive(),
   }),
   audit: z.object({ everyK: z.number().int().positive() }),
+  sequential: z.object({
+    chunkRunsPerConfig: z.number().int().positive(),
+    maxChunks: z.number().int().positive(),
+    minChunks: z.number().int().positive(),
+    advanceP: z.number().min(0.5).max(1),
+    rejectP: z.number().min(0).max(0.5),
+    inconclusiveP: z.number().min(0.5).max(1),
+    niP: z.number().min(0.5).max(1),
+    mei: z.object({ depth4: z.number().positive(), depth5: z.number().positive(), h2: z.number().positive() }),
+    regressMargin: z.number().positive(),
+    h2SupportChunks: z.number().int().nonnegative(),
+    maxResumes: z.number().int().nonnegative(),
+    resumeCooldown: z.number().int().nonnegative(),
+    draws: z.number().int().min(200),
+    wallSecPerChunk: z.number().int().positive(),
+  }).default({
+    chunkRunsPerConfig: 100, maxChunks: 18, minChunks: 2, advanceP: 0.99, rejectP: 0.05,
+    inconclusiveP: 0.9, niP: 0.95, mei: { depth4: 0.25, depth5: 0.4, h2: 0.05 },
+    regressMargin: 0.25, h2SupportChunks: 6, maxResumes: 2, resumeCooldown: 2, draws: 2000, wallSecPerChunk: 240,
+  }),
   rejudge: z.object({ everyK: z.number().int().positive(), afterMerge: z.boolean() }).default({ everyK: 5, afterMerge: true }),
   proposal: z.object({ lenses: z.number().int().min(1).max(8), maxPoolSize: z.number().int().positive() }),
   evaluation: z.object({
@@ -73,6 +93,7 @@ export const HARD_LIMITS = {
   maxExploreWallSec: 3600,
   maxBuildSeconds: 900,
   minFreeDiskGbFloor: 25,
+  maxSequentialChunks: 60,
 } as const;
 
 export function clampPolicy(p: Policy): { policy: Policy; clamps: string[] } {
@@ -89,6 +110,7 @@ export function clampPolicy(p: Policy): { policy: Policy; clamps: string[] } {
   c.budgets.maxImplementTurns = clampNum("budgets.maxImplementTurns", c.budgets.maxImplementTurns, 5, HARD_LIMITS.maxImplementTurns);
   c.budgets.maxBuildSeconds = clampNum("budgets.maxBuildSeconds", c.budgets.maxBuildSeconds, 60, HARD_LIMITS.maxBuildSeconds);
   c.budgets.minFreeDiskGb = clampNum("budgets.minFreeDiskGb", c.budgets.minFreeDiskGb, HARD_LIMITS.minFreeDiskGbFloor, 1000);
+  c.sequential.maxChunks = clampNum("sequential.maxChunks", c.sequential.maxChunks, 1, HARD_LIMITS.maxSequentialChunks);
   for (const f of ["screen", "promote", "confirm"] as const) {
     c.fidelities[f].exploreWallSec = clampNum(`fidelities.${f}.exploreWallSec`, c.fidelities[f].exploreWallSec, 10, HARD_LIMITS.maxExploreWallSec);
   }

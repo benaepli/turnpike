@@ -11,15 +11,16 @@ import {
 import { classifyChangeRisk, compareToBaseline, finalGate, nonInferior, objectiveCounts, perfGate, screenAdvances } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, type EvalContext } from "./evaluate.js";
+import { loadSeqState, pooledCountsOf, runSequential, type SeqKind } from "./sequential.js";
 import {
-  SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, createBranch, currentBranch, snapshotWork,
+  SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, createBranch, currentBranch, snapshotWork, rebaseOnto,
   currentCommit, deleteBranch, diffText, createPr, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
 import { buildSpur, SPUR_BIN, cleanupDir, explore, materializeConfig, run } from "./runners.js";
 import { runRegression } from "./regression.js";
-import { Evaluation, Hypothesis, type GateDecision } from "./schemas.js";
+import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
 import type { LoopState } from "./state.js";
 import { writeStatus, appendObservation } from "./render.js";
 import { z } from "zod";
@@ -235,6 +236,20 @@ function syncToOrigin(repo: string): void {
   run0("git", ["reset", "--hard", `origin/${RESEARCH_BRANCH}`], repo);
 }
 
+// An underpowered but probable effect keeps its work: both branches are
+// pushed (no PR) and the hypothesis becomes resumable.
+function markInconclusive(state: LoopState, n: number, h: Hypothesis, branch: string, seq: SeqState, reason: string, spurChanged: boolean): void {
+  try {
+    if (spurChanged) push(SPUR, branch, { setUpstream: true });
+    push(SUPER, branch, { setUpstream: true });
+  } catch { /* the local branches still hold the work */ }
+  const best = Math.max(seq.posteriors["depth>=4:pGreater"] ?? 0, seq.posteriors["depth>=5:pGreater"] ?? 0);
+  state.setMeta(`seq:${h.id}`, JSON.stringify({ ...seq, lastIteration: n }));
+  state.upsertHypothesis({ ...h, status: "inconclusive", branch, notes: `[inconclusive iteration ${n}] ${reason}; pGreater ${best.toFixed(3)} after ${seq.chunks} chunks / ${seq.runs} runs; resumes ${seq.resumes}` });
+  journal(state, n, "inconclusive", { id: h.id, reason, chunks: seq.chunks, runs: seq.runs, posteriors: seq.posteriors, resumes: seq.resumes });
+  cleanupToResearchBranch(null);
+}
+
 function cleanupToResearchBranch(branch: string | null): void {
   for (const repo of [SPUR, SUPER]) {
     try {
@@ -290,25 +305,52 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       notes = `grader proposal ${h.id} queued for review`;
       return;
     }
+    const resuming = h.status === "inconclusive" && h.branch !== null;
+    const priorSeq = resuming ? loadSeqState(state, h.id) : null;
     state.upsertHypothesis({ ...h, status: "selected" });
-    journal(state, n, "select", { id: h.id, kind: h.kind, title: h.title });
+    journal(state, n, "select", { id: h.id, kind: h.kind, title: h.title, resuming });
 
     const paramsBefore = generalConfigParamCount(policy);
-    branch = `hyp/${String(n).padStart(3, "0")}-${h.id}`.slice(0, 60);
-    createBranch(SPUR, branch);
-    createBranch(SUPER, branch);
+    let spurFiles: string[] = [];
+    let superFiles: string[] = [];
+    let superCommit: string;
+    if (resuming && h.branch) {
+      // The implementation already lives on the hypothesis branch. It must
+      // contain everything the current baseline contains, so it is rebased
+      // onto the research branch first; a conflict ends the hypothesis.
+      branch = h.branch;
+      checkout(SUPER, branch);
+      let spurOnBranch = true;
+      try { checkout(SPUR, branch); } catch { spurOnBranch = false; }
+      const rebased = rebaseOnto(SUPER, RESEARCH_BRANCH) && (!spurOnBranch || rebaseOnto(SPUR, RESEARCH_BRANCH));
+      if (!rebased) {
+        state.upsertHypothesis({ ...h, status: "closed", branch, notes: `[stale] branch no longer rebases onto ${RESEARCH_BRANCH}; ${h.notes}`.slice(0, 500) });
+        journal(state, n, "stale_branch", { id: h.id, branch });
+        cleanupToResearchBranch(branch);
+        return;
+      }
+      const pair = commitHypothesisPair({ branch, spurMessage: `resume ${h.id}`, superMessage: `resume ${h.id}` });
+      superCommit = pair.superCommit;
+      spurFiles = spurOnBranch ? changedFiles(SPUR, RESEARCH_BRANCH) : [];
+      superFiles = changedFiles(SUPER, RESEARCH_BRANCH).filter((f) => f !== "spur");
+    } else {
+      branch = `hyp/${String(n).padStart(3, "0")}-${h.id}`.slice(0, 60);
+      createBranch(SPUR, branch);
+      createBranch(SUPER, branch);
 
-    const impl = await timed("implement", () => implementHypothesis(policy, h));
-    journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, summary: impl.summary.slice(0, 2000) });
-    if (impl.aborted || stopRequested()) { parkForStop(state, n, h, branch, "implement"); return; }
+      const impl = await timed("implement", () => implementHypothesis(policy, h));
+      journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, summary: impl.summary.slice(0, 2000) });
+      if (impl.aborted || stopRequested()) { parkForStop(state, n, h, branch, "implement"); return; }
 
-    const { spurCommit, superCommit } = commitHypothesisPair({
-      branch,
-      spurMessage: `wip ${h.id}: ${h.title}`,
-      superMessage: `wip ${h.id}: ${h.title}`,
-    });
-    const spurFiles = spurCommit ? changedFiles(SPUR, RESEARCH_BRANCH) : [];
-    const superFiles = changedFiles(SUPER, RESEARCH_BRANCH).filter((f) => f !== "spur");
+      const pair = commitHypothesisPair({
+        branch,
+        spurMessage: `wip ${h.id}: ${h.title}`,
+        superMessage: `wip ${h.id}: ${h.title}`,
+      });
+      superCommit = pair.superCommit;
+      spurFiles = pair.spurCommit ? changedFiles(SPUR, RESEARCH_BRANCH) : [];
+      superFiles = changedFiles(SUPER, RESEARCH_BRANCH).filter((f) => f !== "spur");
+    }
     if (spurFiles.length === 0 && superFiles.length === 0) {
       state.upsertHypothesis({ ...h, status: "blocked", branch, notes: "implementer produced no changes" });
       journal(state, n, "blocked", { reason: "no changes" });
@@ -344,6 +386,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     let regressionPassed = false;
     const allEvals: Record<string, Evaluation[]> = {};
     let perfDecision: GateDecision | null = null;
+    let seqOutcome = "";
 
     if (lintFailures.length === 0 && h.kind === "perf") {
       const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
@@ -380,49 +423,58 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         };
       }
     } else if (lintFailures.length === 0) {
-      const screen = await timed("evaluate", () => runEvaluation(ctx, h.id, "screen"));
-      allEvals["screen"] = screen;
-      for (const e of screen) state.addEvaluation(e);
-      if (stopRequested()) { parkForStop(state, n, h, branch, "screen"); return; }
-      if (screen.length > 0 && screen.every((e) => !e.ok)) {
-        const failure = screen[0]?.error ?? "evaluation failed";
-        const d: GateDecision = {
-          hypothesisId: h.id, verdict: "blocked",
-          reasons: [`screen evaluation degenerate/failed: ${failure}`],
-          objectiveDeltas: {}, regressionPassed: null, lintPassed: true,
-        };
+      const kind: SeqKind = h.kind === "ablate" || h.kind === "enabling" || h.kind === "meta" ? "noninferiority" : "superiority";
+      // A stop mid-sample continues where it left off; a deliberate resume
+      // of an inconclusive result spends one of the allowed resumes. Counts
+      // gathered against a superseded baseline are dropped.
+      const baselineKey = baseline.confirm[0]?.superCommit ?? "";
+      let prior: SeqState | null = null;
+      if (priorSeq) {
+        const resumes = priorSeq.lastVerdict === "inconclusive" ? priorSeq.resumes + 1 : priorSeq.resumes;
+        prior = priorSeq.baselineKey === baselineKey
+          ? { ...priorSeq, resumes }
+          : { ...priorSeq, resumes, chunks: 0, runs: 0, graded: 0, depth4: 0, depth5: 0, depth6plus: 0, violations: 0, h2Count: 0, posteriors: {}, lastVerdict: "", baselineKey };
+        if (priorSeq.baselineKey !== baselineKey) journal(state, n, "seq_reset", { id: h.id, from: priorSeq.baselineKey, to: baselineKey });
+      }
+      const res = await timed("evaluate", () => runSequential({
+        ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.confirm), prior, baselineKey,
+        maxChunksTotal: policy.sequential.maxChunks * (policy.sequential.maxResumes + 1),
+        onChunk: (seq, d) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, depth4: seq.depth4, depth5: seq.depth5, h2: seq.h2Count, violations: seq.violations, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors }),
+        stopRequested,
+      }));
+      allEvals["sequential"] = res.evals;
+      for (const e of res.evals) state.addEvaluation(e);
+      state.setMeta(`seq:${h.id}`, JSON.stringify({ ...res.seq, lastIteration: n }));
+      journal(state, n, "sequential", { verdict: res.verdict, reason: res.reason, chunks: res.seq.chunks, runs: res.seq.runs, posteriors: res.seq.posteriors, resumes: res.seq.resumes });
+      seqOutcome = `${res.verdict} after ${res.seq.chunks} chunks / ${res.seq.runs} runs: ${res.reason}`;
+      if (res.verdict === "stopped") { parkForStop(state, n, h, branch, "sequential"); return; }
+      if (res.verdict === "error") {
+        const d: GateDecision = { hypothesisId: h.id, verdict: "blocked", reasons: [`sequential evaluation failed: ${res.reason}`], objectiveDeltas: {}, regressionPassed: null, lintPassed: true };
         state.setDecision(d);
-        journal(state, n, "blocked", { reason: failure });
-        state.upsertHypothesis({ ...h, status: "blocked", branch, notes: failure.slice(0, 300) });
+        journal(state, n, "blocked", { reason: res.reason });
+        state.upsertHypothesis({ ...h, status: "blocked", branch, notes: res.reason.slice(0, 300) });
         cleanupToResearchBranch(branch);
         return;
       }
-      const nonSuperiorityKind = h.kind === "ablate" || h.kind === "enabling" || h.kind === "meta";
-      const gate1 = screenAdvances(objectiveCounts(screen), objectiveCounts(baseline.screen));
-      if (nonSuperiorityKind && !gate1.advance) { gate1.advance = true; gate1.why = `${h.kind}: non-inferiority kind, screen healthy`; }
-      journal(state, n, "screen", { advance: gate1.advance, why: gate1.why });
-      if (gate1.advance) {
-        const promote = await timed("evaluate", () => runEvaluation(ctx, h.id, "promote"));
-        allEvals["promote"] = promote;
-        for (const e of promote) state.addEvaluation(e);
-        if (stopRequested()) { parkForStop(state, n, h, branch, "promote"); return; }
-        const cmp = compareToBaseline(objectiveCounts(promote), objectiveCounts(baseline.promote));
-        const promoteOk = cmp.improved.length > 0 && cmp.regressed.length === 0;
-        const abl = h.kind === "ablate" || h.kind === "enabling" || h.kind === "meta";
-        journal(state, n, "promote", { improved: cmp.improved, regressed: cmp.regressed, deltas: cmp.deltas });
-        if (promoteOk || abl) {
-          confirmEvals = await timed("evaluate", () => runEvaluation(ctx, h.id, "confirm"));
-          allEvals["confirm"] = confirmEvals;
-          for (const e of confirmEvals) state.addEvaluation(e);
-          if (stopRequested()) { parkForStop(state, n, h, branch, "confirm"); return; }
-          const screenRps = screen.filter((e) => e.ok).map((e) => e.metrics.runsPerSec);
-          const meanRps = screenRps.length ? screenRps.reduce((a, b) => a + b, 0) / screenRps.length : 0;
-          throughputRatio = baseline.runsPerSec > 0 ? meanRps / baseline.runsPerSec : null;
-          const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
-          regressionPassed = regr.passed;
-          journal(state, n, "regression", regr);
-          decisionInputsReady = true;
+      if (res.verdict === "inconclusive") {
+        if (res.seq.resumes < policy.sequential.maxResumes) {
+          markInconclusive(state, n, h, branch, res.seq, res.reason, spurFiles.length > 0);
+          return;
         }
+        journal(state, n, "closed_after_resumes", { id: h.id, chunks: res.seq.chunks, posteriors: res.seq.posteriors });
+      }
+      if (res.verdict === "advance") {
+        confirmEvals = await timed("evaluate", () => runEvaluation(ctx, h.id, "confirm"));
+        allEvals["confirm"] = confirmEvals;
+        for (const e of confirmEvals) state.addEvaluation(e);
+        if (stopRequested()) { parkForStop(state, n, h, branch, "confirm"); return; }
+        const seqRps = res.evals.filter((e) => e.ok).map((e) => e.metrics.runsPerSec);
+        const meanRps = seqRps.length ? seqRps.reduce((a, b) => a + b, 0) / seqRps.length : 0;
+        throughputRatio = baseline.runsPerSec > 0 ? meanRps / baseline.runsPerSec : null;
+        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
+        regressionPassed = regr.passed;
+        journal(state, n, "regression", regr);
+        decisionInputsReady = true;
       }
     }
 
@@ -437,9 +489,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     });
     if (!perfDecision && !decisionInputsReady && lintFailures.length === 0) {
       decision.verdict = "closed";
-      decision.reasons = ["did not clear screen/promote gates"];
-      const ran = allEvals["promote"] ?? allEvals["screen"] ?? [];
-      const baseRan = allEvals["promote"] ? baseline.promote : baseline.screen;
+      decision.reasons = [`sequential evaluation ${seqOutcome}`];
+      const ran = allEvals["sequential"] ?? [];
+      const baseRan = baseline.confirm;
       if (ran.length > 0) {
         const cmp = compareToBaseline(objectiveCounts(ran), objectiveCounts(baseRan));
         const h1 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h1Rate, 0) / ok.length : 0; };
@@ -553,7 +605,11 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
   // Crash recovery: requeue hypotheses stranded mid-iteration and clear
   // leftover evaluation corpora from a killed run.
   for (const h of deps.state.listHypotheses()) {
-    if (h.status === "selected" || h.status === "implementing" || (h.status === "parked" && h.notes.startsWith("[stop]"))) {
+    const stopParked = h.status === "parked" && h.notes.startsWith("[stop]");
+    if (stopParked && h.branch && loadSeqState(deps.state, h.id) !== null) {
+      // Sampling that was interrupted by a stop resumes from its chunks.
+      deps.state.upsertHypothesis({ ...h, status: "inconclusive", notes: `${h.notes} [resumable after restart]`.trim() });
+    } else if (h.status === "selected" || h.status === "implementing" || stopParked) {
       deps.state.upsertHypothesis({ ...h, status: "proposed", branch: null, notes: `${h.notes} [requeued after restart]`.trim() });
     }
   }

@@ -6,6 +6,7 @@ import type { Evaluation, LadderMetrics } from "./schemas.js";
 import type { Policy } from "./policy.js";
 import type { LoopState } from "./state.js";
 import { SUPER } from "./gitops.js";
+import { loadSeqState } from "./sequential.js";
 
 const STATUS_PATH = join(SUPER, "research", "STATUS.md");
 const OBSERVATIONS_PATH = join(
@@ -131,6 +132,22 @@ export function renderStatus(
   }
   lines.push("");
 
+  const inconclusive = state.listHypotheses("inconclusive");
+  if (inconclusive.length > 0) {
+    lines.push("## Inconclusive (resumable)");
+    lines.push("");
+    lines.push("| id | chunks | runs | P(depth>=4 up) | P(depth>=5 up) | resumes | last iteration |");
+    lines.push("| --- | --- | --- | --- | --- | --- | --- |");
+    for (const h of inconclusive) {
+      const seq = loadSeqState(state, h.id);
+      if (!seq) continue;
+      const p4 = (seq.posteriors["depth>=4:pGreater"] ?? 0).toFixed(3);
+      const p5 = (seq.posteriors["depth>=5:pGreater"] ?? 0).toFixed(3);
+      lines.push(`| ${h.id} | ${seq.chunks} | ${seq.runs} | ${p4} | ${p5} | ${seq.resumes} | ${seq.lastIteration} |`);
+    }
+    lines.push("");
+  }
+
   lines.push(`## Last ${ITERATION_ROW_CAP} iterations`);
   lines.push("");
   const iterations = state.recentIterations(ITERATION_ROW_CAP);
@@ -175,6 +192,10 @@ export function renderStatus(
   const f = policy.fidelities;
   lines.push(
     `- Fidelity explore wall (s): screen=${f.screen.exploreWallSec}, promote=${f.promote.exploreWallSec}, confirm=${f.confirm.exploreWallSec}`,
+  );
+  const sq = policy.sequential;
+  lines.push(
+    `- Sequential: ${sq.chunkRunsPerConfig} runs/config per chunk, ${sq.minChunks}-${sq.maxChunks} chunks, advance P>=${sq.advanceP}, inconclusive P>=${sq.inconclusiveP}, MEI depth4 ${sq.mei.depth4} / depth5 ${sq.mei.depth5}, resumes ${sq.maxResumes}`,
   );
   lines.push(
     `- Evaluation: spec=${policy.evaluation.spec}, audit every ${policy.audit.everyK} iterations`,
@@ -251,6 +272,13 @@ export function renderPolicyMd(
     lines.push(
       `| ${rung} | ${fd.exploreWallSec} | ${fd.runsPerConfig} | ${fd.gradeMaxRuns} | ${fd.gradeBudgetMs} | ${fd.seeds.join(", ")} |`,
     );
+  }
+  lines.push("");
+
+  lines.push("## Sequential evaluation");
+  lines.push("");
+  for (const [key, value] of Object.entries(policy.sequential)) {
+    lines.push(`- ${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
   }
   lines.push("");
 
