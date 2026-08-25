@@ -1,0 +1,301 @@
+{
+  "hypothesis": {
+    "id": "novelty-key-ablation-sweep",
+    "parent": "incarnation-timeline-tuples",
+    "kind": "ablate",
+    "title": "Ablate timeline tuple key granularity",
+    "description": "Add config field timeline_key_granularity: \"coarse\"|\"default\"|\"fine\" (default \"default\") in feedback.rs controlling how many fields enter the TimelineTuple hash. Run screen fidelity at all three to measure whether depth ladder is sensitive to novelty-key resolution at all. If coarse == default == fine, that rules out the whole family of key-enrichment hypotheses (incarnation flags included) and redirects effort to scheduler-side generation.",
+    "category": "feedback",
+    "buildsOn": [
+      "timeline-feedback",
+      "steer"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 2,
+    "rationale": "One cheap experiment can close an entire branch of proposals instead of testing enrichments one at a time.",
+    "generalityArgument": "Tuple granularity is a property of the feedback encoding, not of any protocol under test.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-25T07:00:00.000Z",
+    "notes": "diagnostic; run before any further feedback-key enrichment"
+  },
+  "decision": {
+    "hypothesisId": "novelty-key-ablation-sweep",
+    "verdict": "auto_merge",
+    "reasons": [
+      "non-inferior ablation (flag-off stage)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": -0.0004166666666666624,
+      "depth>=5": -0.0000308641975308643,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": -0.00029320987654318786,
+      "primary": -0.0000308641975308643,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "screen": [
+      {
+        "id": "novelty-key-ablation-sweep-screen-11-1787640888874",
+        "hypothesisId": "novelty-key-ablation-sweep",
+        "fidelity": "screen",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "1752baa15aa646e05d39a963a8f6e92efaea89aa",
+        "superCommit": "ce5fc159c4ce04e0084faf834398e00c8c29b1f1",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T06:54:48.874Z",
+        "metrics": {
+          "runs": 5400,
+          "runsPerSec": 168.9189189189189,
+          "unpairedFraction": 0.4825653130196878,
+          "h1Rate": 0.48944444444444446,
+          "h2Rate": 0.39555555555555555,
+          "h2bRate": 0.412962962962963,
+          "h3Rate": 0.3337037037037037,
+          "gradedRuns": 5400,
+          "meanPrefixDepth": 2.330925925925926,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            5400,
+            4771,
+            2131,
+            271,
+            14
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 734,
+          "gradeWallMs": 695
+        },
+        "exploreWallMs": 31968,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ],
+    "promote": [
+      {
+        "id": "novelty-key-ablation-sweep-promote-11-1787640945970",
+        "hypothesisId": "novelty-key-ablation-sweep",
+        "fidelity": "promote",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "1752baa15aa646e05d39a963a8f6e92efaea89aa",
+        "superCommit": "ce5fc159c4ce04e0084faf834398e00c8c29b1f1",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T06:55:45.970Z",
+        "metrics": {
+          "runs": 13500,
+          "runsPerSec": 209.42570816915392,
+          "unpairedFraction": 0.48743917437570183,
+          "h1Rate": 0.49948148148148147,
+          "h2Rate": 0.40170370370370373,
+          "h2bRate": 0.4154074074074074,
+          "h3Rate": 0.3422222222222222,
+          "gradedRuns": 13500,
+          "meanPrefixDepth": 2.3172592592592594,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            13500,
+            11858,
+            5152,
+            708,
+            65
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1309,
+          "gradeWallMs": 1228
+        },
+        "exploreWallMs": 64462,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "novelty-key-ablation-sweep-promote-23-1787641065300",
+        "hypothesisId": "novelty-key-ablation-sweep",
+        "fidelity": "promote",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "1752baa15aa646e05d39a963a8f6e92efaea89aa",
+        "superCommit": "ce5fc159c4ce04e0084faf834398e00c8c29b1f1",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 23,
+        "startedAtIso": "2026-08-25T06:57:45.300Z",
+        "metrics": {
+          "runs": 13500,
+          "runsPerSec": 270.1404730459839,
+          "unpairedFraction": 0.4900032041012496,
+          "h1Rate": 0.5036296296296296,
+          "h2Rate": 0.4051851851851852,
+          "h2bRate": 0.42133333333333334,
+          "h3Rate": 0.338,
+          "gradedRuns": 13500,
+          "meanPrefixDepth": 2.3176296296296295,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            13499,
+            11914,
+            5123,
+            715,
+            37
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1403,
+          "gradeWallMs": 1282
+        },
+        "exploreWallMs": 49974,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ],
+    "confirm": [
+      {
+        "id": "novelty-key-ablation-sweep-confirm-11-1787641163596",
+        "hypothesisId": "novelty-key-ablation-sweep",
+        "fidelity": "confirm",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "1752baa15aa646e05d39a963a8f6e92efaea89aa",
+        "superCommit": "ce5fc159c4ce04e0084faf834398e00c8c29b1f1",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T06:59:23.596Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 260.9609645890469,
+          "unpairedFraction": 0.48453705007273923,
+          "h1Rate": 0.4974074074074074,
+          "h2Rate": 0.4010185185185185,
+          "h2bRate": 0.41435185185185186,
+          "h3Rate": 0.3360648148148148,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.3194444444444446,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21600,
+            19014,
+            8336,
+            1074,
+            76
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 2009,
+          "gradeWallMs": 2184
+        },
+        "exploreWallMs": 82771,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "novelty-key-ablation-sweep-confirm-23-1787641326734",
+        "hypothesisId": "novelty-key-ablation-sweep",
+        "fidelity": "confirm",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "1752baa15aa646e05d39a963a8f6e92efaea89aa",
+        "superCommit": "ce5fc159c4ce04e0084faf834398e00c8c29b1f1",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 23,
+        "startedAtIso": "2026-08-25T07:02:06.734Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 227.92984825781397,
+          "unpairedFraction": 0.4868501242323379,
+          "h1Rate": 0.5,
+          "h2Rate": 0.4001388888888889,
+          "h2bRate": 0.41875,
+          "h3Rate": 0.33662037037037035,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.3125,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21600,
+            18967,
+            8235,
+            1071,
+            77
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 2260,
+          "gradeWallMs": 2445
+        },
+        "exploreWallMs": 94766,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "novelty-key-ablation-sweep-confirm-37-1787641506468",
+        "hypothesisId": "novelty-key-ablation-sweep",
+        "fidelity": "confirm",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "1752baa15aa646e05d39a963a8f6e92efaea89aa",
+        "superCommit": "ce5fc159c4ce04e0084faf834398e00c8c29b1f1",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 37,
+        "startedAtIso": "2026-08-25T07:05:06.468Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 224.24550730355162,
+          "unpairedFraction": 0.48673081945476826,
+          "h1Rate": 0.5020833333333333,
+          "h2Rate": 0.4022685185185185,
+          "h2bRate": 0.41833333333333333,
+          "h3Rate": 0.33662037037037035,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.316759259259259,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21600,
+            19031,
+            8287,
+            1051,
+            73
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 2076,
+          "gradeWallMs": 2191
+        },
+        "exploreWallMs": 96323,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/curriculum.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/feedback.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json",
+    "scheduler_configs/loop/general_vr_key_coarse.json",
+    "scheduler_configs/loop/general_vr_key_default.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 12
+  }
+}
