@@ -1,0 +1,288 @@
+{
+  "hypothesis": {
+    "id": "enable-purgatory-general-config",
+    "parent": null,
+    "kind": "enabling",
+    "title": "Turn on message-delay purgatory in the general config",
+    "description": "Set purgatory: {delay_probability: 0.15, delay_duration_range: [5, 100]} in scheduler_configs/loop/general_vr.json. No Rust changes.",
+    "category": "config",
+    "buildsOn": [
+      "purgatory"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 0.5,
+    "rationale": "Purgatory exists but is disabled by default and the loop config never enables it; delayed messages are a precondition for several oracle chain links (old messages arriving after recovery).",
+    "generalityArgument": "Config-only, protocol-agnostic delay mechanism that already exists.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": "requeued: earlier closures were harness bugs (lint false positive / permission mode); enabler for gated dependents"
+  },
+  "decision": {
+    "hypothesisId": "enable-purgatory-general-config",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: depth>=4, depth>=5"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.015092592592592595,
+      "depth>=5": 0.0013580246913580244,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": 0.009953703703703742,
+      "primary": 0.0013580246913580244
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "screen": [
+      {
+        "id": "enable-purgatory-general-config-screen-11-1787621328260",
+        "hypothesisId": "enable-purgatory-general-config",
+        "fidelity": "screen",
+        "graderVersion": "ta:3fdf93c+porc:8de73a4",
+        "spurCommit": "eeb05e7d1d611c2bd06be3b15db654ef5ce645e7",
+        "superCommit": "5ef11223a81c8a3e9f3224f47c84542e000d1554",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T01:28:48.260Z",
+        "metrics": {
+          "runs": 5400,
+          "runsPerSec": 285.63871991536627,
+          "unpairedFraction": 0.4838847957133289,
+          "h1Rate": 0.4892592592592593,
+          "h2Rate": 0.3933333333333333,
+          "h2bRate": 0.41685185185185186,
+          "h3Rate": 0.3338888888888889,
+          "gradedRuns": 5400,
+          "meanPrefixDepth": 2.338888888888889,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            5399,
+            4770,
+            2156,
+            285,
+            20
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 528,
+          "gradeWallMs": 517
+        },
+        "exploreWallMs": 18905,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ],
+    "promote": [
+      {
+        "id": "enable-purgatory-general-config-promote-11-1787621366707",
+        "hypothesisId": "enable-purgatory-general-config",
+        "fidelity": "promote",
+        "graderVersion": "ta:3fdf93c+porc:8de73a4",
+        "spurCommit": "eeb05e7d1d611c2bd06be3b15db654ef5ce645e7",
+        "superCommit": "5ef11223a81c8a3e9f3224f47c84542e000d1554",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T01:29:26.707Z",
+        "metrics": {
+          "runs": 13500,
+          "runsPerSec": 283.3991099168696,
+          "unpairedFraction": 0.4897119782350232,
+          "h1Rate": 0.5008148148148148,
+          "h2Rate": 0.4026666666666667,
+          "h2bRate": 0.4185185185185185,
+          "h3Rate": 0.3406666666666667,
+          "gradedRuns": 13500,
+          "meanPrefixDepth": 2.3213333333333335,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            13499,
+            11880,
+            5194,
+            708,
+            57
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1260,
+          "gradeWallMs": 1227
+        },
+        "exploreWallMs": 47636,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "enable-purgatory-general-config-promote-23-1787621459525",
+        "hypothesisId": "enable-purgatory-general-config",
+        "fidelity": "promote",
+        "graderVersion": "ta:3fdf93c+porc:8de73a4",
+        "spurCommit": "eeb05e7d1d611c2bd06be3b15db654ef5ce645e7",
+        "superCommit": "5ef11223a81c8a3e9f3224f47c84542e000d1554",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 23,
+        "startedAtIso": "2026-08-25T01:30:59.525Z",
+        "metrics": {
+          "runs": 13500,
+          "runsPerSec": 282.2791427077888,
+          "unpairedFraction": 0.48800076897608696,
+          "h1Rate": 0.5018518518518519,
+          "h2Rate": 0.4053333333333333,
+          "h2bRate": 0.4197777777777778,
+          "h3Rate": 0.3402962962962963,
+          "gradedRuns": 13500,
+          "meanPrefixDepth": 2.32,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            13498,
+            11957,
+            5109,
+            716,
+            40
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1272,
+          "gradeWallMs": 1249
+        },
+        "exploreWallMs": 47825,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ],
+    "confirm": [
+      {
+        "id": "enable-purgatory-general-config-confirm-11-1787621553507",
+        "hypothesisId": "enable-purgatory-general-config",
+        "fidelity": "confirm",
+        "graderVersion": "ta:3fdf93c+porc:8de73a4",
+        "spurCommit": "eeb05e7d1d611c2bd06be3b15db654ef5ce645e7",
+        "superCommit": "5ef11223a81c8a3e9f3224f47c84542e000d1554",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T01:32:33.507Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 277.13270294196894,
+          "unpairedFraction": 0.4827530765778138,
+          "h1Rate": 0.4937962962962963,
+          "h2Rate": 0.3984259259259259,
+          "h2bRate": 0.41680555555555554,
+          "h3Rate": 0.33666666666666667,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.321388888888889,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21600,
+            19044,
+            8322,
+            1094,
+            82
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 2001,
+          "gradeWallMs": 2228
+        },
+        "exploreWallMs": 77941,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "enable-purgatory-general-config-confirm-23-1787621706706",
+        "hypothesisId": "enable-purgatory-general-config",
+        "fidelity": "confirm",
+        "graderVersion": "ta:3fdf93c+porc:8de73a4",
+        "spurCommit": "eeb05e7d1d611c2bd06be3b15db654ef5ce645e7",
+        "superCommit": "5ef11223a81c8a3e9f3224f47c84542e000d1554",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 23,
+        "startedAtIso": "2026-08-25T01:35:06.706Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 279.7818737613823,
+          "unpairedFraction": 0.4861511056346517,
+          "h1Rate": 0.49550925925925926,
+          "h2Rate": 0.39652777777777776,
+          "h2bRate": 0.4136111111111111,
+          "h3Rate": 0.3350925925925926,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.3116666666666665,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21600,
+            18975,
+            8250,
+            1037,
+            70
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1883,
+          "gradeWallMs": 2138
+        },
+        "exploreWallMs": 77203,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "enable-purgatory-general-config-confirm-37-1787621857983",
+        "hypothesisId": "enable-purgatory-general-config",
+        "fidelity": "confirm",
+        "graderVersion": "ta:3fdf93c+porc:8de73a4",
+        "spurCommit": "eeb05e7d1d611c2bd06be3b15db654ef5ce645e7",
+        "superCommit": "5ef11223a81c8a3e9f3224f47c84542e000d1554",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 37,
+        "startedAtIso": "2026-08-25T01:37:37.983Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 283.0337019759945,
+          "unpairedFraction": 0.4857887019343435,
+          "h1Rate": 0.4976851851851852,
+          "h2Rate": 0.3977777777777778,
+          "h2bRate": 0.4185185185185185,
+          "h3Rate": 0.3372685185185185,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.3166203703703703,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21600,
+            19013,
+            8310,
+            1051,
+            65
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 2070,
+          "gradeWallMs": 2028
+        },
+        "exploreWallMs": 76316,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:3fdf93c+porc:8de73a4"
+}
