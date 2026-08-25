@@ -57,9 +57,14 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
 
 ## Boundary procedure (the only way to land harness changes)
 
-1. `touch research/STOP`. The running agent phase aborts within seconds; the
-   iteration parks its hypothesis with a `[stop]` note; the daemon exits.
-   Wait for the event watcher's ALERT (unit inactive).
+1. `touch research/STOP`. The running agent phase aborts within seconds
+   (reflect is the exception: it always completes, so its observation is
+   kept); the iteration parks its hypothesis with a `[stop]` note; the
+   daemon exits. Wait for the event watcher's ALERT (unit inactive). To
+   lose nothing, touch STOP at the `decision` event of the running
+   iteration: publish and reflect then finish and the loop exits before
+   the next selection (a trigger on `reflect` is too late; the next
+   iteration starts within a second of it).
 2. Verify both repos on `research/vr-loop`, clean. Delete leftover local
    `hyp/*` branches in both repos, except the branches of `inconclusive`
    hypotheses (`cli status` lists them): those hold work that resumes.

@@ -107,6 +107,9 @@ async function textRole<T>(opts: {
   schema: z.ZodType<T>;
   maxTurns?: number;
   retries?: number;
+  // A short phase whose output must survive a stop request runs to
+  // completion instead of aborting on the STOP sentinel.
+  stoppable?: boolean;
 }): Promise<RoleResult<T>> {
   let lastErr = "no attempts";
   let raw = "";
@@ -117,6 +120,7 @@ async function textRole<T>(opts: {
       ? opts.prompt
       : `${opts.prompt}\n\nYour previous reply did not validate: ${lastErr}\nReply with ONLY the corrected JSON.`;
     const sc = stopController();
+    if (opts.stoppable === false) sc.dispose();
     const r = await collect(query({
       prompt,
       options: {
@@ -292,6 +296,7 @@ export async function reflectOnOutcome(policy: Policy, h: Hypothesis, evidence: 
     prompt: `## Hypothesis\n${JSON.stringify(h, null, 2)}\n\n## Evidence (evaluations, decision, diff summary)\n${evidence.slice(0, 20000)}\n\nReply with ONLY JSON: {"hypothesisId": "${h.id}", "whatWeLearned": "...", "suggestedChildren": [...0-2 follow-up hypotheses, same shape as pool hypotheses...], "suggestedDeprioritize": ["hypothesis-ids"]}\nFor suggestedChildren use: ${HYPOTHESIS_JSON_GUIDE}`,
     schema: Reflection,
     retries: 1,
+    stoppable: false,
   });
 }
 
