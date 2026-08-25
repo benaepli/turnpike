@@ -33,6 +33,13 @@
     0.0,
     0.3
   ],
+  "purgatory": {
+    "delay_probability": 0.15,
+    "delay_duration_range": [
+      5,
+      100
+    ]
+  },
   "num_runs_per_config": 100,
   "max_iterations": 6000,
   "strict_config_keys": true
