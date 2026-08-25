@@ -13,7 +13,7 @@ import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { loadSeqState, pooledCountsOf, runSequential, type SeqKind } from "./sequential.js";
 import {
-  RESEARCH_BRANCH, SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, createBranch, currentBranch, snapshotWork, rebaseOnto,
+  RESEARCH_BRANCH, SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto,
   currentCommit, deleteBranch, diffText, createPr, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
@@ -103,6 +103,17 @@ function parkForStop(state: LoopState, n: number, h: Hypothesis, branch: string,
   state.upsertHypothesis({ ...h, status: "parked", branch, notes: `[stop] parked at ${phase} in iteration ${n}; partial work on branch ${branch}` });
   journal(state, n, "stopped", { phase, branch });
   cleanupToResearchBranch(null);
+}
+
+// Observations live in a tracked file that the next preflight resets, so
+// every append is committed on the research branch at once.
+function persistObservations(n: number): void {
+  try {
+    if (currentBranch(SUPER) !== RESEARCH_BRANCH) return;
+    if (commitPaths(SUPER, ["research/observations/OBSERVATIONS.md"], `observations through iteration ${n}`)) push(SUPER, RESEARCH_BRANCH);
+  } catch (err) {
+    console.error(`observations not persisted: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function readStatusMd(): string {
@@ -586,6 +597,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     const refl = await timed("reflect", () => reflectOnOutcome(policy, h, JSON.stringify(evidence).slice(0, 20000)));
     if (refl.value) {
       appendObservation(`**${h.id}** (${decision.verdict}): ${refl.value.whatWeLearned}`);
+      persistObservations(n);
       const { valid } = validateProposed(refl.value.suggestedChildren);
       for (const child of valid.slice(0, 2)) {
         if (!state.getHypothesis(child.id)) state.upsertHypothesis({ ...child, parent: child.parent ?? h.id });
@@ -610,6 +622,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         if (!audit.value) journal(state, n, "audit_error", { error: audit.error, cost: audit.costUsd });
         if (audit.value) {
           appendObservation(`### Audit @${n}\n${audit.value.budgetConcentration}\n\nGoodhart: ${audit.value.goodhartSignals.join("; ") || "none"}\n\nUtilization: ${audit.value.utilizationFindings.map((u) => `${u.mechanism}=${u.classification}`).join(", ")}\n\nPolicy suggestions: ${audit.value.recommendedPolicyChanges.join("; ") || "none"}`);
+          persistObservations(n);
           journal(state, n, "audit", audit.value);
         }
       });

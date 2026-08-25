@@ -172,6 +172,15 @@ export function rebaseOnto(repo: string, base: string): boolean {
   return false;
 }
 
+/** Commit only the given paths; returns false when they hold no changes. */
+export function commitPaths(repo: string, paths: string[], message: string): boolean {
+  must("git", ["add", "--", ...paths], repo);
+  if (exec("git", ["diff", "--cached", "--quiet", "--", ...paths], repo).ok) return false;
+  const full = `${message}\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>`;
+  must("git", ["commit", "-m", full, "--", ...paths], repo);
+  return true;
+}
+
 export function resetHard(repo: string, ref: string): void {
   must("git", ["reset", "--hard", ref], repo);
 }
