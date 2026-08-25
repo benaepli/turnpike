@@ -1,0 +1,134 @@
+{
+  "hypothesis": {
+    "id": "null-ablation-noise-band",
+    "parent": "ablate-dead-randomly-drop-msgs",
+    "kind": "meta",
+    "title": "Calibrate the metric noise floor with A/A null ablations",
+    "description": "Run the harness twice on identical commits (same spurCommit/superCommit, same config general_vr.json + VR.spur, seeds 1000/1001 and 2 fresh seeds) and record the objectiveDelta distribution for violations, primary, depth>=k, h2. Persist the resulting per-metric band (e.g. 2-sigma over seed pairs) in the evaluation config so the decision gate compares |delta| against a measured floor instead of an unstated slack. No product-code change; harness/eval-config only.",
+    "category": "tooling",
+    "buildsOn": [
+      "evaluation harness",
+      "decision gate"
+    ],
+    "expectedGain": 6,
+    "expectedCost": 2,
+    "rationale": "This ablation produced ~1e-4 deltas that we can only hand-wave as noise. Every subsequent hypothesis with a sub-1e-3 effect is unjudgeable until the floor is measured, and RNG re-phasing means such deltas will be the norm, not the exception.",
+    "generalityArgument": "Measures the evaluation apparatus, not any protocol; the band is computed per-config from whatever spec is under test.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-25T09:05:00Z",
+    "notes": "Falsified if A/A deltas come back identically zero — that would instead prove the drop-branch removal caused a real behavioral change and reopen this ablation. [rejudged iteration 40: Nearly every closure in this pool rests on |delta| of 1e-4 to 1e-2 with no measured floor, and three arms closed on harness artifacts; falsified if A/A 2-sigma bands come back an order of magnitude below the deltas a"
+  },
+  "decision": {
+    "hypothesisId": "null-ablation-noise-band",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": -0.00037962962962963254,
+      "depth>=5": -0.00008796296296296286,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": -0.0005462962962963225,
+      "primary": -0.00008796296296296286,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "null-ablation-noise-band-sequential-1000-1787664263973",
+        "hypothesisId": "null-ablation-noise-band",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "bcf1979280ab05b43d210450a54fd5f9e3c401e6",
+        "superCommit": "db6ebe5726e2c6a4d028620c0151d95363ce4260",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-25T13:24:23.973Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 265.711417718031,
+          "unpairedFraction": 0.4854699115233831,
+          "h1Rate": 0.4998148148148148,
+          "h2Rate": 0.4007777777777778,
+          "h2bRate": 0.4165,
+          "h3Rate": 0.33405555555555555,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.3177777777777777,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            54000,
+            47429,
+            20754,
+            2769,
+            208
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4834,
+          "gradeWallMs": 182600
+        },
+        "exploreWallMs": 203228,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "null-ablation-noise-band-sequential-1001-1787664654913",
+        "hypothesisId": "null-ablation-noise-band",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "bcf1979280ab05b43d210450a54fd5f9e3c401e6",
+        "superCommit": "db6ebe5726e2c6a4d028620c0151d95363ce4260",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-25T13:30:54.913Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 260.2296767851033,
+          "unpairedFraction": 0.4883786916358166,
+          "h1Rate": 0.4978148148148148,
+          "h2Rate": 0.39885185185185185,
+          "h2bRate": 0.41538888888888886,
+          "h3Rate": 0.33746296296296296,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.317759259259259,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            53998,
+            47428,
+            20947,
+            2583,
+            203
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4924,
+          "gradeWallMs": 177306
+        },
+        "exploreWallMs": 207509,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "research/policy.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 12
+  }
+}
