@@ -37,11 +37,13 @@ function pDepthAtLeast(m: LadderMetrics, k: number): number {
 
 interface StatusOpts {
   baseline: LadderMetrics | null;
+  reference: LadderMetrics | null;
   graderVersion: string;
   openPrs: string[];
 }
 
 function ladderTable(
+  reference: LadderMetrics | null,
   baseline: LadderMetrics | null,
   latest: Evaluation | null,
 ): string[] {
@@ -63,14 +65,17 @@ function ladderTable(
     latest === null
       ? "Latest merged"
       : `Latest merged (${oneLine(latest.hypothesisId, 30)})`;
+  // Reference = the first recorded baseline, never replaced; Baseline =
+  // what candidates are currently compared against (advances on merge).
   const out = [
-    `| Metric | Baseline | ${latestLabel} |`,
-    "| --- | --- | --- |",
+    `| Metric | Reference (000) | Current baseline | ${latestLabel} |`,
+    "| --- | --- | --- | --- |",
   ];
   for (const [label, fmt] of rows) {
+    const r = reference === null ? "-" : fmt(reference);
     const b = baseline === null ? "-" : fmt(baseline);
     const l = latest === null ? "-" : fmt(latest.metrics);
-    out.push(`| ${label} | ${b} | ${l} |`);
+    out.push(`| ${label} | ${r} | ${b} | ${l} |`);
   }
   return out;
 }
@@ -100,7 +105,7 @@ export function renderStatus(
 
   lines.push("## Metric ladder");
   lines.push("");
-  lines.push(...ladderTable(opts.baseline, latestMergedEvaluation(state)));
+  lines.push(...ladderTable(opts.reference, opts.baseline, latestMergedEvaluation(state)));
   lines.push("");
 
   lines.push("## Hypothesis pool");

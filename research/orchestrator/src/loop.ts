@@ -45,6 +45,13 @@ const BaselineMeta = z.object({
 });
 export type BaselineMeta = z.infer<typeof BaselineMeta>;
 
+export function loadReference(state: LoopState): BaselineMeta | null {
+  const raw = state.getMeta("baseline0");
+  if (!raw) return null;
+  const p = BaselineMeta.safeParse(JSON.parse(raw));
+  return p.success ? p.data : null;
+}
+
 export function loadBaseline(state: LoopState): BaselineMeta | null {
   const raw = state.getMeta("baseline");
   if (!raw) return null;
@@ -114,6 +121,17 @@ async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
     if (!state.getHypothesis(h.id)) state.upsertHypothesis(h);
   }
   journal(state, iteration, "judge", { kept: valid.length, rejected: rejected.length, judgeCost: judged.costUsd });
+}
+
+// Number of top-level keys in the general evaluation config: the loop's
+// visible parameter surface, recorded before and after every hypothesis.
+function generalConfigParamCount(policy: Policy): number {
+  try {
+    const cfg = JSON.parse(readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8")) as Record<string, unknown>;
+    return Object.keys(cfg).length;
+  } catch {
+    return -1;
+  }
 }
 
 function evalJsonPath(iteration: number, id: string): string {
@@ -221,6 +239,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     state.upsertHypothesis({ ...h, status: "selected" });
     journal(state, n, "select", { id: h.id, kind: h.kind, title: h.title });
 
+    const paramsBefore = generalConfigParamCount(policy);
     branch = `hyp/${String(n).padStart(3, "0")}-${h.id}`.slice(0, 60);
     createBranch(SPUR, branch);
     createBranch(SUPER, branch);
@@ -379,7 +398,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     state.setDecision(decision);
     journal(state, n, "decision", decision);
 
-    const evidence = { hypothesis: h, decision, evaluations: allEvals, spurFiles, superFiles, graderVersion: ctx.graderVersion };
+    const paramsAfter = generalConfigParamCount(policy);
+    decision.objectiveDeltas["params"] = paramsAfter - paramsBefore;
+    const evidence = { hypothesis: h, decision, evaluations: allEvals, spurFiles, superFiles, graderVersion: ctx.graderVersion, generalConfigParams: { before: paramsBefore, after: paramsAfter } };
 
     if (decision.verdict === "auto_merge" || decision.verdict === "needs_human") {
       const outcome = await timed("publish", async () => mergeFlow(n, h, branch as string, evidence, decision.verdict === "auto_merge"));
@@ -395,6 +416,12 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           runsPerSec: baseline.runsPerSec * (throughputRatio ?? 1),
         };
         state.setMeta("baseline", JSON.stringify(newBaseline));
+        // A merge can enable mechanisms; dependency gating must see that now,
+        // not at the next audit.
+        try {
+          const util0 = await collectUtilization(policy);
+          if (util0.trim().startsWith("{")) state.setMeta("utilization", util0);
+        } catch { /* gating falls back to the previous snapshot */ }
         if (spurFiles.length > 0) {
           try { copyFileSync(SPUR_BIN, path.join(ROOT, "tmp", "loop", "spur-baseline")); } catch { /* non-fatal */ }
         }
@@ -458,6 +485,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       const baseline = loadBaseline(state);
       writeStatus(state, policy, {
         baseline: baseline?.confirm[0]?.metrics ?? null,
+        reference: loadReference(state)?.confirm[0]?.metrics ?? null,
         graderVersion: graderVersion(),
         openPrs: state.listHypotheses("needs_human").flatMap((x) => x.prUrls),
       });

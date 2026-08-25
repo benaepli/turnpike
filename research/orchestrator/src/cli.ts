@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { runEvaluation, type EvalContext } from "./evaluate.js";
 import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
-import { graderVersion, loadBaseline, runIteration, runLoop, type BaselineMeta } from "./loop.js";
+import { graderVersion, loadBaseline, loadReference, runIteration, runLoop, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
 import { renderPolicyMd, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN } from "./runners.js";
@@ -42,9 +42,10 @@ async function cmdBaseline(state: LoopState): Promise<void> {
     screen: out.screen ?? [], promote: out.promote ?? [], confirm: out.confirm ?? [], runsPerSec: rps,
   };
   state.setMeta("baseline", JSON.stringify(baseline));
+  if (!state.getMeta("baseline0")) state.setMeta("baseline0", JSON.stringify(baseline));
   mkdirSync(path.join(ROOT, "research/evaluations"), { recursive: true });
   writeFileSync(path.join(ROOT, "research/evaluations/000-baseline.json"), JSON.stringify({ graderVersion: ctx.graderVersion, spurCommit: ctx.spurCommit, superCommit: ctx.superCommit, baseline }, null, 2));
-  writeStatus(state, policy, { baseline: baseline.confirm[0]?.metrics ?? null, graderVersion: ctx.graderVersion, openPrs: [] });
+  writeStatus(state, policy, { baseline: baseline.confirm[0]?.metrics ?? null, reference: loadReference(state)?.confirm[0]?.metrics ?? null, graderVersion: ctx.graderVersion, openPrs: [] });
   renderPolicyMd(policy, clamps, ["initial policy"]);
   commitAll(SUPER, "baseline evaluation 000 (grader " + ctx.graderVersion + ")");
   console.log(`baseline recorded: rps=${rps.toFixed(1)}, evidence in research/evaluations/000-baseline.json`);
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
       case "status": {
         const { policy } = loadPolicy(POLICY_PATH);
         const baseline = loadBaseline(state);
-        writeStatus(state, policy, { baseline: baseline?.confirm[0]?.metrics ?? null, graderVersion: graderVersion(), openPrs: state.listHypotheses("needs_human").flatMap((h) => h.prUrls) });
+        writeStatus(state, policy, { baseline: baseline?.confirm[0]?.metrics ?? null, reference: loadReference(state)?.confirm[0]?.metrics ?? null, graderVersion: graderVersion(), openPrs: state.listHypotheses("needs_human").flatMap((h) => h.prUrls) });
         console.log("STATUS.md rendered. Pool:", JSON.stringify(state.countByStatus()));
         break;
       }
