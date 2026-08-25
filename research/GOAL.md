@@ -36,10 +36,11 @@ lift P(rung k+1 | rung k) with GENERIC mechanisms.
    research/oracle/**, research/corpus/** (calibration), scheduler_configs/** outside loop/.
 5. Regression: merged changes must keep finding the Mencius bug, keep fixed specs clean,
    keep VR no-fault clean, and stay within 20% of baseline throughput.
-6. Evidence: every claim of improvement needs CI-separated rates at confirm
-   fidelity, on fixed seeds. Before confirm, a candidate is sampled in chunks
-   until the posterior says it is worth confirming, is not, or is probably real
-   but too small to resolve (inconclusive: the branch is kept and can be resumed).
+6. Evidence: every claim of improvement needs CI-separated rates on fixed seeds,
+   measured with the same protocol as the baseline (long sessions of 1000
+   runs/config; frontier rates depend on session length). A candidate is sampled
+   one session at a time until it separates, cannot, or is probably real but too
+   small to resolve (inconclusive: the branch is kept and can be resumed).
 
 ## Promising directions (seed thinking, not limits)
 

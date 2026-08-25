@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { runEvaluation, type EvalContext } from "./evaluate.js";
 import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
-import { graderVersion, loadBaseline, loadReference, rejudge, runIteration, runLoop, type BaselineMeta } from "./loop.js";
+import { graderVersion, loadBaseline, loadReference, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
 import { renderPolicyMd, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN } from "./runners.js";
@@ -27,7 +27,7 @@ async function cmdBaseline(state: LoopState): Promise<void> {
     spurCommit: currentCommit(SPUR), superCommit: currentCommit(SUPER),
   };
   const out: Partial<BaselineMeta> = {};
-  for (const f of ["screen", "promote", "confirm"] as const) {
+  for (const f of ["screen", "promote"] as const) {
     console.log(`baseline ${f} evaluation...`);
     const evals = await runEvaluation(ctx, "baseline", f);
     for (const e of evals) {
@@ -36,16 +36,19 @@ async function cmdBaseline(state: LoopState): Promise<void> {
     }
     out[f] = evals;
   }
+  console.log("baseline sequential chunks...");
+  const sequential = await topUpSequentialBaseline(ctx, [], sequentialBaselineChunks(policy));
+  for (const e of sequential) state.addEvaluation(e);
   const screenOk = (out.screen ?? []).filter((e) => e.ok);
   const rps = screenOk.length ? screenOk.reduce((a, e) => a + e.metrics.runsPerSec, 0) / screenOk.length : 0;
   const baseline: BaselineMeta = {
-    screen: out.screen ?? [], promote: out.promote ?? [], confirm: out.confirm ?? [], runsPerSec: rps,
+    screen: out.screen ?? [], promote: out.promote ?? [], confirm: out.confirm ?? [], sequential, runsPerSec: rps,
   };
   state.setMeta("baseline", JSON.stringify(baseline));
   if (!state.getMeta("baseline0")) state.setMeta("baseline0", JSON.stringify(baseline));
   mkdirSync(path.join(ROOT, "research/evaluations"), { recursive: true });
   writeFileSync(path.join(ROOT, "research/evaluations/000-baseline.json"), JSON.stringify({ graderVersion: ctx.graderVersion, spurCommit: ctx.spurCommit, superCommit: ctx.superCommit, baseline }, null, 2));
-  writeStatus(state, policy, { baseline: baseline.confirm[0]?.metrics ?? null, reference: loadReference(state)?.confirm[0]?.metrics ?? null, graderVersion: ctx.graderVersion, openPrs: [] });
+  writeStatus(state, policy, { baseline: baseline.sequential[0]?.metrics ?? null, reference: loadReference(state)?.confirm[0]?.metrics ?? null, graderVersion: ctx.graderVersion, openPrs: [] });
   renderPolicyMd(policy, clamps, ["initial policy"]);
   commitAll(SUPER, "baseline evaluation 000 (grader " + ctx.graderVersion + ")");
   console.log(`baseline recorded: rps=${rps.toFixed(1)}, evidence in research/evaluations/000-baseline.json`);

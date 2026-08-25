@@ -30,17 +30,6 @@
         11,
         23
       ]
-    },
-    "confirm": {
-      "exploreWallSec": 900,
-      "runsPerConfig": 400,
-      "gradeMaxRuns": 0,
-      "gradeBudgetMs": 300000,
-      "seeds": [
-        11,
-        23,
-        37
-      ]
     }
   },
   "budgets": {

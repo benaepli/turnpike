@@ -146,7 +146,7 @@ export async function runOneEvaluation(
 export async function runEvaluation(
   ctx: EvalContext,
   hypothesisId: string,
-  fidelity: Exclude<FidelityName, "sequential">,
+  fidelity: Exclude<FidelityName, "sequential" | "confirm">,
 ): Promise<Evaluation[]> {
   const fid = ctx.policy.fidelities[fidelity];
   const evals: Evaluation[] = [];

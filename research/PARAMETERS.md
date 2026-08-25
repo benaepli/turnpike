@@ -20,80 +20,95 @@ throughput change).
 ## Fidelity sizing
 
 **Grade every run (`gradeMaxRuns: 0`).** At 3 ms/run grading is never the
-bottleneck (confirm: 21.6k runs ≈ 70 s vs 3–6 min explore), and graded-n is
-what powers every depth-rung CI. Sampling was pure waste.
+bottleneck, and graded-n is what powers every depth-rung CI. Sampling was
+pure waste.
 
-**Confirm = 400 runs/config × 54 configs × 3 seeds = 64.8k pooled.** Minimum
-effects of interest (MEI): +50% relative on P(depth>=5) and +30% on
-P(depth>=4). Wilson separation at z=2.7 needs n ≈ 60–70k for the former;
-64.8k is the smallest config-grid multiple that clears it. Zero-baseline
-rungs (depth>=6, violations) are Poisson: 64.8k runs resolves rates ≥ ~7e-5,
-and any 3 events is decisive evidence regardless.
+**Screen = 100/config x 1 seed = 5.4k; promote = 250/config x 2 seeds =
+27k.** These now serve only the perf lane's non-inferiority check on the
+same-protocol screen/promote baseline. Every other kind is evaluated
+sequentially in long sessions (below); there is no separate confirm rung.
 
-**Promote = 250/config × 2 seeds = 27k pooled.** Kills non-movers before the
-25-minute confirm; CI-separates ~+40% on depth>=4 at z=1.96. Promote spends
-compute, not merges, so no multiplicity correction.
+## Session length (measured 2026-08-25, baseline binary, general_vr grid)
 
-**Screen = 100/config × 1 seed = 5.4k.** Advance rule: 2σ Poisson exceedance
-(successes > expected + 2·sqrt(expected), floor 5) per objective. The prior
-"+15% point estimate" rule advanced on 4-vs-3.6 counts (iteration 4) — pure
-noise. At 5.4k runs, depth>=4 has ~190 expected successes (2σ ≈ +15%),
-depth>=5 ~16 (2σ ≈ +50%): the gate self-scales to each rung's support.
+The frontier rate is not a property of a run; it depends on how long the
+session has been going. With the same binary and template:
 
-Screen and promote now serve only the perf lane's non-inferiority check;
-every other kind is evaluated sequentially (below) and then confirmed.
+| runs/config | sessions | P(depth>=5) | P(depth>=4) |
+|---|---|---|---|
+| 100 | 4 (seeds 1000-1002, 11) | 0.0045 (21, 32, 24, 21 of 5.4k) | 0.0514 |
+| 400 | 3 (seeds 11, 23, 37) | 0.0035 (76, 77, 73 of 21.6k) | 0.0493 |
+| 1000 | 4 (seeds 1000-1003) | 0.0039 (193, 219, 214, 222 of 54k) | 0.0499 |
+| 2000 | 1 (seed 1000) | 0.0037 (404 of 108k) | 0.0495 |
+
+Early runs of a session hit the frontier more often than later ones
+(timeline feedback, novelty keys and dedup all shape a session as it goes),
+so short sessions measure the cold-start regime. Two consequences: (1) a
+candidate sampled at 100/config and compared with a 400/config baseline
+reads +30% for doing nothing, which is exactly what iterations 34 and 35
+showed (10.8k-run "advances" at ratio 1.45-1.48 that vanished at confirm);
+(2) the regime the tool is used in is the long session, so that is the one
+to optimize. Candidates and baseline are therefore always measured with the
+identical protocol: same runs/config, same seed family, same binary
+lineage.
 
 ## Sequential evaluation (non-perf kinds)
 
-Instead of fixed screen -> promote rungs, a candidate is sampled in chunks
-of **100 runs/config x 54 configs = 5.4k runs** (one explorer session, ~40 s
-explore + ~15 s grade) and after each chunk the pooled counts are compared
-with the pooled confirm baseline (64.8k runs) through Beta posteriors
-(Jeffreys prior, 2000 Monte Carlo draws, seeded). The chunk is the smallest
-unit the explorer produces at full config coverage; chunking smaller would
-not reduce cost per decision.
+A candidate is sampled in chunks of one long session, **1000 runs/config x
+54 configs = 54k runs** (~4 min explore + ~3 min grade), seeds 1000, 1001,
+... . 1000/config is the floor the operator set for a session to be
+representative of real use; the measurement above shows the rate is on its plateau from 400/config on
+(400: 0.0035, 1000: 0.0039, 2000: 0.0037, all within sampling noise), so
+1000 is the shortest session that is both representative and at the floor;
+2000 costs twice as much for the same information.
+After each chunk the pooled counts are compared with the baseline's own
+chunks (same protocol, `maxChunks` of them, refreshed after every merge)
+through Wilson intervals for decisions and Beta posteriors (Jeffreys prior,
+2000 seeded Monte Carlo draws) for futility and reporting.
 
-**Minimum effects of interest (MEI): depth>=5 +40%, depth>=4 +25%, relative.**
-These are the smallest gains that separate at merge z (2.7) within the
-64.8k-run confirm; an effect below MEI cannot be merged even if real, so
-spending samples to resolve it is waste. h2 has MEI 5% but is supporting
-evidence only: it never advances on its own (a mechanism can raise crash
-hazards without moving depth) and it blocks rejection only for the first 6
-chunks, long enough for depth>=5 to reach ~100 expected successes.
+**The advance rule is the merge gate.** A candidate advances as soon as the
+pooled sample separates from the baseline at z = 2.7 on depth>=4 or
+depth>=5 (the same test `finalGate` applies), so an advance never fails the
+gate for lack of separation; only regression, lint and throughput can still
+close it. Three looks (chunks 2, 3, 4) at z = 2.7 inflate the familywise
+error modestly; the Bonferroni z already carries slack for that.
 
-**Stopping thresholds.** Advance at P(candidate > baseline) >= 0.99 with the
-posterior mean ratio >= 1 + MEI/2 (a one-sided 0.01 error per objective; the
-confirm rung still has to clear the Bonferroni merge gate, so this is a
-resource decision, not the merge decision). Reject when P(regression beyond
-25% of baseline) >= 0.95, or when no objective can plausibly reach its MEI
-(P(effect >= MEI) < 0.05 on every rung). **Inconclusive** when the cap is hit
-or no objective can reach MEI but some objective still has P(> baseline) >=
-0.90: an effect that is probably real but too small to resolve. Minimum 2
-chunks so a single unlucky session cannot decide; cap 18 chunks (97k runs,
-~15 min) because beyond that the confirm rung itself is cheaper.
+**Minimum effect is derived, not chosen.** For each rung, the smallest
+relative effect the gate could separate with the candidate at the cap and
+the baseline at its recorded size: z * sqrt(1/E_cand + 1/E_base) with E the
+expected hit counts. At today's counts (4 chunks each side) that is about
++4% on depth>=4 and +15% on depth>=5. A candidate is rejected for futility
+when P(effect >= that minimum) < 0.05 on both rungs, or when a rung
+regresses by the separation test. h2 is reported but never decides: a
+mechanism can raise crash hazards without lengthening the chain.
+
+**Cap and floor.** Minimum 2 chunks so one unlucky session cannot decide.
+Cap 4 chunks (216k runs, ~30 min): the baseline is the same size, so beyond
+that the baseline's own uncertainty dominates and more candidate chunks buy
+little. At the cap: **inconclusive** if some rung has P(better) >= 0.9, else
+reject.
 
 **Non-inferiority kinds** (ablate/enabling/meta) advance when P(regression
-beyond the 25% margin) < 0.05 on every rung, and reject at >= 0.95; these
-resolve in 2 chunks for a true null because the margin is wide relative to
-sampling noise at 10.8k runs.
+beyond a 25% relative margin) < 0.05 on depth>=4 and h2, and reject at
+>= 0.95.
 
-**Resumes.** An inconclusive hypothesis keeps its branch and counts, and is
-selectable again after a 2-iteration cooldown (so a slot is not spent
-re-sampling the same idea back to back) with the posterior replacing the
-proposer's gain/cost prior. Up to 2 resumes; the cap grows by 18 chunks per
-resume. After the last resume an inconclusive result closes with its
-evidence.
+**Resumes.** An inconclusive hypothesis keeps its branch and counts and is
+selectable again after a 2-iteration cooldown with the posterior replacing
+the proposer's gain/cost prior; up to 2 resumes, each adding 4 chunks. On
+resume the branch is rebased onto the research branch and counts gathered
+against a superseded baseline are discarded.
+
+**Baseline refresh.** After every merge the merged candidate's chunks are
+topped up to `maxChunks` with the next seeds in the family (~30 min per
+merge); the perf lane inherits the previous chunks.
 
 **Operating characteristics** (simulation on the live decision function,
-synthetic binomial chunks at the measured baseline rates, 200 reps each):
-null -> reject 89% / inconclusive 11%, never advances; MEI -> advance 100%
-in 2 chunks; half MEI -> advance 76% / inconclusive 24%; harmful (-40%
-depth>=4) -> reject 100% in 2 chunks; depth>=5-only +40% -> advance 92%;
-h2-only +10% -> reject 91% at 6 chunks (correct: h2 alone is not progress).
-Mean cost 2-4 chunks (2-4 minutes) against the fixed ladder's 5.4k + 27k
-runs (~4 minutes) before confirm, with the difference that a +36% depth>=5
-signal at 5.4k runs (iteration 30) now continues sampling instead of being
-rejected at the screen.
+synthetic binomial 54k-run chunks at the measured 1000/config rates, 100
+reps): null -> reject 95% / inconclusive 5%, never advances; +20% depth>=5
+with +12% depth>=4 -> advance 100% in 2 chunks; +40%/+25% -> advance 100%;
+depth>=5-only +20% -> advance 55% / inconclusive 45%; harmful (-40%
+depth>=4) -> reject 100% in 2 chunks; h2-only +10% -> reject 95%. A null
+costs ~2.7 chunks (~20 min); that is the price of resolving +4% on
+depth>=4.
 
 ## Gate statistics
 

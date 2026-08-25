@@ -93,11 +93,15 @@ boundary procedure (step 7).
 - Heartbeat ticks: one line, only what changed.
 - Journal events with content (seq_chunk/sequential/inconclusive/decision/
   audit/publish): interpret them. `seq_chunk` carries the running posteriors
-  (`depth>=5:pGreater`, `:pMei`, `:ratio`); `sequential` is the verdict
-  (advance -> confirm rung; reject -> closed; inconclusive -> branch kept,
-  resumable after the cooldown, up to 2 resumes). An inconclusive result is
-  neither a negative nor a positive; report it as "probable, unresolved".
-  The perf lane still uses screen/promote for its non-inferiority check.
+  (`depth>=5:pGreater`, `:pMei`, `:ratio`, `:mei`); `sequential` is the
+  verdict (advance -> regression suite and merge gate on the pooled chunks;
+  reject -> closed; inconclusive -> branch kept, resumable after the
+  cooldown, up to 2 resumes). An inconclusive result is neither a negative
+  nor a positive; report it as "probable, unresolved". Chunks are long
+  sessions (1000 runs/config, ~7 min each) and are only ever compared with
+  baseline chunks of the same protocol (`baseline_sequential` after a merge
+  records the refreshed baseline, ~30 min). The perf lane still uses
+  screen/promote for its non-inferiority check.
   Ladder semantics: depth>=4/5 are the measurable frontier
   rungs; depth>=6..8 and violations are zero at baseline and act as jackpot
   indicators; H1 = crash with an in-flight send, H2 = stale-incarnation

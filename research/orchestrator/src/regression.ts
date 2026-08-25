@@ -6,6 +6,7 @@ import * as path from "node:path";
 import type { EvalContext } from "./evaluate.js";
 import { ROOT, cleanupDir, explore, materializeConfig, porcupine, resolveRoot } from "./runners.js";
 import { runBench } from "./bench.js";
+import { RESEARCH_BRANCH, SUPER, showFile } from "./gitops.js";
 
 export interface RegressionCase {
   name: string;
@@ -170,8 +171,11 @@ export async function runRegression(
       // machine load affects them equally.
       const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
       if (!fs.existsSync(baselineBin)) return { name, passed: true, detail: "no baseline binary snapshot; skipped" };
+      const baseTemplate = path.join(ROOT, "tmp", "loop", "regr-throughput.base.template.json");
+      fs.writeFileSync(baseTemplate, showFile(SUPER, RESEARCH_BRANCH, ctx.policy.evaluation.configTemplate));
       const b = await runBench(ctx.policy, ctx.binary, baselineBin, {
         templatePath: resolveRoot(ctx.policy.evaluation.configTemplate),
+        baselineTemplatePath: baseTemplate,
         runsPerConfig: ctx.policy.fidelities.screen.runsPerConfig,
         rounds: 2,
       });

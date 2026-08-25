@@ -6,7 +6,7 @@ duplicates with TaskStop. Both end themselves when the unit stops.
 ## Event watcher (instant on decisions, errors, grader proposals)
 
 ```bash
-cd /home/benaepli/Research/alt/jennLang; n=0; until systemctl --user -q is-active spur-research-loop || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; ( tail -n 0 -F research/journal.jsonl 2>/dev/null | grep -E --line-buffered '"event":"(select|seq_chunk|sequential|inconclusive|closed_after_resumes|screen|promote|bench|decision|publish|error|blocked|audit|stopped|grader_review)"' ) & TP=$!; while systemctl --user -q is-active spur-research-loop; do sleep 30; done; kill $TP 2>/dev/null; echo "ALERT: spur-research-loop unit is no longer active: $(journalctl --user -u spur-research-loop --no-pager -n 4 2>/dev/null | grep -oE 'oom-kill|exit-code|Consumed.*' | tail -1)"
+cd /home/benaepli/Research/alt/jennLang; n=0; until systemctl --user -q is-active spur-research-loop || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; ( tail -n 0 -F research/journal.jsonl 2>/dev/null | grep -E --line-buffered '"event":"(select|seq_chunk|sequential|inconclusive|closed_after_resumes|seq_reset|stale_branch|baseline_sequential|screen|promote|bench|decision|publish|error|blocked|audit|stopped|grader_review)"' ) & TP=$!; while systemctl --user -q is-active spur-research-loop; do sleep 30; done; kill $TP 2>/dev/null; echo "ALERT: spur-research-loop unit is no longer active: $(journalctl --user -u spur-research-loop --no-pager -n 4 2>/dev/null | grep -oE 'oom-kill|exit-code|Consumed.*' | tail -1)"
 ```
 
 ## Heartbeat (one line every 2.5 minutes: iteration, last event, phase)

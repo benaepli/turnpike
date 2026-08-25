@@ -5,7 +5,8 @@
 import type { Policy } from "./policy.js";
 import { runOneEvaluation, type EvalContext } from "./evaluate.js";
 import type { LoopState } from "./state.js";
-import { compareRates, type RateComparison } from "./stats.js";
+import { compareRates, rateImprovesCI } from "./stats.js";
+import { MERGE_Z } from "./decide.js";
 import { Evaluation, SeqState } from "./schemas.js";
 
 export function loadSeqState(state: LoopState, id: string): SeqState | null {
@@ -68,21 +69,39 @@ function decisionSeed(cand: PooledCounts, chunks: number): number {
   return (chunks * 1000003 + cand.depth4 * 7919 + cand.depth5 * 104729 + cand.h2Count) >>> 0;
 }
 
-// The stopping rule. Frontier rungs (depth>=4, depth>=5) can advance a
-// hypothesis; h2 is supporting evidence only (it keeps sampling alive but
-// never advances on its own). Violations and depth>=6 events with a zero
-// baseline are decisive whenever they appear.
+// Smallest relative effect the merge gate could separate at the sample cap:
+// z times the standard error of the log rate ratio with the candidate at
+// capRuns and the baseline at its recorded size.
+function minimumEffect(baseSucc: number, baseN: number, capRuns: number): number {
+  if (baseSucc <= 0 || baseN <= 0 || capRuns <= 0) return Infinity;
+  const expectedCand = (baseSucc / baseN) * capRuns;
+  return MERGE_Z * Math.sqrt(1 / expectedCand + 1 / baseSucc);
+}
+
+// The stopping rule. A candidate advances when the pooled sample already
+// passes the merge gate's separation test on a frontier rung (depth>=4 or
+// depth>=5); it is rejected when a frontier rung regresses by the same
+// test, or when no frontier rung can plausibly reach the effect the gate
+// could separate at the cap. h2 is reported but never decides. Violations
+// and depth>=6 events against a zero baseline are decisive when they appear.
 export function decideSequential(
   cand: PooledCounts, base: PooledCounts, chunks: number, kind: SeqKind, p: SeqPolicy,
 ): SeqDecision {
   const seed = decisionSeed(cand, chunks);
-  const d4 = compareRates(cand.depth4, cand.graded, base.depth4, base.graded, p.mei.depth4, p.regressMargin, p.draws, seed);
-  const d5 = compareRates(cand.depth5, cand.graded, base.depth5, base.graded, p.mei.depth5, p.regressMargin, p.draws, seed + 1);
-  const h2 = compareRates(cand.h2Count, cand.runs, base.h2Count, base.runs, p.mei.h2, p.regressMargin, p.draws, seed + 2);
+  const capGraded = chunks > 0 ? (cand.graded / chunks) * p.maxChunks : 0;
+  const capRuns = chunks > 0 ? (cand.runs / chunks) * p.maxChunks : 0;
+  const mei = {
+    depth4: minimumEffect(base.depth4, base.graded, capGraded),
+    depth5: minimumEffect(base.depth5, base.graded, capGraded),
+    h2: minimumEffect(base.h2Count, base.runs, capRuns),
+  };
+  const d4 = compareRates(cand.depth4, cand.graded, base.depth4, base.graded, mei.depth4, p.regressMargin, p.draws, seed);
+  const d5 = compareRates(cand.depth5, cand.graded, base.depth5, base.graded, mei.depth5, p.regressMargin, p.draws, seed + 1);
+  const h2 = compareRates(cand.h2Count, cand.runs, base.h2Count, base.runs, mei.h2, p.regressMargin, p.draws, seed + 2);
   const posteriors: Record<string, number> = {
-    "depth>=4:pGreater": d4.pGreater, "depth>=4:pMei": d4.pAtLeastMei, "depth>=4:ratio": d4.meanRatio,
-    "depth>=5:pGreater": d5.pGreater, "depth>=5:pMei": d5.pAtLeastMei, "depth>=5:ratio": d5.meanRatio,
-    "h2:pGreater": h2.pGreater, "h2:pMei": h2.pAtLeastMei, "h2:ratio": h2.meanRatio,
+    "depth>=4:pGreater": d4.pGreater, "depth>=4:pMei": d4.pAtLeastMei, "depth>=4:ratio": d4.meanRatio, "depth>=4:mei": mei.depth4,
+    "depth>=5:pGreater": d5.pGreater, "depth>=5:pMei": d5.pAtLeastMei, "depth>=5:ratio": d5.meanRatio, "depth>=5:mei": mei.depth5,
+    "h2:pGreater": h2.pGreater, "h2:pMei": h2.pAtLeastMei, "h2:ratio": h2.meanRatio, "h2:mei": mei.h2,
     "depth>=4:pRegress": d4.pRegress, "h2:pRegress": h2.pRegress,
   };
   const out = (verdict: SeqVerdict, reason: string): SeqDecision => ({ verdict, reason, posteriors });
@@ -101,21 +120,13 @@ export function decideSequential(
   }
 
   if (chunks >= p.minChunks) {
-    if (d4.pRegress >= p.niP) return out("reject", `depth>=4 regressed (pRegress ${d4.pRegress.toFixed(3)})`);
-    const adv = (c: RateComparison, mei: number, name: string): string | null =>
-      c.pGreater >= p.advanceP && c.meanRatio >= 1 + mei / 2 ? `${name}: pGreater ${c.pGreater.toFixed(3)}, ratio ${c.meanRatio.toFixed(2)}` : null;
-    const a = adv(d4, p.mei.depth4, "depth>=4") ?? adv(d5, p.mei.depth5, "depth>=5");
-    if (a) return out("advance", a);
-    // h2 keeps a hypothesis alive only for a bounded number of chunks: it can
-    // never advance on its own, so past that point it must not block a
-    // decision on the frontier rungs.
-    const h2Blocks = chunks < p.h2SupportChunks && h2.pAtLeastMei >= p.rejectP;
-    if (d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP && !h2Blocks) {
-      const best = Math.max(d4.pGreater, d5.pGreater);
-      // A probable but sub-MEI effect is kept for a later resume instead of
-      // being discarded.
-      if (best >= p.inconclusiveP) return out("inconclusive", `probable sub-minimum effect (pGreater ${best.toFixed(3)})`);
-      return out("reject", `no objective plausibly reaches its minimum effect (pMei d4 ${d4.pAtLeastMei.toFixed(3)}, d5 ${d5.pAtLeastMei.toFixed(3)}, h2 ${h2.pAtLeastMei.toFixed(3)})`);
+    const separated = (aS: number, aN: number, bS: number, bN: number): boolean => rateImprovesCI(aS, aN, bS, bN, MERGE_Z);
+    if (separated(base.depth4, base.graded, cand.depth4, cand.graded)) return out("reject", `depth>=4 regressed (ratio ${d4.meanRatio.toFixed(2)})`);
+    if (separated(base.h2Count, base.runs, cand.h2Count, cand.runs)) return out("reject", `h2 regressed (ratio ${h2.meanRatio.toFixed(2)})`);
+    if (separated(cand.depth4, cand.graded, base.depth4, base.graded)) return out("advance", `depth>=4 separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`);
+    if (separated(cand.depth5, cand.graded, base.depth5, base.graded)) return out("advance", `depth>=5 separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`);
+    if (d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP) {
+      return out("reject", `no frontier rung can reach a separable effect (pMei d4 ${d4.pAtLeastMei.toFixed(3)} at +${(mei.depth4 * 100).toFixed(0)}%, d5 ${d5.pAtLeastMei.toFixed(3)} at +${(mei.depth5 * 100).toFixed(0)}%)`);
     }
   }
   if (chunks >= p.maxChunks) {
@@ -156,7 +167,7 @@ export async function runSequential(opts: {
   for (;;) {
     if (opts.stopRequested()) return { verdict: "stopped", reason: "STOP requested", evals, seq };
     const e = await runOneEvaluation(opts.ctx, opts.hypothesisId, "sequential", seq.nextSeed, {
-      runsPerConfig: p.chunkRunsPerConfig, exploreWallSec: p.wallSecPerChunk, gradeMaxRuns: 0, gradeBudgetMs: 120_000,
+      runsPerConfig: p.chunkRunsPerConfig, exploreWallSec: p.wallSecPerChunk, gradeMaxRuns: 0, gradeBudgetMs: p.wallSecPerChunk * 1000,
     });
     evals.push(e);
     seq = { ...seq, nextSeed: seq.nextSeed + 1 };

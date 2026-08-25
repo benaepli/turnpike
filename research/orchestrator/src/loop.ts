@@ -10,10 +10,10 @@ import {
 } from "./agents.js";
 import { classifyChangeRisk, compareToBaseline, finalGate, nonInferior, objectiveCounts, perfGate, screenAdvances } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
-import { runEvaluation, type EvalContext } from "./evaluate.js";
+import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { loadSeqState, pooledCountsOf, runSequential, type SeqKind } from "./sequential.js";
 import {
-  SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, createBranch, currentBranch, snapshotWork, rebaseOnto,
+  RESEARCH_BRANCH, SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, createBranch, currentBranch, snapshotWork, rebaseOnto,
   currentCommit, deleteBranch, diffText, createPr, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
@@ -25,7 +25,6 @@ import type { LoopState } from "./state.js";
 import { writeStatus, appendObservation } from "./render.js";
 import { z } from "zod";
 
-const RESEARCH_BRANCH = "research/vr-loop";
 
 export interface LoopDeps {
   state: LoopState;
@@ -42,6 +41,10 @@ const BaselineMeta = z.object({
   screen: z.array(Evaluation),
   promote: z.array(Evaluation),
   confirm: z.array(Evaluation),
+  // Chunks gathered with the sequential protocol itself (chunk size, seed
+  // family): the frontier rates depend on runs per config, so candidates
+  // are only compared with a baseline measured the same way.
+  sequential: z.array(Evaluation).default([]),
   runsPerSec: z.number(),
 });
 export type BaselineMeta = z.infer<typeof BaselineMeta>;
@@ -51,6 +54,28 @@ export function loadReference(state: LoopState): BaselineMeta | null {
   if (!raw) return null;
   const p = BaselineMeta.safeParse(JSON.parse(raw));
   return p.success ? p.data : null;
+}
+
+// The baseline holds at least as many chunks as any candidate can sample.
+export function sequentialBaselineChunks(policy: Policy): number {
+  return policy.sequential.maxChunks;
+}
+
+// Extend a set of sequential chunks to the baseline size using the seeds
+// the candidate protocol would use next, so early candidate chunks pair
+// with baseline chunks at the same seeds.
+export async function topUpSequentialBaseline(ctx: EvalContext, existing: Evaluation[], target: number): Promise<Evaluation[]> {
+  const p = ctx.policy.sequential;
+  const evals = existing.filter((e) => e.ok);
+  const used = new Set(evals.map((e) => e.seed));
+  for (let seed = 1000; evals.length < target && seed < 1000 + 4 * target; seed++) {
+    if (used.has(seed)) continue;
+    const e = await runOneEvaluation(ctx, "baseline", "sequential", seed, {
+      runsPerConfig: p.chunkRunsPerConfig, exploreWallSec: p.wallSecPerChunk, gradeMaxRuns: 0, gradeBudgetMs: p.wallSecPerChunk * 1000,
+    });
+    if (e.ok) evals.push(e);
+  }
+  return evals;
 }
 
 export function loadBaseline(state: LoopState): BaselineMeta | null {
@@ -427,7 +452,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       // A stop mid-sample continues where it left off; a deliberate resume
       // of an inconclusive result spends one of the allowed resumes. Counts
       // gathered against a superseded baseline are dropped.
-      const baselineKey = baseline.confirm[0]?.superCommit ?? "";
+      const baselineKey = baseline.sequential[0]?.superCommit ?? "";
       let prior: SeqState | null = null;
       if (priorSeq) {
         const resumes = priorSeq.lastVerdict === "inconclusive" ? priorSeq.resumes + 1 : priorSeq.resumes;
@@ -437,7 +462,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         if (priorSeq.baselineKey !== baselineKey) journal(state, n, "seq_reset", { id: h.id, from: priorSeq.baselineKey, to: baselineKey });
       }
       const res = await timed("evaluate", () => runSequential({
-        ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.confirm), prior, baselineKey,
+        ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.sequential), prior, baselineKey,
         maxChunksTotal: policy.sequential.maxChunks * (policy.sequential.maxResumes + 1),
         onChunk: (seq, d) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, depth4: seq.depth4, depth5: seq.depth5, h2: seq.h2Count, violations: seq.violations, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors }),
         stopRequested,
@@ -464,10 +489,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         journal(state, n, "closed_after_resumes", { id: h.id, chunks: res.seq.chunks, posteriors: res.seq.posteriors });
       }
       if (res.verdict === "advance") {
-        confirmEvals = await timed("evaluate", () => runEvaluation(ctx, h.id, "confirm"));
-        allEvals["confirm"] = confirmEvals;
-        for (const e of confirmEvals) state.addEvaluation(e);
-        if (stopRequested()) { parkForStop(state, n, h, branch, "confirm"); return; }
+        // The pooled chunks are the merge evidence: same protocol and seeds
+        // as the baseline chunks they are compared with.
+        confirmEvals = res.evals.filter((e) => e.ok);
         const seqRps = res.evals.filter((e) => e.ok).map((e) => e.metrics.runsPerSec);
         const meanRps = seqRps.length ? seqRps.reduce((a, b) => a + b, 0) / seqRps.length : 0;
         throughputRatio = baseline.runsPerSec > 0 ? meanRps / baseline.runsPerSec : null;
@@ -481,7 +505,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     const decision = perfDecision ?? finalGate({
       hypothesis: h,
       confirmEvals,
-      baselineEvals: baseline.confirm,
+      baselineEvals: baseline.sequential,
       regressionPassed: decisionInputsReady ? regressionPassed : false,
       lintFailures,
       changedSpurFiles: spurFiles,
@@ -491,7 +515,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       decision.verdict = "closed";
       decision.reasons = [`sequential evaluation ${seqOutcome}`];
       const ran = allEvals["sequential"] ?? [];
-      const baseRan = baseline.confirm;
+      const baseRan = baseline.sequential;
       if (ran.length > 0) {
         const cmp = compareToBaseline(objectiveCounts(ran), objectiveCounts(baseRan));
         const h1 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h1Rate, 0) / ok.length : 0; };
@@ -513,10 +537,17 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       state.upsertHypothesis({ ...h, status, branch, prUrls: outcome.prUrls });
       if (status === "needs_human") cleanupToResearchBranch(null); // PR lives on the pushed remote branch
       if (status === "merged") {
+        const seqTarget = sequentialBaselineChunks(policy);
+        const sequential = h.kind === "perf" && !allEvals["sequential"]
+          ? baseline.sequential
+          : await timed("evaluate", () => topUpSequentialBaseline(ctx, allEvals["sequential"] ?? [], seqTarget));
+        for (const e of sequential) if (!allEvals["sequential"]?.includes(e)) state.addEvaluation(e);
+        journal(state, n, "baseline_sequential", { chunks: sequential.length, counts: pooledCountsOf(sequential) });
         const newBaseline: BaselineMeta = {
           screen: allEvals["screen"] ?? baseline.screen,
           promote: allEvals["promote"] ?? baseline.promote,
-          confirm: confirmEvals.length ? confirmEvals : baseline.confirm,
+          confirm: baseline.confirm,
+          sequential,
           runsPerSec: baseline.runsPerSec * (throughputRatio ?? 1),
         };
         state.setMeta("baseline", JSON.stringify(newBaseline));
@@ -591,7 +622,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     try {
       const baseline = loadBaseline(state);
       writeStatus(state, policy, {
-        baseline: baseline?.confirm[0]?.metrics ?? null,
+        baseline: (baseline?.sequential[0] ?? baseline?.confirm[0])?.metrics ?? null,
         reference: loadReference(state)?.confirm[0]?.metrics ?? null,
         graderVersion: graderVersion(),
         openPrs: state.listHypotheses("needs_human").flatMap((x) => x.prUrls),
@@ -602,6 +633,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
 }
 
 export async function runLoop(deps: LoopDeps): Promise<void> {
+  const startBaseline = loadBaseline(deps.state);
+  if (!startBaseline || startBaseline.sequential.length === 0) {
+    console.error("no sequential baseline recorded; run `loop baseline` first");
+    return;
+  }
   // Crash recovery: requeue hypotheses stranded mid-iteration and clear
   // leftover evaluation corpora from a killed run.
   for (const h of deps.state.listHypotheses()) {

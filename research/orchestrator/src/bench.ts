@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Policy } from "./policy.js";
-import { cleanupDir, explore, materializeConfig, resolveRoot, ROOT } from "./runners.js";
+import { cleanupDir, explore, materializeConfig, porcupine, resolveRoot, ROOT } from "./runners.js";
 
 export interface BenchResult {
   candidateRps: number[];
@@ -47,8 +47,11 @@ export function totalRunsOf(config: Record<string, unknown>): number {
   return combos * rpc;
 }
 
+// Throughput is runs actually written divided by explore wall time; the
+// config's promised run count is not trusted because a binary that rejects
+// or misreads the config exits early with nothing.
 async function oneRound(
-  policy: Policy, binary: string, side: string, round: number, configPath: string, totalRuns: number,
+  policy: Policy, binary: string, side: string, round: number, configPath: string, expectedRuns: number,
 ): Promise<{ rps: number; err: string | null }> {
   const outputDir = path.join(ROOT, "tmp", "loop", `bench-${side}-${round}`);
   try {
@@ -61,16 +64,34 @@ async function oneRound(
     });
     if (r.timedOut) return { rps: 0, err: `${side} round ${round} hit the wall budget - bench config too big or binary too slow` };
     if (!r.ok) return { rps: 0, err: `${side} round ${round} failed: ${r.stderr.slice(-500)}` };
-    return { rps: totalRuns / (r.wallMs / 1000), err: null };
+    const porc = await porcupine({ inputDir: outputDir, model: "kv", timeoutMsPerRun: 1_000, timeoutMs: 120_000 });
+    const produced = porc.parsed?.total_runs ?? 0;
+    if (produced < expectedRuns / 2) {
+      return { rps: 0, err: `${side} round ${round} produced ${produced} of ${expectedRuns} runs: ${r.stderr.slice(-300)}` };
+    }
+    return { rps: produced / (r.wallMs / 1000), err: null };
   } finally {
     try { cleanupDir(outputDir); } catch { /* ignore */ }
   }
 }
 
-export async function runBench(policy: Policy, candidateBin: string, baselineBin: string, workload?: { templatePath: string; runsPerConfig: number; rounds: number }): Promise<BenchResult> {
+export interface BenchWorkload {
+  templatePath: string;
+  // The baseline binary runs its own template when the candidate changed
+  // the config shape; defaults to the candidate's template.
+  baselineTemplatePath?: string;
+  runsPerConfig: number;
+  rounds: number;
+}
+
+export async function runBench(policy: Policy, candidateBin: string, baselineBin: string, workload?: BenchWorkload): Promise<BenchResult> {
   const template = workload?.templatePath ?? resolveRoot(policy.perf.benchConfig);
+  const baseTemplate = workload?.baselineTemplatePath ?? template;
+  const overrides = workload ? { runsPerConfig: workload.runsPerConfig, sessionSeed: 999 } : {};
   const configPath = path.join(ROOT, "tmp", "loop", "bench.config.json");
-  materializeConfig(template, configPath, workload ? { runsPerConfig: workload.runsPerConfig, sessionSeed: 999 } : {});
+  const baseConfigPath = path.join(ROOT, "tmp", "loop", "bench.base.config.json");
+  materializeConfig(template, configPath, overrides);
+  materializeConfig(baseTemplate, baseConfigPath, overrides);
   const totalRuns = totalRunsOf(JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>);
 
   const cand: number[] = [];
@@ -87,7 +108,7 @@ export async function runBench(policy: Policy, candidateBin: string, baselineBin
       ? [["base", baselineBin], ["cand", candidateBin]]
       : [["cand", candidateBin], ["base", baselineBin]];
     for (const [side, bin] of order) {
-      const r = await oneRound(policy, bin, side, i, configPath, totalRuns);
+      const r = await oneRound(policy, bin, side, i, side === "base" ? baseConfigPath : configPath, totalRuns);
       if (r.err) return fail(r.err);
       if (i >= policy.perf.warmupRounds) (side === "cand" ? cand : base).push(r.rps);
     }

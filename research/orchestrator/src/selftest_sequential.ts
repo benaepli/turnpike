@@ -20,7 +20,8 @@ if (process.argv[4]) p.inconclusiveP = Number(process.argv[4]);
 if (process.argv[5]) p.minChunks = Number(process.argv[5]);
 
 // Measured baseline (confirm, 64.8k runs).
-const BASE: PooledCounts = { runs: 64800, graded: 64800, depth4: 3223, depth5: 228, depth6plus: 0, violations: 0, h2Count: 26011 };
+// Measured: four 1000 runs/config sessions of the baseline binary (seeds 1000-1003).
+const BASE: PooledCounts = { runs: 216000, graded: 216000, depth4: 10783, depth5: 848, depth6plus: 0, violations: 0, h2Count: 86400 };
 const P4 = BASE.depth4 / BASE.graded;
 const P5 = BASE.depth5 / BASE.graded;
 const PH2 = BASE.h2Count / BASE.runs;
@@ -77,4 +78,4 @@ for (const sc of scenarios) {
   const pct = (k: string): string => ((100 * (tally[k] ?? 0)) / REPS).toFixed(0).padStart(3) + "%";
   console.log(`${sc.name.padEnd(30)} advance ${pct("advance")}  reject ${pct("reject")}  inconclusive ${pct("inconclusive")}  chunks mean ${(chunksTotal / REPS).toFixed(1)} [${chunksMin}-${chunksMax}]`);
 }
-console.log(`policy: chunk=${CHUNK} runs maxChunks=${p.maxChunks} minChunks=${p.minChunks} advanceP=${p.advanceP} rejectP=${p.rejectP} inconclusiveP=${p.inconclusiveP} mei=${JSON.stringify(p.mei)}`);
+console.log(`policy: chunk=${CHUNK} runs maxChunks=${p.maxChunks} minChunks=${p.minChunks} rejectP=${p.rejectP} inconclusiveP=${p.inconclusiveP} (minimum effect derived from baseline counts and the cap)`);

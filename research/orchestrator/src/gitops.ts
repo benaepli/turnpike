@@ -158,6 +158,13 @@ export function commitAll(repo: string, message: string): string {
   return currentCommit(repo);
 }
 
+export const RESEARCH_BRANCH = "research/vr-loop";
+
+/** Contents of a tracked file at a ref. */
+export function showFile(repo: string, ref: string, filePath: string): string {
+  return must("git", ["show", `${ref}:${filePath}`], repo);
+}
+
 /** Rebase the current branch onto base; a conflicting rebase is aborted and reported as false. */
 export function rebaseOnto(repo: string, base: string): boolean {
   if (exec("git", ["rebase", base], repo).ok) return true;

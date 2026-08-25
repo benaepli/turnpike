@@ -191,11 +191,11 @@ export function renderStatus(
   );
   const f = policy.fidelities;
   lines.push(
-    `- Fidelity explore wall (s): screen=${f.screen.exploreWallSec}, promote=${f.promote.exploreWallSec}, confirm=${f.confirm.exploreWallSec}`,
+    `- Fidelity explore wall (s): screen=${f.screen.exploreWallSec}, promote=${f.promote.exploreWallSec}`,
   );
   const sq = policy.sequential;
   lines.push(
-    `- Sequential: ${sq.chunkRunsPerConfig} runs/config per chunk, ${sq.minChunks}-${sq.maxChunks} chunks, advance P>=${sq.advanceP}, inconclusive P>=${sq.inconclusiveP}, MEI depth4 ${sq.mei.depth4} / depth5 ${sq.mei.depth5}, resumes ${sq.maxResumes}`,
+    `- Sequential: ${sq.chunkRunsPerConfig} runs/config per chunk, ${sq.minChunks}-${sq.maxChunks} chunks, reject at P(effect>=separable)<${sq.rejectP}, inconclusive at cap with P(better)>=${sq.inconclusiveP}, resumes ${sq.maxResumes}`,
   );
   lines.push(
     `- Evaluation: spec=${policy.evaluation.spec}, audit every ${policy.audit.everyK} iterations`,
@@ -267,7 +267,7 @@ export function renderPolicyMd(
     "| Rung | exploreWallSec | runsPerConfig | gradeMaxRuns | gradeBudgetMs | seeds |",
   );
   lines.push("| --- | --- | --- | --- | --- | --- |");
-  for (const rung of ["screen", "promote", "confirm"] as const) {
+  for (const rung of ["screen", "promote"] as const) {
     const fd = policy.fidelities[rung];
     lines.push(
       `| ${rung} | ${fd.exploreWallSec} | ${fd.runsPerConfig} | ${fd.gradeMaxRuns} | ${fd.gradeBudgetMs} | ${fd.seeds.join(", ")} |`,
