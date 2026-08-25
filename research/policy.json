@@ -39,7 +39,8 @@
     "dailyWallHours": 20,
     "maxImplementTurns": 80,
     "maxBuildSeconds": 600,
-    "minFreeDiskGb": 40
+    "minFreeDiskGb": 40,
+    "maxImplementMinutes": 20
   },
   "audit": {
     "everyK": 5
@@ -54,7 +55,108 @@
     "oracleDags": [
       "research/oracle/relax_minimal.json"
     ],
-    "rayonThreads": 14
+    "rayonThreads": 14,
+    "noiseBand": {
+      "appliesAtRuns": 54000,
+      "scaling": "band(n) = bands[metric] * sqrt(appliesAtRuns / n)",
+      "usage": "a decision comparing pooled rates over n runs treats |delta| <= band(n) as no evidence, neither improvement nor regression, and holds any non-inferiority margin at or above band(n); metric keys match the objectiveDeltas keys of a gate decision",
+      "bands": {
+        "violations": 0,
+        "depth>=4": 0.001395,
+        "depth>=5": 0.000947,
+        "depth>=6": 0,
+        "depth>=7": 0,
+        "depth>=8": 0,
+        "h1": 0.003433,
+        "h2": 0.00064,
+        "h3": 0.002495,
+        "primary": 0.000947
+      },
+      "measurement": {
+        "question": "how large is an objective delta between two evaluations that differ only in session seed",
+        "sessions": 4,
+        "seeds": [
+          1000,
+          1001,
+          4242,
+          4243
+        ],
+        "runsPerSession": 5400,
+        "numRunsPerConfig": 100,
+        "spec": "bin/spur/VR.spur",
+        "config": "scheduler_configs/loop/general_vr.json",
+        "oracleDag": "research/oracle/relax_minimal.json",
+        "sigmas": 2,
+        "method": "sessionSigma = sample standard deviation of the per-session rate across same-code sessions; a delta is a difference of two such sessions, so deltaSigma = sessionSigma * sqrt(2) and band = 2 * deltaSigma",
+        "perSessionCounts": {
+          "runs": [
+            5400,
+            5400,
+            5400,
+            5400
+          ],
+          "gradedRuns": [
+            5400,
+            5400,
+            5400,
+            5400
+          ],
+          "violations": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "depthAtLeast4": [
+            278,
+            285,
+            265,
+            279
+          ],
+          "depthAtLeast5": [
+            20,
+            28,
+            15,
+            25
+          ],
+          "h1": [
+            2673,
+            2710,
+            2676,
+            2662
+          ],
+          "h2": [
+            2147,
+            2153,
+            2145,
+            2152
+          ],
+          "h3": [
+            1812,
+            1837,
+            1848,
+            1832
+          ]
+        },
+        "bandsAtMeasuredRuns": {
+          "violations": 0,
+          "depth>=4": 0.004411,
+          "depth>=5": 0.002993,
+          "h1": 0.010857,
+          "h2": 0.002023,
+          "h3": 0.00789,
+          "primary": 0.002993
+        },
+        "notes": [
+          "Zero violations in every same-code session: the violations floor is 0 events, so a single violation is never suppressed.",
+          "depth>=5 counts spanned 15..28 across identical code, and depth>=5 is what the primary objective reads when violations do not move.",
+          "h2 is nearly seed-invariant (2145..2153), so its floor is an order of magnitude below the relative non-inferiority margin.",
+          "depth>=4 and h2 vary less than a binomial at the same rate (count sigma 8.4 vs 16.2 for depth>=4): the floor comes from configuration-level structure, not per-run coin flips.",
+          "Measured at a tenth of a sequential chunk; the chunk-size band is extrapolated with the 1/sqrt(n) law, and four sessions pin the standard deviation itself only to about 40 percent.",
+          "Worked example: a pooled comparison over 108000 runs reporting depth>=4 +1.53e-4, depth>=5 -1.48e-4 and h2 +1.02e-4 faces floors of 9.9e-4, 6.7e-4 and 4.5e-4 at that sample size, so all three deltas are inside the floor and carry no information."
+        ]
+      }
+    }
   },
   "regression": {
     "menciusBugSpec": "bin/spur/mencius/Mencius_opt1_2.spur",
