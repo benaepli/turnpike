@@ -1,0 +1,139 @@
+{
+  "hypothesis": {
+    "id": "crash-boost-dose-sweep",
+    "parent": "delayed-send-anchored-crash",
+    "kind": "meta",
+    "title": "Sweep the send-anchored crash dose to test whether a useful middle exists",
+    "description": "Tooling/meta run: with the existing crash_after_send_* knobs in scheduler.rs, sweep (probability, boost) over {0.15,0.4,0.8} x {2,10,50, hard-override} at fixed delay_max=4 and per_run_cap=1, 3 seeds each on scheduler_configs/loop/general_vr.json, and record joint h1&h2 rate plus depth>=4/5/6. Deliverable is a dose-response table, not a code change; if no cell beats baseline on the joint metric, retire the send-anchored-crash family and delete the four config params.",
+    "category": "config",
+    "buildsOn": [
+      "send-anchored crash hook"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 1.5,
+    "rationale": "We have only two points on the curve — hard override (h1 up, h2 down hard) and soft/rare (pure no-op). One cheap sweep decides whether the family is salvageable or should be deleted, and prevents further one-off screens that re-sample the same two extremes.",
+    "generalityArgument": "Pure parameter exploration of an already protocol-agnostic hook; no new protocol-specific logic and it can end in param removal.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-24T18:20:00.000Z",
+    "notes": "explicitly includes a 'retire and remove params' outcome so the param budget is recoverable [rejudged iteration 30: Kept only as a retirement vehicle: three send-anchored variants closed with primary deltas of 0.0000/0.0002/0.0013, so the honest payoff is deleting four config params, not finding a middle; red team — 3 seeds x 12 cells cannot resolve a 1e-3 effect, so run it after RNG isolation or "
+  },
+  "decision": {
+    "hypothesisId": "crash-boost-dose-sweep",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": -0.0005277777777777798,
+      "depth>=5": -0.000013888888888888805,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": -0.0006851851851851776,
+      "primary": -0.000013888888888888805,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "crash-boost-dose-sweep-sequential-1000-1787667915183",
+        "hypothesisId": "crash-boost-dose-sweep",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5c6dbcbfcf3dec5411e93d343532619c7122aebc",
+        "superCommit": "05b384b540b185c2ce7fc812015d684c853e2b0e",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-25T14:25:15.183Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 260.5121475849559,
+          "unpairedFraction": 0.48546506181463905,
+          "h1Rate": 0.49933333333333335,
+          "h2Rate": 0.4002962962962963,
+          "h2bRate": 0.41674074074074074,
+          "h3Rate": 0.3342037037037037,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.3182407407407406,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            54000,
+            47451,
+            20787,
+            2741,
+            206
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4860,
+          "gradeWallMs": 181161
+        },
+        "exploreWallMs": 207284,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "crash-boost-dose-sweep-sequential-1001-1787668308778",
+        "hypothesisId": "crash-boost-dose-sweep",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5c6dbcbfcf3dec5411e93d343532619c7122aebc",
+        "superCommit": "05b384b540b185c2ce7fc812015d684c853e2b0e",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-25T14:31:48.778Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 264.1516817657072,
+          "unpairedFraction": 0.4881368002827249,
+          "h1Rate": 0.4980185185185185,
+          "h2Rate": 0.39905555555555555,
+          "h2bRate": 0.417,
+          "h3Rate": 0.33790740740740743,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.3193148148148146,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            53999,
+            47498,
+            20938,
+            2595,
+            213
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4942,
+          "gradeWallMs": 178562
+        },
+        "exploreWallMs": 204428,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/curriculum.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/plan_config.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 12
+  }
+}
