@@ -96,6 +96,18 @@ async function main(): Promise<void> {
         }
         break;
       }
+      case "epoch": {
+        const sub = process.argv[3];
+        if (sub === "bump") {
+          const reason = process.argv.slice(4).join(" ") || "(no reason given)";
+          const e = state.bumpEpoch();
+          state.appendJournal({ atIso: new Date().toISOString(), iteration: -1, event: "epoch_bump", data: { epoch: e, reason } });
+          console.log(`epoch -> ${e}: ${reason}. Results from earlier epochs stay in the record but no longer steer calibration, lineage scoring, or the re-judge.`);
+        } else {
+          console.log(`current epoch: ${state.currentEpoch()}`);
+        }
+        break;
+      }
       case "baseline": await cmdBaseline(state); break;
       case "once": {
         const { policy } = loadPolicy(POLICY_PATH);

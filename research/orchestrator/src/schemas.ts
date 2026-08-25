@@ -83,6 +83,8 @@ export const Evaluation = z.object({
   startedAtIso: z.string(),
   ok: z.boolean(),
   error: z.string().nullable().default(null),
+  // Comparability epoch (protocol/gate regime) the result was produced in.
+  epoch: z.number().int().optional(),
 });
 export type Evaluation = z.infer<typeof Evaluation>;
 
@@ -93,6 +95,11 @@ export const GateDecision = z.object({
   objectiveDeltas: z.record(z.string(), z.number()).default({}),
   regressionPassed: z.boolean().nullable().default(null),
   lintPassed: z.boolean().nullable().default(null),
+  // Comparability epoch the verdict was made in.
+  epoch: z.number().int().optional(),
+  // True when the outcome is not evidence about the hypothesis (build/grader
+  // failure, stop, wall timeout, stale branch): excluded from calibration.
+  harnessFailure: z.boolean().optional(),
 });
 export type GateDecision = z.infer<typeof GateDecision>;
 

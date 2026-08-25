@@ -106,9 +106,11 @@ export function calibrationFactor(state: LoopState): number {
   let predicted = 0;
   let realized = 0;
   let n = 0;
+  const epoch = state.currentEpoch();
   for (const h of state.listHypotheses()) {
     const d = state.getDecision(h.id);
     if (!d) continue;
+    if ((d.epoch ?? 1) !== epoch || d.harnessFailure) continue;
     n++;
     predicted += h.expectedGain;
     realized += Math.max(0, (d.objectiveDeltas["primary"] ?? 0)) / 0.1 * 10;
@@ -140,9 +142,11 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
     }
   }
   const measuredDelta = new Map<string, number>();
+  const curEpoch = state.currentEpoch();
   for (const h of all) {
     const d = state.getDecision(h.id);
     if (!d) continue;
+    if ((d.epoch ?? 1) !== curEpoch || d.harnessFailure) continue;
     const root = lineageRoot(h, byId);
     const primary = d.objectiveDeltas["primary"] ?? 0;
     measuredDelta.set(root, Math.max(measuredDelta.get(root) ?? -1, primary));

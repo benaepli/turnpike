@@ -192,13 +192,16 @@ function calibrationTable(state: LoopState): string {
 }
 
 function recentEvidence(state: LoopState, limit: number): string {
+  const cur = state.currentEpoch();
   const decided = state.listHypotheses()
     .map((x) => ({ x, d: state.getDecision(x.id) }))
     .filter((p): p is { x: Hypothesis; d: NonNullable<ReturnType<typeof state.getDecision>> } => p.d !== null)
     .slice(-limit);
-  return decided.map(({ x, d }) =>
-    `${x.id} [${x.kind}] -> ${d.verdict}: ${d.reasons.join("; ")} | deltas ${JSON.stringify(d.objectiveDeltas)} | notes: ${x.notes.slice(0, 200)}`,
-  ).join("\n");
+  return decided.map(({ x, d }) => {
+    const stale = (d.epoch ?? 1) !== cur ? " [SUPERSEDED regime: verdict may not hold under the current gate/protocol]" : "";
+    const harness = d.harnessFailure ? " [harness failure, not evidence]" : "";
+    return `${x.id} [${x.kind}] -> ${d.verdict}${stale}${harness}: ${d.reasons.join("; ")} | deltas ${JSON.stringify(d.objectiveDeltas)} | notes: ${x.notes.slice(0, 200)}`;
+  }).join("\n");
 }
 
 export async function rejudge(state: LoopState, policy: Policy, n: number, trigger: string): Promise<void> {

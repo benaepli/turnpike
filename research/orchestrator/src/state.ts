@@ -14,6 +14,14 @@ import {
 import type { HypothesisStatus } from "./schemas.js";
 import { SUPER } from "./gitops.js";
 
+// A verdict that reflects a tooling problem rather than evidence about the
+// hypothesis: it must not count toward calibration or lineage scoring.
+function isHarnessFailure(d: GateDecision): boolean {
+  if (d.verdict === "blocked") return true;
+  const r = d.reasons.join(" ").toLowerCase();
+  return /\bstale\b|\bstopped\b|no changes|degenerate|wall exceeded|evaluation failed|no parseable json|disk guard/.test(r);
+}
+
 const DEFAULT_DB_PATH = join(SUPER, "research", "state.sqlite");
 
 const PhaseTimings = z.record(z.string(), z.number());
@@ -158,7 +166,7 @@ export class LoopState {
   // -- evaluations ----------------------------------------------------------
 
   addEvaluation(e: Evaluation): void {
-    const v = Evaluation.parse(e);
+    const v = Evaluation.parse({ ...e, epoch: e.epoch ?? this.currentEpoch() });
     this.db
       .prepare<[string, string, string, string, string]>(
         `INSERT INTO evaluations (id, hypothesis_id, fidelity, created_at, json)
@@ -199,7 +207,11 @@ export class LoopState {
   // -- decisions ------------------------------------------------------------
 
   setDecision(d: GateDecision): void {
-    const v = GateDecision.parse(d);
+    const v = GateDecision.parse({
+      ...d,
+      epoch: d.epoch ?? this.currentEpoch(),
+      harnessFailure: d.harnessFailure ?? isHarnessFailure(d),
+    });
     this.db
       .prepare<[string, string, string]>(
         `INSERT INTO decisions (hypothesis_id, created_at, json)
@@ -275,6 +287,19 @@ export class LoopState {
   }
 
   // -- meta -----------------------------------------------------------------
+
+  // Comparability epoch: results from a prior epoch (a protocol or gate
+  // change) do not steer forward selection. Bumped by the operator when such
+  // a change lands.
+  currentEpoch(): number {
+    return Number(this.getMeta("epoch") ?? "1");
+  }
+
+  bumpEpoch(): number {
+    const e = this.currentEpoch() + 1;
+    this.setMeta("epoch", String(e));
+    return e;
+  }
 
   getMeta(key: string): string | null {
     const row = this.db

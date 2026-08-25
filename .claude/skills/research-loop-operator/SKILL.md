@@ -74,9 +74,16 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
    requeue it: see `reference/state-edits.md`.
 5. Targeted `git add`, commit with a message that carries the reasoning
    (code comments must not), push `research/vr-loop`.
-6. `rm -f research/STOP`; `research/loop-start.sh`; re-arm the event watcher
+6. If the change alters what results mean or how they are measured (a gate
+   statistic, the sequential protocol, chunk size or seeds, a
+   behavior-changing baseline), bump the comparability epoch so prior
+   results stop steering forward decisions: `cli epoch bump "<reason>"`.
+   Results stay in the record; they no longer feed calibration, lineage
+   scoring, or the re-judge. A pure harness fix that does not change
+   measurement (a git-op fix, a timeout) does not need a bump.
+8. `rm -f research/STOP`; `research/loop-start.sh`; re-arm the event watcher
    (the old one ends on the ALERT).
-7. A grader change additionally requires: `research/corpus/manifest.json`
+9. A grader change additionally requires: `research/corpus/manifest.json`
    invariants re-verified (`reference/diagnostics.md`), the baseline re-run
    as a detached unit (`cli baseline`), and the change noted in
    `research/PARAMETERS.md`.
