@@ -255,7 +255,7 @@ export function makeImplementerGate(kind: Hypothesis["kind"]): (toolName: string
   };
 }
 
-export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean; aborted: boolean }> {
+export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean; aborted: boolean; timedOut: boolean }> {
   // Implementation is a code edit plus at most one smoke run; a hypothesis
   // that turns implement into a measurement study is aborted at this wall.
   const deadlineMs = policy.budgets.maxImplementMinutes * 60_000;
@@ -279,7 +279,11 @@ export async function implementHypothesis(policy: Policy, h: Hypothesis): Promis
     },
   }));
   sc.dispose();
-  return { summary: r.text, costUsd: r.costUsd, turns: r.turns, isError: r.isError, aborted: sc.controller.signal.aborted };
+  // The abort was a stop only if the sentinel is present; otherwise it was
+  // the implement wall, which blocks the hypothesis rather than parking it.
+  const stopped = sc.controller.signal.aborted && existsSync(STOP_PATH);
+  const timedOut = sc.controller.signal.aborted && !existsSync(STOP_PATH);
+  return { summary: r.text, costUsd: r.costUsd, turns: r.turns, isError: r.isError, aborted: stopped, timedOut };
 }
 
 // Re-score the whole proposed pool against what has been learned since

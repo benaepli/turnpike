@@ -402,7 +402,13 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       createBranch(SUPER, branch);
 
       const impl = await timed("implement", () => implementHypothesis(policy, h));
-      journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, summary: impl.summary.slice(0, 2000) });
+      journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, timedOut: impl.timedOut, summary: impl.summary.slice(0, 2000) });
+      if (impl.timedOut) {
+        state.upsertHypothesis({ ...h, status: "blocked", branch, notes: `implement exceeded ${policy.budgets.maxImplementMinutes}-minute wall` });
+        journal(state, n, "blocked", { reason: "implement wall exceeded" });
+        cleanupToResearchBranch(branch);
+        return;
+      }
       if (impl.aborted || stopRequested()) { parkForStop(state, n, h, branch, "implement"); return; }
 
       const pair = commitHypothesisPair({

@@ -9,7 +9,7 @@ const policy = Policy.parse({
   models: { propose: "x", judge: "x", implement: "x", diagnose: "x", reflect: "x", audit: "x" },
   bandit: { explorationQuota: 0.3, ucbC: 1 },
   fidelities: { screen: { exploreWallSec: 1, runsPerConfig: 1, gradeMaxRuns: 0, gradeBudgetMs: 1, seeds: [1] }, promote: { exploreWallSec: 1, runsPerConfig: 1, gradeMaxRuns: 0, gradeBudgetMs: 1, seeds: [1] }, confirm: { exploreWallSec: 1, runsPerConfig: 1, gradeMaxRuns: 0, gradeBudgetMs: 1, seeds: [1] } },
-  budgets: { maxWallMinutesPerHypothesis: 1, maxLineageDepth: 1, stagnationWindow: 1, dailyWallHours: 1, maxImplementTurns: 5, maxBuildSeconds: 60, minFreeDiskGb: 25 },
+  budgets: { maxWallMinutesPerHypothesis: 1, maxLineageDepth: 1, stagnationWindow: 1, dailyWallHours: 1, maxImplementTurns: 5, maxImplementMinutes: 20, maxBuildSeconds: 60, minFreeDiskGb: 25 },
   audit: { everyK: 5 }, proposal: { lenses: 1, maxPoolSize: 1 },
   evaluation: { spec: "x", configTemplate: "x", oracleDags: ["x"], rayonThreads: 1 },
   regression: { menciusBugSpec: "x", menciusBugConfig: "x", menciusFixedSpec: "x", vrNoFaultConfig: "x", throughputTolerance: 0.2, wallSecPerCase: 1 },
