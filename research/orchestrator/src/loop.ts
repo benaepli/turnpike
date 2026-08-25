@@ -23,6 +23,7 @@ import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
 import type { LoopState } from "./state.js";
 import { writeStatus, appendObservation } from "./render.js";
+import { inactiveMechanisms, parseUtilization } from "./select.js";
 import { z } from "zod";
 
 
@@ -128,13 +129,14 @@ async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
   const statusMd = readStatusMd();
   const existingIds = state.listHypotheses().map((h) => h.id);
   const lenses = PROPOSAL_LENSES.slice(0, policy.proposal.lenses);
-  const results = await Promise.all(lenses.map((lens) => proposeHypotheses(policy, lens, statusMd, existingIds)));
+  const evalContext = evaluationContext(state, policy);
+  const results = await Promise.all(lenses.map((lens) => proposeHypotheses(policy, lens, statusMd, existingIds, evalContext)));
   const candidates = results.flatMap((r) => r.value?.hypotheses ?? []);
   journal(state, iteration, "propose", { lenses: lenses.length, candidates: candidates.length, cost: results.reduce((a, r) => a + r.costUsd, 0) });
   if (candidates.length === 0) return;
   const poolSummaries = state.listHypotheses().map((h) => `${h.id} [${h.kind}/${h.status}]: ${h.title}`);
   const calibration = calibrationTable(state);
-  const judged = await judgeHypotheses(policy, candidates, poolSummaries, calibration);
+  const judged = await judgeHypotheses(policy, candidates, poolSummaries, calibration, evalContext);
   const kept = judged.value?.hypotheses ?? candidates;
   const { valid, rejected } = validateProposed(kept);
   const room = Math.max(0, policy.proposal.maxPoolSize - state.listHypotheses("proposed").length);
@@ -142,6 +144,20 @@ async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
     if (!state.getHypothesis(h.id)) state.upsertHypothesis(h);
   }
   journal(state, iteration, "judge", { kept: valid.length, rejected: rejected.length, judgeCost: judged.costUsd });
+}
+
+// What a candidate is measured on: the general config's mode settings and
+// the mechanisms that record no activity under it.
+function evaluationContext(state: LoopState, policy: Policy): string {
+  let modes = "(config unreadable)";
+  try {
+    const cfg = JSON.parse(readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8")) as Record<string, unknown>;
+    const picked: Record<string, unknown> = {};
+    for (const k of Object.keys(cfg)) if (typeof cfg[k] !== "object" || k === "feedback") picked[k] = cfg[k];
+    modes = JSON.stringify(picked);
+  } catch { /* reported as unreadable */ }
+  const inactive = inactiveMechanisms(parseUtilization(state.getMeta("utilization")));
+  return `Explorer: -e standard on ${policy.evaluation.configTemplate}; scalar settings ${modes}.\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
 }
 
 // Number of top-level keys in the general evaluation config: the loop's

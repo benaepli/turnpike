@@ -169,13 +169,13 @@ export const PROPOSAL_LENSES = [
   "profile-guided performance (kind: perf): read the latest perf profile in observations; propose hotspot reductions that raise runs/sec without changing scheduling semantics or instrumentation the grader needs",
 ];
 
-export async function proposeHypotheses(policy: Policy, lens: string, statusMd: string, existingIds: string[]): Promise<RoleResult<{ hypotheses: unknown[] }>> {
+export async function proposeHypotheses(policy: Policy, lens: string, statusMd: string, existingIds: string[], evalContext: string): Promise<RoleResult<{ hypotheses: unknown[] }>> {
   const goal = readIfExists(path.join(ROOT, "research/GOAL.md"));
   const observations = readIfExists(path.join(ROOT, "research/observations/OBSERVATIONS.md")).slice(-8000);
   const r = await textRole({
     model: policy.models.propose,
     system: "You are a distributed-systems research scientist generating falsifiable, implementable hypotheses for improving a protocol-fuzzing scheduler. You never propose protocol-specific hacks.",
-    prompt: `${goal}\n\n## Current status\n${statusMd.slice(0, 12000)}\n\n## Recent observations\n${observations}\n\n## Your lens for this round\n${lens}\n\n## Existing hypothesis ids (do not duplicate)\n${existingIds.join(", ") || "(none)"}\n\nPropose 2-4 hypotheses through your lens. Each must be implementable in <300 lines of Rust/config change, opt-in (config-gated, default off), and protocol-agnostic.\n${HYPOTHESIS_JSON_GUIDE}`,
+    prompt: `${goal}\n\n## Current status\n${statusMd.slice(0, 12000)}\n\n## What a candidate is measured on\n${evalContext}\n\n## Recent observations\n${observations}\n\n## Your lens for this round\n${lens}\n\n## Existing hypothesis ids (do not duplicate)\n${existingIds.join(", ") || "(none)"}\n\nPropose 2-4 hypotheses through your lens. Each must be implementable in <300 lines of Rust/config change, opt-in (config-gated, default off), and protocol-agnostic.\n${HYPOTHESIS_JSON_GUIDE}`,
     schema: z.object({ hypotheses: z.array(z.unknown()) }),
     retries: 1,
   });
@@ -188,11 +188,11 @@ expectedGain anchors: must name WHICH ladder rung's conditional probability it l
 Parameter surface: +1 expectedCost per new tunable (a config field or a constant in code, hidden defaults included); credit for each tunable removed or subsumed. A mechanism that needs a value a different protocol could not derive scores expectedGain <= 3 unless it also removes a tunable. Ask of every candidate: what value would another protocol need here, and how would anyone know?
 Process: for EACH candidate first write the strongest argument that it will NOT move the ladder (red team), then score. Rank candidates against each other and the pool; two proposals promising the same mechanism cannot both score high. Output the falsification statement in the notes field.`;
 
-export async function judgeHypotheses(policy: Policy, candidates: unknown[], poolSummaries: string[], calibration: string): Promise<RoleResult<{ hypotheses: unknown[] }>> {
+export async function judgeHypotheses(policy: Policy, candidates: unknown[], poolSummaries: string[], calibration: string, evalContext: string): Promise<RoleResult<{ hypotheses: unknown[] }>> {
   return textRole({
     model: policy.models.judge,
     system: "You are an adversarial research lead scoring proposals for a bandit that will spend real compute on them. Proposers are systematically optimistic; your job is to normalize their claims against the rubric and against what past hypotheses actually delivered. You reject duplicates, protocol-specific hacks, vague proposals, and anything that cannot be evaluated against the metric ladder.",
-    prompt: `## Existing pool (summaries)\n${poolSummaries.join("\n") || "(empty)"}\n\n## Calibration: predicted vs realized for evaluated hypotheses\n${calibration || "(no completed evaluations yet)"}\n\n${JUDGE_RUBRIC}\n\n## Candidates\n${JSON.stringify(candidates, null, 2).slice(0, 30000)}\n\nReturn only the candidates worth keeping (deduplicated against pool and each other, rejecting rule-violating ones), with YOUR expectedGain/expectedCost. ${HYPOTHESIS_JSON_GUIDE}`,
+    prompt: `## Existing pool (summaries)\n${poolSummaries.join("\n") || "(empty)"}\n\n## What a candidate is measured on\n${evalContext}\nReject any candidate whose effect is confined to a mechanism with zero activity unless it is an enabling hypothesis that switches that mechanism on; set buildsOn to the mechanisms the change needs to be active.\n\n## Calibration: predicted vs realized for evaluated hypotheses\n${calibration || "(no completed evaluations yet)"}\n\n${JUDGE_RUBRIC}\n\n## Candidates\n${JSON.stringify(candidates, null, 2).slice(0, 30000)}\n\nReturn only the candidates worth keeping (deduplicated against pool and each other, rejecting rule-violating ones), with YOUR expectedGain/expectedCost. ${HYPOTHESIS_JSON_GUIDE}`,
     schema: z.object({ hypotheses: z.array(z.unknown()) }),
     retries: 1,
   });

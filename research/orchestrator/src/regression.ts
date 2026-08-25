@@ -171,7 +171,7 @@ export async function runRegression(
       // machine load affects them equally.
       const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
       if (!fs.existsSync(baselineBin)) return { name, passed: true, detail: "no baseline binary snapshot; skipped" };
-      const baseTemplate = path.join(ROOT, "tmp", "loop", "regr-throughput.base.template.json");
+      const baseTemplate = path.join(ROOT, "tmp", "loop", "regr-throughput.base.config.json");
       fs.writeFileSync(baseTemplate, showFile(SUPER, RESEARCH_BRANCH, ctx.policy.evaluation.configTemplate));
       const b = await runBench(ctx.policy, ctx.binary, baselineBin, {
         templatePath: resolveRoot(ctx.policy.evaluation.configTemplate),

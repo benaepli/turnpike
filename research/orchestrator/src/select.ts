@@ -69,6 +69,21 @@ const MECHANISM_COUNTERS: Record<string, [string, string]> = {
   "aos": ["aos", "tape_wins"],
   "dedup": ["dedup", "checks"],
 };
+// Mechanisms whose activity counter is zero in the evaluation config: a
+// change confined to one of them cannot be measured there.
+export function inactiveMechanisms(util: Utilization | null): string[] {
+  if (!util) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const [name, [group, counter]] of Object.entries(MECHANISM_COUNTERS)) {
+    const key = `${group}.${counter}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if ((util[group]?.[counter] ?? 0) <= 0) out.push(`${name} (${key} = 0)`);
+  }
+  return out;
+}
+
 export function buildsOnSatisfied(h: Hypothesis, util: Utilization | null): boolean {
   if (h.kind === "enabling" || !util) return true;
   for (const dep of h.buildsOn) {
