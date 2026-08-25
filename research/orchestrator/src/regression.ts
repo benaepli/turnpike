@@ -167,15 +167,16 @@ export async function runRegression(
         return { name, passed: true, detail: "no baseline yet" };
       }
       // Interleaved A/B against the preserved baseline binary on the
-      // evaluation grid: both sides are measured in the same window, so
-      // machine load affects them equally.
+      // baseline's evaluation grid: both sides are measured in the same
+      // window on the same workload, so this case answers only whether the
+      // binary got slower; a config change that lengthens runs is judged by
+      // the ladder, not here.
       const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
       if (!fs.existsSync(baselineBin)) return { name, passed: true, detail: "no baseline binary snapshot; skipped" };
       const baseTemplate = path.join(ROOT, "tmp", "loop", "regr-throughput.base.config.json");
       fs.writeFileSync(baseTemplate, showFile(SUPER, RESEARCH_BRANCH, ctx.policy.evaluation.configTemplate));
       const b = await runBench(ctx.policy, ctx.binary, baselineBin, {
-        templatePath: resolveRoot(ctx.policy.evaluation.configTemplate),
-        baselineTemplatePath: baseTemplate,
+        templatePath: baseTemplate,
         runsPerConfig: ctx.policy.fidelities.screen.runsPerConfig,
         rounds: 2,
       });

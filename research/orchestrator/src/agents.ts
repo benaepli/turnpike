@@ -295,11 +295,11 @@ export async function reflectOnOutcome(policy: Policy, h: Hypothesis, evidence: 
   });
 }
 
-export async function runAudit(policy: Policy, iteration: number, statusMd: string, ledger: string, utilization: string): Promise<RoleResult<AuditReport>> {
+export async function runAudit(policy: Policy, iteration: number, statusMd: string, ledger: string, utilization: string, evalContext: string): Promise<RoleResult<AuditReport>> {
   return textRole({
     model: policy.models.audit,
     system: "You are an independent auditor of an autonomous research loop. You have no stake in any hypothesis. You look for waste, statistical weakness, metric gaming, and dead mechanisms. Be specific and quantitative.",
-    prompt: `## Iteration\n${iteration}\n\n## Status\n${statusMd.slice(0, 12000)}\n\n## Time/budget ledger\n${ledger.slice(0, 8000)}\n\n## Mechanism utilization (latest utilization.json dumps)\n${utilization.slice(0, 6000)}\n\nReply with ONLY JSON matching: {"atIteration": ${iteration}, "timeBreakdown": {"phase": seconds}, "budgetConcentration": "...", "statisticalPowerNotes": "...", "goodhartSignals": ["..."], "utilizationFindings": [{"mechanism": "...", "classification": "broken"|"unexercised"|"unrewarding"|"scaffolding"|"healthy", "evidence": "..."}], "recommendedPolicyChanges": ["..."]}`,
+    prompt: `## Iteration\n${iteration}\n\n## Status\n${statusMd.slice(0, 12000)}\n\n## Evaluation protocol (use these sizes; runs per config multiply across the config grid)\n${evalContext}\n\n## Time/budget ledger\n${ledger.slice(0, 8000)}\n\n## Mechanism utilization (latest utilization.json dumps)\n${utilization.slice(0, 6000)}\n\nReply with ONLY JSON matching: {"atIteration": ${iteration}, "timeBreakdown": {"phase": seconds}, "budgetConcentration": "...", "statisticalPowerNotes": "...", "goodhartSignals": ["..."], "utilizationFindings": [{"mechanism": "...", "classification": "broken"|"unexercised"|"unrewarding"|"scaffolding"|"healthy", "evidence": "..."}], "recommendedPolicyChanges": ["..."]}`,
     schema: AuditReport,
     retries: 1,
   });

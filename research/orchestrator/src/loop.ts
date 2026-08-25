@@ -13,7 +13,7 @@ import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { loadSeqState, pooledCountsOf, runSequential, type SeqKind } from "./sequential.js";
 import {
-  RESEARCH_BRANCH, SPUR, SUPER, changedFiles, checkout, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto,
+  RESEARCH_BRANCH, SPUR, SUPER, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto, resetBranchTo,
   currentCommit, deleteBranch, diffText, createPr, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
@@ -368,13 +368,24 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     let superCommit: string;
     if (resuming && h.branch) {
       // The implementation already lives on the hypothesis branch. It must
-      // contain everything the current baseline contains, so it is rebased
-      // onto the research branch first; a conflict ends the hypothesis.
+      // contain everything the current baseline contains: the spur branch is
+      // rebased, and the superproject branch is rebuilt on the research head
+      // with the hypothesis's own files restored (a plain rebase would always
+      // conflict on the submodule pointer). A file changed on both sides, or
+      // a spur conflict, ends the hypothesis.
       branch = h.branch;
       checkout(SUPER, branch);
       let spurOnBranch = true;
       try { checkout(SPUR, branch); } catch { spurOnBranch = false; }
-      const rebased = rebaseOnto(SUPER, RESEARCH_BRANCH) && (!spurOnBranch || rebaseOnto(SPUR, RESEARCH_BRANCH));
+      const ownFiles = changedFiles(SUPER, RESEARCH_BRANCH).filter((f) => f !== "spur");
+      const touchedOnResearch = new Set(changedOnRef(SUPER, RESEARCH_BRANCH));
+      const overlap = ownFiles.filter((f) => touchedOnResearch.has(f));
+      let rebased = overlap.length === 0 && (!spurOnBranch || rebaseOnto(SPUR, RESEARCH_BRANCH));
+      if (rebased) {
+        const oldHead = currentCommit(SUPER);
+        resetBranchTo(SUPER, branch, RESEARCH_BRANCH);
+        try { checkoutPaths(SUPER, oldHead, ownFiles); } catch { rebased = false; }
+      }
       if (!rebased) {
         state.upsertHypothesis({ ...h, status: "closed", branch, notes: `[stale] branch no longer rebases onto ${RESEARCH_BRANCH}; ${h.notes}`.slice(0, 500) });
         journal(state, n, "stale_branch", { id: h.id, branch });
@@ -618,7 +629,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const util = `${util0}\n\n## perf profile (top symbols)\n${profile}`;
         const ledger = JSON.stringify(state.countByStatus()) + "\n" + JSON.stringify(timings);
         const evalConfig = readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8");
-        const audit = await runAudit(policy, n, readStatusMd(), ledger, `## Evaluation config (mechanisms not enabled here are expected to read zero)\n${evalConfig}\n\n${util}`);
+        const lastChunk = state.allEvaluations().filter((e) => e.fidelity === "sequential" && e.ok).at(-1);
+        const chunkLine = lastChunk
+          ? `One sequential chunk = ${lastChunk.metrics.runs} runs (${policy.sequential.chunkRunsPerConfig} runs/config across the grid), explore ${Math.round(lastChunk.exploreWallMs / 1000)} s; ${policy.sequential.minChunks}-${policy.sequential.maxChunks} chunks per hypothesis; the baseline holds ${policy.sequential.maxChunks} chunks.`
+          : "No sequential chunk recorded yet.";
+        const audit = await runAudit(policy, n, readStatusMd(), ledger, `## Evaluation config (mechanisms not enabled here are expected to read zero)\n${evalConfig}\n\n${util}`, `${evaluationContext(state, policy)}\n${chunkLine}`);
         if (!audit.value) journal(state, n, "audit_error", { error: audit.error, cost: audit.costUsd });
         if (audit.value) {
           appendObservation(`### Audit @${n}\n${audit.value.budgetConcentration}\n\nGoodhart: ${audit.value.goodhartSignals.join("; ") || "none"}\n\nUtilization: ${audit.value.utilizationFindings.map((u) => `${u.mechanism}=${u.classification}`).join(", ")}\n\nPolicy suggestions: ${audit.value.recommendedPolicyChanges.join("; ") || "none"}`);

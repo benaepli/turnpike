@@ -77,21 +77,15 @@ async function oneRound(
 
 export interface BenchWorkload {
   templatePath: string;
-  // The baseline binary runs its own template when the candidate changed
-  // the config shape; defaults to the candidate's template.
-  baselineTemplatePath?: string;
   runsPerConfig: number;
   rounds: number;
 }
 
 export async function runBench(policy: Policy, candidateBin: string, baselineBin: string, workload?: BenchWorkload): Promise<BenchResult> {
   const template = workload?.templatePath ?? resolveRoot(policy.perf.benchConfig);
-  const baseTemplate = workload?.baselineTemplatePath ?? template;
   const overrides = workload ? { runsPerConfig: workload.runsPerConfig, sessionSeed: 999 } : {};
   const configPath = path.join(ROOT, "tmp", "loop", "bench.config.json");
-  const baseConfigPath = path.join(ROOT, "tmp", "loop", "bench.base.config.json");
   materializeConfig(template, configPath, overrides);
-  materializeConfig(baseTemplate, baseConfigPath, overrides);
   const totalRuns = totalRunsOf(JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>);
 
   const cand: number[] = [];
@@ -108,7 +102,7 @@ export async function runBench(policy: Policy, candidateBin: string, baselineBin
       ? [["base", baselineBin], ["cand", candidateBin]]
       : [["cand", candidateBin], ["base", baselineBin]];
     for (const [side, bin] of order) {
-      const r = await oneRound(policy, bin, side, i, side === "base" ? baseConfigPath : configPath, totalRuns);
+      const r = await oneRound(policy, bin, side, i, configPath, totalRuns);
       if (r.err) return fail(r.err);
       if (i >= policy.perf.warmupRounds) (side === "cand" ? cand : base).push(r.rps);
     }

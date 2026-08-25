@@ -165,6 +165,22 @@ export function showFile(repo: string, ref: string, filePath: string): string {
   return must("git", ["show", `${ref}:${filePath}`], repo);
 }
 
+/** Files changed on `ref` since it diverged from the current HEAD. */
+export function changedOnRef(repo: string, ref: string): string[] {
+  return must("git", ["diff", "--name-only", `HEAD...${ref}`], repo).split("\n").filter((l) => l.length > 0);
+}
+
+/** Point `branch` at `ref` and check it out. */
+export function resetBranchTo(repo: string, branch: string, ref: string): void {
+  must("git", ["checkout", "-B", branch, ref], repo);
+}
+
+/** Restore the given paths from `ref` into the working tree and index. */
+export function checkoutPaths(repo: string, ref: string, paths: string[]): void {
+  if (paths.length === 0) return;
+  must("git", ["checkout", ref, "--", ...paths], repo);
+}
+
 /** Rebase the current branch onto base; a conflicting rebase is aborted and reported as false. */
 export function rebaseOnto(repo: string, base: string): boolean {
   if (exec("git", ["rebase", base], repo).ok) return true;

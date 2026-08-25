@@ -35,10 +35,15 @@ const ZERO_METRICS: LadderMetrics = {
   gradeWallMs: 0,
 };
 
+// Tool wall times are the process times the runner measured, not the
+// tools' self-reported figures, so the ledger reflects what an evaluation
+// actually costs.
 function assembleMetrics(
   porc: PorcupineJson | null,
   gr: TraceGradeJson | null,
   exploreWallMs: number,
+  porcupineWallMs: number,
+  gradeWallMs: number,
 ): LadderMetrics {
   const runs = porc !== null ? Math.round(porc.total_runs) : 0;
   const g = gr?.grade ?? null;
@@ -58,8 +63,8 @@ function assembleMetrics(
     depthAtLeast: (dag?.depth_at_least ?? []).map((v) => Math.round(v)),
     violations: porc !== null ? Math.round(porc.violations) : 0,
     unknown: porc !== null ? Math.round(porc.unknown) : 0,
-    porcupineWallMs: porc !== null ? Math.round(porc.wall_ms) : 0,
-    gradeWallMs: g !== null ? Math.round(g.wall_ms) : 0,
+    porcupineWallMs: Math.round(porcupineWallMs),
+    gradeWallMs: Math.round(gradeWallMs),
   };
 }
 
@@ -118,7 +123,7 @@ export async function runOneEvaluation(
       budgetMs: opts.gradeBudgetMs,
       timeoutMs: opts.gradeBudgetMs + 120_000,
     });
-    const metrics = assembleMetrics(porc.parsed, gr.parsed, exploreRes.wallMs);
+    const metrics = assembleMetrics(porc.parsed, gr.parsed, exploreRes.wallMs, porc.cmd.wallMs, gr.cmd.wallMs);
     const gradeDegenerate = gr.parsed === null || (metrics.runs > 0 && metrics.gradedRuns === 0);
     const ok = porc.parsed !== null && !gradeDegenerate;
     const error = ok
