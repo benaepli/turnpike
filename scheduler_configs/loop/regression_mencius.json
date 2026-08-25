@@ -29,5 +29,6 @@
     0.3
   ],
   "num_runs_per_config": 90,
-  "max_iterations": 8000
+  "max_iterations": 8000,
+  "session_seed": 11
 }

@@ -40,6 +40,10 @@
       100
     ]
   },
+  "feedback": {
+    "mode": "timeline",
+    "steer": true
+  },
   "num_runs_per_config": 100,
   "max_iterations": 6000,
   "strict_config_keys": true
