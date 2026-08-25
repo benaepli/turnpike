@@ -6,7 +6,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import * as path from "node:path";
 import {
   PROPOSAL_LENSES, ROOT, implementHypothesis, judgeHypotheses, proposeHypotheses,
-  reflectOnOutcome, runAudit, validateProposed,
+  reflectOnOutcome, rejudgePool, runAudit, validateProposed,
 } from "./agents.js";
 import { classifyChangeRisk, compareToBaseline, finalGate, nonInferior, objectiveCounts, perfGate, screenAdvances } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
@@ -107,12 +107,7 @@ async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
   journal(state, iteration, "propose", { lenses: lenses.length, candidates: candidates.length, cost: results.reduce((a, r) => a + r.costUsd, 0) });
   if (candidates.length === 0) return;
   const poolSummaries = state.listHypotheses().map((h) => `${h.id} [${h.kind}/${h.status}]: ${h.title}`);
-  const calibration = state.listHypotheses()
-    .map((x) => ({ x, d: state.getDecision(x.id) }))
-    .filter((p): p is { x: Hypothesis; d: NonNullable<ReturnType<typeof state.getDecision>> } => p.d !== null)
-    .map(({ x, d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> verdict ${d.verdict}, realized primary delta ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
-    .slice(-30)
-    .join("\n");
+  const calibration = calibrationTable(state);
   const judged = await judgeHypotheses(policy, candidates, poolSummaries, calibration);
   const kept = judged.value?.hypotheses ?? candidates;
   const { valid, rejected } = validateProposed(kept);
@@ -132,6 +127,46 @@ function generalConfigParamCount(policy: Policy): number {
   } catch {
     return -1;
   }
+}
+
+function calibrationTable(state: LoopState): string {
+  return state.listHypotheses()
+    .map((x) => ({ x, d: state.getDecision(x.id) }))
+    .filter((p): p is { x: Hypothesis; d: NonNullable<ReturnType<typeof state.getDecision>> } => p.d !== null)
+    .map(({ x, d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
+    .slice(-30)
+    .join("\n");
+}
+
+function recentEvidence(state: LoopState, limit: number): string {
+  const decided = state.listHypotheses()
+    .map((x) => ({ x, d: state.getDecision(x.id) }))
+    .filter((p): p is { x: Hypothesis; d: NonNullable<ReturnType<typeof state.getDecision>> } => p.d !== null)
+    .slice(-limit);
+  return decided.map(({ x, d }) =>
+    `${x.id} [${x.kind}] -> ${d.verdict}: ${d.reasons.join("; ")} | deltas ${JSON.stringify(d.objectiveDeltas)} | notes: ${x.notes.slice(0, 200)}`,
+  ).join("\n");
+}
+
+export async function rejudge(state: LoopState, policy: Policy, n: number, trigger: string): Promise<void> {
+  const pool = state.listHypotheses("proposed");
+  if (pool.length === 0) return;
+  const r = await rejudgePool(policy, pool, calibrationTable(state), recentEvidence(state, 12), state.getMeta("utilization") ?? "(no snapshot)");
+  if (!r.value) { journal(state, n, "rejudge", { trigger, error: r.error }); return; }
+  let parked = 0;
+  let rescored = 0;
+  for (const u of r.value.updates) {
+    const h = state.getHypothesis(u.id);
+    if (!h || h.status !== "proposed") continue;
+    if (u.action === "park") {
+      state.upsertHypothesis({ ...h, status: "parked", notes: `[rejudged ${trigger}] ${u.reason}`.slice(0, 400) });
+      parked++;
+    } else if (u.expectedGain !== h.expectedGain || u.expectedCost !== h.expectedCost) {
+      state.upsertHypothesis({ ...h, expectedGain: u.expectedGain, expectedCost: u.expectedCost, notes: `${h.notes} [rejudged ${trigger}: ${u.reason}]`.slice(0, 400) });
+      rescored++;
+    }
+  }
+  journal(state, n, "rejudge", { trigger, pool: pool.length, rescored, parked, cost: r.costUsd });
 }
 
 function evalJsonPath(iteration: number, id: string): string {
@@ -431,6 +466,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         if (spurFiles.length > 0) {
           try { copyFileSync(SPUR_BIN, path.join(ROOT, "tmp", "loop", "spur-baseline")); } catch { /* non-fatal */ }
         }
+        if (policy.rejudge.afterMerge) await timed("rejudge", () => rejudge(state, policy, n, `merge of ${h.id}`));
       }
     } else {
       state.upsertHypothesis({ ...h, status: decision.verdict === "blocked" ? "blocked" : "closed", branch });
@@ -451,6 +487,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       journal(state, n, "reflect", { learned: refl.value.whatWeLearned, children: refl.value.suggestedChildren.length });
     }
 
+    if (n % policy.rejudge.everyK === 0) await timed("rejudge", () => rejudge(state, policy, n, `iteration ${n}`));
     if (n % policy.audit.everyK === 0) {
       await timed("audit", async () => {
         const util0 = await collectUtilization(policy);

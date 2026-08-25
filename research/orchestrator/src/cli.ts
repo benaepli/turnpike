@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { runEvaluation, type EvalContext } from "./evaluate.js";
 import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
-import { graderVersion, loadBaseline, loadReference, runIteration, runLoop, type BaselineMeta } from "./loop.js";
+import { graderVersion, loadBaseline, loadReference, rejudge, runIteration, runLoop, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
 import { renderPolicyMd, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN } from "./runners.js";
@@ -76,6 +76,15 @@ async function main(): Promise<void> {
           if (!state.getHypothesis(h.id)) { state.upsertHypothesis(h); added++; }
         }
         console.log(`seeded ${added} hypotheses (${rejected.length} rejected: ${rejected.join("; ")})`);
+        break;
+      }
+      case "rejudge": {
+        const { policy } = loadPolicy(POLICY_PATH);
+        await rejudge(state, policy, 0, "operator");
+        for (const h of state.listHypotheses()) {
+          if (h.notes.includes("[rejudged operator")) console.log(`${h.status.padEnd(8)} ${h.expectedGain}/${h.expectedCost} ${h.id}: ${h.notes.slice(h.notes.lastIndexOf("[rejudged"))}`);
+        }
+        console.log("pool:", JSON.stringify(state.countByStatus()));
         break;
       }
       case "grader-queue": {

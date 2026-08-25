@@ -37,6 +37,7 @@ export const Policy = z.object({
     minFreeDiskGb: z.number().positive(),
   }),
   audit: z.object({ everyK: z.number().int().positive() }),
+  rejudge: z.object({ everyK: z.number().int().positive(), afterMerge: z.boolean() }).default({ everyK: 5, afterMerge: true }),
   proposal: z.object({ lenses: z.number().int().min(1).max(8), maxPoolSize: z.number().int().positive() }),
   evaluation: z.object({
     spec: z.string(),

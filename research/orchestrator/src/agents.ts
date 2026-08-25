@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
 import { ROOT } from "./runners.js";
-import { AuditReport, Hypothesis, ProposedHypotheses, Reflection } from "./schemas.js";
+import { AuditReport, Hypothesis, ProposedHypotheses, Reflection, RejudgeResult } from "./schemas.js";
 import type { Policy } from "./policy.js";
 
 export { ROOT };
@@ -269,6 +269,19 @@ export async function implementHypothesis(policy: Policy, h: Hypothesis): Promis
   }));
   sc.dispose();
   return { summary: r.text, costUsd: r.costUsd, turns: r.turns, isError: r.isError, aborted: sc.controller.signal.aborted };
+}
+
+// Re-score the whole proposed pool against what has been learned since
+// each entry was scored: merges move the baseline, negative results
+// contradict neighbors, enabled mechanisms unlock dependents.
+export async function rejudgePool(policy: Policy, pool: Hypothesis[], calibration: string, recentEvidence: string, utilization: string): Promise<RoleResult<RejudgeResult>> {
+  return textRole({
+    model: policy.models.judge,
+    system: "You are an adversarial research lead re-scoring a hypothesis pool in light of new evidence. Proposals were scored before this evidence existed. Down-score what the evidence contradicts, up-score what it enables, park what is superseded or redundant, and keep the rubric's parameter-cost discipline.",
+    prompt: `## Recent evidence (decisions, deltas, reflections)\n${recentEvidence.slice(0, 16000)}\n\n## Calibration: predicted vs realized\n${calibration || "(none)"}\n\n## Mechanism utilization in the evaluation config\n${utilization.slice(0, 4000)}\n\n${JUDGE_RUBRIC}\n\n## Pool to re-score\n${JSON.stringify(pool.map((h) => ({ id: h.id, kind: h.kind, title: h.title, description: h.description.slice(0, 600), buildsOn: h.buildsOn, expectedGain: h.expectedGain, expectedCost: h.expectedCost, parent: h.parent })), null, 1).slice(0, 40000)}\n\nReply with ONLY JSON: {"updates": [{"id": "...", "expectedGain": 0-10, "expectedCost": 0.1-10, "action": "keep"|"park", "reason": "one line"}]} covering EVERY pool id.`,
+    schema: RejudgeResult,
+    retries: 1,
+  });
 }
 
 export async function reflectOnOutcome(policy: Policy, h: Hypothesis, evidence: string): Promise<RoleResult<Reflection>> {

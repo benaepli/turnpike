@@ -103,6 +103,17 @@ export const Reflection = z.object({
 });
 export type Reflection = z.infer<typeof Reflection>;
 
+export const RejudgeResult = z.object({
+  updates: z.array(z.object({
+    id: z.string(),
+    expectedGain: z.number().min(0).max(10),
+    expectedCost: z.number().min(0.1).max(10),
+    action: z.enum(["keep", "park"]),
+    reason: z.string().min(5),
+  })),
+});
+export type RejudgeResult = z.infer<typeof RejudgeResult>;
+
 export const AuditReport = z.object({
   atIteration: z.number().int(),
   timeBreakdown: z.record(z.string(), z.number()).default({}),
