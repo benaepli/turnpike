@@ -262,7 +262,7 @@ func writeDagOrderTable(w io.Writer, d *dagorder.DagOrderResult) {
 	}
 	fmt.Fprintln(w)
 
-	// Top runs (best scores first) — most useful for bug-hunting.
+	// Top runs (best scores first) - most useful for bug-hunting.
 	if len(d.PerRun) > 0 {
 		top := topNRuns(d.PerRun, 10)
 		fmt.Fprintf(w, "### Top Runs by Score\n")
@@ -294,7 +294,7 @@ func writeDagOrderTable(w io.Writer, d *dagorder.DagOrderResult) {
 	}
 }
 
-// topNRuns returns up to n runs sorted by EdgeSatisfaction desc (ties → RunID asc).
+// topNRuns returns up to n runs sorted by EdgeSatisfaction desc (ties -> RunID asc).
 func topNRuns(runs []dagorder.RunResult, n int) []dagorder.RunResult {
 	out := make([]dagorder.RunResult, len(runs))
 	copy(out, runs)
