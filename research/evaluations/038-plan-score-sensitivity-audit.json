@@ -1,0 +1,140 @@
+{
+  "hypothesis": {
+    "id": "plan-score-sensitivity-audit",
+    "parent": "hazard-fitness-for-guided-modes",
+    "kind": "meta",
+    "title": "Audit whether plan_score perturbations change scheduling at all in general_vr.json",
+    "description": "Instrument spur-core/src/simulator/explorer.rs + feedback.rs to log, per explore run: fraction of scheduling decisions where the plan_score-ranked choice differed from the unweighted/random choice, the variance of plan_score across candidates at each decision point, and how often the feedback term is the tie-breaker. Emit as util_stats counters (decision_divergence_frac, score_variance_mean) behind a debug config field feedback.audit_stats. Run once on the current general config with feedback off / timeline / hazard and compare.",
+    "category": "tooling",
+    "buildsOn": [
+      "timeline-feedback",
+      "util_stats"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 2,
+    "rationale": "Three feedback-term variants have now produced ~1e-4 objective deltas. Before spending more chunks on new fitness functions, measure whether the scoring layer has any authority over scheduling in this config — if decision_divergence_frac is ~0, every feedback hypothesis in the pool is testing a disconnected wire and should be re-gated behind a scheduler-authority fix.",
+    "generalityArgument": "Pure instrumentation of the scheduler's own decision points; measures mechanism plumbing, not protocol behavior, and is spec-independent.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-25T10:00:00.000Z",
+    "notes": "Cheap, non-scoring diagnostic; its result should retro-gate the whole feedback category."
+  },
+  "decision": {
+    "hypothesisId": "plan-score-sensitivity-audit",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": -0.00004629629629629428,
+      "depth>=5": -0.00010648148148148127,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": -0.0015185185185185301,
+      "primary": -0.00010648148148148127,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "plan-score-sensitivity-audit-sequential-1000-1787651214188",
+        "hypothesisId": "plan-score-sensitivity-audit",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "b51c5d817c816630c9ad32beeb58157978d40dca",
+        "superCommit": "8a8b26c620672672b9529a766a4ec30295e2780b",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-25T09:46:54.188Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 260.92250601571334,
+          "unpairedFraction": 0.4855857785393018,
+          "h1Rate": 0.49912962962962965,
+          "h2Rate": 0.3995740740740741,
+          "h2bRate": 0.4140740740740741,
+          "h3Rate": 0.3343703703703704,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.3175,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            54000,
+            47450,
+            20746,
+            2752,
+            197
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4822,
+          "gradeWallMs": 5936
+        },
+        "exploreWallMs": 206958,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "plan-score-sensitivity-audit-sequential-1001-1787651607558",
+        "hypothesisId": "plan-score-sensitivity-audit",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "b51c5d817c816630c9ad32beeb58157978d40dca",
+        "superCommit": "8a8b26c620672672b9529a766a4ec30295e2780b",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-25T09:53:27.558Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 260.19832894850964,
+          "unpairedFraction": 0.48672275113587105,
+          "h1Rate": 0.49653703703703705,
+          "h2Rate": 0.39811111111111114,
+          "h2bRate": 0.41514814814814816,
+          "h3Rate": 0.33835185185185185,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.320777777777778,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            54000,
+            47439,
+            21035,
+            2636,
+            212
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4886,
+          "gradeWallMs": 5227
+        },
+        "exploreWallMs": 207534,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-cli/src/main.rs",
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/feedback.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 12
+  }
+}
