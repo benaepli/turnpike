@@ -15,6 +15,12 @@ npx tsx src/cli.ts regression  # run the regression suite
 ../loop-start.sh               # start unattended (systemd-run --user)
 ```
 
+## Operator
+
+Relaunch the supervising session with `/research-loop-operator` (project
+skill in `.claude/skills/`). It re-establishes monitors, diagnoses failures,
+lands harness fixes at safe boundaries, and routes grader proposals to you.
+
 ## Watching it
 
 - `research/STATUS.md` — ladder, pool, timings (re-rendered every iteration)
