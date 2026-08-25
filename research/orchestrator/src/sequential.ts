@@ -5,7 +5,7 @@
 import type { Policy } from "./policy.js";
 import { runOneEvaluation, type EvalContext } from "./evaluate.js";
 import type { LoopState } from "./state.js";
-import { compareRates, rateImprovesCI } from "./stats.js";
+import { compareRates, rateSuperiorCI } from "./stats.js";
 import { MERGE_Z } from "./decide.js";
 import { Evaluation, SeqState } from "./schemas.js";
 
@@ -120,7 +120,7 @@ export function decideSequential(
   }
 
   if (chunks >= p.minChunks) {
-    const separated = (aS: number, aN: number, bS: number, bN: number): boolean => rateImprovesCI(aS, aN, bS, bN, MERGE_Z);
+    const separated = (aS: number, aN: number, bS: number, bN: number): boolean => rateSuperiorCI(aS, aN, bS, bN, MERGE_Z);
     if (separated(base.depth4, base.graded, cand.depth4, cand.graded)) return out("reject", `depth>=4 regressed (ratio ${d4.meanRatio.toFixed(2)})`);
     if (separated(base.h2Count, base.runs, cand.h2Count, cand.runs)) return out("reject", `h2 regressed (ratio ${h2.meanRatio.toFixed(2)})`);
     if (separated(cand.depth4, cand.graded, base.depth4, base.graded)) return out("advance", `depth>=4 separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`);

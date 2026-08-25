@@ -72,6 +72,18 @@ gate for lack of separation; only regression, lint and throughput can still
 close it. Three looks (chunks 2, 3, 4) at z = 2.7 inflate the familywise
 error modestly; the Bonferroni z already carries slack for that.
 
+**The separation test is the two-sample MOVER (Newcombe) difference bound**
+(`rateSuperiorCI`), not non-overlapping one-sample Wilson intervals. Two
+non-overlapping intervals are about sqrt(2) stricter than the difference
+test at the same z, which is stricter than the Bonferroni z = 2.7 was
+derived for - so the earlier non-overlap implementation silently discarded
+real gains (novelty-authority-normalization: +3.05% depth>=4 at P 0.997 over
+648k runs, two-sample z = 2.75, closed unmerged). The MOVER bound is the
+statistic the non-inferiority side already uses. Simulated operating
+characteristics at the measured rates are unchanged on the null (A/A ->
+merge 0%) and on harmful cases (reject 100%), with power on small real
+effects rising sharply (a +20% depth>=5 advances 55% -> 90%).
+
 **Minimum effect is derived, not chosen.** For each rung, the smallest
 relative effect the gate could separate with the candidate at the cap and
 the baseline at its recorded size: z * sqrt(1/E_cand + 1/E_base) with E the

@@ -24,6 +24,19 @@ export function rateImprovesCI(aSucc: number, aN: number, bSucc: number, bN: num
   return aLower > bUpper;
 }
 
+// True iff rate A exceeds rate B: the two-sample MOVER (Newcombe) lower bound
+// on (pA - pB) is above zero. This is the difference-test analogue of
+// rateNonInferior and the statistic MERGE_Z was derived for; it is about
+// sqrt(2) less conservative than requiring the one-sample Wilson intervals
+// not to overlap (rateImprovesCI).
+export function rateSuperiorCI(aSucc: number, aN: number, bSucc: number, bN: number, z = 1.96): boolean {
+  const pA = aN > 0 ? aSucc / aN : 0;
+  const pB = bN > 0 ? bSucc / bN : 0;
+  const [aLower] = wilson(aSucc, aN, z);
+  const [, bUpper] = wilson(bSucc, bN, z);
+  return pA - pB - Math.sqrt((pA - aLower) ** 2 + (bUpper - pB) ** 2) > 0;
+}
+
 /**
  * True iff A is non-inferior to B by more than `margin`: the conservative
  * lower confidence bound on (pA - pB) is >= -margin.

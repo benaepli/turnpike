@@ -46,7 +46,7 @@
     "everyK": 5
   },
   "proposal": {
-    "lenses": 6,
+    "lenses": 7,
     "maxPoolSize": 60
   },
   "evaluation": {
@@ -71,5 +71,9 @@
     "warmupRounds": 1,
     "minImprovement": 0.05,
     "roundWallSec": 150
+  },
+  "rejudge": {
+    "everyK": 1,
+    "afterMerge": false
   }
 }

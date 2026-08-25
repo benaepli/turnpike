@@ -9,7 +9,7 @@
 import type { BenchResult } from "./bench.js";
 import type { Evaluation, GateDecision, Hypothesis, LadderMetrics } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
-import { rateImprovesCI, rateNonInferior, wilson } from "./stats.js";
+import { rateSuperiorCI, rateNonInferior, wilson } from "./stats.js";
 
 export interface ObjectiveCounts {
   violations: { succ: number; n: number };
@@ -49,19 +49,19 @@ export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, 
 
   deltas["violations"] = rate(cand.violations) - rate(base.violations);
   if (cand.violations.succ > 0 && base.violations.succ === 0) improved.push("violations");
-  else if (rateImprovesCI(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, z)) improved.push("violations");
-  if (rateImprovesCI(base.violations.succ, base.violations.n, cand.violations.succ, cand.violations.n, z)) regressed.push("violations");
+  else if (rateSuperiorCI(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, z)) improved.push("violations");
+  if (rateSuperiorCI(base.violations.succ, base.violations.n, cand.violations.succ, cand.violations.n, z)) regressed.push("violations");
 
   for (const d of cand.depth) {
     const b = base.depth.find((x) => x.k === d.k);
     if (!b) continue;
     deltas[`depth>=${d.k}`] = rate(d) - rate(b);
-    if (rateImprovesCI(d.succ, d.n, b.succ, b.n, z)) improved.push(`depth>=${d.k}`);
-    if (d.k <= 4 && rateImprovesCI(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
+    if (rateSuperiorCI(d.succ, d.n, b.succ, b.n, z)) improved.push(`depth>=${d.k}`);
+    if (d.k <= 4 && rateSuperiorCI(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
   }
 
   deltas["h2"] = rate(cand.h2) - rate(base.h2);
-  if (rateImprovesCI(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n, z)) improved.push("h2");
+  if (rateSuperiorCI(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n, z)) improved.push("h2");
 
   return { improved, regressed, deltas };
 }
