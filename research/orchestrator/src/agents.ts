@@ -2,6 +2,7 @@
 // JSON validated against schemas); the harness owns every side effect except
 // the implementer's file edits, which are fenced by canUseTool below.
 import { query, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { performance } from "node:perf_hooks";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
@@ -16,10 +17,12 @@ export const STOP_PATH = path.join(ROOT, "research", "STOP");
 // An AbortController that fires when the STOP sentinel appears, so agent
 // phases end within seconds of a stop request instead of running to
 // completion. Partial implementer edits stay in the working tree.
-export function stopController(): { controller: AbortController; dispose: () => void } {
+export function stopController(deadlineMs?: number): { controller: AbortController; dispose: () => void } {
   const controller = new AbortController();
+  const start = performance.now();
   const timer = setInterval(() => {
     if (existsSync(STOP_PATH)) controller.abort();
+    if (deadlineMs !== undefined && performance.now() - start >= deadlineMs) controller.abort();
   }, 3000);
   return { controller, dispose: () => clearInterval(timer) };
 }
@@ -253,9 +256,12 @@ export function makeImplementerGate(kind: Hypothesis["kind"]): (toolName: string
 }
 
 export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean; aborted: boolean }> {
+  // Implementation is a code edit plus at most one smoke run; a hypothesis
+  // that turns implement into a measurement study is aborted at this wall.
+  const deadlineMs = policy.budgets.maxImplementMinutes * 60_000;
   const goal = readIfExists(path.join(ROOT, "research/GOAL.md"));
   const style = readIfExists(path.join(ROOT, "research/STYLE.md"));
-  const sc = stopController();
+  const sc = stopController(deadlineMs);
   const r = await collect(query({
     prompt: `${goal}\n\n## Hypothesis to implement (id: ${h.id}, kind: ${h.kind})\n${h.title}\n\n${h.description}\n\nRationale: ${h.rationale}\n\n## Instructions\n- Implement exactly this hypothesis, minimally and idiomatically. Opt-in: new behavior behind a config field defaulting to today's semantics (except pure ablations/grader work as described).\n- Rust subject work lives in spur/spur-core; general configs in scheduler_configs/loop/. Grader work (only if kind=grader) lives in traceanalyzer/.\n- Build with cargo build --release --manifest-path spur/Cargo.toml --bin spur (or go build in traceanalyzer for grader work) and fix errors until it compiles. Run cargo test -p spur-core if you touched spur-core logic.\n- If the hypothesis needs the new mechanism enabled in the evaluation config, edit scheduler_configs/loop/general_vr.json to enable it (this is the config the evaluation runs).\n- Do NOT run git or gh. Do not create commits. Leave changes in the working tree.\n- The permission fence is final and there is NO human watching: if a Bash command is denied, do not stop to ask - accomplish the same thing with the Read/Edit/Write tools (all JSON/config/Rust edits go through Edit/Write, never shell text tools). Never end your turn with a question; end it with the work done or a clear statement of what blocked you after genuinely exhausting the allowed tools.\n- Keep verification minimal: compile, and at most ONE short smoke run of the changed path. Smoke runs MUST write to --output-dir tmp/loop/<name> (the fence rejects anything else; other locations contaminate the repo). The harness runs all real evaluations afterwards - re-verifying existing mechanisms or exploring old output directories is wasted budget. Target under 5 minutes of work for config-only changes.\n- End with a concise summary: what changed (files), the config field that gates it, and what you expect it to do to the ladder.\n\n## Code style (mandatory)\n${style}`,
     options: {

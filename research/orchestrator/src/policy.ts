@@ -33,6 +33,7 @@ export const Policy = z.object({
     stagnationWindow: z.number().int().positive(),
     dailyWallHours: z.number().positive(),
     maxImplementTurns: z.number().int().positive(),
+    maxImplementMinutes: z.number().positive(),
     maxBuildSeconds: z.number().int().positive(),
     minFreeDiskGb: z.number().positive(),
   }),
@@ -105,6 +106,7 @@ export function clampPolicy(p: Policy): { policy: Policy; clamps: string[] } {
   c.budgets.maxWallMinutesPerHypothesis = clampNum("budgets.maxWallMinutesPerHypothesis", c.budgets.maxWallMinutesPerHypothesis, 1, HARD_LIMITS.maxWallMinutesPerHypothesis);
   c.budgets.dailyWallHours = clampNum("budgets.dailyWallHours", c.budgets.dailyWallHours, 0.5, HARD_LIMITS.maxDailyWallHours);
   c.budgets.maxImplementTurns = clampNum("budgets.maxImplementTurns", c.budgets.maxImplementTurns, 5, HARD_LIMITS.maxImplementTurns);
+  c.budgets.maxImplementMinutes = clampNum("budgets.maxImplementMinutes", c.budgets.maxImplementMinutes, 2, 60);
   c.budgets.maxBuildSeconds = clampNum("budgets.maxBuildSeconds", c.budgets.maxBuildSeconds, 60, HARD_LIMITS.maxBuildSeconds);
   c.budgets.minFreeDiskGb = clampNum("budgets.minFreeDiskGb", c.budgets.minFreeDiskGb, HARD_LIMITS.minFreeDiskGbFloor, 1000);
   c.sequential.maxChunks = clampNum("sequential.maxChunks", c.sequential.maxChunks, 1, HARD_LIMITS.maxSequentialChunks);

@@ -110,6 +110,31 @@ depth>=4) -> reject 100% in 2 chunks; h2-only +10% -> reject 95%. A null
 costs ~2.7 chunks (~20 min); that is the price of resolving +4% on
 depth>=4.
 
+## A/A noise floor (measured 2026-08-25, baseline binary)
+
+Four same-binary same-config sessions differing only in session_seed
+(1000, 1001, 4242, 4243), 5400 runs each, general_vr grid: depth>=4 counts
+278/285/265/279, depth>=5 20/28/15/25, h2 counts within 8 of each other.
+The frontier counts vary sub-binomially (count sigma 8.4 against 16.2
+expected from a binomial at these rates), so the floor is configuration
+structure shared across seeds, not per-run randomness; a Wilson/binomial
+separation test is therefore conservative here, not anti-conservative.
+
+Band (the delta below which a comparison is no evidence), derived as
+2*sqrt(2)*sessionSigma and scaled by sqrt(54000/n):
+
+| metric | band at 54k runs | band at 5.4k runs |
+|---|---|---|
+| depth>=4 | 1.4e-3 | 4.4e-3 |
+| depth>=5 | 9.5e-4 | 3.0e-3 |
+| h2 | 6.4e-4 | 2.0e-3 |
+| violations, depth>=6..8 | 0 | 0 |
+
+Consistency check: iteration 46 (novelty-authority-normalization) pooled
+216k runs each side to depth>=4 +2.2% (about 1.1e-3 absolute) - above the
+54k band but below the z=2.7 separation the merge gate needs, which is why
+it resolved inconclusive rather than as noise or a merge.
+
 ## Gate statistics
 
 - **Merge z = 2.7 (`MERGE_Z`).** ~7 objectives tested per hypothesis

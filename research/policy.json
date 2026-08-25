@@ -39,7 +39,8 @@
     "dailyWallHours": 20,
     "maxImplementTurns": 80,
     "maxBuildSeconds": 600,
-    "minFreeDiskGb": 40
+    "minFreeDiskGb": 40,
+    "maxImplementMinutes": 20
   },
   "audit": {
     "everyK": 5
