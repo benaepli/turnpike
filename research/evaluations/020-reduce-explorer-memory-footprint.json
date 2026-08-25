@@ -1,0 +1,83 @@
+{
+  "hypothesis": {
+    "id": "reduce-explorer-memory-footprint",
+    "parent": null,
+    "kind": "perf",
+    "title": "Reduce explorer allocation/clone traffic (Arc/imbl memmove)",
+    "description": "The perf profile shows 26.5% of cycles in memmove from Arc::make_mut and imbl persistent-vector promote/push on the hot execution path. Reduce allocation/clone traffic: avoid make_mut on shared values that are then dropped, small-value inlining, reuse per-run buffers. Note: measured explorer peak RSS is only ~2.4G on a 13.5k-run session — memory is NOT the explorer problem (the grader was); this is a throughput hypothesis, verified by the A/B bench.",
+    "category": "performance",
+    "buildsOn": [],
+    "expectedGain": 6,
+    "expectedCost": 6,
+    "rationale": "The same clone traffic dominates CPU; cutting it is the most direct throughput win the profile offers.",
+    "generalityArgument": "Pure implementation efficiency; no scheduling semantics involved.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-24T10:56:11.950843+00:00",
+    "notes": ""
+  },
+  "decision": {
+    "hypothesisId": "reduce-explorer-memory-footprint",
+    "verdict": "auto_merge",
+    "reasons": [
+      "bench: candidate 375.0 rps vs baseline 288.6 rps (+29.9%, strict dominance)"
+    ],
+    "objectiveDeltas": {
+      "primary": 0.299,
+      "throughput": 0.299
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "screen": [
+      {
+        "id": "reduce-explorer-memory-footprint-screen-11-1787620735429",
+        "hypothesisId": "reduce-explorer-memory-footprint",
+        "fidelity": "screen",
+        "graderVersion": "ta:3fdf93c+porc:8de73a4",
+        "spurCommit": "eeb05e7d1d611c2bd06be3b15db654ef5ce645e7",
+        "superCommit": "d58292413f8923317879f3397fc553f18852fec6",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T01:18:55.429Z",
+        "metrics": {
+          "runs": 5400,
+          "runsPerSec": 267.00949367088606,
+          "unpairedFraction": 0.4659980948348857,
+          "h1Rate": 0.495,
+          "h2Rate": 0.3933333333333333,
+          "h2bRate": 0.41574074074074074,
+          "h3Rate": 0.3414814814814815,
+          "gradedRuns": 5400,
+          "meanPrefixDepth": 2.2796296296296297,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            5397,
+            4716,
+            1979,
+            208,
+            10
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 557,
+          "gradeWallMs": 532
+        },
+        "exploreWallMs": 20224,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/partition.rs",
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/core/values.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:3fdf93c+porc:8de73a4"
+}
