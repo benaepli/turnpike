@@ -270,7 +270,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     }
 
     const build = await timed("build", async () => {
-      if (h.kind === "grader") return run("go", ["build", "-o", "main", "."], { timeoutMs: 120000, cwd: path.join(ROOT, "traceanalyzer") });
       // Always rebuild: the implementer may have built arbitrary intermediate
       // states during its session, so the on-disk binary is untrusted until
       // rebuilt from the committed tree (cheap no-op when nothing changed).
@@ -285,7 +284,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     const lintFailures = [
       ...lintProtectedPaths(h.kind === "meta" ? superFiles.filter((f) => f !== "research/policy.json") : superFiles),
       ...lintRulerSubject(h.kind, superFiles),
-      ...(h.kind === "grader" && spurFiles.length > 0 ? [`grader hypothesis touched spur: ${spurFiles.join(",")}`] : []),
       ...lintVrNames(diffText(SPUR, RESEARCH_BRANCH) + diffText(SUPER, RESEARCH_BRANCH)),
     ];
 
@@ -353,7 +351,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         cleanupToResearchBranch(branch);
         return;
       }
-      const nonSuperiorityKind = h.kind === "ablate" || h.kind === "enabling" || h.kind === "grader" || h.kind === "meta";
+      const nonSuperiorityKind = h.kind === "ablate" || h.kind === "enabling" || h.kind === "meta";
       const gate1 = screenAdvances(objectiveCounts(screen), objectiveCounts(baseline.screen));
       if (nonSuperiorityKind && !gate1.advance) { gate1.advance = true; gate1.why = `${h.kind}: non-inferiority kind, screen healthy`; }
       journal(state, n, "screen", { advance: gate1.advance, why: gate1.why });
@@ -364,7 +362,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         if (stopRequested()) { parkForStop(state, n, h, branch, "promote"); return; }
         const cmp = compareToBaseline(objectiveCounts(promote), objectiveCounts(baseline.promote));
         const promoteOk = cmp.improved.length > 0 && cmp.regressed.length === 0;
-        const abl = h.kind === "ablate" || h.kind === "enabling" || h.kind === "grader" || h.kind === "meta";
+        const abl = h.kind === "ablate" || h.kind === "enabling" || h.kind === "meta";
         journal(state, n, "promote", { improved: cmp.improved, regressed: cmp.regressed, deltas: cmp.deltas });
         if (promoteOk || abl) {
           confirmEvals = await timed("evaluate", () => runEvaluation(ctx, h.id, "confirm"));
