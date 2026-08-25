@@ -1,0 +1,134 @@
+{
+  "hypothesis": {
+    "id": "purgatory-tunable-sensitivity-sweep",
+    "parent": "enable-purgatory-general-config",
+    "kind": "meta",
+    "title": "Measure whether purgatory's two tunables are actually protocol-specific",
+    "description": "Before attempting further parameter elimination, sweep delay_probability and delay_duration_range over a small grid (e.g. p in {0.15, 0.3, 0.5, 0.75, 1.0} x range scaled {0.5x, 1x, 2x, 4x} of the current setting) at sequential fidelity, one seed chunk each, on general_vr.json. Report depth>=4/>=5, h1/h2/h3 as a response surface. If the surface is flat over a wide plateau, the two fields can be replaced by any fixed value inside it (a genuine -2 params) without in-run calibration machinery; if it is peaked, purgatory is inherently tuned and elimination proposals should be deprioritized.",
+    "category": "config",
+    "buildsOn": [
+      "purgatory"
+    ],
+    "expectedGain": 6,
+    "expectedCost": 2.5,
+    "rationale": "Two elimination attempts have now been judged/run without anyone knowing the shape of the objective in these two dimensions. The sweep is cheap relative to repeated failed rewrites and directly answers whether -2 params is reachable at all. Also quantifies the p=1.0 endpoint that the parent accidentally landed on, explaining the h2 loss.",
+    "generalityArgument": "Pure measurement of an existing config surface; introduces no protocol-specific logic and its output is a decision about parameter count, not a new mechanism.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-25T16:10:00.000Z",
+    "notes": " [rejudged iteration 55: Purgatory is the one merged ladder winner (depth>=4 +0.015, 300950 delayed sends) and carries 2 tunables; a flat plateau recovers both params and reprices every purgatory variant — falsified if the response surface is peaked, in which case purgatory is inherently tuned and elimination work stops.]"
+  },
+  "decision": {
+    "hypothesisId": "purgatory-tunable-sensitivity-sweep",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": -0.0006388888888888902,
+      "depth>=5": -0.00006944444444444446,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": -0.00008333333333332416,
+      "primary": -0.00006944444444444446,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "purgatory-tunable-sensitivity-sweep-sequential-1000-1787675854143",
+        "hypothesisId": "purgatory-tunable-sensitivity-sweep",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "bcf1979280ab05b43d210450a54fd5f9e3c401e6",
+        "superCommit": "fa91a076b58f09ddccbf7ffd8447a53f7e02fc86",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-25T16:37:34.143Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 269.2850481970369,
+          "unpairedFraction": 0.4861451915349585,
+          "h1Rate": 0.500462962962963,
+          "h2Rate": 0.40120370370370373,
+          "h2bRate": 0.41633333333333333,
+          "h3Rate": 0.33405555555555555,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.316851851851852,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            53999,
+            47389,
+            20795,
+            2730,
+            197
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4883,
+          "gradeWallMs": 179339
+        },
+        "exploreWallMs": 200531,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "purgatory-tunable-sensitivity-sweep-sequential-1001-1787676239207",
+        "hypothesisId": "purgatory-tunable-sensitivity-sweep",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "bcf1979280ab05b43d210450a54fd5f9e3c401e6",
+        "superCommit": "fa91a076b58f09ddccbf7ffd8447a53f7e02fc86",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-25T16:43:59.207Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 260.77130356677196,
+          "unpairedFraction": 0.4878978264828443,
+          "h1Rate": 0.4975185185185185,
+          "h2Rate": 0.39935185185185185,
+          "h2bRate": 0.41583333333333333,
+          "h3Rate": 0.3377222222222222,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.318925925925926,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            53999,
+            47517,
+            20896,
+            2594,
+            216
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4839,
+          "gradeWallMs": 178351
+        },
+        "exploreWallMs": 207078,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr_purgatory_long.json",
+    "scheduler_configs/loop/general_vr_purgatory_mid.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 12
+  }
+}
