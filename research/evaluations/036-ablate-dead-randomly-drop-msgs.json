@@ -1,0 +1,132 @@
+{
+  "hypothesis": {
+    "id": "ablate-dead-randomly-drop-msgs",
+    "parent": null,
+    "kind": "ablate",
+    "title": "Remove the dead randomly_drop_msgs code path",
+    "description": "The schedule_runnable parameter randomly_drop_msgs is hardwired false at both call sites; the 30% drop branch is dead code. Remove the parameter and branch (flag-off stage is trivially satisfied since it is already off). Non-inferiority expected to be exact.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 3,
+    "expectedCost": 1,
+    "rationale": "Dead code in the scheduler hot path is noise for every future hypothesis; removing it is free simplification and validates the ablation pipeline end to end.",
+    "generalityArgument": "Removes nothing observable; pure code hygiene.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": "requeued: screen gate wrongly required superiority for an ablation (fixed) [rejudged operator: Up slightly: no longer just cleanup — it is the verification vehicle for rng-stream-isolation, since its supposedly-exact non-inferiority came back nonzero. Falsified if the branch turns out to be reachable from some config path.]"
+  },
+  "decision": {
+    "hypothesisId": "ablate-dead-randomly-drop-msgs",
+    "verdict": "auto_merge",
+    "reasons": [
+      "non-inferior ablation (flag-off stage)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.00015277777777777946,
+      "depth>=5": -0.00014814814814814769,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": 0.00010185185185185297,
+      "primary": -0.00014814814814814769,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "ablate-dead-randomly-drop-msgs-sequential-1000-1787647328342",
+        "hypothesisId": "ablate-dead-randomly-drop-msgs",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "cc8629c8cb63c3139e38ca8aed083a0008bec998",
+        "superCommit": "dbae61075d4934230e5aa0b0ba1eccdf64e58b03",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-25T08:42:08.342Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 261.91723415400736,
+          "unpairedFraction": 0.48546230745553576,
+          "h1Rate": 0.49987037037037035,
+          "h2Rate": 0.40046296296296297,
+          "h2bRate": 0.41653703703703704,
+          "h3Rate": 0.33396296296296296,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.3167407407407405,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            54000,
+            47432,
+            20715,
+            2760,
+            197
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4767,
+          "gradeWallMs": 5193
+        },
+        "exploreWallMs": 206172,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "ablate-dead-randomly-drop-msgs-sequential-1001-1787647717315",
+        "hypothesisId": "ablate-dead-randomly-drop-msgs",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "cc8629c8cb63c3139e38ca8aed083a0008bec998",
+        "superCommit": "dbae61075d4934230e5aa0b0ba1eccdf64e58b03",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-25T08:48:37.315Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 262.1028413889509,
+          "unpairedFraction": 0.48740159588710974,
+          "h1Rate": 0.49877777777777776,
+          "h2Rate": 0.4000925925925926,
+          "h2bRate": 0.41555555555555557,
+          "h3Rate": 0.3382222222222222,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 2.3199259259259257,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            53998,
+            47403,
+            21016,
+            2648,
+            211
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4884,
+          "gradeWallMs": 5130
+        },
+        "exploreWallMs": 206026,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/path.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 12
+  }
+}
