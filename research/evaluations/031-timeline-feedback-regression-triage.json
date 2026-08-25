@@ -1,0 +1,296 @@
+{
+  "hypothesis": {
+    "id": "timeline-feedback-regression-triage",
+    "parent": "enable-timeline-feedback-general-config",
+    "kind": "enabling",
+    "title": "Root-cause the regression-suite failure under feedback=timeline",
+    "description": "Run the regression suite against general_vr.json with feedback={mode:timeline, steer:true} and capture the actual failing cases. Determine whether the failure is (a) config-schema/deserialization rejection of the feedback block in fixture configs, (b) a golden-output diff caused by legitimately changed scheduling order, or (c) a real nondeterminism/panic in the feedback path. If (a) or (b), fix the fixtures/schema so feedback-on is a testable configuration; if (c), file it as the blocking bug.",
+    "category": "tooling",
+    "buildsOn": [
+      "timeline-feedback",
+      "steer"
+    ],
+    "expectedGain": 7,
+    "expectedCost": 0.5,
+    "rationale": "The arm was closed on regressionPassed=false with lintPassed=true and zero violations across 100k+ graded runs, which smells like fixture/schema breakage rather than a behavioral defect. Until this is resolved every dependent of the feedback/steer mechanisms is auto-closed on the same failure regardless of its own merit.",
+    "generalityArgument": "Test-harness and config-schema hygiene for an existing generic mechanism; no protocol-specific assumptions.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-24T08:40:21.095266+00:00",
+    "notes": "prior closures of this arm were also attributed to harness bugs (lint false positive, permission mode) -- third harness-side failure in a row on the same config [rejudged operator: Up sharply: utilization shows steer divergent_picks=0 over 2.28M evaluations and feedback scored_runs=0 — the whole feedback arm is inert, so this 0.5-cost triage is the only thing that can unblock it. Falsified if tria"
+  },
+  "decision": {
+    "hypothesisId": "timeline-feedback-regression-triage",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0006327160493827116,
+      "depth>=5": 0.00016975308641975322,
+      "depth>=6": 0,
+      "depth>=7": 0,
+      "depth>=8": 0,
+      "h2": 0.0038580246913579863,
+      "primary": 0.00016975308641975322,
+      "params": 1
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "screen": [
+      {
+        "id": "timeline-feedback-regression-triage-screen-11-1787638597617",
+        "hypothesisId": "timeline-feedback-regression-triage",
+        "fidelity": "screen",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3dfb023d3c87ba774f18185eb2ed3f7eafc08e85",
+        "superCommit": "4deaa1b582bd9b531188e073493fe6f031ff5f8a",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T06:16:37.617Z",
+        "metrics": {
+          "runs": 5400,
+          "runsPerSec": 251.86567164179104,
+          "unpairedFraction": 0.4824761037778789,
+          "h1Rate": 0.48685185185185187,
+          "h2Rate": 0.39425925925925925,
+          "h2bRate": 0.412962962962963,
+          "h3Rate": 0.3337037037037037,
+          "gradedRuns": 5400,
+          "meanPrefixDepth": 2.3361111111111112,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            5399,
+            4794,
+            2115,
+            286,
+            21
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 508,
+          "gradeWallMs": 540
+        },
+        "exploreWallMs": 21440,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ],
+    "promote": [
+      {
+        "id": "timeline-feedback-regression-triage-promote-11-1787638647276",
+        "hypothesisId": "timeline-feedback-regression-triage",
+        "fidelity": "promote",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3dfb023d3c87ba774f18185eb2ed3f7eafc08e85",
+        "superCommit": "4deaa1b582bd9b531188e073493fe6f031ff5f8a",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T06:17:27.276Z",
+        "metrics": {
+          "runs": 13500,
+          "runsPerSec": 150.82113730309462,
+          "unpairedFraction": 0.4889893320766034,
+          "h1Rate": 0.49622222222222223,
+          "h2Rate": 0.39940740740740743,
+          "h2bRate": 0.4137777777777778,
+          "h3Rate": 0.3408148148148148,
+          "gradedRuns": 13500,
+          "meanPrefixDepth": 2.3176296296296295,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            13500,
+            11844,
+            5176,
+            705,
+            63
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1707,
+          "gradeWallMs": 1650
+        },
+        "exploreWallMs": 89510,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "timeline-feedback-regression-triage-promote-23-1787638798846",
+        "hypothesisId": "timeline-feedback-regression-triage",
+        "fidelity": "promote",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3dfb023d3c87ba774f18185eb2ed3f7eafc08e85",
+        "superCommit": "4deaa1b582bd9b531188e073493fe6f031ff5f8a",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 23,
+        "startedAtIso": "2026-08-25T06:19:58.846Z",
+        "metrics": {
+          "runs": 13500,
+          "runsPerSec": 230.77712058531915,
+          "unpairedFraction": 0.48970310348140794,
+          "h1Rate": 0.5011851851851852,
+          "h2Rate": 0.4023703703703704,
+          "h2bRate": 0.41962962962962963,
+          "h3Rate": 0.33844444444444444,
+          "gradedRuns": 13500,
+          "meanPrefixDepth": 2.3177777777777777,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            13500,
+            11934,
+            5106,
+            701,
+            49
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1266,
+          "gradeWallMs": 1285
+        },
+        "exploreWallMs": 58498,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ],
+    "confirm": [
+      {
+        "id": "timeline-feedback-regression-triage-confirm-11-1787638904904",
+        "hypothesisId": "timeline-feedback-regression-triage",
+        "fidelity": "confirm",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3dfb023d3c87ba774f18185eb2ed3f7eafc08e85",
+        "superCommit": "4deaa1b582bd9b531188e073493fe6f031ff5f8a",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-25T06:21:44.904Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 253.12598877339366,
+          "unpairedFraction": 0.4857305668219757,
+          "h1Rate": 0.4978240740740741,
+          "h2Rate": 0.3998148148148148,
+          "h2bRate": 0.41333333333333333,
+          "h3Rate": 0.33694444444444444,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.319537037037037,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21600,
+            19034,
+            8309,
+            1076,
+            83
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 2088,
+          "gradeWallMs": 2039
+        },
+        "exploreWallMs": 85333,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "timeline-feedback-regression-triage-confirm-23-1787639066849",
+        "hypothesisId": "timeline-feedback-regression-triage",
+        "fidelity": "confirm",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3dfb023d3c87ba774f18185eb2ed3f7eafc08e85",
+        "superCommit": "4deaa1b582bd9b531188e073493fe6f031ff5f8a",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 23,
+        "startedAtIso": "2026-08-25T06:24:26.849Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 256.13053170801123,
+          "unpairedFraction": 0.4862823860212894,
+          "h1Rate": 0.5007407407407407,
+          "h2Rate": 0.40185185185185185,
+          "h2bRate": 0.41694444444444445,
+          "h3Rate": 0.3365740740740741,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.3144444444444443,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21599,
+            18953,
+            8291,
+            1075,
+            74
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 2015,
+          "gradeWallMs": 2066
+        },
+        "exploreWallMs": 84332,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "timeline-feedback-regression-triage-confirm-37-1787639226918",
+        "hypothesisId": "timeline-feedback-regression-triage",
+        "fidelity": "confirm",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3dfb023d3c87ba774f18185eb2ed3f7eafc08e85",
+        "superCommit": "4deaa1b582bd9b531188e073493fe6f031ff5f8a",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 37,
+        "startedAtIso": "2026-08-25T06:27:06.918Z",
+        "metrics": {
+          "runs": 21600,
+          "runsPerSec": 256.1457184531645,
+          "unpairedFraction": 0.4863101862404634,
+          "h1Rate": 0.5018055555555555,
+          "h2Rate": 0.4026388888888889,
+          "h2bRate": 0.4170833333333333,
+          "h3Rate": 0.3372685185185185,
+          "gradedRuns": 21600,
+          "meanPrefixDepth": 2.3206481481481482,
+          "maxPrefixDepth": 5,
+          "depthAtLeast": [
+            21599,
+            19025,
+            8359,
+            1072,
+            71
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 2068,
+          "gradeWallMs": 2037
+        },
+        "exploreWallMs": 84327,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json",
+    "scheduler_configs/loop/regression_mencius.json",
+    "scheduler_configs/loop/regression_vr_nofault.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 11,
+    "after": 12
+  }
+}
