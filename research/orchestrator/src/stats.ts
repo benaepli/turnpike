@@ -32,7 +32,7 @@ export function rateImprovesCI(aSucc: number, aN: number, bSucc: number, bN: num
  *   lower(pA - pB) = (pA^ - pB^) - sqrt((pA^ - wilsonLower(A))^2 + (wilsonUpper(B) - pB^)^2)
  *
  * Note: the naive bound `wilsonUpper(B) - wilsonLower(A) <= margin` is NOT
- * used — it stacks both full half-widths, so at moderate n it rejects even
+ * used - it stacks both full half-widths, so at moderate n it rejects even
  * A identical to B (e.g. 10/100 vs 10/100 fails at margin 0.1). Newcombe's
  * combination is the standard conservative non-inferiority check.
  */

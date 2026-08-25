@@ -32,4 +32,4 @@ if (!outcome.merged) {
   console.error("PUBLISH SELFTEST FAILED");
   process.exit(1);
 }
-console.log("PUBLISH SELFTEST PASSED — merged into research/vr-loop via PR:", outcome.prUrls.join(", "));
+console.log("PUBLISH SELFTEST PASSED - merged into research/vr-loop via PR:", outcome.prUrls.join(", "));

@@ -207,10 +207,10 @@ func TestInjectivityCrossTable(t *testing.T) {
 	}
 }
 
-// TestTransitiveEdgeScoring: A→B→C chain. With transitive closure, A→C is
+// TestTransitiveEdgeScoring: A->B->C chain. With transitive closure, A->C is
 // also scored. Assignment: A=10, B=30, C=20. Greedy skips C (can't satisfy
-// B→C constraint), so without swaps score = 1/3 (only A→B). With swaps,
-// the optimizer can unassign B and assign C, getting A→C satisfied = 1/3,
+// B->C constraint), so without swaps score = 1/3 (only A->B). With swaps,
+// the optimizer can unassign B and assign C, getting A->C satisfied = 1/3,
 // or keep greedy's result. Either way, transitive edges give richer signal.
 func TestTransitiveEdgeScoring(t *testing.T) {
 	labels := []string{"a", "b", "c"}
@@ -222,7 +222,7 @@ func TestTransitiveEdgeScoring(t *testing.T) {
 	directDeps := [][2]string{{"a", "b"}, {"b", "c"}}
 	allDeps := [][2]string{{"a", "b"}, {"a", "c"}, {"b", "c"}} // transitive
 	_, score, _, _, _, _, _ := bestMatching(labels, cands, directDeps, allDeps, 1, 0)
-	// Greedy: A=10, B=30, C skipped (20 < 30). Score = 1/3 (A→B satisfied).
+	// Greedy: A=10, B=30, C skipped (20 < 30). Score = 1/3 (A->B satisfied).
 	want := 1.0 / 3.0
 	if abs(score-want) > 1e-9 {
 		t.Errorf("score: got %f, want %f", score, want)
@@ -245,11 +245,11 @@ func TestTransitiveVsDirectScoring(t *testing.T) {
 	_, transitiveScore, _, _, _, _, _ := bestMatching(labels, cands, directDeps, allDeps, 1, 0)
 
 	// Greedy: A=10, B=30, C skipped (20 < 30).
-	// Direct: A→B ✓, B→C unsatisfied (C unassigned) = 1/2 = 0.5
+	// Direct: A->B ok, B->C unsatisfied (C unassigned) = 1/2 = 0.5
 	if abs(directScore-0.5) > 1e-9 {
 		t.Errorf("directScore: got %f, want 0.5", directScore)
 	}
-	// Transitive: A→B ✓, B→C unsatisfied, A→C unsatisfied = 1/3 ≈ 0.333
+	// Transitive: A->B ok, B->C unsatisfied, A->C unsatisfied = 1/3 ~ 0.333
 	if abs(transitiveScore-1.0/3.0) > 1e-9 {
 		t.Errorf("transitiveScore: got %f, want 0.333", transitiveScore)
 	}
@@ -270,8 +270,8 @@ func TestUnassignedEdgeCounted(t *testing.T) {
 	}
 	deps := [][2]string{{"w1", "r1"}}
 	_, score, matched, _, _, _, _ := bestMatching(labels, cands, deps, deps, 1, 0)
-	// w1 assigned (step 20), r1 unassigned (can't satisfy w1→r1).
-	// Edge w1→r1: eligible, unsatisfied. Score = 0/1 = 0.0.
+	// w1 assigned (step 20), r1 unassigned (can't satisfy w1->r1).
+	// Edge w1->r1: eligible, unsatisfied. Score = 0/1 = 0.0.
 	if score != 0.0 {
 		t.Errorf("score: got %f, want 0.0", score)
 	}
@@ -311,14 +311,14 @@ func TestSwapCanUnassign(t *testing.T) {
 	labels := []string{"a", "b", "c"}
 	cands := map[string][]Event{
 		"a": {ev(10)},
-		"b": {ev(5), ev(50)}, // b has options; at 5 it violates a→b, at 50 it violates b→c
+		"b": {ev(5), ev(50)}, // b has options; at 5 it violates a->b, at 50 it violates b->c
 		"c": {ev(30)},
 	}
 	directDeps := [][2]string{{"a", "b"}, {"b", "c"}}
 	allDeps := [][2]string{{"a", "b"}, {"a", "c"}, {"b", "c"}} // transitive
 	_, score, _, _, _, _, _ := bestMatching(labels, cands, directDeps, allDeps, 1, 500)
-	// With b unassigned: a→b unsatisfied(0/1), b→c unsatisfied(0/1), a→c satisfied(1/1) → 1/3
-	// With b=50: a→b satisfied(1/1), b→c unsatisfied(0/1), a→c satisfied(1/1) → 2/3
+	// With b unassigned: a->b unsatisfied(0/1), b->c unsatisfied(0/1), a->c satisfied(1/1) -> 1/3
+	// With b=50: a->b satisfied(1/1), b->c unsatisfied(0/1), a->c satisfied(1/1) -> 2/3
 	// Greedy picks b=50 (respects a=10 predecessor). Score = 2/3.
 	// This test verifies the swap phase doesn't make things worse by unassigning b.
 	if score < 2.0/3.0-1e-9 {

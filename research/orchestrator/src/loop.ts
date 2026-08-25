@@ -1,5 +1,5 @@
 // The iteration state machine. Deterministic control; agents only inside
-// clearly fenced phases. Every phase is timed, journaled, and recoverable —
+// clearly fenced phases. Every phase is timed, journaled, and recoverable -
 // an exception resets both repos to research/vr-loop and the loop continues.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -164,7 +164,7 @@ function run0(cmd: string, args: string[], cwd: string): void {
 }
 
 // After a squash-merge, origin is the source of truth and local branch
-// history may legitimately diverge — sync by reset, never by merge/pull.
+// history may legitimately diverge - sync by reset, never by merge/pull.
 function syncToOrigin(repo: string): void {
   run0("git", ["fetch", "origin", RESEARCH_BRANCH], repo);
   run0("git", ["checkout", "--force", RESEARCH_BRANCH], repo);
@@ -213,7 +213,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
   try {
     preflight();
     const baseline = loadBaseline(state);
-    if (!baseline) throw new Error("no baseline recorded — run `loop baseline` first");
+    if (!baseline) throw new Error("no baseline recorded - run `loop baseline` first");
 
     await timed("propose", () => refillPool(deps, n));
     const h = (await import("./select.js")).selectNext(state, policy);
@@ -439,7 +439,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     // Preserve whatever the implementer produced before the reset wipes it.
     if (branch) {
       try {
-        const snap = `# iteration ${n} (${branch}) — error: ${String(e).slice(0, 300)}\n\n## spur\n${snapshotWork(SPUR, RESEARCH_BRANCH)}\n\n## super\n${snapshotWork(SUPER, RESEARCH_BRANCH)}\n`;
+        const snap = `# iteration ${n} (${branch}) - error: ${String(e).slice(0, 300)}\n\n## spur\n${snapshotWork(SPUR, RESEARCH_BRANCH)}\n\n## super\n${snapshotWork(SUPER, RESEARCH_BRANCH)}\n`;
         if (snap.length > 200) {
           mkdirSync(path.join(ROOT, "research", "logs"), { recursive: true });
           writeFileSync(path.join(ROOT, "research", "logs", `iter-${String(n).padStart(3, "0")}-${branch.replace(/^hyp\/\d+-/, "")}.diff`), snap);

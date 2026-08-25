@@ -364,7 +364,7 @@ func percentile(sorted []float64, q float64) float64 {
 }
 
 // transitiveClosure computes the transitive closure of a DAG's edge set,
-// returning all implied (a,c) pairs where a path a→...→c exists.
+// returning all implied (a,c) pairs where a path a->...->c exists.
 // The result is deduplicated and sorted for determinism.
 func transitiveClosure(deps [][2]string) [][2]string {
 	adj := make(map[string]map[string]bool)
@@ -413,7 +413,7 @@ func transitiveClosure(deps [][2]string) [][2]string {
 
 // sampleRunIDs deterministically samples k of the given ids (uniform, without
 // replacement) and returns them sorted. Seeded from the id list shape so the
-// same corpus always yields the same sample — required for reproducible
+// same corpus always yields the same sample - required for reproducible
 // evaluations.
 func sampleRunIDs(ids []int64, k int) []int64 {
 	out := append([]int64(nil), ids...)

@@ -118,7 +118,6 @@ func ComputeDuration(dbPath string, runID int64, batchSize int) (*DurationResult
 	return result, nil
 }
 
-
 // Round helper for display.
 func roundFloat(val float64, precision int) float64 {
 	ratio := math.Pow(10, float64(precision))

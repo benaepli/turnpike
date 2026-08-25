@@ -164,7 +164,7 @@ export const PROPOSAL_LENSES = [
   "fault-injection literature: crash timing anchored to protocol activity (sends, deliveries, quorum events); recovery timing races",
   "message-delay and reordering: purgatory policies, orphaned in-flight messages, delivery of pre-crash messages after recovery",
   "feedback/novelty: what coverage signal would make the scheduler chase crash-recovery message races; incarnation-awareness",
-  "ablation and salvage: mechanisms with zero utilization, dead or miswired knobs, unexercised code paths — remove, fix, or enable them",
+  "ablation and salvage: mechanisms with zero utilization, dead or miswired knobs, unexercised code paths - remove, fix, or enable them",
   "scheduling theory: PCT priority change points, partial-order methods, queue-policy shapes that concentrate schedules near fault windows",
   "profile-guided performance (kind: perf): read the latest perf profile in observations; propose hotspot reductions that raise runs/sec without changing scheduling semantics or instrumentation the grader needs",
 ];
@@ -183,7 +183,7 @@ export async function proposeHypotheses(policy: Policy, lens: string, statusMd: 
 }
 
 const JUDGE_RUBRIC = `## Scoring rubric (you assign expectedGain/expectedCost; proposer values are advisory only)
-expectedCost anchors: config-only change 0.5 | <=50 lines Rust 2 | scheduler-core change 4 | new instrumentation/plumbing 6 | +2 if it touches execution semantics (core/exec.rs, history.rs — routes to needs-human).
+expectedCost anchors: config-only change 0.5 | <=50 lines Rust 2 | scheduler-core change 4 | new instrumentation/plumbing 6 | +2 if it touches execution semantics (core/exec.rs, history.rs - routes to needs-human).
 expectedGain anchors: must name WHICH ladder rung's conditional probability it lifts (depth>=4, >=5, >=6, violations, h2) and the causal path to a specific crash/recovery/delivery event. Rung-specific causal story with a plausible >=1.5x effect: 6-8. Same but indirect/partial: 3-5. "More novelty/coverage in general": 1-2. Cannot state a falsifying screen result: 0-1.
 Process: for EACH candidate first write the strongest argument that it will NOT move the ladder (red team), then score. Rank candidates against each other and the pool; two proposals promising the same mechanism cannot both score high. Output the falsification statement in the notes field.`;
 
@@ -248,22 +248,22 @@ export function makeImplementerGate(kind: Hypothesis["kind"]): (toolName: string
 
 export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean; aborted: boolean }> {
   const goal = readIfExists(path.join(ROOT, "research/GOAL.md"));
+  const style = readIfExists(path.join(ROOT, "research/STYLE.md"));
   const sc = stopController();
   const r = await collect(query({
-    prompt: `${goal}\n\n## Hypothesis to implement (id: ${h.id}, kind: ${h.kind})\n${h.title}\n\n${h.description}\n\nRationale: ${h.rationale}\n\n## Instructions\n- Implement exactly this hypothesis, minimally and idiomatically. Opt-in: new behavior behind a config field defaulting to today's semantics (except pure ablations/grader work as described).\n- Rust subject work lives in spur/spur-core; general configs in scheduler_configs/loop/. Grader work (only if kind=grader) lives in traceanalyzer/.\n- Build with cargo build --release --manifest-path spur/Cargo.toml --bin spur (or go build in traceanalyzer for grader work) and fix errors until it compiles. Run cargo test -p spur-core if you touched spur-core logic.\n- If the hypothesis needs the new mechanism enabled in the evaluation config, edit scheduler_configs/loop/general_vr.json to enable it (this is the config the evaluation runs).\n- Do NOT run git or gh. Do not create commits. Leave changes in the working tree.\n- The permission fence is final and there is NO human watching: if a Bash command is denied, do not stop to ask — accomplish the same thing with the Read/Edit/Write tools (all JSON/config/Rust edits go through Edit/Write, never shell text tools). Never end your turn with a question; end it with the work done or a clear statement of what blocked you after genuinely exhausting the allowed tools.\n- Keep verification minimal: compile, and at most ONE short smoke run of the changed path. Smoke runs MUST write to --output-dir tmp/loop/<name> (the fence rejects anything else; other locations contaminate the repo). The harness runs all real evaluations afterwards — re-verifying existing mechanisms or exploring old output directories is wasted budget. Target under 5 minutes of work for config-only changes.\n- End with a concise summary: what changed (files), the config field that gates it, and what you expect it to do to the ladder.`,
+    prompt: `${goal}\n\n## Hypothesis to implement (id: ${h.id}, kind: ${h.kind})\n${h.title}\n\n${h.description}\n\nRationale: ${h.rationale}\n\n## Instructions\n- Implement exactly this hypothesis, minimally and idiomatically. Opt-in: new behavior behind a config field defaulting to today's semantics (except pure ablations/grader work as described).\n- Rust subject work lives in spur/spur-core; general configs in scheduler_configs/loop/. Grader work (only if kind=grader) lives in traceanalyzer/.\n- Build with cargo build --release --manifest-path spur/Cargo.toml --bin spur (or go build in traceanalyzer for grader work) and fix errors until it compiles. Run cargo test -p spur-core if you touched spur-core logic.\n- If the hypothesis needs the new mechanism enabled in the evaluation config, edit scheduler_configs/loop/general_vr.json to enable it (this is the config the evaluation runs).\n- Do NOT run git or gh. Do not create commits. Leave changes in the working tree.\n- The permission fence is final and there is NO human watching: if a Bash command is denied, do not stop to ask - accomplish the same thing with the Read/Edit/Write tools (all JSON/config/Rust edits go through Edit/Write, never shell text tools). Never end your turn with a question; end it with the work done or a clear statement of what blocked you after genuinely exhausting the allowed tools.\n- Keep verification minimal: compile, and at most ONE short smoke run of the changed path. Smoke runs MUST write to --output-dir tmp/loop/<name> (the fence rejects anything else; other locations contaminate the repo). The harness runs all real evaluations afterwards - re-verifying existing mechanisms or exploring old output directories is wasted budget. Target under 5 minutes of work for config-only changes.\n- End with a concise summary: what changed (files), the config field that gates it, and what you expect it to do to the ladder.\n\n## Code style (mandatory)\n${style}`,
     options: {
       abortController: sc.controller,
       model: policy.models.implement,
       maxTurns: policy.budgets.maxImplementTurns,
       cwd: ROOT,
-      // "default", not "dontAsk": in dontAsk mode the harness auto-denies
-      // Edit/Write before canUseTool is consulted; in default mode ask-
-      // decisions route through canUseTool, making the fence the decider.
+      // In "default" mode every permission decision routes through
+      // canUseTool, so the fence below is the only authority.
       permissionMode: "default",
       settingSources: [],
       disallowedTools: ["WebFetch", "WebSearch", "Task", "Agent", "Skill"],
       canUseTool: makeImplementerGate(h.kind),
-      systemPrompt: "You are a careful systems engineer working inside a fenced research harness. You implement one hypothesis at a time, keep diffs minimal, and never touch protected paths (the permission gate enforces this — if a path is denied, work within the allowed lanes instead of fighting it).",
+      systemPrompt: "You are a careful systems engineer working inside a fenced research harness. You implement one hypothesis at a time, keep diffs minimal, and never touch protected paths (the permission gate enforces this - if a path is denied, work within the allowed lanes instead of fighting it).",
     },
   }));
   sc.dispose();

@@ -1,6 +1,6 @@
 // Hypothesis selection: UCB-flavored bandit over the proposed pool, with a
 // compiled exploration quota (fresh lineages get a guaranteed share) and
-// lineage caps. Pure logic — no IO.
+// lineage caps. Pure logic - no IO.
 import type { Hypothesis } from "./schemas.js";
 import type { Policy } from "./policy.js";
 import type { LoopState } from "./state.js";
@@ -54,7 +54,7 @@ export function scoreHypothesis(
 
 // Mechanism utilization (from utilization.json collected on the evaluation
 // config). A hypothesis that builds on a mechanism recording zero activity
-// cannot be evaluated meaningfully — its enabler must merge first.
+// cannot be evaluated meaningfully - its enabler must merge first.
 export interface Utilization { [group: string]: { [counter: string]: number } }
 export function parseUtilization(raw: string | null): Utilization | null {
   if (!raw) return null;

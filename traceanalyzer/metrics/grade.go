@@ -14,14 +14,14 @@ import (
 // protocol bugs typically hide behind. All rates are fractions of total runs.
 type HazardResult struct {
 	// H1: a node dispatched a message, crashed afterwards, and the message
-	// was delivered (first Enter) after the crash — "crash with in-flight send".
+	// was delivered (first Enter) after the crash - "crash with in-flight send".
 	CrashInflightRuns int64   `json:"h1_crash_inflight_runs"`
 	CrashInflightRate float64 `json:"h1_rate"`
-	// H2: H1 where the sender also recovered before the delivery — a message
+	// H2: H1 where the sender also recovered before the delivery - a message
 	// from a dead incarnation arrives while its node is already back.
 	StaleIncarnationRuns int64   `json:"h2_stale_incarnation_runs"`
 	StaleIncarnationRate float64 `json:"h2_rate"`
-	// H2b: receiver-side variant — dispatched before the receiver's crash,
+	// H2b: receiver-side variant - dispatched before the receiver's crash,
 	// delivered after the receiver's recovery.
 	ReceiverStaleRuns int64   `json:"h2b_receiver_stale_runs"`
 	ReceiverStaleRate float64 `json:"h2b_rate"`
@@ -127,7 +127,7 @@ func ComputeGrade(dbPath string, runID int64, batchSize int) (*GradeResult, erro
 //
 // The four hazard queries share the same crash/recover/dispatch/delivery
 // relations, so they are materialised once into temp tables rather than
-// re-derived per query -- previously each hazard re-scanned executions twice
+// re-derived per query
 // and traces twice, rebuilding the delivery group-by four times over.
 func accumulateHazards(db *sql.DB, exec, traces string, h *HazardResult) error {
 	conn, err := db.Conn(context.Background())

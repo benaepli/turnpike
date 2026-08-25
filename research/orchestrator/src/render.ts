@@ -22,7 +22,7 @@ const ITERATION_ROW_CAP = 15;
 /** Collapse to a single markdown-table-safe line, truncated to maxLen. */
 function oneLine(s: string, maxLen: number): string {
   const flat = s.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
-  return flat.length <= maxLen ? flat : `${flat.slice(0, maxLen - 1)}…`;
+  return flat.length <= maxLen ? flat : `${flat.slice(0, maxLen - 1)}...`;
 }
 
 function fmtNum(v: number): string {
@@ -68,8 +68,8 @@ function ladderTable(
     "| --- | --- | --- |",
   ];
   for (const [label, fmt] of rows) {
-    const b = baseline === null ? "—" : fmt(baseline);
-    const l = latest === null ? "—" : fmt(latest.metrics);
+    const b = baseline === null ? "-" : fmt(baseline);
+    const l = latest === null ? "-" : fmt(latest.metrics);
     out.push(`| ${label} | ${b} | ${l} |`);
   }
   return out;
@@ -122,7 +122,7 @@ export function renderStatus(
   }
   if (pool.length > POOL_ROW_CAP) {
     lines.push("");
-    lines.push(`… ${pool.length - POOL_ROW_CAP} older hypotheses not shown.`);
+    lines.push(`... ${pool.length - POOL_ROW_CAP} older hypotheses not shown.`);
   }
   lines.push("");
 
@@ -139,7 +139,7 @@ export function renderStatus(
         .map(([phase, v]) => `${phase}=${fmtNum(v)}`)
         .join(", ");
       lines.push(
-        `| ${it.n} | ${it.startedAt} | ${it.finishedAt ?? "—"} | ${oneLine(timings || "—", 80)} | ${oneLine(it.notes || "—", 60)} |`,
+        `| ${it.n} | ${it.startedAt} | ${it.finishedAt ?? "-"} | ${oneLine(timings || "-", 80)} | ${oneLine(it.notes || "-", 60)} |`,
       );
     }
   }
@@ -281,7 +281,7 @@ export function renderPolicyMd(
   lines.push("## Clamps applied on load");
   lines.push("");
   if (clamps.length === 0) {
-    lines.push("None — policy file was within hard limits.");
+    lines.push("None - policy file was within hard limits.");
   } else {
     for (const c of clamps) lines.push(`- ${c}`);
   }

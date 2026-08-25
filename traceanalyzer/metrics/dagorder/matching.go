@@ -28,7 +28,7 @@ func keyOf(e Event) eventKey {
 // it is only used as a tie-breaker when both events come from the same
 // table. When two events share a step but live in different tables, we
 // have no defined ordering, so lessThan returns false in both directions
-// — same-step cross-table edges are conservatively treated as
+// - same-step cross-table edges are conservatively treated as
 // *unsatisfied* (but still eligible for the denominator).
 func lessThan(a, b Event) bool {
 	if a.Step != b.Step {
@@ -71,7 +71,7 @@ type matchOutcome struct {
 
 // bestMatchingFull runs greedy topo assignment + random local swaps. This is a
 // heuristic: greedy can claim a successor's only candidate for an earlier
-// label, and the swap budget is bounded — there is no optimality guarantee.
+// label, and the swap budget is bounded - there is no optimality guarantee.
 func bestMatchingFull(
 	labels []string,
 	cands map[string][]Event,
@@ -203,7 +203,7 @@ func bestMatching(
 // rootAnchoredPrefix computes the longest satisfied chain that starts at a
 // chain root, over the transitive-closure edge set restricted to labels that
 // have candidates in this run. A label is a root when every one of its
-// closure predecessors is unmatchable in this run (zero candidates) — i.e.
+// closure predecessors is unmatchable in this run (zero candidates) - i.e.
 // nothing observable was required before it. Unlike longestSatisfiableChain
 // (which is unanchored and never below 1), this measures true prefix
 // progress along the plan DAG and is 0 when not even a root was matched.
@@ -380,7 +380,7 @@ func topoSort(n int, depIn, depOut map[int][]int) []int {
 // assignEarliestAfterPredecessors picks the earliest unused candidate for `li`
 // that strictly follows every already-assigned predecessor in the lessThan
 // order. If no predecessor-respecting candidate exists, the label is left
-// unassigned — under the scoring model where unassigned edges count as
+// unassigned - under the scoring model where unassigned edges count as
 // unsatisfied, forcing a bad pick would give the same score on violated
 // edges but risk stealing a candidate from another label via injectivity.
 // The swap phase can assign or unassign later with global scoring.

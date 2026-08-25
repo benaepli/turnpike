@@ -1,5 +1,5 @@
 // Typed git/gh operations for the research loop. Every command goes through
-// execFileSync with an argv array — no shell strings, no interpolation into a
+// execFileSync with an argv array - no shell strings, no interpolation into a
 // shell. Read-mostly helpers return parsed values; mutating helpers throw
 // GitError on unexpected failure.
 import { execFileSync } from "node:child_process";
@@ -220,7 +220,7 @@ export function commitHypothesisPair(opts: {
   let spurCommit: string | null = null;
   if (statusLines(SPUR).length > 0) {
     // Commit on the hypothesis branch (pre-created by createBranch), never on
-    // the research branch itself — otherwise changedFiles(SPUR, research)
+    // the research branch itself - otherwise changedFiles(SPUR, research)
     // compares the branch to itself and reports an empty diff.
     if (currentBranch(SPUR) !== opts.branch) {
       checkout(SPUR, opts.branch);
@@ -252,7 +252,7 @@ function extractUrl(stdout: string): string {
 
 /**
  * Create a PR and return its URL. If a label is requested but the repo does
- * not have it, gh fails — we retry once without the label.
+ * not have it, gh fails - we retry once without the label.
  */
 export function createPr(opts: {
   cwd: string;
@@ -368,7 +368,7 @@ const BANNED_VR_IDENTIFIERS: readonly string[] = [
 /**
  * Scan ADDED lines of a unified diff for banned VR-specific identifiers.
  * Returns one entry per (identifier, line) hit; empty = pass. A line
- * containing StartViewChange also matches StartView — both are reported,
+ * containing StartViewChange also matches StartView - both are reported,
  * which is fine since either alone fails the lint.
  */
 // Only source-ish files are linted for VR names: generated artifacts

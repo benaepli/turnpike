@@ -54,7 +54,7 @@ function todayWallKey(): string {
 
 export class LoopState {
   private readonly db: Database.Database;
-  /** Sibling of the DB file — ROOT/research/journal.jsonl for the default
+  /** Sibling of the DB file - ROOT/research/journal.jsonl for the default
    * path, and a test-local file when a test passes its own dbPath. */
   private readonly journalPath: string;
 

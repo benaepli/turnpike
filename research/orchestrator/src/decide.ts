@@ -38,7 +38,7 @@ export interface Comparison {
 }
 
 // z defaults to 1.96 (promote: spends compute, not merges). The merge gate
-// passes MERGE_Z = 2.7 — Bonferroni over the ~7 objectives tested, holding
+// passes MERGE_Z = 2.7 - Bonferroni over the ~7 objectives tested, holding
 // familywise false-positive near 5% per hypothesis.
 export const MERGE_Z = 2.7;
 export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96): Comparison {
@@ -69,14 +69,13 @@ export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, 
 // Screen gate: 2-sigma Poisson exceedance. For each objective the candidate
 // must show more successes than expected-under-baseline plus two standard
 // deviations (sqrt of expectation), with an absolute floor of 5 successes so
-// single-digit counts can never advance (derivation: research/PARAMETERS.md;
-// the old "+15% point estimate" rule advanced on 4-vs-3.6 Poisson noise).
+// single-digit counts can never advance. Sizing rationale: research/PARAMETERS.md.
 export function screenAdvances(cand: ObjectiveCounts, base: ObjectiveCounts): { advance: boolean; why: string } {
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
   if (cand.violations.succ > 0 && base.violations.succ === 0) return { advance: true, why: "violations appeared" };
-  // Use the baseline's Wilson UPPER bound as the expectation rate: a rung the
-  // baseline sample never hit (0 observed in a small n) must not read as
-  // "expected 0" — that fooled the gate once (iteration 14).
+  // The expectation uses the baseline's Wilson upper bound: a rung with zero
+  // observed successes in a small baseline sample is not evidence that its
+  // rate is zero.
   const exceeds2Sigma = (succ: number, n: number, b: { succ: number; n: number }): { hit: boolean; expected: number } => {
     const [, upper] = wilson(b.succ, b.n);
     const expected = upper * n;
@@ -96,7 +95,7 @@ export function screenAdvances(cand: ObjectiveCounts, base: ObjectiveCounts): { 
 
 // Non-inferiority for ablations/enabling: margins are RELATIVE (default 25%
 // of the baseline rate per objective, floored at 0.2pp) so the tolerance
-// scales with each rung — an absolute margin either swamps rare rungs or
+// scales with each rung - an absolute margin either swamps rare rungs or
 // over-constrains common ones (derivation: research/PARAMETERS.md).
 export function nonInferior(cand: ObjectiveCounts, base: ObjectiveCounts, relMargin = 0.25): { ok: boolean; failures: string[] } {
   const failures: string[] = [];
@@ -185,7 +184,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   }
 
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
-  // Primary: violations when they move; otherwise depth>=5 — the deepest rung
+  // Primary: violations when they move; otherwise depth>=5 - the deepest rung
   // with measurable baseline support (depth>=6..8 are 0 at baseline and act
   // as jackpot indicators, not gradients).
   const primary = cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=5"] ?? 0);
@@ -211,7 +210,7 @@ export function summarizeLadder(m: LadderMetrics): string {
 // Gate for perf-kind hypotheses: A/B bench superiority is the objective;
 // ladder non-inferiority + regression are the semantic safety net. Perf work
 // legitimately touches hot execution files, so the semantics-file rule is
-// relaxed here — but only behind promote-fidelity non-inferiority.
+// relaxed here - but only behind promote-fidelity non-inferiority.
 export interface PerfGateInputs {
   hypothesis: Hypothesis;
   bench: BenchResult;

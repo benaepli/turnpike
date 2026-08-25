@@ -166,8 +166,6 @@ func ListRunIDs(dbPath string) ([]int64, error) {
 	return runIDs, rows.Err()
 }
 
-
-
 // ReadTracesByRun reads trace rows for an explicit set of run_ids, grouped by
 // run. Scanning straight into the map avoids holding a flat slice and the
 // grouped copy at the same time.
@@ -246,8 +244,6 @@ func ReadExecutionsByRun(dbPath string, runIDs []int64) (map[int64][]ExecutionRo
 	}
 	return result, rows.Err()
 }
-
-
 
 // joinInt64s renders ids as a comma-separated SQL list. Values are integers,
 // so direct interpolation is injection-safe.

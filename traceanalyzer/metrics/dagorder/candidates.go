@@ -11,7 +11,7 @@ import (
 // seq_num is independent across tables (each batch numbers rows 0..n in its
 // own table; see spur/spur-core/src/simulator/history.rs:298,339,385), so we
 // must not compare seq_num across tables. Step is comparable, but ties at
-// the same step across tables have no defined ordering — see lessThan.
+// the same step across tables have no defined ordering - see lessThan.
 type SourceTable uint8
 
 const (
@@ -138,7 +138,7 @@ func actionFor(kind EventKind) string {
 
 // maxCandidates caps the candidate list per label to keep the matching search
 // bounded. When a label hits this cap, buildCandidates flags it via the
-// returned `truncated` set so callers can warn — silently dropping matches
+// returned `truncated` set so callers can warn - silently dropping matches
 // would let runs score 0 for no diagnosable reason.
 const maxCandidates = 256
 
@@ -195,7 +195,7 @@ func collectClientInvocations(execs []reader.ExecutionRow, spec EventSpec) ([]Ev
 // collectExecByKind matches Crash/Recover rows. We deliberately filter on
 // Kind alone (not Action): the executions table's Kind column is unique per
 // system event (see history.rs:191-196), and the corresponding Action value
-// — "System.Crash" / "System.Recover" — is already implied by Kind. Adding
+// - "System.Crash" / "System.Recover" - is already implied by Kind. Adding
 // Action filtering would just couple this code to that string and gain
 // nothing.
 func collectExecByKind(execs []reader.ExecutionRow, kind string, target int) ([]Event, bool) {

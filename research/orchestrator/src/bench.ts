@@ -2,7 +2,7 @@
 // binary against the preserved baseline binary on a FIXED single-config
 // workload, interleaved (ABBA...) to cancel thermal/cache drift, and demands
 // strict dominance (min candidate > max baseline) plus a minimum relative
-// improvement before it passes. Nothing here reads the ladder — semantic
+// improvement before it passes. Nothing here reads the ladder - semantic
 // safety is the ladder-non-inferiority + regression gates, not this file.
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -59,7 +59,7 @@ async function oneRound(
       wallSec: policy.perf.roundWallSec,
       rayonThreads: policy.evaluation.rayonThreads,
     });
-    if (r.timedOut) return { rps: 0, err: `${side} round ${round} hit the wall budget — bench config too big or binary too slow` };
+    if (r.timedOut) return { rps: 0, err: `${side} round ${round} hit the wall budget - bench config too big or binary too slow` };
     if (!r.ok) return { rps: 0, err: `${side} round ${round} failed: ${r.stderr.slice(-500)}` };
     return { rps: totalRuns / (r.wallMs / 1000), err: null };
   } finally {

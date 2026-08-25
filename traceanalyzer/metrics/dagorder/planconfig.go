@@ -193,7 +193,7 @@ func decodeEventSpec(raw json.RawMessage) (EventSpec, error) {
 
 		case "partition":
 			// Partitions are structurally unmatchable in non-plan-mode runs, so
-			// the spec contents don't drive matching — but we still validate
+			// the spec contents don't drive matching - but we still validate
 			// the payload shape so a malformed config errors loudly. Mirrors
 			// PartitionSpec in spur/spur-core/src/simulator/plan_config.rs:36-43,
 			// an externally tagged enum with `tag = "type"`.

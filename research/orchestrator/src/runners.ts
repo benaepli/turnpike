@@ -1,6 +1,6 @@
 // Typed process wrappers for the research loop. Every external tool is
 // spawned via execFile (argv array, never a shell string) with a hard
-// timeout that SIGKILLs. Nonzero exit is a *result*, not an exception —
+// timeout that SIGKILLs. Nonzero exit is a *result*, not an exception -
 // only spawn failures (ENOENT, EACCES, ...) throw.
 import { execFile, spawn } from "node:child_process";
 import * as fs from "node:fs";
@@ -145,13 +145,13 @@ export interface ExploreOpts {
 }
 
 /**
- * Run the explorer. NOTE for callers: a timedOut result is NOT a failure —
+ * Run the explorer. NOTE for callers: a timedOut result is NOT a failure -
  * the explorer writes parquet incrementally, so a timed-out output dir is a
  * valid partial corpus and should still be graded/checked.
  */
 export function explore(opts: ExploreOpts): Promise<CmdResult> {
-  // Stream output to <outputDir>.log so long runs are observable live
-  // (tail -f) instead of buffered invisibly until exit.
+  // Output streams to <outputDir>.log so a running explore can be watched
+  // with tail -f.
   const logPath = `${opts.outputDir}.log`;
   const args = ["explore", "-e", "standard", "--config", opts.configPath, "-y", "--output-dir", opts.outputDir, opts.spec];
   const env = {
@@ -187,7 +187,7 @@ export function explore(opts: ExploreOpts): Promise<CmdResult> {
       try {
         const full = fs.readFileSync(logPath, "utf8");
         tailText = full.slice(-8192);
-      } catch { /* log unreadable — leave tail empty */ }
+      } catch { /* log unreadable - leave tail empty */ }
       resolve({
         ok: code === 0 && !timedOut,
         exitCode: code,

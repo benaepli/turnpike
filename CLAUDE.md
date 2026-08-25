@@ -79,3 +79,7 @@ Two model variants exist; pick one based on what operations the spec exposes:
 - Porcupine checks linearizability by analyzing `ClientInterface` `Read`/`Write` call-response pairs
 - Every spec must have a `ClientInterface` with `Read` and `Write` functions for linearizability verification to work
 - `ClientInterface.RMW(dest, key, uid): list<int>` is optional; it returns the prior committed list for `key` and is exercised when the scheduler config sets `num_rmw_ops > 0`. Checked under `-model kv_rmw`.
+
+## Code style
+
+All code and comments follow `research/STYLE.md`: comments state constraints only, carry no history or plan references, use plain words, and are ASCII-only.

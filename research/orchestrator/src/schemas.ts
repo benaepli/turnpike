@@ -1,5 +1,5 @@
 // Typed contracts for the research loop. Every record that crosses a process
-// or agent boundary is validated against these schemas — agents produce JSON,
+// or agent boundary is validated against these schemas - agents produce JSON,
 // the harness refuses anything that does not parse.
 import { z } from "zod";
 
