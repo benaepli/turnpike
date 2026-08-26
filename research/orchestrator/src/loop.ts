@@ -14,7 +14,7 @@ import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js
 import { loadSeqState, pooledCountsOf, runSequential, type SeqKind } from "./sequential.js";
 import {
   RESEARCH_BRANCH, SPUR, SUPER, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto, resetBranchTo,
-  currentCommit, deleteBranch, diffText, createPr, lintProtectedPaths, lintRulerSubject,
+  currentCommit, deleteBranch, diffText, createPr, lintInertConfigs, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
@@ -530,6 +530,12 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       ...lintProtectedPaths(h.kind === "meta" ? superFiles.filter((f) => f !== "research/policy.json") : superFiles),
       ...lintRulerSubject(h.kind, superFiles),
       ...lintVrNames(diffText(SPUR, RESEARCH_BRANCH) + diffText(SUPER, RESEARCH_BRANCH)),
+      ...lintInertConfigs(superFiles, [
+        policy.evaluation.configTemplate,
+        policy.regression.menciusBugConfig,
+        policy.regression.vrNoFaultConfig,
+        policy.perf.benchConfig,
+      ]),
     ];
 
     const ctx: EvalContext = {

@@ -105,3 +105,106 @@ the escalate path and the merge gate's jackpot handling key on, so the binary
 rungs stay. `meanPrefixDepth` is already emitted; per-rung attrition is a pure
 function of `depthAtLeast` and belongs in orchestrator reporting, not in
 traceanalyzer.
+
+## 2026-08-26 (second batch), epoch 3
+
+Three queued items, all rejected. Two of them asked for instrumentation that
+would answer a question `research/corpus/manifest.json` already answers.
+
+### h2b-invariance-audit (queued iteration 5262) - rejected, question already answered
+
+Proposed per-run telemetry for the h2b predicate (which conjuncts hold, first
+step index each becomes true, near-miss counts) behind a new
+`stats.hazard_conjunct_breakdown` flag, to decide whether h2bRate's constant
+0.417 means (a) structurally unreachable, (b) a predicate firing on a
+coincidence the scheduler cannot construct, or (c) controllable but never hit.
+
+The premise is that h2bRate is invariant. It is not. Measured h2b_rate across
+the corpora already on disk:
+
+| corpus | h2b_rate |
+|---|---|
+| find_bug_plan | 0.1387 |
+| relax_minimal | 0.1472 |
+| findbug_archive | 0.1542 |
+| relax_5 | 0.1603 |
+| unconstrained_c0 | 0.2204 |
+| relax_3 | **0.5840** |
+| general-config evaluations (n=131) | 0.3789 - 0.4372 |
+
+A metric that ranges over 4.2x across configurations is not invariant and not
+saturated. The answer is (a) in a specific sense: h2b is fixed by the
+*configuration's* crash and recovery structure, not by scheduler policy. That
+is why it sits near 0.417 for everything graded against the general grid and
+why no delivery-order or purgatory mechanism has moved it - those mechanisms
+change which schedules are explored, not how often the config puts a node
+through the crash-recover shape h2b tests.
+
+No instrumentation is needed to reach that conclusion, so the flag, the
+spur-core changes and the grader changes all come off the table. The proposal
+also touches `spur-core/src/simulator/util_stats.rs`, which a grader-kind
+hypothesis may not do: `lintRulerSubject` restricts grader diffs to
+`traceanalyzer/`, `research/observations/` and `research/evaluations/`, so it
+would fail the lint on contact.
+
+Two consequences worth acting on, neither of which is a grader change:
+
+- h2b should not carry a pre-registered movement threshold in scheduler-policy
+  hypotheses. `receiver-side-orphan-hold` pre-registered ">= 0.05 movement in
+  h2bRate" as its falsifier; the observed range across 131 general-config
+  evaluations is 0.0583, so that threshold sits inside the spread and the
+  falsifier could fire on noise in either direction. It happened to reject
+  correctly, on a delta of ~0.000.
+- The live frontier stays depth >= 6/7/8 and violations. h2b is a description
+  of the config, so it belongs in reporting, not in a hypothesis's objective.
+
+### timer-vs-delivery-order-proxy (queued iteration 5259) - rejected, wrong side of the ruler
+
+Proposed two reporting-only per-run statistics in `traceanalyzer/`:
+`timerDeliveryInversionRate` (timer fires while a message addressed to that
+node is undelivered) and `timerBurstConcentration` (max share of timer fires
+landing on one node).
+
+The motivating observation is sound. `ablate-timer-queue-entirely` is the
+largest delta on the board and every other timer hypothesis closed at 0.0000,
+so the timer-admission axis genuinely has no feature that can see it.
+
+The remedy is on the wrong side of the ruler/subject line, in the same way
+`tied_candidate_frac` was. Both quantities are properties of the scheduler's
+own decision, not of the trace: when the explorer picks the timer queue it is
+holding the queues, so it already knows whether messages addressed to that
+node are pending and which node it just fired. Computing this in the grader
+means reconstructing queue occupancy from the event log, which is strictly
+more work for a strictly less reliable answer.
+
+Cost matters here too. Grading is already 189s against 218s of explore per
+54k-run chunk, about 46% of chunk wall time, and per-run queue reconstruction
+lands directly on that path. The explorer-side counters are increments in a
+branch the scheduler already takes.
+
+What to do instead: add both counters to `spur-core/src/simulator/util_stats.rs`
+beside the existing steer and purgatory counters, as an ordinary `add`-kind
+hypothesis. Per-candidate utilization capture already stores and journals
+those counters for every evaluated hypothesis, so the timer family gets its
+observability with no grader change, no new config parameter, and no cost on
+the grading path.
+
+### joint-hazard-objective (parked, grader-kind) - rejected
+
+Proposed per-run hazard co-occurrence (`h1&h2`, `h1&h2&h3`) and mean prefix
+depth conditioned on h1, exposed as `jointHazardRate` and `depthGivenH1`, and
+"optionally" feeding `jointHazardRate` into the curriculum reward in
+`spur-core/src/simulator/curriculum.rs` behind `reward_joint_hazards`.
+
+Rejected on the same separation grounds, more directly than the others. It
+edits `spur-core`, which grader-kind diffs may not touch, and the optional
+half wires a grader-side statistic into the scheduler's reward. That puts the
+ruler in front of the subject: the explorer would be steered by the quantity
+it is being measured on, and any subsequent movement in that quantity would
+be uninterpretable. `novelty_depth_corr` was rejected for the same structure.
+
+The marginal statistics half is cheap and harmless, but it is also not
+obviously useful yet: no hypothesis has been blocked for want of a joint
+hazard rate, whereas six were blocked for want of "did my mechanism act",
+which per-candidate utilization capture now answers. Reconsider if a concrete
+hypothesis declares it as a dependency.

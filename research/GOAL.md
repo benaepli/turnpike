@@ -43,6 +43,30 @@ steerable decision relative to message delivery therefore have headroom the
 depth ladder cannot currently show; a proxy that observes timer-versus-delivery
 ordering would make that headroom measurable.
 
+Measured (epoch 3, delivery_effects over 1.08M deliveries, write-counter
+token): the protocol absorbs most of what the loop injects. An ordinary
+delivery has an effect 40.9% of the time, a scheduler-biased one 13.7%, a
+purgatory-delayed one 13.8%. "Mechanism fired" and "mechanism had an effect"
+are different questions, and only the second predicts ladder movement.
+Absorption is also a far cheaper prescreen than depth: it resolves on 1,080
+runs rather than 54,000.
+
+The sharpest number is the asymmetry between the two stale-incarnation
+paths. A delivery whose sender restarted in the meantime is acted on 15.9%
+of the time (167/1052); a delivery into a receiver that restarted is acted
+on 1.8% (37/2061). The receiver-side path, the h2b variant, is roughly nine
+times more absorbed than the sender-side path, and it is the path all six
+failed purgatory and orphan hypotheses aimed at: holding, releasing and
+reordering messages destined for a node that went away. They were pushing on
+the most absorbed surface in the system.
+
+The lever this points at is timing on the sender side, not volume on the
+receiver side: what decides whether a stale delivery is accepted or dropped
+is where it lands relative to the receiver's state transition. Mechanisms
+that place a delivery inside the window where it is still accepted have
+headroom; mechanisms that delay or reorder more messages into a restarted
+receiver do not, and have now been falsified six times.
+
 ## Rules (enforced mechanically; violating them wastes the iteration)
 
 1. Generality: scheduler code and general configs must never mention VR handler names

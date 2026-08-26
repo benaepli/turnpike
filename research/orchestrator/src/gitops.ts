@@ -377,6 +377,25 @@ function lintProtectedPathsInner(superFiles: string[]): string[] {
 }
 
 /**
+ * Config files under `scheduler_configs/loop/` that no runner loads. Every
+ * evaluation explores `policy.evaluation.configTemplate`; regression and the
+ * perf lane load their own named files. A config outside that set is dead
+ * weight: the hypothesis that adds it is measured against the unmodified
+ * template, so its delta is seed noise and non-inferiority passes for a
+ * change that never ran. Config work has to edit a loaded file in place.
+ */
+export function lintInertConfigs(
+  superFiles: string[],
+  loadable: readonly string[],
+): string[] {
+  const loaded = new Set(loadable);
+  return superFiles
+    .filter((f) => /^scheduler_configs\/loop\/[^/]+\.json$/.test(f))
+    .filter((f) => !loaded.has(f))
+    .map((f) => `inert config (no runner loads it): ${f}`);
+}
+
+/**
  * Enforce that only grader-kind hypotheses touch the grader (traceanalyzer),
  * and that grader-kind hypotheses touch nothing else. Returns violations.
  */
