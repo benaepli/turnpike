@@ -298,3 +298,47 @@ candidate for deletion.
 ## 2026-08-26T22:48:21.622Z
 
 **per-channel-fifo-authority-probe** (closed): The probe ran to completion on two seeds (1000/1001, 54k runs each) and produced no ladder movement: violations 0, primary (depth>=5) -0.0006, depth>=4 +0.0010, h2 +0.0005 — all inside A/A noise, consistent with the counter being reporting-only. The iteration nonetheless closed as failed because the regression suite did not pass (lint did pass), and the config param count grew 14->15, so the instrumentation was not cost-free: adding channel_inversions touched exec.rs, scheduler.rs, state.rs, path.rs and util_stats.rs, i.e. the per-pair send-order bookkeeping required threading sequence identity through the delivery path rather than a local read. No recorded value of channel_inversions survived the failed run, so the actual question — is same-(sender,receiver) order pinned FIFO — remains formally unanswered by measurement, though the fact that a counter needed new state threaded through exec/state/path is weak evidence that send order is not currently retained anywhere at delivery time (i.e. the axis may well be free already, which would be the falsifier). Meta-lesson: a 'probe only, cost 2' framing underestimated cost because the observable did not exist as a derived quantity; probes should first check whether the predicate is computable from existing state before being priced as instrumentation-only.
+
+## 2026-08-26T22:50:00.000Z (operator)
+
+per-channel-fifo-authority-probe (iteration 5267) was closed by the gate on
+"regression suite failed". The three correctness cases passed; only the
+throughput case failed, and it failed for a reason that had nothing to do
+with the hypothesis. Recording both the harness fault and the result the
+probe actually produced, since a closed hypothesis keeps neither.
+
+### Same-pair delivery order is a free variable
+
+Measured over the probe's own 1,080-run utilization session:
+
+| | |
+|---|---|
+| deliveries between node pairs | 1,061,985 |
+| delivered out of send order | 118,010 (11.1%) |
+| runs containing an inversion | 959 / 1080 (88.8%) |
+
+The scheduler already reorders same-pair messages on 11% of deliveries, in
+nearly nine runs out of ten. So reordering mechanisms are not inert because
+the orderings are unreachable - the loop generates them in quantity. That
+leaves absorption as the standing explanation, consistent with delayed
+deliveries acting 13.8% of the time against 40.9% for ordinary ones. A
+future reordering hypothesis has to argue it produces orderings that differ
+from these, not merely that it produces inversions.
+
+This was worth knowing before building anything, and it is the second probe
+in a row whose value was in refusing a direction rather than opening one.
+
+### The gate reason was wrong, and it was blocking everything
+
+`runBench` runs the candidate binary and `tmp/loop/spur-baseline` against the
+same materialized config. That baseline binary is a file copy, refreshed by
+hand, and it was two merges old. The acted_fraction merge had added
+`emit_acted_fraction` to `bench.json`, and the old binary rejects unknown
+top-level keys under `strict_config_keys`, so its round produced 0 of 5400
+runs and the bench failed.
+
+The failure was not specific to this hypothesis. Every hypothesis evaluated
+after that merge would have failed the same way, since the offending key sits
+in the shared bench config. A stale baseline binary is therefore not a
+degraded comparison; it is a total block on the perf lane that presents as a
+per-hypothesis regression failure. Refreshing the copy cleared it.
