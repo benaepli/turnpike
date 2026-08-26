@@ -7,6 +7,7 @@ import { runOneEvaluation, type EvalContext } from "./evaluate.js";
 import type { LoopState } from "./state.js";
 import { compareRates, rateSuperiorCI } from "./stats.js";
 import { MERGE_Z } from "./decide.js";
+import { HARD_LIMITS } from "./policy.js";
 import { Evaluation, SeqState } from "./schemas.js";
 
 export function loadSeqState(state: LoopState, id: string): SeqState | null {
@@ -27,7 +28,7 @@ export interface PooledCounts {
 }
 
 export type SeqKind = "superiority" | "noninferiority";
-export type SeqVerdict = "advance" | "reject" | "continue" | "inconclusive";
+export type SeqVerdict = "advance" | "reject" | "continue" | "inconclusive" | "escalate";
 
 export interface SeqDecision {
   verdict: SeqVerdict;
@@ -107,7 +108,11 @@ export function decideSequential(
   const out = (verdict: SeqVerdict, reason: string): SeqDecision => ({ verdict, reason, posteriors });
 
   if (cand.violations >= 1 && base.violations === 0) return out("advance", `violations appeared (${cand.violations})`);
-  if (cand.depth6plus >= 3 && base.depth6plus === 0) return out("advance", `depth>=6 reached ${cand.depth6plus} times`);
+  // A depth the baseline never reaches is rare evidence, not a merge: it
+  // extends sampling and, at the cap, routes to human review, never
+  // short-circuits the gate (compareToBaseline needs the sample to separate,
+  // which a handful of hits cannot do).
+  const jackpot = cand.depth6plus > 0 && base.depth6plus === 0;
 
   if (kind === "noninferiority") {
     const worst = Math.max(d4.pRegress, h2.pRegress);
@@ -131,11 +136,12 @@ export function decideSequential(
   if (chunks >= p.minChunks) {
     if (separated(cand.depth4, cand.graded, base.depth4, base.graded)) return out("advance", `depth>=4 separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`);
     if (separated(cand.depth5, cand.graded, base.depth5, base.graded)) return out("advance", `depth>=5 separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`);
-    if (d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP) {
+    if (!jackpot && d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP) {
       return out("reject", `no frontier rung can reach a separable effect (pMei d4 ${d4.pAtLeastMei.toFixed(3)} at +${(mei.depth4 * 100).toFixed(0)}%, d5 ${d5.pAtLeastMei.toFixed(3)} at +${(mei.depth5 * 100).toFixed(0)}%)`);
     }
   }
   if (chunks >= p.maxChunks) {
+    if (jackpot) return out("escalate", `depth>=6 events (${cand.depth6plus}) against a zero baseline, below gate separation`);
     const best = Math.max(d4.pGreater, d5.pGreater);
     return best >= p.inconclusiveP
       ? out("inconclusive", `cap reached with pGreater ${best.toFixed(3)}`)
@@ -201,7 +207,9 @@ export async function runSequential(opts: {
       runs: seq.runs, graded: seq.graded, depth4: seq.depth4, depth5: seq.depth5,
       depth6plus: seq.depth6plus, violations: seq.violations, h2Count: seq.h2Count,
     };
-    const cap = Math.min(opts.maxChunksTotal, p.maxChunks * (seq.resumes + 1));
+    const cap = (seq.depth6plus > 0 || seq.violations > 0)
+      ? HARD_LIMITS.maxSequentialChunks
+      : Math.min(opts.maxChunksTotal, p.maxChunks * (seq.resumes + 1));
     const decision = decideSequential(pooled, opts.baseline, seq.chunks, opts.kind, { ...p, maxChunks: cap });
     seq = { ...seq, posteriors: decision.posteriors, lastVerdict: decision.verdict };
     opts.onChunk(seq, decision);

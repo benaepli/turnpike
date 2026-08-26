@@ -81,9 +81,9 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
    Results stay in the record; they no longer feed calibration, lineage
    scoring, or the re-judge. A pure harness fix that does not change
    measurement (a git-op fix, a timeout) does not need a bump.
-8. `rm -f research/STOP`; `research/loop-start.sh`; re-arm the event watcher
+7. `rm -f research/STOP`; `research/loop-start.sh`; re-arm the event watcher
    (the old one ends on the ALERT).
-9. A grader change additionally requires: `research/corpus/manifest.json`
+8. A grader change additionally requires: `research/corpus/manifest.json`
    invariants re-verified (`reference/diagnostics.md`), the baseline re-run
    as a detached unit (`cli baseline`), and the change noted in
    `research/PARAMETERS.md`.
@@ -98,7 +98,7 @@ is measured? Check it against the calibration invariants in
 `research/PARAMETERS.md`; prototype on `research/corpus/findbug_archive`
 when that is cheap. Report to the operator with a recommendation and wait
 for their decision. Approved changes are operator commits landed via the
-boundary procedure (step 7).
+boundary procedure (step 8).
 
 ## Reporting
 
@@ -107,7 +107,9 @@ boundary procedure (step 7).
   audit/publish): interpret them. `seq_chunk` carries the running posteriors
   (`depth>=5:pGreater`, `:pMei`, `:ratio`, `:mei`); `sequential` is the
   verdict (advance -> regression suite and merge gate on the pooled chunks;
-  reject -> closed; inconclusive -> branch kept, resumable after the
+  reject -> closed; escalate -> depth>=6 events appeared, sampling was
+  extended to the hard cap, then a needs-human PR carries the pooled
+  evidence; inconclusive -> branch kept, resumable after the
   cooldown, up to 2 resumes). An inconclusive result is neither a negative
   nor a positive; report it as "probable, unresolved". Chunks are long
   sessions (1000 runs/config, ~7 min each) and are only ever compared with

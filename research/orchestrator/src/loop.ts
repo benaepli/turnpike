@@ -192,11 +192,8 @@ function generalConfigParamCount(policy: Policy): number {
 }
 
 function calibrationTable(state: LoopState): string {
-  return state.listHypotheses()
-    .map((x) => ({ x, d: state.getDecision(x.id) }))
-    .filter((p): p is { x: Hypothesis; d: NonNullable<ReturnType<typeof state.getDecision>> } => p.d !== null)
-    .map(({ x, d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
-    .slice(-30)
+  return state.recentDecisions(30).reverse()
+    .map(({ hypothesis: x, decision: d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
     .join("\n");
 }
 
@@ -235,11 +232,8 @@ function implementActivityDigest(k: number): string {
 
 function recentEvidence(state: LoopState, limit: number): string {
   const cur = state.currentEpoch();
-  const decided = state.listHypotheses()
-    .map((x) => ({ x, d: state.getDecision(x.id) }))
-    .filter((p): p is { x: Hypothesis; d: NonNullable<ReturnType<typeof state.getDecision>> } => p.d !== null)
-    .slice(-limit);
-  return decided.map(({ x, d }) => {
+  // Newest decisions, rendered oldest-to-newest so the model reads a chronology.
+  return state.recentDecisions(limit).reverse().map(({ hypothesis: x, decision: d }) => {
     const stale = (d.epoch ?? 1) !== cur ? " [SUPERSEDED regime: verdict may not hold under the current gate/protocol]" : "";
     const harness = d.harnessFailure ? " [harness failure, not evidence]" : "";
     return `${x.id} [${x.kind}] -> ${d.verdict}${stale}${harness}: ${d.reasons.join("; ")} | deltas ${JSON.stringify(d.objectiveDeltas)} | notes: ${x.notes.slice(0, 200)}`;
@@ -397,7 +391,13 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     // land between the read and the status change.
     const h = state.transaction(() => {
       const picked = selectNext(state, policy);
-      if (picked && picked.kind !== "grader") state.upsertHypothesis({ ...picked, status: "selected" });
+      if (picked && picked.kind !== "grader") {
+        state.upsertHypothesis({ ...picked, status: "selected" });
+        const ring = JSON.parse(state.getMeta("recentSelections") ?? "[]") as string[];
+        ring.push(picked.id);
+        while (ring.length > 20) ring.shift();
+        state.setMeta("recentSelections", JSON.stringify(ring));
+      }
       return picked;
     });
     if (!h) { notes = "empty pool"; journal(state, n, "select", { none: true }); return; }
@@ -529,6 +529,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     const allEvals: Record<string, Evaluation[]> = {};
     let perfDecision: GateDecision | null = null;
     let seqOutcome = "";
+    let escalated = false;
 
     if (lintFailures.length === 0 && h.kind === "perf") {
       const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
@@ -581,7 +582,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       const res = await timed("evaluate", () => runSequential({
         ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.sequential), prior, baselineKey,
         maxChunksTotal: policy.sequential.maxChunks * (policy.sequential.maxResumes + 1),
-        onChunk: (seq, d) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, depth4: seq.depth4, depth5: seq.depth5, h2: seq.h2Count, violations: seq.violations, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors }),
+        onChunk: (seq, d) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, depth4: seq.depth4, depth5: seq.depth5, depth6: seq.depth6plus, h2: seq.h2Count, violations: seq.violations, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors }),
         stopRequested,
       }));
       allEvals["sequential"] = res.evals;
@@ -609,6 +610,17 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           return;
         }
         journal(state, n, "closed_inconclusive", { id: h.id, chunks: res.seq.chunks, resumes: res.seq.resumes, bestPMei: Math.round(bestPMei * 1000) / 1000, posteriors: res.seq.posteriors });
+      }
+      if (res.verdict === "escalate") {
+        // A depth the baseline never reaches appeared but did not separate at
+        // the gate: sampling was extended to the hard cap, and the pooled
+        // evidence goes to a human as a PR rather than being deleted.
+        confirmEvals = res.evals.filter((e) => e.ok);
+        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
+        regressionPassed = regr.passed;
+        journal(state, n, "regression", regr);
+        escalated = true;
+        decisionInputsReady = true;
       }
       if (res.verdict === "advance") {
         // The pooled chunks are the merge evidence: same protocol and seeds
@@ -645,11 +657,15 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=5"] ?? 0) };
       }
     }
+    if (escalated && lintFailures.length === 0) {
+      decision.verdict = "needs_human";
+      decision.reasons = ["depth>=6 events against a zero baseline, below gate separation - human review of the pooled evidence"];
+    }
+    const paramsAfter = generalConfigParamCount(policy);
+    decision.objectiveDeltas["params"] = paramsAfter - paramsBefore;
     state.setDecision(decision);
     journal(state, n, "decision", decision);
 
-    const paramsAfter = generalConfigParamCount(policy);
-    decision.objectiveDeltas["params"] = paramsAfter - paramsBefore;
     const evidence = { hypothesis: h, decision, evaluations: allEvals, spurFiles, superFiles, graderVersion: ctx.graderVersion, generalConfigParams: { before: paramsBefore, after: paramsAfter } };
 
     if (decision.verdict === "auto_merge" || decision.verdict === "needs_human") {

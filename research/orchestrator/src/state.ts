@@ -226,6 +226,22 @@ export class LoopState {
       .run(v.hypothesisId, new Date().toISOString(), JSON.stringify(v));
   }
 
+  // Decisions newest first with their hypothesis, capped at limit. Keyed on
+  // decision time (not hypothesis creation), so a seed decided today ranks
+  // ahead of a child proposed yesterday.
+  recentDecisions(limit: number): Array<{ hypothesis: Hypothesis; decision: GateDecision }> {
+    const rows = this.db
+      .prepare<[number], JsonRow>("SELECT json FROM decisions ORDER BY created_at DESC, hypothesis_id DESC LIMIT ?")
+      .all(limit);
+    const out: Array<{ hypothesis: Hypothesis; decision: GateDecision }> = [];
+    for (const r of rows) {
+      const decision = GateDecision.parse(JSON.parse(r.json));
+      const hypothesis = this.getHypothesis(decision.hypothesisId);
+      if (hypothesis) out.push({ hypothesis, decision });
+    }
+    return out;
+  }
+
   getDecision(hypothesisId: string): GateDecision | null {
     const row = this.db
       .prepare<[string], JsonRow>(

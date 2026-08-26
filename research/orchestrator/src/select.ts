@@ -9,7 +9,6 @@ import { loadSeqState } from "./sequential.js";
 export interface SelectInputs {
   pool: Hypothesis[];              // status === "proposed"
   evaluatedCounts: Map<string, number>; // lineage-root id -> completed attempts
-  recentSelections: string[];      // lineage-root ids of the last N selections
   measuredDelta: Map<string, number>; // lineage-root id -> best observed objective delta
 }
 
@@ -151,16 +150,22 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
     const primary = d.objectiveDeltas["primary"] ?? 0;
     measuredDelta.set(root, Math.max(measuredDelta.get(root) ?? -1, primary));
   }
-  const recent = state
-    .listHypotheses()
-    .filter((h) => terminal.has(h.status) || h.status === "selected")
-    .slice(-10);
-  const freshShare = recent.length === 0 ? 1 : recent.filter((h) => h.parent === null).length / recent.length;
+  // Fraction of the last selections that opened a fresh (parentless)
+  // lineage, read from the selection ring buffer so it reflects what was
+  // actually run, not hypothesis creation order. Absent on a fresh restart:
+  // behave as today rather than force-exploring on empty state.
+  const ringRaw = state.getMeta("recentSelections");
+  let freshShare = 1;
+  if (ringRaw) {
+    const resolved = (JSON.parse(ringRaw) as string[]).slice(-10)
+      .map((id) => byId.get(id))
+      .filter((h): h is Hypothesis => h !== undefined);
+    if (resolved.length > 0) freshShare = resolved.filter((h) => h.parent === null).length / resolved.length;
+  }
 
   const inputs: SelectInputs = {
     pool,
     evaluatedCounts,
-    recentSelections: recent.map((h) => lineageRoot(h, byId)),
     measuredDelta,
   };
 

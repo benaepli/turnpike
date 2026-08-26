@@ -106,6 +106,16 @@ that the baseline's own uncertainty dominates and more candidate chunks buy
 little. At the cap: **inconclusive** if some rung has P(better) >= 0.9, else
 reject.
 
+**Rare evidence extends sampling; it never short-circuits the gate.** A
+violation (ground truth) still advances immediately, since the gate
+special-cases a zero violations baseline. A depth the baseline never reaches
+(depth>=6 against zero) is not enough hits to separate at the gate, so it no
+longer advances (which would hand the gate a sample it cannot clear and get
+the branch deleted). Instead it suppresses the futility reject, extends the
+cap to the compiled ceiling (12 chunks, ~90 min), and at the cap returns
+**escalate**: the pooled evidence goes to a human as a needs-review PR rather
+than being discarded. The merge gate stays the sole authority on what merges.
+
 **Non-inferiority kinds** (ablate/enabling/meta) advance when P(regression
 beyond a 25% relative margin) < 0.05 on depth>=4 and h2, and reject at
 >= 0.95.
