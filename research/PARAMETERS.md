@@ -100,11 +100,23 @@ through Wilson intervals for decisions and Beta posteriors (Jeffreys prior,
 2000 seeded Monte Carlo draws) for futility and reporting.
 
 **The advance rule is the merge gate.** A candidate advances as soon as the
-pooled sample separates from the baseline at z = 2.7 on depth>=4 or
-depth>=5 (the same test `finalGate` applies), so an advance never fails the
+pooled sample separates from the baseline at z = 2.7 on depth>=4, depth>=5 or
+depth>=6 (the same test `finalGate` applies), so an advance never fails the
 gate for lack of separation; only regression, lint and throughput can still
 close it. Three looks (chunks 2, 3, 4) at z = 2.7 inflate the familywise
 error modestly; the Bonferroni z already carries slack for that.
+
+depth>=6 became a frontier rung in epoch 3, when the key-matched oracle made
+it reachable (about 762 runs per 54k chunk against 19,140 at depth>=4). It was
+already inside the objective family the Bonferroni z was derived for, so
+adding it costs no extra correction. It is tested for gain and futility but
+not for regression: with the sparsest counts of the three rungs, its noise
+would reject good candidates. Without it the oracle fix would not pay off -
+depth>=4 now sits at 35% of runs and is close to saturated, so a candidate
+that moves only the deep tail read as futile on the two rungs the gate used
+to test. Measured on the live decision function, a +25% depth>=6 candidate
+gives pMei 0.004 on depth>=4 and 0.011 on depth>=5, so the old futility test
+rejected it; it now advances at pMei 1.000 on depth>=6.
 
 **The separation test is the two-sample MOVER (Newcombe) difference bound**
 (`rateSuperiorCI`), not non-overlapping one-sample Wilson intervals. Two
@@ -123,9 +135,9 @@ relative effect the gate could separate with the candidate at the cap and
 the baseline at its recorded size: z * sqrt(1/E_cand + 1/E_base) with E the
 expected hit counts. At today's counts (4 chunks each side) that is about
 +4% on depth>=4 and +15% on depth>=5. A candidate is rejected for futility
-when P(effect >= that minimum) < 0.05 on both rungs, or when a rung
-regresses by the separation test. h2 is reported but never decides: a
-mechanism can raise crash hazards without lengthening the chain.
+when P(effect >= that minimum) < 0.05 on all three depth rungs, or when
+depth>=4 or h2 regresses by the separation test. h2 is reported but never
+decides: a mechanism can raise crash hazards without lengthening the chain.
 
 **Cap and floor.** Minimum 2 chunks so one unlucky session cannot decide -
 except a decisive regression, which rejects at the first chunk: a frontier
@@ -165,13 +177,15 @@ topped up to `maxChunks` with the next seeds in the family (~30 min per
 merge); the perf lane inherits the previous chunks.
 
 **Operating characteristics** (simulation on the live decision function,
-synthetic binomial 54k-run chunks at the measured 1000/config rates, 100
-reps): null -> reject 95% / inconclusive 5%, never advances; +20% depth>=5
-with +12% depth>=4 -> advance 100% in 2 chunks; +40%/+25% -> advance 100%;
-depth>=5-only +20% -> advance 55% / inconclusive 45%; harmful (-40%
-depth>=4) -> reject 100% in 2 chunks; h2-only +10% -> reject 95%. A null
-costs ~2.7 chunks (~20 min); that is the price of resolving +4% on
-depth>=4.
+synthetic binomial 54k-run chunks, 100 reps, at the epoch-3 rates
+P4 0.3545 / P5 0.0822 / P6 0.0141): null -> reject 83% / inconclusive 15% /
+advance 2%; harmful (-40% depth>=4) -> reject 100% in 1 chunk; h2-only +10%
+-> reject 84%; depth>=6-only +25% and +40% -> advance 99% in 2 chunks;
++20% depth>=5 with +12% depth>=4 -> advance 99%; broad +25% -> advance 100%.
+A null costs ~2.8 chunks (~20 min). The 2% false advance is the cost of a
+third advance rung and sits inside the family alpha ~ 0.05 that MERGE_Z was
+derived for; the merge gate, regression suite and lint still run after an
+advance.
 
 ## A/A noise floor (measured 2026-08-25, baseline binary)
 

@@ -80,11 +80,13 @@ function minimumEffect(baseSucc: number, baseN: number, capRuns: number): number
 }
 
 // The stopping rule. A candidate advances when the pooled sample already
-// passes the merge gate's separation test on a frontier rung (depth>=4 or
-// depth>=5); it is rejected when a frontier rung regresses by the same
-// test, or when no frontier rung can plausibly reach the effect the gate
-// could separate at the cap. h2 is reported but never decides. Violations
-// and depth>=6 events against a zero baseline are decisive when they appear.
+// passes the merge gate's separation test on a frontier rung (depth>=4,
+// depth>=5 or depth>=6); it is rejected when a frontier rung regresses by
+// the same test, or when no frontier rung can plausibly reach the effect the
+// gate could separate at the cap. depth>=6 carries the sparsest counts of the
+// three, so it is tested for gain and futility but never for regression,
+// where its noise would reject good candidates. h2 is reported but never
+// decides. Violations against a zero baseline are decisive when they appear.
 export function decideSequential(
   cand: PooledCounts, base: PooledCounts, chunks: number, kind: SeqKind, p: SeqPolicy,
 ): SeqDecision {
@@ -94,14 +96,17 @@ export function decideSequential(
   const mei = {
     depth4: minimumEffect(base.depth4, base.graded, capGraded),
     depth5: minimumEffect(base.depth5, base.graded, capGraded),
+    depth6: minimumEffect(base.depth6plus, base.graded, capGraded),
     h2: minimumEffect(base.h2Count, base.runs, capRuns),
   };
   const d4 = compareRates(cand.depth4, cand.graded, base.depth4, base.graded, mei.depth4, p.regressMargin, p.draws, seed);
   const d5 = compareRates(cand.depth5, cand.graded, base.depth5, base.graded, mei.depth5, p.regressMargin, p.draws, seed + 1);
   const h2 = compareRates(cand.h2Count, cand.runs, base.h2Count, base.runs, mei.h2, p.regressMargin, p.draws, seed + 2);
+  const d6 = compareRates(cand.depth6plus, cand.graded, base.depth6plus, base.graded, mei.depth6, p.regressMargin, p.draws, seed + 3);
   const posteriors: Record<string, number> = {
     "depth>=4:pGreater": d4.pGreater, "depth>=4:pMei": d4.pAtLeastMei, "depth>=4:ratio": d4.meanRatio, "depth>=4:mei": mei.depth4,
     "depth>=5:pGreater": d5.pGreater, "depth>=5:pMei": d5.pAtLeastMei, "depth>=5:ratio": d5.meanRatio, "depth>=5:mei": mei.depth5,
+    "depth>=6:pGreater": d6.pGreater, "depth>=6:pMei": d6.pAtLeastMei, "depth>=6:ratio": d6.meanRatio, "depth>=6:mei": mei.depth6,
     "h2:pGreater": h2.pGreater, "h2:pMei": h2.pAtLeastMei, "h2:ratio": h2.meanRatio, "h2:mei": mei.h2,
     "depth>=4:pRegress": d4.pRegress, "h2:pRegress": h2.pRegress,
   };
@@ -111,7 +116,8 @@ export function decideSequential(
   // A depth the baseline never reaches is rare evidence, not a merge: it
   // extends sampling and, at the cap, routes to human review, never
   // short-circuits the gate (compareToBaseline needs the sample to separate,
-  // which a handful of hits cannot do).
+  // which a handful of hits cannot do). Dormant while the baseline itself
+  // reaches depth>=6; depth>=6 is then an ordinary frontier rung.
   const jackpot = cand.depth6plus > 0 && base.depth6plus === 0;
 
   if (kind === "noninferiority") {
@@ -136,13 +142,14 @@ export function decideSequential(
   if (chunks >= p.minChunks) {
     if (separated(cand.depth4, cand.graded, base.depth4, base.graded)) return out("advance", `depth>=4 separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`);
     if (separated(cand.depth5, cand.graded, base.depth5, base.graded)) return out("advance", `depth>=5 separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`);
-    if (!jackpot && d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP) {
-      return out("reject", `no frontier rung can reach a separable effect (pMei d4 ${d4.pAtLeastMei.toFixed(3)} at +${(mei.depth4 * 100).toFixed(0)}%, d5 ${d5.pAtLeastMei.toFixed(3)} at +${(mei.depth5 * 100).toFixed(0)}%)`);
+    if (separated(cand.depth6plus, cand.graded, base.depth6plus, base.graded)) return out("advance", `depth>=6 separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`);
+    if (!jackpot && d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP && d6.pAtLeastMei < p.rejectP) {
+      return out("reject", `no frontier rung can reach a separable effect (pMei d4 ${d4.pAtLeastMei.toFixed(3)} at +${(mei.depth4 * 100).toFixed(0)}%, d5 ${d5.pAtLeastMei.toFixed(3)} at +${(mei.depth5 * 100).toFixed(0)}%, d6 ${d6.pAtLeastMei.toFixed(3)} at +${(mei.depth6 * 100).toFixed(0)}%)`);
     }
   }
   if (chunks >= p.maxChunks) {
     if (jackpot) return out("escalate", `depth>=6 events (${cand.depth6plus}) against a zero baseline, below gate separation`);
-    const best = Math.max(d4.pGreater, d5.pGreater);
+    const best = Math.max(d4.pGreater, d5.pGreater, d6.pGreater);
     return best >= p.inconclusiveP
       ? out("inconclusive", `cap reached with pGreater ${best.toFixed(3)}`)
       : out("reject", `cap reached with pGreater ${best.toFixed(3)}`);

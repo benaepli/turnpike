@@ -116,11 +116,16 @@ boundary procedure (step 8).
   baseline chunks of the same protocol (`baseline_sequential` after a merge
   records the refreshed baseline, ~30 min). The perf lane still uses
   screen/promote for its non-inferiority check.
-  Ladder semantics: depth>=4/5 are the measurable frontier
-  rungs; depth>=6..8 and violations are zero at baseline and act as jackpot
-  indicators; H1 = crash with an in-flight send, H2 = stale-incarnation
-  delivery, H3 = two nodes crash and recover. A mechanism that raises H1 but
-  not depth shows crash timing alone is not the bottleneck.
+  Ladder semantics (epoch 3 on): the general grid grades against
+  `research/oracle/relax_minimal_general.json`, so all eight rungs are
+  reachable. depth>=4/5 are the bulk rungs; depth>=6/7 are the live frontier
+  at roughly 762 and 72 runs per 54k chunk; depth>=8 is the full chain at
+  about 3 per chunk. Only violations are zero at baseline, so violations alone
+  are the jackpot indicator. Depth is a proxy, not the bug: general-config
+  depth-8 runs have been linearizable so far, against 71% violation at depth 8
+  in the plan corpora. H1 = crash with an in-flight send, H2 =
+  stale-incarnation delivery, H3 = two nodes crash and recover. A mechanism
+  that raises H1 but not depth shows crash timing alone is not the bottleneck.
 - Distinguish evidence-based outcomes from harness-caused ones every time
   you summarize progress; never count a harness failure as a negative
   result.
