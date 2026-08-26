@@ -71,6 +71,9 @@ export class LoopState {
     this.journalPath = join(dirname(dbPath), "journal.jsonl");
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
+    // Wait rather than fail when the daemon and an operator CLI reach the
+    // database at the same time.
+    this.db.pragma("busy_timeout = 5000");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS hypotheses (
         id TEXT PRIMARY KEY,
@@ -237,17 +240,25 @@ export class LoopState {
   // -- iterations -----------------------------------------------------------
 
   /** Allocate the next iteration number and record its start time. */
+  // Run fn inside an IMMEDIATE transaction: the write lock is taken up front,
+  // so a concurrent writer waits (up to busy_timeout) rather than racing.
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn).immediate();
+  }
+
   beginIteration(): number {
-    const row = this.db
-      .prepare<[], MaxNRow>("SELECT MAX(n) AS maxN FROM iterations")
-      .get();
-    const n = (row?.maxN ?? 0) + 1;
-    this.db
-      .prepare<[number, string]>(
-        "INSERT INTO iterations (n, started_at) VALUES (?, ?)",
-      )
-      .run(n, new Date().toISOString());
-    return n;
+    return this.transaction((): number => {
+      const row = this.db
+        .prepare<[], MaxNRow>("SELECT MAX(n) AS maxN FROM iterations")
+        .get();
+      const n = (row?.maxN ?? 0) + 1;
+      this.db
+        .prepare<[number, string]>(
+          "INSERT INTO iterations (n, started_at) VALUES (?, ?)",
+        )
+        .run(n, new Date().toISOString());
+      return n;
+    });
   }
 
   finishIteration(
@@ -338,7 +349,11 @@ export class LoopState {
   /** Validate and append one JSON line to journal.jsonl (append-only). */
   appendJournal(entry: JournalEntry): void {
     const v = JournalEntry.parse(entry);
-    appendFileSync(this.journalPath, JSON.stringify(v) + "\n");
+    const line = JSON.stringify(v) + "\n";
+    // The append runs under the database write lock so the daemon and an
+    // operator CLI cannot interleave partial lines (entries exceed the
+    // filesystem's atomic-append bound).
+    this.transaction(() => { appendFileSync(this.journalPath, line); });
   }
 
   close(): void {

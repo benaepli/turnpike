@@ -163,7 +163,13 @@ export async function runSequential(opts: {
     depth6plus: 0, violations: 0, h2Count: 0, resumes: 0, nextSeed: 1000, posteriors: {}, lastVerdict: "", lastIteration: 0,
     baselineKey: opts.baselineKey,
   };
-  let failures = 0;
+  // A chunk that fails with zero usable runs is usually the environment (an
+  // I/O storm slowing the explore past its wall, a checker that could not
+  // read the corpus), not the candidate. Tolerate scattered failures by
+  // retrying with the next seed; only a consecutive streak (a broken
+  // candidate or a sustained outage) or a large total errors out.
+  let consecutiveFailures = 0;
+  let totalFailures = 0;
   for (;;) {
     if (opts.stopRequested()) return { verdict: "stopped", reason: "STOP requested", evals, seq };
     const e = await runOneEvaluation(opts.ctx, opts.hypothesisId, "sequential", seq.nextSeed, {
@@ -172,10 +178,13 @@ export async function runSequential(opts: {
     evals.push(e);
     seq = { ...seq, nextSeed: seq.nextSeed + 1 };
     if (!e.ok) {
-      failures++;
-      if (failures >= 2) return { verdict: "error", reason: e.error ?? "evaluation failed", evals, seq };
+      consecutiveFailures++;
+      totalFailures++;
+      if (consecutiveFailures >= 3) return { verdict: "error", reason: `${consecutiveFailures} chunks failed in a row: ${e.error ?? "evaluation failed"}`, evals, seq };
+      if (totalFailures >= p.maxChunks) return { verdict: "error", reason: `${totalFailures} chunks failed: ${e.error ?? "evaluation failed"}`, evals, seq };
       continue;
     }
+    consecutiveFailures = 0;
     const c = pooledCountsOf([e]);
     seq = {
       ...seq, chunks: seq.chunks + 1, runs: seq.runs + c.runs, graded: seq.graded + c.graded,

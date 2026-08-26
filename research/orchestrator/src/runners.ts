@@ -2,7 +2,7 @@
 // spawned via execFile (argv array, never a shell string) with a hard
 // timeout that SIGKILLs. Nonzero exit is a *result*, not an exception -
 // only spawn failures (ENOENT, EACCES, ...) throw.
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,6 +110,47 @@ export function buildSpur(maxBuildSeconds: number): Promise<CmdResult> {
     ["build", "--release", "--manifest-path", "spur/Cargo.toml", "--bin", "spur"],
     { timeoutMs: maxBuildSeconds * 1000, cwd: ROOT },
   );
+}
+
+// Content hash of the committed spur tree; the build runs after the commit,
+// so this keys a binary uniquely and safely (never the working tree).
+export function spurTreeHash(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd: path.join(ROOT, "spur"), encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function gcBinStore(store: string, keep: number): void {
+  try {
+    const entries = fs.readdirSync(store)
+      .map((f) => ({ f, m: fs.statSync(path.join(store, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m);
+    for (const e of entries.slice(keep)) { try { fs.rmSync(path.join(store, e.f)); } catch { /* best effort */ } }
+  } catch { /* store may not exist yet */ }
+}
+
+// Build unless a binary for the committed spur tree is already stored; a
+// hit copies it into place and skips the ~40s rebuild. The store keeps the
+// most-recently-used few, which also serves as versioned rollback binaries.
+export async function buildSpurCached(maxBuildSeconds: number): Promise<{ result: CmdResult; cached: boolean; treeHash: string }> {
+  const treeHash = spurTreeHash();
+  if (!treeHash) return { result: await buildSpur(maxBuildSeconds), cached: false, treeHash: "" };
+  const store = path.join(ROOT, "tmp", "loop", "binstore");
+  fs.mkdirSync(store, { recursive: true });
+  const cachedBin = path.join(store, treeHash);
+  if (fs.existsSync(cachedBin)) {
+    fs.copyFileSync(cachedBin, SPUR_BIN);
+    const now = new Date();
+    try { fs.utimesSync(cachedBin, now, now); } catch { /* touch is advisory */ }
+    return { result: { ok: true, exitCode: 0, stdout: "binary cache hit", stderr: "", wallMs: 0, timedOut: false }, cached: true, treeHash };
+  }
+  const result = await buildSpur(maxBuildSeconds);
+  if (result.ok && fs.existsSync(SPUR_BIN)) {
+    try { fs.copyFileSync(SPUR_BIN, cachedBin); gcBinStore(store, 6); } catch { /* cache is best effort */ }
+  }
+  return { result, cached: false, treeHash };
 }
 
 export interface ConfigOverrides {

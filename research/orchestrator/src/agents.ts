@@ -293,12 +293,36 @@ function editAllowed(kind: Hypothesis["kind"], relPath: string): boolean {
   return /^(spur\/|scheduler_configs\/loop\/|tmp\/loop\/)/.test(p);
 }
 
-export function makeImplementerGate(kind: Hypothesis["kind"]): (toolName: string, input: Record<string, unknown>) => Promise<PermissionResult> {
+// A smoke run only proves the changed path runs; measurement is the
+// harness's job. The fence caps the smoke timeout and the count of
+// measurement invocations, and pins explores to the harness thread budget.
+const SMOKE_TIMEOUT_CAP_S = 180;
+const MAX_MEASUREMENT_RUNS = 3;
+const EXPLORE_RULE = /^timeout (\d+) \.\/spur\/target\/release\/spur (explore|run-plan)\b[^;&|]*--output-dir tmp\/loop\/[^;&|]*$/;
+
+export function makeImplementerGate(kind: Hypothesis["kind"], rayonThreads: number): (toolName: string, input: Record<string, unknown>) => Promise<PermissionResult> {
+  let measurementRuns = 0;
   return async (toolName, input) => {
     if (toolName === "Bash") {
       const cmd = String(input["command"] ?? "").trim();
       if (/\b(git|gh|npm|npx|curl|wget|ssh|scp|pip)\b/.test(cmd)) {
         return { behavior: "deny", message: "git/gh/network/package commands are harness-owned; do not use them" };
+      }
+      const em = EXPLORE_RULE.exec(cmd);
+      if (em) {
+        if (Number(em[1]) > SMOKE_TIMEOUT_CAP_S) {
+          return { behavior: "deny", message: `a smoke run is capped at ${SMOKE_TIMEOUT_CAP_S}s; it only needs to prove the path runs, not measure anything` };
+        }
+        if (++measurementRuns > MAX_MEASUREMENT_RUNS) {
+          return { behavior: "deny", message: "measurement budget spent; the harness runs every real evaluation - conclude with your summary" };
+        }
+        return { behavior: "allow", updatedInput: { ...input, command: `RAYON_NUM_THREADS=${rayonThreads} ${cmd}` } };
+      }
+      if (/^\.\/(traceanalyzer\/main|porcupine\/batch)\b/.test(cmd)) {
+        if (++measurementRuns > MAX_MEASUREMENT_RUNS) {
+          return { behavior: "deny", message: "measurement budget spent; conclude with your summary" };
+        }
+        return { behavior: "allow", updatedInput: input };
       }
       if (SAFE_BASH.some((re) => re.test(cmd))) return { behavior: "allow", updatedInput: input };
       if (kind === "perf" && PERF_BASH.some((re) => re.test(cmd))) return { behavior: "allow", updatedInput: input };
@@ -334,7 +358,7 @@ export async function implementHypothesis(policy: Policy, h: Hypothesis): Promis
       permissionMode: "default",
       settingSources: [],
       disallowedTools: ["WebFetch", "WebSearch", "Task", "Agent", "Skill"],
-      canUseTool: makeImplementerGate(h.kind),
+      canUseTool: makeImplementerGate(h.kind, policy.evaluation.rayonThreads),
       systemPrompt: "You are a careful systems engineer working inside a fenced research harness. You implement one hypothesis at a time, keep diffs minimal, and never touch protected paths (the permission gate enforces this - if a path is denied, work within the allowed lanes instead of fighting it).",
     },
   }));

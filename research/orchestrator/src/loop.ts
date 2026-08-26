@@ -18,7 +18,7 @@ import {
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
-import { buildSpur, SPUR_BIN, cleanupDir, explore, materializeConfig, run } from "./runners.js";
+import { buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, run } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
 import type { LoopState } from "./state.js";
@@ -387,7 +387,14 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     if (!baseline) throw new Error("no baseline recorded - run `loop baseline` first");
 
     await timed("propose", () => refillPool(deps, n));
-    const h = (await import("./select.js")).selectNext(state, policy);
+    const { selectNext } = await import("./select.js");
+    // Pick and claim in one transaction so a concurrent operator edit cannot
+    // land between the read and the status change.
+    const h = state.transaction(() => {
+      const picked = selectNext(state, policy);
+      if (picked && picked.kind !== "grader") state.upsertHypothesis({ ...picked, status: "selected" });
+      return picked;
+    });
     if (!h) { notes = "empty pool"; journal(state, n, "select", { none: true }); return; }
     if (h.kind === "grader") {
       // Changes to the grader change what progress means; they are queued
@@ -399,7 +406,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     }
     const resuming = h.status === "inconclusive" && h.branch !== null;
     const priorSeq = resuming ? loadSeqState(state, h.id) : null;
-    state.upsertHypothesis({ ...h, status: "selected" });
     journal(state, n, "select", { id: h.id, kind: h.kind, title: h.title, resuming });
 
     const paramsBefore = generalConfigParamCount(policy);
@@ -485,12 +491,15 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       return;
     }
 
-    const build = await timed("build", async () => {
-      // Always rebuild: the implementer may have built arbitrary intermediate
-      // states during its session, so the on-disk binary is untrusted until
-      // rebuilt from the committed tree (cheap no-op when nothing changed).
-      return buildSpur(policy.budgets.maxBuildSeconds);
+    const built = await timed("build", async () => {
+      // The on-disk binary from the implementer's session is untrusted; the
+      // binary is taken from the committed tree, rebuilt or reused from the
+      // tree-keyed store (identical trees, e.g. config-only hypotheses, skip
+      // the rebuild).
+      return buildSpurCached(policy.budgets.maxBuildSeconds);
     });
+    const build = built.result;
+    journal(state, n, "build", { cached: built.cached, treeHash: built.treeHash.slice(0, 12), ok: build.ok, wallMs: build.wallMs });
     if (!build.ok) {
       state.upsertHypothesis({ ...h, status: "blocked", branch, notes: `build failed: ${build.stderr.slice(-1500)}` });
       journal(state, n, "blocked", { reason: "build failed" });
