@@ -96,6 +96,11 @@ const stopRequested = (): boolean => existsSync(path.join(ROOT, "research", "STO
 // without a single model turn is treated as a sustained outage instead.
 const MAX_CONSECUTIVE_IMPL_HANGS = 3;
 
+// An inconclusive hypothesis is resumed only if a frontier rung still has at
+// least this probability of reaching the separable minimum; below it, more
+// data cannot change the verdict against the fixed baseline.
+const RESUME_PMEI_MIN = 0.15;
+
 // Graceful stop mid-iteration: keep whatever exists on the hypothesis branch
 // (committed), park the hypothesis with a pointer to that branch, and return
 // to the research branch WITHOUT deleting the work. Startup recovery requeues
@@ -594,11 +599,16 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         return;
       }
       if (res.verdict === "inconclusive") {
-        if (res.seq.resumes < policy.sequential.maxResumes) {
+        // Resume only when more sampling could still push a frontier rung to
+        // the separable threshold. A precisely-measured sub-threshold effect
+        // (low pMei) will never separate against the fixed-size baseline, so
+        // it is closed rather than re-sampled every cooldown.
+        const bestPMei = Math.max(res.seq.posteriors["depth>=4:pMei"] ?? 0, res.seq.posteriors["depth>=5:pMei"] ?? 0);
+        if (bestPMei >= RESUME_PMEI_MIN && res.seq.resumes < policy.sequential.maxResumes) {
           markInconclusive(state, n, h, branch, res.seq, res.reason, spurFiles.length > 0);
           return;
         }
-        journal(state, n, "closed_after_resumes", { id: h.id, chunks: res.seq.chunks, posteriors: res.seq.posteriors });
+        journal(state, n, "closed_inconclusive", { id: h.id, chunks: res.seq.chunks, resumes: res.seq.resumes, bestPMei: Math.round(bestPMei * 1000) / 1000, posteriors: res.seq.posteriors });
       }
       if (res.verdict === "advance") {
         // The pooled chunks are the merge evidence: same protocol and seeds
