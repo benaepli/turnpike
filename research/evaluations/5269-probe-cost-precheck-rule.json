@@ -1,0 +1,140 @@
+{
+  "hypothesis": {
+    "id": "probe-cost-precheck-rule",
+    "parent": "per-channel-fifo-authority-probe",
+    "kind": "meta",
+    "title": "Require probes to demonstrate the observable is derivable from existing state before being priced as cheap",
+    "description": "Process change, no code: before any hypothesis with kind=meta and expectedCost<=2 is scheduled, record in notes which existing field/struct the proposed counter reads from. If the answer requires new fields in exec.rs/state.rs/path.rs or a new config param, reprice to >=4 or convert to an offline-trace probe. Enforced at proposal-writing time.",
+    "category": "policy",
+    "buildsOn": [
+      "hypothesis pool scoring"
+    ],
+    "expectedGain": 2,
+    "expectedCost": 0.3,
+    "rationale": "This iteration burned a full two-seed evaluation and a regression failure on a counter that was assumed free; the underestimate is structural, not specific to channel ordering, and will recur on every future instrumentation proposal.",
+    "generalityArgument": "A scoring rule over hypothesis metadata; references no protocol, spec or mechanism.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-26T23:10:00.000Z",
+    "notes": "Cheap guardrail; its own value is only realized if the pool contains further counter-style probes. [rejudged iteration 5267: Directly encodes the per-channel-fifo meta-lesson at proposal time and costs nothing; falsifier: no future probe repriced by it, i.e. all observables were already derivable.] [rejudged iteration 5268: Near-free proposal-time discipline that encodes the FIFO-probe lesson (a '"
+  },
+  "decision": {
+    "hypothesisId": "probe-cost-precheck-rule",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.00026388888888889683,
+      "depth>=5": -0.0011759259259259275,
+      "depth>=6": -0.001046296296296297,
+      "depth>=7": -0.00007870370370370366,
+      "depth>=8": 0.00003240740740740741,
+      "h2": -0.0014212962962963371,
+      "primary": -0.0011759259259259275,
+      "throughput": 0.11347934612146893,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "probe-cost-precheck-rule-sequential-1000-1787786447680",
+        "hypothesisId": "probe-cost-precheck-rule",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "a3f67ba0ad2701ff12d39d8dba3ecfa40210486b",
+        "superCommit": "aedc13725882fc96b297c5e96c4f17fa856cecea",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-26T23:20:47.680Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 263.86900369905254,
+          "unpairedFraction": 0.4845697678775001,
+          "h1Rate": 0.5004814814814815,
+          "h2Rate": 0.3995740740740741,
+          "h2bRate": 0.41709259259259257,
+          "h3Rate": 0.3342407407407407,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.020111111111111,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49410,
+            35458,
+            19097,
+            4350,
+            699,
+            69,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4988,
+          "gradeWallMs": 181708
+        },
+        "exploreWallMs": 204647,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "probe-cost-precheck-rule-sequential-1001-1787786839329",
+        "hypothesisId": "probe-cost-precheck-rule",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "a3f67ba0ad2701ff12d39d8dba3ecfa40210486b",
+        "superCommit": "aedc13725882fc96b297c5e96c4f17fa856cecea",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-26T23:27:19.329Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 264.4259019861323,
+          "unpairedFraction": 0.4889742030375528,
+          "h1Rate": 0.49637037037037035,
+          "h2Rate": 0.39666666666666667,
+          "h2bRate": 0.41375925925925927,
+          "h3Rate": 0.3373148148148148,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0243333333333333,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49512,
+            35553,
+            19159,
+            4317,
+            694,
+            74,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5011,
+          "gradeWallMs": 181204
+        },
+        "exploreWallMs": 204216,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "research/policy.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 14,
+    "after": 14
+  }
+}
