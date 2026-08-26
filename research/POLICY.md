@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-26T09:01:58.621Z
+Generated: 2026-08-26T21:20:24.706Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -47,7 +47,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - maxLineageDepth: 6
 - stagnationWindow: 8
 - dailyWallHours: 20
-- maxImplementTurns: 80
+- maxImplementTurns: 110
 - maxImplementMinutes: 20
 - maxBuildSeconds: 600
 - minFreeDiskGb: 40
