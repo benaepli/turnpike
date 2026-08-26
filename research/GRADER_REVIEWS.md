@@ -54,6 +54,43 @@ Proposed three explorer fields.
 - `tied_candidate_frac` is new, cheap and feasible, and it belongs beside the
   existing steer counters as an ordinary counter rather than a grader change.
 
+### guard-absorption-counter (queued iteration 72) - rejected, remedy replaced
+
+Proposed classifying every delivered message at the receive point as ACTED
+(mutated node state or enqueued sends) against ABSORBED (dropped by a guard or
+a no-op branch), emitting `acted_fraction` behind a new config bool, so a
+mechanism that never fires can be rejected in one chunk instead of three.
+
+The premise is right. Iteration 71 spent 162,000 runs to reach a futility
+reject, and its own utilization counters - 62 lines of them, added by that
+same hypothesis - never surfaced. The reason is that `collectUtilization`
+materializes a separate 20-runs/config session (1,080 runs, seed 4242) with
+`stats: true`, and it runs only after a merge or at an audit. Evaluation
+explores never set `stats`, so a candidate's own sample produces no
+utilization data at all.
+
+The remedy is wrong, on three counts. Classifying ACTED against ABSORBED needs
+per-delivery state diffing and is semantically fuzzy, since a handler that
+touches a timestamp has mutated state without doing anything. Deciding that a
+no-op was a *guard* rejection rather than an ordinary one needs protocol
+knowledge, which is how a generic classifier drifts into recognizing VR guard
+patterns and trips rule 1. And it adds a config parameter, which is a cost.
+
+What landed instead: capture the utilization session with the candidate's own
+binary during its evaluation, store it as `util:<id>` and journal it. That
+covers every mechanism, including counters a hypothesis writes for itself,
+adds no classifier and no parameter, and costs about 1,080 runs against a
+54,000-run chunk.
+
+Deliberately not adopted: the auto-reject. Closing a hypothesis on a
+utilization criterion is a gate change; the counters are recorded as evidence
+for the judge, reflect and audit to weigh, and they close nothing on their own.
+
+Also not done: setting `stats: true` on the evaluation explores themselves.
+Counter atomics sit in hot paths, `runsPerSec` is a perf-lane gate objective,
+and the baseline is measured without them, so enabling it would make every
+candidate read slower and force a baseline re-run.
+
 ### depth-tail-power-analysis (queued iteration 56) - rejected, premise superseded
 
 The proposal argued that rungs >= 6 read 0.0 for want of statistical

@@ -37,7 +37,7 @@
     "maxLineageDepth": 6,
     "stagnationWindow": 8,
     "dailyWallHours": 20,
-    "maxImplementTurns": 80,
+    "maxImplementTurns": 110,
     "maxBuildSeconds": 600,
     "minFreeDiskGb": 40,
     "maxImplementMinutes": 20

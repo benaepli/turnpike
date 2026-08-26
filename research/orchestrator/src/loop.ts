@@ -579,6 +579,16 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           : { ...priorSeq, resumes, chunks: 0, runs: 0, graded: 0, depth4: 0, depth5: 0, depth6plus: 0, violations: 0, h2Count: 0, posteriors: {}, lastVerdict: "", baselineKey };
         if (priorSeq.baselineKey !== baselineKey) journal(state, n, "seq_reset", { id: h.id, from: priorSeq.baselineKey, to: baselineKey });
       }
+      // The candidate's own mechanism counters. Evaluation runs do not carry
+      // them, so a mechanism that never fired is otherwise indistinguishable
+      // from one that fired and did nothing, and both cost a full sample.
+      try {
+        const candUtil = await collectUtilization(policy);
+        if (candUtil.trim().startsWith("{")) {
+          state.setMeta(`util:${h.id}`, candUtil);
+          journal(state, n, "utilization", { id: h.id, counters: JSON.parse(candUtil) });
+        }
+      } catch { /* advisory only; never blocks an evaluation */ }
       const res = await timed("evaluate", () => runSequential({
         ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.sequential), prior, baselineKey,
         maxChunksTotal: policy.sequential.maxChunks * (policy.sequential.maxResumes + 1),
