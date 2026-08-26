@@ -248,3 +248,43 @@ Policy suggestions: Halt all 'add' hypotheses until a positive control exists: d
 ## 2026-08-26T18:03:12.394Z
 
 **timer-weight-response-curve** (needs_human): Sweep did not actually sweep. Four variant configs (general_vr_timer_w025/050/200/400.json) were emitted, but both evaluation runs used configPath=scheduler_configs/loop/general_vr.json (seeds 1000/1001) — i.e. the harness only ever exercised the unmodified baseline, so no point on the response curve besides w=1.0 was measured. Consistent with that, every objective delta is inside the seed band: depth>=4 +0.0019, depth>=5 -0.0006, depth>=6/7/8 ~+1e-4 or less, h2 -0.0015, violations 0, params 13->13, regression+lint pass. Verdict needs_human only because kind=meta. Two conclusions: (1) the stated falsifier ('w in {2,4} moves depth>=4 by less than ~0.0025') was never testable by this run, so the plateau claim for 0<w!=1 remains unmeasured, not confirmed — do not record it as evidence; (2) a real tooling gap dominates the result: variant configs dropped under scheduler_configs/loop/ are inert because the eval driver pins configPath to general_vr.json, which silently converts every config-only sweep hypothesis into a null-delta no-op. Any future 'emit N configs and compare' hypothesis is unfalsifiable until the driver takes a per-variant configPath. Meanwhile the only demonstrated high-sensitivity signal in this family stays the w=0.0 full ablation (depth>=4 -0.0499), which is a whole-event-class removal effect, not a weight-magnitude effect — suggesting sensitivity lives in class presence/absence rather than in the continuous weight.
+
+## 2026-08-26T22:15:00.000Z (operator)
+
+leave-one-event-class-out-audit (iteration 5266) is being recorded by the
+gate as `blocked: sequential evaluation failed`, and blocked hypotheses get
+no reflect, so the result it actually produced would otherwise be lost. It is
+a positive finding, not a harness failure.
+
+The queue selector's event classes are load-bearing for progress. With one
+class removed, no run reaches the end of its plan. From the hypothesis's own
+utilization capture, 1,080 runs, taken before the sequential and completed
+normally:
+
+| | ablated | baseline (it5261) |
+|---|---|---|
+| plan_complete | 0 | 312 |
+| iterations_exhausted | 1080 | 768 |
+| deadlock | 0 | 0 |
+| steps_used_sum | 6,480,000 | - |
+| step_budget_sum | 6,480,000 | - |
+
+Every run burned its entire step budget with work still outstanding
+(pending_work_at_exit_sum 5957, planned_events_outstanding_sum 10629), and
+none was classified as a deadlock. Runs do not hang; they fail to make
+progress fast enough to finish, and the step budget cuts them off.
+
+That explains the sequential failures without appealing to a harness bug.
+Every run now costs the full 6000 steps instead of terminating early, so
+traces are far larger and the session cannot finish 54,000 runs inside the
+900s explore budget. The explorer is killed at the wall, leaving parquet
+without footers, which reads back as runs=0. Three chunks failed identically
+at 931s.
+
+Two things worth carrying forward. `plan_complete` is a cheap pre-screen for
+this class of change: it resolves on the 1,080-run utilization session, which
+runs before the sequential, and a value of 0 predicts the sequential will
+burn its full budget and return nothing. And the ablation lane should treat
+"removes a mechanism the simulator needs to make progress" as a distinct
+outcome from "removes a mechanism nothing uses" - only the second is a
+candidate for deletion.
