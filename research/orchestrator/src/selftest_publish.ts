@@ -1,9 +1,9 @@
 // End-to-end validation of the publish pipeline with a scripted no-op
-// hypothesis: real branch, real PR into research/vr-loop, real squash-merge.
+// hypothesis: real branch, real PR into the research branch, real squash-merge.
 // Run: npx tsx src/selftest_publish.ts
 import { appendFileSync } from "node:fs";
 import * as path from "node:path";
-import { createBranch, checkout, SPUR, SUPER, currentBranch } from "./gitops.js";
+import { createBranch, checkout, RESEARCH_BRANCH, SPUR, SUPER, currentBranch } from "./gitops.js";
 import { mergeFlow } from "./loop.js";
 import { ROOT } from "./runners.js";
 import { Hypothesis } from "./schemas.js";
@@ -32,4 +32,4 @@ if (!outcome.merged) {
   console.error("PUBLISH SELFTEST FAILED");
   process.exit(1);
 }
-console.log("PUBLISH SELFTEST PASSED - merged into research/vr-loop via PR:", outcome.prUrls.join(", "));
+console.log(`PUBLISH SELFTEST PASSED - merged into ${RESEARCH_BRANCH} via PR:`, outcome.prUrls.join(", "));

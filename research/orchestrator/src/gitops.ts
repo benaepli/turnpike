@@ -158,7 +158,7 @@ export function commitAll(repo: string, message: string): string {
   return currentCommit(repo);
 }
 
-export const RESEARCH_BRANCH = "research/vr-loop";
+export const RESEARCH_BRANCH = "research/auto-vr";
 
 /** Contents of a tracked file at a ref. */
 export function showFile(repo: string, ref: string, filePath: string): string {
@@ -224,7 +224,7 @@ export function push(
   opts?: { setUpstream?: boolean },
 ): void {
   // The loop only publishes its own branches; refuse anything else.
-  if (!/^(research\/vr-loop|hyp\/)/.test(branch)) {
+  if (branch !== RESEARCH_BRANCH && !branch.startsWith("hyp/")) {
     throw new GitError(`push refused: branch ${branch} is not loop-owned`, "policy");
   }
   const args =
