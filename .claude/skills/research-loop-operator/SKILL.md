@@ -39,6 +39,16 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
   immediately with a targeted `git add <paths>`; never `git add -A` in the
   superproject or spur while the loop runs (it sweeps the in-flight
   hypothesis edit into your commit).
+- Check `git branch --show-current` immediately before every operator commit.
+  The daemon moves the working tree onto `hyp/*` for the length of an
+  iteration, implement through evaluation, so a commit made without looking
+  lands on the hypothesis branch and is destroyed when cleanup deletes it.
+  The commit object survives unreferenced; recover it with `git cherry-pick`
+  after confirming `git branch --contains <sha>` is empty.
+- Confirm a push landed by comparing `git rev-parse HEAD` against
+  `git rev-parse origin/<branch>`. `git push -q` piped into a filter hides
+  rejections, and echoing the local HEAD afterwards reports success for a
+  push that never happened.
 - Never `git checkout -f` or `reset --hard` with uncommitted work you want.
 - The implementer edits the working tree ON `research/vr-loop`; its work is
   committed to `hyp/*` only at the end of the iteration. Do not commit onto
