@@ -49,5 +49,6 @@
   "emit_acted_fraction": true,
   "num_runs_per_config": 100,
   "max_iterations": 6000,
-  "strict_config_keys": true
+  "strict_config_keys": true,
+  "rng_stream_isolation": true
 }
