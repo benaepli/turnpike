@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-24T17:46:14.196Z
+Generated: 2026-08-26T09:01:58.621Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -26,7 +26,20 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 | --- | --- | --- | --- | --- | --- |
 | screen | 150 | 100 | 0 | 45000 | 11 |
 | promote | 600 | 250 | 0 | 120000 | 11, 23 |
-| confirm | 900 | 400 | 0 | 300000 | 11, 23, 37 |
+
+## Sequential evaluation
+
+- chunkRunsPerConfig: 1000
+- maxChunks: 4
+- minChunks: 2
+- rejectP: 0.05
+- inconclusiveP: 0.9
+- niP: 0.95
+- regressMargin: 0.25
+- maxResumes: 2
+- resumeCooldown: 2
+- draws: 2000
+- wallSecPerChunk: 900
 
 ## Budgets
 
@@ -35,12 +48,13 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - stagnationWindow: 8
 - dailyWallHours: 20
 - maxImplementTurns: 80
+- maxImplementMinutes: 20
 - maxBuildSeconds: 600
 - minFreeDiskGb: 40
 
 ## Proposal / Audit
 
-- proposal.lenses: 6
+- proposal.lenses: 7
 - proposal.maxPoolSize: 60
 - audit.everyK: 5
 
@@ -48,7 +62,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 
 - spec: bin/spur/VR.spur
 - configTemplate: scheduler_configs/loop/general_vr.json
-- oracleDags: research/oracle/relax_minimal.json
+- oracleDags: research/oracle/relax_minimal_general.json
 - rayonThreads: 14
 
 ## Regression
@@ -62,7 +76,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 
 ## Clamps applied on load
 
-None — policy file was within hard limits.
+None - policy file was within hard limits.
 
 ## Changelog
 
