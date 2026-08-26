@@ -1,0 +1,147 @@
+{
+  "hypothesis": {
+    "id": "timer-weight-response-curve",
+    "parent": "ablate-timer-queue-entirely",
+    "kind": "meta",
+    "title": "Sweep timer_weight over {0.25, 0.5, 2.0, 4.0} to map the response curve and confirm the plateau knee",
+    "description": "No new code: reuse the timer_weight field already added to core/queue_selector.rs. Emit four variant configs under scheduler_configs/loop/ (general_vr_timer_w025.json .. _w400.json) differing only in queue policy timer_weight, run 1 chunk each at seed 1000 against bin/spur/VR.spur, and plot depth>=4 / h1 / h2 vs weight against the w=0.0 (this experiment) and w=1.0 (baseline) anchors. Purpose is calibration, not gain: locate where the curve flattens and whether any sub-1.0 value is non-inferior.",
+    "category": "scheduler",
+    "buildsOn": [
+      "queue_selector",
+      "timer_weight"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 1.5,
+    "rationale": "We have exactly two points on the curve (0.0 = -0.05 depth>=4, 1.0 = baseline) and two null perturbations above it. Four cheap points settle whether the family is a plateau (close it permanently) or has an interior optimum we straddled, at near-zero implementation cost since the knob exists.",
+    "generalityArgument": "timer_weight is a generic queue-selection weight over the timer event class; the sweep reads no protocol state and every message-passing model with timeouts exposes the same class.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-25T17:00:00.000000+00:00",
+    "notes": "[unparked iteration 5261] Up-scored: ablate-timer-queue-entirely produced depth>=4 -0.0499, by far the largest delta in the whole log, proving timer weight is the one demonstrably high-sensitivity axis; config-only sweep on an existing field, no new params — falsified if w in {2,4} moves depth>=4 by less than the ~0.0025 seed band."
+  },
+  "decision": {
+    "hypothesisId": "timer-weight-response-curve",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.001935185185185151,
+      "depth>=5": -0.0005879629629629568,
+      "depth>=6": 0.00009259259259259203,
+      "depth>=7": 0.000004629629629629602,
+      "depth>=8": 0.00001851851851851852,
+      "h2": -0.0015370370370370035,
+      "primary": -0.0005879629629629568,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "timer-weight-response-curve-sequential-1000-1787766319208",
+        "hypothesisId": "timer-weight-response-curve",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "9cb2061b48be1adcc11018923cab3a3f44a2d12d",
+        "superCommit": "49cfc5b50b8bd9ec09fdc965e06722daacd84716",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-26T17:45:19.208Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 246.03384332200363,
+          "unpairedFraction": 0.48489198613737283,
+          "h1Rate": 0.49953703703703706,
+          "h2Rate": 0.40024074074074073,
+          "h2bRate": 0.41453703703703704,
+          "h3Rate": 0.3337407407407407,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0218148148148147,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49424,
+            35431,
+            19116,
+            4390,
+            738,
+            76,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5192,
+          "gradeWallMs": 192546
+        },
+        "exploreWallMs": 219482,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "timer-weight-response-curve-sequential-1001-1787766736649",
+        "hypothesisId": "timer-weight-response-curve",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "9cb2061b48be1adcc11018923cab3a3f44a2d12d",
+        "superCommit": "49cfc5b50b8bd9ec09fdc965e06722daacd84716",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-26T17:52:16.649Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 248.53639677454987,
+          "unpairedFraction": 0.48723231750228113,
+          "h1Rate": 0.49675925925925923,
+          "h2Rate": 0.3977037037037037,
+          "h2bRate": 0.414962962962963,
+          "h3Rate": 0.33796296296296297,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.026222222222222,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49505,
+            35565,
+            19223,
+            4309,
+            729,
+            82,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5378,
+          "gradeWallMs": 196189
+        },
+        "exploreWallMs": 217272,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/queue_selector.rs",
+    "spur-core/src/simulator/curriculum.rs",
+    "spur-core/src/simulator/explorer.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr_timer_w025.json",
+    "scheduler_configs/loop/general_vr_timer_w050.json",
+    "scheduler_configs/loop/general_vr_timer_w200.json",
+    "scheduler_configs/loop/general_vr_timer_w400.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 13,
+    "after": 13
+  }
+}
