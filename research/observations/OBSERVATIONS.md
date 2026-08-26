@@ -278,8 +278,14 @@ That explains the sequential failures without appealing to a harness bug.
 Every run now costs the full 6000 steps instead of terminating early, so
 traces are far larger and the session cannot finish 54,000 runs inside the
 900s explore budget. The explorer is killed at the wall, leaving parquet
-without footers, which reads back as runs=0. Three chunks failed identically
-at 931s.
+without footers. Three chunks failed identically at 931s.
+
+The reason the gate recorded blames the wrong component: "3 chunks failed in
+a row: porcupine produced no parseable JSON (exit 1)". Porcupine is fine. It
+was handed a corpus whose parquet files have no footers because the process
+writing them was killed, and it exits 1 rather than reporting an empty
+corpus. Anyone grepping that message should look at the explorer's wall
+budget and the log's runs=0, not at the checker.
 
 Two things worth carrying forward. `plan_complete` is a cheap pre-screen for
 this class of change: it resolves on the 1,080-run utilization session, which
