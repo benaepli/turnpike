@@ -374,3 +374,7 @@ attempts were all diagnosable because purgatory.delayed_sends exists; this
 one is not. A mechanism hypothesis that ships without a counter for its own
 firing spends a full sequential sample and returns a result nobody can
 interpret, which is worse than a negative.
+
+## 2026-08-26T23:37:12.280Z
+
+**probe-cost-precheck-rule** (needs_human): Null-diff run: only research/policy.json changed (spur a3f67ba, super aedc137 both carried forward), so the two sequential seeds (1000/1001, 54k runs each, general_vr/VR.spur) are a pure re-measurement of the same binary, not a test of the policy. That makes the run accidentally valuable as a noise-floor calibration: with identical code, seed-to-seed objective deltas were depth>=5 -1.18e-3, depth>=6 -1.05e-3, h2 -1.42e-3, depth>=4 +2.6e-4, violations 0, params 14->14, and runsPerSec drift ~0.11. Empirically, any future |Δ primary| below ~1.2e-3 on a two-seed sequential eval is indistinguishable from seed noise; several past accept/reject calls likely sat inside that band. The policy itself is untestable by this harness — verdict needs_human, regression+lint green, and its falsifier (a future probe actually repriced by the rule) can only fire at proposal time, over iterations, not in an evaluation. Meta-lesson compounding the parent's: kind=meta/policy hypotheses should not consume ~7 min/seed of explore budget at all; they should be recorded and applied without an eval, since the eval can only ever report noise. Cost of learning this: ~410s explore + 363s grading for zero information about the hypothesis.
