@@ -32,6 +32,17 @@ the target: general-config depth-8 runs have all been linearizable so far,
 against 71% violation at depth 8 in the plan corpora, so a mechanism that
 reaches depth 8 more often still has to produce a violation to count.
 
+Measured: at depth 8 the ladder is saturated and blind. Among archived depth-8
+runs, the violating and non-violating ones are identical on every graded
+feature (edge satisfaction, matched labels, chain score, critical path), yet
+76% violate under plan-constrained timers against under 1.8% under the general
+grid. The difference is timer admission - the plans decide when timers may
+fire, the general grid lets the simulator fire them at will, and no graded
+feature observes this. Mechanisms that make timer firing a schedulable,
+steerable decision relative to message delivery therefore have headroom the
+depth ladder cannot currently show; a proxy that observes timer-versus-delivery
+ordering would make that headroom measurable.
+
 ## Rules (enforced mechanically; violating them wastes the iteration)
 
 1. Generality: scheduler code and general configs must never mention VR handler names

@@ -58,6 +58,26 @@ capture. Treat prefix depth as a weak proxy and violations as the objective.
 measured under the old oracle, so this is an extrapolation, not a direct
 count.)
 
+**What the proxy is blind to.** Inside `findbug_archive`, among the 148 runs
+at depth 8, 112 violate and 36 do not - and every grader-visible feature is
+identical between the two groups: edge_satisfaction 1.000, eligible_edges 59,
+matched_labels 12, chain_score 0.778, longest_chain 7, critical_path 9. The
+DAG metric is saturated at depth 8 and carries no discriminating power over
+the 76% that violate.
+
+The variable it cannot see is timer admission. `allow_t1` is an
+`allow_timer` directive, and `buildCandidates` returns nil for it
+unconditionally, so it is a zero-candidate label in every run of every
+corpus - plan-driven ones included. The plans set `strict_timers: true`, so
+timers fire only where the plan admits them; the general grid has no
+`strict_timers` key at all and lets the simulator fire them at will. Same
+8-vertex chain, 76% violation under plan-constrained timers against under
+1.8% without. So the ordering of timer firing relative to the crash and
+delivery chain is the uncontrolled variable, and it is invisible to the
+grader by construction. A proxy that discriminates has to observe
+timer-versus-delivery ordering; mechanisms that make timer firing a
+schedulable decision are the ones with headroom.
+
 ## Fidelity sizing
 
 **Grade every run (`gradeMaxRuns: 0`).** At 3 ms/run grading is never the
