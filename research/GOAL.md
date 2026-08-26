@@ -75,6 +75,16 @@ proposal which existing field the counter reads from. The channel-order probe
 was priced at 2 and needed a send ordinal stamped on every message, a
 thread-local high-water map, and a config key.
 
+Measured noise floor (null diff, identical explorer, 108,000 runs against the
+216,000-run baseline): depth>=4 +0.07%, depth>=5 -1.44%, depth>=6 -7.50%,
+h2 -0.36%, all relative. Nothing in the binary changed. depth>=6 is the rung
+usually called the frontier and it moves 7.5% on its own, more than Poisson
+counting noise on ~1,400 events would give, so session-level variance is real.
+A pre-registered falsifier below these numbers cannot fire on evidence, only
+on luck. Write thresholds above the floor for the rung being claimed, and
+prefer depth>=4 when a small effect is expected, since it is the only rung
+stable to a tenth of a percent.
+
 A mechanism must count its own firing. Per-candidate utilization capture can
 only answer "did this fire" when the mechanism increments something, and a
 null result from a mechanism with no counter cannot be told apart from a
