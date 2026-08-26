@@ -188,11 +188,16 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   // with measurable baseline support (depth>=6..8 are 0 at baseline and act
   // as jackpot indicators, not gradients).
   const primary = cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=5"] ?? 0);
+  // Run rate is the budget the loop spends, not one of its objectives, so it
+  // gates nothing outside ablations. Recording it on every decision is what
+  // makes erosion across merges visible at all; without it there is no series
+  // to trend.
+  const throughput = (i.throughputRatio ?? 1) - 1;
   return {
     hypothesisId: i.hypothesis.id,
     verdict,
     reasons,
-    objectiveDeltas: { ...cmp.deltas, primary },
+    objectiveDeltas: { ...cmp.deltas, primary, throughput },
     regressionPassed: i.regressionPassed,
     lintPassed: i.lintFailures.length === 0,
   };
