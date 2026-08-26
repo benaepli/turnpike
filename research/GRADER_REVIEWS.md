@@ -208,3 +208,36 @@ obviously useful yet: no hypothesis has been blocked for want of a joint
 hazard rate, whereas six were blocked for want of "did my mechanism act",
 which per-candidate utilization capture now answers. Reconsider if a concrete
 hypothesis declares it as a dependency.
+
+## Addendum, 2026-08-26 (later): stats is on for evaluation runs
+
+The guard-absorption-counter entry above states that evaluation explores never
+set `stats`, and reasons from that: counter atomics sit in hot paths,
+`runsPerSec` is a perf-lane objective, and enabling them would slow every
+candidate and force a baseline re-run. That was true when written and is not
+true now. `scheduler_configs/loop/general_vr.json` carries `stats: true` from
+#18 (crash-recover-density-telemetry) and `emit_acted_fraction: true` from
+#19, and `materializeConfig` copies the template through untouched, so every
+evaluation explore runs with the counters live.
+
+The concern that justified the original position does not survive
+measurement. Paired 54,000-run sequential chunks, same seeds, before and
+after the two merges that added the delivery probe:
+
+| seed | before | after | delta |
+|---|---|---|---|
+| 1000 | 220.3s | 236.0s | +7.1% |
+| 1001 | 219.8s | 207.0s | -5.8% |
+| 1002 | 217.5s | 203.0s | -6.7% |
+| 1003 | 217.1s | 205.0s | -5.6% |
+
+Mean 218.7s -> 212.8s, three of four chunks faster. There is no measurable
+throughput cost to carrying the counters, so "counters are too expensive for
+evaluation runs" should not be cited again without new measurement.
+
+Two consequences. The per-candidate utilization capture added after that
+review is still worth having, because it stores and journals the counters
+under a fixed seed and session size so numbers are comparable across
+candidates, which a candidate's own evaluation config does not guarantee. And
+a hypothesis proposing to enable a counter on evaluation runs can no longer
+be rejected on cost alone.
