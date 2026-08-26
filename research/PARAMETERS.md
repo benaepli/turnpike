@@ -46,10 +46,17 @@ Evaluation therefore grades against `relax_minimal_general.json`, which is
 frozen oracle and `research/corpus/` are untouched, so the corpus invariants
 in `manifest.json` still hold against the original DAG.
 
-Depth alone is not the bug: all 32,400 runs were linearizable, including both
-depth-8 runs. Plan corpora violate on 71% of depth-8 runs, so general-config
-precision at full depth is much lower and depth stays a proxy, not ground
-truth.
+Depth alone is not the bug, and the gap is large. All 32,400 runs were
+linearizable, both depth-8 runs included. Extrapolating P(depth>=8) = 6.2e-5
+over the 2,688,021 graded runs the loop has already produced puts about 166
+depth-8 runs in that history, and porcupine found 0 violations in it - a
+general-config precision at full depth below 1.8% at 95%, against 266/372 =
+72% for the plan corpora. At least a 40x gap, so the oracle chain is necessary
+but nowhere near sufficient: the plans constrain something the DAG does not
+capture. Treat prefix depth as a weak proxy and violations as the objective.
+(The 2.7M runs span different candidate binaries and their depth was never
+measured under the old oracle, so this is an extrapolation, not a direct
+count.)
 
 ## Fidelity sizing
 
