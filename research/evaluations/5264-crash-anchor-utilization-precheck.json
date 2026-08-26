@@ -1,0 +1,142 @@
+{
+  "hypothesis": {
+    "id": "crash-anchor-utilization-precheck",
+    "parent": "retire-send-anchored-crash-params",
+    "kind": "meta",
+    "title": "Measure whether the four crash_after_send_* anchors ever fire before adding or retiring anchor machinery",
+    "description": "One-iteration, semantics-free measurement in spur/spur-core/src/simulator/: for each of the four crash_after_send_* params, increment a util_stats counter when the anchor condition is offered and when a crash is actually injected at that anchor (crash_anchor.<param>.offered / .applied). Emit in the existing stats block that already carries aos.tape_wins and dedup.checks under stats:true. No new config fields, no default changes, no eval-harness or gate changes, no touch of core/exec.rs.",
+    "category": "tooling",
+    "buildsOn": [
+      "crash_recovery",
+      "send-anchored crash points",
+      "util_stats counters"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 1.5,
+    "rationale": "Three pool items hinge on one unmeasured integer: retire-send-anchored-crash-params (blocked, best gain/cost in pool, dead-code removal), and any further crash-anchor add. The utilization audit lists aos/dedup/stale_accept as zero-activity but says nothing about the send-anchored crash path; if applied==0 the entire anchored-crash family (send-anchored-crash-points, delayed-send-anchored-crash, crash-boost-dose-sweep — all closed at ~0.0002 or less) was unmeasurable by construction, which retroactively explains those nulls and makes deletion free. Unlike acted-fraction-instrumentation, the number lands in a stats block that is already read at audit time, adds zero general config params, and is not on the dispatch hot path.",
+    "generalityArgument": "Counters over existing crash-injection code paths keyed by config param name; no protocol vocabulary, no behavioral change on any spec.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-26T16:55:12.213Z",
+    "notes": "Red team: this is telemetry, and the observations log is explicit that telemetry merges that feed no gate produced zero decision value. Accepted only because it is pre-committed to a decision: applied==0 => unblock and execute retire-send-anchored-crash-params and reject all new anchor proposals; applied>0 => the anchored-crash nulls stand as real and the family is closed for good. Falsified if th"
+  },
+  "decision": {
+    "hypothesisId": "crash-anchor-utilization-precheck",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0014537037037036793,
+      "depth>=5": -0.00043981481481480955,
+      "depth>=6": -0.00024074074074074102,
+      "depth>=7": -0.00009722222222222228,
+      "depth>=8": 0,
+      "h2": -0.0017870370370370314,
+      "primary": -0.00043981481481480955,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "crash-anchor-utilization-precheck-sequential-1000-1787768172043",
+        "hypothesisId": "crash-anchor-utilization-precheck",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "459171923c5d08f7eb80c5eead15e33004eef03d",
+        "superCommit": "06c848d307d15fd4ee58dd5e366afa9d9d91503f",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-26T18:16:12.043Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 239.56665054767598,
+          "unpairedFraction": 0.48532658878317075,
+          "h1Rate": 0.49877777777777776,
+          "h2Rate": 0.3999814814814815,
+          "h2bRate": 0.41624074074074074,
+          "h3Rate": 0.3340740740740741,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0212777777777777,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49440,
+            35459,
+            19067,
+            4394,
+            715,
+            73,
+            1
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5145,
+          "gradeWallMs": 189061
+        },
+        "exploreWallMs": 225407,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "crash-anchor-utilization-precheck-sequential-1001-1787768591923",
+        "hypothesisId": "crash-anchor-utilization-precheck",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "459171923c5d08f7eb80c5eead15e33004eef03d",
+        "superCommit": "06c848d307d15fd4ee58dd5e366afa9d9d91503f",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-26T18:23:11.923Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 247.21765683442368,
+          "unpairedFraction": 0.4883373453971943,
+          "h1Rate": 0.49698148148148147,
+          "h2Rate": 0.39746296296296296,
+          "h2bRate": 0.4145185185185185,
+          "h3Rate": 0.3378148148148148,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.026148148148148,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49465,
+            35613,
+            19220,
+            4321,
+            716,
+            74,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5097,
+          "gradeWallMs": 191714
+        },
+        "exploreWallMs": 218431,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 13,
+    "after": 13
+  }
+}
