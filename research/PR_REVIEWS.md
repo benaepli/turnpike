@@ -98,3 +98,44 @@ acted events. The pointer was right here only because `exec.rs:28` and
 stand, and the change buys correctness that does not depend on that.
 
 Merged.
+
+### probe-cost-precheck-rule (iteration 5269) - rejected on wiring, substance adopted
+
+Added a `proposalRules` array to `research/policy.json` holding three rules
+about how probes should be priced. The rules are good, sharper than the
+version the operator had already written. The location makes them inert.
+
+`proposalRules` is not a key the Policy schema declares. `src/policy.ts`
+builds `Policy` with `z.object({...})`, `schemas.ts` has no `.strict()`, and
+Zod strips unknown keys on parse. Checked against the branch directly:
+`Policy.parse(raw)` yields an object where `"proposalRules" in parsed` is
+false. `grep -rn proposalRules src/` returns nothing, and neither `agents.ts`
+nor `select.ts` reads any rules field. The array survives in the JSON file,
+so a person reading `policy.json` sees three rules that appear to be in
+force and are not.
+
+Because the only diff cannot reach the explorer, the sequential was an A/A
+test: it compared the binary against itself and passed non-inferiority the
+way any no-op does. Non-inferiority cannot detect a change that does
+nothing. That is the second inert change in one evening to pass the gate,
+after `timer-weight-response-curve`'s variant configs, and it is a different
+file so `lintInertConfigs` did not see it.
+
+The rationale was also partly misattributed: it cited iteration 5267's
+regression failure as evidence that probes are underpriced, but that failure
+was an operator fault - a stale `tmp/loop/spur-baseline` rejecting
+`emit_acted_fraction` under `strict_config_keys`. The pricing concern stands
+on its own evidence: the channel-order probe was priced at 2 and needed a
+send ordinal on every message, a thread-local high-water map, and a config
+key.
+
+Substance adopted rather than lost: the pricing rule is in `research/GOAL.md`
+(6b6970f), which is read on every proposal.
+
+Staged remedy: `lintInertPolicyKeys`, failing any hypothesis that adds a
+top-level policy key the schema does not declare. Deliberately not fixed by
+making the schema strict, which would turn one bad key into a daemon that
+refuses to start rather than one failed hypothesis.
+
+Worth keeping: the run produced a certified null-diff measurement, now the
+published noise floor in GOAL.md.
