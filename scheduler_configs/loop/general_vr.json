@@ -43,7 +43,8 @@
   "feedback": {
     "mode": "timeline",
     "steer": true,
-    "timeline_key_granularity": "fine"
+    "timeline_key_granularity": "fine",
+    "normalize_scores": true
   },
   "num_runs_per_config": 100,
   "max_iterations": 6000,
