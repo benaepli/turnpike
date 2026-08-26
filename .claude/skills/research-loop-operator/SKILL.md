@@ -49,6 +49,14 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
   `git rev-parse origin/<branch>`. `git push -q` piped into a filter hides
   rejections, and echoing the local HEAD afterwards reports success for a
   push that never happened.
+- Refresh `tmp/loop/spur-baseline` from `spur/target/release/spur` after any
+  merge, and never run `cli baseline` without the `cp` that the detached
+  command in `reference/monitors.md` includes. The perf lane runs that file
+  copy against the candidate's config, and the explorer rejects unknown
+  top-level keys under `strict_config_keys`. One merge that adds a config
+  key therefore makes every later hypothesis fail its throughput case, which
+  the gate reports as "regression suite failed" on hypotheses that did
+  nothing wrong. It is a total block on the lane, not a degraded comparison.
 - Never `git checkout -f` or `reset --hard` with uncommitted work you want.
 - The implementer edits the working tree ON `research/vr-loop`; its work is
   committed to `hyp/*` only at the end of the iteration. Do not commit onto
