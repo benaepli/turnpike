@@ -45,6 +45,7 @@
     "steer": true,
     "timeline_key_granularity": "fine"
   },
+  "stats": true,
   "num_runs_per_config": 100,
   "max_iterations": 6000,
   "strict_config_keys": true
