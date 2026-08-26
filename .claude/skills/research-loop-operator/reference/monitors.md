@@ -31,20 +31,62 @@ the loop rather than the filter.
 `cut` bounds a single event; `seq_chunk` payloads carry full posteriors and
 run past a screen otherwise.
 
-## Heartbeat (loop is alive; prints only when something changed)
+## Heartbeat (one line every 10 minutes: iteration, phase, spend)
 
 ```bash
-cd /home/benaepli/Research/alt/jennLang; idle=0; PREV=""; while :; do if systemctl --user -q is-active spur-research-loop; then idle=0; LAST=$(tail -1 research/journal.jsonl 2>/dev/null | python3 -c "import json,sys
-try:
-    e=json.load(sys.stdin); d=e.get('data') or {}
-    hint=d.get('id') or d.get('why') or (','.join(d.get('reasons',[]))[:60] if isinstance(d.get('reasons'),list) else '') or ''
-    print(f\"iter={e['iteration']} last={e['event']}({str(hint)[:60]})\")
-except Exception: print('journal empty')"); D=$(ls -dt tmp/loop/eval-* tmp/loop/bench-* tmp/loop/regr-* 2>/dev/null | grep -v config | grep -v '\.log' | head -1); SP=$(ps -o pcpu= -C spur 2>/dev/null | head -1 | xargs); if [ -n "$D" ] && [ -n "$SP" ]; then PH="explore ${D##*/} cpu=${SP}%"; elif [ -n "$SP" ]; then PH="explore/regression cpu=${SP}%"; elif [ -n "$D" ]; then PH="grading ${D##*/}"; else PH="agent phase (propose/implement/judge/reflect)"; fi; CUR="$LAST | $PH"; if [ "$CUR" != "$PREV" ]; then echo "hb[loop]: $CUR"; PREV="$CUR"; fi; else idle=$((idle+1)); [ $idle -ge 8 ] && { echo "hb: loop unit inactive for 20 min - heartbeat ends"; exit 0; }; echo "hb: loop unit not active"; fi; sleep 150; done
+cd /home/benaepli/Research/alt/jennLang
+idle=0; PC=""
+while :; do
+  if systemctl --user -q is-active spur-research-loop; then
+    idle=0
+    L=$(python3 -c "
+import json
+last=None; cum=0.0
+for line in open('research/journal.jsonl'):
+    try: e=json.loads(line)
+    except: continue
+    d=e.get('data') or {}
+    c=d.get('cost')
+    if isinstance(c,(int,float)): cum+=c
+    last=e
+if last is None:
+    print('journal empty 0'); raise SystemExit
+d=last.get('data') or {}
+hint=d.get('id') or d.get('why') or (','.join(d.get('reasons',[]))[:50] if isinstance(d.get('reasons'),list) else '') or ''
+print(f\"iter={last['iteration']} last={last['event']}({str(hint)[:50]}) {cum:.2f}\")
+")
+    CUM=${L##* }; LAST=${L% *}
+    [ -z "$PC" ] && PC=$CUM
+    D=$(ls -dt tmp/loop/eval-* tmp/loop/bench-* tmp/loop/regr-* 2>/dev/null | grep -v config | grep -v '\.log' | head -1)
+    SP=$(ps -o pcpu= -C spur 2>/dev/null | head -1 | xargs)
+    if [ -n "$D" ] && [ -n "$SP" ]; then PH="explore ${D##*/} cpu=${SP}%"
+    elif [ -n "$SP" ]; then PH="explore/regression cpu=${SP}%"
+    elif [ -n "$D" ]; then PH="grading ${D##*/}"
+    else PH="agent phase (propose/implement/judge/reflect)"; fi
+    DELTA=$(awk -v a="$CUM" -v b="$PC" 'BEGIN{d=a-b; if(d<0)d=0; printf "%.2f", d}')
+    echo "hb[loop]: $LAST | $PH | +\$$DELTA/10min"
+    PC=$CUM
+  else
+    idle=$((idle+1))
+    [ $idle -ge 3 ] && { echo "hb: loop unit inactive for 30 min - heartbeat ends"; exit 0; }
+    echo "hb: loop unit not active"
+  fi
+  sleep 600
+done
 ```
 
-Emitting only on change matters over a long unattended run: the
-unconditional form printed 24 identical lines an hour, and the phase string
-changes on its own well inside any real stall, so nothing is lost.
+The spend column is what makes this a health check rather than a clock.
+Iteration advancing with `+$0.00` is the wedge signature: agent calls that
+fail cost nothing, so a live loop that is accomplishing nothing prints a
+rising `iter=` beside a zero. A normal tick lands between about $0.20 and $6
+depending on phase, and $0.00 is also ordinary during a long explore or
+grade, so read it together with the phase rather than alone.
+
+`PC` seeds from the first tick, so the opening line always reads `+$0.00`
+rather than reporting lifetime spend.
+
+Ten minutes is the operator's chosen cadence: 6 lines an hour, against 24 at
+the original 150s. Do not restore the unconditional 150s tick.
 
 ## Churn detector (the loop is running and accomplishing nothing)
 
