@@ -49,6 +49,11 @@
     "lenses": 7,
     "maxPoolSize": 60
   },
+  "proposalRules": [
+    "Price a probe by where its observable comes from. A hypothesis whose whole deliverable is a measurement - kind meta, or an instrumentation-only enabling change - may carry expectedCost <= 2 only if its notes name the source of the number: the existing struct and field the counter reads, and the function where that value is already in scope at the point the counter would sit. Naming the counter to be added is not an answer; that is the output, not the input.",
+    "If the observable does not exist yet - it needs a new field threaded through exec.rs, state.rs or path.rs, a new config parameter, or event identity carried across events that are currently independent - the hypothesis is instrumentation plumbing, not a probe. Reprice it to expectedCost >= 4, or >= 6 when the threading touches execution semantics and therefore routes the result to human review; or convert it to an offline probe that answers the same question by reading a trace corpus that has already been written, leaving the subject untouched.",
+    "Checked when the hypothesis is written, and again at every pool rescore: a cheap probe with no named source field is treated the same as one with no falsification statement."
+  ],
   "evaluation": {
     "spec": "bin/spur/VR.spur",
     "configTemplate": "scheduler_configs/loop/general_vr.json",
