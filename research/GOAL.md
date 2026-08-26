@@ -67,6 +67,16 @@ that place a delivery inside the window where it is still accepted have
 headroom; mechanisms that delay or reorder more messages into a restarted
 receiver do not, and have now been falsified six times.
 
+A mechanism must count its own firing. Per-candidate utilization capture can
+only answer "did this fire" when the mechanism increments something, and a
+null result from a mechanism with no counter cannot be told apart from a
+mechanism that never ran. The six purgatory attempts were all diagnosable
+because `purgatory.delayed_sends` exists; `stale-delivery-expedite` spent a
+full sequential sample and returned a result nobody can interpret, because
+it did not add one. Add a counter in `spur-core/src/simulator/util_stats.rs`
+alongside the existing ones, and state in the hypothesis what value of it
+would mean the mechanism fired as intended.
+
 ## Rules (enforced mechanically; violating them wastes the iteration)
 
 1. Generality: scheduler code and general configs must never mention VR handler names
