@@ -1,0 +1,143 @@
+{
+  "hypothesis": {
+    "id": "crash-recover-density-telemetry",
+    "parent": "crash-recover-density-knob",
+    "kind": "enabling",
+    "title": "Report crash/recover crossing density as a first-class metric before steering on it",
+    "description": "Pure-measurement change, no scheduler policy change. In spur-core/src/simulator/util_stats.rs add counters: crashes, recovers, messages dropped at crash, messages delivered to a node after a Recover that were dispatched before its Crash, and count of runs containing >=1 such crossing delivery. Plumb them through the explorer's per-batch stats output (spur-core/src/simulator/explorer.rs) so they appear alongside depthAtLeast/h2 in eval metrics. Gate emission behind an existing stats/verbosity flag rather than a new general config param so generalConfigParams does not grow. Run on the unmodified baseline scheduler to get the true crossing rate, then re-run with the crash-recover-density-knob patch applied locally to measure whether the bias raised it at all.",
+    "category": "tooling",
+    "buildsOn": [
+      "scheduler",
+      "util_stats"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 1.5,
+    "rationale": "Two consecutive nulls (incarnation-timeline-tuples, crash-recover-density-knob) both hinge on an unmeasured quantity: how often a crash/recover crossing actually occurs. Measuring it once is cheap and either kills the whole crash/recover branch outright or tells us the exact multiplier we need, converting future guesses into arithmetic.",
+    "generalityArgument": "Counts only simulator-level events (Crash, Recover, message dispatch/delivery) that exist for every protocol; no message content or protocol state is inspected.",
+    "status": "inconclusive",
+    "branch": "hyp/059-crash-recover-density-telemetry",
+    "prUrls": [],
+    "createdAtIso": "2026-08-25T07:35:00.000Z",
+    "notes": "[stop] parked at sequential in iteration 62; partial work on branch hyp/059-crash-recover-density-telemetry [resumable after restart]"
+  },
+  "decision": {
+    "hypothesisId": "crash-recover-density-telemetry",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": -0.0011111111111111183,
+      "depth>=5": -0.0007870370370370444,
+      "depth>=6": -0.0002222222222222226,
+      "depth>=7": -0.000023148148148148008,
+      "depth>=8": -0.000004629629629629629,
+      "h2": 0.001342592592592562,
+      "primary": -0.0007870370370370444,
+      "params": 1
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "crash-recover-density-telemetry-sequential-1002-1787737887543",
+        "hypothesisId": "crash-recover-density-telemetry",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "586b90734baa9e94c4765b689ec01363cdc6a164",
+        "superCommit": "09740a821a26510be8fd7d2e3fea4a0155623a9b",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1002,
+        "startedAtIso": "2026-08-26T09:51:27.543Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 248.30668634727067,
+          "unpairedFraction": 0.48693509641164234,
+          "h1Rate": 0.5016111111111111,
+          "h2Rate": 0.4018888888888889,
+          "h2bRate": 0.41735185185185186,
+          "h3Rate": 0.3365740740740741,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.021611111111111,
+          "maxPrefixDepth": 7,
+          "depthAtLeast": [
+            54000,
+            49451,
+            35592,
+            19032,
+            4321,
+            702,
+            69
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5111,
+          "gradeWallMs": 189585
+        },
+        "exploreWallMs": 217473,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "crash-recover-density-telemetry-sequential-1003-1787738300017",
+        "hypothesisId": "crash-recover-density-telemetry",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "586b90734baa9e94c4765b689ec01363cdc6a164",
+        "superCommit": "09740a821a26510be8fd7d2e3fea4a0155623a9b",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1003,
+        "startedAtIso": "2026-08-26T09:58:20.017Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 248.68862802168195,
+          "unpairedFraction": 0.4878463860257522,
+          "h1Rate": 0.5003148148148148,
+          "h2Rate": 0.40074074074074073,
+          "h2bRate": 0.4182037037037037,
+          "h3Rate": 0.3370740740740741,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0231666666666666,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49531,
+            35457,
+            19019,
+            4402,
+            756,
+            84,
+            2
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5105,
+          "gradeWallMs": 188201
+        },
+        "exploreWallMs": 217139,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 12,
+    "after": 13
+  }
+}
