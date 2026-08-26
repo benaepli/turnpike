@@ -342,3 +342,35 @@ after that merge would have failed the same way, since the offending key sits
 in the shared bench config. A stale baseline binary is therefore not a
 degraded comparison; it is a total block on the perf lane that presents as a
 per-hypothesis regression failure. Refreshing the copy cleared it.
+
+## 2026-08-26T23:15:00.000Z (operator)
+
+stale-delivery-expedite (iteration 5268) was the first hypothesis aimed at
+the sender-side timing lever rather than the receiver-side volume one, and
+the ladder rejected it after 2 chunks and 108,000 runs, no frontier rung
+separable. What it does and does not establish is worth stating precisely,
+because it is easy to read as a falsification of the lever and it is not one.
+
+Its own absorption prescreen moved in the intended direction. Stale-sender
+deliveries acted 17.88% before and 21.68% after, with every other bucket flat
+or slightly down (all 41.10 -> 40.45, delayed 13.95 -> 13.73). But n is 1033
+in that bucket, so the difference is about 43 events, roughly 1.5 sigma, and
+the same bucket has read 15.79%, 15.87% and 17.88% across earlier sessions -
+a session-to-session spread comparable to the effect.
+
+The question that would settle it cannot be answered, because the hypothesis
+added no counter for its own mechanism. There is no record of how many
+deliveries it expedited. So "the mechanism worked and acting does not buy
+depth" and "the mechanism barely fired" are both consistent with what was
+recorded, and they call for opposite next steps.
+
+The sender-side lever is therefore untested, not falsified. Do not cite this
+iteration as evidence against it.
+
+The general lesson is sharper than the specific one. Per-candidate
+utilization capture exists to answer "did the mechanism fire", and it can
+only do that when the mechanism increments something. The six purgatory
+attempts were all diagnosable because purgatory.delayed_sends exists; this
+one is not. A mechanism hypothesis that ships without a counter for its own
+firing spends a full sequential sample and returns a result nobody can
+interpret, which is worse than a negative.
