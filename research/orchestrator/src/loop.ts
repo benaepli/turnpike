@@ -152,7 +152,17 @@ async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
   const evalContext = evaluationContext(state, policy);
   const results = await Promise.all(lenses.map((lens) => proposeHypotheses(policy, lens, statusMd, existingIds, evalContext)));
   const candidates = results.flatMap((r) => r.value?.hypotheses ?? []);
-  journal(state, iteration, "propose", { lenses: lenses.length, candidates: candidates.length, cost: results.reduce((a, r) => a + r.costUsd, 0) });
+  const errors = results.map((r) => r.error).filter((e): e is string => Boolean(e));
+  const cost = results.reduce((a, r) => a + r.costUsd, 0);
+  journal(state, iteration, "propose", { lenses: lenses.length, candidates: candidates.length, cost });
+  // Every lens failing without spending anything is an infrastructure fault
+  // (expired credentials, no network), not a model that had nothing to say.
+  // Raising it here routes it to the driver's backoff-and-exit path instead
+  // of leaving the pool empty and the loop spinning.
+  if (candidates.length === 0 && errors.length === lenses.length && cost === 0) {
+    journal(state, iteration, "error", { stage: "propose", lenses: lenses.length, error: errors[0] });
+    throw new Error(`all ${lenses.length} proposal lenses failed at zero cost: ${errors[0]}`);
+  }
   if (candidates.length === 0) return;
   const poolSummaries = state.listHypotheses().map((h) => `${h.id} [${h.kind}/${h.status}]: ${h.title}`);
   const calibration = calibrationTable(state);
@@ -369,7 +379,12 @@ async function collectUtilization(policy: Policy): Promise<string> {
   }
 }
 
+// Set when an iteration found nothing to work on. An idle iteration costs
+// almost no wall time, so the driver must pace itself rather than spin.
+export let lastIterationIdle = false;
+
 export async function runIteration(deps: LoopDeps): Promise<void> {
+  lastIterationIdle = false;
   const { state, policy } = deps;
   const n = state.beginIteration();
   const timings: Record<string, number> = {};
@@ -400,7 +415,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       }
       return picked;
     });
-    if (!h) { notes = "empty pool"; journal(state, n, "select", { none: true }); return; }
+    if (!h) { notes = "empty pool"; lastIterationIdle = true; journal(state, n, "select", { none: true }); return; }
     if (h.kind === "grader") {
       // Changes to the grader change what progress means; they are queued
       // for an operator decision instead of implemented by the loop.
@@ -809,6 +824,7 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
     }
   }
   let consecutiveFailures = 0;
+  let idleStreak = 0;
   try {
     const util0 = await collectUtilization(deps.policy);
     if (util0.trim().startsWith("{")) deps.state.setMeta("utilization", util0);
@@ -828,6 +844,16 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
     try {
       await runIteration(deps);
       consecutiveFailures = 0;
+      if (lastIterationIdle) {
+        // Nothing to select. Back off up to 5 minutes so a pool that stays
+        // empty costs a handful of log lines an hour, not thousands.
+        idleStreak++;
+        const waitMs = Math.min(300_000, 10_000 * idleStreak);
+        console.log(`idle iteration (${idleStreak} consecutive); sleeping ${Math.round(waitMs / 1000)}s`);
+        await new Promise((r) => setTimeout(r, waitMs));
+      } else {
+        idleStreak = 0;
+      }
     } catch (e) {
       consecutiveFailures++;
       console.error(`iteration failed: ${String(e)} (${consecutiveFailures} consecutive)`);
