@@ -35,31 +35,89 @@ export interface RoleResult<T> {
   error: string | null;
 }
 
-async function collect(gen: AsyncGenerator<SDKMessage, void>): Promise<{ text: string; costUsd: number; turns: number; isError: boolean; errText: string }> {
+// Where an agent session spent its wall time: model generation/thinking vs
+// tool execution, split by tool category, with a call histogram. Tool time
+// is measured from each tool_use to its matching tool_result; the remainder
+// is model time.
+export interface AgentActivity {
+  totalMs: number;
+  modelMs: number;
+  toolMs: Record<string, number>;
+  toolCounts: Record<string, number>;
+}
+
+function emptyActivity(): AgentActivity {
+  return { totalMs: 0, modelMs: 0, toolMs: {}, toolCounts: {} };
+}
+
+function toolCategory(name: string, command: string | undefined): string {
+  if (name === "Edit" || name === "Write" || name === "MultiEdit" || name === "NotebookEdit") return "edit";
+  if (name === "Read" || name === "NotebookRead") return "read";
+  if (name !== "Bash") return "other";
+  const c = (command ?? "").trim();
+  if (/\bcargo\s+(build|b|check)\b/.test(c)) return "build";
+  if (/\bcargo\s+(test|t)\b/.test(c) || /\bgo\s+test\b/.test(c)) return "test";
+  if (/\bexplore\b|\bspur\b.*\bexplore\b|--output-dir/.test(c)) return "smoke";
+  if (/^(cat|grep|rg|ls|find|head|tail|wc|sed -n|awk)\b/.test(c)) return "read";
+  return "shell";
+}
+
+interface StreamBlock { type: string; id?: string; name?: string; input?: { command?: string }; tool_use_id?: string }
+
+async function collect(gen: AsyncGenerator<SDKMessage, void>): Promise<{ text: string; costUsd: number; turns: number; isError: boolean; errText: string; activity: AgentActivity }> {
   let text = "";
   let costUsd = 0;
   let turns = 0;
   let isError = false;
   let errText = "";
+  let activity: AgentActivity = emptyActivity();
   try {
-    return await collectInner(gen, (t, c, n, e, et) => { text = t; costUsd = c; turns = n; isError = e; errText = et; });
+    return await collectInner(gen, (t, c, n, e, et, a) => { text = t; costUsd = c; turns = n; isError = e; errText = et; activity = a; });
   } catch (e) {
     // The SDK throws on some terminal results (e.g. max turns). Convert to a
     // clean error outcome so an iteration never aborts on an agent failure.
-    return { text, costUsd, turns, isError: true, errText: String(e) };
+    return { text, costUsd, turns, isError: true, errText: String(e), activity };
   }
 }
 
 async function collectInner(
   gen: AsyncGenerator<SDKMessage, void>,
-  save: (t: string, c: number, n: number, e: boolean, et: string) => void,
-): Promise<{ text: string; costUsd: number; turns: number; isError: boolean; errText: string }> {
+  save: (t: string, c: number, n: number, e: boolean, et: string, a: AgentActivity) => void,
+): Promise<{ text: string; costUsd: number; turns: number; isError: boolean; errText: string; activity: AgentActivity }> {
   let text = "";
   let costUsd = 0;
   let turns = 0;
   let isError = false;
   let errText = "";
+  const t0 = performance.now();
+  const toolMs: Record<string, number> = {};
+  const toolCounts: Record<string, number> = {};
+  const pending = new Map<string, { cat: string; ts: number }>();
+  const activity = (): AgentActivity => {
+    const toolTotal = Object.values(toolMs).reduce((a, b) => a + b, 0);
+    const totalMs = performance.now() - t0;
+    return { totalMs: Math.round(totalMs), modelMs: Math.round(Math.max(0, totalMs - toolTotal)), toolMs: Object.fromEntries(Object.entries(toolMs).map(([k, v]) => [k, Math.round(v)])), toolCounts };
+  };
   for await (const m of gen) {
+    const now = performance.now();
+    if (m.type === "assistant") {
+      const blocks = ((m as { message?: { content?: StreamBlock[] } }).message?.content) ?? [];
+      for (const b of blocks) {
+        if (b.type === "tool_use" && b.id) {
+          const cat = toolCategory(b.name ?? "", b.input?.command);
+          pending.set(b.id, { cat, ts: now });
+          toolCounts[cat] = (toolCounts[cat] ?? 0) + 1;
+        }
+      }
+    } else if (m.type === "user") {
+      const blocks = ((m as { message?: { content?: StreamBlock[] } }).message?.content) ?? [];
+      for (const b of blocks) {
+        if (b.type === "tool_result" && b.tool_use_id) {
+          const p = pending.get(b.tool_use_id);
+          if (p) { toolMs[p.cat] = (toolMs[p.cat] ?? 0) + (now - p.ts); pending.delete(b.tool_use_id); }
+        }
+      }
+    }
     if (m.type === "result") {
       costUsd = m.total_cost_usd ?? 0;
       turns = m.num_turns ?? 0;
@@ -72,9 +130,9 @@ async function collectInner(
         errText = m.subtype;
       }
     }
-    save(text, costUsd, turns, isError, errText);
+    save(text, costUsd, turns, isError, errText, activity());
   }
-  return { text, costUsd, turns, isError, errText };
+  return { text, costUsd, turns, isError, errText, activity: activity() };
 }
 
 // Extract the first balanced top-level JSON object/array from model text.
@@ -257,7 +315,7 @@ export function makeImplementerGate(kind: Hypothesis["kind"]): (toolName: string
   };
 }
 
-export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean; aborted: boolean; timedOut: boolean }> {
+export async function implementHypothesis(policy: Policy, h: Hypothesis): Promise<{ summary: string; costUsd: number; turns: number; isError: boolean; aborted: boolean; timedOut: boolean; activity: AgentActivity }> {
   // Implementation is a code edit plus at most one smoke run; a hypothesis
   // that turns implement into a measurement study is aborted at this wall.
   const deadlineMs = policy.budgets.maxImplementMinutes * 60_000;
@@ -285,7 +343,7 @@ export async function implementHypothesis(policy: Policy, h: Hypothesis): Promis
   // the implement wall, which blocks the hypothesis rather than parking it.
   const stopped = sc.controller.signal.aborted && existsSync(STOP_PATH);
   const timedOut = sc.controller.signal.aborted && !existsSync(STOP_PATH);
-  return { summary: r.text, costUsd: r.costUsd, turns: r.turns, isError: r.isError, aborted: stopped, timedOut };
+  return { summary: r.text, costUsd: r.costUsd, turns: r.turns, isError: r.isError, aborted: stopped, timedOut, activity: r.activity };
 }
 
 // Re-score the whole proposed pool against what has been learned since

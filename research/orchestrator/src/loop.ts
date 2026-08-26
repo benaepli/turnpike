@@ -195,6 +195,39 @@ function calibrationTable(state: LoopState): string {
     .join("\n");
 }
 
+// Where recent implement sessions spent wall time (model thinking vs tool
+// categories) and how many builds/edits each ran, so the auditor can see
+// over-building or thinking-dominated implements rather than only the
+// phase-level total.
+function implementActivityDigest(k: number): string {
+  try {
+    const lines = readFileSync(path.join(ROOT, "research/journal.jsonl"), "utf8").trim().split("\n");
+    const acts: Array<{ modelMs: number; toolMs: Record<string, number>; toolCounts: Record<string, number> }> = [];
+    for (let i = lines.length - 1; i >= 0 && acts.length < k; i--) {
+      const line = lines[i];
+      if (!line) continue;
+      try {
+        const e = JSON.parse(line) as { event?: string; data?: { activity?: { modelMs: number; toolMs: Record<string, number>; toolCounts: Record<string, number> } } };
+        if (e.event === "implement" && e.data?.activity) acts.push(e.data.activity);
+      } catch { /* skip malformed line */ }
+    }
+    if (acts.length === 0) return "implement activity: none recorded yet";
+    const sum: Record<string, number> = {};
+    let builds = 0;
+    let edits = 0;
+    for (const a of acts) {
+      sum.model = (sum.model ?? 0) + a.modelMs;
+      for (const [cat, ms] of Object.entries(a.toolMs)) sum[cat] = (sum[cat] ?? 0) + ms;
+      builds += a.toolCounts.build ?? 0;
+      edits += a.toolCounts.edit ?? 0;
+    }
+    const s = (key: string): number => Math.round((sum[key] ?? 0) / acts.length / 1000);
+    return `implement activity (last ${acts.length}, mean s/iteration): model/think ${s("model")}, build ${s("build")}, smoke ${s("smoke")}, test ${s("test")}, edit ${s("edit")}, read ${s("read")}, shell ${s("shell")}; mean cargo builds ${(builds / acts.length).toFixed(1)}, edits ${(edits / acts.length).toFixed(1)} per iteration`;
+  } catch {
+    return "implement activity: digest unavailable";
+  }
+}
+
 function recentEvidence(state: LoopState, limit: number): string {
   const cur = state.currentEpoch();
   const decided = state.listHypotheses()
@@ -409,7 +442,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       createBranch(SUPER, branch);
 
       const impl = await timed("implement", () => implementHypothesis(policy, h));
-      journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, timedOut: impl.timedOut, summary: impl.summary.slice(0, 2000) });
+      journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, timedOut: impl.timedOut, activity: impl.activity, summary: impl.summary.slice(0, 2000) });
       if (impl.turns > 0) state.setMeta("consecutiveImplHangs", "0");
       if (impl.timedOut) {
         if (impl.turns === 0) {
@@ -659,7 +692,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         if (util0.trim().startsWith("{")) state.setMeta("utilization", util0);
         const profile = await collectProfile(policy, SPUR_BIN);
         const util = `${util0}\n\n## perf profile (top symbols)\n${profile}`;
-        const ledger = JSON.stringify(state.countByStatus()) + "\n" + JSON.stringify(timings);
+        const ledger = JSON.stringify(state.countByStatus()) + "\n" + JSON.stringify(timings) + "\n" + implementActivityDigest(15);
         const evalConfig = readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8");
         const lastChunk = state.allEvaluations().filter((e) => e.fidelity === "sequential" && e.ok).at(-1);
         const chunkLine = lastChunk
