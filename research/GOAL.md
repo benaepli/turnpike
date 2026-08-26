@@ -67,6 +67,14 @@ that place a delivery inside the window where it is still accepted have
 headroom; mechanisms that delay or reorder more messages into a restarted
 receiver do not, and have now been falsified six times.
 
+Price a probe by what it has to add, not by how small the counter looks. A
+counter that reads a field already carried on the record is cheap; one that
+needs a new field in `exec.rs`, `state.rs` or `path.rs`, per-run bookkeeping,
+or a new config key is not, and should be priced at 4 or more. State in the
+proposal which existing field the counter reads from. The channel-order probe
+was priced at 2 and needed a send ordinal stamped on every message, a
+thread-local high-water map, and a config key.
+
 A mechanism must count its own firing. Per-candidate utilization capture can
 only answer "did this fire" when the mechanism increments something, and a
 null result from a mechanism with no counter cannot be told apart from a
