@@ -16,12 +16,21 @@ Success = porcupine reports a linearizability violation on `bin/spur/VR.spur` un
   (sender crashed after send, recovered before delivery); H2b receiver-side variant;
   H3 two distinct nodes crash+recover in one run.
 - L2 prefix depth: root-anchored satisfied-chain depth against the oracle DAG
-  (`research/oracle/relax_minimal.json`), P(depth >= k) for k = 4..8.
+  (`research/oracle/relax_minimal_general.json`), P(depth >= k) for k = 4..8.
   Measured fact: ALL known violating runs sit at depth 8; clean runs average 3.65.
 - L3 violations: porcupine verdicts (ground truth — never gameable).
 
 Raise the ladder from the bottom: each rung k is a conditional probability;
 lift P(rung k+1 | rung k) with GENERIC mechanisms.
+
+Where the ladder actually stands (epoch 3, measured over 32,400 general runs):
+P(depth>=4) 0.355, P(depth>=5) 0.082, P(depth>=6) 0.014, P(depth>=7) 0.0013,
+P(depth>=8) 0.00006. The lower rungs are close to saturated, so the payoff is
+in the conditional P(rung k+1 | rung k) for k >= 5 — the attrition from
+depth>=5 to depth>=6 is the steepest step on the ladder. Depth is a proxy, not
+the target: general-config depth-8 runs have all been linearizable so far,
+against 71% violation at depth 8 in the plan corpora, so a mechanism that
+reaches depth 8 more often still has to produce a violation to count.
 
 ## Rules (enforced mechanically; violating them wastes the iteration)
 
