@@ -21,6 +21,29 @@ suggestions (see the auditor misreads listed in SKILL.md).
 Consumed line) vs `exit-code`. Restart=on-failure brings it back after 60 s;
 startup recovery requeues stranded hypotheses and wipes leftover corpora.
 
+## Daemon alive, iterations flying, nothing decided
+
+The signature is `cost: 0` on every agent event. A `propose` where all lenses
+return zero candidates having spent nothing is an infrastructure fault, not a
+model with nothing to say; the same call spends $2 or more when it works.
+Expired SDK credentials produce
+`Failed to authenticate: OAuth session expired and could not be refreshed`
+in about 520 ms, and an `implement` that fails that way is recorded as
+`blocked: no changes` - indistinguishable in the pool from a real
+investigation that concluded no change was needed. Separate the two by cost
+and turns: a genuine one spends over a dollar across dozens of turns.
+
+The operator fixes credentials by running `/login` in their own session; the
+loop shares the credential store and the next agent call succeeds without a
+restart. Then requeue every hypothesis blocked during the window
+(state-edits.md) - those are harness failures and must not stand as negative
+results.
+
+Check the blast radius before repairing anything: commits in both repos,
+`decision` events, and total spend across the window. Agent calls that fail
+at zero cost cannot corrupt evidence, so the damage is confined to statuses
+and journal volume.
+
 ## A phase took hours
 
 Check `suspendedMs` on the evaluation (state-edits.md) or

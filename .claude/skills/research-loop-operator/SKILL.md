@@ -21,8 +21,9 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
    counts) and `npx tsx src/cli.ts grader-queue`.
 2. If the daemon is down and nothing is mid-repair: `rm -f research/STOP`,
    `research/loop-start.sh`.
-3. Arm the two monitors from `reference/monitors.md` (event watcher +
-   heartbeat). Never run two of the same; stop duplicates with TaskStop.
+3. Reap orphaned monitor processes from earlier sessions, then arm the three
+   monitors from `reference/monitors.md` (event watcher + heartbeat + churn
+   detector). Never run two of the same; stop duplicates with TaskStop.
 4. Read the last audit and last three decisions in the journal before
    forming any opinion about progress.
 
@@ -128,7 +129,10 @@ boundary procedure (step 8).
   that raises H1 but not depth shows crash timing alone is not the bottleneck.
 - Distinguish evidence-based outcomes from harness-caused ones every time
   you summarize progress; never count a harness failure as a negative
-  result.
+  result. A unit that reads `active` is not evidence the loop is working:
+  check that iterations are spending money and reaching decisions, since an
+  agent whose calls all fail costs nothing and closes nothing
+  (`reference/diagnostics.md`).
 - The auditor misreads predictably: mechanisms disabled in the evaluation
   config read as "broken"; the advancing comparison baseline reads as "no
   movement" (use the Reference column); pre-monotonic timings included
