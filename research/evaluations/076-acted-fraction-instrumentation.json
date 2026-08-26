@@ -1,0 +1,149 @@
+{
+  "hypothesis": {
+    "id": "acted-fraction-instrumentation",
+    "parent": "stale-accept-window-bias",
+    "kind": "enabling",
+    "title": "Emit acted_fraction per injected hazard so scheduler biases are measured, not guessed",
+    "description": "Add a per-message 'was it acted on' counter in spur-core/src/simulator/core/exec.rs: when a delivery is dequeued, record whether the receive handler took a state-mutating branch vs. was dropped by a guard comparison, keyed by whether the message was flagged stale/orphaned by core/stale_accept.rs. Aggregate into util_stats.rs as acted_fraction (overall and restricted to biased messages) and surface it in the sequential eval metrics block alongside h1Rate/h2Rate. Gated by config field emit_acted_fraction (default true; near-zero cost, pure counter). No behavior change, no new scheduling.",
+    "category": "feedback",
+    "buildsOn": [
+      "crash_node",
+      "purgatory",
+      "stale_accept"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 6,
+    "rationale": "Two hypotheses in this family have been rejected without ever confirming the injected hazard was observed by the protocol. Without acted_fraction every future scheduler bias is an uncontrolled experiment; with it, a bias that fails can be attributed to either non-delivery or delivery-without-effect, which is the difference between retry and abandon.",
+    "generalityArgument": "Instruments the generic dispatch path - did the handler mutate state or fall through a comparison guard - with no reference to view/term/epoch by name, so it reports for any protocol spec.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-26T11:00:00.000Z",
+    "notes": "Prerequisite that stale-accept-window-bias declared but never actually enforced. [rejudged iteration 75: Kept as the named gate for the whole orphan/stale family (stale-accept-window-bias closed without ever knowing whether biased messages were acted on), but re-costed up: it touches core/exec.rs (+2, routes to needs-human) and adds emit_acted_fraction (+1) — must follow the crash-recover-density-"
+  },
+  "decision": {
+    "hypothesisId": "acted-fraction-instrumentation",
+    "verdict": "needs_human",
+    "reasons": [
+      "touches execution-semantics files"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0013148148148148242,
+      "depth>=5": -0.00020833333333332427,
+      "depth>=6": 0.0004166666666666676,
+      "depth>=7": -0.000060185185185185255,
+      "depth>=8": 0.00001851851851851852,
+      "h2": -0.0015555555555555323,
+      "primary": -0.00020833333333332427,
+      "params": 1
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "acted-fraction-instrumentation-sequential-1000-1787742182028",
+        "hypothesisId": "acted-fraction-instrumentation",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "1716f36958f24fa0dcaac4b02c751f689c87456e",
+        "superCommit": "dd8818ea7cd415760b713561af6637f512241030",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-26T11:03:02.029Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 252.30815235674504,
+          "unpairedFraction": 0.4850817991256556,
+          "h1Rate": 0.49896296296296294,
+          "h2Rate": 0.4001111111111111,
+          "h2bRate": 0.4151296296296296,
+          "h3Rate": 0.3342407407407407,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0213703703703705,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49370,
+            35446,
+            19087,
+            4407,
+            771,
+            70,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5139,
+          "gradeWallMs": 190014
+        },
+        "exploreWallMs": 214024,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "acted-fraction-instrumentation-sequential-1001-1787742591531",
+        "hypothesisId": "acted-fraction-instrumentation",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "1716f36958f24fa0dcaac4b02c751f689c87456e",
+        "superCommit": "dd8818ea7cd415760b713561af6637f512241030",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-26T11:09:51.531Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 250.96552012604045,
+          "unpairedFraction": 0.48846098254292003,
+          "h1Rate": 0.49596296296296294,
+          "h2Rate": 0.3977962962962963,
+          "h2bRate": 0.41568518518518516,
+          "h3Rate": 0.3375740740740741,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0233333333333334,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49485,
+            35442,
+            19185,
+            4333,
+            731,
+            81,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5087,
+          "gradeWallMs": 190166
+        },
+        "exploreWallMs": 215169,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/exec.rs",
+    "spur-core/src/simulator/core/exec/test.rs",
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 13,
+    "after": 14
+  }
+}
