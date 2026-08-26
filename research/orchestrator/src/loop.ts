@@ -92,6 +92,10 @@ function journal(state: LoopState, iteration: number, event: string, data: unkno
 
 const stopRequested = (): boolean => existsSync(path.join(ROOT, "research", "STOP"));
 
+// A retriable implement hang requeues the hypothesis; this many in a row
+// without a single model turn is treated as a sustained outage instead.
+const MAX_CONSECUTIVE_IMPL_HANGS = 3;
+
 // Graceful stop mid-iteration: keep whatever exists on the hypothesis branch
 // (committed), park the hypothesis with a pointer to that branch, and return
 // to the research branch WITHOUT deleting the work. Startup recovery requeues
@@ -406,7 +410,26 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
 
       const impl = await timed("implement", () => implementHypothesis(policy, h));
       journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, timedOut: impl.timedOut, summary: impl.summary.slice(0, 2000) });
+      if (impl.turns > 0) state.setMeta("consecutiveImplHangs", "0");
       if (impl.timedOut) {
+        if (impl.turns === 0) {
+          // The wall fired with no model turns produced: the call hung
+          // (network, suspend, or outage), not a real overrun. Retry the
+          // hypothesis unless hangs are piling up, which signals a sustained
+          // outage the operator should see rather than spin on.
+          const hangs = Number(state.getMeta("consecutiveImplHangs") ?? "0") + 1;
+          state.setMeta("consecutiveImplHangs", String(hangs));
+          journal(state, n, "impl_hang", { id: h.id, consecutive: hangs });
+          if (hangs < MAX_CONSECUTIVE_IMPL_HANGS) {
+            state.upsertHypothesis({ ...h, status: "proposed", branch: null, notes: `[requeued after implement hang ${hangs}] ${h.notes}`.slice(0, 300) });
+            cleanupToResearchBranch(branch);
+            return;
+          }
+          state.upsertHypothesis({ ...h, status: "blocked", branch, notes: `implement hung ${hangs}x in a row with no turns - likely a sustained API or network outage` });
+          journal(state, n, "blocked", { reason: "persistent implement hang" });
+          cleanupToResearchBranch(branch);
+          return;
+        }
         state.upsertHypothesis({ ...h, status: "blocked", branch, notes: `implement exceeded ${policy.budgets.maxImplementMinutes}-minute wall` });
         journal(state, n, "blocked", { reason: "implement wall exceeded" });
         cleanupToResearchBranch(branch);
