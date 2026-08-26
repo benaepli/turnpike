@@ -93,7 +93,14 @@ when P(effect >= that minimum) < 0.05 on both rungs, or when a rung
 regresses by the separation test. h2 is reported but never decides: a
 mechanism can raise crash hazards without lengthening the chain.
 
-**Cap and floor.** Minimum 2 chunks so one unlucky session cannot decide.
+**Cap and floor.** Minimum 2 chunks so one unlucky session cannot decide -
+except a decisive regression, which rejects at the first chunk: a frontier
+rung separated below baseline at the merge z is a real loss, not chunk
+noise, so a second confirming chunk on a clear loser is wasted (simulated:
+a -40% depth>=4 candidate rejects in 1 chunk instead of 2, ~7 min saved per
+obvious loser; nulls and marginal cases still take the full path). Advancing
+and calling futility still require the 2-chunk floor, since those decide on
+the positive side where one lucky chunk must not be trusted.
 Cap 4 chunks (216k runs, ~30 min): the baseline is the same size, so beyond
 that the baseline's own uncertainty dominates and more candidate chunks buy
 little. At the cap: **inconclusive** if some rung has P(better) >= 0.9, else
@@ -186,14 +193,3 @@ reads runs in chunks of 500 (peak 2.5 GB for all 13.5k runs, 50 s), so
 `gradeMaxRuns: 0` (grade all) stays the derived default at every fidelity.
 Lesson recorded: parameter changes that alter *which code runs at what scale*
 need a resource measurement, not only a statistical derivation.
-
-## Build profile (2026-08-26)
-
-`spur/Cargo.toml` `[profile.release] debug = 1` (line tables only, not full
-debug info). Debug level does not affect generated code, so runs are
-bit-identical and the preserved baseline stays comparable; `perf` still
-symbolizes and unwinds. The binary is 268 MiB (was 521 MiB), which cuts the
-I/O of copying it to the baseline snapshot on every merge - relevant on the
-encrypted-btrfs disk where corpus writes already contend. Frame pointers
-(`-C force-frame-pointers`) are deferred: they do change codegen and would
-need their own baseline.

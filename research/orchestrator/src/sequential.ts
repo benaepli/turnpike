@@ -119,10 +119,16 @@ export function decideSequential(
     return out("continue", "non-inferiority undecided");
   }
 
+  // A decisive regression rejects at the first chunk: a frontier rung
+  // separated below baseline at the merge z is a real loss, not chunk noise,
+  // so a second confirming chunk on a clear loser is wasted. Advancing (a
+  // merge) and calling futility still need minChunks, since those decide on
+  // the positive side where one lucky chunk must not be trusted.
+  const separated = (aS: number, aN: number, bS: number, bN: number): boolean => rateSuperiorCI(aS, aN, bS, bN, MERGE_Z);
+  if (separated(base.depth4, base.graded, cand.depth4, cand.graded)) return out("reject", `depth>=4 regressed (ratio ${d4.meanRatio.toFixed(2)})`);
+  if (separated(base.h2Count, base.runs, cand.h2Count, cand.runs)) return out("reject", `h2 regressed (ratio ${h2.meanRatio.toFixed(2)})`);
+
   if (chunks >= p.minChunks) {
-    const separated = (aS: number, aN: number, bS: number, bN: number): boolean => rateSuperiorCI(aS, aN, bS, bN, MERGE_Z);
-    if (separated(base.depth4, base.graded, cand.depth4, cand.graded)) return out("reject", `depth>=4 regressed (ratio ${d4.meanRatio.toFixed(2)})`);
-    if (separated(base.h2Count, base.runs, cand.h2Count, cand.runs)) return out("reject", `h2 regressed (ratio ${h2.meanRatio.toFixed(2)})`);
     if (separated(cand.depth4, cand.graded, base.depth4, base.graded)) return out("advance", `depth>=4 separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`);
     if (separated(cand.depth5, cand.graded, base.depth5, base.graded)) return out("advance", `depth>=5 separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`);
     if (d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP) {
