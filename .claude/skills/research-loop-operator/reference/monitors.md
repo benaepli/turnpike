@@ -10,7 +10,7 @@ stopped.
 ## Event watcher (instant on decisions, errors, grader proposals)
 
 ```bash
-cd /home/benaepli/Research/alt/jennLang; n=0; until systemctl --user -q is-active spur-research-loop || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; MP=$(systemctl --user show -p MainPID --value spur-research-loop 2>/dev/null); if [ -z "$MP" ] || [ "$MP" = 0 ]; then echo "ALERT: loop not running; watcher not armed"; exit 1; fi; tail -n 0 -F --pid="$MP" research/journal.jsonl 2>/dev/null | grep -E --line-buffered '"event":"(select|seq_chunk|sequential|inconclusive|closed_after_resumes|seq_reset|stale_branch|baseline_sequential|screen|promote|bench|decision|publish|error|blocked|audit|stopped|grader_review)"' | cut -c1-400; echo "ALERT: spur-research-loop unit is no longer active: $(journalctl --user -u spur-research-loop --no-pager -n 4 2>/dev/null | grep -oE 'oom-kill|exit-code|Consumed.*' | tail -1)"
+cd /home/benaepli/Research/alt/jennLang; n=0; until systemctl --user -q is-active spur-research-loop || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; MP=$(systemctl --user show -p MainPID --value spur-research-loop 2>/dev/null); if [ -z "$MP" ] || [ "$MP" = 0 ]; then echo "ALERT: loop not running; watcher not armed"; exit 1; fi; tail -n 0 -F --pid="$MP" research/journal.jsonl 2>/dev/null | grep -E --line-buffered '"event":"(select|seq_chunk|sequential|inconclusive|closed_after_resumes|seq_reset|stale_branch|baseline_sequential|screen|promote|bench|decision|publish|error|blocked|audit|stopped|grader_review)"' | awk '{print substr($0,1,400); fflush()}'; echo "ALERT: spur-research-loop unit is no longer active: $(journalctl --user -u spur-research-loop --no-pager -n 4 2>/dev/null | grep -oE 'oom-kill|exit-code|Consumed.*' | tail -1)"
 ```
 
 `--pid` is what ends the watcher: when the loop's main process dies, `tail`
@@ -28,8 +28,14 @@ normal operation it passes 311 events, busiest minute 4. High notification
 volume means the loop is spinning, not that the filter is too wide, so fix
 the loop rather than the filter.
 
-`cut` bounds a single event; `seq_chunk` payloads carry full posteriors and
-run past a screen otherwise.
+The `awk` bounds a single event; `seq_chunk` payloads carry full posteriors
+and run past a screen otherwise. It must be `awk` with an explicit `fflush()`
+and not `cut`: `cut` block-buffers when its output is a pipe, so events sit
+unseen until 4KB accumulates or the stream ends. Measured, a `cut` stage
+delivered 0 of 3 lines in five seconds while the `awk` stage delivered all
+three immediately. Every stage in a monitor pipeline has to flush per line -
+`grep` needs `--line-buffered`, `awk` needs `fflush()`, and `head` cannot
+flush at all.
 
 ## Heartbeat (one line every 10 minutes: iteration, phase, spend)
 
