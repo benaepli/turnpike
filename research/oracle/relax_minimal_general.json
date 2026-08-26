@@ -1,0 +1,143 @@
+{
+  "num_servers": 3,
+  "num_runs": 5000,
+  "max_iterations": 10000,
+  "strict_timers": true,
+  "events": {
+    "w1": {
+      "write": [
+        0,
+        "key1"
+      ]
+    },
+    "allow_t1": {
+      "allow_timer": [
+        1,
+        "timeout"
+      ]
+    },
+    "crash_nl": {
+      "crash": 1
+    },
+    "recover_nl": {
+      "recover": 1
+    },
+    "deliver_svc_1_to_2": {
+      "deliver": {
+        "function": "Node.StartViewChange",
+        "from": 1,
+        "to": 2
+      }
+    },
+    "crash_2": {
+      "crash": 2
+    },
+    "recover_2": {
+      "recover": 2
+    },
+    "deliver_svc_1_to_0": {
+      "deliver": {
+        "function": "Node.StartViewChange",
+        "from": 1,
+        "to": 0
+      }
+    },
+    "deliver_svc_2_to_0": {
+      "deliver": {
+        "function": "Node.StartViewChange",
+        "from": 2,
+        "to": 0
+      }
+    },
+    "w2": {
+      "write": [
+        0,
+        "key1"
+      ]
+    },
+    "r1": {
+      "read": [
+        0,
+        "key1"
+      ]
+    },
+    "r2": {
+      "read": [
+        1,
+        "key1"
+      ]
+    },
+    "r3": {
+      "read": [
+        2,
+        "key1"
+      ]
+    }
+  },
+  "dependencies": [
+    [
+      "w1",
+      "allow_t1"
+    ],
+    [
+      "allow_t1",
+      "crash_nl"
+    ],
+    [
+      "crash_nl",
+      "recover_nl"
+    ],
+    [
+      "crash_nl",
+      "deliver_svc_1_to_2"
+    ],
+    [
+      "deliver_svc_1_to_2",
+      "crash_2"
+    ],
+    [
+      "crash_2",
+      "recover_2"
+    ],
+    [
+      "recover_nl",
+      "w2"
+    ],
+    [
+      "recover_2",
+      "w2"
+    ],
+    [
+      "w2",
+      "deliver_svc_1_to_0"
+    ],
+    [
+      "w2",
+      "deliver_svc_2_to_0"
+    ],
+    [
+      "deliver_svc_1_to_0",
+      "r1"
+    ],
+    [
+      "deliver_svc_1_to_0",
+      "r2"
+    ],
+    [
+      "deliver_svc_1_to_0",
+      "r3"
+    ],
+    [
+      "deliver_svc_2_to_0",
+      "r1"
+    ],
+    [
+      "deliver_svc_2_to_0",
+      "r2"
+    ],
+    [
+      "deliver_svc_2_to_0",
+      "r3"
+    ]
+  ]
+}

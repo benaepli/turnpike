@@ -53,7 +53,7 @@
     "spec": "bin/spur/VR.spur",
     "configTemplate": "scheduler_configs/loop/general_vr.json",
     "oracleDags": [
-      "research/oracle/relax_minimal.json"
+      "research/oracle/relax_minimal_general.json"
     ],
     "rayonThreads": 14
   },

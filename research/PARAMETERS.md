@@ -17,6 +17,40 @@ throughput change).
 | P(depth>=6) | 0 in 130k runs (=> < 2.3e-5 at 95%) |
 | violations | 0 in 130k runs |
 
+The depth rows above were measured against `research/oracle/relax_minimal.json`
+and are superseded; see the next section for why.
+
+## Oracle key binding (measured 2026-08-26, epoch 3)
+
+`relax_minimal.json` names the client key `x`. The general grid pins
+`num_keys` to 1 and `path/generator.rs` names keys `key1..keyN`, so the six
+client-op labels (`w1`, `w2`, `r1`, `r2`, `r3`) plus the always-unmatchable
+`allow_t1` had **zero candidates in 100% of runs**. Only 7 of 13 labels could
+ever match, and the longest chain through those 7 is 5 vertices, so
+`max_prefix_depth` was pinned at exactly 5 for arithmetic reasons.
+`depth>=6/7/8` were not rare, they were unreachable, and the escalate path
+that keys on `depth6plus > 0` could never fire.
+
+A/B on one identical 32,400-run general corpus, changing only the key literal:
+
+| | key `x` | key `key1` |
+|---|---|---|
+| max_prefix_depth | 5 | 8 |
+| mean_prefix_depth | 2.323 | 3.027 |
+| depth_at_least | 32400/28586/12536/1613/139 | 32400/29682/21330/11486/2662/457/43/2 |
+
+Per 54k-run chunk that is about 762 runs at depth>=6, 72 at depth>=7 and 3.3
+at depth>=8 - all resolvable, where before there was no gradient above 5.
+Evaluation therefore grades against `relax_minimal_general.json`, which is
+`relax_minimal.json` with the five client-op keys retargeted to `key1`. The
+frozen oracle and `research/corpus/` are untouched, so the corpus invariants
+in `manifest.json` still hold against the original DAG.
+
+Depth alone is not the bug: all 32,400 runs were linearizable, including both
+depth-8 runs. Plan corpora violate on 71% of depth-8 runs, so general-config
+precision at full depth is much lower and depth stays a proxy, not ground
+truth.
+
 ## Fidelity sizing
 
 **Grade every run (`gradeMaxRuns: 0`).** At 3 ms/run grading is never the
