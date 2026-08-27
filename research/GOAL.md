@@ -23,11 +23,21 @@ Success = porcupine reports a linearizability violation on `bin/spur/VR.spur` un
 Raise the ladder from the bottom: each rung k is a conditional probability;
 lift P(rung k+1 | rung k) with GENERIC mechanisms.
 
-Where the ladder actually stands (epoch 3, measured over 32,400 general runs):
-P(depth>=4) 0.355, P(depth>=5) 0.082, P(depth>=6) 0.014, P(depth>=7) 0.0013,
-P(depth>=8) 0.00006. The lower rungs are close to saturated, so the payoff is
-in the conditional P(rung k+1 | rung k) for k >= 5 — the attrition from
-depth>=5 to depth>=6 is the steepest step on the ladder. Depth is a proxy, not
+Where the ladder actually stands (epoch 3, measured over 216,000 general runs
+at the current merged config): P(depth>=4) 0.367, P(depth>=5) 0.112,
+P(depth>=6) 0.0165. The deeper rungs are quoted only as counts, because a rate
+over a handful of events is not a measurement: depth>=7 runs about 45 per
+54,000 and depth>=8 about 2. The payoff is in the conditional
+P(rung k+1 | rung k) for k >= 5; the attrition from depth>=5 to depth>=6 is the
+steepest step on the ladder.
+
+P(depth>=5) moved from 0.086 to 0.112 when client work was guaranteed to
+outlast a fault (`client-work-after-every-fault`), which is the largest single
+move in the record and replicated across two independent 216,000-run baselines.
+The measurement that produced it is worth more than the mechanism: in four
+two-crash runs out of five, every write was invoked before the first crash, so
+the chain's second write had nothing left to match. Four falsified families had
+been optimising the segment downstream of a step that was starved. Depth is a proxy, not
 the target: general-config depth-8 runs have all been linearizable so far,
 against 71% violation at depth 8 in the plan corpora, so a mechanism that
 reaches depth 8 more often still has to produce a violation to count.
