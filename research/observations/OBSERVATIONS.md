@@ -546,3 +546,56 @@ paired bench in one window and uses `baseline.runsPerSec` only as a floor.
 ## 2026-08-27T02:23:38.402Z
 
 **timer-vs-delivery-coverage-axis** (closed): Refining the coverage key with timer-vs-delivery ordering bits does not move the ladder: 2 sequential chunks / 108k runs, all rungs flat-to-slightly-negative (d4 -0.00014, d5 -0.0019, d6 -0.00074), pMei separability 0.013 at +1% on d4 and 0.000 at d5/d6 — no frontier rung could reach a separable effect, so it was closed early. This falsifies the premise in the notes that key-space saturation (1790 distinct keys, new_keys decaying 1432->230->24->6) was the binding constraint. Adding resolution to the reward signal is inert because the key only scores trajectories after the fact; it does not change which events are admissible, and the explorer apparently cannot convert finer novelty accounting into different schedules. Corollary: the -0.0499 d4 sensitivity from the full timer-class ablation lives in admission/placement of timer events, not in how those events are labeled — that sensitivity is reachable only from the scheduler side. Also a methodological data point: 'novelty signal is dead for 99% of the budget' is not by itself evidence that finer keys help; the next such argument should be paired with a measurement that steer's preference actually binds.
+
+## 2026-08-27T02:55:00.000Z (operator) - why depth and violations decouple
+
+The general-config depth ladder measures the bug's chain with its decisive
+step deleted, and the deletion is silent. This explains three years of
+symptoms in one mechanism, so it is worth stating exactly.
+
+The oracle DAG has 13 events and a longest chain of 9:
+
+  w1 -> allow_t1 -> crash_nl -> deliver_svc_1_to_2 -> crash_2 -> recover_2
+     -> w2 -> deliver_svc_1_to_0 -> r1
+
+`allow_t1` is the second vertex. It is the only successor of the only source
+and the only predecessor of everything downstream: a cut vertex. Its kind is
+KindAllowTimer, and `buildCandidates` in
+`traceanalyzer/metrics/dagorder/candidates.go` has no case for it. It falls
+to `default: return nil, false`, so it never matches in non-plan-mode runs.
+
+Prefix depth does not stop there. `bestMatchingFull` scores against the
+transitive closure, and `TestPrefixDepthSkipsViolatedMiddle` fixes the
+behaviour deliberately: when an intermediate vertex is unassigned, the chain
+continues through the closure edge that spans it. So `w1 -> crash_nl` is
+satisfiable without `allow_t1` ever occurring, and the remaining eight
+vertices chain normally.
+
+That is exactly the observed ceiling. General-mode max prefix depth is 8, one
+short of 9, and it has never been higher. A general run scoring 8 has matched
+every step of the bug chain except the one that cannot be matched.
+
+The consequence is that depth 8 means something different in the two modes.
+In plan mode the timer step is enforced, so depth 8 is the real chain and 71%
+of those runs violate. In general mode depth 8 is the chain minus its setup,
+with nothing requiring the timer to have fired at the point that makes the
+rest a bug, and 0 of those runs have ever violated. Same number, different
+meaning, and the ladder reports them as one metric.
+
+This is a better explanation of the record than any of the mechanism-level
+ones. Four families were falsified against a target that cannot express the
+difference between reaching the bug and reaching its shadow, and the loop's
+depth numbers today match the pre-loop corpus regraded with the corrected
+oracle, so the search has been optimising a quantity that saturates one step
+short by construction.
+
+Not yet established: whether a timer fire is recoverable from existing trace
+rows. The trace schema carries Crash, Dispatch, Enter, Exit, Invocation,
+Recover and Response, with no timer kind, so a collector would have to infer
+the fire from the handler resumption it causes. If it can, the repair is
+grader-only. If it cannot, the simulator must emit the event first, which
+crosses from ruler into subject and needs deliberate operator handling.
+
+Either way this is a measurement-plane change: it alters what depth means, so
+it requires an epoch bump, corpus revalidation and a baseline re-run, and it
+should not be attempted by a hypothesis.
