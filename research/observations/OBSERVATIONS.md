@@ -1795,3 +1795,7 @@ One caveat on direction: underdispersion is margin the gates cannot spend, since
 they compute binomial intervals either way. A separation the gate reports is
 therefore real, while a null it reports may be an effect the interval was too
 wide to see.
+
+## 2026-08-27T13:07:36.530Z
+
+**depth-power-floor-audit** (needs_human): A/A pair at 54k runs (seeds 1000/1001, identical binary fc07f0d) quantifies the noise floor directly: depth>=4 differs by 22 runs (0.11% rel), depth>=5 by 88 (1.5%), depth>=6 by 66 (7.2%), depth>=7 by 6 (5.7%), depth>=8 by 2 (50%). Relative seed-to-seed spread grows monotonically with depth; absolute counts collapse from ~2e4 to single digits past depth 6. So depth>=6 is the deepest bucket with any usable resolution at n=2 seeds, and depth>=7/8 are pure coin flips — consistent with the prior 1-vs-5 swing that motivated this. Throughput also moved +1.5% between identical binaries, so sub-2% throughput deltas are noise too. Deliverables landed super-side only (research/observations/POWER_FLOOR.md, power_floor.mjs, OBSERVATIONS.md); spurFiles empty, regression+lint pass, objective deltas all ~1e-3 or smaller as expected for a no-op change. Verdict needs_human solely because kind=meta is gated in v1, not for any measured problem. Caveat: the floor here is estimated from a single paired A/A observation per bucket, so it bounds the order of magnitude, not a confidence interval.
