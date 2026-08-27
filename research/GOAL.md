@@ -101,6 +101,31 @@ same population, same selection pressure, no perturbation applied. Any
 hypothesis proposing better targeting of perturbations should establish that
 number first, or it is arguing from a comparison that cannot support it.
 
+The timeline coverage key saturates, and de-saturating it does not help.
+Both halves are measured, and the second is the useful one.
+
+Saturation, over 1,080-run sessions: the key reaches 1,783 distinct values
+with a saturation index of 200-300, so nearly everything the key can
+distinguish has been seen within a few hundred runs. Over the same session
+the steer evaluated 2.2M candidate picks and changed its choice 0.098% of the
+time. A saturated key makes novelty flat across candidates, so
+feedback-driven selection degenerates to random.
+
+The obvious remedy was tried immediately and failed.
+timer-vs-delivery-coverage-axis added a timer-versus-delivery ordering bit to
+the key and did exactly what it set out to do: distinct keys rose to 4,599,
+2.6x, and the saturation index moved from 200-300 out to 700. Depth did not
+respond. The sequential rejected it after 108,000 runs with no frontier rung
+separable, depth>=4 ratio 0.999, and steer divergence fell rather than rose.
+Making the scheduler able to tell more states apart did not make it reach
+deeper ones.
+
+So coverage-key resolution is not the bottleneck, and neither is
+perturbation volume, delivery ordering, or receiver-side holding. Four
+distinct families have now been falsified against depth. A hypothesis in any
+of them needs an argument for why it differs from the one already tried, not
+just a new axis or a new knob.
+
 A mechanism must count its own firing. Per-candidate utilization capture can
 only answer "did this fire" when the mechanism increments something, and a
 null result from a mechanism with no counter cannot be told apart from a
