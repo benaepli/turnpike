@@ -449,3 +449,28 @@ Deferred, worth doing:
 ## 2026-08-27T00:30:00.073Z
 
 **novelty-key-utilization-precheck** (needs_human): Instrumentation-only change (feedback.rs + util_stats.rs, +0 general config params) ran clean at both seeds: 54k runs each, 0 violations, regression+lint pass, throughput even improved slightly (+0.127 runs/s, ~265-269 r/s). Objective deltas are all within seed noise (|primary| = 2e-4, depth>=6 -9e-4, h2 -6.7e-4), confirming the counters are behavior-neutral as designed. Verdict is needs_human only because kind=meta requires human review in v1 — not because of any measured regression. The saturation curve itself is not present in the recorded metrics blob: the eval harness captures only the standard grader metrics (runs, depth histogram, h1/h2/h2b/h3 rates), so distinct-keys-per-run and cumulative-distinct-keys never made it into the evidence record. Consequently the actual question — does the timeline key space saturate, and at what run index — remains unanswered; the prescreen bought a clean, cheap vehicle but no data. Real lesson: reporting-only instrumentation is worthless to the ladder unless its counters are plumbed into the metrics object the evaluator serializes. The three coverage-key proposals still lack a numeric falsifier. Secondary observation: depth>=8 hit 1 and 5 runs at seeds 1000/1001 — the deep tail is so thin that any key-refinement lever must be judged on depth>=6 (70/69 runs) or shallower, since depth>=8 has no statistical power at 54k runs.
+
+## 2026-08-27T01:10:00.000Z (operator)
+
+The baseline's `runsPerSec`, which is the denominator of every `throughputRatio`
+the gate computes, is a single screen-fidelity evaluation.
+
+From the refresh just recorded: screen mean 287.8 over n=1, sequential mean
+264.1 over n=4. `cli baseline` sets `runsPerSec` from the screen arm
+(`screenOk.reduce(...) / screenOk.length`), so the figure carried forward is
+the n=1 number, 9% above the better-powered one measured on 216,000 runs.
+
+That has two consequences. Throughput comparisons in the perf lane are drawn
+against a single short run, so `throughputRatio` inherits its noise; and the
+apparent climb the 5270 audit flagged - runsPerSec 229.2 -> 247.2 -> 287.8
+across refreshes - is partly a property of resampling one screen run, not
+evidence that the explorer keeps getting faster.
+
+The sequential arm already produces four measurements at 54,000 runs each and
+they are tight: this refresh gave 206, 204, 205, 203 s explore, a 1.5% spread.
+Using that arm for `runsPerSec` would cost nothing extra, since the chunks are
+run either way.
+
+Not changed here. It is a gate input, so it belongs in a deliberate boundary
+with the perf-lane numbers re-based, rather than folded into a batch that was
+already landing three other things.
