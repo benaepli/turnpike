@@ -508,7 +508,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       spurFiles = pair.spurCommit ? changedFiles(SPUR, RESEARCH_BRANCH) : [];
       superFiles = changedFiles(SUPER, RESEARCH_BRANCH).filter((f) => f !== "spur");
     }
-    if (spurFiles.length === 0 && superFiles.length === 0) {
+    // The observations log is written by the loop itself and by implementers
+    // recording a finding, so a change confined to it is not a code change and
+    // leaves nothing for a sequential evaluation to measure.
+    const codeFiles = [...spurFiles, ...superFiles.filter((f) => f !== "research/observations/OBSERVATIONS.md")];
+    if (codeFiles.length === 0) {
       // A meta hypothesis measures and edits nothing, so an empty diff is the
       // shape it is supposed to have. Its finding is the implement summary,
       // which is recorded and the hypothesis closed; every other kind was
@@ -521,8 +525,16 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         journal(state, n, "measured", { id: h.id, summary: implSummary.slice(0, 2000) });
         return;
       }
-      state.upsertHypothesis({ ...h, status: "blocked", branch, notes: "implementer produced no changes" });
-      journal(state, n, "blocked", { reason: "no changes" });
+      // A non-meta hypothesis was asked for code and produced none. Keep any
+      // finding the implementer reached before disposing of it, since the
+      // branch and its working tree are about to go away.
+      cleanupToResearchBranch(branch);
+      if (implSummary) {
+        appendObservation(`**${h.id}** (no code produced): ${implSummary.slice(0, 4000)}`);
+        persistObservations(n);
+      }
+      state.upsertHypothesis({ ...h, status: "blocked", branch: null, notes: "implementer produced no code change" });
+      journal(state, n, "blocked", { reason: "no code change" });
       return;
     }
 
