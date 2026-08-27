@@ -20,6 +20,38 @@ throughput change).
 The depth rows above were measured against `research/oracle/relax_minimal.json`
 and are superseded; see the next section for why.
 
+## Oracle destination binding (measured 2026-08-27, epoch 3)
+
+The key binding below was fixed; the destination binding was not, and it is
+the same class of mismatch one layer down.
+
+`relax_minimal_general.json` names node 0 for `w1`, `w2`, `r1`, `r2` and `r3`.
+`path/generator.rs` chooses each client operation's destination with
+`rng.random_range(0..num_servers)`, so with three servers only a third of
+operations address node 0. Measured over 30,024 general runs, writes split
+20675 / 20577 / 20609 across nodes 0 / 1 / 2, and only 15,914 runs (53.0%)
+contain a write to node 0 at all.
+
+The consequence is not that those runs score zero. `rootAnchoredPrefix` in
+`matching.go` skips labels with no candidates and promotes their successors to
+roots, which is deliberate and covered by `TestPrefixDepthContractsUnmatchable`.
+So when `w1` has no candidate the chain is anchored at `crash_nl` instead, and
+a depth of k counts a different k vertices than it does in a run where `w1`
+matched.
+
+`P(depth>=k)` therefore mixes two populations in roughly a 53/47 split. Two
+consequences for anyone reading a ladder delta:
+
+- A mechanism that shifts the proportion of runs containing a write to node 0
+  moves every rung for a reason unrelated to its mechanism.
+- Rungs are not comparable across the two populations, so a pooled
+  `P(depth>=6)` is an average over two different six-vertex chains.
+
+Not a defect in the grader: contraction is right for a plan-mode metric reused
+in general mode. Pinning the destination would be the other kind of error,
+teaching the subject an answer the oracle knows, so the mismatch should be
+measured and reported rather than removed.
+
 ## Oracle key binding (measured 2026-08-26, epoch 3)
 
 `relax_minimal.json` names the client key `x`. The general grid pins
