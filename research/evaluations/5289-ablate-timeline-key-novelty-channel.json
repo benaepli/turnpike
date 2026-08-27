@@ -1,0 +1,147 @@
+{
+  "hypothesis": {
+    "id": "ablate-timeline-key-novelty-channel",
+    "parent": "acted-delivery-novelty-credit",
+    "kind": "ablate",
+    "title": "Ablate timeline-key novelty entirely to test whether the coverage channel is load-bearing at all",
+    "description": "In spur/spur-core/src/simulator/feedback.rs and explorer.rs, add config field `feedback.novelty_enabled` (bool, default true = today's behavior). When false, every timeline key hashes to a single constant so all runs score identical novelty and the steer's coverage term is constant; the rest of the scheduler (curriculum, hazard biasing, seeding) is untouched. Keep util_stats counters live so we can confirm the constant-key path is taken. Fired-as-intended: distinct-key count == 1 and the novelty term has zero variance. Run one sequential chunk against the same seeds 1000-1002 baseline.",
+    "category": "feedback",
+    "buildsOn": [
+      "timeline_keys novelty",
+      "steer",
+      "acted-delivery-novelty-credit"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 2.5,
+    "rationale": "Three separate key-construction changes (two additive, one subtractive) all produced exactly-zero ladder deltas. The cheapest explanation is that the coverage channel contributes nothing to depth in the first place, in which case every future feedback hypothesis in this family is dead on arrival. Ablation is the decisive test: if deleting the channel also changes nothing, we stop spending chunks on key design and redirect to authority/scheduler; if depth drops, the channel is load-bearing and the null results localize to key granularity specifically. Either outcome prunes the pool, and it is the cheapest experiment available (one boolean, no new metric to tune).",
+    "generalityArgument": "Removes signal rather than adding protocol knowledge; the constant-key path references no handler names, message types, or VR structure and would behave identically under any spec.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T05:00:00.000Z",
+    "notes": "[unparked iteration 5282] The cheapest way to retire the whole coverage lane now that saturation and 0.05% preference expression make its contribution predictably nil; value is the deletion of code and params that follows, not a ladder move; falsified if constant-keying costs any rung outside the band, which would resurrect the lane. [rejudged iteration 5283: Keep: key space saturates by run ~300 "
+  },
+  "decision": {
+    "hypothesisId": "ablate-timeline-key-novelty-channel",
+    "verdict": "auto_merge",
+    "reasons": [
+      "non-inferior ablation (flag-off stage)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0010324074074073986,
+      "depth>=5": -0.0001064814814814713,
+      "depth>=6": 0.00005555555555555522,
+      "depth>=7": -0.00005092592592592605,
+      "depth>=8": 0.000013888888888888886,
+      "h2": 0.0005509259259259269,
+      "primary": -0.0001064814814814713,
+      "throughput": 0.04666272992159026,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "ablate-timeline-key-novelty-channel-sequential-1000-1787829841734",
+        "hypothesisId": "ablate-timeline-key-novelty-channel",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5d54267c339e8eb89c43fcb379998387e576622f",
+        "superCommit": "b78bddc4f73a09424a98983275fac4dec247d7ff",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T11:24:01.734Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 279.3729629054788,
+          "unpairedFraction": 0.4901259369068566,
+          "h1Rate": 0.4980185185185185,
+          "h2Rate": 0.4187592592592593,
+          "h2bRate": 0.4257592592592593,
+          "h3Rate": 0.3566111111111111,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0636296296296295,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49103,
+            35546,
+            19784,
+            5968,
+            921,
+            109,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4834,
+          "gradeWallMs": 165588
+        },
+        "exploreWallMs": 193290,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "ablate-timeline-key-novelty-channel-sequential-1001-1787830205716",
+        "hypothesisId": "ablate-timeline-key-novelty-channel",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5d54267c339e8eb89c43fcb379998387e576622f",
+        "superCommit": "b78bddc4f73a09424a98983275fac4dec247d7ff",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T11:30:05.716Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 276.52318186007926,
+          "unpairedFraction": 0.49378766419506237,
+          "h1Rate": 0.4952962962962963,
+          "h2Rate": 0.41674074074074074,
+          "h2bRate": 0.42537037037037034,
+          "h3Rate": 0.35483333333333333,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0662777777777777,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49117,
+            35634,
+            19777,
+            6072,
+            864,
+            110,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4723,
+          "gradeWallMs": 168151
+        },
+        "exploreWallMs": 195282,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/curriculum.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/feedback.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
