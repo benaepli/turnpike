@@ -2078,3 +2078,43 @@ already computes the denominator.
 ## 2026-08-27T20:14:37.223Z
 
 **correlate-purgatory-release-steps** (closed): Correlated release (shared release_step cohorts) is null across the whole ladder at 162k runs / 3 seeds: pMei d4 0.024 @ +1%, d5 0.000 @ +2%, d6 0.030 @ +5%, and the top rungs stayed at noise (d7 116-131, d8 2-7 per 54k, same as parent). Primary moved -0.001. This falsifies the joint-event hypothesis as stated: making two held messages land on the same step did not buy the graded chain anything, so the binding constraint on depth>=7/8 is not the *relative* timing of two delayed deliveries. Combined with the parent (widening [5,1000] lifted d4/d5/d6 by 2.9/5.0/7.2% and moved neither top rung), the whole purgatory hold-timing axis -- window length and inter-record correlation alike -- is now exhausted for the top two rungs: both knobs move exactly the rungs that need one message held across one crash and neither touches the rungs that need more. That is evidence the missing ingredient is a *different event class* (what the hold is aligned to, e.g. a recovery/write boundary), not any distribution over hold durations. Also: cohort batching cost nothing (h1/h2 ~-0.3%, no perf hit), so the mechanism is cheap but inert; keep it at default 0.0. Stop proposing hold-duration reparameterizations without a diagnostic showing which schedule prefix actually precedes a d7->d8 transition -- we have now spent two full sequential evaluations guessing at that distribution.
+
+## 2026-08-27T20:20:00.000Z (operator) - the delivery-hold mechanism has one useful dimension and it is already tuned
+
+Four axes of the purgatory and timer hold were tested tonight. Taken together
+they bound the mechanism, and eight hold-family hypotheses sit parked with
+expected gains written before this evidence existed.
+
+**Duration - the one that paid, and it saturates.** Widening
+`delay_duration_range` from [5, 100] to [5, 1000] moved depth>=5 by 5.8% and
+depth>=4 by 2.6%, replicated on two independent 216,000-run baselines. Bisecting
+to [5, 300] was non-inferior, so the top 70% of the range was slack and the band
+that matters is 100 to 300 steps. That is where the measured requirement sits:
+median 192 steps to carry a message from the first crash past the second write.
+The axis is tuned; there is nothing left on it.
+
+**Probability - a cliff, not a dial.** `delay_probability` 0.3, double the
+current 0.15, hung the explorer: three seeds, 931 seconds each, zero runs
+completed. Not a degradation, a deadlock.
+
+**Timer hold - the same cliff.** `timer_race_hold` at `hold_probability` 1.0
+hung identically, three seeds, zero runs. At a lower dose
+(`deliver-hold-while-timer-pending`) it did complete runs and was rejected for
+harm: depth>=4 ratio 0.991, depth>=5 pGreater 0.0005, with exhaustion up from
+750 to 802 and plan completion down from 329 to 278. Holding deliveries stalls
+plans, and a truncated run satisfies fewer chain events.
+
+**Release-step correlation - flat.** Giving concurrently held records a shared
+release step instead of independent draws was rejected after 162,000 runs with
+no frontier rung separable, pMei 0.024 / 0.000 / 0.030.
+
+The shape of the mechanism is therefore: one dimension carries an effect and is
+saturated, one is a cliff that deadlocks the explorer above 0.15, one is a cliff
+that harms below it, and structure within the held set does nothing. A new
+hypothesis on this mechanism needs to name which of those four statements it
+expects to be wrong, and why.
+
+Eight parked hypotheses target it, including `purgatory-probability-sweep-clean`
+and `purgatory-probability-single-point-probe` on the axis that deadlocks, and
+`purgatory-empirical-duration-only` on the axis already bisected. Their expected
+gains, up to 9, were assigned before any of this was measured.
