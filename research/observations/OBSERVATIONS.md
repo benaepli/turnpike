@@ -1895,3 +1895,52 @@ empty output.
 ## 2026-08-27T15:54:40.128Z
 
 **config-override-compose-and-type-fuzz** (closed): The override plumbing itself is sound, but the experiment closed on a failed regression suite, not on a falsified mechanism. Landed state in spur-core/src/simulator/config_override.rs + tests/config_override_effect.rs shows three of the four sub-claims held: (1) dotted paths reach the leaf (`a.b=2`) and missing intermediate objects are created rather than siblings; (2) composition works — seven simultaneous assignments (num_runs_per_config, purgatory.delay_probability, three range objects, a float array, max_iterations) all survive into a parsed ExplorerConfig, so no last-write-wins or map collision; (3) duplicate keys are defined last-wins, and descent through a scalar (`a.b` where a=1) is a hard error. The typo-rejection story is stronger than expected: check_override_paths re-serializes the *parsed* config and re-walks each path, so a misspelling at any depth (purgatory.delayed_probability, or descending past a leaf) is rejected without maintaining a field-name list, and the end-to-end test confirms both nested and top-level typos fail the session rather than silently measuring the unchanged value. Sub-claim (2) of the original description — type mismatch (string-for-float, float-for-int, 0/1-for-bool) — was never actually asserted; parse_assignment's `from_str().unwrap_or(String)` fallback means a bare `fifo` becomes a string and the failure is deferred to serde, but nothing pins that it errors loudly with the offending path named. Ladder impact is nil as predicted for a tooling item (primary +0.00025, h2 +0.0004, violations 0 at both seeds, params 16→16); the only real cost is throughput -1.0%, within seed noise at n=2. Prime suspect for the regression failure is process-global mutable state: EXTRA_OVERRIDES is a `static Mutex<Vec<String>>` and util_stats::snapshot() is likewise process-wide, yet both the integration test and the in-crate unit test `loads_a_file_and_applies_overrides_into_a_usable_config` mutate them with no serializing guard, so cargo's default parallel test threads let one test's overrides/counters leak into another's session. That is a test-harness defect, not a defect in the override path, and it should be fixed before this line is judged.
+
+## 2026-08-27T17:00:00.000Z (operator) - guidance does not help find a real non-VR bug, and dosing it makes things worse
+
+Every measurement of the coverage and steer channel in this project has been
+against one target, the VR chain. The question of whether it works against a
+different bug had never been asked, and could not be answered from the record:
+`regression_mencius.json` sets no `feedback` key, and both `mode` and `steer`
+default to off, so the Mencius cases have always run with guidance disabled.
+
+Three arms on `Mencius_opt1_2.spur`, the spec with a real known bug, 20,160 runs
+each, machine idle, same binary and seed:
+
+| arm | feedback | violations | rate | wall | violations/s |
+|---|---|---|---|---|---|
+| A | off | 196 | 0.00972 | 227s | 0.863 |
+| B | timeline + steer, novel_scale 5.0 | 168 | 0.00833 | 236s | 0.712 |
+| C | timeline + steer, novel_scale 0.5 | 161 | 0.00799 | 235s | 0.685 |
+
+Pooled, feedback-on finds the bug at 0.00816 against 0.00972 off, a ratio of
+0.84 at z = -1.89. Per unit of compute the gap is wider, 0.685 against 0.863, a
+21% loss, because feedback also costs about 4% wall time.
+
+The dose arm is the informative one. `novel_scale` sets the saturation of the
+novelty term, `novel / (novel + scale)`, so a smaller scale gives a larger
+contrast between a novel candidate and a stale one - at 5.0 a novel=1 candidate
+scores 0.167, at 0.5 it scores 0.667. If guidance were merely underpowered,
+raising the contrast should move the result toward neutral or better. It moved
+monotonically the other way: 1.000, 0.857, 0.821.
+
+None of these clear 95%, and three points on a monotone trend is thin evidence.
+What can be said is that the expectation "the mechanism is too weak to show its
+benefit" predicts the opposite sign from what was measured.
+
+A structural bound makes that plausible and was stated before the numbers
+arrived. `score_runnable` is `0.25 * novelty + 0.75 * priority` with novelty
+bounded in [0, 1] and priority a random draw. The novelty term can move a score
+by at most 0.25 while the random component spans 0.75, so novelty can only
+reorder candidates whose priorities already fall within 0.25 of each other. It
+breaks ties; it cannot override. Steering inside that band appears to cost
+whatever the random draw was providing without buying reachability.
+
+What this does not settle. One bug, one protocol, one bug shape, and at a 1%
+detection rate an easy one that may need no guidance at all. The proposition
+that coverage guidance pays off against a population of bugs with different
+reachability profiles is untouched by this: a single target cannot exhibit the
+effort-allocation problem that proposition is about. What is now less likely is
+that the existing scoring function would be the thing to exploit such a
+population, since it cannot express steering strong enough to override its own
+random component at any dose tested.
