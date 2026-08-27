@@ -2464,3 +2464,52 @@ member is exactly one defect away from it.
 200 runs settles compile-and-run, not rates. Every rate is measured at
 calibration, and the Paxos member's 1-in-200 is already below the admission
 band, so its workload needs retuning before it can gate.
+
+## 2026-08-28T00:05:00.000Z (operator) - a host has a detection ceiling, and Raft's is ten times below the panel's admission band
+
+Three separate Raft injections detected at or near zero, so the fault machinery
+was checked before any of them was tuned further. It fires abundantly: at
+`num_crashes 2..4` over 20,016 runs, `crash_recovery` reports **60,048 crashes
+and 60,048 recovers**, 7,694 runs with a crossing delivery, and
+`post_fault_ops` reports 58,835 client operations invoked after the last
+recover. Faults are not the missing ingredient.
+
+A positive control settles it. `raft_clean.spur` with the vote guard replaced
+by `if (true)` grants every vote request unconditionally, so split brain is
+near certain in any run with two candidates:
+
+| spec | injection | runs | violations | rate |
+|---|---|---|---|---|
+| `raft_always_vote` (control, not a member) | grant every vote | 20,016 | 42 | **0.0021** |
+| `raft_stale_vote` | count a reply from a superseded term | 20,016 | 3 | 0.00015 |
+| `raft_forget_vote` | recovered node forgets `voted_for` | 20,016 | 0 | 0 |
+| `raft_commit_prev_term` | commit an entry from a previous term | 20,016 | 0 | 0 |
+| `raft_clean` | none | 20,016 | 0 | 0 |
+
+**A guaranteed safety violation surfaces as a linearizability violation only
+0.2% of the time.** That is the host's ceiling, not the bug's rate: most Raft
+divergence never reaches `ClientInterface` as an observable history, because
+the client retries and redirects until some leader answers successfully. Every
+Raft member is therefore bounded by 0.0021, ten times below the panel's [0.02,
+0.20] admission band, and no workload tuning can lift it - tuning changes how
+often the bug is *reached*, and the ceiling is about whether reaching it is
+*seen*.
+
+This is a missing admission criterion, and it is cheap. Before sizing any
+member, measure its host's ceiling with a deliberately blatant injection of the
+same class. A host whose ceiling sits below the band can supply members that
+report, never members that gate, and the fix is a different host rather than a
+different workload. Call it C0 and run it first: it costs one 20,000-run arm
+and it would have saved every tuning cycle spent on Raft tonight.
+
+Read the other results against that ceiling rather than against zero.
+`raft_stale_vote` at 0.00015 is 7% of everything its host can express, so the
+bug is genuinely being reached; the other two sit below what 20,016 runs can
+resolve.
+
+Paxos, by contrast, clears the band. At three to four concurrent writes and
+four to six write operations with no crashes, `paxos_accept_stale_ballot`
+detects at **0.0251** over 20,004 runs while `Paxos.spur` at the same workload
+violates **0 times**, so its C1 passes and the member is admissible as it
+stands. Its rate rose monotonically with concurrency (0.0064, 0.0170, 0.0251),
+which is the responsiveness a gradient member needs.
