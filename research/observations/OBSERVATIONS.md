@@ -2374,3 +2374,46 @@ Consequences for the panel, which matter more than the number:
 3. **The panel needs the firing rule applied to itself.** Before a member's
    detection rate is compared between two arms, the mechanisms that differ
    between those arms must be shown to have had occasions on that member.
+
+## 2026-08-27T22:55:00.000Z (operator) - the liveness panel member fails its admission check before any code was written
+
+The panel plan makes `Mencius_P.spur` a member whose detector is client
+operations left outstanding, on the theory that its wedge - a slot promised
+above ballot 0 by a revoker that then crashes - shows up as invocations that
+never get a response. The existing `deadlock` counter cannot see it, because
+`monitor_suspicions` (`Mencius_P.spur:634`) is an infinite `set_timer` loop, so
+`all_queues_empty()` is never true.
+
+The zero-code proxy is `traceanalyzer -grade`'s `unpaired_fraction`, which is
+`unpaired_invocations / invocations` and needs no new counter. Admission asked
+for the outstanding-op rate to be at least 5x higher with a crash than without.
+
+Within-spec ablation, `Mencius_P.spur`, same overlay, 2,160 runs per arm:
+
+| arm | invocations | unpaired | fraction | runs with unpaired |
+|---|---|---|---|---|
+| `num_crashes` 1..1 | 12,208 | 1,609 | 0.1318 | 1,285 |
+| `num_crashes` 0..0 | 12,751 | 1,370 | 0.1074 | 1,125 |
+
+Ratio **1.23x** against a bar of 5x. The difference is real (z = 5.9) and far
+too small to admit: **the member is dropped.**
+
+The reason it fails is the interesting part. **10.7% of client operations go
+unanswered with zero crashes**, so baseline incompleteness dominates and the
+wedge is buried inside it. This is the same fact as the 21:45Z entry - no run
+finishes - arriving as a measurement problem: a detector built on "work left
+outstanding" has no floor to measure against on a protocol where a tenth of the
+work is outstanding anyway.
+
+Two consequences. A completion-based detector needs a member whose fault-free
+outstanding rate is near zero, and none of the Mencius family qualifies; the
+cross-protocol completion signal has to be validated per host before it is
+trusted anywhere. And `client_ops_outstanding` as a new counter in
+`util_stats.rs` should not be built for this member - the proxy already shows
+there is nothing here for it to resolve. Build it, if at all, for a host that
+passes this same ablation first.
+
+A cross-spec comparison run first, at a fixed one crash, gave `Mencius_P`
+0.1318 against `Mencius_opt1_2` 0.2362. That comparison is uninformative - it
+says the opt-1-2 spec blocks more, not that P wedges - and it is recorded only
+so the number is not mistaken for evidence later.
