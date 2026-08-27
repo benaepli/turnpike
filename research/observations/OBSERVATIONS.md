@@ -599,3 +599,39 @@ crosses from ruler into subject and needs deliberate operator handling.
 Either way this is a measurement-plane change: it alters what depth means, so
 it requires an epoch bump, corpus revalidation and a baseline re-run, and it
 should not be attempted by a hypothesis.
+
+### Feasibility of the allow_t1 repair: grader-only, confirmed
+
+The open question above is answered from real general-mode traces. A timer
+fire is recoverable without touching the simulator.
+
+Traced functions in a general VR run are Node.Init, Node.RecoverInit,
+Node.Recovery, Node.RecoveryResponse, Node.Prepare and Node.StartViewChange,
+with rows of kind Enter, Exit and Dispatch carrying node and step. Two runs
+show the signature plainly:
+
+  run 2: step 22, node 2 Dispatch StartViewChange (x2), no prior Enter on node 2
+  run 3: step 90, node 2 Dispatch StartViewChange (x2), no prior Enter on node 2
+
+A node that dispatches StartViewChange without having entered one first was
+not relaying somebody else's view change; in VR nothing but its own timeout
+starts one. So "node N's timeout fired" is exactly "the first Dispatch of the
+view-change handler from node N with no preceding Enter of it on node N",
+which is what `allow_t1` with Target 1 and TimerLabel "timeout" denotes.
+
+The repair is therefore a `KindAllowTimer` case in `buildCandidates` that
+collects those dispatches for the target node, and nothing else. No simulator
+change, no new trace event, no crossing from ruler into subject. It does
+hard-code the view-change handler name into the grader, which the separation
+rules permit for the ruler and which the DAG already relies on.
+
+It remains a measurement-plane change: it makes depth 9 reachable, so every
+depth number recorded before it means something different afterwards. Epoch
+bump, corpus revalidation against manifest.json, and a baseline re-run.
+
+Expected effect, stated in advance so it can be checked: general-mode max
+prefix depth should rise from 8 to 9, the fraction at depth >= 8 should fall
+sharply because the timer step now has to be genuinely present, and the
+depth >= 8 population should start to correlate with violations the way the
+plan corpora do. If depth >= 8 stays at its current rate after the change,
+the collector is matching something too permissive and should be rejected.
