@@ -737,3 +737,39 @@ violations first, on corpora graded the way the loop grades them.
 
 What this does settle: the current 6,000-step budget is not buying depth, and
 neither would a larger one.
+
+## 2026-08-27T03:36:00.000Z (operator) - the feedback apparatus does not steer
+
+enable-cfg-feedback-general-config turned on the config-scoring feedback path,
+dead since the project began, and the result is the cleanest negative in the
+record.
+
+The mechanism did not merely fire, it took over the signal. `cfg_score_sum`
+went from 0.0 in every previous capture to 1063.1, against a timeline score of
+71.1 that did not move - the score the explorer feeds on is now dominated
+fifteen to one by a source that contributed nothing an hour ago. Steer
+divergent picks roughly halved, 3161 to 1653.
+
+The ladder did not respond. Sequential advanced on non-inferiority after
+108,000 runs with depth>=4 ratio 1.0014 and depth>=5 ratio 1.0002, both
+indistinguishable from 1, and pMei 0.033 against a bar of 1%.
+
+Put beside the rest of the evening this is no longer one null among many. The
+steer changes its pick in 0.1% of two million evaluations. The timeline
+coverage key saturates after a few hundred runs, and widening it 2.6x moved
+nothing. Turning on a second scoring source that dominates the first moved
+nothing. Each of those is a component of the same apparatus: the machinery
+whose purpose is to direct exploration rather than let it run at random. On
+the evidence, that apparatus has no measurable influence on how deep the
+explorer gets.
+
+That reframes the four falsified mechanism families. They were not competing
+to steer a search that was otherwise working; they were adjusting inputs to a
+steering system that does not reach the objective. It also predicts the two
+remaining dormant mechanisms, AOS and dedup/coverage scheduling, are likely to
+null for the same structural reason, and they belong to the same apparatus.
+
+One caution on my own claim. I argued earlier that "enable a mechanism that is
+off" is the only class that has ever cleared the merge bar, on the strength of
+enable-purgatory-general-config at +4.3%. That class is now one for two. The
+generalisation was drawn from a single success and should not be leaned on.
