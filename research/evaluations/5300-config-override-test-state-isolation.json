@@ -1,0 +1,143 @@
+{
+  "hypothesis": {
+    "id": "config-override-test-state-isolation",
+    "parent": "config-override-compose-and-type-fuzz",
+    "kind": "enabling",
+    "title": "Serialize the process-global override and stats state so config tests stop racing",
+    "description": "EXTRA_OVERRIDES (static Mutex<Vec<String>> in spur-core/src/simulator/config_override.rs) and util_stats::snapshot() are process-global, but tests/config_override_effect.rs and the in-crate unit test loads_a_file_and_applies_overrides_into_a_usable_config both mutate them under cargo's parallel test threads, so one test's assignments/counters can leak into another's session. Fix: (a) add an RAII guard — e.g. `config_override::scoped_overrides(vec![...]) -> OverrideGuard` that takes a dedicated test mutex, installs, and restores on Drop — and route every test through it; (b) have session() in the integration test acquire the same guard so stats snapshots are taken while no other session is running, or move to a per-session stats handle instead of the global. Then re-run the full regression suite to confirm the failure that closed the parent was harness contamination, not the override path.",
+    "category": "tooling",
+    "buildsOn": [
+      "config_override",
+      "util_stats"
+    ],
+    "expectedGain": 6,
+    "expectedCost": 0.5,
+    "rationale": "The parent closed on `regression suite failed` while every mechanism claim it made actually held. If the failure is cross-test contamination from two process-global statics, every future config/sweep test that touches overrides inherits the same flake, and each one costs a full regression cycle to diagnose. Fixing the isolation once unblocks the whole sweep-tooling line and lets the parent's already-working code be re-judged on its merits.",
+    "generalityArgument": "Touches only Rust test scaffolding and a global-state accessor in the config layer; no protocol, scheduler, or VR semantics are involved, and it asserts nothing about any spec.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T16:05:00.000Z",
+    "notes": "Falsified if the regression suite still fails with all override/stats state serialized — that would point at a real defect elsewhere in the override path. [rejudged iteration 5296: Named prime suspect for the parent's regression failure (EXTRA_OVERRIDES static Mutex + process-global util_stats mutated under cargo parallel threads); cheapest unblock of the whole sweep line. Falsified if the suite s"
+  },
+  "decision": {
+    "hypothesisId": "config-override-test-state-isolation",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0011527777777777803,
+      "depth>=5": 0.00031944444444444164,
+      "depth>=6": -0.00010185185185185297,
+      "depth>=7": -0.00019444444444444435,
+      "depth>=8": -0.000004629629629629629,
+      "h2": 0.0005277777777777937,
+      "primary": 0.00031944444444444164,
+      "throughput": -0.018263415365483038,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "config-override-test-state-isolation-sequential-1000-1787852187492",
+        "hypothesisId": "config-override-test-state-isolation",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "e57c5ed3627f59f98d5cb47dcc858e9a825f36da",
+        "superCommit": "35a65dccd3cb10e8e01f3067d322289ff30522c9",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T17:36:27.492Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 275.2714482336749,
+          "unpairedFraction": 0.4896382030130814,
+          "h1Rate": 0.49825925925925924,
+          "h2Rate": 0.41905555555555557,
+          "h2bRate": 0.42598148148148146,
+          "h3Rate": 0.3559074074074074,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0660925925925926,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49120,
+            35651,
+            19807,
+            5993,
+            897,
+            97,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4826,
+          "gradeWallMs": 169157
+        },
+        "exploreWallMs": 196170,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "config-override-test-state-isolation-sequential-1001-1787852557891",
+        "hypothesisId": "config-override-test-state-isolation",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "e57c5ed3627f59f98d5cb47dcc858e9a825f36da",
+        "superCommit": "35a65dccd3cb10e8e01f3067d322289ff30522c9",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T17:42:37.891Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 272.18976667288337,
+          "unpairedFraction": 0.4945055555401274,
+          "h1Rate": 0.49427777777777776,
+          "h2Rate": 0.41609259259259257,
+          "h2bRate": 0.4237037037037037,
+          "h3Rate": 0.3549814814814815,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0663518518518518,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49140,
+            35609,
+            19797,
+            6064,
+            859,
+            108,
+            6
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4793,
+          "gradeWallMs": 170607
+        },
+        "exploreWallMs": 198391,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/config_override.rs",
+    "spur-core/src/simulator/util_stats.rs",
+    "spur-core/tests/config_override_effect.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
