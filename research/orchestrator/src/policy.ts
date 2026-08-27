@@ -81,6 +81,10 @@ export const Policy = z.object({
 });
 export type Policy = z.infer<typeof Policy>;
 
+/// Top-level keys the schema declares. Zod strips anything else on parse, so
+/// a key absent from this list never reaches the running policy.
+export const POLICY_KEYS: readonly string[] = Object.keys(Policy.shape);
+
 // Mechanism-level floors/ceilings. The loop can propose policy changes only
 // inside this box.
 export const HARD_LIMITS = {

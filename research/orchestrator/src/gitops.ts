@@ -384,6 +384,28 @@ function lintProtectedPathsInner(superFiles: string[]): string[] {
  * template, so its delta is seed noise and non-inferiority passes for a
  * change that never ran. Config work has to edit a loaded file in place.
  */
+/**
+ * Top-level keys in `research/policy.json` that the Policy schema does not
+ * declare. Zod strips unknown keys on parse, so such a key never reaches the
+ * running policy and is read by nothing: the hypothesis that adds it passes
+ * the gate having changed no behavior at all. Caught here rather than by
+ * making the schema strict, so a bad key fails one hypothesis instead of
+ * refusing to start the daemon.
+ */
+export function lintInertPolicyKeys(
+  policyJsonText: string | null,
+  schemaKeys: readonly string[],
+): string[] {
+  if (!policyJsonText) return [];
+  let raw: unknown;
+  try { raw = JSON.parse(policyJsonText); } catch { return ["policy.json is not valid JSON"]; }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return ["policy.json is not a JSON object"];
+  const known = new Set(schemaKeys);
+  return Object.keys(raw as Record<string, unknown>)
+    .filter((k) => !known.has(k))
+    .map((k) => `inert policy key (schema drops it on parse): ${k}`);
+}
+
 export function lintInertConfigs(
   superFiles: string[],
   loadable: readonly string[],

@@ -1,7 +1,7 @@
 // CLI entrypoints. Run from research/orchestrator with:
 //   npx tsx src/cli.ts <command>
 // Commands: baseline | once | start | status | regression | selftest
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { runEvaluation, type EvalContext } from "./evaluate.js";
 import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
@@ -50,6 +50,18 @@ async function cmdBaseline(state: LoopState): Promise<void> {
   writeFileSync(path.join(ROOT, "research/evaluations/000-baseline.json"), JSON.stringify({ graderVersion: ctx.graderVersion, spurCommit: ctx.spurCommit, superCommit: ctx.superCommit, baseline }, null, 2));
   writeStatus(state, policy, { baseline: baseline.sequential[0]?.metrics ?? null, reference: loadReference(state)?.confirm[0]?.metrics ?? null, graderVersion: ctx.graderVersion, openPrs: [] });
   renderPolicyMd(policy, clamps, ["initial policy"]);
+  // The perf lane compares against this file copy, and the explorer rejects
+  // unknown top-level keys under strict_config_keys. Left stale, one merge
+  // that adds a config key makes every later hypothesis fail its throughput
+  // case, which the gate reports as a regression failure on hypotheses that
+  // did nothing wrong.
+  try {
+    mkdirSync(path.join(ROOT, "tmp/loop"), { recursive: true });
+    copyFileSync(path.join(ROOT, "spur/target/release/spur"), path.join(ROOT, "tmp/loop/spur-baseline"));
+    console.log("perf-lane baseline binary refreshed");
+  } catch (e) {
+    console.log(`WARNING: could not refresh tmp/loop/spur-baseline: ${String(e)}`);
+  }
   commitAll(SUPER, "baseline evaluation 000 (grader " + ctx.graderVersion + ")");
   console.log(`baseline recorded: rps=${rps.toFixed(1)}, evidence in research/evaluations/000-baseline.json`);
 }

@@ -14,10 +14,11 @@ import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js
 import { loadSeqState, pooledCountsOf, runSequential, type SeqKind } from "./sequential.js";
 import {
   RESEARCH_BRANCH, SPUR, SUPER, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto, resetBranchTo,
-  currentCommit, deleteBranch, diffText, createPr, lintInertConfigs, lintProtectedPaths, lintRulerSubject,
+  currentCommit, deleteBranch, diffText, createPr, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
+import { POLICY_KEYS } from "./policy.js";
 import { buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, run } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
@@ -530,6 +531,12 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       ...lintProtectedPaths(h.kind === "meta" ? superFiles.filter((f) => f !== "research/policy.json") : superFiles),
       ...lintRulerSubject(h.kind, superFiles),
       ...lintVrNames(diffText(SPUR, RESEARCH_BRANCH) + diffText(SUPER, RESEARCH_BRANCH)),
+      ...lintInertPolicyKeys(
+        superFiles.includes("research/policy.json")
+          ? readFileSync(path.join(ROOT, "research/policy.json"), "utf8")
+          : null,
+        POLICY_KEYS,
+      ),
       ...lintInertConfigs(superFiles, [
         policy.evaluation.configTemplate,
         policy.regression.menciusBugConfig,
