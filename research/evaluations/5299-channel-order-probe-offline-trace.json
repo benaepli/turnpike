@@ -1,0 +1,143 @@
+{
+  "hypothesis": {
+    "id": "channel-order-probe-offline-trace",
+    "parent": "per-channel-fifo-authority-probe",
+    "kind": "meta",
+    "title": "Answer the FIFO question offline from an existing trace instead of instrumenting the delivery path",
+    "description": "Do not modify exec.rs/state.rs/path.rs. Instead dump the already-emitted event trace for a handful of baseline runs (existing path/trace serialization used by the explorer) and compute, offline in a small script, whether any two deliveries to the same (sender, receiver) pair appear in an order different from their enqueue order. Gate nothing in config; add no params. Deliverable is a single recorded number plus the decision to open or permanently close the reordering axis.",
+    "category": "tooling",
+    "buildsOn": [
+      "path/trace serialization",
+      "explorer run dump"
+    ],
+    "expectedGain": 3,
+    "expectedCost": 1,
+    "rationale": "The parent failed on regression + param growth caused by threading new state through the hot delivery path for a purely observational question. If the trace already records enqueue and delivery events, the same question resolves with zero simulator changes, zero params and zero regression risk.",
+    "generalityArgument": "Operates on the generic event trace; the predicate references only (sender, receiver) identity and event ordering, naming no handler, message type or protocol.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-26T23:10:00.000Z",
+    "notes": "[stop] parked at implement in iteration 5298; partial work on branch hyp/5298-channel-order-probe-offline-trace [requeued after restart]"
+  },
+  "decision": {
+    "hypothesisId": "channel-order-probe-offline-trace",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0009305555555555456,
+      "depth>=5": 0.00026388888888889683,
+      "depth>=6": -0.00014814814814814725,
+      "depth>=7": -0.00012037037037037008,
+      "depth>=8": -0.000004629629629629629,
+      "h2": 0.00038888888888888307,
+      "primary": 0.00026388888888889683,
+      "throughput": -0.0036394804380119883,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "channel-order-probe-offline-trace-sequential-1000-1787850596214",
+        "hypothesisId": "channel-order-probe-offline-trace",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "81592b30882f8c8b88831c4ba9716fe321596c22",
+        "superCommit": "e527926eb7fa0b4b610ae6f218ca31fa7dea4f36",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T17:09:56.214Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 281.2426759719799,
+          "unpairedFraction": 0.49091155987507035,
+          "h1Rate": 0.4978518518518519,
+          "h2Rate": 0.4188148148148148,
+          "h2bRate": 0.4268148148148148,
+          "h3Rate": 0.35644444444444445,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0650925925925927,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49070,
+            35598,
+            19840,
+            5999,
+            900,
+            103,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4760,
+          "gradeWallMs": 166371
+        },
+        "exploreWallMs": 192005,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "channel-order-probe-offline-trace-sequential-1001-1787850959579",
+        "hypothesisId": "channel-order-probe-offline-trace",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "81592b30882f8c8b88831c4ba9716fe321596c22",
+        "superCommit": "e527926eb7fa0b4b610ae6f218ca31fa7dea4f36",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T17:15:59.579Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 274.3735138101335,
+          "unpairedFraction": 0.4935241252363382,
+          "h1Rate": 0.49457407407407405,
+          "h2Rate": 0.41605555555555557,
+          "h2bRate": 0.42418518518518517,
+          "h3Rate": 0.3545185185185185,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0650555555555554,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49130,
+            35625,
+            19740,
+            6052,
+            851,
+            110,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4686,
+          "gradeWallMs": 168057
+        },
+        "exploreWallMs": 196812,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/tests/message_order_probe.rs"
+  ],
+  "superFiles": [
+    "research/observations/MESSAGE_ORDER.md"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
