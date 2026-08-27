@@ -1985,3 +1985,43 @@ before checking what the candidate's diff actually touched.
 ## 2026-08-27T18:04:45.352Z
 
 **config-override-test-state-isolation** (auto_merge): Confirmed, not falsified: with an RAII scoped-override guard serializing EXTRA_OVERRIDES and the util_stats snapshot window (spur-core/src/simulator/config_override.rs, util_stats.rs, tests/config_override_effect.rs), the full regression suite passes and lint is clean — so the parent config-override-compose-and-type-fuzz closure on 'regression suite failed' was cross-test contamination from two process-global statics under cargo's parallel test threads, not a defect in the override application path. As expected for a pure tooling change, exploration behavior is unchanged: seeds 1000/1001 on general_vr.json give 54k runs each, 0 violations, 0 unknown, meanPrefixDepth 3.066 both, maxPrefixDepth 8, and objective deltas at every depth are within seed noise (|Δ| ≤ 1.2e-3, depth>=5 +3.2e-4, depth>=7 -1.9e-4); h2 +5.3e-4; general config param count unchanged at 16. Throughput -1.8% (275.3 / 272.2 runs/sec) is the only non-noise-shaped delta and is plausibly mutex-acquisition in the guard plus run-to-run variance — worth watching but not on the hot explore path since the guard is test-only. Net: the isolation fix is a cheap unblock, and the parent's already-working compose/type-fuzz code now deserves a re-judge on its merits rather than a harness artifact.
+
+## 2026-08-27T18:30:00.000Z (operator) - a bug panel is resolvable, and 1.7x cheaper than planned
+
+The question a bug panel turns on is whether a member's detection rate can be
+compared between two arms at an affordable run count. Measured directly on
+`Mencius_opt1_2.spur`, six seeds, 12,816 runs each, machine idle, one binary:
+
+| seed | 101 | 102 | 103 | 104 | 105 | 106 |
+|---|---|---|---|---|---|---|
+| violations | 136 | 116 | 122 | 128 | 137 | 139 |
+
+Pooled rate 0.01012. Observed sd 9.3 against a binomial sd of 11.3, so
+**seed-varying dispersion is 0.67** - two seeds of the same binary agree more
+closely than independent sampling would. That matches the 0.73 measured across
+37 historical sessions of the `mencius-bug-found` regression case, which all
+ran at `session_seed: 11` and therefore measured explorer nondeterminism rather
+than seeds. The two agreeing means seed choice adds no extra noise, and it is
+the same sub-binomial pattern the depth buckets show (0.31 to 0.72).
+
+Consequences, at the measured rate and dispersion:
+
+| purpose | runs/arm | wall at 150 runs/s |
+|---|---|---|
+| catch a 50% collapse at z=2 | 2,116 | 14 s |
+| resolve +25% at z=2 | 8,463 | 56 s |
+| resolve +25% at z=2.7 | 15,425 | 103 s |
+
+Throughput was also measured at 150 runs/s on this host, not the 88 assumed
+when the panel was costed, so every cost estimate in that costing is about 1.7x
+too pessimistic. A four-member gradient tier is roughly four minutes, not ten,
+and a collapse gate is about one minute.
+
+This is the "can the panel resolve anything" question answered in the
+affirmative, and it was the criterion for abandoning the gradient tier. It does
+not answer whether the panel would show anything useful - the retrospective
+already in the record points the other way, with Mencius detection at 0.00999
+before the merge that raised depth>=5 by 29% and 0.00892 after, a ratio of
+0.893 at z = -1.40. That comparison is now known to be resolvable at this run
+count, which makes it worth repeating properly rather than leaving as a
+suggestive point estimate.
