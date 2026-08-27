@@ -2309,6 +2309,9 @@ Three limits on the claim. One seed per arm, with the dispersion factor
 imported from a different config. The two mechanisms were varied jointly, so
 this attributes nothing to either. And it is one protocol.
 
+**Corrected below (22:20Z): one of the two mechanisms had no occasions to fire,
+and the probe is structurally blind to the family it was meant to test.**
+
 The point estimate lands within 2% of the 0.893 the void retrospective
 reported. That is coincidence and must not be read as corroboration - the
 earlier comparison had both arms running identical search, so it could not
@@ -2325,3 +2328,49 @@ voting or a gate set at collapse-detection rather than gradient resolution.
 The `on` arm also took 40% longer for an identical run count, so the merged
 hold band buys its depth with wall time that the panel would pay on every
 member.
+
+## 2026-08-27T22:20:00.000Z (operator) - correction: the transfer probe varied one mechanism, not two, and cannot see fault-path work at all
+
+The 22:05Z entry above reports a 12.5% detection loss on `Mencius_opt1_2.spur`
+and attributes it to "the mechanisms that raised VR depth". Both halves of that
+attribution are wrong.
+
+**`post_fault_client_ops` was inert in both arms.** The Mencius workload keys
+overlaid onto the arms carry `num_crashes: {min: 0, max: 0}`. In
+`spur-core/src/simulator/path/generator.rs:210` the post-fault pass iterates
+`recover_indices`, collected from `EventAction::RecoverNode`. With no crashes
+there are no recoveries, the list is empty, and the pass adds zero edges. The
+arms therefore differ in exactly one effective way: the purgatory hold band,
+[5,100] against [5,300]. The 12.5% belongs to the hold band alone, and it is a
+cleaner single-mechanism result than the original entry claims - but it is not
+a measurement of "the mechanisms merged tonight".
+
+This is the failure the "a mechanism must count its own firing" rule in
+GOAL.md exists to prevent, and it is the third time tonight the same shape has
+appeared (the quick-fire multiplier, the dead cfg feedback path, now this).
+The rule was applied to hypotheses and not to an operator measurement.
+
+**The deeper problem is the probe itself.** `bin/spur/mencius/bug_opt1_2.md`
+states the Rule 2 / Rule 3 interaction "does not require crashes, message loss,
+or network partitions - only a concurrent revoke". The bug lives on a
+fault-free path. The VR bug is reached through fault paths: all three tracked
+hazards are crash hazards (H1 crash with an in-flight send, H2
+stale-incarnation delivery, H3 two nodes crash and recover). So a
+`Mencius_opt1_2` probe is blind by construction to the entire mechanism family
+the loop actually merges for VR, and what it does measure is whether
+fault-oriented scheduler effort steals budget from fault-free search. It does.
+
+Consequences for the panel, which matter more than the number:
+
+1. **Membership must be selected by bug reachability, not by protocol.** A
+   panel weighted toward crash-free bugs will systematically penalise the
+   mechanism family that helps VR, and the loop would learn to stop proposing
+   it. At least one member must carry a bug that is reachable only after a
+   crash and recovery.
+2. **Every member needs its fault budget stated.** A member running
+   `num_crashes: 0` silently disables every fault mechanism under test, and
+   the panel would report that as a detection result rather than as a
+   configuration that could not observe anything.
+3. **The panel needs the firing rule applied to itself.** Before a member's
+   detection rate is compared between two arms, the mechanisms that differ
+   between those arms must be shown to have had occasions on that member.
