@@ -74,6 +74,42 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
 - Parameters are a cost (`research/GOAL.md`); do not add tunables to configs
   or code to make something work.
 
+## Direction review (every ~20 iterations, and after any grader or epoch change)
+
+The loop audits its own mechanisms. Nothing audits whether the loop is
+pointed at the bug, and supervising events all night will not surface it:
+reacting to what breaks feels like work and can run indefinitely while the
+objective does not move. Run this on a schedule, not on request, and write
+the verdict to `research/observations/`.
+
+1. Has the ground truth moved? Count `violations` across the reference,
+   every baseline and every sequential evaluation. If it is still zero
+   everywhere, say so plainly and treat every other number as a proxy whose
+   link to the goal is unverified.
+2. Separate ruler changes from search changes. Re-grade an early corpus with
+   the current oracle and compare that against the current baseline. Gains
+   that survive are search; gains that vanish were instrument fixes. Depth
+   rose about tenfold over this project and essentially all of it was a
+   one-string oracle fix, which no per-iteration number revealed.
+3. Compare recent effect sizes against the gate's own bar. Pull
+   `objectiveDeltas` and `mei` from the last ten decisions. If candidates
+   cluster well under the MEI, the loop is not failing to measure, it is out
+   of levers of the size the gate accepts, and proposing more of the same
+   cannot change that.
+4. Classify the merges. Telemetry and enabling changes that cannot move a
+   rung by construction still raise the merge count. Report merges that
+   changed search behavior separately from merges that did not.
+5. Ask whether the proxy still tracks the goal, with evidence. General-config
+   runs at full prefix depth have all been linearizable while plan corpora
+   violate on most of theirs, so depth and violations are known to decouple
+   at the top of the ladder.
+6. State a verdict: continue, recalibrate, or change direction. "Continue"
+   needs a reason beyond the absence of a reason to stop.
+
+Escalate to the operator rather than deciding alone when the answer implicates
+something the loop may not touch: the evaluation grid, the oracle, the spec
+under test, or the merge bar itself.
+
 ## Boundary procedure (the only way to land harness changes)
 
 1. `touch research/STOP`. The running agent phase aborts within seconds
