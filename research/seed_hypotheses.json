@@ -160,5 +160,22 @@
     "generalityArgument": "Pure implementation efficiency; no scheduling semantics involved.",
     "createdAtIso": "2026-08-24T10:56:11.950843+00:00",
     "notes": ""
+  },
+  {
+    "id": "widen-purgatory-hold-to-run-length",
+    "parent": null,
+    "kind": "enabling",
+    "title": "Size the send-delay hold to the graded workload's run length",
+    "description": "In scheduler_configs/loop/general_vr.json change purgatory.delay_duration_range from [5, 100] to [5, 1000]. No code change and no new field; the value is a config-only recalibration of a mechanism that is already on. Classified as enabling because the current cap makes the mechanism unreachable for the rungs it exists to serve, not because the path is dead. exec.rs draws the hold log-uniformly over the range and sets release_step = current_step + duration, so the range is measured in scheduler steps. Over [5, 100] the median draw is 22 steps and the maximum is 100. Over [5, 1000] the median is 71 and 31% of draws exceed 192, while the cap stays below the 2387-step mean run length so delayed records still deliver before the run ends.",
+    "category": "config",
+    "buildsOn": [
+      "enable-purgatory-general-config"
+    ],
+    "expectedGain": 8,
+    "expectedCost": 0.5,
+    "rationale": "The graded chain needs two StartViewChange messages sent before the first crash to be delivered after a second write that follows the second recovery. Measured on the general grid, that span is median 192 steps and p90 338, against median 25 and p90 35 in findbug_archive where the bug is found. The send delay is the only mechanism that holds a message that long: the runnable set has median size 4 in both corpora, so a record surviving 192 steps unselected has probability near 1e-19. The current maximum hold of 100 steps sits below the median requirement, so no draw can bridge it in more than half of correctly shaped runs. The fault schedule itself is not the shortfall - the general grid already produces the full findbug fault shape about 125 times per 54k chunk and still records zero violations. The ladder points at the same place: depthAtLeast over a 54000-run chunk is [54000, 49420, 35424, 19045, 4446, 719, 90, 5], so per-rung survival is 0.92, 0.72, 0.54, 0.23, 0.16, 0.13, 0.06. The two worst rungs are the write after both recoveries and the delivery of the pre-crash messages after it, while the rung that only has to cross a single crash survives at 0.54. Short holds pass and long holds do not.",
+    "generalityArgument": "Changes one number in a delivery-delay range. It names no handler, node, or protocol, and the argument for it is that a hold window should scale with the run length of the workload being explored, which is true of any protocol under any spec.",
+    "createdAtIso": "2026-08-27T04:50:00.000Z",
+    "notes": "Falsifier: if depth>=7 and depth>=8 counts do not rise while purgatory delayed-send counters stay comparable, the hold length is not the binding constraint and the send-delay family should be closed rather than tuned further. Watch runsPerSec and iterations_exhausted for the cost side."
   }
 ]

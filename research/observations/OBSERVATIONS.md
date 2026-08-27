@@ -820,3 +820,103 @@ Stated in general terms, the candidate is: schedules that bring a node back
 soon after it goes down expose the window where messages from the previous
 incarnation are still in flight. That names no handler and no protocol, and
 is the shape a heuristic has to have here.
+
+## 2026-08-27T04:50:00.000Z (operator) - the crash-gap question, settled the other way
+
+The previous entry left one thing to settle before anyone built on it:
+whether the tight crash-to-recovery gap in `findbug_archive` was chosen by
+its scheduler or forced by the configuration that generated it. It was
+forced, and the gap turns out to be a symptom of something with far more
+signal in it.
+
+**The corpus is a pinned fault schedule, not a discovery.** Node 1 crashes
+in all 5,000 runs, exactly once. Node 2 crashes in 1,218 of them. Node 0
+never crashes. Crash and recover are adjacent planned events, so the gap of
+1 is written into the corpus rather than found by search.
+
+**Within the corpus the gap separates nothing.** Mean gap over violating
+runs is 1.096, over clean runs 1.113. What separates them is the fault
+count, and cleanly:
+
+| shape | runs | violations | rate |
+|---|---|---|---|
+| 1 crash-recover pair, 1 node | 3782 | 0 | 0% |
+| 2 pairs, 2 distinct nodes | 1218 | 266 | 21.8% |
+| ...of those, windows overlap | 91 | 0 | 0% |
+| ...of those, windows disjoint | 1127 | 266 | 23.6% |
+
+**The gap is downstream of quiescence.** Every one of `findbug_archive`'s
+6,218 crashes lands with zero client operations outstanding. In a 2,160-run
+general grid only 9.3% do, with a mean of 5.14 operations in flight at the
+moment of the crash. Split the general grid by that variable and its own gap
+splits with it: 2.36 steps mean when the crash is quiescent, 5.73 when it is
+not. So shortening the gap directly would be treating the symptom.
+
+**The fault shape is not the missing ingredient either.** Measured on the
+same 2,160 general-grid runs, the shape appears often:
+
+| filter | share of runs | per 54k chunk |
+|---|---|---|
+| 2 crashes, 2 nodes, both recover | 16.2% | ~8,700 |
+| + disjoint windows | 8.6% | ~4,600 |
+| + both crashes quiescent | 0.60% | ~325 |
+| + node 0 spared | 0.23% | ~125 |
+
+At the corpus conditional rate of 23.6%, the fully shaped runs alone would
+predict roughly 30 violations per chunk. The observed count is zero across
+about two million runs. Reproducing the fault schedule is not sufficient,
+which closes the whole "imitate findbug's fault timing" family, my own
+quiescence refinement included.
+
+**Where the general grid actually stalls.** The graded chain in
+`relax_minimal_general.json` needs, after the second recovery and after a
+second write completes, the delivery of two `StartViewChange` messages that
+were sent before the first crash. That is a hold across two crash-recover
+cycles and a full write. Measured span from the first crash to the response
+of the write that follows the second recovery:
+
+| corpus | runs measured | mean | median | p90 | share <= 100 steps |
+|---|---|---|---|---|---|
+| findbug_archive | 382 | 26.8 | 25 | 35 | 100% |
+| general grid | 23 | 224.9 | 192 | 338 | 17.4% |
+
+The mechanism that exists to carry a message across a crash is the send
+delay in `exec.rs`: `release_step = current_step + duration`, with duration
+drawn log-uniform over `delay_duration_range`, set to `[5, 100]` in
+`general_vr.json`. Log-uniform over that range has a median of 22 steps and
+a hard maximum of 100. The general grid's median requirement is 192. The
+cap sits below the median need, so no draw can bridge it in more than half
+of correctly shaped runs.
+
+Nothing else holds a message that long. `delay_runnable` has exactly two
+call sites and both are this one. The runnable set is the same size in both
+corpora, median 4 and mean about 4.6, so a record surviving 192 steps without
+being selected has probability on the order of 1e-19; free scheduling does
+not hold messages. The one other hold in the simulator is buffering at a
+crashed receiver, which lasts only until that receiver recovers, a general
+grid mean of 5.4 steps and median 3. The send delay is the only path with the
+right order of magnitude, and it is sized for a corpus whose runs are 31
+steps long against a graded config whose runs are 2,387.
+
+**The ladder agrees about which rung.** From the loop's own 54,000-run
+chunk, `depthAtLeast` is [54000, 49420, 35424, 19045, 4446, 719, 90, 5], so
+per-rung survival runs 0.92, 0.72, 0.54, 0.23, 0.16, 0.13, 0.06. The two
+worst rungs are the last two, and they are the two the hold has to cover:
+rung 7 is the second write completing after both recoveries, rung 8 is the
+delivery of the pre-crash `StartViewChange` copies after that write. Rung 4,
+the delivery that only has to cross a single crash, survives at 0.54. Short
+holds pass; long holds do not.
+
+What this does not establish: that widening the range raises depth or
+violations. It is a correlational diagnosis plus an arithmetic bound, and the
+general-grid span figure rests on 23 runs, though run length and mean
+operation window (2,387 vs 31 steps, 162 vs 14.4) corroborate the order of
+magnitude independently. It is also a lower bound on the requirement, since
+the message must be held from its send, which precedes the first crash, not
+from the crash itself. The test is a paired experiment, seeded as
+`widen-purgatory-hold-to-run-length`.
+
+Worth noting against the standing read that the loop is out of levers: this
+is a mis-calibration of a parameter that already exists, not a new tunable,
+and it is the first candidate in some time with a mechanistic reason to
+expect movement at the depth 7 to 8 rung specifically.
