@@ -1699,3 +1699,40 @@ clean zero baseline: a new scoring term that claims to change what the
 scheduler picks must move it off zero, which makes it the cheapest
 fired-as-intended check available - readable from one chunk, no new counter,
 no new field.
+
+## 2026-08-27T12:35:00.000Z (operator) - a free A/A pair suggests the recorded noise floor is far too wide
+
+Iteration 5290 merged without changing any code: the implementation was
+confined to the observations log, which the empty-diff guard does not count, so
+the hypothesis was evaluated, merged and followed by a baseline refresh with
+nothing to measure. That refresh is an A/A against the previous baseline on an
+identical binary and config, 216,000 runs per arm.
+
+| statistic | 5289 baseline | 5290 baseline | delta |
+|---|---|---|---|
+| depth>=4 | 78873 | 78999 | +0.16% |
+| depth>=5 | 24123 | 24156 | +0.14% |
+| depth>=6 | 3571 | 3567 | -0.11% |
+| h2 | 90108 | 90218 | +0.12% |
+
+The floor recorded in the goal document, from a null diff over 108,000 runs
+against a 216,000-run baseline, is +0.07% at depth>=4, -1.44% at depth>=5 and
+-7.50% at depth>=6. This pair is an order of magnitude tighter at depth>=5 and
+seventy times tighter at depth>=6.
+
+Which of the two is right matters for every effect size in this log. Judged
+against the recorded floor, tonight's depth>=6 gain of 13.8% is about twice
+noise; judged against this pair it is a hundred times noise. Effects have been
+dismissed on the strength of a floor that may be far too wide, and the
+sequential gate's minimum effect of interest at depth>=6 is set at 5.6% partly
+on the same basis.
+
+One pair is not a calibration and the two measurements differ in protocol - the
+recorded floor compares a 108,000-run candidate against a 216,000-run baseline,
+while this compares two 216,000-run baselines, so some of the gap is the
+smaller sample in the first. That does not obviously account for a factor of
+seventy at depth>=6.
+
+`depth-power-floor-audit` is the hypothesis that settles this. It sat blocked
+for want of a harness path for measurement-only work, was requeued tonight once
+that path existed, and should be run before any further effect is judged marginal.
