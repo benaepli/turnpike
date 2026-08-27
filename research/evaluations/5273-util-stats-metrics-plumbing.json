@@ -1,0 +1,142 @@
+{
+  "hypothesis": {
+    "id": "util-stats-metrics-plumbing",
+    "parent": "novelty-key-utilization-precheck",
+    "kind": "enabling",
+    "title": "Plumb util_stats counters into the evaluator's serialized metrics object",
+    "description": "Emit the existing util_stats counters (distinct timeline keys per run, cumulative distinct keys, new-keys-per-run rate) into the same JSON metrics blob the eval harness records alongside runs/depthAtLeast/h*Rate, gated by the existing stats flag. Touch only the stats emission path and the harness's metrics deserialization; no scheduler or execution-semantics files, no new general config param. Re-run the saturation precheck at seeds 1000/1001 and record the cumulative-distinct-key curve as an observation.",
+    "category": "tooling",
+    "buildsOn": [
+      "util_stats / stats=true",
+      "eval harness metrics serialization"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 1.5,
+    "rationale": "The parent hypothesis built the counters but they are invisible to the ladder because the evaluator only serializes grader metrics. One plumbing change turns every future reporting-only probe from a no-op into evidence, and immediately delivers the saturation denominator the three coverage-key hypotheses need for numeric falsifiers.",
+    "generalityArgument": "Pure serialization of scheduler-internal counts; reads no spec content, handler names, or labels, and is identical for any protocol under test.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T01:30:00.000Z",
+    "notes": "Blocks the entire coverage-key lane. Falsified if the counters cannot be surfaced without touching execution-semantics files or adding a config param."
+  },
+  "decision": {
+    "hypothesisId": "util-stats-metrics-plumbing",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0005648148148148513,
+      "depth>=5": -0.00020370370370370594,
+      "depth>=6": 0.00006944444444444489,
+      "depth>=7": 0.000018518518518518623,
+      "depth>=8": 0.000013888888888888893,
+      "h2": -0.0007361111111111041,
+      "primary": -0.00020370370370370594,
+      "throughput": -0.06832502606184854,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "util-stats-metrics-plumbing-sequential-1000-1787793964483",
+        "hypothesisId": "util-stats-metrics-plumbing",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "44517f9613bc723722947f56a926030dd77e7d8d",
+        "superCommit": "0dc300c82069a17b8487b288842b4ee8a9346e12",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T01:26:04.483Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 271.64480932043523,
+          "unpairedFraction": 0.4856512023122934,
+          "h1Rate": 0.5002407407407408,
+          "h2Rate": 0.4015925925925926,
+          "h2bRate": 0.4121296296296296,
+          "h3Rate": 0.3340185185185185,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0215185185185187,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49432,
+            35416,
+            19078,
+            4440,
+            709,
+            83,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4954,
+          "gradeWallMs": 178442
+        },
+        "exploreWallMs": 198789,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "util-stats-metrics-plumbing-sequential-1001-1787794347005",
+        "hypothesisId": "util-stats-metrics-plumbing",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "44517f9613bc723722947f56a926030dd77e7d8d",
+        "superCommit": "0dc300c82069a17b8487b288842b4ee8a9346e12",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T01:32:27.005Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 264.5710030180692,
+          "unpairedFraction": 0.4869182198188368,
+          "h1Rate": 0.49977777777777777,
+          "h2Rate": 0.40066666666666667,
+          "h2bRate": 0.42074074074074075,
+          "h3Rate": 0.33825925925925926,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.025240740740741,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49436,
+            35500,
+            19214,
+            4394,
+            749,
+            68,
+            2
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5132,
+          "gradeWallMs": 187478
+        },
+        "exploreWallMs": 204104,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/feedback.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 15,
+    "after": 15
+  }
+}
