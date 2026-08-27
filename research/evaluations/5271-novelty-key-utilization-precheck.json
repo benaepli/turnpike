@@ -1,0 +1,142 @@
+{
+  "hypothesis": {
+    "id": "novelty-key-utilization-precheck",
+    "parent": null,
+    "kind": "meta",
+    "title": "Measure distinct-timeline-key growth and the saturation run index before any further coverage-key change",
+    "description": "Reporting-only counters in spur/spur-core/src/simulator/ util_stats.rs: distinct timeline keys per run, cumulative distinct keys across the config's runs, and the run index at which cumulative growth falls below 1 new key/run. Gated by the already-on stats flag; no new general config param, no behavior change, no execution-semantics file touched. Run once under the fixed eval settings and record the saturation curve as an observation.",
+    "category": "feedback",
+    "buildsOn": [
+      "timeline feedback (feedback.mode=timeline, steer=true)",
+      "util_stats / stats=true"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 2,
+    "rationale": "Three separate coverage-key proposals claim the explorer will chase something new, and none can state a quantitative falsifier because nobody has measured whether the existing key space saturates at all. This resolves on ~100 runs instead of 54,000 and either kills the whole key-refinement lane (keys still growing linearly => refinement is the wrong lever) or supplies the denominator that makes the key hypotheses' falsifiers numeric. Same prescreen logic that made absorption cheaper than depth.",
+    "generalityArgument": "Counts keys the scheduler already computes; reads no spec content, handler names or labels. Purely descriptive subject-side instrumentation.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-26T22:45:00.000Z",
+    "notes": "[unparked iteration 5270] Cheap, param-free, and prices the whole coverage-key lane before more keys are built (steer diverges on only 0.14% of 2.2M evaluations); computable from the existing feedback map per the probe-cost lesson; falsified if key growth never saturates."
+  },
+  "decision": {
+    "hypothesisId": "novelty-key-utilization-precheck",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0003194444444444833,
+      "depth>=5": -0.00020370370370370594,
+      "depth>=6": -0.0009166666666666681,
+      "depth>=7": -0.00011574074074074069,
+      "depth>=8": 0.000013888888888888893,
+      "h2": -0.0006712962962963087,
+      "primary": -0.00020370370370370594,
+      "throughput": 0.12706207665039204,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "novelty-key-utilization-precheck-sequential-1000-1787789585128",
+        "hypothesisId": "novelty-key-utilization-precheck",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "a33e834e2cc85a833becbdc69b6221497d3654e1",
+        "superCommit": "bbe55a95e3af6f6e3f9bf8f91f64a6c4086ac263",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T00:13:05.128Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 269.2434259730158,
+          "unpairedFraction": 0.4859166996883467,
+          "h1Rate": 0.49905555555555553,
+          "h2Rate": 0.39990740740740743,
+          "h2bRate": 0.41633333333333333,
+          "h3Rate": 0.3336851851851852,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.019185185185185,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49418,
+            35412,
+            19031,
+            4391,
+            713,
+            70,
+            1
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4976,
+          "gradeWallMs": 180617
+        },
+        "exploreWallMs": 200562,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "novelty-key-utilization-precheck-sequential-1001-1787789971549",
+        "hypothesisId": "novelty-key-utilization-precheck",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "a33e834e2cc85a833becbdc69b6221497d3654e1",
+        "superCommit": "bbe55a95e3af6f6e3f9bf8f91f64a6c4086ac263",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T00:19:31.549Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 265.4958626894731,
+          "unpairedFraction": 0.48885212195200306,
+          "h1Rate": 0.4972037037037037,
+          "h2Rate": 0.3978333333333333,
+          "h2bRate": 0.4149074074074074,
+          "h3Rate": 0.3378888888888889,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.024611111111111,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49459,
+            35490,
+            19231,
+            4381,
+            694,
+            69,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5043,
+          "gradeWallMs": 181287
+        },
+        "exploreWallMs": 203393,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/feedback.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 14,
+    "after": 14
+  }
+}
