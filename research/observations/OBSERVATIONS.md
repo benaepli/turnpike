@@ -777,3 +777,46 @@ generalisation was drawn from a single success and should not be leaned on.
 ## 2026-08-27T03:55:23.055Z
 
 **enable-cfg-feedback-general-config** (auto_merge): Config-scoring is now wired and enabled in the graded general_vr.json, and the two-seed sequential run (54k runs each, seeds 1000/1001) came back non-inferior rather than falsified-dead: violations stayed 0, primary unchanged, and depth>=4 moved +0.0005 absolute (49420/49519 of 54000 -> ~91.5%), i.e. a ratio of ~1.0005, far under the pre-registered 1.05 bar. Mid-ladder is flat-to-noisy (depth>=5 exactly 0, depth>=6 -0.00027, depth>=7 +0.00014, h2 -0.00005) and the seed-to-seed spread on the deep tail (depth>=7: 90 vs 83; depth>=8: 5 vs 2) is larger than every delta reported, so no depth claim here is separable from seed noise. Cost is real and one-sided: throughput -0.139 runs/sec (204.0 -> 199.8), ~2% slower explore, param count unchanged at 15. Auto-merged as enabling/non-inferior, which unblocks the standing liveness rule, but the pre-registered reward bar was NOT met: the mechanism fires without paying, so dependent tuning proposals stay barred until a metrics-level check confirms cfg_score_sum > 0 and cfg_score_updates > 0 — the evaluation harness recorded no cfg_score counters in the metrics blob at all, so the interpretability precondition is technically unverified and the flat result is equally consistent with the flag being threaded but the scoring loop never updating. That ambiguity is the single most valuable thing to resolve next, and it is cheap.
+
+## 2026-08-27T04:20:00.000Z (operator) - correction, and a crash-timing measurement
+
+Two earlier entries this session over-reached and should be read with this
+one. The entry titled "why depth and violations decouple" is sound about the
+grader, allow_t1 is genuinely skipped through the transitive closure and
+general-mode depth does top out one step short, but the conclusion drawn
+around it - that the loop may not be pointed at the bug, that depth may be
+the wrong proxy entirely - does not follow. A plan only gates which events
+may be released; it does not make states unreachable. The plan corpora find
+the bug, so free exploration can too. Improbable is not impossible, and the
+task is raising that probability.
+
+Likewise the entry on the feedback apparatus stands as a measurement, the
+components do not influence depth, but read it as "the current heuristics do
+not work", which is the problem to solve, not as evidence the search is
+misconceived.
+
+A measurement, offered as data rather than as a recommendation. Steps between
+a crash and the recovery that follows it, over whole corpora:
+
+| corpus | pairs | mean | median | share <= 5 steps |
+|---|---|---|---|---|
+| findbug_archive (5.3% of runs violate) | 6218 | 1.1 | 1.0 | 100.0% |
+| general grid (0 violations in ~2M runs) | 3203 | 4.9 | 3.0 | 78.4% |
+
+The histograms differ in shape, not only in centre: findbug is 5648 pairs at
+gap 1 and nothing past 6, while the general grid trails out past 8. The gap
+is counted in scheduler steps, so it measures how much other work was
+interleaved between a node going down and coming back, which is a scheduling
+choice rather than a property of the protocol.
+
+What this does not establish: whether the tight gap in findbug_archive was
+chosen by its scheduler or forced by the configuration that generated it,
+which is not recorded in the manifest. Anyone building on this should settle
+that first, because the two readings imply different work. Nor does a
+correlation across two corpora with different generators establish that
+shortening the gap raises the violation rate; that needs a paired experiment.
+
+Stated in general terms, the candidate is: schedules that bring a node back
+soon after it goes down expose the window where messages from the previous
+incarnation are still in flight. That names no handler and no protocol, and
+is the shape a heuristic has to have here.

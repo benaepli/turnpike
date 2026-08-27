@@ -126,6 +126,36 @@ distinct families have now been falsified against depth. A hypothesis in any
 of them needs an argument for why it differs from the one already tried, not
 just a new axis or a new knob.
 
+The bug is reachable without a plan. A plan only gates which events may be
+released at each point; it does not create states that free exploration
+cannot reach. The plan-driven corpora find the bug, so an unconstrained run
+would find it too given enough luck. This is a probability problem, not a
+reachability problem, and the whole job is raising the probability of the
+rare interleaving with better heuristics. Do not conclude from a long run of
+zero violations that the target is out of reach, and do not propose work that
+only makes sense if it were.
+
+Deriving a heuristic by studying runs that did hit the bug is legitimate and
+encouraged. What matters is the shape of the justification. "Crashes should
+land close to their recoveries" is a general statement about schedules that
+any protocol could be tested against, and it is fair game. "This particular
+handler should be scheduled sooner" is not: it hard-codes one protocol's
+event into the search and teaches the explorer the answer instead of how to
+look. The test to apply to your own proposal: state the rule without naming
+any handler, message or role from the protocol under test. If it cannot be
+stated that way, it is overfitting.
+
+Prefer heuristics that need no configuration. A mechanism that works through
+the steer, by scoring what the explorer is already choosing between, carries
+its heuristic without adding surface that every later hypothesis must reason
+around, and without a knob whose right value nobody can derive. A new config
+field is the fallback, not the design, and the evidence for adding one has to
+include why the same effect cannot be scored instead. This is also why the
+steer's own weakness matters: it diverges from the default pick in about 0.1%
+of evaluations, so the vehicle intended to carry heuristics is barely
+steering. Making it actually steer is worth more than any single mechanism
+riding on it.
+
 A mechanism must count its own firing. Per-candidate utilization capture can
 only answer "did this fire" when the mechanism increments something, and a
 null result from a mechanism with no counter cannot be told apart from a
