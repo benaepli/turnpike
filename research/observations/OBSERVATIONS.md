@@ -1598,3 +1598,47 @@ though its measurement was sound.
 ## 2026-08-27T11:13:41.177Z
 
 **bisect-purgatory-hold-range-300** (auto_merge): Falsified as stated, in the direction the red-team note predicted: [5,300] is statistically indistinguishable from [5,1000] on every rung (d4 -0.00026, d5 -0.00069, d6 +0.00021, d7/d8 ~0; h2 -0.0071, within the ~0.006 seed spread seen between 1000/1001 on prior runs). Both seeds landed nearly on top of each other (d4 19728 vs 19846, d5 5989 vs 6008, d6 916 vs 865, d7 106 vs 117, d8 3 vs 3 of 54000), so seed noise is small and the null is real, not underpowered at rungs 4-6. Conclusion: the purgatory hold-duration dose-response SATURATES somewhere at or below 300 steps — the entire gain from the [5,1000] widening is already captured by a cap near the p90 span (~338), and the extra 700 steps of tail bought nothing and cost nothing. The 'long tail delays the post-recovery client write' mechanism is therefore not operating at measurable magnitude. Corollary, now firm: the top-rung 'cost' seen in the parent was noise — d7 counts are ~100/54000 and d8 is literally 3/54000, so no decision at depth>=7 or 8 is supportable at this run budget by any config change, and any hypothesis whose success criterion is stated in terms of d7/d8 is untestable as written. Merged as non-inferior; [5,300] is preferred over [5,1000] only on the meta-grounds that a p90-sized rule is a statable, transferable rule while 'range = run length' is not. Further bisection of this single knob is exhausted: the response is flat between 300 and 1000, so the only remaining unknown is the knee between 100 and 300, which is worth at most the ~+0.01 d4 already banked.
+
+## 2026-08-27T11:40:00.000Z (operator) - the coverage, novelty and steer apparatus contributes nothing, measured directly
+
+`ablate-timeline-key-novelty-channel` (5289) removed the timeline-key novelty
+channel outright and was non-inferior over 108,000 runs: depth>=4 ratio 1.0029,
+depth>=5 0.9992, depth>=6 within noise, violations 0.
+
+The ablation is verifiable rather than inferred. With novelty removed,
+`cumulative_distinct_keys` fell from 1,835 to 1, `timeline_score_sum` from about
+63 to 2.3, and `steer.divergent_picks` was 0 across 2,142,073 evaluations. A
+constant novelty makes every candidate score the same on that term, so the
+steer cannot diverge at all. `score_runnable` is 0.25*novelty + 0.75*priority
+with priority a random draw taken at runnable creation, so the candidate arm is
+uniform-random scheduling by construction, and it matches the full apparatus to
+a tenth of a percent at depth>=5.
+
+This is the common explanation for a set of results that had been treated
+separately. Coverage-key resolution, perturbation volume, delivery ordering and
+receiver-side holding were all falsified against depth. Widening the coverage
+key 2.6x moved nothing. Enabling config-scoring, which then dominated the score
+seventeen to one, moved nothing, and ablating it later cost nothing. Raising
+steer `preference_honored` 135-fold moved nothing. Each was read as a fact about
+its own family. They are one fact: the channel those mechanisms feed has no
+influence on what the explorer reaches, so nothing fed into it could have shown
+up, whatever it was.
+
+It is also consistent with what did work tonight. Neither merge that moved the
+ladder touched this apparatus. `client-work-after-every-fault` changed the plan
+generator and moved depth>=5 by 29%; the purgatory hold band changed delivery
+delay. The effective levers have been the workload and the fault schedule, not
+the guidance.
+
+Consequences, in descending confidence:
+
+- A hypothesis of the form "sharpen novelty", "widen the coverage key",
+  "strengthen the steer" or "add a scoring axis" is answered in advance and
+  should not be proposed. Six such hypotheses are parked or closed already.
+- The surface can be deleted. That is a simplification and returns whatever
+  throughput it costs; config-scoring alone was worth 10 to 18%.
+- What remains unexplained is why guidance does not help. One reading is that
+  the ranking is three-quarters random by construction and a quarter-weighted
+  term cannot outvote it, in which case the weights are the thing to change, not
+  the signal. That reading is untested and would be cheap to test by varying the
+  0.25/0.75 split, which is not currently a config field.
