@@ -81,12 +81,19 @@ print(f\"iter={last['iteration']} last={last['event']}({str(hint)[:50]}) {cum:.2
 done
 ```
 
-The spend column is what makes this a health check rather than a clock.
-Iteration advancing with `+$0.00` is the wedge signature: agent calls that
-fail cost nothing, so a live loop that is accomplishing nothing prints a
-rising `iter=` beside a zero. A normal tick lands between about $0.20 and $6
-depending on phase, and $0.00 is also ordinary during a long explore or
-grade, so read it together with the phase rather than alone.
+The spend column is what makes this a health check rather than a clock, but
+read the iteration number with it. Cost reaches the journal only when a phase
+completes, so an implement that runs twelve minutes prints `+$0.00` on every
+tick until it finishes and its `implement` event lands. `+$0.00` on its own
+means nothing.
+
+The wedge signature is the iteration number *advancing* beside a zero: agent
+calls that fail cost nothing, so a loop that is spinning prints a rising
+`iter=` with no spend. A static `iter=` beside a zero is an ordinary phase in
+progress, and the same is true during a long explore or grade. When it is
+genuinely unclear, confirm liveness directly rather than from this line:
+`pgrep -f max-turns` finds the implement's agent subprocess, and a live one
+shows elapsed time climbing with low CPU, since it is waiting on the network.
 
 `PC` seeds from the first tick, so the opening line always reads `+$0.00`
 rather than reporting lifetime spend.
