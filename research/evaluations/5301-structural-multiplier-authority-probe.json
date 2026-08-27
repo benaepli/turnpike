@@ -1,0 +1,146 @@
+{
+  "hypothesis": {
+    "id": "structural-multiplier-authority-probe",
+    "parent": "starvation-gated-timer-admission",
+    "kind": "meta",
+    "title": "Measure whether any score_runnable multiplier can outvote the random priority draw",
+    "description": "Take the mechanism already in tree -- quick_fire_multiplier on a Recover whose node is crashed -- and sweep it over decades (1, 3, 10, 100, 1000) on scheduler_configs/loop/general_vr.json, recording per-value the fraction of selections in which the reweighted branch actually changed which runnable was picked versus the unweighted ordering. This needs a selection-order comparison counter in scheduler.rs (compute the argmax with and without the multiplier, count disagreements) plus util_stats counters multiplier_authority.{decisions, flipped}; it needs no new policy and no new config key beyond reusing the existing multiplier. Report the flip rate as a function of multiplier magnitude.",
+    "category": "scheduler",
+    "buildsOn": [
+      "score_runnable",
+      "quick_fire_multiplier",
+      "util_stats"
+    ],
+    "expectedGain": 7,
+    "expectedCost": 4,
+    "rationale": "score_runnable is 0.25*novelty + 0.75*priority with priority a random draw fixed at runnable creation. Two hypotheses have now died on this surface (timer-vs-delivery-coverage-axis, starvation-gated-timer-admission) and in neither case do we know whether the intervention reached the decision. If a 100x multiplier flips selection in only a percent or two of decisions, structural reweighting of score_runnable is a dead axis and all future timer/crash/delivery-admission work must intervene at enqueue or admission time rather than at scoring -- which redirects the whole scheduler category rather than retiring one more knob. If flip rates are high, then the two nulls were real nulls and the axis stays open.",
+    "generalityArgument": "The question is about the arithmetic of the scheduler's own selection rule, not about any protocol. It asks whether a term of a given magnitude can dominate a uniform random term of weight 0.75 -- an answer that holds for VR, for any other spec, and for any mechanism that would reweight the same sum.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T09:15:00.000Z",
+    "notes": "[unparked iteration 5296] steer divergent_picks 0/2.15M and preference_honored 127/685 say weights never outvote the draw for the steer path; extending the argmax-disagreement test to score_runnable multipliers decides whether every weight-based add is dead. Falsified if flipped/decisions stays ~0 even at multiplier 1000. [rejudged iteration 5299: Up-scored hard: the 17:00 operator finding gives a"
+  },
+  "decision": {
+    "hypothesisId": "structural-multiplier-authority-probe",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0009166666666666212,
+      "depth>=5": -0.0011157407407407366,
+      "depth>=6": -0.0002083333333333312,
+      "depth>=7": -0.000009259259259259203,
+      "depth>=8": -0.000018518518518518515,
+      "h2": 0.0012129629629629712,
+      "primary": -0.0011157407407407366,
+      "throughput": 0.005688875814446881,
+      "params": 1
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "structural-multiplier-authority-probe-sequential-1000-1787855257631",
+        "hypothesisId": "structural-multiplier-authority-probe",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3229776659e2f0a7aee378dd93c5fd494364e8bb",
+        "superCommit": "8c948722eeb89941e43a224a43a854b4c6a3c021",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T18:27:37.631Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 277.84066352466607,
+          "unpairedFraction": 0.4909954208369923,
+          "h1Rate": 0.4978888888888889,
+          "h2Rate": 0.4192222222222222,
+          "h2bRate": 0.42537037037037034,
+          "h3Rate": 0.3555185185185185,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.063833333333333,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49069,
+            35622,
+            19806,
+            5945,
+            902,
+            100,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4720,
+          "gradeWallMs": 167723
+        },
+        "exploreWallMs": 194356,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "structural-multiplier-authority-probe-sequential-1001-1787855624669",
+        "hypothesisId": "structural-multiplier-authority-probe",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3229776659e2f0a7aee378dd93c5fd494364e8bb",
+        "superCommit": "8c948722eeb89941e43a224a43a854b4c6a3c021",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T18:33:44.669Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 273.0913945867217,
+          "unpairedFraction": 0.49406219341713614,
+          "h1Rate": 0.49424074074074076,
+          "h2Rate": 0.4164074074074074,
+          "h2bRate": 0.42227777777777775,
+          "h3Rate": 0.3539259259259259,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.064,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49111,
+            35651,
+            19741,
+            5997,
+            835,
+            115,
+            6
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4690,
+          "gradeWallMs": 170006
+        },
+        "exploreWallMs": 197736,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 17
+  }
+}
