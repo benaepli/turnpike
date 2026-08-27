@@ -2281,3 +2281,47 @@ Completion needs nothing - it is already in the termination counters and is
 protocol-agnostic. It also supplies the detector for a liveness member such as
 `Mencius_P.spur`, whose documented bug wedges the log and which porcupine
 structurally cannot see.
+
+## 2026-08-27T22:05:00.000Z (operator) - the mechanisms that raised VR depth lower Mencius detection, at just under the merge bar
+
+The retrospective that claimed this was void: the panel member never ran the
+mechanisms it was supposed to be testing. Measured properly, two arms on
+`Mencius_opt1_2.spur`, 44,016 runs each, one binary, configs built from the
+merged `general_vr.json` with the 12 Mencius workload keys overlaid, differing
+only in:
+
+| key | off | on |
+|---|---|---|
+| `post_fault_client_ops` | 0 | 1 |
+| `purgatory.delay_duration_range` | [5, 100] | [5, 300] |
+
+| arm | runs | violations | rate | wall |
+|---|---|---|---|---|
+| off | 44,016 | 408 | 0.009269 | 318 s |
+| on | 44,016 | 357 | 0.008111 | 446 s |
+
+Ratio 0.875, a 12.5% loss of detection. Against the seed-varying dispersion of
+0.67 measured on this spec, z = **2.26**; uncorrected it is 1.85. Neither
+reaches the 2.7 merge bar, so the honest verdict is **probable, unresolved**,
+in the direction of overfitting.
+
+Three limits on the claim. One seed per arm, with the dispersion factor
+imported from a different config. The two mechanisms were varied jointly, so
+this attributes nothing to either. And it is one protocol.
+
+The point estimate lands within 2% of the 0.893 the void retrospective
+reported. That is coincidence and must not be read as corroboration - the
+earlier comparison had both arms running identical search, so it could not
+have detected anything.
+
+Two consequences for the panel. First, this is the case for building it: the
+loop's merge criterion is a VR depth proxy, and the one measurement of what
+those merges do elsewhere points down. Second, it sizes the thing. A 12.5%
+effect reaches z = 2.7 at 62,823 runs per arm, 7.5 minutes per arm at the
+measured 139 runs/s. A panel that wants to resolve effects this small on a
+single member per validation cannot afford it; it needs either several members
+voting or a gate set at collapse-detection rather than gradient resolution.
+
+The `on` arm also took 40% longer for an identical run count, so the merged
+hold band buys its depth with wall time that the panel would pay on every
+member.
