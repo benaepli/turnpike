@@ -1,0 +1,146 @@
+{
+  "hypothesis": {
+    "id": "config-override-effectiveness-smoke",
+    "parent": "runner-config-sweep-plumbing",
+    "kind": "enabling",
+    "title": "Prove the config override actually mutates simulator behavior",
+    "description": "Run the falsifier the merge skipped: with general_vr.json fixed, execute two short sequential VR runs at the same seed, one with no override and one with a single scalar override (e.g. the weight/probability knob that gates client-op or fault injection frequency) applied via the new spur-cli flag into simulator/config_override.rs. Assert the util_stats counter gated by that field differs between the two runs, and that an unknown/misspelled override key fails loudly rather than being silently ignored. Land the pair as a regression test so future override refactors cannot silently no-op.",
+    "category": "tooling",
+    "buildsOn": [
+      "config_override"
+    ],
+    "expectedGain": 6,
+    "expectedCost": 1,
+    "rationale": "The merged change is only proven neutral, never proven effective; a silently-ignored override would make every downstream sweep report a flat dose-response curve and burn hypotheses at zero information — exactly the failure mode this plumbing existed to remove.",
+    "generalityArgument": "Tests the config loading/override path itself; asserts only that a knob changes a counter, with no dependence on VR or any protocol semantics.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T14:00:00.000Z",
+    "notes": " [rejudged iteration 5292: Up-scored: the parent merged explicitly without exercising its falsifier (both eval arms used base general_vr.json with no override), so every sweep child is currently unsafe; falsified if a scalar override moves no util_stats counter or an unknown key is silently ignored.]"
+  },
+  "decision": {
+    "hypothesisId": "config-override-effectiveness-smoke",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0015416666666666634,
+      "depth>=5": -0.0004768518518518533,
+      "depth>=6": -0.000347222222222221,
+      "depth>=7": -0.00007870370370370366,
+      "depth>=8": -0.000013888888888888886,
+      "h2": 0.0010648148148147962,
+      "primary": -0.0004768518518518533,
+      "throughput": 0.008836528098856933,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "config-override-effectiveness-smoke-sequential-1000-1787839491517",
+        "hypothesisId": "config-override-effectiveness-smoke",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "2e65e3c09e2765efba7901da5e1157b808dabfe3",
+        "superCommit": "bda18c56203648ff15411535e0dffdef467972d8",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T14:04:51.517Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 283.80722131707574,
+          "unpairedFraction": 0.4900127473258327,
+          "h1Rate": 0.4976111111111111,
+          "h2Rate": 0.41898148148148145,
+          "h2bRate": 0.4260185185185185,
+          "h3Rate": 0.35605555555555557,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0658703703703702,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49054,
+            35625,
+            19865,
+            6003,
+            890,
+            115,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4679,
+          "gradeWallMs": 166209
+        },
+        "exploreWallMs": 190270,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "config-override-effectiveness-smoke-sequential-1001-1787839852940",
+        "hypothesisId": "config-override-effectiveness-smoke",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "2e65e3c09e2765efba7901da5e1157b808dabfe3",
+        "superCommit": "bda18c56203648ff15411535e0dffdef467972d8",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T14:10:52.940Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 276.596834502894,
+          "unpairedFraction": 0.4936289903844819,
+          "h1Rate": 0.49577777777777776,
+          "h2Rate": 0.4166111111111111,
+          "h2bRate": 0.4245925925925926,
+          "h3Rate": 0.35433333333333333,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0626296296296296,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49046,
+            35627,
+            19753,
+            6006,
+            845,
+            101,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4677,
+          "gradeWallMs": 166739
+        },
+        "exploreWallMs": 195230,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/config_override.rs",
+    "spur-core/src/simulator/core/queue_selector.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/feedback.rs",
+    "spur-core/tests/config_override_effect.rs",
+    "spur-core/tests/fixtures/kv.spur"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
