@@ -635,3 +635,50 @@ sharply because the timer step now has to be genuinely present, and the
 depth >= 8 population should start to correlate with violations the way the
 plan corpora do. If depth >= 8 stays at its current rate after the change,
 the collector is matching something too permissive and should be rejected.
+
+### Prototype result: the diagnosis holds, the repair is not worth its price yet
+
+Built in a scratch copy of the grader, never in `traceanalyzer/main`, since
+that binary is what the loop grades with and rebuilding it would have changed
+live measurement silently.
+
+Design, after operator correction: every protocol name stays in the oracle.
+`allow_timer` takes an optional third element naming the handler the timer
+causes the target to send, so `allow_t1` becomes
+`[1, "timeout", "Node.StartViewChange"]`, and the grader rule is generic - a
+dispatch of a handler the node has never entered was originated, not relayed.
+No VR identifier enters the Go source, matching how `deliver` already receives
+`function` through `EventSpec.Function`.
+
+Confirmed, on `findbug_archive` where violations are known:
+
+| | max depth | runs at max | violating runs' mean depth |
+|---|---|---|---|
+| old | 8 | 382 | 8.00 |
+| new | 9 | 382 | 9.00 |
+
+Max moves 8 to 9 and the run set at max is identical. The collector adds
+exactly the missing vertex and matches in exactly the runs where the timer
+really fired. The claim that general-mode depth tops out one step short by
+construction is therefore established, not merely argued.
+
+The pre-registered prediction failed. It said the depth >= 8 rate should fall
+because the timer step must now genuinely be present. On a general corpus
+every rung rose instead: d>=4 35.6% to 42.6%, d>=5 8.95% to 12.4%, d>=6 1.9%
+to 3.5%. The prediction was badly formed - making a vertex matchable
+lengthens satisfied chains mechanically, so some rise was inevitable and the
+test could not have distinguished a correct collector from a permissive one.
+
+What the rise does show is that node-1 self-initiated view changes are common
+in general mode. allow_t1 is an easy step there, so requiring it adds little
+discriminating power, and precision at max depth is unchanged at roughly
+266/382, about 70%. An earlier figure of 0.131 in this session was computed
+against the manifest's truncated 50-id list and was wrong.
+
+Verdict: hold. It is a genuine instrument correction, the ladder should be
+able to express the full nine-vertex chain rather than topping out one short,
+but it buys a rescale rather than a better proxy, and it still costs an epoch
+bump, corpus revalidation and a baseline re-run. Land it bundled with a change
+that moves the objective, not on its own.
+
+Prototype kept at `scratchpad/ta-proto` with the config variants beside it.
