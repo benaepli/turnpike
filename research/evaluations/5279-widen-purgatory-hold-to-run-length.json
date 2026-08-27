@@ -1,0 +1,140 @@
+{
+  "hypothesis": {
+    "id": "widen-purgatory-hold-to-run-length",
+    "parent": null,
+    "kind": "enabling",
+    "title": "Size the send-delay hold to the graded workload's run length",
+    "description": "In scheduler_configs/loop/general_vr.json change purgatory.delay_duration_range from [5, 100] to [5, 1000]. No code change and no new field; the value is a config-only recalibration of a mechanism that is already on. Classified as enabling because the current cap makes the mechanism unreachable for the rungs it exists to serve, not because the path is dead. exec.rs draws the hold log-uniformly over the range and sets release_step = current_step + duration, so the range is measured in scheduler steps. Over [5, 100] the median draw is 22 steps and the maximum is 100. Over [5, 1000] the median is 71 and 31% of draws exceed 192, while the cap stays below the 2387-step mean run length so delayed records still deliver before the run ends.",
+    "category": "config",
+    "buildsOn": [
+      "enable-purgatory-general-config"
+    ],
+    "expectedGain": 9,
+    "expectedCost": 0.5,
+    "rationale": "The graded chain needs two StartViewChange messages sent before the first crash to be delivered after a second write that follows the second recovery. Measured on the general grid, that span is median 192 steps and p90 338, against median 25 and p90 35 in findbug_archive where the bug is found. The send delay is the only mechanism that holds a message that long: the runnable set has median size 4 in both corpora, so a record surviving 192 steps unselected has probability near 1e-19. The current maximum hold of 100 steps sits below the median requirement, so no draw can bridge it in more than half of correctly shaped runs. The fault schedule itself is not the shortfall - the general grid already produces the full findbug fault shape about 125 times per 54k chunk and still records zero violations. The ladder points at the same place: depthAtLeast over a 54000-run chunk is [54000, 49420, 35424, 19045, 4446, 719, 90, 5], so per-rung survival is 0.92, 0.72, 0.54, 0.23, 0.16, 0.13, 0.06. The two worst rungs are the write after both recoveries and the delivery of the pre-crash messages after it, while the rung that only has to cross a single crash survives at 0.54. Short holds pass and long holds do not.",
+    "generalityArgument": "Changes one number in a delivery-delay range. It names no handler, node, or protocol, and the argument for it is that a hold window should scale with the run length of the workload being explored, which is true of any protocol under any spec.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T04:50:00.000Z",
+    "notes": "Falsifier: if depth>=7 and depth>=8 counts do not rise while purgatory delayed-send counters stay comparable, the hold length is not the binding constraint and the send-delay family should be closed rather than tuned further. Watch runsPerSec and iterations_exhausted for the cost side. [rejudged iteration 5278: Config-only recalibration of the only mechanism that can hold a message across two cras"
+  },
+  "decision": {
+    "hypothesisId": "widen-purgatory-hold-to-run-length",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: depth>=4, depth>=5, h2"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.009731481481481452,
+      "depth>=5": 0.004726851851851857,
+      "depth>=6": 0.0007129629629629639,
+      "depth>=7": 0.000009259259259259203,
+      "depth>=8": -0.000009259259259259264,
+      "h2": 0.02184259259259258,
+      "primary": 0.004726851851851857,
+      "throughput": 0.05272130219382354,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "widen-purgatory-hold-to-run-length-sequential-1000-1787806453477",
+        "hypothesisId": "widen-purgatory-hold-to-run-length",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "2d44ee9ad1264aa0bc34175da3055490b2e25c3e",
+        "superCommit": "04ca14116647df571e94c388fa87bfd78e85a1bd",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T04:54:13.477Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 211.6650987770461,
+          "unpairedFraction": 0.4895761169021573,
+          "h1Rate": 0.5265185185185185,
+          "h2Rate": 0.42457407407407405,
+          "h2bRate": 0.43014814814814817,
+          "h3Rate": 0.33244444444444443,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0485925925925925,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49597,
+            35909,
+            19571,
+            4688,
+            771,
+            85,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5010,
+          "gradeWallMs": 207344
+        },
+        "exploreWallMs": 255120,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "widen-purgatory-hold-to-run-length-sequential-1001-1787806921361",
+        "hypothesisId": "widen-purgatory-hold-to-run-length",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "2d44ee9ad1264aa0bc34175da3055490b2e25c3e",
+        "superCommit": "04ca14116647df571e94c388fa87bfd78e85a1bd",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T05:02:01.361Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 210.32542016397593,
+          "unpairedFraction": 0.491334147028448,
+          "h1Rate": 0.5233518518518518,
+          "h2Rate": 0.4228703703703704,
+          "h2bRate": 0.4330555555555556,
+          "h3Rate": 0.33666666666666667,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0511666666666666,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49662,
+            35982,
+            19613,
+            4651,
+            770,
+            83,
+            2
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5014,
+          "gradeWallMs": 202642
+        },
+        "exploreWallMs": 256745,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 15,
+    "after": 15
+  }
+}
