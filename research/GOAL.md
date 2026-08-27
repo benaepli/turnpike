@@ -85,6 +85,22 @@ on luck. Write thresholds above the floor for the rung being claimed, and
 prefer depth>=4 when a small effect is expected, since it is the only rung
 stable to a tenth of a percent.
 
+Biased deliveries act on their receiver 13.8% of the time against 40.9% for
+deliveries generally. The perturbations the scheduler injects land
+disproportionately on messages that change nothing. Two readings fit that
+number and they imply opposite work: the scheduler may be selecting
+deliveries that were already inert, in which case targeting is a live lever;
+or the act of delaying a message may be what makes it inert, in which case
+the delay family is self-defeating and no targeting rescues it. Six
+falsifications in that family are consistent with either.
+
+The counters cannot separate them, because both compare biased deliveries
+against a population that was never biased. The measurement that does is the
+acted fraction of deliveries that were eligible for bias and not selected:
+same population, same selection pressure, no perturbation applied. Any
+hypothesis proposing better targeting of perturbations should establish that
+number first, or it is arguing from a comparison that cannot support it.
+
 A mechanism must count its own firing. Per-candidate utilization capture can
 only answer "did this fire" when the mechanism increments something, and a
 null result from a mechanism with no counter cannot be told apart from a
