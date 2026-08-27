@@ -1308,3 +1308,53 @@ and neither is a measurement - roughly 45 and 2 events per 54,000 runs. The
 defensible claims are depth>=4, depth>=5 and depth>=6. A proxy moved a long
 way; the goal did not move at all, and general-config depth-8 runs remain
 linearizable.
+
+## 2026-08-27T08:45:00.000Z (operator) - the steer's authority was raised 135-fold and the ladder did not move
+
+`starvation-gated-timer-admission` was rejected at iteration 5283 after 108,000
+runs, with every frontier rung inside the noise: depth>=4 +0.00085 absolute,
+depth>=5 -0.00050, depth>=6 -0.00003, h1 -0.00064, h3 -0.00032, violations 0.
+
+The mechanism was not inert. Matched 1,080-run captures either side:
+
+| counter | before | after | |
+|---|---|---|---|
+| steer_authority.preference_expressed | 2648 | 205317 | 78x |
+| steer_authority.preference_honored | 1326 | 179618 | 135x |
+| steer.divergent_picks | 1201 | 17873 | 15x |
+
+Divergence went from 0.052% of evaluations to 0.77%. This document has held
+that the steer diverging in about a tenth of a percent of evaluations is the
+core weakness, and that "making it actually steer is worth more than any single
+mechanism riding on it". The steer was made to steer, fifteen times harder, and
+nothing downstream responded.
+
+That does not settle which of two things is true, and they imply opposite work:
+authority was never the constraint and the steer is now expressing a wrong
+preference more often; or this particular preference is not a heuristic at all,
+so the experiment tested the vehicle rather than any destination.
+
+The second reading is the live one, because the predicate turned out to be
+close to vacuous. `timer_admission` recorded 5,078,499 offers of which
+5,071,221 - 99.86% - were already at a node with an empty local queue. "Prefer
+a starved node's timer" is therefore "prefer every timer", and the 87:1 ratio
+between `fired_starved` and `fired_busy` is the base rate rather than
+selectivity. What was actually tested is a uniform upweighting of timer firing,
+which is what `timer-weight-response-curve` already tested and closed.
+
+That is the process failure worth recording. This document asks that a
+hypothesis in an already-falsified family carry an argument for why it differs
+from the one tried before. The argument offered was that a structural boost
+reaches the decision where a weighting change cannot, and the counters show the
+boost did reach the decision - but because the gating predicate was almost
+always true, the intervention collapsed into the weighting change it claimed to
+differ from. The check that would have caught it costs nothing: measure the
+base rate of a gating predicate before proposing a mechanism that gates on it.
+
+Cost: one config key, evaluated and now closed, so the key should be removed
+rather than left in the tree as a parameter nobody uses.
+
+What survives: the steer can be given real authority cheaply, and the knowledge
+that authority alone buys nothing. Any future proposal to strengthen the steer
+now has to name the preference it wants expressed and show that preference is
+selective.
