@@ -1751,3 +1751,47 @@ Goodhart: Depth has decoupled from the hypothesis-detection rates it was suppose
 Utilization: feedback.timeline (timeline_key_granularity=fine)=broken, steer=broken, steer_authority=unrewarding, feedback.cfg_score (config scoring)=broken, aos=unexercised, dedup=unexercised, curriculum=unexercised, purgatory delay / delivery bias=unrewarding, crash recovery / crossing deliveries=unrewarding, termination / step budget=broken, ordered_h3 grid coverage=unrewarding, crash_anchor=healthy, post_fault_ops (client-work-after-every-fault, merged)=healthy, rng_stream_isolation=scaffolding, recovery_window instrumentation=scaffolding
 
 Policy suggestions: Immediately retire P(depth>=7) and P(depth>=8) from the decision rule and the ladder: at n=54000, p=0.002 and p=0.000 give MDEs of ~38% relative and infinity respectively. Un-park retire-d7-d8-from-decisions and depth-power-floor-audit (gain 4-5, cost 0.5-1.5) and run them before the next merge decision.; Block all merges until a pre-registered MDE table exists. Publish, per metric, the MDE at 1/2/4 chunks; require a hypothesis to declare which metric it targets and reject at chunk 1 if the observed effect is below that metric's MDE. The current merge (all six quality deltas <=1 SE and negative, throughput -1.04%) would have been rejected under this rule.; Establish the throughput noise floor now (throughput-noise-floor-protocol, cost 1.5, parked). Until then, forbid any hypothesis from citing a runsPerSec change under 3% as a gain; retroactively re-examine ablate-config-scoring-throughput, whose entire justification was a ~2% reclaim on a path whose counter (cfg_score_sum) reads 0.0.; Apply a multiplicity correction: with 11 ladder metrics at alpha=0.05 the family-wise false-positive rate is ~43%. Designate 1 primary metric (h1Rate or a composite h-rate) and treat the rest as guardrails with one-sided regression thresholds only.; Delete the feedback/steer family rather than sweeping it. steer.divergent_picks=0 over 2.1M evaluations, steer_authority influences 135/4,857,210 steps (2.8e-5), timeline_keys.cumulative_distinct_keys=1, cfg_score_sum=0.0. Close delete-novelty-channel-and-reclaim-throughput, ablate-steer-terms-one-at-a-time, ablate-steer-authority-dead-gates, steer-audit-readout, structural-multiplier-authority-probe, purgatory-delay-family-ablation-as-steer-probe as one batch deletion with a single confirming eval instead of ~6 separate 2-4 chunk experiments (saves ~6 x 2 chunks x 195 s explore plus ~6 x 2264 s of iteration overhead, ~4-5 wall-hours).; Treat the timeline_keys=1 result as a P0 defect, not a hypothesis: a 'fine' granularity key function that emits one key for 1080 runs is a bug in the key derivation. Fix or delete before any further feedback-mode experiment.; Fix the truncation confound before trusting any depth number: 70.9% of runs hit iterations_exhausted and 100% of 'plan_complete' runs exit with pending work. Either raise max_iterations until iterations_exhausted <20%, or report depth metrics stratified by termination reason. Otherwise every depth gain is potentially a completion regression in disguise.; Rebalance the eval grid for h3: drop or downweight num_crashes settings that yield fault_events<4 (536/1080 runs, 0 h3 events). Reallocating that ~50% of chunk cost to h3-capable configs roughly doubles effective n for h3 at zero extra wall-clock, or halves evaluate time (~730 s/iter, ~6.5 h/day) at equal power.; Cap the parked backlog and force-promote cheap meta work. 46 parked vs 46 closed vs 20 merged; the parked set contains exactly the audits (eval-noise-floor-calibration, depth-power-floor-audit, throughput-noise-floor-protocol, retire-d7-d8, falsifier-readability-precheck) that would fix the statistical weaknesses causing bad merges, all at cost 0.5-1.5 with gain 4-6. Add a bandit rule: any hypothesis with gain/cost >= 3 that has been parked 3+ times is auto-promoted.; Consolidate the util_stats plumbing into one hypothesis and finish it. Two merges (util-stats-in-eval-record, util-stats-metrics-plumbing) have already been credited for a pipe that still does not reach chunk metrics; merge the remaining parked+proposed pair into a single enabling task with an acceptance test that a counter delta appears in a chunk record.; Investigate the delay/bias effectiveness gap as a first-class hypothesis: 15% of deliveries are perturbed at acted_fraction 0.114 vs 0.402 baseline. Promote bias-eligible-unselected-acted-control (proposed, cost 2.5) ahead of further hold-duration/probability dosing — dosing a mechanism that mostly perturbs no-op deliveries is the definition of tuning noise.; Add a rejudge budget cap. rejudge is 198.7 s/iter (8.8%) and 5284 spent its entire iteration on implement+reflect+rejudge with no evaluation; cap rejudge at one pass per hypothesis and route kind=meta/policy hypotheses that touch no spur code around evaluation entirely (policy-hypotheses-skip-evaluation, parked, cost 0.5) — that alone reclaims the full 1464 s evaluate cost on meta iterations.; Instrument iteration abandonment: 2 of the last 15 iterations have no finish timestamp and one produced no evaluate phase. Record an explicit terminal status per iteration so abandoned work is visible in the ledger rather than silently inflating the per-phase means.
+
+## 2026-08-27T13:05:00.000Z (operator) - the depth buckets have a power floor, and the recorded noise floor is one draw rather than a floor
+
+Measured over every archived same-arm seed family: 34 sequential evaluations in
+16 families that share hypothesis, both commits, config, spec and grader version
+and differ only in seed. Two further families were dropped because their ladders
+stop at depth 5, which means a different oracle graph and rates on a different
+scale. Full table and method in `research/observations/POWER_FLOOR.md`,
+regenerated by `research/observations/power_floor.mjs`.
+
+| bucket | events per 54,000-run session | between-seed dispersion | effect resolvable at z 2.7 |
+|---|---|---|---|
+| depth>=4 | 19426.7 | 0.31 | 2% |
+| depth>=5 | 5000.4 | 0.64 | 5% |
+| depth>=6 | 791.3 | 0.72 | 13% |
+| depth>=7 | 90.0 | 0.48 | 40% |
+| depth>=8 | 3.3 | 0.15 (4 of 16 families scorable) | 210% |
+
+Two results.
+
+**depth>=8 is unusable and depth>=7 is a boundary case.** At 3.3 events per
+session it takes a +210% change to separate two sessions, and the largest swing
+between two seeds of the same binary is 3.00x. depth>=7 needs +40%, which is
+above every effect merged so far, so a movement there justifies more sampling
+and never a verdict. depth>=6 is the deepest bucket that resolves the +25% class
+of effect. That is the power floor.
+
+**Dispersion is below 1 everywhere it is estimable, so the binomial model the
+gates use is conservative, not optimistic.** Two seeds agree more closely than
+independent draws over the same runs would: a session is a stratified sweep, not
+54,000 independent samples. This settles the question left open at 12:35. The
+tight A/A pair is the normal case and the recorded floor is not a floor - it is
+a single draw, and at depth>=6 an unusually large one. Rebuilt as one sigma on a
+108,000-run candidate against a 216,000-run baseline, charging only binomial
+noise: 0.50% at depth>=4, 1.17% at depth>=5, 3.06% at depth>=6, 9.12% at
+depth>=7, 47.7% at depth>=8. Against those, the recorded +0.07%, -1.44% and
+-7.50% are 0.1, 1.2 and 2.5 sigma. Quoting the -7.50% excursion as the floor
+overstates depth>=6 noise by about a factor of three, and effects dismissed
+against it deserve re-reading.
+
+One caveat on direction: underdispersion is margin the gates cannot spend, since
+they compute binomial intervals either way. A separation the gate reports is
+therefore real, while a null it reports may be an effect the interval was too
+wide to see.

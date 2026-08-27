@@ -1,0 +1,143 @@
+{
+  "hypothesis": {
+    "id": "depth-power-floor-audit",
+    "parent": "novelty-key-utilization-precheck",
+    "kind": "meta",
+    "title": "Establish the deepest depth bucket with statistical power at 54k runs and retire deeper buckets from the objective",
+    "description": "Reporting-only analysis over the existing paired-seed evaluation records: compute per-bucket seed-to-seed variance for depthAtLeast[4..8] across all archived runs, identify the deepest bucket whose between-seed spread is smaller than a plausible treatment effect, and document that as the objective's power floor. No code change to spur; a tooling-side analysis script plus a note in the objective definition.",
+    "category": "tooling",
+    "buildsOn": [
+      "eval harness paired-seed protocol",
+      "depthAtLeast metrics"
+    ],
+    "expectedGain": 8,
+    "expectedCost": 0.5,
+    "rationale": "This eval showed depth>=8 at 1 vs 5 runs across two seeds — a 5x swing from noise alone. Any hypothesis scored partly on depth>=7/8 is being judged on coin flips, which corrupts accept/reject decisions across the whole pool. Pinning the power floor makes every subsequent verdict interpretable at near-zero cost.",
+    "generalityArgument": "Operates purely on recorded aggregate depth counts from the harness; protocol-agnostic and reads nothing about the spec under test.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T01:30:00.000Z",
+    "notes": "[unparked iteration 5290] Top of pool: the free 5289/5290 A/A pair shows the recorded floor may be 70x too wide at depth>=6, which means effects have been dismissed and the sequential MEI is miscalibrated - every other item's verdict depends on this, it is reporting-only over archived records, and the operator has requeued it explicitly. Falsifier: if between-seed spread over archived same-binary "
+  },
+  "decision": {
+    "hypothesisId": "depth-power-floor-audit",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.001245370370370369,
+      "depth>=5": -0.0009259259259259273,
+      "depth>=6": -0.0000879629629629633,
+      "depth>=7": -0.00007407407407407406,
+      "depth>=8": -0.000004629629629629629,
+      "h2": 0.00022222222222217924,
+      "primary": -0.0009259259259259273,
+      "throughput": 0.015498274988866578,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "depth-power-floor-audit-sequential-1000-1787835069972",
+        "hypothesisId": "depth-power-floor-audit",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "fc07f0d50a6f0fb4d2b4d0b3966a01714c97e7cb",
+        "superCommit": "403c45e2d581364b47de131f6a49c76992f5a95e",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T12:51:09.972Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 285.2795739825028,
+          "unpairedFraction": 0.48931361143426955,
+          "h1Rate": 0.49805555555555553,
+          "h2Rate": 0.41962962962962963,
+          "h2bRate": 0.42644444444444446,
+          "h3Rate": 0.35612962962962963,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.065185185185185,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49099,
+            35618,
+            19828,
+            5945,
+            920,
+            106,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4708,
+          "gradeWallMs": 164163
+        },
+        "exploreWallMs": 189288,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "depth-power-floor-audit-sequential-1001-1787835428395",
+        "hypothesisId": "depth-power-floor-audit",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "fc07f0d50a6f0fb4d2b4d0b3966a01714c97e7cb",
+        "superCommit": "403c45e2d581364b47de131f6a49c76992f5a95e",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T12:57:08.395Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 277.0694264149782,
+          "unpairedFraction": 0.4949391362347841,
+          "h1Rate": 0.49503703703703705,
+          "h2Rate": 0.4161666666666667,
+          "h2bRate": 0.42348148148148146,
+          "h3Rate": 0.35435185185185186,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0661851851851853,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49132,
+            35631,
+            19806,
+            6033,
+            854,
+            112,
+            6
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4660,
+          "gradeWallMs": 167234
+        },
+        "exploreWallMs": 194897,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "research/observations/OBSERVATIONS.md",
+    "research/observations/POWER_FLOOR.md",
+    "research/observations/power_floor.mjs"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
