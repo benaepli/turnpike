@@ -160,11 +160,21 @@ the steer, by scoring what the explorer is already choosing between, carries
 its heuristic without adding surface that every later hypothesis must reason
 around, and without a knob whose right value nobody can derive. A new config
 field is the fallback, not the design, and the evidence for adding one has to
-include why the same effect cannot be scored instead. This is also why the
-steer's own weakness matters: it diverges from the default pick in about 0.1%
-of evaluations, so the vehicle intended to carry heuristics is barely
-steering. Making it actually steer is worth more than any single mechanism
-riding on it.
+include why the same effect cannot be scored instead.
+
+The steer diverges from the default pick in about 0.1% of evaluations, and it
+was long assumed that raising that number was worth more than any single
+mechanism riding on it. That was tested and is false. A structural boost in
+`score_runnable` took `preference_honored` from 1,326 to 179,618 and divergent
+picks from 1,201 to 17,873, moving divergence to 0.77% of evaluations, and
+every frontier rung stayed inside the noise over 108,000 runs. Authority is not
+the constraint. What the steer lacks is a preference worth expressing, so a
+proposal to strengthen it has to name the preference and show it is selective -
+measure the base rate of any gating predicate before building on it. The
+mechanism that produced those counters gated on a node having no other queued
+work, which was already true of 99.86% of offers, so it collapsed into the
+uniform timer upweighting that `timer-weight-response-curve` had already
+closed.
 
 A mechanism must count its own firing. Per-candidate utilization capture can
 only answer "did this fire" when the mechanism increments something, and a
