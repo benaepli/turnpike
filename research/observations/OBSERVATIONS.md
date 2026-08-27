@@ -1565,3 +1565,32 @@ building it.
 ## 2026-08-27T10:40:53.108Z
 
 **deliver-hold-while-timer-pending** (closed): Admission-side delivery holds do not buy depth on VR/general. 108k runs across 2 seeds: every depth rung moved negative or within noise (d4 -0.32pp, d5 -0.36pp, d6 -0.11pp, d7/d8 ~ -0.01pp), pMei 0.000 at +1%/+2%/+5% for d4/d5/d6 — sequential test could not find any rung where a separable positive effect was even reachable, so it rejected after 2 chunks. Violations stayed 0. The one non-trivial magnitude is h3 -0.89pp: withholding deliveries measurably slows runs toward the deepest handler-coverage predicate without producing compensating prefix depth, i.e. the hold is delay-only as designed but the delay costs progress rather than winning a useful race. Combined with the earlier steer-side attempt on the same timer-vs-delivery ordering axis, both sides of that axis (position and admission) are now null-to-negative on this spec; the earlier 'timer removal moves a rung by an order of magnitude' observation should be read as timers mattering as *events*, not as an exploitable ordering race against deliveries. Caveat that bounds the strength of the refutation: the shipped gate was deliberately weak (hold_probability 0.3, max_nodes_held 1, max_hold_steps 8), so the near-zero deltas are consistent with an inert knob as well as with a wrong hypothesis; the run record here does not establish that holds_taken / timer_fired_after_hold were ever nonzero. Cost side is unambiguous: +1 general config param (16→17), regression not passed.
+
+## 2026-08-27T11:05:00.000Z (operator) - the hold band that mattered was 100 to 300 steps, and the rest was slack
+
+`bisect-purgatory-hold-range-300` merged at 5288, narrowing
+`delay_duration_range` from [5, 1000] to [5, 300] with depth>=4 ratio 0.9992,
+depth>=5 0.9937 and throughput 1.002 over 108,000 runs. Cutting 70% off the top
+of the range costs nothing measurable.
+
+That corrects an implication of the earlier entry here, which argued for [5,
+1000] on the grounds that 31% of its draws exceed the 192-step median
+requirement. Log-uniform over [5, 300] puts only 10.9% of draws above 192 and
+performs identically, so the effect saturates at a much lower rate of long
+holds than that reasoning assumed. The argument for widening was right about
+where the requirement sits and wrong about how much of the distribution needs
+to sit above it.
+
+What the two results together locate is a band. [5, 100] places no draw above
+100 steps and was the state before; [5, 300] places 26.8% above 100 and carried
+the whole gain; [5, 1000] adds a further 22.7% above 300 and adds nothing. The
+holds that matter are the ones between roughly 100 and 300 steps, which is
+where the measured requirement lives - median 192, p90 338 - and the tail past
+that is slack.
+
+Two things worth carrying. A range parameter can be right about its lower bound
+and wasteful about its upper one, and the cheap test is a bisection, which the
+loop found on its own here. And an effect that saturates in the distribution
+should be described by the band that produces it rather than by the range that
+happens to contain the band; the earlier entry named the wrong quantity even
+though its measurement was sound.
