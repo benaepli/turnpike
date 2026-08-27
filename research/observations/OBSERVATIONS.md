@@ -1447,3 +1447,33 @@ wall clock writes no counter file at all.
 The practical consequence for reading a null result: a counter file whose new
 field is zero says the mechanism never fired, which is a different finding from
 a nonzero counter with a flat ladder, and the two used to be indistinguishable.
+
+## 2026-08-27T09:40:00.000Z (operator) - depth was not bought by exhausting the step budget
+
+The audits at 5275, 5280 and 5285 each argue that depth gains may be an
+artifact of runs being cut off mid-plan, since about 70% of runs exit via
+`iterations_exhausted`. The earlier entry here answered the general form of it:
+depth is flat across a sixteenfold range of `max_iterations`, so the budget is
+not what sets depth. This answers the specific form, for the merge that
+actually moved the ladder.
+
+Termination counters over matched 1,080-run captures:
+
+| iteration | exhausted | plan_complete | steps used |
+|---|---|---|---|
+| 5281, before the merge | 783 (72.5%) | 297 | 5,201,508 |
+| 5283, after it | 763 (70.6%) | 317 | 5,159,558 |
+| 5285, after the ablation too | 750 (69.4%) | 329 | 5,040,362 |
+
+If depth were bought by burning the budget, exhaustion and steps used would
+rise with it. Both fell while depth>=5 rose 29%. More runs finish their plan,
+consuming fewer steps, and reach deeper. The mechanism raised the productivity
+of a step rather than spending more of them, which is the opposite of the
+alleged artifact.
+
+Two notes for reading future audits. The exhaustion share is a stable property
+of this workload, not a signal: it has sat between 69% and 73% across every
+capture in the record, including ones where nothing merged. And a charge of
+this shape should be answered with the termination counters either side of the
+specific merge, which takes one query, rather than argued about in the
+abstract.
