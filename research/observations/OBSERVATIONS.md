@@ -507,3 +507,34 @@ Worth fixing together: give analysis work a writable destination, and make
 the judge reject proposals whose deliverable is a document or a change to an
 operator-owned path. Staged, not applied, since it is a prompt change and the
 loop reads its modules at start.
+
+## 2026-08-27T01:45:00.000Z (operator)
+
+The throughput field added earlier tonight is systematically biased, and the
+cause is not the sample size noted before but a fidelity mismatch.
+
+`loop.ts:669` sets `throughputRatio = meanRps / baseline.runsPerSec`, where
+`meanRps` is the mean over the candidate's sequential chunks and
+`baseline.runsPerSec` comes from the baseline's screen arm. Screen runs are
+shorter and therefore faster. Measured on iteration 5273: candidate
+sequential 268.1 against a stored screen baseline of 287.8, reported as
+-6.83%, while the bench's own paired rounds in a single window gave candidate
+254.1 against baseline 253.0, ratio 1.004. The same change is level and the
+field calls it a 7% regression.
+
+This is a constant offset, not noise, so it will read about -7% for every
+candidate whatever its merit. The comment directly above the line asserts
+"same protocol and seeds as the baseline chunks they are compared with",
+which holds for the depth rungs and not for throughput.
+
+It has a second consumer. Line 727 rescales the stored baseline on merge as
+`baseline.runsPerSec * throughputRatio`, so a biased ratio walks the stored
+figure on every merge. It happens to walk it toward the sequential value,
+which is the right direction by accident and not a reason to leave it.
+
+Staged fix: divide by the mean of the baseline's own sequential chunks, which
+are already recorded and were 264.1 across four. On 5273's numbers that gives
++1.5% against the bench's +0.4%, instead of -6.8%.
+
+The regression suite's throughput case was never affected: it runs its own
+paired bench in one window and uses `baseline.runsPerSec` only as a floor.
