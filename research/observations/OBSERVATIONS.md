@@ -697,3 +697,43 @@ Goodhart: runsPerSec is on the ladder at 264.6 vs reference 142.4 (1.86x 'better
 Utilization: aos=unexercised, dedup=unexercised, curriculum=unexercised, feedback config-scoring (cfg_score_sum)=unexercised, steer / steer_authority=unrewarding, steer_authority gates (blocked_by_order, blocked_by_timer_gate)=broken, purgatory / biased+delayed delivery=unrewarding, receiver_restarted delivery path=unrewarding, crash_anchor=unrewarding, crash_recovery=healthy, timeline_keys novelty=scaffolding, rng_stream_isolation=scaffolding, termination.plan_complete=broken
 
 Policy suggestions: Freeze accept/reject verdicts until the noise floor is measured: unpark eval-noise-floor-calibration (4/1.5) and enabling-crn-paired-eval (8/4) and run them next, ahead of any add-kind hypothesis. Justification: a causally inert merge moved P(depth>=7) by 50% relative (~4-5 nominal binomial SEs), so the current sequential rule (reject at P<0.05) is operating on an unvalidated variance model.; Drop P(depth>=7) and P(depth>=8) from the decision ladder and mark them reporting-only. At 54k runs they carry 0-108 events; P(depth>=8)=0.000 has a 95% upper bound of ~5.5e-5 and can never be moved detectably. Unblock depth-power-floor-audit (cost 0.5) to pick the deepest bucket with real power (likely depth>=5, p=0.081).; Adopt policy-hypotheses-skip-evaluation (cost 0.5) immediately: route kind=meta/enabling/grader/telemetry hypotheses that touch no scheduler decision path to a build+regression-only gate. This removes ~1863s (72%) from the iteration cost of changes like util-stats-metrics-plumbing that provably cannot move the metric, roughly doubling measured-hypothesis throughput within the same 20 wall-h/day.; Cut num_runs_per_config from 1000 to ~300 (or add a stopping rule on new-key growth < 1% per 100-run bucket) and spend the freed ~70% of chunk compute on paired/common-random-number seeds and a wider config grid. Evidence: saturation_run_index=300; runs 601-1080 contributed 25 of 1784 keys.; Demote runsPerSec from the metric ladder to a guardrail with a floor (e.g. reject only if <120/s). At 264.6 vs reference 142.4 it currently rewards shorter, shallower runs — directly antagonistic to the depth objective that is 10x off reference.; Fix or retire termination.plan_complete before any hypothesis is scored on completion: plan_complete==plan_complete_with_pending_work (302/302). Also report all depth metrics stratified by termination reason, since 72% of runs are right-censored by max_iterations=6000, and either raise the step budget or state explicitly that depth is budget-limited.; Force a mechanism-liveness precheck on proposals: any hypothesis whose buildsOn names aos, dedup, curriculum, or feedback cfg-scoring must be rejected at propose time unless it first enables the mechanism in general_vr.json. Then execute zero-utilization-mechanism-sweep-ablation (4/2) to delete the dead paths, including blocked_by_order and blocked_by_timer_gate, which have fired 0 times in 4.8M steps.; Close steer-authority-audit (proposed, cost 3) as already answered by the existing counters (0.155% preference_expressed, 43.4% honored, 0.141% divergent picks) and require any future steer hypothesis to state a target for preference_expressed/steps; a mechanism influencing 0.07% of steps cannot plausibly move meanPrefixDepth from 3.03 to 2.26.; Add an implement-abort guard: iterations 5272 and 5265 spent 836s and 270s in implement with no build or evaluate. Cap implement at ~2 model-think stalls or 400s before forcing a checkpoint/abandon decision, and log abandoned iterations explicitly in the ledger.; Institute pool hygiene: 33-37 parked and 39-40 closed hypotheses against 11-12 merged (~12% merge rate). Auto-expire parked items older than 500 iterations, cap parked at ~15, and reconcile the pool table against the time/budget ledger (parked 33 vs 37, merged 11 vs 12) so productivity accounting is trustworthy.; Re-scope the delivery-bias family: biased/delayed deliveries have acted_fraction 0.137 vs 0.412 baseline and receiver_restarted 0.026. Require new add-kind hypotheses in this family to predict an acted_fraction target and be rejected if the injected events remain below ~0.25, so effort stops flowing into perturbations the guards absorb.; Audit the crash_anchor applied/taken ratio (749/1916 = 39.1%) as a cheap, evaluation-free win: unpark crash-anchor-acted-fraction-comparator (4/3) and identify which anchors account for the 1167 discarded crashes before adding any new anchor (crash-during-inflight-fanout, recovery-completion-race-window both cost 6-7.5).
+
+## 2026-08-27T03:20:00.000Z (operator) - depth is not step-budget limited
+
+The 5275 audit observed that about 72% of runs are right-censored by
+`max_iterations` and asked for either a bigger step budget or an explicit
+statement that depth is budget-limited. The censoring is real and the
+inference is not.
+
+Censoring, from six consecutive utilization captures of 1,080 runs each:
+`iterations_exhausted` runs 774 to 790, i.e. 71.7% to 73.1%. Consistent, so
+nearly three runs in four stop because the budget ran out.
+
+Matched corpora, same seed and config, only `max_iterations` varying, 2,160
+runs each:
+
+| max_iterations | explore | mean depth | d>=4 | d>=5 | d>=6 |
+|---|---|---|---|---|---|
+| 1,500 | 3s | 3.027 | 35.5% | 7.8% | 1.1% |
+| 3,000 | 6s | 3.021 | 35.4% | 7.8% | 0.8% |
+| 6,000 | 10s | 3.018 | 35.2% | 7.2% | 0.9% |
+| 24,000 | 41s | 3.015 | 35.6% | 7.4% | 1.2% |
+
+Depth is flat across a sixteenfold range while cost scales linearly. Every
+rung sits inside the measured A/A floor. The runs that exhaust their budget
+are spending it on work that never advances the oracle chain, which is what
+the absorption numbers already implied. Raising the step budget is closed as
+a lever: at 24,000 it costs four times the wall clock and returns nothing.
+
+The converse is tempting and is NOT established here. Depth being insensitive
+to the budget does not license cutting it, because depth is a proxy already
+known to decouple from violations at the top of the ladder, so "depth is
+flat" and "nothing that matters changed" are different claims. This
+experiment cannot separate them: the grade output for these corpora reported
+h1/h2/h2b/h3 as 0.0000 where the standing baseline shows h2 near 0.40, so the
+hazard channel was not validated and the zeros should not be read as
+measurements. Anyone pursuing a cheaper chunk must check hazards and
+violations first, on corpora graded the way the loop grades them.
+
+What this does settle: the current 6,000-step budget is not buying depth, and
+neither would a larger one.
