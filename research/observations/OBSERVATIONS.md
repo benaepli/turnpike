@@ -1423,3 +1423,27 @@ Goodhart: meanPrefixDepth/P(depth>=k) are drifting AWAY from the reference (2.26
 Utilization: aos=unexercised, dedup=unexercised, curriculum=unexercised, steer_authority=unrewarding, feedback.cfg_score (config scoring)=broken, purgatory delay/bias=unrewarding, recovery_window=healthy, crash_anchor=healthy, post_fault_ops (client-work-after-every-fault)=scaffolding, timeline_keys novelty=unrewarding, rng_stream_isolation=healthy
 
 Policy suggestions: Freeze merges until depth-power-floor-audit (gain/cost 5/0.5) and eval-noise-floor-calibration run. Both are cheap and both directly gate the validity of every verdict the loop has issued; running them costs <1 iteration and retroactively values or invalidates 17 merges.; Adopt noise-floor-gated-verdicts: require |delta| >= 3x the measured per-seed SE on the primary metric before merging. Under the current 54000-run chunk that is roughly >=0.006 on P(d>=4) and >=0.03 on meanPrefixDepth — none of the last several merges would qualify, which is the point.; Stop reporting/judging on P(depth>=7) and P(depth>=8). At 0.002 and 0.000 they carry no information; declare the power floor at depth>=5 (0.111, SE ~0.0014) and reject hypotheses whose only claimed effect lives above it.; Re-open enable-cfg-feedback-general-config as a failed merge: cfg_score_sum = 0.0 with scored_runs = 1080 proves the path is still dead. Either fix it or take ablate-config-scoring-throughput and reclaim the ~2% runsPerSec.; Batch the three zero-activity mechanisms (aos, dedup, curriculum) and the two never-firing steer_authority gates (blocked_by_order = 0, blocked_by_timer_gate = 0 over 5.1M steps) into one deletion PR. This is zero-risk by construction — code that never executes cannot change a metric — and it shrinks the surface the proposer keeps generating hypotheses about.; Add a termination guard to the ladder: report meanPrefixDepth conditioned on plan_complete runs separately from iterations_exhausted runs (currently 750/1080 = 69% exhaust their budget). Without this split, depth gains from truncated runs are indistinguishable from real exploration gains.; Cut the baseline hold from 4 chunks to 2 and cache it across iterations. Evaluate is 1667s/iter mean (72% of wall); re-measuring a stable baseline every iteration is the single largest recoverable waste in the ledger.; Require every new 'add' hypothesis to name the counter that will prove it acted AND a pre-registered threshold on that counter, following the delivery_effects precedent — purgatory ran 213,876 delayed sends at a 0.109 acted_fraction before anyone noticed it was mostly moving inert messages.; Route kind=meta/policy hypotheses that touch no spur/super code past evaluation entirely (policy-hypotheses-skip-evaluation, cost 0.5, currently parked). At 1667s/iter of evaluate, skipping even a third of meta hypotheses pays for the audits above.; Escalate the fact that violations = 0 for reference, baseline, and all 17 merges to a first-class problem: the loop has no discriminating outcome variable. Either introduce a workload with known injectable violations to calibrate whether depth predicts detection, or accept that the depth ladder is an unvalidated surrogate and say so in the status header.
+
+## Where to read a mechanism's own counters
+
+`spur explore` now writes its utilization counters twice: to
+`<output-dir>/utilization.json` as before, and to a sibling file
+`<output-dir>.utilization.json`. The sibling copy is the readable one. Every
+consumer that batches runs deletes the output directory once the corpus has
+been checked and graded, which used to take the counters with it; the sibling
+survives, so a run's counters can be read afterwards and attributed to that run
+by its directory name.
+
+For loop evaluations this means each chunk leaves
+`tmp/loop/eval-<hypothesis>-<fidelity>-<seed>.utilization.json`, including the
+chunks run for the baseline arm under the id `baseline`. A hypothesis that
+pre-registers a falsifier in terms of a counter can therefore read that counter
+from the same runs the verdict was computed on, and difference it against the
+baseline chunks, without re-running the explorer on a separate small sample.
+Counts are raw and per chunk: divide by `rng_streams.isolated_runs` or
+`termination.runs` to get a per-run rate, and note that a chunk killed at its
+wall clock writes no counter file at all.
+
+The practical consequence for reading a null result: a counter file whose new
+field is zero says the mechanism never fired, which is a different finding from
+a nonzero counter with a flat ladder, and the two used to be indistinguishable.
