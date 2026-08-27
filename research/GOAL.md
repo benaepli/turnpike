@@ -214,6 +214,15 @@ would mean the mechanism fired as intended.
    condition holds, measure how often that condition already holds. A predicate
    true of nearly every candidate is not a gate, and the mechanism collapses into
    the ungated version of itself - which is usually something already tried.
+9. Harness: `research/` is protected except `observations/` and `evaluations/`,
+   so no hypothesis can change the orchestrator, the gate, the policy schema or
+   the runners, whatever its kind. That does not make the capability behind such
+   a proposal unreachable - it moves where it has to live. A sweep, an extra
+   fidelity or a new counter is implementable in `spur/` and reachable through
+   the one config the evaluator loads; it is only the harness-side plumbing that
+   is out of bounds. Measurement and analysis that need no simulator change go in
+   `research/observations/` as a script plus a report. Anything that genuinely
+   requires harness code has to be raised for the operator.
 
 ## Promising directions (seed thinking, not limits)
 
