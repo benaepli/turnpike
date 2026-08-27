@@ -1,0 +1,147 @@
+{
+  "hypothesis": {
+    "id": "steer-authority-audit",
+    "parent": "timer-vs-delivery-coverage-axis",
+    "kind": "enabling",
+    "title": "Instrument how often steer's preferred event is actually the one scheduled",
+    "description": "In spur/spur-core/src/simulator/{explorer.rs,core/scheduler.rs,util_stats.rs}, add feedback.steer_audit (default false). When on, at each scheduling point record: (a) whether steer expressed a preference, (b) whether the selected event equals the preferred one, (c) if not, which constraint overrode it (empty candidate set, curriculum mask, determinism/causality filter, tie-break). Emit aggregate counters per run to util_stats. Pure instrumentation: no change to selection, weights, or keys.",
+    "category": "tooling",
+    "buildsOn": [
+      "timeline feedback (feedback.mode=timeline, steer=true)",
+      "explorer scheduling loop",
+      "util_stats"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 3,
+    "rationale": "Two independent negative results (all continuous weight changes flat; now finer coverage keys flat) are both consistent with steer's preference rarely binding at the decision point. Before spending more budget on either resolution or bias, measure the override rate directly — it partitions the remaining design space into 'signal quality' vs 'authority' and kills a whole family of proposals cheaply.",
+    "generalityArgument": "Counts selection-vs-preference agreement at the generic event-scheduling point; records no event labels, handler names, or protocol structure.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T02:30:00.000Z",
+    "notes": "Diagnostic, not a ladder mover; gain is in redirecting subsequent hypotheses. [rejudged iteration 5274: Up on the methodological lesson (pair any 'novelty is dead' claim with a binding measurement), down because divergent_picks 3061/2.23M is already recorded — only the override-cause breakdown is new; falsified if the override reason is >90% 'no preference expressed', i.e. nothing to fix in select"
+  },
+  "decision": {
+    "hypothesisId": "steer-authority-audit",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.00014351851851851505,
+      "depth>=5": -0.0012314814814814862,
+      "depth>=6": -0.0004166666666666659,
+      "depth>=7": 0.000055555555555555436,
+      "depth>=8": 0.000009259259259259264,
+      "h2": -0.0008148148148148238,
+      "primary": -0.0012314814814814862,
+      "throughput": -0.12581634870208813,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "steer-authority-audit-sequential-1000-1787798094373",
+        "hypothesisId": "steer-authority-audit",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "ce9a288901a0e9ff746f65cabf7059c4cf80b6b6",
+        "superCommit": "d2c5a86125a658d4ba45991cd7919efdaa54bed4",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T02:34:54.373Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 233.45697906669088,
+          "unpairedFraction": 0.48501660658321893,
+          "h1Rate": 0.5004074074074074,
+          "h2Rate": 0.40046296296296297,
+          "h2bRate": 0.4103888888888889,
+          "h3Rate": 0.33381481481481484,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.020259259259259,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49457,
+            35355,
+            19093,
+            4382,
+            722,
+            81,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5038,
+          "gradeWallMs": 183263
+        },
+        "exploreWallMs": 231306,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "steer-authority-audit-sequential-1001-1787798514315",
+        "hypothesisId": "steer-authority-audit",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "ce9a288901a0e9ff746f65cabf7059c4cf80b6b6",
+        "superCommit": "d2c5a86125a658d4ba45991cd7919efdaa54bed4",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T02:41:54.315Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 235.2941176470588,
+          "unpairedFraction": 0.48755354930549794,
+          "h1Rate": 0.49925925925925924,
+          "h2Rate": 0.40146296296296297,
+          "h2bRate": 0.41538888888888886,
+          "h3Rate": 0.338037037037037,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0229444444444447,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49477,
+            35458,
+            19142,
+            4355,
+            726,
+            79,
+            2
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5152,
+          "gradeWallMs": 185967
+        },
+        "exploreWallMs": 229500,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/feedback.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 15,
+    "after": 15
+  }
+}
