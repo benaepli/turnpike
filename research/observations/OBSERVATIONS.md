@@ -1257,3 +1257,54 @@ no reason to use it today.
 ## 2026-08-27T08:10:08.568Z
 
 **client-work-after-every-fault** (auto_merge): Merged (auto_merge, 2 seeds x 54k runs, seeds 1000/1001, both stable). Forcing one mandatory RecoverNode -> client-request edge per crash/recover pair is a real but modest win: depth>=4 +0.63pp, depth>=5 +2.55pp (primary), depth>=6 +0.22pp, depth>=7 +0.04pp; violations still 0 at 108k runs, h2 flat (+0.004pp). Cost was negative, not positive: throughput rose +6% (223 runs/s) rather than falling, so the predicted 'surviving client work lengthens runs' penalty did not materialize at k=1 -- the extra edge is nearly free, which implies the plans it produces are short-tailed and that k=1 is far from any budget limit. The prediction that failed is the one about unpairedFraction: it stayed at 0.495/0.497, essentially the pre-change level, so we are not converting stalled writes into completing ones. Combined with the depth gain, the reading is that the mechanism succeeds at *issuing* client work after a fault but that work is itself largely unanswered -- the binding constraint has moved from 'no op exists after the fault' to 'the op that exists after the fault never completes', presumably because nothing prevents the next crash/timer from landing on it before quiescence. Caveat on the evidence: the falsifier counter post_fault_ops.ops_invoked_after_last_recover was implemented but is not surfaced in the harness metrics block, so wiring was confirmed only indirectly via the depth movement; the depth>=5 headline should also be discounted per the hypothesis's own note that only depth>=4 is stable to a tenth of a percent, making the honest effect size ~0.6pp, not 2.5pp. General config params 15 -> 16.
+
+## 2026-08-27T08:15:00.000Z (operator) - guaranteeing client work outlasts a fault moved depth>=5 by 29%
+
+`client-work-after-every-fault` merged at iteration 5282 on a superiority
+separation, `depth>=4 separated at z 2.7`, which is the first such verdict in
+the visible record; every other merge advanced on non-inferiority.
+
+Paired evaluation, 108,000 runs:
+
+| statistic | ratio | pGreater | pMei | bar |
+|---|---|---|---|---|
+| depth>=4 | 1.0176 | 1.00 | 0.908 | +1.1% |
+| depth>=5 | 1.2955 | 1.00 | 1.000 | +2.3% |
+| depth>=6 | 1.1493 | 1.00 | 0.997 | +5.6% |
+| h2 | 1.0000 | 0.507 | 0.011 | +1.0% |
+
+Replicated on the refreshed baseline, two independent 216,000-run samples:
+
+| statistic | before | after | ratio |
+|---|---|---|---|
+| depth>=4 | 0.36216 | 0.36696 | 1.013 |
+| depth>=5 | 0.08649 | 0.11194 | 1.294 |
+| depth>=6 | 0.01453 | 0.01653 | 1.138 |
+| h2 | 0.42513 | 0.42476 | 0.999 |
+
+The paired and unpaired estimates agree to two decimal places on the rung that
+moved. Against the recorded null-diff floors, -1.44% at depth>=5 and 7.5% at
+depth>=6, the first is about twenty times the floor and the second about twice
+it. h2 flat to a tenth of a percent is the signature of a mechanism that
+reorders client work and touches nothing about delivery.
+
+Regression passed all four cases and the predicted throughput cost did not
+appear: 209.5 rps against 205.9, ratio 1.017. Longer runs, not slower ones.
+
+Cost: one config key, `post_fault_client_ops`, taking the graded config from 15
+to 16. That is a real price under the parameter rule and the first merge of the
+night that was not free.
+
+**What actually did the work was the measurement.** In 79% of runs where two
+distinct nodes crashed and recovered, every write had been invoked before the
+first crash, so the chain's second write had nothing left to match. The
+mechanism is three lines of edge-adding in the plan generator; the finding was
+that four families of falsified hypotheses had been optimising the segment
+downstream of a starved step.
+
+**What this is not.** Violations are still zero, here and in every corpus
+measured this session. depth>=7 rose 23% and depth>=8 by two runs in 108,000,
+and neither is a measurement - roughly 45 and 2 events per 54,000 runs. The
+defensible claims are depth>=4, depth>=5 and depth>=6. A proxy moved a long
+way; the goal did not move at all, and general-config depth-8 runs remain
+linearizable.
