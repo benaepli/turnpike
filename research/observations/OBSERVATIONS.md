@@ -1204,3 +1204,52 @@ are worthless, so the runs-per-second numbers in any concurrent experiment
 should be discarded while its per-run rates survive, since run counts are
 seed-deterministic. And the right place for operator compute is the boundary
 stop, when the loop is down and the machine is idle regardless.
+
+## 2026-08-27T07:55:00.000Z (operator) - the three unrun explorers, measured; none of them is a win
+
+Measured with the loop stopped, 14 threads, 30,000 runs per arm, same config
+envelope and the merged binary. Earlier figures in this log for these arms were
+taken while the loop was running and are superseded: their per-run rates were
+sound, since run counts are seed-deterministic, but every throughput number in
+them was contaminated.
+
+| | standard | aos |
+|---|---|---|
+| throughput | 211.4 runs/s | 185.2 runs/s |
+| mean prefix depth | 3.0527 | 3.1769 |
+
+| rung | per-run ratio | per-second yield |
+|---|---|---|
+| depth>=4 | 1.121 | 0.981 |
+| depth>=5 | 1.190 | 1.042 |
+| depth>=6 | 1.064 | 0.932 |
+| depth>=7 | 0.760 | 0.666 |
+
+Violations were zero in every arm, as everywhere else.
+
+`aos` costs 14% throughput and returns 12 to 19% more depth-4 and depth-5 runs
+per run, which nets to break-even per unit of compute and to a loss at the
+rungs past that. `continuous` was measured at the same run count and is worse
+than either at every rung past 4 - depth>=5 0.0476 against standard's 0.0867 -
+while carrying the higher mean prefix depth, which is a clean demonstration
+that mean depth reports the shallow end and should not be used as a headline.
+
+The whole direction is therefore a negative. That is worth knowing: three
+search strategies existed in the binary, none had ever been run, and the
+natural assumption was that the unexplored ones held headroom. They do not, on
+this workload.
+
+**A small-sample error, made three times in one session, worth naming.** An
+`aos` arm of 5,000 runs put depth>=7 at 2.75 times standard, on 22 events. At
+30,000 runs the same comparison is 0.760, on 41 events against 54. The ratio
+did not shrink, it inverted. The same shape of error produced a 1.62 estimate
+from a 2,160-run probe that the 54,000-run chunk did not reproduce, and a 72%
+conditional from independent existence checks where the grader solves a joint
+assignment. In each case the sample was labelled underpowered and the number
+was quoted anyway. A ratio over fewer than about fifty events is not a
+measurement and does not belong in a summary.
+
+What survives from the exercise is a capability rather than a result. The
+harness hardcoded `-e standard`, so no hypothesis could reach the other three
+explorers; `evaluation.explorer` now exists and defaults to standard. There is
+no reason to use it today.
