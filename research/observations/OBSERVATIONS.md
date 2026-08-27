@@ -1856,3 +1856,38 @@ Secondary defect worth a separate ticket: `lintInertPolicyKeys` checks only top-
 ## 2026-08-27T14:32:55.195Z
 
 **config-override-effectiveness-smoke** (auto_merge): The falsifier the parent skipped now exists and passes: spur-core/tests/config_override_effect.rs plus a small kv.spur fixture exercise the CLI→config_override.rs path end-to-end, asserting (a) a scalar override on the knob gating client-op/fault frequency moves a util_stats counter relative to an un-overridden run at the same seed, and (b) an unknown/misspelled key errors loudly instead of no-opping. Overrides are therefore proven effective, not merely neutral — downstream dose-response sweeps can be trusted to reflect real parameter changes. The two sequential VR arms (seeds 1000/1001, 54k runs each, base general_vr.json, no override applied) confirm the plumbing is behaviorally neutral when unused: violations 0, meanPrefixDepth 3.066/3.063, depth>=5 ~6.0k, h2 ~0.417-0.419, all within seed noise; throughput even nudged up (+0.9%, 283.8 vs 276.6 runs/s across arms is itself seed-level jitter). generalConfigParams unchanged at 16 before/after, so no config-surface drift. Objective deltas are all noise-scale (primary -0.00048, depth>=4 +0.0015). Net: an enabling, zero-risk merge that unblocks the sweep line; it says nothing about which knobs matter, only that setting them is honored. Remaining untested surface: nested/array-valued override paths, type coercion (int vs float vs bool), and whether multiple simultaneous overrides compose rather than last-write-wins.
+
+## 2026-08-27T15:35:00.000Z (operator) - two hypotheses hung the explorer and both are recorded as porcupine failures
+
+`delete-novelty-channel-and-reclaim-throughput` (5295) was blocked after three
+chunks with the reason "porcupine produced no parseable JSON (exit 1)".
+Porcupine was not the problem. The loop log for all three seeds reads
+`explore=931s porc=0s grade=0s runs=0`: the explorer hit its 900-second wall
+having completed no runs at all, porcupine was then handed an empty corpus, and
+its failure was recorded as the cause.
+
+`leave-one-event-class-out-audit` carries the identical note and the identical
+log signature, three seeds at `explore=931s runs=0`. So two hypotheses have hung
+the explorer, and the blocked pool attributes both to the linearizability
+checker.
+
+Two things follow. Anyone reading that pool concludes porcupine is flaky when
+nothing is wrong with it, and `leave-one-event-class-out-audit` is not a harness
+failure to requeue - it is a reproducible hang, and requeuing it costs another
+46 minutes to rediscover.
+
+The failure is worth understanding on its own. Both changes touch the feedback
+path, and 5295 deleted the novelty channel that three separate measurements had
+shown contributes nothing to depth: the ablation was non-inferior at 108,000
+runs, the refreshed baseline matched to a tenth of a percent, and the steer
+diverged zero times with it disabled. Inert to the ladder did not mean inert to
+the machinery. A channel can be removable from the decision and still be load
+bearing for run completion, and the wall is what catches the difference.
+
+The 900-second wall earns its place here. It converted an indefinite stall into
+three bounded failures and a recorded verdict, which is what it is for.
+
+What is missing is attribution. A chunk that fails should report the explore
+outcome - return code, runs written, wall time - alongside whatever the
+downstream stage said, so a hang is not filed under the tool that received its
+empty output.
