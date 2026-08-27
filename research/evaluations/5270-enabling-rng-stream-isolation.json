@@ -1,0 +1,150 @@
+{
+  "hypothesis": {
+    "id": "enabling-rng-stream-isolation",
+    "parent": "ablate-dead-randomly-drop-msgs",
+    "kind": "enabling",
+    "title": "Isolate scheduler RNG into per-decision substreams so refactors are seed-stable",
+    "description": "In spur-core/src/simulator/core/scheduler.rs (and path.rs), replace the single shared RNG with named/derived substreams (e.g. seed-hash per decision kind: runnable choice, message delivery, crash injection). Adding or removing a draw in one decision kind then cannot shift the sample sequence of the others, so a pure-refactor diff yields bit-identical traces at a fixed seed. Verify by re-applying this ablation's diff and asserting all screen metrics are exactly unchanged.",
+    "category": "scheduler",
+    "buildsOn": [
+      "scheduler RNG",
+      "schedule_runnable"
+    ],
+    "expectedGain": 8,
+    "expectedCost": 5,
+    "rationale": "Gives an exact-equality oracle for any change claiming to be behavior-preserving, converting refactor validation from a statistical test into an assertion, and reduces confounding when a real change adds a draw in one place.",
+    "generalityArgument": "RNG substream derivation is a property of the simulator's sampling infrastructure, independent of the protocol under test or the shape of its spec.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-24T18:30:00.000Z",
+    "notes": "[unparked iteration 5267] Observations make it the prerequisite for any further instrumentation after telemetry merges shifted six metrics; falsifier: re-applying a known-null diff at fixed seed still changes any metric bit-for-bit. [rejudged iteration 5268: The recurring failure mode across 30 calibration entries is deltas of 1e-4..1e-3 drowning in a ~2.5e-3 seed band; per-decision substreams mak"
+  },
+  "decision": {
+    "hypothesisId": "enabling-rng-stream-isolation",
+    "verdict": "needs_human",
+    "reasons": [
+      "touches execution-semantics files"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0012175925925926312,
+      "depth>=5": -0.0006111111111111178,
+      "depth>=6": -0.0007407407407407415,
+      "depth>=7": -0.000050925925925925835,
+      "depth>=8": 0.000004629629629629629,
+      "h2": 0.0012731481481481066,
+      "primary": -0.0006111111111111178,
+      "throughput": 0.13086702767387948,
+      "params": 1
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "enabling-rng-stream-isolation-sequential-1000-1787788085598",
+        "hypothesisId": "enabling-rng-stream-isolation",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "6a660cde24a63b89e5772c7b5f82d92b9b5be978",
+        "superCommit": "d1590ca7f7b47fdf228e4e4de7693be07058afb3",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-26T23:48:05.598Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 270.8762847812674,
+          "unpairedFraction": 0.48492672042464163,
+          "h1Rate": 0.5011666666666666,
+          "h2Rate": 0.40116666666666667,
+          "h2bRate": 0.41144444444444445,
+          "h3Rate": 0.333037037037037,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0214444444444446,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49389,
+            35463,
+            19141,
+            4387,
+            703,
+            73,
+            2
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5025,
+          "gradeWallMs": 180030
+        },
+        "exploreWallMs": 199353,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "enabling-rng-stream-isolation-sequential-1001-1787788470313",
+        "hypothesisId": "enabling-rng-stream-isolation",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "6a660cde24a63b89e5772c7b5f82d92b9b5be978",
+        "superCommit": "d1590ca7f7b47fdf228e4e4de7693be07058afb3",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-26T23:54:30.313Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 265.66827871554307,
+          "unpairedFraction": 0.4863811876952039,
+          "h1Rate": 0.49825925925925924,
+          "h2Rate": 0.40046296296296297,
+          "h2bRate": 0.41833333333333333,
+          "h3Rate": 0.3388703703703704,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.025888888888889,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49426,
+            35614,
+            19218,
+            4341,
+            723,
+            73,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5023,
+          "gradeWallMs": 180544
+        },
+        "exploreWallMs": 203261,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/exec.rs",
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/curriculum.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/rng.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 14,
+    "after": 15
+  }
+}
