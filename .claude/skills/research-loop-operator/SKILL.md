@@ -70,6 +70,14 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
 - `porcupine/`, `research/oracle/`, `research/corpus/` are ground truth;
   never edit them. `traceanalyzer/` (the grader) changes only through the
   grader-review workflow below.
+- The grader stays protocol-agnostic. It is often said that the grader "may
+  reference the known bug", and that is true of the oracle configs under
+  `research/oracle/`, not of the Go code. Today no VR identifier appears
+  anywhere in `traceanalyzer/` outside one test, and it should stay that way:
+  handler names reach the grader as config, the way `deliver` already passes
+  `function` through `EventSpec.Function`. A rule may be general ("a dispatch
+  with no preceding enter of the same handler on that node is self-initiated
+  rather than relayed"); the name it is applied to may not be baked in.
 - All code you write follows `research/STYLE.md`.
 - Parameters are a cost (`research/GOAL.md`); do not add tunables to configs
   or code to make something work.
