@@ -1370,3 +1370,41 @@ Secondary observation worth carrying: this grid is depth-limited, not violation-
 ## 2026-08-27T08:49:50.317Z
 
 **post-fault-client-ops-sweep** (closed): The sweep never produced usable dose-response data: it was closed on lint, not on science. Two of the three configs (scheduler_configs/loop/general_vr_post_fault_ops_1.json and _3.json) are inert — no runner loads a per-k config file, so writing sibling JSONs is not a valid way to vary a knob in this harness. Only the k-value baked into general_vr.json actually ran, and the recorded objective deltas (depth>=4 -0.367, depth>=5 -0.112, h2 -0.425) reflect whatever single perturbed setting landed in the live config rather than a k=1/2/3 comparison. Regression also failed. Two transferable lessons: (1) parameter sweeps must be driven by the existing runner's config-loading path (mutate the loaded config / pass a sweep arg), never by adding sibling config files the runner never reads; (2) the cycle-guard question the sweep was meant to answer — the edges_added/pairs_seen ratio — is still completely unmeasured, so both post_fault_client_ops children remain blocked on an unknown that a single instrumented run could resolve far more cheaply than any sweep.
+
+## 2026-08-27T09:20:00.000Z (operator) - a mechanism's throughput cost is not a constant
+
+`ablate-config-scoring-throughput` merged at iteration 5285 and reclaimed 17.9%
+throughput: 256.1 rps against 217.3 in the interleaved A/B, both rounds tight
+(256.4/255.9 against 217.0/217.5), with every ladder delta inside the noise and
+violations 0. The hypothesis predicted 2%.
+
+The same mechanism was measured in the other direction five iterations earlier.
+`enable-cfg-feedback-general-config` at 5276 recorded ratio 0.993, a cost of
+0.7%. The A/B structure is identical in both: `regression.ts` builds the
+baseline arm from `general_vr.json` as it stands on the research branch and the
+candidate arm from the candidate's own config, so 5276 compared
+[without config-scoring] against [with] and 5285 compared [with] against
+[without]. Same comparison, opposite sign, and the magnitudes differ by about
+twenty-five times.
+
+What changed in between is the workload. `client-work-after-every-fault` merged
+at 5282 and makes client operations outlast faults, which lengthens runs.
+Config-scoring is per-run work, so its cost scales with run length. That is the
+most likely explanation and it is not verified; `recovery-window-length-census`
+also merged in the interval and added per-run telemetry behind a mutex, which
+could contribute.
+
+The finding worth keeping is independent of which of those it was. A mechanism's
+throughput cost is a function of the workload, not a property of the mechanism,
+and the loop records perf verdicts as though they were durable. This one aged by
+a factor of twenty-five in six hours and five iterations. Two consequences:
+
+- A throughput number in an old decision record is evidence about the workload
+  of that iteration, not about the mechanism. Do not carry it forward.
+- An ablation of a mechanism previously measured as cheap can still be worth a
+  large reclaim, so "we already know it costs almost nothing" is not a reason to
+  skip one.
+
+The reclaim itself multiplies everything downstream: 17.9% more runs per second
+shortens every future evaluation and raises the bug-finding rate by the same
+factor at constant probability per run.
