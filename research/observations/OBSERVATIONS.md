@@ -2118,3 +2118,166 @@ Eight parked hypotheses target it, including `purgatory-probability-sweep-clean`
 and `purgatory-probability-single-point-probe` on the axis that deadlocks, and
 `purgatory-empirical-duration-only` on the axis already bisected. Their expected
 gains, up to 9, were assigned before any of this was measured.
+
+## 2026-08-27T20:45:00.000Z (operator) - the transfer retrospective measured nothing, because the panel member never ran the mechanisms
+
+The plan for a bug panel opened with a free retrospective: `mencius-bug-found`
+has run on 58% of iterations since the loop started, and splitting its 37
+sessions at `client-work-after-every-fault` gives detection 0.00999 before and
+0.00892 after, a ratio of 0.893. It was read as evidence that the merges have
+not transferred to another protocol, and I repeated that reading.
+
+It is not evidence of that. `regression_mencius.json` sets nine keys:
+`num_servers`, `num_write_ops`, `num_read_ops`, `num_crashes`,
+`max_concurrent_writes`, `dependency_density`, `num_runs_per_config`,
+`max_iterations`, `session_seed`. It sets no `purgatory`, no
+`post_fault_client_ops`, no `feedback`. Every mechanism merged tonight is
+therefore inert on that spec by construction: `post_fault_client_ops` defaults
+to 0, the hold band to its own default, feedback to off. The series was never
+running the mechanisms whose transfer it appeared to measure, so 0.893 is noise
+plus a few code-level ablations.
+
+This is the concrete case for the inheritance rule the panel design already
+specifies: a panel config must be the live evaluation template with only
+workload keys overlaid, never a frozen file. A frozen panel config makes every
+opt-in mechanism invisible to the panel, and every panel result a null that
+looks like a measurement. The failure mode is not hypothetical - it is what the
+existing regression case has been doing for the whole life of the loop.
+
+The measurement that does answer the question needs no rebuilt binaries and no
+harness code: one binary, one seed, config inherited from `general_vr.json` with
+the twelve workload keys overlaid from the Mencius config, and two arms
+differing only in `post_fault_client_ops` and the hold band. At the measured
+dispersion of 0.67 and rate 0.0101, 44,016 runs per arm resolves the claimed
+0.893 at z = 2, which is about five minutes per arm.
+
+General lesson, and it applies beyond the panel: before reading a comparison as
+evidence about a mechanism, check that the arms could see the mechanism. Both
+the plan and I read a difference as transfer without checking that the
+intervention reached the subject.
+
+## 2026-08-27T21:05:00.000Z (operator) - a quarter of all evaluation compute goes to the rung with the least power
+
+Chunk counts and verdicts over every sequential evaluation in the journal, 162
+chunks and 8,748,000 runs:
+
+| chunks used | verdict | count |
+|---|---|---|
+| 1 | reject | 2 |
+| 2 | advance | 35 |
+| 2 | reject | 9 |
+| 2 | error | 1 |
+| 3 | reject | 5 |
+| 4 | inconclusive | 2 |
+| 6 | stopped | 1 |
+| 8 | inconclusive | 1 |
+| 12 | inconclusive | 1 |
+| 12 | reject | 1 |
+
+The distribution is bimodal. Most evaluations resolve in two chunks; a few run
+to the hard cap of 12. Those five long evaluations consumed roughly 40 chunks,
+about a quarter of all sequential compute ever spent, and four of the five
+ended `inconclusive` - no verdict for the outlay.
+
+The mechanism is visible in the one running now, iteration 5306, where the
+decay is measured rather than inferred:
+
+| chunk | runs | depth>=4 pMei | depth>=5 pMei | depth>=6 pMei |
+|---|---|---|---|---|
+| 1 | 54,000 | 0.0790 | 0.0155 | 0.1490 |
+| 2 | 108,000 | 0.0710 | 0.0265 | 0.1300 |
+| 3 | 162,000 | 0.0200 | 0.0170 | 0.1110 |
+| 4 | 216,000 | 0.0125 | 0.0190 | 0.0955 |
+| 5 | 270,000 | 0.0325 | 0.0255 | 0.0910 |
+| 6 | 324,000 | 0.0255 | 0.0155 | 0.0870 |
+| 7 | 378,000 | 0.0095 | 0.0070 | 0.0775 |
+| 8 | 432,000 | 0.0045 | 0.0115 | 0.1085 |
+
+depth>=4 and depth>=5 were both decisively under the 0.05 reject threshold by
+chunk 4. Everything after that is the evaluation waiting on depth>=6 alone,
+which decays about 0.01 per chunk and will not cross until chunk 10 or 11.
+Five chunks and 270,000 runs spent on one rung after the other two had
+answered. `decideSequential` rejects
+only when depth>=4, depth>=5 AND depth>=6 all fall below the minimum effect of
+interest. At iteration 5306 chunk 5, depth>=4 sits at pMei 0.033 and depth>=5 at
+0.025, both well under the 0.05 threshold, and the evaluation continues because
+depth>=6 has not settled. It is being kept alive by the rung the power-floor
+audit measured as needing a 13% effect to resolve at one session, against a
+gate MEI for that rung of 5.6%. The bar is set below what the statistic can
+see, so the rung is structurally slow to decide and drags the whole evaluation
+with it.
+
+The cap that permits this is `HARD_LIMITS.maxSequentialChunks = 12`, reached
+whenever `depth6plus > 0`, which is now every candidate since the baseline
+itself reaches depth 6. The escape hatch that was meant to be dormant is
+therefore always open.
+
+Two options if this is worth fixing, both gate changes and neither taken here:
+align the depth>=6 MEI to its measured resolvable effect, or keep depth>=6 in
+the report but exclude it from the continuation decision while depth>=4 and
+depth>=5 have both settled. Either converts most of that tail into early
+verdicts. Recorded rather than acted on, because it changes what the gate
+means.
+
+## 2026-08-27T21:45:00.000Z (operator) - no run finishes, and the two mechanisms that moved depth also moved completion
+
+An iteration count is a step budget, not a duration, and a step buys a
+different amount of protocol progress in every spec. Something has to bound a
+run, so the field is necessary; the problem is that it is currently the only
+thing that ends one.
+
+Termination over a 1,080-run capture at iteration 5306:
+
+| outcome | runs | share |
+|---|---|---|
+| iterations_exhausted | 748 | 69.3% |
+| plan_complete | 331 | 30.6% |
+| of those, also plan_complete_with_pending_work | 331 | 100% |
+| deadlock | 1 | 0.1% |
+
+with 9,448 pending items and 6,325 planned events unfired at exit. Every run
+recorded as complete still held outstanding work. **No run in this workload
+terminates because it is finished.**
+
+That makes `max_iterations` a crude instrument in a specific way: it does not
+measure how much happened, it decides where we stopped looking. Depth is flat
+across 1,500 to 24,000 steps, so raising it buys wall clock and nothing else,
+and tuning any effect through it couples the result to the truncation confound.
+The values in use - 6,000 for the general grid, 8,000 for Mencius, 5,000 for the
+bench - are not comparable quantities of protocol progress.
+
+**Completion looks like a signal rather than bookkeeping.** The two mechanisms
+that moved depth furthest also moved completion, in both directions, and
+neither was aiming at it:
+
+| mechanism | completion | depth |
+|---|---|---|
+| client work outlasting a fault (5281 to 5283) | 27.5% to 29.4% | depth>=5 +29%, merged |
+| holding deliveries to win timer races (5285 to 5287) | 30.5% to 25.7% | depth>=5 pGreater 0.0005, rejected |
+
+Two points are not a law and neither is causal. But the sign is consistent, the
+mechanisms were unrelated, and it reframes an earlier entry here: when the audit
+argued depth gains were an artifact of truncated runs, the refutation was that
+exhaustion fell while depth rose. That was read as merely rebutting the charge.
+It is better read as the finding - the completion rise may be the mechanism
+rather than a side effect.
+
+**Three consequences worth carrying.**
+
+A run that ends with work outstanding tells us less than one that finishes, so
+steering toward termination is a mechanism family in its own right. Detecting a
+condition that wastes a run and recovering from it is the shape; a timeout storm
+is the obvious candidate, since general mode admits timers freely and has no
+admission control.
+
+Protocols differ in what completion requires, so a fixed constant is the wrong
+instrument and adapting to the run is the right one. This is the clearest case
+so far for adaptivity being worth building rather than tuning.
+
+For a bug panel, completion is the only progress signal that is free across
+hosts. Violations need porcupine, which works everywhere. Depth needs an oracle
+DAG authored per protocol, which is the expensive part of adding a host.
+Completion needs nothing - it is already in the termination counters and is
+protocol-agnostic. It also supplies the detector for a liveness member such as
+`Mencius_P.spur`, whose documented bug wedges the log and which porcupine
+structurally cannot see.

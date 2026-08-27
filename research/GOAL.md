@@ -176,6 +176,25 @@ work, which was already true of 99.86% of offers, so it collapsed into the
 uniform timer upweighting that `timer-weight-response-curve` had already
 closed.
 
+An iteration count is not a duration. `max_iterations` bounds scheduler steps,
+and a step buys a different amount of protocol progress in every spec, so the
+same number means different things for VR, Mencius and any host added later.
+Something has to bound a run, so the field stays; what it must not be treated
+as is a measure of how much happened.
+
+Measured, over 1,080-run captures: about 69% of runs end by exhausting the
+budget, and of the roughly 31% recorded as `plan_complete`, ALL of them are
+also `plan_complete_with_pending_work` - 331 of 331 in the latest capture, with
+9,448 pending items and 6,325 planned events unfired. No run currently
+terminates because it is finished. The budget is the only terminating condition
+there is.
+
+Two consequences. Depth is flat across a sixteenfold range of `max_iterations`,
+1,500 to 24,000, so it is not a lever and raising it buys wall clock and
+nothing else. And tuning any effect through it couples the result to the
+truncation confound the audits keep raising, so difficulty and dose belong on
+the mechanism, never on the step budget.
+
 A mechanism must count its own firing. Per-candidate utilization capture can
 only answer "did this fire" when the mechanism increments something, and a
 null result from a mechanism with no counter cannot be told apart from a
@@ -225,6 +244,19 @@ would mean the mechanism fired as intended.
    requires harness code has to be raised for the operator.
 
 ## Promising directions (seed thinking, not limits)
+
+Steering runs toward termination. A run that ends with work outstanding says
+less than one that finishes, and completion is currently rare: 69% of runs
+exhaust the budget and none end quiescent. The two mechanisms that moved depth
+furthest this project also moved completion with it, in both directions -
+guaranteeing client work outlasts a fault raised completion 27.5% to 29.4%
+alongside a 29% depth gain, and holding deliveries to win timer races cut it
+30.5% to 25.7% alongside a depth loss. That is two points, not a law, but the
+sign is consistent and neither mechanism was aiming at completion. Detecting a
+condition that wastes a run - a timeout storm being the obvious candidate,
+since general mode admits timers freely - and recovering from it is the shape
+this suggests. Protocols differ in what completion requires, so this is a place
+where adapting to the run rather than fixing a constant is likely to matter.
 
 Send-anchored crash points; orphan-message purgatory (hold messages whose sender crashed
 until it recovers); incarnation-aware timeline novelty; exclusive/one-node timer firing;
