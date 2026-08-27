@@ -1,0 +1,145 @@
+{
+  "hypothesis": {
+    "id": "ablate-config-scoring-throughput",
+    "parent": "enable-cfg-feedback-general-config",
+    "kind": "ablate",
+    "title": "Ablate the config-scoring path and reclaim the 2% throughput it costs for nothing",
+    "description": "Conditional on cfg-score-counter-telemetry showing the counters are live but the depth>=4 ratio stays under the pre-registered 1.05 bar (measured ~1.0005). Remove the config-scoring branch from spur-core/src/simulator/feedback.rs and its per-run bookkeeping in util_stats.rs, drop feedback.config_scoring from scheduler_configs/loop/general_vr.json and the parse site, and re-measure. Pre-register: violations stay 0, depth>=4 within +/-0.001 of the enabled arm (inside observed seed spread), and throughput recovers toward the 204.0 runs/sec baseline. Two seeds (1000/1001) sequential, same grader pin.",
+    "category": "feedback",
+    "buildsOn": [
+      "cfg_score counters",
+      "feedback timeline mode"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 1.5,
+    "rationale": "The enabling experiment bought the ladder a measured cost (-0.139 runs/sec, ~2%) and no measured reward (depth ratio 1.0005 vs a 1.05 bar, all deltas smaller than seed-to-seed spread). Removing a whole config surface shrinks the search space for later hypotheses and returns explore budget, which compounds across every subsequent run. This is the branch the parent hypothesis explicitly pre-committed to taking on a null result.",
+    "generalityArgument": "Removes a generic cross-run reweighting mechanism wholesale; the ablation is defined by a config flag and module boundary, not by any protocol, handler, or spec-specific behavior.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T04:00:00.000Z",
+    "notes": "Do not run before cfg-score-counter-telemetry lands — ablating a path that never fired proves nothing about the path. If the counters come back 0, this becomes a pure dead-code removal with the same throughput claim and a lower burden of proof. [rejudged iteration 5278: Its precondition is now met by the utilization block (counters live, primary delta 0.0000), so it can run directly; credit for re"
+  },
+  "decision": {
+    "hypothesisId": "ablate-config-scoring-throughput",
+    "verdict": "auto_merge",
+    "reasons": [
+      "non-inferior ablation (flag-off stage)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0014212962962962816,
+      "depth>=5": -0.00024074074074073581,
+      "depth>=6": -0.00009722222222222424,
+      "depth>=7": 0.00005092592592592562,
+      "depth>=8": -0.000004629629629629629,
+      "h2": 0.00027314814814816124,
+      "primary": -0.00024074074074073581,
+      "throughput": 0.10540662359549335,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "ablate-config-scoring-throughput-sequential-1000-1787820961227",
+        "hypothesisId": "ablate-config-scoring-throughput",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "e8ff5606ac1eab983ed93271e6152796732592eb",
+        "superCommit": "49b0348c7d5b5ec80e10c82a417732db0725c3c2",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T08:56:01.227Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 243.62514211466626,
+          "unpairedFraction": 0.49426453461708436,
+          "h1Rate": 0.5022962962962964,
+          "h2Rate": 0.4241111111111111,
+          "h2bRate": 0.4317037037037037,
+          "h3Rate": 0.35462962962962963,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0688333333333335,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49160,
+            35666,
+            19883,
+            5987,
+            905,
+            110,
+            6
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4766,
+          "gradeWallMs": 191905
+        },
+        "exploreWallMs": 221652,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "ablate-config-scoring-throughput-sequential-1001-1787821379808",
+        "hypothesisId": "ablate-config-scoring-throughput",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "e8ff5606ac1eab983ed93271e6152796732592eb",
+        "superCommit": "49b0348c7d5b5ec80e10c82a417732db0725c3c2",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T09:02:59.808Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 248.65312888520515,
+          "unpairedFraction": 0.4975887756323029,
+          "h1Rate": 0.5025740740740741,
+          "h2Rate": 0.425962962962963,
+          "h2bRate": 0.4314074074074074,
+          "h3Rate": 0.35459259259259257,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0739444444444444,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49216,
+            35806,
+            19902,
+            6077,
+            870,
+            118,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4780,
+          "gradeWallMs": 192823
+        },
+        "exploreWallMs": 217170,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/feedback.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
