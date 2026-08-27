@@ -197,6 +197,16 @@ export async function runSequential(opts: {
     evals.push(e);
     seq = { ...seq, nextSeed: seq.nextSeed + 1 };
     if (!e.ok) {
+      // Zero runs written means the explorer produced nothing at all - a wall
+      // timeout on a configuration that cannot complete a run. Further seeds
+      // re-pay the same wall to learn the same thing, so stop here.
+      if (e.metrics.runs === 0) {
+        return {
+          verdict: "error",
+          reason: `explorer completed zero runs (${e.error ?? "wall timeout"}); further seeds cannot inform`,
+          evals, seq,
+        };
+      }
       consecutiveFailures++;
       totalFailures++;
       if (consecutiveFailures >= 3) return { verdict: "error", reason: `${consecutiveFailures} chunks failed in a row: ${e.error ?? "evaluation failed"}`, evals, seq };
