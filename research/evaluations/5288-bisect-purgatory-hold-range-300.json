@@ -1,0 +1,140 @@
+{
+  "hypothesis": {
+    "id": "bisect-purgatory-hold-range-300",
+    "parent": "widen-purgatory-hold-to-run-length",
+    "kind": "ablate",
+    "title": "Bisect the hold range at [5, 300] to separate mid-rung gain from top-rung cost",
+    "description": "Config-only: set purgatory.delay_duration_range to [5, 300] in scheduler_configs/loop/general_vr.json and rerun the same two seeds (1000, 1001) at 54k runs. [5,300] covers the measured p90 span of 338 steps almost fully (median draw 38, ~23% of draws exceed 192) while cutting the tail that pushes a held record hundreds of steps past the post-recovery write. Compare all eight rungs against both the [5,100] baseline and the merged [5,1000] result.",
+    "category": "config",
+    "buildsOn": [
+      "widen-purgatory-hold-to-run-length"
+    ],
+    "expectedGain": 3,
+    "expectedCost": 0.5,
+    "rationale": "The merged change moved rungs 4-6 up and rungs 7-8 down, and the two effects have different signs, so a single range is trading them off. A plausible mechanism for the top-rung side is that very long holds also delay the client write that must land after the second recovery, pushing it past the end of the run -- the same tail that helps a stale message cross one crash hurts when the run needs a live message to arrive promptly afterward. If [5,300] holds the +5-7% at rungs 4-6 while recovering depth>=7 to 90+, the tail is a real cost and the range should sit near p90 rather than near run length. If all three settings give statistically identical top rungs, the top-rung dip was Poisson noise on counts of 2-5 and no further range tuning is warranted. Cheap either way: config-only, no rebuild, ~4.3 min per seed at the observed 211 runs/s.",
+    "generalityArgument": "One number in a delivery-delay range, chosen by a stated rule (size the hold to the p90 of the span the workload needs to bridge, not to the run length). The rule references no handler, node, or protocol and applies to any spec explored under any fault schedule.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T05:20:00.000Z",
+    "notes": "[unparked iteration 5285] Config-only dose point on the one knob with demonstrated ladder authority ([5,1000] gave depth>=4 +0.0097, h2 +0.0218 off a single dose). Red team: the stated top-rung-cost question is untestable since d7/d8 are noise floor; value is the mid-dose response on d4/d5. Falsified if [5,300] lands inside seed noise of [5,1000] on d4/d5, meaning the response saturated below 300."
+  },
+  "decision": {
+    "hypothesisId": "bisect-purgatory-hold-range-300",
+    "verdict": "auto_merge",
+    "reasons": [
+      "non-inferior ablation (flag-off stage)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": -0.0002592592592592369,
+      "depth>=5": -0.000694444444444442,
+      "depth>=6": 0.0002129629629629634,
+      "depth>=7": -0.000041666666666666415,
+      "depth>=8": -0.00004166666666666666,
+      "h2": -0.007074074074074066,
+      "primary": -0.000694444444444442,
+      "throughput": 0.08315486501650127,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "bisect-purgatory-hold-range-300-sequential-1000-1787827497672",
+        "hypothesisId": "bisect-purgatory-hold-range-300",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5d809339f140178ed4f87744049aaf06d85db229",
+        "superCommit": "858ca76e531cf4f36dc392ed1f62305e9d5b2fed",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T10:44:57.672Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 268.153761353084,
+          "unpairedFraction": 0.490981463977137,
+          "h1Rate": 0.4974074074074074,
+          "h2Rate": 0.4197037037037037,
+          "h2bRate": 0.4268888888888889,
+          "h3Rate": 0.35633333333333334,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.063648148148148,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49075,
+            35620,
+            19728,
+            5989,
+            916,
+            106,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4782,
+          "gradeWallMs": 166315
+        },
+        "exploreWallMs": 201377,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "bisect-purgatory-hold-range-300-sequential-1001-1787827870419",
+        "hypothesisId": "bisect-purgatory-hold-range-300",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5d809339f140178ed4f87744049aaf06d85db229",
+        "superCommit": "858ca76e531cf4f36dc392ed1f62305e9d5b2fed",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T10:51:10.419Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 264.6967996196209,
+          "unpairedFraction": 0.4943204073638856,
+          "h1Rate": 0.49483333333333335,
+          "h2Rate": 0.41594444444444445,
+          "h2bRate": 0.42294444444444446,
+          "h3Rate": 0.35503703703703704,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0658333333333334,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49074,
+            35642,
+            19846,
+            6008,
+            865,
+            117,
+            3
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4729,
+          "gradeWallMs": 167262
+        },
+        "exploreWallMs": 204007,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
