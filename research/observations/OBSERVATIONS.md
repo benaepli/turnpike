@@ -1051,3 +1051,156 @@ Goodhart: Depth is being maximized far out of proportion to the outcomes it prox
 Utilization: aos=unexercised, dedup=unexercised, curriculum=unexercised, steer / steer_authority=unrewarding, steer_authority order/timer gates=broken, purgatory delay/bias=unrewarding, timeline-key novelty channel=unrewarding, feedback config_scoring=unrewarding, recovery_race=unrewarding, crash_anchor=healthy, crash_recovery=healthy, restarted-endpoint deliveries=unrewarding, rng_stream_isolation=scaffolding
 
 Policy suggestions: Stop grading on unmeasurable rungs: delete P(depth>=8) (0 events at 54,000 runs, zero power) and demote P(depth>=7) (~108 events, ~20% relative detection floor) to reporting-only. Print the missing 'Current baseline' column or the ladder cannot support any accept verdict.; Unblock and run depth-power-floor-audit / eval-noise-floor-calibration BEFORE the next accept/reject. The sequential rule's 'separable' constant is unmeasured, which means all 14 merges and 42 closes rest on an uncalibrated threshold. Budget one full iteration (~35 min) to replicate the baseline config under 4 different seed sets and report per-metric SD; that is <2% of a day's 20 wall-h against a systematic error affecting 100% of verdicts.; Add termination-reason stratification to the grader immediately: report meanPrefixDepth and P(depth>=k) separately for plan_complete (n=286) and iterations_exhausted (n=794) runs. Until this exists, treat the +35% meanPrefixDepth and 10.7x P(depth>=4) as unattributed — 73.5% exhaustion makes 'deeper' and 'slower' indistinguishable.; Make acted_fraction a gate, not a readout. Any delay/bias/hold hypothesis must show it raises acted_fraction on the perturbed subset (currently 0.112-0.113 vs 0.504 population) or it is rejected regardless of depth movement. Promote bias-eligible-unselected-acted-control out of proposed; it is the control arm this whole family is missing.; Freeze the steer family (novelty-steer-authority-sweep 6/4.5, steer-authority-knob 6/3, steer-audit-readout 5/1.5) pending a single ablation. A mechanism that changes 1,326 of 5,258,194 steps (0.025%) cannot produce a detectable ladder move; running ablate-steer-authority-dead-gates (0 fires on both gates) first is the cheap decisive test.; Execute zero-utilization-mechanism-sweep-ablation now (proposed, 3/2.5) and delete aos, dedup, curriculum, and randomly_delay_msgs. Four mechanisms with exactly zero recorded activity are consuming build time (3.9 cargo builds/iter, 48 s) and proposal attention while being structurally unmeasurable in the graded config.; Cut evaluation cost using the saturation data: novelty-scored runs past ~run 300 add 3.2% of distinct keys for 72% of the run budget. Either cap novelty scoring at the saturation index and reinvest the freed runs into more config cells (raising per-cell N above the current noise-dominated 1000), or rotate the key space. Evaluate is 50% of iteration time; this is the single largest recoverable block.; Add a pre-implement feasibility gate and a post-implement abort ledger. Iterations 5272 and 5277 spent implement time (835.6 s in 5272) and never reached evaluate — ~13% of recent iterations. Require a build+smoke pass at <=120 s into implement before allowing further edits; current implement averages 22.5 edits and 384 s of model/think before anything is compiled against the grader.; Cap or eliminate rejudge (188.7 s/iter, 10% of tracked time). Route kind=meta/policy hypotheses that touch no spur/super code past evaluation entirely (policy-hypotheses-skip-evaluation, parked at 3/0.5) — that is a near-free reclaim of full evaluate cycles on hypotheses that cannot move the ladder by construction.; Reconcile the hypothesis census (header 112 with parked 35/proposed 15 vs ledger 114 with parked 41/proposed 11) and expose merge yield explicitly: 14 merged of 112 = 12.5%, against 42 closed and 41 parked. If parked+blocked (47) exceeds merged+proposed, the proposer is generating faster than the evaluator can adjudicate and the exploration quota (0.3) should be reduced until the backlog drains.
+
+## 2026-08-27T06:45:00.000Z (operator) - why the steer does not steer, and three search strategies nobody has run
+
+Two structural findings, both from reading rather than measurement, and both
+about capability rather than tuning.
+
+**The scheduler is three-quarters random by construction.**
+`score_runnable` in `scheduler.rs` is `0.25 * novelty + 0.75 * priority`.
+`priority` is a random draw taken when the runnable is created, from the
+schedule policy; `novelty` is the timeline signal that saturates after two to
+three hundred runs. So the ranking the steer can influence is a quarter of a
+score whose other three quarters are a coin flip, and the quarter goes flat
+early in a session. That is the arithmetic behind the 0.1% divergence rate
+this document already records, and it predicts the failure of
+`timer-vs-delivery-coverage-axis` in advance: sharpening a term weighted 0.25
+cannot outvote a random term weighted 0.75.
+
+It also says which interventions can work. The one place the scorer overrides
+the randomness is the quick-fire branch, which boosts a `Recover` whose node
+is currently crashed by reweighting against `quick_fire_multiplier`. A
+structural boost for a named class of runnable is the shape that reaches the
+decision; another scoring axis fed into novelty is not.
+
+**Three of the four search strategies have never been run.** `spur-cli`
+exposes `standard`, `genetic`, `aos` and `continuous`, and the harness
+hardcodes `-e standard` at `runners.ts:197`, so no hypothesis can reach the
+others - the evaluation lane cannot express them.
+
+`aos` is a record-and-replay controller: a bandit over mutating a recorded
+schedule tape and mutating the config, which is prefix-preserving
+perturbation around runs that already went deep. It takes the ordinary
+`ExplorerConfig`, so `general_vr.json` runs it unmodified. Measured on 5,000
+runs at one seed against the standard explorer on the same envelope:
+
+| rung | standard | aos | ratio |
+|---|---|---|---|
+| depth>=4 | 0.3606 | 0.4116 | 1.141 |
+| depth>=5 | 0.0819 | 0.1040 | 1.269 |
+| depth>=6 | 0.0167 | 0.0146 | 0.876 |
+| depth>=7 | 0.00185 | 0.00200 | 1.080 |
+
+`tape_wins` 1065 and `config_wins` 3885, against the zeros every utilization
+capture has reported for this mechanism. The gain is not config drift: crashes
+per run are 1.707 against the standard grid's 1.750. It does run 7.22 client
+operations per run against 6.87, a five percent difference that is a partial
+confound for a fourteen percent depth gain, and it costs throughput, 106
+runs/s against 161, so per second of compute it currently yields fewer
+depth>=5 runs than the standard explorer does. depth>=6 fell and depth>=7 has
+about ten events, so nothing is established at the rungs that matter.
+
+`continuous` is a conductor rotating over curriculum, curriculum-seeded
+record-and-replay, and aos, with each mode's state persisting across slices.
+Its config is the ordinary envelope plus `rotation`, `total_runs`,
+`batch_size` and `decay_half_life_runs`, all defaulted.
+
+Whether any of this is worth adopting turns on a question five thousand runs
+cannot answer: does an adaptive strategy compound over a long session, or is
+its early advantage a fixed offset that the standard explorer closes by
+sampling more? That is the experiment to run before any harness change.
+
+**Timer admission is a missing capability, not a tuning gap.** `strict_timers`
+is a field on `PlanConfig` and is absent from `EXPLORER_CONFIG_KEYS`, and
+`timer_gate_blocks` gates on `allowed_timers`, which only plan `AllowTimer`
+events populate. The general grid therefore cannot admission-control timer
+firing at all. Since the plan corpora violate at 76% at depth 8 against under
+1.8% for the general grid and timer admission is the difference, this is the
+largest untried lever, and it is untried because the capability does not
+exist rather than because the knob is set wrong.
+
+## 2026-08-27T07:40:00.000Z (operator) - the client workload is front-loaded relative to faults, and half the runs cannot match the chain's first event
+
+Two facts measured on 30,024 general-config runs at the merged settings, plus
+a correction to how the depth ladder should be read.
+
+**The workload is spent before the faults arrive.** Among the 4,909 runs where
+two distinct nodes crash and recover:
+
+| | runs | share |
+|---|---|---|
+| every write invoked before the first crash | 3880 | 79% |
+| a write invoked after both recoveries | 428 | 8.7% |
+| a write completing after both recoveries | 176 | 3.6% |
+| a write invoked before the crash that never answers | 3458 | 70% |
+
+The oracle chain is a write, then faults, then a second write. In four runs out
+of five there is no second write left to issue, because six to twelve client
+requests become eligible at once against one to three crashes, so every
+invocation has been made by the time a crash is selected. The writes that were
+outstanding stall across the crash and never answer. Nothing in the plan
+generator guarantees client work survives a fault, and this is not an artifact
+of declaration order: `generate_plan` shuffles the node list before the
+probabilistic dependency pass. Seeded as `client-work-after-every-fault`.
+
+**Half the runs cannot match the chain's first event.** The oracle names node 0
+for `w1`, `w2` and all three reads. The generator picks each client operation's
+destination with `rng.random_range(0..num_servers)`, so with three servers only
+a third of operations address node 0, and only 15,914 of 30,024 runs (53%)
+contain a write to node 0 at all.
+
+**Consequently depth is not one quantity.** `rootAnchoredPrefix` in
+`matching.go` skips labels with zero candidates and promotes their successors
+to roots, which is deliberate and has a test. When `w1` is unmatchable the
+chain is anchored at `crash_nl` instead, so a depth of k in such a run counts a
+different k vertices than in a run where `w1` matched. Roughly half of every
+sample is being scored on a chain that never contained the first write. This
+is not a bug report against the grader - contraction is the right behavior for
+a plan-mode metric reused in general mode - but it does mean P(depth>=k) mixes
+two populations, and comparisons between mechanisms are only clean if they do
+not shift the proportion.
+
+**Correction to my own earlier entry.** An earlier draft of this observation
+claimed the second write was rung 6 or 7 and that the delivery downstream of it
+already succeeded 72% of the time. Both were wrong. They came from mapping
+ladder rungs onto DAG vertices by eyeballing survival rates, and from checking
+each chain step for existence independently while the grader solves a joint
+assignment with injectivity over 200 swaps. A greedy earliest-match
+reconstruction of the literal chain gives depth>=4 at 0.0022 against the
+grader's 0.365, so the two are not measuring the same thing and no rung
+attribution in that draft should be trusted. The workload numbers above were
+measured directly from executions and do not depend on the mapping.
+
+The general lesson, worth keeping: do not infer what a rung means from its
+survival rate. Read the metric's implementation or measure the events by name.
+
+## 2026-08-27T07:15:00.000Z (operator) - the evaluation lane does not share the machine
+
+Recorded because it cost two chunks and because it kills an idea that looks
+attractive.
+
+Running a second explorer on four of sixteen cores, alongside the loop, made
+two of iteration 5281's chunks exceed the 900-second explore wall and return
+`ok=false runs=0`. A normal chunk explores in about 250 seconds, so the wall
+carries roughly a 3.6x margin at full CPU, and four competing threads were
+enough to spend it.
+
+The harness handled it correctly and this is worth knowing: `pooledCountsOf`
+skips evaluations with `ok=false`, so a failed chunk contributes nothing to the
+pooled counts rather than contributing zeros. The verdict rests only on chunks
+that succeeded. Failure costs seeds and wall time, not correctness, and trips
+an error only at three consecutive or `maxChunks` total.
+
+What it rules out: a long-running search lane sharing the machine with the
+evaluation lane. The appeal is real - the loop spends all of its compute on
+controlled A/B measurement and none on simply searching for a violation, which
+is the actual objective - but any such lane starves the wall it runs beside. If
+a hunt is worth running it has to replace the loop for a defined window, not
+run beside it.
+
+Two smaller consequences. Throughput figures measured while anything else runs
+are worthless, so the runs-per-second numbers in any concurrent experiment
+should be discarded while its per-run rates survive, since run counts are
+seed-deterministic. And the right place for operator compute is the boundary
+stop, when the loop is down and the machine is idle regardless.

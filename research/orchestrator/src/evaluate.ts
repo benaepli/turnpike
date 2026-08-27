@@ -112,7 +112,7 @@ export async function runOneEvaluation(
     materializeConfig(template, configPath, { runsPerConfig: opts.runsPerConfig, sessionSeed: seed });
     console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: exploring (wall ${opts.exploreWallSec}s) -> ${outputDir}`);
     const exploreRes = await explore({
-      binary: ctx.binary, configPath, spec, outputDir,
+      binary: ctx.binary, configPath, spec, outputDir, explorer: ctx.policy.evaluation.explorer,
       wallSec: opts.exploreWallSec, rayonThreads: ctx.policy.evaluation.rayonThreads,
     });
     const porc = await porcupine({ inputDir: outputDir, model: "kv", timeoutMsPerRun: 3_000, timeoutMs: 900_000 });

@@ -62,6 +62,9 @@ export const Policy = z.object({
     configTemplate: z.string(),
     oracleDags: z.array(z.string()).min(1),
     rayonThreads: z.number().int().positive(),
+    // Search strategy for the evaluation lane. The regression and perf lanes
+    // stay on the standard explorer so they remain fixed guardrails.
+    explorer: z.enum(["standard", "genetic", "aos", "continuous"]).default("standard"),
   }),
   regression: z.object({
     menciusBugSpec: z.string(),

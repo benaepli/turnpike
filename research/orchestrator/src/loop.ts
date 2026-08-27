@@ -188,7 +188,7 @@ function evaluationContext(state: LoopState, policy: Policy): string {
     modes = JSON.stringify(picked);
   } catch { /* reported as unreadable */ }
   const inactive = inactiveMechanisms(parseUtilization(state.getMeta("utilization")));
-  return `Explorer: -e standard on ${policy.evaluation.configTemplate}; scalar settings ${modes}.\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
+  return `Explorer: -e ${policy.evaluation.explorer} on ${policy.evaluation.configTemplate}; scalar settings ${modes}.\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
 }
 
 // Number of top-level keys in the general evaluation config: the loop's
@@ -432,6 +432,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     const paramsBefore = generalConfigParamCount(policy);
     let spurFiles: string[] = [];
     let superFiles: string[] = [];
+    let implSummary = "";
     let superCommit: string;
     if (resuming && h.branch) {
       // The implementation already lives on the hypothesis branch. It must
@@ -469,6 +470,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       createBranch(SUPER, branch);
 
       const impl = await timed("implement", () => implementHypothesis(policy, h));
+      implSummary = impl.summary;
       journal(state, n, "implement", { cost: impl.costUsd, turns: impl.turns, isError: impl.isError, aborted: impl.aborted, timedOut: impl.timedOut, activity: impl.activity, summary: impl.summary.slice(0, 2000) });
       if (impl.turns > 0) state.setMeta("consecutiveImplHangs", "0");
       if (impl.timedOut) {
@@ -507,6 +509,18 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       superFiles = changedFiles(SUPER, RESEARCH_BRANCH).filter((f) => f !== "spur");
     }
     if (spurFiles.length === 0 && superFiles.length === 0) {
+      // A meta hypothesis measures and edits nothing, so an empty diff is the
+      // shape it is supposed to have. Its finding is the implement summary,
+      // which is recorded and the hypothesis closed; every other kind was
+      // asked for code and an empty diff means it failed to produce any.
+      if (h.kind === "meta") {
+        cleanupToResearchBranch(branch);
+        if (implSummary) appendObservation(`**${h.id}** (measured): ${implSummary.slice(0, 4000)}`);
+        persistObservations(n);
+        state.upsertHypothesis({ ...h, status: "closed", branch: null, notes: "measurement recorded; no code change required" });
+        journal(state, n, "measured", { id: h.id, summary: implSummary.slice(0, 2000) });
+        return;
+      }
       state.upsertHypothesis({ ...h, status: "blocked", branch, notes: "implementer produced no changes" });
       journal(state, n, "blocked", { reason: "no changes" });
       return;

@@ -183,6 +183,7 @@ export interface ExploreOpts {
   outputDir: string;
   wallSec: number;
   rayonThreads: number;
+  explorer?: string;
 }
 
 /**
@@ -194,7 +195,7 @@ export function explore(opts: ExploreOpts): Promise<CmdResult> {
   // Output streams to <outputDir>.log so a running explore can be watched
   // with tail -f.
   const logPath = `${opts.outputDir}.log`;
-  const args = ["explore", "-e", "standard", "--config", opts.configPath, "-y", "--output-dir", opts.outputDir, opts.spec];
+  const args = ["explore", "-e", opts.explorer ?? "standard", "--config", opts.configPath, "-y", "--output-dir", opts.outputDir, opts.spec];
   const env = {
     ...process.env,
     RAYON_NUM_THREADS: String(opts.rayonThreads),

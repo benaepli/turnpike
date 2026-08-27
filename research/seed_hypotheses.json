@@ -177,5 +177,35 @@
     "generalityArgument": "Changes one number in a delivery-delay range. It names no handler, node, or protocol, and the argument for it is that a hold window should scale with the run length of the workload being explored, which is true of any protocol under any spec.",
     "createdAtIso": "2026-08-27T04:50:00.000Z",
     "notes": "Falsifier: if depth>=7 and depth>=8 counts do not rise while purgatory delayed-send counters stay comparable, the hold length is not the binding constraint and the send-delay family should be closed rather than tuned further. Watch runsPerSec and iterations_exhausted for the cost side."
+  },
+  {
+    "id": "starvation-gated-timer-admission",
+    "parent": null,
+    "kind": "add",
+    "title": "Prefer firing a node's timer when that node has no other queued work",
+    "description": "In spur-core/src/simulator/core/scheduler.rs, extend score_runnable with a third structural case alongside the existing quick-fire branch. A Runnable::Timer whose node has an empty local queue is 'starved'; reweight its score against a new config field timer_starvation_multiplier exactly as quick_fire_multiplier reweights a Recover whose node is crashed. Default the field to 1.0 so today's behavior is unchanged, add it to EXPLORER_CONFIG_KEYS, and enable it at a value above 1 in scheduler_configs/loop/general_vr.json. score_runnable currently receives only currently_crashed, so the node's local queue length has to be threaded in alongside it; that is the bulk of the work. Add util_stats counters timer_admission.{offered, starved_offered, fired_starved, fired_busy} so the mechanism counts its own firing.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 8,
+    "expectedCost": 4,
+    "rationale": "Timer admission is the difference the goal document names as the largest unexplained gap: the plan corpora violate at 76% at depth 8 against under 1.8% for the general grid, the plans decide when timers may fire, and the general grid lets the simulator fire them at will. That capability is missing rather than mis-tuned - strict_timers is a PlanConfig field, absent from EXPLORER_CONFIG_KEYS, and timer_gate_blocks gates on allowed_timers which only plan AllowTimer events populate. This is also the only shape of intervention that can reach the decision at all: score_runnable is 0.25*novelty + 0.75*priority, priority is a random draw taken at runnable creation, and novelty saturates after two to three hundred runs, so a term weighted 0.25 cannot outvote a coin flip weighted 0.75. The quick-fire branch is the one place the scorer overrides that randomness, and it does so structurally rather than through novelty. That is why timer-vs-delivery-coverage-axis failed and why this is not the same proposal.",
+    "generalityArgument": "The rule stated without reference to the protocol under test: prefer firing a node's timer when that node has no other work queued. It names no handler, message, timer label or role. A timeout is a statement about the absence of expected input, so firing one while the node still has queued input models a spurious timeout that any protocol is built to absorb, while firing one into a genuinely starved node is the case the recovery path exists for. The same quiescence effect is measured on the crash side: every crash in findbug_archive lands with zero client operations outstanding against 9.3% on the general grid.",
+    "createdAtIso": "2026-08-27T06:45:00.000Z",
+    "notes": "Falsifier: if timer_admission.fired_starved does not rise relative to fired_busy, the multiplier is not reaching the decision and the mechanism is miswired rather than unhelpful - fix the wiring before reading any ladder number. Priced at 4 because it needs a new config key and a new argument threaded into score_runnable, per the goal document's rule that a probe is priced by what it has to add. Expect the effect at depth>=4, the only rung stable to a tenth of a percent; depth>=6 moves 7.5% on a null diff."
+  },
+  {
+    "id": "client-work-after-every-fault",
+    "parent": null,
+    "kind": "add",
+    "title": "Guarantee some client work is scheduled after every fault",
+    "description": "In spur-core/src/simulator/path/generator.rs, add an opt-in generator field post_fault_client_ops (default 0, preserving today's plans). When set to k >= 1, after the write-chain pass and before the probabilistic dependency pass, for each crash/recover pair add a mandatory edge from its RecoverNode node to k client-request nodes chosen at random from those not already reachable from that recover, skipping any edge that would close a cycle (the existing has_path_connecting guard). Thread the field through GeneratorConfig and ExplorerConfig, add it to EXPLORER_CONFIG_KEYS, and enable it at 1 in scheduler_configs/loop/general_vr.json. Add util_stats counters post_fault_ops.{pairs_seen, edges_added, ops_invoked_after_last_recover} so the mechanism counts its own firing.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 9,
+    "expectedCost": 4,
+    "rationale": "Measured on 30,024 general-config runs: 4,909 have two distinct nodes crash and recover, and in 3,880 of them (79%) every write is invoked before the first crash, so no write remains to be issued afterwards. Only 428 (8.7%) invoke a write after both recoveries and 176 (3.6%) complete one, while 3,458 (70%) have a write issued before the crash that never answers. The oracle chain is a write, then faults, then a second write, so four runs in five cannot express it for want of a second write. The cause is arithmetic rather than generator declaration order - generate_plan shuffles the node list before the probabilistic dependency pass - six to twelve client requests become eligible at once against one to three crashes, so every invocation has been issued by the time a crash is selected, and nothing guarantees client work survives a fault.",
+    "generalityArgument": "The rule without reference to the protocol under test: every injected fault should have client work scheduled after it. It names no handler, message, timer label or role, and it is a property any fault-injection framework wants, since a fault whose effects no later operation observes cannot be detected by any oracle.",
+    "createdAtIso": "2026-08-27T07:10:00.000Z",
+    "notes": "Falsifier: if post_fault_ops.ops_invoked_after_last_recover does not rise, the edges are not reaching plan execution and the mechanism is miswired rather than unhelpful. Watch unpairedFraction, which should fall if stalled writes are replaced by completing ones, and expect a throughput cost since surviving client work lengthens runs. Judge the effect at depth>=4, the only rung stable to a tenth of a percent; depth>=6 moves 7.5% on a null diff. Note that P(depth>=k) mixes two populations, since roughly half of runs contain no write addressed to node 0 and are scored on a chain anchored at the first crash instead, so a mechanism that shifts that proportion moves the ladder for a reason unrelated to its mechanism."
   }
 ]
