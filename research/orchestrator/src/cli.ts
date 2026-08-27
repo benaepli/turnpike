@@ -11,6 +11,7 @@ import { renderPolicyMd, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors } from "./stats.js";
+import { selfTestPanel } from "./panel.js";
 import { LoopState } from "./state.js";
 
 const POLICY_PATH = path.join(ROOT, "research/policy.json");
@@ -73,10 +74,10 @@ async function main(): Promise<void> {
   try {
     switch (cmd) {
       case "selftest": {
-        const failures = [...selfTestStats(), ...selfTestPosteriors()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestPanel()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         const { policy, clamps } = loadPolicy(POLICY_PATH);
-        console.log("stats + posterior selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
+        console.log("stats + posterior + panel selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
         console.log("models:", policy.models);
         console.log("SPUR_BIN exists:", existsSync(SPUR_BIN));
         console.log("grader version:", graderVersion());

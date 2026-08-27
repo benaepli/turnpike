@@ -1,0 +1,385 @@
+{
+  "version": 1,
+  "sizing": {
+    "targetCount": 100,
+    "collapseZ": 2.7,
+    "gradientZ": 2.0,
+    "minSeparation": 20
+  },
+  "members": [
+    {
+      "id": "paxos-accept-stale-ballot",
+      "spec": "bin/spur/panel/paxos_accept_stale_ballot.spur",
+      "cleanSpec": "bin/spur/Paxos.spur",
+      "shape": "acceptor takes a pvalue from a ballot it already superseded, so one slot gets two commands",
+      "faults": {
+        "class": "F0",
+        "numCrashes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "requiresRecovery": false
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 3,
+          "step": 1
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "dependency_density": [
+          0.0
+        ]
+      },
+      "maxIterations": 8000,
+      "role": "gate",
+      "expectedRate": 0.01693,
+      "runsPerArm": 5928,
+      "gridSize": 24,
+      "calibration": {
+        "atIso": "2026-08-28T00:45:00Z",
+        "rateRuns": 20736,
+        "rateViolations": 351,
+        "dispersion": 0.559,
+        "cleanRuns": 20736,
+        "cleanViolations": 2,
+        "hostCeiling": 0.0251,
+        "budgetRatio": 0.948,
+        "runsPerSec": 1037.0
+      },
+      "notes": "control violates at 9.6e-5; separation 176x. host ceiling is the strongest injection observed, not a measured bound."
+    },
+    {
+      "id": "mencius-opt1-2",
+      "spec": "bin/spur/mencius/Mencius_opt1_2.spur",
+      "cleanSpec": "bin/spur/mencius/Mencius_opt1_2_partial_fix.spur",
+      "shape": "rule 2 gap-fill marks a slot no-op while a majority already committed a command there",
+      "faults": {
+        "class": "F0",
+        "numCrashes": {
+          "min": 0,
+          "max": 0,
+          "step": 1
+        },
+        "requiresRecovery": false
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 3,
+          "step": 1
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "dependency_density": [
+          0.0,
+          0.3
+        ]
+      },
+      "maxIterations": 6000,
+      "role": "gate",
+      "expectedRate": 0.00773,
+      "runsPerArm": 12960,
+      "gridSize": 24,
+      "calibration": {
+        "atIso": "2026-08-28T00:45:00Z",
+        "rateRuns": 51360,
+        "rateViolations": 397,
+        "dispersion": 0.348,
+        "cleanRuns": 25680,
+        "cleanViolations": 3,
+        "hostCeiling": 0.0101,
+        "budgetRatio": 1.125,
+        "runsPerSec": 153.0
+      },
+      "notes": "control is a partial repair, not a clean host; separation 66x over 25,680 control runs. the paper bug, and the only member with a historical series."
+    },
+    {
+      "id": "raft-stale-vote",
+      "spec": "bin/spur/panel/raft_stale_vote.spur",
+      "cleanSpec": "bin/spur/panel/raft_clean.spur",
+      "shape": "a vote reply from a superseded term is counted after the candidate advanced",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 2,
+          "max": 4,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 5,
+          "step": 2
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "dependency_density": [
+          0.0
+        ]
+      },
+      "maxIterations": 12000,
+      "role": "report",
+      "expectedRate": 0.00015,
+      "runsPerArm": 20016,
+      "gridSize": 72,
+      "calibration": {
+        "atIso": "2026-08-28T00:45:00Z",
+        "rateRuns": 20016,
+        "rateViolations": 3,
+        "dispersion": 0.0,
+        "cleanRuns": 20016,
+        "cleanViolations": 0,
+        "hostCeiling": 0.0021,
+        "budgetRatio": 1.0,
+        "runsPerSec": 294.0
+      },
+      "notes": "7% of its host ceiling; reaches the bug but cannot resolve a rate change at any affordable count."
+    },
+    {
+      "id": "raft-commit-prev-term",
+      "spec": "bin/spur/panel/raft_commit_prev_term.spur",
+      "cleanSpec": "bin/spur/panel/raft_clean.spur",
+      "shape": "figure 8: an entry from a previous term is committed on replica count alone",
+      "faults": {
+        "class": "F3",
+        "numCrashes": {
+          "min": 2,
+          "max": 4,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 5,
+          "step": 2
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "dependency_density": [
+          0.0
+        ]
+      },
+      "maxIterations": 12000,
+      "role": "report",
+      "expectedRate": 1e-05,
+      "runsPerArm": 20016,
+      "gridSize": 72,
+      "calibration": {
+        "atIso": "2026-08-28T00:45:00Z",
+        "rateRuns": 20016,
+        "rateViolations": 0,
+        "dispersion": 0.0,
+        "cleanRuns": 20016,
+        "cleanViolations": 0,
+        "hostCeiling": 0.0021,
+        "budgetRatio": 1.0,
+        "runsPerSec": 294.0
+      },
+      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal."
+    },
+    {
+      "id": "raft-forget-vote",
+      "spec": "bin/spur/panel/raft_forget_vote.spur",
+      "cleanSpec": "bin/spur/panel/raft_clean.spur",
+      "shape": "a recovered node forgets its vote and grants a second one in the same term",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 2,
+          "max": 4,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 5,
+          "step": 2
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "dependency_density": [
+          0.0
+        ]
+      },
+      "maxIterations": 12000,
+      "role": "report",
+      "expectedRate": 1e-05,
+      "runsPerArm": 20016,
+      "gridSize": 72,
+      "calibration": {
+        "atIso": "2026-08-28T00:45:00Z",
+        "rateRuns": 20016,
+        "rateViolations": 0,
+        "dispersion": 0.0,
+        "cleanRuns": 20016,
+        "cleanViolations": 0,
+        "hostCeiling": 0.0021,
+        "budgetRatio": 1.0,
+        "runsPerSec": 313.0
+      },
+      "notes": "never observed despite 60,048 crash-recover cycles over its calibration."
+    },
+    {
+      "id": "paxos-forget-promise",
+      "spec": "bin/spur/panel/paxos_forget_promise.spur",
+      "cleanSpec": "bin/spur/Paxos.spur",
+      "shape": "a recovered acceptor forgets its promised ballot and accepts a superseded round",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 3,
+          "step": 1
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "dependency_density": [
+          0.0
+        ]
+      },
+      "maxIterations": 8000,
+      "role": "report",
+      "expectedRate": 0.00015,
+      "runsPerArm": 19992,
+      "gridSize": 24,
+      "calibration": {
+        "atIso": "2026-08-28T00:45:00Z",
+        "rateRuns": 19992,
+        "rateViolations": 3,
+        "dispersion": 0.0,
+        "cleanRuns": 19992,
+        "cleanViolations": 0,
+        "hostCeiling": 0.0251,
+        "budgetRatio": 1.0,
+        "runsPerSec": 1428.0
+      },
+      "notes": "the stale-incarnation shape on a host with a high ceiling, and still only 3 in 19,992."
+    }
+  ]
+}
