@@ -2417,3 +2417,50 @@ A cross-spec comparison run first, at a fixed one crash, gave `Mencius_P`
 0.1318 against `Mencius_opt1_2` 0.2362. That comparison is uninformative - it
 says the opt-1-2 spec blocks more, not that P wedges - and it is recorded only
 so the number is not mistaken for evidence later.
+
+## 2026-08-27T23:30:00.000Z (operator) - CRAQ.spur does not compile, and the panel's first spec set is built
+
+`bin/spur/CRAQ.spur` cannot be run. It calls `@rpc_call(tl!, Read(key))` at
+five sites and the parser rejects `@`; it is the only spec in the repo using
+that syntax, so it was written against an older language version and never
+ported. Compile-checked every reference spec at 200 runs to be sure it was the
+only one:
+
+| result | specs |
+|---|---|
+| runs | EPaxosStar, Gryff, Paxos, Raft, Raft_rtc, SDPaxos, VR, test_rmw, all five Mencius |
+| fails to parse | CRAQ |
+
+The panel plan named a CRAQ dirty-read injection as its second fault-free
+member. That member is not buildable without first porting the host, and a
+ported spec would then be serving as a **clean control** with nothing to
+validate the port against - the same shape as the fixture that closed a
+hypothesis for a defect of its own. Substituted `Paxos.spur` instead: deleting
+the acceptor's ballot guard in `HandleP2a` lets a superseded proposer's pvalue
+be accepted, so two commands can be chosen for one slot. It needs no crashes,
+only two proposers duelling under timer pressure, so it holds the fault-free
+slot the CRAQ member was there to fill.
+
+First spec set, smoke-tested at 200 runs each:
+
+| spec | role | runs | violations |
+|---|---|---|---|
+| `panel/raft_clean.spur` | control | 200 | 0 |
+| `panel/raft_stale_vote.spur` | member | 200 | 0 |
+| `panel/raft_commit_prev_term.spur` | member | 200 | 0 |
+| `Paxos.spur` | control | 200 | 0 |
+| `panel/paxos_accept_stale_ballot.spur` | member | 200 | 1 |
+
+Both Raft members are built from `raft_clean.spur`, not from `Raft.spur`.
+`Raft.spur` counts a reply whose term is below its own: neither
+`AppendEntriesReply` nor `RequestVoteReply` checks `resp_term == current_term`
+after the step-down test, so a vote granted in term T can be counted after the
+candidate has advanced to T+1, and with three nodes that is a second leader in
+one term. Raft's own description of the reply path requires dropping stale
+replies, so this is an implementation bug in the translation rather than a
+paper finding. `raft_clean.spur` adds the guard at both handlers, and each
+member is exactly one defect away from it.
+
+200 runs settles compile-and-run, not rates. Every rate is measured at
+calibration, and the Paxos member's 1-in-200 is already below the admission
+band, so its workload needs retuning before it can gate.
