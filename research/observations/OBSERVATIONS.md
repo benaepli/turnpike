@@ -393,3 +393,55 @@ Goodhart: runsPerSec climbed 229.2 -> 247.2 (+7.8%) in the latest merge while ev
 Utilization: aos=unexercised, dedup=unexercised, curriculum=unexercised, randomly_delay_msgs=broken, crash_after_send_* anchors=unrewarding, steer (feedback/timeline)=unrewarding, purgatory=unrewarding, crash_recovery=healthy, receiver_restarted bias=unrewarding, rng_streams isolation=scaffolding, termination accounting=broken, deep-tail depth metrics (P(d>=7), P(d>=8))=broken
 
 Policy suggestions: Measure the A/A band before judging anything else: run baseline-vs-baseline at 1, 2, and 4 chunks (unparking raise-runs-until-band-shrinks, gain 5 / cost 3.5) and publish per-metric separability thresholds. Predicted band is ~+/-0.006 on rate metrics, which would retroactively reclassify the entire last merge as noise.; Promote paired-seed-delta-harness (gain 8 / cost 5 — highest gain/cost in the pool, parked) to the front of the queue and flip rng_streams to isolated_runs>0 so common random numbers are possible. CRN typically cuts variance 3-10x on paired designs; without it the loop cannot resolve the 1e-3 effects it keeps proposing.; Unblock and execute the two cheapest deletions immediately: retire-send-anchored-crash-params (gain 6 / cost 0.8) and ablate-dead-randomly-delay-msgs-wiring (gain 3 / cost 1.5). Together they cost ~2.3 units against a 1600 s/iteration budget and remove config surface that every future hypothesis must reason around.; Run zero-utilization-mechanism-sweep-ablation (proposed, gain 6 / cost 2.5) as a single combined ablation of aos + dedup + curriculum + randomly_delay_msgs. All four read exact zero over 1080 runs; if removing them leaves the ladder inside the A/A band, delete them rather than continuing to carry enabling hypotheses for them.; Drop P(d>=7) and P(d>=8) from the accept/reject ladder and mark them reporting-only. P(d>=8) is identically 0.000 across all three columns and P(d>=7)=0.001 gives ~54 events per chunk; neither can support a decision.; Stop counting telemetry/precheck hypotheses as merges. Route kind=meta/enabling work that touches no scheduler mechanism through a separate lightweight track (policy-hypotheses-skip-evaluation, gain 3 / cost 0.5, parked) so the 773 s evaluate + 158 s regression is not spent confirming that a counter did not change behavior.; Change the injection objective from count to effect: gate crash/delay/restart biases on acted_fraction. Current numbers — biased 0.139, delayed 0.140, receiver_restarted 0.021 vs all-deliveries 0.414 — mean the scheduler is aiming perturbations at deliveries 3-20x less likely to matter. Land acted-fraction-metric-surfacing (parked, gain 3 / cost 2) so this is visible on the ladder, then re-tune.; Fix the crash_anchor reporting gap: report applied/offered (727/1969 = 37%) as the headline, not crashes_taken (1907). Run crash-anchor-acted-fraction-comparator (proposed, gain 4 / cost 3) to rank the four existing anchors and delete the bottom half.; Investigate the budget ceiling before adding any depth mechanism: 769/1080 runs (71%) exit on iterations_exhausted, and the 0-recovery bucket is 196/196 exhausted with steps_used == step_budget exactly. Depth may be capped by max_iterations=6000, not by scheduling — depth-ceiling-structural-diagnostic (parked, gain 6 / cost 5) answers this and would invalidate several queued 'add' hypotheses.; Impose a pool TTL and cap: 33 parked + 6 proposed = 39 open items against 9 merges in 5270 iterations. Auto-close anything parked more than N iterations without a promotion, and cap the pool at ~15, so propose stops being free and the queue reflects real priority.; Add an explicit no-op guard to the iteration accounting: iterations 5255-5257 ('empty pool', ~3 s each) and 5259/5262 (grader proposal queued, <0.1 s) consumed loop slots without work. Either batch grader proposals into the next real iteration or stop incrementing the counter for them, so iteration count remains a meaningful denominator.; Given meanPrefixDepth 3.02 vs reference 2.26 and P(d>=4) 0.354 vs 0.034 with violations stuck at 0 in all columns, re-anchor the objective on violations (or a bug-proxy correlated with it). The loop has 10x-overshot the reference on the depth proxy with zero movement on ground truth; continuing to optimize depth is optimizing a proxy that has demonstrably decoupled.
+
+## 2026-08-27T00:15:00.000Z (operator) - assessment of the 5270 audit
+
+This audit is better than the standing caveat about auditor misreads
+suggests. It does not commit the classic error: aos, dedup and curriculum are
+classified unexercised rather than broken, with the reason named (not enabled
+in general_vr.json; the grid pins num_servers and num_crashes externally).
+Weigh its recommendations on their merits.
+
+Already satisfied, not open work:
+
+- "Measure the A/A band before judging anything else." Measured and published
+  the same evening. Identical explorer, 108,000 runs against the 216,000-run
+  baseline: depth>=4 +0.07%, depth>=5 -1.44%, depth>=6 -7.50%, h2 -0.36%. The
+  audit predicted ~+/-0.006 on rate metrics and that is about right for
+  depth>=4; the frontier rungs are proportionally far worse.
+- "Flip rng_streams to isolated_runs>0 so common random numbers are
+  possible." enabling-rng-stream-isolation was reviewed and approved the same
+  evening, with tests that pin the isolation property against a negative
+  control. The audit reached the same conclusion independently, which is
+  worth something.
+
+Sound and accepted:
+
+- Runs within a config share an RNG stream, so nominal binomial standard
+  errors are optimistic and the effective n is below the nominal n. Every
+  power calculation in the record understates the band.
+- crash_anchor reports crashes 2.6x the applied count, so crash injection
+  reads more effective than it is.
+- Merge count is a gamed metric. Both merges of the evening were telemetry
+  that cannot move the ladder by construction. The telemetry earned its place
+  by producing the absorption asymmetry and the noise floor, but the criticism
+  of merge count as a measure of progress is correct and should not be
+  argued away.
+
+Corrected before adoption:
+
+- The audit reads biased deliveries acting at 0.139 against 0.414 as the
+  scheduler preferentially perturbing inert deliveries. The numbers hold; the
+  causal claim does not follow, because delaying a message may be what makes
+  it inert. See GOAL.md for the discriminating measurement.
+
+Deferred, worth doing:
+
+- Skip ladder evaluation for hypotheses whose diff cannot reach the explorer.
+  Two iterations this evening spent a full sequential plus regression, about
+  930 s each, comparing a binary against itself. The lints now fail inert
+  changes, but a legitimate policy change still gets an evaluation the ladder
+  cannot interpret. policy-hypotheses-skip-evaluation is parked and cheap.
+- The three zero-utilization deletions the audit lists are cheap and unblock
+  config surface, but they are ablations and should run through the normal
+  lane rather than as operator edits.
