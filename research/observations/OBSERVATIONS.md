@@ -1477,3 +1477,40 @@ capture in the record, including ones where nothing merged. And a charge of
 this shape should be answered with the termination counters either side of the
 specific merge, which takes one query, rather than argued about in the
 abstract.
+
+## 2026-08-27T10:05:00.000Z (operator) - depth 8 has been reached 76 times and has never once violated
+
+Summed over every evaluation record in `research/evaluations/`: 49 sessions,
+1,809,000 graded general-config runs, 2,025 runs at depth>=7, 76 runs at
+depth>=8, and 0 violations.
+
+`findbug_archive` violates on 266 of its 372 depth-8 runs, 71.5%. If that rate
+transferred, 76 depth-8 runs would have produced about 54 violations. The
+probability of seeing none is around 1e-41. The one-sided 95% upper bound on
+the general config's violation rate at depth 8 is 3.9%, so the two populations
+differ by at least eighteenfold.
+
+This document already says the ladder is saturated and blind at depth 8 and
+that the discriminator is timer admission. What is added here is the sample
+size that turns that from a suspicion into a settled fact: it is not that
+depth-8 runs are too rare to have shown a violation yet. There have been 76 of
+them and the expected count under the plan-corpus rate is 54.
+
+The consequence for direction is uncomfortable and worth stating plainly. Depth
+is the metric the loop optimises, the gate separates on, and every merge is
+judged by. Its top rung has now been reached often enough to establish that
+reaching it is not sufficient, so a mechanism that raises P(depth>=k) is buying
+more of something already shown not to carry the bug. The 29% gain at depth>=5
+recorded above is real and was measured correctly; what it is worth toward the
+objective is unestablished, and the honest reading is that nothing in the depth
+ladder has yet been shown to predict a violation in the general config.
+
+What that leaves. The distinguishing feature is not in the graded set - the
+violating and non-violating depth-8 runs are identical on every feature the
+grader computes. Timer admission is the candidate this document names, and it
+is a missing capability rather than a mis-set knob: `strict_timers` is a
+`PlanConfig` field, absent from `EXPLORER_CONFIG_KEYS`, and `timer_gate_blocks`
+gates on `allowed_timers`, which only plan `AllowTimer` events populate. A
+general mechanism that makes timer firing admission-controlled would be the
+first intervention aimed at the thing that actually separates the corpora,
+rather than at a rung that does not.
