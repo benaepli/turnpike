@@ -1518,3 +1518,46 @@ rather than at a rung that does not.
 ## 2026-08-27T10:11:04.219Z
 
 **util-stats-in-eval-record** (auto_merge): Merged on non-inferiority, not on its own falsifier. Two sequential chunks (seeds 1000/1001, 54k runs each) show the metrics record still carrying only runs/runsPerSec/h*Rate/depthAtLeast/violations/unknown/porcupineWallMs — no utilStats key, empty or otherwise. Diff summary explains why: the change touched spur-cli/src/main.rs (spur side) plus research/observations/OBSERVATIONS.md, and nothing in the super-side evaluation harness. So the emit half may exist but the parse/copy half does not; the chunk record is produced by the harness's own metrics extraction, which drops any field it does not know. Falsifier verdict: FAILED (record contains no utilStats for either arm), despite verdict auto_merge — the gate passed on objective non-inferiority only. Objective deltas are pure noise as expected for instrumentation: violations 0/0, depth>=4..8 deltas 8e-4..0, primary -5.5e-4, params unchanged 16->16; throughput -1.4% (235.8 vs 249.4 runs/s across the two chunks is within seed-to-seed spread, not attributable). Consequence: the original blocker stands. Any hypothesis stating a falsifier in util_stats counters (starvation-gated-timer-admission, client-work-after-every-fault/post_fault_ops) still cannot read it, and a null from those remains undiagnosable between 'fired, no effect' and 'never fired'. Cost of the lesson is low (~7.5 min explore wall per chunk) but the enabling debt is unpaid; the next attempt must land on the super side and must self-verify by asserting the key exists in chunk 1 rather than by merging clean.
+
+## 2026-08-27T10:45:00.000Z (operator) - two ways of favouring timers, both closed, and what they say admission is not
+
+Two hypotheses aimed at the timer lever this document names, in one night.
+
+`starvation-gated-timer-admission` (5283) boosted a timer's score when its node
+had no other queued work. The boost reached the decision - steer
+`preference_honored` went 1,326 to 179,618 - and every frontier rung stayed
+inside the noise over 108,000 runs. The gate turned out vacuous: 99.86% of
+timer offers were already at a node with an empty queue, so it was a uniform
+upweighting, which `timer-weight-response-curve` had already closed.
+
+`deliver-hold-while-timer-pending` (5287) withheld deliveries to a node while
+one of its timers was eligible, so the timer would win the race. This gate was
+genuinely selective - 356,181 holds taken of 1,188,225 offered, and 209,296 of
+those let the timer fire first - and it was rejected for making things worse:
+depth>=4 ratio 0.991, depth>=5 pGreater 0.0005, every pMei zero.
+
+The reason is in the termination counters, and it was visible before the first
+chunk landed: `iterations_exhausted` rose 750 to 802 and `plan_complete` fell
+329 to 278. Holding deliveries stalls plans, and a truncated run satisfies
+fewer chain events, so depth falls.
+
+That is also the cleanest disconfirmation available of the recurring audit
+claim that depth is an artifact of runs being cut off mid-plan. Two cases now
+point the opposite way: the merge that raised depth>=5 by 29% reduced
+exhaustion, and this mechanism, which really did cut runs off, reduced depth.
+Stalling costs depth rather than inflating it.
+
+What the two failures together say about the lever. Neither reproduced what a
+plan does. A plan does not reweight timers against deliveries at run time, and
+it does not hold deliveries to win a race. It gates whether a labeled timer may
+fire at all, and it opens that gate at a point fixed by dependencies on other
+events - `w1` then `allow_t1` then `crash_nl` in the graded chain. The
+mechanism that matches it is admission tied to the progress of the run, not
+priority and not blocking. `strict_timers` is a `PlanConfig` field absent from
+`EXPLORER_CONFIG_KEYS`, and `timer_gate_blocks` reads `allowed_timers`, which
+only plan `AllowTimer` events populate, so the general config has no way to
+express that today.
+
+Anyone proposing the third attempt should say which run-progress condition
+opens the gate, and measure how often that condition already holds before
+building it.
