@@ -1,0 +1,146 @@
+{
+  "hypothesis": {
+    "id": "enable-cfg-feedback-general-config",
+    "parent": null,
+    "kind": "enabling",
+    "title": "Turn on the never-exercised config-scoring feedback path in the graded general config",
+    "description": "feedback config-scoring is unexercised (cfg_score_sum = 0 under every loop config). Set `feedback.config_scoring = true` in scheduler_configs/loop/general_vr.json (the config the evaluator actually grades - NOT a new variant file, which the pinned eval driver would never run), plus a <20-line wiring fix at the feedback-mode parse site if the flag is not threaded. Default stays false everywhere else. Interpretability precondition: `cfg_score_sum > 0` and `cfg_score_updates > 0` in the recorded metrics; if they stay zero the mechanism is miswired and the correct follow-up is ablation of the path, not tuning.",
+    "category": "feedback",
+    "buildsOn": [
+      "feedback timeline mode",
+      "util_stats",
+      "cfg_score counters"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 2,
+    "rationale": "This is the only inter-run adaptation lever in the simulator that has never been switched on, and the standing mechanism-liveness rule says nothing may build on cfg-scoring until it is enabled in general_vr.json. Every falsified family so far operated within a run (perturbation volume, delivery ordering, receiver-side holding, coverage resolution); config-scoring reallocates effort across runs, a structurally different lever. Either it moves nothing and the path joins the zero-utilization ablation sweep - retiring a whole config surface - or it moves and opens a family no prior hypothesis could touch.",
+    "generalityArgument": "Switches on a generic cross-run configuration reweighting mechanism; the flag names no handler, timer, or protocol role, and enabling a mechanism in the subject config is explicitly in bounds.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T03:30:00.000Z",
+    "notes": "Falsifier: if cfg_score_sum/cfg_score_updates remain 0 after enabling, the mechanism is dead code - reject and route to ablation. If live, pre-register P(depth>=4) ratio >= 1.05 against the +0.07% null floor; below that, the mechanism fires but is unrewarding and dependent proposals are barred."
+  },
+  "decision": {
+    "hypothesisId": "enable-cfg-feedback-general-config",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0005000000000000004,
+      "depth>=5": 0,
+      "depth>=6": -0.0002731481481481491,
+      "depth>=7": 0.00014351851851851852,
+      "depth>=8": 0.00001851851851851852,
+      "h2": -0.000050925925925926485,
+      "primary": 0,
+      "throughput": -0.13862636594276823,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "enable-cfg-feedback-general-config-sequential-1000-1787800803988",
+        "hypothesisId": "enable-cfg-feedback-general-config",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3f733eea0d3b5d67ef69a50d0ee825c40599a8c2",
+        "superCommit": "d2f680d5e260a9ac63be3aabe816f7c66e224338",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T03:20:03.988Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 204.00068000226668,
+          "unpairedFraction": 0.48475466164286785,
+          "h1Rate": 0.5001851851851852,
+          "h2Rate": 0.4016296296296296,
+          "h2bRate": 0.4106111111111111,
+          "h3Rate": 0.3332222222222222,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0212777777777777,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49420,
+            35424,
+            19045,
+            4446,
+            719,
+            90,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5019,
+          "gradeWallMs": 181251
+        },
+        "exploreWallMs": 264705,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "enable-cfg-feedback-general-config-sequential-1001-1787801255270",
+        "hypothesisId": "enable-cfg-feedback-general-config",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "3f733eea0d3b5d67ef69a50d0ee825c40599a8c2",
+        "superCommit": "d2f680d5e260a9ac63be3aabe816f7c66e224338",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T03:27:35.270Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 199.76915564236882,
+          "unpairedFraction": 0.48722614065694136,
+          "h1Rate": 0.4996481481481482,
+          "h2Rate": 0.4009259259259259,
+          "h2bRate": 0.4166111111111111,
+          "h3Rate": 0.33770370370370373,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.025574074074074,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49519,
+            35486,
+            19185,
+            4364,
+            742,
+            83,
+            2
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5038,
+          "gradeWallMs": 181137
+        },
+        "exploreWallMs": 270312,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/feedback.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 15,
+    "after": 15
+  }
+}
