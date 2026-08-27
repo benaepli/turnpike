@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-26T21:20:24.706Z
+Generated: 2026-08-27T01:05:18.288Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
