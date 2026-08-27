@@ -45,7 +45,8 @@
     "mode": "timeline",
     "steer": true,
     "timeline_key_granularity": "fine",
-    "steer_audit": true
+    "steer_audit": true,
+    "novelty_enabled": false
   },
   "stats": true,
   "emit_acted_fraction": true,
