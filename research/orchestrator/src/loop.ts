@@ -666,7 +666,16 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         confirmEvals = res.evals.filter((e) => e.ok);
         const seqRps = res.evals.filter((e) => e.ok).map((e) => e.metrics.runsPerSec);
         const meanRps = seqRps.length ? seqRps.reduce((a, b) => a + b, 0) / seqRps.length : 0;
-        throughputRatio = baseline.runsPerSec > 0 ? meanRps / baseline.runsPerSec : null;
+        // Compare like with like. baseline.runsPerSec comes from the screen
+        // arm, whose runs are shorter and therefore faster, so dividing a
+        // sequential mean by it reports roughly -7% for a candidate that is
+        // actually level: measured 268.1 against 287.8 while the bench's own
+        // paired rounds in one window gave 254.1 against 253.0.
+        const baseSeqRps = baseline.sequential.filter((e) => e.ok).map((e) => e.metrics.runsPerSec);
+        const baseMeanRps = baseSeqRps.length
+          ? baseSeqRps.reduce((a, b) => a + b, 0) / baseSeqRps.length
+          : baseline.runsPerSec;
+        throughputRatio = baseMeanRps > 0 ? meanRps / baseMeanRps : null;
         const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
         regressionPassed = regr.passed;
         journal(state, n, "regression", regr);

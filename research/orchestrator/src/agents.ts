@@ -291,7 +291,11 @@ function editAllowed(kind: Hypothesis["kind"], relPath: string): boolean {
   if (/^scheduler_configs\/(?!loop\/)/.test(p)) return false;
   if (/^scheduler_configs\/loop\/(regression_[^/]+|bench)\.json$/.test(p)) return false;
   if (kind === "grader") return /^traceanalyzer\//.test(p);
-  return /^(spur\/|scheduler_configs\/loop\/|tmp\/loop\/)/.test(p);
+  // research/observations/ is spared by the research/ rule above on purpose,
+  // and was then missing from this allowlist, so it was denied by omission.
+  // An analysis hypothesis with nowhere to put its finding spends a full
+  // implement and reports that it could not land the artifact.
+  return /^(spur\/|scheduler_configs\/loop\/|tmp\/loop\/|research\/observations\/)/.test(p);
 }
 
 // A smoke run only proves the changed path runs; measurement is the
