@@ -1007,3 +1007,32 @@ and general-config depth-8 runs remain linearizable.
 ## 2026-08-27T05:29:58.003Z
 
 **widen-purgatory-hold-to-run-length** (auto_merge): Merged (auto_merge) on mid-ladder gains, but the hypothesis's own falsifier fired at the top. Two seeds x 54k runs, [5,1000] vs baseline [5,100]: depth>=4 19571/19613 vs 19045 (+2.9%), depth>=5 4688/4651 vs 4446 (+5.0%), depth>=6 771/770 vs 719 (+7.2%), h2 0.4246/0.4229 vs 0.4028 (+2.2pp), meanPrefixDepth 3.049/3.051. But depth>=7 85/83 vs 90 (-7%) and depth>=8 3/2 vs 5 both went DOWN, and violations stayed 0. Throughput cost was nil (211/210 runs/s, +5% vs baseline), so the change is free and the mid-rung lift is real and seed-stable (two seeds agree to within 1% at every rung >=4). The mechanistic claim -- 'the 100-step cap is below the 192-step median span, so no draw can bridge it' -- is confirmed for the rungs where a single held message must cross one crash (rungs 4-6 all lifted monotonically with hold length). It is falsified as the explanation for the top two rungs: tripling the reachable hold window did not produce a single extra depth>=8 run. Best reading is that the top rungs need TWO pre-crash StartViewChange messages held past the same post-recovery write, and exec.rs draws each delayed record's duration independently and log-uniformly, so the joint event of both landing after the same later point stays rare no matter how wide the marginal range is -- widening the range actually spreads the two release steps further apart. Secondary caveat: depth>=7/8 raw counts are 2-5 per 54k, so a ~50% swing there is inside Poisson noise (sqrt(5)=2.2); the decline is not evidence of harm, only of no gain. The send-delay family should not be tuned further by range alone -- the next lever is correlation between holds, not hold length.
+
+## 2026-08-27T05:40:00.000Z (operator) - the grader's candidate cap is not suppressing depth
+
+Recorded so nobody spends the evening on it twice.
+
+`dagorder.go` caps candidates per label at 256, keeps the earliest 256 in
+step order, and warns on truncation. On the general config that fires on 23.1
+percent of runs at a hold range of [5, 100] and 18.1 percent at [5, 1000],
+always on the three `deliver_svc_*` labels and never on the others. The story
+writes itself: the deep rungs need a delivery that lands after the second
+write, late deliveries are exactly what a first-256 truncation discards, and
+a longer hold pushes deliveries later, so an explorer-side gain could be
+erased at the grader.
+
+It is not happening. Re-grading the same two corpora with a scratch build at
+a cap of 8192:
+
+| corpus | cap 256 | cap 8192 |
+|---|---|---|
+| [5, 100] | mean 3.0222, [2160, 1980, 1419, 759, 173, 37] | mean 3.0227, [2160, 1980, 1420, 759, 173, 37] |
+| [5, 1000] | mean 3.0486, [2160, 1999, 1445, 768, 178, 31, 4] | mean 3.0477, [2160, 1999, 1444, 768, 178, 30, 4] |
+
+A thirty-twofold cap increase moves one run in each direction, one of them
+downward. The runs that hit the cap are not the runs that would have scored
+deeper. No grader change is warranted and none was proposed; the prototype
+was built and discarded outside the repository.
+
+The warning line is still worth keeping. It is loud, it is accurate about
+what it truncates, and it costs nothing.
