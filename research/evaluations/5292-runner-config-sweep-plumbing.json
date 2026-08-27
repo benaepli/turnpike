@@ -1,0 +1,143 @@
+{
+  "hypothesis": {
+    "id": "runner-config-sweep-plumbing",
+    "parent": "post-fault-client-ops-sweep",
+    "kind": "enabling",
+    "title": "Add a runner-supported way to vary a single config field across runs",
+    "description": "Find the code path that loads scheduler_configs/loop/*.json and add a documented override mechanism (CLI flag or env-var key=value patch applied to the loaded config) so a scalar knob can be swept without authoring sibling config files. Add a lint rule or note recording that sibling configs under scheduler_configs/ are inert unless a runner explicitly loads them.",
+    "category": "tooling",
+    "buildsOn": [],
+    "expectedGain": 4,
+    "expectedCost": 2,
+    "rationale": "This hypothesis died purely because the only obvious way to express a sweep produces inert files. Every future dose-response experiment hits the same wall; fixing the plumbing once unblocks a whole class of cheap config hypotheses and removes a repeated lint failure mode.",
+    "generalityArgument": "Harness tooling for config loading; entirely independent of any protocol or scheduling rule.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T09:00:00.000Z",
+    "notes": "[unparked iteration 5291] Subject-side sweep support (not harness rewiring) that removes the inert-sibling-config failure mode which closed a hypothesis at zero information. Falsifier: a scalar override changes a util_stats counter that the base config leaves fixed."
+  },
+  "decision": {
+    "hypothesisId": "runner-config-sweep-plumbing",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0009490740740740744,
+      "depth>=5": -0.0008981481481481618,
+      "depth>=6": -0.00031018518518518765,
+      "depth>=7": 0.000018518518518518406,
+      "depth>=8": -0.000023148148148148144,
+      "h2": -0.0003981481481481475,
+      "primary": -0.0008981481481481618,
+      "throughput": 0.007532759333491956,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "runner-config-sweep-plumbing-sequential-1000-1787836651232",
+        "hypothesisId": "runner-config-sweep-plumbing",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "cde05bc3067165e77ffca230cd91a28a404b44de",
+        "superCommit": "ebc5c487d3fbbb425080b870de0f96e488588c2c",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T13:17:31.232Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 280.5340537170762,
+          "unpairedFraction": 0.49029914885358616,
+          "h1Rate": 0.4985,
+          "h2Rate": 0.4197222222222222,
+          "h2bRate": 0.42653703703703705,
+          "h3Rate": 0.3555,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.06437037037037,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49078,
+            35651,
+            19790,
+            5964,
+            882,
+            107,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4723,
+          "gradeWallMs": 167659
+        },
+        "exploreWallMs": 192490,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "runner-config-sweep-plumbing-sequential-1001-1787837016360",
+        "hypothesisId": "runner-config-sweep-plumbing",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "cde05bc3067165e77ffca230cd91a28a404b44de",
+        "superCommit": "ebc5c487d3fbbb425080b870de0f96e488588c2c",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T13:23:36.360Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 277.4039103677143,
+          "unpairedFraction": 0.4939745654467707,
+          "h1Rate": 0.4935185185185185,
+          "h2Rate": 0.41483333333333333,
+          "h2bRate": 0.4240185185185185,
+          "h3Rate": 0.35444444444444445,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0661666666666667,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49127,
+            35624,
+            19812,
+            6017,
+            868,
+            121,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4689,
+          "gradeWallMs": 167687
+        },
+        "exploreWallMs": 194662,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-cli/src/main.rs",
+    "spur-core/src/simulator.rs",
+    "spur-core/src/simulator/config_override.rs",
+    "spur-core/src/simulator/explorer.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/README.md"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
