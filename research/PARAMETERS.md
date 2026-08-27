@@ -296,7 +296,7 @@ merge's overhead (judgment).
 ## Judgment-call parameters (audit-tunable policy, not derived)
 
 exploration quota 0.3 · UCB c 1.2 · stagnation window 8 · lineage depth 6 ·
-per-hypothesis 90 min · daily wall 20 h · audit every 5. These are priors;
+per-hypothesis 90 min · audit every 5. These are priors;
 the audit role exists to retune them from accumulated iteration data via
 meta-hypotheses (inside compiled hard limits).
 

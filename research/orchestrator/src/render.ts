@@ -184,7 +184,7 @@ export function renderStatus(
   );
   const b = policy.budgets;
   lines.push(
-    `- Budgets: ${b.maxWallMinutesPerHypothesis} wall-min/hypothesis, ${b.dailyWallHours} wall-h/day, ${b.maxImplementTurns} implement turns, ${b.maxBuildSeconds}s build, ${b.minFreeDiskGb}GB free disk floor`,
+    `- Budgets: ${b.maxWallMinutesPerHypothesis} wall-min/hypothesis, ${b.maxImplementTurns} implement turns, ${b.maxBuildSeconds}s build, ${b.minFreeDiskGb}GB free disk floor`,
   );
   lines.push(
     `- Bandit: explorationQuota=${policy.bandit.explorationQuota}, ucbC=${policy.bandit.ucbC}`,

@@ -56,10 +56,6 @@ interface IterationRow {
   notes: string | null;
 }
 
-function todayWallKey(): string {
-  return `wall-${new Date().toISOString().slice(0, 10)}`;
-}
-
 export class LoopState {
   private readonly db: Database.Database;
   /** Sibling of the DB file - ROOT/research/journal.jsonl for the default
@@ -342,22 +338,6 @@ export class LoopState {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
       .run(key, value);
-  }
-
-  /** Add to today's wall-clock ledger (`wall-YYYY-MM-DD`, UTC); returns the
-   * new total for today in seconds. */
-  addDailyWallSeconds(seconds: number): number {
-    const key = todayWallKey();
-    const prevRaw = Number(this.getMeta(key) ?? "0");
-    const prev = Number.isFinite(prevRaw) ? prevRaw : 0;
-    const total = prev + seconds;
-    this.setMeta(key, String(total));
-    return total;
-  }
-
-  getDailyWallSeconds(): number {
-    const raw = Number(this.getMeta(todayWallKey()) ?? "0");
-    return Number.isFinite(raw) ? raw : 0;
   }
 
   // -- journal --------------------------------------------------------------

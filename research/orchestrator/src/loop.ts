@@ -885,13 +885,6 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
       console.log("STOP sentinel found; exiting loop.");
       return;
     }
-    const dailyUsed = deps.state.getDailyWallSeconds();
-    if (dailyUsed > deps.policy.budgets.dailyWallHours * 3600) {
-      console.log(`daily wall budget exhausted (${Math.round(dailyUsed / 60)} min); sleeping 30 min`);
-      await new Promise((r) => setTimeout(r, 30 * 60 * 1000));
-      continue;
-    }
-    const t0 = performance.now(); // daily budget counts active time only
     try {
       await runIteration(deps);
       consecutiveFailures = 0;
@@ -914,6 +907,5 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
       }
       await new Promise((r) => setTimeout(r, 60_000));
     }
-    deps.state.addDailyWallSeconds((performance.now() - t0) / 1000);
   }
 }

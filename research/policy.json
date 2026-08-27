@@ -36,7 +36,6 @@
     "maxWallMinutesPerHypothesis": 90,
     "maxLineageDepth": 6,
     "stagnationWindow": 8,
-    "dailyWallHours": 20,
     "maxImplementTurns": 110,
     "maxBuildSeconds": 600,
     "minFreeDiskGb": 40,

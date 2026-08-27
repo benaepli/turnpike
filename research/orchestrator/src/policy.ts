@@ -31,7 +31,6 @@ export const Policy = z.object({
     maxWallMinutesPerHypothesis: z.number().positive(),
     maxLineageDepth: z.number().int().positive(),
     stagnationWindow: z.number().int().positive(),
-    dailyWallHours: z.number().positive(),
     maxImplementTurns: z.number().int().positive(),
     maxImplementMinutes: z.number().positive(),
     maxBuildSeconds: z.number().int().positive(),
@@ -93,7 +92,6 @@ export const POLICY_KEYS: readonly string[] = Object.keys(Policy.shape);
 export const HARD_LIMITS = {
   minExplorationQuota: 0.2,
   maxWallMinutesPerHypothesis: 180,
-  maxDailyWallHours: 22,
   maxImplementTurns: 120,
   maxExploreWallSec: 3600,
   maxBuildSeconds: 900,
@@ -111,7 +109,6 @@ export function clampPolicy(p: Policy): { policy: Policy; clamps: string[] } {
   };
   c.bandit.explorationQuota = clampNum("bandit.explorationQuota", c.bandit.explorationQuota, HARD_LIMITS.minExplorationQuota, 1);
   c.budgets.maxWallMinutesPerHypothesis = clampNum("budgets.maxWallMinutesPerHypothesis", c.budgets.maxWallMinutesPerHypothesis, 1, HARD_LIMITS.maxWallMinutesPerHypothesis);
-  c.budgets.dailyWallHours = clampNum("budgets.dailyWallHours", c.budgets.dailyWallHours, 0.5, HARD_LIMITS.maxDailyWallHours);
   c.budgets.maxImplementTurns = clampNum("budgets.maxImplementTurns", c.budgets.maxImplementTurns, 5, HARD_LIMITS.maxImplementTurns);
   c.budgets.maxImplementMinutes = clampNum("budgets.maxImplementMinutes", c.budgets.maxImplementMinutes, 2, 60);
   c.budgets.maxBuildSeconds = clampNum("budgets.maxBuildSeconds", c.budgets.maxBuildSeconds, 60, HARD_LIMITS.maxBuildSeconds);
