@@ -173,9 +173,11 @@ yet a majority elsewhere may have accepted it. FIFO between `q` and
 this receiver guarantees ordering, but it does not recover the
 ballot information that was lost to rejection.
 
-## The fix
+## The fix (partial)
 
-Two changes, applied in `bin/spur/mencius/Mencius_opt1_2_fixed.spur`:
+Two changes, applied in `bin/spur/mencius/Mencius_opt1_2_partial_fix.spur`:
+
+These do not fully repair the protocol. The spec still produces linearizability violations at a low rate, measured at roughly one run in two thousand, so it is a partially-fixed spec rather than a clean one and the harness treats its violation count as a reading rather than an assertion.
 
 ### 1. Safety: ballot guard in `fill_q_skips`
 

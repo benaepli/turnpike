@@ -579,6 +579,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     let decisionInputsReady = false;
     let confirmEvals: Evaluation[] = [];
     let throughputRatio: number | null = null;
+    let regressionDetail: string | undefined;
     let regressionPassed = false;
     const allEvals: Record<string, Evaluation[]> = {};
     let perfDecision: GateDecision | null = null;
@@ -704,6 +705,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         throughputRatio = baseMeanRps > 0 ? meanRps / baseMeanRps : null;
         const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
         regressionPassed = regr.passed;
+        regressionDetail = regr.cases.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join("; ");
         journal(state, n, "regression", regr);
         decisionInputsReady = true;
       }
@@ -714,6 +716,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       confirmEvals,
       baselineEvals: baseline.sequential,
       regressionPassed: decisionInputsReady ? regressionPassed : false,
+      regressionDetail,
       lintFailures,
       changedSpurFiles: spurFiles,
       throughputRatio,

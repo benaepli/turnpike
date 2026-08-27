@@ -69,7 +69,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 
 - menciusBugSpec: bin/spur/mencius/Mencius_opt1_2.spur
 - menciusBugConfig: scheduler_configs/loop/regression_mencius.json
-- menciusFixedSpec: bin/spur/mencius/Mencius_opt1_2_fixed.spur
+- menciusFixedSpec: bin/spur/mencius/Mencius_opt1_2_partial_fix.spur
 - vrNoFaultConfig: scheduler_configs/loop/regression_vr_nofault.json
 - throughputTolerance: 0.2
 - wallSecPerCase: 240

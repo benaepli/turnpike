@@ -127,6 +127,9 @@ export interface FinalGateInputs {
   confirmEvals: Evaluation[];
   baselineEvals: Evaluation[];
   regressionPassed: boolean;
+  /// Failing cases, "name: detail" joined. Carried so an environmental failure
+  /// inside the suite is recognisable as one rather than counted as evidence.
+  regressionDetail?: string | undefined;
   lintFailures: string[];
   changedSpurFiles: string[];
   throughputRatio: number | null; // cand runsPerSec / baseline runsPerSec
@@ -144,7 +147,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     reasons.push(`lint failures: ${i.lintFailures.join(", ")}`);
   } else if (!i.regressionPassed) {
     verdict = "closed";
-    reasons.push("regression suite failed");
+    reasons.push(i.regressionDetail ? `regression suite failed: ${i.regressionDetail}` : "regression suite failed");
   } else {
     const kind = i.hypothesis.kind;
     if (kind === "add" || kind === "enabling") {
