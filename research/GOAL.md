@@ -204,6 +204,16 @@ would mean the mechanism fired as intended.
    runs/config; frontier rates depend on session length). A candidate is sampled
    one session at a time until it separates, cannot, or is probably real but too
    small to resolve (inconclusive: the branch is kept and can be resumed).
+7. One config: the evaluator loads exactly one explorer config, the one named by
+   `policy.evaluation.configTemplate`. Any other file added under
+   `scheduler_configs/loop/` is inert, and the lint rejects the iteration for it.
+   There is no sweep lane, so a hypothesis that compares parameter values tests
+   ONE value against the current baseline; the next value is a separate
+   hypothesis.
+8. Gating predicates: before proposing a mechanism that fires only when some
+   condition holds, measure how often that condition already holds. A predicate
+   true of nearly every candidate is not a gate, and the mechanism collapses into
+   the ungated version of itself - which is usually something already tried.
 
 ## Promising directions (seed thinking, not limits)
 
