@@ -38,7 +38,7 @@
     "delay_probability": 0.15,
     "delay_duration_range": [
       5,
-      1000
+      300
     ]
   },
   "feedback": {
