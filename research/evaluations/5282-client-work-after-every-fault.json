@@ -1,0 +1,144 @@
+{
+  "hypothesis": {
+    "id": "client-work-after-every-fault",
+    "parent": null,
+    "kind": "add",
+    "title": "Guarantee some client work is scheduled after every fault",
+    "description": "In spur-core/src/simulator/path/generator.rs, add an opt-in generator field post_fault_client_ops (default 0, preserving today's plans). When set to k >= 1, after the write-chain pass and before the probabilistic dependency pass, for each crash/recover pair add a mandatory edge from its RecoverNode node to k client-request nodes chosen at random from those not already reachable from that recover, skipping any edge that would close a cycle (the existing has_path_connecting guard). Thread the field through GeneratorConfig and ExplorerConfig, add it to EXPLORER_CONFIG_KEYS, and enable it at 1 in scheduler_configs/loop/general_vr.json. Add util_stats counters post_fault_ops.{pairs_seen, edges_added, ops_invoked_after_last_recover} so the mechanism counts its own firing.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 9,
+    "expectedCost": 4,
+    "rationale": "Measured on 30,024 general-config runs: 4,909 have two distinct nodes crash and recover, and in 3,880 of them (79%) every write is invoked before the first crash, so no write remains to be issued afterwards. Only 428 (8.7%) invoke a write after both recoveries and 176 (3.6%) complete one, while 3,458 (70%) have a write issued before the crash that never answers. The oracle chain is a write, then faults, then a second write, so four runs in five cannot express it for want of a second write. The cause is arithmetic rather than generator declaration order - generate_plan shuffles the node list before the probabilistic dependency pass - six to twelve client requests become eligible at once against one to three crashes, so every invocation has been issued by the time a crash is selected, and nothing guarantees client work survives a fault.",
+    "generalityArgument": "The rule without reference to the protocol under test: every injected fault should have client work scheduled after it. It names no handler, message, timer label or role, and it is a property any fault-injection framework wants, since a fault whose effects no later operation observes cannot be detected by any oracle.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T07:10:00.000Z",
+    "notes": "Falsifier: if post_fault_ops.ops_invoked_after_last_recover does not rise, the edges are not reaching plan execution and the mechanism is miswired rather than unhelpful. Watch unpairedFraction, which should fall if stalled writes are replaced by completing ones, and expect a throughput cost since surviving client work lengthens runs. Judge the effect at depth>=4, the only rung stable to a tenth of a percent; depth>=6 moves 7.5% on a null diff. Note that P(depth>=k) mixes two populations, since roughly half of runs contain no write addressed to node 0 and are scored on a chain anchored at the first crash instead, so a mechanism that shifts that proportion moves the ladder for a reason unrelated to its mechanism."
+  },
+  "decision": {
+    "hypothesisId": "client-work-after-every-fault",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: depth>=4, depth>=5, depth>=6"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.006300925925925904,
+      "depth>=5": 0.025486111111111112,
+      "depth>=6": 0.002171296296296296,
+      "depth>=7": 0.00042129629629629635,
+      "depth>=8": 0.00002314814814814815,
+      "h2": 0.00003703703703705763,
+      "primary": 0.025486111111111112,
+      "throughput": 0.059880660930847984,
+      "params": 1
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "client-work-after-every-fault-sequential-1000-1787816188126",
+        "hypothesisId": "client-work-after-every-fault",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "ffba451f182b0319032d1be8bd1a5e6cec2de3c7",
+        "superCommit": "a8a4ae5b682221523bd26c081886f8f2cb1762fc",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T07:36:28.126Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 223.01240196746497,
+          "unpairedFraction": 0.49503986468817635,
+          "h1Rate": 0.5028148148148148,
+          "h2Rate": 0.4241111111111111,
+          "h2bRate": 0.4302037037037037,
+          "h3Rate": 0.3551111111111111,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0689444444444445,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49168,
+            35704,
+            19859,
+            5967,
+            910,
+            111,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4750,
+          "gradeWallMs": 190880
+        },
+        "exploreWallMs": 242139,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "client-work-after-every-fault-sequential-1001-1787816626201",
+        "hypothesisId": "client-work-after-every-fault",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "ffba451f182b0319032d1be8bd1a5e6cec2de3c7",
+        "superCommit": "a8a4ae5b682221523bd26c081886f8f2cb1762fc",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T07:43:46.201Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 222.32011626518673,
+          "unpairedFraction": 0.49697632240692524,
+          "h1Rate": 0.5034074074074074,
+          "h2Rate": 0.4262222222222222,
+          "h2bRate": 0.43053703703703705,
+          "h3Rate": 0.35433333333333333,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.075425925925926,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49223,
+            35779,
+            19935,
+            6126,
+            894,
+            112,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4822,
+          "gradeWallMs": 190211
+        },
+        "exploreWallMs": 242893,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/curriculum.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/path/generator.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 15,
+    "after": 16
+  }
+}

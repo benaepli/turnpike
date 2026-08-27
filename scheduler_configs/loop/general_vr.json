@@ -33,6 +33,7 @@
     0.0,
     0.3
   ],
+  "post_fault_client_ops": 1,
   "purgatory": {
     "delay_probability": 0.15,
     "delay_duration_range": [
