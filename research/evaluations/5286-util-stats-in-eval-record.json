@@ -1,0 +1,143 @@
+{
+  "hypothesis": {
+    "id": "util-stats-in-eval-record",
+    "parent": "starvation-gated-timer-admission",
+    "kind": "enabling",
+    "title": "Surface util_stats counters in the sequential evaluation metrics record",
+    "description": "spur-core/src/simulator/util_stats.rs already accumulates named counters; the explore binary drops them before the evaluation harness serializes metrics. Plumb the counter map through explorer.rs's end-of-run summary into the same JSON object that carries runs/depthAtLeast/violations, under a utilStats key, and have the sequential evaluator copy it verbatim into each chunk's metrics. No aggregation or interpretation -- raw counts per chunk. Gate nothing; this is always-on instrumentation with no config key. Also emit the counters for the baseline arm so before/after deltas are readable without a bespoke run.",
+    "category": "tooling",
+    "buildsOn": [
+      "util_stats",
+      "sequential evaluation harness"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 1.5,
+    "rationale": "starvation-gated-timer-admission stated a falsifier in terms of util_stats counters and then could not read it, so its null cannot distinguish 'mechanism fired and did not help' from 'mechanism never fired'. Every scheduler hypothesis that counts its own firing -- which the goal document asks all of them to do -- hits this same wall. Fixing it once makes all subsequent nulls interpretable and lets a miswired probe be caught in chunk 1 instead of consuming two chunks and 108k runs before an unreadable reject.",
+    "generalityArgument": "Pure measurement plumbing on the harness side. It names no protocol, no handler, no timer and no scheduler policy; it moves counters that already exist into the record that already exists, and is equally useful for any spec and any future mechanism.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T09:15:00.000Z",
+    "notes": "Falsifier is trivial: the sequential record for any hypothesis contains a non-empty utilStats object for both arms. Priced at 2 because it adds no config key and no simulator behavior. [rejudged iteration 5283: Up: the client-work-after-every-fault falsifier (post_fault_ops.ops_invoked_after_last_recover) and the starvation-gated falsifier were both unreadable in the chunk record; this unblocks ev"
+  },
+  "decision": {
+    "hypothesisId": "util-stats-in-eval-record",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.0008194444444444282,
+      "depth>=5": -0.0005509259259259269,
+      "depth>=6": 0.00034259259259259225,
+      "depth>=7": 0.00005555555555555565,
+      "depth>=8": 0,
+      "h2": 0.0008055555555555594,
+      "primary": -0.0005509259259259269,
+      "throughput": -0.013966430521659023,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "util-stats-in-eval-record-sequential-1000-1787823573009",
+        "hypothesisId": "util-stats-in-eval-record",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "aaa333bc24f0af8612432916263d39bc4e33a2d3",
+        "superCommit": "6b066831dc282008eb9e1ab4ac22afba89e5bdd0",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T09:39:33.009Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 235.75844364500017,
+          "unpairedFraction": 0.49509709831674,
+          "h1Rate": 0.5040370370370371,
+          "h2Rate": 0.4260555555555556,
+          "h2bRate": 0.42892592592592593,
+          "h3Rate": 0.35468518518518516,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0668703703703706,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49165,
+            35627,
+            19816,
+            5977,
+            916,
+            105,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4756,
+          "gradeWallMs": 191386
+        },
+        "exploreWallMs": 229048,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "util-stats-in-eval-record-sequential-1001-1787823998494",
+        "hypothesisId": "util-stats-in-eval-record",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "aaa333bc24f0af8612432916263d39bc4e33a2d3",
+        "superCommit": "6b066831dc282008eb9e1ab4ac22afba89e5bdd0",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T09:46:38.494Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 249.3500736506236,
+          "unpairedFraction": 0.49836928518709356,
+          "h1Rate": 0.5016851851851852,
+          "h2Rate": 0.4245,
+          "h2bRate": 0.4297037037037037,
+          "h3Rate": 0.3543148148148148,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.070685185185185,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49112,
+            35760,
+            19882,
+            6053,
+            877,
+            127,
+            6
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4737,
+          "gradeWallMs": 189983
+        },
+        "exploreWallMs": 216563,
+        "suspendedMs": 1,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-cli/src/main.rs"
+  ],
+  "superFiles": [
+    "research/observations/OBSERVATIONS.md"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}
