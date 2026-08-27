@@ -924,3 +924,82 @@ expect movement at the depth 7 to 8 rung specifically.
 ## 2026-08-27T04:48:27.896Z
 
 **acted-delivery-novelty-credit** (closed): Subtractive coverage-key filtering is as inert as additive refinement. Gating a delivery's key component on its acted bit (inert deliveries collapsed to an 'absorbed' sentinel) fired as intended — the mechanism was live and distinct-key counts fell — yet across 3 sequential chunks / 162k runs at seeds 1000-1002 every ladder rung sat on baseline: d>=4 +0.0004, d>=5 -0.00005, d>=6 +0.00009, d>=7 -0.00013, violations 0, meanPrefixDepth 3.018-3.025 (baseline-identical), maxPrefixDepth 8 with only 1-2 runs there. pMei was 0.009/0.018/0.041 for d4/d5/d6 at +1/+2/+6% — no frontier rung can reach a separable effect, so this is a real null, not underpower. Taken with the two prior additive-resolution nulls (timer-vs-delivery axis: 2.6x keys, zero movement; interleaving signatures: null), the coverage-key *resolution* axis is now falsified in both directions: coarser and finer keys move nothing. That kills the 'signal quality' branch of the signal-quality-vs-authority partition and leaves authority — how much of the scheduler's decision the novelty score actually controls — as the only surviving explanation, or the possibility that timeline-key novelty is a no-op channel end to end. Also note h1/h2/h3 rates and unpairedFraction (~0.487) were unmoved, so the filter did not even perturb workload shape.
+
+## 2026-08-27T05:20:00.000Z (operator) - the hold was mis-sized, but not where I said it was
+
+`widen-purgatory-hold-to-run-length` merged at iteration 5279 on 108,000
+runs. It is the largest measured effect in the visible record, and the
+reason I proposed it was wrong.
+
+Merged deltas, against the refreshed baseline, absolute and relative:
+
+| statistic | absolute | relative | gate bar |
+|---|---|---|---|
+| depth>=4 | +0.00973 | +2.8% | +1.1% |
+| depth>=5 | +0.00473 | +5.7% | +2.3% |
+| depth>=6 | +0.00071 | +5.4% | +5.8% |
+| h2 | +0.02184 | +5.4% | +1.1% |
+| depth>=7 | +0.0000093 | +0.6% | - |
+| depth>=8 | -0.0000093 | -10% | - |
+| violations | 0 | - | - |
+| throughput | +0.053 rps | +0.03% | - |
+| params | 0 | - | - |
+
+Posteriors were pGreater 1.0 and pMei 0.999 on depth>=4, 0.998 on depth>=5,
+1.0 on h2. The regression suite passed on all four cases. Cost is nil:
+throughput ratio 1.004 and the top-level config key count is unchanged.
+
+**The prediction failed.** The argument for the change was that the hold cap
+of 100 steps sat below the median 192-step span the graded chain needs, and
+that the effect would therefore appear at rungs 7 and 8 specifically. Those
+are exactly the two rungs that did not move. Depth>=7 rose 0.6%, inside
+noise, and depth>=8 fell by one run in 108,000. The gain is concentrated at
+rungs 4 through 6, which need short holds, and those were never the ones I
+argued were starved.
+
+**What the mechanism actually did.** Counters from matched 1,080-run
+captures either side of the change:
+
+| counter | [5, 100] | [5, 1000] | ratio |
+|---|---|---|---|
+| purgatory delayed sends | 299528 | 226624 | 0.76 |
+| deliveries, all | 1083324 | 951346 | 0.88 |
+| deliveries that changed receiver state | 453779 | 476148 | 1.05 |
+| acted fraction | 41.9% | 50.0% | 1.19 |
+| delayed deliveries that acted | 22176 | 15108 | 0.68 |
+| pending work at run exit | 7876 | 14101 | 1.79 |
+| steps used | 4786997 | 5175514 | 1.08 |
+
+Fewer deliveries happen, and a much larger share of the ones that do happen
+change state: 42% to 50%. That density shift is what lifts the mid-ladder,
+and it is a different mechanism from the one I proposed. Meanwhile work
+stranded at the end of a run rose 79%. Long holds park messages past the end
+of the run rather than carrying them to the point the chain needs them, which
+is a plausible reason the deep tail stayed flat while the middle rose.
+
+**Correction.** My earlier entry argued the hold length was the binding
+constraint at the 7-to-8 rung, on an arithmetic bound and a 23-run span
+measurement. The bound was right about the cap and wrong about the
+consequence. A 2,160-run probe I ran beforehand estimated depth>=4 at 1.028
+and depth>=5 at 1.064, which matched the 54,000-run chunk almost exactly
+(1.027, 1.058), and estimated depth>=7 at 1.62, which did not survive at all.
+Small-sample ratios on rungs with a dozen events are worthless even when the
+same probe is accurate two rungs lower, and I should have said so more
+strongly than "underpowered".
+
+**What this settles.** The top of the ladder is not hold-limited. Widening
+the window by tenfold moved every rung that needs a short hold and none that
+needs a long one, so whatever blocks 7 and 8 is not the message being
+released too early. The send-delay family is not closed - it paid, and it
+paid without cost - but tuning it further to reach the deep tail has now been
+tested and failed.
+
+The obvious follow-up is a hold bounded by the run budget remaining rather
+than by a constant, since the 79% rise in stranded work says a fixed 1,000
+overshoots late in a run. That is a derived parameter rather than a new free
+one, but it is still code rather than a config value, and it should be
+weighed against the fact that the deep rungs did not respond to hold length
+at all.
+
+**Violations are still zero.** This moved a proxy. It did not move the goal,
+and general-config depth-8 runs remain linearizable.
