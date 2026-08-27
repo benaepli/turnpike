@@ -48,6 +48,9 @@ const BaselineMeta = z.object({
   // are only compared with a baseline measured the same way.
   sequential: z.array(Evaluation).default([]),
   runsPerSec: z.number(),
+  // Thread count the baseline was measured at. Optional so a baseline
+  // recorded before this field parses; absent means unknown, not equal.
+  rayonThreads: z.number().int().positive().optional(),
 });
 export type BaselineMeta = z.infer<typeof BaselineMeta>;
 
@@ -856,6 +859,17 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
   const startBaseline = loadBaseline(deps.state);
   if (!startBaseline || startBaseline.sequential.length === 0) {
     console.error("no sequential baseline recorded; run `loop baseline` first");
+    return;
+  }
+  // Runs share a feedback map across the parallel set, so the snapshot a run
+  // sees depends on how many threads are running. A candidate measured at one
+  // thread count cannot be compared with a baseline measured at another.
+  const baselineThreads = startBaseline.rayonThreads;
+  const hostThreads = deps.policy.evaluation.rayonThreads;
+  if (baselineThreads === undefined) {
+    console.error(`WARNING: baseline predates thread-count recording; it may not have been measured at the current ${hostThreads} threads. Re-run \`loop baseline\` after moving hosts.`);
+  } else if (baselineThreads !== hostThreads) {
+    console.error(`baseline was measured at ${baselineThreads} threads, host resolves to ${hostThreads}; re-run \`loop baseline\` before evaluating.`);
     return;
   }
   // Crash recovery: requeue hypotheses stranded mid-iteration and clear

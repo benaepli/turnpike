@@ -43,6 +43,7 @@ async function cmdBaseline(state: LoopState): Promise<void> {
   const rps = screenOk.length ? screenOk.reduce((a, e) => a + e.metrics.runsPerSec, 0) / screenOk.length : 0;
   const baseline: BaselineMeta = {
     screen: out.screen ?? [], promote: out.promote ?? [], confirm: out.confirm ?? [], sequential, runsPerSec: rps,
+    rayonThreads: policy.evaluation.rayonThreads,
   };
   state.setMeta("baseline", JSON.stringify(baseline));
   if (!state.getMeta("baseline0")) state.setMeta("baseline0", JSON.stringify(baseline));

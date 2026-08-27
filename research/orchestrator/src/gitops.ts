@@ -6,10 +6,9 @@ import { execFileSync } from "node:child_process";
 import { z } from "zod";
 import type { HypothesisKind } from "./schemas.js";
 
-/** Absolute path of the superproject (github.com/benaepli/jennLang). */
-export const SUPER = "/home/benaepli/Research/alt/jennLang";
-/** Absolute path of the spur submodule checkout (github.com/benaepli/spur). */
-export const SPUR = SUPER + "/spur";
+import { SUPER, SPUR } from "./paths.js";
+
+export { SUPER, SPUR };
 
 const MAX_BUFFER = 64 * 1024 * 1024;
 const DIFF_CAP_BYTES = 400 * 1024;

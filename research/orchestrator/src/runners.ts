@@ -5,13 +5,12 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { z } from "zod";
 import { TraceGradeJson, PorcupineJson } from "./schemas.js";
 
-// This file lives at ROOT/research/orchestrator/{src,dist}/runners.*, so the
-// repo root is three levels up in both the tsx (src) and compiled (dist) case.
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+import { ROOT } from "./paths.js";
+
+export { ROOT };
 export const SPUR_BIN = path.join(ROOT, "spur", "target", "release", "spur");
 
 // Resolve a repo-relative path (as used throughout research/policy.json)

@@ -53,8 +53,7 @@
     "configTemplate": "scheduler_configs/loop/general_vr.json",
     "oracleDags": [
       "research/oracle/relax_minimal_general.json"
-    ],
-    "rayonThreads": 14
+    ]
   },
   "regression": {
     "menciusBugSpec": "bin/spur/mencius/Mencius_opt1_2.spur",

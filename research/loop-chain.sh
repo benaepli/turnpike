@@ -14,4 +14,4 @@ if systemctl --user -q is-active spur-research-loop; then
   exit 0
 fi
 echo "chain: baseline ok (result=$RESULT); starting loop"
-exec /home/benaepli/Research/alt/jennLang/research/loop-start.sh
+exec "$(cd "$(dirname "$0")" && pwd)/loop-start.sh"

@@ -3,7 +3,7 @@
 # nothing: publish and reflect still finish and the loop exits before the
 # next selection.
 set -uo pipefail
-R=/home/benaepli/Research/alt/jennLang
+R="$(cd "$(dirname "$0")/.." && pwd)"
 J=$R/research/journal.jsonl
 N=$(wc -l < "$J")
 echo "watching from line $N at $(date -u +%H:%M:%SZ)"

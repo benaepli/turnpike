@@ -10,7 +10,7 @@ stopped.
 ## Event watcher (instant on decisions, errors, grader proposals)
 
 ```bash
-cd /home/benaepli/Research/alt/jennLang; n=0; until systemctl --user -q is-active spur-research-loop || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; MP=$(systemctl --user show -p MainPID --value spur-research-loop 2>/dev/null); if [ -z "$MP" ] || [ "$MP" = 0 ]; then echo "ALERT: loop not running; watcher not armed"; exit 1; fi; tail -n 0 -F --pid="$MP" research/journal.jsonl 2>/dev/null | grep -E --line-buffered '"event":"(select|seq_chunk|sequential|inconclusive|closed_after_resumes|seq_reset|stale_branch|baseline_sequential|screen|promote|bench|decision|publish|error|blocked|audit|stopped|grader_review)"' | awk '{print substr($0,1,400); fflush()}'; echo "ALERT: spur-research-loop unit is no longer active: $(journalctl --user -u spur-research-loop --no-pager -n 4 2>/dev/null | grep -oE 'oom-kill|exit-code|Consumed.*' | tail -1)"
+cd "$(git rev-parse --show-toplevel)"; n=0; until systemctl --user -q is-active spur-research-loop || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; MP=$(systemctl --user show -p MainPID --value spur-research-loop 2>/dev/null); if [ -z "$MP" ] || [ "$MP" = 0 ]; then echo "ALERT: loop not running; watcher not armed"; exit 1; fi; tail -n 0 -F --pid="$MP" research/journal.jsonl 2>/dev/null | grep -E --line-buffered '"event":"(select|seq_chunk|sequential|inconclusive|closed_after_resumes|seq_reset|stale_branch|baseline_sequential|screen|promote|bench|decision|publish|error|blocked|audit|stopped|grader_review)"' | awk '{print substr($0,1,400); fflush()}'; echo "ALERT: spur-research-loop unit is no longer active: $(journalctl --user -u spur-research-loop --no-pager -n 4 2>/dev/null | grep -oE 'oom-kill|exit-code|Consumed.*' | tail -1)"
 ```
 
 `--pid` is what ends the watcher: when the loop's main process dies, `tail`
@@ -40,7 +40,7 @@ flush at all.
 ## Heartbeat (one line every 10 minutes: iteration, phase, spend)
 
 ```bash
-cd /home/benaepli/Research/alt/jennLang
+cd "$(git rev-parse --show-toplevel)"
 idle=0; PC=""
 while :; do
   if systemctl --user -q is-active spur-research-loop; then
@@ -104,7 +104,7 @@ the original 150s. Do not restore the unconditional 150s tick.
 ## Churn detector (the loop is running and accomplishing nothing)
 
 ```bash
-cd /home/benaepli/Research/alt/jennLang/research; prev=$(wc -l < journal.jsonl 2>/dev/null || echo 0); while :; do sleep 300; cur=$(wc -l < journal.jsonl 2>/dev/null || echo "$prev"); d=$((cur - prev)); prev=$cur; if [ "$d" -gt 75 ]; then echo "CHURN $(date -u +%H:%M:%SZ): journal.jsonl grew $d lines in 5min (normal peak 25/5min, auth-spin ran 220/5min) - probable runaway iteration loop"; fi; done
+cd "$(git rev-parse --show-toplevel)/research"; prev=$(wc -l < journal.jsonl 2>/dev/null || echo 0); while :; do sleep 300; cur=$(wc -l < journal.jsonl 2>/dev/null || echo "$prev"); d=$((cur - prev)); prev=$cur; if [ "$d" -gt 75 ]; then echo "CHURN $(date -u +%H:%M:%SZ): journal.jsonl grew $d lines in 5min (normal peak 25/5min, auth-spin ran 220/5min) - probable runaway iteration loop"; fi; done
 ```
 
 `systemctl is-active` cannot detect this class of failure. When the SDK
@@ -132,7 +132,7 @@ armed this session before killing anything.
 ## Detached long jobs (baseline, regression)
 
 ```bash
-R=/home/benaepli/Research/alt/jennLang; LOG=$R/research/logs/baseline-$(date +%Y%m%d-%H%M%S).log
+R="$(git rev-parse --show-toplevel)"; LOG=$R/research/logs/baseline-$(date +%Y%m%d-%H%M%S).log
 systemd-run --user --unit=spur-baseline --collect --property=MemoryMax=14G --property=WorkingDirectory=$R/research/orchestrator --property=StandardOutput=append:$LOG --property=StandardError=append:$LOG /bin/bash -c "npx tsx src/cli.ts baseline && cp $R/spur/target/release/spur $R/tmp/loop/spur-baseline && echo BASELINE_DONE"
 ```
 Then monitor `$LOG` for `seed N: done`, `recorded`, `Error`, and the unit

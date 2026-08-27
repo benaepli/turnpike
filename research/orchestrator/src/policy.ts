@@ -3,7 +3,15 @@
 // every loaded policy is clamped into them. A policy file that tries to
 // exceed a limit loads clamped, with a warning recorded by the caller.
 import { readFileSync } from "node:fs";
+import * as os from "node:os";
 import { z } from "zod";
+
+// Two cores are left for the grader, the writer and the operator's shell.
+// The explorer shares a feedback map across the parallel run set, so this
+// count is not a pure throughput dial: it changes which snapshot a run sees.
+export function defaultRayonThreads(): number {
+  return Math.max(1, os.availableParallelism() - 2);
+}
 
 const Fidelity = z.object({
   exploreWallSec: z.number().int().positive(),
@@ -60,7 +68,7 @@ export const Policy = z.object({
     spec: z.string(),
     configTemplate: z.string(),
     oracleDags: z.array(z.string()).min(1),
-    rayonThreads: z.number().int().positive(),
+    rayonThreads: z.number().int().positive().default(defaultRayonThreads),
     // Search strategy for the evaluation lane. The regression and perf lanes
     // stay on the standard explorer so they remain fixed guardrails.
     explorer: z.enum(["standard", "genetic", "aos", "continuous"]).default("standard"),
