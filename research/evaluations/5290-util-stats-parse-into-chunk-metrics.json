@@ -1,0 +1,142 @@
+{
+  "hypothesis": {
+    "id": "util-stats-parse-into-chunk-metrics",
+    "parent": "util-stats-in-eval-record",
+    "kind": "enabling",
+    "title": "Parse the explore-emitted counter map into the harness chunk metrics object",
+    "description": "Complete the missing half of util-stats-in-eval-record. spur-cli/src/main.rs now emits counters in its end-of-run summary, but the super-side sequential evaluator builds its metrics object by picking known fields out of the explore summary and silently drops unknown ones, which is why both chunk records contain no utilStats. Change the super-side metrics extraction (the code that produces {runs, runsPerSec, h1Rate, depthAtLeast, violations, unknown, porcupineWallMs, gradeWallMs}) to copy the counter map verbatim under a utilStats key, defaulting to {} when absent so older spur commits still parse. Verify by inspecting the emitted summary JSON directly (run explore once, dump stdout) before trusting the chunk record. No config key, no gating, no aggregation; identical for baseline and treatment arms.",
+    "category": "tooling",
+    "buildsOn": [
+      "util_stats",
+      "sequential evaluation harness",
+      "util-stats-in-eval-record"
+    ],
+    "expectedGain": 7,
+    "expectedCost": 1,
+    "rationale": "The parent merged without satisfying its own falsifier because only the spur side changed; every counter-based falsifier is still unreadable. This is the smallest remaining step that makes all subsequent nulls interpretable, and it is cheap because the emit side already exists.",
+    "generalityArgument": "Pure harness plumbing. Names no protocol, handler, timer, or scheduler policy; it copies an already-existing map into an already-existing record and is equally useful for any spec and any future mechanism.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T10:30:00.000Z",
+    "notes": "Falsifier: run any hypothesis and confirm the chunk-1 sequential record contains a utilStats object with at least one nonzero counter for both arms; if it is absent or empty, reject immediately rather than spending a second chunk. [rejudged iteration 5286: Top of pool: the 10:11 record proves the emit half landed and the super-side parse half did not (no utilStats key in either chunk); this is the"
+  },
+  "decision": {
+    "hypothesisId": "util-stats-parse-into-chunk-metrics",
+    "verdict": "auto_merge",
+    "reasons": [
+      "improved: (enabling, non-inferior)"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.001291666666666691,
+      "depth>=5": 0.000013888888888882733,
+      "depth>=6": 0.00002314814814814714,
+      "depth>=7": 0.000004629629629629602,
+      "depth>=8": -0.000009259259259259271,
+      "h2": 0.001981481481481473,
+      "primary": 0.000013888888888882733,
+      "throughput": 0.004219059146165938,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "util-stats-parse-into-chunk-metrics-sequential-1000-1787832087142",
+        "hypothesisId": "util-stats-parse-into-chunk-metrics",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "fc07f0d50a6f0fb4d2b4d0b3966a01714c97e7cb",
+        "superCommit": "fd6804a823a43c65659bfde12f018dbb01614d48",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T12:01:27.142Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 280.51219448845484,
+          "unpairedFraction": 0.4900473250800758,
+          "h1Rate": 0.4986111111111111,
+          "h2Rate": 0.42127777777777775,
+          "h2bRate": 0.4271111111111111,
+          "h3Rate": 0.35633333333333334,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.0636851851851854,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49079,
+            35549,
+            19795,
+            5971,
+            927,
+            112,
+            6
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4680,
+          "gradeWallMs": 165015
+        },
+        "exploreWallMs": 192505,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "util-stats-parse-into-chunk-metrics-sequential-1001-1787832449609",
+        "hypothesisId": "util-stats-parse-into-chunk-metrics",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "fc07f0d50a6f0fb4d2b4d0b3966a01714c97e7cb",
+        "superCommit": "fd6804a823a43c65659bfde12f018dbb01614d48",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T12:07:29.609Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 278.33186435960477,
+          "unpairedFraction": 0.492698370417232,
+          "h1Rate": 0.4957962962962963,
+          "h2Rate": 0.4170185185185185,
+          "h2bRate": 0.4245925925925926,
+          "h3Rate": 0.3544259259259259,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.065537037037037,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49062,
+            35623,
+            19781,
+            6092,
+            861,
+            115,
+            5
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 4689,
+          "gradeWallMs": 166231
+        },
+        "exploreWallMs": 194013,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [],
+  "superFiles": [
+    "research/observations/OBSERVATIONS.md"
+  ],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 16,
+    "after": 16
+  }
+}

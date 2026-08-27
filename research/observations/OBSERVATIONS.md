@@ -1646,3 +1646,56 @@ Consequences, in descending confidence:
 ## 2026-08-27T11:52:09.885Z
 
 **ablate-timeline-key-novelty-channel** (auto_merge): Decisive null: collapsing every timeline key to a constant (novelty term variance = 0, distinct keys = 1) cost nothing on the ladder. Across seeds 1000-1001 vs baseline, primary (depth>=5) moved -1.06e-4, depth>=4 +1.03e-3, depth>=6 +5.6e-5, depth>=7 -5.1e-5, depth>=8 +1.4e-5, violations 0/0 — all inside noise; max depth still 8, meanPrefixDepth ~3.064-3.066, hazard rates (h1 .495-.498, h2 .417, h3 .355) unchanged. Throughput went UP 4.7% (~276-279 runs/s) since key hashing/insertion is skipped. Combined with the three prior key-construction nulls (two additive, one subtractive), the interpretation is no longer 'wrong key granularity' but 'the coverage channel contributes zero depth signal' — consistent with the earlier observation that the key space saturates by run ~300 of 54000, after which novelty is a constant for 99.4% of the budget. The steer's coverage term is therefore dead weight that costs ~5% throughput and carries live config params. Auto-merged as a non-inferior flag-off. Immediate consequences: (a) the entire feedback/key-design lane is retired — no future hypothesis should propose new key ingredients without first restoring a non-saturating key space; (b) any depth movement must come from authority/scheduler/curriculum, not from coverage feedback; (c) there is now a cheap, validated ablation protocol (gate a channel behind a bool, check zero-variance fired-as-intended, one sequential chunk) that should be reused to test whether the OTHER steer terms are load-bearing before more effort is spent tuning them.
+
+## 2026-08-27T12:40:00.000Z
+
+### The counters are already readable per chunk, and the record half cannot be built from an implement slot
+
+Two findings, one blocking and one immediately usable. Both are established
+from files already on disk; no explore budget was spent.
+
+**1. Per-chunk, per-arm counter dumps already exist and persist.** The explorer
+writes its counter snapshot twice: into the output directory, and beside it as
+`<output-dir>.utilization.json`. The evaluator's cleanup removes only the
+materialized config, the explore log and the output directory, so the sibling
+copy survives. Sequential chunks take a fresh seed each, so chunks never
+overwrite one another. The naming is
+`tmp/loop/eval-<hypothesisId>-sequential-<seed>.utilization.json`, with the
+baseline arm under `eval-baseline-sequential-<seed>.utilization.json`. Ten such
+files are present right now, covering the candidate and baseline arms of the
+last five sequential evaluations, each a full snapshot over a 54,000-run chunk.
+Any counter-based falsifier written from now on is answerable by reading these,
+including retroactively for hypotheses already closed. The one attribution
+caveat: baseline chunks share a single id namespace, so a baseline chunk is
+matched to the candidate it was measured against by seed and modification time,
+not by name.
+
+**2. The other half - copying the counter map into the evaluation record under
+a `utilStats` key - is unreachable from any implement lane, and has now cost
+two slots.** The metrics object is assembled in the orchestrator, and the
+implementer permission gate denies every path under `research/` except
+`research/observations/`; the one exception, `research/policy.json` for
+meta-kind work, does not contain the assembly. So no hypothesis of any kind can
+land it. It is operator work or it does not happen. Nothing further should be
+proposed against it: finding 1 already supplies the data the record key was
+wanted for.
+
+**Usable result that falls out of finding 1: the steer no longer diverges at
+all.** `steer.divergent_picks` over `steer.evaluations`, read across the ten
+chunk dumps in time order:
+
+- earlier chunks: 76,234 and 76,508 of ~134M; 92,451 and 93,965 of ~116M;
+  116,074 and 116,314 of ~107M - that is 0.06% to 0.11%, the "about 0.1%"
+  figure the goal document quotes.
+- the four most recent chunks, two candidate and two baseline, all against the
+  current evaluation config: exactly 0 of ~107M.
+
+The coverage-term ablation that merged was the only source of divergence, so
+with it off the blended-score argmax and the priority-only argmax now agree at
+every scheduling point in a 54,000-run session. Two consequences. The "0.1%
+divergence" premise is stale and any hypothesis reasoning from it is reasoning
+about a configuration that no longer runs. And `steer.divergent_picks` is now a
+clean zero baseline: a new scoring term that claims to change what the
+scheduler picks must move it off zero, which makes it the cheapest
+fired-as-intended check available - readable from one chunk, no new counter,
+no new field.
