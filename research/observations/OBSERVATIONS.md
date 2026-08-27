@@ -2025,3 +2025,48 @@ before the merge that raised depth>=5 by 29% and 0.00892 after, a ratio of
 0.893 at z = -1.40. That comparison is now known to be resolvable at this run
 count, which makes it worth repeating properly rather than leaving as a
 suggestive point estimate.
+
+## 2026-08-27T18:45:00.000Z (operator) - the quick-fire multiplier has no authority at any value, because it has no occasions
+
+`structural-multiplier-authority-probe` (5301) re-ranks the eligible candidates
+at each selection under a sweep of quick-fire multipliers and counts how often a
+different multiplier would change the pick. It changes no behaviour; the ladder
+was non-inferior as expected.
+
+| multiplier | decisions flipped |
+|---|---|
+| 1 | 0 |
+| 3 | 0 |
+| 10 | 0 |
+| 100 | 0 |
+| 1000 | 0 |
+
+Over 4,769,088 decisions, of which 2,098,786 were contested. The configured
+value flips nothing either.
+
+The reason is in the adjacent counters, not in the arithmetic: `quick_fire_offers`
+1,719 and `quick_fire_decisions` 27. The branch requires a `Recover` runnable for
+a currently-crashed node to be among the eligible candidates, and that is almost
+never a contested choice. A thousandfold multiplier on a branch that participates
+in 27 of 4.8 million decisions cannot move anything.
+
+**This corrects a claim made earlier in this log.** The entry on why the steer
+does not steer named the quick-fire branch as "the one place the scorer overrides
+the randomness" and "the working template for a real heuristic". It is
+structurally capable of overriding and it essentially never gets the chance. As a
+template it is worthless, and any hypothesis reasoning from it should stop.
+
+**What this does not show.** It tested one structural branch, and the one that
+barely fires. It does not establish that score-based steering cannot work here in
+general - a multiplier attached to something that actually appears in contested
+decisions, a delivery or a timer, is untested and remains a live mechanism. The
+narrow claim is that the existing override is inert for want of occasions; the
+broad claim, that no placement of a structural boost could steer this scheduler,
+is not supported by this probe.
+
+That distinction decides what the guidance question still needs. If the broad
+claim is true, guidance is closed and the coverage apparatus is dead weight
+beyond what has already been measured. If only this branch is dead, a
+differently-placed multiplier is worth one experiment. Measuring
+`contested_decisions` broken down by runnable kind would say which, and the probe
+already computes the denominator.
