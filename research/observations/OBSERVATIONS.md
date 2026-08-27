@@ -1803,3 +1803,52 @@ wide to see.
 ## 2026-08-27T13:45:50.673Z
 
 **runner-config-sweep-plumbing** (auto_merge): Config-override plumbing landed and merged: spur-core now has a dedicated `simulator/config_override.rs` applied to loaded scheduler_configs, wired through spur-cli/src/main.rs and simulator/explorer.rs, plus a README in scheduler_configs/loop documenting that sibling config files are inert unless a runner loads them. Two sequential VR runs (seeds 1000/1001, 54k runs each) confirm behavioral neutrality of the default path: 0 violations, 0 unknown, param count unchanged 16->16, and depth/h2 deltas all under 1e-3 (primary -0.0009), i.e. pure noise; throughput even nudged +0.75%. Verdict auto_merge as an enabling change (non-inferior). Caveat: both evaluation runs used the base general_vr.json with no override applied, so the stated falsifier — a scalar override moving a util_stats counter that the base config leaves fixed — was NOT exercised; we have evidence the mechanism is harmless, not yet evidence it is effective. Practical consequence: dose-response/scalar sweeps no longer require authoring sibling config files, unblocking the class of cheap config hypotheses that killed post-fault-client-ops-sweep at zero information.
+
+## 2026-08-27T13:52:39.662Z
+
+**policy-hypotheses-skip-evaluation** (measured): I investigated the harness end-to-end before writing anything, and the conclusion is that this hypothesis **cannot be implemented inside the fence** — and that the correct in-bounds action is an empty diff plus a recorded finding. Here is the evidence and the reasoning.
+
+## Why it is out of bounds
+
+The routing described lives in exactly three files:
+
+| Needed change | File | Status |
+|---|---|---|
+| Skip `runSequential` when the diff is non-code | `research/orchestrator/src/loop.ts:610` | protected |
+| Declare `evaluation.skipForNonCodeDiffs` | `research/orchestrator/src/policy.ts:60` | protected |
+| Set the field | `research/policy.json` | allowed for `kind=meta` only |
+
+`gitops.ts:359-366` protects `/^research\/(?!observations\/)(?!evaluations\/)/`, and `loop.ts:545` carves out exactly one exemption for meta — `research/policy.json` — nothing else. Rule 9 says the same in words. Setting the field alone is worse than useless: `Policy.evaluation` is a plain `z.object`, so an undeclared nested key is silently stripped on parse, and `lintInertPolicyKeys` only inspects **top-level** keys, so the no-op would pass lint and then burn the very evaluation this hypothesis is about.
+
+## The finding (recorded instead)
+
+**The no-eval path the hypothesis asks for already exists — `loop.ts:511-523` closes a `kind=meta` hypothesis with an empty diff as `measured`, with zero explore cost. It has never fired: `grep -c 'event":"measured"' journal.jsonl` returns 0 across 11,151 records.** Every meta hypothesis so far wrote *something*, and writing anything routes it into the full sequential lane.
+
+Measured cost, two confirmed non-code meta iterations:
+
+- **it 5269** (`probe-cost-precheck-rule`, diff = `research/policy.json` only): 2 chunks / 108,000 runs, 13m03s explore+grade + 2m41s regression = **15m44s of a 23m19s iteration (67%)**.
+- **it 5291** (`depth-power-floor-audit`, diff = `research/observations/*` only, `spurFiles` empty): **14m34s of 35m07s (41%)**. Its build event records `cached:true, treeHash e0d7e3281a09` — byte-identical to iterations 5289 and 5290, so the explored binary was provably unchanged.
+
+Across the log, 13 of 18 completed meta iterations ran a 2-chunk sequential (108,000 runs each); the rest were config sweeps that genuinely needed it.
+
+Two facts sharpen the case beyond budget:
+
+1. **The eval cannot change the verdict upward.** `decide.ts:177-183` routes every `kind=meta` to `needs_human` unconditionally. It *can* change it downward: if the sequential returns `reject`/`inconclusive`, `decisionInputsReady` stays false and `loop.ts:709-711` overwrites the verdict to `closed`. So a policy-only diff can be killed by seed noise alone.
+2. **The deltas are inside the measured floor.** it 5291 reported `depth>=5 -9.3e-4`, `depth>=6 -8.8e-5`; it 5269 reported `depth>=5 -1.18e-3`. Both sit under the documented null-diff floor (depth>=5 -1.44%, depth>=6 -7.50% relative).
+
+## Operator-side patch (raised, not applied)
+
+In `loop.ts`, before the `else if (lintFailures.length === 0)` branch at 610, add a guard on the already-recorded diff summary:
+
+```ts
+const nonCodeOnly = spurFiles.length === 0 &&
+  superFiles.every((f) => f.startsWith("research/"));
+```
+
+If true (and `lintFailures` is empty), skip `runSequential`/`runRegression` and set `verdict: "needs_human"`, `objectiveDeltas: null`, reason `"policy-only, not measurable"`. Declare `skipForNonCodeDiffs: z.boolean().default(false)` in `policy.ts:60`'s `evaluation` object and default it off. Note the predicate keys on `superFiles`, not on `h.kind`, so a mislabeled hypothesis is still caught — and `scheduler_configs/loop/**` is deliberately excluded, since config edits do change explore behavior and must keep their eval.
+
+Secondary defect worth a separate ticket: `lintInertPolicyKeys` checks only top-level keys, so any inert **nested** policy key passes the gate while zod drops it.
+
+## Summary
+
+- **Files changed: none.** The diff is deliberately empty so `loop.ts:516-522` records th
