@@ -1,0 +1,208 @@
+{
+  "hypothesis": {
+    "id": "recovery-window-length-census",
+    "parent": "recovery-completion-race-window",
+    "kind": "meta",
+    "title": "Census: how long is the recovery window, and how often is ordered-h3 already satisfied by chance?",
+    "description": "Pure instrumentation, no scheduling change. In spur/spur-core/src/simulator/: keep the recovering[node] interval tracking from recovery-completion-race-window but delete the weight multiplier and its config field. Emit in util_stats: recovery_window.{count, mean_events_open, p50, p90, max} measured in scheduler steps between restart and first applied post-restart delivery; ordered_h3.{runs_with_overlap, runs_with_h3} so ordered-h3 rate can be divided by unordered h3Rate; and a cross-tab ordered_h3_by_depth[d] for d in 0..8. Gate behind an existing stats-verbosity flag if one exists, else always-on (counters only). Run one chunk and read the numbers; do not run a scheduling A/B.",
+    "category": "feedback",
+    "buildsOn": [
+      "crash_recovery",
+      "util_stats counters"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 1.5,
+    "rationale": "The parent's null is uninterpretable without knowing whether the recovery window is measurably open and whether ordered-h3 was already common. If ordered-h3 is already ~0.3 of runs, the entire ordered/unordered framing is dead and several pool hypotheses that assume crash-ordering headroom can be dropped at once. If the window is p90 < 2 steps, the null is an implementation-window problem and a *different* intervention (extend the window, don't reweight into it) is indicated. One cheap chunk buys the branch.",
+    "generalityArgument": "Counts only restart events, applied-delivery events, and existing depth buckets; no handler names, no protocol roles, no spec-specific predicates. Emits stats only, changes no scheduling decision, so it cannot bias any protocol.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-27T06:05:00.000Z",
+    "notes": "Falsified/settled either way in one chunk: it is a measurement, not a bet. If ordered_h3 overlap rate is already >0.2, mark the whole crash-ordering family closed. [rejudged iteration 5280: Up-scored: the recovery-completion-race-window closure names this ambiguity (mechanism-fired-but-didn't-help vs never-fired) as the single most important thing to resolve before any sibling in the family runs, "
+  },
+  "decision": {
+    "hypothesisId": "recovery-window-length-census",
+    "verdict": "needs_human",
+    "reasons": [
+      "meta changes require human review in v1"
+    ],
+    "objectiveDeltas": {
+      "violations": 0,
+      "depth>=4": 0.00031944444444442777,
+      "depth>=5": 0.00044907407407407396,
+      "depth>=6": -0.00015277777777777772,
+      "depth>=7": -0.00014351851851851852,
+      "depth>=8": 0.0000046296296296296355,
+      "h2": 0.00007407407407405975,
+      "primary": 0.00044907407407407396,
+      "throughput": -0.31043980924058256,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "recovery-window-length-census-sequential-1000-1787811251095",
+        "hypothesisId": "recovery-window-length-census",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5468d9b601d2a23c9a21b44848b7d55973ee68e3",
+        "superCommit": "e8ec67e76c0ce978baa09edd3a9185aeab213a75",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-27T06:14:11.095Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 203.8358894605521,
+          "unpairedFraction": 0.48916959265418186,
+          "h1Rate": 0.5243333333333333,
+          "h2Rate": 0.42424074074074075,
+          "h2bRate": 0.42642592592592593,
+          "h3Rate": 0.3318333333333333,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.051814814814815,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49661,
+            35955,
+            19649,
+            4692,
+            765,
+            74,
+            2
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 5043,
+          "gradeWallMs": 209887
+        },
+        "exploreWallMs": 264919,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      },
+      {
+        "id": "recovery-window-length-census-sequential-1001-1787811731395",
+        "hypothesisId": "recovery-window-length-census",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5468d9b601d2a23c9a21b44848b7d55973ee68e3",
+        "superCommit": "e8ec67e76c0ce978baa09edd3a9185aeab213a75",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-27T06:22:11.395Z",
+        "metrics": {
+          "runs": 0,
+          "runsPerSec": 0,
+          "unpairedFraction": 0,
+          "h1Rate": 0,
+          "h2Rate": 0,
+          "h2bRate": 0,
+          "h3Rate": 0,
+          "gradedRuns": 0,
+          "meanPrefixDepth": 0,
+          "maxPrefixDepth": 0,
+          "depthAtLeast": [],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 35,
+          "gradeWallMs": 39
+        },
+        "exploreWallMs": 931390,
+        "suspendedMs": 0,
+        "ok": false,
+        "error": "porcupine produced no parseable JSON (exit 1)"
+      },
+      {
+        "id": "recovery-window-length-census-sequential-1002-1787812662889",
+        "hypothesisId": "recovery-window-length-census",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5468d9b601d2a23c9a21b44848b7d55973ee68e3",
+        "superCommit": "e8ec67e76c0ce978baa09edd3a9185aeab213a75",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1002,
+        "startedAtIso": "2026-08-27T06:37:42.889Z",
+        "metrics": {
+          "runs": 0,
+          "runsPerSec": 0,
+          "unpairedFraction": 0,
+          "h1Rate": 0,
+          "h2Rate": 0,
+          "h2bRate": 0,
+          "h3Rate": 0,
+          "gradedRuns": 0,
+          "meanPrefixDepth": 0,
+          "maxPrefixDepth": 0,
+          "depthAtLeast": [],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 35,
+          "gradeWallMs": 40
+        },
+        "exploreWallMs": 931103,
+        "suspendedMs": 0,
+        "ok": false,
+        "error": "porcupine produced no parseable JSON (exit 1)"
+      },
+      {
+        "id": "recovery-window-length-census-sequential-1003-1787813594075",
+        "hypothesisId": "recovery-window-length-census",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "5468d9b601d2a23c9a21b44848b7d55973ee68e3",
+        "superCommit": "e8ec67e76c0ce978baa09edd3a9185aeab213a75",
+        "configPath": "/home/benaepli/Research/alt/jennLang/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Research/alt/jennLang/bin/spur/VR.spur",
+        "seed": 1003,
+        "startedAtIso": "2026-08-27T06:53:14.075Z",
+        "metrics": {
+          "runs": 54000,
+          "runsPerSec": 85.89821697571467,
+          "unpairedFraction": 0.4908507119692446,
+          "h1Rate": 0.5271851851851852,
+          "h2Rate": 0.4261666666666667,
+          "h2bRate": 0.43203703703703705,
+          "h3Rate": 0.3345925925925926,
+          "gradedRuns": 54000,
+          "meanPrefixDepth": 3.052425925925926,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            54000,
+            49763,
+            35992,
+            19499,
+            4697,
+            788,
+            88,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 8406,
+          "gradeWallMs": 330253
+        },
+        "exploreWallMs": 628651,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [],
+  "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+  "generalConfigParams": {
+    "before": 15,
+    "after": 15
+  }
+}
