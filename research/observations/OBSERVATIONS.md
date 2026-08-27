@@ -474,3 +474,36 @@ run either way.
 Not changed here. It is a gate input, so it belongs in a deliberate boundary
 with the perf-lane numbers re-based, rather than folded into a batch that was
 already landing three other things.
+
+## 2026-08-27T01:25:00.000Z (operator)
+
+Two of the last four iterations spent a full implement producing work that
+could not be landed, because the hypothesis targeted operator-owned paths.
+
+- 5269 probe-cost-precheck-rule wrote its rules into `research/policy.json`
+  under a key the schema drops on parse. Cost the implement plus a full
+  sequential, because the diff existed and was evaluable.
+- 5272 depth-power-floor-audit reached "the analysis is done; the artifacts
+  could not be landed where the hypothesis names them" after $5.33 and 79
+  turns. Every target it named is protected.
+
+This is not a knowledge gap. `agents.ts:244` already tells the proposer:
+"Change only the subject (spur, scheduler_configs/loop) or, for grader-kind,
+traceanalyzer. Never propose changing the evaluation harness, the
+orchestrator, the fixed evaluation config, or the sequential/gate protocol -
+those are fixed and operator-owned, and such a proposal will be rejected."
+The judge rubric likewise asks for rule-violating candidates to be rejected.
+Both hypotheses were proposed, judged, selected and implemented regardless.
+
+So the rule is stated and not enforced, and restating it more loudly is not
+the fix. The deterministic points are the judge, which sees the description
+before anything is spent, and selection, which sees it again. An analysis
+hypothesis also has nowhere legitimate to put its output: the implement fence
+reports `spur/**`, `scheduler_configs/loop/**` and `tmp/loop/**` as writable,
+while `research/observations/` - the one place a finding belongs - is outside
+it, even though the protected-path lint permits it.
+
+Worth fixing together: give analysis work a writable destination, and make
+the judge reject proposals whose deliverable is a document or a change to an
+operator-owned path. Staged, not applied, since it is a prompt change and the
+loop reads its modules at start.
