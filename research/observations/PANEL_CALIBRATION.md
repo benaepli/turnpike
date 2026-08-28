@@ -195,3 +195,22 @@ just above the 100 the sizing rule demands, so a slower candidate on this
 mask is the first thing that would fail the wall check. Paxos keeps 88% of
 its rate. Dispersion reads 1.0 on every member at this seed count.
 
+### A/A at 14 threads
+
+Four seeds through the full regression suite, both arms on HEAD, pinned to
+CPUs 0-7,16-23, under the 14-thread manifest:
+
+| seed | paxos z (phi) | mencius z (phi) | combined Z | throughput ratio | panel wall |
+|---|---|---|---|---|---|
+| 20001 | +1.54 (1.00) | -0.42 (1.00) | +0.79 | 0.999 | 465 s |
+| 20002 | -0.63 (1.44) | +0.70 (1.00) | +0.05 | 0.996 | 465 s |
+| 20003 | -0.84 (1.00) | +1.36 (1.00) | +0.37 | 0.999 | 465 s |
+| 20004 | +0.23 (1.00) | +0.07 (1.00) | +0.21 | 0.997 | 465 s |
+
+No collapse, every gate |z| under 2, every combined Z under 2, phi at most
+1.44. The observed panel wall is 465 s against the 560 s case wall, 83% of
+it: above the 80% the sizing rule reserves for a candidate at the throughput
+floor, by 17 s. The members' explores are fixed walls, so a slower candidate
+lengthens only the checker and start-up time of each replicate; the margin is
+thinner than designed but the suite did not truncate on any seed.
+

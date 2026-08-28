@@ -2694,3 +2694,22 @@ different major version from the nvm one better-sqlite3 was built against,
 so the CLI segfaulted with an empty log until `--setenv=PATH` was passed;
 and the daemon's build command pulled spur-bench's Formulog toolchain in
 through feature unification until spur-bench left the default member set.
+
+## 2026-08-28T23:50:00.000Z (operator) - the loop runs on one CCD with its own calibration
+
+The host is shared from today: the loop is pinned to CPUs 0-7,16-23 (one CCD,
+14 resolved threads) and the other CCD is free for other work. Calibration is
+now keyed by thread count (`baseline:<threads>`, `000-baseline-<threads>.json`,
+`panel/manifest.<threads>.json`), so switching masks is a restart. Pinning
+goes through `taskset`: the cpuset controller is not delegated to user units,
+and a unit started with `AllowedCPUs` ran unpinned and recorded a 30-thread
+baseline before that was noticed.
+
+The 14-thread ladder reproduces the 30-thread one per run (P(depth>=6) 0.0374
+against 0.0366, P(depth>=8) 0.00128 against 0.00123, 0 violations on both)
+at 82% of the runs per chunk (175k against 214k). The panel keeps its power
+narrowly: Mencius lands at 108 expected events per arm against the 100 the
+sizing demands. Four A/A seeds pass with combined Z between +0.05 and +0.79,
+phi at most 1.44, throughput ratios 0.996 to 0.999; the observed panel wall is
+465 s of a 560 s case wall, 17 s over the 80% the sizing reserves.
+
