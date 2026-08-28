@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-28T10:27:40.376Z
+Generated: 2026-08-28T15:12:17.068Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -29,7 +29,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 
 ## Sequential evaluation
 
-- exploreBudgetSec: 90
+- exploreBudgetSec: 300
 - maxRunsPerConfig: 4000
 - maxChunks: 4
 - minChunks: 2
@@ -40,11 +40,11 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - maxResumes: 2
 - resumeCooldown: 2
 - draws: 2000
-- wallSecPerChunk: 900
+- wallSecPerChunk: 1800
 
 ## Budgets
 
-- maxWallMinutesPerHypothesis: 90
+- maxWallMinutesPerHypothesis: 150
 - maxLineageDepth: 6
 - stagnationWindow: 8
 - maxImplementTurns: 110
@@ -70,7 +70,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - panelManifest: research/panel/manifest.json
 - vrNoFaultConfig: scheduler_configs/loop/regression_vr_nofault.json
 - throughputTolerance: 0.2
-- wallSecPerCase: 360
+- wallSecPerCase: 480
 
 ## Clamps applied on load
 
