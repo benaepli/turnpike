@@ -218,11 +218,16 @@ would mean the mechanism fired as intended.
    research/oracle/**, research/corpus/** (calibration), scheduler_configs/** outside loop/.
 5. Regression: merged changes must keep finding the Mencius bug, keep fixed specs clean,
    keep VR no-fault clean, and stay within 20% of baseline throughput.
-6. Evidence: every claim of improvement needs CI-separated rates on fixed seeds,
-   measured with the same protocol as the baseline (long sessions of 1000
-   runs/config; frontier rates depend on session length). A candidate is sampled
-   one session at a time until it separates, cannot, or is probably real but too
-   small to resolve (inconclusive: the branch is kept and can be resumed).
+6. Evidence: every claim of improvement needs separated rates on fixed seeds,
+   measured with the same protocol as the baseline: a chunk is a fixed explore
+   budget (90 s) over the interleaved grid, and a rung's rate is its events per
+   explore-second, so throughput multiplies every rung and a slower candidate
+   has to earn its rate (frontier rates depend on session length; the budget
+   keeps every chunk on the plateau). depth>=6 per second is the primary
+   objective; depth>=7 only extends sampling; depth>=8 is recorded. A candidate
+   is sampled one chunk at a time until it separates, cannot, or is probably
+   real but too small to resolve (inconclusive: the branch is kept and can be
+   resumed).
 7. One config: the evaluator loads exactly one explorer config, the one named by
    `policy.evaluation.configTemplate`. Any other file added under
    `scheduler_configs/loop/` is inert, and the lint rejects the iteration for it.

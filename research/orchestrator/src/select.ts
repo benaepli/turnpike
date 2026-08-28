@@ -179,7 +179,7 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
   const score = (h: Hypothesis): number => {
     const seq = h.status === "inconclusive" ? loadSeqState(state, h.id) : null;
     if (seq && seq.lastVerdict === "inconclusive") {
-      const best = Math.max(seq.posteriors["depth>=4:pGreater"] ?? 0, seq.posteriors["depth>=5:pGreater"] ?? 0);
+      const best = Math.max(seq.posteriors["depth>=4:pGreater"] ?? 0, seq.posteriors["depth>=5:pGreater"] ?? 0, seq.posteriors["depth>=6:pGreater"] ?? 0);
       // Resuming costs only sampling time, so the evidence stands in for
       // the gain/cost prior; a probable effect outranks any fresh guess.
       return 0.5 * best + best;

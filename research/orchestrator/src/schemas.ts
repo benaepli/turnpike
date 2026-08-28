@@ -68,8 +68,49 @@ export const LadderMetrics = z.object({
   unknown: z.number().int(),
   porcupineWallMs: z.number().int(),
   gradeWallMs: z.number().int(),
+  // Wall time the runs actually had, from the explorer's own clock when it
+  // reported one; the exposure every per-second rate divides by.
+  exposureMs: z.number().int().default(0),
 });
 export type LadderMetrics = z.infer<typeof LadderMetrics>;
+
+// The explorer's own account of a session (session.json).
+export const SessionSummary = z.object({
+  wallMs: z.number().int(),
+  runsCompleted: z.number().int(),
+  runsFailed: z.number().int().default(0),
+  runsSkipped: z.number().int().default(0),
+  budgetSec: z.number(),
+  budgetHit: z.boolean(),
+  writerFlushMs: z.number().int().default(0),
+});
+export type SessionSummary = z.infer<typeof SessionSummary>;
+
+// The subset of utilization.json an evaluation keeps: enough to tell whether
+// runs finish, whether deliveries act, and whether the steer was let through.
+const Acted = z.object({ deliveries: z.number(), acted: z.number() });
+export const UtilStats = z.object({
+  termination: z.object({
+    runs: z.number(),
+    planComplete: z.number(),
+    planCompleteWithPendingWork: z.number(),
+    iterationsExhausted: z.number(),
+    deadlock: z.number(),
+    stepsUsedSum: z.number(),
+    stepBudgetSum: z.number(),
+  }),
+  deliveryEffects: z.object({
+    all: Acted, biased: Acted, delayed: Acted, senderRestarted: Acted, receiverRestarted: Acted,
+  }),
+  steerAuthority: z.object({
+    steps: z.number(),
+    preferenceExpressed: z.number(),
+    preferenceHonored: z.number(),
+    honored: z.number(),
+    blockedByTimerGate: z.number(),
+  }),
+});
+export type UtilStats = z.infer<typeof UtilStats>;
 
 export const Evaluation = z.object({
   id: z.string(),
@@ -89,6 +130,12 @@ export const Evaluation = z.object({
   error: z.string().nullable().default(null),
   // Comparability epoch (protocol/gate regime) the result was produced in.
   epoch: z.number().int().optional(),
+  session: SessionSummary.nullable().default(null),
+  utilStats: UtilStats.nullable().default(null),
+  // Set when the chunk was excluded from pooling for its timing rather than
+  // its content: a suspend, a missing session summary, or a throughput far
+  // below the baseline's.
+  timingAnomaly: z.string().nullable().default(null),
 });
 export type Evaluation = z.infer<typeof Evaluation>;
 
@@ -151,8 +198,17 @@ export const SeqState = z.object({
   depth4: z.number().int(),
   depth5: z.number().int(),
   depth6plus: z.number().int(),
+  depth7plus: z.number().int().default(0),
+  depth8plus: z.number().int().default(0),
   violations: z.number().int(),
   h2Count: z.number().int(),
+  // Explore seconds the pooled counts had, and each chunk's throughput.
+  exposureSec: z.number().default(0),
+  rpsChunks: z.array(z.number()).default([]),
+  // Chunks excluded for their timing, and whether a slow candidate has been
+  // confirmed slow (after which its chunks count and the floor decides).
+  anomalies: z.number().int().default(0),
+  slowConfirmed: z.boolean().default(false),
   resumes: z.number().int(),
   nextSeed: z.number().int(),
   posteriors: z.record(z.string(), z.number()).default({}),

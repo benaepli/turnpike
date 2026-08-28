@@ -55,12 +55,18 @@ function ladderTable(
   for (let k = 4; k <= 8; k++) {
     rows.push([`P(depth>=${k})`, (m) => pDepthAtLeast(m, k).toFixed(3)]);
   }
+  // Rung events per explore-second, the objective the gate decides on. Rungs
+  // above 7 are too sparse to decide on and are left as probabilities.
+  for (let k = 4; k <= 7; k++) {
+    rows.push([`depth>=${k} /s`, (m) => (m.exposureMs > 0 ? ((m.depthAtLeast[k - 1] ?? 0) / (m.exposureMs / 1000)).toFixed(2) : "-")]);
+  }
   rows.push(
     ["h1Rate", (m) => fmtNum(m.h1Rate)],
     ["h2Rate", (m) => fmtNum(m.h2Rate)],
     ["h2bRate", (m) => fmtNum(m.h2bRate)],
     ["h3Rate", (m) => fmtNum(m.h3Rate)],
     ["runsPerSec", (m) => m.runsPerSec.toFixed(1)],
+    ["exposure (s)", (m) => (m.exposureMs > 0 ? (m.exposureMs / 1000).toFixed(0) : "-")],
   );
   const latestLabel =
     latest === null
@@ -136,14 +142,15 @@ export function renderStatus(
   if (inconclusive.length > 0) {
     lines.push("## Inconclusive (resumable)");
     lines.push("");
-    lines.push("| id | chunks | runs | P(depth>=4 up) | P(depth>=5 up) | resumes | last iteration |");
-    lines.push("| --- | --- | --- | --- | --- | --- | --- |");
+    lines.push("| id | chunks | runs | P(depth>=4 up) | P(depth>=5 up) | P(depth>=6 up) | resumes | last iteration |");
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
     for (const h of inconclusive) {
       const seq = loadSeqState(state, h.id);
       if (!seq) continue;
       const p4 = (seq.posteriors["depth>=4:pGreater"] ?? 0).toFixed(3);
       const p5 = (seq.posteriors["depth>=5:pGreater"] ?? 0).toFixed(3);
-      lines.push(`| ${h.id} | ${seq.chunks} | ${seq.runs} | ${p4} | ${p5} | ${seq.resumes} | ${seq.lastIteration} |`);
+      const p6 = (seq.posteriors["depth>=6:pGreater"] ?? 0).toFixed(3);
+      lines.push(`| ${h.id} | ${seq.chunks} | ${seq.runs} | ${p4} | ${p5} | ${p6} | ${seq.resumes} | ${seq.lastIteration} |`);
     }
     lines.push("");
   }
@@ -195,7 +202,7 @@ export function renderStatus(
   );
   const sq = policy.sequential;
   lines.push(
-    `- Sequential: ${sq.chunkRunsPerConfig} runs/config per chunk, ${sq.minChunks}-${sq.maxChunks} chunks, reject at P(effect>=separable)<${sq.rejectP}, inconclusive at cap with P(better)>=${sq.inconclusiveP}, resumes ${sq.maxResumes}`,
+    `- Sequential: ${sq.exploreBudgetSec} s explore budget per chunk (interleaved grid, at most ${sq.maxRunsPerConfig} runs/config), objective rung events per explore-second, ${sq.minChunks}-${sq.maxChunks} chunks, reject at P(effect>=separable)<${sq.rejectP}, inconclusive at cap with P(better)>=${sq.inconclusiveP}, throughput floor ${1 - policy.regression.throughputTolerance}, resumes ${sq.maxResumes}`,
   );
   lines.push(
     `- Evaluation: spec=${policy.evaluation.spec}, audit every ${policy.audit.everyK} iterations`,

@@ -6,7 +6,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { z } from "zod";
-import { TraceGradeJson, PorcupineJson } from "./schemas.js";
+import { TraceGradeJson, PorcupineJson, SessionSummary } from "./schemas.js";
 
 import { ROOT } from "./paths.js";
 
@@ -185,6 +185,44 @@ export interface ExploreOpts {
   explorer?: string;
 }
 
+// Time past the wall before the explorer is killed: in-flight runs finish,
+// the parquet writer drains, and the heatmap, utilization and session files
+// are written. A kill inside that tail loses the session summary.
+export const EXPLORE_TAIL_MS = 60_000;
+
+/** The utilization dump the CLI writes beside the output dir; it survives
+ *  cleanupDir, which removes only the directory itself. */
+export function readUtilizationSibling(outputDir: string): Record<string, unknown> | null {
+  for (const p of [`${outputDir}.utilization.json`, path.join(outputDir, "utilization.json")]) {
+    try { return JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>; } catch { /* try next */ }
+  }
+  return null;
+}
+
+/** The explorer's own session account, written beside the output dir on the
+ *  same terms as the utilization dump. Null when the explorer did not get to
+ *  write it, which a consumer treats as "exposure unknown", never as zero. */
+export function readSessionSibling(outputDir: string): SessionSummary | null {
+  for (const p of [`${outputDir}.session.json`, path.join(outputDir, "session.json")]) {
+    let raw: unknown;
+    try { raw = JSON.parse(fs.readFileSync(p, "utf8")); } catch { continue; }
+    if (typeof raw !== "object" || raw === null) continue;
+    const r = raw as Record<string, unknown>;
+    const num = (k: string): number => (typeof r[k] === "number" ? (r[k] as number) : 0);
+    const parsed = SessionSummary.safeParse({
+      wallMs: Math.round(num("wall_ms")),
+      runsCompleted: Math.round(num("runs_completed")),
+      runsFailed: Math.round(num("runs_failed")),
+      runsSkipped: Math.round(num("runs_skipped")),
+      budgetSec: num("wall_budget_sec"),
+      budgetHit: r["budget_hit"] === true,
+      writerFlushMs: Math.round(num("writer_flush_ms")),
+    });
+    if (parsed.success) return parsed.data;
+  }
+  return null;
+}
+
 /**
  * Run the explorer. NOTE for callers: a timedOut result is NOT a failure -
  * the explorer writes parquet incrementally, so a timed-out output dir is a
@@ -215,7 +253,7 @@ export function explore(opts: ExploreOpts): Promise<CmdResult> {
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
-    }, opts.wallSec * 1000 + 30_000);
+    }, opts.wallSec * 1000 + EXPLORE_TAIL_MS);
     child.on("error", (e) => {
       clearTimeout(timer);
       fs.closeSync(fd);

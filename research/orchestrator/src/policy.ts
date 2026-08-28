@@ -46,7 +46,11 @@ export const Policy = z.object({
   }),
   audit: z.object({ everyK: z.number().int().positive() }),
   sequential: z.object({
-    chunkRunsPerConfig: z.number().int().positive(),
+    // A chunk is a fixed explore budget, not a run count. The run cap is
+    // only there so a session cannot outgrow the grid's storage; it binds
+    // above roughly four times the baseline's throughput.
+    exploreBudgetSec: z.number().int().positive(),
+    maxRunsPerConfig: z.number().int().positive(),
     maxChunks: z.number().int().positive(),
     minChunks: z.number().int().positive(),
     rejectP: z.number().min(0).max(0.5),
@@ -58,7 +62,7 @@ export const Policy = z.object({
     draws: z.number().int().min(200),
     wallSecPerChunk: z.number().int().positive(),
   }).default({
-    chunkRunsPerConfig: 1000, maxChunks: 4, minChunks: 2, rejectP: 0.05,
+    exploreBudgetSec: 90, maxRunsPerConfig: 4000, maxChunks: 4, minChunks: 2, rejectP: 0.05,
     inconclusiveP: 0.9, niP: 0.95,
     regressMargin: 0.25, maxResumes: 2, resumeCooldown: 2, draws: 2000, wallSecPerChunk: 900,
   }),
@@ -100,6 +104,8 @@ export const HARD_LIMITS = {
   maxWallMinutesPerHypothesis: 180,
   maxImplementTurns: 120,
   maxExploreWallSec: 3600,
+  minExploreBudgetSec: 30,
+  maxExploreBudgetSec: 600,
   maxBuildSeconds: 900,
   minFreeDiskGbFloor: 25,
   maxSequentialChunks: 12,
@@ -120,6 +126,7 @@ export function clampPolicy(p: Policy): { policy: Policy; clamps: string[] } {
   c.budgets.maxBuildSeconds = clampNum("budgets.maxBuildSeconds", c.budgets.maxBuildSeconds, 60, HARD_LIMITS.maxBuildSeconds);
   c.budgets.minFreeDiskGb = clampNum("budgets.minFreeDiskGb", c.budgets.minFreeDiskGb, HARD_LIMITS.minFreeDiskGbFloor, 1000);
   c.sequential.maxChunks = clampNum("sequential.maxChunks", c.sequential.maxChunks, 1, HARD_LIMITS.maxSequentialChunks);
+  c.sequential.exploreBudgetSec = clampNum("sequential.exploreBudgetSec", c.sequential.exploreBudgetSec, HARD_LIMITS.minExploreBudgetSec, HARD_LIMITS.maxExploreBudgetSec);
   for (const f of ["screen", "promote"] as const) {
     c.fidelities[f].exploreWallSec = clampNum(`fidelities.${f}.exploreWallSec`, c.fidelities[f].exploreWallSec, 10, HARD_LIMITS.maxExploreWallSec);
   }

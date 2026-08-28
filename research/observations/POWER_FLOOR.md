@@ -37,6 +37,8 @@ Buckets deeper than that are worth recording - a rare event is still an event - 
 
 ## Objective definition note
 
+From epoch 5 the rung rates are events per explore-second rather than per run, and the session is a 90 s explore budget (about the same 54,000 runs); the counts per session, and so the floor, carry over unchanged.
+
 The objective is violations first, then P(prefix depth >= k), then the stale-incarnation hazard rate. This measurement bounds the second term: only buckets up to depth>=7 carry decision weight at the current session size and the effect held plausible. Deeper buckets stay in the record, stay in the reported deltas, and stay as escalation triggers when they fire against a baseline that never reaches them, but they are not gradients, and a gain on one of them alone is not an improvement.
 
 Regenerate with `node research/observations/power_floor.mjs --out research/observations/POWER_FLOOR.md`. The floor moves when session size or the archived record set changes, so it is a measurement to repeat, not a constant to memorise.

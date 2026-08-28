@@ -11,7 +11,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
 import { ROOT } from "./paths.js";
-import { cleanupDir, explore, materializeConfig, porcupine, resolveRoot } from "./runners.js";
+import { cleanupDir, explore, materializeConfig, porcupine, readUtilizationSibling, resolveRoot } from "./runners.js";
+export { readUtilizationSibling };
 import type { EvalContext } from "./evaluate.js";
 
 /** Keys a member may set. Faults are declared separately and never here. */
@@ -201,15 +202,6 @@ export interface ArmCounts {
   unknown: number;
   timedOut: boolean;
   utilization: Record<string, unknown> | null;
-}
-
-/** The utilization dump the CLI writes beside the output dir; it survives
- *  cleanupDir, which removes only the directory itself. */
-export function readUtilizationSibling(outputDir: string): Record<string, unknown> | null {
-  for (const p of [`${outputDir}.utilization.json`, path.join(outputDir, "utilization.json")]) {
-    try { return JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>; } catch { /* try next */ }
-  }
-  return null;
 }
 
 export interface PanelArms {

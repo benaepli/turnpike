@@ -195,8 +195,112 @@ export function compareRates(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Rates per unit of exposure. Rung events are counted over explore seconds
+// (or over runs, for the per-run guards), so the natural statistic is the
+// log ratio of two Poisson rates: se = sqrt(1/a + 1/b), plus any variance the
+// exposure itself carries (throughput jitter between chunks).
+// ---------------------------------------------------------------------------
+
+export interface LogRateRatio {
+  ratio: number;
+  se: number;
+}
+
+export function logRateRatio(
+  aCount: number, aExposure: number, bCount: number, bExposure: number, extraVar = 0,
+): LogRateRatio {
+  if (aCount <= 0 || bCount <= 0 || aExposure <= 0 || bExposure <= 0) {
+    return { ratio: aCount > 0 && bCount <= 0 ? Infinity : aCount <= 0 && bCount > 0 ? 0 : 1, se: Infinity };
+  }
+  return {
+    ratio: (aCount / aExposure) / (bCount / bExposure),
+    se: Math.sqrt(1 / aCount + 1 / bCount + Math.max(0, extraVar)),
+  };
+}
+
+// True iff rate A exceeds rate B at z: the lower bound of the log rate ratio
+// is above zero. A zero count on either side never separates; a rung the
+// baseline never reaches is the jackpot rule's business, not this test's.
+export function rateRatioSeparated(
+  aCount: number, aExposure: number, bCount: number, bExposure: number, z: number, extraVar = 0,
+): boolean {
+  const r = logRateRatio(aCount, aExposure, bCount, bExposure, extraVar);
+  if (!Number.isFinite(r.se) || !Number.isFinite(r.ratio) || r.ratio <= 0) return false;
+  return Math.log(r.ratio) - z * r.se > 0;
+}
+
+// Coefficient of variation of per-chunk throughput, floored at the value
+// measured on the baseline binary so a lucky pair of chunks cannot claim
+// less jitter than the host has.
+export const THROUGHPUT_CV_FLOOR = 0.01;
+export function throughputCv(rps: number[]): number {
+  const xs = rps.filter((x) => Number.isFinite(x) && x > 0);
+  if (xs.length < 2) return THROUGHPUT_CV_FLOOR;
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  if (mean <= 0) return THROUGHPUT_CV_FLOOR;
+  const varc = xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (xs.length - 1);
+  return Math.max(THROUGHPUT_CV_FLOOR, Math.sqrt(varc) / mean);
+}
+
+// Gamma-Poisson posterior comparison under a Jeffreys prior: each rate is
+// Gamma(count + 1/2) scaled by its exposure, and each draw carries half of
+// the extra log variance so the ratio carries all of it.
+export function compareRatesPoisson(
+  candCount: number, candExposure: number, baseCount: number, baseExposure: number,
+  meiRel: number, marginRel: number, draws = 2000, seed = 1, extraVar = 0,
+): RateComparison {
+  if (candExposure <= 0 || baseExposure <= 0) {
+    return { pGreater: 0.5, pAtLeastMei: 0, pRegress: 0, meanRatio: 1, candMean: 0, baseMean: 0 };
+  }
+  const u = seededUniform(seed);
+  const jitter = Math.sqrt(Math.max(0, extraVar) / 2);
+  let greater = 0;
+  let mei = 0;
+  let regress = 0;
+  let ratio = 0;
+  for (let i = 0; i < draws; i++) {
+    let lc = gammaSample(candCount + 0.5, u) / candExposure;
+    let lb = gammaSample(baseCount + 0.5, u) / baseExposure;
+    if (jitter > 0) {
+      lc *= Math.exp(standardNormal(u) * jitter);
+      lb *= Math.exp(standardNormal(u) * jitter);
+    }
+    if (lc > lb) greater++;
+    if (lc >= lb * (1 + meiRel)) mei++;
+    if (lc < lb * (1 - marginRel)) regress++;
+    ratio += lb > 0 ? lc / lb : 1;
+  }
+  return {
+    pGreater: greater / draws,
+    pAtLeastMei: mei / draws,
+    pRegress: regress / draws,
+    meanRatio: ratio / draws,
+    candMean: (candCount + 0.5) / candExposure,
+    baseMean: (baseCount + 0.5) / baseExposure,
+  };
+}
+
 export function selfTestPosteriors(): string[] {
   const failures: string[] = [];
+  // Rate ratios at the measured baseline counts: 3533 depth>=6 events over
+  // 361 s of baseline, 883 per 90 s chunk.
+  const flatP = compareRatesPoisson(3533, 361, 3533, 361, 0.064, 0.25, 2000, 5);
+  if (flatP.pGreater < 0.4 || flatP.pGreater > 0.6) failures.push(`poisson equal rates pGreater ${flatP.pGreater}`);
+  if (flatP.pAtLeastMei > 0.02) failures.push(`poisson equal rates pAtLeastMei ${flatP.pAtLeastMei}`);
+  const upP = compareRatesPoisson(1104, 361, 3533, 1444, 0.064, 0.25, 2000, 5); // +25% over 4 chunks
+  if (upP.pGreater < 0.99) failures.push(`poisson +25% pGreater ${upP.pGreater}`);
+  if (!rateRatioSeparated(1104, 361, 883, 361, 2.7)) failures.push("+25% on 883 events must separate at z 2.7");
+  if (rateRatioSeparated(900, 361, 883, 361, 2.7)) failures.push("+2% on 883 events must not separate at z 2.7");
+  if (rateRatioSeparated(5, 361, 0, 361, 2.7)) failures.push("a zero baseline count must never separate");
+  const jittered = compareRatesPoisson(3533, 361, 3533, 361, 0.064, 0.25, 2000, 5, 0.01);
+  if (jittered.pGreater < 0.4 || jittered.pGreater > 0.6) failures.push(`jittered equal rates pGreater ${jittered.pGreater}`);
+  // Direction agrees with the binomial test when exposure is the run count.
+  if (rateRatioSeparated(228, 64800, 230, 64800, 2.7) || rateRatioSeparated(230, 64800, 228, 64800, 2.7)) failures.push("near-equal binomial counts must not separate as rates");
+  if (!rateRatioSeparated(340, 64800, 228, 64800, 2.7)) failures.push("+49% on 228 events must separate as a rate");
+  const cv = throughputCv([603, 601, 600, 589]);
+  if (cv < THROUGHPUT_CV_FLOOR || cv > 0.02) failures.push(`throughput cv ${cv}`);
+  if (throughputCv([600]) !== THROUGHPUT_CV_FLOOR) failures.push("one chunk has the floor cv");
   const u = seededUniform(7);
   let s = 0;
   let s2 = 0;

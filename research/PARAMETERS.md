@@ -144,7 +144,94 @@ to optimize. Candidates and baseline are therefore always measured with the
 identical protocol: same runs/config, same seed family, same binary
 lineage.
 
+## Wall-budget chunks and events per explore-second (epoch 5)
+
+Measured 2026-08-28 on the 32-thread host at `rayonThreads: 30`, epoch-4
+baseline binary (spur `28a81df`), seeds 1000-1003: a 54,000-run chunk is a
+**90 s explore at 598 runs/s (cv 1.0% across chunks)** followed by a 107 s
+grade, with per-chunk counts depth>=4/5/6/7/8 = 19,731 / 6,033 / 883 / 110 /
+5 and h2 0.416. Grading, not exploring, is now the larger cost of a chunk.
+
+**The chunk is a fixed explore budget, `sequential.exploreBudgetSec` = 90 s.**
+The explorer stops issuing runs at the budget on its own clock
+(`wall_budget_sec`), walks the grid one run of every configuration per round
+so a cut leaves the corpus with the grid's composition whatever the
+throughput, and reports the time the runs had in `session.json`. The
+harness reads that as `exposureMs`. `maxRunsPerConfig` (4000) is a cap so a
+session cannot outgrow the grid's storage; it binds above four times the
+baseline's throughput. 90 s reproduces the 54k chunk at the measured
+throughput, so every archived 54k-per-arm record stays comparable; a
+candidate at the 0.8 throughput floor still gets 43k runs, twice the
+400/config plateau onset from the session-length table, so the cold-start
+over-read cannot flip a verdict before the floor rejects.
+
+**The objective is rung events per explore-second.** A rung's rate is its
+count over the exposure, and two rates are compared by the log ratio of
+Poisson rates, `se = sqrt(1/a + 1/b + extra)`, at `MERGE_Z` 2.7 - the
+quantity `minimumEffect` already used. `extra` is the throughput
+dispersion: with 1% chunk-to-chunk cv the variance the exposure adds to a
+4-against-4 log ratio (2 x 0.01^2 / 4 = 5e-5) exceeds the counting variance
+on depth>=4 (2.5e-5), so the statistic charges `cv_c^2/chunks_c +
+cv_b^2/chunks_b` with the cv floored at 0.01; on depth>=6 (5.7e-4) it is a 3%
+correction. Posteriors are Gamma-Poisson under a Jeffreys prior with the
+same term. The minimum separable effect on depth>=6 against the 4-chunk
+baseline is 7.9% at 2 chunks, 6.4% at 4, 5.6% at 8 and 4.5% unbounded.
+
+**Rung roles, from the power floor.** depth>=6 per second is primary (the
+deepest rung that resolves the +10..25% class every merge so far belonged
+to); depth>=4 and 5 per second are secondary advance rungs; depth>=4 per
+graded run and h2 per run are regression guards, which stay per run because
+the objective already rewards throughput - a 10%-slower candidate with +30%
+depth>=6 is +17% on the objective and -10% on depth>=4 per second, and a
+per-second guard would reject it at z 13. depth>=7 needs +40% to separate
+at 4 chunks, so a favourable posterior there (`pGreater >= inconclusiveP`)
+only suppresses futility and extends the cap to 8 chunks; it is never a
+verdict. depth>=8 is recorded and never tested. A rung the baseline never
+reaches is the jackpot rule (extend, then escalate), unchanged.
+
+**Throughput floor.** A candidate whose pooled runs per explore-second fall
+below `1 - regression.throughputTolerance` (0.8) of the baseline's is
+rejected at `minChunks`, and the merge gate closes on the same ratio: the
+objective credits speed, so a slower candidate has to have earned its rate.
+The bench's strict-dominance test in the regression suite is unchanged.
+
+**Timing anomalies.** A chunk is excluded for its timing, never its content:
+a machine suspend (`suspendedMs > 0`), a missing session summary (the
+explorer was killed before it wrote one), or throughput below the baseline
+median / 1.5 before the candidate is known to be slow. A slow chunk is
+retried once; a second slow chunk in a row confirms the candidate slow,
+after which its chunks count and the floor decides. Three exclusions error
+the evaluation out. Fast chunks are never anomalies: the exposure is the
+explorer's monotonic clock, which the environment cannot inflate. Baseline
+top-ups apply the same rule against their own siblings.
+
+**Chunk cap.** `maxChunks` stays 4 and equals the baseline's size, which is
+the binding limit: the fourth chunk buys 1.5 points of depth>=6 resolution
+and the next four 0.8. `cli selftest` asserts that the minimum effect at the
+cap is within 1.5x the unbounded floor at the measured counts, so a change
+of budget, rates or baseline size that breaks the relation fails loudly.
+
+**Operating characteristics** (`npx tsx src/selftest_sequential.ts 60
+--assert`, synthetic wall-budget chunks at the counts above): A/A -> 0%
+advance, 97% reject, 3% inconclusive (the d7 extension on a null, mean 2.6
+chunks); +25% depth>=6 -> 100% advance in 2 chunks; +25% depth>=6 at 0.7x
+throughput -> 100% reject; flat depth at 1.4x throughput -> 100% advance
+(intended: throughput multiplies every rung); +12% depth>=4 with +15%
+depth>=5 -> 100% advance; -40% per-run depth>=4 -> 100% reject at chunk 1;
+depth>=7-only +40% -> 0% advance, 100% inconclusive at 8 chunks; h2-only
++10% -> 0% advance; NI null -> 100% advance; NI -30% -> 100% reject at chunk
+1. The consistency of the sequential rule with the merge gate on the same
+pooled chunks is asserted by `selfTestGateConsistency`.
+
+**Comparability.** Per-run rates from epoch 4 and earlier are not
+per-second rates; the epoch-5 baseline is re-measured under this protocol
+and results before it no longer steer decisions.
+
 ## Sequential evaluation (non-perf kinds)
+
+Epoch 4 and earlier. The chunk unit and the statistic are superseded by the
+section above; the chunking, seeding, futility, resume and refresh rules
+below still hold.
 
 A candidate is sampled in chunks of one long session, **1000 runs/config x
 54 configs = 54k runs** (~4 min explore + ~3 min grade), seeds 1000, 1001,

@@ -1,36 +1,58 @@
 // Deterministic acceptance gates. Every verdict is code, not model judgment.
 // Objectives, in priority order:
 //   1. violations (porcupine ground truth)
-//   2. P(prefix depth >= k) for k = 8 down to 4
-//   3. H2 stale-incarnation rate (the hazard most causally tied to the bug)
-// Superiority (add/enabling gains) = CI-separated improvement on >=1 objective
-// with no CI-separated regression on violations or depth>=4.
+//   2. prefix-depth rung events per explore-second, depth>=6 first, then 5
+//      and 4; depth>=7 and 8 are recorded, never decided on
+//   3. H2 stale-incarnation rate, recorded
+// Superiority (add/enabling gains) = separated improvement on >=1 objective
+// with no separated regression on violations or per-run depth>=4, and
+// throughput at or above the floor.
 // Non-inferiority (ablate/enabling base) = no objective worse than margin.
 import type { BenchResult } from "./bench.js";
 import type { PanelSummary } from "./panel.js";
 import type { Evaluation, GateDecision, Hypothesis, LadderMetrics } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
-import { rateSuperiorCI, rateNonInferior, wilson } from "./stats.js";
+import { rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv, wilson } from "./stats.js";
 
 export interface ObjectiveCounts {
   violations: { succ: number; n: number };
-  depth: Array<{ k: number; succ: number; n: number }>; // k = 4..8
+  depth: Array<{ k: number; succ: number; n: number }>; // k = 4..8, n = graded runs
   h2: { succ: number; n: number };
+  runs: number;
+  chunks: number;
+  exposureSec: number;
+  throughputCv: number;
 }
 
 export function objectiveCounts(evals: Evaluation[]): ObjectiveCounts {
   const ok = evals.filter((e) => e.ok);
   const depth = [4, 5, 6, 7, 8].map((k) => ({ k, ...aggregateDepthCounts(ok, k) }));
-  const graded = ok.reduce((a, e) => a + e.metrics.gradedRuns, 0);
   const h2succ = ok.reduce((a, e) => a + Math.round(e.metrics.h2Rate * e.metrics.runs), 0);
   const runs = ok.reduce((a, e) => a + e.metrics.runs, 0);
-  void graded;
   return {
     violations: aggregateViolations(ok),
     depth,
     h2: { succ: h2succ, n: runs },
+    runs,
+    chunks: ok.length,
+    exposureSec: ok.reduce((a, e) => a + e.metrics.exposureMs / 1000, 0),
+    throughputCv: throughputCv(ok.map((e) => e.metrics.runsPerSec)),
   };
 }
+
+// Variance the throughput jitter adds to the log ratio of two pooled
+// per-second rates. One definition, used by the sequential rule and the
+// merge gate alike so the two cannot disagree on it.
+export function exposureVarianceOf(
+  cand: { throughputCv: number; chunks: number }, base: { throughputCv: number; chunks: number },
+): number {
+  return (cand.chunks > 0 ? (cand.throughputCv ** 2) / cand.chunks : 0)
+    + (base.chunks > 0 ? (base.throughputCv ** 2) / base.chunks : 0);
+}
+
+// The rungs a separated per-second gain can advance on. Deeper rungs carry
+// too few events per session to decide (research/observations/POWER_FLOOR.md).
+export const ADVANCE_RUNGS = [4, 5, 6] as const;
 
 export interface Comparison {
   improved: string[];
@@ -39,7 +61,7 @@ export interface Comparison {
 }
 
 // z defaults to 1.96 (promote: spends compute, not merges). The merge gate
-// passes MERGE_Z = 2.7 - Bonferroni over the ~7 objectives tested, holding
+// passes MERGE_Z = 2.7 - Bonferroni over the objectives tested, holding
 // familywise false-positive near 5% per hypothesis.
 export const MERGE_Z = 2.7;
 export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96): Comparison {
@@ -47,22 +69,31 @@ export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, 
   const regressed: string[] = [];
   const deltas: Record<string, number> = {};
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
+  const perSec = (succ: number, exposureSec: number): number => (exposureSec > 0 ? succ / exposureSec : 0);
+  const xv = exposureVarianceOf(cand, base);
 
   deltas["violations"] = rate(cand.violations) - rate(base.violations);
   if (cand.violations.succ > 0 && base.violations.succ === 0) improved.push("violations");
   else if (rateSuperiorCI(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, z)) improved.push("violations");
   if (rateSuperiorCI(base.violations.succ, base.violations.n, cand.violations.succ, cand.violations.n, z)) regressed.push("violations");
 
+  // Depth deltas are relative rates per explore-second; the guard against
+  // shallower runs is per graded run.
   for (const d of cand.depth) {
     const b = base.depth.find((x) => x.k === d.k);
     if (!b) continue;
-    deltas[`depth>=${d.k}`] = rate(d) - rate(b);
-    if (rateSuperiorCI(d.succ, d.n, b.succ, b.n, z)) improved.push(`depth>=${d.k}`);
-    if (d.k <= 4 && rateSuperiorCI(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
+    const cr = perSec(d.succ, cand.exposureSec);
+    const br = perSec(b.succ, base.exposureSec);
+    deltas[`depth>=${d.k}`] = br > 0 ? cr / br - 1 : 0;
+    if ((ADVANCE_RUNGS as readonly number[]).includes(d.k)
+        && rateRatioSeparated(d.succ, cand.exposureSec, b.succ, base.exposureSec, z, xv)) improved.push(`depth>=${d.k}`);
+    if (d.k === 4 && rateRatioSeparated(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
   }
 
   deltas["h2"] = rate(cand.h2) - rate(base.h2);
-  if (rateSuperiorCI(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n, z)) improved.push("h2");
+  deltas["throughput"] = cand.exposureSec > 0 && base.exposureSec > 0 && base.runs > 0
+    ? (cand.runs / cand.exposureSec) / (base.runs / base.exposureSec) - 1
+    : 0;
 
   return { improved, regressed, deltas };
 }
@@ -137,9 +168,15 @@ export interface FinalGateInputs {
   regressionDetail?: string | undefined;
   lintFailures: string[];
   changedSpurFiles: string[];
-  throughputRatio: number | null; // cand runsPerSec / baseline runsPerSec
+  throughputRatio: number | null; // cand runs per explore-second / baseline's
+  // Below this ratio a gain cannot merge: the objective already credits
+  // throughput, so a slower candidate has to have earned its rate. Defaults
+  // to the regression suite's tolerance.
+  throughputFloor?: number | undefined;
   panel?: PanelSummary | undefined;
 }
+
+export const DEFAULT_THROUGHPUT_FLOOR = 0.8;
 
 export function finalGate(i: FinalGateInputs): GateDecision {
   const cand = objectiveCounts(i.confirmEvals);
@@ -147,6 +184,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   const cmp = compareToBaseline(cand, base, MERGE_Z);
   const reasons: string[] = [];
   let verdict: GateDecision["verdict"];
+  const floor = i.throughputFloor ?? DEFAULT_THROUGHPUT_FLOOR;
 
   if (i.lintFailures.length > 0) {
     verdict = "closed";
@@ -160,7 +198,10 @@ export function finalGate(i: FinalGateInputs): GateDecision {
       const superior = cmp.improved.length > 0 && cmp.regressed.length === 0;
       const ni = nonInferior(cand, base);
       const pass = kind === "add" ? superior : superior || ni.ok;
-      if (!pass) {
+      if ((i.throughputRatio ?? 1) < floor) {
+        verdict = "closed";
+        reasons.push(`throughput ratio ${(i.throughputRatio ?? 1).toFixed(3)} below floor ${floor}`);
+      } else if (!pass) {
         verdict = "closed";
         reasons.push(kind === "add" ? `no CI-separated improvement (improved=[${cmp.improved}], regressed=[${cmp.regressed}])` : `neither superior nor non-inferior: ${ni.failures.join(",")}`);
       } else if (classifyChangeRisk(i.changedSpurFiles) === "semantics") {
@@ -201,15 +242,12 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     reasons.push(`panel detection down across ${i.panel.judging.length} judging member(s) (combined z ${i.panel.combinedZ.toFixed(2)})`);
   }
 
-  const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
-  // Primary: violations when they move; otherwise depth>=5 - the deepest rung
-  // with measurable baseline support (depth>=6..8 are 0 at baseline and act
-  // as jackpot indicators, not gradients).
-  const primary = cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=5"] ?? 0);
-  // Run rate is the budget the loop spends, not one of its objectives, so it
-  // gates nothing outside ablations. Recording it on every decision is what
-  // makes erosion across merges visible at all; without it there is no series
-  // to trend.
+  // Primary: violations when they move; otherwise depth>=6 per second - the
+  // deepest rung with the power to decide (POWER_FLOOR.md).
+  const primary = cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=6"] ?? 0);
+  // Run rate multiplies every rung, so it is inside the objective now; it is
+  // still recorded on its own so erosion across merges stays visible as a
+  // series.
   const throughput = (i.throughputRatio ?? 1) - 1;
   return {
     hypothesisId: i.hypothesis.id,
@@ -227,7 +265,11 @@ export function summarizeLadder(m: LadderMetrics): string {
     const [lo, hi] = wilson(c, m.gradedRuns);
     return `P(d>=${k})=${(m.gradedRuns ? c / m.gradedRuns : 0).toFixed(4)} [${lo.toFixed(4)},${hi.toFixed(4)}]`;
   };
-  return `runs=${m.runs} viol=${m.violations} unk=${m.unknown} ${p(4)} ${p(6)} ${p(8)} h2=${m.h2Rate.toFixed(3)} rps=${m.runsPerSec.toFixed(1)}`;
+  const perSec = (k: number): string => {
+    const c = m.depthAtLeast[k - 1] ?? 0;
+    return m.exposureMs > 0 ? `d>=${k}/s=${(c / (m.exposureMs / 1000)).toFixed(2)}` : `d>=${k}/s=-`;
+  };
+  return `runs=${m.runs} viol=${m.violations} unk=${m.unknown} ${p(4)} ${p(6)} ${p(8)} ${perSec(6)} h2=${m.h2Rate.toFixed(3)} rps=${m.runsPerSec.toFixed(1)} exposure=${Math.round(m.exposureMs / 1000)}s`;
 }
 
 // Gate for perf-kind hypotheses: A/B bench superiority is the objective;

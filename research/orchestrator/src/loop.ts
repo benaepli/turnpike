@@ -11,7 +11,7 @@ import {
 import { classifyChangeRisk, compareToBaseline, finalGate, nonInferior, objectiveCounts, perfGate, screenAdvances } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
-import { loadSeqState, pooledCountsOf, runSequential, type SeqKind } from "./sequential.js";
+import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
 import {
   RESEARCH_BRANCH, SPUR, SUPER, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto, resetBranchTo,
   currentCommit, deleteBranch, diffText, createPr, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
@@ -72,14 +72,24 @@ export function sequentialBaselineChunks(policy: Policy): number {
 // with baseline chunks at the same seeds.
 export async function topUpSequentialBaseline(ctx: EvalContext, existing: Evaluation[], target: number): Promise<Evaluation[]> {
   const p = ctx.policy.sequential;
-  const evals = existing.filter((e) => e.ok);
+  const evals = existing.filter((e) => e.ok && e.timingAnomaly === null);
   const used = new Set(evals.map((e) => e.seed));
   for (let seed = 1000; evals.length < target && seed < 1000 + 4 * target; seed++) {
     if (used.has(seed)) continue;
     const e = await runOneEvaluation(ctx, "baseline", "sequential", seed, {
-      runsPerConfig: p.chunkRunsPerConfig, exploreWallSec: p.wallSecPerChunk, gradeMaxRuns: 0, gradeBudgetMs: p.wallSecPerChunk * 1000,
+      runsPerConfig: p.maxRunsPerConfig, exploreWallSec: p.exploreBudgetSec, exploreBudgetSec: p.exploreBudgetSec,
+      gradeMaxRuns: 0, gradeBudgetMs: p.wallSecPerChunk * 1000,
     });
-    if (e.ok) evals.push(e);
+    if (!e.ok) continue;
+    // The baseline has no candidate to be slow: a chunk far off its own
+    // siblings' throughput is the host, and it must not set the rate the
+    // candidates are held to.
+    const anomaly = classifyChunkTiming(e, evals.length >= 2 ? medianRps(pooledCountsOf(evals)) : null, false);
+    if (anomaly !== null) {
+      console.log(`baseline chunk seed ${seed} excluded: ${anomaly}`);
+      continue;
+    }
+    evals.push(e);
   }
   return evals;
 }
@@ -349,7 +359,7 @@ function markInconclusive(state: LoopState, n: number, h: Hypothesis, branch: st
     if (spurChanged) push(SPUR, branch, { setUpstream: true });
     push(SUPER, branch, { setUpstream: true });
   } catch { /* the local branches still hold the work */ }
-  const best = Math.max(seq.posteriors["depth>=4:pGreater"] ?? 0, seq.posteriors["depth>=5:pGreater"] ?? 0);
+  const best = Math.max(seq.posteriors["depth>=4:pGreater"] ?? 0, seq.posteriors["depth>=5:pGreater"] ?? 0, seq.posteriors["depth>=6:pGreater"] ?? 0);
   state.setMeta(`seq:${h.id}`, JSON.stringify({ ...seq, lastIteration: n }));
   state.upsertHypothesis({ ...h, status: "inconclusive", branch, notes: `[inconclusive iteration ${n}] ${reason}; pGreater ${best.toFixed(3)} after ${seq.chunks} chunks / ${seq.runs} runs; resumes ${seq.resumes}` });
   journal(state, n, "inconclusive", { id: h.id, reason, chunks: seq.chunks, runs: seq.runs, posteriors: seq.posteriors, resumes: seq.resumes });
@@ -635,7 +645,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const resumes = priorSeq.lastVerdict === "inconclusive" ? priorSeq.resumes + 1 : priorSeq.resumes;
         prior = priorSeq.baselineKey === baselineKey
           ? { ...priorSeq, resumes }
-          : { ...priorSeq, resumes, chunks: 0, runs: 0, graded: 0, depth4: 0, depth5: 0, depth6plus: 0, violations: 0, h2Count: 0, posteriors: {}, lastVerdict: "", baselineKey };
+          : { ...initialSeqState(h.id, baselineKey), resumes, nextSeed: priorSeq.nextSeed, lastIteration: priorSeq.lastIteration };
         if (priorSeq.baselineKey !== baselineKey) journal(state, n, "seq_reset", { id: h.id, from: priorSeq.baselineKey, to: baselineKey });
       }
       // The candidate's own mechanism counters. Evaluation runs do not carry
@@ -651,7 +661,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       const res = await timed("evaluate", () => runSequential({
         ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.sequential), prior, baselineKey,
         maxChunksTotal: policy.sequential.maxChunks * (policy.sequential.maxResumes + 1),
-        onChunk: (seq, d) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, depth4: seq.depth4, depth5: seq.depth5, depth6: seq.depth6plus, h2: seq.h2Count, violations: seq.violations, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors }),
+        onChunk: (seq, d) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, exposureSec: Math.round(seq.exposureSec), rps: seq.rpsChunks.at(-1) ?? 0, depth4: seq.depth4, depth5: seq.depth5, depth6: seq.depth6plus, depth7: seq.depth7plus, depth8: seq.depth8plus, h2: seq.h2Count, violations: seq.violations, anomalies: seq.anomalies, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors }),
+        onAnomaly: (e, reason) => journal(state, n, "seq_chunk_anomaly", { seed: e.seed, reason, runs: e.metrics.runs, rps: e.metrics.runsPerSec, exposureMs: e.metrics.exposureMs, suspendedMs: e.suspendedMs, utilStats: e.utilStats }),
         stopRequested,
       }));
       allEvals["sequential"] = res.evals;
@@ -673,7 +684,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // the separable threshold. A precisely-measured sub-threshold effect
         // (low pMei) will never separate against the fixed-size baseline, so
         // it is closed rather than re-sampled every cooldown.
-        const bestPMei = Math.max(res.seq.posteriors["depth>=4:pMei"] ?? 0, res.seq.posteriors["depth>=5:pMei"] ?? 0);
+        const bestPMei = Math.max(res.seq.posteriors["depth>=4:pMei"] ?? 0, res.seq.posteriors["depth>=5:pMei"] ?? 0, res.seq.posteriors["depth>=6:pMei"] ?? 0);
         if (bestPMei >= RESUME_PMEI_MIN && res.seq.resumes < policy.sequential.maxResumes) {
           markInconclusive(state, n, h, branch, res.seq, res.reason, spurFiles.length > 0);
           return;
@@ -695,18 +706,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // The pooled chunks are the merge evidence: same protocol and seeds
         // as the baseline chunks they are compared with.
         confirmEvals = res.evals.filter((e) => e.ok);
-        const seqRps = res.evals.filter((e) => e.ok).map((e) => e.metrics.runsPerSec);
-        const meanRps = seqRps.length ? seqRps.reduce((a, b) => a + b, 0) / seqRps.length : 0;
-        // Compare like with like. baseline.runsPerSec comes from the screen
-        // arm, whose runs are shorter and therefore faster, so dividing a
-        // sequential mean by it reports roughly -7% for a candidate that is
-        // actually level: measured 268.1 against 287.8 while the bench's own
-        // paired rounds in one window gave 254.1 against 253.0.
-        const baseSeqRps = baseline.sequential.filter((e) => e.ok).map((e) => e.metrics.runsPerSec);
-        const baseMeanRps = baseSeqRps.length
-          ? baseSeqRps.reduce((a, b) => a + b, 0) / baseSeqRps.length
-          : baseline.runsPerSec;
-        throughputRatio = baseMeanRps > 0 ? meanRps / baseMeanRps : null;
+        // Like against like: runs per explore-second pooled over the
+        // candidate's chunks against the baseline chunks of the same
+        // protocol. The screen arm's rate is a different regime (shorter,
+        // faster runs) and would read a level candidate as slower.
+        throughputRatio = throughputRatioOf(pooledFromSeq(res.seq), pooledCountsOf(baseline.sequential));
         const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
         regressionPassed = regr.passed;
         regressionDetail = regr.cases.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join("; ");
@@ -724,6 +728,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       lintFailures,
       changedSpurFiles: spurFiles,
       throughputRatio,
+      throughputFloor: 1 - policy.regression.throughputTolerance,
     });
     if (!perfDecision && !decisionInputsReady && lintFailures.length === 0) {
       decision.verdict = "closed";
@@ -734,12 +739,12 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const cmp = compareToBaseline(objectiveCounts(ran), objectiveCounts(baseRan));
         const h1 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h1Rate, 0) / ok.length : 0; };
         const h3 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h3Rate, 0) / ok.length : 0; };
-        decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=5"] ?? 0) };
+        decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=6"] ?? 0) };
       }
     }
     if (escalated && lintFailures.length === 0) {
       decision.verdict = "needs_human";
-      decision.reasons = ["depth>=6 events against a zero baseline, below gate separation - human review of the pooled evidence"];
+      decision.reasons = ["a depth the baseline never reaches appeared, below gate separation - human review of the pooled evidence"];
     }
     const paramsAfter = generalConfigParamCount(policy);
     decision.objectiveDeltas["params"] = paramsAfter - paramsBefore;
@@ -811,7 +816,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const evalConfig = readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8");
         const lastChunk = state.allEvaluations().filter((e) => e.fidelity === "sequential" && e.ok).at(-1);
         const chunkLine = lastChunk
-          ? `One sequential chunk = ${lastChunk.metrics.runs} runs (${policy.sequential.chunkRunsPerConfig} runs/config across the grid), explore ${Math.round(lastChunk.exploreWallMs / 1000)} s; ${policy.sequential.minChunks}-${policy.sequential.maxChunks} chunks per hypothesis; the baseline holds ${policy.sequential.maxChunks} chunks.`
+          ? `One sequential chunk = a ${policy.sequential.exploreBudgetSec} s explore budget over the interleaved grid (${lastChunk.metrics.runs} runs at ${lastChunk.metrics.runsPerSec.toFixed(0)} runs/s in the last chunk); the objective is rung events per explore-second; ${policy.sequential.minChunks}-${policy.sequential.maxChunks} chunks per hypothesis; the baseline holds ${policy.sequential.maxChunks} chunks.`
           : "No sequential chunk recorded yet.";
         const audit = await runAudit(policy, n, readStatusMd(), ledger, `## Evaluation config (mechanisms not enabled here are expected to read zero)\n${evalConfig}\n\n${util}`, `${evaluationContext(state, policy)}\n${chunkLine}`);
         if (!audit.value) journal(state, n, "audit_error", { error: audit.error, cost: audit.costUsd });
