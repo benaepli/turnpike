@@ -1,7 +1,7 @@
 # Parameter Derivations
 
 Every statistical parameter is derived from the measured baseline
-(`evaluations/000-baseline.json`); judgment-call parameters are labeled as
+(`evaluations/000-baseline-<threads>.json`); judgment-call parameters are labeled as
 such. Re-derive when the baseline moves materially (grader change, big
 throughput change).
 
@@ -227,7 +227,7 @@ of budget, rates or baseline size that breaks the relation fails loudly.
 
 **Operating characteristics** (`npx tsx src/selftest_sequential.ts 60
 --assert`): the simulator reads the rule from `research/policy.json` and the
-chunk shape from the recorded baseline in `evaluations/000-baseline.json`, so
+chunk shape from the recorded baseline in `evaluations/000-baseline-<threads>.json`, so
 it describes the regime the loop runs. At the epoch-7 baseline (300 s
 campaign chunks, 912,180 runs over four chunks): A/A -> 0% advance, 97%
 reject, 3% inconclusive (the d7 extension on a null, mean 2.5 chunks); +25%
@@ -536,3 +536,19 @@ reads runs in chunks of 500 (peak 2.5 GB for all 13.5k runs, 50 s), so
 `gradeMaxRuns: 0` (grade all) stays the derived default at every fidelity.
 Lesson recorded: parameter changes that alter *which code runs at what scale*
 need a resource measurement, not only a statistical derivation.
+
+## Calibration per thread count
+
+The explorer shares one feedback map across the parallel run set, so what a
+session explores depends on how many threads run it, and every calibrated
+number is a property of that count. The store keeps one baseline per count
+(`baseline:<threads>` in the state, `evaluations/000-baseline-<threads>.json`
+as evidence) and one panel manifest per count (`panel/manifest.<threads>.json`,
+falling back to `panel/manifest.json`); the loop, the regression suite and the
+status page all read the entry for the count the host resolves to, and refuse
+to evaluate when there is none. Decisions and evaluations record their count,
+and a decision informs lineage scoring and calibration only under the same
+epoch and the same count. The count itself derives from the CPU mask the unit
+runs under (`availableParallelism() - 2`), so pinning the loop to a subset of
+the machine changes it without a policy edit.
+

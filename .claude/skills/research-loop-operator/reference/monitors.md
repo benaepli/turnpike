@@ -138,7 +138,7 @@ systemd-run --user --unit=spur-baseline --collect --setenv=PATH="$PATH" --proper
 Then monitor `$LOG` for `seed N: done`, `recorded`, `Error`, and the unit
 becoming inactive. 14G holds: the campaign baseline peaked at 10.5G and the
 90 s-chunk baseline at 4.9G, the panel A/A at about 4G. The grader keeps one
-500-run chunk resident; a grader change that holds more must re-measure. `--setenv=PATH` is not optional: a user unit starts with
+500-run chunk resident; a grader change that holds more must re-measure. When the loop runs pinned (`SPUR_LOOP_CPUS` set at start), add `--property=AllowedCPUs=$SPUR_LOOP_CPUS` to this and every other detached unit: the thread count derives from the mask, and a measurement taken under a different mask records under a different baseline key. `--setenv=PATH` is not optional: a user unit starts with
 the system PATH, and a system node of another major version loads
 better-sqlite3 into the wrong ABI and segfaults before the first line of
 output (exit 139, empty log). Do not run the baseline while the loop daemon is active

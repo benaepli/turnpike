@@ -126,3 +126,16 @@ Agent credentials for the SDK are host-local. `research/logs/` and
 `research/corpus/*/` are gitignored working data. Absolute paths in
 `research/evaluations/*.json` are records of runs that happened on the old host
 and are left as they are.
+
+## Running on a subset of the machine
+
+Start the loop with `SPUR_LOOP_CPUS=<cpu list>` and every detached unit with
+`--property=AllowedCPUs=<cpu list>`; pin foreground work with
+`taskset -c <cpu list>`. The thread count derives from the mask, so no policy
+edit is needed, and each mask needs its own baseline and panel calibration
+once (`cli baseline`, `cli panel-calibrate`, `cli regression` under the mask);
+after that a switch is a restart. On this host, a Ryzen 9 9950X, CPUs 0-15
+are the sixteen cores and 16-31 their SMT siblings, with cores 0-7 on one CCD
+and 8-15 on the other; `0-7,16-23` is one whole CCD and resolves to 14
+threads.
+

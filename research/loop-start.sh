@@ -12,8 +12,13 @@ if command -v systemd-run >/dev/null; then
   # Capped below total RAM so a runaway kills only the loop, not the desktop.
   # The unit does not inherit the shell's PATH, and a system node of another
   # major version segfaults in better-sqlite3 built against the nvm one.
+  # SPUR_LOOP_CPUS pins the unit and everything it spawns to a CPU set; the
+  # thread count the loop measures at derives from that mask, and each mask
+  # needs its own baseline and panel calibration once.
+  CPUS=()
+  [ -n "${SPUR_LOOP_CPUS:-}" ] && CPUS=(--property=AllowedCPUs="$SPUR_LOOP_CPUS")
   systemd-run --user --unit=spur-research-loop --collect \
-    --setenv=PATH="$PATH" \
+    --setenv=PATH="$PATH" "${CPUS[@]}" \
     --property=MemoryHigh="${SPUR_LOOP_MEM_HIGH:-10G}" \
     --property=MemoryMax="${SPUR_LOOP_MEM_MAX:-14G}" \
     --property=MemorySwapMax=0 \
