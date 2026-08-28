@@ -3,7 +3,7 @@
 // Commands: baseline | once | start | status | regression | selftest
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
-import { runEvaluation, type EvalContext } from "./evaluate.js";
+import { runEvaluation, selfTestRunIdentity, type EvalContext } from "./evaluate.js";
 import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
 import { graderVersion, loadBaseline, loadReference, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
         const { policy, clamps } = loadPolicy(POLICY_PATH);
         const stored = loadBaseline(state);
         const live = stored && stored.sequential.some((e) => e.ok) ? { base: pooledCountsOf(stored.sequential), rule: seqRuleOf(policy) } : undefined;
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(live), ...selfTestRender()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(live), ...selfTestRender(), ...selfTestRunIdentity()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         console.log("stats + posterior + panel + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
         console.log("models:", policy.models);

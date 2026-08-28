@@ -315,12 +315,15 @@ export async function runOneEvaluation(
       await preserveViolations(ctx, base.id, outputDir, configPath, violatingIds, porc.parsed, rows);
     }
     const gradeDegenerate = gr.parsed === null || (metrics.runs > 0 && metrics.gradedRuns === 0);
-    const ok = porc.parsed !== null && !gradeDegenerate;
+    const identity = checkRunIdentity(rows, violatingIds, gr.parsed?.runs_meta ?? null, porc.parsed?.total_runs ?? null);
+    const ok = porc.parsed !== null && !gradeDegenerate && identity === null;
     const error = ok
       ? null
       : porc.parsed === null
         ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`
-        : `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""})`;
+        : gradeDegenerate
+          ? `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""})`
+          : identity;
     console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s exposure=${Math.round(exposureMs / 1000)}s${session?.budgetHit ? " (budget hit)" : ""}${(exploreRes.suspendedMs ?? 0) > 0 ? ` (suspended ${Math.round((exploreRes.suspendedMs ?? 0) / 1000)}s)` : ""} porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
     if (!ok) {
       try {
@@ -379,3 +382,40 @@ export function aggregateViolations(evals: Evaluation[]): { succ: number; n: num
   }
   return { succ, n };
 }
+
+/** A run id must name one run. Two runs under one id read to the checker as
+ *  one merged history, which a violation verdict then rests on; the grader
+ *  counts runs-table rows and the checker counts distinct ids, so the two
+ *  totals disagree when that happens. Returns the defect, or null. */
+export function checkRunIdentity(
+  rows: RunRow[], violatingIds: number[], runsMeta: { present: boolean; runs: number } | null, checkerTotal: number | null,
+): string | null {
+  const seen = new Set<number>();
+  const dup = new Set<number>();
+  for (const r of rows) {
+    if (seen.has(r.run_id)) dup.add(r.run_id);
+    seen.add(r.run_id);
+  }
+  if (dup.size > 0) return `run id collision: ${dup.size} id(s) with more than one runs-table row (first ${[...dup].slice(0, 3).join(", ")})`;
+  if (rows.length > 0) {
+    const missing = violatingIds.filter((id) => !seen.has(id));
+    if (missing.length > 0) return `run id collision: ${missing.length} violating id(s) with no runs-table row (first ${missing.slice(0, 3).join(", ")})`;
+  }
+  if (runsMeta !== null && runsMeta.present && checkerTotal !== null && runsMeta.runs !== checkerTotal) {
+    return `run id collision: the runs table has ${runsMeta.runs} rows and the checker saw ${checkerTotal} distinct runs`;
+  }
+  return null;
+}
+
+export function selfTestRunIdentity(): string[] {
+  const f: string[] = [];
+  const row = (id: number): RunRow => ({ run_id: id, arm: "grid", arm_index: 0, config_index: 0, steps_used: 1, wall_us: 1, end_reason: "plan_complete", session_offset_ms: 0,
+    timers_fired: 0, timers_acted: 0, timers_inflight_fired: 0, timers_inflight_acted: 0, timers_idle_fired: 0, timers_idle_acted: 0, max_inert_streak: 0 });
+  if (checkRunIdentity([row(1), row(2)], [2], { present: true, runs: 2 }, 2) !== null) f.push("distinct ids with matching totals are sound");
+  if (checkRunIdentity([row(1), row(1)], [], { present: true, runs: 2 }, 1) === null) f.push("a duplicated run id must be reported");
+  if (checkRunIdentity([row(1)], [7], { present: true, runs: 1 }, 1) === null) f.push("a violating id without a row must be reported");
+  if (checkRunIdentity([], [], { present: true, runs: 10 }, 9) === null) f.push("a runs-table total that disagrees with the checker must be reported");
+  if (checkRunIdentity([], [3], { present: false, runs: 0 }, 5) !== null) f.push("a corpus without a runs table cannot be checked and is not flagged");
+  return f;
+}
+
