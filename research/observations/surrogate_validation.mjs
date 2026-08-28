@@ -12,6 +12,11 @@
 // holds; the report writes one `admissible: <kind>` line per admitted kind,
 // which the harness lint reads.
 //
+// Every arm's reward and outcome are reported both per arm second and per
+// run: per second is what an allocation would spend on, but an arm that
+// simply runs faster raises every per-second column together, so the
+// admissibility rule is judged on the per-run pair.
+//
 // Usage: node research/observations/surrogate_validation.mjs [--wall 120]
 //        [--vr-wall 600] [--seeds 3] [--out research/observations/SURROGATE_VALIDATION.md]
 import { execFileSync, spawnSync } from "node:child_process";
@@ -91,13 +96,18 @@ function session(host, spec, extra, model, wall, seed, oracle) {
   }
   const viol = new Set(porc.violating_run_ids ?? []);
   const perArm = {};
-  for (const a of report.arms) perArm[a.id] = { wallSec: a.wall_ms / 1000, violations: 0, depth6: 0, rewards: {} };
+  for (const a of report.arms) perArm[a.id] = { wallSec: a.wall_ms / 1000, runs: a.runs, violations: 0, depth6: 0, rewards: {}, rewardsPerRun: {} };
   for (const r of rows) { const a = perArm[r.arm]; if (!a) continue; if (viol.has(r.run_id)) a.violations++; if ((depths.get(r.run_id) ?? 0) >= 6) a.depth6++; }
   for (const a of report.arms) {
     const acc = perArm[a.id];
-    for (const [kind, p] of Object.entries(REWARD_PATHS)) acc.rewards[kind] = acc.wallSec > 0 ? leaf(a.counters, p) / acc.wallSec : 0;
+    for (const [kind, p] of Object.entries(REWARD_PATHS)) {
+      acc.rewards[kind] = acc.wallSec > 0 ? leaf(a.counters, p) / acc.wallSec : 0;
+      acc.rewardsPerRun[kind] = acc.runs > 0 ? leaf(a.counters, p) / acc.runs : 0;
+    }
     acc.violationsPerSec = acc.wallSec > 0 ? acc.violations / acc.wallSec : 0;
     acc.depth6PerSec = acc.wallSec > 0 ? acc.depth6 / acc.wallSec : 0;
+    acc.violationsPerRun = acc.runs > 0 ? acc.violations / acc.runs : 0;
+    acc.depth6PerRun = acc.runs > 0 ? acc.depth6 / acc.runs : 0;
   }
   rmSync(out, { recursive: true, force: true });
   for (const f of [cfgPath, `${out}.session.json`, `${out}.utilization.json`, `${out}.campaign.json`]) rmSync(f, { force: true });
@@ -125,24 +135,37 @@ for (const h of hosts) {
   if (perSeed.length === 0) continue;
   const arms = Object.keys(perSeed[0]);
   const outcomeKey = h.oracle ? "depth6PerSec" : "violationsPerSec";
+  const outcomePerRunKey = h.oracle ? "depth6PerRun" : "violationsPerRun";
   const totalViol = perSeed.reduce((a, p) => a + arms.reduce((b, id) => b + p[id].violations, 0), 0);
   const totalOutcome = perSeed.reduce((a, p) => a + arms.reduce((b, id) => b + (h.oracle ? p[id].depth6 : p[id].violations), 0), 0);
-  const row = { id: h.id, role: h.role, events: totalOutcome, violations: totalViol, rho: {} };
+  const row = { id: h.id, role: h.role, events: totalOutcome, violations: totalViol, rho: {}, rhoPerRun: {} };
+  const meanRho = (get, outKey) => {
+    const rs = perSeed.map((p) => spearman(arms.map((id) => get(p[id])), arms.map((id) => p[id][outKey]))).filter((r) => r !== null);
+    return rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null;
+  };
   for (const kind of Object.keys(REWARD_PATHS)) {
-    const rs = perSeed.map((p) => spearman(arms.map((id) => p[id].rewards[kind]), arms.map((id) => p[id][outcomeKey]))).filter((r) => r !== null);
-    row.rho[kind] = rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null;
-    (rhoByKind[kind] ??= []).push({ host: h, rho: row.rho[kind], events: totalOutcome });
+    row.rho[kind] = meanRho((a) => a.rewards[kind], outcomeKey);
+    row.rhoPerRun[kind] = meanRho((a) => a.rewardsPerRun[kind], outcomePerRunKey);
+    (rhoByKind[kind] ??= []).push({ host: h, rho: row.rhoPerRun[kind], rhoPerSec: row.rho[kind], events: totalOutcome });
   }
   table.push(row);
-  lines.push(`## ${h.id} (${h.role}, ${totalOutcome} graded events over ${perSeed.length} seed(s))`, "", "| arm | " + Object.keys(REWARD_PATHS).map((k) => `${k}/s`).join(" | ") + ` | ${outcomeKey} |`, "| --- |" + Object.keys(REWARD_PATHS).map(() => " --- |").join("") + " --- |");
+  const kinds = Object.keys(REWARD_PATHS);
+  lines.push(`## ${h.id} (${h.role}, ${totalOutcome} graded events over ${perSeed.length} seed(s))`, "");
+  lines.push("Per arm second:", "", "| arm | runs/s | " + kinds.map((k) => `${k}/s`).join(" | ") + ` | ${outcomeKey} |`, "| --- | --- | " + kinds.map(() => "---").join(" | ") + " | --- |");
   for (const id of arms) {
     const avg = (f) => (perSeed.reduce((a, p) => a + f(p[id]), 0) / perSeed.length);
-    lines.push(`| ${id} | ` + Object.keys(REWARD_PATHS).map((k) => avg((a) => a.rewards[k]).toFixed(2)).join(" | ") + ` | ${avg((a) => a[outcomeKey]).toFixed(4)} |`);
+    lines.push(`| ${id} | ${avg((a) => (a.wallSec > 0 ? a.runs / a.wallSec : 0)).toFixed(1)} | ` + kinds.map((k) => avg((a) => a.rewards[k]).toFixed(2)).join(" | ") + ` | ${avg((a) => a[outcomeKey]).toFixed(4)} |`);
   }
-  lines.push("", "Spearman rho across arms: " + Object.entries(row.rho).map(([k, r]) => `${k} ${r === null ? "n/a" : r.toFixed(2)}`).join(", "), "");
+  lines.push("", "Per run:", "", "| arm | " + kinds.map((k) => `${k}/run`).join(" | ") + ` | ${outcomePerRunKey} |`, "| --- | " + kinds.map(() => "---").join(" | ") + " | --- |");
+  for (const id of arms) {
+    const avg = (f) => (perSeed.reduce((a, p) => a + f(p[id]), 0) / perSeed.length);
+    lines.push(`| ${id} | ` + kinds.map((k) => avg((a) => a.rewardsPerRun[k]).toFixed(4)).join(" | ") + ` | ${avg((a) => a[outcomePerRunKey]).toFixed(5)} |`);
+  }
+  lines.push("", "Spearman rho across arms, per second (reference): " + Object.entries(row.rho).map(([k, r]) => `${k} ${r === null ? "n/a" : r.toFixed(2)}`).join(", "));
+  lines.push("Spearman rho across arms, per run (judged): " + Object.entries(row.rhoPerRun).map(([k, r]) => `${k} ${r === null ? "n/a" : r.toFixed(2)}`).join(", "), "");
 }
 
-lines.push("## Admissibility", "", `A reward kind is admissible when rho >= ${RHO_GATE} on every gate member with at least ${MIN_VIOLATIONS_TO_JUDGE} violations, rho >= 0 on every other member with at least ${MIN_VIOLATIONS_TO_JUDGE} violations, and rho >= ${RHO_VR} on the evaluation spec's depth>=6 rate. A member with fewer events is not counted either way.`, "");
+lines.push("## Admissibility", "", `A reward kind is admissible when its per-run rho >= ${RHO_GATE} on every gate member with at least ${MIN_VIOLATIONS_TO_JUDGE} violations, per-run rho >= 0 on every other member with at least ${MIN_VIOLATIONS_TO_JUDGE} violations, and per-run rho >= ${RHO_VR} on the evaluation spec's depth>=6. Per-second rho is reported for reference: an arm that runs faster raises every per-second column together.`, "");
 const admitted = [];
 for (const [kind, rows] of Object.entries(rhoByKind)) {
   let ok = true;
