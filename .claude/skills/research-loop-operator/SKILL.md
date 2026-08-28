@@ -168,11 +168,13 @@ boundary procedure (step 8).
 - Heartbeat ticks: one line, only what changed.
 - Journal events with content (seq_chunk/sequential/inconclusive/decision/
   audit/publish): interpret them. `seq_chunk` carries the running posteriors
-  (`depth>=5:pGreater`, `:pMei`, `:ratio`, `:mei`); `sequential` is the
-  verdict (advance -> regression suite and merge gate on the pooled chunks;
-  reject -> closed; escalate -> depth>=6 events appeared, sampling was
-  extended to the hard cap, then a needs-human PR carries the pooled
-  evidence; inconclusive -> branch kept, resumable after the
+  per rung (`depth>=4..7:pGreater`, `:pMei`, `:ratio`, `:mei`, all on events
+  per explore-second, plus `depth>=4:pRegress` and `h2:pRegress` per run);
+  `sequential` is the verdict (advance -> regression suite and merge gate on
+  the pooled chunks; reject -> closed; escalate -> a rung the baseline never
+  reaches appeared, sampling was extended to the hard cap, then a
+  needs-human PR carries the pooled evidence; inconclusive -> branch kept,
+  resumable after the
   cooldown, up to 2 resumes). An inconclusive result is neither a negative
   nor a positive; report it as "probable, unresolved". A chunk is one
   campaign session: a fixed active-time budget (`sequential.exploreBudgetSec`,
@@ -187,16 +189,21 @@ boundary procedure (step 8).
   check. A chunk that violates keeps its evidence under
   `research/logs/violations/<evaluation id>/` (index in `INDEX.jsonl`);
   read the combined timelines there before anything else.
-  Ladder semantics (epoch 3 on): the general grid grades against
-  `research/oracle/relax_minimal_general.json`, so all eight rungs are
-  reachable. depth>=4/5 are the bulk rungs; depth>=6/7 are the live frontier
-  at roughly 762 and 72 runs per 54k chunk; depth>=8 is the full chain at
-  about 3 per chunk. Only violations are zero at baseline, so violations alone
-  are the jackpot indicator. Depth is a proxy, not the bug: general-config
-  depth-8 runs have been linearizable so far, against 71% violation at depth 8
-  in the plan corpora. H1 = crash with an in-flight send, H2 =
-  stale-incarnation delivery, H3 = two nodes crash and recover. A mechanism
-  that raises H1 but not depth shows crash timing alone is not the bottleneck.
+  Ladder semantics (epoch 7): the general grid grades against
+  `research/oracle/relax_minimal_general.json` with the oracle's timer vertex
+  matchable, so the chain reaches 9 and the ladder is read on that scale.
+  depth>=4/5 are the bulk rungs; depth>=6 is the primary rung (about 8,700
+  events per 300 s chunk); depth>=7 is a hint that extends sampling and
+  never decides; depth>=8/9 are recorded. Only violations are zero at
+  baseline, so violations alone are the jackpot indicator. Depth is a
+  proxy, not the bug: general-config full-depth runs have been linearizable
+  so far, against 71% violation at depth 8 in the plan corpora. H1 = crash
+  with an in-flight send, H2 = stale-incarnation delivery, H3 = two nodes
+  crash and recover, H4 = a timer fired on a node with a message to it in
+  flight (near 1 in general mode, so it measures the timer regime). A
+  mechanism that raises H1 but not depth shows crash timing alone is not
+  the bottleneck. Per-arm rung rates ride in `metrics.campaign` and in the
+  STATUS.md arms table; the ladder is the union over arms.
 - Distinguish evidence-based outcomes from harness-caused ones every time
   you summarize progress; never count a harness failure as a negative
   result. A unit that reads `active` is not evidence the loop is working:

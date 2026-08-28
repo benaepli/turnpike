@@ -152,7 +152,8 @@ baseline binary (spur `28a81df`), seeds 1000-1003: a 54,000-run chunk is a
 grade, with per-chunk counts depth>=4/5/6/7/8 = 19,731 / 6,033 / 883 / 110 /
 5 and h2 0.416. Grading, not exploring, is now the larger cost of a chunk.
 
-**The chunk is a fixed explore budget, `sequential.exploreBudgetSec` = 90 s.**
+**The chunk is a fixed explore budget, `sequential.exploreBudgetSec`, 90 s in
+epoch 5 and 300 s since the campaign became the unit (epoch 7, below).**
 The explorer stops issuing runs at the budget on its own clock
 (`wall_budget_sec`), walks the grid one run of every configuration per round
 so a cut leaves the corpus with the grid's composition whatever the
@@ -164,6 +165,13 @@ throughput, so every archived 54k-per-arm record stays comparable; a
 candidate at the 0.8 throughput floor still gets 43k runs, twice the
 400/config plateau onset from the session-length table, so the cold-start
 over-read cannot flip a verdict before the floor rejects.
+
+**Interleaving the grid did not move the ladder.** The last blocked-order
+baseline (superproject `464a2a3`, spur `28a81df`, 216,000 runs) and the first
+interleaved wall-budget baseline (`b1f4e0c`, spur `9223c7e`, 211,431 runs),
+same grader: mean prefix depth 3.0627 against 3.0615, P(depth>=6) 0.01636
+against 0.01661. The order a session walks the grid in is not a search
+lever; it only decides what a cut leaves behind.
 
 **The objective is rung events per explore-second.** A rung's rate is its
 count over the exposure, and two rates are compared by the log ratio of

@@ -136,7 +136,9 @@ R="$(git rev-parse --show-toplevel)"; LOG=$R/research/logs/baseline-$(date +%Y%m
 systemd-run --user --unit=spur-baseline --collect --setenv=PATH="$PATH" --property=MemoryMax=14G --property=WorkingDirectory=$R/research/orchestrator --property=StandardOutput=append:$LOG --property=StandardError=append:$LOG /bin/bash -c "npx tsx src/cli.ts baseline && cp $R/spur/target/release/spur $R/tmp/loop/spur-baseline && echo BASELINE_DONE"
 ```
 Then monitor `$LOG` for `seed N: done`, `recorded`, `Error`, and the unit
-becoming inactive. `--setenv=PATH` is not optional: a user unit starts with
+becoming inactive. 14G holds: the campaign baseline peaked at 10.5G and the
+90 s-chunk baseline at 4.9G, the panel A/A at about 4G. The grader keeps one
+500-run chunk resident; a grader change that holds more must re-measure. `--setenv=PATH` is not optional: a user unit starts with
 the system PATH, and a system node of another major version loads
 better-sqlite3 into the wrong ABI and segfaults before the first line of
 output (exit 139, empty log). Do not run the baseline while the loop daemon is active
