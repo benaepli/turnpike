@@ -2625,3 +2625,72 @@ accumulate it over two or three. That is the design working as specified
 (collapse gates within a validation, gradient accumulates across), and it is
 also the honest limit: effects of this size are not caught the first time they
 appear.
+
+## 2026-08-28T09:15:00.000Z (operator) - the loop moved to a 16-core host; the ladder reproduced, the writer did not
+
+New host: Ryzen 9 9950X, 16 cores, 32 threads, 30 GB, so `rayonThreads`
+resolves to 30 against 14 before. Every calibrated number was retaken per
+`research/TRANSFER.md`. The result worth recording first is that the
+general-config ladder did not move:
+
+| metric | old host, latest merged | new host, baseline 000 |
+|---|---|---|
+| meanPrefixDepth | 3.06 | 3.07 |
+| P(depth>=4) | 0.366 | 0.367 |
+| P(depth>=5) | 0.111 | 0.111 |
+| P(depth>=6) | 0.015 | 0.017 |
+| P(depth>=7) | 0.002 | 0.002 |
+| P(depth>=8) | 0.000 | 0.000 |
+| violations | 0 | 0 |
+| runsPerSec | 273 | 603 |
+
+Two seeds and four 54,000-run chunks agree to the third digit. The shared
+feedback map is sensitive to thread count in principle; at 14 against 30 it
+was not measurably so on this config.
+
+**The explorer was writer-bound on this host, and the old host was one
+Raft arm from the same OOM.** Every simulation thread handed its finished run
+to one parquet-writer thread through an unbounded channel. On the Raft panel
+members (5 servers, 12,000 iterations, about 1 MB of rows per run) the writer
+drained ~600 runs/s while 30 threads produced ~1,000, so memory grew at 1 GB/s
+and the 20,016-run arm was OOM-killed at 20 GB; the same arm at 14 threads
+peaked at 12.8 GB against the loop's 14 GB cap. On the VR general config the
+single writer sat at 88% of a core while every simulation thread waited on it
+half the time. Bounding the queue (spur 8fb2891) fixed the memory at the same
+wall, since the writer was already the ceiling; one writer per eight
+simulation threads (spur 28a81df) lifted the ceiling: Raft arm 32.0 s ->
+21.3 s, VR 5,400 runs 11.1 s -> 9.3 s, simulation threads 52% -> 90% busy.
+Readers are unchanged: each writer owns its own interleaved `batch_NNNN`
+series and porcupine, traceanalyzer and `spur debug` all glob the directory.
+
+**Hyperthreads add nothing.** VR at 16 threads takes 9.31 s against 9.30 s
+at 30, with 70% more CPU-seconds; the 16 cores were already saturated.
+`rayonThreads` stays at the derived 30 because it costs nothing here and a
+policy field would cost a parameter.
+
+**Panel recalibration** (`research/panel/manifest.json`,
+`PANEL_CALIBRATION.md`): rates reproduced across three passes (Paxos 0.0169
+-> 0.0166, Mencius 0.0077 -> 0.0074, Raft members at or under 3e-4 beneath the
+0.0021 ceiling); throughput rose 2.3x to 3.3x; gate arms resized to 6,024 and
+13,488. `paxos-forget-promise` reported 4 against 3 on its own control and is
+close to `Paxos.spur`'s background rate at this count.
+
+**A/A over four seeds** (20001-20004), both arms on HEAD:
+
+| seed | paxos z | mencius z | combined Z | throughput ratio |
+|---|---|---|---|---|
+| 20001 | +1.46 | +0.35 | +1.28 | 1.011 |
+| 20002 | -0.92 | +1.00 | +0.06 | 1.014 |
+| 20003 | +0.27 | +0.77 | +0.73 | 1.000 |
+| 20004 | 0.00 | -0.94 | -0.67 | 1.012 |
+
+Eight individual z: mean +0.249, sd 0.858 (old host: +0.088, sd 0.850). No
+run approached the -2.0 downgrade bar. Panel wall per validation is 136 s
+against 395 s before.
+
+Two host facts that cost time and are now in TRANSFER.md: a systemd user
+unit does not inherit the shell PATH, and the system node here is a
+different major version from the nvm one better-sqlite3 was built against,
+so the CLI segfaulted with an empty log until `--setenv=PATH` was passed;
+and the daemon's build command pulled spur-bench's Formulog toolchain in
+through feature unification until spur-bench left the default member set.
