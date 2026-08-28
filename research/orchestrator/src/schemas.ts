@@ -374,8 +374,6 @@ export const PorcupineJson = z.object({
   skipped_ops: z.number(),
   violating_run_ids: z.array(z.number()),
   wall_ms: z.number(),
-  first_violation_ordinal: z.number().optional(),
-  first_violation_run_id: z.number().nullable().optional(),
   violation_signatures: z.array(z.object({ run_id: z.number(), ordinal: z.number(), signature: z.string() })).optional(),
 });
 export type PorcupineJson = z.infer<typeof PorcupineJson>;

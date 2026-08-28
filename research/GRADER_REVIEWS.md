@@ -284,3 +284,41 @@ under a fixed seed and session size so numbers are comparable across
 candidates, which a candidate's own evaluation config does not guarantee. And
 a hypothesis proposing to enable a counter on evaluation runs can no longer
 be rejected on cost alone.
+
+## The checker's two edits, kept as a documented exception (2026-08-28)
+
+Rule 4 puts `porcupine/` beyond edit. Two commits on its `main` touched it
+on 2026-08-28 and are kept:
+
+- `ebf06c5` `checker/duckdb_reader.go`: the executions read excludes rows of
+  kind `TimerFired`. The checker never consumed them (an unknown action is
+  dropped before the operations are built, so only `skipped_ops` changed),
+  but reading a thousand such rows per run took the checker from 3 s to
+  47 s per chunk. The harness could not have done this: the read is inside
+  the checker.
+- `23b288c` `cmd/porcupine_batch/main.go`: JSON gains
+  `first_violation_ordinal`, `first_violation_run_id` and
+  `violation_signatures`. Verdicts, exit codes and `violating_run_ids` are
+  unchanged. The harness derives the first violation's ordinal and time from
+  `violating_run_ids` and the runs table and does not read the two ordinal
+  fields; `PorcupineJson` no longer declares them. The signature needs the
+  checker's partial linearizations and stays.
+
+Neither change alters a verdict, which is the property rule 4 protects, and
+reverting the second would be a third edit for no verdict change. The
+archived-corpus check that would show the verdicts byte-identical is still
+owed: `research/corpus/*/` is gitignored and was not carried to this host.
+
+**To run once the corpora arrive** (rsync the six directories from the old
+host, then `sha256sum` against `research/corpus/manifest.json`):
+
+```
+./porcupine/batch -input research/corpus/findbug_archive -model kv
+```
+
+expected: exit 2, 266 violations, `violating_run_ids` identical to
+`research/corpus/findbug_archive.porcupine.json`. Those corpora carry no
+timer rows, so the reader filter is a no-op on them; the epoch-6 check
+(the regenerated `find_bug_plan` reproducing the 11 archived violating ids)
+is the one that exercises it, and it was run at `ebf06c5`.
+
