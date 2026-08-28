@@ -265,15 +265,25 @@ Measured, one chunk on the 32-thread host (seed 1000): 226,137 runs in
 300.8 s of exposure (752 runs/s over the arms; `grid-short` runs about four
 times as many runs per second as the others), `depth_at_least`
 226137/204005/157657/105443/36448/8702/1862/297/4, the checker 14 s, grading
-431 s, and **one linearizability violation** - the first ever recorded on
-VR under a general configuration. Its corpus was deleted with the
-evaluation before the finding was seen; from this chunk on, an evaluation
-with violations copies the checker's report, the config, the campaign
-report, the violating runs' rows and their combined timelines to
-`research/logs/violations/<evaluation id>/` and appends a line to
-`research/logs/violations/INDEX.jsonl` before cleaning up. A chunk is about
-12.5 minutes, four chunks 50, inside the 150-minute hypothesis budget;
-grading is the larger half and the place to recover more arms.
+431 s. A chunk is about 12.5 minutes, four chunks 50, inside the
+150-minute hypothesis budget; grading is the larger half and the place to
+recover more arms.
+
+**A violation reported by a campaign is not evidence until its run is
+shown to be one run.** The first campaign chunks reported violations (one,
+then three), every one of them on a run id the runs table listed under two
+arms: the grid arm minted ids one above the shared counter while the
+strategy arms minted the counter's value, so a grid run and a strategy run
+could share an id, and the checker read their two histories as one. Those
+reports were artifacts of the campaign, not of the protocol, and the
+minting is now the same for every arm, with a test that a grid arm and a
+strategy arm never share an id. An evaluation with violations now copies
+the checker's report, the config, the campaign report, the violating runs'
+rows and a per-run dump of their executions, logs and traces to
+`research/logs/violations/<evaluation id>/`, and appends a line to
+`research/logs/violations/INDEX.jsonl`, before cleaning up; the first check
+on any such report is that each violating run id has exactly one row in
+`violating_runs.json`.
 
 The rung statistic is unchanged from epoch 5. The campaign's counts are
 unions over arms of different session lengths and are not comparable to

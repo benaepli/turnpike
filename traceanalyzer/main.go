@@ -27,11 +27,24 @@ func main() {
 	gradeRunDepths := flag.Bool("grade-run-depths", false, "Grade mode: include run_depths, a compact [run_id, prefix_depth] pair per graded run")
 	batchRuns := flag.Int("batch-runs", 2000, "Runs per metric query batch; partials are merged in Go (0 = one query over all runs)")
 	runsTable := flag.Bool("runs", false, "Emit the runs table (one row per run: strategy, seeds, steps, wall, end reason) as JSON and exit")
+	dumpRun := flag.Int64("dump-run", -1, "Emit one run's executions, traces and logs as JSON and exit (reads only that run)")
 	flag.Parse()
 
 	if *inputPath == "" {
 		flag.Usage()
 		log.Fatalln("Error: -input flag is required.")
+	}
+
+	if *dumpRun >= 0 {
+		d, err := reader.DumpRun(*inputPath, *dumpRun)
+		if err != nil {
+			log.Fatalf("failed to dump run %d: %v", *dumpRun, err)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(d); err != nil {
+			log.Fatalf("failed to write run JSON: %v", err)
+		}
+		return
 	}
 
 	if *runsTable {

@@ -172,6 +172,29 @@ export function utilSubset(raw: Record<string, unknown> | null): UtilStats | nul
 // violates everywhere is a different kind of evidence and needs no dump.
 const PRESERVED_VIOLATIONS_MAX = 20;
 
+interface RunDump {
+  run_id: number;
+  executions: Array<{ SeqNum: number; UniqueID: number; ClientID: number; Kind: string; Action: string; Payload: string; Step: number }>;
+  traces: Array<{ SeqNum: number; NodeID: number; Step: number; FunctionName: string; TraceKind: string; Payload: string; TraceID: number }>;
+  logs: Array<{ seq_num: number; node_id: number; step: number; content: string }>;
+}
+
+// One run's three tables merged into a step-ordered text timeline.
+export function combinedTimeline(d: RunDump): string {
+  const lines: Array<{ step: number; order: number; seq: number; text: string }> = [];
+  for (const e of d.executions) {
+    lines.push({ step: e.Step, order: 0, seq: e.SeqNum, text: `[Step ${String(e.Step).padStart(5)}] [Execution] ${e.Kind.padEnd(10)} ${e.Action} client=${e.ClientID} uid=${e.UniqueID} ${e.Payload}` });
+  }
+  for (const t of d.traces) {
+    lines.push({ step: t.Step, order: 1, seq: t.SeqNum, text: `[Step ${String(t.Step).padStart(5)}] [Trace    ] node=${t.NodeID} ${t.TraceKind.padEnd(8)} ${t.FunctionName} trace=${t.TraceID} ${t.Payload}` });
+  }
+  for (const l of d.logs) {
+    lines.push({ step: l.step, order: 2, seq: l.seq_num, text: `[Step ${String(l.step).padStart(5)}] [Log      ] node=${l.node_id} ${l.content}` });
+  }
+  lines.sort((a, b) => a.step - b.step || a.order - b.order || a.seq - b.seq);
+  return `Combined timeline for run ${d.run_id}: ${d.executions.length} executions, ${d.traces.length} traces, ${d.logs.length} logs\n${lines.map((l) => l.text).join("\n")}\n`;
+}
+
 // A violation is the ground truth the whole loop exists to produce, and the
 // corpus it lives in is deleted with the evaluation, so its evidence is
 // copied out first: the checker's report, the config, the campaign report,
@@ -192,8 +215,11 @@ async function preserveViolations(
     const ids = new Set(violatingIds);
     fs.writeFileSync(path.join(keep, "violating_runs.json"), JSON.stringify(rows.filter((r) => ids.has(r.run_id)), null, 2));
     for (const id of violatingIds.slice(0, PRESERVED_VIOLATIONS_MAX)) {
-      const r = await run(ctx.binary, ["debug", "combined", "--db", outputDir, "--run-id", String(id)], { timeoutMs: 120_000, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
-      fs.writeFileSync(path.join(keep, `run_${id}.combined.txt`), r.stdout || r.stderr);
+      // The grader reads one run through a run_id predicate; a debugger that
+      // materialises the corpus cannot be used on a session this size.
+      const r = await run(path.join(ROOT, "traceanalyzer", "main"), ["-input", outputDir, "-dump-run", String(id)], { timeoutMs: 300_000, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
+      fs.writeFileSync(path.join(keep, `run_${id}.json`), r.stdout || r.stderr);
+      try { fs.writeFileSync(path.join(keep, `run_${id}.combined.txt`), combinedTimeline(JSON.parse(r.stdout))); } catch { /* the JSON dump stands on its own */ }
     }
     // One line per evaluation in an index, so the violations a host has seen
     // can be listed without opening every directory.
