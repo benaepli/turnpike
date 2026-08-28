@@ -97,10 +97,11 @@ export function buildsOnSatisfied(h: Hypothesis, util: Utilization | null): bool
 // selectNext picks the next hypothesis. Quota rule: if fewer than
 // explorationQuota of the last 10 selections were fresh lineages (no parent),
 // force the best parentless candidate when one exists.
-// Empirical calibration factor: mean realized primary delta (as a fraction of
-// a "full" 0.1 = +10pp gain) over mean predicted gain, across evaluated
-// hypotheses. Proposer optimism is discounted automatically as evidence
-// accumulates. Floored so the prior never vanishes entirely.
+// Empirical calibration factor: mean realized primary delta (a relative
+// change, +10% counting as a full gain of 10 and larger moves capped there)
+// over mean predicted gain, across evaluated hypotheses. Proposer optimism
+// is discounted automatically as evidence accumulates. Floored so the prior
+// never vanishes entirely.
 export function calibrationFactor(state: LoopState): number {
   let predicted = 0;
   let realized = 0;
@@ -112,7 +113,7 @@ export function calibrationFactor(state: LoopState): number {
     if ((d.epoch ?? 1) !== epoch || d.harnessFailure) continue;
     n++;
     predicted += h.expectedGain;
-    realized += Math.max(0, (d.objectiveDeltas["primary"] ?? 0)) / 0.1 * 10;
+    realized += Math.min(10, Math.max(0, (d.objectiveDeltas["primary"] ?? 0)) / 0.1 * 10);
   }
   if (n < 3 || predicted <= 0) return 1;
   return Math.max(0.15, Math.min(1, realized / predicted));

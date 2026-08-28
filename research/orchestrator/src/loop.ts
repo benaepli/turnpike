@@ -226,7 +226,7 @@ function generalConfigParamCount(policy: Policy): number {
 
 function calibrationTable(state: LoopState): string {
   return state.recentDecisions(30).reverse()
-    .map(({ hypothesis: x, decision: d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
+    .map(({ hypothesis: x, decision: d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta (relative) ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
     .join("\n");
 }
 
@@ -269,7 +269,7 @@ function recentEvidence(state: LoopState, limit: number): string {
   return state.recentDecisions(limit).reverse().map(({ hypothesis: x, decision: d }) => {
     const stale = (d.epoch ?? 1) !== cur ? " [SUPERSEDED regime: verdict may not hold under the current gate/protocol]" : "";
     const harness = d.harnessFailure ? " [harness failure, not evidence]" : "";
-    return `${x.id} [${x.kind}] -> ${d.verdict}${stale}${harness}: ${d.reasons.join("; ")} | deltas ${JSON.stringify(d.objectiveDeltas)} | notes: ${x.notes.slice(0, 200)}`;
+    return `${x.id} [${x.kind}] -> ${d.verdict}${stale}${harness}: ${d.reasons.join("; ")} | deltas (relative, violations absolute) ${JSON.stringify(d.objectiveDeltas)} | notes: ${x.notes.slice(0, 200)}`;
   }).join("\n");
 }
 

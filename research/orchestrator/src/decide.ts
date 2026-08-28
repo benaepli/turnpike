@@ -243,7 +243,9 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   }
 
   // Primary: violations when they move; otherwise depth>=6 per second - the
-  // deepest rung with the power to decide (POWER_FLOOR.md).
+  // deepest rung with the power to decide (POWER_FLOOR.md). The violations
+  // delta is an absolute rate difference and the depth deltas are relative
+  // ratios; a consumer must not mix the two scales.
   const primary = cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=6"] ?? 0);
   // Run rate multiplies every rung, so it is inside the objective now; it is
   // still recorded on its own so erosion across merges stays visible as a
