@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-28T15:12:17.068Z
+Generated: 2026-08-28T21:53:18.784Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -70,7 +70,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - panelManifest: research/panel/manifest.json
 - vrNoFaultConfig: scheduler_configs/loop/regression_vr_nofault.json
 - throughputTolerance: 0.2
-- wallSecPerCase: 480
+- wallSecPerCase: 560
 
 ## Clamps applied on load
 
