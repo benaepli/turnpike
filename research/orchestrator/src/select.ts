@@ -102,7 +102,14 @@ export function buildsOnSatisfied(h: Hypothesis, util: Utilization | null): bool
 // over mean predicted gain, across evaluated hypotheses. Proposer optimism
 // is discounted automatically as evidence accumulates. Floored so the prior
 // never vanishes entirely.
-export function calibrationFactor(state: LoopState): number {
+// A decision informs the present only when it was made under the current
+// gate regime and at the current thread count; either changing makes its
+// deltas a measurement of something else.
+export function comparableDecision(d: { epoch?: number | undefined; rayonThreads?: number | undefined; harnessFailure?: boolean | undefined }, epoch: number, threads: number): boolean {
+  return (d.epoch ?? 1) === epoch && d.rayonThreads === threads && !d.harnessFailure;
+}
+
+export function calibrationFactor(state: LoopState, threads: number): number {
   let predicted = 0;
   let realized = 0;
   let n = 0;
@@ -110,7 +117,7 @@ export function calibrationFactor(state: LoopState): number {
   for (const h of state.listHypotheses()) {
     const d = state.getDecision(h.id);
     if (!d) continue;
-    if ((d.epoch ?? 1) !== epoch || d.harnessFailure) continue;
+    if (!comparableDecision(d, epoch, threads)) continue;
     n++;
     predicted += h.expectedGain;
     realized += Math.min(10, Math.max(0, (d.objectiveDeltas["primary"] ?? 0)) / 0.1 * 10);
@@ -146,7 +153,7 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
   for (const h of all) {
     const d = state.getDecision(h.id);
     if (!d) continue;
-    if ((d.epoch ?? 1) !== curEpoch || d.harnessFailure) continue;
+    if (!comparableDecision(d, curEpoch, policy.evaluation.rayonThreads)) continue;
     const root = lineageRoot(h, byId);
     const primary = d.objectiveDeltas["primary"] ?? 0;
     measuredDelta.set(root, Math.max(measuredDelta.get(root) ?? -1, primary));
@@ -176,7 +183,7 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
   );
   if (eligible.length === 0) return null;
 
-  const calib = calibrationFactor(state);
+  const calib = calibrationFactor(state, policy.evaluation.rayonThreads);
   const score = (h: Hypothesis): number => {
     const seq = h.status === "inconclusive" ? loadSeqState(state, h.id) : null;
     if (seq && seq.lastVerdict === "inconclusive") {

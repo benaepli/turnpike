@@ -398,9 +398,9 @@ export function renderPolicyMd(
 
 /** The recorded baseline must render a complete ladder: a blank column is a
  *  wiring error, not a missing measurement. */
-export function selfTestRender(): string[] {
+export function selfTestRender(evidencePath?: string): string[] {
   const f: string[] = [];
-  const p = join(SUPER, "research", "evaluations", "000-baseline.json");
+  const p = evidencePath ?? join(SUPER, "research", "evaluations", "000-baseline.json");
   if (!existsSync(p)) return f;
   const parsed = z.object({ baseline: z.object({ sequential: z.array(Evaluation).default([]), confirm: z.array(Evaluation).default([]) }) }).safeParse(JSON.parse(readFileSync(p, "utf8")));
   if (!parsed.success) { f.push(`000-baseline.json does not parse: ${parsed.error.message.slice(0, 200)}`); return f; }

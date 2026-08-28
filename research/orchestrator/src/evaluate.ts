@@ -261,6 +261,7 @@ export async function runOneEvaluation(
     spec,
     seed,
     startedAtIso: new Date().toISOString(),
+    rayonThreads: ctx.policy.evaluation.rayonThreads,
   };
   try {
     if (fs.existsSync(outputDir)) cleanupDir(outputDir);

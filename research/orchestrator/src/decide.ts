@@ -12,7 +12,7 @@ import type { BenchResult } from "./bench.js";
 import type { PanelSummary } from "./panel.js";
 import type { Evaluation, GateDecision, Hypothesis, LadderMetrics } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
-import { rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv, wilson } from "./stats.js";
+import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv, wilson } from "./stats.js";
 
 export interface ObjectiveCounts {
   violations: { succ: number; n: number };
@@ -67,6 +67,12 @@ export const MERGE_Z = 2.7;
 // The relative margin the deep rungs per run may not fall beyond; the same
 // margin the non-inferiority kinds are held to.
 export const DEEP_RUNG_MARGIN = 0.25;
+// The deep-rung guard is the same posterior test the sequential rule
+// applies, with the same margin, so a rejection there is never contradicted
+// here whatever the event counts.
+const DEEP_RUNG_NIP = 0.95;
+const DEEP_RUNG_DRAWS = 2000;
+const DEEP_RUNG_SEED = 7;
 export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96): Comparison {
   const improved: string[] = [];
   const regressed: string[] = [];
@@ -93,7 +99,10 @@ export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, 
     if (d.k === 4 && rateRatioSeparated(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
     // The deep rungs per run may not fall beyond the non-inferiority margin:
     // the sequential rule holds an advance until they are known to hold.
-    if ((d.k === 5 || d.k === 6) && rateRatioSeparated((1 - DEEP_RUNG_MARGIN) * b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k} per run`);
+    if (d.k === 5 || d.k === 6) {
+      const g = compareRatesPoisson(d.succ, d.n, b.succ, b.n, 0, DEEP_RUNG_MARGIN, DEEP_RUNG_DRAWS, DEEP_RUNG_SEED + d.k);
+      if (g.pRegress >= DEEP_RUNG_NIP) regressed.push(`depth>=${d.k} per run`);
+    }
   }
 
   deltas["h2"] = rate(cand.h2) - rate(base.h2);

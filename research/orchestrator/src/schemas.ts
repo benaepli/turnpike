@@ -226,6 +226,9 @@ export const Evaluation = z.object({
   error: z.string().nullable().default(null),
   // Comparability epoch (protocol/gate regime) the result was produced in.
   epoch: z.number().int().optional(),
+  // Thread count the explorer ran with. Runs share a feedback map across
+  // the parallel set, so results at different counts are not comparable.
+  rayonThreads: z.number().int().positive().optional(),
   session: SessionSummary.nullable().default(null),
   utilStats: UtilStats.nullable().default(null),
   // Set when the chunk was excluded from pooling for its timing rather than
@@ -244,6 +247,8 @@ export const GateDecision = z.object({
   lintPassed: z.boolean().nullable().default(null),
   // Comparability epoch the verdict was made in.
   epoch: z.number().int().optional(),
+  // Thread count the evidence behind the verdict was measured at.
+  rayonThreads: z.number().int().positive().optional(),
   // True when the outcome is not evidence about the hypothesis (build/grader
   // failure, stop, wall timeout, stale branch): excluded from calibration.
   harnessFailure: z.boolean().optional(),

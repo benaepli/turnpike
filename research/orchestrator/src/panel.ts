@@ -187,6 +187,15 @@ export function panelWallSec(m: PanelManifest): number {
   return m.members.reduce((a, mem) => a + (mem.role === "gate" ? 2 : 1) * (mem.replicates ?? 0) * ((mem.wallSec ?? 0) + PANEL_STARTUP_SEC), 0);
 }
 
+// The manifest's calibration (events per second, dispersion, walls) is a
+// property of the thread count it was measured at, so a sibling named for
+// the count takes precedence over the bare file when it exists.
+export function keyedManifestPath(p: string, threads: number): string {
+  const base = resolveRoot(p);
+  const keyed = base.replace(/\.json$/, `.${threads}.json`);
+  return fs.existsSync(keyed) ? keyed : base;
+}
+
 export function loadPanelManifest(p: string, wallSecPerCase?: number, throughputFloor = 1): PanelManifest {
   const m = PanelManifest.parse(JSON.parse(fs.readFileSync(resolveRoot(p), "utf8")));
   const errs = validateManifest(m, wallSecPerCase, throughputFloor);

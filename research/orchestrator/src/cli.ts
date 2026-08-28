@@ -5,13 +5,13 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import * as path from "node:path";
 import { runEvaluation, selfTestRunIdentity, type EvalContext } from "./evaluate.js";
 import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
-import { graderVersion, loadBaseline, loadReference, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, type BaselineMeta } from "./loop.js";
+import { baselineEvidencePath, baselineKey, graderVersion, loadBaseline, loadReference, selfTestBaselineKeys, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
 import { baselineLadder, renderPolicyMd, selfTestRender, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors, selfTestSurvival } from "./stats.js";
-import { calibrateMember, loadPanelManifest, selfTestPanel, selfTestPanelGate, validateManifest, type PanelArms } from "./panel.js";
+import { calibrateMember, keyedManifestPath, loadPanelManifest, selfTestPanel, selfTestPanelGate, validateManifest, type PanelArms } from "./panel.js";
 import { selfTestPanelAuthority } from "./decide.js";
 import { pooledCountsOf, selfTestGateConsistency, seqRuleOf } from "./sequential.js";
 import { LoopState } from "./state.js";
@@ -48,10 +48,11 @@ async function cmdBaseline(state: LoopState): Promise<void> {
     screen: out.screen ?? [], promote: out.promote ?? [], confirm: out.confirm ?? [], sequential, runsPerSec: rps,
     rayonThreads: policy.evaluation.rayonThreads,
   };
-  state.setMeta("baseline", JSON.stringify(baseline));
+  const threads = policy.evaluation.rayonThreads;
+  state.setMeta(baselineKey(threads), JSON.stringify(baseline));
   if (!state.getMeta("baseline0")) state.setMeta("baseline0", JSON.stringify(baseline));
   mkdirSync(path.join(ROOT, "research/evaluations"), { recursive: true });
-  writeFileSync(path.join(ROOT, "research/evaluations/000-baseline.json"), JSON.stringify({ graderVersion: ctx.graderVersion, spurCommit: ctx.spurCommit, superCommit: ctx.superCommit, baseline }, null, 2));
+  writeFileSync(baselineEvidencePath(threads), JSON.stringify({ graderVersion: ctx.graderVersion, spurCommit: ctx.spurCommit, superCommit: ctx.superCommit, baseline }, null, 2));
   writeStatus(state, policy, { baseline: baselineLadder(baseline), reference: baselineLadder(loadReference(state)), graderVersion: ctx.graderVersion, openPrs: [] });
   renderPolicyMd(policy, clamps, ["initial policy"]);
   // The perf lane compares against this file copy, and the explorer rejects
@@ -66,8 +67,8 @@ async function cmdBaseline(state: LoopState): Promise<void> {
   } catch (e) {
     console.log(`WARNING: could not refresh tmp/loop/spur-baseline: ${String(e)}`);
   }
-  commitAll(SUPER, "baseline evaluation 000 (grader " + ctx.graderVersion + ")");
-  console.log(`baseline recorded: rps=${rps.toFixed(1)}, evidence in research/evaluations/000-baseline.json`);
+  commitAll(SUPER, `baseline evaluation 000 at ${threads} threads (grader ${ctx.graderVersion})`);
+  console.log(`baseline recorded at ${threads} threads: rps=${rps.toFixed(1)}, evidence in ${path.relative(ROOT, baselineEvidencePath(threads))}`);
 }
 
 async function main(): Promise<void> {
@@ -77,9 +78,9 @@ async function main(): Promise<void> {
     switch (cmd) {
       case "selftest": {
         const { policy, clamps } = loadPolicy(POLICY_PATH);
-        const stored = loadBaseline(state);
+        const stored = loadBaseline(state, policy.evaluation.rayonThreads);
         const live = stored && stored.sequential.some((e) => e.ok) ? { base: pooledCountsOf(stored.sequential), rule: seqRuleOf(policy) } : undefined;
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(live), ...selfTestRender(), ...selfTestRunIdentity()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(live), ...selfTestBaselineKeys(), ...selfTestRender(existsSync(baselineEvidencePath(policy.evaluation.rayonThreads)) ? baselineEvidencePath(policy.evaluation.rayonThreads) : undefined), ...selfTestRunIdentity()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         console.log("stats + posterior + panel + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
         console.log("models:", policy.models);
@@ -143,7 +144,7 @@ async function main(): Promise<void> {
         const { policy } = loadPolicy(POLICY_PATH);
         const b = await buildSpur(policy.budgets.maxBuildSeconds);
         if (!b.ok) throw new Error("build failed");
-        const baseline = loadBaseline(state);
+        const baseline = loadBaseline(state, policy.evaluation.rayonThreads);
         const ctx: EvalContext = { policy, binary: SPUR_BIN, graderVersion: graderVersion(), spurCommit: currentCommit(SPUR), superCommit: currentCommit(SUPER) };
         // A/A by default: both arms are HEAD, so every z should sit near zero
         // and nothing should collapse. Pass a seed to vary the session.
@@ -172,8 +173,13 @@ async function main(): Promise<void> {
         const b = await buildSpur(policy.budgets.maxBuildSeconds);
         if (!b.ok) throw new Error("build failed");
         const seeds = Number(process.argv[3] ?? 4);
-        const manifestPath = resolveRoot(policy.regression.panelManifest);
-        const manifest = loadPanelManifest(policy.regression.panelManifest);
+        // Calibration belongs to the thread count it was measured at, so it
+        // is written to the manifest named for this count, seeded from the
+        // bare manifest when no such file exists yet.
+        const basePath = resolveRoot(policy.regression.panelManifest);
+        const manifestPath = basePath.replace(/\.json$/, `.${policy.evaluation.rayonThreads}.json`);
+        if (!existsSync(manifestPath)) copyFileSync(basePath, manifestPath);
+        const manifest = loadPanelManifest(manifestPath);
         if (manifest.version !== 2) throw new Error("panel-calibrate applies to a version-2 manifest");
         const ctx: EvalContext = { policy, binary: SPUR_BIN, graderVersion: graderVersion(), spurCommit: currentCommit(SPUR), superCommit: currentCommit(SUPER) };
         const template = resolveRoot(policy.evaluation.configTemplate);
@@ -194,14 +200,14 @@ async function main(): Promise<void> {
           };
           writeFileSync(manifestPath, JSON.stringify(raw, null, 2) + "\n");
         }
-        const errs = validateManifest(loadPanelManifest(policy.regression.panelManifest), policy.regression.wallSecPerCase, 1 - policy.regression.throughputTolerance);
+        const errs = validateManifest(loadPanelManifest(manifestPath), policy.regression.wallSecPerCase, 1 - policy.regression.throughputTolerance);
         if (errs.length) { console.error("manifest invalid after calibration:", errs); process.exitCode = 1; }
         else console.log(`manifest calibrated: ${manifestPath}`);
         break;
       }
       case "status": {
         const { policy } = loadPolicy(POLICY_PATH);
-        const baseline = loadBaseline(state);
+        const baseline = loadBaseline(state, policy.evaluation.rayonThreads);
         writeStatus(state, policy, { baseline: baselineLadder(baseline), reference: baselineLadder(loadReference(state)), graderVersion: graderVersion(), openPrs: state.listHypotheses("needs_human").flatMap((h) => h.prUrls) });
         console.log("STATUS.md rendered. Pool:", JSON.stringify(state.countByStatus()));
         break;

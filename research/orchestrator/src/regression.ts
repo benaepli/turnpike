@@ -7,7 +7,7 @@ import type { EvalContext } from "./evaluate.js";
 import { ROOT, cleanupDir, explore, materializeConfig, porcupine, resolveRoot } from "./runners.js";
 import { runBench } from "./bench.js";
 import { RESEARCH_BRANCH, SUPER, showFile } from "./gitops.js";
-import { loadPanelManifest, runPanel, type PanelArms, type PanelSummary, type PanelMemberResult } from "./panel.js";
+import { keyedManifestPath, loadPanelManifest, runPanel, type PanelArms, type PanelSummary, type PanelMemberResult } from "./panel.js";
 
 export interface RegressionCase {
   name: string;
@@ -117,7 +117,7 @@ export async function runRegression(
   // always has; a report member is recorded and never binds.
   let panel: PanelSummary | null = null;
   if (arms !== null) {
-    const manifest = loadPanelManifest(ctx.policy.regression.panelManifest, ctx.policy.regression.wallSecPerCase, 1 - ctx.policy.regression.throughputTolerance);
+    const manifest = loadPanelManifest(keyedManifestPath(ctx.policy.regression.panelManifest, ctx.policy.evaluation.rayonThreads), ctx.policy.regression.wallSecPerCase, 1 - ctx.policy.regression.throughputTolerance);
     panel = await runPanel(ctx, manifest, arms);
     for (const r of panel.members) {
       cases.push({ name: `panel-${r.id}`, passed: !r.collapsed, detail: r.detail, panel: r });

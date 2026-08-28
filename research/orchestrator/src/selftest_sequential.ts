@@ -13,10 +13,12 @@ import { z } from "zod";
 // The rule under test is the committed policy, and the chunk shape is the
 // recorded baseline, so the operating characteristics describe the regime
 // the loop runs rather than a remembered one.
-const rule: SeqRule = seqRuleOf(loadPolicy(join(ROOT, "research/policy.json")).policy);
+const livePolicy = loadPolicy(join(ROOT, "research/policy.json")).policy;
+const rule: SeqRule = seqRuleOf(livePolicy);
 
 function recordedBaseline(): PooledCounts {
-  const p = join(ROOT, "research/evaluations/000-baseline.json");
+  const keyed = join(ROOT, "research/evaluations", `000-baseline-${livePolicy.evaluation.rayonThreads}.json`);
+  const p = existsSync(keyed) ? keyed : join(ROOT, "research/evaluations/000-baseline.json");
   if (existsSync(p)) {
     const parsed = z.object({ baseline: z.object({ sequential: z.array(Evaluation).default([]) }) }).safeParse(JSON.parse(readFileSync(p, "utf8")));
     if (parsed.success && parsed.data.baseline.sequential.some((e) => e.ok)) return pooledCountsOf(parsed.data.baseline.sequential);

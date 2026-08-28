@@ -23,7 +23,7 @@ import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, mat
 import { diffConfigPaths, type PanelArms } from "./panel.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
-import type { LoopState } from "./state.js";
+import { LoopState } from "./state.js";
 import { appendObservation, baselineLadder, writeStatus } from "./render.js";
 import { inactiveMechanisms, parseUtilization } from "./select.js";
 import { z } from "zod";
@@ -94,11 +94,65 @@ export async function topUpSequentialBaseline(ctx: EvalContext, existing: Evalua
   return evals;
 }
 
-export function loadBaseline(state: LoopState): BaselineMeta | null {
-  const raw = state.getMeta("baseline");
+// One baseline per thread count: the explorer shares a feedback map across
+// the parallel run set, so a baseline is only a baseline for the count it
+// was measured at, and a host that changes its CPU mask needs its own.
+export function baselineKey(threads: number): string {
+  return `baseline:${threads}`;
+}
+
+export function baselineEvidencePath(threads: number): string {
+  return path.join(ROOT, "research/evaluations", `000-baseline-${threads}.json`);
+}
+
+function parseBaseline(raw: string | null): BaselineMeta | null {
   if (!raw) return null;
   const p = BaselineMeta.safeParse(JSON.parse(raw));
   return p.success ? p.data : null;
+}
+
+// A baseline stored before the keyed store existed lives under the bare key
+// with its thread count inside; it is adopted under the keyed name the first
+// time that count asks for it, and the bare key is not read again after.
+export function loadBaseline(state: LoopState, threads: number): BaselineMeta | null {
+  const keyed = parseBaseline(state.getMeta(baselineKey(threads)));
+  if (keyed) return keyed;
+  const legacyRaw = state.getMeta("baseline");
+  const legacy = parseBaseline(legacyRaw);
+  if (legacy && legacyRaw && legacy.rayonThreads === threads) {
+    state.setMeta(baselineKey(threads), legacyRaw);
+    return legacy;
+  }
+  return null;
+}
+
+/** The keyed store keeps one baseline per thread count and adopts the bare
+ *  key exactly once. */
+export function selfTestBaselineKeys(): string[] {
+  const f: string[] = [];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const dir = path.join(ROOT, "tmp", "loop", `selftest-state-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  const state = new LoopState(path.join(dir, "state.sqlite"));
+  try {
+    const meta = (threads: number, rps: number): string =>
+      JSON.stringify({ screen: [], promote: [], confirm: [], sequential: [], runsPerSec: rps, rayonThreads: threads });
+    state.setMeta(baselineKey(14), meta(14, 100));
+    state.setMeta(baselineKey(30), meta(30, 600));
+    check(loadBaseline(state, 14)?.runsPerSec === 100, "loadBaseline picks the 14-thread baseline");
+    check(loadBaseline(state, 30)?.runsPerSec === 600, "loadBaseline picks the 30-thread baseline");
+    check(loadBaseline(state, 6) === null, "an unmeasured thread count has no baseline");
+    state.setMeta("baseline", meta(6, 50));
+    check(loadBaseline(state, 8) === null, "a bare baseline for another count is not adopted");
+    check(loadBaseline(state, 6)?.runsPerSec === 50, "a bare baseline for this count is adopted");
+    check(state.getMeta(baselineKey(6)) !== null, "adoption writes the keyed entry");
+    state.setMeta("baseline", meta(6, 51));
+    check(loadBaseline(state, 6)?.runsPerSec === 50, "the bare key is not read once the keyed entry exists");
+  } finally {
+    state.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+  return f;
 }
 
 function journal(state: LoopState, iteration: number, event: string, data: unknown): void {
@@ -420,8 +474,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
 
   try {
     preflight();
-    const baseline = loadBaseline(state);
-    if (!baseline) throw new Error("no baseline recorded - run `loop baseline` first");
+    const baseline = loadBaseline(state, policy.evaluation.rayonThreads);
+    if (!baseline) throw new Error(`no baseline recorded at ${policy.evaluation.rayonThreads} threads - run \`loop baseline\` first`);
 
     await timed("propose", () => refillPool(deps, n));
     const { selectNext } = await import("./select.js");
@@ -691,7 +745,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       seqOutcome = `${res.verdict} after ${res.seq.chunks} chunks / ${res.seq.runs} runs: ${res.reason}`;
       if (res.verdict === "stopped") { parkForStop(state, n, h, branch, "sequential"); return; }
       if (res.verdict === "error") {
-        const d: GateDecision = { hypothesisId: h.id, verdict: "blocked", reasons: [`sequential evaluation failed: ${res.reason}`], objectiveDeltas: {}, regressionPassed: null, lintPassed: true };
+        const d: GateDecision = { hypothesisId: h.id, verdict: "blocked", rayonThreads: policy.evaluation.rayonThreads, reasons: [`sequential evaluation failed: ${res.reason}`], objectiveDeltas: {}, regressionPassed: null, lintPassed: true };
         state.setDecision(d);
         journal(state, n, "blocked", { reason: res.reason });
         state.upsertHypothesis({ ...h, status: "blocked", branch, notes: res.reason.slice(0, 300) });
@@ -769,6 +823,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     }
     const paramsAfter = generalConfigParamCount(policy);
     decision.objectiveDeltas["params"] = paramsAfter - paramsBefore;
+    decision.rayonThreads = policy.evaluation.rayonThreads;
     state.setDecision(decision);
     journal(state, n, "decision", decision);
 
@@ -793,8 +848,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           confirm: baseline.confirm,
           sequential,
           runsPerSec: baseline.runsPerSec * (throughputRatio ?? 1),
+          rayonThreads: policy.evaluation.rayonThreads,
         };
-        state.setMeta("baseline", JSON.stringify(newBaseline));
+        state.setMeta(baselineKey(policy.evaluation.rayonThreads), JSON.stringify(newBaseline));
         // A merge can enable mechanisms; dependency gating must see that now,
         // not at the next audit.
         try {
@@ -870,7 +926,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     }
   } finally {
     try {
-      const baseline = loadBaseline(state);
+      const baseline = loadBaseline(state, policy.evaluation.rayonThreads);
       writeStatus(state, policy, {
         baseline: baselineLadder(baseline),
         reference: baselineLadder(loadReference(state)),
@@ -911,16 +967,17 @@ function buildPanelArms(policy: Policy, n: number, h: Hypothesis, spurFiles: str
 }
 
 export async function runLoop(deps: LoopDeps): Promise<void> {
-  const startBaseline = loadBaseline(deps.state);
-  if (!startBaseline || startBaseline.sequential.length === 0) {
-    console.error("no sequential baseline recorded; run `loop baseline` first");
-    return;
-  }
   // Runs share a feedback map across the parallel set, so the snapshot a run
   // sees depends on how many threads are running. A candidate measured at one
-  // thread count cannot be compared with a baseline measured at another.
-  const baselineThreads = startBaseline.rayonThreads;
+  // thread count cannot be compared with a baseline measured at another, so
+  // the host's resolved count selects the baseline and the panel manifest.
   const hostThreads = deps.policy.evaluation.rayonThreads;
+  const startBaseline = loadBaseline(deps.state, hostThreads);
+  if (!startBaseline || startBaseline.sequential.length === 0) {
+    console.error(`no sequential baseline recorded at ${hostThreads} threads; run \`cli baseline\`, then \`cli panel-calibrate\` and \`cli regression\` under this CPU mask before starting the loop`);
+    return;
+  }
+  const baselineThreads = startBaseline.rayonThreads;
   if (baselineThreads === undefined) {
     console.error(`WARNING: baseline predates thread-count recording; it may not have been measured at the current ${hostThreads} threads. Re-run \`loop baseline\` after moving hosts.`);
   } else if (baselineThreads !== hostThreads) {
