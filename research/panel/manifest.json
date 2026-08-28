@@ -3,7 +3,7 @@
   "sizing": {
     "targetCount": 100,
     "collapseZ": 2.7,
-    "gradientZ": 2.0,
+    "gradientZ": 2,
     "minSeparation": 20
   },
   "members": [
@@ -49,24 +49,24 @@
           "step": 1
         },
         "dependency_density": [
-          0.0
+          0
         ]
       },
       "maxIterations": 8000,
       "role": "gate",
       "expectedRate": 0.01664,
       "calibration": {
-        "atIso": "2026-08-28T08:30:31Z",
+        "atIso": "2026-08-28T20:32:22Z",
         "rateRuns": 20736,
         "rateViolations": 345,
-        "dispersion": 1.308,
+        "dispersion": 1.047,
         "cleanRuns": 20736,
         "cleanViolations": 1,
         "hostCeiling": 0.0251,
         "budgetRatio": 0.948,
-        "runsPerSec": 2406,
-        "eventsPerSec": 40.03583999999999,
-        "tauBestSec": 0.01731198845834133
+        "runsPerSec": 1959,
+        "eventsPerSec": 33.78496,
+        "tauBestSec": 0.014
       },
       "notes": "control violates at 4.8e-5; separation 345x. host ceiling is the strongest injection observed, not a measured bound.",
       "wallSec": 10,
@@ -109,7 +109,7 @@
           "step": 1
         },
         "dependency_density": [
-          0.0,
+          0,
           0.3
         ]
       },
@@ -117,17 +117,17 @@
       "role": "gate",
       "expectedRate": 0.007418,
       "calibration": {
-        "atIso": "2026-08-28T08:30:31Z",
+        "atIso": "2026-08-28T20:35:36Z",
         "rateRuns": 51360,
         "rateViolations": 381,
-        "dispersion": 0.052,
+        "dispersion": 1.273,
         "cleanRuns": 25680,
         "cleanViolations": 0,
         "hostCeiling": 0.0101,
         "budgetRatio": 1.125,
-        "runsPerSec": 536,
-        "eventsPerSec": 3.976048,
-        "tauBestSec": 0.1743188211007513
+        "runsPerSec": 544,
+        "eventsPerSec": 4.56937,
+        "tauBestSec": 0.278
       },
       "notes": "control is a partial repair, not a clean host; 0 violations over 25,680 control runs. the paper bug, and the only member with a historical series.",
       "wallSec": 15,
@@ -175,24 +175,24 @@
           "step": 1
         },
         "dependency_density": [
-          0.0
+          0
         ]
       },
       "maxIterations": 12000,
       "role": "report",
       "expectedRate": 0.0002998,
       "calibration": {
-        "atIso": "2026-08-28T08:30:31Z",
+        "atIso": "2026-08-28T20:38:52Z",
         "rateRuns": 20016,
         "rateViolations": 6,
-        "dispersion": 0.0,
+        "dispersion": 1,
         "cleanRuns": 20016,
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
-        "budgetRatio": 1.0,
-        "runsPerSec": 951,
-        "eventsPerSec": 0.2851098,
-        "tauBestSec": 2.4309932524241535
+        "budgetRatio": 1,
+        "runsPerSec": 950,
+        "eventsPerSec": 0.29776,
+        "tauBestSec": 2.415
       },
       "notes": "14% of its host ceiling; reaches the bug but cannot resolve a rate change at any affordable count.",
       "wallSec": 15,
@@ -240,23 +240,23 @@
           "step": 1
         },
         "dependency_density": [
-          0.0
+          0
         ]
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 1e-05,
+      "expectedRate": 0.00001,
       "calibration": {
-        "atIso": "2026-08-28T08:30:31Z",
+        "atIso": "2026-08-28T20:42:08Z",
         "rateRuns": 20016,
         "rateViolations": 0,
-        "dispersion": 0.0,
+        "dispersion": 1,
         "cleanRuns": 20016,
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
-        "budgetRatio": 1.0,
-        "runsPerSec": 967,
-        "eventsPerSec": 0.009670000000000002,
+        "budgetRatio": 1,
+        "runsPerSec": 939,
+        "eventsPerSec": 0,
         "tauBestSec": 0
       },
       "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal.",
@@ -305,23 +305,23 @@
           "step": 1
         },
         "dependency_density": [
-          0.0
+          0
         ]
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 1e-05,
+      "expectedRate": 0.00001,
       "calibration": {
-        "atIso": "2026-08-28T08:30:31Z",
+        "atIso": "2026-08-28T20:45:24Z",
         "rateRuns": 20016,
         "rateViolations": 0,
-        "dispersion": 0.0,
+        "dispersion": 1,
         "cleanRuns": 20016,
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
-        "budgetRatio": 1.0,
-        "runsPerSec": 964,
-        "eventsPerSec": 0.009640000000000001,
+        "budgetRatio": 1,
+        "runsPerSec": 946,
+        "eventsPerSec": 0.01654,
         "tauBestSec": 0
       },
       "notes": "never observed despite 60,048 crash-recover cycles over its calibration.",
@@ -370,24 +370,24 @@
           "step": 1
         },
         "dependency_density": [
-          0.0
+          0
         ]
       },
       "maxIterations": 8000,
       "role": "report",
       "expectedRate": 0.0002001,
       "calibration": {
-        "atIso": "2026-08-28T08:30:31Z",
+        "atIso": "2026-08-28T20:49:12Z",
         "rateRuns": 19992,
         "rateViolations": 4,
-        "dispersion": 0.0,
+        "dispersion": 1,
         "cleanRuns": 19992,
         "cleanViolations": 3,
         "hostCeiling": 0.0251,
-        "budgetRatio": 1.0,
-        "runsPerSec": 3492,
-        "eventsPerSec": 0.6987492000000001,
-        "tauBestSec": 0.991915268024636
+        "budgetRatio": 1,
+        "runsPerSec": 3568,
+        "eventsPerSec": 0.85439,
+        "tauBestSec": 1.435
       },
       "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate.",
       "wallSec": 15,

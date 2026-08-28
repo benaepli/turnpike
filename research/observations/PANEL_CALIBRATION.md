@@ -35,6 +35,36 @@ overlaid. Every rate here is measured; none is assumed. Rerun on a host with a
 different thread count: the explorer shares one feedback map across the
 parallel run set, so the count changes what is explored.
 
+## Version 2 on the standard explorer (epoch 8)
+
+Measured 2026-08-28 with `cli panel-calibrate 4`: every member on HEAD, four
+seeds of its manifest replicates, the standard explorer at the member's wall
+with the template's campaign block dropped and the run cap far above the
+wall. Rates per active second, dispersion within each seed's replicates,
+and the median time to a first violation:
+
+| id | role | wall s x reps | runs | violations | events/s | runs/s | dispersion | tau s | E per arm |
+|---|---|---|---|---|---|---|---|---|---|
+| `paxos-accept-stale-ballot` | gate | 10 x 3 | 235,779 | 4,067 | 33.78 | 1,959 | 1.05 | 0.01 | 1,013 |
+| `mencius-opt1-2` | gate | 15 x 3 | 98,254 | 826 | 4.57 | 544 | 1.27 | 0.28 | 206 |
+| `raft-stale-vote` | report | 15 x 3 | 172,278 | 54 | 0.298 | 950 | 1.00 | 2.42 | 13.4 |
+| `raft-commit-prev-term` | report | 15 x 3 | 170,277 | 0 | 0 | 939 | 1.00 | - | 0 |
+| `raft-forget-vote` | report | 15 x 3 | 171,604 | 3 | 0.017 | 946 | 1.00 | - | 0.7 |
+| `paxos-forget-promise` | report | 15 x 3 | 643,078 | 154 | 0.854 | 3,568 | 1.00 | 1.44 | 38.4 |
+
+Both gate members clear the 100 events per arm a gate is sized to, and the
+dispersion the rate test charges is measured within an arm, not across the
+two arms it compares. `raft-commit-prev-term` and `raft-forget-vote` expect
+under one event per arm and report counts only; `raft-stale-vote` is judged
+on time to first violation, `paxos-forget-promise` as a rate. The panel
+takes 402 s of replicates at baseline speed against the 448 s a 560 s case
+wall leaves a candidate at the throughput floor.
+
+The first version-2 calibration ran the replicates as campaigns and let
+the template's run count bind before the wall: a Paxos replicate finished
+its 2,400-run grid in about a second of a 10 s wall. Neither is the regime
+the manifest describes, and both are gone.
+
 ## Admitted members
 
 | id | class | role | rate | runs/arm | control | separation | dispersion | budget ratio | runs/s |
