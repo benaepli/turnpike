@@ -1,309 +1,666 @@
 {
   "graderVersion": "ta:9b8ed8b+porc:8de73a4",
-  "spurCommit": "28a81df051f5644891d1533c68dad9a21bc74f12",
-  "superCommit": "002f62df86f77a99de2c124e008f898a28fd90b2",
+  "spurCommit": "9223c7eff228d7250d849cc703871a762ce88c88",
+  "superCommit": "ccc2b374ab8c56c80babf06d7c0b96e2d88ba87d",
   "baseline": {
     "screen": [
       {
-        "id": "baseline-screen-11-1787905935279",
+        "id": "baseline-screen-11-1787910025148",
         "hypothesisId": "baseline",
         "fidelity": "screen",
         "graderVersion": "ta:9b8ed8b+porc:8de73a4",
-        "spurCommit": "28a81df051f5644891d1533c68dad9a21bc74f12",
-        "superCommit": "002f62df86f77a99de2c124e008f898a28fd90b2",
+        "spurCommit": "9223c7eff228d7250d849cc703871a762ce88c88",
+        "superCommit": "ccc2b374ab8c56c80babf06d7c0b96e2d88ba87d",
         "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
         "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
         "seed": 11,
-        "startedAtIso": "2026-08-28T08:32:15.279Z",
+        "startedAtIso": "2026-08-28T09:40:25.148Z",
         "metrics": {
           "runs": 5400,
-          "runsPerSec": 560.1659751037344,
-          "unpairedFraction": 0.48951087863780535,
-          "h1Rate": 0.487962962962963,
-          "h2Rate": 0.4066666666666667,
-          "h2bRate": 0.41759259259259257,
-          "h3Rate": 0.35333333333333333,
+          "runsPerSec": 586.7651852656743,
+          "exposureMs": 9203,
+          "unpairedFraction": 0.4917488989240118,
+          "h1Rate": 0.4912962962962963,
+          "h2Rate": 0.41055555555555556,
+          "h2bRate": 0.4209259259259259,
+          "h3Rate": 0.3522222222222222,
           "gradedRuns": 5400,
-          "meanPrefixDepth": 3.0464814814814813,
+          "meanPrefixDepth": 3.0385185185185186,
           "maxPrefixDepth": 7,
           "depthAtLeast": [
             5400,
-            4881,
-            3514,
-            1945,
-            596,
-            102,
-            13
+            4868,
+            3519,
+            1937,
+            575,
+            98,
+            11
           ],
           "violations": 0,
           "unknown": 0,
-          "porcupineWallMs": 380,
-          "gradeWallMs": 10829
+          "porcupineWallMs": 354,
+          "gradeWallMs": 10772
         },
-        "exploreWallMs": 9640,
+        "exploreWallMs": 9634,
         "suspendedMs": 0,
         "ok": true,
-        "error": null
+        "error": null,
+        "session": {
+          "wallMs": 9203,
+          "runsCompleted": 5400,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 0,
+          "budgetHit": false,
+          "writerFlushMs": 49
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 5400,
+            "planComplete": 1517,
+            "planCompleteWithPendingWork": 1517,
+            "iterationsExhausted": 3880,
+            "deadlock": 3,
+            "stepsUsedSum": 24500239,
+            "stepBudgetSum": 32400000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 4903707,
+              "acted": 1903933
+            },
+            "biased": {
+              "deliveries": 734838,
+              "acted": 82686
+            },
+            "delayed": {
+              "deliveries": 722661,
+              "acted": 81897
+            },
+            "senderRestarted": {
+              "deliveries": 5450,
+              "acted": 753
+            },
+            "receiverRestarted": {
+              "deliveries": 9762,
+              "acted": 218
+            }
+          },
+          "steerAuthority": {
+            "steps": 24500239,
+            "preferenceExpressed": 3432,
+            "preferenceHonored": 642,
+            "honored": 17462151,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
       }
     ],
     "promote": [
       {
-        "id": "baseline-promote-11-1787905956146",
+        "id": "baseline-promote-11-1787910045933",
         "hypothesisId": "baseline",
         "fidelity": "promote",
         "graderVersion": "ta:9b8ed8b+porc:8de73a4",
-        "spurCommit": "28a81df051f5644891d1533c68dad9a21bc74f12",
-        "superCommit": "002f62df86f77a99de2c124e008f898a28fd90b2",
+        "spurCommit": "9223c7eff228d7250d849cc703871a762ce88c88",
+        "superCommit": "ccc2b374ab8c56c80babf06d7c0b96e2d88ba87d",
         "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
         "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
         "seed": 11,
-        "startedAtIso": "2026-08-28T08:32:36.146Z",
+        "startedAtIso": "2026-08-28T09:40:45.933Z",
         "metrics": {
           "runs": 13500,
-          "runsPerSec": 566.4177225811866,
-          "unpairedFraction": 0.49650950129360333,
-          "h1Rate": 0.4945185185185185,
-          "h2Rate": 0.4192592592592593,
-          "h2bRate": 0.42185185185185187,
-          "h3Rate": 0.35355555555555557,
+          "runsPerSec": 584.4914924016106,
+          "exposureMs": 23097,
+          "unpairedFraction": 0.4968448983232251,
+          "h1Rate": 0.49614814814814817,
+          "h2Rate": 0.4206666666666667,
+          "h2bRate": 0.4235555555555556,
+          "h3Rate": 0.3536296296296296,
           "gradedRuns": 13500,
-          "meanPrefixDepth": 3.050074074074074,
+          "meanPrefixDepth": 3.054074074074074,
           "maxPrefixDepth": 8,
           "depthAtLeast": [
             13500,
-            12226,
-            8848,
-            4882,
-            1471,
-            223,
-            24,
+            12227,
+            8860,
+            4894,
+            1498,
+            230,
+            19,
             2
           ],
           "violations": 0,
           "unknown": 0,
-          "porcupineWallMs": 861,
-          "gradeWallMs": 27038
+          "porcupineWallMs": 880,
+          "gradeWallMs": 26669
         },
-        "exploreWallMs": 23834,
-        "suspendedMs": 1,
+        "exploreWallMs": 23568,
+        "suspendedMs": 0,
         "ok": true,
-        "error": null
+        "error": null,
+        "session": {
+          "wallMs": 23097,
+          "runsCompleted": 13500,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 0,
+          "budgetHit": false,
+          "writerFlushMs": 47
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 13500,
+            "planComplete": 3770,
+            "planCompleteWithPendingWork": 3770,
+            "iterationsExhausted": 9721,
+            "deadlock": 9,
+            "stepsUsedSum": 61425422,
+            "stepBudgetSum": 81000000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 12400974,
+              "acted": 4706368
+            },
+            "biased": {
+              "deliveries": 1860332,
+              "acted": 205688
+            },
+            "delayed": {
+              "deliveries": 1829795,
+              "acted": 203722
+            },
+            "senderRestarted": {
+              "deliveries": 14007,
+              "acted": 1969
+            },
+            "receiverRestarted": {
+              "deliveries": 24684,
+              "acted": 499
+            }
+          },
+          "steerAuthority": {
+            "steps": 61425422,
+            "preferenceExpressed": 8458,
+            "preferenceHonored": 1583,
+            "honored": 43548211,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
       },
       {
-        "id": "baseline-promote-23-1787906007900",
+        "id": "baseline-promote-23-1787910097076",
         "hypothesisId": "baseline",
         "fidelity": "promote",
         "graderVersion": "ta:9b8ed8b+porc:8de73a4",
-        "spurCommit": "28a81df051f5644891d1533c68dad9a21bc74f12",
-        "superCommit": "002f62df86f77a99de2c124e008f898a28fd90b2",
+        "spurCommit": "9223c7eff228d7250d849cc703871a762ce88c88",
+        "superCommit": "ccc2b374ab8c56c80babf06d7c0b96e2d88ba87d",
         "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
         "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
         "seed": 23,
-        "startedAtIso": "2026-08-28T08:33:27.900Z",
+        "startedAtIso": "2026-08-28T09:41:37.076Z",
         "metrics": {
           "runs": 13500,
-          "runsPerSec": 568.6604886267903,
-          "unpairedFraction": 0.49632124121988086,
-          "h1Rate": 0.4998518518518518,
-          "h2Rate": 0.41644444444444445,
-          "h2bRate": 0.4226666666666667,
-          "h3Rate": 0.3516296296296296,
+          "runsPerSec": 582.1474773609314,
+          "exposureMs": 23190,
+          "unpairedFraction": 0.4962842003532509,
+          "h1Rate": 0.5033333333333333,
+          "h2Rate": 0.4220740740740741,
+          "h2bRate": 0.4246666666666667,
+          "h3Rate": 0.35274074074074074,
           "gradedRuns": 13500,
-          "meanPrefixDepth": 3.0517777777777777,
+          "meanPrefixDepth": 3.052814814814815,
           "maxPrefixDepth": 8,
           "depthAtLeast": [
             13500,
-            12274,
-            8826,
+            12301,
+            8796,
             4864,
-            1478,
-            227,
-            29,
-            1
+            1470,
+            248,
+            32,
+            2
           ],
           "violations": 0,
           "unknown": 0,
-          "porcupineWallMs": 887,
-          "gradeWallMs": 27136
+          "porcupineWallMs": 875,
+          "gradeWallMs": 26994
         },
-        "exploreWallMs": 23740,
+        "exploreWallMs": 23623,
         "suspendedMs": 0,
         "ok": true,
-        "error": null
+        "error": null,
+        "session": {
+          "wallMs": 23190,
+          "runsCompleted": 13500,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 0,
+          "budgetHit": false,
+          "writerFlushMs": 14
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 13500,
+            "planComplete": 3757,
+            "planCompleteWithPendingWork": 3757,
+            "iterationsExhausted": 9737,
+            "deadlock": 6,
+            "stepsUsedSum": 61482250,
+            "stepBudgetSum": 81000000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 12390798,
+              "acted": 4730401
+            },
+            "biased": {
+              "deliveries": 1856631,
+              "acted": 207416
+            },
+            "delayed": {
+              "deliveries": 1824856,
+              "acted": 205361
+            },
+            "senderRestarted": {
+              "deliveries": 14074,
+              "acted": 2037
+            },
+            "receiverRestarted": {
+              "deliveries": 26042,
+              "acted": 503
+            }
+          },
+          "steerAuthority": {
+            "steps": 61482250,
+            "preferenceExpressed": 8172,
+            "preferenceHonored": 1551,
+            "honored": 43589888,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
       }
     ],
     "confirm": [],
     "sequential": [
       {
-        "id": "baseline-sequential-1000-1787906059692",
+        "id": "baseline-sequential-1000-1787910148601",
         "hypothesisId": "baseline",
         "fidelity": "sequential",
         "graderVersion": "ta:9b8ed8b+porc:8de73a4",
-        "spurCommit": "28a81df051f5644891d1533c68dad9a21bc74f12",
-        "superCommit": "002f62df86f77a99de2c124e008f898a28fd90b2",
+        "spurCommit": "9223c7eff228d7250d849cc703871a762ce88c88",
+        "superCommit": "ccc2b374ab8c56c80babf06d7c0b96e2d88ba87d",
         "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
         "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
         "seed": 1000,
-        "startedAtIso": "2026-08-28T08:34:19.692Z",
+        "startedAtIso": "2026-08-28T09:42:28.601Z",
         "metrics": {
-          "runs": 54000,
-          "runsPerSec": 603.4463491495876,
-          "unpairedFraction": 0.4899882508119132,
-          "h1Rate": 0.49748148148148147,
-          "h2Rate": 0.4189074074074074,
-          "h2bRate": 0.4268148148148148,
-          "h3Rate": 0.356,
-          "gradedRuns": 54000,
-          "meanPrefixDepth": 3.0658148148148148,
+          "runs": 53104,
+          "runsPerSec": 589.6055158937236,
+          "exposureMs": 90067,
+          "unpairedFraction": 0.49376202734817637,
+          "h1Rate": 0.4932585115998795,
+          "h2Rate": 0.4155242542934619,
+          "h2bRate": 0.4254481771617957,
+          "h3Rate": 0.35319373305212415,
+          "gradedRuns": 53104,
+          "meanPrefixDepth": 3.0553253992166316,
           "maxPrefixDepth": 8,
           "depthAtLeast": [
-            54000,
-            49092,
-            35580,
-            19834,
-            6016,
-            923,
-            104,
-            5
+            53104,
+            48204,
+            34629,
+            19317,
+            5999,
+            880,
+            115,
+            2
           ],
           "violations": 0,
           "unknown": 0,
-          "porcupineWallMs": 3404,
-          "gradeWallMs": 106813
+          "porcupineWallMs": 3257,
+          "gradeWallMs": 106027
         },
-        "exploreWallMs": 89486,
+        "exploreWallMs": 90540,
         "suspendedMs": 0,
         "ok": true,
-        "error": null
+        "error": null,
+        "session": {
+          "wallMs": 90067,
+          "runsCompleted": 53104,
+          "runsFailed": 0,
+          "runsSkipped": 101,
+          "budgetSec": 90,
+          "budgetHit": true,
+          "writerFlushMs": 47
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 53104,
+            "planComplete": 15098,
+            "planCompleteWithPendingWork": 15098,
+            "iterationsExhausted": 37978,
+            "deadlock": 28,
+            "stepsUsedSum": 240087862,
+            "stepBudgetSum": 318624000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 48278217,
+              "acted": 18390421
+            },
+            "biased": {
+              "deliveries": 7237780,
+              "acted": 803870
+            },
+            "delayed": {
+              "deliveries": 7116616,
+              "acted": 795999
+            },
+            "senderRestarted": {
+              "deliveries": 54029,
+              "acted": 7746
+            },
+            "receiverRestarted": {
+              "deliveries": 98116,
+              "acted": 1952
+            }
+          },
+          "steerAuthority": {
+            "steps": 240087862,
+            "preferenceExpressed": 32456,
+            "preferenceHonored": 6181,
+            "honored": 170174507,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
       },
       {
-        "id": "baseline-sequential-1001-1787906259495",
+        "id": "baseline-sequential-1001-1787910348534",
         "hypothesisId": "baseline",
         "fidelity": "sequential",
         "graderVersion": "ta:9b8ed8b+porc:8de73a4",
-        "spurCommit": "28a81df051f5644891d1533c68dad9a21bc74f12",
-        "superCommit": "002f62df86f77a99de2c124e008f898a28fd90b2",
+        "spurCommit": "9223c7eff228d7250d849cc703871a762ce88c88",
+        "superCommit": "ccc2b374ab8c56c80babf06d7c0b96e2d88ba87d",
         "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
         "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
         "seed": 1001,
-        "startedAtIso": "2026-08-28T08:37:39.495Z",
+        "startedAtIso": "2026-08-28T09:45:48.534Z",
         "metrics": {
-          "runs": 54000,
-          "runsPerSec": 601.2291796561859,
-          "unpairedFraction": 0.49363994210805573,
-          "h1Rate": 0.49512962962962964,
-          "h2Rate": 0.4162962962962963,
-          "h2bRate": 0.42353703703703705,
-          "h3Rate": 0.3546666666666667,
-          "gradedRuns": 54000,
-          "meanPrefixDepth": 3.067,
+          "runs": 52839,
+          "runsPerSec": 586.7414357892399,
+          "exposureMs": 90055,
+          "unpairedFraction": 0.49432827001582347,
+          "h1Rate": 0.49633793220916367,
+          "h2Rate": 0.416510531993414,
+          "h2bRate": 0.4228126951683416,
+          "h3Rate": 0.3538674085429323,
+          "gradedRuns": 52839,
+          "meanPrefixDepth": 3.0584416813338633,
           "maxPrefixDepth": 8,
           "depthAtLeast": [
-            54000,
-            49146,
-            35626,
-            19803,
-            6093,
-            844,
+            52839,
+            48055,
+            34559,
+            19239,
+            5904,
+            872,
+            128,
+            9
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 3298,
+          "gradeWallMs": 106997
+        },
+        "exploreWallMs": 90570,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 90055,
+          "runsCompleted": 52839,
+          "runsFailed": 0,
+          "runsSkipped": 100,
+          "budgetSec": 90,
+          "budgetHit": true,
+          "writerFlushMs": 51
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 52839,
+            "planComplete": 15015,
+            "planCompleteWithPendingWork": 15015,
+            "iterationsExhausted": 37801,
+            "deadlock": 23,
+            "stepsUsedSum": 238957195,
+            "stepBudgetSum": 317034000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 48198236,
+              "acted": 18404167
+            },
+            "biased": {
+              "deliveries": 7228902,
+              "acted": 805478
+            },
+            "delayed": {
+              "deliveries": 7107462,
+              "acted": 797517
+            },
+            "senderRestarted": {
+              "deliveries": 54527,
+              "acted": 7637
+            },
+            "receiverRestarted": {
+              "deliveries": 98705,
+              "acted": 2170
+            }
+          },
+          "steerAuthority": {
+            "steps": 238957195,
+            "preferenceExpressed": 32015,
+            "preferenceHonored": 6113,
+            "honored": 169084373,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      },
+      {
+        "id": "baseline-sequential-1002-1787910549504",
+        "hypothesisId": "baseline",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "9223c7eff228d7250d849cc703871a762ce88c88",
+        "superCommit": "ccc2b374ab8c56c80babf06d7c0b96e2d88ba87d",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 1002,
+        "startedAtIso": "2026-08-28T09:49:09.504Z",
+        "metrics": {
+          "runs": 52676,
+          "runsPerSec": 584.9898940541501,
+          "exposureMs": 90046,
+          "unpairedFraction": 0.49222072708962167,
+          "h1Rate": 0.4996013364720176,
+          "h2Rate": 0.41888146404434656,
+          "h2bRate": 0.42586756777279977,
+          "h3Rate": 0.3552092034323031,
+          "gradedRuns": 52676,
+          "meanPrefixDepth": 3.0698800212620547,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            52676,
+            47929,
+            34695,
+            19409,
+            5994,
+            903,
             101,
+            2
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 3291,
+          "gradeWallMs": 106237
+        },
+        "exploreWallMs": 90593,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 90046,
+          "runsCompleted": 52676,
+          "runsFailed": 0,
+          "runsSkipped": 101,
+          "budgetSec": 90,
+          "budgetHit": true,
+          "writerFlushMs": 72
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 52676,
+            "planComplete": 14894,
+            "planCompleteWithPendingWork": 14894,
+            "iterationsExhausted": 37756,
+            "deadlock": 26,
+            "stepsUsedSum": 238670222,
+            "stepBudgetSum": 316056000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 48079984,
+              "acted": 18386020
+            },
+            "biased": {
+              "deliveries": 7212130,
+              "acted": 805914
+            },
+            "delayed": {
+              "deliveries": 7089728,
+              "acted": 797890
+            },
+            "senderRestarted": {
+              "deliveries": 54704,
+              "acted": 7854
+            },
+            "receiverRestarted": {
+              "deliveries": 99711,
+              "acted": 2045
+            }
+          },
+          "steerAuthority": {
+            "steps": 238670222,
+            "preferenceExpressed": 31555,
+            "preferenceHonored": 6093,
+            "honored": 169239569,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      },
+      {
+        "id": "baseline-sequential-1003-1787910749737",
+        "hypothesisId": "baseline",
+        "fidelity": "sequential",
+        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
+        "spurCommit": "9223c7eff228d7250d849cc703871a762ce88c88",
+        "superCommit": "ccc2b374ab8c56c80babf06d7c0b96e2d88ba87d",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 1003,
+        "startedAtIso": "2026-08-28T09:52:29.737Z",
+        "metrics": {
+          "runs": 52812,
+          "runsPerSec": 586.4481311213272,
+          "exposureMs": 90054,
+          "unpairedFraction": 0.4940477037079179,
+          "h1Rate": 0.4941490570324926,
+          "h2Rate": 0.41447019616753766,
+          "h2bRate": 0.42217677800499886,
+          "h3Rate": 0.3549761417859577,
+          "gradedRuns": 52812,
+          "meanPrefixDepth": 3.0624289934105886,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            52812,
+            48009,
+            34797,
+            19237,
+            5911,
+            856,
+            106,
             5
           ],
           "violations": 0,
           "unknown": 0,
-          "porcupineWallMs": 3364,
-          "gradeWallMs": 107589
+          "porcupineWallMs": 3257,
+          "gradeWallMs": 106664
         },
-        "exploreWallMs": 89816,
+        "exploreWallMs": 90578,
         "suspendedMs": 0,
         "ok": true,
-        "error": null
-      },
-      {
-        "id": "baseline-sequential-1002-1787906460379",
-        "hypothesisId": "baseline",
-        "fidelity": "sequential",
-        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
-        "spurCommit": "28a81df051f5644891d1533c68dad9a21bc74f12",
-        "superCommit": "002f62df86f77a99de2c124e008f898a28fd90b2",
-        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
-        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
-        "seed": 1002,
-        "startedAtIso": "2026-08-28T08:41:00.379Z",
-        "metrics": {
-          "runs": 54000,
-          "runsPerSec": 599.4671403197158,
-          "unpairedFraction": 0.49259418939404476,
-          "h1Rate": 0.49342592592592593,
-          "h2Rate": 0.4143148148148148,
-          "h2bRate": 0.42512962962962964,
-          "h3Rate": 0.3547592592592593,
-          "gradedRuns": 54000,
-          "meanPrefixDepth": 3.059111111111111,
-          "maxPrefixDepth": 8,
-          "depthAtLeast": [
-            54000,
-            49078,
-            35509,
-            19629,
-            5980,
-            865,
-            128,
-            3
-          ],
-          "violations": 0,
-          "unknown": 0,
-          "porcupineWallMs": 3390,
-          "gradeWallMs": 107386
+        "error": null,
+        "session": {
+          "wallMs": 90054,
+          "runsCompleted": 52812,
+          "runsFailed": 0,
+          "runsSkipped": 101,
+          "budgetSec": 90,
+          "budgetHit": true,
+          "writerFlushMs": 79
         },
-        "exploreWallMs": 90080,
-        "suspendedMs": 0,
-        "ok": true,
-        "error": null
-      },
-      {
-        "id": "baseline-sequential-1003-1787906661336",
-        "hypothesisId": "baseline",
-        "fidelity": "sequential",
-        "graderVersion": "ta:9b8ed8b+porc:8de73a4",
-        "spurCommit": "28a81df051f5644891d1533c68dad9a21bc74f12",
-        "superCommit": "002f62df86f77a99de2c124e008f898a28fd90b2",
-        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
-        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
-        "seed": 1003,
-        "startedAtIso": "2026-08-28T08:44:21.336Z",
-        "metrics": {
-          "runs": 54000,
-          "runsPerSec": 589.1916072928828,
-          "unpairedFraction": 0.4927415618749601,
-          "h1Rate": 0.4956851851851852,
-          "h2Rate": 0.41614814814814816,
-          "h2bRate": 0.4246666666666667,
-          "h3Rate": 0.35518518518518516,
-          "gradedRuns": 54000,
-          "meanPrefixDepth": 3.059037037037037,
-          "maxPrefixDepth": 8,
-          "depthAtLeast": [
-            54000,
-            49038,
-            35433,
-            19659,
-            6042,
-            901,
-            108,
-            7
-          ],
-          "violations": 0,
-          "unknown": 0,
-          "porcupineWallMs": 3429,
-          "gradeWallMs": 108924
+        "utilStats": {
+          "termination": {
+            "runs": 52812,
+            "planComplete": 14918,
+            "planCompleteWithPendingWork": 14918,
+            "iterationsExhausted": 37876,
+            "deadlock": 18,
+            "stepsUsedSum": 239481712,
+            "stepBudgetSum": 316872000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 47955993,
+              "acted": 18336928
+            },
+            "biased": {
+              "deliveries": 7190700,
+              "acted": 803338
+            },
+            "delayed": {
+              "deliveries": 7071017,
+              "acted": 795460
+            },
+            "senderRestarted": {
+              "deliveries": 53779,
+              "acted": 7821
+            },
+            "receiverRestarted": {
+              "deliveries": 96860,
+              "acted": 1987
+            }
+          },
+          "steerAuthority": {
+            "steps": 239481712,
+            "preferenceExpressed": 31568,
+            "preferenceHonored": 6171,
+            "honored": 170076204,
+            "blockedByTimerGate": 0
+          }
         },
-        "exploreWallMs": 91651,
-        "suspendedMs": 1,
-        "ok": true,
-        "error": null
+        "timingAnomaly": null
       }
     ],
-    "runsPerSec": 560.1659751037344,
+    "runsPerSec": 586.7651852656743,
     "rayonThreads": 30
   }
 }

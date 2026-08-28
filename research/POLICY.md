@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-28T08:47:45.463Z
+Generated: 2026-08-28T09:55:50.366Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -29,7 +29,8 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 
 ## Sequential evaluation
 
-- chunkRunsPerConfig: 1000
+- exploreBudgetSec: 90
+- maxRunsPerConfig: 4000
 - maxChunks: 4
 - minChunks: 2
 - rejectP: 0.05
