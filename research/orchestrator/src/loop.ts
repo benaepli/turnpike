@@ -711,9 +711,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         journal(state, n, "closed_inconclusive", { id: h.id, chunks: res.seq.chunks, resumes: res.seq.resumes, bestPMei: Math.round(bestPMei * 1000) / 1000, posteriors: res.seq.posteriors });
       }
       if (res.verdict === "escalate") {
-        // A depth the baseline never reaches appeared but did not separate at
-        // the gate: sampling was extended to the hard cap, and the pooled
-        // evidence goes to a human as a PR rather than being deleted.
+        // Rare evidence that did not separate at the gate, or a per-second
+        // gain whose deep rungs per run stayed unresolved: sampling was
+        // extended to the hard cap, and the pooled evidence goes to a human
+        // as a PR rather than being deleted.
+        journal(state, n, "escalated", { id: h.id, reason: res.reason, chunks: res.seq.chunks });
         confirmEvals = res.evals.filter((e) => e.ok);
         const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
         regressionPassed = regr.passed;

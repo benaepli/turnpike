@@ -236,7 +236,10 @@ depth>=6 -> 100% advance in 2 chunks; +25% depth>=6 at 0.7x throughput ->
 throughput multiplies every rung); +12% depth>=4 with +15% depth>=5 -> 100%
 advance; -40% per-run depth>=4 -> 100% reject at chunk 1; depth>=7-only +40%
 -> 0% advance, 100% inconclusive at 8 chunks; h2-only +10% -> 0% advance;
-NI null -> 100% advance; NI -30% -> 100% reject at chunk 1. The consistency
+NI null -> 100% advance; NI -30% -> 100% reject at chunk 1; per-run
+depth>=6 down 15% at 1.4x throughput -> 100% advance (inside the 25%
+margin), down 25% -> 93% escalate at the cap and 3% advance (the margin
+itself), down 40% -> 100% reject. The consistency
 of the sequential rule with the merge gate on the same pooled chunks, and
 the cap check below, are asserted by `selfTestGateConsistency` on the same
 recorded baseline when `cli selftest` finds one in the state.

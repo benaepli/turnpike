@@ -64,6 +64,9 @@ export interface Comparison {
 // passes MERGE_Z = 2.7 - Bonferroni over the objectives tested, holding
 // familywise false-positive near 5% per hypothesis.
 export const MERGE_Z = 2.7;
+// The relative margin the deep rungs per run may not fall beyond; the same
+// margin the non-inferiority kinds are held to.
+export const DEEP_RUNG_MARGIN = 0.25;
 export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96): Comparison {
   const improved: string[] = [];
   const regressed: string[] = [];
@@ -88,6 +91,9 @@ export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, 
     if ((ADVANCE_RUNGS as readonly number[]).includes(d.k)
         && rateRatioSeparated(d.succ, cand.exposureSec, b.succ, base.exposureSec, z, xv)) improved.push(`depth>=${d.k}`);
     if (d.k === 4 && rateRatioSeparated(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
+    // The deep rungs per run may not fall beyond the non-inferiority margin:
+    // the sequential rule holds an advance until they are known to hold.
+    if ((d.k === 5 || d.k === 6) && rateRatioSeparated((1 - DEEP_RUNG_MARGIN) * b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k} per run`);
   }
 
   deltas["h2"] = rate(cand.h2) - rate(base.h2);

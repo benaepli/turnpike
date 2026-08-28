@@ -163,6 +163,12 @@ export function decideSequential(
   const d6 = perSec(cand.depth6plus, base.depth6plus, mei.depth6, seed + 3);
   const d7 = perSec(cand.depth7plus, base.depth7plus, mei.depth7, seed + 4);
   const g4 = compareRatesPoisson(cand.depth4, cand.graded, base.depth4, base.graded, 0, p.regressMargin, p.draws, seed + 5);
+  // Per-run guards on the deep rungs: a candidate that buys events per
+  // second by making runs shallower must not advance on the shallow rungs.
+  const g5 = compareRatesPoisson(cand.depth5, cand.graded, base.depth5, base.graded, 0, p.regressMargin, p.draws, seed + 6);
+  const g6 = compareRatesPoisson(cand.depth6plus, cand.graded, base.depth6plus, base.graded, 0, p.regressMargin, p.draws, seed + 7);
+  const deepRegress = Math.max(g5.pRegress, g6.pRegress);
+  const deepGuardOk = g5.pRegress <= 1 - p.niP && g6.pRegress <= 1 - p.niP;
   const h2 = compareRatesPoisson(cand.h2Count, cand.runs, base.h2Count, base.runs, mei.h2, p.regressMargin, p.draws, seed + 2);
   const throughputRatio = throughputRatioOf(cand, base);
   const posteriors: Record<string, number> = {
@@ -171,7 +177,7 @@ export function decideSequential(
     "depth>=6:pGreater": d6.pGreater, "depth>=6:pMei": d6.pAtLeastMei, "depth>=6:ratio": d6.meanRatio, "depth>=6:mei": mei.depth6,
     "depth>=7:pGreater": d7.pGreater, "depth>=7:pMei": d7.pAtLeastMei, "depth>=7:ratio": d7.meanRatio, "depth>=7:mei": mei.depth7,
     "h2:pGreater": h2.pGreater, "h2:ratio": h2.meanRatio, "h2:mei": mei.h2,
-    "depth>=4:pRegress": g4.pRegress, "h2:pRegress": h2.pRegress,
+    "depth>=4:pRegress": g4.pRegress, "depth>=5:pRegress": g5.pRegress, "depth>=6:pRegress": g6.pRegress, "h2:pRegress": h2.pRegress,
     "throughput:ratio": throughputRatio, "throughput:cv": throughputCv(cand.rpsChunks),
   };
   const out = (verdict: SeqVerdict, reason: string): SeqDecision => ({ verdict, reason, posteriors });
@@ -193,9 +199,9 @@ export function decideSequential(
   const belowFloor = chunks >= p.minChunks && throughputRatio < p.throughputFloor;
 
   if (kind === "noninferiority") {
-    const worst = Math.max(g4.pRegress, h2.pRegress);
-    if (chunks >= p.minChunks && cand.violations <= base.violations && g4.pRegress <= 1 - p.niP && h2.pRegress <= 1 - p.niP && !belowFloor) {
-      return out("advance", "non-inferior on depth>=4 and h2");
+    const worst = Math.max(g4.pRegress, h2.pRegress, deepRegress);
+    if (chunks >= p.minChunks && cand.violations <= base.violations && g4.pRegress <= 1 - p.niP && h2.pRegress <= 1 - p.niP && deepGuardOk && !belowFloor) {
+      return out("advance", "non-inferior on depth>=4, depth>=5, depth>=6 and h2");
     }
     if (worst >= p.niP) return out("reject", `regression: pRegress ${worst.toFixed(3)}`);
     if (belowFloor) return out("reject", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
@@ -211,18 +217,25 @@ export function decideSequential(
   if (rateRatioSeparated(base.depth4, base.graded, cand.depth4, cand.graded, MERGE_Z)) return out("reject", `depth>=4 regressed per run (ratio ${g4.meanRatio.toFixed(2)})`);
   if (rateRatioSeparated(base.h2Count, base.runs, cand.h2Count, cand.runs, MERGE_Z)) return out("reject", `h2 regressed (ratio ${h2.meanRatio.toFixed(2)})`);
 
+  let separatedRung: string | null = null;
   if (chunks >= p.minChunks) {
     if (belowFloor) return out("reject", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
+    if (deepRegress >= p.niP) return out("reject", `deep rungs regressed per run beyond the ${(p.regressMargin * 100).toFixed(0)}% margin (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
     const sep = (c: number, b: number): boolean => rateRatioSeparated(c, cand.exposureSec, b, base.exposureSec, MERGE_Z, xv);
-    if (sep(cand.depth6plus, base.depth6plus)) return out("advance", `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`);
-    if (sep(cand.depth5, base.depth5)) return out("advance", `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`);
-    if (sep(cand.depth4, base.depth4)) return out("advance", `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`);
-    if (!extended && d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP && d6.pAtLeastMei < p.rejectP) {
+    if (sep(cand.depth6plus, base.depth6plus)) separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`;
+    else if (sep(cand.depth5, base.depth5)) separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`;
+    else if (sep(cand.depth4, base.depth4)) separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`;
+    // A separated rung advances only when the deep rungs per run are known
+    // to hold; a gain with the guard unresolved keeps sampling and goes to a
+    // human at the cap rather than being merged or discarded.
+    if (separatedRung !== null && deepGuardOk) return out("advance", separatedRung);
+    if (separatedRung === null && !extended && d4.pAtLeastMei < p.rejectP && d5.pAtLeastMei < p.rejectP && d6.pAtLeastMei < p.rejectP) {
       return out("reject", `no rung can reach a separable effect (pMei d4 ${d4.pAtLeastMei.toFixed(3)} at +${(mei.depth4 * 100).toFixed(0)}%, d5 ${d5.pAtLeastMei.toFixed(3)} at +${(mei.depth5 * 100).toFixed(0)}%, d6 ${d6.pAtLeastMei.toFixed(3)} at +${(mei.depth6 * 100).toFixed(0)}%)`);
     }
   }
   if (chunks >= cap) {
     if (jackpot) return out("escalate", `a depth the baseline never reaches appeared (d6 ${cand.depth6plus}, d7 ${cand.depth7plus}, d8 ${cand.depth8plus}), below gate separation`);
+    if (separatedRung !== null) return out("escalate", `${separatedRung} with shallower deep runs unresolved (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
     if (d7Hint) return out("inconclusive", `depth>=7 pGreater ${d7.pGreater.toFixed(3)} unresolved at the extended cap`);
     const best = Math.max(d4.pGreater, d5.pGreater, d6.pGreater);
     return best >= p.inconclusiveP
@@ -320,6 +333,7 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     { name: "+12% depth>=4 and +15% depth>=5", cand: [2000, 2001].map((s) => chunk(s, { d4: 1.12, d5: 1.15 })) },
     { name: "+40% throughput", cand: [2000, 2001].map((s) => chunk(s, { rps: 1.4 })) },
     { name: "+30% depth>=6 at -10% throughput", cand: [2000, 2001].map((s) => chunk(s, { d6: 1.3, rps: 0.9 })) },
+    { name: "+40% throughput with -30% per-run depth>=6", cand: [2000, 2001].map((s) => chunk(s, { rps: 1.4, d6: 0.7 })) },
   ];
   for (const c of cases) {
     const seq = decideSequential(pooledCountsOf(c.cand), pooledCountsOf(base), c.cand.length, "superiority", rule);
@@ -336,6 +350,10 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   if (slow.verdict !== "reject") f.push(`a candidate below the throughput floor must be rejected, got ${slow.verdict} (${slow.reason})`);
   const nul = decideSequential(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, "superiority", rule);
   if (nul.verdict === "advance") f.push(`a null candidate must not advance (${nul.reason})`);
+  const hollow = decideSequential(pooledCountsOf(cases[5]!.cand), pooledCountsOf(base), 2, "superiority", rule);
+  if (hollow.verdict === "advance") f.push(`a per-second gain bought with shallower deep runs must not advance (${hollow.reason})`);
+  const hollowGate = compareToBaseline(objectiveCounts(cases[5]!.cand), objectiveCounts(base), MERGE_Z);
+  if (!hollowGate.regressed.some((r) => r.startsWith("depth>=6"))) f.push(`the gate must read -30% per-run depth>=6 as a regression, got regressed=[${hollowGate.regressed}]`);
   // The chunk cap is justified by what the last chunk buys: at the measured
   // primary-rung counts the minimum separable effect at the cap must be
   // within half again of what unbounded sampling could reach, else the cap

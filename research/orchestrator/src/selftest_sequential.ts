@@ -47,7 +47,7 @@ function binomial(n: number, prob: number, u: () => number): number {
   return Math.max(0, Math.round(mean + sd * normal(u)));
 }
 
-interface Expect { advanceMin?: number; advanceMax?: number; rejectMin?: number; inconclusiveMin?: number; chunksMeanMin?: number; oneChunkReject?: boolean }
+interface Expect { advanceMin?: number; advanceMax?: number; rejectMin?: number; inconclusiveMin?: number; escalateMin?: number; chunksMeanMin?: number; oneChunkReject?: boolean }
 interface Scenario { name: string; rps: number; e4: number; e5: number; e6: number; e7: number; eh2: number; kind: "superiority" | "noninferiority"; expect: Expect }
 const scenarios: Scenario[] = [
   { name: "null (A/A)", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, kind: "superiority", expect: { advanceMax: 3 } },
@@ -58,6 +58,11 @@ const scenarios: Scenario[] = [
   { name: "harmful (-40% d4 per run)", rps: 1, e4: -0.4, e5: -0.4, e6: -0.4, e7: -0.4, eh2: -0.1, kind: "superiority", expect: { rejectMin: 100, oneChunkReject: true } },
   { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, kind: "superiority", expect: { advanceMax: 3, chunksMeanMin: rule.maxChunks + 0.5, inconclusiveMin: 50 } },
   { name: "h2-only +10%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0.1, kind: "superiority", expect: { advanceMax: 3 } },
+  // The deep-rung guard is a 25% relative margin: a decline inside it
+  // advances, one at the margin is held for a human, one beyond it rejects.
+  { name: "1.4x throughput, -15% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.15, e7: -0.15, eh2: 0, kind: "superiority", expect: { advanceMin: 90 } },
+  { name: "1.4x throughput, -25% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.25, e7: -0.25, eh2: 0, kind: "superiority", expect: { advanceMax: 5, escalateMin: 85 } },
+  { name: "-40% per-run d6 only", rps: 1, e4: 0, e5: 0, e6: -0.4, e7: -0.4, eh2: 0, kind: "superiority", expect: { rejectMin: 90, advanceMax: 0 } },
   { name: "NI kind, no effect", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, kind: "noninferiority", expect: { advanceMin: 90 } },
   { name: "NI kind, -30% d4", rps: 1, e4: -0.3, e5: -0.3, e6: -0.3, e7: -0.3, eh2: -0.05, kind: "noninferiority", expect: { rejectMin: 90 } },
 ];
@@ -100,12 +105,13 @@ for (const sc of scenarios) {
   const pctOf = (k: string): number => (100 * (tally[k] ?? 0)) / REPS;
   const pct = (k: string): string => pctOf(k).toFixed(0).padStart(3) + "%";
   const meanChunks = chunksTotal / REPS;
-  console.log(`${sc.name.padEnd(32)} advance ${pct("advance")}  reject ${pct("reject")}  inconclusive ${pct("inconclusive")}  chunks mean ${meanChunks.toFixed(1)} [${chunksMin}-${chunksMax}]`);
+  console.log(`${sc.name.padEnd(34)} advance ${pct("advance")}  reject ${pct("reject")}  inconclusive ${pct("inconclusive")}  escalate ${pct("escalate")}  chunks mean ${meanChunks.toFixed(1)} [${chunksMin}-${chunksMax}]`);
   const e = sc.expect;
   if (e.advanceMin !== undefined && pctOf("advance") < e.advanceMin) failures.push(`${sc.name}: advance ${pctOf("advance").toFixed(0)}% < ${e.advanceMin}%`);
   if (e.advanceMax !== undefined && pctOf("advance") > e.advanceMax) failures.push(`${sc.name}: advance ${pctOf("advance").toFixed(0)}% > ${e.advanceMax}%`);
   if (e.rejectMin !== undefined && pctOf("reject") < e.rejectMin) failures.push(`${sc.name}: reject ${pctOf("reject").toFixed(0)}% < ${e.rejectMin}%`);
   if (e.inconclusiveMin !== undefined && pctOf("inconclusive") < e.inconclusiveMin) failures.push(`${sc.name}: inconclusive ${pctOf("inconclusive").toFixed(0)}% < ${e.inconclusiveMin}%`);
+  if (e.escalateMin !== undefined && pctOf("escalate") < e.escalateMin) failures.push(`${sc.name}: escalate ${pctOf("escalate").toFixed(0)}% < ${e.escalateMin}%`);
   if (e.chunksMeanMin !== undefined && meanChunks < e.chunksMeanMin) failures.push(`${sc.name}: mean chunks ${meanChunks.toFixed(1)} < ${e.chunksMeanMin}`);
   if (e.oneChunkReject && oneChunkRejects < REPS * 0.95) failures.push(`${sc.name}: only ${oneChunkRejects}/${REPS} rejected at the first chunk`);
 }
