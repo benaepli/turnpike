@@ -249,6 +249,16 @@ matched; the epoch-6 baseline re-measures the ladder on that scale. `h4` is
 measures the timer regime, not the violation, and is reported only.
 Details and the ground-truth check: `research/GRADER_REVIEWS.md`.
 
+**Cost of the timer rows.** VR fires about a thousand timers per run, so the
+executions table grew thirtyfold. Measured on the epoch-6 baseline (32
+threads, rayon 30): explore throughput 555 runs/s against 587 before (the
+writer's share), grading 186-195 s per chunk against 107 s, and the checker
+46-48 s against 3 s until it stopped reading the rows it discards, after
+which it is back under a second. A chunk is therefore about 90 s explore
+plus 190 s grade; grading, not exploring, bounds how many arms a campaign
+chunk can afford, and the grader's per-run read of the executions table is
+the place to recover it.
+
 Each run also leaves a row in a `runs` table (strategy, grid index, seeds,
 steps, active-time cost, end reason, session offset), which is what a
 per-strategy or time-to-first-violation reading joins against; the grader
