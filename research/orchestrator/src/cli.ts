@@ -7,7 +7,7 @@ import { runEvaluation, type EvalContext } from "./evaluate.js";
 import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
 import { graderVersion, loadBaseline, loadReference, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
-import { renderPolicyMd, writeStatus } from "./render.js";
+import { baselineLadder, renderPolicyMd, selfTestRender, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors, selfTestSurvival } from "./stats.js";
@@ -52,7 +52,7 @@ async function cmdBaseline(state: LoopState): Promise<void> {
   if (!state.getMeta("baseline0")) state.setMeta("baseline0", JSON.stringify(baseline));
   mkdirSync(path.join(ROOT, "research/evaluations"), { recursive: true });
   writeFileSync(path.join(ROOT, "research/evaluations/000-baseline.json"), JSON.stringify({ graderVersion: ctx.graderVersion, spurCommit: ctx.spurCommit, superCommit: ctx.superCommit, baseline }, null, 2));
-  writeStatus(state, policy, { baseline: baseline.sequential[0]?.metrics ?? null, reference: loadReference(state)?.confirm[0]?.metrics ?? null, graderVersion: ctx.graderVersion, openPrs: [] });
+  writeStatus(state, policy, { baseline: baselineLadder(baseline), reference: baselineLadder(loadReference(state)), graderVersion: ctx.graderVersion, openPrs: [] });
   renderPolicyMd(policy, clamps, ["initial policy"]);
   // The perf lane compares against this file copy, and the explorer rejects
   // unknown top-level keys under strict_config_keys. Left stale, one merge
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   try {
     switch (cmd) {
       case "selftest": {
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(), ...selfTestRender()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         const { policy, clamps } = loadPolicy(POLICY_PATH);
         console.log("stats + posterior + panel + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
       case "status": {
         const { policy } = loadPolicy(POLICY_PATH);
         const baseline = loadBaseline(state);
-        writeStatus(state, policy, { baseline: baseline?.confirm[0]?.metrics ?? null, reference: loadReference(state)?.confirm[0]?.metrics ?? null, graderVersion: graderVersion(), openPrs: state.listHypotheses("needs_human").flatMap((h) => h.prUrls) });
+        writeStatus(state, policy, { baseline: baselineLadder(baseline), reference: baselineLadder(loadReference(state)), graderVersion: graderVersion(), openPrs: state.listHypotheses("needs_human").flatMap((h) => h.prUrls) });
         console.log("STATUS.md rendered. Pool:", JSON.stringify(state.countByStatus()));
         break;
       }

@@ -24,7 +24,7 @@ import { diffConfigPaths, type PanelArms } from "./panel.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
 import type { LoopState } from "./state.js";
-import { writeStatus, appendObservation } from "./render.js";
+import { appendObservation, baselineLadder, writeStatus } from "./render.js";
 import { inactiveMechanisms, parseUtilization } from "./select.js";
 import { z } from "zod";
 
@@ -870,8 +870,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     try {
       const baseline = loadBaseline(state);
       writeStatus(state, policy, {
-        baseline: (baseline?.sequential[0] ?? baseline?.confirm[0])?.metrics ?? null,
-        reference: loadReference(state)?.confirm[0]?.metrics ?? null,
+        baseline: baselineLadder(baseline),
+        reference: baselineLadder(loadReference(state)),
         graderVersion: graderVersion(),
         openPrs: state.listHypotheses("needs_human").flatMap((x) => x.prUrls),
       });

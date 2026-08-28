@@ -1,8 +1,9 @@
 // Human-facing documents rendered from loop state. renderStatus is a pure
 // string function; writeStatus / appendObservation / renderPolicyMd do the IO.
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Evaluation, LadderMetrics } from "./schemas.js";
+import { Evaluation, type LadderMetrics } from "./schemas.js";
+import { z } from "zod";
 import type { Policy } from "./policy.js";
 import type { LoopState } from "./state.js";
 import { SUPER } from "./gitops.js";
@@ -43,7 +44,44 @@ interface StatusOpts {
   openPrs: string[];
 }
 
-function ladderTable(
+/** One ladder over several chunks of the same protocol: counts and exposure
+ *  add, rates are weighted by the runs that produced them, and the campaign
+ *  breakdown is the first chunk's. Null when no chunk succeeded. */
+export function pooledLadder(evals: Evaluation[]): LadderMetrics | null {
+  const ok = evals.filter((e) => e.ok && e.timingAnomaly === null);
+  if (ok.length === 0) return null;
+  const ms = ok.map((e) => e.metrics);
+  const sum = (f: (m: LadderMetrics) => number): number => ms.reduce((a, m) => a + f(m), 0);
+  const runs = sum((m) => m.runs);
+  const graded = sum((m) => m.gradedRuns);
+  const byRuns = (f: (m: LadderMetrics) => number): number => (runs > 0 ? sum((m) => f(m) * m.runs) / runs : 0);
+  const depthLen = Math.max(...ms.map((m) => m.depthAtLeast.length));
+  const depthAtLeast = Array.from({ length: depthLen }, (_, i) => sum((m) => m.depthAtLeast[i] ?? 0));
+  const exposureMs = sum((m) => m.exposureMs);
+  return {
+    runs, gradedRuns: graded,
+    runsPerSec: exposureMs > 0 ? runs / (exposureMs / 1000) : byRuns((m) => m.runsPerSec),
+    unpairedFraction: byRuns((m) => m.unpairedFraction),
+    h1Rate: byRuns((m) => m.h1Rate), h2Rate: byRuns((m) => m.h2Rate), h2bRate: byRuns((m) => m.h2bRate),
+    h3Rate: byRuns((m) => m.h3Rate), h4Rate: byRuns((m) => m.h4Rate),
+    meanPrefixDepth: graded > 0 ? sum((m) => m.meanPrefixDepth * m.gradedRuns) / graded : 0,
+    maxPrefixDepth: Math.max(...ms.map((m) => m.maxPrefixDepth)),
+    depthAtLeast,
+    violations: sum((m) => m.violations), unknown: sum((m) => m.unknown),
+    porcupineWallMs: sum((m) => m.porcupineWallMs), gradeWallMs: sum((m) => m.gradeWallMs),
+    exposureMs,
+    campaign: ms[0]!.campaign,
+  };
+}
+
+/** The ladder a stored baseline is judged by: its sequential chunks pooled,
+ *  or the confirm rung of a baseline recorded before the sequential protocol. */
+export function baselineLadder(meta: { sequential: Evaluation[]; confirm: Evaluation[] } | null): LadderMetrics | null {
+  if (meta === null) return null;
+  return pooledLadder(meta.sequential) ?? meta.confirm[0]?.metrics ?? null;
+}
+
+export function ladderTable(
   reference: LadderMetrics | null,
   baseline: LadderMetrics | null,
   latest: Evaluation | null,
@@ -357,3 +395,23 @@ export function renderPolicyMd(
   mkdirSync(dirname(POLICY_MD_PATH), { recursive: true });
   writeFileSync(POLICY_MD_PATH, lines.join("\n"));
 }
+
+/** The recorded baseline must render a complete ladder: a blank column is a
+ *  wiring error, not a missing measurement. */
+export function selfTestRender(): string[] {
+  const f: string[] = [];
+  const p = join(SUPER, "research", "evaluations", "000-baseline.json");
+  if (!existsSync(p)) return f;
+  const parsed = z.object({ baseline: z.object({ sequential: z.array(Evaluation).default([]), confirm: z.array(Evaluation).default([]) }) }).safeParse(JSON.parse(readFileSync(p, "utf8")));
+  if (!parsed.success) { f.push(`000-baseline.json does not parse: ${parsed.error.message.slice(0, 200)}`); return f; }
+  const ladder = baselineLadder(parsed.data.baseline);
+  if (ladder === null) { f.push("the recorded baseline pools to no ladder"); return f; }
+  for (const line of ladderTable(null, ladder, null).slice(2)) {
+    const cells = line.split("|").map((c) => c.trim());
+    if (cells[3] === "-") f.push(`baseline column blank for ${cells[1]}`);
+  }
+  const chunks = parsed.data.baseline.sequential.filter((e) => e.ok);
+  if (chunks.length > 1 && ladder.runs !== chunks.reduce((a, e) => a + e.metrics.runs, 0)) f.push("pooled runs do not add up");
+  return f;
+}
+
