@@ -64,9 +64,9 @@ explore leaving truncated parquet). Look at
 
 ## Merged pointer references an unpushed spur commit
 
-`git -C spur log origin/research/vr-loop -1` vs the superproject's recorded
+`git -C spur log origin/research/auto-vr -1` vs the superproject's recorded
 pointer (`git ls-tree HEAD spur`). Push the spur branch and fast-forward
-spur's `research/vr-loop` to the referenced commit.
+spur's `research/auto-vr` to the referenced commit.
 
 ## Grader sanity (after any traceanalyzer change)
 

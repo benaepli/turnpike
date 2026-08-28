@@ -16,7 +16,7 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
 
 1. State: `systemctl --user is-active spur-research-loop`; `git status --short`
    and `git branch --show-current` in the superproject AND `spur/` (both must
-   be on `research/vr-loop`, clean); `tail -3 research/journal.jsonl`;
+   be on `research/auto-vr`, clean); `tail -3 research/journal.jsonl`;
    `cd research/orchestrator && npx tsx src/cli.ts status` (prints pool
    counts) and `npx tsx src/cli.ts grader-queue`.
 2. If the daemon is down and nothing is mid-repair: `rm -f research/STOP`,
@@ -58,9 +58,9 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
   the gate reports as "regression suite failed" on hypotheses that did
   nothing wrong. It is a total block on the lane, not a degraded comparison.
 - Never `git checkout -f` or `reset --hard` with uncommitted work you want.
-- The implementer edits the working tree ON `research/vr-loop`; its work is
+- The implementer edits the working tree ON `research/auto-vr`; its work is
   committed to `hyp/*` only at the end of the iteration. Do not commit onto
-  `research/vr-loop` between a `select` and its `decision`.
+  `research/auto-vr` between a `select` and its `decision`.
 - Use absolute paths in every command; the shell cwd drifts between calls.
   Chain dependent steps with `&&`; never let a failed typecheck fall through
   to a commit.
@@ -128,7 +128,7 @@ under test, or the merge bar itself.
    iteration: publish and reflect then finish and the loop exits before
    the next selection (a trigger on `reflect` is too late; the next
    iteration starts within a second of it).
-2. Verify both repos on `research/vr-loop`, clean. Delete leftover local
+2. Verify both repos on `research/auto-vr`, clean. Delete leftover local
    `hyp/*` branches in both repos, except the branches of `inconclusive`
    hypotheses (`cli status` lists them): those hold work that resumes.
 3. Apply staged scripts from `research/orchestrator/`; `npx tsc --noEmit`
@@ -136,7 +136,7 @@ under test, or the merge bar itself.
 4. If a hypothesis was parked or closed by a harness bug (not by evidence),
    requeue it: see `reference/state-edits.md`.
 5. Targeted `git add`, commit with a message that carries the reasoning
-   (code comments must not), push `research/vr-loop`.
+   (code comments must not), push `research/auto-vr`.
 6. If the change alters what results mean or how they are measured (a gate
    statistic, the sequential protocol, chunk size or seeds, a
    behavior-changing baseline), bump the comparability epoch so prior
@@ -174,11 +174,19 @@ boundary procedure (step 8).
   extended to the hard cap, then a needs-human PR carries the pooled
   evidence; inconclusive -> branch kept, resumable after the
   cooldown, up to 2 resumes). An inconclusive result is neither a negative
-  nor a positive; report it as "probable, unresolved". Chunks are long
-  sessions (1000 runs/config, ~7 min each) and are only ever compared with
-  baseline chunks of the same protocol (`baseline_sequential` after a merge
-  records the refreshed baseline, ~30 min). The perf lane still uses
-  screen/promote for its non-inferiority check.
+  nor a positive; report it as "probable, unresolved". A chunk is one
+  campaign session: a fixed active-time budget (`sequential.exploreBudgetSec`,
+  300 s) split across the arms named in the template's `campaign` block,
+  about 12-13 min with grading, and it is only ever compared with baseline
+  chunks of the same protocol (`baseline_sequential` after a merge records
+  the refreshed baseline, ~50 min). Rungs are events per explore-second
+  (`PARAMETERS.md`, epochs 5-7); `seq_chunk` carries `exposureSec`, `rps`
+  and `anomalies`, and `seq_chunk_anomaly` marks a chunk excluded for its
+  timing. Per-arm rung rates ride in `metrics.campaign`. The perf lane
+  still uses screen/promote (standard explorer) for its non-inferiority
+  check. A chunk that violates keeps its evidence under
+  `research/logs/violations/<evaluation id>/` (index in `INDEX.jsonl`);
+  read the combined timelines there before anything else.
   Ladder semantics (epoch 3 on): the general grid grades against
   `research/oracle/relax_minimal_general.json`, so all eight rungs are
   reachable. depth>=4/5 are the bulk rungs; depth>=6/7 are the live frontier
