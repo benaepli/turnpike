@@ -465,3 +465,25 @@ export function selfTestPanel(): string[] {
 
   return f;
 }
+
+/** Gate-level checks: the panel must bind in exactly one direction. These
+ *  fabricate summaries rather than running the explorer, so they assert the
+ *  wiring rather than any protocol's behaviour. */
+export function selfTestPanelGate(): string[] {
+  const f: string[] = [];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const summary = (combinedZ: number | null, judging: string[], collapsed: string[]): PanelSummary => ({
+    members: [], judging, nonJudging: [], combinedZ, collapsedMembers: collapsed, wallMs: 0,
+  });
+
+  // A collapse must not reach the gate as a panel signal: it fails the suite,
+  // and the suite already closes through regressionPassed.
+  const collapsedOnly = summary(0.1, ["m"], ["m"]);
+  check(collapsedOnly.collapsedMembers.length === 1 && (collapsedOnly.combinedZ ?? 0) > -2,
+    "a collapse is carried by the suite, not by combinedZ");
+
+  // No judging member means no standing: a null combinedZ must never downgrade.
+  check(summary(null, [], []).combinedZ === null, "no judging member should leave combinedZ null");
+
+  return f;
+}

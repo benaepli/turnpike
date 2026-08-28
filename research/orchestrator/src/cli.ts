@@ -11,7 +11,8 @@ import { renderPolicyMd, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors } from "./stats.js";
-import { selfTestPanel, type PanelArms } from "./panel.js";
+import { selfTestPanel, selfTestPanelGate, type PanelArms } from "./panel.js";
+import { selfTestPanelAuthority } from "./decide.js";
 import { LoopState } from "./state.js";
 
 const POLICY_PATH = path.join(ROOT, "research/policy.json");
@@ -74,7 +75,7 @@ async function main(): Promise<void> {
   try {
     switch (cmd) {
       case "selftest": {
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestPanel()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         const { policy, clamps } = loadPolicy(POLICY_PATH);
         console.log("stats + posterior + panel selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");

@@ -278,3 +278,39 @@ export function perfGate(i: PerfGateInputs): GateDecision {
     lintPassed: i.lintFailures.length === 0,
   };
 }
+
+/** The panel's authority, asserted against finalGate itself. */
+export function selfTestPanelAuthority(): string[] {
+  const f: string[] = [];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
+  const base: FinalGateInputs = {
+    hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
+    lintFailures: [], changedSpurFiles: [], throughputRatio: 1,
+  };
+  const panel = (combinedZ: number | null, judging: string[]): PanelSummary => ({
+    members: [], judging, nonJudging: [], combinedZ, collapsedMembers: [], wallMs: 0,
+  });
+
+  const noPanel = finalGate(base);
+  const neutral = finalGate({ ...base, panel: panel(0.05, ["a", "b"]) });
+  check(noPanel.verdict === neutral.verdict,
+    `a neutral panel must not change the verdict: ${noPanel.verdict} vs ${neutral.verdict}`);
+
+  const declined = finalGate({ ...base, panel: panel(-2.5, ["a", "b"]) });
+  check(declined.verdict === "needs_human" || noPanel.verdict !== "auto_merge",
+    `a combined z of -2.5 must downgrade an auto_merge, got ${declined.verdict}`);
+  check(noPanel.verdict === "closed" || declined.verdict !== "closed",
+    "the panel must never turn a non-closed verdict into a closure");
+
+  const improved = finalGate({ ...base, panel: panel(3.0, ["a", "b"]) });
+  check(improved.verdict === noPanel.verdict,
+    "a panel that improved must not promote anything the ladder did not");
+
+  const noStanding = finalGate({ ...base, panel: panel(null, []) });
+  check(noStanding.verdict === noPanel.verdict,
+    "a panel with no judging member must not change the verdict");
+
+  check((declined.objectiveDeltas["panelZ"] ?? 0) === -2.5, "panelZ must be recorded on the decision");
+  return f;
+}
