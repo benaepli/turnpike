@@ -48,6 +48,36 @@ actually exceeds the members. Paxos's `hostCeiling` is therefore recorded as
 0.0251, the strongest rate any injection reached on it, and is a lower bound
 rather than a measurement.
 
+## Recalibration on the 16-core host (rayonThreads 30)
+
+Measured 2026-08-28 against the merged binary with the parquet writer
+parallelized, using the run counts of the first calibration. Rates reproduced
+the 14-thread values within sampling noise on three independent passes; what
+moved is throughput, and with it the arm sizing the wall check permits.
+
+| id | class | role | rate | runs/arm | control | separation | dispersion | runs/s |
+|---|---|---|---|---|---|---|---|---|
+| `paxos-accept-stale-ballot` | F0 | gate | 0.01664 | 6,024 | 1/20,736 | 345x | 1.308 | 2,406 |
+| `mencius-opt1-2` | F0 | gate | 0.00742 | 13,488 | 0/25,680 | inf | 0.052 | 536 |
+| `raft-stale-vote` | F2 | report | 0.00030 | 20,016 | 0/20,016 | inf | - | 951 |
+| `raft-commit-prev-term` | F3 | report | <5e-5 | 20,016 | 0/20,016 | inf | - | 967 |
+| `raft-forget-vote` | F2 | report | <5e-5 | 20,016 | 0/20,016 | inf | - | 964 |
+| `paxos-forget-promise` | F2 | report | 0.00020 | 19,992 | 3/19,992 | 1x | - | 3,492 |
+
+Two of the previous entries need reading differently. The host ceilings
+were not re-measured: the probe specs were not kept, so `hostCeiling` stays
+the strongest injection observed on the 14-thread host. And
+`paxos-forget-promise` detected 4 times against 3 on its own control (7
+against 3 on the pass before), so its reports are hard to tell from
+`Paxos.spur`'s background rate at this count.
+
+The writer was the ceiling before this pass. One thread encoded parquet for
+30 simulation threads and sat at 88% of a core on the VR general config
+while every simulation thread waited on it half the time; the Raft members,
+at about 1 MB of rows per run, queued faster than it drained and were
+OOM-killed at 20 GB. Bounding the queue fixed the memory, and one writer per
+eight simulation threads lifted the ceiling.
+
 ## What calibration rejected
 
 Four fault-path injections were built and all four came in around 1e-4:

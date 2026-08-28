@@ -54,21 +54,21 @@
       },
       "maxIterations": 8000,
       "role": "gate",
-      "expectedRate": 0.01693,
-      "runsPerArm": 5928,
+      "expectedRate": 0.01664,
+      "runsPerArm": 6024,
       "gridSize": 24,
       "calibration": {
-        "atIso": "2026-08-28T00:45:00Z",
+        "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20736,
-        "rateViolations": 351,
-        "dispersion": 0.559,
+        "rateViolations": 345,
+        "dispersion": 1.308,
         "cleanRuns": 20736,
-        "cleanViolations": 2,
+        "cleanViolations": 1,
         "hostCeiling": 0.0251,
         "budgetRatio": 0.948,
-        "runsPerSec": 1037.0
+        "runsPerSec": 2406
       },
-      "notes": "control violates at 9.6e-5; separation 176x. host ceiling is the strongest injection observed, not a measured bound."
+      "notes": "control violates at 4.8e-5; separation 345x. host ceiling is the strongest injection observed, not a measured bound."
     },
     {
       "id": "mencius-opt1-2",
@@ -113,21 +113,21 @@
       },
       "maxIterations": 6000,
       "role": "gate",
-      "expectedRate": 0.00773,
-      "runsPerArm": 12960,
+      "expectedRate": 0.007418,
+      "runsPerArm": 13488,
       "gridSize": 24,
       "calibration": {
-        "atIso": "2026-08-28T00:45:00Z",
+        "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 51360,
-        "rateViolations": 397,
-        "dispersion": 0.348,
+        "rateViolations": 381,
+        "dispersion": 0.052,
         "cleanRuns": 25680,
-        "cleanViolations": 3,
+        "cleanViolations": 0,
         "hostCeiling": 0.0101,
         "budgetRatio": 1.125,
-        "runsPerSec": 153.0
+        "runsPerSec": 536
       },
-      "notes": "control is a partial repair, not a clean host; separation 66x over 25,680 control runs. the paper bug, and the only member with a historical series."
+      "notes": "control is a partial repair, not a clean host; 0 violations over 25,680 control runs. the paper bug, and the only member with a historical series."
     },
     {
       "id": "raft-stale-vote",
@@ -176,21 +176,21 @@
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 0.00015,
+      "expectedRate": 0.0002998,
       "runsPerArm": 20016,
       "gridSize": 72,
       "calibration": {
-        "atIso": "2026-08-28T00:45:00Z",
+        "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20016,
-        "rateViolations": 3,
+        "rateViolations": 6,
         "dispersion": 0.0,
         "cleanRuns": 20016,
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
         "budgetRatio": 1.0,
-        "runsPerSec": 294.0
+        "runsPerSec": 951
       },
-      "notes": "7% of its host ceiling; reaches the bug but cannot resolve a rate change at any affordable count."
+      "notes": "14% of its host ceiling; reaches the bug but cannot resolve a rate change at any affordable count."
     },
     {
       "id": "raft-commit-prev-term",
@@ -243,7 +243,7 @@
       "runsPerArm": 20016,
       "gridSize": 72,
       "calibration": {
-        "atIso": "2026-08-28T00:45:00Z",
+        "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20016,
         "rateViolations": 0,
         "dispersion": 0.0,
@@ -251,7 +251,7 @@
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
         "budgetRatio": 1.0,
-        "runsPerSec": 294.0
+        "runsPerSec": 967
       },
       "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal."
     },
@@ -306,7 +306,7 @@
       "runsPerArm": 20016,
       "gridSize": 72,
       "calibration": {
-        "atIso": "2026-08-28T00:45:00Z",
+        "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20016,
         "rateViolations": 0,
         "dispersion": 0.0,
@@ -314,7 +314,7 @@
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
         "budgetRatio": 1.0,
-        "runsPerSec": 313.0
+        "runsPerSec": 964
       },
       "notes": "never observed despite 60,048 crash-recover cycles over its calibration."
     },
@@ -365,21 +365,21 @@
       },
       "maxIterations": 8000,
       "role": "report",
-      "expectedRate": 0.00015,
+      "expectedRate": 0.0002001,
       "runsPerArm": 19992,
       "gridSize": 24,
       "calibration": {
-        "atIso": "2026-08-28T00:45:00Z",
+        "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 19992,
-        "rateViolations": 3,
+        "rateViolations": 4,
         "dispersion": 0.0,
         "cleanRuns": 19992,
-        "cleanViolations": 0,
+        "cleanViolations": 3,
         "hostCeiling": 0.0251,
         "budgetRatio": 1.0,
-        "runsPerSec": 1428.0
+        "runsPerSec": 3492
       },
-      "notes": "the stale-incarnation shape on a host with a high ceiling, and still only 3 in 19,992."
+      "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate."
     }
   ]
 }

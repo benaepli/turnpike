@@ -23,13 +23,26 @@ commits and that is the thing to fix first.
 ## 2. Build
 
 ```bash
-cargo build --release --manifest-path spur/Cargo.toml
-(cd porcupine    && go build -o main ./cmd/porcupine && go build -o batch ./cmd/batch)
+cargo build --release --manifest-path spur/Cargo.toml --bin spur
+(cd porcupine    && go build -o main ./cmd/porcupine && go build -o batch ./cmd/porcupine_batch)
 (cd traceanalyzer && go build -o main main.go)
 (cd research/orchestrator && npm install)
 ```
 
-All four outputs are gitignored by design.
+All four outputs are gitignored by design. The cargo line is the exact command
+the daemon and the implementer run; it builds only the workspace's default
+members. `spur-bench` is excluded from them because its default features pull
+in the Formulog build script, which needs java, z3, cmake, boost, oneTBB and
+Souffle; build it with `-p spur-bench` on a host that has those.
+
+Run cargo from the superproject directory, as the daemon does. `spur/.cargo/config.toml`
+links with mold, and cargo applies it only when the working directory is
+inside `spur/`; a host without mold fails to link from there and builds fine
+from the superproject.
+
+The loop opens and merges its pull requests through `gh`, so the new host
+needs it installed and authenticated (`gh auth status`) before the loop
+starts. Nothing in step 4 needs it.
 
 ## 3. Copy from the old host
 
@@ -57,7 +70,10 @@ npx tsx src/cli.ts baseline          # ~30 min; refreshes tmp/loop/spur-baseline
 
 `runLoop` compares the host's resolved thread count against the count recorded
 on the baseline and refuses to evaluate on a mismatch. A baseline recorded
-before that field existed reads as unknown and warns instead of blocking.
+before that field existed reads as unknown and warns instead of blocking. The
+command ends by committing its evidence in the superproject, so both trees
+must be clean when it starts, and anything you want in its own commit is
+committed first.
 
 Then re-calibrate the panel. `research/panel/manifest.json` carries detection
 rates measured at 14 threads; those rates set every member's `runsPerArm` and
@@ -77,6 +93,10 @@ On the old host, four A/A seeds gave individual z with mean +0.075 and sd
 0.726, and no run approached the -2.0 downgrade bar.
 
 ## 5. Start
+
+Push both branches first. After every merge the loop resets both trees to
+`origin/research/auto-vr`, and a local commit that was never pushed - the
+baseline's own commit included - is discarded there.
 
 ```bash
 SPUR_LOOP_MEM_HIGH=20G SPUR_LOOP_MEM_MAX=28G research/loop-start.sh
