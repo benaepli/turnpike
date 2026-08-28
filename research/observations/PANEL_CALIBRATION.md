@@ -172,3 +172,26 @@ injection is written for them.
 
 Until then the panel is honest about its reach: it gates on fault-free
 transfer, and it records fault-path detections as rare events.
+
+## Calibration at 14 threads (one CCD of the 16-core host)
+
+Measured 2026-08-28 with `cli panel-calibrate 4` pinned to CPUs 0-7,16-23, on
+the standard explorer at each member's manifest wall, four seeds of three
+replicates. Written to `research/panel/manifest.14.json`; the 30-thread
+calibration stays in `manifest.30.json` and the bare `manifest.json`.
+
+| id | events/s at 30 | events/s at 14 | runs/s at 30 | runs/s at 14 | expected events per arm at 14 |
+|---|---|---|---|---|---|
+| `paxos-accept-stale-ballot` | 33.78 | 29.42 | 1,959 | 1,733 | 883 |
+| `mencius-opt1-2` | 4.57 | 2.40 | 544 | 294 | 108 |
+| `raft-stale-vote` | 0.298 | 0.188 | 950 | 619 | 8.4 |
+| `raft-commit-prev-term` | 0 | 0 | 939 | 616 | 0 |
+| `raft-forget-vote` | 0.017 | 0.006 | 946 | 617 | 0.2 |
+| `paxos-forget-promise` | 0.854 | 0.633 | 3,568 | 2,892 | 28 |
+
+The mask halves the machine and costs the heaviest member the most: Mencius
+runs at 54% of its 30-thread rate and sits at 108 expected events per arm,
+just above the 100 the sizing rule demands, so a slower candidate on this
+mask is the first thing that would fail the wall check. Paxos keeps 88% of
+its rate. Dispersion reads 1.0 on every member at this seed count.
+
