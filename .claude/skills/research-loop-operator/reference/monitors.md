@@ -122,10 +122,10 @@ The threshold above sits at 15/min, three times normal and a third of a spin.
 ## Reaping orphaned monitor processes
 
 ```bash
-ps -eo pid,ppid,args --no-headers | awk '$2==1917 && (/tail .*journal\.jsonl/ || /ugrep/ || /is-active spur-res/) {print $1}'
+SD=$(pgrep -u "$USER" -x systemd | head -1); ps -eo pid,ppid,args --no-headers | awk -v sd="$SD" '$2==sd && (/tail .*journal\.jsonl/ || /tail .*research\/logs/ || /ugrep/ || /is-active spur-/) {print $1}'
 ```
 
-Parent 1917 is `systemd --user`, so anything listed has lost its controlling
+`$SD` is `systemd --user`, so anything listed has lost its controlling
 shell and is a leftover. Check the list against the pids of monitors you
 armed this session before killing anything.
 
@@ -133,10 +133,13 @@ armed this session before killing anything.
 
 ```bash
 R="$(git rev-parse --show-toplevel)"; LOG=$R/research/logs/baseline-$(date +%Y%m%d-%H%M%S).log
-systemd-run --user --unit=spur-baseline --collect --property=MemoryMax=14G --property=WorkingDirectory=$R/research/orchestrator --property=StandardOutput=append:$LOG --property=StandardError=append:$LOG /bin/bash -c "npx tsx src/cli.ts baseline && cp $R/spur/target/release/spur $R/tmp/loop/spur-baseline && echo BASELINE_DONE"
+systemd-run --user --unit=spur-baseline --collect --setenv=PATH="$PATH" --property=MemoryMax=14G --property=WorkingDirectory=$R/research/orchestrator --property=StandardOutput=append:$LOG --property=StandardError=append:$LOG /bin/bash -c "npx tsx src/cli.ts baseline && cp $R/spur/target/release/spur $R/tmp/loop/spur-baseline && echo BASELINE_DONE"
 ```
 Then monitor `$LOG` for `seed N: done`, `recorded`, `Error`, and the unit
-becoming inactive. Do not run the baseline while the loop daemon is active
+becoming inactive. `--setenv=PATH` is not optional: a user unit starts with
+the system PATH, and a system node of another major version loads
+better-sqlite3 into the wrong ABI and segfaults before the first line of
+output (exit 139, empty log). Do not run the baseline while the loop daemon is active
 (both saturate the machine, and the baseline's final step commits the tree).
 
 Starting the loop with `systemd-run` directly sends its stdout to the journal
