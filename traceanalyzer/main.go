@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/benaepli/turnpike-traceanalyzer/metrics"
@@ -25,6 +26,7 @@ func main() {
 	gradeBudgetMs := flag.Int64("grade-budget-ms", 60000, "Grade mode: wall budget per DAG config in ms (0 = unbounded)")
 	gradePerRun := flag.Bool("grade-per-run", false, "Grade mode: include full per_run arrays instead of top_runs")
 	gradeRunDepths := flag.Bool("grade-run-depths", false, "Grade mode: include run_depths, a compact [run_id, prefix_depth] pair per graded run")
+	gradeWorkers := flag.Int("grade-workers", runtime.GOMAXPROCS(0), "Grade mode: runs of one chunk matched concurrently; the output does not depend on the count")
 	batchRuns := flag.Int("batch-runs", 2000, "Runs per metric query batch; partials are merged in Go (0 = one query over all runs)")
 	runsTable := flag.Bool("runs", false, "Emit the runs table (one row per run: strategy, seeds, steps, wall, end reason) as JSON and exit")
 	dumpRun := flag.Int64("dump-run", -1, "Emit one run's executions, traces and logs as JSON and exit (reads only that run)")
@@ -111,6 +113,7 @@ func main() {
 				BudgetMs:         *gradeBudgetMs,
 				IncludePerRun:    *gradePerRun,
 				IncludeRunDepths: *gradeRunDepths,
+				Workers:          *gradeWorkers,
 			}
 			for _, cfgPath := range strings.Split(*dagConfig, ",") {
 				cfgPath = strings.TrimSpace(cfgPath)

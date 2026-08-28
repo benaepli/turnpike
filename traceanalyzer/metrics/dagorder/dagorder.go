@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"os"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/benaepli/turnpike-traceanalyzer/reader"
@@ -80,6 +82,10 @@ type Options struct {
 	IncludePerRun    bool  // emit the full per_run array (large); otherwise only top_runs
 	IncludeRunDepths bool  // emit run_depths, one [run_id, prefix_depth] pair per graded run
 	TopN             int   // size of top_runs when per_run is omitted (default 10)
+	// Workers matches the runs of one chunk concurrently; each run's matching
+	// is seeded by its own id, so the result does not depend on the worker
+	// count. Zero or one grades sequentially.
+	Workers int
 }
 
 // timerRowFilter restricts the executions read to the rows the matcher can
@@ -200,12 +206,48 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 	prefixDepths := make([]int, 0, len(allIDs))
 	gradeStart := time.Now()
 
+	// One run's matching, computed by a worker; the sequential pass below
+	// consumes these in chunk order so every aggregate and every log line
+	// lands as it would have one run at a time.
+	type matched struct {
+		rid       int64
+		truncated []string
+		o         matchOutcome
+	}
+	workers := opts.Workers
+	if workers < 1 {
+		workers = 1
+	}
+	matchOne := func(rid int64, execs []reader.ExecutionRow, traces []reader.TraceRow) matched {
+		idx := buildRunIndex(execs, traces)
+		cands := make(map[string][]Event, len(cfg.Events))
+		var truncated []string
+		for id, spec := range cfg.Events {
+			c, hitCap := buildCandidates(idx, spec)
+			cands[id] = c
+			if hitCap {
+				truncated = append(truncated, id)
+			}
+		}
+		if len(truncated) > 0 {
+			sort.Strings(truncated)
+		}
+		return matched{rid: rid, truncated: truncated, o: bestMatchingFull(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)}
+	}
+
 	for start := 0; start < len(allIDs) && !result.BudgetExhausted; start += chunkSize {
+		// The budget is checked before a chunk is dispatched: a chunk is graded
+		// whole or not at all.
+		if opts.BudgetMs > 0 && time.Since(gradeStart).Milliseconds() > opts.BudgetMs {
+			result.BudgetExhausted = true
+			break
+		}
 		stop := start + chunkSize
 		if stop > len(allIDs) {
 			stop = len(allIDs)
 		}
 		chunk := allIDs[start:stop]
+		readStart := time.Now()
 		execsByRun, err := reader.ReadExecutionsByRunWhere(dbPath, chunk, timerRowFilter(cfg))
 		if err != nil {
 			return nil, fmt.Errorf("read executions: %w", err)
@@ -214,30 +256,45 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 		if err != nil {
 			return nil, fmt.Errorf("read traces: %w", err)
 		}
-		for _, rid := range chunk {
-			if opts.BudgetMs > 0 && time.Since(gradeStart).Milliseconds() > opts.BudgetMs {
-				result.BudgetExhausted = true
-				break
+		readMs := time.Since(readStart).Milliseconds()
+
+		matchStart := time.Now()
+		results := make([]matched, len(chunk))
+		if workers > 1 {
+			var wg sync.WaitGroup
+			next := make(chan int, len(chunk))
+			for i := range chunk {
+				next <- i
 			}
-			idx := buildRunIndex(execsByRun[rid], tracesByRun[rid])
-			cands := make(map[string][]Event, len(cfg.Events))
-			var truncated []string
-			for id, spec := range cfg.Events {
-				c, hitCap := buildCandidates(idx, spec)
-				cands[id] = c
-				if hitCap {
-					truncated = append(truncated, id)
-				}
+			close(next)
+			for w := 0; w < workers; w++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for i := range next {
+						rid := chunk[i]
+						results[i] = matchOne(rid, execsByRun[rid], tracesByRun[rid])
+					}
+				}()
 			}
-			if len(truncated) > 0 {
-				sort.Strings(truncated)
+			wg.Wait()
+		} else {
+			for i, rid := range chunk {
+				results[i] = matchOne(rid, execsByRun[rid], tracesByRun[rid])
+			}
+		}
+		matchMs := time.Since(matchStart).Milliseconds()
+		fmt.Fprintf(os.Stderr, "  dag-order chunk %d-%d: read %d ms, match %d ms (%d worker(s))\n", start, stop, readMs, matchMs, workers)
+
+		for _, m := range results {
+			rid := m.rid
+			if len(m.truncated) > 0 {
 				log.Printf(
 					"Warning: dag-order run %d hit candidate cap (%d) for labels: %v",
-					rid, maxCandidates, truncated,
+					rid, maxCandidates, m.truncated,
 				)
 			}
-
-			o := bestMatchingFull(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)
+			o := m.o
 			assign, score, matched := o.Assign, o.Score, o.Matched
 			zeroCand, crowdedOut := o.ZeroCand, o.CrowdedOut
 			longestChain, criticalPath := o.LongestChain, o.CriticalPath
@@ -271,7 +328,7 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 				TotalLabels:         len(cfg.Events),
 				ZeroCandidateLabels: zeroCand,
 				CrowdedOutLabels:    crowdedOut,
-				TruncatedLabels:     truncated,
+				TruncatedLabels:     m.truncated,
 				ChainScore:          chainScore,
 				LongestChain:        longestChain,
 				CriticalPath:        criticalPath,

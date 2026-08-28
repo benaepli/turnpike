@@ -322,3 +322,30 @@ timer rows, so the reader filter is a no-op on them; the epoch-6 check
 (the regenerated `find_bug_plan` reproducing the 11 archived violating ids)
 is the one that exercises it, and it was run at `ebf06c5`.
 
+## Grader: the runs of a chunk are matched concurrently (2026-08-28)
+
+`traceanalyzer -grade` matched one run at a time. The matching of a run is
+seeded by its own id, so the runs of a chunk are now matched by a worker
+pool (`-grade-workers`, default the process's CPU count) and consumed in
+chunk order, with every aggregate, every per-run record and every warning
+landing as it did one run at a time; one chunk stays resident.
+
+Acceptance, same corpora graded before and after with `-grade-budget-ms 0
+-grade-max-runs 0 -grade-per-run -grade-run-depths`:
+
+| corpus | runs | before | after | output |
+|---|---|---|---|---|
+| regenerated `find_bug_plan` (`relax_minimal.json`) | 3,000 | 0.55 s | 0.38 s | byte-identical, 2,360,387 bytes |
+| VR campaign chunk (`relax_minimal_general.json`) | 229,980 | 819 s | 371 s | identical except `wall_ms`, the grade's own elapsed time; 170,698,108 bytes |
+
+`go test ./...` passes. The grade JSON now prints per-chunk read and match
+times on stderr, and on the VR chunk they answer where the cost is: over
+460 chunks the DuckDB reads took 322 s and the matching 7 s. The parallel
+matching is not what shortened the VR grade (the earlier figure was taken
+beside another grade); the reads are, and they are the timer rows: the
+executions read filters them with `json_extract` on every row, and the
+plan corpus, which has no timer rows, reads a 500-run chunk in 39 ms
+against about 700 ms here. The recovery is on the writer's side, timer
+node and label as their own columns so the filter is a column predicate,
+and it is the next grader item.
+
