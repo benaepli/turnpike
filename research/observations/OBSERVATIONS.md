@@ -2578,3 +2578,50 @@ holding up in measurement rather than in principle.
 `throughput` passes in all three runs after the baseline binary was refreshed
 (ratios 0.995, 1.018, 1.008), which confirms the stale `spur-baseline` was the
 whole of that failure and not a symptom of the panel.
+
+## 2026-08-28T02:35:00.000Z (operator) - the hold band costs Mencius a fifth of its detection and Paxos nothing
+
+The panel's first real measurement. Two arms differing only in
+`purgatory.delay_duration_range`, [5,100] against [5,300], same binary, same
+seed, each member at its calibrated workload:
+
+| member | hold100 | hold300 | ratio | z |
+|---|---|---|---|---|
+| `mencius-opt1-2` | 948/100,008 (0.00948) | 756/100,008 (0.00756) | **0.797** | **-4.67** |
+| `paxos-accept-stale-ballot` | 1,709/94,751 (0.01804) | 1,678/94,752 (0.01771) | **0.982** | **-0.54** |
+
+The Mencius effect is real and larger than first measured: the single 44,016-run
+comparison earlier tonight gave ratio 0.875 at z = -2.26, under the merge bar
+and easy to dismiss. At 100,008 runs per arm it is 0.797 at z = -4.67. **A
+fifth of Mencius detection is spent on the wider hold band.**
+
+Paxos shows nothing at 94,752 runs per arm, where a 12.5% effect would have
+been caught with 80% power at z = 2.7. The observed change is 1.8%.
+
+Both members are fault-free. The mechanism has occasions on both - the hold
+band delays deliveries with no crashes needed - so this is not a firing
+failure. The effect is a property of the host, not of the mechanism.
+
+That retires the reading, not the number. The 22:05Z entry recorded the
+Mencius decline; the 22:20Z correction narrowed it to the hold band alone and
+said it measured whether fault-oriented effort steals budget from fault-free
+search, concluding "it does". **That conclusion was still too general.** It
+steals budget from *this* fault-free search. A second fault-free host, with a
+bug of a different shape, pays nothing. Mencius's rule-2 violation needs a
+concurrent revoke to land inside a specific gap-fill window, and holding
+deliveries longer disperses that window; Paxos's superseded-ballot accept has
+no such window to disperse.
+
+This is the panel earning its cost on its first use, and the argument for more
+than one member stated as evidence rather than as design. A single-member panel
+would have reported a 20% erosion and blocked on it. Two members show it is
+one host's sensitivity.
+
+One consequence for the gate as sized. At the panel's operational 12,960 runs
+per arm, a genuine 20.3% Mencius decline yields z = -1.68 - short of the -2.7
+collapse bar, and combined with a neutral Paxos it is about -1.3, short of the
+-2.0 downgrade. The panel would let this through on a single validation and
+accumulate it over two or three. That is the design working as specified
+(collapse gates within a validation, gradient accumulates across), and it is
+also the honest limit: effects of this size are not caught the first time they
+appear.
