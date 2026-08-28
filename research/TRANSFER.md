@@ -129,9 +129,11 @@ and are left as they are.
 
 ## Running on a subset of the machine
 
-Start the loop with `SPUR_LOOP_CPUS=<cpu list>` and every detached unit with
-`--property=AllowedCPUs=<cpu list>`; pin foreground work with
-`taskset -c <cpu list>`. The thread count derives from the mask, so no policy
+Start the loop with `SPUR_LOOP_CPUS=<cpu list>`, and prefix the command of
+every detached unit and every foreground measurement with
+`taskset -c <cpu list>`. The affinity mask is inherited by every child and is
+what the thread count derives from; `AllowedCPUs` on a user unit is ignored
+because the cpuset controller is not delegated to user slices. The thread count derives from the mask, so no policy
 edit is needed, and each mask needs its own baseline and panel calibration
 once (`cli baseline`, `cli panel-calibrate`, `cli regression` under the mask);
 after that a switch is a restart. On this host, a Ryzen 9 9950X, CPUs 0-15
