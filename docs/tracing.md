@@ -21,6 +21,8 @@ When a function is traced, the simulator engine automatically captures a sequenc
 2. **`Enter`**: Recorded when the execution of the traced function officially begins. This event records the function's incoming parameters.
 3. **`Exit`**: Recorded when the traced function completes execution. This event captures the function's return value.
 
+Timer firings are not trace events; they are `executions` rows of kind `TimerFired` (payload: the node and the timer's label), so they can be ordered against crashes, recoveries and client operations at the same step.
+
 ## Trace Payloads
 
 Trace events capture rich contextual metadata beyond just function names:

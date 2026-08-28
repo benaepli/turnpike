@@ -22,6 +22,7 @@ type FullReport struct {
 	DagOrder     *dagorder.DagOrderResult    `json:"dag_order,omitempty"`
 	Grade        *metrics.GradeResult        `json:"grade,omitempty"`
 	GradeDags    []*dagorder.DagOrderResult  `json:"grade_dags,omitempty"`
+	RunsMeta     *metrics.RunsMeta           `json:"runs_meta,omitempty"`
 }
 
 // WriteJSON writes the report as JSON to the given writer.
@@ -64,6 +65,7 @@ func writeGradeTable(w io.Writer, g *metrics.GradeResult) {
 		fmt.Fprintf(w, "  H2 stale-incarnation delivery: %6d runs (%.4f)\n", h.StaleIncarnationRuns, h.StaleIncarnationRate)
 		fmt.Fprintf(w, "  H2b receiver-stale delivery:   %6d runs (%.4f)\n", h.ReceiverStaleRuns, h.ReceiverStaleRate)
 		fmt.Fprintf(w, "  H3 two-node crash+recover:     %6d runs (%.4f)\n", h.TwoNodeCrashRecoverRuns, h.TwoNodeCrashRecoverRate)
+		fmt.Fprintf(w, "  H4 timer fired with in-flight: %6d runs (%.4f)\n", h.TimerRaceRuns, h.TimerRaceRate)
 	}
 	fmt.Fprintf(w, "  Wall: %d ms\n\n", g.WallMs)
 }

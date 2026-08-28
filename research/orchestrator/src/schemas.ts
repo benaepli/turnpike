@@ -60,6 +60,9 @@ export const LadderMetrics = z.object({
   h2Rate: z.number(),
   h2bRate: z.number(),
   h3Rate: z.number(),
+  // Timer fired on a node with a message to it in flight; zero when the
+  // corpus records no timer firings.
+  h4Rate: z.number().default(0),
   gradedRuns: z.number().int(),
   meanPrefixDepth: z.number(),
   maxPrefixDepth: z.number().int(),
@@ -68,8 +71,9 @@ export const LadderMetrics = z.object({
   unknown: z.number().int(),
   porcupineWallMs: z.number().int(),
   gradeWallMs: z.number().int(),
-  // Wall time the runs actually had, from the explorer's own clock when it
-  // reported one; the exposure every per-second rate divides by.
+  // Active time the runs actually had, on the explorer's own monotonic clock
+  // when it reported one (a suspend does not advance it); the exposure every
+  // per-second rate divides by.
   exposureMs: z.number().int().default(0),
 });
 export type LadderMetrics = z.infer<typeof LadderMetrics>;
@@ -133,8 +137,8 @@ export const Evaluation = z.object({
   session: SessionSummary.nullable().default(null),
   utilStats: UtilStats.nullable().default(null),
   // Set when the chunk was excluded from pooling for its timing rather than
-  // its content: a suspend, a missing session summary, or a throughput far
-  // below the baseline's.
+  // its content: a missing session summary, or a throughput far below the
+  // baseline's.
   timingAnomaly: z.string().nullable().default(null),
 });
 export type Evaluation = z.infer<typeof Evaluation>;
@@ -241,6 +245,7 @@ export const TraceGradeJson = z.object({
       h2_rate: z.number(),
       h2b_rate: z.number(),
       h3_rate: z.number(),
+      h4_rate: z.number().optional(),
     }).nullable().optional(),
     wall_ms: z.number(),
   }).nullable().optional(),
@@ -267,5 +272,8 @@ export const PorcupineJson = z.object({
   skipped_ops: z.number(),
   violating_run_ids: z.array(z.number()),
   wall_ms: z.number(),
+  first_violation_ordinal: z.number().optional(),
+  first_violation_run_id: z.number().nullable().optional(),
+  violation_signatures: z.array(z.object({ run_id: z.number(), ordinal: z.number(), signature: z.string() })).optional(),
 });
 export type PorcupineJson = z.infer<typeof PorcupineJson>;

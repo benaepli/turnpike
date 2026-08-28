@@ -156,10 +156,43 @@ func buildCandidates(idx *runIndex, spec EventSpec) ([]Event, bool) {
 		return collectExecByKind(idx.execs, "Recover", spec.Target)
 	case KindDeliver:
 		return collectDelivers(idx, spec)
+	case KindAllowTimer:
+		return collectTimerFires(idx.execs, spec)
 	default:
-		// allow_timer, partition, heal: unmatchable in non-plan-mode runs.
+		// partition, heal: unmatchable in non-plan-mode runs.
 		return nil, false
 	}
+}
+
+// collectTimerFires matches TimerFired rows on the target node. The payload
+// has the same shape as a client invocation's, a node then a string, so the
+// invocation parser reads it; the string is the timer's label. An empty
+// label in the spec matches any timer on the node.
+func collectTimerFires(execs []reader.ExecutionRow, spec EventSpec) ([]Event, bool) {
+	var out []Event
+	for i := range execs {
+		e := &execs[i]
+		if e.Kind != "TimerFired" {
+			continue
+		}
+		target, label, err := parseInvocationPayload(e.Payload)
+		if err != nil {
+			continue
+		}
+		if target != spec.Target || (spec.TimerLabel != "" && label != spec.TimerLabel) {
+			continue
+		}
+		out = append(out, Event{
+			Step:     e.Step,
+			IntraSeq: e.SeqNum,
+			Table:    TableExec,
+			NodeID:   int64(target),
+		})
+		if len(out) >= maxCandidates {
+			return out, true
+		}
+	}
+	return out, false
 }
 
 func collectClientInvocations(execs []reader.ExecutionRow, spec EventSpec) ([]Event, bool) {

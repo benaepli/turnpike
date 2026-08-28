@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -24,11 +25,27 @@ func main() {
 	gradeBudgetMs := flag.Int64("grade-budget-ms", 60000, "Grade mode: wall budget per DAG config in ms (0 = unbounded)")
 	gradePerRun := flag.Bool("grade-per-run", false, "Grade mode: include full per_run arrays instead of top_runs")
 	batchRuns := flag.Int("batch-runs", 2000, "Runs per metric query batch; partials are merged in Go (0 = one query over all runs)")
+	runsTable := flag.Bool("runs", false, "Emit the runs table (one row per run: strategy, seeds, steps, wall, end reason) as JSON and exit")
 	flag.Parse()
 
 	if *inputPath == "" {
 		flag.Usage()
 		log.Fatalln("Error: -input flag is required.")
+	}
+
+	if *runsTable {
+		rows, err := reader.ReadRuns(*inputPath)
+		if err != nil {
+			log.Fatalf("failed to read runs table: %v", err)
+		}
+		if rows == nil {
+			rows = []reader.RunRow{}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(rows); err != nil {
+			log.Fatalf("failed to write runs JSON: %v", err)
+		}
+		return
 	}
 
 	formatNorm := strings.ToLower(*format)
@@ -65,6 +82,14 @@ func main() {
 		r.Grade, err = metrics.ComputeGrade(*inputPath, *runID, *batchRuns)
 		if err != nil {
 			log.Printf("Warning: grade metrics failed: %v", err)
+		}
+		if *runID < 0 && reader.HasRuns(*inputPath) {
+			rows, rerr := reader.ReadRuns(*inputPath)
+			if rerr != nil {
+				log.Printf("Warning: runs table failed: %v", rerr)
+			} else {
+				r.RunsMeta = metrics.ComputeRunsMeta(rows)
+			}
 		}
 		if *dagConfig != "" {
 			opts := dagorder.Options{

@@ -232,14 +232,14 @@ export function decideSequential(
   return out("continue", "undecided");
 }
 
-// A chunk is excluded for its timing, never for its content: a machine
-// suspend, an explorer that never wrote its session account (killed), or a
-// throughput far below the baseline's before the candidate is known to be
-// slow. Fast chunks are never anomalies: the exposure is the explorer's own
-// monotonic clock, which the environment cannot inflate.
+// A chunk is excluded for its timing, never for its content: an explorer
+// that never wrote its session account (killed), or a throughput far below
+// the baseline's before the candidate is known to be slow. Every duration
+// is active time on a monotonic clock, so a machine suspend neither inflates
+// an exposure nor excludes a chunk; fast chunks are never anomalies for the
+// same reason.
 export const SLOW_CHUNK_FACTOR = 1.5;
 export function classifyChunkTiming(e: Evaluation, baselineMedianRps: number | null, slowConfirmed: boolean): string | null {
-  if (e.suspendedMs > 0) return `suspended ${Math.round(e.suspendedMs / 1000)}s`;
   if (e.session === null) return "no session summary";
   if (baselineMedianRps !== null && baselineMedianRps > 0 && !slowConfirmed && e.metrics.runsPerSec < baselineMedianRps / SLOW_CHUNK_FACTOR) {
     return `slow: ${e.metrics.runsPerSec.toFixed(1)} runs/s against a baseline median of ${baselineMedianRps.toFixed(1)}`;
@@ -284,7 +284,7 @@ export function syntheticEvaluation(seed: number, m: {
       : null,
     metrics: {
       runs: m.runs, gradedRuns: m.runs, runsPerSec: m.exposureMs > 0 ? m.runs / (m.exposureMs / 1000) : 0, exposureMs: m.exposureMs,
-      unpairedFraction: 0, h1Rate: 0, h2Rate: m.h2Rate, h2bRate: 0, h3Rate: 0, meanPrefixDepth: 0, maxPrefixDepth: 8,
+      unpairedFraction: 0, h1Rate: 0, h2Rate: m.h2Rate, h2bRate: 0, h3Rate: 0, h4Rate: 0, meanPrefixDepth: 0, maxPrefixDepth: 8,
       depthAtLeast: m.depthAtLeast, violations: m.violations ?? 0, unknown: 0, porcupineWallMs: 0, gradeWallMs: 0,
     },
   };
@@ -337,11 +337,12 @@ export function selfTestGateConsistency(): string[] {
   const atCap = minimumEffect(basePooled.depth6plus, basePooled.exposureSec, capExposure);
   const unbounded = MERGE_Z * Math.sqrt(1 / basePooled.depth6plus);
   if (!(atCap <= 1.5 * unbounded)) f.push(`depth>=6 minimum effect at the cap (${(atCap * 100).toFixed(1)}%) exceeds 1.5x the unbounded floor (${(unbounded * 100).toFixed(1)}%)`);
-  // The timing classifier: a suspend and a missing session are always
-  // anomalies, a slow chunk only until the candidate is known to be slow.
+  // The timing classifier: a missing session is always an anomaly, a slow
+  // chunk only until the candidate is known to be slow, and a suspend is
+  // not one because exposure is active time.
   const ref = chunk(3000, {});
   if (classifyChunkTiming(ref, 600, false) !== null) f.push("a normal chunk is not an anomaly");
-  if (classifyChunkTiming({ ...ref, suspendedMs: 5000 }, 600, false) === null) f.push("a suspended chunk is an anomaly");
+  if (classifyChunkTiming({ ...ref, suspendedMs: 5000 }, 600, false) !== null) f.push("a chunk that straddled a suspend still counts");
   if (classifyChunkTiming({ ...ref, session: null }, 600, false) === null) f.push("a chunk without a session summary is an anomaly");
   const slowChunk = chunk(3001, { rps: 0.3 });
   if (classifyChunkTiming(slowChunk, 600, false) === null) f.push("a chunk at a third of the baseline throughput is an anomaly");

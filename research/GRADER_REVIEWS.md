@@ -3,6 +3,49 @@
 Operator decisions on `grader`-kind hypotheses. The loop parks these instead
 of implementing them; each entry records the verdict and the evidence.
 
+## 2026-08-28, epoch 6: the timer vertex becomes observable
+
+Operator change, not a queued hypothesis. The explorer now records every
+timer firing as an execution row (`kind = TimerFired`, payload node and
+label), the grader matches `allow_timer` labels against those rows, and a
+generic hazard `h4` counts runs in which a timer fired on a node while a
+message to that node was in flight. The runs table (`runs/*.parquet`) and
+`runs_meta` ride along; they attribute runs to strategies and do not touch
+the ladder.
+
+**Ground truth is unchanged.** The plan corpus `find_bug_plan` regenerated
+with the new binary violates on exactly the archived run ids
+(`[572, 594, 791, 828, 1024, 1447, 1646, 1802, 1824, 2345, 2721]`, 11 of
+3,000); porcupine skips the new rows as unknown actions (`skipped_ops`
+grows, verdicts and exit codes do not). The archived parquet corpora are not
+on this host (`research/corpus/*/` is gitignored working data), so the
+manifest invariants were re-verified by construction rather than by
+re-grading: those corpora carry no `TimerFired` rows, `allow_t1` therefore
+has zero candidates in them, and it contracts out of the chain exactly as
+before. The traceanalyzer unit suite, which pins the contraction contract,
+passes.
+
+**What the vertex measures.** On the regenerated plan corpus the chain now
+reaches 9 and all 11 violating runs sit at 9; `depth_at_least` is
+3000/3000/3000/3000/751/751/751/145/103. On a 1,080-run general session the
+deepest chains include `allow_t1` (`w1 -> allow_t1 -> crash_nl -> ...`) and
+the maximum was 8 with the two-crash labels unmatched, so in general mode
+the vertex is close to free: timers fire constantly and one of them lands
+between `w1` and `crash_nl` in nearly every run. The rung semantics shift by
+about one vertex where `w1` matched, which is why this is an epoch bump.
+
+**h4 is saturated in general mode**: 0.938 of runs in that session, against
+0.035 on the plan corpus where timers are admitted only where the plan
+allows. The hazard is therefore a measurement of how much freer the general
+grid is with timers than the plans are, not a discriminating proxy for the
+violation, and it must not enter the objective. The discriminating
+information is still the absence of firings around the chain, which no
+metric observes yet; `h4` is the first counter that can see the difference
+between the two regimes at all.
+
+Landed with the boundary procedure: grader and harness committed together,
+`research/PARAMETERS.md` noted, epoch bumped to 6, baseline re-measured.
+
 ## 2026-08-26, epoch 3
 
 Both queued items were rejected, and the review turned up the reason the

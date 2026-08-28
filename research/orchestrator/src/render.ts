@@ -65,6 +65,7 @@ function ladderTable(
     ["h2Rate", (m) => fmtNum(m.h2Rate)],
     ["h2bRate", (m) => fmtNum(m.h2bRate)],
     ["h3Rate", (m) => fmtNum(m.h3Rate)],
+    ["h4Rate", (m) => fmtNum(m.h4Rate)],
     ["runsPerSec", (m) => m.runsPerSec.toFixed(1)],
     ["exposure (s)", (m) => (m.exposureMs > 0 ? (m.exposureMs / 1000).toFixed(0) : "-")],
   );

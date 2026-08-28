@@ -28,6 +28,11 @@ type HazardResult struct {
 	// H3: at least two distinct nodes each crashed and recovered in the run.
 	TwoNodeCrashRecoverRuns int64   `json:"h3_two_node_crash_recover_runs"`
 	TwoNodeCrashRecoverRate float64 `json:"h3_rate"`
+	// H4: a timer fired on a node while a message to that node was in
+	// flight - dispatched before the firing, delivered after it. Zero on a
+	// corpus that records no timer firings.
+	TimerRaceRuns int64   `json:"h4_timer_race_runs"`
+	TimerRaceRate float64 `json:"h4_rate"`
 }
 
 // GradeResult is the cheap (pure SQL) part of the metric ladder: throughput /
@@ -117,6 +122,7 @@ func ComputeGrade(dbPath string, runID int64, batchSize int) (*GradeResult, erro
 		h.StaleIncarnationRate = float64(h.StaleIncarnationRuns) / n
 		h.ReceiverStaleRate = float64(h.ReceiverStaleRuns) / n
 		h.TwoNodeCrashRecoverRate = float64(h.TwoNodeCrashRecoverRuns) / n
+		h.TimerRaceRate = float64(h.TimerRaceRuns) / n
 	}
 	result.Hazards = h
 	result.WallMs = time.Since(start).Milliseconds()
@@ -144,6 +150,9 @@ func accumulateHazards(db *sql.DB, exec, traces string, h *HazardResult) error {
 		`CREATE OR REPLACE TEMP TABLE recovers AS
 			SELECT run_id, CAST(json_extract(payload, '$[0].value.index') AS BIGINT) AS node, step
 			FROM ` + exec + ` WHERE kind = 'Recover'`,
+		`CREATE OR REPLACE TEMP TABLE timers AS
+			SELECT run_id, CAST(json_extract(payload, '$[0].value.index') AS BIGINT) AS node, step
+			FROM ` + exec + ` WHERE kind = 'TimerFired'`,
 		`CREATE OR REPLACE TEMP TABLE d AS
 			SELECT run_id, node_id AS sender, step, trace_id
 			FROM ` + traces + ` WHERE trace_kind = 'Dispatch'`,
@@ -186,6 +195,10 @@ func accumulateHazards(db *sql.DB, exec, traces string, h *HazardResult) error {
 					JOIN recovers r ON r.run_id = c.run_id AND r.node = c.node AND r.step > c.step
 				) GROUP BY run_id HAVING count(*) >= 2
 			)`},
+		{&h.TimerRaceRuns, "h4", `
+			SELECT count(DISTINCT t.run_id) FROM timers t
+			JOIN e ON e.run_id = t.run_id AND e.receiver = t.node AND e.estep > t.step
+			JOIN d ON d.run_id = e.run_id AND d.trace_id = e.trace_id AND d.step < t.step`},
 	}
 	for _, q := range queries {
 		var n int64

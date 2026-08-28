@@ -195,15 +195,21 @@ rejected at `minChunks`, and the merge gate closes on the same ratio: the
 objective credits speed, so a slower candidate has to have earned its rate.
 The bench's strict-dominance test in the regression suite is unchanged.
 
+**Every duration is active time.** The explorer's budget, its session
+account, each run's `wall_us` and `session_offset_ms`, and the harness's
+own timers all read monotonic clocks (`Instant`, `performance.now()`) that a
+machine suspend does not advance. A chunk that straddles a suspend keeps its
+true exposure and counts; `suspendedMs` is recorded on the evaluation as a
+fact, not a verdict.
+
 **Timing anomalies.** A chunk is excluded for its timing, never its content:
-a machine suspend (`suspendedMs > 0`), a missing session summary (the
-explorer was killed before it wrote one), or throughput below the baseline
-median / 1.5 before the candidate is known to be slow. A slow chunk is
-retried once; a second slow chunk in a row confirms the candidate slow,
-after which its chunks count and the floor decides. Three exclusions error
-the evaluation out. Fast chunks are never anomalies: the exposure is the
-explorer's monotonic clock, which the environment cannot inflate. Baseline
-top-ups apply the same rule against their own siblings.
+a missing session summary (the explorer was killed before it wrote one), or
+throughput below the baseline median / 1.5 before the candidate is known to
+be slow. A slow chunk is retried once; a second slow chunk in a row confirms
+the candidate slow, after which its chunks count and the floor decides.
+Three exclusions error the evaluation out. Fast chunks are never anomalies:
+the exposure is the explorer's own clock, which the environment cannot
+inflate. Baseline top-ups apply the same rule against their own siblings.
 
 **Chunk cap.** `maxChunks` stays 4 and equals the baseline's size, which is
 the binding limit: the fourth chunk buys 1.5 points of depth>=6 resolution
@@ -226,6 +232,28 @@ pooled chunks is asserted by `selfTestGateConsistency`.
 **Comparability.** Per-run rates from epoch 4 and earlier are not
 per-second rates; the epoch-5 baseline is re-measured under this protocol
 and results before it no longer steer decisions.
+
+## The timer vertex and the runs table (epoch 6)
+
+The explorer records every timer firing as an executions row, the grader
+matches the oracle's `allow_timer` label against them, and `h4` counts runs
+with a timer firing while a message to that node was in flight. The oracle
+chain therefore reaches 9 where it reached 8: on the regenerated
+`find_bug_plan` corpus (3,000 runs, the archived 11 violating run ids
+exactly) `depth_at_least` is 3000/3000/3000/3000/751/751/751/145/103 and all
+11 violating runs sit at 9. In general mode the vertex is close to free
+(timers fire constantly, so one lands between `w1` and `crash_nl` in nearly
+every run), which shifts rung k to roughly the old rung k-1 wherever `w1`
+matched; the epoch-6 baseline re-measures the ladder on that scale. `h4` is
+0.94 in general mode against 0.035 under plan-admitted timers, so it
+measures the timer regime, not the violation, and is reported only.
+Details and the ground-truth check: `research/GRADER_REVIEWS.md`.
+
+Each run also leaves a row in a `runs` table (strategy, grid index, seeds,
+steps, active-time cost, end reason, session offset), which is what a
+per-strategy or time-to-first-violation reading joins against; the grader
+summarises it as `runs_meta`, and porcupine reports the first violating
+run's ordinal and a signature per violation.
 
 ## Sequential evaluation (non-perf kinds)
 

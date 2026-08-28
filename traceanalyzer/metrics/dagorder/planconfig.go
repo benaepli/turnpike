@@ -47,10 +47,13 @@ func (k EventKind) String() string {
 }
 
 // Matchable reports whether events of this kind can be located in
-// non-plan-mode trace/execution output.
+// non-plan-mode trace/execution output. A timer admission matches a timer
+// firing on the target node with the same label; a corpus written before
+// timer firings were recorded has no candidates for it, and the label is
+// contracted out of the chain as any zero-candidate label is.
 func (k EventKind) Matchable() bool {
 	switch k {
-	case KindWrite, KindRead, KindRmw, KindCrash, KindRecover, KindDeliver:
+	case KindWrite, KindRead, KindRmw, KindCrash, KindRecover, KindDeliver, KindAllowTimer:
 		return true
 	default:
 		return false

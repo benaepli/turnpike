@@ -22,6 +22,13 @@ Runs the main execution explorer over a configuration space, compiling the spec 
 - `--log-backend [BACKEND]`: Determines the format for execution history persistence.
   - `parquet` (Default): High-performance structured logging utilizing Apache Parquet.
   - `duckdb`: SQLite-like backend using DuckDB.
+- `--set PATH=VALUE` (repeatable): Overrides one dotted config field before parsing (see `scheduler_configs/loop/README.md`).
+
+The standard explorer writes `session.json` inside and beside the output directory: `wall_ms` (active time on a monotonic clock from the first queued run to the last finished one), `runs_completed`, `runs_failed`, `runs_skipped`, `wall_budget_sec`, `budget_hit`, and `writer_flush_ms`.
+
+#### `wall_budget_sec`
+
+Active-time budget for the whole session, in seconds, measured on a monotonic clock that a machine suspend does not advance; `0` (the default) lets the grid alone end the session. Under a budget the grid is walked in rounds, one run of every configuration per round, so a cut leaves every configuration within one run of every other and the corpus keeps the grid's composition whatever the throughput. Runs already started finish. A budgeted session is not reproducible run for run; `num_runs_per_config` stays as an upper bound.
 
 ### `run-plan`
 
@@ -195,9 +202,10 @@ By utilizing the `HistoryWriter` trait, Spur can decouple execution logic from p
 
 Depending on the chosen backend, the simulator emits files encompassing several distinct data schemas generated per run:
 
-1. `executions`: Logs client operations (`Invocation`, `Response`, `Crash`, `Recover`, `Partition`, `Heal`). Used heavily for linearizability checking.
+1. `executions`: Logs client operations and system events (`Invocation`, `Response`, `Crash`, `Recover`, `Partition`, `Heal`, `TimerFired`). Used heavily for linearizability checking; the checker skips `TimerFired`, whose payload is the node and the timer's label.
 2. `logs`: Captures standard print statements and application-level debug output.
 3. `traces`: Structured trace events from the `@trace` annotations (see the tracing documentation).
+4. `runs`: One row per run: `arm` (the strategy that issued it; the explorer mode for a single-strategy session), `arm_index`, `config_index` (into the expanded grid, `-1` when not a grid point), `workload_seed`, `schedule_seed`, `steps_used`, `wall_us` (active time), `end_reason` (`plan_complete`, `iterations_exhausted`, `deadlock`), and `session_offset_ms` (active time from the session's start to the run's end). A run that failed before producing a history has no row. `traceanalyzer -input DIR -runs` prints the table as JSON.
 
 ## Porcupine Integration
 
