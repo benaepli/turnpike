@@ -419,7 +419,11 @@ async function runCampaignReplicate(
   const cfg = `${outDir}.config.json`;
   fs.mkdirSync(path.dirname(outDir), { recursive: true });
   const wallSec = m.wallSec ?? 10;
+  // The wall is the binding limit: the run cap is the sequential protocol's
+  // ceiling, far above what any member finishes in its wall, so the grid is
+  // never exhausted first.
   materializeConfig(template, cfg, {
+    runsPerConfig: ctx.policy.sequential.maxRunsPerConfig,
     sessionSeed: seed,
     dropKeys: CAMPAIGN_ONLY_KEYS,
     extra: { ...m.overlay, num_crashes: m.faults.numCrashes, max_iterations: m.maxIterations, wall_budget_sec: wallSec },
