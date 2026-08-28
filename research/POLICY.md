@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-28T21:53:18.784Z
+Generated: 2026-08-28T22:36:19.967Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -63,7 +63,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - spec: bin/spur/VR.spur
 - configTemplate: scheduler_configs/loop/general_vr.json
 - oracleDags: research/oracle/relax_minimal_general.json
-- rayonThreads: 30
+- rayonThreads: 14
 
 ## Regression
 
