@@ -13,7 +13,7 @@ import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors, selfTestSurvival } from "./stats.js";
 import { selfTestPanel, selfTestPanelGate, type PanelArms } from "./panel.js";
 import { selfTestPanelAuthority } from "./decide.js";
-import { selfTestGateConsistency } from "./sequential.js";
+import { pooledCountsOf, selfTestGateConsistency, seqRuleOf } from "./sequential.js";
 import { LoopState } from "./state.js";
 
 const POLICY_PATH = path.join(ROOT, "research/policy.json");
@@ -76,9 +76,11 @@ async function main(): Promise<void> {
   try {
     switch (cmd) {
       case "selftest": {
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(), ...selfTestRender()];
-        if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         const { policy, clamps } = loadPolicy(POLICY_PATH);
+        const stored = loadBaseline(state);
+        const live = stored && stored.sequential.some((e) => e.ok) ? { base: pooledCountsOf(stored.sequential), rule: seqRuleOf(policy) } : undefined;
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(live), ...selfTestRender()];
+        if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         console.log("stats + posterior + panel + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
         console.log("models:", policy.models);
         console.log("SPUR_BIN exists:", existsSync(SPUR_BIN));

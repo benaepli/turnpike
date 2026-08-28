@@ -218,16 +218,20 @@ cap is within 1.5x the unbounded floor at the measured counts, so a change
 of budget, rates or baseline size that breaks the relation fails loudly.
 
 **Operating characteristics** (`npx tsx src/selftest_sequential.ts 60
---assert`, synthetic wall-budget chunks at the counts above): A/A -> 0%
-advance, 97% reject, 3% inconclusive (the d7 extension on a null, mean 2.6
-chunks); +25% depth>=6 -> 100% advance in 2 chunks; +25% depth>=6 at 0.7x
-throughput -> 100% reject; flat depth at 1.4x throughput -> 100% advance
-(intended: throughput multiplies every rung); +12% depth>=4 with +15%
-depth>=5 -> 100% advance; -40% per-run depth>=4 -> 100% reject at chunk 1;
-depth>=7-only +40% -> 0% advance, 100% inconclusive at 8 chunks; h2-only
-+10% -> 0% advance; NI null -> 100% advance; NI -30% -> 100% reject at chunk
-1. The consistency of the sequential rule with the merge gate on the same
-pooled chunks is asserted by `selfTestGateConsistency`.
+--assert`): the simulator reads the rule from `research/policy.json` and the
+chunk shape from the recorded baseline in `evaluations/000-baseline.json`, so
+it describes the regime the loop runs. At the epoch-7 baseline (300 s
+campaign chunks, 912,180 runs over four chunks): A/A -> 0% advance, 97%
+reject, 3% inconclusive (the d7 extension on a null, mean 2.5 chunks); +25%
+depth>=6 -> 100% advance in 2 chunks; +25% depth>=6 at 0.7x throughput ->
+100% reject; flat depth at 1.4x throughput -> 100% advance (intended:
+throughput multiplies every rung); +12% depth>=4 with +15% depth>=5 -> 100%
+advance; -40% per-run depth>=4 -> 100% reject at chunk 1; depth>=7-only +40%
+-> 0% advance, 100% inconclusive at 8 chunks; h2-only +10% -> 0% advance;
+NI null -> 100% advance; NI -30% -> 100% reject at chunk 1. The consistency
+of the sequential rule with the merge gate on the same pooled chunks, and
+the cap check below, are asserted by `selfTestGateConsistency` on the same
+recorded baseline when `cli selftest` finds one in the state.
 
 **Comparability.** Per-run rates from epoch 4 and earlier are not
 per-second rates; the epoch-5 baseline is re-measured under this protocol

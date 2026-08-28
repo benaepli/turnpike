@@ -293,18 +293,26 @@ export function syntheticEvaluation(seed: number, m: {
 // The sequential rule and the merge gate test the same pooled chunks; an
 // advance the gate then refuses would delete a branch on a contradiction.
 // Asserted here on synthetic chunks around the measured baseline counts.
-export function selfTestGateConsistency(): string[] {
+export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRule }): string[] {
   const f: string[] = [];
-  const rule: SeqRule = {
+  const rule: SeqRule = live?.rule ?? {
     exploreBudgetSec: 90, maxRunsPerConfig: 4000, maxChunks: 4, minChunks: 2, rejectP: 0.05, inconclusiveP: 0.9, niP: 0.95,
     regressMargin: 0.25, maxResumes: 2, resumeCooldown: 2, draws: 2000, wallSecPerChunk: 900, throughputFloor: 0.8,
   };
+  // The synthetic chunk has the recorded baseline's per-chunk shape when one
+  // is available, so the cap check below follows the live regime.
+  const per = (v: number): number => (live ? v / live.base.chunks : v);
+  const shape = live
+    ? { runs: per(live.base.runs), exposureMs: per(live.base.exposureSec) * 1000, d4: per(live.base.depth4), d5: per(live.base.depth5),
+        d6: per(live.base.depth6plus), d7: per(live.base.depth7plus), d8: per(live.base.depth8plus), h2: live.base.h2Count / Math.max(1, live.base.runs) }
+    : { runs: 54000, exposureMs: 90_000, d4: 19731, d5: 6033, d6: 883, d7: 110, d8: 5, h2: 0.416 };
   const chunk = (seed: number, scale: { d4?: number; d5?: number; d6?: number; rps?: number }): Evaluation => {
     const rps = scale.rps ?? 1;
-    const runs = Math.round(54000 * rps);
-    const d = [runs, runs, runs, Math.round(19731 * rps * (scale.d4 ?? 1)), Math.round(6033 * rps * (scale.d5 ?? 1)), Math.round(883 * rps * (scale.d6 ?? 1)), Math.round(110 * rps), Math.round(5 * rps)];
-    return syntheticEvaluation(seed, { runs, exposureMs: 90_000 + seed, depthAtLeast: d, h2Rate: 0.416 });
+    const runs = Math.round(shape.runs * rps);
+    const d = [runs, runs, runs, Math.round(shape.d4 * rps * (scale.d4 ?? 1)), Math.round(shape.d5 * rps * (scale.d5 ?? 1)), Math.round(shape.d6 * rps * (scale.d6 ?? 1)), Math.round(shape.d7 * rps), Math.round(shape.d8 * rps)];
+    return syntheticEvaluation(seed, { runs, exposureMs: Math.round(shape.exposureMs) + seed, depthAtLeast: d, h2Rate: shape.h2 });
   };
+  const medianRpsRef = shape.runs / (shape.exposureMs / 1000);
   const base = [1000, 1001, 1002, 1003].map((s) => chunk(s, {}));
   const cases: Array<{ name: string; cand: Evaluation[] }> = [
     { name: "null", cand: [2000, 2001].map((s) => chunk(s, {})) },
@@ -341,13 +349,13 @@ export function selfTestGateConsistency(): string[] {
   // chunk only until the candidate is known to be slow, and a suspend is
   // not one because exposure is active time.
   const ref = chunk(3000, {});
-  if (classifyChunkTiming(ref, 600, false) !== null) f.push("a normal chunk is not an anomaly");
-  if (classifyChunkTiming({ ...ref, suspendedMs: 5000 }, 600, false) !== null) f.push("a chunk that straddled a suspend still counts");
-  if (classifyChunkTiming({ ...ref, session: null }, 600, false) === null) f.push("a chunk without a session summary is an anomaly");
+  if (classifyChunkTiming(ref, medianRpsRef, false) !== null) f.push("a normal chunk is not an anomaly");
+  if (classifyChunkTiming({ ...ref, suspendedMs: 5000 }, medianRpsRef, false) !== null) f.push("a chunk that straddled a suspend still counts");
+  if (classifyChunkTiming({ ...ref, session: null }, medianRpsRef, false) === null) f.push("a chunk without a session summary is an anomaly");
   const slowChunk = chunk(3001, { rps: 0.3 });
-  if (classifyChunkTiming(slowChunk, 600, false) === null) f.push("a chunk at a third of the baseline throughput is an anomaly");
-  if (classifyChunkTiming(slowChunk, 600, true) !== null) f.push("a slow chunk of a confirmed-slow candidate counts");
-  if (classifyChunkTiming(chunk(3002, { rps: 1.6 }), 600, false) !== null) f.push("a fast chunk is never an anomaly");
+  if (classifyChunkTiming(slowChunk, medianRpsRef, false) === null) f.push("a chunk at a third of the baseline throughput is an anomaly");
+  if (classifyChunkTiming(slowChunk, medianRpsRef, true) !== null) f.push("a slow chunk of a confirmed-slow candidate counts");
+  if (classifyChunkTiming(chunk(3002, { rps: 1.6 }), medianRpsRef, false) !== null) f.push("a fast chunk is never an anomaly");
   return f;
 }
 

@@ -1,28 +1,32 @@
 // Operating characteristics of the sequential stopping rule, simulated with
-// the live decision code on synthetic wall-budget chunks around the measured
-// baseline rates. Run: npx tsx src/selftest_sequential.ts [reps] [--assert]
-import { decideSequential, emptyCounts, type PooledCounts, type SeqRule } from "./sequential.js";
+// the live decision code on synthetic wall-budget chunks around the recorded
+// baseline. Run: npx tsx src/selftest_sequential.ts [reps] [--assert]
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { decideSequential, emptyCounts, pooledCountsOf, seqRuleOf, type PooledCounts, type SeqRule } from "./sequential.js";
 import { seededUniform } from "./stats.js";
-import { Policy } from "./policy.js";
+import { loadPolicy } from "./policy.js";
+import { ROOT } from "./paths.js";
+import { Evaluation } from "./schemas.js";
+import { z } from "zod";
 
-const policy = Policy.parse({
-  models: { propose: "x", judge: "x", implement: "x", diagnose: "x", reflect: "x", audit: "x" },
-  bandit: { explorationQuota: 0.3, ucbC: 1 },
-  fidelities: { screen: { exploreWallSec: 1, runsPerConfig: 1, gradeMaxRuns: 0, gradeBudgetMs: 1, seeds: [1] }, promote: { exploreWallSec: 1, runsPerConfig: 1, gradeMaxRuns: 0, gradeBudgetMs: 1, seeds: [1] } },
-  budgets: { maxWallMinutesPerHypothesis: 1, maxLineageDepth: 1, stagnationWindow: 1, maxImplementTurns: 5, maxImplementMinutes: 20, maxBuildSeconds: 60, minFreeDiskGb: 25 },
-  audit: { everyK: 5 }, proposal: { lenses: 1, maxPoolSize: 1 },
-  evaluation: { spec: "x", configTemplate: "x", oracleDags: ["x"], rayonThreads: 1 },
-  regression: { panelManifest: "x", vrNoFaultConfig: "x", throughputTolerance: 0.2, wallSecPerCase: 1 },
-  perf: { benchConfig: "x", rounds: 2, warmupRounds: 0, minImprovement: 0.05, roundWallSec: 1 },
-});
-const rule: SeqRule = { ...policy.sequential, throughputFloor: 1 - policy.regression.throughputTolerance };
+// The rule under test is the committed policy, and the chunk shape is the
+// recorded baseline, so the operating characteristics describe the regime
+// the loop runs rather than a remembered one.
+const rule: SeqRule = seqRuleOf(loadPolicy(join(ROOT, "research/policy.json")).policy);
 
-// Measured: four 90 s chunks of the baseline binary (seeds
-// 1000-1003), 54,000 runs each at about 600 runs/s.
-const BASE: PooledCounts = {
-  runs: 216000, graded: 216000, chunks: 4, exposureSec: 361, depth4: 78925, depth5: 24131, depth6plus: 3533,
-  depth7plus: 441, depth8plus: 20, violations: 0, h2Count: 89940, rpsChunks: [603, 601, 600, 589],
-};
+function recordedBaseline(): PooledCounts {
+  const p = join(ROOT, "research/evaluations/000-baseline.json");
+  if (existsSync(p)) {
+    const parsed = z.object({ baseline: z.object({ sequential: z.array(Evaluation).default([]) }) }).safeParse(JSON.parse(readFileSync(p, "utf8")));
+    if (parsed.success && parsed.data.baseline.sequential.some((e) => e.ok)) return pooledCountsOf(parsed.data.baseline.sequential);
+  }
+  return {
+    runs: 216000, graded: 216000, chunks: 4, exposureSec: 361, depth4: 78925, depth5: 24131, depth6plus: 3533,
+    depth7plus: 441, depth8plus: 20, violations: 0, h2Count: 89940, rpsChunks: [603, 601, 600, 589],
+  };
+}
+const BASE: PooledCounts = recordedBaseline();
 const T = rule.exploreBudgetSec;
 const BASE_RPS = BASE.runs / BASE.exposureSec;
 const P = {
@@ -105,7 +109,7 @@ for (const sc of scenarios) {
   if (e.chunksMeanMin !== undefined && meanChunks < e.chunksMeanMin) failures.push(`${sc.name}: mean chunks ${meanChunks.toFixed(1)} < ${e.chunksMeanMin}`);
   if (e.oneChunkReject && oneChunkRejects < REPS * 0.95) failures.push(`${sc.name}: only ${oneChunkRejects}/${REPS} rejected at the first chunk`);
 }
-console.log(`policy: chunk=${T}s explore budget (about ${Math.round(T * BASE_RPS)} runs at baseline throughput) maxChunks=${rule.maxChunks} minChunks=${rule.minChunks} rejectP=${rule.rejectP} inconclusiveP=${rule.inconclusiveP} throughputFloor=${rule.throughputFloor} (minimum effect derived from baseline counts and the cap)`);
+console.log(`policy: chunk=${T}s explore budget, baseline ${BASE.chunks} chunks / ${BASE.runs} runs (about ${Math.round(T * BASE_RPS)} runs at baseline throughput) maxChunks=${rule.maxChunks} minChunks=${rule.minChunks} rejectP=${rule.rejectP} inconclusiveP=${rule.inconclusiveP} throughputFloor=${rule.throughputFloor} (minimum effect derived from baseline counts and the cap)`);
 if (failures.length > 0) {
   console.log(`expectations not met:\n  ${failures.join("\n  ")}`);
   if (assertMode) process.exit(1);
