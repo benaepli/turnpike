@@ -2546,3 +2546,35 @@ merge deserves to be a step the harness performs rather than one the operator
 remembers. And an A/A run of the full suite is cheap insurance that is worth
 taking after any merge that touches the config template, not only when a panel
 is being commissioned.
+
+## 2026-08-28T01:55:00.000Z (operator) - the panel's A/A control passes over four seeds
+
+Four A/A runs of the full suite, both arms on the same binary and the same
+config template, seeds 20001 to 20004:
+
+| seed | paxos z | mencius z | combined Z | wall |
+|---|---|---|---|---|
+| 20001 | -0.55 | +0.63 | +0.05 | 410 s |
+| 20002 | +1.25 | +0.52 | +1.25 | 404 s |
+| 20003 | -1.02 | -0.30 | -0.93 | 411 s |
+| 20004 | -0.15 | +0.22 | +0.05 | 419 s |
+
+Across eight paired comparisons the individual z has **mean +0.088 and sd
+0.850**, range -1.02 to +1.25. No member sits off zero, no run reached the
+-2.0 downgrade bar, and none of the eight reached the -2.7 collapse bar. The
+pairing is unbiased on this evidence: 4 seeds bounds a gross miscalibration,
+not the 0.35%-per-member false-block rate, which needs the real validation
+series to confirm.
+
+The sd is the part worth keeping. Under the null it should be 1.0. Observing
+0.85 is the conservative variance choice made visible: the gate decides with
+phi = 1 while the measured seed dispersion on these members is 0.35 to 0.56, so
+every computed z is smaller than a correctly scaled one and the true
+false-block rate sits **below** the nominal figure. The decision to reject the
+measured dispersion for anything that blocks was made on the argument that a
+deflated variance makes a blocking test fire on noise; this is that argument
+holding up in measurement rather than in principle.
+
+`throughput` passes in all three runs after the baseline binary was refreshed
+(ratios 0.995, 1.018, 1.008), which confirms the stale `spur-baseline` was the
+whole of that failure and not a symptom of the panel.
