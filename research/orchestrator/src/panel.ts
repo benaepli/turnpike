@@ -260,21 +260,36 @@ export interface ArmCounts {
   replicates?: Array<{ violations: number; exposureSec: number }>;
 }
 
-// Replicates of one campaign do not scatter like Poisson draws: the arms'
-// slice composition and the session-length curve differ between them, so a
-// rate test on pooled counts over-reads its evidence. The dispersion is
-// the ratio of the replicates' observed rate variance to what Poisson
-// counting alone would give, pooled over both arms and floored at 1, and
-// the z is deflated by its square root.
-export function replicateDispersion(reps: Array<{ violations: number; exposureSec: number }>): number {
-  const ok = reps.filter((r) => r.exposureSec > 0);
-  if (ok.length < 3) return 1;
-  const rates = ok.map((r) => r.violations / r.exposureSec);
-  const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
-  const meanExposure = ok.reduce((a, r) => a + r.exposureSec, 0) / ok.length;
-  if (mean <= 0 || meanExposure <= 0) return 1;
-  const observed = rates.reduce((a, r) => a + (r - mean) ** 2, 0) / (rates.length - 1);
-  const poisson = mean / meanExposure;
+// Replicates of one arm do not scatter like Poisson draws: their slice
+// composition and their position on the session-length curve differ, so a
+// rate test on pooled counts over-reads its evidence. The dispersion is the
+// ratio of the replicates' observed rate variance, pooled within each arm
+// around that arm's own mean, to what Poisson counting alone would give,
+// floored at 1; the z is deflated by its square root. Pooling the arms
+// around one mean would charge a real difference between them as noise and
+// cap the z a collapse can reach.
+export function replicateDispersion(arms: Array<Array<{ violations: number; exposureSec: number }>>): number {
+  let ss = 0;
+  let df = 0;
+  let events = 0;
+  let exposure = 0;
+  let n = 0;
+  for (const reps of arms) {
+    const ok = reps.filter((r) => r.exposureSec > 0);
+    if (ok.length === 0) continue;
+    const rates = ok.map((r) => r.violations / r.exposureSec);
+    const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
+    ss += rates.reduce((a, r) => a + (r - mean) ** 2, 0);
+    df += ok.length - 1;
+    events += ok.reduce((a, r) => a + r.violations, 0);
+    exposure += ok.reduce((a, r) => a + r.exposureSec, 0);
+    n += ok.length;
+  }
+  if (df < 2 || n === 0 || events <= 0 || exposure <= 0) return 1;
+  const observed = ss / df;
+  const pooledRate = events / exposure;
+  const meanExposure = exposure / n;
+  const poisson = pooledRate / meanExposure;
   return Math.max(1, observed / poisson);
 }
 
@@ -461,7 +476,7 @@ export function judgeReplicates(m: PanelMember, cand: ArmCounts, base: ArmCounts
   const be = base.exposureSec ?? 0;
   const rateRatio = ce > 0 && be > 0 && base.violations > 0 ? (cand.violations / ce) / (base.violations / be) : null;
   if (expectedEvents(m) >= RATE_EVENTS_MIN) {
-    const dispersion = replicateDispersion([...(cand.replicates ?? []), ...(base.replicates ?? [])]);
+    const dispersion = replicateDispersion([cand.replicates ?? [], base.replicates ?? []]);
     return { z: poissonRateRatioZ(cand.violations, ce, base.violations, be) / Math.sqrt(dispersion), statistic: "rate", tauSec, regretRatio, rateRatio, dispersion };
   }
   return { z: logRankZ(cand.firstViolation ?? [], base.firstViolation ?? []), statistic: "time-to-first", tauSec, regretRatio, rateRatio, dispersion: 1 };
@@ -669,17 +684,32 @@ export function selfTestPanel(): string[] {
     firstViolation: first.map((t) => (t === null ? { time: 10, event: false } : { time: t, event: true })),
     replicates: first.map(() => ({ violations: violations / first.length, exposureSec: exposureSec / first.length })),
   });
+  const at = (violations: number[], exposureSec: number) => violations.map((v) => ({ violations: v, exposureSec }));
   // Equal replicates scatter less than Poisson: the dispersion floors at 1.
-  check(replicateDispersion([{ violations: 20, exposureSec: 10 }, { violations: 20, exposureSec: 10 }, { violations: 20, exposureSec: 10 }]) === 1, "identical replicates have dispersion 1");
+  check(replicateDispersion([at([20, 20, 20], 10)]) === 1, "identical replicates have dispersion 1");
   // Rates 1, 2, 3 per second over 10 s each: observed variance 1, Poisson
   // variance 2/10 = 0.2, dispersion 5.
-  const scattered = replicateDispersion([{ violations: 10, exposureSec: 10 }, { violations: 20, exposureSec: 10 }, { violations: 30, exposureSec: 10 }]);
+  const scattered = replicateDispersion([at([10, 20, 30], 10)]);
   check(Math.abs(scattered - 5) < 1e-9, `scattered replicates have dispersion 5, got ${scattered}`);
-  check(replicateDispersion([{ violations: 10, exposureSec: 10 }, { violations: 30, exposureSec: 10 }]) === 1, "two replicates cannot estimate dispersion");
+  check(replicateDispersion([at([10, 30], 10)]) === 1, "two replicates cannot estimate dispersion");
+  // A difference between the arms is not dispersion: two flat arms at
+  // different rates keep phi at 1, whatever their separation.
+  check(replicateDispersion([at([10, 10, 10], 10), at([20, 20, 20], 10)]) === 1, "a clean difference between arms is not charged as dispersion");
   const rateJudged = judgeReplicates(mem, reps([1, 1, 1], 60, 30), reps([1, 1, 1], 60, 30));
   check(rateJudged.statistic === "rate" && Math.abs(rateJudged.z ?? 1) < 1e-9, `equal rates judge as a rate at z 0, got ${JSON.stringify(rateJudged)}`);
+  // A clean 50% collapse must clear the collapse bar at the manifest's own
+  // sizing, and keep clearing it as counts grow.
   const halved = judgeReplicates(mem, reps([1, 1, 1], 30, 30), reps([1, 1, 1], 60, 30));
-  check((halved.z ?? 0) < -2, `half the rate is a clear negative z, got ${halved.z}`);
+  check((halved.z ?? 0) <= -v2.sizing.collapseZ, `half the rate at 30 vs 60 events must collapse (z <= -${v2.sizing.collapseZ}), got ${halved.z}`);
+  const halvedBig = judgeReplicates(mem, reps([1, 1, 1], 120, 30), reps([1, 1, 1], 240, 30));
+  check((halvedBig.z ?? 0) < -5, `half the rate at 120 vs 240 events must separate further, got ${halvedBig.z}`);
+  // Replicates that scatter within each arm inflate phi and keep an A/A
+  // inside the bar.
+  const scatterCand: ArmCounts = { ...reps([1, 1, 1], 120, 30), replicates: at([30, 40, 50], 10) };
+  const scatterBase: ArmCounts = { ...reps([1, 1, 1], 150, 30), replicates: at([40, 50, 60], 10) };
+  const scatterJudged = judgeReplicates(mem, scatterCand, scatterBase);
+  check(scatterJudged.dispersion > 2 && scatterJudged.dispersion < 2.5 && Math.abs(scatterJudged.z ?? 9) < v2.sizing.collapseZ,
+    `scattered A/A arms carry their dispersion (phi about 2.2) and stay inside the bar, got ${JSON.stringify(scatterJudged)}`);
   const rare = structuredClone(mem);
   rare.calibration.eventsPerSec = 0.05;
   const ttf = judgeReplicates(rare, reps([1, 2, null], 2, 30), reps([null, null, null], 0, 30));
