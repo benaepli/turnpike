@@ -1,0 +1,108 @@
+# Moving the research loop to another host
+
+Everything the loop *is* lives in git. What does not is the loop's own
+operational state, which is one file, and the built artifacts, which are
+regenerated. The one thing that cannot be carried across is a measurement:
+the explorer shares a feedback map across the parallel run set, so a different
+thread count explores differently and every calibrated number has to be taken
+again.
+
+## 1. Clone
+
+```bash
+git clone --recurse-submodules <super> jennLang && cd jennLang
+git checkout research/auto-vr
+git -C spur checkout research/auto-vr
+```
+
+Both repos live on `research/auto-vr`. The superproject's recorded submodule
+commit is reachable on the spur remote's same branch; if a clone ever reports a
+detached or missing submodule commit, the pointer was pushed without its
+commits and that is the thing to fix first.
+
+## 2. Build
+
+```bash
+cargo build --release --manifest-path spur/Cargo.toml
+(cd porcupine    && go build -o main ./cmd/porcupine && go build -o batch ./cmd/batch)
+(cd traceanalyzer && go build -o main main.go)
+(cd research/orchestrator && npm install)
+```
+
+All four outputs are gitignored by design.
+
+## 3. Copy from the old host
+
+| file | size | needed |
+|---|---|---|
+| `research/state.sqlite` | ~2 MB | **yes** |
+| `research/journal.jsonl` | ~2 MB | for continuity of analysis only |
+
+`state.sqlite` holds the hypothesis pool with its lineage and statuses, the
+comparability `epoch`, the bandit's recent selections, the stored baseline, and
+every per-hypothesis sequential result. Without it the loop re-seeds from
+`research/seed_hypotheses.json` and the pool restarts empty.
+
+Do **not** copy `tmp/loop/spur-baseline`. It is a 270 MB snapshot of the binary
+at the last merge, and step 4 regenerates it correctly.
+
+## 4. Re-measure on the new host
+
+Both steps are mandatory, and the first is enforced.
+
+```bash
+cd research/orchestrator
+npx tsx src/cli.ts baseline          # ~30 min; refreshes tmp/loop/spur-baseline
+```
+
+`runLoop` compares the host's resolved thread count against the count recorded
+on the baseline and refuses to evaluate on a mismatch. A baseline recorded
+before that field existed reads as unknown and warns instead of blocking.
+
+Then re-calibrate the panel. `research/panel/manifest.json` carries detection
+rates measured at 14 threads; those rates set every member's `runsPerArm` and
+its separation from its control, and `research/observations/PANEL_CALIBRATION.md`
+records the procedure (C0 host ceiling first, then C1 control, C2 rate, C3
+dispersion, C6 budget, C8 wall). Rates that move materially need the manifest
+updated, and `validateManifest` will reject a manifest whose sizing no longer
+matches its rates.
+
+Confirm the panel is sound before trusting it, with both arms on HEAD:
+
+```bash
+npx tsx src/cli.ts regression 20001    # A/A: every z near zero, |combinedZ| < 2
+```
+
+On the old host, four A/A seeds gave individual z with mean +0.075 and sd
+0.726, and no run approached the -2.0 downgrade bar.
+
+## 5. Start
+
+```bash
+SPUR_LOOP_MEM_HIGH=20G SPUR_LOOP_MEM_MAX=28G research/loop-start.sh
+```
+
+The defaults are 10G/14G, sized for a 16 GB working set; raise them in
+proportion to the new host. `rayonThreads` is derived as
+`availableParallelism() - 2` and should not be set in `research/policy.json`.
+Explorer wall budgets (`fidelities.*.exploreWallSec`, `sequential.wallSecPerChunk`,
+`regression.wallSecPerCase`) are deliberately left alone: more cores means
+fewer runs lost to a wall, which is a gain and not a bias.
+
+Arm the three monitors from
+`.claude/skills/research-loop-operator/reference/monitors.md`.
+
+## 6. Check
+
+- `npx tsx src/cli.ts selftest` - stats, posteriors, panel arithmetic, manifest
+  rejection cases, and the panel gate's one-directional authority.
+- `npx tsx src/cli.ts status` - the pool should match the old host's counts.
+- `npx tsx src/cli.ts epoch` - should read 4 or higher.
+- `git status --short` in both repos - clean, both on `research/auto-vr`.
+
+## What is not carried
+
+Agent credentials for the SDK are host-local. `research/logs/` and
+`research/corpus/*/` are gitignored working data. Absolute paths in
+`research/evaluations/*.json` are records of runs that happened on the old host
+and are left as they are.
