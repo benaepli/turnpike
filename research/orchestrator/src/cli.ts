@@ -8,10 +8,10 @@ import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js"
 import { graderVersion, loadBaseline, loadReference, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
 import { renderPolicyMd, writeStatus } from "./render.js";
-import { buildSpur, ROOT, SPUR_BIN } from "./runners.js";
+import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors } from "./stats.js";
-import { selfTestPanel } from "./panel.js";
+import { selfTestPanel, type PanelArms } from "./panel.js";
 import { LoopState } from "./state.js";
 
 const POLICY_PATH = path.join(ROOT, "research/policy.json");
@@ -141,8 +141,21 @@ async function main(): Promise<void> {
         if (!b.ok) throw new Error("build failed");
         const baseline = loadBaseline(state);
         const ctx: EvalContext = { policy, binary: SPUR_BIN, graderVersion: graderVersion(), spurCommit: currentCommit(SPUR), superCommit: currentCommit(SUPER) };
-        const r = await runRegression(ctx, baseline?.runsPerSec ?? null);
+        // A/A by default: both arms are HEAD, so every z should sit near zero
+        // and nothing should collapse. Pass a seed to vary the session.
+        const seed = Number(process.argv[3] ?? 20000);
+        const template = resolveRoot(policy.evaluation.configTemplate);
+        const arms: PanelArms = {
+          candidateBinary: SPUR_BIN, candidateTemplate: template,
+          baselineBinary: SPUR_BIN, baselineTemplate: template,
+          seed, changedSpurCode: false, declaredFiringCounter: null,
+        };
+        const r = await runRegression(ctx, baseline?.runsPerSec ?? null, arms);
         for (const c of r.cases) console.log(`${c.passed ? "PASS" : "FAIL"} ${c.name}: ${c.detail}`);
+        if (r.panel) {
+          console.log(`panel: judging=[${r.panel.judging.join(", ")}] combinedZ=${r.panel.combinedZ === null ? "null" : r.panel.combinedZ.toFixed(2)} wall=${(r.panel.wallMs / 1000).toFixed(0)}s`);
+          for (const nj of r.panel.nonJudging) console.log(`  not judging ${nj.id}: ${nj.reason}`);
+        }
         process.exitCode = r.passed ? 0 : 1;
         break;
       }

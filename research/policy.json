@@ -56,12 +56,10 @@
     ]
   },
   "regression": {
-    "menciusBugSpec": "bin/spur/mencius/Mencius_opt1_2.spur",
-    "menciusBugConfig": "scheduler_configs/loop/regression_mencius.json",
-    "menciusFixedSpec": "bin/spur/mencius/Mencius_opt1_2_partial_fix.spur",
+    "panelManifest": "research/panel/manifest.json",
     "vrNoFaultConfig": "scheduler_configs/loop/regression_vr_nofault.json",
     "throughputTolerance": 0.2,
-    "wallSecPerCase": 240
+    "wallSecPerCase": 360
   },
   "perf": {
     "benchConfig": "scheduler_configs/loop/bench.json",

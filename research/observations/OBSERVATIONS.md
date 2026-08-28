@@ -2513,3 +2513,36 @@ detects at **0.0251** over 20,004 runs while `Paxos.spur` at the same workload
 violates **0 times**, so its C1 passes and the member is admissible as it
 stands. Its rate rose monotonically with concurrency (0.0064, 0.0170, 0.0251),
 which is the responsiveness a gradient member needs.
+
+## 2026-08-28T01:20:00.000Z (operator) - the panel's A/A test found the perf lane already blocked
+
+First A/A run of the panel, both arms on the same binary and the same config
+template, seed 20001:
+
+| member | candidate | baseline | z |
+|---|---|---|---|
+| `paxos-accept-stale-ballot` | 102/5,928 | 110/5,928 | -0.55 |
+| `mencius-opt1-2` | 109/12,960 | 100/12,960 | +0.63 |
+
+Combined z **0.05**, nothing collapsed, wall 410 s against a 395 s estimate.
+The four report members ran one arm each and correctly declined to judge.
+`raft-stale-vote` fired 8 times in 20,016, consistent with its calibrated
+0.00015. The pairing is unbiased on this evidence.
+
+The run also failed its `throughput` case, and that failure was already there.
+`tmp/loop/spur-baseline` dated from 12:04; the structural-multiplier-authority
+merge later added `emit_multiplier_authority` to the evaluation template, and
+the preserved binary rejects an unknown top-level key under
+`strict_config_keys`. Every hypothesis that reached the throughput case would
+have failed it, and the gate would have reported "regression suite failed" on
+hypotheses that did nothing wrong - a total block on the perf lane, not a
+degraded comparison. Iterations 5304 to 5306 all ended at sequential without
+reaching regression, so nothing had tripped it yet.
+
+This is the exact failure the operator reference warns about, and the interval
+between the merge and the discovery is the point: about seven hours, during
+which nothing would have looked wrong. Two things follow. The `cp` after a
+merge deserves to be a step the harness performs rather than one the operator
+remembers. And an A/A run of the full suite is cheap insurance that is worth
+taking after any merge that touches the config template, not only when a panel
+is being commissioned.

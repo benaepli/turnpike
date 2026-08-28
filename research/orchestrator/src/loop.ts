@@ -13,13 +13,14 @@ import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { loadSeqState, pooledCountsOf, runSequential, type SeqKind } from "./sequential.js";
 import {
-  RESEARCH_BRANCH, SPUR, SUPER, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto, resetBranchTo,
+  RESEARCH_BRANCH, SPUR, SUPER, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto, resetBranchTo,
   currentCommit, deleteBranch, diffText, createPr, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
 import { POLICY_KEYS } from "./policy.js";
-import { buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, run } from "./runners.js";
+import { buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, resolveRoot, run } from "./runners.js";
+import { diffConfigPaths, type PanelArms } from "./panel.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
 import type { LoopState } from "./state.js";
@@ -568,7 +569,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       ),
       ...lintInertConfigs(superFiles, [
         policy.evaluation.configTemplate,
-        policy.regression.menciusBugConfig,
         policy.regression.vrNoFaultConfig,
         policy.perf.benchConfig,
       ]),
@@ -600,6 +600,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         for (const e of screen) state.addEvaluation(e);
         const screenNI = nonInferior(objectiveCounts(screen), objectiveCounts(baseline.screen));
         journal(state, n, "perf-screen-ni", screenNI);
+        const panelArms = buildPanelArms(policy, n, h, spurFiles);
         const touchesSemantics = classifyChangeRisk(spurFiles) === "semantics";
         let promoteNI: boolean | null = null;
         if (screenNI.ok && touchesSemantics) {
@@ -610,7 +611,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           journal(state, n, "perf-promote-ni", { ok: promoteNI });
         }
         if (screenNI.ok) {
-          const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
+          const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
           regressionPassed = regr.passed;
           journal(state, n, "regression", regr);
         }
@@ -684,7 +685,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // the gate: sampling was extended to the hard cap, and the pooled
         // evidence goes to a human as a PR rather than being deleted.
         confirmEvals = res.evals.filter((e) => e.ok);
-        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
+        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
         regressionPassed = regr.passed;
         journal(state, n, "regression", regr);
         escalated = true;
@@ -706,7 +707,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           ? baseSeqRps.reduce((a, b) => a + b, 0) / baseSeqRps.length
           : baseline.runsPerSec;
         throughputRatio = baseMeanRps > 0 ? meanRps / baseMeanRps : null;
-        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
+        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
         regressionPassed = regr.passed;
         regressionDetail = regr.cases.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join("; ");
         journal(state, n, "regression", regr);
@@ -853,6 +854,34 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     } catch { /* status rendering must never kill the loop */ }
     state.finishIteration(n, timings, notes);
   }
+}
+
+
+/** Paired arms for the panel: the candidate's binary and config template
+ *  against the baseline's, measured in the same window on the same seed, so a
+ *  session-length or seed effect cancels rather than being attributed. The
+ *  seed rotates per iteration: the historical Mencius case ran at a fixed
+ *  session_seed forever, which measured explorer nondeterminism rather than
+ *  the seed space. */
+const PANEL_SEED_BASE = 20000;
+
+function buildPanelArms(policy: Policy, n: number, h: Hypothesis, spurFiles: string[]): PanelArms | null {
+  const candidateTemplate = resolveRoot(policy.evaluation.configTemplate);
+  const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
+  let baselineTemplate: string | null = null;
+  if (existsSync(baselineBin)) {
+    baselineTemplate = path.join(ROOT, "tmp", "loop", "panel.base.config.json");
+    writeFileSync(baselineTemplate, showFile(SUPER, RESEARCH_BRANCH, policy.evaluation.configTemplate));
+  }
+  return {
+    candidateBinary: SPUR_BIN,
+    candidateTemplate,
+    baselineBinary: existsSync(baselineBin) ? baselineBin : null,
+    baselineTemplate,
+    seed: PANEL_SEED_BASE + n,
+    changedSpurCode: spurFiles.length > 0,
+    declaredFiringCounter: h.firingCounter ?? null,
+  };
 }
 
 export async function runLoop(deps: LoopDeps): Promise<void> {

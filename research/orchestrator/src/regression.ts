@@ -7,11 +7,13 @@ import type { EvalContext } from "./evaluate.js";
 import { ROOT, cleanupDir, explore, materializeConfig, porcupine, resolveRoot } from "./runners.js";
 import { runBench } from "./bench.js";
 import { RESEARCH_BRANCH, SUPER, showFile } from "./gitops.js";
+import { loadPanelManifest, runPanel, type PanelArms, type PanelSummary, type PanelMemberResult } from "./panel.js";
 
 export interface RegressionCase {
   name: string;
   passed: boolean;
   detail: string;
+  panel?: PanelMemberResult;
 }
 
 type Model = "kv" | "kv_rmw";
@@ -105,46 +107,22 @@ async function runCase(name: string, body: () => Promise<RegressionCase>): Promi
 export async function runRegression(
   ctx: EvalContext,
   baselineRunsPerSec: number | null,
-): Promise<{ passed: boolean; cases: RegressionCase[] }> {
+  arms: PanelArms | null,
+): Promise<{ passed: boolean; cases: RegressionCase[]; panel: PanelSummary | null }> {
   const reg = ctx.policy.regression;
   const cases: RegressionCase[] = [];
 
-  // 1. The known-buggy Mencius spec must still produce a violation.
-  cases.push(
-    await runCase("mencius-bug-found", async () => {
-      const name = "mencius-bug-found";
-      const outputDir = caseDir(name);
-      prepDir(outputDir);
-      const model = modelForSpec(resolveRoot(reg.menciusBugSpec));
-      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(reg.menciusBugSpec), resolveRoot(reg.menciusBugConfig), model);
-      if (r.porcupineFailure !== null) return { name, passed: false, detail: r.porcupineFailure };
-      return {
-        name,
-        passed: r.violations > 0,
-        detail: `model=${model} runs=${r.totalRuns} violations=${r.violations} unknown=${r.unknown} (expected violations > 0)`,
-      };
-    }),
-  );
-
-  // 2. The partially-fixed Mencius spec still carries a bug, so its violation
-  // count is recorded and never gates. A detection there is a rare stochastic
-  // event that says nothing about the candidate, and failing on it rejects
-  // hypotheses for a defect in the fixture.
-  cases.push(
-    await runCase("mencius-partial-fix-report", async () => {
-      const name = "mencius-partial-fix-report";
-      const outputDir = caseDir(name);
-      prepDir(outputDir);
-      const model = modelForSpec(resolveRoot(reg.menciusFixedSpec));
-      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(reg.menciusFixedSpec), resolveRoot(reg.menciusBugConfig), model);
-      if (r.porcupineFailure !== null) return { name, passed: false, detail: r.porcupineFailure };
-      return {
-        name,
-        passed: true,
-        detail: `model=${model} runs=${r.totalRuns} violations=${r.violations} unknown=${r.unknown} (reporting only: the spec is a partial fix and still carries a bug)`,
-      };
-    }),
-  );
+  // The panel replaces the two hard-coded Mencius cases. A gate member whose
+  // detection collapses fails the suite through the same path a regression
+  // always has; a report member is recorded and never binds.
+  let panel: PanelSummary | null = null;
+  if (arms !== null) {
+    const manifest = loadPanelManifest(ctx.policy.regression.panelManifest);
+    panel = await runPanel(ctx, manifest, arms);
+    for (const r of panel.members) {
+      cases.push({ name: `panel-${r.id}`, passed: !r.collapsed, detail: r.detail, panel: r });
+    }
+  }
 
   // 3. VR without faults must be clean.
   cases.push(
@@ -194,5 +172,5 @@ export async function runRegression(
     }),
   );
 
-  return { passed: cases.every((c) => c.passed), cases };
+  return { passed: cases.every((c) => c.passed), cases, panel };
 }

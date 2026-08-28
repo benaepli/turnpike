@@ -7,6 +7,7 @@
 // with no CI-separated regression on violations or depth>=4.
 // Non-inferiority (ablate/enabling base) = no objective worse than margin.
 import type { BenchResult } from "./bench.js";
+import type { PanelSummary } from "./panel.js";
 import type { Evaluation, GateDecision, Hypothesis, LadderMetrics } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
 import { rateSuperiorCI, rateNonInferior, wilson } from "./stats.js";
@@ -122,6 +123,10 @@ export function classifyChangeRisk(changedSpurFiles: string[]): "opt_in" | "sema
   return "opt_in";
 }
 
+/** A broad decline routes to review rather than blocking. Blocking is the
+ *  collapse gate's job and it acts per member through the regression suite. */
+export const PANEL_HUMAN_Z = 2.0;
+
 export interface FinalGateInputs {
   hypothesis: Hypothesis;
   confirmEvals: Evaluation[];
@@ -133,6 +138,7 @@ export interface FinalGateInputs {
   lintFailures: string[];
   changedSpurFiles: string[];
   throughputRatio: number | null; // cand runsPerSec / baseline runsPerSec
+  panel?: PanelSummary | undefined;
 }
 
 export function finalGate(i: FinalGateInputs): GateDecision {
@@ -186,6 +192,15 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     }
   }
 
+  // A broad decline across judging members routes to review. It never blocks:
+  // blocking is the collapse gate, which acts per member through the
+  // regression suite and reaches this function as regressionPassed.
+  if (verdict === "auto_merge" && i.panel !== undefined && i.panel.combinedZ !== null
+      && i.panel.combinedZ <= -PANEL_HUMAN_Z) {
+    verdict = "needs_human";
+    reasons.push(`panel detection down across ${i.panel.judging.length} judging member(s) (combined z ${i.panel.combinedZ.toFixed(2)})`);
+  }
+
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
   // Primary: violations when they move; otherwise depth>=5 - the deepest rung
   // with measurable baseline support (depth>=6..8 are 0 at baseline and act
@@ -200,7 +215,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     hypothesisId: i.hypothesis.id,
     verdict,
     reasons,
-    objectiveDeltas: { ...cmp.deltas, primary, throughput },
+    objectiveDeltas: { ...cmp.deltas, primary, throughput, panelZ: i.panel?.combinedZ ?? 0 },
     regressionPassed: i.regressionPassed,
     lintPassed: i.lintFailures.length === 0,
   };
