@@ -157,6 +157,16 @@ export const RunRow = z.object({
   wall_us: z.number(),
   end_reason: z.string(),
   session_offset_ms: z.number(),
+  // Timer firings that woke a waiting record and their effect on the node,
+  // split by whether a delivery to it was pending; zero on a corpus written
+  // before the explorer recorded them.
+  timers_fired: z.number().default(0),
+  timers_acted: z.number().default(0),
+  timers_inflight_fired: z.number().default(0),
+  timers_inflight_acted: z.number().default(0),
+  timers_idle_fired: z.number().default(0),
+  timers_idle_acted: z.number().default(0),
+  max_inert_streak: z.number().default(0),
 });
 export type RunRow = z.infer<typeof RunRow>;
 
