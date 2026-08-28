@@ -2559,15 +2559,15 @@ config template, seeds 20001 to 20004:
 | 20003 | -1.02 | -0.30 | -0.93 | 411 s |
 | 20004 | -0.15 | +0.22 | +0.05 | 419 s |
 
-Across eight paired comparisons the individual z has **mean +0.088 and sd
-0.850**, range -1.02 to +1.25. No member sits off zero, no run reached the
+Across eight paired comparisons the individual z has **mean +0.075 and sd
+0.726**, range -1.02 to +1.25. No member sits off zero, no run reached the
 -2.0 downgrade bar, and none of the eight reached the -2.7 collapse bar. The
 pairing is unbiased on this evidence: 4 seeds bounds a gross miscalibration,
 not the 0.35%-per-member false-block rate, which needs the real validation
 series to confirm.
 
 The sd is the part worth keeping. Under the null it should be 1.0. Observing
-0.85 is the conservative variance choice made visible: the gate decides with
+0.73 is the conservative variance choice made visible: the gate decides with
 phi = 1 while the measured seed dispersion on these members is 0.35 to 0.56, so
 every computed z is smaller than a correctly scaled one and the true
 false-block rate sits **below** the nominal figure. The decision to reject the
