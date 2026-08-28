@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-27T01:05:18.288Z
+Generated: 2026-08-28T08:47:45.463Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -46,7 +46,6 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - maxWallMinutesPerHypothesis: 90
 - maxLineageDepth: 6
 - stagnationWindow: 8
-- dailyWallHours: 20
 - maxImplementTurns: 110
 - maxImplementMinutes: 20
 - maxBuildSeconds: 600
@@ -63,16 +62,14 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - spec: bin/spur/VR.spur
 - configTemplate: scheduler_configs/loop/general_vr.json
 - oracleDags: research/oracle/relax_minimal_general.json
-- rayonThreads: 14
+- rayonThreads: 30
 
 ## Regression
 
-- menciusBugSpec: bin/spur/mencius/Mencius_opt1_2.spur
-- menciusBugConfig: scheduler_configs/loop/regression_mencius.json
-- menciusFixedSpec: bin/spur/mencius/Mencius_opt1_2_partial_fix.spur
+- panelManifest: research/panel/manifest.json
 - vrNoFaultConfig: scheduler_configs/loop/regression_vr_nofault.json
 - throughputTolerance: 0.2
-- wallSecPerCase: 240
+- wallSecPerCase: 360
 
 ## Clamps applied on load
 
