@@ -379,7 +379,7 @@ export interface PanelMemberResult {
   detail: string;
   /** Version 2: which statistic produced z, the candidate's median time to
    *  first violation, and its ratio to the best known arm's. */
-  statistic?: "rate" | "time-to-first" | "none";
+  statistic?: "rate" | "time-to-first" | "counts" | "none";
   tauSec?: number | null;
   regretRatio?: number | null;
 }
@@ -466,7 +466,7 @@ async function runReplicates(
 /** The version-2 judgement of one member: a rate ratio where events are
  *  plentiful, time to first violation where they are rare. */
 export function judgeReplicates(m: PanelMember, cand: ArmCounts, base: ArmCounts | null): {
-  z: number | null; statistic: "rate" | "time-to-first" | "none"; tauSec: number | null; regretRatio: number | null; rateRatio: number | null; dispersion: number;
+  z: number | null; statistic: "rate" | "time-to-first" | "counts" | "none"; tauSec: number | null; regretRatio: number | null; rateRatio: number | null; dispersion: number;
 } {
   const tauSec = kmMedian(cand.firstViolation ?? []);
   const best = m.calibration.tauBestSec ?? 0;
@@ -475,6 +475,9 @@ export function judgeReplicates(m: PanelMember, cand: ArmCounts, base: ArmCounts
   const ce = cand.exposureSec ?? 0;
   const be = base.exposureSec ?? 0;
   const rateRatio = ce > 0 && be > 0 && base.violations > 0 ? (cand.violations / ce) / (base.violations / be) : null;
+  // Under one expected event per arm a time-to-first test is a statistic on
+  // censoring alone; the counts are reported and nothing is inferred.
+  if (expectedEvents(m) < 1) return { z: null, statistic: "counts", tauSec, regretRatio, rateRatio, dispersion: 1 };
   if (expectedEvents(m) >= RATE_EVENTS_MIN) {
     const dispersion = replicateDispersion([cand.replicates ?? [], base.replicates ?? []]);
     return { z: poissonRateRatioZ(cand.violations, ce, base.violations, be) / Math.sqrt(dispersion), statistic: "rate", tauSec, regretRatio, rateRatio, dispersion };
@@ -716,6 +719,10 @@ export function selfTestPanel(): string[] {
   check(ttf.statistic === "time-to-first" && (ttf.z ?? 0) > 0, `a rare member that violated against one that did not judges on time to first with z > 0, got ${JSON.stringify(ttf)}`);
   check(ttf.tauSec === 2 && ttf.regretRatio === 2, `tau and regret from the candidate's first violations, got ${JSON.stringify(ttf)}`);
   check(judgeReplicates(rare, reps([null, null, null], 0, 30), null).statistic === "none", "no baseline arm judges nothing");
+  const sparse = structuredClone(mem);
+  sparse.calibration.eventsPerSec = 0.01;   // 0.3 expected events per arm
+  const counted = judgeReplicates(sparse, reps([2, null, null], 1, 30), reps([null, null, null], 0, 30));
+  check(counted.statistic === "counts" && counted.z === null, `under one expected event a member reports counts only, got ${JSON.stringify(counted)}`);
 
   return f;
 }
