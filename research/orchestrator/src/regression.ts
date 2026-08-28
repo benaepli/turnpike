@@ -117,7 +117,7 @@ export async function runRegression(
   // always has; a report member is recorded and never binds.
   let panel: PanelSummary | null = null;
   if (arms !== null) {
-    const manifest = loadPanelManifest(ctx.policy.regression.panelManifest);
+    const manifest = loadPanelManifest(ctx.policy.regression.panelManifest, ctx.policy.regression.wallSecPerCase, 1 - ctx.policy.regression.throughputTolerance);
     panel = await runPanel(ctx, manifest, arms);
     for (const r of panel.members) {
       cases.push({ name: `panel-${r.id}`, passed: !r.collapsed, detail: r.detail, panel: r });

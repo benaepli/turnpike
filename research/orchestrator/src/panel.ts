@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
 import { ROOT } from "./paths.js";
-import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, readSessionSibling, readUtilizationSibling, resolveRoot, runsTable, templateHasCampaign } from "./runners.js";
+import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, readSessionSibling, readUtilizationSibling, resolveRoot, runsTable } from "./runners.js";
 export { readUtilizationSibling };
 import type { EvalContext } from "./evaluate.js";
 import { kmMedian, logRankZ, poissonRateRatioZ, type Censored } from "./stats.js";
@@ -100,7 +100,7 @@ export type PanelManifest = z.infer<typeof PanelManifest>;
 /** Structural checks the schema cannot express. Every failure is fatal: a
  *  manifest that cannot be trusted must not produce numbers that look like
  *  measurements. */
-export function validateManifest(m: PanelManifest, wallSecPerCase?: number): string[] {
+export function validateManifest(m: PanelManifest, wallSecPerCase?: number, throughputFloor = 1): string[] {
   const errs: string[] = [];
   const seen = new Set<string>();
   for (const mem of m.members) {
@@ -132,10 +132,12 @@ export function validateManifest(m: PanelManifest, wallSecPerCase?: number): str
         if (tau > 0 && mem.wallSec < 3 * tau) {
           errs.push(`${mem.id}: wallSec ${mem.wallSec} is under three times the ${tau.toFixed(1)}s median time to first violation`);
         }
-        // A gate member is judged as a rate, which needs events to count; a
-        // report member is judged on time to first violation and may see none.
-        if (mem.role === "gate" && expectedEvents(mem) < RATE_EVENTS_MIN) {
-          errs.push(`${mem.id}: expects ${expectedEvents(mem).toFixed(1)} violations per arm, under the ${RATE_EVENTS_MIN} a rate needs`);
+        // A gate member is judged as a rate and has to resolve a collapse: at
+        // the sizing count a 50% drop clears the collapse bar with margin to a
+        // dispersion of 2. A report member is judged on time to first
+        // violation and may see none.
+        if (mem.role === "gate" && expectedEvents(mem) < m.sizing.targetCount) {
+          errs.push(`${mem.id}: expects ${expectedEvents(mem).toFixed(1)} violations per arm, under the ${m.sizing.targetCount} a gate member is sized to`);
         }
       }
     }
@@ -166,10 +168,13 @@ export function validateManifest(m: PanelManifest, wallSecPerCase?: number): str
     }
   }
   // Under version 2 the case wall bounds the whole panel: every replicate of
-  // every arm, plus process start-up, has to fit.
+  // every arm, plus process start-up, has to fit for the slowest candidate
+  // the throughput floor still admits, since a truncated arm leaves the
+  // member unjudged rather than judged.
   if (m.version === 2 && wallSecPerCase !== undefined) {
-    const total = m.members.reduce((a, mem) => a + (mem.role === "gate" ? 2 : 1) * (mem.replicates ?? 0) * ((mem.wallSec ?? 0) + PANEL_STARTUP_SEC), 0);
-    if (total > wallSecPerCase) errs.push(`the panel takes ${total.toFixed(0)}s of replicates, over the ${wallSecPerCase}s case wall`);
+    const total = panelWallSec(m);
+    const allowed = wallSecPerCase * throughputFloor;
+    if (total > allowed) errs.push(`the panel takes ${total.toFixed(0)}s of replicates, over the ${allowed.toFixed(0)}s the ${wallSecPerCase}s case wall leaves a candidate at the ${throughputFloor} throughput floor`);
   }
   return errs;
 }
@@ -177,9 +182,14 @@ export function validateManifest(m: PanelManifest, wallSecPerCase?: number): str
 /** Process start-up per replicate: compile, open the writer, write the report. */
 export const PANEL_STARTUP_SEC = 3;
 
-export function loadPanelManifest(p: string): PanelManifest {
+/** Wall the whole version-2 panel needs on a candidate at baseline speed. */
+export function panelWallSec(m: PanelManifest): number {
+  return m.members.reduce((a, mem) => a + (mem.role === "gate" ? 2 : 1) * (mem.replicates ?? 0) * ((mem.wallSec ?? 0) + PANEL_STARTUP_SEC), 0);
+}
+
+export function loadPanelManifest(p: string, wallSecPerCase?: number, throughputFloor = 1): PanelManifest {
   const m = PanelManifest.parse(JSON.parse(fs.readFileSync(resolveRoot(p), "utf8")));
-  const errs = validateManifest(m);
+  const errs = validateManifest(m, wallSecPerCase, throughputFloor);
   if (errs.length > 0) throw new Error(`panel manifest invalid:\n  ${errs.join("\n  ")}`);
   return m;
 }
@@ -397,8 +407,11 @@ export interface PanelSummary {
   worstMember?: { id: string; rateRatio: number } | null;
 }
 
-/** One campaign replicate of a member: the template's arms under the
- *  member's workload and faults, for the member's active-time budget. */
+/** One replicate of a member: the standard explorer under the member's
+ *  workload and faults for the member's active-time budget. The template's
+ *  campaign block is dropped: an affordable panel budget is far below the
+ *  session length an arm needs to leave the cold-start regime, and the
+ *  panel never judges arm composition. */
 async function runCampaignReplicate(
   ctx: EvalContext, m: PanelMember, binary: string, template: string, seed: number, tag: string,
 ): Promise<{ runs: number; violations: number; unknown: number; exposureSec: number; first: Censored; timedOut: boolean; utilization: Record<string, unknown> | null }> {
@@ -406,16 +419,15 @@ async function runCampaignReplicate(
   const cfg = `${outDir}.config.json`;
   fs.mkdirSync(path.dirname(outDir), { recursive: true });
   const wallSec = m.wallSec ?? 10;
-  const campaign = templateHasCampaign(template);
   materializeConfig(template, cfg, {
     sessionSeed: seed,
-    extra: { ...m.overlay, num_crashes: m.faults.numCrashes, max_iterations: m.maxIterations, ...(campaign ? {} : { wall_budget_sec: wallSec }) },
+    dropKeys: CAMPAIGN_ONLY_KEYS,
+    extra: { ...m.overlay, num_crashes: m.faults.numCrashes, max_iterations: m.maxIterations, wall_budget_sec: wallSec },
   });
   const e = await explore({
     binary, configPath: cfg, spec: resolveRoot(m.spec), outputDir: outDir,
     wallSec, rayonThreads: ctx.policy.evaluation.rayonThreads,
-    explorer: campaign ? "campaign" : "standard",
-    sets: campaign ? [`campaign.wall_budget_sec=${wallSec}`] : [],
+    explorer: "standard",
   });
   const p = await porcupine({ inputDir: outDir, model: m.porcupineModel, timeoutMsPerRun: 10_000, timeoutMs: 600_000 });
   const session = readSessionSibling(outDir);
@@ -461,6 +473,42 @@ async function runReplicates(
     out.replicates!.push({ violations: rep.violations, exposureSec: rep.exposureSec });
   }
   return out;
+}
+
+/** What a version-2 member measures on one binary: `seeds` arms of its
+ *  replicates, pooled into events per second, the within-arm dispersion,
+ *  the median time to first violation and the run rate. */
+export interface MemberCalibration {
+  id: string;
+  seeds: number;
+  runs: number;
+  violations: number;
+  exposureSec: number;
+  eventsPerSec: number;
+  runsPerSec: number;
+  dispersion: number;
+  tauSec: number | null;
+  truncated: boolean;
+}
+
+export async function calibrateMember(
+  ctx: EvalContext, m: PanelMember, binary: string, template: string, seeds: number,
+): Promise<MemberCalibration> {
+  const arms: ArmCounts[] = [];
+  for (let sd = 0; sd < seeds; sd++) {
+    arms.push(await runReplicates(ctx, m, binary, template, 50_000 + sd, `calib-${sd}`));
+  }
+  const runs = arms.reduce((a, x) => a + x.runs, 0);
+  const violations = arms.reduce((a, x) => a + x.violations, 0);
+  const exposureSec = arms.reduce((a, x) => a + (x.exposureSec ?? 0), 0);
+  return {
+    id: m.id, seeds, runs, violations, exposureSec,
+    eventsPerSec: exposureSec > 0 ? violations / exposureSec : 0,
+    runsPerSec: exposureSec > 0 ? runs / exposureSec : 0,
+    dispersion: replicateDispersion(arms.map((x) => x.replicates ?? [])),
+    tauSec: kmMedian(arms.flatMap((x) => x.firstViolation ?? [])),
+    truncated: arms.some((x) => x.timedOut),
+  };
 }
 
 /** The version-2 judgement of one member: a rate ratio where events are
@@ -681,6 +729,11 @@ export function selfTestPanel(): string[] {
   starved.members[0]!.calibration.eventsPerSec = 0.1;
   check(validateManifest(starved).some((e) => e.includes("violations per arm")), "a gate member with too few expected events must be rejected");
   check(validateManifest(v2, 60).some((e) => e.includes("case wall")), "replicates over the case wall must be rejected");
+  // Replicates that just fit the wall at full speed do not fit it for a
+  // candidate at the throughput floor.
+  const need = panelWallSec(v2);
+  check(validateManifest(v2, need + 1).length === 0 && validateManifest(v2, need + 1, 0.8).some((e) => e.includes("throughput floor")),
+    "the case wall is checked for a candidate at the throughput floor");
 
   const reps = (first: Array<number | null>, violations: number, exposureSec: number): ArmCounts => ({
     runs: 1000, violations, unknown: 0, timedOut: false, utilization: null, exposureSec,

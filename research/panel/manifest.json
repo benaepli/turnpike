@@ -130,7 +130,7 @@
         "tauBestSec": 0.1743188211007513
       },
       "notes": "control is a partial repair, not a clean host; 0 violations over 25,680 control runs. the paper bug, and the only member with a historical series.",
-      "wallSec": 10,
+      "wallSec": 15,
       "replicates": 3
     },
     {
@@ -245,7 +245,7 @@
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 0.00001,
+      "expectedRate": 1e-05,
       "calibration": {
         "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20016,
@@ -310,7 +310,7 @@
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 0.00001,
+      "expectedRate": 1e-05,
       "calibration": {
         "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20016,

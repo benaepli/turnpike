@@ -464,6 +464,36 @@ Consistency check: iteration 46 (novelty-authority-normalization) pooled
 54k band but below the z=2.7 separation the merge gate needs, which is why
 it resolved inconclusive rather than as noise or a merge.
 
+## Panel version 2 sizing and wall (epoch 8)
+
+Every panel replicate runs the standard explorer for the member's `wallSec`
+with the template's `campaign` block dropped. An affordable panel budget is
+far below the session length an arm needs to leave the cold-start regime
+(a 10 s campaign over five arms is ten 1 s slices), and the panel never
+judges arm composition, so a campaign replicate would measure the campaign
+scheduler and not the member. The manifest's `eventsPerSec` and
+`tauBestSec` are therefore measured on the standard explorer
+(`cli panel-calibrate`, four seeds of replicates per member on HEAD), which
+is also how they are derived.
+
+**A gate member needs `eventsPerSec x wallSec x replicates >= targetCount`
+(100) per arm.** At a dispersion of 1.3 a 50% collapse needs about 59 events
+per arm to reach z 2.7; 100 gives z about -3.5 with margin to a dispersion
+of 2. `RATE_EVENTS_MIN` (20) still decides whether a report member is judged
+as a rate or on time to first violation, and under one expected event a
+member reports counts only.
+
+**The case wall holds the slowest admissible candidate.** The panel takes
+`sum over members of (gate ? 2 : 1) x replicates x (wallSec + 3 s)` of
+replicates at baseline speed: 402 s with Paxos at 10 s, Mencius at 15 s and
+the four report members at 15 s. A candidate at the 0.8 throughput floor
+stretches its arms' start-up and checking, and a truncated arm leaves the
+member unjudged, so `validateManifest` requires that sum to fit
+`wallSecPerCase x 0.8`: 402 / 0.8 = 503, and `regression.wallSecPerCase` is
+560. Dropping report replicates does not close the gap (three members at
+two replicates still need 495), which is why the ceiling moved rather than
+the panel.
+
 ## Gate statistics
 
 - **Merge z = 2.7 (`MERGE_Z`).** ~7 objectives tested per hypothesis

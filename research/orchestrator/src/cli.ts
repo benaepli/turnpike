@@ -1,7 +1,7 @@
 // CLI entrypoints. Run from research/orchestrator with:
 //   npx tsx src/cli.ts <command>
 // Commands: baseline | once | start | status | regression | selftest
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { runEvaluation, type EvalContext } from "./evaluate.js";
 import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
@@ -11,7 +11,7 @@ import { baselineLadder, renderPolicyMd, selfTestRender, writeStatus } from "./r
 import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors, selfTestSurvival } from "./stats.js";
-import { selfTestPanel, selfTestPanelGate, type PanelArms } from "./panel.js";
+import { calibrateMember, loadPanelManifest, selfTestPanel, selfTestPanelGate, validateManifest, type PanelArms } from "./panel.js";
 import { selfTestPanelAuthority } from "./decide.js";
 import { pooledCountsOf, selfTestGateConsistency, seqRuleOf } from "./sequential.js";
 import { LoopState } from "./state.js";
@@ -161,6 +161,42 @@ async function main(): Promise<void> {
           for (const nj of r.panel.nonJudging) console.log(`  not judging ${nj.id}: ${nj.reason}`);
         }
         process.exitCode = r.passed ? 0 : 1;
+        break;
+      }
+      case "panel-calibrate": {
+        // Measures every member on HEAD at its manifest wall over N seeds of
+        // replicates and writes eventsPerSec, dispersion, tauBestSec and
+        // runsPerSec back into the manifest. The rates a member is admitted
+        // on (expectedRate, controls, ceiling) are not touched here.
+        const { policy } = loadPolicy(POLICY_PATH);
+        const b = await buildSpur(policy.budgets.maxBuildSeconds);
+        if (!b.ok) throw new Error("build failed");
+        const seeds = Number(process.argv[3] ?? 4);
+        const manifestPath = resolveRoot(policy.regression.panelManifest);
+        const manifest = loadPanelManifest(policy.regression.panelManifest);
+        if (manifest.version !== 2) throw new Error("panel-calibrate applies to a version-2 manifest");
+        const ctx: EvalContext = { policy, binary: SPUR_BIN, graderVersion: graderVersion(), spurCommit: currentCommit(SPUR), superCommit: currentCommit(SUPER) };
+        const template = resolveRoot(policy.evaluation.configTemplate);
+        const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as { members: Array<Record<string, unknown> & { id: string; calibration: Record<string, unknown> }> };
+        console.log("id | seeds | runs | violations | exposure s | events/s | runs/s | dispersion | tau s | truncated");
+        for (const m of manifest.members) {
+          const c = await calibrateMember(ctx, m, SPUR_BIN, template, seeds);
+          console.log(`${c.id} | ${c.seeds} | ${c.runs} | ${c.violations} | ${c.exposureSec.toFixed(1)} | ${c.eventsPerSec.toFixed(4)} | ${c.runsPerSec.toFixed(0)} | ${c.dispersion.toFixed(3)} | ${c.tauSec === null ? "-" : c.tauSec.toFixed(2)} | ${c.truncated}`);
+          const entry = raw.members.find((x) => x.id === m.id);
+          if (!entry) continue;
+          entry.calibration = {
+            ...entry.calibration,
+            atIso: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+            eventsPerSec: Number(c.eventsPerSec.toFixed(5)),
+            tauBestSec: Number((c.tauSec ?? 0).toFixed(4)),
+            dispersion: Number(c.dispersion.toFixed(3)),
+            runsPerSec: Math.round(c.runsPerSec),
+          };
+          writeFileSync(manifestPath, JSON.stringify(raw, null, 2) + "\n");
+        }
+        const errs = validateManifest(loadPanelManifest(policy.regression.panelManifest), policy.regression.wallSecPerCase, 1 - policy.regression.throughputTolerance);
+        if (errs.length) { console.error("manifest invalid after calibration:", errs); process.exitCode = 1; }
+        else console.log(`manifest calibrated: ${manifestPath}`);
         break;
       }
       case "status": {

@@ -60,7 +60,7 @@
     "panelManifest": "research/panel/manifest.json",
     "vrNoFaultConfig": "scheduler_configs/loop/regression_vr_nofault.json",
     "throughputTolerance": 0.2,
-    "wallSecPerCase": 480
+    "wallSecPerCase": 560
   },
   "perf": {
     "benchConfig": "scheduler_configs/loop/bench.json",
