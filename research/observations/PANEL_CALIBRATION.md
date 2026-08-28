@@ -11,10 +11,23 @@ Poisson rate ratio per active second; below that it is judged on time to
 first violation by the log-rank test, with the Kaplan-Meier median and its
 ratio to `tauBestSec` reported. `eventsPerSec` and `tauBestSec` were derived
 from the version-1 rates (`rate x runs/s`, median `ln 2 / eventsPerSec`) on
-the standard explorer; they are sizing inputs, not campaign measurements,
-and `dispersion` has not been re-measured under the new statistic, so a
-collapse verdict should be read against an A/A run (`cli regression
-20001`) before it is trusted.
+the standard explorer; they are sizing inputs, not campaign measurements.
+
+**Replicates are over-dispersed, and the rate test charges it.** The first
+A/A run of the version-2 panel (`cli regression 20001`, both arms at HEAD,
+2026-08-28) gave the Paxos gate member z -2.23 on 1,243 against 1,360
+violations (40.8 against 44.6 per second) and a combined z of -1.99, a
+hair from the review-downgrade threshold, on identical binaries. A
+campaign's replicates do not scatter like Poisson draws: the arms' slice
+composition and the session-length curve differ between them. The rate
+statistic therefore divides its z by the square root of a quasi-Poisson
+dispersion estimated from the replicates themselves (observed variance of
+the per-replicate rates over the Poisson variance, pooled over both arms,
+floored at 1) and reports it as `phi`. The other members were inside the
+noise on that run: Mencius -0.58 (rate), raft-stale-vote -0.21
+(time-to-first, 8 against 15 events), paxos-forget-promise +0.73 (rate, 26
+against 21); the two unobserved Raft members stayed censored; throughput
+ratio 1.027; the panel took 454 s of its 480 s wall.
 
 Measured 2026-08-27/28 on the 16-thread host at `rayonThreads: 14`, against
 the merged binary and the live evaluation template with each member's workload

@@ -255,6 +255,27 @@ export interface ArmCounts {
    *  replicate's time to its first violation, censored at its wall. */
   exposureSec?: number;
   firstViolation?: Censored[];
+  /** Version 2: each replicate's own count and exposure, for the dispersion
+   *  the rate test charges. */
+  replicates?: Array<{ violations: number; exposureSec: number }>;
+}
+
+// Replicates of one campaign do not scatter like Poisson draws: the arms'
+// slice composition and the session-length curve differ between them, so a
+// rate test on pooled counts over-reads its evidence. The dispersion is
+// the ratio of the replicates' observed rate variance to what Poisson
+// counting alone would give, pooled over both arms and floored at 1, and
+// the z is deflated by its square root.
+export function replicateDispersion(reps: Array<{ violations: number; exposureSec: number }>): number {
+  const ok = reps.filter((r) => r.exposureSec > 0);
+  if (ok.length < 3) return 1;
+  const rates = ok.map((r) => r.violations / r.exposureSec);
+  const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
+  const meanExposure = ok.reduce((a, r) => a + r.exposureSec, 0) / ok.length;
+  if (mean <= 0 || meanExposure <= 0) return 1;
+  const observed = rates.reduce((a, r) => a + (r - mean) ** 2, 0) / (rates.length - 1);
+  const poisson = mean / meanExposure;
+  return Math.max(1, observed / poisson);
 }
 
 export interface PanelArms {
@@ -412,7 +433,7 @@ async function runCampaignReplicate(
 async function runReplicates(
   ctx: EvalContext, m: PanelMember, binary: string, template: string, seed: number, tag: string,
 ): Promise<ArmCounts> {
-  const out: ArmCounts = { runs: 0, violations: 0, unknown: 0, timedOut: false, utilization: null, exposureSec: 0, firstViolation: [] };
+  const out: ArmCounts = { runs: 0, violations: 0, unknown: 0, timedOut: false, utilization: null, exposureSec: 0, firstViolation: [], replicates: [] };
   for (let r = 0; r < (m.replicates ?? 1); r++) {
     const rep = await runCampaignReplicate(ctx, m, binary, template, seed * 100 + r, `${tag}-${r}`);
     out.runs += rep.runs;
@@ -422,6 +443,7 @@ async function runReplicates(
     out.utilization = rep.utilization ?? out.utilization;
     out.exposureSec = (out.exposureSec ?? 0) + rep.exposureSec;
     out.firstViolation!.push(rep.first);
+    out.replicates!.push({ violations: rep.violations, exposureSec: rep.exposureSec });
   }
   return out;
 }
@@ -429,19 +451,20 @@ async function runReplicates(
 /** The version-2 judgement of one member: a rate ratio where events are
  *  plentiful, time to first violation where they are rare. */
 export function judgeReplicates(m: PanelMember, cand: ArmCounts, base: ArmCounts | null): {
-  z: number | null; statistic: "rate" | "time-to-first" | "none"; tauSec: number | null; regretRatio: number | null; rateRatio: number | null;
+  z: number | null; statistic: "rate" | "time-to-first" | "none"; tauSec: number | null; regretRatio: number | null; rateRatio: number | null; dispersion: number;
 } {
   const tauSec = kmMedian(cand.firstViolation ?? []);
   const best = m.calibration.tauBestSec ?? 0;
   const regretRatio = tauSec !== null && best > 0 ? tauSec / best : null;
-  if (base === null) return { z: null, statistic: "none", tauSec, regretRatio, rateRatio: null };
+  if (base === null) return { z: null, statistic: "none", tauSec, regretRatio, rateRatio: null, dispersion: 1 };
   const ce = cand.exposureSec ?? 0;
   const be = base.exposureSec ?? 0;
   const rateRatio = ce > 0 && be > 0 && base.violations > 0 ? (cand.violations / ce) / (base.violations / be) : null;
   if (expectedEvents(m) >= RATE_EVENTS_MIN) {
-    return { z: poissonRateRatioZ(cand.violations, ce, base.violations, be), statistic: "rate", tauSec, regretRatio, rateRatio };
+    const dispersion = replicateDispersion([...(cand.replicates ?? []), ...(base.replicates ?? [])]);
+    return { z: poissonRateRatioZ(cand.violations, ce, base.violations, be) / Math.sqrt(dispersion), statistic: "rate", tauSec, regretRatio, rateRatio, dispersion };
   }
-  return { z: logRankZ(cand.firstViolation ?? [], base.firstViolation ?? []), statistic: "time-to-first", tauSec, regretRatio, rateRatio };
+  return { z: logRankZ(cand.firstViolation ?? [], base.firstViolation ?? []), statistic: "time-to-first", tauSec, regretRatio, rateRatio, dispersion: 1 };
 }
 
 async function runArm(
@@ -527,7 +550,7 @@ export async function runPanel(
       z, zDispersed: zDisp, collapsed, judging,
       detail: `cand ${cand.violations}/${cand.runs} (${rate(cand)}${replicated ? ` ${perSec(cand)}` : ""})`
         + (base ? ` vs base ${base.violations}/${base.runs} (${rate(base)}${replicated ? ` ${perSec(base)}` : ""})` : " (no baseline arm)")
-        + (z !== null ? ` z=${z.toFixed(2)}${judged ? ` ${judged.statistic}` : ""}` : "")
+        + (z !== null ? ` z=${z.toFixed(2)}${judged ? ` ${judged.statistic}${judged.statistic === "rate" ? ` phi=${judged.dispersion.toFixed(2)}` : ""}` : ""}` : "")
         + (judged?.tauSec != null ? ` tau=${judged.tauSec.toFixed(1)}s` : "")
         + (judged?.regretRatio != null ? ` regret=${judged.regretRatio.toFixed(2)}` : "")
         + ` [${m.faults.class} ${m.role}, ${truncated ? "truncated" : fire.status}]`,
@@ -644,7 +667,15 @@ export function selfTestPanel(): string[] {
   const reps = (first: Array<number | null>, violations: number, exposureSec: number): ArmCounts => ({
     runs: 1000, violations, unknown: 0, timedOut: false, utilization: null, exposureSec,
     firstViolation: first.map((t) => (t === null ? { time: 10, event: false } : { time: t, event: true })),
+    replicates: first.map(() => ({ violations: violations / first.length, exposureSec: exposureSec / first.length })),
   });
+  // Equal replicates scatter less than Poisson: the dispersion floors at 1.
+  check(replicateDispersion([{ violations: 20, exposureSec: 10 }, { violations: 20, exposureSec: 10 }, { violations: 20, exposureSec: 10 }]) === 1, "identical replicates have dispersion 1");
+  // Rates 1, 2, 3 per second over 10 s each: observed variance 1, Poisson
+  // variance 2/10 = 0.2, dispersion 5.
+  const scattered = replicateDispersion([{ violations: 10, exposureSec: 10 }, { violations: 20, exposureSec: 10 }, { violations: 30, exposureSec: 10 }]);
+  check(Math.abs(scattered - 5) < 1e-9, `scattered replicates have dispersion 5, got ${scattered}`);
+  check(replicateDispersion([{ violations: 10, exposureSec: 10 }, { violations: 30, exposureSec: 10 }]) === 1, "two replicates cannot estimate dispersion");
   const rateJudged = judgeReplicates(mem, reps([1, 1, 1], 60, 30), reps([1, 1, 1], 60, 30));
   check(rateJudged.statistic === "rate" && Math.abs(rateJudged.z ?? 1) < 1e-9, `equal rates judge as a rate at z 0, got ${JSON.stringify(rateJudged)}`);
   const halved = judgeReplicates(mem, reps([1, 1, 1], 30, 30), reps([1, 1, 1], 60, 30));
