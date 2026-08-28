@@ -5,8 +5,8 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { z } from "zod";
-import { TraceGradeJson, PorcupineJson, SessionSummary } from "./schemas.js";
+import { z } from "zod";
+import { CampaignJson, TraceGradeJson, PorcupineJson, RunRow, SessionSummary } from "./schemas.js";
 
 import { ROOT } from "./paths.js";
 
@@ -156,6 +156,10 @@ export interface ConfigOverrides {
   runsPerConfig?: number;
   sessionSeed?: number;
   extra?: Record<string, unknown>;
+  // Top-level keys removed from the template: a runner that loads the
+  // template under an explorer mode that does not claim a key must drop it,
+  // since strict keys reject it.
+  dropKeys?: string[];
 }
 
 /**
@@ -169,11 +173,25 @@ export function materializeConfig(templatePath: string, outPath: string, overrid
     throw new Error(`config template ${templatePath} is not a JSON object`);
   }
   const config: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  for (const k of overrides.dropKeys ?? []) delete config[k];
   if (overrides.runsPerConfig !== undefined) config["num_runs_per_config"] = overrides.runsPerConfig;
   if (overrides.sessionSeed !== undefined) config["session_seed"] = overrides.sessionSeed;
   if (overrides.extra !== undefined) Object.assign(config, overrides.extra);
   fs.writeFileSync(outPath, JSON.stringify(config, null, 2) + "\n");
 }
+
+/** Whether a template carries a campaign block, which only `-e campaign` loads. */
+export function templateHasCampaign(templatePath: string): boolean {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(templatePath, "utf8"));
+    return typeof raw === "object" && raw !== null && !Array.isArray(raw) && "campaign" in (raw as Record<string, unknown>);
+  } catch {
+    return false;
+  }
+}
+
+// The keys a standard-mode runner drops from the evaluation template.
+export const CAMPAIGN_ONLY_KEYS = ["campaign"];
 
 export interface ExploreOpts {
   binary: string;
@@ -183,6 +201,30 @@ export interface ExploreOpts {
   wallSec: number;
   rayonThreads: number;
   explorer?: string;
+  // `--set path=value` overrides applied by the explorer before parsing.
+  sets?: string[];
+}
+
+/** campaign.json, written beside the output dir like the utilization dump. */
+export function readCampaignSibling(outputDir: string): CampaignJson | null {
+  for (const p of [`${outputDir}.campaign.json`, path.join(outputDir, "campaign.json")]) {
+    let raw: unknown;
+    try { raw = JSON.parse(fs.readFileSync(p, "utf8")); } catch { continue; }
+    const parsed = CampaignJson.safeParse(raw);
+    if (parsed.success) return parsed.data;
+  }
+  return null;
+}
+
+/** The explorer's runs table, one row per run, via `traceanalyzer -runs`. */
+export async function runsTable(inputDir: string, timeoutMs = 300_000): Promise<RunRow[]> {
+  const cmd = await run(
+    path.join(ROOT, "traceanalyzer", "main"),
+    ["-input", inputDir, "-runs"],
+    { timeoutMs, cwd: ROOT, maxBuffer: 512 * 1024 * 1024 },
+  );
+  const parsed = parseJsonWith(z.array(RunRow), cmd.stdout);
+  return parsed ?? [];
 }
 
 // Time past the wall before the explorer is killed: in-flight runs finish,
@@ -232,7 +274,9 @@ export function explore(opts: ExploreOpts): Promise<CmdResult> {
   // Output streams to <outputDir>.log so a running explore can be watched
   // with tail -f.
   const logPath = `${opts.outputDir}.log`;
-  const args = ["explore", "-e", opts.explorer ?? "standard", "--config", opts.configPath, "-y", "--output-dir", opts.outputDir, opts.spec];
+  const args = ["explore", "-e", opts.explorer ?? "standard", "--config", opts.configPath, "-y", "--output-dir", opts.outputDir];
+  for (const s of opts.sets ?? []) args.push("--set", s);
+  args.push(opts.spec);
   const env = {
     ...process.env,
     RAYON_NUM_THREADS: String(opts.rayonThreads),
@@ -286,21 +330,25 @@ export interface GradeOpts {
   maxRuns: number;
   budgetMs: number;
   timeoutMs: number;
+  // Ask for one [run_id, depth] pair per graded run, for a per-arm join.
+  runDepths?: boolean;
 }
 
 /** Run traceanalyzer in grade mode; parse stdout with the TraceGradeJson schema. */
 export async function grade(opts: GradeOpts): Promise<{ cmd: CmdResult; parsed: TraceGradeJson | null }> {
+  const args = [
+    "-input", opts.inputDir,
+    "-grade",
+    "-dag-config", opts.dagConfigs.join(","),
+    "-grade-max-runs", String(opts.maxRuns),
+    "-grade-budget-ms", String(opts.budgetMs),
+    "-format", "json",
+  ];
+  if (opts.runDepths) args.push("-grade-run-depths");
   const cmd = await run(
     path.join(ROOT, "traceanalyzer", "main"),
-    [
-      "-input", opts.inputDir,
-      "-grade",
-      "-dag-config", opts.dagConfigs.join(","),
-      "-grade-max-runs", String(opts.maxRuns),
-      "-grade-budget-ms", String(opts.budgetMs),
-      "-format", "json",
-    ],
-    { timeoutMs: opts.timeoutMs, cwd: ROOT },
+    args,
+    { timeoutMs: opts.timeoutMs, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 },
   );
   return { cmd, parsed: parseJsonWith(TraceGradeJson, cmd.stdout) };
 }

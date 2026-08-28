@@ -417,6 +417,62 @@ export function lintInertConfigs(
 }
 
 /**
+ * An arm hypothesis changes the campaign block of the evaluation template
+ * and nothing else: no spur source, no other file, and no envelope field of
+ * the template outside the block.
+ */
+export function lintArmScope(
+  kind: HypothesisKind,
+  spurFiles: string[],
+  superFiles: string[],
+  templatePath: string,
+  templateBefore: string | null,
+  templateAfter: string | null,
+): string[] {
+  if (kind !== "arm") return [];
+  const out: string[] = [];
+  if (spurFiles.length > 0) out.push(`arm hypothesis touches spur: ${spurFiles.join(", ")}`);
+  for (const f of superFiles) {
+    if (f !== templatePath) out.push(`arm hypothesis touches ${f}; only ${templatePath} may change`);
+  }
+  if (templateBefore !== null && templateAfter !== null) {
+    const envelope = (text: string): string => {
+      const o = JSON.parse(text) as Record<string, unknown>;
+      delete o["campaign"];
+      return JSON.stringify(o);
+    };
+    try {
+      if (envelope(templateBefore) !== envelope(templateAfter)) out.push("arm hypothesis changed the template outside its campaign block");
+    } catch {
+      out.push("evaluation template is not valid JSON");
+    }
+  }
+  return out;
+}
+
+/**
+ * A halving or bandit allocation ranks arms by an in-process reward, which
+ * is only allowed once the validation lane has shown that reward tracks the
+ * graded outcome; the admitted reward is recorded as a line of the
+ * validation report.
+ */
+export function lintCampaignAllocation(templateText: string | null, validationMd: string | null): string[] {
+  if (!templateText) return [];
+  let cfg: Record<string, unknown>;
+  try { cfg = JSON.parse(templateText) as Record<string, unknown>; } catch { return ["evaluation template is not valid JSON"]; }
+  const camp = cfg["campaign"];
+  if (typeof camp !== "object" || camp === null) return [];
+  const block = camp as { allocation?: { kind?: string }; reward?: { kind?: string } };
+  const kind = block.allocation?.kind ?? "round_robin";
+  if (kind !== "halving" && kind !== "bandit") return [];
+  const reward = block.reward?.kind ?? "termination_completed";
+  const admitted = (validationMd ?? "").split("\n").some((l) => l.trim() === `admissible: ${reward}`);
+  return admitted
+    ? []
+    : [`campaign allocation ${kind} reads reward ${reward}, which research/observations/SURROGATE_VALIDATION.md has not admitted (no line "admissible: ${reward}")`];
+}
+
+/**
  * Enforce that only grader-kind hypotheses touch the grader (traceanalyzer),
  * and that grader-kind hypotheses touch nothing else. Returns violations.
  */

@@ -116,6 +116,23 @@ export function renderStatus(
   lines.push(...ladderTable(opts.reference, opts.baseline, latestMergedEvaluation(state)));
   lines.push("");
 
+  const camp = opts.baseline?.campaign ?? null;
+  if (camp !== null) {
+    lines.push("## Campaign arms (current baseline, first chunk)");
+    lines.push("");
+    lines.push(`Budget ${camp.wallSec} s, allocation ${camp.allocation}, reward ${camp.reward}, ${camp.runsTotal} runs.`);
+    lines.push("");
+    lines.push("| arm | mode | overlay | slices | wall share | runs/s | depth>=5 /s | depth>=6 /s | violations | reward rate | dropped at round |");
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+    const totalWall = camp.arms.reduce((a, x) => a + x.wallMs, 0);
+    for (const a of camp.arms) {
+      const sec = a.wallMs / 1000;
+      const perSec = (k: number): string => (sec > 0 ? ((a.depthAtLeast[k - 1] ?? 0) / sec).toFixed(2) : "-");
+      lines.push(`| ${a.id} | ${a.mode} | ${oneLine(JSON.stringify(a.overlay), 40)} | ${a.slices} | ${totalWall > 0 ? (100 * a.wallMs / totalWall).toFixed(0) : "-"}% | ${sec > 0 ? (a.runs / sec).toFixed(0) : "-"} | ${perSec(5)} | ${perSec(6)} | ${a.violations} | ${a.rewardRate.toFixed(1)} | ${a.droppedAtRound ?? "-"} |`);
+    }
+    lines.push("");
+  }
+
   lines.push("## Hypothesis pool");
   lines.push("");
   const pool = state.listHypotheses(); // already most recent first

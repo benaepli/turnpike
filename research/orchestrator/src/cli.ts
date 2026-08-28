@@ -10,7 +10,7 @@ import { loadPolicy } from "./policy.js";
 import { renderPolicyMd, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
 import { runRegression } from "./regression.js";
-import { selfTestStats, selfTestPosteriors } from "./stats.js";
+import { selfTestStats, selfTestPosteriors, selfTestSurvival } from "./stats.js";
 import { selfTestPanel, selfTestPanelGate, type PanelArms } from "./panel.js";
 import { selfTestPanelAuthority } from "./decide.js";
 import { selfTestGateConsistency } from "./sequential.js";
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   try {
     switch (cmd) {
       case "selftest": {
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         const { policy, clamps } = loadPolicy(POLICY_PATH);
         console.log("stats + posterior + panel + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");

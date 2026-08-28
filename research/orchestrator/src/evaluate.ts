@@ -3,9 +3,9 @@
 // record (schemas.ts).
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Evaluation, FidelityName, LadderMetrics, PorcupineJson, TraceGradeJson, UtilStats } from "./schemas.js";
+import type { CampaignJson, CampaignMetrics, Evaluation, FidelityName, LadderMetrics, PorcupineJson, RunRow, TraceGradeJson, UtilStats } from "./schemas.js";
 import type { Policy } from "./policy.js";
-import { ROOT, cleanupDir, explore, freeDiskGb, grade, materializeConfig, porcupine, readSessionSibling, readUtilizationSibling, resolveRoot } from "./runners.js";
+import { ROOT, cleanupDir, explore, freeDiskGb, grade, materializeConfig, porcupine, readCampaignSibling, readSessionSibling, readUtilizationSibling, resolveRoot, run, runsTable, templateHasCampaign } from "./runners.js";
 
 export interface EvalContext {
   policy: Policy;
@@ -35,7 +35,53 @@ const ZERO_METRICS: LadderMetrics = {
   porcupineWallMs: 0,
   gradeWallMs: 0,
   exposureMs: 0,
+  campaign: null,
 };
+
+// Per-arm ladder counts: every graded run's depth and every verdict joined
+// to the arm that issued the run. The session's own ladder is the union.
+export function campaignMetrics(
+  report: CampaignJson, rows: RunRow[], runDepths: Array<[number, number]>, violatingRunIds: number[],
+): CampaignMetrics {
+  const depthOf = new Map<number, number>();
+  for (const [id, d] of runDepths) depthOf.set(id, d);
+  const violating = new Set(violatingRunIds);
+  const byArm = new Map<string, { depthAtLeast: number[]; graded: number; violations: number; first: number | null }>();
+  for (const a of report.arms) byArm.set(a.id, { depthAtLeast: [], graded: 0, violations: 0, first: null });
+  for (const r of rows) {
+    const acc = byArm.get(r.arm);
+    if (!acc) continue;
+    const d = depthOf.get(r.run_id);
+    if (d !== undefined) {
+      acc.graded++;
+      for (let k = 1; k <= d; k++) acc.depthAtLeast[k - 1] = (acc.depthAtLeast[k - 1] ?? 0) + 1;
+    }
+    if (violating.has(r.run_id)) {
+      acc.violations++;
+      const at = r.session_offset_ms;
+      if (acc.first === null || at < acc.first) acc.first = at;
+    }
+  }
+  const width = Math.max(0, ...[...byArm.values()].map((a) => a.depthAtLeast.length));
+  return {
+    wallSec: report.wall_budget_sec,
+    allocation: report.allocation.kind,
+    reward: report.reward.kind,
+    runsTotal: Math.round(report.runs_total),
+    sliceUnitSec: report.slice_unit_sec,
+    cancelled: report.cancelled,
+    arms: report.arms.map((a) => {
+      const acc = byArm.get(a.id) ?? { depthAtLeast: [], graded: 0, violations: 0, first: null };
+      const depthAtLeast = Array.from({ length: width }, (_, i) => acc.depthAtLeast[i] ?? 0);
+      return {
+        index: Math.round(a.index), id: a.id, mode: a.mode, overlay: a.overlay,
+        slices: Math.round(a.slices), runs: Math.round(a.runs), wallMs: Math.round(a.wall_ms),
+        rewardRate: a.reward_rate, epochs: Math.round(a.epochs), droppedAtRound: a.dropped_at_round === null ? null : Math.round(a.dropped_at_round),
+        depthAtLeast, gradedRuns: acc.graded, violations: acc.violations, firstViolationMs: acc.first === null ? null : Math.round(acc.first),
+      };
+    }),
+  };
+}
 
 // Tool wall times are the process times the runner measured, not the
 // tools' self-reported figures, so the ledger reflects what an evaluation
@@ -70,6 +116,7 @@ function assembleMetrics(
     unknown: porc !== null ? Math.round(porc.unknown) : 0,
     porcupineWallMs: Math.round(porcupineWallMs),
     gradeWallMs: Math.round(gradeWallMs),
+    campaign: null,
   };
 }
 
@@ -121,6 +168,47 @@ export function utilSubset(raw: Record<string, unknown> | null): UtilStats | nul
   };
 }
 
+// The number of violating runs whose full timelines are kept; a corpus that
+// violates everywhere is a different kind of evidence and needs no dump.
+const PRESERVED_VIOLATIONS_MAX = 20;
+
+// A violation is the ground truth the whole loop exists to produce, and the
+// corpus it lives in is deleted with the evaluation, so its evidence is
+// copied out first: the checker's report, the config, the campaign report,
+// the runs-table rows of the violating runs, and each one's combined
+// timeline from the simulator's own debugger.
+async function preserveViolations(
+  ctx: EvalContext, evalId: string, outputDir: string, configPath: string,
+  violatingIds: number[], porc: PorcupineJson | null, rows: RunRow[],
+): Promise<void> {
+  const keep = path.join(ROOT, "research", "logs", "violations", evalId);
+  try {
+    fs.mkdirSync(keep, { recursive: true });
+    fs.writeFileSync(path.join(keep, "porcupine.json"), JSON.stringify(porc, null, 2));
+    for (const f of ["config.json", "campaign.json", "session.json", "utilization.json"]) {
+      const src = f === "config.json" ? configPath : path.join(outputDir, f);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(keep, f));
+    }
+    const ids = new Set(violatingIds);
+    fs.writeFileSync(path.join(keep, "violating_runs.json"), JSON.stringify(rows.filter((r) => ids.has(r.run_id)), null, 2));
+    for (const id of violatingIds.slice(0, PRESERVED_VIOLATIONS_MAX)) {
+      const r = await run(ctx.binary, ["debug", "combined", "--db", outputDir, "--run-id", String(id)], { timeoutMs: 120_000, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
+      fs.writeFileSync(path.join(keep, `run_${id}.combined.txt`), r.stdout || r.stderr);
+    }
+    // One line per evaluation in an index, so the violations a host has seen
+    // can be listed without opening every directory.
+    const byArm: Record<string, number> = {};
+    for (const r of rows) if (ids.has(r.run_id)) byArm[r.arm] = (byArm[r.arm] ?? 0) + 1;
+    fs.appendFileSync(path.join(ROOT, "research", "logs", "violations", "INDEX.jsonl"), JSON.stringify({
+      atIso: new Date().toISOString(), evalId, spec: ctx.policy.evaluation.spec, violations: violatingIds.length,
+      runIds: violatingIds.slice(0, PRESERVED_VIOLATIONS_MAX), byArm, signatures: porc?.violation_signatures?.map((s) => s.signature) ?? [], dir: keep,
+    }) + "\n");
+    console.log(`[${new Date().toISOString()}] ${evalId}: ${violatingIds.length} violating run(s); evidence kept under ${keep}`);
+  } catch (e) {
+    console.log(`[${new Date().toISOString()}] ${evalId}: could not preserve violation evidence: ${String(e)}`);
+  }
+}
+
 // Run a single explore -> porcupine -> grade evaluation at one seed. A
 // timed-out explore is not a failure by itself (the corpus written so far is
 // graded); unparseable porcupine output or degenerate grading is. The output
@@ -155,16 +243,30 @@ export async function runOneEvaluation(
       return { ...base, metrics: ZERO_METRICS, exploreWallMs: 0, suspendedMs: 0, ok: false, error: "disk guard", session: null, utilStats: null, timingAnomaly: null };
     }
     const configPath = `${outputDir}.config.json`;
+    // A budgeted session on a template with a campaign block is a campaign:
+    // the budget is the campaign's, passed as an override, and each arm is
+    // graded on its own runs afterwards. A run-count session (the screen and
+    // promote fidelities) stays on the standard explorer, whose grid bounds
+    // it, so the campaign block is dropped from its config.
+    const campaign = templateHasCampaign(template) && ctx.policy.evaluation.explorer === "campaign" && opts.exploreBudgetSec !== undefined;
     const extra: Record<string, unknown> = {};
-    if (opts.exploreBudgetSec !== undefined) extra["wall_budget_sec"] = opts.exploreBudgetSec;
-    materializeConfig(template, configPath, { runsPerConfig: opts.runsPerConfig, sessionSeed: seed, extra });
-    console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: exploring (${opts.exploreBudgetSec !== undefined ? `budget ${opts.exploreBudgetSec}s, ` : ""}wall ${opts.exploreWallSec}s) -> ${outputDir}`);
+    const sets: string[] = [];
+    if (opts.exploreBudgetSec !== undefined) {
+      if (campaign) sets.push(`campaign.wall_budget_sec=${opts.exploreBudgetSec}`);
+      else extra["wall_budget_sec"] = opts.exploreBudgetSec;
+    }
+    materializeConfig(template, configPath, {
+      runsPerConfig: opts.runsPerConfig, sessionSeed: seed, extra,
+      dropKeys: campaign ? [] : ["campaign"],
+    });
+    console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: exploring (${campaign ? "campaign, " : ""}${opts.exploreBudgetSec !== undefined ? `budget ${opts.exploreBudgetSec}s, ` : ""}wall ${opts.exploreWallSec}s) -> ${outputDir}`);
     const exploreRes = await explore({
-      binary: ctx.binary, configPath, spec, outputDir, explorer: ctx.policy.evaluation.explorer,
-      wallSec: opts.exploreWallSec, rayonThreads: ctx.policy.evaluation.rayonThreads,
+      binary: ctx.binary, configPath, spec, outputDir, explorer: campaign ? "campaign" : (ctx.policy.evaluation.explorer === "campaign" ? "standard" : ctx.policy.evaluation.explorer),
+      wallSec: opts.exploreWallSec, rayonThreads: ctx.policy.evaluation.rayonThreads, sets,
     });
     const session = readSessionSibling(outputDir);
     const utilStats = utilSubset(readUtilizationSibling(outputDir));
+    const campaignReport = campaign ? readCampaignSibling(outputDir) : null;
     const exposureMs = session !== null && session.wallMs > 0 ? session.wallMs : exploreRes.wallMs;
     const porc = await porcupine({ inputDir: outputDir, model: "kv", timeoutMsPerRun: 3_000, timeoutMs: 900_000 });
     const gr = await grade({
@@ -173,8 +275,19 @@ export async function runOneEvaluation(
       maxRuns: opts.gradeMaxRuns,
       budgetMs: opts.gradeBudgetMs,
       timeoutMs: opts.gradeBudgetMs + 120_000,
+      runDepths: campaignReport !== null,
     });
     const metrics = assembleMetrics(porc.parsed, gr.parsed, exposureMs, porc.cmd.wallMs, gr.cmd.wallMs);
+    const violatingIds = porc.parsed?.violating_run_ids ?? [];
+    let rows: RunRow[] = [];
+    if (campaignReport !== null || violatingIds.length > 0) rows = await runsTable(outputDir);
+    if (campaignReport !== null) {
+      const depths = (gr.parsed?.grade_dags?.[0]?.run_depths ?? []) as Array<[number, number]>;
+      metrics.campaign = campaignMetrics(campaignReport, rows, depths, violatingIds);
+    }
+    if (violatingIds.length > 0) {
+      await preserveViolations(ctx, base.id, outputDir, configPath, violatingIds, porc.parsed, rows);
+    }
     const gradeDegenerate = gr.parsed === null || (metrics.runs > 0 && metrics.gradedRuns === 0);
     const ok = porc.parsed !== null && !gradeDegenerate;
     const error = ok
@@ -195,6 +308,7 @@ export async function runOneEvaluation(
     fs.rmSync(`${outputDir}.log`, { force: true });
     fs.rmSync(`${outputDir}.session.json`, { force: true });
     fs.rmSync(`${outputDir}.utilization.json`, { force: true });
+    fs.rmSync(`${outputDir}.campaign.json`, { force: true });
     try { cleanupDir(outputDir); } catch { /* cleanup failure must not mask the result */ }
   }
 }

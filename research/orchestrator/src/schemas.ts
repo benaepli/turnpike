@@ -3,7 +3,9 @@
 // the harness refuses anything that does not parse.
 import { z } from "zod";
 
-export const HypothesisKind = z.enum(["add", "ablate", "meta", "enabling", "grader", "perf"]);
+// `arm` edits only the campaign block of the evaluation template: which
+// generic strategies run, with which overlays, under which allocation.
+export const HypothesisKind = z.enum(["add", "ablate", "meta", "enabling", "grader", "perf", "arm"]);
 export type HypothesisKind = z.infer<typeof HypothesisKind>;
 
 export const HypothesisStatus = z.enum([
@@ -75,8 +77,88 @@ export const LadderMetrics = z.object({
   // when it reported one (a suspend does not advance it); the exposure every
   // per-second rate divides by.
   exposureMs: z.number().int().default(0),
+  // Per-arm accounting when the session was a campaign; the ladder above is
+  // the union of the arms.
+  campaign: z.lazy(() => CampaignMetrics).nullable().default(null),
 });
 export type LadderMetrics = z.infer<typeof LadderMetrics>;
+
+export const CampaignArmMetrics = z.object({
+  index: z.number().int(),
+  id: z.string(),
+  mode: z.string(),
+  overlay: z.record(z.string(), z.unknown()).default({}),
+  slices: z.number().int(),
+  runs: z.number().int(),
+  wallMs: z.number().int(),
+  rewardRate: z.number(),
+  epochs: z.number().int().default(0),
+  droppedAtRound: z.number().int().nullable().default(null),
+  // Graded per arm by joining the run depths and the checker's verdicts to
+  // the runs table; the same shape as the session's depthAtLeast.
+  depthAtLeast: z.array(z.number().int()),
+  gradedRuns: z.number().int(),
+  violations: z.number().int(),
+  // Active time from the session's start to the end of the arm's first
+  // violating run; null when the arm did not violate.
+  firstViolationMs: z.number().int().nullable().default(null),
+});
+export type CampaignArmMetrics = z.infer<typeof CampaignArmMetrics>;
+
+export const CampaignMetrics = z.object({
+  wallSec: z.number(),
+  allocation: z.string(),
+  reward: z.string(),
+  runsTotal: z.number().int(),
+  sliceUnitSec: z.number(),
+  cancelled: z.boolean().default(false),
+  arms: z.array(CampaignArmMetrics),
+});
+export type CampaignMetrics = z.infer<typeof CampaignMetrics>;
+
+// campaign.json as the explorer writes it (the fields the harness reads).
+export const CampaignJson = z.object({
+  wall_budget_sec: z.number(),
+  elapsed_sec: z.number(),
+  session_seed: z.number(),
+  allocation: z.object({ kind: z.string() }).passthrough(),
+  reward: z.object({ kind: z.string() }),
+  batch_size: z.number(),
+  slice_unit_sec: z.number(),
+  runs_total: z.number(),
+  cancelled: z.boolean(),
+  arms: z.array(z.object({
+    index: z.number(),
+    id: z.string(),
+    mode: z.string(),
+    overlay: z.record(z.string(), z.unknown()).default({}),
+    slices: z.number(),
+    runs: z.number(),
+    wall_ms: z.number(),
+    reward: z.number(),
+    reward_rate: z.number(),
+    epochs: z.number().default(0),
+    dropped_at_round: z.number().nullable().default(null),
+    counters: z.unknown().optional(),
+  })),
+  history: z.array(z.object({
+    slice: z.number(), arm: z.number(), round: z.number(), started_ms: z.number(), wall_ms: z.number(), runs: z.number(), reward: z.number(),
+  })).default([]),
+});
+export type CampaignJson = z.infer<typeof CampaignJson>;
+
+// One row of the explorer's runs table, as `traceanalyzer -runs` prints it.
+export const RunRow = z.object({
+  run_id: z.number(),
+  arm: z.string(),
+  arm_index: z.number(),
+  config_index: z.number(),
+  steps_used: z.number(),
+  wall_us: z.number(),
+  end_reason: z.string(),
+  session_offset_ms: z.number(),
+});
+export type RunRow = z.infer<typeof RunRow>;
 
 // The explorer's own account of a session (session.json).
 export const SessionSummary = z.object({
@@ -259,7 +341,17 @@ export const TraceGradeJson = z.object({
     max_prefix_depth: z.number(),
     p95_prefix_depth: z.number(),
     depth_at_least: z.array(z.number()).nullable().optional(),
+    run_depths: z.array(z.tuple([z.number(), z.number()])).nullable().optional(),
   })).nullable().optional(),
+  runs_meta: z.object({
+    present: z.boolean(),
+    runs: z.number(),
+    end_reasons: z.record(z.string(), z.number()).default({}),
+    arms: z.record(z.string(), z.number()).default({}),
+    mean_steps: z.number(),
+    p50_wall_us: z.number(),
+    last_offset_ms: z.number().default(0),
+  }).nullable().optional(),
 });
 export type TraceGradeJson = z.infer<typeof TraceGradeJson>;
 

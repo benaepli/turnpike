@@ -218,7 +218,7 @@ function readIfExists(p: string): string {
 }
 
 const HYPOTHESIS_JSON_GUIDE = `Reply with ONLY a JSON object: {"hypotheses": [...]}. Each hypothesis:
-{"id": "kebab-case-slug", "parent": null or "existing-id", "kind": "add"|"ablate"|"meta"|"enabling"|"grader"|"perf",
+{"id": "kebab-case-slug", "parent": null or "existing-id", "kind": "add"|"ablate"|"meta"|"enabling"|"grader"|"perf"|"arm",
  "title": "...", "description": "what to change, concretely, incl. which files/mechanisms and the config field that gates it",
  "category": "scheduler"|"config"|"feedback"|"tooling"|"policy"|"grader"|"performance",
  "buildsOn": ["mechanism names this depends on"], "expectedGain": 0-10, "expectedCost": 0.1-10,
@@ -232,6 +232,7 @@ export const PROPOSAL_LENSES = [
   "ablation and salvage: mechanisms with zero utilization, dead or miswired knobs, unexercised code paths - remove, fix, or enable them",
   "scheduling theory: PCT priority change points, partial-order methods, queue-policy shapes that concentrate schedules near fault windows",
   "profile-guided performance (kind: perf): read the latest perf profile in observations; propose hotspot reductions that raise runs/sec without changing scheduling semantics or instrumentation the grader needs",
+  "arm composition (kind: arm): edit only the campaign block of the evaluation template - add, drop or re-overlay a generic arm (a grid overlay on an existing config field, a curriculum or an aos arm) so that rung events per second rise for the campaign as a whole; each arm keeps its own feedback state, so an arm is a search, not a knob; never name a protocol handler, message or role",
   "premise check: is the current config/workload even capable of reaching the goal? The bug lives at a depth the general config may never supply enough events to reach. Propose config or plan-generation experiments (more client operations, more concurrent crashes, longer or richer plans, curriculum changes) and structural diagnostics that test whether the ceiling is a scheduler problem or an event-supply/config limit - not another scheduler knob. A single such experiment that reframes the search is worth more than ten mechanism tweaks against a hard cap.",
 ];
 
@@ -291,6 +292,7 @@ function editAllowed(kind: Hypothesis["kind"], relPath: string): boolean {
   if (/^scheduler_configs\/(?!loop\/)/.test(p)) return false;
   if (/^scheduler_configs\/loop\/(regression_[^/]+|bench)\.json$/.test(p)) return false;
   if (kind === "grader") return /^traceanalyzer\//.test(p);
+  if (kind === "arm") return /^scheduler_configs\/loop\/[^/]+\.json$/.test(p);
   // research/observations/ is spared by the research/ rule above on purpose,
   // and was then missing from this allowlist, so it was denied by omission.
   // An analysis hypothesis with nowhere to put its finding spends a full

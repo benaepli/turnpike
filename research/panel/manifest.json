@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "sizing": {
     "targetCount": 100,
     "collapseZ": 2.7,
@@ -55,8 +55,6 @@
       "maxIterations": 8000,
       "role": "gate",
       "expectedRate": 0.01664,
-      "runsPerArm": 6024,
-      "gridSize": 24,
       "calibration": {
         "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20736,
@@ -66,9 +64,13 @@
         "cleanViolations": 1,
         "hostCeiling": 0.0251,
         "budgetRatio": 0.948,
-        "runsPerSec": 2406
+        "runsPerSec": 2406,
+        "eventsPerSec": 40.03583999999999,
+        "tauBestSec": 0.01731198845834133
       },
-      "notes": "control violates at 4.8e-5; separation 345x. host ceiling is the strongest injection observed, not a measured bound."
+      "notes": "control violates at 4.8e-5; separation 345x. host ceiling is the strongest injection observed, not a measured bound.",
+      "wallSec": 10,
+      "replicates": 3
     },
     {
       "id": "mencius-opt1-2",
@@ -114,8 +116,6 @@
       "maxIterations": 6000,
       "role": "gate",
       "expectedRate": 0.007418,
-      "runsPerArm": 13488,
-      "gridSize": 24,
       "calibration": {
         "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 51360,
@@ -125,9 +125,13 @@
         "cleanViolations": 0,
         "hostCeiling": 0.0101,
         "budgetRatio": 1.125,
-        "runsPerSec": 536
+        "runsPerSec": 536,
+        "eventsPerSec": 3.976048,
+        "tauBestSec": 0.1743188211007513
       },
-      "notes": "control is a partial repair, not a clean host; 0 violations over 25,680 control runs. the paper bug, and the only member with a historical series."
+      "notes": "control is a partial repair, not a clean host; 0 violations over 25,680 control runs. the paper bug, and the only member with a historical series.",
+      "wallSec": 10,
+      "replicates": 3
     },
     {
       "id": "raft-stale-vote",
@@ -177,8 +181,6 @@
       "maxIterations": 12000,
       "role": "report",
       "expectedRate": 0.0002998,
-      "runsPerArm": 20016,
-      "gridSize": 72,
       "calibration": {
         "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20016,
@@ -188,9 +190,13 @@
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
         "budgetRatio": 1.0,
-        "runsPerSec": 951
+        "runsPerSec": 951,
+        "eventsPerSec": 0.2851098,
+        "tauBestSec": 2.4309932524241535
       },
-      "notes": "14% of its host ceiling; reaches the bug but cannot resolve a rate change at any affordable count."
+      "notes": "14% of its host ceiling; reaches the bug but cannot resolve a rate change at any affordable count.",
+      "wallSec": 15,
+      "replicates": 3
     },
     {
       "id": "raft-commit-prev-term",
@@ -239,9 +245,7 @@
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 1e-05,
-      "runsPerArm": 20016,
-      "gridSize": 72,
+      "expectedRate": 0.00001,
       "calibration": {
         "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20016,
@@ -251,9 +255,13 @@
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
         "budgetRatio": 1.0,
-        "runsPerSec": 967
+        "runsPerSec": 967,
+        "eventsPerSec": 0.009670000000000002,
+        "tauBestSec": 0
       },
-      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal."
+      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal.",
+      "wallSec": 15,
+      "replicates": 3
     },
     {
       "id": "raft-forget-vote",
@@ -302,9 +310,7 @@
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 1e-05,
-      "runsPerArm": 20016,
-      "gridSize": 72,
+      "expectedRate": 0.00001,
       "calibration": {
         "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 20016,
@@ -314,9 +320,13 @@
         "cleanViolations": 0,
         "hostCeiling": 0.0021,
         "budgetRatio": 1.0,
-        "runsPerSec": 964
+        "runsPerSec": 964,
+        "eventsPerSec": 0.009640000000000001,
+        "tauBestSec": 0
       },
-      "notes": "never observed despite 60,048 crash-recover cycles over its calibration."
+      "notes": "never observed despite 60,048 crash-recover cycles over its calibration.",
+      "wallSec": 15,
+      "replicates": 3
     },
     {
       "id": "paxos-forget-promise",
@@ -366,8 +376,6 @@
       "maxIterations": 8000,
       "role": "report",
       "expectedRate": 0.0002001,
-      "runsPerArm": 19992,
-      "gridSize": 24,
       "calibration": {
         "atIso": "2026-08-28T08:30:31Z",
         "rateRuns": 19992,
@@ -377,9 +385,13 @@
         "cleanViolations": 3,
         "hostCeiling": 0.0251,
         "budgetRatio": 1.0,
-        "runsPerSec": 3492
+        "runsPerSec": 3492,
+        "eventsPerSec": 0.6987492000000001,
+        "tauBestSec": 0.991915268024636
       },
-      "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate."
+      "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate.",
+      "wallSec": 15,
+      "replicates": 3
     }
   ]
 }

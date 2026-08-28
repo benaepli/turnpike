@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Policy } from "./policy.js";
-import { cleanupDir, explore, materializeConfig, porcupine, resolveRoot, ROOT } from "./runners.js";
+import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, resolveRoot, ROOT } from "./runners.js";
 
 export interface BenchResult {
   candidateRps: number[];
@@ -83,7 +83,7 @@ export interface BenchWorkload {
 
 export async function runBench(policy: Policy, candidateBin: string, baselineBin: string, workload?: BenchWorkload): Promise<BenchResult> {
   const template = workload?.templatePath ?? resolveRoot(policy.perf.benchConfig);
-  const overrides = workload ? { runsPerConfig: workload.runsPerConfig, sessionSeed: 999 } : {};
+  const overrides = workload ? { runsPerConfig: workload.runsPerConfig, sessionSeed: 999, dropKeys: CAMPAIGN_ONLY_KEYS } : { dropKeys: CAMPAIGN_ONLY_KEYS };
   const configPath = path.join(ROOT, "tmp", "loop", "bench.config.json");
   materializeConfig(template, configPath, overrides);
   const totalRuns = totalRunsOf(JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>);

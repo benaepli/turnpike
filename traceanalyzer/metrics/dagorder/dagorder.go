@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/benaepli/turnpike-traceanalyzer/reader"
@@ -39,42 +40,68 @@ type EdgeFreq struct {
 
 // DagOrderResult is the aggregate metric output.
 type DagOrderResult struct {
-	ConfigPath          string      `json:"config_path"`
-	TotalRuns           int         `json:"total_runs"`
-	MeanScore           float64     `json:"mean_score"`
-	MinScore            float64     `json:"min_score"`
-	MaxScore            float64     `json:"max_score"`
-	P50Score            float64     `json:"p50_score"`
-	P95Score            float64     `json:"p95_score"`
-	MeanChainScore      float64     `json:"mean_chain_score"`
-	MinChainScore       float64     `json:"min_chain_score"`
-	P50ChainScore       float64     `json:"p50_chain_score"`
-	P95ChainScore       float64     `json:"p95_chain_score"`
-	DroppedEdgeCount    int         `json:"dropped_edge_count"`
-	TotalEdgeCount      int         `json:"total_edge_count"`
-	TransitiveEdgeCount int         `json:"transitive_edge_count"`
-	DroppedMajority     bool        `json:"dropped_majority"`
-	AvailableRuns       int         `json:"available_runs"`
-	GradedRuns          int         `json:"graded_runs"`
-	Sampled             bool        `json:"sampled"`
-	BudgetExhausted     bool        `json:"budget_exhausted"`
-	MaxPrefixDepth      int         `json:"max_prefix_depth"`
-	MeanPrefixDepth     float64     `json:"mean_prefix_depth"`
-	P95PrefixDepth      int         `json:"p95_prefix_depth"`
-	DepthAtLeast        []int       `json:"depth_at_least,omitempty"` // [i] = graded runs with prefix_depth >= i+1
-	PerRun              []RunResult `json:"per_run,omitempty"`
-	TopRuns             []RunResult `json:"top_runs,omitempty"` // deepest runs, kept when per_run is omitted
-	PerEdge             []EdgeFreq  `json:"per_edge,omitempty"`
+	ConfigPath          string  `json:"config_path"`
+	TotalRuns           int     `json:"total_runs"`
+	MeanScore           float64 `json:"mean_score"`
+	MinScore            float64 `json:"min_score"`
+	MaxScore            float64 `json:"max_score"`
+	P50Score            float64 `json:"p50_score"`
+	P95Score            float64 `json:"p95_score"`
+	MeanChainScore      float64 `json:"mean_chain_score"`
+	MinChainScore       float64 `json:"min_chain_score"`
+	P50ChainScore       float64 `json:"p50_chain_score"`
+	P95ChainScore       float64 `json:"p95_chain_score"`
+	DroppedEdgeCount    int     `json:"dropped_edge_count"`
+	TotalEdgeCount      int     `json:"total_edge_count"`
+	TransitiveEdgeCount int     `json:"transitive_edge_count"`
+	DroppedMajority     bool    `json:"dropped_majority"`
+	AvailableRuns       int     `json:"available_runs"`
+	GradedRuns          int     `json:"graded_runs"`
+	Sampled             bool    `json:"sampled"`
+	BudgetExhausted     bool    `json:"budget_exhausted"`
+	MaxPrefixDepth      int     `json:"max_prefix_depth"`
+	MeanPrefixDepth     float64 `json:"mean_prefix_depth"`
+	P95PrefixDepth      int     `json:"p95_prefix_depth"`
+	DepthAtLeast        []int   `json:"depth_at_least,omitempty"` // [i] = graded runs with prefix_depth >= i+1
+	// One [run_id, prefix_depth] pair per graded run, for a consumer that
+	// joins depths to another per-run table without the per_run payload.
+	RunDepths [][2]int64  `json:"run_depths,omitempty"`
+	PerRun    []RunResult `json:"per_run,omitempty"`
+	TopRuns   []RunResult `json:"top_runs,omitempty"` // deepest runs, kept when per_run is omitted
+	PerEdge   []EdgeFreq  `json:"per_edge,omitempty"`
 }
 
 // Options controls sampling and budgeting for ComputeDagOrderOpts. The zero
 // value reproduces the historical unbounded, per-run-inclusive behavior
 // except IncludePerRun, which must be set explicitly.
 type Options struct {
-	MaxRuns       int   // >0: deterministically sample at most this many runs
-	BudgetMs      int64 // >0: stop grading further runs once exceeded (reported, never silent)
-	IncludePerRun bool  // emit the full per_run array (large); otherwise only top_runs
-	TopN          int   // size of top_runs when per_run is omitted (default 10)
+	MaxRuns          int   // >0: deterministically sample at most this many runs
+	BudgetMs         int64 // >0: stop grading further runs once exceeded (reported, never silent)
+	IncludePerRun    bool  // emit the full per_run array (large); otherwise only top_runs
+	IncludeRunDepths bool  // emit run_depths, one [run_id, prefix_depth] pair per graded run
+	TopN             int   // size of top_runs when per_run is omitted (default 10)
+}
+
+// timerRowFilter restricts the executions read to the rows the matcher can
+// use: every non-timer row, and only those timer firings an allow_timer
+// label of the plan names by node and label.
+func timerRowFilter(cfg *PlanConfig) string {
+	var clauses []string
+	for _, spec := range cfg.Events {
+		if spec.Kind != KindAllowTimer {
+			continue
+		}
+		clause := fmt.Sprintf("CAST(json_extract(payload, '$[0].value.index') AS BIGINT) = %d", spec.Target)
+		if spec.TimerLabel != "" {
+			clause += fmt.Sprintf(" AND json_extract_string(payload, '$[1].value') = '%s'", strings.ReplaceAll(spec.TimerLabel, "'", "''"))
+		}
+		clauses = append(clauses, "("+clause+")")
+	}
+	if len(clauses) == 0 {
+		return "kind <> 'TimerFired'"
+	}
+	sort.Strings(clauses)
+	return "kind <> 'TimerFired' OR (" + strings.Join(clauses, " OR ") + ")"
 }
 
 // ComputeDagOrder loads the plan config, joins it against trace/execution output,
@@ -179,7 +206,7 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 			stop = len(allIDs)
 		}
 		chunk := allIDs[start:stop]
-		execsByRun, err := reader.ReadExecutionsByRun(dbPath, chunk)
+		execsByRun, err := reader.ReadExecutionsByRunWhere(dbPath, chunk, timerRowFilter(cfg))
 		if err != nil {
 			return nil, fmt.Errorf("read executions: %w", err)
 		}
@@ -260,6 +287,9 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 			scores = append(scores, score)
 			chainScores = append(chainScores, chainScore)
 			prefixDepths = append(prefixDepths, o.PrefixDepth)
+			if opts.IncludeRunDepths {
+				result.RunDepths = append(result.RunDepths, [2]int64{rid, int64(o.PrefixDepth)})
+			}
 		}
 	}
 

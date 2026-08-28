@@ -54,5 +54,48 @@
   "num_runs_per_config": 100,
   "max_iterations": 6000,
   "strict_config_keys": true,
-  "rng_stream_isolation": true
+  "rng_stream_isolation": true,
+  "campaign": {
+    "wall_budget_sec": 300,
+    "allocation": {
+      "kind": "round_robin",
+      "min_slice_sec": 20
+    },
+    "reward": {
+      "kind": "termination_completed"
+    },
+    "arms": [
+      {
+        "id": "grid",
+        "mode": "grid",
+        "overlay": {}
+      },
+      {
+        "id": "grid-short",
+        "mode": "grid",
+        "overlay": {
+          "max_iterations": 1500
+        }
+      },
+      {
+        "id": "grid-no-purgatory",
+        "mode": "grid",
+        "overlay": {
+          "purgatory.delay_probability": 0.0
+        }
+      },
+      {
+        "id": "grid-post-fault-2",
+        "mode": "grid",
+        "overlay": {
+          "post_fault_client_ops": 2
+        }
+      },
+      {
+        "id": "aos",
+        "mode": "aos",
+        "overlay": {}
+      }
+    ]
+  }
 }

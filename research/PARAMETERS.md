@@ -233,6 +233,52 @@ pooled chunks is asserted by `selfTestGateConsistency`.
 per-second rates; the epoch-5 baseline is re-measured under this protocol
 and results before it no longer steer decisions.
 
+## Campaign evaluation (epoch 7)
+
+The evaluation session is a campaign: `spur explore -e campaign` on the one
+template, whose `campaign` block names the arms, under one active-time
+budget `sequential.exploreBudgetSec` = 300 s. Five arms to start, all
+generic: `grid` (the merged envelope), `grid-short` (`max_iterations`
+1500, since depth is flat across the step budget and a shorter budget buys
+events per second), `grid-no-purgatory` (`purgatory.delay_probability` 0;
+six purgatory hypotheses were falsified and delayed deliveries act 13.8%
+against 40.9%), `grid-post-fault-2` (`post_fault_client_ops` 2, the
+largest recorded depth move came from feeding the post-fault segment) and
+`aos` (tape mutation refines a recorded run, the only strategy that searches
+near a deep run). Allocation is round robin, which needs no proxy; the
+reward (`termination_completed`) is recorded per arm and may steer a
+`halving` or `bandit` allocation only once
+`research/observations/surrogate_validation.mjs` has admitted it
+(`research/observations/SURROGATE_VALIDATION.md`), which the lint enforces.
+
+Each arm keeps its own feedback store across its slices, so an arm's
+session length is the budget over the arm count: 300 s / 5 = 60 s, about
+36,000 runs at the standard explorer's rate, above the 400 runs/config
+plateau onset. The ladder is the union of the arms; per-arm rung counts,
+violations and time to first violation are recorded in every evaluation
+(`metrics.campaign`) and rendered in STATUS.md, and they are what an
+`arm`-kind hypothesis (one that edits only the campaign block) is proposed
+from. Screen and promote fidelities stay on the standard explorer without
+the block, so the perf lane's non-inferiority check is unchanged.
+
+Measured, one chunk on the 32-thread host (seed 1000): 226,137 runs in
+300.8 s of exposure (752 runs/s over the arms; `grid-short` runs about four
+times as many runs per second as the others), `depth_at_least`
+226137/204005/157657/105443/36448/8702/1862/297/4, the checker 14 s, grading
+431 s, and **one linearizability violation** - the first ever recorded on
+VR under a general configuration. Its corpus was deleted with the
+evaluation before the finding was seen; from this chunk on, an evaluation
+with violations copies the checker's report, the config, the campaign
+report, the violating runs' rows and their combined timelines to
+`research/logs/violations/<evaluation id>/` and appends a line to
+`research/logs/violations/INDEX.jsonl` before cleaning up. A chunk is about
+12.5 minutes, four chunks 50, inside the 150-minute hypothesis budget;
+grading is the larger half and the place to recover more arms.
+
+The rung statistic is unchanged from epoch 5. The campaign's counts are
+unions over arms of different session lengths and are not comparable to
+the epoch-5 and epoch-6 single-session baselines, hence epoch 7.
+
 ## The timer vertex and the runs table (epoch 6)
 
 The explorer records every timer firing as an executions row, the grader

@@ -210,6 +210,14 @@ func ReadTracesByRun(dbPath string, runIDs []int64) (map[int64][]TraceRow, error
 // ReadExecutionsByRun reads execution rows for an explicit set of run_ids,
 // grouped by run.
 func ReadExecutionsByRun(dbPath string, runIDs []int64) (map[int64][]ExecutionRow, error) {
+	return ReadExecutionsByRunWhere(dbPath, runIDs, "")
+}
+
+// ReadExecutionsByRunWhere is ReadExecutionsByRun restricted by an extra SQL
+// predicate over the row, for a consumer that needs only some kinds. Timer
+// firings can outnumber every other row many times over, so a consumer that
+// matches only a few of them leaves the rest in the store.
+func ReadExecutionsByRunWhere(dbPath string, runIDs []int64, extraWhere string) (map[int64][]ExecutionRow, error) {
 	if len(runIDs) == 0 {
 		return nil, nil
 	}
@@ -219,12 +227,16 @@ func ReadExecutionsByRun(dbPath string, runIDs []int64) (map[int64][]ExecutionRo
 	}
 	defer db.Close()
 
+	where := fmt.Sprintf("run_id IN (%s)", joinInt64s(runIDs))
+	if extraWhere != "" {
+		where += " AND (" + extraWhere + ")"
+	}
 	query := fmt.Sprintf(`
 		SELECT run_id, seq_num, unique_id, client_id, kind, action, payload, step
 		FROM %s
-		WHERE run_id IN (%s)
+		WHERE %s
 		ORDER BY run_id, seq_num ASC
-	`, ExecutionsSource(dbPath, AllRuns()), joinInt64s(runIDs))
+	`, ExecutionsSource(dbPath, AllRuns()), where)
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query executions: %w", err)

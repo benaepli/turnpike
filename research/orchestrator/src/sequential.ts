@@ -285,7 +285,7 @@ export function syntheticEvaluation(seed: number, m: {
     metrics: {
       runs: m.runs, gradedRuns: m.runs, runsPerSec: m.exposureMs > 0 ? m.runs / (m.exposureMs / 1000) : 0, exposureMs: m.exposureMs,
       unpairedFraction: 0, h1Rate: 0, h2Rate: m.h2Rate, h2bRate: 0, h3Rate: 0, h4Rate: 0, meanPrefixDepth: 0, maxPrefixDepth: 8,
-      depthAtLeast: m.depthAtLeast, violations: m.violations ?? 0, unknown: 0, porcupineWallMs: 0, gradeWallMs: 0,
+      depthAtLeast: m.depthAtLeast, violations: m.violations ?? 0, unknown: 0, porcupineWallMs: 0, gradeWallMs: 0, campaign: null,
     },
   };
 }

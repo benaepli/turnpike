@@ -14,12 +14,12 @@ import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js
 import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
 import {
   RESEARCH_BRANCH, SPUR, SUPER, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto, resetBranchTo,
-  currentCommit, deleteBranch, diffText, createPr, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
+  currentCommit, deleteBranch, diffText, createPr, lintArmScope, lintCampaignAllocation, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
 import { POLICY_KEYS } from "./policy.js";
-import { buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, resolveRoot, run } from "./runners.js";
+import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, resolveRoot, run, templateHasCampaign } from "./runners.js";
 import { diffConfigPaths, type PanelArms } from "./panel.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
@@ -202,7 +202,15 @@ function evaluationContext(state: LoopState, policy: Policy): string {
     modes = JSON.stringify(picked);
   } catch { /* reported as unreadable */ }
   const inactive = inactiveMechanisms(parseUtilization(state.getMeta("utilization")));
-  return `Explorer: -e ${policy.evaluation.explorer} on ${policy.evaluation.configTemplate}; scalar settings ${modes}.\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
+  let campaign = "";
+  if (templateHasCampaign(path.join(ROOT, policy.evaluation.configTemplate))) {
+    try {
+      const cfg = JSON.parse(readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8")) as { campaign: { allocation?: { kind?: string }; reward?: { kind?: string }; arms: Array<{ id: string; mode: string; overlay?: Record<string, unknown> }> } };
+      const arms = cfg.campaign.arms.map((a) => `${a.id} (${a.mode}${a.overlay && Object.keys(a.overlay).length ? ", " + JSON.stringify(a.overlay) : ""})`).join("; ");
+      campaign = `\nThe evaluation is a campaign: one session of ${policy.sequential.exploreBudgetSec} s split across arms by ${cfg.campaign.allocation?.kind ?? "round_robin"} allocation (reward ${cfg.campaign.reward?.kind ?? "termination_completed"}), each arm keeping its own feedback state. Arms: ${arms}. The ladder is the union of the arms; per-arm rung rates are recorded in every evaluation. An arm-kind hypothesis edits only the campaign block (add, drop or re-overlay a generic arm); a mechanism a hypothesis adds to spur is measured under every arm that enables it.`;
+    } catch { /* reported without the arm list */ }
+  }
+  return `Explorer: -e ${policy.evaluation.explorer} on ${policy.evaluation.configTemplate}; scalar settings ${modes}.${campaign}\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
 }
 
 // Number of top-level keys in the general evaluation config: the loop's
@@ -381,7 +389,7 @@ async function collectUtilization(policy: Policy): Promise<string> {
   try {
     const cfg = path.join(ROOT, "tmp/loop/audit-util-config.json");
     materializeConfig(path.join(ROOT, policy.evaluation.configTemplate), cfg, {
-      runsPerConfig: 20, sessionSeed: 4242, extra: { stats: true },
+      runsPerConfig: 20, sessionSeed: 4242, extra: { stats: true }, dropKeys: CAMPAIGN_ONLY_KEYS,
     });
     const r = await explore({ binary: SPUR_BIN, configPath: cfg, spec: path.join(ROOT, policy.evaluation.spec), outputDir: outDir, wallSec: 90, rayonThreads: policy.evaluation.rayonThreads });
     void r;
@@ -582,6 +590,17 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         policy.regression.vrNoFaultConfig,
         policy.perf.benchConfig,
       ]),
+      ...lintArmScope(
+        h.kind, spurFiles, superFiles, policy.evaluation.configTemplate,
+        superFiles.includes(policy.evaluation.configTemplate) ? showFile(SUPER, RESEARCH_BRANCH, policy.evaluation.configTemplate) : null,
+        superFiles.includes(policy.evaluation.configTemplate) ? readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8") : null,
+      ),
+      ...lintCampaignAllocation(
+        readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8"),
+        existsSync(path.join(ROOT, "research/observations/SURROGATE_VALIDATION.md"))
+          ? readFileSync(path.join(ROOT, "research/observations/SURROGATE_VALIDATION.md"), "utf8")
+          : null,
+      ),
     ];
 
     const ctx: EvalContext = {

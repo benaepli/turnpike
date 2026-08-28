@@ -1,5 +1,21 @@
 # Panel calibration
 
+## Version 2: campaign replicates on a fixed budget
+
+The manifest now sizes each member as seeded campaign replicates of a fixed
+active-time budget (`wallSec`, `replicates`) rather than a run count, and
+every replicate runs the evaluation template's arms under the member's
+workload and faults. A member whose calibration expects at least 20
+violations per arm (`eventsPerSec x wallSec x replicates`) is judged as a
+Poisson rate ratio per active second; below that it is judged on time to
+first violation by the log-rank test, with the Kaplan-Meier median and its
+ratio to `tauBestSec` reported. `eventsPerSec` and `tauBestSec` were derived
+from the version-1 rates (`rate x runs/s`, median `ln 2 / eventsPerSec`) on
+the standard explorer; they are sizing inputs, not campaign measurements,
+and `dispersion` has not been re-measured under the new statistic, so a
+collapse verdict should be read against an A/A run (`cli regression
+20001`) before it is trusted.
+
 Measured 2026-08-27/28 on the 16-thread host at `rayonThreads: 14`, against
 the merged binary and the live evaluation template with each member's workload
 overlaid. Every rate here is measured; none is assumed. Rerun on a host with a

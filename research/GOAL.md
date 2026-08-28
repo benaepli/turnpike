@@ -233,7 +233,12 @@ would mean the mechanism fired as intended.
    `scheduler_configs/loop/` is inert, and the lint rejects the iteration for it.
    There is no sweep lane, so a hypothesis that compares parameter values tests
    ONE value against the current baseline; the next value is a separate
-   hypothesis.
+   hypothesis. The one config carries a `campaign` block: a session is several
+   arms (generic strategies with overlays on the shared envelope, each keeping
+   its own feedback state) sharing one active-time budget, and the ladder is
+   their union. An `arm`-kind hypothesis edits only that block; adaptive
+   allocations (`halving`, `bandit`) are allowed only for a reward the
+   surrogate-validation lane has admitted (`research/observations/SURROGATE_VALIDATION.md`).
 8. Gating predicates: before proposing a mechanism that fires only when some
    condition holds, measure how often that condition already holds. A predicate
    true of nearly every candidate is not a gate, and the mechanism collapses into

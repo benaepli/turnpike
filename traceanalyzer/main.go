@@ -24,6 +24,7 @@ func main() {
 	gradeMaxRuns := flag.Int("grade-max-runs", 2000, "Grade mode: deterministic sample cap per DAG config (0 = all runs)")
 	gradeBudgetMs := flag.Int64("grade-budget-ms", 60000, "Grade mode: wall budget per DAG config in ms (0 = unbounded)")
 	gradePerRun := flag.Bool("grade-per-run", false, "Grade mode: include full per_run arrays instead of top_runs")
+	gradeRunDepths := flag.Bool("grade-run-depths", false, "Grade mode: include run_depths, a compact [run_id, prefix_depth] pair per graded run")
 	batchRuns := flag.Int("batch-runs", 2000, "Runs per metric query batch; partials are merged in Go (0 = one query over all runs)")
 	runsTable := flag.Bool("runs", false, "Emit the runs table (one row per run: strategy, seeds, steps, wall, end reason) as JSON and exit")
 	flag.Parse()
@@ -93,9 +94,10 @@ func main() {
 		}
 		if *dagConfig != "" {
 			opts := dagorder.Options{
-				MaxRuns:       *gradeMaxRuns,
-				BudgetMs:      *gradeBudgetMs,
-				IncludePerRun: *gradePerRun,
+				MaxRuns:          *gradeMaxRuns,
+				BudgetMs:         *gradeBudgetMs,
+				IncludePerRun:    *gradePerRun,
+				IncludeRunDepths: *gradeRunDepths,
 			}
 			for _, cfgPath := range strings.Split(*dagConfig, ",") {
 				cfgPath = strings.TrimSpace(cfgPath)

@@ -11,9 +11,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
 import { ROOT } from "./paths.js";
-import { cleanupDir, explore, materializeConfig, porcupine, readUtilizationSibling, resolveRoot } from "./runners.js";
+import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, readSessionSibling, readUtilizationSibling, resolveRoot, runsTable, templateHasCampaign } from "./runners.js";
 export { readUtilizationSibling };
 import type { EvalContext } from "./evaluate.js";
+import { kmMedian, logRankZ, poissonRateRatioZ, type Censored } from "./stats.js";
 
 /** Keys a member may set. Faults are declared separately and never here. */
 export const WORKLOAD_KEYS = [
@@ -40,8 +41,13 @@ export const PanelMember = z.object({
   /** gate: a collapse fails the suite. report: recorded, never binding. */
   role: z.enum(["gate", "report"]),
   expectedRate: z.number().positive(),
-  runsPerArm: z.number().int().positive(),
-  gridSize: z.number().int().positive(),
+  /** Version 1 sizing: a fixed run count per arm on the standard explorer. */
+  runsPerArm: z.number().int().positive().optional(),
+  gridSize: z.number().int().positive().optional(),
+  /** Version 2 sizing: seeded campaign replicates of a fixed active-time
+   *  budget each, judged as a rate per second or as time to first violation. */
+  wallSec: z.number().positive().optional(),
+  replicates: z.number().int().positive().optional(),
   calibration: z.object({
     atIso: z.string(),
     rateRuns: z.number().int().nonnegative(),
@@ -55,13 +61,27 @@ export const PanelMember = z.object({
     hostCeiling: z.number().nonnegative(),
     budgetRatio: z.number().nonnegative(),
     runsPerSec: z.number().nonnegative(),
+    /** Version 2: violations per active second on the standard explorer, and
+     *  the median time to the first violation of the best known arm (0 when
+     *  never observed). */
+    eventsPerSec: z.number().nonnegative().optional(),
+    tauBestSec: z.number().nonnegative().optional(),
   }),
   notes: z.string().default(""),
 });
 export type PanelMember = z.infer<typeof PanelMember>;
 
+/** Expected violations one member arm sees at its version-2 sizing. */
+export function expectedEvents(m: PanelMember): number {
+  return (m.calibration.eventsPerSec ?? m.expectedRate * m.calibration.runsPerSec) * (m.wallSec ?? 0) * (m.replicates ?? 0);
+}
+
+/** Below this many expected events a member is judged on time to first
+ *  violation rather than on a rate. */
+export const RATE_EVENTS_MIN = 20;
+
 export const PanelManifest = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   sizing: z.object({
     targetCount: z.number().int().positive(),
     collapseZ: z.number().positive(),
@@ -92,18 +112,38 @@ export function validateManifest(m: PanelManifest, wallSecPerCase?: number): str
     for (const k of ["num_crashes", "num_partitions", "num_runs_per_config", "session_seed", "max_iterations"]) {
       if (k in mem.overlay) errs.push(`${mem.id}: ${k} belongs to the runner or the fault declaration, not the overlay`);
     }
-    if (mem.runsPerArm % mem.gridSize !== 0) errs.push(`${mem.id}: runsPerArm ${mem.runsPerArm} is not a multiple of gridSize ${mem.gridSize}`);
-    // Only a gate member has to resolve a rate change. A report member is a
-    // rare-event detector: it is sized by what its wall affords, and demanding
-    // 100/rate of it would ask for hundreds of thousands of runs.
-    if (mem.role === "gate" && mem.runsPerArm < Math.ceil(m.sizing.targetCount / mem.expectedRate)) {
-      errs.push(`${mem.id}: runsPerArm ${mem.runsPerArm} is under the sized ${Math.ceil(m.sizing.targetCount / mem.expectedRate)}`);
+    if (m.version === 1) {
+      if (mem.runsPerArm === undefined || mem.gridSize === undefined) {
+        errs.push(`${mem.id}: version 1 sizing needs runsPerArm and gridSize`);
+      } else {
+        if (mem.runsPerArm % mem.gridSize !== 0) errs.push(`${mem.id}: runsPerArm ${mem.runsPerArm} is not a multiple of gridSize ${mem.gridSize}`);
+        // Only a gate member has to resolve a rate change. A report member is a
+        // rare-event detector: it is sized by what its wall affords, and demanding
+        // 100/rate of it would ask for hundreds of thousands of runs.
+        if (mem.role === "gate" && mem.runsPerArm < Math.ceil(m.sizing.targetCount / mem.expectedRate)) {
+          errs.push(`${mem.id}: runsPerArm ${mem.runsPerArm} is under the sized ${Math.ceil(m.sizing.targetCount / mem.expectedRate)}`);
+        }
+      }
+    } else {
+      if (mem.wallSec === undefined || mem.replicates === undefined) {
+        errs.push(`${mem.id}: version 2 sizing needs wallSec and replicates`);
+      } else {
+        const tau = mem.calibration.tauBestSec ?? 0;
+        if (tau > 0 && mem.wallSec < 3 * tau) {
+          errs.push(`${mem.id}: wallSec ${mem.wallSec} is under three times the ${tau.toFixed(1)}s median time to first violation`);
+        }
+        // A gate member is judged as a rate, which needs events to count; a
+        // report member is judged on time to first violation and may see none.
+        if (mem.role === "gate" && expectedEvents(mem) < RATE_EVENTS_MIN) {
+          errs.push(`${mem.id}: expects ${expectedEvents(mem).toFixed(1)} violations per arm, under the ${RATE_EVENTS_MIN} a rate needs`);
+        }
+      }
     }
     if (mem.role === "gate") {
       if (mem.cleanSpec === null) {
         errs.push(`${mem.id}: a gate member needs a control spec`);
-      } else if (mem.calibration.cleanRuns < mem.runsPerArm) {
-        errs.push(`${mem.id}: control measured at ${mem.calibration.cleanRuns} runs, under the ${mem.runsPerArm} it will be judged at`);
+      } else if (mem.calibration.cleanRuns < (mem.runsPerArm ?? 0)) {
+        errs.push(`${mem.id}: control measured at ${mem.calibration.cleanRuns} runs, under the ${mem.runsPerArm ?? 0} it will be judged at`);
       } else {
         const ctl = mem.calibration.cleanViolations / mem.calibration.cleanRuns;
         const sep = ctl === 0 ? Infinity : mem.expectedRate / ctl;
@@ -114,7 +154,7 @@ export function validateManifest(m: PanelManifest, wallSecPerCase?: number): str
       if (mem.expectedRate > mem.calibration.hostCeiling) {
         errs.push(`${mem.id}: rate ${mem.expectedRate} exceeds its host ceiling ${mem.calibration.hostCeiling}`);
       }
-      if (wallSecPerCase !== undefined && mem.calibration.runsPerSec > 0) {
+      if (wallSecPerCase !== undefined && m.version === 1 && mem.runsPerArm !== undefined && mem.calibration.runsPerSec > 0) {
         const armSec = mem.runsPerArm / mem.calibration.runsPerSec;
         if (armSec > wallSecPerCase / 2) {
           errs.push(`${mem.id}: an arm takes ${armSec.toFixed(0)}s, over half the ${wallSecPerCase}s case wall, so a slower candidate truncates`);
@@ -125,8 +165,17 @@ export function validateManifest(m: PanelManifest, wallSecPerCase?: number): str
       }
     }
   }
+  // Under version 2 the case wall bounds the whole panel: every replicate of
+  // every arm, plus process start-up, has to fit.
+  if (m.version === 2 && wallSecPerCase !== undefined) {
+    const total = m.members.reduce((a, mem) => a + (mem.role === "gate" ? 2 : 1) * (mem.replicates ?? 0) * ((mem.wallSec ?? 0) + PANEL_STARTUP_SEC), 0);
+    if (total > wallSecPerCase) errs.push(`the panel takes ${total.toFixed(0)}s of replicates, over the ${wallSecPerCase}s case wall`);
+  }
   return errs;
 }
+
+/** Process start-up per replicate: compile, open the writer, write the report. */
+export const PANEL_STARTUP_SEC = 3;
 
 export function loadPanelManifest(p: string): PanelManifest {
   const m = PanelManifest.parse(JSON.parse(fs.readFileSync(resolveRoot(p), "utf8")));
@@ -202,6 +251,10 @@ export interface ArmCounts {
   unknown: number;
   timedOut: boolean;
   utilization: Record<string, unknown> | null;
+  /** Version 2: pooled active seconds over the replicates, and each
+   *  replicate's time to its first violation, censored at its wall. */
+  exposureSec?: number;
+  firstViolation?: Censored[];
 }
 
 export interface PanelArms {
@@ -288,6 +341,11 @@ export interface PanelMemberResult {
   collapsed: boolean;
   judging: boolean;
   detail: string;
+  /** Version 2: which statistic produced z, the candidate's median time to
+   *  first violation, and its ratio to the best known arm's. */
+  statistic?: "rate" | "time-to-first" | "none";
+  tauSec?: number | null;
+  regretRatio?: number | null;
 }
 
 export interface PanelSummary {
@@ -297,6 +355,93 @@ export interface PanelSummary {
   combinedZ: number | null;
   collapsedMembers: string[];
   wallMs: number;
+  /** Version 2: the geometric mean of the judging gate members' rate ratios
+   *  and the member with the worst one; reported, never binding. */
+  geoMeanRateRatio?: number | null;
+  worstMember?: { id: string; rateRatio: number } | null;
+}
+
+/** One campaign replicate of a member: the template's arms under the
+ *  member's workload and faults, for the member's active-time budget. */
+async function runCampaignReplicate(
+  ctx: EvalContext, m: PanelMember, binary: string, template: string, seed: number, tag: string,
+): Promise<{ runs: number; violations: number; unknown: number; exposureSec: number; first: Censored; timedOut: boolean; utilization: Record<string, unknown> | null }> {
+  const outDir = path.join(ROOT, "tmp", "loop", `panel-${m.id}-${tag}`);
+  const cfg = `${outDir}.config.json`;
+  fs.mkdirSync(path.dirname(outDir), { recursive: true });
+  const wallSec = m.wallSec ?? 10;
+  const campaign = templateHasCampaign(template);
+  materializeConfig(template, cfg, {
+    sessionSeed: seed,
+    extra: { ...m.overlay, num_crashes: m.faults.numCrashes, max_iterations: m.maxIterations, ...(campaign ? {} : { wall_budget_sec: wallSec }) },
+  });
+  const e = await explore({
+    binary, configPath: cfg, spec: resolveRoot(m.spec), outputDir: outDir,
+    wallSec, rayonThreads: ctx.policy.evaluation.rayonThreads,
+    explorer: campaign ? "campaign" : "standard",
+    sets: campaign ? [`campaign.wall_budget_sec=${wallSec}`] : [],
+  });
+  const p = await porcupine({ inputDir: outDir, model: m.porcupineModel, timeoutMsPerRun: 10_000, timeoutMs: 600_000 });
+  const session = readSessionSibling(outDir);
+  const util = readUtilizationSibling(outDir);
+  const exposureSec = session !== null && session.wallMs > 0 ? session.wallMs / 1000 : e.wallMs / 1000;
+  let first: Censored = { time: exposureSec, event: false };
+  const violating = p.parsed?.violating_run_ids ?? [];
+  if (violating.length > 0) {
+    const rows = await runsTable(outDir);
+    const ids = new Set(violating);
+    let earliest: number | null = null;
+    for (const r of rows) {
+      if (ids.has(r.run_id) && (earliest === null || r.session_offset_ms < earliest)) earliest = r.session_offset_ms;
+    }
+    if (earliest !== null) first = { time: earliest / 1000, event: true };
+  }
+  cleanupDir(outDir);
+  for (const f of [`${outDir}.log`, `${outDir}.utilization.json`, `${outDir}.session.json`, `${outDir}.campaign.json`, cfg]) {
+    try { fs.unlinkSync(f); } catch { /* already gone */ }
+  }
+  return {
+    runs: p.parsed?.total_runs ?? 0,
+    violations: p.parsed?.violations ?? 0,
+    unknown: p.parsed?.unknown ?? 0,
+    exposureSec, first, timedOut: e.timedOut, utilization: util,
+  };
+}
+
+/** Every replicate of one arm of a member, pooled. */
+async function runReplicates(
+  ctx: EvalContext, m: PanelMember, binary: string, template: string, seed: number, tag: string,
+): Promise<ArmCounts> {
+  const out: ArmCounts = { runs: 0, violations: 0, unknown: 0, timedOut: false, utilization: null, exposureSec: 0, firstViolation: [] };
+  for (let r = 0; r < (m.replicates ?? 1); r++) {
+    const rep = await runCampaignReplicate(ctx, m, binary, template, seed * 100 + r, `${tag}-${r}`);
+    out.runs += rep.runs;
+    out.violations += rep.violations;
+    out.unknown += rep.unknown;
+    out.timedOut = out.timedOut || rep.timedOut;
+    out.utilization = rep.utilization ?? out.utilization;
+    out.exposureSec = (out.exposureSec ?? 0) + rep.exposureSec;
+    out.firstViolation!.push(rep.first);
+  }
+  return out;
+}
+
+/** The version-2 judgement of one member: a rate ratio where events are
+ *  plentiful, time to first violation where they are rare. */
+export function judgeReplicates(m: PanelMember, cand: ArmCounts, base: ArmCounts | null): {
+  z: number | null; statistic: "rate" | "time-to-first" | "none"; tauSec: number | null; regretRatio: number | null; rateRatio: number | null;
+} {
+  const tauSec = kmMedian(cand.firstViolation ?? []);
+  const best = m.calibration.tauBestSec ?? 0;
+  const regretRatio = tauSec !== null && best > 0 ? tauSec / best : null;
+  if (base === null) return { z: null, statistic: "none", tauSec, regretRatio, rateRatio: null };
+  const ce = cand.exposureSec ?? 0;
+  const be = base.exposureSec ?? 0;
+  const rateRatio = ce > 0 && be > 0 && base.violations > 0 ? (cand.violations / ce) / (base.violations / be) : null;
+  if (expectedEvents(m) >= RATE_EVENTS_MIN) {
+    return { z: poissonRateRatioZ(cand.violations, ce, base.violations, be), statistic: "rate", tauSec, regretRatio, rateRatio };
+  }
+  return { z: logRankZ(cand.firstViolation ?? [], base.firstViolation ?? []), statistic: "time-to-first", tauSec, regretRatio, rateRatio };
 }
 
 async function runArm(
@@ -306,8 +451,9 @@ async function runArm(
   const cfg = `${outDir}.config.json`;
   fs.mkdirSync(path.dirname(outDir), { recursive: true });
   materializeConfig(template, cfg, {
-    runsPerConfig: Math.ceil(m.runsPerArm / m.gridSize),
+    runsPerConfig: Math.ceil((m.runsPerArm ?? 0) / (m.gridSize ?? 1)),
     sessionSeed: seed,
+    dropKeys: CAMPAIGN_ONLY_KEYS,
     extra: { ...m.overlay, num_crashes: m.faults.numCrashes, max_iterations: m.maxIterations },
   });
   const e = await explore({
@@ -337,15 +483,23 @@ export async function runPanel(
     ? []
     : diffConfigPaths(arms.baselineTemplate, arms.candidateTemplate);
   const members: PanelMemberResult[] = [];
+  const rateRatios: Array<{ id: string; rateRatio: number }> = [];
 
   for (const m of manifest.members) {
-    const cand = await runArm(ctx, m, arms.candidateBinary, arms.candidateTemplate, arms.seed, "cand");
+    const replicated = manifest.version === 2;
+    const cand = replicated
+      ? await runReplicates(ctx, m, arms.candidateBinary, arms.candidateTemplate, arms.seed, "cand")
+      : await runArm(ctx, m, arms.candidateBinary, arms.candidateTemplate, arms.seed, "cand");
     // A report member is a rare-event detector: its rate is far below what its
     // run count resolves, so a baseline arm buys no comparison and doubles its
-    // cost. What it answers is whether the defect was reached at all.
-    const wantsBaseline = m.role === "gate";
+    // cost. What it answers is whether the defect was reached at all. Under
+    // replicates a report member that did violate gets its baseline arm, so
+    // the first-violation times have something to be compared with.
+    const wantsBaseline = m.role === "gate" || (replicated && cand.violations > 0);
     const base = wantsBaseline && arms.baselineBinary !== null && arms.baselineTemplate !== null
-      ? await runArm(ctx, m, arms.baselineBinary, arms.baselineTemplate, arms.seed, "base")
+      ? (replicated
+        ? await runReplicates(ctx, m, arms.baselineBinary, arms.baselineTemplate, arms.seed, "base")
+        : await runArm(ctx, m, arms.baselineBinary, arms.baselineTemplate, arms.seed, "base"))
       : null;
 
     const fire = base === null
@@ -356,26 +510,36 @@ export async function runPanel(
     // session-length curve, and truncation hits the slower arm harder. It is a
     // harness outcome, never evidence.
     const truncated = cand.timedOut || (base?.timedOut ?? false);
-    const z = base === null ? null : panelZ(cand, base, 1);
-    const zDisp = base === null ? null : panelZ(cand, base, 0.67);
+    const judged = replicated ? judgeReplicates(m, cand, base) : null;
+    const z = judged !== null ? judged.z : (base === null ? null : panelZ(cand, base, 1));
+    const zDisp = replicated || base === null ? null : panelZ(cand, base, 0.67);
     const judging = base !== null && !truncated && (fire.status === "fired" || fire.status === "no-config-change");
     const collapsed = judging && m.role === "gate" && z !== null && z <= -manifest.sizing.collapseZ;
+    if (judging && m.role === "gate" && judged?.rateRatio != null) rateRatios.push({ id: m.id, rateRatio: judged.rateRatio });
 
     const rate = (a: ArmCounts): string => (a.runs === 0 ? "n/a" : (a.violations / a.runs).toFixed(5));
+    const perSec = (a: ArmCounts): string => ((a.exposureSec ?? 0) > 0 ? `${(a.violations / (a.exposureSec ?? 1)).toFixed(3)}/s` : "");
     members.push({
       id: m.id, role: m.role, faultClass: m.faults.class,
       candidate: cand, baseline: base,
       firing: truncated ? "unknown" : fire.status,
       firingDetail: truncated ? "an arm hit the wall; counts are not comparable" : fire.detail,
       z, zDispersed: zDisp, collapsed, judging,
-      detail: `cand ${cand.violations}/${cand.runs} (${rate(cand)})`
-        + (base ? ` vs base ${base.violations}/${base.runs} (${rate(base)})` : " (no baseline arm)")
-        + (z !== null ? ` z=${z.toFixed(2)}` : "")
+      detail: `cand ${cand.violations}/${cand.runs} (${rate(cand)}${replicated ? ` ${perSec(cand)}` : ""})`
+        + (base ? ` vs base ${base.violations}/${base.runs} (${rate(base)}${replicated ? ` ${perSec(base)}` : ""})` : " (no baseline arm)")
+        + (z !== null ? ` z=${z.toFixed(2)}${judged ? ` ${judged.statistic}` : ""}` : "")
+        + (judged?.tauSec != null ? ` tau=${judged.tauSec.toFixed(1)}s` : "")
+        + (judged?.regretRatio != null ? ` regret=${judged.regretRatio.toFixed(2)}` : "")
         + ` [${m.faults.class} ${m.role}, ${truncated ? "truncated" : fire.status}]`,
+      ...(judged ? { statistic: judged.statistic, tauSec: judged.tauSec, regretRatio: judged.regretRatio } : {}),
     });
   }
 
   const judgingGates = members.filter((r) => r.judging && r.role === "gate" && r.z !== null);
+  const geo = rateRatios.length > 0
+    ? Math.exp(rateRatios.reduce((a, r) => a + Math.log(Math.max(r.rateRatio, 1e-6)), 0) / rateRatios.length)
+    : null;
+  const worst = rateRatios.length > 0 ? rateRatios.reduce((a, r) => (r.rateRatio < a.rateRatio ? r : a)) : null;
   return {
     members,
     judging: judgingGates.map((r) => r.id),
@@ -383,6 +547,8 @@ export async function runPanel(
     combinedZ: combineZ(judgingGates.map((r) => r.z as number)),
     collapsedMembers: members.filter((r) => r.collapsed).map((r) => r.id),
     wallMs: Date.now() - started,
+    geoMeanRateRatio: geo,
+    worstMember: worst,
   };
 }
 
@@ -454,6 +620,41 @@ export function selfTestPanel(): string[] {
   undersized.members[0]!.runsPerArm = 100;   // gate member, so the sizing rule applies
   check(validateManifest(undersized).some((e) => e.includes("under the sized")),
     "runsPerArm below 100/rate must be rejected");
+
+  // Version 2: replicates of a fixed budget, judged as a rate or on time to
+  // first violation.
+  const v2 = structuredClone(base) as PanelManifest;
+  v2.version = 2;
+  const mem = v2.members[0]!;
+  delete mem.runsPerArm;
+  delete mem.gridSize;
+  mem.wallSec = 10;
+  mem.replicates = 3;
+  mem.calibration.eventsPerSec = 20;   // 0.02 x 1000 runs/s
+  mem.calibration.tauBestSec = 1;
+  check(validateManifest(v2, 480).length === 0, `a well-formed version-2 manifest validates: ${validateManifest(v2, 480).join("; ")}`);
+  const shortWall = structuredClone(v2);
+  shortWall.members[0]!.wallSec = 2;
+  check(validateManifest(shortWall).some((e) => e.includes("three times")), "a budget under three medians must be rejected");
+  const starved = structuredClone(v2);
+  starved.members[0]!.calibration.eventsPerSec = 0.1;
+  check(validateManifest(starved).some((e) => e.includes("violations per arm")), "a gate member with too few expected events must be rejected");
+  check(validateManifest(v2, 60).some((e) => e.includes("case wall")), "replicates over the case wall must be rejected");
+
+  const reps = (first: Array<number | null>, violations: number, exposureSec: number): ArmCounts => ({
+    runs: 1000, violations, unknown: 0, timedOut: false, utilization: null, exposureSec,
+    firstViolation: first.map((t) => (t === null ? { time: 10, event: false } : { time: t, event: true })),
+  });
+  const rateJudged = judgeReplicates(mem, reps([1, 1, 1], 60, 30), reps([1, 1, 1], 60, 30));
+  check(rateJudged.statistic === "rate" && Math.abs(rateJudged.z ?? 1) < 1e-9, `equal rates judge as a rate at z 0, got ${JSON.stringify(rateJudged)}`);
+  const halved = judgeReplicates(mem, reps([1, 1, 1], 30, 30), reps([1, 1, 1], 60, 30));
+  check((halved.z ?? 0) < -2, `half the rate is a clear negative z, got ${halved.z}`);
+  const rare = structuredClone(mem);
+  rare.calibration.eventsPerSec = 0.05;
+  const ttf = judgeReplicates(rare, reps([1, 2, null], 2, 30), reps([null, null, null], 0, 30));
+  check(ttf.statistic === "time-to-first" && (ttf.z ?? 0) > 0, `a rare member that violated against one that did not judges on time to first with z > 0, got ${JSON.stringify(ttf)}`);
+  check(ttf.tauSec === 2 && ttf.regretRatio === 2, `tau and regret from the candidate's first violations, got ${JSON.stringify(ttf)}`);
+  check(judgeReplicates(rare, reps([null, null, null], 0, 30), null).statistic === "none", "no baseline arm judges nothing");
 
   return f;
 }

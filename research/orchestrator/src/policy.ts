@@ -75,7 +75,7 @@ export const Policy = z.object({
     rayonThreads: z.number().int().positive().default(defaultRayonThreads),
     // Search strategy for the evaluation lane. The regression and perf lanes
     // stay on the standard explorer so they remain fixed guardrails.
-    explorer: z.enum(["standard", "genetic", "aos", "continuous"]).default("standard"),
+    explorer: z.enum(["standard", "genetic", "aos", "continuous", "campaign"]).default("standard"),
   }),
   regression: z.object({
     panelManifest: z.string(),

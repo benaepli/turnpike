@@ -13,7 +13,13 @@ npx tsx src/cli.ts baseline    # measure + record the baseline ladder (~1h)
 npx tsx src/cli.ts once        # one attended iteration
 npx tsx src/cli.ts regression  # run the regression suite
 ../loop-start.sh               # start unattended (systemd-run --user)
+npx tsx src/selftest_sequential.ts 60 --assert     # operating characteristics of the stopping rule
+node ../observations/surrogate_validation.mjs      # which in-process rewards may steer an allocation
 ```
+
+The evaluation is a campaign: `-e campaign` on the one template, whose
+`campaign` block names the arms; every chunk is a fixed active-time budget
+and rungs are counted per explore-second (`PARAMETERS.md`).
 
 ## Operator
 

@@ -33,7 +33,7 @@
     }
   },
   "budgets": {
-    "maxWallMinutesPerHypothesis": 90,
+    "maxWallMinutesPerHypothesis": 150,
     "maxLineageDepth": 6,
     "stagnationWindow": 8,
     "maxImplementTurns": 110,
@@ -53,13 +53,14 @@
     "configTemplate": "scheduler_configs/loop/general_vr.json",
     "oracleDags": [
       "research/oracle/relax_minimal_general.json"
-    ]
+    ],
+    "explorer": "campaign"
   },
   "regression": {
     "panelManifest": "research/panel/manifest.json",
     "vrNoFaultConfig": "scheduler_configs/loop/regression_vr_nofault.json",
     "throughputTolerance": 0.2,
-    "wallSecPerCase": 360
+    "wallSecPerCase": 480
   },
   "perf": {
     "benchConfig": "scheduler_configs/loop/bench.json",
@@ -71,5 +72,19 @@
   "rejudge": {
     "everyK": 1,
     "afterMerge": false
+  },
+  "sequential": {
+    "exploreBudgetSec": 300,
+    "maxRunsPerConfig": 4000,
+    "maxChunks": 4,
+    "minChunks": 2,
+    "rejectP": 0.05,
+    "inconclusiveP": 0.9,
+    "niP": 0.95,
+    "regressMargin": 0.25,
+    "maxResumes": 2,
+    "resumeCooldown": 2,
+    "draws": 2000,
+    "wallSecPerChunk": 1800
   }
 }
