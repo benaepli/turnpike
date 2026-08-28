@@ -12,13 +12,15 @@ if command -v systemd-run >/dev/null; then
   # Capped below total RAM so a runaway kills only the loop, not the desktop.
   # The unit does not inherit the shell's PATH, and a system node of another
   # major version segfaults in better-sqlite3 built against the nvm one.
-  # SPUR_LOOP_CPUS pins the unit and everything it spawns to a CPU set; the
-  # thread count the loop measures at derives from that mask, and each mask
+  # SPUR_LOOP_CPUS pins the loop and everything it spawns to a CPU set
+  # through the affinity mask, which children inherit; the cpuset controller
+  # is not delegated to user units, so AllowedCPUs would be ignored. The
+  # thread count the loop measures at derives from the mask, and each mask
   # needs its own baseline and panel calibration once.
-  CPUS=()
-  [ -n "${SPUR_LOOP_CPUS:-}" ] && CPUS=(--property=AllowedCPUs="$SPUR_LOOP_CPUS")
+  PIN=()
+  [ -n "${SPUR_LOOP_CPUS:-}" ] && PIN=(taskset -c "$SPUR_LOOP_CPUS")
   systemd-run --user --unit=spur-research-loop --collect \
-    --setenv=PATH="$PATH" "${CPUS[@]}" \
+    --setenv=PATH="$PATH" \
     --property=MemoryHigh="${SPUR_LOOP_MEM_HIGH:-10G}" \
     --property=MemoryMax="${SPUR_LOOP_MEM_MAX:-14G}" \
     --property=MemorySwapMax=0 \
@@ -26,7 +28,7 @@ if command -v systemd-run >/dev/null; then
     --property=WorkingDirectory="$ROOT/research/orchestrator" \
     --property=StandardOutput=append:"$LOG" \
     --property=StandardError=append:"$LOG" \
-    npx tsx src/cli.ts start
+    "${PIN[@]}" npx tsx src/cli.ts start
   echo "started unit spur-research-loop; log: $LOG"
   echo "status: systemctl --user status spur-research-loop"
 else
