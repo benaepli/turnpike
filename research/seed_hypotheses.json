@@ -207,5 +207,35 @@
     "generalityArgument": "The rule without reference to the protocol under test: every injected fault should have client work scheduled after it. It names no handler, message, timer label or role, and it is a property any fault-injection framework wants, since a fault whose effects no later operation observes cannot be detected by any oracle.",
     "createdAtIso": "2026-08-27T07:10:00.000Z",
     "notes": "Falsifier: if post_fault_ops.ops_invoked_after_last_recover does not rise, the edges are not reaching plan execution and the mechanism is miswired rather than unhelpful. Watch unpairedFraction, which should fall if stalled writes are replaced by completing ones, and expect a throughput cost since surviving client work lengthens runs. Judge the effect at depth>=4, the only rung stable to a tenth of a percent; depth>=6 moves 7.5% on a null diff. Note that P(depth>=k) mixes two populations, since roughly half of runs contain no write addressed to node 0 and are scored on a chain anchored at the first crash instead, so a mechanism that shifts that proportion moves the ladder for a reason unrelated to its mechanism."
+  },
+  {
+    "id": "stall-abort-progress-termination",
+    "parent": null,
+    "kind": "add",
+    "title": "End a stalled run and spend its remaining budget on a new one",
+    "description": "In spur-core/src/simulator/path.rs, track per run the last step at which any node's state token (State::node_state_token) changed or a client operation was invoked or answered. Keep, per session in the feedback store, the longest such quiet stretch observed in any run that later completed. Behind an opt-in config field stall_abort (default false, today's semantics), end a run whose current quiet stretch exceeds that session-derived length with a new end_reason 'stalled' in the runs table, treating it like iterations_exhausted for grading. The threshold is the session's own distribution, not a constant, and it starts unset so the first completed run sets it. Add util_stats counters termination.stall_aborts and termination.steps_reclaimed (steps the aborted runs would still have spent), so the mechanism counts its own firing. Enable it in scheduler_configs/loop/general_vr.json.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 8,
+    "expectedCost": 5,
+    "rationale": "research/observations/TERMINATION_DEPTH.md: on a 229,980-run general chunk, runs that complete reach depth>=6 at 0.094 against 0.016 for runs that exhaust the step budget (5.8x, z 87) and depth>=8 at 8.5x, with deep runs ending at a median of about 1,100 steps against the full 6,000 for exhausted ones; in the plan corpus all 11 violating runs are among the 103 of 3,000 that complete, finishing in about 100 steps while the rest burn 10,000. About 97% of the plan corpus's budget and roughly 70% of the general chunk's went to runs that had stopped progressing. Ending those runs early turns their steps into new runs, which is events per explore-second by construction if per-run depth holds.",
+    "generalityArgument": "A stall is defined by the absence of any state change on any node, which any protocol exhibits and none names; the threshold is derived from the session's completed runs rather than chosen. No handler, message, role or timer label appears in the rule.",
+    "createdAtIso": "2026-08-28T18:39:56Z",
+    "notes": "The per-run depth guards must hold: a run that is cut before its plan's later operations can be issued reads shallower, so the mechanism is expected to raise events per second without lowering per-run depth, and a per-run decline is the falsifier."
+  },
+  {
+    "id": "timer-effect-steer",
+    "parent": null,
+    "kind": "add",
+    "title": "Lower timer admission at a node whose idle firings change nothing",
+    "description": "Using the timer effectiveness counters (util_stats timer_effects, keyed by resume vertex, whether a delivery to the node was in flight, incarnation and inert streak), keep per session in the feedback store a Beta(fired, acted) per key, and per node within a run the count for the same key. In score_runnable, behind an opt-in config field timer_effect_steer (default false), apply a multiplier that lowers the priority of admitting another timer at a (node, resume vertex) whose firings with no delivery in flight have been inert against the session's distribution for that key, and never lowers - optionally raises - a firing with a delivery in flight. The multiplier reorders and never zeroes a choice. Add util_stats counters timer_steer.{evaluated, lowered, raised}.",
+    "category": "scheduler",
+    "buildsOn": [],
+    "expectedGain": 7,
+    "expectedCost": 6,
+    "rationale": "research/observations/TERMINATION_DEPTH.md shows depth and violations concentrated in the runs that complete and the budget spent on runs that stall; GOAL.md names timer admission relative to delivery as the variable the plan corpora constrain (76% violation at full depth under admitted timers against under 2% in general mode). Whether the stalled runs are dominated by inert timer firings on idle nodes is what the timer effectiveness join measures; this hypothesis is the runtime use of that measurement and is only worth running once the join says idle inert firings predict budget exhaustion.",
+    "generalityArgument": "The rule names no handler, message or label: it keys on the CFG vertex a timer wakes, on whether a delivery is pending for the node, and on the node's own recent effect history, and the threshold is the session's distribution rather than a constant. A protocol whose timers act is left alone by construction.",
+    "createdAtIso": "2026-08-28T18:39:56Z",
+    "notes": "Keep firings with a delivery in flight unpenalised: that is the race the oracle chain needs, and it is often inert on average. Measure the base rate of the gating predicate (idle and inert) before building, per GOAL.md rule 8."
   }
 ]
