@@ -593,15 +593,14 @@ they are the base rates the `steer-term-base-rates` hypothesis reads before
 any weight is set (GOAL.md rule 8).
 
 **Reproducibility.** Proving the identity exposed two sources of
-nondeterminism at a fixed seed. The plan engine released ready events in
-hash-map order, which decided operation ids, client-node assignment and
-priority draws; it now releases them in index order (spur 9c2b928) and a
-run on a one-worker pool is a function of its seed. `VR.spur` still is not:
-it iterates `pending_requests`, an `imbl` map whose hasher is seeded per
-process, so its reply order varies; two identical 540-run sessions differ
-on 70 runs, and a session with the default terms block differs from one
-without on 80, the same magnitude. That floor is the spec's, not the
-terms'; it is recorded here and not changed.
+nondeterminism at a fixed seed, and both are gone. The plan engine released
+ready events in hash-map order, which decided operation ids, client-node
+assignment and priority draws; it now releases them in index order (spur
+9c2b928). The interpreter's map values iterated in an order drawn per
+process, so `VR.spur`'s reply order varied between runs of the same seed;
+the maps now hash with a fixed key (spur ed04f9a), and two identical
+sessions write byte-identical executions, at one worker and at fourteen.
+The A/A spread that remains is seed-to-seed only.
 
 **Evidence of the landing** (14 threads, CCD 0, 2026-08-28).
 
@@ -658,6 +657,43 @@ A stale and late delivery is acted on 8.7% of the time, below the 15.9%
 of sender-restarted deliveries generally, which says the late ones land in
 a receiver that has moved past them more often than not.
 
+
+**How a weight is chosen.** In order, and each step is a hypothesis the
+loop evaluates, not an operator setting:
+
+1. Base rates at zero weight (GOAL.md rule 8): each predicate's share of
+   its kind's candidates and the flip fraction its derived weight would
+   cause. A predicate true on more than half of its kind's candidates is
+   not a preference and gets weight 0. Measured once on 2026-08-28: the
+   timer-triggered crash is available on 0.8% of crash candidates, the
+   delivery-triggered one on 11%, stale_late on 0.19% of candidates,
+   request_before_stale on 0.31%; all four qualify.
+2. The weight is derived from a target step-win probability (0.7 gives
+   W = 2.33 from the table above), never tuned by hand.
+3. A factorial campaign over the predicate weights at that value estimates
+   main effects and pairwise interactions from the per-arm depth and
+   violations in the runs table, against the A/A floor. The default vector
+   is the set of terms with a positive main effect.
+4. That vector is evaluated once as an ordinary config hypothesis by the
+   sequential protocol and the gate.
+5. Guardrails at every step: the total predicate share is capped so the
+   argmax-flip fraction the authority audit reports stays under a stated
+   ceiling; scores are never zero, so exploration mass survives; every term
+   counts its firings and its acted fraction, so a null is diagnosable.
+
+**Adaptation.** Two levels, blocked on different things. Across slices of a
+session, a campaign whose arms are weight vectors allocated by a bandit is
+adaptation with no new explorer code; it needs an admitted reward, and
+weight arms share one workload, so the throughput confound that failed the
+surrogate lane does not apply among them: admission is the rank correlation
+of a reward's per-arm value with per-arm depth over the factorial's arms.
+Within a run, each predicate's weight for a candidate would scale by the
+acted fraction recorded for that candidate's context (predicate, resume
+vertex, in-flight state, incarnation, inert streak) in the shared session
+store, the shape the timer-effect table already has; that needs evidence
+that acted predicated picks go with deeper runs (a per-run correlation the
+runs table now supports) and a mapping from a table value to a weight that
+introduces no constant.
 ## Steer audit cost (measured 2026-08-28, 14 threads, CCD 0)
 
 `feedback.steer_audit` walks every runnable in every queue once per step to
