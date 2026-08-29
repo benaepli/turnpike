@@ -151,7 +151,10 @@ func accumulateHazards(db *sql.DB, exec, traces string, h *HazardResult) error {
 			SELECT run_id, CAST(json_extract(payload, '$[0].value.index') AS BIGINT) AS node, step
 			FROM ` + exec + ` WHERE kind = 'Recover'`,
 		`CREATE OR REPLACE TEMP TABLE timers AS
-			SELECT run_id, CAST(json_extract(payload, '$[0].value.index') AS BIGINT) AS node, step
+			SELECT run_id,
+				CASE WHEN client_id >= 0 THEN client_id
+				     ELSE CAST(json_extract(payload, '$[0].value.index') AS BIGINT) END AS node,
+				step
 			FROM ` + exec + ` WHERE kind = 'TimerFired'`,
 		`CREATE OR REPLACE TEMP TABLE d AS
 			SELECT run_id, node_id AS sender, step, trace_id

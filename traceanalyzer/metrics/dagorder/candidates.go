@@ -3,6 +3,8 @@ package dagorder
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/benaepli/turnpike-traceanalyzer/reader"
 )
@@ -35,6 +37,44 @@ type runIndex struct {
 	enters []reader.TraceRow
 	// trace_id -> sender node_id, built from Dispatch rows.
 	dispatchSender map[int64]int64
+}
+
+// buildRunIndexFromEnters builds the index from entries that already carry
+// their sender, the shape reader.ReadEntersForMatching returns.
+func buildRunIndexFromEnters(execs []reader.ExecutionRow, enters []reader.EnterRow) *runIndex {
+	idx := &runIndex{
+		execs:          execs,
+		enters:         make([]reader.TraceRow, 0, len(enters)),
+		dispatchSender: make(map[int64]int64, len(enters)),
+	}
+	for i := range enters {
+		e := &enters[i]
+		idx.enters = append(idx.enters, reader.TraceRow{
+			RunID: e.RunID, SeqNum: e.SeqNum, NodeID: e.NodeID, Step: e.Step,
+			FunctionName: e.FunctionName, TraceKind: "Enter", TraceID: e.TraceID,
+		})
+		if e.Sender >= 0 {
+			if _, exists := idx.dispatchSender[e.TraceID]; !exists {
+				idx.dispatchSender[e.TraceID] = e.Sender
+			}
+		}
+	}
+	return idx
+}
+
+// deliverFunctions lists the handlers the plan's deliver events name, the
+// only functions whose entries the matcher reads.
+func deliverFunctions(cfg *PlanConfig) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, spec := range cfg.Events {
+		if spec.Kind == KindDeliver && spec.Function != "" && !seen[spec.Function] {
+			seen[spec.Function] = true
+			out = append(out, spec.Function)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func buildRunIndex(execs []reader.ExecutionRow, traces []reader.TraceRow) *runIndex {
@@ -164,10 +204,12 @@ func buildCandidates(idx *runIndex, spec EventSpec) ([]Event, bool) {
 	}
 }
 
-// collectTimerFires matches TimerFired rows on the target node. The payload
-// has the same shape as a client invocation's, a node then a string, so the
-// invocation parser reads it; the string is the timer's label. An empty
-// label in the spec matches any timer on the node.
+// collectTimerFires matches TimerFired rows on the target node. A row whose
+// client_id is not negative names the node there and the label after the
+// action's `/`; an older row leaves client_id at -1 and carries both only in
+// the payload, whose shape is a client invocation's, a node then a string,
+// so the invocation parser reads it. An empty label in the spec matches any
+// timer on the node.
 func collectTimerFires(execs []reader.ExecutionRow, spec EventSpec) ([]Event, bool) {
 	var out []Event
 	for i := range execs {
@@ -175,9 +217,17 @@ func collectTimerFires(execs []reader.ExecutionRow, spec EventSpec) ([]Event, bo
 		if e.Kind != "TimerFired" {
 			continue
 		}
-		target, label, err := parseInvocationPayload(e.Payload)
-		if err != nil {
-			continue
+		var target int
+		var label string
+		if e.ClientID >= 0 {
+			target = int(e.ClientID)
+			label = strings.TrimPrefix(e.Action, reader.TimerActionPrefix)
+		} else {
+			var err error
+			target, label, err = parseInvocationPayload(e.Payload)
+			if err != nil {
+				continue
+			}
 		}
 		if target != spec.Target || (spec.TimerLabel != "" && label != spec.TimerLabel) {
 			continue
@@ -239,7 +289,7 @@ func collectExecByKind(execs []reader.ExecutionRow, kind string, target int) ([]
 			continue
 		}
 		// Crash/Recover rows set client_id = -1; the affected node is in
-		// payload[0] as a VNode (path.rs:470-485).
+		// payload[0] as a VNode.
 		idx, err := parseNodePayload(e.Payload)
 		if err != nil {
 			continue

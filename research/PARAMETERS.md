@@ -536,6 +536,21 @@ produces (`steer_authority.*`) are in the evaluation record and feed the
 panel's firing classification for hypotheses that touch the steer, so the
 audit stays on; sampling it would save under 2% and cost a code path.
 
+## Grader read path (measured 2026-08-28, epoch 8)
+
+A 172,768-run VR campaign chunk grades in 85 s: about 55 s of reads, 3 s of
+matching, the rest the hazard SQL. Before, the same chunk took 279 s, of
+which 241 s were reads. The reads were dominated by rows crossing from the
+store into the grader: every trace row of a chunk (1,453 per run) and every
+firing of the plan's timer (241 per run on average), while the matcher
+keeps 256 candidates per label. The grader now reads handler entries of the
+plan's named functions with their sender joined, and timer firings
+aggregated per run, both capped in the store at the candidate cap
+(`research/GRADER_REVIEWS.md`, 2026-08-28). Timer rows carry the node in
+`client_id` and the label in `action` from spur `a1ba935` on; older corpora
+read through the payload. Grading is no longer the larger half of a chunk:
+explore 300 s, grade about 85 s at 14 threads.
+
 ## Grader memory (measured 2026-08-24, after two OOM kills)
 
 Explorer peak RSS on a 13.5k-run session: **2.4 GB**. The grader

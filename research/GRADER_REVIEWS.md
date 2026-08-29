@@ -349,3 +349,57 @@ against about 700 ms here. The recovery is on the writer's side, timer
 node and label as their own columns so the filter is a column predicate,
 and it is the next grader item.
 
+## 2026-08-28 - the grader reads a run's entries and timer firings, not its traces (operator series)
+
+Two changes, one per repo, landed for the grading cost. Every measurement
+below is pinned to CCD 0 (14 explorer threads).
+
+**Writer (spur `a1ba935`).** A timer firing's execution row now names the
+node in `client_id` and the label after the slash in `action`
+(`System.TimerFired/<label>`); the payload is unchanged. The checker never
+reads the row (`duckdb_reader.go` excludes the kind before any operation is
+built), so verdicts cannot move; the grader reads both encodings, choosing
+by one probe row per corpus.
+
+**Grader (this commit).** Two reads were doing the work of a grade:
+
+- The executions read selected the plan's `allow_timer` firings by
+  `json_extract` on every timer row. That was never the cost: DuckDB answers
+  the chunk query in about 100 ms. The rows were - the matcher keeps at most
+  256 candidates per label, yet a run fires the named timer 241 times on
+  average (median 84, max 2,997), and every one crossed the driver into Go.
+  Timer firings are now read aggregated per run, capped at the candidate cap
+  in `seq_num` order, and rebuilt as rows; `collectTimerFires` sees the same
+  first 256 it kept itself.
+- The traces read fetched every trace row of the chunk: 1,453 per run,
+  985,000 per 500-run chunk, 595 ms in the store and more in the driver. The
+  matcher uses only `Enter` rows of the handlers the plan's deliver events
+  name, plus the sender of each from its first `Dispatch` row. That
+  projection, the join and the cap now happen in the store
+  (`ReadEntersForMatching`), on the finest grouping a delivery can be
+  matched by, so the first 256 candidates of any spec are the rows the
+  matcher would have kept.
+
+Acceptance, all pinned, grade JSON compared after removing `wall_ms` and
+`runs_meta` (the runs table's own steps and wall, which differ between two
+generations of the same plan corpus by the same amount under the old
+writer: mean_steps 9660.051 / 9660.058):
+
+| corpus | runs | old grader | new grader | output |
+|---|---|---|---|---|
+| `find_bug_plan` by the old writer | 3,000 | 0.6 s | 0.4 s | identical; depth_at_least 3000/3000/3000/3000/751/751/751/145/103, h4 105 |
+| `find_bug_plan` by the new writer | 3,000 | 0.6 s | 0.4 s | identical to the above under both graders |
+| VR campaign chunk, new encoding (`enc-vr`) | 172,768 | read 241.4 s, match 7.7 s, wall 279 s | read 54.5 s, match 3.0 s, wall 85 s | identical |
+| VR campaign chunk, old encoding (`term-vr`) | 229,980 | read 319.9 s, match 10.4 s, wall 371 s | read 77.4 s, match 3.9 s, wall 122 s | identical |
+
+`go vet ./... && go test ./...` pass (new tests: both timer encodings,
+label-less and quoted labels, the deliver-function list, the sender join).
+Porcupine batch on both plan corpora: exit 2, the same 11 ids, `skipped_ops`
+0. `cargo test -p spur-core` passes with the timer-effects test asserting the
+column encoding. No epoch bump: every ladder count is identical.
+
+Two reads were tried and rejected on the way, both byte-identical: the
+column-predicate `UNION ALL` alone (241.8 s, no gain) and the aggregated
+timer read alone (227.5 s). The remaining read time is the store's own scan
+of 251M trace rows per corpus; a VR grade is now about a quarter of its
+chunk's explore time rather than one and a half times it.

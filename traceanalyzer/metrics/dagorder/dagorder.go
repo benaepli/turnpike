@@ -90,24 +90,43 @@ type Options struct {
 
 // timerRowFilter restricts the executions read to the rows the matcher can
 // use: every non-timer row, and only those timer firings an allow_timer
-// label of the plan names by node and label.
-func timerRowFilter(cfg *PlanConfig) string {
-	var clauses []string
+// label of the plan names by node and label, read aggregated per run and
+// capped at the matcher's own candidate cap. Each predicate is a conjunction
+// over single columns so the reader can push it into the scan; `encoding`
+// is the corpus's timer encoding from reader.TimerEncoding.
+func timerRowFilter(cfg *PlanConfig, encoding string) []reader.RowClause {
+	clauses := []reader.RowClause{{Where: "kind <> 'TimerFired'"}}
+	if encoding == "none" {
+		return clauses
+	}
+	var timer []reader.RowClause
 	for _, spec := range cfg.Events {
 		if spec.Kind != KindAllowTimer {
 			continue
 		}
-		clause := fmt.Sprintf("CAST(json_extract(payload, '$[0].value.index') AS BIGINT) = %d", spec.Target)
-		if spec.TimerLabel != "" {
-			clause += fmt.Sprintf(" AND json_extract_string(payload, '$[1].value') = '%s'", strings.ReplaceAll(spec.TimerLabel, "'", "''"))
+		label := strings.ReplaceAll(spec.TimerLabel, "'", "''")
+		c := reader.RowClause{PerRunCap: maxCandidates}
+		if encoding == "column" {
+			c.Where = fmt.Sprintf("kind = 'TimerFired' AND client_id = %d", spec.Target)
+			if spec.TimerLabel != "" {
+				c.Where += fmt.Sprintf(" AND action = '%s'", reader.TimerActionPrefix+label)
+			} else {
+				c.Where += fmt.Sprintf(" AND starts_with(action, '%s')", reader.TimerActionPrefix)
+			}
+			c.Node = "client_id"
+			c.Label = fmt.Sprintf("substr(action, %d)", len(reader.TimerActionPrefix)+1)
+		} else {
+			c.Where = fmt.Sprintf("kind = 'TimerFired' AND CAST(json_extract(payload, '$[0].value.index') AS BIGINT) = %d", spec.Target)
+			if spec.TimerLabel != "" {
+				c.Where += fmt.Sprintf(" AND json_extract_string(payload, '$[1].value') = '%s'", label)
+			}
+			c.Node = "CAST(json_extract(payload, '$[0].value.index') AS BIGINT)"
+			c.Label = "json_extract_string(payload, '$[1].value')"
 		}
-		clauses = append(clauses, "("+clause+")")
+		timer = append(timer, c)
 	}
-	if len(clauses) == 0 {
-		return "kind <> 'TimerFired'"
-	}
-	sort.Strings(clauses)
-	return "kind <> 'TimerFired' OR (" + strings.Join(clauses, " OR ") + ")"
+	sort.Slice(timer, func(i, j int) bool { return timer[i].Where < timer[j].Where })
+	return append(clauses, timer...)
 }
 
 // ComputeDagOrder loads the plan config, joins it against trace/execution output,
@@ -218,8 +237,9 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 	if workers < 1 {
 		workers = 1
 	}
-	matchOne := func(rid int64, execs []reader.ExecutionRow, traces []reader.TraceRow) matched {
-		idx := buildRunIndex(execs, traces)
+	functions := deliverFunctions(cfg)
+	matchOne := func(rid int64, execs []reader.ExecutionRow, enters []reader.EnterRow) matched {
+		idx := buildRunIndexFromEnters(execs, enters)
 		cands := make(map[string][]Event, len(cfg.Events))
 		var truncated []string
 		for id, spec := range cfg.Events {
@@ -235,6 +255,12 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 		return matched{rid: rid, truncated: truncated, o: bestMatchingFull(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)}
 	}
 
+	encoding, err := reader.TimerEncoding(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("probe timer encoding: %w", err)
+	}
+	rowFilter := timerRowFilter(cfg, encoding)
+
 	for start := 0; start < len(allIDs) && !result.BudgetExhausted; start += chunkSize {
 		// The budget is checked before a chunk is dispatched: a chunk is graded
 		// whole or not at all.
@@ -248,13 +274,13 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 		}
 		chunk := allIDs[start:stop]
 		readStart := time.Now()
-		execsByRun, err := reader.ReadExecutionsByRunWhere(dbPath, chunk, timerRowFilter(cfg))
+		execsByRun, err := reader.ReadExecutionsByRunWhere(dbPath, chunk, rowFilter)
 		if err != nil {
 			return nil, fmt.Errorf("read executions: %w", err)
 		}
-		tracesByRun, err := reader.ReadTracesByRun(dbPath, chunk)
+		tracesByRun, err := reader.ReadEntersForMatching(dbPath, chunk, functions, maxCandidates)
 		if err != nil {
-			return nil, fmt.Errorf("read traces: %w", err)
+			return nil, fmt.Errorf("read handler entries: %w", err)
 		}
 		readMs := time.Since(readStart).Milliseconds()
 

@@ -25,7 +25,7 @@ type ExecutionRow struct {
 	SeqNum   int64
 	UniqueID int64
 	ClientID int64
-	Kind     string // "Invocation", "Response", "Crash", "Recover"
+	Kind     string // "Invocation", "Response", "Crash", "Recover", "Partition", "Heal", "TimerFired"
 	Action   string
 	Payload  string
 	Step     int32
