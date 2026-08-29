@@ -316,15 +316,25 @@ export async function runOneEvaluation(
       await preserveViolations(ctx, base.id, outputDir, configPath, violatingIds, porc.parsed, rows);
     }
     const gradeDegenerate = gr.parsed === null || (metrics.runs > 0 && metrics.gradedRuns === 0);
+    // A rung rate is its count over the session's exposure, never over the
+    // runs that were graded, so a grade that sampled or ran out of budget
+    // reports the count of a subset against the whole clock and the rung
+    // silently deflates. Sampling asked for is fine; sampling that happened
+    // is a fault.
+    const truncatedDags = opts.gradeMaxRuns === 0
+      ? (gr.parsed?.grade_dags ?? []).filter((d) => d.sampled || d.budget_exhausted)
+      : [];
     const identity = checkRunIdentity(rows, violatingIds, gr.parsed?.runs_meta ?? null, porc.parsed?.total_runs ?? null);
-    const ok = porc.parsed !== null && !gradeDegenerate && identity === null;
+    const ok = porc.parsed !== null && !gradeDegenerate && truncatedDags.length === 0 && identity === null;
     const error = ok
       ? null
       : porc.parsed === null
         ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`
         : gradeDegenerate
           ? `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""})`
-          : identity;
+          : truncatedDags.length > 0
+            ? `truncated grading: ${truncatedDags.map((d) => `${d.config_path} graded ${d.graded_runs} of ${d.available_runs}${d.budget_exhausted ? " (budget exhausted)" : ""}${d.sampled ? " (sampled)" : ""}`).join("; ")}`
+            : identity;
     console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s exposure=${Math.round(exposureMs / 1000)}s${session?.budgetHit ? " (budget hit)" : ""}${(exploreRes.suspendedMs ?? 0) > 0 ? ` (suspended ${Math.round((exploreRes.suspendedMs ?? 0) / 1000)}s)` : ""} porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
     if (!ok) {
       try {

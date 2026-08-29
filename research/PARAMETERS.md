@@ -219,9 +219,14 @@ Three exclusions error the evaluation out. Fast chunks are never anomalies:
 the exposure is the explorer's own clock, which the environment cannot
 inflate. Baseline top-ups apply the same rule against their own siblings.
 
-**Chunk cap.** `maxChunks` stays 4 and equals the baseline's size, which is
-the binding limit: the fourth chunk buys 1.5 points of depth>=6 resolution
-and the next four 0.8. `cli selftest` asserts that the minimum effect at the
+**Chunk cap.** `maxChunks` stays 4 and equals the baseline's size. The
+resolution argument that set it no longer holds: at the counts after the
+throughput merges the fourth candidate chunk buys 0.10 points of depth>=6
+resolution and the fourth baseline chunk 0.27, against the 1.5 points claimed
+when it was chosen. What binds depth>=6 now is chunk-to-chunk throughput
+dispersion, 77% of that rung's variance against 23% from event counts, so the
+rung sits at 3.17% against a count-limited floor of 1.07%. A cheaper
+dispersion estimate, not more chunks, is what would move it. `cli selftest` asserts that the minimum effect at the
 cap is within 1.5x the unbounded floor at the measured counts, so a change
 of budget, rates or baseline size that breaks the relation fails loudly.
 

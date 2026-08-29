@@ -222,6 +222,14 @@ export function finalGate(i: FinalGateInputs): GateDecision {
       } else if (classifyChangeRisk(i.changedSpurFiles) === "semantics") {
         verdict = "needs_human";
         reasons.push("touches execution-semantics files");
+      } else if (cmp.improved.length === 1 && cmp.improved[0] === "violations") {
+        // A violation belongs to the configuration that produced it. They
+        // arrive at about one per 1.7M runs, so a chunk carries one often
+        // enough that the candidate running at the time is usually not the
+        // reason. The arm it came from is recorded beside the evidence;
+        // compare it with the arms the change touches.
+        verdict = "needs_human";
+        reasons.push("the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches");
       } else {
         verdict = "auto_merge";
         reasons.push(`improved: ${cmp.improved.join(", ") || "(enabling, non-inferior)"}`);
