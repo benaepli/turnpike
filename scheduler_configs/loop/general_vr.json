@@ -48,6 +48,12 @@
     "steer_audit": true,
     "novelty_enabled": false
   },
+  "steer_terms": {
+    "crash_after_timer_sends": 0,
+    "crash_after_delivery_sends": 0,
+    "stale_late": 0,
+    "request_before_stale": 0
+  },
   "stats": true,
   "emit_acted_fraction": true,
   "emit_multiplier_authority": true,
