@@ -71,22 +71,33 @@ lane whose merge rate is 1 in 26.
 Iteration 5318 proposed nearly the same idea, `stall-abort-progress-termination`,
 and running it produced the comparison neither hypothesis could give alone.
 
-| per run | 5315 end-at-stall | 5318 stall-abort | grid-short |
-| --- | --- | --- | --- |
-| throughput | 1.454 | 1.832 | 3.45 |
-| depth>=4 | 0.987 | 0.987 | 1.004 |
-| depth>=5 | 1.006 | 0.962 | 0.992 |
-| depth>=6 | 1.036 | 0.930 | 0.929 |
-| depth>=7 | 1.045 | 0.922 | 0.891 |
-| violations | 1 | 0 | - |
+| per run | 5315 end-at-stall | 5318 stall-abort | 5319 adaptive budget | 5323 off-identity | grid-short |
+| --- | --- | --- | --- | --- | --- |
+| throughput | 1.454 | 1.832 | 1.796 | 1.948 | 3.45 |
+| depth>=4 | 0.987 | 0.987 | 0.986 | 0.970 | 1.004 |
+| depth>=5 | 1.006 | 0.962 | 0.968 | 0.975 | 0.992 |
+| depth>=6 | 1.036 | 0.930 | 0.936 | 0.981 | 0.929 |
+| depth>=7 | 1.045 | 0.922 | 0.923 | 0.926 | 0.891 |
+| violations | 1 | 0 | 0 | 0 | - |
 
-The two candidates agree on depth>=4 per run to three decimals and disagree
-everywhere else. 5318 reproduces the truncation arm's profile almost exactly,
-so it is cutting runs short; 5315 inverts it, so it is ending runs that had
-stopped. The rung the guard watches cannot tell them apart. The rungs that
-can are held to a margin, or to nothing.
+Four candidates for one idea, all closed by the same rule. The statistic the
+rule reads spans 0.970 to 0.987 across them. What they do spans a throughput
+gain of 45% to 95%, per-run effects at depth>=7 from +4.5% to -7.8%, and one
+violation against none.
 
-Both were closed by the same rule, quoting the same number.
+5318 and 5319 sit on the truncation arm's profile, so they cap runs. 5315
+inverts it, so it ends runs that had already stopped, and it is the one that
+found a violation - which is also what the two violations on record look
+like, both completing their plans in 608 and 498 steps against a budget of
+6000. 5323 kept its progress signal out of the state-identity path and
+recovered depth>=6 per run to 0.981 from the 0.930 the other two pay, which
+is what would happen if the earlier detectors were perturbing deduplication
+through `signature()`; its depth>=7 carries about 3,700 events, so the gap
+between its depth>=6 and depth>=7 should not be read hard.
+
+Guarding depth>=6 and depth>=7 on the margin the deep rungs already use would
+separate these four the way their behaviour does. Guarding depth>=4 does not
+separate them at all.
 
 ## What would settle it
 

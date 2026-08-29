@@ -92,5 +92,20 @@
     "generalityArgument": "A representation change to the interpreter's value type; no scheduler, message, role or timer logic is involved, and the regression suite plus ladder non-inferiority gate any semantic drift.",
     "createdAtIso": "2026-08-29T05:10:00Z",
     "notes": "small-chunks also lowers imbl's hash-map fan-out (HASH_LEVEL_SIZE 5 to 3) and ord-map chunk (64 to 6), which deepens ValueMap tries; if the combined change fails the bench gate, bench the boxing alone before giving up, since the size reduction stands on its own. The bench workload's rounds are about 4 s on this host, so read strict dominance across rounds, not the mean alone."
+  },
+  {
+    "id": "grade-prefix-depth-bound-prune",
+    "parent": null,
+    "kind": "grader",
+    "title": "Skip the prefix-depth local search on runs that cannot reach the depth already found",
+    "description": "In traceanalyzer/metrics/dagorder only. Before running the per-run local search that costs -dag-swaps per run, compute a cheap upper bound on the prefix depth a run can reach: the length of the longest chain of oracle vertices for which the run holds at least one candidate row each, which the matcher already reads to build its candidate sets. When that bound does not exceed the depth the run has already been credited with, skip the search and record the depth the bound gives. The bound must be sound, so the emitted depth_at_least, mean_prefix_depth, per_run and run_depths are byte-identical to today's on the same corpus; a differing byte is the falsifier. No change to what is graded, to the oracle, or to any metric definition.",
+    "category": "grader",
+    "buildsOn": [],
+    "expectedGain": 3,
+    "expectedCost": 1,
+    "rationale": "Grading is 153 s of a 454 s chunk, 34%, against the 25% the operator playbook treats as the point to act, and the share rises mechanically with explorer throughput: explore is a fixed 301 s budget, so a faster explorer hands the grader more runs for the same window. At 844 runs a second grading was 23%; at 861 it is 34%; the stall-family candidates measured 1229 and 1548 runs a second, at which grading would dominate the chunk. Most runs are shallow - P(depth>=6) is about 0.04 - so the search budget is spent overwhelmingly on runs that cannot reach a deep prefix, and a sound bound skips them without changing a single graded number.",
+    "generalityArgument": "The bound counts candidate rows per oracle vertex, which the matcher already computes for every configuration it is given. It names no protocol, handler, message or label, and it reads the oracle config rather than any particular oracle.",
+    "createdAtIso": "2026-08-29T13:40:00Z",
+    "notes": "Byte-identical output is the whole contract: the operator playbook admits a grader speedup only on that basis, since anything that changes a graded number changes what every past result means. Verify by grading one corpus with both binaries and diffing the JSON, not by comparing summary statistics."
   }
 ]
