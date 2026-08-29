@@ -39,9 +39,14 @@ export function lineageDepth(h: Hypothesis, byId: Map<string, Hypothesis>): numb
 // second lineage term here would weigh the same evidence again, and outweigh
 // the judge's own reading of it. Fresh lineages are guaranteed a share of the
 // selections by the exploration quota, not by a novelty bonus.
+// Gain and cost are one currency, so a candidate ranks on their difference.
+// A ratio would demand that a cost-4 candidate return four times what a
+// cost-1 candidate returns, but the loop runs one hypothesis per iteration
+// and evaluation holds about two thirds of every iteration whatever the
+// candidate is. Cost separates candidates whose gains are comparable; it
+// does not outweigh a difference in gain.
 export function scoreHypothesis(h: Hypothesis): number {
-  const prior = h.expectedGain / Math.max(h.expectedCost, 0.1); // 0..100
-  return Math.min(prior / 10, 1);
+  return h.expectedGain - h.expectedCost;
 }
 
 // Mechanism utilization (from utilization.json collected on the evaluation
@@ -158,7 +163,8 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
       const best = Math.max(seq.posteriors["depth>=4:pGreater"] ?? 0, seq.posteriors["depth>=5:pGreater"] ?? 0, seq.posteriors["depth>=6:pGreater"] ?? 0);
       // Resuming costs only sampling time, so the evidence stands in for
       // the gain/cost prior; a probable effect outranks any fresh guess.
-      return 0.5 * best + best;
+      // The posterior is the gain, and the implementation is already paid for.
+      return 10 * best;
     }
     // Sampling interrupted before a verdict ranks as the proposal did.
     const shrunk: Hypothesis = { ...h, expectedGain: h.expectedGain * calib };
