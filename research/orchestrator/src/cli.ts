@@ -1,6 +1,6 @@
 // CLI entrypoints. Run from research/orchestrator with:
 //   npx tsx src/cli.ts <command>
-// Commands: baseline | once | start | status | regression | selftest
+// Commands: baseline | once | start | status | regression | selftest | profile
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { runEvaluation, selfTestRunIdentity, type EvalContext } from "./evaluate.js";
@@ -236,6 +236,21 @@ async function main(): Promise<void> {
         const errs = validateManifest(loadPanelManifest(manifestPath), policy.regression.wallSecPerCase, 1 - policy.regression.throughputTolerance);
         if (errs.length) { console.error("manifest invalid after calibration:", errs); process.exitCode = 1; }
         else console.log(`manifest calibrated: ${manifestPath}`);
+        break;
+      }
+      case "profile": {
+        const { policy } = loadPolicy(POLICY_PATH);
+        const { collectProfile } = await import("./bench.js");
+        const { writeProfileObservation, PROFILE_PATH } = await import("./loop.js");
+        const snap = await collectProfile(policy, SPUR_BIN);
+        if (!snap.ok) {
+          console.log(`profile not recorded: ${snap.text}`);
+          console.log("perf record needs kernel.perf_event_paranoid <= 2 (sysctl -w kernel.perf_event_paranoid=1)");
+          process.exitCode = 1;
+          break;
+        }
+        writeProfileObservation(policy, "operator", snap.text);
+        console.log(`${PROFILE_PATH} written; commit it with the observations\n${snap.text.split("\n").slice(0, 12).join("\n")}`);
         break;
       }
       case "status": {

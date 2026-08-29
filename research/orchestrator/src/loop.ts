@@ -213,10 +213,28 @@ function parkForStop(state: LoopState, n: number, h: Hypothesis, branch: string,
 
 // Observations live in a tracked file that the next preflight resets, so
 // every append is committed on the research branch at once.
+export const PROFILE_PATH = "research/observations/PROFILE.md";
+
+// The explorer profile the proposer's perf lens and the judge read. Written
+// only from a successful perf record, so a locked perf leaves the last good
+// profile in place; the header dates it.
+export function writeProfileObservation(policy: Policy, by: string, report: string): void {
+  const header = [
+    "# Explorer profile",
+    "",
+    `Generated ${new Date().toISOString()} at ${by}: perf record on the bench workload (${policy.perf.benchConfig}, ${policy.evaluation.rayonThreads} threads, spur ${currentCommit(SPUR).slice(0, 7)}), top symbols by self time, perf report --no-children --percent-limit 1.`,
+    "",
+    "A perf hypothesis names one of these symbols as its hotspot. Symbols that belong to the writer or the grader instrumentation are not candidates: the ladder and regression gates reject their removal.",
+    "",
+    "```",
+  ].join("\n");
+  writeFileSync(path.join(ROOT, PROFILE_PATH), `${header}\n${report.trimEnd()}\n\`\`\`\n`);
+}
+
 function persistObservations(n: number): void {
   try {
     if (currentBranch(SUPER) !== RESEARCH_BRANCH) return;
-    if (commitPaths(SUPER, ["research/observations/OBSERVATIONS.md"], `observations through iteration ${n}`)) push(SUPER, RESEARCH_BRANCH);
+    if (commitPaths(SUPER, ["research/observations/OBSERVATIONS.md", PROFILE_PATH], `observations through iteration ${n}`)) push(SUPER, RESEARCH_BRANCH);
   } catch (err) {
     console.error(`observations not persisted: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -916,7 +934,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         const util0 = await collectUtilization(policy);
         if (util0.trim().startsWith("{")) state.setMeta("utilization", util0);
         const profile = await collectProfile(policy, SPUR_BIN);
-        const util = `${util0}\n\n## perf profile (top symbols)\n${profile}`;
+        if (profile.ok) writeProfileObservation(policy, `iteration ${n}`, profile.text);
+        const util = `${util0}\n\n## perf profile (top symbols)\n${profile.text}`;
         const ledger = JSON.stringify(state.countByStatus()) + "\n" + JSON.stringify(timings) + "\n" + implementActivityDigest(15);
         const evalConfig = readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8");
         const lastChunk = state.allEvaluations().filter((e) => e.fidelity === "sequential" && e.ok).at(-1);

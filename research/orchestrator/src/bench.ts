@@ -129,9 +129,11 @@ export async function runBench(policy: Policy, candidateBin: string, baselineBin
   };
 }
 
-// Profile snapshot for the audit/proposer: 60s perf record on the bench
+// Profile snapshot for the audit/proposer: perf record on the bench
 // workload, reported as top symbols. Requires perf_event_paranoid <= 2.
-export async function collectProfile(policy: Policy, binary: string): Promise<string> {
+// `ok` is false when no report was produced; `text` then carries the reason.
+export interface ProfileSnapshot { ok: boolean; text: string }
+export async function collectProfile(policy: Policy, binary: string): Promise<ProfileSnapshot> {
   const { run } = await import("./runners.js");
   const outputDir = path.join(ROOT, "tmp", "loop", "profile-snap");
   const perfData = path.join(ROOT, "tmp", "loop", "profile-snap.perf.data");
@@ -143,12 +145,12 @@ export async function collectProfile(policy: Policy, binary: string): Promise<st
       binary, "explore", "-e", "standard", "--config", configPath, "-y", "--output-dir", outputDir,
       resolveRoot(policy.evaluation.spec),
     ], { timeoutMs: 180_000, cwd: ROOT, env: { ...process.env, RAYON_NUM_THREADS: String(policy.evaluation.rayonThreads), RUST_LOG: "warn" } });
-    if (!rec.ok && !fs.existsSync(perfData)) return `(perf record failed: ${rec.stderr.slice(-400)})`;
+    if (!rec.ok && !fs.existsSync(perfData)) return { ok: false, text: `(perf record failed: ${rec.stderr.slice(-400)})` };
     const rep = await run("perf", ["report", "--stdio", "--percent-limit", "1", "--no-children", "-i", perfData], { timeoutMs: 120_000, cwd: ROOT });
     const lines = rep.stdout.split("\n").filter((l) => !l.startsWith("#") || l.includes("Overhead")).slice(0, 45).join("\n");
-    return rep.ok ? lines : `(perf report failed: ${rep.stderr.slice(-400)})`;
+    return rep.ok ? { ok: true, text: lines } : { ok: false, text: `(perf report failed: ${rep.stderr.slice(-400)})` };
   } catch (e) {
-    return `(profile collection error: ${String(e)})`;
+    return { ok: false, text: `(profile collection error: ${String(e)})` };
   } finally {
     fs.rmSync(perfData, { force: true });
     try { cleanupDir(outputDir); } catch { /* ignore */ }

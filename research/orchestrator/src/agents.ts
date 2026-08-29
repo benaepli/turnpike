@@ -231,18 +231,25 @@ export const PROPOSAL_LENSES = [
   "feedback/novelty: what coverage signal would make the scheduler chase crash-recovery message races; incarnation-awareness",
   "ablation and salvage: mechanisms with zero utilization, dead or miswired knobs, unexercised code paths - remove, fix, or enable them",
   "scheduling theory: PCT priority change points, partial-order methods, queue-policy shapes that concentrate schedules near fault windows",
-  "profile-guided performance (kind: perf): read the latest perf profile in observations; propose hotspot reductions that raise runs/sec without changing scheduling semantics or instrumentation the grader needs",
+  "profile-guided performance (kind: perf): read the explorer profile section below; propose reductions of a named hotspot that raise runs/sec without changing scheduling semantics or instrumentation the grader needs. Without a profile, propose nothing through this lens.",
   "arm composition (kind: arm): edit only the campaign block of the evaluation template - add, drop or re-overlay a generic arm (a grid overlay on an existing config field, a curriculum or an aos arm) so that rung events per second rise for the campaign as a whole; each arm keeps its own feedback state, so an arm is a search, not a knob; never name a protocol handler, message or role",
   "premise check: is the current config/workload even capable of reaching the goal? The bug lives at a depth the general config may never supply enough events to reach. Propose config or plan-generation experiments (more client operations, more concurrent crashes, longer or richer plans, curriculum changes) and structural diagnostics that test whether the ceiling is a scheduler problem or an event-supply/config limit - not another scheduler knob. A single such experiment that reframes the search is worth more than ten mechanism tweaks against a hard cap.",
 ];
 
+// The audit's last successful perf record, or a line saying there is none.
+function latestProfile(): string {
+  const text = readIfExists(path.join(ROOT, "research/observations/PROFILE.md")).trim();
+  return text ? text.slice(0, 6000) : "(no profile recorded: perf record has not succeeded on this host)";
+}
+
 export async function proposeHypotheses(policy: Policy, lens: string, statusMd: string, existingIds: string[], evalContext: string): Promise<RoleResult<{ hypotheses: unknown[] }>> {
   const goal = readIfExists(path.join(ROOT, "research/GOAL.md"));
   const observations = readIfExists(path.join(ROOT, "research/observations/OBSERVATIONS.md")).slice(-8000);
+  const profile = latestProfile();
   const r = await textRole({
     model: policy.models.propose,
     system: "You are a distributed-systems research scientist generating falsifiable, implementable hypotheses for improving a protocol-fuzzing scheduler. You never propose protocol-specific hacks.",
-    prompt: `${goal}\n\n## Current status\n${statusMd.slice(0, 12000)}\n\n## What a candidate is measured on\n${evalContext}\n\n## Recent observations\n${observations}\n\n## Your lens for this round\n${lens}\n\n## Existing hypothesis ids (do not duplicate)\n${existingIds.join(", ") || "(none)"}\n\nPropose 2-4 hypotheses through your lens. Each must be implementable in <300 lines of Rust/config change, opt-in (config-gated, default off), and protocol-agnostic. Change only the subject (spur, scheduler_configs/loop) or, for grader-kind, traceanalyzer. Never propose changing the evaluation harness, the orchestrator, the fixed evaluation config, or the sequential/gate protocol - those are fixed and operator-owned, and such a proposal will be rejected.\n${HYPOTHESIS_JSON_GUIDE}`,
+    prompt: `${goal}\n\n## Current status\n${statusMd.slice(0, 12000)}\n\n## What a candidate is measured on\n${evalContext}\n\n## Recent observations\n${observations}\n\n## Explorer profile (top symbols)\n${profile}\n\n## Your lens for this round\n${lens}\n\n## Existing hypothesis ids (do not duplicate)\n${existingIds.join(", ") || "(none)"}\n\nPropose 2-4 hypotheses through your lens. Each must be implementable in <300 lines of Rust/config change, opt-in (config-gated, default off), and protocol-agnostic. Change only the subject (spur, scheduler_configs/loop) or, for grader-kind, traceanalyzer. Never propose changing the evaluation harness, the orchestrator, the fixed evaluation config, or the sequential/gate protocol - those are fixed and operator-owned, and such a proposal will be rejected.\n${HYPOTHESIS_JSON_GUIDE}`,
     schema: z.object({ hypotheses: z.array(z.unknown()) }),
     retries: 1,
   });
@@ -264,7 +271,7 @@ export async function judgeHypotheses(policy: Policy, candidates: unknown[], poo
   return textRole({
     model: policy.models.judge,
     system: "You are an adversarial research lead scoring proposals for a bandit that will spend real compute on them. Proposers are systematically optimistic; your job is to normalize their claims against the rubric and against what past hypotheses actually delivered. You reject duplicates, protocol-specific hacks, vague proposals, and anything that cannot be evaluated against the metric ladder.",
-    prompt: `## Existing pool (summaries)\n${poolSummaries.join("\n") || "(empty)"}\n\n## Findings already established (observations log)\n${readIfExists(path.join(ROOT, "research/observations/OBSERVATIONS.md")).slice(-9000)}\n\n## What a candidate is measured on\n${evalContext}\nReject any candidate whose effect is confined to a mechanism with zero activity unless it is an enabling hypothesis that switches that mechanism on; set buildsOn to the mechanisms the change needs to be active.\n\n## Calibration: predicted vs realized for evaluated hypotheses\n${calibration || "(no completed evaluations yet)"}\n\n${JUDGE_RUBRIC}\n\n## Candidates\n${JSON.stringify(candidates, null, 2).slice(0, 30000)}\n\nReturn only the candidates worth keeping (deduplicated against pool and each other, rejecting rule-violating ones), with YOUR expectedGain/expectedCost. ${HYPOTHESIS_JSON_GUIDE}`,
+    prompt: `## Existing pool (summaries)\n${poolSummaries.join("\n") || "(empty)"}\n\n## Findings already established (observations log)\n${readIfExists(path.join(ROOT, "research/observations/OBSERVATIONS.md")).slice(-9000)}\n\n## What a candidate is measured on\n${evalContext}\nReject any candidate whose effect is confined to a mechanism with zero activity unless it is an enabling hypothesis that switches that mechanism on; set buildsOn to the mechanisms the change needs to be active.\n\n## Calibration: predicted vs realized for evaluated hypotheses\n${calibration || "(no completed evaluations yet)"}\n\n## Explorer profile (top symbols)\n${latestProfile()}\n\n${JUDGE_RUBRIC}\n\n## Candidates\n${JSON.stringify(candidates, null, 2).slice(0, 30000)}\n\nReturn only the candidates worth keeping (deduplicated against pool and each other, rejecting rule-violating ones), with YOUR expectedGain/expectedCost. ${HYPOTHESIS_JSON_GUIDE}`,
     schema: z.object({ hypotheses: z.array(z.unknown()) }),
     retries: 1,
   });

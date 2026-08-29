@@ -26,7 +26,11 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
    `research/loop-start.sh` uses all 30 threads. The thread count derives
    from the mask and selects the baseline and panel manifest; `cli status`
    lists every calibrated count with its spur commit and whether it is
-   current, and the loop refuses to start on a missing or stale one.
+   current, and the loop refuses to start on a missing or stale one. If
+   `research/observations/PROFILE.md` is missing or older than the spur
+   commit, run `npx tsx src/cli.ts profile` (needs
+   `kernel.perf_event_paranoid <= 2`; on refusal ask the user for the
+   sysctl) and commit it, or the perf lens has nothing to aim at.
 3. Reap orphaned monitor processes from earlier sessions, then arm the three
    monitors from `reference/monitors.md` (event watcher + heartbeat + churn
    detector). Never run two of the same; stop duplicates with TaskStop.

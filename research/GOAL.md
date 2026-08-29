@@ -303,6 +303,9 @@ preserved baseline binary (strict dominance + >=5% mean improvement), gated by
 ladder non-inferiority + the regression suite so "optimizations" that break
 scheduling semantics or grader instrumentation are rejected. Profile snapshots
 (perf record on the bench workload) are collected at audit time and stored in
-observations — aim perf hypotheses at measured hotspots, not guesses. The
+`observations/PROFILE.md`, which the proposer's perf lens and the judge read;
+`cli profile` records one on demand, and perf record needs
+`kernel.perf_event_paranoid <= 2` — aim perf hypotheses at measured hotspots,
+not guesses. The
 easiest false win — removing instrumentation the grader needs — fails the
 ladder/regression gates; do not propose it.
