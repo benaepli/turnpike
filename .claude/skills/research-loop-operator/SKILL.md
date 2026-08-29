@@ -113,6 +113,19 @@ the verdict to `research/observations/`.
    at the top of the ladder.
 6. State a verdict: continue, recalibrate, or change direction. "Continue"
    needs a reason beyond the absence of a reason to stop.
+7. Re-measure the relaxation gap:
+   `node research/observations/relaxation_gap.mjs --plan research/oracle/tiers/relax_minimal.json`
+   (about 15 minutes; do not run beside a chunk). It ablates each plan edge
+   and reports the violation lift each ordering supplies. The gap is a
+   property of the current explorer, so as mechanisms merge, edges should
+   move from "necessary" toward "slack"; that movement is progress the depth
+   ladder cannot show. Before writing any takeaway: a plan edge is a partial
+   order, so a zero means the free interleaving is rare, never that two events
+   are adjacent. Read at least three of the dumped failing runs, check the
+   unrelaxed tier (`find_bug_plan.json`, which names events the minimal plan
+   omits) and `research/oracle/bug.md`, and phrase every shape as "raises the
+   probability of ...". Re-ablate the unrelaxed tier occasionally: an edge that
+   is slack given the others can be load-bearing in a different tier.
 
 Escalate to the operator rather than deciding alone when the answer implicates
 something the loop may not touch: the evaluation grid, the oracle, the spec

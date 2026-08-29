@@ -205,6 +205,25 @@ it did not add one. Add a counter in `spur-core/src/simulator/util_stats.rs`
 alongside the existing ones, and state in the hypothesis what value of it
 would mean the mechanism fired as intended.
 
+Measured (relaxation gap, 2026-08-28, `observations/RELAXATION_GAP.md`): a
+leave-one-out ablation of `oracle/tiers/relax_minimal.json` at 20,000 and
+100,000 plan runs finds four orderings that carry the bug and none other.
+Read them as probability lifts, since a plan edge only holds one event until
+another has happened and everything else interleaves freely; what sits between
+the anchored events was read off the failing runs, not the table. The general
+explorer has to make these four more likely, and none names a handler:
+a node crashing while sends it made in response to a timer are in flight
+(the timer-triggered case is the one that matters: removing that edge gives
+0 violations); a node crashing while sends it made in response to a delivery
+are in flight; a stale-incarnation delivery landing after its receiver has
+moved on, so that it is acted on rather than absorbed; and client work
+accepted by the old configuration while a stale delivery to the old primary is
+still undelivered. The order of the reads is slack, and freeing all other
+timers costs only 1.4x with those orderings kept, so the lever is placing one
+timer-triggered send before its sender's crash, not fewer timers. The unrelaxed
+tier violates about ten times as often as the minimal one, so the tiers
+themselves are a probability ladder the explorer can be measured against.
+
 ## Rules (enforced mechanically; violating them wastes the iteration)
 
 1. Generality: scheduler code and general configs must never mention VR handler names
