@@ -77,5 +77,20 @@
     "generalityArgument": "The arm changes a delay rate applied to every send into a preference that acts only when a delivery's sender has restarted and its receiver has moved on, both of which any protocol with crashes has; no handler, message or role is named.",
     "createdAtIso": "2026-08-29T04:32:07Z",
     "notes": ""
+  },
+  {
+    "id": "value-size-and-chunk-allocation",
+    "parent": null,
+    "kind": "perf",
+    "title": "Shrink Value by boxing its vectors and bring imbl chunks under the tcache limit",
+    "description": "In spur-core/src/simulator/core/values.rs, ValueKind::List and ValueKind::Tuple carry imbl::Vector<Value> inline. Vector is 64 bytes, so ValueKind is 72 and Value is 80 bytes while every other variant fits in 32 (ValueMap 16, EcoString 16, Arc 8). Box the two vectors (Box or Arc, whichever keeps clone cheapest on the hot path) so Value drops to about 40 bytes, and enable imbl's small-chunks cargo feature so a vector chunk is 16 + 4 * size_of Value instead of 16 + 64 * 80 = 5136 bytes. Pin the new size_of Value with a unit test. Keep the global allocator: mimalloc through LD_PRELOAD measured 8% slower on the bench workload (glibc 55.3 / 55.2 s against mimalloc 60.0 / 59.7 s for 30,000 runs, ABBA, 14 threads on CCD 0, 2026-08-29), so the allocator is not the cost; the bytes moved are. Scheduling semantics are untouched and executions must stay byte-identical per seed.",
+    "category": "performance",
+    "buildsOn": [],
+    "expectedGain": 6,
+    "expectedCost": 3,
+    "rationale": "Measured on HEAD (spur ed04f9a): size_of Value 80, Vector 64, ValueMap 16, EcoString 16. imbl stores a vector inline only when (size_of RRB - 8) / size_of element >= 1, which is 48 / 80 = 0, so every non-empty list or tuple value owns a heap chunk of 5136 bytes whatever its length; Spur lists are a few uids long. An LD_PRELOAD count of the bench workload (2000 runs, 4 s) saw 136 million allocations, 68 thousand per run, of which the 14.6% at or above 1032 bytes (glibc's tcache limit) carried 94% of the 190 GB allocated, about 47 GB/s of memory traffic. The one perf hypothesis merged so far (reduce-explorer-memory-footprint, +29.9% on the bench) won by cutting the same traffic in env slots; this is the same lever on the value representation itself.",
+    "generalityArgument": "A representation change to the interpreter's value type; no scheduler, message, role or timer logic is involved, and the regression suite plus ladder non-inferiority gate any semantic drift.",
+    "createdAtIso": "2026-08-29T05:10:00Z",
+    "notes": "small-chunks also lowers imbl's hash-map fan-out (HASH_LEVEL_SIZE 5 to 3) and ord-map chunk (64 to 6), which deepens ValueMap tries; if the combined change fails the bench gate, bench the boxing alone before giving up, since the size reduction stands on its own. The bench workload's rounds are about 4 s on this host, so read strict dominance across rounds, not the mean alone."
   }
 ]
