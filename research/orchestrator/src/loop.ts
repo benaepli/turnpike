@@ -831,7 +831,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // the separable threshold. A precisely-measured sub-threshold effect
         // (low pMei) will never separate against the fixed-size baseline, so
         // it is closed rather than re-sampled every cooldown.
-        const bestPMei = Math.max(res.seq.posteriors["depth>=4:pMei"] ?? 0, res.seq.posteriors["depth>=5:pMei"] ?? 0, res.seq.posteriors["depth>=6:pMei"] ?? 0);
+        const bestPMei = Math.max(res.seq.posteriors["depth>=4:pMei"] ?? 0, res.seq.posteriors["depth>=5:pMei"] ?? 0,
+          res.seq.posteriors["depth>=6:pMei"] ?? 0, res.seq.posteriors["depth>=7:pMei"] ?? 0, res.seq.posteriors["depth>=8:pMei"] ?? 0);
         if (bestPMei >= RESUME_PMEI_MIN && res.seq.resumes < policy.sequential.maxResumes) {
           markInconclusive(state, n, h, branch, res.seq, res.reason, spurFiles.length > 0);
           return;

@@ -52,7 +52,7 @@ export function exposureVarianceOf(
 
 // The rungs a separated per-second gain can advance on. Deeper rungs carry
 // too few events per session to decide (research/observations/POWER_FLOOR.md).
-export const ADVANCE_RUNGS = [4, 5, 6] as const;
+export const ADVANCE_RUNGS = [4, 5, 6, 7, 8] as const;
 
 export interface Comparison {
   improved: string[];
