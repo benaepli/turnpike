@@ -41,9 +41,15 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
 
 - The running daemon uses the modules it loaded at start; edits to
   `research/orchestrator/src` take effect only after a restart.
-- The daemon's preflight hard-resets and cleans both working trees at every
-  iteration start. Uncommitted edits in the repo are wiped. Stage harness
-  patches as scripts in your scratchpad and apply them only at a boundary.
+- The daemon's preflight resets spur whole and the superproject only inside
+  its lanes (`spur`, `scheduler_configs/loop`, `research/evaluations`,
+  `research/observations`, `research/policy.json`, `research/POLICY.md`).
+  Anything dirty outside those lanes is stashed by path around every reset
+  and restored after, so orchestrator source, the grader and the runbooks
+  survive an iteration and can be edited and typechecked while the loop
+  runs. A stash that no longer applies is left in the stash and reported on
+  stderr rather than dropped - check `git stash list` if a reset was noisy.
+  Uncommitted edits inside a lane are still wiped every iteration.
 - Files read per prompt (`research/GOAL.md`, `research/STYLE.md`,
   `research/seed_hypotheses.json` via `cli seed`) may be edited and committed
   immediately with a targeted `git add <paths>`; never `git add -A` in the
@@ -160,14 +166,29 @@ under test, or the merge bar itself.
 
 ## Boundary procedure (the only way to land harness changes)
 
-1. `touch research/STOP`. The running agent phase aborts within seconds
-   (reflect is the exception: it always completes, so its observation is
-   kept); the iteration parks its hypothesis with a `[stop]` note; the
-   daemon exits. Wait for the event watcher's ALERT (unit inactive). To
-   lose nothing, touch STOP at the `decision` event of the running
-   iteration: publish and reflect then finish and the loop exits before
-   the next selection (a trigger on `reflect` is too late; the next
-   iteration starts within a second of it).
+1. `touch research/DRAIN`. The iteration in flight runs to its natural end -
+   decision, merge, baseline top-up, reflection - and the loop then parks
+   between iterations and writes `research/PARKED` with the iteration number
+   and how long it has held. Wait for `PARKED` to exist (or the `parked`
+   journal event), not for the unit to go inactive: the daemon is alive and
+   idle, holding nothing. `rm research/DRAIN` resumes within five seconds
+   and re-reads `research/policy.json`, journaling `resumed` with the keys
+   that changed; a policy edit under `sequential` or `evaluation` while a
+   hypothesis is still sampling is refused rather than applied mid-sample.
+   A hold nobody releases self-releases after six hours (`park_expired`);
+   `{"owner":..,"reason":..,"maxHoldSec":..}` in the DRAIN file sets that
+   and names the holder in the journal.
+
+   Park first for anything that is not orchestrator source. Editing
+   `research/orchestrator/src` still needs a restart, because the daemon
+   uses the modules it loaded at start: park, then `touch research/STOP`
+   while parked, which exits cleanly from a state with nothing in flight.
+
+   `touch research/STOP` on its own keeps its old meaning - abort the
+   running phase within seconds, park the hypothesis with a `[stop]` note,
+   exit - and is the only thing that works on a wedged phase. Reflect is the
+   exception and always completes. Taking STOP mid-iteration costs the
+   iteration; take DRAIN unless something is stuck.
 2. Verify both repos on `research/auto-vr`, clean. Delete leftover local
    `hyp/*` branches in both repos, except the branches of `inconclusive`
    hypotheses (`cli status` lists them): those hold work that resumes.
@@ -184,7 +205,7 @@ under test, or the merge bar itself.
    Results stay in the record; they no longer feed calibration, lineage
    scoring, or the re-judge. A pure harness fix that does not change
    measurement (a git-op fix, a timeout) does not need a bump.
-7. `rm -f research/STOP`; start in the same mode as before
+7. `rm -f research/STOP research/DRAIN research/PARKED`; start in the same mode as before
    (`SPUR_LOOP_CPUS=... research/loop-start.sh`, or plain for the whole
    machine); re-arm the event watcher (the old one ends on the ALERT).
 8. A grader change additionally requires: `research/corpus/manifest.json`

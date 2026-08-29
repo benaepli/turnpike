@@ -4,7 +4,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { runEvaluation, selfTestRunIdentity, type EvalContext } from "./evaluate.js";
-import { commitAll, currentCommit, ensureClean, SPUR, SUPER } from "./gitops.js";
+import { commitLanes, currentCommit, ensureClean, SPUR, SUPER, SUPER_LANES } from "./gitops.js";
 import { baselineEvidencePath, baselineKey, graderVersion, loadBaseline, loadReference, selfTestBaselineKeys, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
 import { baselineLadder, renderPolicyMd, selfTestRender, writeStatus } from "./render.js";
@@ -67,7 +67,7 @@ async function cmdBaseline(state: LoopState): Promise<void> {
   } catch (e) {
     console.log(`WARNING: could not refresh tmp/loop/spur-baseline: ${String(e)}`);
   }
-  commitAll(SUPER, `baseline evaluation 000 at ${threads} threads (grader ${ctx.graderVersion})`);
+  commitLanes(SUPER, SUPER_LANES, `baseline evaluation 000 at ${threads} threads (grader ${ctx.graderVersion})`);
   console.log(`baseline recorded at ${threads} threads: rps=${rps.toFixed(1)}, evidence in ${path.relative(ROOT, baselineEvidencePath(threads))}`);
 }
 

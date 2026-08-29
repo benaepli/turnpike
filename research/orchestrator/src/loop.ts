@@ -13,12 +13,12 @@ import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
 import {
-  RESEARCH_BRANCH, SPUR, SUPER, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, snapshotWork, rebaseOnto, resetBranchTo,
+  RESEARCH_BRANCH, SPUR, SUPER, SUPER_LANES, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, preservingOperatorTree, snapshotWork, rebaseOnto, resetBranchTo,
   currentCommit, deleteBranch, diffText, createPr, lintArmScope, lintCampaignAllocation, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
-import { POLICY_KEYS } from "./policy.js";
+import { POLICY_KEYS, loadPolicy } from "./policy.js";
 import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, resolveRoot, run, templateHasCampaign } from "./runners.js";
 import { diffConfigPaths, type PanelArms } from "./panel.js";
 import { runRegression } from "./regression.js";
@@ -217,6 +217,27 @@ export function journal(state: LoopState, iteration: number, event: string, data
 
 const stopRequested = (): boolean => existsSync(path.join(ROOT, "research", "STOP"));
 
+const DRAIN_PATH = path.join(ROOT, "research", "DRAIN");
+const PARKED_PATH = path.join(ROOT, "research", "PARKED");
+const POLICY_PATH = path.join(ROOT, "research", "policy.json");
+
+// A hold nobody releases must not idle the loop indefinitely.
+const DEFAULT_MAX_HOLD_SEC = 6 * 3600;
+
+interface DrainRequest { owner?: string; reason?: string; maxHoldSec?: number }
+
+// An empty `touch research/DRAIN` is a valid request; so is unparseable
+// content, since refusing to park on a typo defeats the point of the hold.
+const drainRequest = (): DrainRequest | null => {
+  if (!existsSync(DRAIN_PATH)) return null;
+  try {
+    const raw = readFileSync(DRAIN_PATH, "utf8").trim();
+    return raw.length === 0 ? {} : (JSON.parse(raw) as DrainRequest);
+  } catch {
+    return {};
+  }
+};
+
 // A retriable implement hang requeues the hypothesis; this many in a row
 // without a single model turn is treated as a sustained outage instead.
 const MAX_CONSECUTIVE_IMPL_HANGS = 3;
@@ -274,15 +295,20 @@ function readStatusMd(): string {
 }
 
 function preflight(): void {
-  // Hard-reset both repos to the research branch: any stray working-tree
-  // state (a killed implement, an operator slip) must never leak into the
-  // next hypothesis's diff. Implementer edits only survive via
-  // commitHypothesisPair onto the hyp/* branch within the same iteration.
-  for (const repo of [SPUR, SUPER]) {
-    if (currentBranch(repo) !== RESEARCH_BRANCH) checkout(repo, RESEARCH_BRANCH);
-    resetHard(repo, RESEARCH_BRANCH);
-    run0("git", ["clean", "-fd", "--", "."], repo);
-  }
+  // Any stray working-tree state (a killed implement, an operator slip) must
+  // never leak into the next hypothesis's diff. Implementer edits only
+  // survive via commitHypothesisPair onto the hyp/* branch within the same
+  // iteration. spur is a lane in its entirety, so it still resets whole; the
+  // superproject carries the operator's tree beside the loop's lanes, so its
+  // reset is scoped and anything dirty outside the lanes is held aside.
+  if (currentBranch(SPUR) !== RESEARCH_BRANCH) checkout(SPUR, RESEARCH_BRANCH);
+  resetHard(SPUR, RESEARCH_BRANCH);
+  run0("git", ["clean", "-fd", "--", "."], SPUR);
+  preservingOperatorTree(SUPER, SUPER_LANES, () => {
+    if (currentBranch(SUPER) !== RESEARCH_BRANCH) checkout(SUPER, RESEARCH_BRANCH);
+    resetHard(SUPER, RESEARCH_BRANCH);
+    run0("git", ["clean", "-fd", "--", ...SUPER_LANES], SUPER);
+  });
 }
 
 async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
@@ -483,9 +509,13 @@ function run0(cmd: string, args: string[], cwd: string): void {
 // After a squash-merge, origin is the source of truth and local branch
 // history may legitimately diverge - sync by reset, never by merge/pull.
 function syncToOrigin(repo: string): void {
-  run0("git", ["fetch", "origin", RESEARCH_BRANCH], repo);
-  run0("git", ["checkout", "--force", RESEARCH_BRANCH], repo);
-  run0("git", ["reset", "--hard", `origin/${RESEARCH_BRANCH}`], repo);
+  const sync = (): void => {
+    run0("git", ["fetch", "origin", RESEARCH_BRANCH], repo);
+    run0("git", ["checkout", "--force", RESEARCH_BRANCH], repo);
+    run0("git", ["reset", "--hard", `origin/${RESEARCH_BRANCH}`], repo);
+  };
+  if (repo === SPUR) sync();
+  else preservingOperatorTree(SUPER, SUPER_LANES, sync);
 }
 
 // An underpowered but probable effect keeps its work: both branches are
@@ -504,10 +534,14 @@ function markInconclusive(state: LoopState, n: number, h: Hypothesis, branch: st
 
 function cleanupToResearchBranch(branch: string | null): void {
   for (const repo of [SPUR, SUPER]) {
-    try {
+    const reset = (): void => {
       run0("git", ["checkout", "--force", RESEARCH_BRANCH], repo);
       resetHard(repo, RESEARCH_BRANCH);
       if (branch) { try { deleteBranch(repo, branch); } catch { /* branch may not exist here */ } }
+    };
+    try {
+      if (repo === SPUR) reset();
+      else preservingOperatorTree(SUPER, SUPER_LANES, reset);
     } catch { /* keep going; next preflight will surface persistent damage */ }
   }
 }
@@ -533,6 +567,78 @@ async function collectUtilization(policy: Policy): Promise<string> {
 // Set when an iteration found nothing to work on. An idle iteration costs
 // almost no wall time, so the driver must pace itself rather than spin.
 export let lastIterationIdle = false;
+
+function flattenPolicy(v: unknown, prefix: string, out: Record<string, string>): void {
+  if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+    for (const [k, sub] of Object.entries(v as Record<string, unknown>)) flattenPolicy(sub, prefix ? `${prefix}.${k}` : k, out);
+    return;
+  }
+  out[prefix] = JSON.stringify(v);
+}
+
+// research/policy.json is the one file the loop reads once at start rather
+// than per prompt. A park is the operator taking the boundary, so it is also
+// where a policy edit lands - never mid-iteration, where a change under
+// sequential or evaluation would give one candidate chunks measured under
+// two protocols. A malformed file keeps the policy in force; refusing to
+// resume over a typo would be worse than ignoring it.
+function reloadPolicy(deps: LoopDeps): Record<string, unknown> {
+  let next: { policy: Policy; clamps: string[] };
+  try {
+    next = loadPolicy(POLICY_PATH);
+  } catch (e) {
+    return { policyReloadRefused: `unreadable: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const before: Record<string, string> = {};
+  const after: Record<string, string> = {};
+  flattenPolicy(deps.policy, "", before);
+  flattenPolicy(next.policy, "", after);
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => before[k] !== after[k]).sort();
+  if (changed.length === 0) return {};
+  if (next.policy.evaluation.rayonThreads !== deps.policy.evaluation.rayonThreads) {
+    return { policyReloadRefused: "evaluation.rayonThreads keys the baseline and the panel manifest", changed };
+  }
+  const measurement = changed.filter((k) => /^(sequential|evaluation)\./.test(k));
+  const sampling = deps.state.listHypotheses("inconclusive").some((h) => loadSeqState(deps.state, h.id) !== null);
+  if (sampling && measurement.length > 0) {
+    return { policyReloadRefused: `sampling in flight; ${measurement.join(", ")} would change what a chunk means`, changed };
+  }
+  deps.policy = next.policy;
+  return { policyReload: changed, clamps: next.clamps };
+}
+
+// DRAIN is the boundary hold, and it is read here and nowhere else: the
+// iteration in flight keeps its decision, its merge and its reflection, and
+// the loop stops between iterations with nothing in hand. STOP keeps its
+// abort semantics for a wedged phase, and taken while parked it exits from a
+// state that has nothing to lose. PARKED is what a second process waits on
+// rather than sleeping and hoping.
+async function parkForDrain(deps: LoopDeps): Promise<"ran" | "stop"> {
+  let req = drainRequest();
+  if (req === null) return "ran";
+  const n = deps.state.currentIteration();
+  const owner = req.owner ?? "operator";
+  const maxHoldSec = typeof req.maxHoldSec === "number" && req.maxHoldSec > 0 ? req.maxHoldSec : DEFAULT_MAX_HOLD_SEC;
+  const startedMs = Date.now();
+  const parkedAtIso = new Date().toISOString();
+  journal(deps.state, n, "parked", { owner, reason: req.reason ?? null, maxHoldSec });
+  console.log(`DRAIN held by ${owner}; parked at the iteration boundary`);
+  let expired = false;
+  for (;;) {
+    if (stopRequested()) { rmSync(PARKED_PATH, { force: true }); return "stop"; }
+    const heldSec = Math.round((Date.now() - startedMs) / 1000);
+    writeFileSync(PARKED_PATH, `${JSON.stringify({ iteration: n, owner, parkedAtIso, heldSec })}\n`);
+    req = drainRequest();
+    if (req === null) break;
+    if (heldSec >= maxHoldSec) { expired = true; break; }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  rmSync(PARKED_PATH, { force: true });
+  const parkedSec = Math.round((Date.now() - startedMs) / 1000);
+  if (expired) journal(deps.state, n, "park_expired", { owner, parkedSec, maxHoldSec });
+  journal(deps.state, n, "resumed", { owner, parkedSec, ...reloadPolicy(deps) });
+  return "ran";
+}
 
 export async function runIteration(deps: LoopDeps): Promise<void> {
   lastIterationIdle = false;
@@ -1095,6 +1201,10 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
   for (;;) {
     if (existsSync(path.join(ROOT, "research/STOP"))) {
       console.log("STOP sentinel found; exiting loop.");
+      return;
+    }
+    if (await parkForDrain(deps) === "stop") {
+      console.log("STOP taken while parked; exiting loop.");
       return;
     }
     try {

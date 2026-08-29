@@ -265,6 +265,14 @@ export class LoopState {
     return this.db.transaction(fn).immediate();
   }
 
+  /** The highest iteration begun, without beginning another. */
+  currentIteration(): number {
+    const row = this.db
+      .prepare<[], MaxNRow>("SELECT MAX(n) AS maxN FROM iterations")
+      .get();
+    return row?.maxN ?? 0;
+  }
+
   beginIteration(): number {
     return this.transaction((): number => {
       const row = this.db

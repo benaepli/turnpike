@@ -159,6 +159,65 @@ export function commitAll(repo: string, message: string): string {
 
 export const RESEARCH_BRANCH = "research/auto-vr";
 
+// The superproject paths the loop writes: the implementer's allowlist in
+// agents.ts, the evidence and policy files an iteration renders, and the spur
+// gitlink. Everything else in that tree is the operator's - orchestrator
+// source, the grader, the runbooks - and no reset the loop performs may reach
+// it, or a harness patch cannot be staged while the daemon runs. tmp/loop and
+// research/logs are ignored, so nothing resets them and they need no entry.
+export const SUPER_LANES = [
+  "spur",
+  "scheduler_configs/loop",
+  "research/evaluations",
+  "research/observations",
+  "research/policy.json",
+  "research/POLICY.md",
+];
+
+/** Tracked paths modified outside `lanes`. */
+export function dirtyOutsideLanes(repo: string, lanes: string[]): string[] {
+  const r = exec("git", ["status", "--porcelain", "-uno"], repo);
+  if (!r.ok) return [];
+  const inLane = (p: string): boolean => lanes.some((l) => p === l || p.startsWith(`${l}/`));
+  return r.stdout
+    .split("\n")
+    .map((l) => l.slice(3).trim())
+    .filter((p) => p.length > 0)
+    .map((p) => { const i = p.indexOf(" -> "); return i < 0 ? p : p.slice(i + 4); })
+    .filter((p) => !inLane(p));
+}
+
+/**
+ * Run a reset that is destructive by design with the operator's tree held
+ * aside: anything dirty outside the lanes is stashed by path and restored
+ * after. A stash that no longer applies stays in the stash and is reported,
+ * because losing it silently is the failure this exists to prevent.
+ */
+export function preservingOperatorTree(repo: string, lanes: string[], fn: () => void): void {
+  const dirty = dirtyOutsideLanes(repo, lanes);
+  if (dirty.length === 0) { fn(); return; }
+  const pushed = exec("git", ["stash", "push", "-m", "loop: operator tree", "--", ...dirty], repo).ok;
+  try {
+    fn();
+  } finally {
+    if (pushed && !exec("git", ["stash", "pop"], repo).ok) {
+      console.error(`operator tree kept in the stash; it no longer applies after the reset. Recover with \`git -C ${repo} stash pop\`. Files: ${dirty.join(", ")}`);
+    }
+  }
+}
+
+/** `git add` restricted to `lanes`, then commit whatever that staged. */
+export function commitLanes(repo: string, lanes: string[], message: string): string {
+  // Per path and non-throwing: a lane with nothing in it is not an error.
+  for (const l of lanes) exec("git", ["add", "--", l], repo);
+  if (exec("git", ["diff", "--cached", "--quiet"], repo).ok) {
+    return currentCommit(repo);
+  }
+  const full = `${message}\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>`;
+  must("git", ["commit", "-m", full], repo);
+  return currentCommit(repo);
+}
+
 /** Contents of a tracked file at a ref. */
 export function showFile(repo: string, ref: string, filePath: string): string {
   return must("git", ["show", `${ref}:${filePath}`], repo);
@@ -265,10 +324,10 @@ export function commitHypothesisPair(opts: {
     }
     spurCommit = commitAll(SPUR, opts.spurMessage);
   }
-  // Stage the submodule pointer explicitly (no-op when spur is unchanged);
-  // commitAll then adds the rest and commits (or no-ops if nothing changed).
-  must("git", ["add", "spur"], SUPER);
-  const superCommit = commitAll(SUPER, opts.superMessage);
+  // The lanes include the spur gitlink, so the submodule pointer is staged
+  // with the rest. Staging the whole tree here would sweep an operator edit
+  // onto a hyp/* branch that cleanup then deletes.
+  const superCommit = commitLanes(SUPER, SUPER_LANES, opts.superMessage);
   return { spurCommit, superCommit };
 }
 

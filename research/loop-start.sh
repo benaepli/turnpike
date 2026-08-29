@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Start the research loop unattended under systemd-run (survives terminal
 # close; journal + logs under research/logs/). Stop gracefully with:
-#   touch research/STOP
+#   touch research/DRAIN     (finish the iteration, then hold at the boundary)
+#   touch research/STOP      (abort the running phase now)
 # or hard-stop with: systemctl --user stop spur-research-loop
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$ROOT/research/logs"
 LOG="$ROOT/research/logs/loop-$(date +%Y%m%d-%H%M%S).log"
-rm -f "$ROOT/research/STOP"
+rm -f "$ROOT/research/STOP" "$ROOT/research/DRAIN" "$ROOT/research/PARKED"
 if command -v systemd-run >/dev/null; then
   # Capped below total RAM so a runaway kills only the loop, not the desktop.
   # The unit does not inherit the shell's PATH, and a system node of another
