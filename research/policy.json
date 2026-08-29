@@ -8,8 +8,7 @@
     "audit": "claude-opus-5"
   },
   "bandit": {
-    "explorationQuota": 0.3,
-    "ucbC": 1.2
+    "explorationQuota": 0.3
   },
   "fidelities": {
     "screen": {

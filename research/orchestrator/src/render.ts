@@ -250,7 +250,7 @@ export function renderStatus(
     `- Budgets: ${b.maxWallMinutesPerHypothesis} wall-min/hypothesis, ${b.maxImplementTurns} implement turns, ${b.maxBuildSeconds}s build, ${b.minFreeDiskGb}GB free disk floor`,
   );
   lines.push(
-    `- Bandit: explorationQuota=${policy.bandit.explorationQuota}, ucbC=${policy.bandit.ucbC}`,
+    `- Bandit: explorationQuota=${policy.bandit.explorationQuota}`,
   );
   const f = policy.fidelities;
   lines.push(
@@ -321,7 +321,6 @@ export function renderPolicyMd(
   lines.push("## Bandit");
   lines.push("");
   lines.push(`- explorationQuota: ${policy.bandit.explorationQuota}`);
-  lines.push(`- ucbC: ${policy.bandit.ucbC}`);
   lines.push("");
 
   lines.push("## Fidelities");

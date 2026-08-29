@@ -32,7 +32,6 @@ export const Policy = z.object({
   }),
   bandit: z.object({
     explorationQuota: z.number().min(0).max(1),
-    ucbC: z.number().positive(),
   }),
   fidelities: z.object({ screen: Fidelity, promote: Fidelity }),
   budgets: z.object({

@@ -8,8 +8,6 @@ import { loadSeqState } from "./sequential.js";
 
 export interface SelectInputs {
   pool: Hypothesis[];              // status === "proposed"
-  evaluatedCounts: Map<string, number>; // lineage-root id -> completed attempts
-  measuredDelta: Map<string, number>; // lineage-root id -> best observed objective delta
 }
 
 export function lineageRoot(h: Hypothesis, byId: Map<string, Hypothesis>): string {
@@ -36,20 +34,14 @@ export function lineageDepth(h: Hypothesis, byId: Map<string, Hypothesis>): numb
   return d;
 }
 
-export function scoreHypothesis(
-  h: Hypothesis,
-  inputs: SelectInputs,
-  byId: Map<string, Hypothesis>,
-  ucbC: number,
-): number {
-  const root = lineageRoot(h, byId);
+// A lineage's record reaches the ranking once, through the gain and cost the
+// judge assigns; it re-reads that record every time it rescores the pool. A
+// second lineage term here would weigh the same evidence again, and outweigh
+// the judge's own reading of it. Fresh lineages are guaranteed a share of the
+// selections by the exploration quota, not by a novelty bonus.
+export function scoreHypothesis(h: Hypothesis): number {
   const prior = h.expectedGain / Math.max(h.expectedCost, 0.1); // 0..100
-  const priorNorm = Math.min(prior / 10, 1);
-  const measured = inputs.measuredDelta.get(root) ?? 0;
-  const trials = inputs.evaluatedCounts.get(root) ?? 0;
-  const total = [...inputs.evaluatedCounts.values()].reduce((a, b) => a + b, 0);
-  const ucb = ucbC * Math.sqrt(Math.log(total + 2) / (trials + 1));
-  return 0.5 * priorNorm + Math.max(-1, Math.min(measured, 1)) + ucb;
+  return Math.min(prior / 10, 1);
 }
 
 // Mechanism utilization (from utilization.json collected on the evaluation
@@ -140,24 +132,6 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
   const pool = [...all.filter((h) => h.status === "proposed"), ...resumable];
   if (pool.length === 0) return null;
 
-  const terminal = new Set(["merged", "needs_human", "closed", "blocked", "parked"]);
-  const evaluatedCounts = new Map<string, number>();
-  for (const h of all) {
-    if (terminal.has(h.status)) {
-      const root = lineageRoot(h, byId);
-      evaluatedCounts.set(root, (evaluatedCounts.get(root) ?? 0) + 1);
-    }
-  }
-  const measuredDelta = new Map<string, number>();
-  const curEpoch = state.currentEpoch();
-  for (const h of all) {
-    const d = state.getDecision(h.id);
-    if (!d) continue;
-    if (!comparableDecision(d, curEpoch, policy.evaluation.rayonThreads)) continue;
-    const root = lineageRoot(h, byId);
-    const primary = d.objectiveDeltas["primary"] ?? 0;
-    measuredDelta.set(root, Math.max(measuredDelta.get(root) ?? -1, primary));
-  }
   // Fraction of the last selections that opened a fresh (parentless)
   // lineage, read from the selection ring buffer so it reflects what was
   // actually run, not hypothesis creation order. Absent on a fresh restart:
@@ -170,12 +144,6 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
       .filter((h): h is Hypothesis => h !== undefined);
     if (resolved.length > 0) freshShare = resolved.filter((h) => h.parent === null).length / resolved.length;
   }
-
-  const inputs: SelectInputs = {
-    pool,
-    evaluatedCounts,
-    measuredDelta,
-  };
 
   const util = parseUtilization(state.getMeta("utilization"));
   const eligible = pool.filter((h) =>
@@ -194,7 +162,7 @@ export function selectNext(state: LoopState, policy: Policy): Hypothesis | null 
     }
     // Sampling interrupted before a verdict ranks as the proposal did.
     const shrunk: Hypothesis = { ...h, expectedGain: h.expectedGain * calib };
-    return scoreHypothesis(shrunk, inputs, byId, policy.bandit.ucbC);
+    return scoreHypothesis(shrunk);
   };
   const ranked = [...eligible].sort((a, b) => score(b) - score(a));
   if (freshShare < policy.bandit.explorationQuota) {
