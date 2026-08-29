@@ -444,6 +444,12 @@ advance.
 
 ## A/A noise floor (measured 2026-08-25, baseline binary)
 
+Sessions are reproducible per seed since spec maps iterate in an order that
+depends on the map alone (spur `values.rs`): two single-worker sessions of the
+general template at one seed write byte-identical executions, and at 14
+workers every run's steps and end reason match. The spread below is therefore
+seed-to-seed only; nothing of it is per-process variation.
+
 Four same-binary same-config sessions differing only in session_seed
 (1000, 1001, 4242, 4243), 5400 runs each, general_vr grid: depth>=4 counts
 278/285/265/279, depth>=5 20/28/15/25, h2 counts within 8 of each other.

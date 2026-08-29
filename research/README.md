@@ -54,5 +54,6 @@ hypotheses validated against `corpus/manifest.json`.
 - Auto-revert of merged changes is manual (`git revert` + PR) — the loop does
   not yet re-evaluate merged work post-hoc.
 - meta (policy) and grader hypotheses always route to needs-human.
-- The explorer is nondeterministic even with fixed session_seed (pre-existing);
-  all gates therefore use rate statistics, never exact replay.
+- Sessions are reproducible per seed (a spec map's iteration order used to
+  depend on a per-process hasher; it no longer does), but the gates still use
+  rate statistics: a seed change still changes what is explored.
