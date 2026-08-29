@@ -141,6 +141,18 @@ the verdict to `research/observations/`.
    omits) and `research/oracle/bug.md`, and phrase every shape as "raises the
    probability of ...". Re-ablate the unrelaxed tier occasionally: an edge that
    is slack given the others can be load-bearing in a different tier.
+8. Read the iteration economy line of `cli status` (mean wall per phase over
+   the last 20 iterations, a chunk's explore and grade seconds, decisions
+   and merges). Iteration time is operator work, not a hypothesis currency:
+   the judge scores explorer throughput because it is the objective, and
+   nothing else about the loop's own speed. Act on thresholds, not drift:
+   grade above 25% of chunk wall, seed a grader-kind speedup (byte-identical,
+   through the grader review); implement above a 15 min mean, read the
+   audit's implement activity digest for over-building; rejudge above 5%,
+   raise `policy.rejudge.everyK`; fewer than one decision per two
+   iterations, read the iteration notes for harness failures first. Never
+   overlap grading with the next chunk's explore under a CPU mask: it looks
+   like free time and is a throughput confound.
 
 Escalate to the operator rather than deciding alone when the answer implicates
 something the loop may not touch: the evaluation grid, the oracle, the spec

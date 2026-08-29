@@ -263,6 +263,8 @@ async function main(): Promise<void> {
         const rows = listBaselines(state);
         console.log(rows.length === 0 ? "baselines: none" : "baselines: " + rows.map((b) => `${b.threads} threads: spur ${b.spurCommit}, ${b.chunks} chunks, ${Math.round(b.runsPerSec)} runs/s, ${b.freshness}${b.threads === host ? " (this mask)" : ""}`).join(" | "));
         if (!rows.some((b) => b.threads === host)) console.log(`no baseline for the ${host} threads this mask resolves to; run cli baseline under it before starting`);
+        const { iterationEconomy } = await import("./loop.js");
+        console.log(iterationEconomy(state));
         break;
       }
       default:

@@ -143,6 +143,34 @@ export function baselineFreshness(baseline: BaselineMeta): BaselineFreshness {
 }
 
 export interface BaselineListing { threads: number; spurCommit: string; chunks: number; freshness: BaselineFreshness; runsPerSec: number }
+// Where the last k finished iterations spent their wall, what a sequential
+// chunk costs, and what the iterations produced. One line for `cli status`
+// and the operator's direction review; thresholds live in the skill.
+export function iterationEconomy(state: LoopState, k = 20): string {
+  const its = state.recentIterations(k * 3)
+    .filter((i) => i.finishedAt !== null && Object.values(i.phaseTimings).reduce((a, b) => a + b, 0) >= 60)
+    .slice(0, k);
+  if (its.length === 0) return "iteration economy: no finished iterations recorded";
+  const sum: Record<string, number> = {};
+  for (const i of its) for (const [phase, sec] of Object.entries(i.phaseTimings)) sum[phase] = (sum[phase] ?? 0) + sec;
+  const total = Object.values(sum).reduce((a, b) => a + b, 0);
+  const min = (sec: number): string => (sec / its.length / 60).toFixed(1);
+  const pct = (sec: number): string => `${Math.round((100 * sec) / total)}%`;
+  const named = ["evaluate", "implement", "rejudge", "regression"];
+  const other = Object.entries(sum).filter(([p]) => !named.includes(p)).reduce((a, [, s]) => a + s, 0);
+  const phases = named.filter((p) => sum[p]).map((p) => `${p} ${min(sum[p] ?? 0)} (${pct(sum[p] ?? 0)})`).concat(other > 0 ? [`other ${min(other)}`] : []).join(", ");
+  const chunks = state.allEvaluations().filter((e) => e.fidelity === "sequential" && e.ok).slice(-8);
+  const chunk = chunks.length === 0 ? "no sequential chunk yet" : (() => {
+    const explore = chunks.reduce((a, e) => a + e.exploreWallMs, 0) / chunks.length / 1000;
+    const grade = chunks.reduce((a, e) => a + e.metrics.gradeWallMs, 0) / chunks.length / 1000;
+    return `chunk ${Math.round(explore)} s explore + ${Math.round(grade)} s grade (${Math.round((100 * grade) / (explore + grade))}%)`;
+  })();
+  const since = its[its.length - 1]?.startedAt ?? new Date(0).toISOString();
+  const decisions = state.decisionsSince(since);
+  const merges = decisions.filter((d) => d.verdict === "auto_merge").length;
+  return `iteration economy (last ${its.length}): ${(total / its.length / 60).toFixed(0)} min each - ${phases}; ${chunk}; ${decisions.length} decisions, ${merges} merges`;
+}
+
 export function listBaselines(state: LoopState): BaselineListing[] {
   const out: BaselineListing[] = [];
   for (const key of state.metaKeys("baseline:")) {

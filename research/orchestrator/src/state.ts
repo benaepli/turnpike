@@ -225,6 +225,13 @@ export class LoopState {
   // Decisions newest first with their hypothesis, capped at limit. Keyed on
   // decision time (not hypothesis creation), so a seed decided today ranks
   // ahead of a child proposed yesterday.
+  decisionsSince(iso: string): Array<{ verdict: string }> {
+    return this.db
+      .prepare<[string], JsonRow>("SELECT json FROM decisions WHERE created_at >= ? ORDER BY created_at")
+      .all(iso)
+      .map((r) => ({ verdict: String((JSON.parse(r.json) as { verdict?: string }).verdict ?? "") }));
+  }
+
   recentDecisions(limit: number): Array<{ hypothesis: Hypothesis; decision: GateDecision }> {
     const rows = this.db
       .prepare<[number], JsonRow>("SELECT json FROM decisions ORDER BY created_at DESC, hypothesis_id DESC LIMIT ?")
