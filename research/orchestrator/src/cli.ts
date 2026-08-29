@@ -90,15 +90,48 @@ async function main(): Promise<void> {
         break;
       }
       case "seed": {
-        const { validateProposed } = await import("./agents.js");
-        const seedsPath = path.join(ROOT, "research/seed_hypotheses.json");
-        const raw: unknown[] = JSON.parse((await import("node:fs")).readFileSync(seedsPath, "utf8"));
+        // Seeds enter the pool through the same judge as agent proposals, so
+        // an operator's hand-written prior does not outrank a scored one.
+        const { validateProposed, judgeHypotheses } = await import("./agents.js");
+        const { calibrationTable, evaluationContext } = await import("./loop.js");
+        const fs = await import("node:fs");
+        const flags = new Set(process.argv.slice(3));
+        const dryRun = flags.has("--dry-run"), noJudge = flags.has("--no-judge"), rescore = flags.has("--rescore");
+        const { policy } = loadPolicy(POLICY_PATH);
+        const raw: unknown[] = JSON.parse(fs.readFileSync(path.join(ROOT, "research/seed_hypotheses.json"), "utf8"));
         const { valid, rejected } = validateProposed(raw);
-        let added = 0;
-        for (const h of valid) {
-          if (!state.getHypothesis(h.id)) { state.upsertHypothesis(h); added++; }
+        const fresh = valid.filter((h) => !state.getHypothesis(h.id));
+        const existing = valid.filter((h) => state.getHypothesis(h.id));
+        const toJudge = noJudge ? [] : [...fresh, ...(rescore ? existing.filter((h) => state.getHypothesis(h.id)?.status === "proposed") : [])];
+        const fileScore = new Map(valid.map((h) => [h.id, `${h.expectedGain}/${h.expectedCost}`]));
+        let judged = new Map<string, typeof valid[number]>();
+        let judgeCost = 0;
+        let judgeError: string | undefined;
+        if (toJudge.length > 0) {
+          const poolSummaries = state.listHypotheses().filter((h) => !toJudge.some((t) => t.id === h.id)).map((h) => `${h.id} [${h.kind}/${h.status}]: ${h.title}`);
+          const r = await judgeHypotheses(policy, toJudge, poolSummaries, calibrationTable(state), evaluationContext(state, policy));
+          judgeCost = r.costUsd;
+          judgeError = r.error ?? undefined;
+          judged = new Map(validateProposed(r.value?.hypotheses ?? []).valid.map((h) => [h.id, h]));
         }
-        console.log(`seeded ${added} hypotheses (${rejected.length} rejected: ${rejected.join("; ")})`);
+        let added = 0, rescored = 0;
+        for (const h of [...fresh, ...existing]) {
+          const j = judged.get(h.id);
+          const isFresh = !state.getHypothesis(h.id);
+          if (!isFresh && !j) continue;
+          const entry = j ? { ...h, expectedGain: j.expectedGain, expectedCost: j.expectedCost, notes: `${h.notes ?? ""} [judged at seed: ${(j.notes ?? "").slice(0, 200)}]`.trim() } : h;
+          if (!dryRun) state.upsertHypothesis(entry);
+          if (isFresh) added++; else rescored++;
+        }
+        const notScored = toJudge.filter((h) => !judged.has(h.id)).length;
+        console.log(`${dryRun ? "dry run: " : ""}seeded ${added}, rescored ${rescored}, not scored by the judge ${notScored}, left as they were ${existing.length - rescored - notScored}, rejected ${rejected.length}${rejected.length ? ": " + rejected.join("; ") : ""}${judgeError ? "; judge error: " + judgeError : ""}${toJudge.length ? ` (judge cost $${judgeCost.toFixed(2)})` : ""}`);
+        for (const h of valid) {
+          const j = judged.get(h.id);
+          const now = j ? `${j.expectedGain}/${j.expectedCost}` : fileScore.get(h.id);
+          const mark = j && now !== fileScore.get(h.id) ? ` (file ${fileScore.get(h.id)})` : "";
+          console.log(`  ${h.kind.padEnd(8)} ${String(now).padEnd(7)}${mark.padEnd(14)} ${h.id}: ${h.title.slice(0, 70)}${j?.notes ? "\n           judge: " + String(j.notes).slice(0, 220) : ""}`);
+        }
+        if (!dryRun) (await import("./loop.js")).journal(state, -1, "seed", { added, rescored, rejected: rejected.length, judgeCost });
         break;
       }
       case "rejudge": {

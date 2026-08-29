@@ -155,7 +155,7 @@ export function selfTestBaselineKeys(): string[] {
   return f;
 }
 
-function journal(state: LoopState, iteration: number, event: string, data: unknown): void {
+export function journal(state: LoopState, iteration: number, event: string, data: unknown): void {
   state.appendJournal({ atIso: new Date().toISOString(), iteration, event, data });
 }
 
@@ -247,7 +247,7 @@ async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
 
 // What a candidate is measured on: the general config's mode settings and
 // the mechanisms that record no activity under it.
-function evaluationContext(state: LoopState, policy: Policy): string {
+export function evaluationContext(state: LoopState, policy: Policy): string {
   let modes = "(config unreadable)";
   try {
     const cfg = JSON.parse(readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8")) as Record<string, unknown>;
@@ -278,7 +278,7 @@ function generalConfigParamCount(policy: Policy): number {
   }
 }
 
-function calibrationTable(state: LoopState): string {
+export function calibrationTable(state: LoopState): string {
   return state.recentDecisions(30).reverse()
     .map(({ hypothesis: x, decision: d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta (relative) ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
     .join("\n");
