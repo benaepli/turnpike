@@ -237,5 +237,37 @@
     "generalityArgument": "The rule names no handler, message or label: it keys on the CFG vertex a timer wakes, on whether a delivery is pending for the node, and on the node's own recent effect history, and the threshold is the session's distribution rather than a constant. A protocol whose timers act is left alone by construction.",
     "createdAtIso": "2026-08-28T18:39:56Z",
     "notes": "Keep firings with a delivery in flight unpenalised: that is the race the oracle chain needs, and it is often inert on average. Measure the base rate of the gating predicate (idle and inert) before building, per GOAL.md rule 8."
+  },
+  {
+    "id": "steer-term-base-rates",
+    "parent": null,
+    "kind": "meta",
+    "title": "Base rate of each score predicate at zero weight, and the flip fraction its derived weight would cause",
+    "description": "With every steer_terms weight at 0 (today's evaluation template), read the steer_terms counters from the evaluation's utilization.json: per predicate (crash_after_timer_sends, crash_after_delivery_sends, stale_late, request_before_stale) the share of within-queue selections where it was present (present / decisions), the share where it was contested (contested / present), how many candidates it was scored on (evaluated), and the eligible-candidate histogram (eligible_hist). From the eligible histogram and the within-queue win table in PARAMETERS.md (section Steer terms) compute, per predicate, the fraction of selections its derived weight (2.33, share 0.7 of the queue roll) would flip. Report a table; change no behaviour. Kill criterion, stated up front per GOAL.md rule 8: a predicate present on more than 50% of the selections of its runnable kind (crashes for the crash terms, network deliveries for the other two) is not a gate, gets weight 0, and is dropped from the factorial campaign.",
+    "category": "measurement",
+    "buildsOn": [],
+    "expectedGain": 4,
+    "expectedCost": 1,
+    "rationale": "The score terms only earn a weight if their predicate is selective. The relaxation-gap ablation (research/observations/RELAXATION_GAP.md) says which orderings carry the bug; whether the corresponding predicates are rare enough to steer on is unmeasured, and a weight on a predicate that is nearly always true collapses into a uniform bias, which is how the timer-upweighting family failed.",
+    "generalityArgument": "Reads counters only; names no handler, message or role. The predicates are defined over queue and ledger state that any protocol has.",
+    "createdAtIso": "2026-08-29T02:05:42Z",
+    "notes": "Counter: steer_terms.<term>.{present, contested, evaluated}, steer_terms.decisions, steer_terms.eligible_hist. Expected weak spot: stale_late's token conjunct may be near-universal because most deliveries write; if so the term is worth keeping only as sender-restarted, and the report should say so."
+  },
+  {
+    "id": "steer-term-factorial-campaign",
+    "parent": null,
+    "kind": "arm",
+    "title": "A 2^3 factorial over the three predicate weights, one campaign",
+    "description": "Change only the campaign block of scheduler_configs/loop/general_vr.json: eight grid arms, one per subset of {crash_after_timer_sends, stale_late, request_before_stale}, each subset's weights set to 2.33 through the arm overlay (steer_terms.<term>: 2.33) and the rest 0, arm 000 being today's grid; allocation round_robin with min_slice_sec 10 so a 300 s chunk gives every arm about three slices; reward unchanged. Per-arm depth and violations come from the runs table join the evaluator already does; an observations script computes the three main effects and the three pairwise interactions on depth>=6 per run and per second, with the A/A floor (depth>=4 stable to 0.1%, depth>=6 moving 7.5% on its own) as the bar. Guardrail: the router share is capped by the flip fraction the base-rate report predicts; any arm whose steer_terms.<term>.flipped exceeds a quarter of its decisions is reported as a schedule rewrite, not a preference.",
+    "category": "scheduler",
+    "buildsOn": [
+      "steer-term-base-rates"
+    ],
+    "expectedGain": 7,
+    "expectedCost": 3,
+    "rationale": "The relaxation gap shows the bug needs three orderings at once, so the terms are expected to interact; a factorial over one campaign measures the main effects and the interactions in one chunk instead of three sequential hypotheses that each test one weight against the baseline.",
+    "generalityArgument": "The arms differ only in numeric weights on predicates defined over queue and ledger state; no handler, message or role is named anywhere in the overlay.",
+    "createdAtIso": "2026-08-29T02:05:42Z",
+    "notes": "Counter per arm: steer_terms.<term>.{won, flipped, measured, acted}, steer_terms.authority_routed. Only after steer-term-base-rates has admitted the predicates; a predicate it dropped gets no arm."
   }
 ]

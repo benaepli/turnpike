@@ -526,6 +526,132 @@ per-hypothesis 90 min · audit every 5. These are priors;
 the audit role exists to retune them from accumulated iteration data via
 meta-hypotheses (inside compiled hard limits).
 
+## Steer terms (landed 2026-08-28, spur 9c2b928..1a6cb6b)
+
+The scheduling score is a weighted sum over named terms, normalised to
+[0, 1]: novelty and priority, which every runnable carries, the recover
+multiplier for a node that is down, and one weight per predicate over a
+runnable and the run's send ledger. The config block is `steer_terms`; its
+defaults reproduce the fixed `0.25 novelty + 0.75 priority` blend bit for
+bit (the weights are dyadic, `0.25 + 0.75` is exactly `1.0`, and a division
+by `1.0` is the identity), which a `to_bits` unit test pins over a grid of
+inputs and an integration test confirms on a two-node fixture across four
+spellings of the defaults. Every predicate weight defaults to 0.
+
+**Predicates.** `crash_after_timer_sends` and `crash_after_delivery_sends`:
+a crash of a node whose most recent handler, woken by a timer or by a
+delivery, still has sends undelivered. `stale_late`: a delivery whose origin
+restarted since the send and whose receiver has written state since.
+`request_before_stale`: a request across roles delivered while some record
+from a restarted origin is still undelivered. These are the four orderings
+the relaxation-gap ablation found load-bearing (`observations/RELAXATION_GAP.md`),
+stated over queue and ledger state that any protocol has.
+
+**Cost.** The predicates read a per-node send ledger the queue hooks keep
+exact (sends issued, sends since the last handler entry and what woke it,
+undelivered sends, undelivered sends from a restarted incarnation, pending
+crashes) plus two per-run counts; every hook is constant time and no
+per-step work grows with a queue. The crash-anchor probe reads the same
+ledger instead of rescanning the network queue and purgatory each step.
+
+**Where a weight acts.** Within a queue the pick is the argmax of a k=10
+tournament over priority draws, so a record with bonus `w` scores
+`(0.25 + 0.75 p + w) / (1 + w)` against competitors' `0.25 + 0.75 p`. With
+the default record band (centre 0.5, half-width 0.15, Beta(0.5, 0.5)) the
+probability of beating the best of `m` competitors is, by Monte Carlo
+(`steer_terms::within_queue_win_probability`, pinned by a unit test):
+
+| w \ m | 1 | 2 | 4 | 8 |
+|---|---|---|---|---|
+| 0 | 0.500 | 0.334 | 0.201 | 0.109 |
+| 0.25 | 0.752 | 0.612 | 0.484 | 0.405 |
+| 0.5 | 0.881 | 0.795 | 0.692 | 0.607 |
+| 0.75 | 0.969 | 0.943 | 0.901 | 0.847 |
+| 1.0 | 1.000 | 1.000 | 1.000 | 1.000 |
+
+From `w >= 0.857` the lowest draw beats the highest and the win is certain.
+A crash lives alone in its node's queue and a request alone in its client's
+queue, so a within-queue weight cannot reach them: when a predicate carries
+weight, the queue roll itself is biased toward a queue holding a predicated
+candidate with the predicate's share of the score, `W / (W + novelty +
+priority)`, one draw per step, and no draw when every weight is 0. The
+derived weight for a target step-win probability of 0.7 is therefore
+`W = 0.7 / 0.3 * (novelty + priority) = 2.33`, at which the within-queue
+win is already certain.
+
+**Counters.** `steer_terms.<term>.{evaluated, present, contested, won,
+flipped, measured, acted}`, `steer_terms.{decisions, authority_draws,
+authority_routed}`, and the eligible-candidate and audited-candidate
+histograms, all in `utilization.json` and per campaign arm. At zero weight
+they are the base rates the `steer-term-base-rates` hypothesis reads before
+any weight is set (GOAL.md rule 8).
+
+**Reproducibility.** Proving the identity exposed two sources of
+nondeterminism at a fixed seed. The plan engine released ready events in
+hash-map order, which decided operation ids, client-node assignment and
+priority draws; it now releases them in index order (spur 9c2b928) and a
+run on a one-worker pool is a function of its seed. `VR.spur` still is not:
+it iterates `pending_requests`, an `imbl` map whose hasher is seeded per
+process, so its reply order varies; two identical 540-run sessions differ
+on 70 runs, and a session with the default terms block differs from one
+without on 80, the same magnitude. That floor is the spec's, not the
+terms'; it is recorded here and not changed.
+
+**Evidence of the landing** (14 threads, CCD 0, 2026-08-28).
+
+**A/A at 14 threads, both arms on HEAD, pinned** (`cli regression 20001`):
+Paxos z +0.24 (phi 1.00), Mencius z -0.00 (phi 1.00), combined Z +0.17;
+report members z +0.39 / -0.14 and two at zero events; throughput ratio
+0.977; panel wall 465 s of 560. No collapse, no downgrade.
+
+**Null-diff chunk** (one 300 s campaign of the evaluation template at seed
+1000, new binary, zero weights; 170,528 runs, 0 violations) against the
+14-thread baseline's four chunks, per run:
+
+| rung | baseline chunks | null chunk |
+|---|---|---|
+| depth>=4 | 0.15759 - 0.16107 | 0.15842 |
+| depth>=5 | 0.03649 - 0.03799 | 0.03665 |
+| depth>=6 | 0.00766 - 0.00859 | 0.00843 |
+| depth>=7 | 0.00120 - 0.00133 | 0.00214 |
+| depth>=8 | 0.00001 - 0.00003 | 0.00001 |
+
+Every rung but depth>=7 sits inside the baseline's spread. The depth>=7
+excess is the `aos` arm alone: 0.00859 against its baseline 0.00086 -
+0.00140 (183 of the chunk's 365 events), while `grid` 0.00120, `grid-short`
+0.00132, `grid-no-purgatory` 0.00065 and `grid-post-fault-2` 0.00144 each
+sit inside their own baseline range. Attributed by two aos-only 200 s sessions at the same seed, HEAD against
+HEAD with only the plan-order fix reverted: depth>=7 is the same in both
+(0.00122 against 0.00126, 93 and 96 events) while depth>=6 nearly doubles
+under the fix (0.01476 against 0.00785, 1,123 against 597 runs). The
+adaptive-operator arm replays recorded draw tapes and mutates them; until
+the plan engine released ready events in a fixed order, a replayed tape did
+not reproduce the run it was recorded from, so refinement near a deep run
+was mostly resampling. Now that replay is faithful, refinement compounds:
+one deep tape yields deep descendants, which is why a single campaign
+chunk can carry an aos depth>=7 spike (a hot lineage) that a fresh session
+does not show. The binary's aos behaviour therefore differs from the one
+the 14-thread baseline recorded, and the baseline is re-recorded with it.
+
+**Base rates at zero weight** (the same chunk's `utilization.json`;
+517,921,724 within-queue selections):
+
+| predicate | present | share of selections | contested | chosen and measured | acted |
+|---|---|---|---|---|---|
+| crash_after_timer_sends | 2,628 | 0.0005% | 245 | 2,570 | 2,570 |
+| crash_after_delivery_sends | 34,478 | 0.007% | 11,992 | 31,592 | 31,592 |
+| stale_late | 999,954 | 0.19% | 954,683 | 120,010 | 10,389 (8.7%) |
+| request_before_stale | 1,605,167 | 0.31% | 1,247,709 | 525,183 | 65,178 (12.4%) |
+
+No predicate flipped a choice and the router drew nothing, as the identity
+requires. Against the crash selections alone (313,410 crashes taken) the
+timer-triggered crash term is present on 0.8% and the delivery-triggered
+one on 11%; the two delivery terms are present on well under 1% of
+selections, so every predicate passes the rule-8 gate with room to spare.
+A stale and late delivery is acted on 8.7% of the time, below the 15.9%
+of sender-restarted deliveries generally, which says the late ones land in
+a receiver that has moved past them more often than not.
+
 ## Steer audit cost (measured 2026-08-28, 14 threads, CCD 0)
 
 `feedback.steer_audit` walks every runnable in every queue once per step to

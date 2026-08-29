@@ -2713,3 +2713,37 @@ sizing demands. Four A/A seeds pass with combined Z between +0.05 and +0.79,
 phi at most 1.44, throughput ratios 0.996 to 0.999; the observed panel wall is
 465 s of a 560 s case wall, 17 s over the 80% the sizing reserves.
 
+## 2026-08-29T02:40:00.000Z (operator) - the score's terms are named; the plan engine is reproducible; adaptive-operator replay compounds
+
+Landed spur 9c2b928 (plan events released in index order), c5972f7 (the
+score as named terms, bit-identical at defaults), 1a6cb6b (send ledger,
+predicates, counters, queue authority) and b6b4275 (win-table selftest);
+superproject d962012 and b8ec116 carry the pointers. PARAMETERS.md "Steer
+terms" has the derivation and the evidence; the short form:
+
+- A/A at 14 threads on HEAD: Paxos z +0.24, Mencius -0.00, combined +0.17,
+  throughput 0.977, panel wall 465/560. Passes.
+- Null-diff campaign chunk at zero weights against the 14-thread baseline:
+  depth>=4/5/6/8 inside the four chunks' spread; depth>=7 high
+  (0.00214 against 0.00120-0.00133), all of it in the `aos` arm.
+- Two aos-only sessions at one seed, with and without the plan-order fix:
+  depth>=6 0.01476 against 0.00785, depth>=7 unchanged. The adaptive
+  operator replays recorded draw tapes, and a replayed tape only reproduces
+  its run once the plan engine releases events in a fixed order; with
+  faithful replay, refinement near a deep run compounds. The 14-thread
+  baseline is re-recorded on this binary for that reason. A run on a
+  one-worker pool is now a function of its seed for every spec except
+  those that iterate an `imbl` map: `VR.spur` iterates `pending_requests`,
+  whose hasher is seeded per process, so two identical 540-run standard
+  sessions still differ on 70 runs.
+- Base rates at zero weight, one 300 s chunk, 518M within-queue
+  selections: crash_after_timer_sends present on 0.0005% (0.8% of crash
+  selections), crash_after_delivery_sends 0.007% (11% of crashes),
+  stale_late 0.19%, request_before_stale 0.31%. Every predicate is rare
+  enough to steer on under GOAL.md rule 8. Stale and late deliveries are
+  acted on 8.7% of the time, sender-restarted deliveries generally 15.9%.
+- No flip and no routing draw at zero weight; on the relay fixture with
+  weights, choices flip and the router routes.
+
+Seeded `steer-term-base-rates` (meta) and `steer-term-factorial-campaign`
+(arm) for the loop. Not changed: the `imbl` map hasher.
