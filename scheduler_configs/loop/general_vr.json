@@ -41,6 +41,9 @@
       300
     ]
   },
+  "timer_effect_steer": {
+    "late_fraction": 0.5
+  },
   "feedback": {
     "mode": "timeline",
     "steer": true,
