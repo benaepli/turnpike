@@ -159,7 +159,8 @@ export async function collectProfile(policy: Policy, binary: string): Promise<Pr
     if (!rec.ok && !fs.existsSync(perfData)) return { ok: false, text: `(perf record failed: ${rec.stderr.slice(-400)})` };
     // --no-inline: with inline resolution perf keeps an addr2line child that
     // inherits the stdout pipe and never exits, so the report never reaches EOF.
-    const rep = await run("perf", ["report", "--stdio", "--percent-limit", "1", "--no-children", "--no-inline", "-i", perfData], { timeoutMs: 120_000, cwd: ROOT });
+    // -g none: a flat table; the callchains would take the whole line budget.
+    const rep = await run("perf", ["report", "--stdio", "--percent-limit", "1", "--no-children", "--no-inline", "-g", "none", "-i", perfData], { timeoutMs: 120_000, cwd: ROOT });
     const lines = demangle(rep.stdout).split("\n").filter((l) => !l.startsWith("#") || l.includes("Overhead")).slice(0, 45).join("\n");
     return rep.ok ? { ok: true, text: lines } : { ok: false, text: `(perf report failed: ${rep.stderr.slice(-400)})` };
   } catch (e) {
