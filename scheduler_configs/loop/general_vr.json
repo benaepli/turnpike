@@ -85,6 +85,27 @@
         }
       },
       {
+        "id": "grid-purgatory-005",
+        "mode": "grid",
+        "overlay": {
+          "purgatory.delay_probability": 0.05
+        }
+      },
+      {
+        "id": "grid-purgatory-030",
+        "mode": "grid",
+        "overlay": {
+          "purgatory.delay_probability": 0.3
+        }
+      },
+      {
+        "id": "grid-purgatory-050",
+        "mode": "grid",
+        "overlay": {
+          "purgatory.delay_probability": 0.5
+        }
+      },
+      {
         "id": "grid-post-fault-2",
         "mode": "grid",
         "overlay": {
