@@ -12,7 +12,7 @@ import type { Policy } from "./policy.js";
 import { runOneEvaluation, type EvalContext } from "./evaluate.js";
 import type { LoopState } from "./state.js";
 import { compareRatesPoisson, rateRatioSeparated, throughputCv } from "./stats.js";
-import { MERGE_Z, compareToBaseline, exposureVarianceOf, objectiveCounts } from "./decide.js";
+import { MERGE_Z, PRIMARY_RUNG, compareToBaseline, exposureVarianceOf, objectiveCounts } from "./decide.js";
 import { HARD_LIMITS } from "./policy.js";
 import { Evaluation, SeqState } from "./schemas.js";
 
@@ -224,15 +224,25 @@ export function decideSequential(
   if (rateRatioSeparated(base.h2Count, base.runs, cand.h2Count, cand.runs, MERGE_Z)) return out("reject", `h2 regressed (ratio ${h2.meanRatio.toFixed(2)})`);
 
   let separatedRung: string | null = null;
+  let separatedK: number | null = null;
   if (chunks >= p.minChunks) {
     if (belowFloor) return out("reject", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
     if (deepRegress >= p.niP) return out("reject", `deep rungs regressed per run beyond the ${(p.regressMargin * 100).toFixed(0)}% margin (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
     const sep = (c: number, b: number): boolean => rateRatioSeparated(c, cand.exposureSec, b, base.exposureSec, MERGE_Z, xv);
-    if (sep(cand.depth8plus, base.depth8plus)) separatedRung = `depth>=8 per second separated at z ${MERGE_Z} (ratio ${d8.meanRatio.toFixed(2)})`;
-    else if (sep(cand.depth7plus, base.depth7plus)) separatedRung = `depth>=7 per second separated at z ${MERGE_Z} (ratio ${d7.meanRatio.toFixed(2)})`;
-    else if (sep(cand.depth6plus, base.depth6plus)) separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`;
-    else if (sep(cand.depth5, base.depth5)) separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`;
-    else if (sep(cand.depth4, base.depth4)) separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`;
+    if (sep(cand.depth8plus, base.depth8plus)) { separatedK = 8; separatedRung = `depth>=8 per second separated at z ${MERGE_Z} (ratio ${d8.meanRatio.toFixed(2)})`; }
+    else if (sep(cand.depth7plus, base.depth7plus)) { separatedK = 7; separatedRung = `depth>=7 per second separated at z ${MERGE_Z} (ratio ${d7.meanRatio.toFixed(2)})`; }
+    else if (sep(cand.depth6plus, base.depth6plus)) { separatedK = 6; separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`; }
+    else if (sep(cand.depth5, base.depth5)) { separatedK = 5; separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`; }
+    else if (sep(cand.depth4, base.depth4)) { separatedK = 4; separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`; }
+    // A rung shallower than the primary carries the session's run count as
+    // much as its depth: the depth>=4 per-second rate tracks throughput at
+    // 0.99 across seeds. A gain there while the primary rung is known to have
+    // fallen is depth traded for speed wearing the objective's name. A
+    // decline inside noise still advances; this asks only that the primary
+    // not be confidently down, at the same confidence the rule calls a gain.
+    if (separatedK !== null && separatedK < PRIMARY_RUNG && d6.pGreater < 1 - p.inconclusiveP) {
+      return out("reject", `depth>=${separatedK} per second separated but depth>=${PRIMARY_RUNG} is down (pGreater ${d6.pGreater.toFixed(3)}, ratio ${d6.meanRatio.toFixed(3)})`);
+    }
     // A separated rung advances only when the deep rungs per run are known
     // to hold; a gain with the guard unresolved keeps sampling and goes to a
     // human at the cap rather than being merged or discarded.
