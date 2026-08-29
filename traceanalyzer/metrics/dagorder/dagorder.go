@@ -192,7 +192,14 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 		availableRuns = 1
 		allIDs = []int64{runID}
 	}
-	const chunkSize = 500
+	// Reading a chunk costs a fixed setup - a fresh in-memory DuckDB, a
+	// parquet glob and a bind, twice - before it transfers a row. Measured on
+	// a 172,768-run corpus at 346 chunks: 55.9 s of reads whose cheapest chunk
+	// was 114 ms, so about 39 s of it was setup paid once per chunk and only
+	// 16 s scaled with the rows wanted. Chunking is invisible to the output:
+	// it batches reads and sets the granularity of the budget check, and runs
+	// are consumed in id order regardless.
+	const chunkSize = 4000
 
 	// Stable label list for bestMatching.
 	labels := make([]string, 0, len(cfg.Events))

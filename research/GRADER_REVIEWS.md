@@ -403,3 +403,62 @@ column-predicate `UNION ALL` alone (241.8 s, no gain) and the aggregated
 timer read alone (227.5 s). The remaining read time is the store's own scan
 of 251M trace rows per corpus; a VR grade is now about a quarter of its
 chunk's explore time rather than one and a half times it.
+
+## 2026-08-29 - the hazard pass runs beside the DAG pass, and chunks stop costing setup
+
+Accepted, byte-identical. Grading had reached 44% of a chunk's wall, past the
+25% the operator playbook treats as the point to act, and it grows with every
+throughput merge because explore is pinned to a 300 s budget while grading
+scales with runs.
+
+Two changes, landed together because acceptance is paid per review:
+
+- `main.go` runs `ComputeGrade` (the L0/L1 hazard SQL) and `ReadRuns` on one
+  goroutine while the DAG prefix pass runs on the caller's. They read the same
+  corpus, share no state, and write disjoint fields of the report, which is
+  written only after both join. Measured, the hazard pass is 22.7 s of an 83 s
+  grade - a third of it - and it now costs the longer of the two rather than
+  the sum.
+- `dagorder.go` grades 4000 runs per chunk instead of 500. Reading a chunk
+  costs a fixed setup before it transfers a row: a fresh in-memory DuckDB, a
+  parquet glob and a bind, twice. Over 346 chunks of a 172,768-run corpus the
+  read was 55.9 s and its cheapest chunk 114 ms, so about 39 s was setup paid
+  per chunk and only 16 s scaled with the rows wanted.
+
+| corpus | before | after |
+| --- | --- | --- |
+| enc-vr, new timer encoding, 14 files | 82.7 s | 41.5 s |
+| term-vr, old payload encoding, 40 files | 111.3 s | 56.6 s |
+| enc-vr at -grade-max-runs 2000 (sampled path) | 24.9 s | 23.6 s |
+
+Half the grade wall on a full corpus. The sampled path barely moves, which is
+what it should do: 2,000 runs is one chunk either way and the hazard pass
+dominates it. Peak resident set rose from 1.5 GB to 2.4 GB, against the loop
+unit's 14 GB ceiling.
+
+Acceptance: the whole grade JSON, with `grade.wall_ms` removed, hashes
+identically before and after on all three corpora above. The third is the
+sampled path deliberately - `research/corpus/manifest.json`'s own grader
+settings use `-grade-max-runs`, its run ids are not contiguous, and a chunking
+change would diverge there first if it diverged anywhere.
+
+No epoch bump and no baseline re-run. Every graded number is unchanged, so
+every ladder count, every manifest invariant and every recorded comparison
+means exactly what it meant before; only wall time moved, and the loop's rate
+statistics divide by explore exposure, which grading does not touch. Same
+argument as the 2026-08-28 read-path entry.
+
+Also measured and not landed: `SPUR_DUCKDB_THREADS` had never been set
+anywhere and defaulted to 4 while the loop grades under a 16-thread mask with
+explore, porcupine and grade strictly serial. 8 is the optimum - it takes the
+hazard pass from 26.9 s to 22.7 s - and 16 is worse than 8. It is set in
+`research/loop-start.sh` rather than in the grader, so it is not a grader
+change; output at 4, 8 and 16 threads hashes identically.
+
+Rejected on the way: double-buffering the chunk read against the matching.
+Overlap can hide at most the smaller of the two, and matching is 3.3 s against
+a 55.9 s read - 5.9%. The ceiling was about 7 s of a 568 s chunk before
+contention. Also rejected, on evidence rather than argument: warming the
+parquet metadata cache by sharing a connection, and raising the writer's
+rotation interval. A corpus with 40 files per table and one with 14 differ by
+about 10 ms per chunk, so file count and metadata are not the cost.

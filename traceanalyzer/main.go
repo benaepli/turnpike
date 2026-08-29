@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/benaepli/turnpike-traceanalyzer/metrics"
 	"github.com/benaepli/turnpike-traceanalyzer/metrics/dagorder"
@@ -94,19 +95,31 @@ func main() {
 	r := &report.FullReport{RunID: *runID}
 
 	if *grade {
-		fmt.Fprintln(os.Stderr, "  Computing grade metrics (L0/L1)...")
-		r.Grade, err = metrics.ComputeGrade(*inputPath, *runID, *batchRuns)
-		if err != nil {
-			log.Printf("Warning: grade metrics failed: %v", err)
-		}
-		if *runID < 0 && reader.HasRuns(*inputPath) {
-			rows, rerr := reader.ReadRuns(*inputPath)
-			if rerr != nil {
-				log.Printf("Warning: runs table failed: %v", rerr)
+		// The L0/L1 hazard SQL and the DAG prefix pass read the same corpus
+		// and write disjoint fields of the report, sharing no state and no
+		// ordering. Run together they cost the longer of the two rather than
+		// the sum; the hazard pass is about a third of a grade's wall. The
+		// report is written only after both have finished.
+		var gradeWg sync.WaitGroup
+		gradeWg.Add(1)
+		go func() {
+			defer gradeWg.Done()
+			fmt.Fprintln(os.Stderr, "  Computing grade metrics (L0/L1)...")
+			g, gerr := metrics.ComputeGrade(*inputPath, *runID, *batchRuns)
+			if gerr != nil {
+				log.Printf("Warning: grade metrics failed: %v", gerr)
 			} else {
-				r.RunsMeta = metrics.ComputeRunsMeta(rows)
+				r.Grade = g
 			}
-		}
+			if *runID < 0 && reader.HasRuns(*inputPath) {
+				rows, rerr := reader.ReadRuns(*inputPath)
+				if rerr != nil {
+					log.Printf("Warning: runs table failed: %v", rerr)
+				} else {
+					r.RunsMeta = metrics.ComputeRunsMeta(rows)
+				}
+			}
+		}()
 		if *dagConfig != "" {
 			opts := dagorder.Options{
 				MaxRuns:          *gradeMaxRuns,
@@ -129,6 +142,7 @@ func main() {
 				r.GradeDags = append(r.GradeDags, d)
 			}
 		}
+		gradeWg.Wait()
 		switch formatNorm {
 		case "json":
 			if err := report.WriteJSON(os.Stdout, r); err != nil {

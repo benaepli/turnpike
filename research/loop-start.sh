@@ -21,6 +21,7 @@ if command -v systemd-run >/dev/null; then
   [ -n "${SPUR_LOOP_CPUS:-}" ] && PIN=(taskset -c "$SPUR_LOOP_CPUS")
   systemd-run --user --unit=spur-research-loop --collect \
     --setenv=PATH="$PATH" \
+    --setenv=SPUR_DUCKDB_THREADS=8 \
     --property=MemoryHigh="${SPUR_LOOP_MEM_HIGH:-10G}" \
     --property=MemoryMax="${SPUR_LOOP_MEM_MAX:-14G}" \
     --property=MemorySwapMax=0 \

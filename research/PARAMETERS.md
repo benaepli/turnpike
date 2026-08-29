@@ -219,6 +219,13 @@ Three exclusions error the evaluation out. Fast chunks are never anomalies:
 the exposure is the explorer's own clock, which the environment cannot
 inflate. Baseline top-ups apply the same rule against their own siblings.
 
+**Grading cost.** The grader batches 4000 runs per read chunk and runs the
+hazard SQL beside the DAG pass; `SPUR_LOOP_CPUS`-pinned runs grade with
+`SPUR_DUCKDB_THREADS=8`, the measured optimum against a default of 4. Together
+these halve a grade's wall at unchanged output, which matters because grading
+scales with runs while explore is fixed at a 300 s budget, so its share of a
+chunk rises with every throughput merge. See `GRADER_REVIEWS.md`, 2026-08-29.
+
 **Chunk cap.** `maxChunks` stays 4 and equals the baseline's size. The
 resolution argument that set it no longer holds: at the counts after the
 throughput merges the fourth candidate chunk buys 0.10 points of depth>=6
