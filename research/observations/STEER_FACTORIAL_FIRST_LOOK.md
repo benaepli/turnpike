@@ -1,5 +1,11 @@
 # Steer-terms factorial: first look
 
+Superseded by `STEER_FACTORIAL.md`, which runs the same design at 346,432
+runs over three seeds. The direction read here does not survive that size:
+stale_late on P(depth>=6) is +1.1% (z 0.7) there, not the +7% below. Read
+this file as the machinery smoke test it says it is, and take effect sizes
+from the larger run.
+
 One 300 s round-robin campaign chunk (session_seed 1000, 14 threads, 8 grid arms over {crash_after_timer_sends, stale_late, request_before_stale} at w = 2.33; arm `000` is today's grid). Per arm about 21k runs, which resolves only large effects: at P(depth>=6) ~ 0.008 an arm holds ~170 events, so the per-arm 95% interval is about +/-15% relative and a main effect under ~10% is inside noise. This is a smoke test of the machinery and a first look at direction, not an estimate.
 
 | arm | runs | runs/s | P(d>=5) | P(d>=6) [95%] | P(d>=7) | viol |

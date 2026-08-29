@@ -911,9 +911,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       if (status === "needs_human") cleanupToResearchBranch(null); // PR lives on the pushed remote branch
       if (status === "merged") {
         const seqTarget = sequentialBaselineChunks(policy);
-        const sequential = h.kind === "perf" && !allEvals["sequential"]
-          ? baseline.sequential
-          : await timed("evaluate", () => topUpSequentialBaseline(ctx, allEvals["sequential"] ?? [], seqTarget));
+        // Rungs are events per explore-second, so a merge that changes only
+        // speed still moves every one of them. A perf candidate brings no
+        // sequential chunks of its own, so the baseline is measured again
+        // rather than carried across the change.
+        const sequential = await timed("evaluate", () => topUpSequentialBaseline(ctx, allEvals["sequential"] ?? [], seqTarget));
         for (const e of sequential) if (!allEvals["sequential"]?.includes(e)) state.addEvaluation(e);
         journal(state, n, "baseline_sequential", { chunks: sequential.length, counts: pooledCountsOf(sequential) });
         const newBaseline: BaselineMeta = {
