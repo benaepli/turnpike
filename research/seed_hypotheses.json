@@ -60,5 +60,22 @@
     "generalityArgument": "The arms differ only in numeric weights on predicates defined over queue and ledger state; no handler, message or role is named anywhere in the overlay.",
     "createdAtIso": "2026-08-29T02:05:42Z",
     "notes": "Counter per arm: steer_terms.<term>.{won, flipped, measured, acted}, steer_terms.authority_routed. Only after steer-term-base-rates has admitted the predicates; a predicate it dropped gets no arm."
+  },
+  {
+    "id": "purgatory-rate-to-stale-late-arm",
+    "parent": null,
+    "kind": "arm",
+    "title": "Replace the purgatory delay rate with the stale_late preference: one arm",
+    "description": "Add one grid arm to the campaign block whose overlay sets purgatory.delay_probability to 0 and steer_terms.stale_late to 2.33, beside the existing grid arm that keeps the delay rate at 0.15 with the weight at 0. Purgatory today delays 15% of all sends by a random duration; the relaxation-gap ablation says the ordering that matters is one stale-incarnation delivery landing after its receiver has moved on, which stale_late prefers directly and only when that situation exists. Read per arm from the runs table and campaign.json: P(depth>=5,6,7) per run, violations, runs per second, and steer_terms.stale_late.{present,won,acted} against purgatory.delayed_sends. Compare the new arm with grid and with grid-no-purgatory: if it is non-inferior to grid on depth>=6 per run and faster, the delay rate is doing no work the preference does not, and a follow-up ablate removes the delay_probability knob.",
+    "category": "scheduler",
+    "buildsOn": [
+      "steer-term-factorial-campaign"
+    ],
+    "expectedGain": 6,
+    "expectedCost": 2,
+    "rationale": "Six purgatory hypotheses added more holding and were falsified; grid-no-purgatory loses 40% of depth>=6 per run, so the rate is doing something, and the ablation says what: it sometimes lands a stale delivery late. A preference that acts only in that situation should keep the gain at lower cost and without a rate whose right value nobody can derive.",
+    "generalityArgument": "The arm changes a delay rate applied to every send into a preference that acts only when a delivery's sender has restarted and its receiver has moved on, both of which any protocol with crashes has; no handler, message or role is named.",
+    "createdAtIso": "2026-08-29T04:32:07Z",
+    "notes": ""
   }
 ]
