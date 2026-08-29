@@ -8,7 +8,10 @@ import {
   PROPOSAL_LENSES, ROOT, implementHypothesis, judgeHypotheses, proposeHypotheses,
   reflectOnOutcome, rejudgePool, runAudit, validateProposed,
 } from "./agents.js";
-import { classifyChangeRisk, compareToBaseline, finalGate, nonInferior, objectiveCounts, perfGate, screenAdvances } from "./decide.js";
+import {
+  CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, classifyChangeRisk, compareToBaseline, finalGate,
+  nonInferior, objectiveCounts, perfGate, primaryDelta, stratumOf, type RatePrior,
+} from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
 import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
@@ -62,6 +65,35 @@ export function loadReference(state: LoopState): BaselineMeta | null {
   return p.success ? p.data : null;
 }
 
+// The archive violation rate a candidate's own violations are separated
+// against. Violations arrive at about one per 4.5M runs, so four baseline
+// chunks carry one roughly a fifth of the time and "the baseline saw none"
+// decides on a coin flip. Not filtered by thread count: the per-run
+// violation probability is a property of the corpus, not of the CPU mask.
+// Read before the candidate's chunks are recorded, so a candidate never
+// contributes to the rate it is judged against.
+export function violationPrior(state: LoopState): RatePrior | null {
+  let violations = 0;
+  let runs = 0;
+  let chunks = 0;
+  for (const e of state.allEvaluations()) {
+    if (e.fidelity !== "sequential" || !e.ok) continue;
+    if ((e.epoch ?? 0) < CAMPAIGN_EPOCH_FLOOR) continue;
+    violations += e.metrics.violations;
+    runs += e.metrics.runs;
+    chunks += 1;
+  }
+  return runs > 0 ? { violations, runs, chunks, sinceEpoch: CAMPAIGN_EPOCH_FLOOR } : null;
+}
+
+// Identity of the baseline a candidate's counts are comparable within: the
+// superproject commit the chunks were measured at, and the arm set the rate
+// stratum pools. Either moving makes the stored counts a different quantity.
+export function baselineIdentity(evals: Evaluation[]): string {
+  const s = stratumOf(evals);
+  return `${evals[0]?.superCommit ?? ""}|${s === null ? "unstratified" : s.armIds.join(",")}`;
+}
+
 // The baseline holds at least as many chunks as any candidate can sample.
 export function sequentialBaselineChunks(policy: Policy): number {
   return policy.sequential.maxChunks;
@@ -81,6 +113,12 @@ export async function topUpSequentialBaseline(ctx: EvalContext, existing: Evalua
       gradeMaxRuns: 0, gradeBudgetMs: p.wallSecPerChunk * 1000,
     });
     if (!e.ok) continue;
+    // A baseline chunk with no per-arm accounting cannot enter the pool: it
+    // would poison the stratum every later candidate is compared against.
+    if (chunkStratum(e) === null) {
+      console.log(`baseline chunk seed ${seed} excluded: no per-arm accounting`);
+      continue;
+    }
     // The baseline has no candidate to be slow: a chunk far off its own
     // siblings' throughput is the host, and it must not set the rate the
     // candidates are held to.
@@ -851,6 +889,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     let perfDecision: GateDecision | null = null;
     let seqOutcome = "";
     let escalated = false;
+    let escalateReason: string | null = null;
+    let violationRate: RatePrior | null = null;
 
     if (lintFailures.length === 0 && h.kind === "perf") {
       const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
@@ -892,14 +932,17 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       // A stop mid-sample continues where it left off; a deliberate resume
       // of an inconclusive result spends one of the allowed resumes. Counts
       // gathered against a superseded baseline are dropped.
-      const baselineKey = baseline.sequential[0]?.superCommit ?? "";
+      const baselineId = baselineIdentity(baseline.sequential);
       let prior: SeqState | null = null;
       if (priorSeq) {
         const resumes = priorSeq.lastVerdict === "inconclusive" ? priorSeq.resumes + 1 : priorSeq.resumes;
-        prior = priorSeq.baselineKey === baselineKey
-          ? { ...priorSeq, resumes }
-          : { ...initialSeqState(h.id, baselineKey), resumes, nextSeed: priorSeq.nextSeed, lastIteration: priorSeq.lastIteration };
-        if (priorSeq.baselineKey !== baselineKey) journal(state, n, "seq_reset", { id: h.id, from: priorSeq.baselineKey, to: baselineKey });
+        // Counts written before the rate was stratified describe a different
+        // quantity, so they reset with the same path a moved baseline takes.
+        const stale = priorSeq.baselineKey !== baselineId || priorSeq.rateStratum === null;
+        prior = stale
+          ? { ...initialSeqState(h.id, baselineId), resumes, nextSeed: priorSeq.nextSeed, lastIteration: priorSeq.lastIteration }
+          : { ...priorSeq, resumes };
+        if (stale) journal(state, n, "seq_reset", { id: h.id, from: priorSeq.baselineKey, to: baselineId, reason: priorSeq.rateStratum === null ? "no rate stratum" : "baseline or arm set changed" });
       }
       // The candidate's own mechanism counters. Evaluation runs do not carry
       // them, so a mechanism that never fired is otherwise indistinguishable
@@ -911,8 +954,10 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           journal(state, n, "utilization", { id: h.id, counters: JSON.parse(candUtil) });
         }
       } catch { /* advisory only; never blocks an evaluation */ }
+      violationRate = violationPrior(state);
       const res = await timed("evaluate", () => runSequential({
-        ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.sequential), prior, baselineKey,
+        ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.sequential), prior,
+        baselineKey: baselineId, violationPrior: violationRate,
         maxChunksTotal: policy.sequential.maxChunks * (policy.sequential.maxResumes + 1),
         onChunk: (seq, d) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, exposureSec: Math.round(seq.exposureSec), rps: seq.rpsChunks.at(-1) ?? 0, depth4: seq.depth4, depth5: seq.depth5, depth6: seq.depth6plus, depth7: seq.depth7plus, depth8: seq.depth8plus, h2: seq.h2Count, violations: seq.violations, anomalies: seq.anomalies, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors }),
         onAnomaly: (e, reason) => journal(state, n, "seq_chunk_anomaly", { seed: e.seed, reason, runs: e.metrics.runs, rps: e.metrics.runsPerSec, exposureMs: e.metrics.exposureMs, suspendedMs: e.suspendedMs, utilStats: e.utilStats }),
@@ -956,6 +1001,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         regressionPassed = regr.passed;
         journal(state, n, "regression", regr);
         escalated = true;
+        escalateReason = res.reason;
         decisionInputsReady = true;
       }
       if (res.verdict === "advance") {
@@ -985,6 +1031,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       changedSpurFiles: spurFiles,
       throughputRatio,
       throughputFloor: 1 - policy.regression.throughputTolerance,
+      violationPrior: violationRate,
     });
     if (!perfDecision && !decisionInputsReady && lintFailures.length === 0) {
       decision.verdict = "closed";
@@ -992,15 +1039,15 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       const ran = allEvals["sequential"] ?? [];
       const baseRan = baseline.sequential;
       if (ran.length > 0) {
-        const cmp = compareToBaseline(objectiveCounts(ran), objectiveCounts(baseRan));
+        const cmp = compareToBaseline(objectiveCounts(ran), objectiveCounts(baseRan), MERGE_Z, violationRate);
         const h1 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h1Rate, 0) / ok.length : 0; };
         const h3 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h3Rate, 0) / ok.length : 0; };
-        decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=6"] ?? 0) };
+        decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: primaryDelta(cmp) };
       }
     }
     if (escalated && lintFailures.length === 0) {
       decision.verdict = "needs_human";
-      decision.reasons = ["a depth the baseline never reaches appeared, below gate separation - human review of the pooled evidence"];
+      decision.reasons = [`${escalateReason ?? "rare evidence below gate separation"} - human review of the pooled evidence`];
     }
     const paramsAfter = generalConfigParamCount(policy);
     decision.objectiveDeltas["params"] = paramsAfter - paramsBefore;
@@ -1164,6 +1211,10 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
   const freshness = baselineFreshness(startBaseline);
   if (freshness === "stale") {
     console.error(`baseline at ${hostThreads} threads was measured on spur ${startBaseline.sequential[0]?.spurCommit.slice(0, 7)}, whose tree differs from HEAD; run \`cli baseline\` under this CPU mask before starting.`);
+    return;
+  }
+  if (stratumOf(startBaseline.sequential) === null) {
+    console.error(`the ${hostThreads}-thread baseline chunks carry no per-arm accounting, or pool different arms across chunks; run \`cli baseline\` under this CPU mask before starting the loop`);
     return;
   }
   if (freshness === "unknown") {

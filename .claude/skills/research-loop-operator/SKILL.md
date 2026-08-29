@@ -231,7 +231,18 @@ boundary procedure (step 8).
 - Journal events with content (seq_chunk/sequential/inconclusive/decision/
   audit/publish): interpret them. `seq_chunk` carries the running posteriors
   per rung (`depth>=4..7:pGreater`, `:pMei`, `:ratio`, `:mei`, all on events
-  per explore-second, plus `depth>=4:pRegress` and `h2:pRegress` per run);
+  per explore-second, plus `depth>=4:pRegress` and `h2:pRegress` per run).
+  Those per-second rungs are the four grid arms' events over the four grid
+  arms' wall, about 240 s of the 300 s chunk: `stratum:chunks` and
+  `stratum:exposureSec` report the stratum, `depth>=5/6/7:cv` the dispersion
+  each rung's interval is charged, and `depth>=k:pooled` on a decision is the
+  all-arm rate, recorded and never decided on. The aos arm stays in the
+  ladder, the violations and the jackpot path but not the rate, because its
+  depth>=6 chunk cv runs 7-22% against 0.4-1.4% for the grid arms. An
+  `escalate` whose reason names the stratum means the arm set moved, which is
+  a changed unit of comparison and not a result. A violation advances only by
+  separating against the archive rate over every campaign-epoch chunk; one
+  that does not separate extends the cap and escalates with its evidence;
   `sequential` is the verdict (advance -> regression suite and merge gate on
   the pooled chunks; reject -> closed; escalate -> a rung the baseline never
   reaches appeared, sampling was extended to the hard cap, then a

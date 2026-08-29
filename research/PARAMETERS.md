@@ -230,28 +230,81 @@ chunk rises with every throughput merge. See `GRADER_REVIEWS.md`, 2026-08-29.
 resolution argument that set it no longer holds: at the counts after the
 throughput merges the fourth candidate chunk buys 0.10 points of depth>=6
 resolution and the fourth baseline chunk 0.27, against the 1.5 points claimed
-when it was chosen. What binds depth>=6 now is chunk-to-chunk throughput
-dispersion, 77% of that rung's variance against 23% from event counts, so the
-rung sits at 3.17% against a count-limited floor of 1.07%. A cheaper
+when it was chosen. What bound depth>=6 was not throughput: throughput is
+0.15% cv inside the rate stratum and about 6% of the rung's variance. It was
+per-arm over-dispersion, almost all of it the aos arm (below). A cheaper
 dispersion estimate, not more chunks, is what would move it. `cli selftest` asserts that the minimum effect at the
 cap is within 1.5x the unbounded floor at the measured counts, so a change
 of budget, rates or baseline size that breaks the relation fails loudly.
 
+**Rate stratification (epoch 11).** The gate separates on the four grid arms
+only. An aos arm refines a recorded tape, so one deep lineage compounds
+inside a session and its rung rate swings by an order of magnitude more than
+the grid arms'. Chunk-to-chunk cv over the four chunks of a single baseline,
+same binary and same mask:
+
+| rung | all five arms | four grid arms | aos alone |
+| --- | --- | --- | --- |
+| depth>=5 | 0.43% | 0.18% | 3.42% |
+| depth>=6 | 0.90% | 0.42% | 7.12% |
+| depth>=7 | 6.52% | 2.37% | 26.73% |
+
+The variance ratio is 4.6 at the primary rung and holds across baselines: the
+preceding 14-thread baseline gave 3.08% / 1.37% / 22.26% at depth>=6, the same
+4.6x. Pooling the aos arm therefore inflated the standard error by about
+2.1x, so `MERGE_Z` 2.7 was separating like z 1.2 and the gate had roughly half
+the confidence its constant claimed. This is not allocation drift: the arms'
+wall shares are equal to within 0.03% cv.
+
+The stratum is 240.2 s of a 300 s chunk and about 9,700 depth>=6 events, so
+the counting-noise floor on the stratified rate is 1.01% per chunk, above the
+measured 0.42%; `RATE_CV_FLOOR` at 1% is what is charged, which is
+conservative at 3 degrees of freedom. The charge is now taken from each
+rung's own chunk dispersion rather than from throughput, so an arm change
+that re-inflates it widens the interval instead of silently deflating z, and
+`cli selftest` fails when the recorded baseline's stratified depth>=6 cv
+exceeds 2.5%.
+
+The aos arm keeps its fifth of the wall, its violations, the per-run guards
+and the jackpot path. It leaves the rate estimator only. Arms are selected by
+mode, so an aos arm added under a new id is excluded with it; a candidate and
+a baseline that pool different arms are not compared at all, which reaches a
+human as a moved unit of comparison rather than a result.
+
+**Violation prior (epoch 11).** A violation advanced when the baseline's own
+four chunks showed none. Violations arrive at 4 in 18,011,600 runs over the
+72 campaign-epoch sequential chunks in the record, one per 4.50M, so a
+four-chunk baseline carries one about a fifth of the time and the rule turned
+on a coin flip - the baseline refreshed at iteration 5336 carries one. A
+candidate's violations are now separated against that archive rate at
+`MERGE_Z`. One violation in a two-chunk candidate does not separate; two do.
+A violation that does not separate suppresses futility, extends the cap and
+escalates to a human with the evidence, rather than merging. Replaying the
+recorded evidence through the new gate flips exactly one verdict: iteration
+5328's telemetry export, which auto-merged on a single `grid-post-fault-2`
+violation it could not have caused.
+
 **Operating characteristics** (`npx tsx src/selftest_sequential.ts 60
 --assert`): the simulator reads the rule from `research/policy.json` and the
 chunk shape from the recorded baseline in `evaluations/000-baseline-<threads>.json`, so
-it describes the regime the loop runs. At the epoch-7 baseline (300 s
-campaign chunks, 912,180 runs over four chunks): A/A -> 0% advance, 97%
-reject, 3% inconclusive (the d7 extension on a null, mean 2.5 chunks); +25%
+it describes the regime the loop runs. It reads the evidence file, which
+`cli baseline` writes and a post-merge top-up does not, so after a merge it
+lags the baseline the loop decides against by one refresh. At the epoch-11
+baseline (300 s campaign chunks, 1,016,400 runs over four chunks, 400 reps):
+A/A -> 0% advance, 98% reject, 2% inconclusive, mean 2.5 chunks; +25%
 depth>=6 -> 100% advance in 2 chunks; +25% depth>=6 at 0.7x throughput ->
 100% reject; flat depth at 1.4x throughput -> 100% advance (intended:
 throughput multiplies every rung); +12% depth>=4 with +15% depth>=5 -> 100%
 advance; -40% per-run depth>=4 -> 100% reject at chunk 1; depth>=7-only +40%
--> 0% advance, 100% inconclusive at 8 chunks; h2-only +10% -> 0% advance;
-NI null -> 100% advance; NI -30% -> 100% reject at chunk 1; per-run
-depth>=6 down 15% at 1.4x throughput -> 100% advance (inside the 25%
-margin), down 25% -> 93% escalate at the cap and 3% advance (the margin
-itself), down 40% -> 100% reject. The consistency
+-> 100% advance, since depth>=7 decides rather than hints; h2-only +10% ->
+0% advance; NI null -> 100% advance; NI -30% -> 100% reject at chunk 1;
+per-run depth>=6 down 15% at 1.4x throughput -> 100% advance (inside the 25%
+margin), down 25% -> 92% escalate at the cap and 5% advance (the margin
+itself, measured at 4% over 600 reps both before and after stratification -
+150 draws cannot resolve that bar), down 40% -> 100% reject. Against the
+pooled statistic the stratified one holds the same 0% false-positive rate
+and reaches the same verdicts in fewer chunks (7.6 -> 6.5 on the marginal
+case, inconclusive 5% -> 2% on the null). The consistency
 of the sequential rule with the merge gate on the same pooled chunks, and
 the cap check below, are asserted by `selfTestGateConsistency` on the same
 recorded baseline when `cli selftest` finds one in the state.

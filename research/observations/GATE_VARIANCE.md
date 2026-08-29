@@ -105,3 +105,25 @@ causal path to the deep rungs. A change that never fired would not, and the
 evaluation record does not currently carry the counters that tell the two
 apart. Its implementation survives at `202b525` (superproject) and `69efb98`
 (spur).
+
+## Acted on (2026-08-29, epoch 11)
+
+Two of the sections above are now code rather than observation.
+
+The violation attribution problem - iteration 5328 auto-merging a telemetry
+export on a violation it could not have caused - is closed. A violation no
+longer advances against the baseline's own count, which is a coin flip at
+1 per 4.50M runs over four chunks. It is separated against the archive rate
+over every campaign-epoch sequential chunk (4 in 18,011,600 runs at the time
+of the change) at MERGE_Z, and one that does not separate extends the cap and
+escalates with its evidence instead of merging. Replaying the recorded
+evidence through the new gate flips exactly 5328 and nothing else.
+
+The variance the gate charges is no longer sourced from throughput, which is
+0.15% cv inside the stratum. It is the measured chunk-to-chunk dispersion of
+each rung's own stratified rate, so an arm change that re-inflates it widens
+the interval rather than silently deflating z. `cli selftest` fails when the
+recorded baseline's stratified depth>=6 cv exceeds 2.5%.
+
+The hazard-variance section and the depth>=4 placement section are untouched
+and still stand.

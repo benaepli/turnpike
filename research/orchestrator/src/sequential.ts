@@ -12,9 +12,12 @@ import type { Policy } from "./policy.js";
 import { runOneEvaluation, type EvalContext } from "./evaluate.js";
 import type { LoopState } from "./state.js";
 import { compareRatesPoisson, rateRatioSeparated, throughputCv } from "./stats.js";
-import { MERGE_Z, PRIMARY_RUNG, compareToBaseline, exposureVarianceOf, objectiveCounts } from "./decide.js";
+import {
+  MERGE_Z, PRIMARY_RUNG, addStratum, chunkStratum, compareToBaseline, emptyStratum,
+  objectiveCounts, primaryDelta, rateVarianceOf, rungCv, stratumFault, type RatePrior,
+} from "./decide.js";
 import { HARD_LIMITS } from "./policy.js";
-import { Evaluation, SeqState } from "./schemas.js";
+import { CampaignMetrics, Evaluation, RateStratum, SeqState } from "./schemas.js";
 
 export function loadSeqState(state: LoopState, id: string): SeqState | null {
   const raw = state.getMeta(`seq:${id}`);
@@ -36,6 +39,11 @@ export interface PooledCounts {
   violations: number;
   h2Count: number;
   rpsChunks: number[];
+  // Counts restricted to the arms the rate is separated on. null means the
+  // stratum could not be formed - a chunk without per-arm accounting, or an
+  // arm set that changed mid-sample - and nothing downstream may treat that
+  // as an ordinary comparison.
+  rateStratum: RateStratum | null;
 }
 
 export type SeqKind = "superiority" | "noninferiority";
@@ -50,7 +58,7 @@ export interface SeqDecision {
 export function emptyCounts(): PooledCounts {
   return {
     runs: 0, graded: 0, chunks: 0, exposureSec: 0, depth4: 0, depth5: 0, depth6plus: 0,
-    depth7plus: 0, depth8plus: 0, violations: 0, h2Count: 0, rpsChunks: [],
+    depth7plus: 0, depth8plus: 0, violations: 0, h2Count: 0, rpsChunks: [], rateStratum: emptyStratum(),
   };
 }
 
@@ -71,19 +79,9 @@ export function pooledCountsOf(evals: Evaluation[]): PooledCounts {
     c.violations += e.metrics.violations;
     c.h2Count += Math.round(e.metrics.h2Rate * e.metrics.runs);
     c.rpsChunks.push(e.metrics.runsPerSec);
+    c.rateStratum = addStratum(c.rateStratum, chunkStratum(e));
   }
   return c;
-}
-
-export function addCounts(a: PooledCounts, b: PooledCounts): PooledCounts {
-  return {
-    runs: a.runs + b.runs, graded: a.graded + b.graded, chunks: a.chunks + b.chunks,
-    exposureSec: a.exposureSec + b.exposureSec,
-    depth4: a.depth4 + b.depth4, depth5: a.depth5 + b.depth5, depth6plus: a.depth6plus + b.depth6plus,
-    depth7plus: a.depth7plus + b.depth7plus, depth8plus: a.depth8plus + b.depth8plus,
-    violations: a.violations + b.violations, h2Count: a.h2Count + b.h2Count,
-    rpsChunks: [...a.rpsChunks, ...b.rpsChunks],
-  };
 }
 
 export function pooledFromSeq(seq: SeqState): PooledCounts {
@@ -92,16 +90,8 @@ export function pooledFromSeq(seq: SeqState): PooledCounts {
     depth4: seq.depth4, depth5: seq.depth5, depth6plus: seq.depth6plus,
     depth7plus: seq.depth7plus, depth8plus: seq.depth8plus,
     violations: seq.violations, h2Count: seq.h2Count, rpsChunks: seq.rpsChunks,
+    rateStratum: seq.rateStratum,
   };
-}
-
-// Variance the throughput jitter adds to the log ratio of two pooled rates,
-// by the same definition the merge gate uses.
-export function exposureVariance(cand: PooledCounts, base: PooledCounts): number {
-  return exposureVarianceOf(
-    { throughputCv: throughputCv(cand.rpsChunks), chunks: cand.chunks },
-    { throughputCv: throughputCv(base.rpsChunks), chunks: base.chunks },
-  );
 }
 
 export function throughputRatioOf(cand: PooledCounts, base: PooledCounts): number {
@@ -114,10 +104,13 @@ export type SeqPolicy = Policy["sequential"];
 // floor, which is the regression suite's tolerance so one knob bounds both.
 export interface SeqRule extends SeqPolicy {
   throughputFloor: number;
+  // The archive violation rate a candidate's violations are separated
+  // against; null falls back to the baseline's own count.
+  violationPrior: RatePrior | null;
 }
 
-export function seqRuleOf(policy: Policy): SeqRule {
-  return { ...policy.sequential, throughputFloor: 1 - policy.regression.throughputTolerance };
+export function seqRuleOf(policy: Policy, violationPrior: RatePrior | null = null): SeqRule {
+  return { ...policy.sequential, throughputFloor: 1 - policy.regression.throughputTolerance, violationPrior };
 }
 
 function decisionSeed(cand: PooledCounts, chunks: number): number {
@@ -148,25 +141,37 @@ export function minimumEffect(baseCount: number, baseExposure: number, capExposu
 export function decideSequential(
   cand: PooledCounts, base: PooledCounts, chunks: number, kind: SeqKind, p: SeqRule,
 ): SeqDecision {
+  // A stratum that cannot be formed or compared is a unit problem: more
+  // chunks cannot fix it, and the pooled evidence belongs in front of a
+  // human rather than deleted as a negative result about the hypothesis.
+  const fault = stratumFault(cand.rateStratum, base.rateStratum);
+  if (fault !== null) {
+    return { verdict: "escalate", reason: `the rate stratum cannot be compared: ${fault.detail}`, posteriors: {} };
+  }
+  const cs = cand.rateStratum ?? emptyStratum();
+  const bs = base.rateStratum ?? emptyStratum();
+  const sd = (s: RateStratum, k: number): number => s.depth[k - 1] ?? 0;
+  const xv = (k: number): number => rateVarianceOf(cs, bs, k);
   const seed = decisionSeed(cand, chunks);
-  const capExposure = chunks > 0 ? (cand.exposureSec / chunks) * p.maxChunks : 0;
+  // The cap is in stratum exposure - the grid arms are about 240 s of a
+  // 300 s chunk - so it stays the wall the rate is actually measured over.
+  const capExposure = chunks > 0 ? (cs.exposureSec / chunks) * p.maxChunks : 0;
   const capRuns = chunks > 0 ? (cand.runs / chunks) * p.maxChunks : 0;
-  const xv = exposureVariance(cand, base);
   const mei = {
-    depth4: minimumEffect(base.depth4, base.exposureSec, capExposure, xv),
-    depth5: minimumEffect(base.depth5, base.exposureSec, capExposure, xv),
-    depth6: minimumEffect(base.depth6plus, base.exposureSec, capExposure, xv),
-    depth7: minimumEffect(base.depth7plus, base.exposureSec, capExposure, xv),
-    depth8: minimumEffect(base.depth8plus, base.exposureSec, capExposure, xv),
+    depth4: minimumEffect(sd(bs, 4), bs.exposureSec, capExposure, xv(4)),
+    depth5: minimumEffect(sd(bs, 5), bs.exposureSec, capExposure, xv(5)),
+    depth6: minimumEffect(sd(bs, 6), bs.exposureSec, capExposure, xv(6)),
+    depth7: minimumEffect(sd(bs, 7), bs.exposureSec, capExposure, xv(7)),
+    depth8: minimumEffect(sd(bs, 8), bs.exposureSec, capExposure, xv(8)),
     h2: minimumEffect(base.h2Count, base.runs, capRuns),
   };
-  const perSec = (c: number, b: number, m: number, s: number) =>
-    compareRatesPoisson(c, cand.exposureSec, b, base.exposureSec, m, p.regressMargin, p.draws, s, xv);
-  const d4 = perSec(cand.depth4, base.depth4, mei.depth4, seed);
-  const d5 = perSec(cand.depth5, base.depth5, mei.depth5, seed + 1);
-  const d6 = perSec(cand.depth6plus, base.depth6plus, mei.depth6, seed + 3);
-  const d7 = perSec(cand.depth7plus, base.depth7plus, mei.depth7, seed + 4);
-  const d8 = perSec(cand.depth8plus, base.depth8plus, mei.depth8, seed + 8);
+  const perSec = (k: number, m: number, s: number) =>
+    compareRatesPoisson(sd(cs, k), cs.exposureSec, sd(bs, k), bs.exposureSec, m, p.regressMargin, p.draws, s, xv(k));
+  const d4 = perSec(4, mei.depth4, seed);
+  const d5 = perSec(5, mei.depth5, seed + 1);
+  const d6 = perSec(6, mei.depth6, seed + 3);
+  const d7 = perSec(7, mei.depth7, seed + 4);
+  const d8 = perSec(8, mei.depth8, seed + 8);
   const g4 = compareRatesPoisson(cand.depth4, cand.graded, base.depth4, base.graded, 0, p.regressMargin, p.draws, seed + 5);
   // Per-run guards on the deep rungs: a candidate that buys events per
   // second by making runs shallower must not advance on the shallow rungs.
@@ -185,16 +190,35 @@ export function decideSequential(
     "h2:pGreater": h2.pGreater, "h2:ratio": h2.meanRatio, "h2:mei": mei.h2,
     "depth>=4:pRegress": g4.pRegress, "depth>=5:pRegress": g5.pRegress, "depth>=6:pRegress": g6.pRegress, "h2:pRegress": h2.pRegress,
     "throughput:ratio": throughputRatio, "throughput:cv": throughputCv(cand.rpsChunks),
+    // The dispersion each rung's interval is actually charged, so an arm
+    // change that re-inflates it is visible in the chunk line rather than
+    // only in a widened interval.
+    "depth>=5:cv": rungCv(cs, 5), "depth>=6:cv": rungCv(cs, 6), "depth>=7:cv": rungCv(cs, 7),
+    "stratum:chunks": cs.chunks, "stratum:exposureSec": cs.exposureSec,
   };
   const out = (verdict: SeqVerdict, reason: string): SeqDecision => ({ verdict, reason, posteriors });
 
-  if (cand.violations >= 1 && base.violations === 0) return out("advance", `violations appeared (${cand.violations})`);
+  // A violation counts for the candidate only when it exceeds what the
+  // corpus produces anyway. Four baseline chunks carry one about a fifth of
+  // the time at 1 per 4.5M runs, so "the baseline saw none" was a coin flip;
+  // the archive rate over every campaign-epoch chunk is the honest
+  // comparator, and a violation that does not separate against it extends
+  // sampling and reaches a human instead of merging.
+  const vp = p.violationPrior !== null && p.violationPrior.violations > 0 && p.violationPrior.runs > 0 ? p.violationPrior : null;
+  if (vp !== null) {
+    if (rateRatioSeparated(cand.violations, cand.runs, vp.violations, vp.runs, MERGE_Z)) {
+      return out("advance", `violations separated against the archive rate (${cand.violations} in ${cand.runs} runs against 1 per ${Math.round(vp.runs / vp.violations)})`);
+    }
+  } else if (cand.violations >= 1 && base.violations === 0) {
+    return out("advance", `violations appeared (${cand.violations})`);
+  }
   // A depth the baseline never reaches is rare evidence, not a merge: it
   // extends sampling and, at the cap, routes to human review, never
   // short-circuits the gate (compareToBaseline needs the sample to separate,
   // which a handful of hits cannot do). Dormant while the baseline reaches
   // every rung; each rung the baseline reaches is an ordinary rung.
-  const jackpot = (cand.depth6plus > 0 && base.depth6plus === 0)
+  const jackpot = (vp !== null && cand.violations > 0)
+    || (cand.depth6plus > 0 && base.depth6plus === 0)
     || (cand.depth7plus > 0 && base.depth7plus === 0)
     || (cand.depth8plus > 0 && base.depth8plus === 0);
   // A probable gain on depth>=7 cannot be a verdict at any affordable
@@ -228,12 +252,12 @@ export function decideSequential(
   if (chunks >= p.minChunks) {
     if (belowFloor) return out("reject", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
     if (deepRegress >= p.niP) return out("reject", `deep rungs regressed per run beyond the ${(p.regressMargin * 100).toFixed(0)}% margin (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
-    const sep = (c: number, b: number): boolean => rateRatioSeparated(c, cand.exposureSec, b, base.exposureSec, MERGE_Z, xv);
-    if (sep(cand.depth8plus, base.depth8plus)) { separatedK = 8; separatedRung = `depth>=8 per second separated at z ${MERGE_Z} (ratio ${d8.meanRatio.toFixed(2)})`; }
-    else if (sep(cand.depth7plus, base.depth7plus)) { separatedK = 7; separatedRung = `depth>=7 per second separated at z ${MERGE_Z} (ratio ${d7.meanRatio.toFixed(2)})`; }
-    else if (sep(cand.depth6plus, base.depth6plus)) { separatedK = 6; separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`; }
-    else if (sep(cand.depth5, base.depth5)) { separatedK = 5; separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`; }
-    else if (sep(cand.depth4, base.depth4)) { separatedK = 4; separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`; }
+    const sep = (k: number): boolean => rateRatioSeparated(sd(cs, k), cs.exposureSec, sd(bs, k), bs.exposureSec, MERGE_Z, xv(k));
+    if (sep(8)) { separatedK = 8; separatedRung = `depth>=8 per second separated at z ${MERGE_Z} (ratio ${d8.meanRatio.toFixed(2)})`; }
+    else if (sep(7)) { separatedK = 7; separatedRung = `depth>=7 per second separated at z ${MERGE_Z} (ratio ${d7.meanRatio.toFixed(2)})`; }
+    else if (sep(6)) { separatedK = 6; separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`; }
+    else if (sep(5)) { separatedK = 5; separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`; }
+    else if (sep(4)) { separatedK = 4; separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`; }
     // A rung shallower than the primary carries the session's run count as
     // much as its depth: the depth>=4 per-second rate tracks throughput at
     // 0.99 across seeds. A gain there while the primary rung is known to have
@@ -253,7 +277,7 @@ export function decideSequential(
     }
   }
   if (chunks >= cap) {
-    if (jackpot) return out("escalate", `a depth the baseline never reaches appeared (d6 ${cand.depth6plus}, d7 ${cand.depth7plus}, d8 ${cand.depth8plus}), below gate separation`);
+    if (jackpot) return out("escalate", `rare evidence below gate separation (violations ${cand.violations}, d6 ${cand.depth6plus}, d7 ${cand.depth7plus}, d8 ${cand.depth8plus})`);
     if (separatedRung !== null) return out("escalate", `${separatedRung} with shallower deep runs unresolved (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
     if (d7Hint) return out("inconclusive", `depth>=7 pGreater ${d7.pGreater.toFixed(3)} unresolved at the extended cap`);
     const best = Math.max(d4.pGreater, d5.pGreater, d6.pGreater, d7.pGreater, d8.pGreater);
@@ -298,15 +322,59 @@ export function initialSeqState(hypothesisId: string, baselineKey: string): SeqS
     hypothesisId, chunks: 0, runs: 0, graded: 0, depth4: 0, depth5: 0, depth6plus: 0, depth7plus: 0, depth8plus: 0,
     violations: 0, h2Count: 0, exposureSec: 0, rpsChunks: [], anomalies: 0, slowConfirmed: false,
     resumes: 0, nextSeed: 1000, posteriors: {}, lastVerdict: "", lastIteration: 0, baselineKey,
+    rateStratum: emptyStratum(),
   };
 }
 
 export const MAX_TIMING_ANOMALIES = 3;
 
+// The measured five-arm split of a campaign chunk (live 14-thread baseline,
+// 2026-08): equal wall, grid-short carrying most runs, aos carrying a deep
+// tail on a fifth of the wall. The self-tests decide on the stratum, so a
+// synthetic chunk has to carry one, and it has to have the shape the loop
+// runs in or the tests exercise a regime that does not exist.
+const SYNTHETIC_ARMS: Array<{ id: string; mode: string; runShare: number; depthShare: number }> = [
+  { id: "grid", mode: "grid", runShare: 0.137, depthShare: 0.153 },
+  { id: "grid-short", mode: "grid", runShare: 0.440, depthShare: 0.481 },
+  { id: "grid-no-purgatory", mode: "grid", runShare: 0.133, depthShare: 0.088 },
+  { id: "grid-post-fault-2", mode: "grid", runShare: 0.144, depthShare: 0.148 },
+  { id: "aos", mode: "aos", runShare: 0.146, depthShare: 0.130 },
+];
+
+function syntheticCampaign(
+  runs: number, exposureMs: number, depthAtLeast: number[], armScale: Record<string, number>,
+): { campaign: CampaignMetrics; depthAtLeast: number[]; violations: number } {
+  const arms = SYNTHETIC_ARMS.map((a, i) => {
+    const scale = armScale[a.id] ?? 1;
+    const armRuns = Math.round(runs * a.runShare);
+    return {
+      index: i, id: a.id, mode: a.mode, overlay: {}, slices: 1,
+      runs: armRuns, wallMs: Math.round(exposureMs / SYNTHETIC_ARMS.length),
+      rewardRate: 0, epochs: 0, droppedAtRound: null,
+      depthAtLeast: depthAtLeast.map((v) => Math.round(v * a.depthShare * scale)),
+      gradedRuns: armRuns, violations: 0, firstViolationMs: null,
+    };
+  });
+  const union = depthAtLeast.map((_, k) => arms.reduce((s, a) => s + (a.depthAtLeast[k] ?? 0), 0));
+  return {
+    campaign: {
+      wallSec: exposureMs / 1000, allocation: "grid", reward: "depth",
+      runsTotal: arms.reduce((s, a) => s + a.runs, 0), sliceUnitSec: 1, cancelled: false, arms,
+    },
+    depthAtLeast: union,
+    violations: 0,
+  };
+}
+
 // A synthetic chunk record for the offline simulations and self-tests.
+// armScale multiplies one arm's whole ladder, which is how a gain confined
+// to a single arm is expressed.
 export function syntheticEvaluation(seed: number, m: {
-  runs: number; exposureMs: number; depthAtLeast: number[]; h2Rate: number; violations?: number; suspendedMs?: number; withSession?: boolean;
+  runs: number; exposureMs: number; depthAtLeast: number[]; h2Rate: number; violations?: number;
+  suspendedMs?: number; withSession?: boolean; armScale?: Record<string, number>; noCampaign?: boolean;
 }): Evaluation {
+  const camp = syntheticCampaign(m.runs, m.exposureMs, m.depthAtLeast, m.armScale ?? {});
+  const useCampaign = !(m.noCampaign ?? false);
   return {
     id: `synthetic-${seed}`, hypothesisId: "synthetic", fidelity: "sequential", graderVersion: "", spurCommit: "", superCommit: "",
     configPath: "", spec: "", seed, startedAtIso: "1970-01-01T00:00:00.000Z", ok: true, error: null,
@@ -317,7 +385,9 @@ export function syntheticEvaluation(seed: number, m: {
     metrics: {
       runs: m.runs, gradedRuns: m.runs, runsPerSec: m.exposureMs > 0 ? m.runs / (m.exposureMs / 1000) : 0, exposureMs: m.exposureMs,
       unpairedFraction: 0, h1Rate: 0, h2Rate: m.h2Rate, h2bRate: 0, h3Rate: 0, h4Rate: 0, meanPrefixDepth: 0, maxPrefixDepth: 8,
-      depthAtLeast: m.depthAtLeast, violations: m.violations ?? 0, unknown: 0, porcupineWallMs: 0, gradeWallMs: 0, campaign: null,
+      depthAtLeast: useCampaign ? camp.depthAtLeast : m.depthAtLeast,
+      violations: m.violations ?? 0, unknown: 0, porcupineWallMs: 0, gradeWallMs: 0,
+      campaign: useCampaign ? camp.campaign : null,
     },
   };
 }
@@ -330,6 +400,7 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   const rule: SeqRule = live?.rule ?? {
     exploreBudgetSec: 90, maxRunsPerConfig: 4000, maxChunks: 4, minChunks: 2, rejectP: 0.05, inconclusiveP: 0.9, niP: 0.95,
     regressMargin: 0.25, maxResumes: 2, resumeCooldown: 2, draws: 2000, wallSecPerChunk: 900, throughputFloor: 0.8,
+    violationPrior: null,
   };
   // The synthetic chunk has the recorded baseline's per-chunk shape when one
   // is available, so the cap check below follows the live regime.
@@ -338,12 +409,18 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     ? { runs: per(live.base.runs), exposureMs: per(live.base.exposureSec) * 1000, d4: per(live.base.depth4), d5: per(live.base.depth5),
         d6: per(live.base.depth6plus), d7: per(live.base.depth7plus), d8: per(live.base.depth8plus), h2: live.base.h2Count / Math.max(1, live.base.runs) }
     : { runs: 54000, exposureMs: 90_000, d4: 19731, d5: 6033, d6: 883, d7: 110, d8: 5, h2: 0.416 };
-  const chunk = (seed: number, scale: { d4?: number; d5?: number; d6?: number; rps?: number }): Evaluation => {
+  const chunk = (seed: number, scale: { d4?: number; d5?: number; d6?: number; rps?: number; arms?: Record<string, number> }): Evaluation => {
     const rps = scale.rps ?? 1;
     const runs = Math.round(shape.runs * rps);
     const d = [runs, runs, runs, Math.round(shape.d4 * rps * (scale.d4 ?? 1)), Math.round(shape.d5 * rps * (scale.d5 ?? 1)), Math.round(shape.d6 * rps * (scale.d6 ?? 1)), Math.round(shape.d7 * rps), Math.round(shape.d8 * rps)];
-    return syntheticEvaluation(seed, { runs, exposureMs: Math.round(shape.exposureMs) + seed, depthAtLeast: d, h2Rate: shape.h2 });
+    return syntheticEvaluation(seed, {
+      runs, exposureMs: Math.round(shape.exposureMs) + seed, depthAtLeast: d, h2Rate: shape.h2,
+      ...(scale.arms ? { armScale: scale.arms } : {}),
+    });
   };
+  const gridScale = (factor: number): Record<string, number> => ({
+    grid: factor, "grid-short": factor, "grid-no-purgatory": factor, "grid-post-fault-2": factor,
+  });
   const medianRpsRef = shape.runs / (shape.exposureMs / 1000);
   const base = [1000, 1001, 1002, 1003].map((s) => chunk(s, {}));
   const cases: Array<{ name: string; cand: Evaluation[] }> = [
@@ -353,6 +430,8 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     { name: "+40% throughput", cand: [2000, 2001].map((s) => chunk(s, { rps: 1.4 })) },
     { name: "+30% depth>=6 at -10% throughput", cand: [2000, 2001].map((s) => chunk(s, { d6: 1.3, rps: 0.9 })) },
     { name: "+40% throughput with -30% per-run depth>=6", cand: [2000, 2001].map((s) => chunk(s, { rps: 1.4, d6: 0.7 })) },
+    { name: "+200% on the aos arm only", cand: [2000, 2001].map((s) => chunk(s, { arms: { aos: 3 } })) },
+    { name: "+25% on the grid arms only", cand: [2000, 2001].map((s) => chunk(s, { arms: gridScale(1.25) })) },
   ];
   for (const c of cases) {
     const seq = decideSequential(pooledCountsOf(c.cand), pooledCountsOf(base), c.cand.length, "superiority", rule);
@@ -373,15 +452,86 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   if (hollow.verdict === "advance") f.push(`a per-second gain bought with shallower deep runs must not advance (${hollow.reason})`);
   const hollowGate = compareToBaseline(objectiveCounts(cases[5]!.cand), objectiveCounts(base), MERGE_Z);
   if (!hollowGate.regressed.some((r) => r.startsWith("depth>=6"))) f.push(`the gate must read -30% per-run depth>=6 as a regression, got regressed=[${hollowGate.regressed}]`);
+  // The finding the stratum exists for: a gain confined to the aos arm
+  // lifts the pooled rate by a quarter, and neither the rule nor the gate
+  // may read that as a gain.
+  const aosOnly = [2000, 2001].map((s) => chunk(s, { arms: { aos: 3 } }));
+  const aosCmp = compareToBaseline(objectiveCounts(aosOnly), objectiveCounts(base), MERGE_Z);
+  if ((aosCmp.deltas["depth>=6:pooled"] ?? 0) < 0.1) f.push("the aos-only case must lift the pooled rate, else it tests nothing");
+  const aosSeq = decideSequential(pooledCountsOf(aosOnly), pooledCountsOf(base), 2, "superiority", rule);
+  if (aosSeq.verdict === "advance") f.push(`a gain confined to the aos arm must not advance (${aosSeq.reason})`);
+  if (aosCmp.improved.length > 0) f.push(`a gain confined to the aos arm must not read as an improvement, got [${aosCmp.improved}]`);
+  // ...and the stratum must not have taken the signal out with the noise.
+  const gridOnly = [2000, 2001].map((s) => chunk(s, { arms: gridScale(1.25) }));
+  const gridSeq = decideSequential(pooledCountsOf(gridOnly), pooledCountsOf(base), 2, "superiority", rule);
+  if (gridSeq.verdict !== "advance") f.push(`+25% on the grid arms must advance, got ${gridSeq.verdict} (${gridSeq.reason})`);
+
+  // An arm set that moved is a unit change, not a result: nothing may be
+  // compared, and no stratified delta may be published.
+  const dropArm = (e: Evaluation): Evaluation => ({
+    ...e,
+    metrics: { ...e.metrics, campaign: e.metrics.campaign === null ? null : { ...e.metrics.campaign, arms: e.metrics.campaign.arms.slice(1) } },
+  });
+  const moved = [2000, 2001].map((s) => dropArm(chunk(s, {})));
+  const movedSeq = decideSequential(pooledCountsOf(moved), pooledCountsOf(base), 2, "superiority", rule);
+  if (movedSeq.verdict !== "escalate") f.push(`a changed arm set must escalate, got ${movedSeq.verdict} (${movedSeq.reason})`);
+  const movedCmp = compareToBaseline(objectiveCounts(moved), objectiveCounts(base), MERGE_Z);
+  if (movedCmp.stratumFault?.kind !== "arms") f.push("a changed arm set must be reported as an arms fault");
+  if (movedCmp.deltas["depth>=6"] !== undefined) f.push("a faulted stratum must not publish a stratified delta");
+
+  // A chunk with no per-arm accounting must not decide on pooled counts,
+  // however large the pooled gain.
+  const blind = [2000, 2001].map((s) => syntheticEvaluation(s, {
+    runs: Math.round(shape.runs), exposureMs: Math.round(shape.exposureMs) + s, h2Rate: shape.h2, noCampaign: true,
+    depthAtLeast: [shape.runs, shape.runs, shape.runs, shape.d4, shape.d5, shape.d6 * 3, shape.d7, shape.d8].map((v) => Math.round(v)),
+  }));
+  const blindSeq = decideSequential(pooledCountsOf(blind), pooledCountsOf(base), 2, "superiority", rule);
+  if (blindSeq.verdict === "advance") f.push(`a tripled pooled rate with no per-arm accounting must not advance (${blindSeq.reason})`);
+
+  // The violation prior. A violation at the archive rate is what the corpus
+  // produces anyway; one far above it is the candidate's.
+  const nullPooled = pooledCountsOf(cases[0]!.cand);
+  const atRate: RatePrior = { violations: 1, runs: Math.max(1, nullPooled.runs), chunks: 4, sinceEpoch: 7 };
+  const rare: RatePrior = { violations: 1, runs: Math.max(1, nullPooled.runs) * 100, chunks: 400, sinceEpoch: 7 };
+  const withViolations = (n: number, prior: RatePrior): SeqDecision =>
+    decideSequential({ ...nullPooled, violations: n }, pooledCountsOf(base), 2, "superiority", { ...rule, violationPrior: prior });
+  if (withViolations(1, atRate).verdict === "advance") f.push("a violation at the archive rate must not advance");
+  if (withViolations(6, rare).verdict !== "advance") f.push(`violations far above the archive rate must advance, got ${withViolations(6, rare).verdict}`);
+
+  // The primary a decision records must stay on the depth scale whenever
+  // violations are not the separated improvement. With a prior in force a
+  // clean candidate has a small non-zero violations delta, and selecting on
+  // "the delta is non-zero" would silently put 1e-7 where depth>=6 belongs.
+  const baseViolating = base.map((e, i) => (i === 0 ? { ...e, metrics: { ...e.metrics, violations: 1 } } : e));
+  const cmpV = compareToBaseline(objectiveCounts(cases[1]!.cand), objectiveCounts(baseViolating), MERGE_Z, rare);
+  if ((cmpV.deltas["violations"] ?? 0) === 0) f.push("the primary-selection case needs a non-zero violations delta to be a test");
+  if (primaryDelta(cmpV) !== (cmpV.deltas["depth>=6"] ?? 0)) f.push(`primary must be the depth>=6 delta when violations did not improve, got ${primaryDelta(cmpV)}`);
+
+  // The dispersion the variance model charges must still cover what the
+  // recorded baseline shows. This is the assertion that would have caught
+  // the pooled statistic: it fires again the moment an arm change or a
+  // spur change re-inflates the primary rung's chunk-to-chunk scatter.
+  const liveStratum = live?.base.rateStratum;
+  if (liveStratum && liveStratum.chunks >= 2) {
+    const cv6 = rungCv(liveStratum, 6);
+    if (cv6 > 0.025) f.push(`the recorded baseline's stratified depth>=6 chunk cv is ${(cv6 * 100).toFixed(2)}%, above the 2.5% the variance model is calibrated for`);
+  }
+
   // The chunk cap is justified by what the last chunk buys: at the measured
   // primary-rung counts the minimum separable effect at the cap must be
   // within half again of what unbounded sampling could reach, else the cap
-  // (or the baseline size it equals) needs re-deriving.
-  const basePooled = pooledCountsOf(base);
-  const capExposure = (basePooled.exposureSec / basePooled.chunks) * rule.maxChunks;
-  const atCap = minimumEffect(basePooled.depth6plus, basePooled.exposureSec, capExposure);
-  const unbounded = MERGE_Z * Math.sqrt(1 / basePooled.depth6plus);
-  if (!(atCap <= 1.5 * unbounded)) f.push(`depth>=6 minimum effect at the cap (${(atCap * 100).toFixed(1)}%) exceeds 1.5x the unbounded floor (${(unbounded * 100).toFixed(1)}%)`);
+  // (or the baseline size it equals) needs re-deriving. Read on the
+  // stratum, which is what the rule now samples against.
+  const baseStratum = pooledCountsOf(base).rateStratum;
+  if (baseStratum === null || baseStratum.chunks === 0) {
+    f.push("the synthetic baseline must carry a rate stratum");
+  } else {
+    const d6Base = baseStratum.depth[5] ?? 0;
+    const capExposure = (baseStratum.exposureSec / baseStratum.chunks) * rule.maxChunks;
+    const atCap = minimumEffect(d6Base, baseStratum.exposureSec, capExposure);
+    const unbounded = MERGE_Z * Math.sqrt(1 / Math.max(1, d6Base));
+    if (!(atCap <= 1.5 * unbounded)) f.push(`depth>=6 minimum effect at the cap (${(atCap * 100).toFixed(1)}%) exceeds 1.5x the unbounded floor (${(unbounded * 100).toFixed(1)}%)`);
+  }
   // The timing classifier: a missing session is always an anomaly, a slow
   // chunk only until the candidate is known to be slow, and a suspend is
   // not one because exposure is active time.
@@ -404,14 +554,20 @@ export async function runSequential(opts: {
   prior: SeqState | null;
   baselineKey: string;
   maxChunksTotal: number;
+  violationPrior?: RatePrior | null | undefined;
   onChunk: (seq: SeqState, decision: SeqDecision) => void;
   onAnomaly?: (e: Evaluation, reason: string) => void;
   stopRequested: () => boolean;
 }): Promise<SeqRunResult> {
   const p = opts.ctx.policy.sequential;
-  const rule = seqRuleOf(opts.ctx.policy);
+  const rule = seqRuleOf(opts.ctx.policy, opts.violationPrior ?? null);
   const evals: Evaluation[] = [];
   let seq: SeqState = opts.prior ?? initialSeqState(opts.hypothesisId, opts.baselineKey);
+  // Nothing the candidate can measure is comparable without a baseline
+  // stratum, so learn it before spending the first chunk rather than after.
+  if (opts.baseline.rateStratum === null) {
+    return { verdict: "error", reason: "the baseline chunks carry no per-arm accounting; re-run `cli baseline` under this mask", evals, seq };
+  }
   const baselineMedian = medianRps(opts.baseline);
   // A chunk that fails with zero usable runs is usually the environment (an
   // I/O storm slowing the explore past its wall, a checker that could not
@@ -474,6 +630,7 @@ export async function runSequential(opts: {
       depth4: seq.depth4 + c.depth4, depth5: seq.depth5 + c.depth5, depth6plus: seq.depth6plus + c.depth6plus,
       depth7plus: seq.depth7plus + c.depth7plus, depth8plus: seq.depth8plus + c.depth8plus,
       violations: seq.violations + c.violations, h2Count: seq.h2Count + c.h2Count,
+      rateStratum: addStratum(seq.rateStratum, chunkStratum(e)),
     };
     const cap = Math.min(opts.maxChunksTotal, p.maxChunks * (seq.resumes + 1));
     const decision = decideSequential(pooledFromSeq(seq), opts.baseline, seq.chunks, opts.kind, { ...rule, maxChunks: cap });

@@ -291,6 +291,21 @@ export type AuditReport = z.infer<typeof AuditReport>;
 
 // Pooled state of a sequential evaluation, persisted so an inconclusive
 // hypothesis can resume sampling later.
+// The arms a per-second rate is pooled over, with each chunk kept so a
+// rung's own chunk-to-chunk dispersion can be measured rather than inferred
+// from throughput. armIds is the identity the two sides of a comparison must
+// share; depth[i] is events at prefix depth >= i+1.
+export const RateStratum = z.object({
+  armIds: z.array(z.string()),
+  chunks: z.number().int(),
+  runs: z.number().int(),
+  graded: z.number().int(),
+  exposureSec: z.number(),
+  depth: z.array(z.number().int()),
+  perChunk: z.array(z.object({ exposureSec: z.number(), depth: z.array(z.number().int()) })).default([]),
+});
+export type RateStratum = z.infer<typeof RateStratum>;
+
 export const SeqState = z.object({
   hypothesisId: z.string(),
   chunks: z.number().int(),
@@ -318,6 +333,10 @@ export const SeqState = z.object({
   // Identity of the baseline the counts were compared against; counts from
   // a superseded baseline are discarded on resume.
   baselineKey: z.string().default(""),
+  // The stratified counts the rate comparison runs on. A state written
+  // before stratification parses as null, which forces a reset rather than
+  // resuming with counts that mean something else.
+  rateStratum: RateStratum.nullable().default(null),
 });
 export type SeqState = z.infer<typeof SeqState>;
 

@@ -69,3 +69,18 @@ A replicate family is a set of evaluations sharing hypothesis, fidelity, both co
 `--run` adds a fresh family: sessions at consecutive seeds on the current binary and the config the evaluator loads, with no code or config change, materialised the way the evaluator materialises them. It is the homogeneous estimate, and the one that settles the depth>=6 disagreement above; the archived families corroborate it across binaries. Six seeds at the 300 s budget cost about fifty minutes of serial explore plus grading, so it belongs in an audit slot rather than an evaluation slot.
 
 Regenerate with `node research/observations/eval_noise_floor.mjs`, and refresh the fresh family with `--run` when the binary or the session budget changes. The floor is a measurement to repeat, not a constant to memorise.
+
+## Superseded for the rate the gate separates on (2026-08-29)
+
+The per-family depth>=6 disagreement above (1.44% per-seed cv at 30 threads
+against 6.40% at 14) was measured on the pooled ladder, which pools the aos
+arm. That arm's chunk-to-chunk cv at depth>=6 is 7.1% to 22.3% depending on
+the baseline, against 0.4% to 1.4% for the four grid arms, so the pooled
+figure is dominated by an arm the gate no longer separates on. Since epoch 11
+the statistic reads the grid stratum, whose dispersion is at or below its own
+counting floor. The sampling-budget prescriptions in this file are computed
+from the pooled cv and are therefore conservative by roughly a factor of two
+in standard error; recompute them on the stratified rate before using them.
+The six-seed single-mask measurement this file asks for is still worth its
+wall clock, because the thread-count question it was aimed at is separate
+from the arm question and is not answered here.

@@ -5,7 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import * as path from "node:path";
 import { runEvaluation, selfTestRunIdentity, type EvalContext } from "./evaluate.js";
 import { commitLanes, currentCommit, ensureClean, SPUR, SUPER, SUPER_LANES } from "./gitops.js";
-import { baselineEvidencePath, baselineKey, graderVersion, loadBaseline, loadReference, selfTestBaselineKeys, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, type BaselineMeta } from "./loop.js";
+import { baselineEvidencePath, baselineKey, graderVersion, loadBaseline, loadReference, selfTestBaselineKeys, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, violationPrior, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
 import { baselineLadder, renderPolicyMd, selfTestRender, writeStatus } from "./render.js";
 import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
       case "selftest": {
         const { policy, clamps } = loadPolicy(POLICY_PATH);
         const stored = loadBaseline(state, policy.evaluation.rayonThreads);
-        const live = stored && stored.sequential.some((e) => e.ok) ? { base: pooledCountsOf(stored.sequential), rule: seqRuleOf(policy) } : undefined;
+        const live = stored && stored.sequential.some((e) => e.ok) ? { base: pooledCountsOf(stored.sequential), rule: seqRuleOf(policy, violationPrior(state)) } : undefined;
         const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(live), ...selfTestBaselineKeys(), ...selfTestRender(existsSync(baselineEvidencePath(policy.evaluation.rayonThreads)) ? baselineEvidencePath(policy.evaluation.rayonThreads) : undefined), ...selfTestRunIdentity()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         console.log("stats + posterior + panel + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");

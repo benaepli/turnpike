@@ -10,9 +10,106 @@
 // Non-inferiority (ablate/enabling base) = no objective worse than margin.
 import type { BenchResult } from "./bench.js";
 import type { PanelSummary } from "./panel.js";
-import type { Evaluation, GateDecision, Hypothesis, LadderMetrics } from "./schemas.js";
+import type { Evaluation, GateDecision, Hypothesis, LadderMetrics, RateStratum } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
 import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv, wilson } from "./stats.js";
+
+// Arms whose events feed the rate the gate separates on. An aos arm refines
+// a recorded tape, so one deep lineage compounds inside a session: on the
+// recorded baseline its depth>=6 per-second chunk cv is 22.3% against 1.4%
+// for the four grid arms, and pooling it put the pooled rate at 3.1% - five
+// times the variance, so MERGE_Z 2.7 was separating like z 1.2. The arm
+// keeps its wall, its violations, the per-run guards and the jackpot path;
+// it leaves the rate estimator only. Selected by mode, so an aos arm added
+// under another id is excluded with it.
+export const RATE_EXCLUDED_ARM_MODES: readonly string[] = ["aos"];
+
+export function emptyStratum(): RateStratum {
+  return { armIds: [], chunks: 0, runs: 0, graded: 0, exposureSec: 0, depth: [], perChunk: [] };
+}
+
+/** One chunk's stratum, or null when the chunk carries no per-arm accounting. */
+export function chunkStratum(e: Evaluation): RateStratum | null {
+  const c = e.metrics.campaign;
+  if (c === null) return null;
+  const arms = c.arms.filter((a) => !RATE_EXCLUDED_ARM_MODES.includes(a.mode));
+  if (arms.length === 0) return null;
+  const depth: number[] = [];
+  for (const a of arms) a.depthAtLeast.forEach((v, i) => { depth[i] = (depth[i] ?? 0) + v; });
+  const exposureSec = arms.reduce((s, a) => s + a.wallMs / 1000, 0);
+  return {
+    armIds: arms.map((a) => a.id).sort(),
+    chunks: 1,
+    runs: arms.reduce((s, a) => s + a.runs, 0),
+    graded: arms.reduce((s, a) => s + a.gradedRuns, 0),
+    exposureSec,
+    depth,
+    perChunk: [{ exposureSec, depth }],
+  };
+}
+
+/** Fold a chunk in. A missing stratum or a different arm set poisons the
+ *  accumulator to null, so "some chunks carried per-arm accounting" can
+ *  never read as a whole stratum measured over fewer chunks than it claims. */
+export function addStratum(acc: RateStratum | null, c: RateStratum | null): RateStratum | null {
+  if (acc === null || c === null) return null;
+  if (acc.chunks > 0 && acc.armIds.join(",") !== c.armIds.join(",")) return null;
+  const depth = [...acc.depth];
+  c.depth.forEach((v, i) => { depth[i] = (depth[i] ?? 0) + v; });
+  return {
+    armIds: c.armIds, chunks: acc.chunks + c.chunks, runs: acc.runs + c.runs,
+    graded: acc.graded + c.graded, exposureSec: acc.exposureSec + c.exposureSec,
+    depth, perChunk: [...acc.perChunk, ...c.perChunk],
+  };
+}
+
+export function stratumOf(evals: Evaluation[]): RateStratum | null {
+  let acc: RateStratum | null = emptyStratum();
+  for (const e of evals) {
+    if (!e.ok) continue;
+    acc = addStratum(acc, chunkStratum(e));
+  }
+  return acc;
+}
+
+export type StratumFault = { kind: "missing" | "arms"; detail: string };
+
+/** null when the two sides pool the same arms and both carry accounting.
+ *  An empty side is not a fault: it has nothing to compare, not a gap. */
+export function stratumFault(cand: RateStratum | null, base: RateStratum | null): StratumFault | null {
+  if (cand === null || base === null) {
+    return { kind: "missing", detail: `per-arm accounting missing or inconsistent across the ${cand === null ? "candidate" : "baseline"} chunks` };
+  }
+  if (cand.chunks === 0 || base.chunks === 0) return null;
+  if (cand.armIds.join(",") !== base.armIds.join(",")) {
+    return { kind: "arms", detail: `candidate pools [${cand.armIds.join(", ")}], baseline pools [${base.armIds.join(", ")}]` };
+  }
+  return null;
+}
+
+/** Chunk-to-chunk cv of the stratum's own rate at rung k, floored. */
+export function rungCv(s: RateStratum, k: number): number {
+  return throughputCv(s.perChunk.map((c) => (c.exposureSec > 0 ? (c.depth[k - 1] ?? 0) / c.exposureSec : 0)));
+}
+
+/** Extra log-ratio variance charged at rung k, taken from the rung's own
+ *  chunk dispersion. The previous model charged throughput jitter, which is
+ *  0.15% inside the stratum and could not see the arm over-dispersion that
+ *  actually binds; measuring the rung means the next arm change that
+ *  re-inflates it widens the interval instead of silently deflating z. */
+export function rateVarianceOf(cand: RateStratum, base: RateStratum, k: number): number {
+  return (cand.chunks > 0 ? rungCv(cand, k) ** 2 / cand.chunks : 0)
+    + (base.chunks > 0 ? rungCv(base, k) ** 2 / base.chunks : 0);
+}
+
+/** A rate estimated over a body of chunks, used where a four-chunk baseline
+ *  count is a coin flip. Violations arrive at about one per 4.5M runs, so a
+ *  baseline of four chunks is non-zero roughly one time in five. */
+export interface RatePrior { violations: number; runs: number; chunks: number; sinceEpoch: number }
+
+/** Epoch the campaign became the evaluation unit, so per-run violation rates
+ *  became comparable. Not the current epoch: the prior spans 7 and later. */
+export const CAMPAIGN_EPOCH_FLOOR = 7;
 
 export interface ObjectiveCounts {
   violations: { succ: number; n: number };
@@ -22,6 +119,7 @@ export interface ObjectiveCounts {
   chunks: number;
   exposureSec: number;
   throughputCv: number;
+  rateStratum: RateStratum | null;
 }
 
 export function objectiveCounts(evals: Evaluation[]): ObjectiveCounts {
@@ -37,17 +135,8 @@ export function objectiveCounts(evals: Evaluation[]): ObjectiveCounts {
     chunks: ok.length,
     exposureSec: ok.reduce((a, e) => a + e.metrics.exposureMs / 1000, 0),
     throughputCv: throughputCv(ok.map((e) => e.metrics.runsPerSec)),
+    rateStratum: stratumOf(ok),
   };
-}
-
-// Variance the throughput jitter adds to the log ratio of two pooled
-// per-second rates. One definition, used by the sequential rule and the
-// merge gate alike so the two cannot disagree on it.
-export function exposureVarianceOf(
-  cand: { throughputCv: number; chunks: number }, base: { throughputCv: number; chunks: number },
-): number {
-  return (cand.chunks > 0 ? (cand.throughputCv ** 2) / cand.chunks : 0)
-    + (base.chunks > 0 ? (base.throughputCv ** 2) / base.chunks : 0);
 }
 
 // The rungs a separated per-second gain can advance on. Deeper rungs carry
@@ -61,6 +150,18 @@ export interface Comparison {
   improved: string[];
   regressed: string[];
   deltas: Record<string, number>;
+  stratumFault: StratumFault | null;
+}
+
+/** Violations when they are the separated improvement, otherwise depth>=6
+ *  per second. The violations delta is an absolute rate difference and the
+ *  depth deltas are relative ratios; a consumer must not mix the two scales.
+ *  Selecting on `improved` rather than on a non-zero delta is load-bearing
+ *  once violations are compared against a prior: a clean candidate then has
+ *  a tiny non-zero violations delta, which would otherwise displace depth>=6
+ *  in every recorded primary. */
+export function primaryDelta(cmp: Comparison): number {
+  return cmp.improved.includes("violations") ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=6"] ?? 0);
 }
 
 // z defaults to 1.96 (promote: spends compute, not merges). The merge gate
@@ -76,29 +177,53 @@ export const DEEP_RUNG_MARGIN = 0.25;
 const DEEP_RUNG_NIP = 0.95;
 const DEEP_RUNG_DRAWS = 2000;
 const DEEP_RUNG_SEED = 7;
-export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96): Comparison {
+export function compareToBaseline(
+  cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96, violationPrior: RatePrior | null = null,
+): Comparison {
   const improved: string[] = [];
   const regressed: string[] = [];
   const deltas: Record<string, number> = {};
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
   const perSec = (succ: number, exposureSec: number): number => (exposureSec > 0 ? succ / exposureSec : 0);
-  const xv = exposureVarianceOf(cand, base);
+  const fault = stratumFault(cand.rateStratum, base.rateStratum);
+  const cs = cand.rateStratum;
+  const bs = base.rateStratum;
+  deltas["stratified"] = fault === null ? 1 : 0;
 
   deltas["violations"] = rate(cand.violations) - rate(base.violations);
-  if (cand.violations.succ > 0 && base.violations.succ === 0) improved.push("violations");
-  else if (rateSuperiorCI(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, z)) improved.push("violations");
+  // A violation belongs to whoever produced it only if it is more than the
+  // corpus produces anyway. Against four baseline chunks that carry one
+  // about a fifth of the time, "the baseline saw none" is a coin flip; the
+  // archive rate over every campaign-epoch chunk is the honest comparator.
+  const vp = violationPrior !== null && violationPrior.violations > 0 && violationPrior.runs > 0 ? violationPrior : null;
+  const violationsUp = vp !== null
+    ? rateRatioSeparated(cand.violations.succ, cand.violations.n, vp.violations, vp.runs, z)
+    : (cand.violations.succ > 0 && base.violations.succ === 0)
+      || rateSuperiorCI(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, z);
+  if (violationsUp) improved.push("violations");
   if (rateSuperiorCI(base.violations.succ, base.violations.n, cand.violations.succ, cand.violations.n, z)) regressed.push("violations");
 
-  // Depth deltas are relative rates per explore-second; the guard against
-  // shallower runs is per graded run.
+  // Depth rates are per explore-second over the rate stratum's arms; the
+  // pooled rate is recorded beside them so the series stays readable, and
+  // it is never what decides. The guard against shallower runs stays per
+  // graded run over every arm: a run that got shallower in the aos arm is
+  // still a shallower run, and the dispersion finding is about the rate.
   for (const d of cand.depth) {
     const b = base.depth.find((x) => x.k === d.k);
     if (!b) continue;
     const cr = perSec(d.succ, cand.exposureSec);
     const br = perSec(b.succ, base.exposureSec);
-    deltas[`depth>=${d.k}`] = br > 0 ? cr / br - 1 : 0;
-    if ((ADVANCE_RUNGS as readonly number[]).includes(d.k)
-        && rateRatioSeparated(d.succ, cand.exposureSec, b.succ, base.exposureSec, z, xv)) improved.push(`depth>=${d.k}`);
+    deltas[`depth>=${d.k}:pooled`] = br > 0 ? cr / br - 1 : 0;
+    if (fault === null && cs !== null && bs !== null) {
+      const cSucc = cs.depth[d.k - 1] ?? 0;
+      const bSucc = bs.depth[d.k - 1] ?? 0;
+      const xv = rateVarianceOf(cs, bs, d.k);
+      const csr = perSec(cSucc, cs.exposureSec);
+      const bsr = perSec(bSucc, bs.exposureSec);
+      deltas[`depth>=${d.k}`] = bsr > 0 ? csr / bsr - 1 : 0;
+      if ((ADVANCE_RUNGS as readonly number[]).includes(d.k)
+          && rateRatioSeparated(cSucc, cs.exposureSec, bSucc, bs.exposureSec, z, xv)) improved.push(`depth>=${d.k}`);
+    }
     if (d.k === 4 && rateRatioSeparated(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
     // The deep rungs per run may not fall beyond the non-inferiority margin:
     // the sequential rule holds an advance until they are known to hold.
@@ -113,34 +238,7 @@ export function compareToBaseline(cand: ObjectiveCounts, base: ObjectiveCounts, 
     ? (cand.runs / cand.exposureSec) / (base.runs / base.exposureSec) - 1
     : 0;
 
-  return { improved, regressed, deltas };
-}
-
-// Screen gate: 2-sigma Poisson exceedance. For each objective the candidate
-// must show more successes than expected-under-baseline plus two standard
-// deviations (sqrt of expectation), with an absolute floor of 5 successes so
-// single-digit counts can never advance. Sizing rationale: research/PARAMETERS.md.
-export function screenAdvances(cand: ObjectiveCounts, base: ObjectiveCounts): { advance: boolean; why: string } {
-  const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
-  if (cand.violations.succ > 0 && base.violations.succ === 0) return { advance: true, why: "violations appeared" };
-  // The expectation uses the baseline's Wilson upper bound: a rung with zero
-  // observed successes in a small baseline sample is not evidence that its
-  // rate is zero.
-  const exceeds2Sigma = (succ: number, n: number, b: { succ: number; n: number }): { hit: boolean; expected: number } => {
-    const [, upper] = wilson(b.succ, b.n);
-    const expected = upper * n;
-    return { hit: succ >= 5 && succ > expected + 2 * Math.sqrt(Math.max(expected, 1)), expected };
-  };
-  for (const d of cand.depth) {
-    const b = base.depth.find((x) => x.k === d.k);
-    if (!b) continue;
-    const r = exceeds2Sigma(d.succ, d.n, b);
-    if (r.hit) {
-      return { advance: true, why: `depth>=${d.k}: ${d.succ} successes vs ${r.expected.toFixed(1)} expected (+2sigma over baseline CI)` };
-    }
-  }
-  if (exceeds2Sigma(cand.h2.succ, cand.h2.n, base.h2).hit) return { advance: true, why: "h2 +2sigma" };
-  return { advance: false, why: "no 2-sigma exceedance on any objective" };
+  return { improved, regressed, deltas, stratumFault: fault };
 }
 
 // Non-inferiority for ablations/enabling: margins are RELATIVE (default 25%
@@ -192,6 +290,9 @@ export interface FinalGateInputs {
   // to the regression suite's tolerance.
   throughputFloor?: number | undefined;
   panel?: PanelSummary | undefined;
+  // The archive violation rate the candidate's violations are separated
+  // against; null falls back to the baseline's own count.
+  violationPrior?: RatePrior | null | undefined;
 }
 
 export const DEFAULT_THROUGHPUT_FLOOR = 0.8;
@@ -199,9 +300,10 @@ export const DEFAULT_THROUGHPUT_FLOOR = 0.8;
 export function finalGate(i: FinalGateInputs): GateDecision {
   const cand = objectiveCounts(i.confirmEvals);
   const base = objectiveCounts(i.baselineEvals);
-  const cmp = compareToBaseline(cand, base, MERGE_Z);
+  const cmp = compareToBaseline(cand, base, MERGE_Z, i.violationPrior ?? null);
   const reasons: string[] = [];
   let verdict: GateDecision["verdict"];
+  let harnessFailure = false;
   const floor = i.throughputFloor ?? DEFAULT_THROUGHPUT_FLOOR;
 
   if (i.lintFailures.length > 0) {
@@ -210,6 +312,15 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   } else if (!i.regressionPassed) {
     verdict = "closed";
     reasons.push(i.regressionDetail ? `regression suite failed: ${i.regressionDetail}` : "regression suite failed");
+  } else if (cmp.stratumFault?.kind === "missing") {
+    // The per-second objective was not tested. Closing would record a
+    // harness gap as a negative result about the hypothesis.
+    verdict = "blocked";
+    harnessFailure = true;
+    reasons.push(`no per-arm accounting: ${cmp.stratumFault.detail}`);
+  } else if (cmp.stratumFault?.kind === "arms") {
+    verdict = "needs_human";
+    reasons.push(`the unit of comparison moved, so no per-second objective was tested: ${cmp.stratumFault.detail}`);
   } else {
     const kind = i.hypothesis.kind;
     if (kind === "add" || kind === "enabling") {
@@ -268,11 +379,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     reasons.push(`panel detection down across ${i.panel.judging.length} judging member(s) (combined z ${i.panel.combinedZ.toFixed(2)})`);
   }
 
-  // Primary: violations when they move; otherwise depth>=6 per second - the
-  // deepest rung with the power to decide (POWER_FLOOR.md). The violations
-  // delta is an absolute rate difference and the depth deltas are relative
-  // ratios; a consumer must not mix the two scales.
-  const primary = cmp.deltas["violations"] !== 0 ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=6"] ?? 0);
+  const primary = primaryDelta(cmp);
   // Run rate multiplies every rung, so it is inside the objective now; it is
   // still recorded on its own so erosion across merges stays visible as a
   // series.
@@ -284,6 +391,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     objectiveDeltas: { ...cmp.deltas, primary, throughput, panelZ: i.panel?.combinedZ ?? 0 },
     regressionPassed: i.regressionPassed,
     lintPassed: i.lintFailures.length === 0,
+    ...(harnessFailure ? { harnessFailure: true } : {}),
   };
 }
 

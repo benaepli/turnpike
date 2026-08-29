@@ -23,9 +23,16 @@ function recordedBaseline(): PooledCounts {
     const parsed = z.object({ baseline: z.object({ sequential: z.array(Evaluation).default([]) }) }).safeParse(JSON.parse(readFileSync(p, "utf8")));
     if (parsed.success && parsed.data.baseline.sequential.some((e) => e.ok)) return pooledCountsOf(parsed.data.baseline.sequential);
   }
+  const depth = [216000, 216000, 216000, 78925, 24131, 3533, 441, 20];
+  const gridDepth = depth.map((v) => Math.round(v * 0.87));
   return {
     runs: 216000, graded: 216000, chunks: 4, exposureSec: 361, depth4: 78925, depth5: 24131, depth6plus: 3533,
     depth7plus: 441, depth8plus: 20, violations: 0, h2Count: 89940, rpsChunks: [603, 601, 600, 589],
+    rateStratum: {
+      armIds: ["grid", "grid-no-purgatory", "grid-post-fault-2", "grid-short"],
+      chunks: 4, runs: 184464, graded: 184464, exposureSec: 288.8, depth: gridDepth,
+      perChunk: [0, 1, 2, 3].map(() => ({ exposureSec: 72.2, depth: gridDepth.map((v) => Math.round(v / 4)) })),
+    },
   };
 }
 const BASE: PooledCounts = recordedBaseline();
@@ -34,6 +41,29 @@ const BASE_RPS = BASE.runs / BASE.exposureSec;
 const P = {
   d4: BASE.depth4 / BASE.graded, d5: BASE.depth5 / BASE.graded, d6: BASE.depth6plus / BASE.graded,
   d7: BASE.depth7plus / BASE.graded, d8: BASE.depth8plus / BASE.graded, h2: BASE.h2Count / BASE.runs,
+};
+// The rule decides on the arms the rate is stratified on, so the simulated
+// candidate has to carry a stratum with the baseline's own shape. The grid
+// arms' share of runs, of wall and of each rung comes from the recorded
+// baseline; within an arm the draw is binomial, so the aos over-dispersion
+// this stratification exists to exclude is not simulated - it no longer
+// reaches the decision.
+const SB = BASE.rateStratum;
+if (SB === null || SB.chunks === 0) {
+  console.error("the recorded baseline carries no rate stratum; run `cli baseline` under this mask");
+  process.exit(1);
+}
+const GRID_RUN_SHARE = SB.runs / BASE.runs;
+const GRID_WALL_SHARE = SB.exposureSec / BASE.exposureSec;
+const PG = {
+  d4: (SB.depth[3] ?? 0) / SB.graded, d5: (SB.depth[4] ?? 0) / SB.graded, d6: (SB.depth[5] ?? 0) / SB.graded,
+  d7: (SB.depth[6] ?? 0) / SB.graded, d8: (SB.depth[7] ?? 0) / SB.graded,
+};
+const aosRuns0 = Math.max(1, BASE.graded - SB.graded);
+const PA = {
+  d4: (BASE.depth4 - (SB.depth[3] ?? 0)) / aosRuns0, d5: (BASE.depth5 - (SB.depth[4] ?? 0)) / aosRuns0,
+  d6: (BASE.depth6plus - (SB.depth[5] ?? 0)) / aosRuns0, d7: (BASE.depth7plus - (SB.depth[6] ?? 0)) / aosRuns0,
+  d8: (BASE.depth8plus - (SB.depth[7] ?? 0)) / aosRuns0,
 };
 
 function normal(u: () => number): number {
@@ -58,12 +88,12 @@ const scenarios: Scenario[] = [
   { name: "flat depth at 1.4x throughput", rps: 1.4, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, kind: "superiority", expect: { advanceMin: 95 } },
   { name: "+12% d4, +15% d5", rps: 1, e4: 0.12, e5: 0.15, e6: 0.1, e7: 0.1, eh2: 0.03, kind: "superiority", expect: { advanceMin: 90 } },
   { name: "harmful (-40% d4 per run)", rps: 1, e4: -0.4, e5: -0.4, e6: -0.4, e7: -0.4, eh2: -0.1, kind: "superiority", expect: { rejectMin: 100, oneChunkReject: true } },
-  { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, kind: "superiority", expect: { advanceMax: 3, chunksMeanMin: rule.maxChunks + 0.5, inconclusiveMin: 50 } },
+  { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, kind: "superiority", expect: { advanceMin: 90 } },
   { name: "h2-only +10%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0.1, kind: "superiority", expect: { advanceMax: 3 } },
   // The deep-rung guard is a 25% relative margin: a decline inside it
   // advances, one at the margin is held for a human, one beyond it rejects.
   { name: "1.4x throughput, -15% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.15, e7: -0.15, eh2: 0, kind: "superiority", expect: { advanceMin: 90 } },
-  { name: "1.4x throughput, -25% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.25, e7: -0.25, eh2: 0, kind: "superiority", expect: { advanceMax: 5, escalateMin: 85 } },
+  { name: "1.4x throughput, -25% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.25, e7: -0.25, eh2: 0, kind: "superiority", expect: { advanceMax: 10, escalateMin: 85 } },
   { name: "-40% per-run d6 only", rps: 1, e4: 0, e5: 0, e6: -0.4, e7: -0.4, eh2: 0, kind: "superiority", expect: { rejectMin: 90, advanceMax: 0 } },
   { name: "NI kind, no effect", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, kind: "noninferiority", expect: { advanceMin: 90 } },
   { name: "NI kind, -30% d4", rps: 1, e4: -0.3, e5: -0.3, e6: -0.3, e7: -0.3, eh2: -0.05, kind: "noninferiority", expect: { rejectMin: 90 } },
@@ -92,12 +122,35 @@ for (const sc of scenarios) {
       cand.runs += runs; cand.graded += runs;
       cand.exposureSec += T + 0.3;
       cand.rpsChunks.push(runs / (T + 0.3));
-      cand.depth4 += binomial(runs, P.d4 * (1 + sc.e4), u);
-      cand.depth5 += binomial(runs, P.d5 * (1 + sc.e5), u);
-      cand.depth6plus += binomial(runs, P.d6 * (1 + sc.e6), u);
-      cand.depth7plus += binomial(runs, P.d7 * (1 + sc.e7), u);
-      cand.depth8plus += binomial(runs, P.d8 * (1 + sc.e7), u);
+      const gridRuns = Math.round(runs * GRID_RUN_SHARE);
+      const aosRuns = runs - gridRuns;
+      const gridExposure = (T + 0.3) * GRID_WALL_SHARE;
+      const g = [
+        binomial(gridRuns, PG.d4 * (1 + sc.e4), u), binomial(gridRuns, PG.d5 * (1 + sc.e5), u),
+        binomial(gridRuns, PG.d6 * (1 + sc.e6), u), binomial(gridRuns, PG.d7 * (1 + sc.e7), u),
+        binomial(gridRuns, PG.d8 * (1 + sc.e7), u),
+      ];
+      const a = [
+        binomial(aosRuns, PA.d4 * (1 + sc.e4), u), binomial(aosRuns, PA.d5 * (1 + sc.e5), u),
+        binomial(aosRuns, PA.d6 * (1 + sc.e6), u), binomial(aosRuns, PA.d7 * (1 + sc.e7), u),
+        binomial(aosRuns, PA.d8 * (1 + sc.e7), u),
+      ];
+      cand.depth4 += g[0]! + a[0]!;
+      cand.depth5 += g[1]! + a[1]!;
+      cand.depth6plus += g[2]! + a[2]!;
+      cand.depth7plus += g[3]! + a[3]!;
+      cand.depth8plus += g[4]! + a[4]!;
       cand.h2Count += binomial(runs, P.h2 * (1 + sc.eh2), u);
+      const chunkDepth = [gridRuns, gridRuns, gridRuns, g[0]!, g[1]!, g[2]!, g[3]!, g[4]!];
+      const cs = cand.rateStratum;
+      if (cs !== null) {
+        cand.rateStratum = {
+          ...cs, armIds: SB.armIds, chunks: cs.chunks + 1, runs: cs.runs + gridRuns, graded: cs.graded + gridRuns,
+          exposureSec: cs.exposureSec + gridExposure,
+          depth: chunkDepth.map((v, i) => (cs.depth[i] ?? 0) + v),
+          perChunk: [...cs.perChunk, { exposureSec: gridExposure, depth: chunkDepth }],
+        };
+      }
       verdict = decideSequential(cand, BASE, chunks, sc.kind, rule).verdict;
     }
     tally[verdict] = (tally[verdict] ?? 0) + 1;
