@@ -117,3 +117,25 @@ stale RecoveryResponse that rolled node 1 backwards.
 The run ends `plan_complete`. 96.6% of runs never complete, and
 `TERMINATION_DEPTH.md` records that completed runs carry every plan-corpus
 violation. This is one more instance of that pattern.
+
+## Replicated
+
+A third violation, run 154241 in the `grid-post-fault-2` arm (signature
+8a97ca100619cec3), exercises both defects again on an independent schedule.
+Node 1 recovers at step 191 with nonce 1 - its third recovery of the run,
+after crashes at 182, 188 and 232 - and duplicate RecoveryResponses for that
+one nonce arrive across rounds, two from node 2 and two from node 0. At step
+219, inside `RecoveryResponse`, node 1 dispatches PrepareOK for op 4; at 220
+it acknowledges the Prepare carrying uid 2; at 232 it crashes again and loses
+what it just acknowledged. Write(uid 2) had returned ok at step 230 and never
+appears in any later read: the final reads from all three nodes agree on
+[5, 6, 7].
+
+The difference from run 101633 is only in visibility. There the write was
+observed by a read and then vanished; here it never became visible. The
+mechanism is the same, so the diagnosis no longer rests on a single trace
+admitting one reading.
+
+All three violations on record involve one node crash-recovering three times,
+the configured maximum, which is the condition the nonce defect needs to
+confuse one recovery round with another.
