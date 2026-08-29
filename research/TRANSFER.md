@@ -127,6 +127,13 @@ Agent credentials for the SDK are host-local. `research/logs/` and
 `research/evaluations/*.json` are records of runs that happened on the old host
 and are left as they are.
 
+## Profiles
+
+The audit records an explorer profile (`cli profile` does it on demand) with
+`perf record`, which needs `kernel.perf_event_paranoid <= 2` (persist it in
+`/etc/sysctl.d/`), and demangles it with `rustfilt` (`cargo install rustfilt`).
+Without either the lens that proposes perf hypotheses has nothing to read.
+
 ## Running on a subset of the machine
 
 Start the loop with `SPUR_LOOP_CPUS=<cpu list>`, and prefix the command of

@@ -5,6 +5,7 @@
 // improvement before it passes. Nothing here reads the ladder - semantic
 // safety is the ladder-non-inferiority + regression gates, not this file.
 import * as fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 import type { Policy } from "./policy.js";
 import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, resolveRoot, ROOT } from "./runners.js";
@@ -133,6 +134,16 @@ export async function runBench(policy: Policy, candidateBin: string, baselineBin
 // workload, reported as top symbols. Requires perf_event_paranoid <= 2.
 // `ok` is false when no report was produced; `text` then carries the reason.
 export interface ProfileSnapshot { ok: boolean; text: string }
+
+// perf on this distribution does not demangle Rust v0 symbols; rustfilt
+// (cargo install rustfilt) does. Without it the report keeps mangled names.
+function demangle(report: string): string {
+  try {
+    return execFileSync("rustfilt", { input: report, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  } catch {
+    return report;
+  }
+}
 export async function collectProfile(policy: Policy, binary: string): Promise<ProfileSnapshot> {
   const { run } = await import("./runners.js");
   const outputDir = path.join(ROOT, "tmp", "loop", "profile-snap");
@@ -146,8 +157,10 @@ export async function collectProfile(policy: Policy, binary: string): Promise<Pr
       resolveRoot(policy.evaluation.spec),
     ], { timeoutMs: 180_000, cwd: ROOT, env: { ...process.env, RAYON_NUM_THREADS: String(policy.evaluation.rayonThreads), RUST_LOG: "warn" } });
     if (!rec.ok && !fs.existsSync(perfData)) return { ok: false, text: `(perf record failed: ${rec.stderr.slice(-400)})` };
-    const rep = await run("perf", ["report", "--stdio", "--percent-limit", "1", "--no-children", "-i", perfData], { timeoutMs: 120_000, cwd: ROOT });
-    const lines = rep.stdout.split("\n").filter((l) => !l.startsWith("#") || l.includes("Overhead")).slice(0, 45).join("\n");
+    // --no-inline: with inline resolution perf keeps an addr2line child that
+    // inherits the stdout pipe and never exits, so the report never reaches EOF.
+    const rep = await run("perf", ["report", "--stdio", "--percent-limit", "1", "--no-children", "--no-inline", "-i", perfData], { timeoutMs: 120_000, cwd: ROOT });
+    const lines = demangle(rep.stdout).split("\n").filter((l) => !l.startsWith("#") || l.includes("Overhead")).slice(0, 45).join("\n");
     return rep.ok ? { ok: true, text: lines } : { ok: false, text: `(perf report failed: ${rep.stderr.slice(-400)})` };
   } catch (e) {
     return { ok: false, text: `(profile collection error: ${String(e)})` };
