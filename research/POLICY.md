@@ -1,6 +1,6 @@
 # Loop Policy
 
-Generated: 2026-08-29T09:23:32.797Z
+Generated: 2026-08-29T19:41:26.995Z
 
 Active (clamped) policy values. Hard limits are compiled into src/policy.ts and are not agent-editable.
 
@@ -46,7 +46,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - maxWallMinutesPerHypothesis: 150
 - maxLineageDepth: 6
 - stagnationWindow: 8
-- maxImplementTurns: 110
+- maxImplementTurns: 120
 - maxImplementMinutes: 20
 - maxBuildSeconds: 600
 - minFreeDiskGb: 40
@@ -62,7 +62,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 - spec: bin/spur/VR.spur
 - configTemplate: scheduler_configs/loop/general_vr.json
 - oracleDags: research/oracle/relax_minimal_general.json
-- rayonThreads: 30
+- rayonThreads: 14
 
 ## Regression
 
@@ -73,7 +73,7 @@ Active (clamped) policy values. Hard limits are compiled into src/policy.ts and 
 
 ## Clamps applied on load
 
-None - policy file was within hard limits.
+- budgets.maxImplementTurns: 220 -> 120
 
 ## Changelog
 
