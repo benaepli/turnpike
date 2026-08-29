@@ -331,6 +331,13 @@ export class LoopState {
     return row === undefined ? null : row.value;
   }
 
+  metaKeys(prefix: string): string[] {
+    return this.db
+      .prepare<[string], { key: string }>("SELECT key FROM meta WHERE key LIKE ? || '%' ORDER BY key")
+      .all(prefix)
+      .map((r) => r.key);
+  }
+
   setMeta(key: string, value: string): void {
     this.db
       .prepare<[string, string]>(

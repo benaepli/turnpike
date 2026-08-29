@@ -20,7 +20,13 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
    `cd research/orchestrator && npx tsx src/cli.ts status` (prints pool
    counts) and `npx tsx src/cli.ts grader-queue`.
 2. If the daemon is down and nothing is mid-repair: `rm -f research/STOP`,
-   `research/loop-start.sh`.
+   then start in the mode you intend. `SPUR_LOOP_CPUS=0-7,16-23
+   research/loop-start.sh` pins the loop and everything it spawns to CCD 0
+   and leaves the rest of the machine to the user; plain
+   `research/loop-start.sh` uses all 30 threads. The thread count derives
+   from the mask and selects the baseline and panel manifest; `cli status`
+   lists every calibrated count with its spur commit and whether it is
+   current, and the loop refuses to start on a missing or stale one.
 3. Reap orphaned monitor processes from earlier sessions, then arm the three
    monitors from `reference/monitors.md` (event watcher + heartbeat + churn
    detector). Never run two of the same; stop duplicates with TaskStop.
@@ -78,6 +84,11 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
   `function` through `EventSpec.Function`. A rule may be general ("a dispatch
   with no preceding enter of the same handler on that node is self-initiated
   rather than relayed"); the name it is applied to may not be baked in.
+- Each CPU mask has its own calibration, and after a merge the loop
+  refreshes only the mode it is running in. Switching modes therefore costs
+  one `cli baseline` under the new mask (about 40 minutes) before the start;
+  the loop's stale-baseline check is what enforces it. Never run a
+  measurement of your own inside the loop's mask while it runs.
 - All code you write follows `research/STYLE.md`.
 - Parameters are a cost (`research/GOAL.md`); do not add tunables to configs
   or code to make something work.
@@ -157,8 +168,9 @@ under test, or the merge bar itself.
    Results stay in the record; they no longer feed calibration, lineage
    scoring, or the re-judge. A pure harness fix that does not change
    measurement (a git-op fix, a timeout) does not need a bump.
-7. `rm -f research/STOP`; `research/loop-start.sh`; re-arm the event watcher
-   (the old one ends on the ALERT).
+7. `rm -f research/STOP`; start in the same mode as before
+   (`SPUR_LOOP_CPUS=... research/loop-start.sh`, or plain for the whole
+   machine); re-arm the event watcher (the old one ends on the ALERT).
 8. A grader change additionally requires: `research/corpus/manifest.json`
    invariants re-verified (`reference/diagnostics.md`), the baseline re-run
    as a detached unit (`cli baseline`), and the change noted in

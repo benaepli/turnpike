@@ -126,6 +126,34 @@ export function loadBaseline(state: LoopState, threads: number): BaselineMeta | 
   return null;
 }
 
+// A baseline is current when the spur tree it was measured on is the tree
+// at HEAD. Trees, not commits: a squash merge changes the commit and keeps
+// the tree. An unknown answer means the recorded commit object is gone.
+export type BaselineFreshness = "current" | "stale" | "unknown";
+export function baselineFreshness(baseline: BaselineMeta): BaselineFreshness {
+  const measured = baseline.sequential[0]?.spurCommit;
+  if (!measured) return "unknown";
+  const treeOf = (rev: string): string | null => {
+    try { return execFileSync("git", ["rev-parse", "--verify", `${rev}^{tree}`], { cwd: SPUR, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+    catch { return null; }
+  };
+  const a = treeOf(measured), b = treeOf("HEAD");
+  if (a === null || b === null) return "unknown";
+  return a === b ? "current" : "stale";
+}
+
+export interface BaselineListing { threads: number; spurCommit: string; chunks: number; freshness: BaselineFreshness; runsPerSec: number }
+export function listBaselines(state: LoopState): BaselineListing[] {
+  const out: BaselineListing[] = [];
+  for (const key of state.metaKeys("baseline:")) {
+    const threads = Number(key.slice("baseline:".length));
+    const b = parseBaseline(state.getMeta(key));
+    if (!Number.isFinite(threads) || !b) continue;
+    out.push({ threads, spurCommit: (b.sequential[0]?.spurCommit ?? "").slice(0, 7), chunks: b.sequential.length, freshness: baselineFreshness(b), runsPerSec: b.runsPerSec });
+  }
+  return out.sort((x, y) => x.threads - y.threads);
+}
+
 /** The keyed store keeps one baseline per thread count and adopts the bare
  *  key exactly once. */
 export function selfTestBaselineKeys(): string[] {
@@ -976,6 +1004,14 @@ export async function runLoop(deps: LoopDeps): Promise<void> {
   if (!startBaseline || startBaseline.sequential.length === 0) {
     console.error(`no sequential baseline recorded at ${hostThreads} threads; run \`cli baseline\`, then \`cli panel-calibrate\` and \`cli regression\` under this CPU mask before starting the loop`);
     return;
+  }
+  const freshness = baselineFreshness(startBaseline);
+  if (freshness === "stale") {
+    console.error(`baseline at ${hostThreads} threads was measured on spur ${startBaseline.sequential[0]?.spurCommit.slice(0, 7)}, whose tree differs from HEAD; run \`cli baseline\` under this CPU mask before starting.`);
+    return;
+  }
+  if (freshness === "unknown") {
+    console.error(`WARNING: cannot tell whether the ${hostThreads}-thread baseline matches HEAD (its spur commit object is not available); run \`cli baseline\` if the binary changed since it was recorded.`);
   }
   const baselineThreads = startBaseline.rayonThreads;
   if (baselineThreads === undefined) {

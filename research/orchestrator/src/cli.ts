@@ -243,6 +243,11 @@ async function main(): Promise<void> {
         const baseline = loadBaseline(state, policy.evaluation.rayonThreads);
         writeStatus(state, policy, { baseline: baselineLadder(baseline), reference: baselineLadder(loadReference(state)), graderVersion: graderVersion(), openPrs: state.listHypotheses("needs_human").flatMap((h) => h.prUrls) });
         console.log("STATUS.md rendered. Pool:", JSON.stringify(state.countByStatus()));
+        const { listBaselines } = await import("./loop.js");
+        const host = policy.evaluation.rayonThreads;
+        const rows = listBaselines(state);
+        console.log(rows.length === 0 ? "baselines: none" : "baselines: " + rows.map((b) => `${b.threads} threads: spur ${b.spurCommit}, ${b.chunks} chunks, ${Math.round(b.runsPerSec)} runs/s, ${b.freshness}${b.threads === host ? " (this mask)" : ""}`).join(" | "));
+        if (!rows.some((b) => b.threads === host)) console.log(`no baseline for the ${host} threads this mask resolves to; run cli baseline under it before starting`);
         break;
       }
       default:
