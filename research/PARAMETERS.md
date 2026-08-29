@@ -526,6 +526,16 @@ per-hypothesis 90 min · audit every 5. These are priors;
 the audit role exists to retune them from accumulated iteration data via
 meta-hypotheses (inside compiled hard limits).
 
+## Steer audit cost (measured 2026-08-28, 14 threads, CCD 0)
+
+`feedback.steer_audit` walks every runnable in every queue once per step to
+record where the steer's preference sits. On the evaluation template at 100
+runs per config (5,400 runs), six ABBA pairs with the same binary give 12.07 s
+with the audit on against 11.92 s off: 1.2% of session wall. The counters it
+produces (`steer_authority.*`) are in the evaluation record and feed the
+panel's firing classification for hypotheses that touch the steer, so the
+audit stays on; sampling it would save under 2% and cost a code path.
+
 ## Grader memory (measured 2026-08-24, after two OOM kills)
 
 Explorer peak RSS on a 13.5k-run session: **2.4 GB**. The grader
