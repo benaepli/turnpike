@@ -1,0 +1,346 @@
+{
+  "hypothesis": {
+    "id": "post-boxing-allocation-resweep",
+    "parent": "value-size-and-chunk-allocation",
+    "kind": "perf",
+    "title": "Re-profile the allocation histogram after the Value shrink and attack the new top >=1032-byte site",
+    "description": "Repeat the LD_PRELOAD allocation-size census that motivated the parent (2000 bench runs, ~4 s, histogram bucketed at glibc's 1032-byte tcache limit) on merged HEAD, where the 5136-byte imbl vector chunk is gone. Report the new bytes-allocated distribution and identify which call sites now carry the majority of large-allocation traffic (expected candidates: explorer per-run state vectors, message queue buffers, ValueMap chunk allocations under small-chunks, and the per-step trace/prefix recording in spur-core/src/simulator). Then apply the same lever to the single largest remaining site — shrink the element, box a rarely-taken large variant, or size the container to the actual occupancy — and pin the resulting size_of with a unit test as the parent did. No config field gates this; it is an internal representation change and must keep executions byte-identical per seed.",
+    "category": "performance",
+    "buildsOn": [
+      "value representation",
+      "explorer memory footprint"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 2,
+    "rationale": "Two of two merged perf hypotheses (reduce-explorer-memory-footprint +29.9%, this one +12.8%) won by cutting >=1032-byte allocation traffic, and the pre-change census showed 14.6% of allocations carrying 94% of 190 GB at ~47 GB/s. The parent removed one dominant contributor, so the histogram's shape has changed and the next-largest site is currently unmeasured; the census is cheap (one 4 s run) and has twice pointed straight at a winning edit.",
+    "generalityArgument": "Purely an allocation-profile-driven representation change inside the interpreter and explorer; no scheduler, message, role, or timer semantics are touched, and the regression suite plus ladder non-inferiority gate any drift.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-29T08:00:00Z",
+    "firingCounter": null,
+    "notes": "[unparked iteration 5317] Parent perf lever delivered +12.8% and the histogram that motivated it is now stale; a fresh census names the next hotspot with a bench-stateable result — falsifier: no remaining >=1032-byte site carries enough traffic for a 5% bench delta. [rejudged iteration 5319: Parent merged at +12.8% so the census method is validated, but the largest site is now gone and the next on"
+  },
+  "decision": {
+    "hypothesisId": "post-boxing-allocation-resweep",
+    "verdict": "auto_merge",
+    "reasons": [
+      "bench: candidate 1541.2 rps vs baseline 614.6 rps (+150.8%, strict dominance)"
+    ],
+    "objectiveDeltas": {
+      "primary": 1.508,
+      "throughput": 1.508,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true,
+    "rayonThreads": 30
+  },
+  "evaluations": {
+    "screen": [
+      {
+        "id": "post-boxing-allocation-resweep-screen-11-1788027483134",
+        "hypothesisId": "post-boxing-allocation-resweep",
+        "fidelity": "screen",
+        "graderVersion": "ta:5f45250+porc:ebf06c5",
+        "spurCommit": "699bfd9186f209588ae78383897220e544bdb3bd",
+        "superCommit": "1a92884399f86ea4bc791785b671b5ece20b53b8",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-29T18:18:03.134Z",
+        "rayonThreads": 30,
+        "metrics": {
+          "runs": 5400,
+          "runsPerSec": 1363.292097955062,
+          "exposureMs": 3961,
+          "unpairedFraction": 0.49245361975170876,
+          "h1Rate": 0.4898148148148148,
+          "h2Rate": 0.40796296296296297,
+          "h2bRate": 0.42185185185185187,
+          "h3Rate": 0.35203703703703704,
+          "h4Rate": 0.9331481481481482,
+          "gradedRuns": 5400,
+          "meanPrefixDepth": 3.2822222222222224,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            5400,
+            4875,
+            3749,
+            2541,
+            880,
+            220,
+            51,
+            8
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 452,
+          "gradeWallMs": 3174,
+          "campaign": null
+        },
+        "exploreWallMs": 4350,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 3961,
+          "runsCompleted": 5400,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 0,
+          "budgetHit": false,
+          "writerFlushMs": 18
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 5400,
+            "planComplete": 1514,
+            "planCompleteWithPendingWork": 1514,
+            "iterationsExhausted": 3883,
+            "deadlock": 3,
+            "stepsUsedSum": 24517800,
+            "stepBudgetSum": 32400000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 4920562,
+              "acted": 1906628
+            },
+            "biased": {
+              "deliveries": 737604,
+              "acted": 83040
+            },
+            "delayed": {
+              "deliveries": 725617,
+              "acted": 82264
+            },
+            "senderRestarted": {
+              "deliveries": 5364,
+              "acted": 749
+            },
+            "receiverRestarted": {
+              "deliveries": 9645,
+              "acted": 205
+            }
+          },
+          "steerAuthority": {
+            "steps": 0,
+            "preferenceExpressed": 0,
+            "preferenceHonored": 0,
+            "honored": 0,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      }
+    ],
+    "promote": [
+      {
+        "id": "post-boxing-allocation-resweep-promote-11-1788027491128",
+        "hypothesisId": "post-boxing-allocation-resweep",
+        "fidelity": "promote",
+        "graderVersion": "ta:5f45250+porc:ebf06c5",
+        "spurCommit": "699bfd9186f209588ae78383897220e544bdb3bd",
+        "superCommit": "1a92884399f86ea4bc791785b671b5ece20b53b8",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 11,
+        "startedAtIso": "2026-08-29T18:18:11.128Z",
+        "rayonThreads": 30,
+        "metrics": {
+          "runs": 13500,
+          "runsPerSec": 1358.9691966982082,
+          "exposureMs": 9934,
+          "unpairedFraction": 0.4983041013968849,
+          "h1Rate": 0.49274074074074076,
+          "h2Rate": 0.4162962962962963,
+          "h2bRate": 0.42385185185185187,
+          "h3Rate": 0.3532592592592593,
+          "h4Rate": 0.9239259259259259,
+          "gradedRuns": 13500,
+          "meanPrefixDepth": 3.300222222222222,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            13500,
+            12237,
+            9492,
+            6407,
+            2236,
+            551,
+            121,
+            9
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1024,
+          "gradeWallMs": 7968,
+          "campaign": null
+        },
+        "exploreWallMs": 10318,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 9934,
+          "runsCompleted": 13500,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 0,
+          "budgetHit": false,
+          "writerFlushMs": 14
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 13500,
+            "planComplete": 3733,
+            "planCompleteWithPendingWork": 3733,
+            "iterationsExhausted": 9757,
+            "deadlock": 10,
+            "stepsUsedSum": 61571144,
+            "stepBudgetSum": 81000000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 12462076,
+              "acted": 4737345
+            },
+            "biased": {
+              "deliveries": 1870356,
+              "acted": 206320
+            },
+            "delayed": {
+              "deliveries": 1839148,
+              "acted": 204324
+            },
+            "senderRestarted": {
+              "deliveries": 13798,
+              "acted": 1966
+            },
+            "receiverRestarted": {
+              "deliveries": 25425,
+              "acted": 515
+            }
+          },
+          "steerAuthority": {
+            "steps": 0,
+            "preferenceExpressed": 0,
+            "preferenceHonored": 0,
+            "honored": 0,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      },
+      {
+        "id": "post-boxing-allocation-resweep-promote-23-1788027510472",
+        "hypothesisId": "post-boxing-allocation-resweep",
+        "fidelity": "promote",
+        "graderVersion": "ta:5f45250+porc:ebf06c5",
+        "spurCommit": "699bfd9186f209588ae78383897220e544bdb3bd",
+        "superCommit": "1a92884399f86ea4bc791785b671b5ece20b53b8",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 23,
+        "startedAtIso": "2026-08-29T18:18:30.472Z",
+        "rayonThreads": 30,
+        "metrics": {
+          "runs": 13500,
+          "runsPerSec": 1359.5166163141994,
+          "exposureMs": 9930,
+          "unpairedFraction": 0.4970326079708373,
+          "h1Rate": 0.4997037037037037,
+          "h2Rate": 0.4194074074074074,
+          "h2bRate": 0.4266666666666667,
+          "h3Rate": 0.35244444444444445,
+          "h4Rate": 0.9291111111111111,
+          "gradedRuns": 13500,
+          "meanPrefixDepth": 3.3054074074074076,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            13500,
+            12266,
+            9503,
+            6425,
+            2218,
+            565,
+            126,
+            20
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 1059,
+          "gradeWallMs": 7979,
+          "campaign": null
+        },
+        "exploreWallMs": 10320,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 9930,
+          "runsCompleted": 13500,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 0,
+          "budgetHit": false,
+          "writerFlushMs": 17
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 13500,
+            "planComplete": 3753,
+            "planCompleteWithPendingWork": 3753,
+            "iterationsExhausted": 9741,
+            "deadlock": 6,
+            "stepsUsedSum": 61541653,
+            "stepBudgetSum": 81000000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 12383536,
+              "acted": 4734028
+            },
+            "biased": {
+              "deliveries": 1853694,
+              "acted": 206900
+            },
+            "delayed": {
+              "deliveries": 1822716,
+              "acted": 204885
+            },
+            "senderRestarted": {
+              "deliveries": 13819,
+              "acted": 2005
+            },
+            "receiverRestarted": {
+              "deliveries": 25227,
+              "acted": 496
+            }
+          },
+          "steerAuthority": {
+            "steps": 0,
+            "preferenceExpressed": 0,
+            "preferenceHonored": 0,
+            "honored": 0,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/exec.rs",
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/core/state.rs"
+  ],
+  "superFiles": [
+    "research/observations/ALLOC_CENSUS.md"
+  ],
+  "graderVersion": "ta:5f45250+porc:ebf06c5",
+  "generalConfigParams": {
+    "before": 19,
+    "after": 19
+  }
+}
