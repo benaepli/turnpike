@@ -57,6 +57,7 @@
   },
   "stats": true,
   "emit_acted_fraction": true,
+  "emit_acceptance_distance": true,
   "emit_prefix_extension": true,
   "emit_multiplier_authority": true,
   "num_runs_per_config": 100,
