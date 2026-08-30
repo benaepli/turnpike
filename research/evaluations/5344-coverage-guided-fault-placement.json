@@ -1,0 +1,551 @@
+{
+  "hypothesis": {
+    "id": "coverage-guided-fault-placement",
+    "parent": null,
+    "kind": "add",
+    "title": "Choose which node crashes by least-visited fault-context coverage, using a self-contained arm-local visit table",
+    "description": "Opt-in coverage signal driving FAULT PLACEMENT, not queue selection, so it does not route through the timeline/steer channel that is inert in the evaluated config (novelty_enabled=false, all steer_terms zero, preferenceExpressed==0 over 956M steps). At the crash-injection site in spur-core/src/simulator/, once the injector has decided a crash occurs this step, replace the uniform pick among eligible nodes with argmin over a small arm-local visit table keyed by a protocol-agnostic fault-context tag built only from fields already carried per node: (a) incarnation count clamped 0/1/2+, (b) whether the node has >=1 sent-but-undelivered message, (c) number of currently-down peers clamped 0/1/2+. Ties consume the same RNG draw as the uniform path so rng_stream_isolation and replay determinism hold. Gate: faults.coverage_guided_placement (bool, default false = today's uniform pick). Table lives in the arm's feedback state, never shared across arms. Counters in util_stats.rs: fault_coverage.{decisions, candidates_ge2, diverged_from_uniform, distinct_tags, max_tag_visits}.",
+    "category": "feedback",
+    "buildsOn": [
+      "crash/recover fault injection",
+      "campaign per-arm feedback state",
+      "util_stats counters"
+    ],
+    "expectedGain": 5,
+    "expectedCost": 3,
+    "rationale": "Red team first: depth is budget-invariant to two significant figures across a 4x iteration range, and every coverage/novelty attempt to date (timer-vs-delivery axis, +2.6x distinct keys, novelty authority sweep, timeline-key granularity) moved no rung; pushing runs into the 2+-recovery stratum may cost throughput exactly where completion is only 6.11%, so the per-second factor can fall as fast as the per-run factor rises. What distinguishes it: every prior coverage attempt spent its signal on queue selection, i.e. on WHEN events fire; none changed WHICH node the run damages, and h3 (two distinct nodes crash and recover) is a precondition for the target class. The fresh stratification says the 2+-recovery stratum is reached by accident (36% of runs) and is not starving (blocked-step share 0.067%), so it is a placement problem, not a budget or frontier problem. The tag has tens of values touched once or twice per run, so unlike the 2.2M-key timeline channel its visit counts stay informative all session instead of saturating in 200-300 runs. Cost: scheduler-core change plus counters plus one bool gate; no exec.rs touch, no dose parameter.",
+    "generalityArgument": "The tag reads only simulator-level facts every spec has: restart count, whether undelivered sends are outstanding, how many peers are down. The rule is 'crash the node whose fault context this session has explored least' — it encodes no knowledge of what a crash means to the protocol and names no handler, message, role or timer.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-30T02:35:00.000Z",
+    "firingCounter": null,
+    "notes": "Falsifier, per-run factor, screen-stage: depth>=6 events per explore-second not separable from baseline over the sequential protocol. Pre-registered fire criterion (result is uninterpretable, not negative, below it): candidates_ge2 >= 50% of decisions AND diverged_from_uniform >= 10% of decisions AND distinct_tags >= 20 in a 1,080-run session. If candidates_ge2 < 50% the crash subject is structurally near-determined and this closes rather than being retried with a knob."
+  },
+  "decision": {
+    "hypothesisId": "coverage-guided-fault-placement",
+    "verdict": "needs_human",
+    "reasons": [
+      "the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches"
+    ],
+    "objectiveDeltas": {
+      "stratified": 1,
+      "violations": 0.000002506441461478129,
+      "depth>=4:pooled": -0.007955750952002738,
+      "depth>=4": -0.02399505500373067,
+      "depth>=5:pooled": -0.046300258390667204,
+      "depth>=5": -0.03875683178018696,
+      "depth>=6:pooled": -0.0359850423850826,
+      "depth>=6": -0.0306099434075513,
+      "depth>=7:pooled": -0.00247875826494659,
+      "depth>=7": 0.016756283668717842,
+      "depth>=8:pooled": 0.021647478392838204,
+      "depth>=8": 0.05160078594165163,
+      "h2": 0.005225914610710203,
+      "throughput": -0.007471009062509859,
+      "primary": 0.000002506441461478129,
+      "panelZ": 0,
+      "params": 1
+    },
+    "regressionPassed": true,
+    "lintPassed": true,
+    "rayonThreads": 14
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "coverage-guided-fault-placement-sequential-1000-1788057216863",
+        "hypothesisId": "coverage-guided-fault-placement",
+        "fidelity": "sequential",
+        "graderVersion": "ta:08b1b45+porc:ebf06c5",
+        "spurCommit": "29617269a262bde5cc0eb45b2f0e54b58db2274a",
+        "superCommit": "37087728202afba7c6e1c39ac4a5c13be3127422",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-30T02:33:36.863Z",
+        "rayonThreads": 14,
+        "metrics": {
+          "runs": 302912,
+          "runsPerSec": 1008.7886689778967,
+          "exposureMs": 300273,
+          "unpairedFraction": 0.5298636801904613,
+          "h1Rate": 0.5118582294527784,
+          "h2Rate": 0.42709103634058737,
+          "h2bRate": 0.4195475913796746,
+          "h3Rate": 0.3389268170293683,
+          "h4Rate": 0.9180256972321994,
+          "gradedRuns": 302912,
+          "meanPrefixDepth": 3.271484787661103,
+          "maxPrefixDepth": 9,
+          "depthAtLeast": [
+            302912,
+            274593,
+            212267,
+            140565,
+            46629,
+            11185,
+            2412,
+            407,
+            2
+          ],
+          "violations": 1,
+          "unknown": 0,
+          "porcupineWallMs": 19491,
+          "gradeWallMs": 69086,
+          "campaign": {
+            "wallSec": 300,
+            "allocation": "round_robin",
+            "reward": "termination_completed",
+            "runsTotal": 302912,
+            "sliceUnitSec": 20,
+            "cancelled": false,
+            "arms": [
+              {
+                "index": 0,
+                "id": "grid",
+                "mode": "grid",
+                "overlay": {},
+                "slices": 3,
+                "runs": 41280,
+                "wallMs": 60063,
+                "rewardRate": 189.4177779997669,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  41280,
+                  37625,
+                  29080,
+                  19417,
+                  6636,
+                  1676,
+                  387,
+                  58,
+                  0
+                ],
+                "gradedRuns": 41280,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 1,
+                "id": "grid-short",
+                "mode": "grid",
+                "overlay": {
+                  "max_iterations": 1500
+                },
+                "slices": 3,
+                "runs": 132160,
+                "wallMs": 60007,
+                "rewardRate": 534.1876781042212,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  132160,
+                  120323,
+                  93582,
+                  62839,
+                  21540,
+                  5261,
+                  1190,
+                  198,
+                  0
+                ],
+                "gradedRuns": 132160,
+                "violations": 1,
+                "firstViolationMs": 22607
+              },
+              {
+                "index": 2,
+                "id": "grid-no-purgatory",
+                "mode": "grid",
+                "overlay": {
+                  "purgatory.delay_probability": 0
+                },
+                "slices": 3,
+                "runs": 39584,
+                "wallMs": 60064,
+                "rewardRate": 184.05367607884924,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  39584,
+                  35550,
+                  26735,
+                  16899,
+                  4988,
+                  933,
+                  173,
+                  21,
+                  0
+                ],
+                "gradedRuns": 39584,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 3,
+                "id": "grid-post-fault-2",
+                "mode": "grid",
+                "overlay": {
+                  "post_fault_client_ops": 2
+                },
+                "slices": 3,
+                "runs": 43200,
+                "wallMs": 60053,
+                "rewardRate": 207.74982099145757,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  43200,
+                  39004,
+                  29974,
+                  19059,
+                  6669,
+                  1650,
+                  378,
+                  79,
+                  2
+                ],
+                "gradedRuns": 43200,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 4,
+                "id": "aos",
+                "mode": "aos",
+                "overlay": {},
+                "slices": 3,
+                "runs": 46688,
+                "wallMs": 60070,
+                "rewardRate": 185.7499583818878,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  46688,
+                  42091,
+                  32896,
+                  22351,
+                  6796,
+                  1665,
+                  284,
+                  51,
+                  0
+                ],
+                "gradedRuns": 46688,
+                "violations": 0,
+                "firstViolationMs": null
+              }
+            ]
+          }
+        },
+        "exploreWallMs": 300679,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 300273,
+          "runsCompleted": 302912,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 300,
+          "budgetHit": true,
+          "writerFlushMs": 12
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 302912,
+            "planComplete": 78121,
+            "planCompleteWithPendingWork": 78121,
+            "iterationsExhausted": 224687,
+            "deadlock": 104,
+            "stepsUsedSum": 951917087,
+            "stepBudgetSum": 1222752000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 206912843,
+              "acted": 73249588
+            },
+            "biased": {
+              "deliveries": 24947556,
+              "acted": 2707768
+            },
+            "delayed": {
+              "deliveries": 24240557,
+              "acted": 2654759
+            },
+            "senderRestarted": {
+              "deliveries": 311296,
+              "acted": 50673
+            },
+            "receiverRestarted": {
+              "deliveries": 561848,
+              "acted": 12929
+            }
+          },
+          "steerAuthority": {
+            "steps": 951917087,
+            "preferenceExpressed": 0,
+            "preferenceHonored": 0,
+            "honored": 0,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      },
+      {
+        "id": "coverage-guided-fault-placement-sequential-1001-1788057607332",
+        "hypothesisId": "coverage-guided-fault-placement",
+        "fidelity": "sequential",
+        "graderVersion": "ta:08b1b45+porc:ebf06c5",
+        "spurCommit": "29617269a262bde5cc0eb45b2f0e54b58db2274a",
+        "superCommit": "37087728202afba7c6e1c39ac4a5c13be3127422",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-30T02:40:07.332Z",
+        "rayonThreads": 14,
+        "metrics": {
+          "runs": 297056,
+          "runsPerSec": 989.4050366876833,
+          "exposureMs": 300237,
+          "unpairedFraction": 0.5114765197053935,
+          "h1Rate": 0.5057901540450286,
+          "h2Rate": 0.4177899116664871,
+          "h2bRate": 0.4030586825379726,
+          "h3Rate": 0.3152334913282344,
+          "h4Rate": 0.9189950716363244,
+          "gradedRuns": 297056,
+          "meanPrefixDepth": 3.278213535494991,
+          "maxPrefixDepth": 8,
+          "depthAtLeast": [
+            297056,
+            270859,
+            208894,
+            138026,
+            45392,
+            10762,
+            2425,
+            399
+          ],
+          "violations": 1,
+          "unknown": 0,
+          "porcupineWallMs": 19221,
+          "gradeWallMs": 69007,
+          "campaign": {
+            "wallSec": 300,
+            "allocation": "round_robin",
+            "reward": "termination_completed",
+            "runsTotal": 297056,
+            "sliceUnitSec": 20,
+            "cancelled": false,
+            "arms": [
+              {
+                "index": 0,
+                "id": "grid",
+                "mode": "grid",
+                "overlay": {},
+                "slices": 3,
+                "runs": 40704,
+                "wallMs": 60055,
+                "rewardRate": 188.21080676046958,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  40704,
+                  37143,
+                  28748,
+                  19327,
+                  6601,
+                  1609,
+                  392,
+                  66
+                ],
+                "gradedRuns": 40704,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 1,
+                "id": "grid-short",
+                "mode": "grid",
+                "overlay": {
+                  "max_iterations": 1500
+                },
+                "slices": 3,
+                "runs": 131808,
+                "wallMs": 60021,
+                "rewardRate": 530.8641975308642,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  131808,
+                  120123,
+                  93115,
+                  62495,
+                  21370,
+                  5205,
+                  1193,
+                  204
+                ],
+                "gradedRuns": 131808,
+                "violations": 1,
+                "firstViolationMs": 239638
+              },
+              {
+                "index": 2,
+                "id": "grid-no-purgatory",
+                "mode": "grid",
+                "overlay": {
+                  "purgatory.delay_probability": 0
+                },
+                "slices": 3,
+                "runs": 39104,
+                "wallMs": 60055,
+                "rewardRate": 182.29955873782367,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  39104,
+                  35235,
+                  26420,
+                  16793,
+                  4829,
+                  947,
+                  161,
+                  12
+                ],
+                "gradedRuns": 39104,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 3,
+                "id": "grid-post-fault-2",
+                "mode": "grid",
+                "overlay": {
+                  "post_fault_client_ops": 2
+                },
+                "slices": 3,
+                "runs": 43136,
+                "wallMs": 60069,
+                "rewardRate": 204.13191496445754,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  43136,
+                  39017,
+                  29747,
+                  18998,
+                  6535,
+                  1587,
+                  348,
+                  67
+                ],
+                "gradedRuns": 43136,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 4,
+                "id": "aos",
+                "mode": "aos",
+                "overlay": {},
+                "slices": 3,
+                "runs": 42304,
+                "wallMs": 60022,
+                "rewardRate": 228.5328712805305,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  42304,
+                  39341,
+                  30864,
+                  20413,
+                  6057,
+                  1414,
+                  331,
+                  50
+                ],
+                "gradedRuns": 42304,
+                "violations": 0,
+                "firstViolationMs": null
+              }
+            ]
+          }
+        },
+        "exploreWallMs": 300644,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 300237,
+          "runsCompleted": 297056,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 300,
+          "budgetHit": true,
+          "writerFlushMs": 20
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 297056,
+            "planComplete": 80093,
+            "planCompleteWithPendingWork": 80093,
+            "iterationsExhausted": 216836,
+            "deadlock": 127,
+            "stepsUsedSum": 906832154,
+            "stepBudgetSum": 1189200000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 202932468,
+              "acted": 75769755
+            },
+            "biased": {
+              "deliveries": 24345551,
+              "acted": 2795690
+            },
+            "delayed": {
+              "deliveries": 23671810,
+              "acted": 2743219
+            },
+            "senderRestarted": {
+              "deliveries": 299677,
+              "acted": 50195
+            },
+            "receiverRestarted": {
+              "deliveries": 534351,
+              "acted": 12413
+            }
+          },
+          "steerAuthority": {
+            "steps": 906832154,
+            "preferenceExpressed": 0,
+            "preferenceHonored": 0,
+            "honored": 0,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/coverage.rs",
+    "spur-core/src/simulator/curriculum.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:08b1b45+porc:ebf06c5",
+  "generalConfigParams": {
+    "before": 20,
+    "after": 21
+  }
+}
