@@ -12,6 +12,7 @@ import { buildSpur, ROOT, SPUR_BIN } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors } from "./stats.js";
 import { selfTestUnmeasured } from "./decide.js";
+import { selfTestFiring } from "./firing.js";
 import { pooledCountsOf, selfTestGateConsistency, seqRuleOf } from "./sequential.js";
 import { LoopState } from "./state.js";
 
@@ -74,7 +75,7 @@ async function main(): Promise<void> {
         const { policy, clamps } = loadPolicy(POLICY_PATH);
         const stored = loadBaseline(state, policy.evaluation.rayonThreads);
         const live = stored && stored.sequential.some((e) => e.ok) ? { base: pooledCountsOf(stored.sequential), rule: seqRuleOf(policy, violationPrior(state)) } : undefined;
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestUnmeasured(), ...selfTestArmSetGrowth(), ...selfTestGateConsistency(live), ...selfTestBaselineKeys(), ...selfTestRender(existsSync(baselineEvidencePath(policy.evaluation.rayonThreads)) ? baselineEvidencePath(policy.evaluation.rayonThreads) : undefined), ...selfTestRunIdentity()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestUnmeasured(), ...selfTestFiring(), ...selfTestArmSetGrowth(), ...selfTestGateConsistency(live), ...selfTestBaselineKeys(), ...selfTestRender(existsSync(baselineEvidencePath(policy.evaluation.rayonThreads)) ? baselineEvidencePath(policy.evaluation.rayonThreads) : undefined), ...selfTestRunIdentity()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         console.log("stats + posterior + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
         console.log("models:", policy.models);

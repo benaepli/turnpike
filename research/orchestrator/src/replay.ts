@@ -22,6 +22,7 @@ import * as path from "node:path";
 import { ROOT } from "./paths.js";
 import { loadPolicy } from "./policy.js";
 import { CAMPAIGN_EPOCH_FLOOR, MERGE_Z, finalGate, judgedByNonInferiority, type RatePrior } from "./decide.js";
+import { firingCheck } from "./firing.js";
 import { decideSequential, pooledCountsOf, railVerdict, seqRuleOf, throughputRatioOf, type SeqKind } from "./sequential.js";
 import { Evaluation, type Hypothesis } from "./schemas.js";
 
@@ -233,6 +234,9 @@ function main(): void {
         throughputFloor: 1 - policy.regression.throughputTolerance,
         violationPrior: prior,
         unmeasurable: [],
+        // Nothing in the record carries a prediction, so the firing check
+        // has nothing to grade against and cannot change a replayed verdict.
+        firing: firingCheck({ prediction: null, counters: {}, changedSpurFiles: [], configPaths: null }),
       });
       next = verdict === "escalate" ? "human" : recordedTerminal(g.verdict);
       nextReason = verdict === "escalate" ? reason : g.reasons.join("; ");

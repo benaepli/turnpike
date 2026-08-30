@@ -11,6 +11,7 @@
 import type { BenchResult } from "./bench.js";
 import type { Evaluation, GateDecision, Hypothesis, HypothesisKind, RateStratum } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
+import { firingIsHarnessGap, firingPasses, type FiringResult } from "./firing.js";
 import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv } from "./stats.js";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
@@ -327,6 +328,10 @@ export interface FinalGateInputs {
   // Required, not optional: an optional input nobody supplies is a defect no
   // typecheck can see. Non-empty means no sample was taken.
   unmeasurable: string[];
+  // Whether the mechanism the hypothesis predicted had any occasions. A
+  // sample of a mechanism that never fired is a sample about nothing,
+  // whatever its rates did.
+  firing: FiringResult;
 }
 
 export function finalGate(i: FinalGateInputs): GateDecision {
@@ -365,6 +370,18 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   } else if (cmp.stratumFault?.kind === "arms") {
     verdict = "needs_human";
     reasons.push(`the unit of comparison moved, so no per-second objective was tested: ${cmp.stratumFault.detail}`);
+  } else if (firingIsHarnessGap(i.firing)) {
+    // Nothing looked at the counters. That is the harness failing, not the
+    // mechanism, and closing would record it as a negative result.
+    verdict = "blocked";
+    harnessFailure = true;
+    reasons.push(`the firing check could not run: ${i.firing.detail}`);
+  } else if (!firingPasses(i.firing)) {
+    // A mechanism with no occasions cannot have moved a rate, so the deltas
+    // this sample produced are the null band under another name. Read before
+    // any rung, because no rung can answer it.
+    verdict = "closed";
+    reasons.push(`the predicted mechanism did not fire (${i.firing.status}): ${i.firing.detail}`);
   } else {
     const kind = i.hypothesis.kind;
     if (kind !== "ablate") {
@@ -488,6 +505,7 @@ export function selfTestUnmeasured(): string[] {
   const base: FinalGateInputs = {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
     lintFailures: [], changedSpurFiles: [], throughputRatio: 1, throughputFloor: 0.8, unmeasurable: [],
+    firing: { status: "not-claimed", detail: "" },
   };
   const un = finalGate({ ...base, unmeasurable: ["u"] });
   check(un.verdict === "needs_human", `an unmeasurable diff reaches a human, got ${un.verdict}`);
@@ -500,6 +518,17 @@ export function selfTestUnmeasured(): string[] {
   // The reason must not read as a harness failure to the judge; state.ts
   // stamps that from the literal "no changes".
   check(!u([], []).some((r) => /no changes/.test(r)), "the reason must not trip the harness-failure test");
+  // A mechanism with no occasions is a sample about nothing: it closes, and
+  // it closes before any rung is read. An uncollected dump is the harness
+  // failing to look, so it blocks instead.
+  const quiet = finalGate({ ...base, firing: { status: "no-occasions", detail: "c = 0" } });
+  check(quiet.verdict === "closed" && (quiet.reasons[0] ?? "").startsWith("the predicted mechanism did not fire"),
+    `a mechanism with no occasions must close, got ${quiet.verdict}`);
+  const blind = finalGate({ ...base, firing: { status: "uncollected", detail: "no dump" } });
+  check(blind.verdict === "blocked" && blind.harnessFailure === true,
+    `an uncollected utilization dump is a harness gap, got ${blind.verdict}`);
+  check(!finalGate({ ...base, firing: { status: "fired", detail: "c = 1" } }).reasons.some((r) => r.startsWith("the predicted mechanism did not fire")),
+    "a mechanism that fired is judged on its rates");
 
   const loopSrc = path.join(ROOT, "research/orchestrator/src/loop.ts");
   if (existsSync(loopSrc)) {

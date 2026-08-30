@@ -108,7 +108,13 @@ export class LoopState {
   // -- hypotheses -----------------------------------------------------------
 
   upsertHypothesis(h: Hypothesis): void {
-    const v = Hypothesis.parse(h);
+    const parsed = Hypothesis.parse(h);
+    // The prediction is frozen at admission. It is what the hypothesis is
+    // graded against, so nothing written after the sample - a rejudge, a
+    // reflection, an implementer's summary - may become the claim it is
+    // judged by.
+    const stored = this.getHypothesis(parsed.id);
+    const v = stored?.prediction != null ? { ...parsed, prediction: stored.prediction } : parsed;
     this.db
       .prepare<[string, string, string, string | null, string, string]>(
         `INSERT INTO hypotheses (id, kind, status, parent, created_at, json)

@@ -13,6 +13,7 @@ import {
   judgedByNonInferiority, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
+import { changedConfigPaths, countersOf, firingCheck } from "./firing.js";
 import { numericLeaves, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
 import {
@@ -34,6 +35,12 @@ import { z } from "zod";
 export interface LoopDeps {
   state: LoopState;
   policy: Policy;
+}
+
+/** File text, or null when it cannot be read: a read that fails voids the
+ *  check that wanted it rather than throwing an iteration away. */
+function textOrNull(read: () => string): string | null {
+  try { return read(); } catch { return null; }
 }
 
 export function graderVersion(): string {
@@ -390,6 +397,9 @@ async function admitCandidates(
     source, seen: candidates.length, admitted,
     droppedByJudge: Math.max(0, candidates.length - kept.length),
     malformed: rejected.length, judgeCost: judged.costUsd,
+    // A hypothesis with no prediction cannot be graded against one, so this
+    // is the count that says whether the contract is being honored.
+    withoutPrediction: valid.slice(0, room).filter((x) => x.prediction === null).length,
   });
 }
 
@@ -453,7 +463,13 @@ function generalConfigParamCount(policy: Policy): number {
 
 export function calibrationTable(state: LoopState): string {
   return state.recentDecisions(30).reverse()
-    .map(({ hypothesis: x, decision: d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta (relative) ${"primary" in d.objectiveDeltas ? (d.objectiveDeltas["primary"] as number).toFixed(4) : "not measured"}`)
+    .map(({ hypothesis: x, decision: d }) => {
+      const p = x.prediction;
+      const claim = p === null
+        ? "no prediction"
+        : `claimed ${p.rung} +${(p.sizePct.min * 100).toFixed(0)}..${(p.sizePct.max * 100).toFixed(0)}% via ${p.firingCounter ?? "no counter"}`;
+      return `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost}, ${claim} -> ${d.verdict}, primary delta (relative) ${"primary" in d.objectiveDeltas ? (d.objectiveDeltas["primary"] as number).toFixed(4) : "not measured"}`;
+    })
     .join("\n");
 }
 
@@ -1058,6 +1074,15 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       throughputFloor: 1 - policy.regression.throughputTolerance,
       violationPrior: violationRate,
       unmeasurable,
+      firing: firingCheck({
+        prediction: h.prediction,
+        counters: countersOf(state.getMeta(`util:${h.id}`)),
+        changedSpurFiles: spurFiles,
+        configPaths: changedConfigPaths(
+          textOrNull(() => showFile(SUPER, RESEARCH_BRANCH, policy.evaluation.configTemplate)),
+          textOrNull(() => readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8")),
+        ),
+      }),
     });
     if (!perfDecision && !decisionInputsReady && sampled) {
       decision.verdict = "closed";

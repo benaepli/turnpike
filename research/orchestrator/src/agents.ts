@@ -226,7 +226,14 @@ const HYPOTHESIS_JSON_GUIDE = `Reply with ONLY a JSON object: {"hypotheses": [..
  "category": "scheduler"|"config"|"feedback"|"tooling"|"policy"|"grader"|"performance",
  "buildsOn": ["mechanism names this depends on"], "expectedGain": 0-10, "expectedCost": 0.1-10,
  "rationale": "why this should move the ladder", "generalityArgument": "why this is protocol-agnostic (rule 1)",
- "createdAtIso": "<now>", "notes": ""}`;
+ "prediction": {"firingCounter": "dotted.path.in.utilization.json" or null, "firingFloor": 1,
+   "rung": "depth>=4"|"depth>=5"|"depth>=6"|"depth>=7"|"depth>=8"|"violations"|"h2"|"throughput",
+   "sizePct": {"min": 0.05, "max": 0.15}, "mechanism": "how the change produces that move",
+   "independentObservable": "something else this predicts that the rung does not",
+   "falsifier": "the result that would refute it"},
+ "createdAtIso": "<now>", "notes": ""}
+
+The prediction is frozen when the hypothesis is admitted and is what the result is graded against; it is never rewritten afterwards. firingCounter must name a counter the explorer already emits (the utilization dump lists them) and firingFloor the value at or above which the mechanism had occasions: a counter that stays below its floor closes the hypothesis before any rate is read, because a mechanism with no occasions produced no evidence either way. sizePct is a band in relative terms, so 0.05 to 0.15 claims +5% to +15% on that rung. A band wide enough to cover every outcome is not a prediction.`;
 
 export const PROPOSAL_LENSES = [
   "fault-injection literature: crash timing anchored to protocol activity (sends, deliveries, quorum events); recovery timing races",
@@ -270,6 +277,7 @@ Campaign arms: a candidate is compared against the baseline campaign as a whole,
 Out of bounds: reject (expectedGain 0) any proposal that changes the loop's own machinery - the evaluation runner or orchestrator (research/orchestrator), the fixed evaluation config, the sequential or gate protocol, or which config a hypothesis is graded against. Every hypothesis must be measured the same way for results to be comparable; changing that is the operator's decision, not the loop's. Enabling a mechanism in the subject (spur, scheduler_configs/loop) is fine; rewiring the harness that measures it is not.
 Already-set: a candidate whose configuration equals the value already in scheduler_configs/loop/general_vr.json tests nothing, whatever its arms are called. Check the current value before scoring a dose or a default. Score expectedGain 0.
 Already-answered: the observations log below records what past iterations established. REJECT (score expectedGain 0) any diagnostic or measurement whose question is already answered there, and any hypothesis a recorded finding already falsifies; name the observation you are relying on in the notes. Do not re-propose a family that is already closed with several attempts and zero merges unless the premise has changed.
+Prediction: every candidate must carry a checkable prediction object. Score expectedGain 0-1 if it has none, if firingCounter names something the explorer does not emit (or is null where a counter exists for the mechanism), if the sizePct band is wide enough that no outcome could refute it, or if the falsifier is not a result the harness measures. Where the claim is sound but the prediction is sloppy, rewrite the prediction rather than dropping the candidate: it is frozen once admitted and cannot be fixed later.
 Process: for EACH candidate first write the strongest argument that it will NOT move the ladder (red team), then score. Rank candidates against each other and the pool; two proposals promising the same mechanism cannot both score high. Output the falsification statement in the notes field.`;
 
 export async function judgeHypotheses(policy: Policy, candidates: unknown[], poolSummaries: string[], calibration: string, evalContext: string): Promise<RoleResult<{ hypotheses: unknown[] }>> {

@@ -23,6 +23,29 @@ export const HypothesisStatus = z.enum([
 ]);
 export type HypothesisStatus = z.infer<typeof HypothesisStatus>;
 
+// What a hypothesis claims, before it is sampled. Every field is a recorded
+// claim rather than a knob: a mechanism, the rung it should move and by how
+// much, something else it predicts that the rung does not, and the result
+// that would refute it. The firing counter lives here rather than beside it,
+// so a hypothesis that names a counter and one that states a prediction are
+// the same thing.
+export const Prediction = z.object({
+  // Dotted path into utilization.json the mechanism increments, and the
+  // value at or above which it had occasions. A mechanism with no occasions
+  // produced no evidence either way, whatever the rates did.
+  firingCounter: z.string().nullable().default(null),
+  firingFloor: z.number().nonnegative().default(1),
+  // The rung claimed to move and the relative band claimed for it, as
+  // fractions: {min: 0.05, max: 0.15} is +5% to +15%. A band, because "some
+  // improvement" is not a claim anything can be graded against.
+  rung: z.enum(["depth>=4", "depth>=5", "depth>=6", "depth>=7", "depth>=8", "violations", "h2", "throughput"]),
+  sizePct: z.object({ min: z.number(), max: z.number() }),
+  mechanism: z.string().min(20),
+  independentObservable: z.string().min(10),
+  falsifier: z.string().min(20),
+});
+export type Prediction = z.infer<typeof Prediction>;
+
 export const Hypothesis = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{2,60}$/),
   parent: z.string().nullable().default(null),
@@ -39,11 +62,10 @@ export const Hypothesis = z.object({
   branch: z.string().nullable().default(null),
   prUrls: z.array(z.string()).default([]),
   createdAtIso: z.string(),
-  // Dotted path into utilization.json that the hypothesis claims its
-  // mechanism increments. Recorded with the hypothesis; a counter that stayed
-  // zero means the mechanism had no occasions, which is not a negative result
-  // about it.
-  firingCounter: z.string().nullable().default(null),
+  // Frozen at admission and graded against. Never rewritten from anything
+  // the sample produced: a claim adjusted after its own result is not a
+  // claim. Null on entries admitted before predictions were required.
+  prediction: Prediction.nullable().default(null),
   notes: z.string().default(""),
 });
 export type Hypothesis = z.infer<typeof Hypothesis>;
