@@ -198,6 +198,23 @@ export const DEEP_RUNG_MARGIN = 0.25;
 const DEEP_RUNG_NIP = 0.95;
 const DEEP_RUNG_DRAWS = 2000;
 const DEEP_RUNG_SEED = 7;
+// The rungs the guard is applied to, per graded run.
+export const DEEP_GUARD_RUNGS = [5, 6] as const;
+
+/** Posterior that rung k's per-run rate fell beyond the margin. One
+ *  definition, called by the stopping rule and by the gate, so the two cannot
+ *  read the same chunks differently. */
+export function deepRungPRegress(cSucc: number, cN: number, bSucc: number, bN: number, k: number): number {
+  return compareRatesPoisson(cSucc, cN, bSucc, bN, 0, DEEP_RUNG_MARGIN, DEEP_RUNG_DRAWS, DEEP_RUNG_SEED + k).pRegress;
+}
+
+/** What that posterior says. `unresolved` is neither a hold nor a fall: the
+ *  guard has not answered, and a gain alongside it is not a clean gain. */
+export function deepRungReading(pRegress: number): "held" | "unresolved" | "regressed" {
+  if (pRegress >= DEEP_RUNG_NIP) return "regressed";
+  if (pRegress <= 1 - DEEP_RUNG_NIP) return "held";
+  return "unresolved";
+}
 export function compareToBaseline(
   cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96, violationPrior: RatePrior | null = null,
 ): Comparison {
@@ -250,10 +267,10 @@ export function compareToBaseline(
     // gain bought by making runs shallower is depth traded for speed. A
     // posterior that settles neither way is recorded as unresolved, because a
     // guard that has not answered is not a guard that held.
-    if (d.k === 5 || d.k === 6) {
-      const g = compareRatesPoisson(d.succ, d.n, b.succ, b.n, 0, DEEP_RUNG_MARGIN, DEEP_RUNG_DRAWS, DEEP_RUNG_SEED + d.k);
-      if (g.pRegress >= DEEP_RUNG_NIP) regressed.push(`depth>=${d.k} per run`);
-      else if (g.pRegress > 1 - DEEP_RUNG_NIP) unresolvedGuards.push(`depth>=${d.k} per run`);
+    if ((DEEP_GUARD_RUNGS as readonly number[]).includes(d.k)) {
+      const reading = deepRungReading(deepRungPRegress(d.succ, d.n, b.succ, b.n, d.k));
+      if (reading === "regressed") regressed.push(`depth>=${d.k} per run`);
+      else if (reading === "unresolved") unresolvedGuards.push(`depth>=${d.k} per run`);
     }
   }
 
