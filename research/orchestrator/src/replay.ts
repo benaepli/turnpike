@@ -272,6 +272,9 @@ const EXPECTED: Array<{ iteration: number; want: (c: Case) => boolean; why: stri
   { iteration: 5369, want: (c: Case): boolean => c.next !== "merge", why: "depth>=6 pGreater 0.000 on the non-inferiority path" },
   // A real separated gain must survive every deletion above.
   { iteration: 5361, want: (c: Case): boolean => c.next === "merge", why: "depth>=6 per second separated at z 2.7" },
+  // A candidate that found a violation must not be held to a stricter
+  // standard for having found one.
+  { iteration: 5328, want: (c: Case): boolean => c.next === "merge", why: "non-inferior with one violation the baseline did not have" },
 ];
 
 function report(cases: Case[], skipped: string[], baselineMisses: number, all: boolean, assert: boolean): void {

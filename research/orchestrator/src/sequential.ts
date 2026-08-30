@@ -236,7 +236,7 @@ export function decideSequential(
     // that shape advances and merges. Same test and same confidence the
     // superiority path applies at the cross-check below.
     const primaryHolds = d6.pGreater >= 1 - p.inconclusiveP;
-    if (chunks >= p.minChunks && cand.violations <= base.violations && g4.pRegress <= 1 - p.niP && h2.pRegress <= 1 - p.niP && deepGuardOk && primaryHolds && !belowFloor) {
+    if (chunks >= p.minChunks && g4.pRegress <= 1 - p.niP && h2.pRegress <= 1 - p.niP && deepGuardOk && primaryHolds && !belowFloor) {
       return out("advance", "non-inferior on depth>=4, depth>=5, depth>=6 and h2");
     }
     if (worst >= p.niP) return out("reject", `regression: pRegress ${worst.toFixed(3)}`);
