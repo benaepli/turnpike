@@ -229,7 +229,8 @@ function main(): void {
         baselineEvals: base.evals,
         regressionPassed,
         lintFailures: recorded.lintPassed === false ? ["(recorded lint failure)"] : [],
-        changedSpurFiles: spurFilesFor(iteration, id),
+        changedSpurFiles: filesFor(iteration, id).spur,
+        changedSuperFiles: filesFor(iteration, id).super,
         throughputRatio: throughputRatioOf(pooledCountsOf(cand), basePooled),
         throughputFloor: 1 - policy.regression.throughputTolerance,
         violationPrior: prior,
@@ -252,16 +253,16 @@ function main(): void {
   report(cases, skipped, baselineMisses, stopperChunks, args.has("--all"), args.has("--assert"));
 }
 
-/** Files under spur/ the hypothesis changed, from its evidence packet. Only
- *  merged and reviewed hypotheses have one; an empty list is the conservative
- *  reading, since it is what makes an ablation have to earn its throughput. */
-function spurFilesFor(iteration: number, id: string): string[] {
+/** Files the hypothesis changed, from its evidence packet. Only merged and
+ *  reviewed hypotheses have one; empty lists are the conservative reading,
+ *  since that is what makes an ablation have to earn its throughput. */
+function filesFor(iteration: number, id: string): { spur: string[]; super: string[] } {
   const p = path.join(ROOT, "research/evaluations", `${String(iteration).padStart(3, "0")}-${id}.json`);
-  if (!existsSync(p)) return [];
+  if (!existsSync(p)) return { spur: [], super: [] };
   try {
-    const d = JSON.parse(readFileSync(p, "utf8")) as { spurFiles?: string[] };
-    return d.spurFiles ?? [];
-  } catch { return []; }
+    const d = JSON.parse(readFileSync(p, "utf8")) as { spurFiles?: string[]; superFiles?: string[] };
+    return { spur: d.spurFiles ?? [], super: d.superFiles ?? [] };
+  } catch { return { spur: [], super: [] }; }
 }
 
 // The decisions this migration was built to change, and what each must do.

@@ -9,7 +9,7 @@
 // throughput at or above the floor.
 // Non-inferiority (ablate/enabling base) = no objective worse than margin.
 import type { BenchResult } from "./bench.js";
-import type { Evaluation, GateDecision, Hypothesis, HypothesisKind, RateStratum } from "./schemas.js";
+import type { Evaluation, GateDecision, Hypothesis, HypothesisKind, Prediction, RateStratum } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
 import { firingIsHarnessGap, firingPasses, type FiringResult } from "./firing.js";
 import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv } from "./stats.js";
@@ -103,6 +103,16 @@ export function rungCv(s: RateStratum, k: number): number {
 export function rateVarianceOf(cand: RateStratum, base: RateStratum, k: number): number {
   return (cand.chunks > 0 ? rungCv(cand, k) ** 2 / cand.chunks : 0)
     + (base.chunks > 0 ? rungCv(base, k) ** 2 / base.chunks : 0);
+}
+
+/** The A/A spread two seeds of one unchanged binary produce at a rung, from
+ *  the event counts alone: the counting floor sqrt(1/ec + 1/eb). Infinite
+ *  when either side carries no events, which is the honest reading - nothing
+ *  about that rung is measurable yet. Computed rather than looked up, so it
+ *  follows the arm set and the budget instead of going stale. */
+export function nullBand(candEvents: number, baseEvents: number): number {
+  if (candEvents <= 0 || baseEvents <= 0) return Infinity;
+  return Math.sqrt(1 / candEvents + 1 / baseEvents);
 }
 
 /** A rate estimated over a body of chunks, used where a four-chunk baseline
@@ -288,6 +298,9 @@ const SEMANTICS_FILES = [
   "spur-core/src/simulator/core/exec.rs",
   "spur-core/src/simulator/history.rs",
 ];
+// The policy file is the loop's own rule book. A candidate that changes it
+// cannot merge unattended whatever its evidence says.
+export const POLICY_FILE = "research/policy.json";
 export function classifyChangeRisk(changedSpurFiles: string[]): "opt_in" | "semantics" {
   for (const f of changedSpurFiles) {
     if (SEMANTICS_FILES.some((s) => f === s)) return "semantics";
@@ -310,7 +323,9 @@ export interface FinalGateInputs {
   hypothesis: Hypothesis;
   confirmEvals: Evaluation[];
   baselineEvals: Evaluation[];
-  regressionPassed: boolean;
+  // null when the suite has not run: it is the expensive half of a decision
+  // and is bought only once the verdict could still be a merge.
+  regressionPassed: boolean | null;
   /// Failing cases, "name: detail" joined. Carried so an environmental failure
   /// inside the suite is recognisable as one rather than counted as evidence.
   regressionDetail?: string | undefined;
@@ -332,9 +347,183 @@ export interface FinalGateInputs {
   // sample of a mechanism that never fired is a sample about nothing,
   // whatever its rates did.
   firing: FiringResult;
+  // Files outside spur/ the diff touched. Required for the same reason
+  // unmeasurable is: a merge may not touch the loop's own rule book, and an
+  // input nobody supplies is a defect no typecheck can see.
+  changedSuperFiles: string[];
 }
 
-export function finalGate(i: FinalGateInputs): GateDecision {
+// The merge decision is made in three layers, in this order.
+//
+// 1. Hard stops in code. Three of them say no comparison exists - a stratum
+//    that could not be formed, an arm set that moved, a mechanism with no
+//    occasions - and two say the diff is defective. None is judgment, and no
+//    model is asked about a case in this set.
+// 2. A verdict on the figures: merge, close or human. "Keep sampling" is not
+//    among them; decideSequential owns that on a principled basis and has
+//    already stopped by the time the gate runs.
+// 3. Post-conditions in code, which can only make a verdict safer: a merge
+//    that has not passed every one of them becomes a human review.
+export type MergeVerdict = "merge" | "close" | "human";
+
+/** The figures a merge verdict is made on. Every number is computed here;
+ *  whoever chooses the verdict adds none of its own. */
+export interface MergeFigures {
+  hypothesisId: string;
+  kind: HypothesisKind;
+  judgedByNonInferiority: boolean;
+  // The rule's own reading of the same figures, as evidence rather than as a
+  // branch: a separated improvement with no separated regression, and the
+  // non-inferiority margins the ablate and enabling kinds are held to.
+  superior: boolean;
+  improved: string[];
+  regressed: string[];
+  nonInferiorFailures: string[];
+  // True when the candidate is at least as fast, or brought a spur change to
+  // pay for its cost. An ablation that is neither buys nothing.
+  cheaper: boolean;
+  deltas: Record<string, number>;
+  primary: number;
+  // The A/A spread the primary rung's own event counts imply. A primary
+  // delta inside it carries no information in either direction.
+  primaryNullBand: number;
+  primaryInsideNullBand: boolean;
+  throughput: { ratio: number; floor: number };
+  sample: { chunks: number; runs: number; exposureSec: number };
+  // A violation belongs to the configuration that produced it, and they
+  // arrive at about one per 1.7M runs, so a chunk carries one often enough
+  // that the candidate running at the time is usually not the reason.
+  violationsOnlyImprovement: boolean;
+  firing: FiringResult;
+  prediction: Prediction | null;
+  // The delta on the rung the prediction named, and whether it landed in the
+  // band claimed for it. null where the prediction named a rung whose delta
+  // is an absolute rate difference rather than a relative one, so the band
+  // and the delta are not on the same scale.
+  predictedRungDelta: number | null;
+  predictionInBand: boolean | null;
+  touchesSemantics: boolean;
+  touchesPolicy: boolean;
+}
+
+function hardStop(i: FinalGateInputs, cmp: Comparison): { verdict: GateDecision["verdict"]; reason: string; harnessFailure: boolean } | null {
+  if (i.lintFailures.length > 0) return { verdict: "closed", reason: `lint failures: ${i.lintFailures.join(", ")}`, harnessFailure: false };
+  if (i.regressionPassed === false) {
+    return { verdict: "closed", reason: i.regressionDetail ? `regression suite failed: ${i.regressionDetail}` : "regression suite failed", harnessFailure: false };
+  }
+  if (cmp.stratumFault?.kind === "missing") {
+    // The per-second objective was not tested. Closing would record a
+    // harness gap as a negative result about the hypothesis.
+    return { verdict: "blocked", reason: `no per-arm accounting: ${cmp.stratumFault.detail}`, harnessFailure: true };
+  }
+  if (cmp.stratumFault?.kind === "arms") {
+    return { verdict: "needs_human", reason: `the unit of comparison moved, so no per-second objective was tested: ${cmp.stratumFault.detail}`, harnessFailure: false };
+  }
+  if (firingIsHarnessGap(i.firing)) {
+    // Nothing looked at the counters. That is the harness failing, not the
+    // mechanism, and closing would record it as a negative result.
+    return { verdict: "blocked", reason: `the firing check could not run: ${i.firing.detail}`, harnessFailure: true };
+  }
+  if (!firingPasses(i.firing)) {
+    // A mechanism with no occasions cannot have moved a rate, so the deltas
+    // this sample produced are the null band under another name. Read before
+    // any rung, because no rung can answer it.
+    return { verdict: "closed", reason: `the predicted mechanism did not fire (${i.firing.status}): ${i.firing.detail}`, harnessFailure: false };
+  }
+  return null;
+}
+
+function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCounts, cmp: Comparison): MergeFigures {
+  const ni = nonInferior(cand, base);
+  const cs = cand.rateStratum;
+  const bs = base.rateStratum;
+  const band = nullBand(cs?.depth[PRIMARY_RUNG - 1] ?? 0, bs?.depth[PRIMARY_RUNG - 1] ?? 0);
+  const primary = primaryDelta(cmp);
+  // Nullish, not null: a record written before predictions existed carries
+  // no field at all rather than a null one.
+  const p = i.hypothesis.prediction ?? null;
+  // The depth rungs and throughput carry relative deltas, so a relative band
+  // grades them; violations and h2 are absolute rate differences and are
+  // reported without a verdict on the band.
+  const relative = p !== null && (p.rung.startsWith("depth>=") || p.rung === "throughput");
+  const predicted = p === null ? null : (cmp.deltas[p.rung] ?? null);
+  return {
+    hypothesisId: i.hypothesis.id,
+    kind: i.hypothesis.kind,
+    judgedByNonInferiority: judgedByNonInferiority(i.hypothesis.kind),
+    superior: cmp.improved.length > 0 && cmp.regressed.length === 0,
+    improved: cmp.improved,
+    regressed: cmp.regressed,
+    nonInferiorFailures: ni.failures,
+    cheaper: (i.throughputRatio ?? 1) >= 1.0 || i.changedSpurFiles.length > 0,
+    deltas: cmp.deltas,
+    primary,
+    primaryNullBand: Number.isFinite(band) ? band : -1,
+    primaryInsideNullBand: Math.abs(primary) <= band,
+    throughput: { ratio: i.throughputRatio ?? 1, floor: i.throughputFloor },
+    sample: { chunks: cand.chunks, runs: cand.runs, exposureSec: cand.exposureSec },
+    violationsOnlyImprovement: cmp.improved.length === 1 && cmp.improved[0] === "violations",
+    firing: i.firing,
+    prediction: p,
+    predictedRungDelta: predicted,
+    predictionInBand: relative && predicted !== null ? predicted >= p.sizePct.min && predicted <= p.sizePct.max : null,
+    touchesSemantics: classifyChangeRisk(i.changedSpurFiles) === "semantics",
+    touchesPolicy: i.changedSuperFiles.includes(POLICY_FILE),
+  };
+}
+
+/** The verdict the statistical rule reaches on the figures. It is the
+ *  fallback whenever no other verdict is supplied, so an unavailable decider
+ *  cannot stop the loop, and it is what the offline replay re-decides
+ *  through. */
+export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: string } {
+  if (f.kind === "ablate") {
+    if (f.nonInferiorFailures.length > 0) return { verdict: "close", reason: `not non-inferior: ${f.nonInferiorFailures.join(", ")}` };
+    if (!f.cheaper) return { verdict: "close", reason: "non-inferior but no cost improvement" };
+    return { verdict: "merge", reason: "non-inferior ablation (flag-off stage)" };
+  }
+  if (f.throughput.ratio < f.throughput.floor) {
+    return { verdict: "close", reason: `throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}` };
+  }
+  if (!(f.superior || (f.judgedByNonInferiority && f.nonInferiorFailures.length === 0))) {
+    return {
+      verdict: "close",
+      reason: f.judgedByNonInferiority
+        ? `neither superior nor non-inferior: ${f.nonInferiorFailures.join(",")}`
+        : `no CI-separated improvement (improved=[${f.improved}], regressed=[${f.regressed}])`,
+    };
+  }
+  if (f.violationsOnlyImprovement) {
+    return { verdict: "human", reason: "the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches" };
+  }
+  return { verdict: "merge", reason: `improved: ${f.improved.join(", ") || "(non-inferior)"}` };
+}
+
+/** Why a merge may not stand unattended. Empty means it may. */
+export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparison): string[] {
+  const out: string[] = [];
+  if (i.regressionPassed !== true) out.push("the regression suite has not passed");
+  if (i.lintFailures.length > 0) out.push("lint failures stand");
+  if (cmp.stratumFault !== null) out.push("the rate stratum is faulted");
+  if (!firingPasses(i.firing)) out.push("the predicted mechanism did not fire");
+  if (f.throughput.ratio < f.throughput.floor) out.push(`throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}`);
+  // A change to what an execution means can move every rung without exploring
+  // anything new, so its evidence cannot certify it; the loop's own rule book
+  // is not something the loop merges into itself unattended.
+  if (f.touchesSemantics) out.push("touches execution-semantics files");
+  if (f.touchesPolicy) out.push(`touches ${POLICY_FILE}`);
+  return out;
+}
+
+/** The figures a merge verdict is made on, or the decision itself where it is
+ *  settled without judgment. One entry point, so the gate and its caller
+ *  cannot disagree about which cases reach a verdict at all. */
+export function mergeCase(i: FinalGateInputs): { stop: GateDecision } | { figures: MergeFigures } {
+  const g = finalGateParts(i);
+  return g.stop !== null ? { stop: g.stop } : { figures: g.figures as MergeFigures };
+}
+
+function finalGateParts(i: FinalGateInputs): { stop: GateDecision | null; figures: MergeFigures | null; cmp: Comparison | null; cand: ObjectiveCounts | null } {
   // A diff a campaign cannot read is not a negative result: it goes to a
   // human with its report and no measured delta. Tested after the lints so a
   // defective diff still closes rather than reaching the review queue, and
@@ -343,93 +532,50 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   // suite did not fail, it did not run.
   if (i.lintFailures.length === 0 && i.unmeasurable.length > 0) {
     return {
-      hypothesisId: i.hypothesis.id, verdict: "needs_human", reasons: i.unmeasurable,
-      objectiveDeltas: {}, regressionPassed: null, lintPassed: true,
+      stop: {
+        hypothesisId: i.hypothesis.id, verdict: "needs_human", reasons: i.unmeasurable,
+        objectiveDeltas: {}, regressionPassed: null, lintPassed: true,
+      },
+      figures: null, cmp: null, cand: null,
     };
   }
   const cand = objectiveCounts(i.confirmEvals);
   const base = objectiveCounts(i.baselineEvals);
   const cmp = compareToBaseline(cand, base, MERGE_Z, i.violationPrior ?? null);
-  const reasons: string[] = [];
-  let verdict: GateDecision["verdict"];
-  let harnessFailure = false;
-  const floor = i.throughputFloor;
-
-  if (i.lintFailures.length > 0) {
-    verdict = "closed";
-    reasons.push(`lint failures: ${i.lintFailures.join(", ")}`);
-  } else if (!i.regressionPassed) {
-    verdict = "closed";
-    reasons.push(i.regressionDetail ? `regression suite failed: ${i.regressionDetail}` : "regression suite failed");
-  } else if (cmp.stratumFault?.kind === "missing") {
-    // The per-second objective was not tested. Closing would record a
-    // harness gap as a negative result about the hypothesis.
-    verdict = "blocked";
-    harnessFailure = true;
-    reasons.push(`no per-arm accounting: ${cmp.stratumFault.detail}`);
-  } else if (cmp.stratumFault?.kind === "arms") {
-    verdict = "needs_human";
-    reasons.push(`the unit of comparison moved, so no per-second objective was tested: ${cmp.stratumFault.detail}`);
-  } else if (firingIsHarnessGap(i.firing)) {
-    // Nothing looked at the counters. That is the harness failing, not the
-    // mechanism, and closing would record it as a negative result.
-    verdict = "blocked";
-    harnessFailure = true;
-    reasons.push(`the firing check could not run: ${i.firing.detail}`);
-  } else if (!firingPasses(i.firing)) {
-    // A mechanism with no occasions cannot have moved a rate, so the deltas
-    // this sample produced are the null band under another name. Read before
-    // any rung, because no rung can answer it.
-    verdict = "closed";
-    reasons.push(`the predicted mechanism did not fire (${i.firing.status}): ${i.firing.detail}`);
-  } else {
-    const kind = i.hypothesis.kind;
-    if (kind !== "ablate") {
-      const superior = cmp.improved.length > 0 && cmp.regressed.length === 0;
-      const ni = nonInferior(cand, base);
-      const byNi = judgedByNonInferiority(kind);
-      const pass = superior || (byNi && ni.ok);
-      if ((i.throughputRatio ?? 1) < floor) {
-        verdict = "closed";
-        reasons.push(`throughput ratio ${(i.throughputRatio ?? 1).toFixed(3)} below floor ${floor}`);
-      } else if (!pass) {
-        verdict = "closed";
-        reasons.push(byNi ? `neither superior nor non-inferior: ${ni.failures.join(",")}` : `no CI-separated improvement (improved=[${cmp.improved}], regressed=[${cmp.regressed}])`);
-      } else if (cmp.improved.length === 1 && cmp.improved[0] === "violations") {
-        // A violation belongs to the configuration that produced it. They
-        // arrive at about one per 1.7M runs, so a chunk carries one often
-        // enough that the candidate running at the time is usually not the
-        // reason. The arm it came from is recorded beside the evidence;
-        // compare it with the arms the change touches.
-        verdict = "needs_human";
-        reasons.push("the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches");
-      } else if (classifyChangeRisk(i.changedSpurFiles) === "semantics") {
-        // A change to what an execution means can move every rung without
-        // exploring anything new, so its evidence cannot certify it. Both
-        // times this fired the review changed the implementation before it
-        // merged, which is the branch working rather than a false park.
-        verdict = "needs_human";
-        reasons.push("touches execution-semantics files");
-      } else {
-        verdict = "auto_merge";
-        reasons.push(`improved: ${cmp.improved.join(", ") || "(non-inferior)"}`);
-      }
-    } else {
-      const ni = nonInferior(cand, base);
-      const cheaper = (i.throughputRatio ?? 1) >= 1.0 || i.changedSpurFiles.length > 0;
-      if (!ni.ok) {
-        verdict = "closed";
-        reasons.push(`not non-inferior: ${ni.failures.join(", ")}`);
-      } else if (!cheaper) {
-        verdict = "closed";
-        reasons.push("non-inferior but no cost improvement");
-      } else {
-        verdict = "auto_merge";
-        reasons.push("non-inferior ablation (flag-off stage)");
-      }
-    }
+  const hs = hardStop(i, cmp);
+  if (hs !== null) {
+    return {
+      stop: {
+        hypothesisId: i.hypothesis.id, verdict: hs.verdict, reasons: [hs.reason],
+        objectiveDeltas: { ...cmp.deltas, primary: primaryDelta(cmp), throughput: (i.throughputRatio ?? 1) - 1 },
+        regressionPassed: i.regressionPassed, lintPassed: i.lintFailures.length === 0,
+        ...(hs.harnessFailure ? { harnessFailure: true } : {}),
+      },
+      figures: null, cmp, cand,
+    };
   }
+  return { stop: null, figures: figuresOf(i, cand, base, cmp), cmp, cand };
+}
 
+export function finalGate(i: FinalGateInputs, chosen?: { verdict: MergeVerdict; reason: string }): GateDecision {
+  const parts = finalGateParts(i);
+  if (parts.stop !== null) return parts.stop;
+  const f = parts.figures as MergeFigures;
+  const cmp = parts.cmp as Comparison;
+  const reasons: string[] = [];
+  const picked = chosen ?? ruleVerdict(f);
+  let verdict: GateDecision["verdict"];
+  if (picked.verdict === "close") {
+    verdict = "closed";
+    reasons.push(picked.reason);
+  } else if (picked.verdict === "human") {
+    verdict = "needs_human";
+    reasons.push(picked.reason);
+  } else {
+    const blockers = mergeBlockers(i, f, cmp);
+    verdict = blockers.length === 0 ? "auto_merge" : "needs_human";
+    reasons.push(blockers.length === 0 ? picked.reason : `${picked.reason} - held for review: ${blockers.join("; ")}`);
+  }
   const primary = primaryDelta(cmp);
   // Run rate multiplies every rung, so it is inside the objective now; it is
   // still recorded on its own so erosion across merges stays visible as a
@@ -442,7 +588,6 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     objectiveDeltas: { ...cmp.deltas, primary, throughput },
     regressionPassed: i.regressionPassed,
     lintPassed: i.lintFailures.length === 0,
-    ...(harnessFailure ? { harnessFailure: true } : {}),
   };
 }
 
@@ -504,8 +649,8 @@ export function selfTestUnmeasured(): string[] {
   const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
   const base: FinalGateInputs = {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
-    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, throughputFloor: 0.8, unmeasurable: [],
-    firing: { status: "not-claimed", detail: "" },
+    lintFailures: [], changedSpurFiles: [], changedSuperFiles: [], throughputRatio: 1, throughputFloor: 0.8,
+    unmeasurable: [], firing: { status: "not-claimed", detail: "" },
   };
   const un = finalGate({ ...base, unmeasurable: ["u"] });
   check(un.verdict === "needs_human", `an unmeasurable diff reaches a human, got ${un.verdict}`);
@@ -529,6 +674,41 @@ export function selfTestUnmeasured(): string[] {
     `an uncollected utilization dump is a harness gap, got ${blind.verdict}`);
   check(!finalGate({ ...base, firing: { status: "fired", detail: "c = 1" } }).reasons.some((r) => r.startsWith("the predicted mechanism did not fire")),
     "a mechanism that fired is judged on its rates");
+
+  // The three layers, in order. A hard stop is settled in code and no
+  // supplied verdict can move it; a merge is only ever a proposal, held back
+  // by any post-condition it has not met.
+  const merge = { verdict: "merge" as MergeVerdict, reason: "r" };
+  check("figures" in mergeCase(base), "a clean case reaches a verdict");
+  for (const [name, over] of [
+    ["lint failures", { lintFailures: ["l"] }],
+    ["a failed suite", { regressionPassed: false }],
+    ["a mechanism with no occasions", { firing: { status: "no-occasions" as const, detail: "c = 0" } }],
+    ["an uncollected dump", { firing: { status: "uncollected" as const, detail: "none" } }],
+  ] as Array<[string, Partial<FinalGateInputs>]>) {
+    check("stop" in mergeCase({ ...base, ...over }), `${name} is settled in code, so nothing is asked about it`);
+    check(finalGate({ ...base, ...over }, merge).verdict !== "auto_merge", `${name} must not be merged by a supplied verdict`);
+  }
+  check(finalGate(base, merge).verdict === "auto_merge", "a merge with every post-condition met stands");
+  for (const [name, over] of [
+    ["an unrun suite", { regressionPassed: null }],
+    ["a policy change", { changedSuperFiles: [POLICY_FILE] }],
+    ["an execution-semantics change", { changedSpurFiles: ["spur-core/src/simulator/core/exec.rs"] }],
+    ["a candidate below the throughput floor", { throughputRatio: 0.5 }],
+  ] as Array<[string, Partial<FinalGateInputs>]>) {
+    const d = finalGate({ ...base, ...over }, merge);
+    check(d.verdict === "needs_human" && (d.reasons[0] ?? "").includes("held for review"),
+      `${name} must hold a merge for review, got ${d.verdict}`);
+  }
+  check(finalGate(base, { verdict: "close", reason: "because" }).verdict === "closed", "close closes");
+  check(finalGate(base, { verdict: "human", reason: "because" }).verdict === "needs_human", "human reaches a human");
+  // No supplied verdict falls back to the rule, so an unavailable decider
+  // cannot stop the loop and the offline replay decides the same way.
+  const clean = mergeCase(base);
+  if ("figures" in clean) {
+    check(finalGate(base).verdict === finalGate(base, ruleVerdict(clean.figures)).verdict,
+      "no supplied verdict is the rule's verdict");
+  }
 
   const loopSrc = path.join(ROOT, "research/orchestrator/src/loop.ts");
   if (existsSync(loopSrc)) {

@@ -439,6 +439,31 @@ export async function askChunkStopper(
   });
 }
 
+// The merge verdict. Figures first, because they are the whole input: the
+// harness computes every number and the reply adds none. "Keep sampling" is
+// not among the verdicts - decideSequential owns that and has already
+// stopped - and a merge is only a proposal, since post-conditions in code
+// hold back any merge that has not passed all of them.
+export const MergeAnswer = z.object({
+  verdict: z.enum(["merge", "close", "human"]),
+  reason: z.string().min(10).max(600),
+});
+export type MergeAnswer = z.infer<typeof MergeAnswer>;
+
+export async function askMergeDecider(
+  policy: Policy, deadlineMs: number, figures: unknown,
+): Promise<RoleResult<MergeAnswer>> {
+  return textRole({
+    model: policy.models.judge,
+    system: "You decide what becomes of a finished experiment: merge it, close it, or send it to a human. You are given every figure the harness measured and you add no number of your own. You are adversarial about weak evidence and about a result that does not match what the hypothesis predicted.",
+    prompt: `## Figures\n${JSON.stringify(figures, null, 1)}\n\n## How to read them\n- Deltas on the depth rungs and on throughput are relative (0.06 is +6%); \`violations\` and \`h2\` are absolute rate differences. Do not compare the two scales.\n- \`primaryNullBand\` is the spread two seeds of one unchanged binary produce at the primary rung's own event count. \`primaryInsideNullBand\` true means the headline delta carries no information in either direction, however large it looks.\n- \`superior\` is a separated improvement with no separated regression; \`nonInferiorFailures\` lists the objectives that fell outside the non-inferiority margins. Both are the statistical rule's reading of these same figures, offered as evidence, not as an instruction.\n- \`firing\` says whether the mechanism had occasions at all. It has already passed, or you would not have been asked.\n- \`prediction\` is what the author claimed before sampling, frozen at admission. \`predictionInBand\` says whether the predicted rung landed in the band claimed for it; null means the claim and the delta are not on the same scale.\n\n## The three questions, in order\n1. Did the mechanism fire? Answered in code above.\n2. Did the predicted rung move as predicted?\n3. Did the independently predicted observable move?\n\nA result inside the null band resolves nothing and is a close, not a merge: merging it spends a merge and moves the baseline the next candidate is measured against. A result that separates but contradicts the prediction is a human review, not a merge. Reply with ONLY JSON: {"verdict": "merge"|"close"|"human", "reason": "one or two lines naming the figures you read"}`,
+    schema: MergeAnswer,
+    retries: 0,
+    maxTurns: 1,
+    deadlineMs,
+  });
+}
+
 export async function reflectOnOutcome(policy: Policy, h: Hypothesis, evidence: string, counters: string): Promise<RoleResult<Reflection>> {
   return textRole({
     model: policy.models.reflect,

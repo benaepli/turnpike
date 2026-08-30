@@ -5,12 +5,13 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import {
-  PROPOSAL_LENSES, ROOT, implementHypothesis, judgeHypotheses, proposeHypotheses,
+  PROPOSAL_LENSES, ROOT, askMergeDecider, implementHypothesis, judgeHypotheses, proposeHypotheses,
   reflectOnOutcome, rejudgePool, runAudit, validateProposed,
 } from "./agents.js";
 import {
   CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, classifyChangeRisk, compareToBaseline, finalGate,
-  judgedByNonInferiority, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons, type RatePrior,
+  judgedByNonInferiority, mergeCase, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons,
+  type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
 import { changedConfigPaths, countersOf, firingCheck } from "./firing.js";
@@ -1038,9 +1039,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // as a PR rather than being deleted.
         journal(state, n, "escalated", { id: h.id, reason: res.reason, chunks: res.seq.chunks });
         confirmEvals = res.evals.filter((e) => e.ok);
-        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
-        regressionPassed = regr.passed;
-        journal(state, n, "regression", regr);
         escalated = true;
         escalateReason = res.reason;
         decisionInputsReady = true;
@@ -1054,36 +1052,68 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // protocol. The screen arm's rate is a different regime (shorter,
         // faster runs) and would read a level candidate as slower.
         throughputRatio = throughputRatioOf(pooledFromSeq(res.seq), pooledCountsOf(baseline.sequential));
-        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
-        regressionPassed = regr.passed;
-        regressionDetail = regr.cases.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join("; ");
-        journal(state, n, "regression", regr);
         decisionInputsReady = true;
       }
     }
 
-    const decision = perfDecision ?? finalGate({
+    const firing = firingCheck({
+      prediction: h.prediction,
+      counters: countersOf(state.getMeta(`util:${h.id}`)),
+      changedSpurFiles: spurFiles,
+      configPaths: changedConfigPaths(
+        textOrNull(() => showFile(SUPER, RESEARCH_BRANCH, policy.evaluation.configTemplate)),
+        textOrNull(() => readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8")),
+      ),
+    });
+    const gateInputs = (suitePassed: boolean | null): FinalGateInputs => ({
       hypothesis: h,
       confirmEvals,
       baselineEvals: baseline.sequential,
-      regressionPassed: decisionInputsReady ? regressionPassed : false,
+      regressionPassed: suitePassed,
       regressionDetail,
       lintFailures,
       changedSpurFiles: spurFiles,
+      changedSuperFiles: superFiles,
       throughputRatio,
       throughputFloor: 1 - policy.regression.throughputTolerance,
       violationPrior: violationRate,
       unmeasurable,
-      firing: firingCheck({
-        prediction: h.prediction,
-        counters: countersOf(state.getMeta(`util:${h.id}`)),
-        changedSpurFiles: spurFiles,
-        configPaths: changedConfigPaths(
-          textOrNull(() => showFile(SUPER, RESEARCH_BRANCH, policy.evaluation.configTemplate)),
-          textOrNull(() => readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8")),
-        ),
-      }),
+      firing,
     });
+    // The verdict is asked before the regression suite is bought, so a close
+    // does not pay for a suite nobody reads. A hard stop is settled in code
+    // and asks nothing.
+    let picked: { verdict: MergeVerdict; reason: string } | undefined;
+    let suiteRan = false;
+    if (!perfDecision && decisionInputsReady) {
+      const c = mergeCase(gateInputs(null));
+      // An escalate is a human review by construction, so its verdict is not
+      // in question and nothing is asked about it.
+      if (!("stop" in c) && !escalated) {
+        const asked = await timed("decide", () => askMergeDecider(policy, policy.sequential.exploreBudgetSec * 1000, c.figures));
+        // A model verdict is not recomputable, so the figures it read are
+        // recorded verbatim beside it.
+        journal(state, n, "decider", {
+          id: h.id, verdict: asked.value?.verdict ?? null, reason: asked.value?.reason ?? "",
+          error: asked.error, costUsd: asked.costUsd, figures: c.figures,
+        });
+        if (asked.value !== null) picked = asked.value;
+      }
+      // The suite is the expensive half of a decision, so it is bought only
+      // where the outcome could still be a merge or reach a human. A close
+      // does not pay for a result nobody reads.
+      const worthTheSuite = "stop" in c
+        ? c.stop.verdict === "needs_human"
+        : escalated || picked === undefined || picked.verdict !== "close";
+      if (worthTheSuite) {
+        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
+        regressionPassed = regr.passed;
+        regressionDetail = regr.cases.filter((c2) => !c2.passed).map((c2) => `${c2.name}: ${c2.detail}`).join("; ");
+        journal(state, n, "regression", regr);
+        suiteRan = true;
+      }
+    }
+    const decision = perfDecision ?? finalGate(gateInputs(suiteRan ? regressionPassed : null), picked);
     if (!perfDecision && !decisionInputsReady && sampled) {
       decision.verdict = "closed";
       decision.reasons = [`sequential evaluation ${seqOutcome}`];
