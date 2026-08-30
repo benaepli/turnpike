@@ -41,6 +41,9 @@
       300
     ]
   },
+  "faults": {
+    "coverage_guided_placement": true
+  },
   "feedback": {
     "mode": "timeline",
     "steer": true,
