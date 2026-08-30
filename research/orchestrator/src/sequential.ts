@@ -14,7 +14,7 @@ import type { LoopState } from "./state.js";
 import { compareRatesPoisson, rateRatioSeparated, throughputCv } from "./stats.js";
 import {
   MERGE_Z, PRIMARY_RUNG, addStratum, chunkStratum, compareToBaseline, emptyStratum,
-  objectiveCounts, primaryDelta, rateVarianceOf, rungCv, stratumFault, type RatePrior,
+  nonInferior, objectiveCounts, primaryDelta, rateVarianceOf, rungCv, stratumFault, type RatePrior,
 } from "./decide.js";
 import { HARD_LIMITS } from "./policy.js";
 import { CampaignMetrics, Evaluation, RateStratum, SeqState } from "./schemas.js";
@@ -230,7 +230,13 @@ export function decideSequential(
 
   if (kind === "noninferiority") {
     const worst = Math.max(g4.pRegress, h2.pRegress, deepRegress);
-    if (chunks >= p.minChunks && cand.violations <= base.violations && g4.pRegress <= 1 - p.niP && h2.pRegress <= 1 - p.niP && deepGuardOk && !belowFloor) {
+    // The primary rung is tested here too. The guards above are per-run
+    // margins wide enough that a candidate can hold every one of them while
+    // the rung the objective is named on is confidently down per second, and
+    // that shape advances and merges. Same test and same confidence the
+    // superiority path applies at the cross-check below.
+    const primaryHolds = d6.pGreater >= 1 - p.inconclusiveP;
+    if (chunks >= p.minChunks && cand.violations <= base.violations && g4.pRegress <= 1 - p.niP && h2.pRegress <= 1 - p.niP && deepGuardOk && primaryHolds && !belowFloor) {
       return out("advance", "non-inferior on depth>=4, depth>=5, depth>=6 and h2");
     }
     if (worst >= p.niP) return out("reject", `regression: pRegress ${worst.toFixed(3)}`);
@@ -530,6 +536,30 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     const unbounded = MERGE_Z * Math.sqrt(1 / Math.max(1, d6Base));
     if (!(atCap <= 1.5 * unbounded)) f.push(`depth>=6 minimum effect at the cap (${(atCap * 100).toFixed(1)}%) exceeds 1.5x the unbounded floor (${(unbounded * 100).toFixed(1)}%)`);
   }
+  // The non-inferiority path. Every case above is judged under superiority,
+  // so without these the branch that carries most of the traffic is asserted
+  // against nothing.
+  const niNull = decideSequential(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, "noninferiority", rule);
+  if (niNull.verdict !== "advance") f.push(`a true null must be non-inferior, got ${niNull.verdict} (${niNull.reason})`);
+  // The recorded shape that advanced on non-inferiority while the primary
+  // rung was down at pGreater 0.000: every per-run guard held, so only a
+  // primary-rung test can refuse it.
+  const primaryDown = [2000, 2001].map((s) => chunk(s, { d6: 0.9485 / 1.0317, rps: 1.0317 }));
+  const niDown = decideSequential(pooledCountsOf(primaryDown), pooledCountsOf(base), 2, "noninferiority", rule);
+  if (niDown.verdict === "advance") f.push(`a candidate whose depth>=${PRIMARY_RUNG} per second is down must not be non-inferior (${niDown.reason})`);
+  // ...and it is a test of the primary rung only if every older guard holds
+  // on it, which is what let the recorded shape through.
+  for (const g of ["depth>=4:pRegress", "depth>=5:pRegress", "depth>=6:pRegress", "h2:pRegress"]) {
+    if ((niDown.posteriors[g] ?? 0) > 1 - rule.niP) f.push(`the primary-down case is refused by ${g} instead, so it tests the wrong guard`);
+  }
+  // ...and the rule and the gate must agree on the whole case set: anything
+  // the non-inferiority rule advances, nonInferior must not refuse.
+  for (const c of [...cases, { name: "primary rung down", cand: primaryDown }]) {
+    const seq = decideSequential(pooledCountsOf(c.cand), pooledCountsOf(base), c.cand.length, "noninferiority", rule);
+    const ni = nonInferior(objectiveCounts(c.cand), objectiveCounts(base));
+    if (seq.verdict === "advance" && !ni.ok) f.push(`${c.name}: the non-inferiority rule advanced (${seq.reason}) but the gate would refuse (${ni.failures.join(", ")})`);
+  }
+
   // The timing classifier: a missing session is always an anomaly, a slow
   // chunk only until the candidate is known to be slow, and a suspend is
   // not one because exposure is active time.

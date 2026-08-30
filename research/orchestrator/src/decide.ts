@@ -257,6 +257,21 @@ export function nonInferior(cand: ObjectiveCounts, base: ObjectiveCounts, relMar
   const b4 = base.depth.find((d) => d.k === 4);
   if (c4 && b4 && !rateNonInferior(c4.succ, c4.n, b4.succ, b4.n, marginFor(b4))) failures.push("depth>=4");
   if (!rateNonInferior(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n, marginFor(base.h2))) failures.push("h2");
+  // The rung the objective is named on, on the stratified per-second rate the
+  // superiority side separates improvements on, and by the same test with the
+  // arguments swapped. Without it the per-run margins above are the whole of
+  // non-inferiority and the primary rung is never read. Vacuous when either
+  // side carries no stratum: a comparison that does not exist is not a
+  // failure, and stratumFault decides that case upstream.
+  const cs = cand.rateStratum;
+  const bs = base.rateStratum;
+  if (cs !== null && bs !== null) {
+    const cSucc = cs.depth[PRIMARY_RUNG - 1] ?? 0;
+    const bSucc = bs.depth[PRIMARY_RUNG - 1] ?? 0;
+    if (rateRatioSeparated(bSucc, bs.exposureSec, cSucc, cs.exposureSec, MERGE_Z, rateVarianceOf(cs, bs, PRIMARY_RUNG))) {
+      failures.push(`depth>=${PRIMARY_RUNG}`);
+    }
+  }
   return { ok: failures.length === 0, failures };
 }
 
