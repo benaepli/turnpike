@@ -84,3 +84,40 @@ audit sharpens rather than weakens the case for it: the fix is aimed at
 pGreater 0.000, and of the thirteen historical merges above it would have
 blocked only 5353 at 0.063. It is a narrow, well-targeted safety fix, not a
 policy change, and it should not be justified by the ratchet.
+
+## The depth>=4 decisive reject fires on a scale the objective does not use
+
+Nine of the 29 sequential rejects came from the depth>=4 guard and four from
+the h2 guard. The guard reads a **per-run** ratio; the objective, every
+posterior the gate publishes, and the merge statistic are all **events per
+explore-second**. The two come apart exactly when a mechanism buys events by
+running more runs, which is one of the two ways to move the objective.
+
+Candidates killed at chunk 1, with both ratios as recorded:
+
+| iter | hypothesis | d>=4 per sec | d>=6 per sec | d>=4 per run | implied throughput |
+| --- | --- | --- | --- | --- | --- |
+| 5323 | stall-abort-quantile-off-identity-path | 1.889 | 1.910 | 0.97 | 1.95x |
+| 5318 | stall-abort-progress-termination | 1.809 | 1.703 | 0.99 | 1.83x |
+| 5319 | adaptive-step-budget-completion-quantile | 1.771 | 1.681 | 0.99 | 1.79x |
+| 5364 | grid-short-overlay-to-750-iterations | 1.344 | 1.199 | 0.99 | 1.36x |
+| 5317 | act-conditioned-perturbation | 1.012 | 1.023 | 0.98 | 1.03x |
+
+The implied throughput is the quotient of the two recorded ratios and needs no
+external baseline. These candidates ran at 1233 to 1677 runs per second and
+were rejected for a 1% to 3% dip in per-run depth.
+
+Worse, the guard is a bare point-estimate comparison. `depth>=4:pRegress`, the
+gate's own posterior for a per-run regression on that same rung, is **0.000 in
+every one of these five chunks** - the model says there is no evidence of
+regression, and the guard rejects anyway on the raw ratio.
+
+So the guard is not merely unable to catch the truncation failure it exists to
+catch (`PLAN_STALL.md` measures that at +0.4% on depth>=4, comfortably
+passing). It systematically rejects the mechanism class that buys the
+objective through throughput, at chunk 1, before any other rung is consulted,
+and it does so against its own posterior. Three of the five are one family,
+killed three times.
+
+Deleting its authority to reject, while keeping the computed delta as
+evidence, is the correct change, and this - not the ratchet - is why.
