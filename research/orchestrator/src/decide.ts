@@ -289,7 +289,10 @@ export interface FinalGateInputs {
   // throughput, so a slower candidate has to have earned its rate. Defaults
   // to the regression suite's tolerance.
   throughputFloor?: number | undefined;
-  panel?: PanelSummary | undefined;
+  // Required, not optional: an optional input nobody supplies is a defect no
+  // typecheck can see, and this one disarmed the downgrade for every decision
+  // the loop ever made.
+  panel: PanelSummary | null;
   // The archive violation rate the candidate's violations are separated
   // against; null falls back to the baseline's own count.
   violationPrior?: RatePrior | null | undefined;
@@ -373,7 +376,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   // A broad decline across judging members routes to review. It never blocks:
   // blocking is the collapse gate, which acts per member through the
   // regression suite and reaches this function as regressionPassed.
-  if (verdict === "auto_merge" && i.panel !== undefined && i.panel.combinedZ !== null
+  if (verdict === "auto_merge" && i.panel !== null && i.panel.combinedZ !== null
       && i.panel.combinedZ <= -PANEL_HUMAN_Z) {
     verdict = "needs_human";
     reasons.push(`panel detection down across ${i.panel.judging.length} judging member(s) (combined z ${i.panel.combinedZ.toFixed(2)})`);
@@ -388,7 +391,13 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     hypothesisId: i.hypothesis.id,
     verdict,
     reasons,
-    objectiveDeltas: { ...cmp.deltas, primary, throughput, panelZ: i.panel?.combinedZ ?? 0 },
+    // Recorded only when a panel judged. Writing 0 for "no panel" made an
+    // unsupplied panel indistinguishable from a neutral one, which is what
+    // hid the wiring defect across 95 decisions.
+    objectiveDeltas: {
+      ...cmp.deltas, primary, throughput,
+      ...(i.panel?.combinedZ != null ? { panelZ: i.panel.combinedZ } : {}),
+    },
     regressionPassed: i.regressionPassed,
     lintPassed: i.lintFailures.length === 0,
     ...(harnessFailure ? { harnessFailure: true } : {}),
@@ -464,7 +473,7 @@ export function selfTestPanelAuthority(): string[] {
   const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
   const base: FinalGateInputs = {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
-    lintFailures: [], changedSpurFiles: [], throughputRatio: 1,
+    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, panel: null,
   };
   const panel = (combinedZ: number | null, judging: string[]): PanelSummary => ({
     members: [], judging, nonJudging: [], combinedZ, collapsedMembers: [], wallMs: 0,
@@ -490,5 +499,6 @@ export function selfTestPanelAuthority(): string[] {
     "a panel with no judging member must not change the verdict");
 
   check((declined.objectiveDeltas["panelZ"] ?? 0) === -2.5, "panelZ must be recorded on the decision");
+  check(!("panelZ" in noPanel.objectiveDeltas), "a decision made without a panel must not record a panelZ");
   return f;
 }

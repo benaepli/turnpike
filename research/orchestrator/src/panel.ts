@@ -225,7 +225,22 @@ export const FIRING_COUNTERS: ReadonlyArray<readonly [string, string]> = [
   ["schedule_policy", "multiplier_authority.decisions"],
 ];
 
-export type FiringStatus = "fired" | "no-occasions" | "unstated" | "unknown" | "no-config-change";
+export type FiringStatus = "fired" | "no-occasions" | "unknown" | "no-config-change";
+
+// Config keys the runner drops or overwrites before the explorer sees them,
+// so the two arms the panel executes cannot differ on them. Counting such a
+// difference as an unmapped mechanism voided every arm-kind candidate on
+// campaign.arms, a key materializeConfig deletes.
+const RUNNER_OVERRIDDEN: readonly string[] = [
+  "num_runs_per_config", "session_seed", "num_crashes", "max_iterations", "wall_budget_sec",
+];
+
+export function runnerFixedPath(p: string, overlay: Record<string, unknown>): boolean {
+  const head = p.split(".")[0] ?? p;
+  return (CAMPAIGN_ONLY_KEYS as readonly string[]).includes(head)
+    || RUNNER_OVERRIDDEN.includes(head)
+    || Object.prototype.hasOwnProperty.call(overlay, head);
+}
 
 function flatten(o: unknown, prefix: string, out: Map<string, unknown>): void {
   if (typeof o !== "object" || o === null || Array.isArray(o)) { out.set(prefix, o); return; }
@@ -276,7 +291,7 @@ export interface ArmCounts {
   firstViolation?: Censored[];
   /** Version 2: each replicate's own count and exposure, for the dispersion
    *  the rate test charges. */
-  replicates?: Array<{ violations: number; exposureSec: number }>;
+  replicates?: Array<{ violations: number; exposureSec: number; runs: number }>;
 }
 
 // Replicates of one arm do not scatter like Poisson draws: their slice
@@ -287,21 +302,21 @@ export interface ArmCounts {
 // floored at 1; the z is deflated by its square root. Pooling the arms
 // around one mean would charge a real difference between them as noise and
 // cap the z a collapse can reach.
-export function replicateDispersion(arms: Array<Array<{ violations: number; exposureSec: number }>>): number {
+export function replicateDispersion(arms: Array<Array<{ violations: number; exposure: number }>>): number {
   let ss = 0;
   let df = 0;
   let events = 0;
   let exposure = 0;
   let n = 0;
   for (const reps of arms) {
-    const ok = reps.filter((r) => r.exposureSec > 0);
+    const ok = reps.filter((r) => r.exposure > 0);
     if (ok.length === 0) continue;
-    const rates = ok.map((r) => r.violations / r.exposureSec);
+    const rates = ok.map((r) => r.violations / r.exposure);
     const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
     ss += rates.reduce((a, r) => a + (r - mean) ** 2, 0);
     df += ok.length - 1;
     events += ok.reduce((a, r) => a + r.violations, 0);
-    exposure += ok.reduce((a, r) => a + r.exposureSec, 0);
+    exposure += ok.reduce((a, r) => a + r.exposure, 0);
     n += ok.length;
   }
   if (df < 2 || n === 0 || events <= 0 || exposure <= 0) return 1;
@@ -333,13 +348,14 @@ export function classifyFiring(
     const b = base === null ? c : readCounter(base.utilization, counter);
     return c !== null && b !== null && c > 0 && b > 0;
   };
-  if (arms.changedSpurCode) {
-    if (arms.declaredFiringCounter === null) {
-      return { status: "unstated", detail: "spur source changed with no declared firing counter" };
-    }
-    if (!nonzeroBoth(arms.declaredFiringCounter)) {
-      return { status: "no-occasions", detail: `${arms.declaredFiringCounter} is zero on this member` };
-    }
+  // The firing rule protects against reading a null result as evidence when
+  // the two arms were effectively the same run. A changed binary is never the
+  // same run, so an undeclared counter is not a reason to void the member; a
+  // declared counter that reads zero still is, because it says the member
+  // never exercised the changed code.
+  if (arms.changedSpurCode && arms.declaredFiringCounter !== null
+      && !nonzeroBoth(arms.declaredFiringCounter)) {
+    return { status: "no-occasions", detail: `${arms.declaredFiringCounter} is zero on this member` };
   }
   const unmapped: string[] = [];
   const dead: string[] = [];
@@ -483,7 +499,7 @@ async function runReplicates(
     out.utilization = rep.utilization ?? out.utilization;
     out.exposureSec = (out.exposureSec ?? 0) + rep.exposureSec;
     out.firstViolation!.push(rep.first);
-    out.replicates!.push({ violations: rep.violations, exposureSec: rep.exposureSec });
+    out.replicates!.push({ violations: rep.violations, exposureSec: rep.exposureSec, runs: rep.runs });
   }
   return out;
 }
@@ -518,7 +534,7 @@ export async function calibrateMember(
     id: m.id, seeds, runs, violations, exposureSec,
     eventsPerSec: exposureSec > 0 ? violations / exposureSec : 0,
     runsPerSec: exposureSec > 0 ? runs / exposureSec : 0,
-    dispersion: replicateDispersion(arms.map((x) => x.replicates ?? [])),
+    dispersion: replicateDispersion(arms.map((x) => (x.replicates ?? []).map((r) => ({ violations: r.violations, exposure: r.exposureSec })))),
     tauSec: kmMedian(arms.flatMap((x) => x.firstViolation ?? [])),
     truncated: arms.some((x) => x.timedOut),
   };
@@ -533,15 +549,22 @@ export function judgeReplicates(m: PanelMember, cand: ArmCounts, base: ArmCounts
   const best = m.calibration.tauBestSec ?? 0;
   const regretRatio = tauSec !== null && best > 0 ? tauSec / best : null;
   if (base === null) return { z: null, statistic: "none", tauSec, regretRatio, rateRatio: null, dispersion: 1 };
-  const ce = cand.exposureSec ?? 0;
-  const be = base.exposureSec ?? 0;
-  const rateRatio = ce > 0 && be > 0 && base.violations > 0 ? (cand.violations / ce) / (base.violations / be) : null;
+  // Detection per run, not per second. Both arms get the same wall by
+  // construction, so violations per second factors into runs per second times
+  // violations per run, and a candidate that only runs faster scores as a
+  // detection gain: at iteration 5315 a member whose per-run detection was
+  // identical to four significant figures returned z +37.78 on 4x the runs.
+  // The manifest already admits members on a per-run rate.
+  const cr = cand.runs;
+  const br = base.runs;
+  const rateRatio = cr > 0 && br > 0 && base.violations > 0 ? (cand.violations / cr) / (base.violations / br) : null;
   // Under one expected event per arm a time-to-first test is a statistic on
   // censoring alone; the counts are reported and nothing is inferred.
   if (expectedEvents(m) < 1) return { z: null, statistic: "counts", tauSec, regretRatio, rateRatio, dispersion: 1 };
   if (expectedEvents(m) >= RATE_EVENTS_MIN) {
-    const dispersion = replicateDispersion([cand.replicates ?? [], base.replicates ?? []]);
-    return { z: poissonRateRatioZ(cand.violations, ce, base.violations, be) / Math.sqrt(dispersion), statistic: "rate", tauSec, regretRatio, rateRatio, dispersion };
+    const perRun = (a: ArmCounts) => (a.replicates ?? []).map((r) => ({ violations: r.violations, exposure: r.runs }));
+    const dispersion = replicateDispersion([perRun(cand), perRun(base)]);
+    return { z: poissonRateRatioZ(cand.violations, cr, base.violations, br) / Math.sqrt(dispersion), statistic: "rate", tauSec, regretRatio, rateRatio, dispersion };
   }
   return { z: logRankZ(cand.firstViolation ?? [], base.firstViolation ?? []), statistic: "time-to-first", tauSec, regretRatio, rateRatio, dispersion: 1 };
 }
@@ -607,7 +630,7 @@ export async function runPanel(
     const fire = base === null
       ? { status: "unknown" as FiringStatus,
           detail: m.role === "report" ? "report member; single arm by design" : "no baseline arm; nothing to compare" }
-      : classifyFiring(arms, cand, base, changed);
+      : classifyFiring(arms, cand, base, changed.filter((p) => !runnerFixedPath(p, m.overlay)));
     // A truncated arm has a different n and a different position on the
     // session-length curve, and truncation hits the slower arm harder. It is a
     // harness outcome, never evidence.
@@ -751,19 +774,22 @@ export function selfTestPanel(): string[] {
   const reps = (first: Array<number | null>, violations: number, exposureSec: number): ArmCounts => ({
     runs: 1000, violations, unknown: 0, timedOut: false, utilization: null, exposureSec,
     firstViolation: first.map((t) => (t === null ? { time: 10, event: false } : { time: t, event: true })),
-    replicates: first.map(() => ({ violations: violations / first.length, exposureSec: exposureSec / first.length })),
+    replicates: first.map(() => ({ violations: violations / first.length, exposureSec: exposureSec / first.length, runs: 1000 / first.length })),
   });
-  const at = (violations: number[], exposureSec: number) => violations.map((v) => ({ violations: v, exposureSec }));
+  const at = (violations: number[], exposureSec: number) => violations.map((v) => ({ violations: v, exposureSec, runs: 1000 }));
+  // replicateDispersion is generic over the exposure a rate is taken on; the
+  // calibration path passes seconds, the judging path passes runs.
+  const disp = (rs: Array<{ violations: number; exposureSec: number }>) => rs.map((r) => ({ violations: r.violations, exposure: r.exposureSec }));
   // Equal replicates scatter less than Poisson: the dispersion floors at 1.
-  check(replicateDispersion([at([20, 20, 20], 10)]) === 1, "identical replicates have dispersion 1");
+  check(replicateDispersion([disp(at([20, 20, 20], 10))]) === 1, "identical replicates have dispersion 1");
   // Rates 1, 2, 3 per second over 10 s each: observed variance 1, Poisson
   // variance 2/10 = 0.2, dispersion 5.
-  const scattered = replicateDispersion([at([10, 20, 30], 10)]);
+  const scattered = replicateDispersion([disp(at([10, 20, 30], 10))]);
   check(Math.abs(scattered - 5) < 1e-9, `scattered replicates have dispersion 5, got ${scattered}`);
-  check(replicateDispersion([at([10, 30], 10)]) === 1, "two replicates cannot estimate dispersion");
+  check(replicateDispersion([disp(at([10, 30], 10))]) === 1, "two replicates cannot estimate dispersion");
   // A difference between the arms is not dispersion: two flat arms at
   // different rates keep phi at 1, whatever their separation.
-  check(replicateDispersion([at([10, 10, 10], 10), at([20, 20, 20], 10)]) === 1, "a clean difference between arms is not charged as dispersion");
+  check(replicateDispersion([disp(at([10, 10, 10], 10)), disp(at([20, 20, 20], 10))]) === 1, "a clean difference between arms is not charged as dispersion");
   const rateJudged = judgeReplicates(mem, reps([1, 1, 1], 60, 30), reps([1, 1, 1], 60, 30));
   check(rateJudged.statistic === "rate" && Math.abs(rateJudged.z ?? 1) < 1e-9, `equal rates judge as a rate at z 0, got ${JSON.stringify(rateJudged)}`);
   // A clean 50% collapse must clear the collapse bar at the manifest's own
@@ -796,6 +822,57 @@ export function selfTestPanel(): string[] {
 /** Gate-level checks: the panel must bind in exactly one direction. These
  *  fabricate summaries rather than running the explorer, so they assert the
  *  wiring rather than any protocol's behaviour. */
+/** Detection is per run. Both arms get the same wall, so a per-second
+ *  reading scores a candidate that merely ran faster; the existing fixtures
+ *  fix runs at 1000 on both arms, where the two readings agree and a
+ *  half-finished change passes green. */
+function selfTestDenominator(): string[] {
+  const f: string[] = [];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const runArm = (violations: number, runs: number, reps: number): ArmCounts => ({
+    runs, violations, unknown: 0, timedOut: false, utilization: null, exposureSec: 30, firstViolation: [],
+    replicates: Array.from({ length: reps }, () => ({ violations: violations / reps, exposureSec: 30 / reps, runs: runs / reps })),
+  });
+  const m = {
+    id: "m", role: "gate", overlay: {}, wallSec: 30, replicates: 3, expectedRate: 0.01,
+    faults: { class: "x", numCrashes: 1 }, maxIterations: 1000,
+    calibration: { eventsPerSec: 10, runsPerSec: 1000, tauBestSec: 1, dispersion: 1 },
+  } as unknown as PanelMember;
+  const faster = judgeReplicates(m, runArm(200, 20000, 3), runArm(100, 10000, 3));
+  check(faster.statistic === "rate", `the rate branch must decide at these counts, got ${faster.statistic}`);
+  check(Math.abs(faster.z ?? 99) < 0.5, `equal per-run detection at twice the runs must not score, got z ${String(faster.z)}`);
+  const shallower = judgeReplicates(m, runArm(50, 10000, 3), runArm(100, 10000, 3));
+  check((shallower.z ?? 0) < -2.7, `half the per-run detection must still collapse, got z ${String(shallower.z)}`);
+  return f;
+}
+
+/** The firing rule, which carried both defects that silenced the panel and
+ *  had no test of its own. */
+export function selfTestFiring(): string[] {
+  const f: string[] = [...selfTestDenominator()];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const live = { purgatory: { delayed_sends: 5 }, steer: { evaluations: 0 } };
+  const counts = (): ArmCounts => ({ runs: 1000, violations: 10, unknown: 0, timedOut: false, utilization: live });
+  const armsOf = (changedSpurCode: boolean, declared: string | null): PanelArms => ({
+    candidateBinary: "", candidateTemplate: "", baselineBinary: "", baselineTemplate: "",
+    seed: 1, changedSpurCode, declaredFiringCounter: declared,
+  });
+
+  check(classifyFiring(armsOf(true, null), counts(), counts(), []).status === "fired",
+    "a changed binary with no declared counter must judge");
+  check(classifyFiring(armsOf(true, "steer.evaluations"), counts(), counts(), []).status === "no-occasions",
+    "a declared counter reading zero must still void the member");
+  check(runnerFixedPath("campaign.arms", {}), "campaign.arms is dropped before the explorer sees it");
+  check(runnerFixedPath("num_runs_per_config", {}), "num_runs_per_config is overwritten by the runner");
+  check(runnerFixedPath("num_servers", { num_servers: 5 }), "an overlay key is overwritten by the runner");
+  check(!runnerFixedPath("purgatory.delay_probability", {}), "a real mechanism key is not runner-fixed");
+  check(classifyFiring(armsOf(false, null), counts(), counts(), ["steer_terms.weight"]).status === "unknown",
+    "an unmapped mechanism path must still void the member");
+  check(classifyFiring(armsOf(false, null), counts(), counts(), ["purgatory.delay_probability"]).status === "fired",
+    "a mapped path with occasions in both arms must judge");
+  return f;
+}
+
 export function selfTestPanelGate(): string[] {
   const f: string[] = [];
   const check = (c: boolean, m: string): void => { if (!c) f.push(m); };

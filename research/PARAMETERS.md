@@ -271,6 +271,51 @@ mode, so an aos arm added under a new id is excluded with it; a candidate and
 a baseline that pool different arms are not compared at all, which reaches a
 human as a moved unit of comparison rather than a result.
 
+**Panel (2026-08-30, no epoch bump).** The panel's combined z never reached
+the merge gate.
+`loop.ts` built the `finalGate` argument without a `panel` field, which
+typechecked because the field was optional, and `regr.panel` was read nowhere;
+across 95 recorded decisions `panelZ` was never non-zero. It was not that no
+member judged - at iteration 5322 two gate members judged and returned
+combined z -0.091, and the decision recorded 0, because `panelZ` was written
+as `combinedZ ?? 0` and a missing panel is indistinguishable from a neutral
+one. The field is now required, and the key is written only when a panel
+judged.
+
+Two rules also voided every member before they could judge. A spur-source
+change with no declared firing counter returned `unstated`, which is not a
+judging status, and no hypothesis has ever declared one - the field exists in
+the schema and appears in no prompt. That rule protected against reading a
+null result as evidence when the two arms were effectively the same run; a
+changed binary is never the same run, so it is gone, while a declared counter
+that reads zero still voids the member. And a config diff on a path the
+runner drops or overwrites - `campaign.arms` above all, which
+`materializeConfig` deletes - was classified `unknown`. For a pure `arm`
+candidate the two configs the panel executes are byte-identical, so the
+correct status is `no-config-change`, which judges.
+
+The statistic is now detection per run. Both arms get the same wall by
+construction, so violations per second factors into runs per second times
+violations per run, and a candidate that only ran faster scored as a
+detection gain: at iteration 5315 a member whose per-run detection matched to
+four significant figures returned z +37.78 on four times the runs. Its mirror
+image is what made this urgent, because a collapse is a blocking action -
+`regression.ts` pushes `passed: !collapsed` into the suite, so a collapsed
+member closes the candidate. At the recent counts `collapseZ` 2.7 is reached
+by an 8% per-second decline, against a throughput floor that permits 20%. The
+manifest already admits members on a per-run rate, so no recalibration is
+needed. Reconstructed over the ten panel runs on record, no member collapses
+and no decision is downgraded under the per-run statistic; under the
+per-second one two of them exceed +12. A live A/A at a fresh seed confirms
+it: both gate members judge, neither collapses, combined z 0.00.
+
+No epoch bump. `panelZ` was never non-zero in 95 decisions, so no recorded
+value changes meaning, and the primary rung, MERGE_Z, the sequential protocol
+and the baseline are untouched - what changes is which verdict a future
+decision can reach, not what any recorded number denotes. Bumping would have
+discarded the calibration history the judge reads to normalise optimistic
+proposals, which the same day's change made materially more load-bearing.
+
 **Violation prior (epoch 11).** A violation advanced when the baseline's own
 four chunks showed none. Violations arrive at 4 in 18,011,600 runs over the
 72 campaign-epoch sequential chunks in the record, one per 4.50M, so a

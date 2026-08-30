@@ -23,7 +23,7 @@ import {
 import type { Policy } from "./policy.js";
 import { POLICY_KEYS, loadPolicy } from "./policy.js";
 import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, resolveRoot, run, templateHasCampaign } from "./runners.js";
-import { diffConfigPaths, type PanelArms } from "./panel.js";
+import { diffConfigPaths, type PanelArms, type PanelSummary } from "./panel.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
 import { LoopState } from "./state.js";
@@ -928,6 +928,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     let perfDecision: GateDecision | null = null;
     let seqOutcome = "";
     let escalated = false;
+    let panelSummary: PanelSummary | null = null;
     let escalateReason: string | null = null;
     let violationRate: RatePrior | null = null;
 
@@ -954,6 +955,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         }
         if (screenNI.ok) {
           const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
+          panelSummary = regr.panel;
           regressionPassed = regr.passed;
           journal(state, n, "regression", regr);
         }
@@ -1037,6 +1039,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         journal(state, n, "escalated", { id: h.id, reason: res.reason, chunks: res.seq.chunks });
         confirmEvals = res.evals.filter((e) => e.ok);
         const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
+        panelSummary = regr.panel;
         regressionPassed = regr.passed;
         journal(state, n, "regression", regr);
         escalated = true;
@@ -1053,6 +1056,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // faster runs) and would read a level candidate as slower.
         throughputRatio = throughputRatioOf(pooledFromSeq(res.seq), pooledCountsOf(baseline.sequential));
         const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
+        panelSummary = regr.panel;
         regressionPassed = regr.passed;
         regressionDetail = regr.cases.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join("; ");
         journal(state, n, "regression", regr);
@@ -1071,6 +1075,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       throughputRatio,
       throughputFloor: 1 - policy.regression.throughputTolerance,
       violationPrior: violationRate,
+      panel: panelSummary,
     });
     if (!perfDecision && !decisionInputsReady && lintFailures.length === 0) {
       decision.verdict = "closed";
