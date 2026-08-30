@@ -14,7 +14,7 @@ import { askChunkStopper } from "./agents.js";
 import { PRIMARY_RUNG } from "./decide.js";
 import { ROOT } from "./paths.js";
 import type { Policy } from "./policy.js";
-import type { PooledCounts, SeqDecision, SeqKind, SeqRule } from "./sequential.js";
+import type { PooledCounts, SeqDecision, SeqRule } from "./sequential.js";
 
 // The rungs the payload reports. Every one the rule computes a posterior for.
 const RUNGS = [4, 5, 6, 7, 8] as const;
@@ -41,7 +41,6 @@ export interface StopperRung {
 export interface StopperPayload {
   hypothesis: string;
   prediction: string;
-  kind: SeqKind;
   chunk: number;
   chunksRemaining: number;
   exploreSecPerChunk: number;
@@ -99,7 +98,6 @@ function violatingRuns(evalIds: string[]): Array<{ runId: number; arm: string; c
 export interface StopperInputs {
   hypothesisId: string;
   prediction: string;
-  kind: SeqKind;
   ruled: SeqDecision;
   cand: PooledCounts;
   base: PooledCounts;
@@ -144,7 +142,6 @@ export function buildStopperPayload(i: StopperInputs): StopperPayload {
   return {
     hypothesis: i.hypothesisId,
     prediction: i.prediction,
-    kind: i.kind,
     chunk: i.chunks,
     chunksRemaining: Math.max(0, i.rule.maxChunks - i.chunks),
     exploreSecPerChunk: i.rule.exploreBudgetSec,

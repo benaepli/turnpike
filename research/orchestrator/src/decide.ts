@@ -4,15 +4,16 @@
 //   2. prefix-depth rung events per explore-second, depth>=6 first, then 5
 //      and 4; depth>=7 and 8 are recorded, never decided on
 //   3. H2 stale-incarnation rate, recorded
-// Superiority (add/enabling gains) = separated improvement on >=1 objective
-// with no separated regression on violations or per-run depth>=4, and
-// throughput at or above the floor.
-// Non-inferiority (ablate/enabling base) = no objective worse than margin.
+// One reading of the evidence, whatever the hypothesis claims: a separated
+// improvement on at least one objective, no separated regression, and
+// throughput at or above the floor. A sample that resolves nothing merges
+// nothing, because a merge spends a merge and moves the baseline the next
+// candidate is measured against.
 import type { BenchResult } from "./bench.js";
 import type { Evaluation, GateDecision, Hypothesis, HypothesisKind, Prediction, RateStratum } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
 import { firingIsHarnessGap, firingPasses, type FiringResult } from "./firing.js";
-import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv } from "./stats.js";
+import { compareRatesPoisson, rateSuperiorCI, rateRatioSeparated, throughputCv } from "./stats.js";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { ROOT } from "./paths.js";
@@ -181,8 +182,9 @@ export function primaryDelta(cmp: Comparison): number {
 // passes MERGE_Z = 2.7 - Bonferroni over the objectives tested, holding
 // familywise false-positive near 5% per hypothesis.
 export const MERGE_Z = 2.7;
-// The relative margin the deep rungs per run may not fall beyond; the same
-// margin the non-inferiority kinds are held to.
+// The relative margin the deep rungs per run may not fall beyond. It is wide
+// because it exists to catch runs getting shallower while the per-second rate
+// is bought with throughput, not to resolve small effects.
 export const DEEP_RUNG_MARGIN = 0.25;
 // The deep-rung guard is the same posterior test the sequential rule
 // applies, with the same margin, so a rejection there is never contradicted
@@ -253,43 +255,18 @@ export function compareToBaseline(
   return { improved, regressed, deltas, stratumFault: fault };
 }
 
-// Non-inferiority for ablations/enabling: margins are RELATIVE (default 25%
-// of the baseline rate per objective, floored at 0.2pp) so the tolerance
-// scales with each rung - an absolute margin either swamps rare rungs or
-// over-constrains common ones (derivation: research/PARAMETERS.md).
-export function nonInferior(cand: ObjectiveCounts, base: ObjectiveCounts, relMargin = 0.25): { ok: boolean; failures: string[] } {
-  const failures: string[] = [];
-  const marginFor = (b: { succ: number; n: number }): number =>
-    Math.max(relMargin * (b.n > 0 ? b.succ / b.n : 0), 0.002);
-  if (!rateNonInferior(cand.violations.succ, cand.violations.n, base.violations.succ, base.violations.n, marginFor(base.violations))) failures.push("violations");
-  const c4 = cand.depth.find((d) => d.k === 4);
-  const b4 = base.depth.find((d) => d.k === 4);
-  if (c4 && b4 && !rateNonInferior(c4.succ, c4.n, b4.succ, b4.n, marginFor(b4))) failures.push("depth>=4");
-  if (!rateNonInferior(cand.h2.succ, cand.h2.n, base.h2.succ, base.h2.n, marginFor(base.h2))) failures.push("h2");
-  // The rung the objective is named on, on the stratified per-second rate the
-  // superiority side separates improvements on, and by the same test with the
-  // arguments swapped. Without it the per-run margins above are the whole of
-  // non-inferiority and the primary rung is never read. Vacuous when either
-  // side carries no stratum: a comparison that does not exist is not a
-  // failure, and stratumFault decides that case upstream.
+/** True when the rung the objective is named on is separated BELOW the
+ *  baseline at the merge z, on the same stratified per-second rate the
+ *  superiority side separates gains on, with the arguments swapped. False
+ *  when either side carries no stratum: a comparison that does not exist is
+ *  not a regression, and stratumFault settles that case upstream. */
+export function primaryRungRegressed(cand: ObjectiveCounts, base: ObjectiveCounts): boolean {
   const cs = cand.rateStratum;
   const bs = base.rateStratum;
-  if (cs !== null && bs !== null) {
-    const cSucc = cs.depth[PRIMARY_RUNG - 1] ?? 0;
-    const bSucc = bs.depth[PRIMARY_RUNG - 1] ?? 0;
-    if (rateRatioSeparated(bSucc, bs.exposureSec, cSucc, cs.exposureSec, MERGE_Z, rateVarianceOf(cs, bs, PRIMARY_RUNG))) {
-      failures.push(`depth>=${PRIMARY_RUNG}`);
-    }
-  }
-  return { ok: failures.length === 0, failures };
-}
-
-// The kinds whose evidence is read as non-inferiority rather than as a
-// separated gain. The sequential sampler picks its stopping rule from this
-// same predicate, so the rule cannot advance a candidate the gate then
-// closes for want of an improvement it was never asked for.
-export function judgedByNonInferiority(kind: HypothesisKind): boolean {
-  return kind === "ablate" || kind === "enabling" || kind === "meta";
+  if (cs === null || bs === null) return false;
+  const cSucc = cs.depth[PRIMARY_RUNG - 1] ?? 0;
+  const bSucc = bs.depth[PRIMARY_RUNG - 1] ?? 0;
+  return rateRatioSeparated(bSucc, bs.exposureSec, cSucc, cs.exposureSec, MERGE_Z, rateVarianceOf(cs, bs, PRIMARY_RUNG));
 }
 
 // Spur files whose edits change what an execution means rather than which
@@ -371,17 +348,14 @@ export type MergeVerdict = "merge" | "close" | "human";
 export interface MergeFigures {
   hypothesisId: string;
   kind: HypothesisKind;
-  judgedByNonInferiority: boolean;
   // The rule's own reading of the same figures, as evidence rather than as a
-  // branch: a separated improvement with no separated regression, and the
-  // non-inferiority margins the ablate and enabling kinds are held to.
+  // branch: a separated improvement with no separated regression.
   superior: boolean;
   improved: string[];
   regressed: string[];
-  nonInferiorFailures: string[];
-  // True when the candidate is at least as fast, or brought a spur change to
-  // pay for its cost. An ablation that is neither buys nothing.
-  cheaper: boolean;
+  // The rung the objective is named on, separated below the baseline at the
+  // merge z. Nothing carrying this may merge unattended.
+  primaryRungRegressed: boolean;
   deltas: Record<string, number>;
   primary: number;
   // The A/A spread the primary rung's own event counts imply. A primary
@@ -434,7 +408,6 @@ function hardStop(i: FinalGateInputs, cmp: Comparison): { verdict: GateDecision[
 }
 
 function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCounts, cmp: Comparison): MergeFigures {
-  const ni = nonInferior(cand, base);
   const cs = cand.rateStratum;
   const bs = base.rateStratum;
   const band = nullBand(cs?.depth[PRIMARY_RUNG - 1] ?? 0, bs?.depth[PRIMARY_RUNG - 1] ?? 0);
@@ -450,12 +423,10 @@ function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCou
   return {
     hypothesisId: i.hypothesis.id,
     kind: i.hypothesis.kind,
-    judgedByNonInferiority: judgedByNonInferiority(i.hypothesis.kind),
     superior: cmp.improved.length > 0 && cmp.regressed.length === 0,
     improved: cmp.improved,
     regressed: cmp.regressed,
-    nonInferiorFailures: ni.failures,
-    cheaper: (i.throughputRatio ?? 1) >= 1.0 || i.changedSpurFiles.length > 0,
+    primaryRungRegressed: primaryRungRegressed(cand, base),
     deltas: cmp.deltas,
     primary,
     primaryNullBand: Number.isFinite(band) ? band : -1,
@@ -475,28 +446,29 @@ function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCou
 /** The verdict the statistical rule reaches on the figures. It is the
  *  fallback whenever no other verdict is supplied, so an unavailable decider
  *  cannot stop the loop, and it is what the offline replay re-decides
- *  through. */
+ *  through.
+ *
+ *  It closes only what the figures resolve against the candidate, and sends
+ *  everything else it cannot merge to a human: a sample that resolves nothing
+ *  is not a result about the hypothesis, and a human can still merge a branch
+ *  a closure would have destroyed. */
 export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: string } {
-  if (f.kind === "ablate") {
-    if (f.nonInferiorFailures.length > 0) return { verdict: "close", reason: `not non-inferior: ${f.nonInferiorFailures.join(", ")}` };
-    if (!f.cheaper) return { verdict: "close", reason: "non-inferior but no cost improvement" };
-    return { verdict: "merge", reason: "non-inferior ablation (flag-off stage)" };
+  if (f.primaryRungRegressed) {
+    return { verdict: "close", reason: `depth>=${PRIMARY_RUNG} per second is separated below the baseline at z ${MERGE_Z}` };
   }
   if (f.throughput.ratio < f.throughput.floor) {
     return { verdict: "close", reason: `throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}` };
   }
-  if (!(f.superior || (f.judgedByNonInferiority && f.nonInferiorFailures.length === 0))) {
+  if (!f.superior) {
     return {
-      verdict: "close",
-      reason: f.judgedByNonInferiority
-        ? `neither superior nor non-inferior: ${f.nonInferiorFailures.join(",")}`
-        : `no CI-separated improvement (improved=[${f.improved}], regressed=[${f.regressed}])`,
+      verdict: "human",
+      reason: `no CI-separated improvement (improved=[${f.improved}], regressed=[${f.regressed}])`,
     };
   }
   if (f.violationsOnlyImprovement) {
     return { verdict: "human", reason: "the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches" };
   }
-  return { verdict: "merge", reason: `improved: ${f.improved.join(", ") || "(non-inferior)"}` };
+  return { verdict: "merge", reason: `improved: ${f.improved.join(", ")}` };
 }
 
 /** Why a merge may not stand unattended. Empty means it may. */
@@ -509,7 +481,7 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
   // The rung the objective is named on, separated below the baseline at the
   // merge z. The sampler refuses to advance this shape, so reaching here means
   // the two disagree; a verdict is not the place to settle that.
-  if (f.nonInferiorFailures.length > 0) out.push(`separated below baseline on ${f.nonInferiorFailures.join(", ")}`);
+  if (f.primaryRungRegressed) out.push(`depth>=${PRIMARY_RUNG} per second separated below the baseline at z ${MERGE_Z}`);
   if (f.throughput.ratio < f.throughput.floor) out.push(`throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}`);
   // A change to what an execution means can move every rung without exploring
   // anything new, so its evidence cannot certify it; the loop's own rule book

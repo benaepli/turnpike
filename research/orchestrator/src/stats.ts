@@ -15,42 +15,16 @@ export function wilson(successes: number, n: number, z = 1.96): [number, number]
 }
 
 // True iff rate A exceeds rate B: the two-sample MOVER (Newcombe) lower bound
-// on (pA - pB) is above zero. This is the difference-test analogue of
-// rateNonInferior and the statistic MERGE_Z was derived for.
+// on (pA - pB) is above zero. The naive bound (wilsonUpper(B) below
+// wilsonLower(A)) is not used: it stacks both full half-widths and so refuses
+// separations the combination resolves. This is the statistic MERGE_Z was
+// derived for.
 export function rateSuperiorCI(aSucc: number, aN: number, bSucc: number, bN: number, z = 1.96): boolean {
   const pA = aN > 0 ? aSucc / aN : 0;
   const pB = bN > 0 ? bSucc / bN : 0;
   const [aLower] = wilson(aSucc, aN, z);
   const [, bUpper] = wilson(bSucc, bN, z);
   return pA - pB - Math.sqrt((pA - aLower) ** 2 + (bUpper - pB) ** 2) > 0;
-}
-
-/**
- * True iff A is non-inferior to B by more than `margin`: the conservative
- * lower confidence bound on (pA - pB) is >= -margin.
- *
- * Uses Newcombe's hybrid score (MOVER) interval built from the Wilson bounds:
- *   lower(pA - pB) = (pA^ - pB^) - sqrt((pA^ - wilsonLower(A))^2 + (wilsonUpper(B) - pB^)^2)
- *
- * Note: the naive bound `wilsonUpper(B) - wilsonLower(A) <= margin` is NOT
- * used - it stacks both full half-widths, so at moderate n it rejects even
- * A identical to B (e.g. 10/100 vs 10/100 fails at margin 0.1). Newcombe's
- * combination is the standard conservative non-inferiority check.
- */
-export function rateNonInferior(
-  aSucc: number,
-  aN: number,
-  bSucc: number,
-  bN: number,
-  margin: number,
-  z = 1.96,
-): boolean {
-  const pA = aN > 0 ? aSucc / aN : 0;
-  const pB = bN > 0 ? bSucc / bN : 0;
-  const [aLower] = wilson(aSucc, aN, z);
-  const [, bUpper] = wilson(bSucc, bN, z);
-  const diffLower = pA - pB - Math.sqrt((pA - aLower) ** 2 + (bUpper - pB) ** 2);
-  return diffLower >= -margin;
 }
 
 /** Returns a list of failed assertions (empty = all pass). */
@@ -71,7 +45,6 @@ export function selfTestStats(): string[] {
 
   check(rateSuperiorCI(90, 100, 10, 100), "rateSuperiorCI(90,100,10,100) should be true");
   check(!rateSuperiorCI(11, 100, 10, 100), "rateSuperiorCI(11,100,10,100) should be false");
-  check(rateNonInferior(9, 100, 10, 100, 0.1), "rateNonInferior(9,100,10,100,0.1) should be true");
 
   return failures;
 }

@@ -79,28 +79,26 @@ function binomial(n: number, prob: number, u: () => number): number {
   return Math.max(0, Math.round(mean + sd * normal(u)));
 }
 
-interface Expect { advanceMin?: number; advanceMax?: number; rejectMin?: number; inconclusiveMin?: number; escalateMin?: number; chunksMeanMin?: number; chunksMeanMax?: number; oneChunkReject?: boolean }
-interface Scenario { name: string; rps: number; e4: number; e5: number; e6: number; e7: number; eh2: number; kind: "superiority" | "noninferiority"; expect: Expect }
+interface Expect { advanceMin?: number; advanceMax?: number; rejectMin?: number; inconclusiveMin?: number; escalateMin?: number; chunksMeanMin?: number; chunksMeanMax?: number }
+interface Scenario { name: string; rps: number; e4: number; e5: number; e6: number; e7: number; eh2: number; expect: Expect }
 const scenarios: Scenario[] = [
-  { name: "null (A/A)", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, kind: "superiority", expect: { advanceMax: 3 } },
-  { name: "+25% d6", rps: 1, e4: 0, e5: 0, e6: 0.25, e7: 0.25, eh2: 0, kind: "superiority", expect: { advanceMin: 90 } },
-  { name: "+25% d6 at 0.7x throughput", rps: 0.7, e4: 0, e5: 0, e6: 0.25, e7: 0.25, eh2: 0, kind: "superiority", expect: { rejectMin: 90, advanceMax: 0 } },
-  { name: "flat depth at 1.4x throughput", rps: 1.4, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, kind: "superiority", expect: { advanceMin: 95 } },
-  { name: "+12% d4, +15% d5", rps: 1, e4: 0.12, e5: 0.15, e6: 0.1, e7: 0.1, eh2: 0.03, kind: "superiority", expect: { advanceMin: 90 } },
+  { name: "null (A/A)", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, expect: { advanceMax: 3 } },
+  { name: "+25% d6", rps: 1, e4: 0, e5: 0, e6: 0.25, e7: 0.25, eh2: 0, expect: { advanceMin: 90 } },
+  { name: "+25% d6 at 0.7x throughput", rps: 0.7, e4: 0, e5: 0, e6: 0.25, e7: 0.25, eh2: 0, expect: { rejectMin: 90, advanceMax: 0 } },
+  { name: "flat depth at 1.4x throughput", rps: 1.4, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, expect: { advanceMin: 95 } },
+  { name: "+12% d4, +15% d5", rps: 1, e4: 0.12, e5: 0.15, e6: 0.1, e7: 0.1, eh2: 0.03, expect: { advanceMin: 90 } },
   // A clear loser costs the minimum sample, not one chunk: the per-run
   // depth>=4 point comparison that used to reject at chunk 1 rejected on a
   // ratio while the objective is a rate, so it also killed candidates whose
   // rate was up. The measured price of removing it is one extra chunk here.
-  { name: "harmful (-40% d4 per run)", rps: 1, e4: -0.4, e5: -0.4, e6: -0.4, e7: -0.4, eh2: -0.1, kind: "superiority", expect: { rejectMin: 100, chunksMeanMax: 2 } },
-  { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, kind: "superiority", expect: { advanceMin: 90 } },
-  { name: "h2-only +10%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0.1, kind: "superiority", expect: { advanceMax: 3 } },
+  { name: "harmful (-40% d4 per run)", rps: 1, e4: -0.4, e5: -0.4, e6: -0.4, e7: -0.4, eh2: -0.1, expect: { rejectMin: 100, chunksMeanMax: 2 } },
+  { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, expect: { advanceMin: 90 } },
+  { name: "h2-only +10%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0.1, expect: { advanceMax: 3 } },
   // The deep-rung guard is a 25% relative margin: a decline inside it
   // advances, one at the margin is held for a human, one beyond it rejects.
-  { name: "1.4x throughput, -15% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.15, e7: -0.15, eh2: 0, kind: "superiority", expect: { advanceMin: 90 } },
-  { name: "1.4x throughput, -25% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.25, e7: -0.25, eh2: 0, kind: "superiority", expect: { advanceMax: 10, escalateMin: 85 } },
-  { name: "-40% per-run d6 only", rps: 1, e4: 0, e5: 0, e6: -0.4, e7: -0.4, eh2: 0, kind: "superiority", expect: { rejectMin: 90, advanceMax: 0 } },
-  { name: "NI kind, no effect", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, kind: "noninferiority", expect: { advanceMin: 90 } },
-  { name: "NI kind, -30% d4", rps: 1, e4: -0.3, e5: -0.3, e6: -0.3, e7: -0.3, eh2: -0.05, kind: "noninferiority", expect: { rejectMin: 90, oneChunkReject: true } },
+  { name: "1.4x throughput, -15% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.15, e7: -0.15, eh2: 0, expect: { advanceMin: 90 } },
+  { name: "1.4x throughput, -25% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.25, e7: -0.25, eh2: 0, expect: { advanceMax: 10, escalateMin: 85 } },
+  { name: "-40% per-run d6 only", rps: 1, e4: 0, e5: 0, e6: -0.4, e7: -0.4, eh2: 0, expect: { rejectMin: 90, advanceMax: 0 } },
 ];
 const args = process.argv.slice(2);
 const assertMode = args.includes("--assert");
@@ -112,9 +110,8 @@ for (const sc of scenarios) {
   let chunksTotal = 0;
   let chunksMin = 1e9;
   let chunksMax = 0;
-  let oneChunkRejects = 0;
   for (let r = 0; r < REPS; r++) {
-    const u = seededUniform(1234 + r * 7 + Math.round(sc.e6 * 1000) + Math.round(sc.rps * 100) + (sc.kind === "noninferiority" ? 99 : 0));
+    const u = seededUniform(1234 + r * 7 + Math.round(sc.e6 * 1000) + Math.round(sc.rps * 100));
     const cand = emptyCounts();
     let chunks = 0;
     let verdict = "continue";
@@ -155,10 +152,9 @@ for (const sc of scenarios) {
           perChunk: [...cs.perChunk, { exposureSec: gridExposure, depth: chunkDepth }],
         };
       }
-      verdict = decideSequential(cand, BASE, chunks, sc.kind, rule).verdict;
+      verdict = decideSequential(cand, BASE, chunks, rule).verdict;
     }
     tally[verdict] = (tally[verdict] ?? 0) + 1;
-    if (verdict === "reject" && chunks === 1) oneChunkRejects++;
     chunksTotal += chunks; chunksMin = Math.min(chunksMin, chunks); chunksMax = Math.max(chunksMax, chunks);
   }
   const pctOf = (k: string): number => (100 * (tally[k] ?? 0)) / REPS;
@@ -173,7 +169,6 @@ for (const sc of scenarios) {
   if (e.escalateMin !== undefined && pctOf("escalate") < e.escalateMin) failures.push(`${sc.name}: escalate ${pctOf("escalate").toFixed(0)}% < ${e.escalateMin}%`);
   if (e.chunksMeanMin !== undefined && meanChunks < e.chunksMeanMin) failures.push(`${sc.name}: mean chunks ${meanChunks.toFixed(1)} < ${e.chunksMeanMin}`);
   if (e.chunksMeanMax !== undefined && meanChunks > e.chunksMeanMax) failures.push(`${sc.name}: mean chunks ${meanChunks.toFixed(1)} > ${e.chunksMeanMax}`);
-  if (e.oneChunkReject && oneChunkRejects < REPS * 0.95) failures.push(`${sc.name}: only ${oneChunkRejects}/${REPS} rejected at the first chunk`);
 }
 console.log(`policy: chunk=${T}s explore budget, baseline ${BASE.chunks} chunks / ${BASE.runs} runs (about ${Math.round(T * BASE_RPS)} runs at baseline throughput) maxChunks=${rule.maxChunks} minChunks=${rule.minChunks} inconclusiveP=${rule.inconclusiveP} throughputFloor=${rule.throughputFloor} (minimum effect derived from baseline counts and the cap)`);
 if (failures.length > 0) {

@@ -14,7 +14,8 @@ import type { LoopState } from "./state.js";
 import { compareRatesPoisson, rateRatioSeparated, throughputCv } from "./stats.js";
 import {
   ADVANCE_RUNGS, MERGE_Z, PRIMARY_RUNG, addStratum, chunkStratum, compareToBaseline, emptyStratum,
-  nonInferior, objectiveCounts, primaryDelta, rateVarianceOf, rungCv, stratumFault, type RatePrior,
+  finalGate, mergeCase, objectiveCounts, primaryDelta, primaryRungRegressed, rateVarianceOf, ruleVerdict,
+  rungCv, stratumFault, type FinalGateInputs, type RatePrior,
 } from "./decide.js";
 import { askStopper, buildStopperPayload, nullBand, type StopperRecord, type StopperRung } from "./stopper.js";
 import { HARD_LIMITS } from "./policy.js";
@@ -47,7 +48,6 @@ export interface PooledCounts {
   rateStratum: RateStratum | null;
 }
 
-export type SeqKind = "superiority" | "noninferiority";
 export type SeqVerdict = "advance" | "reject" | "continue" | "inconclusive" | "escalate";
 
 export interface SeqDecision {
@@ -139,7 +139,7 @@ export function minimumEffect(baseCount: number, baseExposure: number, capExposu
 // carry on with is worth its next chunk is priced elsewhere (stopper.ts);
 // the rule keeps every terminal verdict.
 export function decideSequential(
-  cand: PooledCounts, base: PooledCounts, chunks: number, kind: SeqKind, p: SeqRule,
+  cand: PooledCounts, base: PooledCounts, chunks: number, p: SeqRule,
 ): SeqDecision {
   // A stratum that cannot be formed or compared is a unit problem: more
   // chunks cannot fix it, and the pooled evidence belongs in front of a
@@ -223,23 +223,6 @@ export function decideSequential(
     || (cand.depth8plus > 0 && base.depth8plus === 0);
   const belowFloor = chunks >= p.minChunks && throughputRatio < p.throughputFloor;
 
-  if (kind === "noninferiority") {
-    const worst = Math.max(g4.pRegress, h2.pRegress, deepRegress);
-    // The primary rung is tested here too. The guards above are per-run
-    // margins wide enough that a candidate can hold every one of them while
-    // the rung the objective is named on is confidently down per second, and
-    // that shape advances and merges. Same test and same confidence the
-    // superiority path applies at the cross-check below.
-    const primaryHolds = d6.pGreater >= 1 - p.inconclusiveP;
-    if (chunks >= p.minChunks && g4.pRegress <= 1 - p.niP && h2.pRegress <= 1 - p.niP && deepGuardOk && primaryHolds && !belowFloor) {
-      return out("advance", "non-inferior on depth>=4, depth>=5, depth>=6 and h2");
-    }
-    if (worst >= p.niP) return out("reject", `regression: pRegress ${worst.toFixed(3)}`);
-    if (belowFloor) return out("reject", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
-    if (chunks >= p.maxChunks) return out("inconclusive", "non-inferiority unresolved at cap");
-    return out("continue", "non-inferiority undecided");
-  }
-
   let separatedRung: string | null = null;
   let separatedK: number | null = null;
   if (chunks >= p.minChunks) {
@@ -278,13 +261,10 @@ export function decideSequential(
 
 // Whether any further chunk could still produce an advance. Impossibility is
 // exposed rather than acted on: the rule has no branch that rejects for it.
-// A non-inferiority advance needs no separation, so it stays reachable while
-// the rule has not rejected. A superiority advance needs a rung to separate,
-// so the test is the projection of each rung's observed rate ratio to the
-// chunk cap: if the ratio held and the sample grew to the cap, would the rung
-// separate at the merge gate's z?
-export function canStillAdvance(cand: PooledCounts, base: PooledCounts, chunks: number, kind: SeqKind, p: SeqRule): boolean {
-  if (kind === "noninferiority") return true;
+// An advance needs a rung to separate, so the test is the projection of each
+// rung's observed rate ratio to the chunk cap: if the ratio held and the
+// sample grew to the cap, would the rung separate at the merge gate's z?
+export function canStillAdvance(cand: PooledCounts, base: PooledCounts, chunks: number, p: SeqRule): boolean {
   const cs = cand.rateStratum;
   const bs = base.rateStratum;
   if (cs === null || bs === null || chunks <= 0 || cs.exposureSec <= 0 || bs.exposureSec <= 0) return true;
@@ -302,9 +282,9 @@ export function canStillAdvance(cand: PooledCounts, base: PooledCounts, chunks: 
 // a stopped chunk is audited against the same numbers every other chunk
 // records.
 export function classifyPooled(
-  ruled: SeqDecision, cand: PooledCounts, base: PooledCounts, chunks: number, kind: SeqKind, p: SeqRule,
+  ruled: SeqDecision, cand: PooledCounts, base: PooledCounts, chunks: number, p: SeqRule,
 ): SeqDecision {
-  const atCap = decideSequential(cand, base, chunks, kind, { ...p, maxChunks: Math.max(1, chunks) });
+  const atCap = decideSequential(cand, base, chunks, { ...p, maxChunks: Math.max(1, chunks) });
   return { verdict: atCap.verdict, reason: atCap.reason, posteriors: ruled.posteriors };
 }
 
@@ -316,11 +296,11 @@ export function classifyPooled(
 // continue still terminates. null means no rail binds and the model may be
 // consulted.
 export function railVerdict(
-  ruled: SeqDecision, cand: PooledCounts, base: PooledCounts, chunks: number, kind: SeqKind, p: SeqRule,
+  ruled: SeqDecision, cand: PooledCounts, base: PooledCounts, chunks: number, p: SeqRule,
 ): SeqDecision | null {
   if (ruled.verdict !== "continue") return ruled;
   if (chunks < p.minChunks) return ruled;
-  if (chunks >= HARD_LIMITS.maxSequentialChunks) return classifyPooled(ruled, cand, base, chunks, kind, p);
+  if (chunks >= HARD_LIMITS.maxSequentialChunks) return classifyPooled(ruled, cand, base, chunks, p);
   return null;
 }
 
@@ -468,21 +448,21 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     { name: "+25% on the grid arms only", cand: [2000, 2001].map((s) => chunk(s, { arms: gridScale(1.25) })) },
   ];
   for (const c of cases) {
-    const seq = decideSequential(pooledCountsOf(c.cand), pooledCountsOf(base), c.cand.length, "superiority", rule);
+    const seq = decideSequential(pooledCountsOf(c.cand), pooledCountsOf(base), c.cand.length, rule);
     const cmp = compareToBaseline(objectiveCounts(c.cand), objectiveCounts(base), MERGE_Z);
     const gateAdvances = cmp.improved.length > 0 && cmp.regressed.length === 0;
     if (seq.verdict === "advance" && !gateAdvances) f.push(`${c.name}: sequential advanced (${seq.reason}) but the gate would refuse (improved=[${cmp.improved}], regressed=[${cmp.regressed}])`);
     if (seq.verdict !== "advance" && gateAdvances && seq.verdict !== "continue") f.push(`${c.name}: gate would advance but the sequential rule said ${seq.verdict} (${seq.reason})`);
   }
-  const plus = decideSequential(pooledCountsOf(cases[1]!.cand), pooledCountsOf(base), 2, "superiority", rule);
+  const plus = decideSequential(pooledCountsOf(cases[1]!.cand), pooledCountsOf(base), 2, rule);
   if (plus.verdict !== "advance") f.push(`+25% depth>=6 over two chunks must advance, got ${plus.verdict} (${plus.reason})`);
-  const faster = decideSequential(pooledCountsOf(cases[3]!.cand), pooledCountsOf(base), 2, "superiority", rule);
+  const faster = decideSequential(pooledCountsOf(cases[3]!.cand), pooledCountsOf(base), 2, rule);
   if (faster.verdict !== "advance") f.push(`+40% throughput at equal per-run rates must advance, got ${faster.verdict} (${faster.reason})`);
-  const slow = decideSequential(pooledCountsOf([2000, 2001].map((s) => chunk(s, { d6: 1.25, rps: 0.7 }))), pooledCountsOf(base), 2, "superiority", rule);
+  const slow = decideSequential(pooledCountsOf([2000, 2001].map((s) => chunk(s, { d6: 1.25, rps: 0.7 }))), pooledCountsOf(base), 2, rule);
   if (slow.verdict !== "reject") f.push(`a candidate below the throughput floor must be rejected, got ${slow.verdict} (${slow.reason})`);
-  const nul = decideSequential(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, "superiority", rule);
+  const nul = decideSequential(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, rule);
   if (nul.verdict === "advance") f.push(`a null candidate must not advance (${nul.reason})`);
-  const hollow = decideSequential(pooledCountsOf(cases[5]!.cand), pooledCountsOf(base), 2, "superiority", rule);
+  const hollow = decideSequential(pooledCountsOf(cases[5]!.cand), pooledCountsOf(base), 2, rule);
   if (hollow.verdict === "advance") f.push(`a per-second gain bought with shallower deep runs must not advance (${hollow.reason})`);
   const hollowGate = compareToBaseline(objectiveCounts(cases[5]!.cand), objectiveCounts(base), MERGE_Z);
   if (!hollowGate.regressed.some((r) => r.startsWith("depth>=6"))) f.push(`the gate must read -30% per-run depth>=6 as a regression, got regressed=[${hollowGate.regressed}]`);
@@ -492,12 +472,12 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   const aosOnly = [2000, 2001].map((s) => chunk(s, { arms: { aos: 3 } }));
   const aosCmp = compareToBaseline(objectiveCounts(aosOnly), objectiveCounts(base), MERGE_Z);
   if ((aosCmp.deltas["depth>=6:pooled"] ?? 0) < 0.1) f.push("the aos-only case must lift the pooled rate, else it tests nothing");
-  const aosSeq = decideSequential(pooledCountsOf(aosOnly), pooledCountsOf(base), 2, "superiority", rule);
+  const aosSeq = decideSequential(pooledCountsOf(aosOnly), pooledCountsOf(base), 2, rule);
   if (aosSeq.verdict === "advance") f.push(`a gain confined to the aos arm must not advance (${aosSeq.reason})`);
   if (aosCmp.improved.length > 0) f.push(`a gain confined to the aos arm must not read as an improvement, got [${aosCmp.improved}]`);
   // ...and the stratum must not have taken the signal out with the noise.
   const gridOnly = [2000, 2001].map((s) => chunk(s, { arms: gridScale(1.25) }));
-  const gridSeq = decideSequential(pooledCountsOf(gridOnly), pooledCountsOf(base), 2, "superiority", rule);
+  const gridSeq = decideSequential(pooledCountsOf(gridOnly), pooledCountsOf(base), 2, rule);
   if (gridSeq.verdict !== "advance") f.push(`+25% on the grid arms must advance, got ${gridSeq.verdict} (${gridSeq.reason})`);
 
   // An arm set that moved is a unit change, not a result: nothing may be
@@ -507,7 +487,7 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     metrics: { ...e.metrics, campaign: e.metrics.campaign === null ? null : { ...e.metrics.campaign, arms: e.metrics.campaign.arms.slice(1) } },
   });
   const moved = [2000, 2001].map((s) => dropArm(chunk(s, {})));
-  const movedSeq = decideSequential(pooledCountsOf(moved), pooledCountsOf(base), 2, "superiority", rule);
+  const movedSeq = decideSequential(pooledCountsOf(moved), pooledCountsOf(base), 2, rule);
   if (movedSeq.verdict !== "escalate") f.push(`a changed arm set must escalate, got ${movedSeq.verdict} (${movedSeq.reason})`);
   const movedCmp = compareToBaseline(objectiveCounts(moved), objectiveCounts(base), MERGE_Z);
   if (movedCmp.stratumFault?.kind !== "arms") f.push("a changed arm set must be reported as an arms fault");
@@ -519,7 +499,7 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     runs: Math.round(shape.runs), exposureMs: Math.round(shape.exposureMs) + s, h2Rate: shape.h2, noCampaign: true,
     depthAtLeast: [shape.runs, shape.runs, shape.runs, shape.d4, shape.d5, shape.d6 * 3, shape.d7, shape.d8].map((v) => Math.round(v)),
   }));
-  const blindSeq = decideSequential(pooledCountsOf(blind), pooledCountsOf(base), 2, "superiority", rule);
+  const blindSeq = decideSequential(pooledCountsOf(blind), pooledCountsOf(base), 2, rule);
   if (blindSeq.verdict === "advance") f.push(`a tripled pooled rate with no per-arm accounting must not advance (${blindSeq.reason})`);
 
   // The violation prior. A violation at the archive rate is what the corpus
@@ -528,7 +508,7 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   const atRate: RatePrior = { violations: 1, runs: Math.max(1, nullPooled.runs), chunks: 4, sinceEpoch: 7 };
   const rare: RatePrior = { violations: 1, runs: Math.max(1, nullPooled.runs) * 100, chunks: 400, sinceEpoch: 7 };
   const withViolations = (n: number, prior: RatePrior): SeqDecision =>
-    decideSequential({ ...nullPooled, violations: n }, pooledCountsOf(base), 2, "superiority", { ...rule, violationPrior: prior });
+    decideSequential({ ...nullPooled, violations: n }, pooledCountsOf(base), 2, { ...rule, violationPrior: prior });
   if (withViolations(1, atRate).verdict === "advance") f.push("a violation at the archive rate must not advance");
   if (withViolations(6, rare).verdict !== "advance") f.push(`violations far above the archive rate must advance, got ${withViolations(6, rare).verdict}`);
 
@@ -566,48 +546,54 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     const unbounded = MERGE_Z * Math.sqrt(1 / Math.max(1, d6Base));
     if (!(atCap <= 1.5 * unbounded)) f.push(`depth>=6 minimum effect at the cap (${(atCap * 100).toFixed(1)}%) exceeds 1.5x the unbounded floor (${(unbounded * 100).toFixed(1)}%)`);
   }
-  // The non-inferiority path. Every case above is judged under superiority,
-  // so without these the branch that carries most of the traffic is asserted
-  // against nothing.
-  const niNull = decideSequential(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, "noninferiority", rule);
-  if (niNull.verdict !== "advance") f.push(`a true null must be non-inferior, got ${niNull.verdict} (${niNull.reason})`);
-  // The recorded shape that advanced on non-inferiority while the primary
-  // rung was down at pGreater 0.000: every per-run guard held, so only a
-  // primary-rung test can refuse it.
+  // The primary rung, separated below the baseline, may not merge - by the
+  // rule and against any supplied verdict. The fixture is the recorded shape
+  // that advanced with depth>=6 pGreater 0.000: every per-run guard holds on
+  // it, so only a primary-rung test can refuse it.
   const primaryDown = [2000, 2001].map((s) => chunk(s, { d6: 0.9485 / 1.0317, rps: 1.0317 }));
-  const niDown = decideSequential(pooledCountsOf(primaryDown), pooledCountsOf(base), 2, "noninferiority", rule);
-  if (niDown.verdict === "advance") f.push(`a candidate whose depth>=${PRIMARY_RUNG} per second is down must not be non-inferior (${niDown.reason})`);
-  // ...and it is a test of the primary rung only if every older guard holds
-  // on it, which is what let the recorded shape through.
+  if (!primaryRungRegressed(objectiveCounts(primaryDown), objectiveCounts(base))) {
+    f.push(`the primary-down fixture must read as a depth>=${PRIMARY_RUNG} regression, else the assertions below test nothing`);
+  }
+  if (primaryRungRegressed(objectiveCounts(cases[0]!.cand), objectiveCounts(base))) {
+    f.push("a true null must not read as a primary-rung regression");
+  }
   for (const g of ["depth>=4:pRegress", "depth>=5:pRegress", "depth>=6:pRegress", "h2:pRegress"]) {
-    if ((niDown.posteriors[g] ?? 0) > 1 - rule.niP) f.push(`the primary-down case is refused by ${g} instead, so it tests the wrong guard`);
+    const post = decideSequential(pooledCountsOf(primaryDown), pooledCountsOf(base), 2, rule).posteriors;
+    if ((post[g] ?? 0) > 1 - rule.niP) f.push(`the primary-down case is refused by ${g} instead, so it tests the wrong guard`);
   }
-  // ...and the rule and the gate must agree on the whole case set: anything
-  // the non-inferiority rule advances, nonInferior must not refuse.
-  for (const c of [...cases, { name: "primary rung down", cand: primaryDown }]) {
-    const seq = decideSequential(pooledCountsOf(c.cand), pooledCountsOf(base), c.cand.length, "noninferiority", rule);
-    const ni = nonInferior(objectiveCounts(c.cand), objectiveCounts(base));
-    if (seq.verdict === "advance" && !ni.ok) f.push(`${c.name}: the non-inferiority rule advanced (${seq.reason}) but the gate would refuse (${ni.failures.join(", ")})`);
+  const gateOn = (cand: Evaluation[]): FinalGateInputs => ({
+    hypothesis: { id: "synthetic", kind: "add" } as unknown as Parameters<typeof finalGate>[0]["hypothesis"],
+    confirmEvals: cand, baselineEvals: base, regressionPassed: true, lintFailures: [],
+    changedSpurFiles: [], changedSuperFiles: [], throughputRatio: 1, throughputFloor: rule.throughputFloor,
+    unmeasurable: [], firing: { status: "not-claimed", detail: "" },
+  });
+  const downCase = mergeCase(gateOn(primaryDown));
+  if (!("figures" in downCase)) {
+    f.push("the primary-down fixture must reach a verdict, else no blocker is exercised");
+  } else {
+    if (!downCase.figures.primaryRungRegressed) f.push("the figures must carry the primary-rung regression");
+    if (ruleVerdict(downCase.figures).verdict === "merge") f.push(`the rule must not merge a depth>=${PRIMARY_RUNG} separated below the baseline`);
   }
+  const forced = finalGate(gateOn(primaryDown), { verdict: "merge", reason: "a decider said so" });
+  if (forced.verdict === "auto_merge") f.push(`a supplied merge must not stand while depth>=${PRIMARY_RUNG} is separated below the baseline`);
+  const clean = finalGate(gateOn(cases[1]!.cand), { verdict: "merge", reason: "a decider said so" });
+  if (clean.verdict !== "auto_merge") f.push(`a +25% primary rung with every post-condition met must merge, got ${clean.verdict} (${clean.reasons.join("; ")})`);
 
   // The mid-run stopper's rails and the band it reads with.
   //
   // A stop resolves through the rule, so it must always resolve: over every
-  // case, both kinds and every chunk count, classifyPooled is terminal.
-  const kinds: SeqKind[] = ["superiority", "noninferiority"];
-  for (const c of [...cases, { name: "changed arm set", cand: moved }, { name: "no per-arm accounting", cand: blind }]) {
+  // case and every chunk count, classifyPooled is terminal.
+  for (const c of [...cases, { name: "primary rung down", cand: primaryDown }, { name: "changed arm set", cand: moved }, { name: "no per-arm accounting", cand: blind }]) {
     const cp = pooledCountsOf(c.cand);
-    for (const k of kinds) {
-      for (let n = 1; n <= rule.maxChunks; n++) {
-        const ruled = decideSequential(cp, pooledCountsOf(base), n, k, rule);
-        const stopped = classifyPooled(ruled, cp, pooledCountsOf(base), n, k, rule);
-        if (stopped.verdict === "continue") f.push(`${c.name}: a stop at chunk ${n} under ${k} did not resolve (${stopped.reason})`);
-        if (stopped.posteriors !== ruled.posteriors) f.push(`${c.name}: a stop must be audited against the posteriors the chunk was judged on`);
-        // Chunk 1 is below minChunks, and the hard cap forces a stop: both
-        // must be decided without a model call.
-        if (n === 1 && railVerdict(ruled, cp, pooledCountsOf(base), n, k, rule) === null) f.push(`${c.name}: chunk 1 under ${k} must not cost a stopper call`);
-        if (railVerdict(ruled, cp, pooledCountsOf(base), HARD_LIMITS.maxSequentialChunks, k, rule) === null) f.push(`${c.name}: the hard cap under ${k} must not cost a stopper call`);
-      }
+    for (let n = 1; n <= rule.maxChunks; n++) {
+      const ruled = decideSequential(cp, pooledCountsOf(base), n, rule);
+      const stopped = classifyPooled(ruled, cp, pooledCountsOf(base), n, rule);
+      if (stopped.verdict === "continue") f.push(`${c.name}: a stop at chunk ${n} did not resolve (${stopped.reason})`);
+      if (stopped.posteriors !== ruled.posteriors) f.push(`${c.name}: a stop must be audited against the posteriors the chunk was judged on`);
+      // Chunk 1 is below minChunks, and the hard cap forces a stop: both
+      // must be decided without a model call.
+      if (n === 1 && railVerdict(ruled, cp, pooledCountsOf(base), n, rule) === null) f.push(`${c.name}: chunk 1 must not cost a stopper call`);
+      if (railVerdict(ruled, cp, pooledCountsOf(base), HARD_LIMITS.maxSequentialChunks, rule) === null) f.push(`${c.name}: the hard cap must not cost a stopper call`);
     }
   }
   // The null band is the arithmetic its own event counts imply, not a
@@ -615,26 +601,25 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   // 3.1% the A/A pairs show, and it moves when the counts move.
   if (Math.abs(nullBand(2000, 2000) - Math.sqrt(2 / 2000)) > 1e-12) f.push("the null band must be sqrt(1/ec + 1/eb)");
   if (!(nullBand(2000, 8000) < nullBand(2000, 2000))) f.push("a larger baseline must narrow the null band");
-  const payloadFor = (cand: Evaluation[], k: SeqKind): ReturnType<typeof buildStopperPayload> => {
+  const payloadFor = (cand: Evaluation[]): ReturnType<typeof buildStopperPayload> => {
     const cp = pooledCountsOf(cand);
     const bp = pooledCountsOf(base);
     return buildStopperPayload({
-      hypothesisId: "synthetic", prediction: "", kind: k, ruled: decideSequential(cp, bp, cand.length, k, rule),
+      hypothesisId: "synthetic", prediction: "", ruled: decideSequential(cp, bp, cand.length, rule),
       cand: cp, base: bp, chunks: cand.length, rule, canStillAdvance: true, evalIds: [],
     });
   };
   const primaryOf = (pl: ReturnType<typeof buildStopperPayload>): StopperRung =>
     pl.rungs.find((r) => r.rung === `depth>=${PRIMARY_RUNG}`) as StopperRung;
-  const nullPayload = primaryOf(payloadFor(cases[0]!.cand, "superiority"));
+  const nullPayload = primaryOf(payloadFor(cases[0]!.cand));
   if (!nullPayload.insideNullBand) f.push(`a null candidate's primary rung must sit inside the band (ratio ${nullPayload.ratio}, band ${nullPayload.nullBand})`);
   if (Math.abs(nullPayload.nullBand - nullBand(nullPayload.candEvents, nullPayload.baseEvents)) > 1e-12) f.push("the payload's band must be computed from the counts it reports");
-  const gainPayload = primaryOf(payloadFor(cases[1]!.cand, "superiority"));
+  const gainPayload = primaryOf(payloadFor(cases[1]!.cand));
   if (gainPayload.insideNullBand) f.push(`a +25% primary rung must sit outside the band (ratio ${gainPayload.ratio}, band ${gainPayload.nullBand})`);
   // Impossibility is reported, never acted on: a null candidate cannot reach
   // a separated gain at the cap, and a real one can.
-  if (canStillAdvance(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, "superiority", rule)) f.push("a null candidate cannot still advance at the cap");
-  if (!canStillAdvance(pooledCountsOf(cases[1]!.cand), pooledCountsOf(base), 2, "superiority", rule)) f.push("a +25% primary rung must still be able to advance");
-  if (!canStillAdvance(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, "noninferiority", rule)) f.push("a non-inferiority advance needs no separation, so it stays reachable");
+  if (canStillAdvance(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, rule)) f.push("a null candidate cannot still advance at the cap");
+  if (!canStillAdvance(pooledCountsOf(cases[1]!.cand), pooledCountsOf(base), 2, rule)) f.push("a +25% primary rung must still be able to advance");
 
   // The timing classifier: a missing session is always an anomaly, a slow
   // chunk only until the candidate is known to be slow, and a suspend is
@@ -655,7 +640,6 @@ export async function runSequential(opts: {
   hypothesisId: string;
   // What the hypothesis claims its change will do, for the mid-run stopper.
   prediction: string;
-  kind: SeqKind;
   baseline: PooledCounts;
   prior: SeqState | null;
   baselineKey: string;
@@ -743,18 +727,18 @@ export async function runSequential(opts: {
     };
     const active = { ...rule, maxChunks: Math.min(opts.maxChunksTotal, p.maxChunks * (seq.resumes + 1)) };
     const pooled = pooledFromSeq(seq);
-    const ruled = decideSequential(pooled, opts.baseline, seq.chunks, opts.kind, active);
-    let decision = railVerdict(ruled, pooled, opts.baseline, seq.chunks, opts.kind, active);
+    const ruled = decideSequential(pooled, opts.baseline, seq.chunks, active);
+    let decision = railVerdict(ruled, pooled, opts.baseline, seq.chunks, active);
     let stopper: StopperRecord | null = null;
     if (decision === null) {
       stopper = await askStopper(opts.ctx.policy, {
-        hypothesisId: opts.hypothesisId, prediction: opts.prediction, kind: opts.kind, ruled,
+        hypothesisId: opts.hypothesisId, prediction: opts.prediction, ruled,
         cand: pooled, base: opts.baseline, chunks: seq.chunks, rule: active,
-        canStillAdvance: canStillAdvance(pooled, opts.baseline, seq.chunks, opts.kind, active),
+        canStillAdvance: canStillAdvance(pooled, opts.baseline, seq.chunks, active),
         evalIds: evals.filter((e) => e.ok).map((e) => e.id),
       });
       decision = stopper.action === "stop"
-        ? classifyPooled(ruled, pooled, opts.baseline, seq.chunks, opts.kind, active)
+        ? classifyPooled(ruled, pooled, opts.baseline, seq.chunks, active)
         : ruled;
     }
     seq = { ...seq, posteriors: decision.posteriors, lastVerdict: decision.verdict };

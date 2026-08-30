@@ -10,13 +10,13 @@ import {
 } from "./agents.js";
 import {
   CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, classifyChangeRisk, compareToBaseline, finalGate,
-  judgedByNonInferiority, mergeCase, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons,
+  mergeCase, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons,
   type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
 import { changedConfigPaths, countersOf, firingCheck } from "./firing.js";
 import { numericLeaves, runOneEvaluation, type EvalContext } from "./evaluate.js";
-import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
+import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf } from "./sequential.js";
 import {
   RESEARCH_BRANCH, SPUR, SUPER, SUPER_LANES, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, preservingOperatorTree, snapshotWork, rebaseOnto, resetBranchTo,
   currentCommit, deleteBranch, diffText, createPr, lintArmScope, lintArmSetGrowth, lintCampaignAllocation, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
@@ -969,7 +969,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         };
       }
     } else if (sampled) {
-      const kind: SeqKind = judgedByNonInferiority(h.kind) ? "noninferiority" : "superiority";
       // A stop mid-sample continues where it left off; a deliberate resume
       // of an inconclusive result spends one of the allowed resumes. Counts
       // gathered against a superseded baseline are dropped.
@@ -997,7 +996,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       } catch { /* advisory only; never blocks an evaluation */ }
       violationRate = violationPrior(state);
       const res = await timed("evaluate", () => runSequential({
-        ctx, hypothesisId: h.id, prediction: `${h.title}. ${h.rationale}`, kind,
+        ctx, hypothesisId: h.id, prediction: `${h.title}. ${h.rationale}`,
         baseline: pooledCountsOf(baseline.sequential), prior,
         baselineKey: baselineId, violationPrior: violationRate,
         maxChunksTotal: policy.sequential.maxChunks * (policy.sequential.maxResumes + 1),

@@ -21,9 +21,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import * as path from "node:path";
 import { ROOT } from "./paths.js";
 import { loadPolicy } from "./policy.js";
-import { CAMPAIGN_EPOCH_FLOOR, MERGE_Z, finalGate, judgedByNonInferiority, type RatePrior } from "./decide.js";
+import { CAMPAIGN_EPOCH_FLOOR, MERGE_Z, finalGate, type RatePrior } from "./decide.js";
 import { firingCheck } from "./firing.js";
-import { decideSequential, pooledCountsOf, railVerdict, seqRuleOf, throughputRatioOf, type SeqKind } from "./sequential.js";
+import { decideSequential, pooledCountsOf, railVerdict, seqRuleOf, throughputRatioOf } from "./sequential.js";
 import { Evaluation, type Hypothesis } from "./schemas.js";
 
 type Terminal = "merge" | "human" | "closed" | "blocked" | "unresolved";
@@ -189,7 +189,6 @@ function main(): void {
     const basePooled = pooledCountsOf(base.evals);
     const prior = priorAt(ok, sel.atIso);
     const rule = { ...seqRuleOf(policy, prior), maxChunks: Math.max(policy.sequential.maxChunks, mine.length) };
-    const seqKind: SeqKind = judgedByNonInferiority(kind as Hypothesis["kind"]) ? "noninferiority" : "superiority";
 
     // Replay the stopping rule chunk by chunk over the chunks the record holds.
     let verdict = "continue";
@@ -200,8 +199,8 @@ function main(): void {
       if (!r.e.ok) continue;
       taken.push(r.e);
       used++;
-      const d = decideSequential(pooledCountsOf(taken), basePooled, used, seqKind, rule);
-      if (railVerdict(d, pooledCountsOf(taken), basePooled, used, seqKind, rule) === null) stopperChunks++;
+      const d = decideSequential(pooledCountsOf(taken), basePooled, used, rule);
+      if (railVerdict(d, pooledCountsOf(taken), basePooled, used, rule) === null) stopperChunks++;
       verdict = d.verdict;
       reason = d.reason;
       if (verdict !== "continue") break;
@@ -280,13 +279,24 @@ const EXPECTED: Array<{ iteration: number; want: (c: Case) => boolean; why: stri
     iteration, want: (c: Case): boolean => c.next !== "closed",
     why: "killed at chunk 1 by the h2 guard",
   })),
-  // The advance the primary-rung test exists to stop.
-  { iteration: 5369, want: (c: Case): boolean => c.next !== "merge", why: "depth>=6 pGreater 0.000 on the non-inferiority path" },
+  // The advance the primary-rung test exists to stop: the one recorded case
+  // where the gate's own posterior resolved harm on the rung the objective is
+  // named on.
+  { iteration: 5369, want: (c: Case): boolean => c.next !== "merge", why: "depth>=6 pGreater 0.000 with every per-run guard held" },
+  // The identity placebo. Its deltas are noise, so the correct answer is that
+  // nothing was resolved, not that the candidate was worse.
+  { iteration: 5367, want: (c: Case): boolean => c.next !== "merge", why: "an identity placebo resolves nothing, so it may not merge" },
   // A real separated gain must survive every deletion above.
   { iteration: 5361, want: (c: Case): boolean => c.next === "merge", why: "depth>=6 per second separated at z 2.7" },
   // A candidate that found a violation must not be held to a stricter
-  // standard for having found one.
-  { iteration: 5328, want: (c: Case): boolean => c.next === "merge", why: "non-inferior with one violation the baseline did not have" },
+  // standard for having found one. It no longer merges - one violation does
+  // not separate against the archive rate and no rung separated - but it may
+  // not be closed on the strength of the violation either.
+  { iteration: 5328, want: (c: Case): boolean => c.next !== "closed", why: "one violation the baseline did not have must not close the candidate" },
+  // Not asserted, and not assertable: the spec's cases for 5344 closing at
+  // the firing check and for 5367 closing on its prediction both need a
+  // hypothesis that carries one. No recorded hypothesis does, so the firing
+  // check is inert across the whole record and grades nothing here.
 ];
 
 function report(cases: Case[], skipped: string[], baselineMisses: number, stopperChunks: number, all: boolean, assert: boolean): void {
