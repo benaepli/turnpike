@@ -101,9 +101,11 @@
         }
       },
       {
-        "id": "aos",
-        "mode": "aos",
-        "overlay": {}
+        "id": "grid-steer-timer-crash",
+        "mode": "grid",
+        "overlay": {
+          "steer_terms.crash_after_timer_sends": 1.0
+        }
       }
     ]
   }
