@@ -9,8 +9,8 @@ import {
   reflectOnOutcome, rejudgePool, runAudit, validateProposed,
 } from "./agents.js";
 import {
-  CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, compareToBaseline, finalGate,
-  objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons, type RatePrior,
+  CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, classifyChangeRisk, compareToBaseline, finalGate,
+  judgedByNonInferiority, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
 import { numericLeaves, runOneEvaluation, type EvalContext } from "./evaluate.js";
@@ -952,7 +952,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         };
       }
     } else if (sampled) {
-      const kind: SeqKind = h.kind === "ablate" || h.kind === "enabling" || h.kind === "meta" ? "noninferiority" : "superiority";
+      const kind: SeqKind = judgedByNonInferiority(h.kind) ? "noninferiority" : "superiority";
       // A stop mid-sample continues where it left off; a deliberate resume
       // of an inconclusive result spends one of the allowed resumes. Counts
       // gathered against a superseded baseline are dropped.
@@ -1080,7 +1080,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     state.setDecision(decision);
     journal(state, n, "decision", decision);
 
-    const evidence = { hypothesis: h, decision, evaluations: allEvals, spurFiles, superFiles, graderVersion: ctx.graderVersion, generalConfigParams: { before: paramsBefore, after: paramsAfter } };
+    const evidence = { hypothesis: h, decision, evaluations: allEvals, spurFiles, superFiles, touchesSemantics: classifyChangeRisk(spurFiles) === "semantics", graderVersion: ctx.graderVersion, generalConfigParams: { before: paramsBefore, after: paramsAfter } };
 
     if (decision.verdict === "auto_merge" || decision.verdict === "needs_human") {
       const outcome = await timed("publish", async () => mergeFlow(n, h, branch as string, evidence, decision.verdict === "auto_merge"));

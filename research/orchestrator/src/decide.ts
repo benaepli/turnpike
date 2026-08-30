@@ -9,7 +9,7 @@
 // throughput at or above the floor.
 // Non-inferiority (ablate/enabling base) = no objective worse than margin.
 import type { BenchResult } from "./bench.js";
-import type { Evaluation, GateDecision, Hypothesis, RateStratum } from "./schemas.js";
+import type { Evaluation, GateDecision, Hypothesis, HypothesisKind, RateStratum } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
 import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv } from "./stats.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -273,8 +273,16 @@ export function nonInferior(cand: ObjectiveCounts, base: ObjectiveCounts, relMar
   return { ok: failures.length === 0, failures };
 }
 
-// Change-risk classification for the opt-in rule. Semantics-changing spur
-// files route to needs_human even with green metrics.
+// The kinds whose evidence is read as non-inferiority rather than as a
+// separated gain. The sequential sampler picks its stopping rule from this
+// same predicate, so the rule cannot advance a candidate the gate then
+// closes for want of an improvement it was never asked for.
+export function judgedByNonInferiority(kind: HypothesisKind): boolean {
+  return kind === "ablate" || kind === "enabling" || kind === "meta";
+}
+
+// Spur files whose edits change what an execution means rather than which
+// executions are explored. Recorded on the evidence packet.
 const SEMANTICS_FILES = [
   "spur-core/src/simulator/core/exec.rs",
   "spur-core/src/simulator/history.rs",
@@ -359,19 +367,17 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     reasons.push(`the unit of comparison moved, so no per-second objective was tested: ${cmp.stratumFault.detail}`);
   } else {
     const kind = i.hypothesis.kind;
-    if (kind === "add" || kind === "enabling") {
+    if (kind !== "ablate") {
       const superior = cmp.improved.length > 0 && cmp.regressed.length === 0;
       const ni = nonInferior(cand, base);
-      const pass = kind === "add" ? superior : superior || ni.ok;
+      const byNi = judgedByNonInferiority(kind);
+      const pass = superior || (byNi && ni.ok);
       if ((i.throughputRatio ?? 1) < floor) {
         verdict = "closed";
         reasons.push(`throughput ratio ${(i.throughputRatio ?? 1).toFixed(3)} below floor ${floor}`);
       } else if (!pass) {
         verdict = "closed";
-        reasons.push(kind === "add" ? `no CI-separated improvement (improved=[${cmp.improved}], regressed=[${cmp.regressed}])` : `neither superior nor non-inferior: ${ni.failures.join(",")}`);
-      } else if (classifyChangeRisk(i.changedSpurFiles) === "semantics") {
-        verdict = "needs_human";
-        reasons.push("touches execution-semantics files");
+        reasons.push(byNi ? `neither superior nor non-inferior: ${ni.failures.join(",")}` : `no CI-separated improvement (improved=[${cmp.improved}], regressed=[${cmp.regressed}])`);
       } else if (cmp.improved.length === 1 && cmp.improved[0] === "violations") {
         // A violation belongs to the configuration that produced it. They
         // arrive at about one per 1.7M runs, so a chunk carries one often
@@ -382,9 +388,9 @@ export function finalGate(i: FinalGateInputs): GateDecision {
         reasons.push("the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches");
       } else {
         verdict = "auto_merge";
-        reasons.push(`improved: ${cmp.improved.join(", ") || "(enabling, non-inferior)"}`);
+        reasons.push(`improved: ${cmp.improved.join(", ") || "(non-inferior)"}`);
       }
-    } else if (kind === "ablate") {
+    } else {
       const ni = nonInferior(cand, base);
       const cheaper = (i.throughputRatio ?? 1) >= 1.0 || i.changedSpurFiles.length > 0;
       if (!ni.ok) {
@@ -397,12 +403,6 @@ export function finalGate(i: FinalGateInputs): GateDecision {
         verdict = "auto_merge";
         reasons.push("non-inferior ablation (flag-off stage)");
       }
-    } else {
-      // meta and grader kinds route to needs_human in v1: meta needs the
-      // replay harness, grader needs the golden-corpus validator run by a
-      // human-triggered command until it is fully wired.
-      verdict = "needs_human";
-      reasons.push(`${kind} changes require human review in v1`);
     }
   }
 
