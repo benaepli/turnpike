@@ -34,6 +34,7 @@
     0.3
   ],
   "post_fault_client_ops": 1,
+  "post_fault_client_ops_prob": 1.0,
   "purgatory": {
     "delay_probability": 0.15,
     "delay_duration_range": [
@@ -96,10 +97,24 @@
         }
       },
       {
-        "id": "grid-post-fault-2",
+        "id": "grid-post-fault-p25",
         "mode": "grid",
         "overlay": {
-          "post_fault_client_ops": 2
+          "post_fault_client_ops_prob": 0.25
+        }
+      },
+      {
+        "id": "grid-post-fault-p50",
+        "mode": "grid",
+        "overlay": {
+          "post_fault_client_ops_prob": 0.5
+        }
+      },
+      {
+        "id": "grid-post-fault-p75",
+        "mode": "grid",
+        "overlay": {
+          "post_fault_client_ops_prob": 0.75
         }
       },
       {
