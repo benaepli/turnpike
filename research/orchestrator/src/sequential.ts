@@ -590,6 +590,27 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   }
   const forced = finalGate(gateOn(primaryDown), { verdict: "merge", reason: "a decider said so" });
   if (forced.verdict === "auto_merge") f.push(`a supplied merge must not stand while depth>=${PRIMARY_RUNG} is separated below the baseline`);
+  // The same regression with nothing else standing against it: the separated
+  // improvement is a violation the baseline did not see, so no shallower-rung
+  // reading and no empty-improved post-condition can hold the merge back, and
+  // the primary-rung test is the only thing that refuses it.
+  const primaryDownAlone = [2000, 2001]
+    .map((s) => chunk(s, { d6: 0.94 }))
+    .map((e, i) => (i === 0 ? { ...e, metrics: { ...e.metrics, violations: 1 } } : e));
+  const aloneCase = mergeCase(gateOn(primaryDownAlone));
+  if (!("figures" in aloneCase)) {
+    f.push("the primary-rung-only fixture must reach a verdict, else no post-condition is exercised");
+  } else {
+    const g = aloneCase.figures;
+    if (!g.primaryRungRegressed) f.push(`the primary-rung-only fixture must read as a depth>=${PRIMARY_RUNG} regression, else it tests nothing`);
+    if (g.improved.join(",") !== "violations") f.push(`the primary-rung-only fixture must separate on violations alone, got [${g.improved}]`);
+    if (g.regressed.length > 0 || g.deepRungsUnresolved.length > 0) {
+      f.push(`the primary-rung-only fixture must leave every other guard clean, got regressed=[${g.regressed}] unresolved=[${g.deepRungsUnresolved}]`);
+    }
+    if (ruleVerdict(g).verdict !== "close") f.push(`a depth>=${PRIMARY_RUNG} separated below the baseline must close, got ${JSON.stringify(ruleVerdict(g))}`);
+  }
+  const forcedAlone = finalGate(gateOn(primaryDownAlone), { verdict: "merge", reason: "a decider said so" });
+  if (forcedAlone.verdict === "auto_merge") f.push(`the depth>=${PRIMARY_RUNG} post-condition must refuse a supplied merge on its own`);
   const clean = finalGate(gateOn(cases[1]!.cand), { verdict: "merge", reason: "a decider said so" });
   if (clean.verdict !== "auto_merge") f.push(`a +25% primary rung with every post-condition met must merge, got ${clean.verdict} (${clean.reasons.join("; ")})`);
 
