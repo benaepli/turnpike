@@ -165,6 +165,10 @@ export const PRIMARY_RUNG = 6;
 export interface Comparison {
   improved: string[];
   regressed: string[];
+  // Deep rungs per run whose posterior settled neither way: not known to have
+  // fallen beyond the margin, not known to hold. A gain carrying one of these
+  // is not a merge, because the guard it needs has not answered.
+  unresolvedGuards: string[];
   deltas: Record<string, number>;
   stratumFault: StratumFault | null;
 }
@@ -199,6 +203,7 @@ export function compareToBaseline(
 ): Comparison {
   const improved: string[] = [];
   const regressed: string[] = [];
+  const unresolvedGuards: string[] = [];
   const deltas: Record<string, number> = {};
   const rate = (c: { succ: number; n: number }): number => (c.n > 0 ? c.succ / c.n : 0);
   const perSec = (succ: number, exposureSec: number): number => (exposureSec > 0 ? succ / exposureSec : 0);
@@ -242,11 +247,13 @@ export function compareToBaseline(
           && rateRatioSeparated(cSucc, cs.exposureSec, bSucc, bs.exposureSec, z, xv)) improved.push(`depth>=${d.k}`);
     }
     // The deep rungs per run may not fall beyond the margin: a per-second
-    // gain bought by making runs shallower is depth traded for speed, and
-    // the sequential rule holds an advance until they are known to hold.
+    // gain bought by making runs shallower is depth traded for speed. A
+    // posterior that settles neither way is recorded as unresolved, because a
+    // guard that has not answered is not a guard that held.
     if (d.k === 5 || d.k === 6) {
       const g = compareRatesPoisson(d.succ, d.n, b.succ, b.n, 0, DEEP_RUNG_MARGIN, DEEP_RUNG_DRAWS, DEEP_RUNG_SEED + d.k);
       if (g.pRegress >= DEEP_RUNG_NIP) regressed.push(`depth>=${d.k} per run`);
+      else if (g.pRegress > 1 - DEEP_RUNG_NIP) unresolvedGuards.push(`depth>=${d.k} per run`);
     }
   }
 
@@ -255,7 +262,7 @@ export function compareToBaseline(
     ? (cand.runs / cand.exposureSec) / (base.runs / base.exposureSec) - 1
     : 0;
 
-  return { improved, regressed, deltas, stratumFault: fault };
+  return { improved, regressed, unresolvedGuards, deltas, stratumFault: fault };
 }
 
 /** True when the rung the objective is named on is separated BELOW the
@@ -359,6 +366,9 @@ export interface MergeFigures {
   // The rung the objective is named on, separated below the baseline at the
   // merge z. Nothing carrying this may merge unattended.
   primaryRungRegressed: boolean;
+  // Deep rungs per run whose guard answered neither way. A gain alongside one
+  // of these is a finding for a person, not a merge.
+  deepRungsUnresolved: string[];
   deltas: Record<string, number>;
   primary: number;
   // The A/A spread the primary rung's own event counts imply. A primary
@@ -430,6 +440,7 @@ function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCou
     improved: cmp.improved,
     regressed: cmp.regressed,
     primaryRungRegressed: primaryRungRegressed(cand, base),
+    deepRungsUnresolved: cmp.unresolvedGuards,
     deltas: cmp.deltas,
     primary,
     primaryNullBand: Number.isFinite(band) ? band : -1,
@@ -446,10 +457,25 @@ function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCou
   };
 }
 
+/** True when the separated gain is on a rung shallower than the primary one
+ *  and the primary rung's own delta is below the spread its event counts
+ *  imply. A shallow rung carries the session's run count as much as its
+ *  depth, so a gain there while the primary is down is depth traded for speed
+ *  wearing the objective's name. A band that could not be computed - either
+ *  side with no events at that rung - is not a reading, and a resolved fall
+ *  is `regressed`'s business, not this one's. */
+function primaryBelowBandWithShallowerGain(f: MergeFigures): boolean {
+  const shallower = f.improved.some((k) => k === "depth>=4" || k === "depth>=5");
+  if (!shallower || f.improved.includes(`depth>=${PRIMARY_RUNG}`)) return false;
+  if (!(f.primaryNullBand > 0)) return false;
+  return (f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0) < -f.primaryNullBand;
+}
+
 /** The verdict the statistical rule reaches on the figures. It is the
  *  fallback whenever no other verdict is supplied, so an unavailable decider
  *  cannot stop the loop, and it is what the offline replay re-decides
- *  through.
+ *  through. It is the only path to a terminal decision: the sampler says when
+ *  to stop, and every stop is read here.
  *
  *  It closes only what the figures resolve against the candidate, and sends
  *  everything else it cannot merge to a human: a sample that resolves nothing
@@ -462,10 +488,20 @@ export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: s
   if (f.throughput.ratio < f.throughput.floor) {
     return { verdict: "close", reason: `throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}` };
   }
-  if (!f.superior) {
+  if (f.regressed.length > 0) {
+    return { verdict: "close", reason: `the figures resolve against the candidate (regressed=[${f.regressed}])` };
+  }
+  if (f.improved.length === 0) {
+    return { verdict: "human", reason: `no CI-separated improvement (improved=[${f.improved}], regressed=[${f.regressed}])` };
+  }
+  if (f.deepRungsUnresolved.length > 0) {
+    return { verdict: "human", reason: `a rung separated but the deep rungs per run are unresolved: ${f.deepRungsUnresolved.join(", ")}` };
+  }
+  if (primaryBelowBandWithShallowerGain(f)) {
+    const d = f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0;
     return {
       verdict: "human",
-      reason: `no CI-separated improvement (improved=[${f.improved}], regressed=[${f.regressed}])`,
+      reason: `the gain is on a shallower rung while depth>=${PRIMARY_RUNG} is ${(d * 100).toFixed(2)}% against a ${(f.primaryNullBand * 100).toFixed(2)}% band`,
     };
   }
   if (f.violationsOnlyImprovement) {
@@ -486,6 +522,16 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
   // the two disagree; a verdict is not the place to settle that.
   if (f.primaryRungRegressed) out.push(`depth>=${PRIMARY_RUNG} per second separated below the baseline at z ${MERGE_Z}`);
   if (f.throughput.ratio < f.throughput.floor) out.push(`throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}`);
+  if (f.deepRungsUnresolved.length > 0) out.push(`deep rungs per run unresolved: ${f.deepRungsUnresolved.join(", ")}`);
+  if (primaryBelowBandWithShallowerGain(f)) out.push(`depth>=${PRIMARY_RUNG} is below its band with the gain on a shallower rung`);
+  // A sample that separated nothing may still be a merge, but only where the
+  // hypothesis said beforehand what it would produce, that claim was checked
+  // and met, and the mechanism had occasions. Without all three there is
+  // nothing to distinguish the result from a no-op.
+  if (f.improved.length === 0
+      && !(f.prediction !== null && f.predictionInBand === true && f.firing.status === "fired")) {
+    out.push("nothing separated and no stated prediction was met");
+  }
   // A change to what an execution means can move every rung without exploring
   // anything new, so its evidence cannot certify it; the loop's own rule book
   // is not something the loop merges into itself unattended.
@@ -625,11 +671,21 @@ export function selfTestUnmeasured(): string[] {
   // Prefix, not substring.
   check(u([], ["research/observations/scheduler_configs-audit.md"]).length > 0, "the config test is a path prefix");
 
-  const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
+  // A sample with no separated improvement merges only on a stated
+  // prediction that fired and landed in its band, so the clean fixture
+  // carries one: an empty evaluation set separates nothing.
+  const stated: Prediction = {
+    firingCounter: "mechanism.occasions", firingFloor: 1, rung: `depth>=${PRIMARY_RUNG}`,
+    sizePct: { min: -0.01, max: 0.01 },
+    mechanism: "the change is inert on the rates by construction",
+    independentObservable: "the counter it exports",
+    falsifier: "the counter stays at zero across the sample",
+  };
+  const h = { id: "h", kind: "add", category: "scheduler", prediction: stated } as unknown as Hypothesis;
   const base: FinalGateInputs = {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
     lintFailures: [], changedSpurFiles: [], changedSuperFiles: [], throughputRatio: 1, throughputFloor: 0.8,
-    unmeasurable: [], firing: { status: "not-claimed", detail: "" },
+    unmeasurable: [], firing: { status: "fired", detail: "mechanism.occasions = 1" },
   };
   const un = finalGate({ ...base, unmeasurable: ["u"] });
   check(un.verdict === "needs_human", `an unmeasurable diff reaches a human, got ${un.verdict}`);
@@ -681,6 +737,42 @@ export function selfTestUnmeasured(): string[] {
   }
   check(finalGate(base, { verdict: "close", reason: "because" }).verdict === "closed", "close closes");
   check(finalGate(base, { verdict: "human", reason: "because" }).verdict === "needs_human", "human reaches a human");
+
+  // The verdict on the figures, and the post-conditions that hold a merge
+  // back. Written on figures rather than on evaluations because the shapes
+  // being tested - an unresolved guard, a shallow gain over a fallen primary
+  // rung - are counts no empty evaluation set can carry.
+  const cleanFigures: MergeFigures = {
+    hypothesisId: "h", kind: "add", superior: true, improved: [`depth>=${PRIMARY_RUNG}`], regressed: [],
+    primaryRungRegressed: false, deepRungsUnresolved: [], deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.05 },
+    primary: 0.05, primaryNullBand: 0.01, primaryInsideNullBand: false,
+    throughput: { ratio: 1, floor: 0.8 }, sample: { chunks: 2, runs: 100, exposureSec: 100 },
+    violationsOnlyImprovement: false, firing: { status: "fired", detail: "" }, prediction: null,
+    predictedRungDelta: null, predictionInBand: null, touchesSemantics: false, touchesPolicy: false,
+  };
+  const cleanCmp: Comparison = { improved: cleanFigures.improved, regressed: [], unresolvedGuards: [], deltas: {}, stratumFault: null };
+  const verdictOn = (over: Partial<MergeFigures>): MergeVerdict => ruleVerdict({ ...cleanFigures, ...over }).verdict;
+  const blockersOn = (over: Partial<MergeFigures>): string[] => mergeBlockers(base, { ...cleanFigures, ...over }, cleanCmp);
+  check(verdictOn({}) === "merge", `a separated gain with every guard held merges, got ${verdictOn({})}`);
+  check(verdictOn({ regressed: ["depth>=5 per run"] }) === "close", "a resolved regression closes");
+  check(verdictOn({ deepRungsUnresolved: ["depth>=5 per run"] }) === "human", "an unresolved deep guard reaches a human");
+  check(blockersOn({ deepRungsUnresolved: ["depth>=5 per run"] }).length > 0, "an unresolved deep guard holds a supplied merge for review");
+  // A gain on a shallower rung while the primary rung sits below the spread
+  // its own counts imply. Inside the band it is not a reading and merges.
+  const shallow = { improved: ["depth>=4"], deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.02 }, primaryNullBand: 0.01 };
+  check(verdictOn(shallow) === "human", `a shallow gain over a primary rung below its band reaches a human, got ${verdictOn(shallow)}`);
+  check(blockersOn(shallow).length > 0, "a primary rung below its band holds a supplied merge for review");
+  check(verdictOn({ ...shallow, deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.005 } }) === "merge", "a primary rung inside its band is not a reading");
+  check(verdictOn({ ...shallow, primaryNullBand: -1 }) === "merge", "a band that could not be computed is not a reading");
+  // Nothing separated: a merge needs a stated prediction that fired and
+  // landed in its band, which is the only thing distinguishing the result
+  // from a no-op.
+  const flat = { improved: [], superior: false };
+  check(blockersOn(flat).some((b) => b.startsWith("nothing separated")), "a flat sample with no stated prediction cannot merge unattended");
+  check(blockersOn({ ...flat, prediction: stated, predictionInBand: true }).length === 0, "a flat sample whose stated prediction fired and was met may merge");
+  check(blockersOn({ ...flat, prediction: stated, predictionInBand: false }).some((b) => b.startsWith("nothing separated")), "a prediction the sample refuted does not carry a flat merge");
+  check(blockersOn({ ...flat, prediction: stated, predictionInBand: true, firing: { status: "not-claimed", detail: "" } }).some((b) => b.startsWith("nothing separated")),
+    "a prediction whose mechanism was never seen to fire does not carry a flat merge");
   // No supplied verdict falls back to the rule, so an unavailable decider
   // cannot stop the loop and the offline replay decides the same way.
   const clean = mergeCase(base);
@@ -698,7 +790,7 @@ export function selfTestUnmeasured(): string[] {
     check(guards === 1, `loop.ts must test lintFailures.length === 0 only where sampled is defined, found ${guards}`);
     // Not \b on the left: a comment already says "re-sampled".
     const sampled = (t.match(/(?<![-\w])sampled\b/g) ?? []).length;
-    check(sampled === 5, `loop.ts must use sampled once per branch plus its definition (5), found ${sampled}`);
+    check(sampled === 4, `loop.ts must use sampled once per branch plus its definition (4), found ${sampled}`);
   }
   return f;
 }

@@ -9,8 +9,8 @@ import {
   reflectOnOutcome, rejudgePool, runAudit, validateProposed,
 } from "./agents.js";
 import {
-  CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, classifyChangeRisk, compareToBaseline, finalGate,
-  mergeCase, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons,
+  CAMPAIGN_EPOCH_FLOOR, chunkStratum, classifyChangeRisk, finalGate, mergeCase, perfGate,
+  stratumOf, unmeasurableReasons,
   type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
@@ -937,16 +937,12 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       spurCommit: currentCommit(SPUR), superCommit,
     };
 
-    let decisionInputsReady = false;
     let confirmEvals: Evaluation[] = [];
     let throughputRatio: number | null = null;
     let regressionDetail: string | undefined;
     let regressionPassed = false;
     const allEvals: Record<string, Evaluation[]> = {};
     let perfDecision: GateDecision | null = null;
-    let seqOutcome = "";
-    let escalated = false;
-    let escalateReason: string | null = null;
     let violationRate: RatePrior | null = null;
 
     const sampled = lintFailures.length === 0 && unmeasurable.length === 0;
@@ -1008,7 +1004,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       for (const e of res.evals) state.addEvaluation(e);
       state.setMeta(`seq:${h.id}`, JSON.stringify({ ...res.seq, lastIteration: n }));
       journal(state, n, "sequential", { verdict: res.verdict, reason: res.reason, chunks: res.seq.chunks, runs: res.seq.runs, posteriors: res.seq.posteriors, resumes: res.seq.resumes });
-      seqOutcome = `${res.verdict} after ${res.seq.chunks} chunks / ${res.seq.runs} runs: ${res.reason}`;
       if (res.verdict === "stopped") { parkForStop(state, n, h, branch, "sequential"); return; }
       if (res.verdict === "error") {
         const d: GateDecision = { hypothesisId: h.id, verdict: "blocked", rayonThreads: policy.evaluation.rayonThreads, reasons: [`sequential evaluation failed: ${res.reason}`], objectiveDeltas: {}, regressionPassed: null, lintPassed: true };
@@ -1031,28 +1026,16 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         }
         journal(state, n, "closed_inconclusive", { id: h.id, chunks: res.seq.chunks, resumes: res.seq.resumes, bestPMei: Math.round(bestPMei * 1000) / 1000, posteriors: res.seq.posteriors });
       }
-      if (res.verdict === "escalate") {
-        // Rare evidence that did not separate at the gate, or a per-second
-        // gain whose deep rungs per run stayed unresolved: sampling was
-        // extended to the hard cap, and the pooled evidence goes to a human
-        // as a PR rather than being deleted.
-        journal(state, n, "escalated", { id: h.id, reason: res.reason, chunks: res.seq.chunks });
-        confirmEvals = res.evals.filter((e) => e.ok);
-        escalated = true;
-        escalateReason = res.reason;
-        decisionInputsReady = true;
-      }
-      if (res.verdict === "advance") {
-        // The pooled chunks are the merge evidence: same protocol and seeds
-        // as the baseline chunks they are compared with.
-        confirmEvals = res.evals.filter((e) => e.ok);
-        // Like against like: runs per explore-second pooled over the
-        // candidate's chunks against the baseline chunks of the same
-        // protocol. The screen arm's rate is a different regime (shorter,
-        // faster runs) and would read a level candidate as slower.
-        throughputRatio = throughputRatioOf(pooledFromSeq(res.seq), pooledCountsOf(baseline.sequential));
-        decisionInputsReady = true;
-      }
+      // Every sample the rule stopped is merge evidence, whatever it says:
+      // the pooled chunks ran the same protocol and seed family as the
+      // baseline chunks they are compared with, and the gate is the one
+      // place that reads them.
+      confirmEvals = res.evals.filter((e) => e.ok);
+      // Like against like: runs per explore-second pooled over the
+      // candidate's chunks against the baseline chunks of the same protocol.
+      // The screen arm's rate is a different regime (shorter, faster runs)
+      // and would read a level candidate as slower.
+      throughputRatio = throughputRatioOf(pooledFromSeq(res.seq), pooledCountsOf(baseline.sequential));
     }
 
     const firing = firingCheck({
@@ -1084,11 +1067,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     // and asks nothing.
     let picked: { verdict: MergeVerdict; reason: string } | undefined;
     let suiteRan = false;
-    if (!perfDecision && decisionInputsReady) {
+    if (!perfDecision && sampled) {
       const c = mergeCase(gateInputs(null));
-      // An escalate is a human review by construction, so its verdict is not
-      // in question and nothing is asked about it.
-      if (!("stop" in c) && !escalated) {
+      if (!("stop" in c)) {
         const asked = await timed("decide", () => askMergeDecider(policy, policy.sequential.exploreBudgetSec * 1000, c.figures));
         // A model verdict is not recomputable, so the figures it read are
         // recorded verbatim beside it.
@@ -1103,7 +1084,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       // does not pay for a result nobody reads.
       const worthTheSuite = "stop" in c
         ? c.stop.verdict === "needs_human"
-        : escalated || picked === undefined || picked.verdict !== "close";
+        : picked === undefined || picked.verdict !== "close";
       if (worthTheSuite) {
         const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
         regressionPassed = regr.passed;
@@ -1113,22 +1094,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       }
     }
     const decision = perfDecision ?? finalGate(gateInputs(suiteRan ? regressionPassed : null), picked);
-    if (!perfDecision && !decisionInputsReady && sampled) {
-      decision.verdict = "closed";
-      decision.reasons = [`sequential evaluation ${seqOutcome}`];
-      const ran = allEvals["sequential"] ?? [];
-      const baseRan = baseline.sequential;
-      if (ran.length > 0) {
-        const cmp = compareToBaseline(objectiveCounts(ran), objectiveCounts(baseRan), MERGE_Z, violationRate);
-        const h1 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h1Rate, 0) / ok.length : 0; };
-        const h3 = (evs: Evaluation[]): number => { const ok = evs.filter((e) => e.ok); return ok.length ? ok.reduce((a, e) => a + e.metrics.h3Rate, 0) / ok.length : 0; };
-        decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: primaryDelta(cmp) };
-      }
-    }
-    if (escalated && sampled) {
-      decision.verdict = "needs_human";
-      decision.reasons = [`${escalateReason ?? "rare evidence below gate separation"} - human review of the pooled evidence`];
-    }
     const paramsAfter = generalConfigParamCount(policy);
     decision.objectiveDeltas["params"] = paramsAfter - paramsBefore;
     decision.rayonThreads = policy.evaluation.rayonThreads;

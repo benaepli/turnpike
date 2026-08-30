@@ -212,15 +212,18 @@ function main(): void {
     let suiteAssumed = false;
     if (verdict === "continue") {
       next = "unresolved";
-    } else if (verdict === "reject" || verdict === "inconclusive") {
-      next = "closed";
     } else {
-      // advance or escalate: the merge gate decides, on the evidence the
-      // sample produced. An escalate is a human review whatever the gate says.
+      // Every terminal verdict is a stop, and the merge gate reads what the
+      // sample produced. There is no second reading of the figures here.
       const recorded = (dec?.data ?? {}) as { regressionPassed?: boolean | null; lintPassed?: boolean };
+      // The journal event is the only record that the suite ran: a decision
+      // written on a path that never bought one carries `false` for "not
+      // run", and reading that as a failure would close the candidate on a
+      // suite nobody executed. Where it did not run the replay assumes it
+      // passes, so the branches downstream of it are exercised at all.
       const regr = slot["regression"]?.data as { passed?: boolean } | undefined;
-      const regressionPassed = regr?.passed ?? recorded.regressionPassed ?? true;
-      suiteAssumed = regr === undefined && (recorded.regressionPassed === null || recorded.regressionPassed === undefined);
+      const regressionPassed = regr?.passed ?? true;
+      suiteAssumed = regr === undefined;
       const cand = taken.filter((e) => e.ok);
       const g = finalGate({
         hypothesis: { id, kind } as Hypothesis,
@@ -238,8 +241,8 @@ function main(): void {
         // has nothing to grade against and cannot change a replayed verdict.
         firing: firingCheck({ prediction: null, counters: {}, changedSpurFiles: [], configPaths: null }),
       });
-      next = verdict === "escalate" ? "human" : recordedTerminal(g.verdict);
-      nextReason = verdict === "escalate" ? reason : g.reasons.join("; ");
+      next = recordedTerminal(g.verdict);
+      nextReason = g.reasons.join("; ");
     }
     cases.push({
       iteration, id, kind, old: oldVerdict,
@@ -293,6 +296,13 @@ const EXPECTED: Array<{ iteration: number; want: (c: Case) => boolean; why: stri
   // not separate against the archive rate and no rung separated - but it may
   // not be closed on the strength of the violation either.
   { iteration: 5328, want: (c: Case): boolean => c.next !== "closed", why: "one violation the baseline did not have must not close the candidate" },
+  // The only recorded case the figures resolve against the candidate:
+  // depth>=6 per second 3.8% below the baseline against a 0.74% band,
+  // separated at the merge z. Its two violations do not separate against the
+  // archive rate, so the closure destroys no finding. Every other closing
+  // reason - a resolved per-run regression, the throughput floor - is absent
+  // from the record, so this row is the whole of the closed column.
+  { iteration: 5355, want: (c: Case): boolean => c.next === "closed", why: "depth>=6 per second separated below the baseline" },
   // Not asserted, and not assertable: the spec's cases for 5344 closing at
   // the firing check and for 5367 closing on its prediction both need a
   // hypothesis that carries one. No recorded hypothesis does, so the firing

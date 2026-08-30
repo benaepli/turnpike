@@ -15,7 +15,7 @@ import { compareRatesPoisson, rateRatioSeparated, throughputCv } from "./stats.j
 import {
   ADVANCE_RUNGS, MERGE_Z, PRIMARY_RUNG, addStratum, chunkStratum, compareToBaseline, emptyStratum,
   finalGate, mergeCase, objectiveCounts, primaryDelta, primaryRungRegressed, rateVarianceOf, ruleVerdict,
-  rungCv, stratumFault, type FinalGateInputs, type RatePrior,
+  rungCv, stratumFault, type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
 import { askStopper, buildStopperPayload, nullBand, type StopperRecord, type StopperRung } from "./stopper.js";
 import { HARD_LIMITS } from "./policy.js";
@@ -48,7 +48,12 @@ export interface PooledCounts {
   rateStratum: RateStratum | null;
 }
 
-export type SeqVerdict = "advance" | "reject" | "continue" | "inconclusive" | "escalate";
+// What the rule says about buying another chunk, and nothing else. `stop`
+// means the sample in hand is all there will be, whatever it says; whether
+// that resolves for or against the candidate is the merge gate's reading.
+// `inconclusive` is the one sampling statement that is not a stop: another
+// chunk could still separate this, so a resume is allowed to buy one.
+export type SeqVerdict = "continue" | "inconclusive" | "stop";
 
 export interface SeqDecision {
   verdict: SeqVerdict;
@@ -127,17 +132,15 @@ export function minimumEffect(baseCount: number, baseExposure: number, capExposu
   return MERGE_Z * Math.sqrt(1 / expectedCand + 1 / baseCount + Math.max(0, extraVar));
 }
 
-// The stopping rule. A candidate advances when the pooled sample already
-// passes the merge gate's separation test on a rung's events per
-// explore-second (depth>=6 first, then 5, then 4); it is rejected when a
-// per-run guard (depth>=4, h2) regresses by the same test, or when its
-// throughput is below the floor. Every rung decides, depth>=7 and depth>=8
-// included: they are where the plan corpora put their violations, and each
-// is held to the minimum effect its own event count can separate at the cap,
-// which is large where the rung is sparse. Violations against a zero
-// baseline are decisive when they appear. Whether a sample the rule would
-// carry on with is worth its next chunk is priced elsewhere (stopper.ts);
-// the rule keeps every terminal verdict.
+// The stopping rule, and only the stopping rule. It says when the sample in
+// hand is all there will be; what the figures mean is decided once, at the
+// merge gate. Sampling stops when a rung's events per explore-second already
+// pass the merge gate's separation test (depth>=6 first, then 5, then 4)
+// with the deep per-run guards held, when a guard resolves against the
+// candidate, when throughput is below the floor, or at the cap. Violations
+// separated against the archive rate stop it wherever they appear. Whether a
+// sample the rule would carry on with is worth its next chunk is priced
+// elsewhere (stopper.ts).
 export function decideSequential(
   cand: PooledCounts, base: PooledCounts, chunks: number, p: SeqRule,
 ): SeqDecision {
@@ -146,7 +149,7 @@ export function decideSequential(
   // human rather than deleted as a negative result about the hypothesis.
   const fault = stratumFault(cand.rateStratum, base.rateStratum);
   if (fault !== null) {
-    return { verdict: "escalate", reason: `the rate stratum cannot be compared: ${fault.detail}`, posteriors: {} };
+    return { verdict: "stop", reason: `the rate stratum cannot be compared: ${fault.detail}`, posteriors: {} };
   }
   const cs = cand.rateStratum ?? emptyStratum();
   const bs = base.rateStratum ?? emptyStratum();
@@ -178,8 +181,14 @@ export function decideSequential(
   // second by making runs shallower must not advance on the shallow rungs.
   const g5 = compareRatesPoisson(cand.depth5, cand.graded, base.depth5, base.graded, 0, p.regressMargin, p.draws, seed + 6);
   const g6 = compareRatesPoisson(cand.depth6plus, cand.graded, base.depth6plus, base.graded, 0, p.regressMargin, p.draws, seed + 7);
-  const deepRegress = Math.max(g5.pRegress, g6.pRegress);
-  const deepGuardOk = g5.pRegress <= 1 - p.niP && g6.pRegress <= 1 - p.niP;
+  // A guard that answered neither way has not held. It stops a stop from
+  // being read as a clean gain without resolving against the candidate.
+  const deepRegressed: string[] = [];
+  const deepUnresolved: string[] = [];
+  for (const [k, g] of [[5, g5], [6, g6]] as const) {
+    if (g.pRegress >= p.niP) deepRegressed.push(`depth>=${k} (pRegress ${g.pRegress.toFixed(3)})`);
+    else if (g.pRegress > 1 - p.niP) deepUnresolved.push(`depth>=${k} (pRegress ${g.pRegress.toFixed(3)})`);
+  }
   const h2 = compareRatesPoisson(cand.h2Count, cand.runs, base.h2Count, base.runs, mei.h2, p.regressMargin, p.draws, seed + 2);
   const throughputRatio = throughputRatioOf(cand, base);
   const posteriors: Record<string, number> = {
@@ -211,57 +220,33 @@ export function decideSequential(
   const vp = p.violationPrior !== null && p.violationPrior.violations > 0 && p.violationPrior.runs > 0 ? p.violationPrior : null;
   if (vp !== null) {
     if (rateRatioSeparated(cand.violations, cand.runs, vp.violations, vp.runs, MERGE_Z)) {
-      return out("advance", `violations separated against the archive rate (${cand.violations} in ${cand.runs} runs against 1 per ${Math.round(vp.runs / vp.violations)})`);
+      return out("stop", `violations separated against the archive rate (${cand.violations} in ${cand.runs} runs against 1 per ${Math.round(vp.runs / vp.violations)})`);
     }
   } else if (cand.violations >= 1 && base.violations === 0) {
-    return out("advance", `violations appeared (${cand.violations})`);
+    return out("stop", `violations appeared (${cand.violations})`);
   }
-  // A depth the baseline never reaches is rare evidence, not a merge: at the
-  // cap it routes to human review, and it never short-circuits the gate
-  // (compareToBaseline needs the sample to separate, which a handful of hits
-  // cannot do). Dormant while the baseline reaches every rung; each rung the
-  // baseline reaches is an ordinary rung.
-  const jackpot = (vp !== null && cand.violations > 0)
-    || (cand.depth6plus > 0 && base.depth6plus === 0)
-    || (cand.depth7plus > 0 && base.depth7plus === 0)
-    || (cand.depth8plus > 0 && base.depth8plus === 0);
   const belowFloor = chunks >= p.minChunks && throughputRatio < p.throughputFloor;
 
   let separatedRung: string | null = null;
-  let separatedK: number | null = null;
   if (chunks >= p.minChunks) {
-    if (belowFloor) return out("reject", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
-    if (deepRegress >= p.niP) return out("reject", `deep rungs regressed per run beyond the ${(p.regressMargin * 100).toFixed(0)}% margin (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
-    if (sep(6)) { separatedK = 6; separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`; }
-    else if (sep(5)) { separatedK = 5; separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`; }
-    else if (sep(4)) { separatedK = 4; separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`; }
-    // A rung shallower than the primary carries the session's run count as
-    // much as its depth: the depth>=4 per-second rate tracks throughput at
-    // 0.99 across seeds. A gain there while the primary rung is known to have
-    // fallen is depth traded for speed wearing the objective's name. A
-    // decline inside noise still advances; this asks only that the primary
-    // not be confidently down, at the same confidence the rule calls a gain.
-    if (separatedK !== null && separatedK < PRIMARY_RUNG && d6.pGreater < 1 - p.inconclusiveP) {
-      return out("reject", `depth>=${separatedK} per second separated but depth>=${PRIMARY_RUNG} is down (pGreater ${d6.pGreater.toFixed(3)}, ratio ${d6.meanRatio.toFixed(3)})`);
-    }
-    // A separated rung advances only when the deep rungs per run are known
-    // to hold; a gain with the guard unresolved keeps sampling and goes to a
-    // human at the cap rather than being merged or discarded.
-    if (separatedRung !== null && deepGuardOk) return out("advance", separatedRung);
+    if (belowFloor) return out("stop", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
+    if (deepRegressed.length > 0) return out("stop", `deep rungs regressed per run beyond the ${(p.regressMargin * 100).toFixed(0)}% margin: ${deepRegressed.join(", ")}`);
+    if (sep(6)) separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`;
+    else if (sep(5)) separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`;
+    else if (sep(4)) separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`;
+    // A separated rung stops the sample only when the deep rungs per run are
+    // known to hold; a gain with a guard unresolved keeps sampling, since a
+    // further chunk can still resolve the guard.
+    if (separatedRung !== null && deepUnresolved.length === 0) return out("stop", separatedRung);
   }
   if (chunks >= p.maxChunks) {
-    if (jackpot) return out("escalate", `rare evidence below gate separation (violations ${cand.violations}, d6 ${cand.depth6plus}, d7 ${cand.depth7plus}, d8 ${cand.depth8plus})`);
-    // A rung the gate does not merge on can still have separated. The finding
-    // goes to a human rather than being deleted as a negative result.
-    if (sep(8) || sep(7)) {
-      const k = sep(8) ? 8 : 7;
-      return out("escalate", `depth>=${k} per second separated at z ${MERGE_Z} (ratio ${(k === 8 ? d8 : d7).meanRatio.toFixed(2)}) on a rung the gate does not merge on`);
-    }
-    if (separatedRung !== null) return out("escalate", `${separatedRung} with shallower deep runs unresolved (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
-    const best = Math.max(d4.pGreater, d5.pGreater, d6.pGreater, d7.pGreater, d8.pGreater);
+    if (separatedRung !== null) return out("stop", `${separatedRung}, deep rungs per run unresolved: ${deepUnresolved.join(", ")}`);
+    // Only the rungs a gain can separate on. depth>=7 and depth>=8 are
+    // recorded and reach the gate as evidence; they never buy another chunk.
+    const best = Math.max(d4.pGreater, d5.pGreater, d6.pGreater);
     return best >= p.inconclusiveP
       ? out("inconclusive", `cap reached with pGreater ${best.toFixed(3)}`)
-      : out("reject", `cap reached with pGreater ${best.toFixed(3)}`);
+      : out("stop", `cap reached with pGreater ${best.toFixed(3)}`);
   }
   return out("continue", "undecided");
 }
@@ -297,7 +282,7 @@ export function classifyPooled(
 
 // The deterministic part of the stop decision, and the whole of it whenever a
 // rail binds. Rails cost no tokens: a terminal verdict from the rule (the
-// stratum-fault escalate and the throughput floor among them) passes straight
+// stratum fault and the throughput floor among them) passes straight
 // through, a sample below minChunks is too small to judge, and the hard cap
 // forces a stop before any call is made, so a stopper that always says
 // continue still terminates. null means no rail binds and the model may be
@@ -454,23 +439,39 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     { name: "+200% on the aos arm only", cand: [2000, 2001].map((s) => chunk(s, { arms: { aos: 3 } })) },
     { name: "+25% on the grid arms only", cand: [2000, 2001].map((s) => chunk(s, { arms: gridScale(1.25) })) },
   ];
-  for (const c of cases) {
-    const seq = decideSequential(pooledCountsOf(c.cand), pooledCountsOf(base), c.cand.length, rule);
-    const cmp = compareToBaseline(objectiveCounts(c.cand), objectiveCounts(base), MERGE_Z);
-    const gateAdvances = cmp.improved.length > 0 && cmp.regressed.length === 0;
-    if (seq.verdict === "advance" && !gateAdvances) f.push(`${c.name}: sequential advanced (${seq.reason}) but the gate would refuse (improved=[${cmp.improved}], regressed=[${cmp.regressed}])`);
-    if (seq.verdict !== "advance" && gateAdvances && seq.verdict !== "continue") f.push(`${c.name}: gate would advance but the sequential rule said ${seq.verdict} (${seq.reason})`);
-  }
-  const plus = decideSequential(pooledCountsOf(cases[1]!.cand), pooledCountsOf(base), 2, rule);
-  if (plus.verdict !== "advance") f.push(`+25% depth>=6 over two chunks must advance, got ${plus.verdict} (${plus.reason})`);
-  const faster = decideSequential(pooledCountsOf(cases[3]!.cand), pooledCountsOf(base), 2, rule);
-  if (faster.verdict !== "advance") f.push(`+40% throughput at equal per-run rates must advance, got ${faster.verdict} (${faster.reason})`);
-  const slow = decideSequential(pooledCountsOf([2000, 2001].map((s) => chunk(s, { d6: 1.25, rps: 0.7 }))), pooledCountsOf(base), 2, rule);
-  if (slow.verdict !== "reject") f.push(`a candidate below the throughput floor must be rejected, got ${slow.verdict} (${slow.reason})`);
-  const nul = decideSequential(pooledCountsOf(cases[0]!.cand), pooledCountsOf(base), 2, rule);
-  if (nul.verdict === "advance") f.push(`a null candidate must not advance (${nul.reason})`);
-  const hollow = decideSequential(pooledCountsOf(cases[5]!.cand), pooledCountsOf(base), 2, rule);
-  if (hollow.verdict === "advance") f.push(`a per-second gain bought with shallower deep runs must not advance (${hollow.reason})`);
+  // The gate on a set of synthetic chunks, and the rule's own reading of the
+  // figures it produces. null means the case is settled in code before any
+  // verdict is reached, which is itself the assertion for a faulted stratum.
+  const gateOn = (cand: Evaluation[]): FinalGateInputs => ({
+    hypothesis: { id: "synthetic", kind: "add" } as unknown as Parameters<typeof finalGate>[0]["hypothesis"],
+    confirmEvals: cand, baselineEvals: base, regressionPassed: true, lintFailures: [],
+    changedSpurFiles: [], changedSuperFiles: [], throughputRatio: 1, throughputFloor: rule.throughputFloor,
+    unmeasurable: [], firing: { status: "not-claimed", detail: "" },
+  });
+  const ruleOn = (cand: Evaluation[]): { verdict: MergeVerdict; reason: string } | null => {
+    const c = mergeCase(gateOn(cand));
+    return "figures" in c ? ruleVerdict(c.figures) : null;
+  };
+  // Sampling stops on a separated rung; the gate then reads the same chunks.
+  // A stop the gate refuses to merge is not a contradiction - the two answer
+  // different questions - but a stop on a separated rung with every guard
+  // held must reach a merge, or a rung separated for nothing.
+  const stopsOn = (cand: Evaluation[], chunks: number): SeqDecision =>
+    decideSequential(pooledCountsOf(cand), pooledCountsOf(base), chunks, rule);
+  const plus = stopsOn(cases[1]!.cand, 2);
+  if (plus.verdict !== "stop") f.push(`+25% depth>=6 over two chunks must stop, got ${plus.verdict} (${plus.reason})`);
+  if (ruleOn(cases[1]!.cand)?.verdict !== "merge") f.push(`+25% depth>=6 must merge, got ${JSON.stringify(ruleOn(cases[1]!.cand))}`);
+  const faster = stopsOn(cases[3]!.cand, 2);
+  if (faster.verdict !== "stop") f.push(`+40% throughput at equal per-run rates must stop, got ${faster.verdict} (${faster.reason})`);
+  if (ruleOn(cases[3]!.cand)?.verdict !== "merge") f.push(`+40% throughput at equal per-run rates must merge, got ${JSON.stringify(ruleOn(cases[3]!.cand))}`);
+  const slowChunks = [2000, 2001].map((s) => chunk(s, { d6: 1.25, rps: 0.7 }));
+  const slow = stopsOn(slowChunks, 2);
+  if (slow.verdict !== "stop" || !slow.reason.startsWith("throughput")) f.push(`a candidate below the throughput floor must stop on the floor, got ${slow.verdict} (${slow.reason})`);
+  const nul = stopsOn(cases[0]!.cand, 2);
+  if (nul.verdict !== "continue") f.push(`a null candidate must keep sampling at two chunks, got ${nul.verdict} (${nul.reason})`);
+  if (ruleOn(cases[0]!.cand)?.verdict === "merge") f.push("a null candidate must not merge");
+  const hollow = ruleOn(cases[5]!.cand);
+  if (hollow?.verdict !== "close") f.push(`a per-second gain bought with shallower deep runs must close, got ${JSON.stringify(hollow)}`);
   const hollowGate = compareToBaseline(objectiveCounts(cases[5]!.cand), objectiveCounts(base), MERGE_Z);
   if (!hollowGate.regressed.some((r) => r.startsWith("depth>=6"))) f.push(`the gate must read -30% per-run depth>=6 as a regression, got regressed=[${hollowGate.regressed}]`);
   // The finding the stratum exists for: a gain confined to the aos arm
@@ -479,13 +480,13 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   const aosOnly = [2000, 2001].map((s) => chunk(s, { arms: { aos: 3 } }));
   const aosCmp = compareToBaseline(objectiveCounts(aosOnly), objectiveCounts(base), MERGE_Z);
   if ((aosCmp.deltas["depth>=6:pooled"] ?? 0) < 0.1) f.push("the aos-only case must lift the pooled rate, else it tests nothing");
-  const aosSeq = decideSequential(pooledCountsOf(aosOnly), pooledCountsOf(base), 2, rule);
-  if (aosSeq.verdict === "advance") f.push(`a gain confined to the aos arm must not advance (${aosSeq.reason})`);
+  if (ruleOn(aosOnly)?.verdict === "merge") f.push("a gain confined to the aos arm must not merge");
   if (aosCmp.improved.length > 0) f.push(`a gain confined to the aos arm must not read as an improvement, got [${aosCmp.improved}]`);
   // ...and the stratum must not have taken the signal out with the noise.
   const gridOnly = [2000, 2001].map((s) => chunk(s, { arms: gridScale(1.25) }));
-  const gridSeq = decideSequential(pooledCountsOf(gridOnly), pooledCountsOf(base), 2, rule);
-  if (gridSeq.verdict !== "advance") f.push(`+25% on the grid arms must advance, got ${gridSeq.verdict} (${gridSeq.reason})`);
+  const gridSeq = stopsOn(gridOnly, 2);
+  if (gridSeq.verdict !== "stop") f.push(`+25% on the grid arms must stop, got ${gridSeq.verdict} (${gridSeq.reason})`);
+  if (ruleOn(gridOnly)?.verdict !== "merge") f.push(`+25% on the grid arms must merge, got ${JSON.stringify(ruleOn(gridOnly))}`);
 
   // An arm set that moved is a unit change, not a result: nothing may be
   // compared, and no stratified delta may be published.
@@ -494,8 +495,10 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     metrics: { ...e.metrics, campaign: e.metrics.campaign === null ? null : { ...e.metrics.campaign, arms: e.metrics.campaign.arms.slice(1) } },
   });
   const moved = [2000, 2001].map((s) => dropArm(chunk(s, {})));
-  const movedSeq = decideSequential(pooledCountsOf(moved), pooledCountsOf(base), 2, rule);
-  if (movedSeq.verdict !== "escalate") f.push(`a changed arm set must escalate, got ${movedSeq.verdict} (${movedSeq.reason})`);
+  const movedSeq = stopsOn(moved, 2);
+  if (movedSeq.verdict !== "stop") f.push(`a changed arm set must stop, got ${movedSeq.verdict} (${movedSeq.reason})`);
+  if (ruleOn(moved) !== null) f.push("a changed arm set must be settled in code, so no verdict is reached on it");
+  if (finalGate(gateOn(moved), { verdict: "merge", reason: "a decider said so" }).verdict !== "needs_human") f.push("a changed arm set must reach a human whatever verdict is supplied");
   const movedCmp = compareToBaseline(objectiveCounts(moved), objectiveCounts(base), MERGE_Z);
   if (movedCmp.stratumFault?.kind !== "arms") f.push("a changed arm set must be reported as an arms fault");
   if (movedCmp.deltas["depth>=6"] !== undefined) f.push("a faulted stratum must not publish a stratified delta");
@@ -506,8 +509,8 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     runs: Math.round(shape.runs), exposureMs: Math.round(shape.exposureMs) + s, h2Rate: shape.h2, noCampaign: true,
     depthAtLeast: [shape.runs, shape.runs, shape.runs, shape.d4, shape.d5, shape.d6 * 3, shape.d7, shape.d8].map((v) => Math.round(v)),
   }));
-  const blindSeq = decideSequential(pooledCountsOf(blind), pooledCountsOf(base), 2, rule);
-  if (blindSeq.verdict === "advance") f.push(`a tripled pooled rate with no per-arm accounting must not advance (${blindSeq.reason})`);
+  if (ruleOn(blind) !== null) f.push("a chunk with no per-arm accounting must be settled in code, so no verdict is reached on it");
+  if (finalGate(gateOn(blind), { verdict: "merge", reason: "a decider said so" }).verdict !== "blocked") f.push("a tripled pooled rate with no per-arm accounting must block, not merge");
 
   // The violation prior. A violation at the archive rate is what the corpus
   // produces anyway; one far above it is the candidate's.
@@ -516,8 +519,11 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   const rare: RatePrior = { violations: 1, runs: Math.max(1, nullPooled.runs) * 100, chunks: 400, sinceEpoch: 7 };
   const withViolations = (n: number, prior: RatePrior): SeqDecision =>
     decideSequential({ ...nullPooled, violations: n }, pooledCountsOf(base), 2, { ...rule, violationPrior: prior });
-  if (withViolations(1, atRate).verdict === "advance") f.push("a violation at the archive rate must not advance");
-  if (withViolations(6, rare).verdict !== "advance") f.push(`violations far above the archive rate must advance, got ${withViolations(6, rare).verdict}`);
+  if (withViolations(1, atRate).verdict !== "continue") f.push("a violation at the archive rate must not stop the sample");
+  const violationStop = withViolations(6, rare);
+  if (violationStop.verdict !== "stop" || !violationStop.reason.startsWith("violations separated")) {
+    f.push(`violations far above the archive rate must stop the sample, got ${violationStop.verdict} (${violationStop.reason})`);
+  }
 
   // The primary a decision records must stay on the depth scale whenever
   // violations are not the separated improvement. With a prior in force a
@@ -568,12 +574,6 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
     const post = decideSequential(pooledCountsOf(primaryDown), pooledCountsOf(base), 2, rule).posteriors;
     if ((post[g] ?? 0) > 1 - rule.niP) f.push(`the primary-down case is refused by ${g} instead, so it tests the wrong guard`);
   }
-  const gateOn = (cand: Evaluation[]): FinalGateInputs => ({
-    hypothesis: { id: "synthetic", kind: "add" } as unknown as Parameters<typeof finalGate>[0]["hypothesis"],
-    confirmEvals: cand, baselineEvals: base, regressionPassed: true, lintFailures: [],
-    changedSpurFiles: [], changedSuperFiles: [], throughputRatio: 1, throughputFloor: rule.throughputFloor,
-    unmeasurable: [], firing: { status: "not-claimed", detail: "" },
-  });
   const downCase = mergeCase(gateOn(primaryDown));
   if (!("figures" in downCase)) {
     f.push("the primary-down fixture must reach a verdict, else no blocker is exercised");
@@ -585,6 +585,25 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   if (forced.verdict === "auto_merge") f.push(`a supplied merge must not stand while depth>=${PRIMARY_RUNG} is separated below the baseline`);
   const clean = finalGate(gateOn(cases[1]!.cand), { verdict: "merge", reason: "a decider said so" });
   if (clean.verdict !== "auto_merge") f.push(`a +25% primary rung with every post-condition met must merge, got ${clean.verdict} (${clean.reasons.join("; ")})`);
+
+  // Throughput bought at the deep rungs' expense, at the margin where the
+  // per-run guard answers neither way. Every rung's per-second rate is up,
+  // the primary rung is not separated below the baseline, and nothing is
+  // recorded as regressed - so only the unresolved guard stands between this
+  // shape and an unattended merge.
+  const unresolvedGuard = [2000, 2001].map((s) => chunk(s, { rps: 1.4, d6: 0.75 }));
+  const guardCase = mergeCase(gateOn(unresolvedGuard));
+  if (!("figures" in guardCase)) {
+    f.push("the unresolved-guard fixture must reach a verdict, else no blocker is exercised");
+  } else {
+    const g = guardCase.figures;
+    if (g.deepRungsUnresolved.length === 0) f.push(`a -25% per-run depth>=6 at 1.4x throughput must leave a deep guard unresolved, got regressed=[${g.regressed}]`);
+    if (g.primaryRungRegressed) f.push("the unresolved-guard fixture must not be refused by the primary-rung test instead, or it tests the wrong thing");
+    if (g.improved.length === 0) f.push("the unresolved-guard fixture must carry a separated improvement, else it tests nothing");
+    if (ruleVerdict(g).verdict !== "human") f.push(`an unresolved deep guard must reach a human, got ${JSON.stringify(ruleVerdict(g))}`);
+  }
+  const forcedGuard = finalGate(gateOn(unresolvedGuard), { verdict: "merge", reason: "a decider said so" });
+  if (forcedGuard.verdict === "auto_merge") f.push("a supplied merge must not stand while a deep rung per run is unresolved");
 
   // The mid-run stopper's rails and the band it reads with.
   //

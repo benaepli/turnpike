@@ -79,28 +79,32 @@ function binomial(n: number, prob: number, u: () => number): number {
   return Math.max(0, Math.round(mean + sd * normal(u)));
 }
 
-interface Expect { advanceMin?: number; advanceMax?: number; rejectMin?: number; inconclusiveMin?: number; escalateMin?: number; chunksMeanMin?: number; chunksMeanMax?: number }
+// The rule decides only when to stop, so its own tally has two terminal
+// outcomes. What the stopped sample means is the gate's reading, tallied
+// beside it.
+interface Expect { stopMin?: number; inconclusiveMin?: number; inconclusiveMax?: number; chunksMeanMin?: number; chunksMeanMax?: number }
 interface Scenario { name: string; rps: number; e4: number; e5: number; e6: number; e7: number; eh2: number; expect: Expect }
 const scenarios: Scenario[] = [
-  { name: "null (A/A)", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, expect: { advanceMax: 3 } },
-  { name: "+25% d6", rps: 1, e4: 0, e5: 0, e6: 0.25, e7: 0.25, eh2: 0, expect: { advanceMin: 90 } },
-  { name: "+25% d6 at 0.7x throughput", rps: 0.7, e4: 0, e5: 0, e6: 0.25, e7: 0.25, eh2: 0, expect: { rejectMin: 90, advanceMax: 0 } },
-  { name: "flat depth at 1.4x throughput", rps: 1.4, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, expect: { advanceMin: 95 } },
-  { name: "+12% d4, +15% d5", rps: 1, e4: 0.12, e5: 0.15, e6: 0.1, e7: 0.1, eh2: 0.03, expect: { advanceMin: 90 } },
+  { name: "null (A/A)", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, expect: { stopMin: 90, chunksMeanMin: 3.9 } },
+  { name: "+25% d6", rps: 1, e4: 0, e5: 0, e6: 0.25, e7: 0.25, eh2: 0, expect: { stopMin: 90, chunksMeanMax: 2 } },
+  { name: "+25% d6 at 0.7x throughput", rps: 0.7, e4: 0, e5: 0, e6: 0.25, e7: 0.25, eh2: 0, expect: { stopMin: 100, chunksMeanMax: 2 } },
+  { name: "flat depth at 1.4x throughput", rps: 1.4, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0, expect: { stopMin: 95, chunksMeanMax: 2 } },
+  { name: "+12% d4, +15% d5", rps: 1, e4: 0.12, e5: 0.15, e6: 0.1, e7: 0.1, eh2: 0.03, expect: { stopMin: 90, chunksMeanMax: 2 } },
   // A clear loser costs the minimum sample, not one chunk: the per-run
   // depth>=4 point comparison that used to reject at chunk 1 rejected on a
   // ratio while the objective is a rate, so it also killed candidates whose
   // rate was up. The measured price of removing it is one extra chunk here.
-  { name: "harmful (-40% d4 per run)", rps: 1, e4: -0.4, e5: -0.4, e6: -0.4, e7: -0.4, eh2: -0.1, expect: { rejectMin: 100, chunksMeanMax: 2 } },
-  // depth>=7 does not carry a merge, so a gain confined to it costs the full
-  // sample and reaches a human rather than being merged or discarded.
-  { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, expect: { advanceMax: 0, escalateMin: 90 } },
-  { name: "h2-only +10%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0.1, expect: { advanceMax: 3 } },
-  // The deep-rung guard is a 25% relative margin: a decline inside it
-  // advances, one at the margin is held for a human, one beyond it rejects.
-  { name: "1.4x throughput, -15% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.15, e7: -0.15, eh2: 0, expect: { advanceMin: 90 } },
-  { name: "1.4x throughput, -25% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.25, e7: -0.25, eh2: 0, expect: { advanceMax: 10, escalateMin: 85 } },
-  { name: "-40% per-run d6 only", rps: 1, e4: 0, e5: 0, e6: -0.4, e7: -0.4, eh2: 0, expect: { rejectMin: 90, advanceMax: 0 } },
+  { name: "harmful (-40% d4 per run)", rps: 1, e4: -0.4, e5: -0.4, e6: -0.4, e7: -0.4, eh2: -0.1, expect: { stopMin: 100, chunksMeanMax: 2 } },
+  // depth>=7 does not carry a gain the rule can stop on, so a gain confined
+  // to it costs the full sample and is read at the gate.
+  { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, expect: { stopMin: 90, chunksMeanMin: 3.9 } },
+  { name: "h2-only +10%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0.1, expect: { stopMin: 90, chunksMeanMin: 3.9 } },
+  // The deep-rung guard is a 25% relative margin: a decline inside it stops
+  // on the separated rung, one at the margin leaves the guard unresolved and
+  // costs the full sample, one beyond it stops on the guard.
+  { name: "1.4x throughput, -15% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.15, e7: -0.15, eh2: 0, expect: { stopMin: 90, chunksMeanMax: 2 } },
+  { name: "1.4x throughput, -25% per-run d6", rps: 1.4, e4: 0, e5: 0, e6: -0.25, e7: -0.25, eh2: 0, expect: { stopMin: 90, chunksMeanMin: 3.5 } },
+  { name: "-40% per-run d6 only", rps: 1, e4: 0, e5: 0, e6: -0.4, e7: -0.4, eh2: 0, expect: { stopMin: 90, chunksMeanMax: 2 } },
 ];
 const args = process.argv.slice(2);
 const assertMode = args.includes("--assert");
@@ -108,7 +112,7 @@ const REPS = Number(args.find((a) => !a.startsWith("--")) ?? 150);
 
 const failures: string[] = [];
 for (const sc of scenarios) {
-  const tally: Record<string, number> = { advance: 0, reject: 0, inconclusive: 0, escalate: 0 };
+  const tally: Record<string, number> = { stop: 0, inconclusive: 0 };
   let chunksTotal = 0;
   let chunksMin = 1e9;
   let chunksMax = 0;
@@ -162,13 +166,11 @@ for (const sc of scenarios) {
   const pctOf = (k: string): number => (100 * (tally[k] ?? 0)) / REPS;
   const pct = (k: string): string => pctOf(k).toFixed(0).padStart(3) + "%";
   const meanChunks = chunksTotal / REPS;
-  console.log(`${sc.name.padEnd(34)} advance ${pct("advance")}  reject ${pct("reject")}  inconclusive ${pct("inconclusive")}  escalate ${pct("escalate")}  chunks mean ${meanChunks.toFixed(1)} [${chunksMin}-${chunksMax}]`);
+  console.log(`${sc.name.padEnd(34)} stop ${pct("stop")}  inconclusive ${pct("inconclusive")}  chunks mean ${meanChunks.toFixed(1)} [${chunksMin}-${chunksMax}]`);
   const e = sc.expect;
-  if (e.advanceMin !== undefined && pctOf("advance") < e.advanceMin) failures.push(`${sc.name}: advance ${pctOf("advance").toFixed(0)}% < ${e.advanceMin}%`);
-  if (e.advanceMax !== undefined && pctOf("advance") > e.advanceMax) failures.push(`${sc.name}: advance ${pctOf("advance").toFixed(0)}% > ${e.advanceMax}%`);
-  if (e.rejectMin !== undefined && pctOf("reject") < e.rejectMin) failures.push(`${sc.name}: reject ${pctOf("reject").toFixed(0)}% < ${e.rejectMin}%`);
+  if (e.stopMin !== undefined && pctOf("stop") < e.stopMin) failures.push(`${sc.name}: stop ${pctOf("stop").toFixed(0)}% < ${e.stopMin}%`);
   if (e.inconclusiveMin !== undefined && pctOf("inconclusive") < e.inconclusiveMin) failures.push(`${sc.name}: inconclusive ${pctOf("inconclusive").toFixed(0)}% < ${e.inconclusiveMin}%`);
-  if (e.escalateMin !== undefined && pctOf("escalate") < e.escalateMin) failures.push(`${sc.name}: escalate ${pctOf("escalate").toFixed(0)}% < ${e.escalateMin}%`);
+  if (e.inconclusiveMax !== undefined && pctOf("inconclusive") > e.inconclusiveMax) failures.push(`${sc.name}: inconclusive ${pctOf("inconclusive").toFixed(0)}% > ${e.inconclusiveMax}%`);
   if (e.chunksMeanMin !== undefined && meanChunks < e.chunksMeanMin) failures.push(`${sc.name}: mean chunks ${meanChunks.toFixed(1)} < ${e.chunksMeanMin}`);
   if (e.chunksMeanMax !== undefined && meanChunks > e.chunksMeanMax) failures.push(`${sc.name}: mean chunks ${meanChunks.toFixed(1)} > ${e.chunksMeanMax}`);
 }
