@@ -52,7 +52,6 @@
     "maxRunsPerConfig": 4000,
     "maxChunks": 4,
     "minChunks": 2,
-    "rejectP": 0.05,
     "inconclusiveP": 0.9,
     "niP": 0.95,
     "regressMargin": 0.25,

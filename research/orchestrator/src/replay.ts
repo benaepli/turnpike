@@ -11,13 +11,18 @@
 // offline verdict: there is no chunk to give it. Those are reported as
 // "unresolved", which is the honest answer and is also the interesting one -
 // a chunk-1 rejection that becomes "keep sampling" is a rejection undone.
+//
+// The mid-run stopper is a model call and is not replayable at all, so this
+// replays the rule alone and counts the chunks where no rail bound - the
+// chunks the stopper would have been asked about, and the only ones whose
+// outcome it could have changed.
 import Database from "better-sqlite3";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import * as path from "node:path";
 import { ROOT } from "./paths.js";
 import { loadPolicy } from "./policy.js";
 import { CAMPAIGN_EPOCH_FLOOR, MERGE_Z, finalGate, judgedByNonInferiority, type RatePrior } from "./decide.js";
-import { decideSequential, pooledCountsOf, seqRuleOf, throughputRatioOf, type SeqKind } from "./sequential.js";
+import { decideSequential, pooledCountsOf, railVerdict, seqRuleOf, throughputRatioOf, type SeqKind } from "./sequential.js";
 import { Evaluation, type Hypothesis } from "./schemas.js";
 
 type Terminal = "merge" | "human" | "closed" | "blocked" | "unresolved";
@@ -161,6 +166,7 @@ function main(): void {
 
   const cases: Case[] = [];
   const skipped: string[] = [];
+  let stopperChunks = 0;
   for (const [iteration, slot] of [...byIter.entries()].sort((a, b) => a[0] - b[0])) {
     const sel = slot["select"], seq = slot["sequential"], dec = slot["decision"];
     if (!sel || !seq) continue;
@@ -194,6 +200,7 @@ function main(): void {
       taken.push(r.e);
       used++;
       const d = decideSequential(pooledCountsOf(taken), basePooled, used, seqKind, rule);
+      if (railVerdict(d, pooledCountsOf(taken), basePooled, used, seqKind, rule) === null) stopperChunks++;
       verdict = d.verdict;
       reason = d.reason;
       if (verdict !== "continue") break;
@@ -238,7 +245,7 @@ function main(): void {
     });
   }
 
-  report(cases, skipped, baselineMisses, args.has("--all"), args.has("--assert"));
+  report(cases, skipped, baselineMisses, stopperChunks, args.has("--all"), args.has("--assert"));
 }
 
 /** Files under spur/ the hypothesis changed, from its evidence packet. Only
@@ -277,7 +284,7 @@ const EXPECTED: Array<{ iteration: number; want: (c: Case) => boolean; why: stri
   { iteration: 5328, want: (c: Case): boolean => c.next === "merge", why: "non-inferior with one violation the baseline did not have" },
 ];
 
-function report(cases: Case[], skipped: string[], baselineMisses: number, all: boolean, assert: boolean): void {
+function report(cases: Case[], skipped: string[], baselineMisses: number, stopperChunks: number, all: boolean, assert: boolean): void {
   const kinds: Terminal[] = ["merge", "human", "closed", "blocked", "unresolved"];
   const table = new Map<string, number>();
   for (const c of cases) table.set(`${c.old}|${c.next}`, (table.get(`${c.old}|${c.next}`) ?? 0) + 1);
@@ -294,6 +301,7 @@ function report(cases: Case[], skipped: string[], baselineMisses: number, all: b
   // a property of the record's age, not of any change under test.
   const faulted = changed.filter((c) => c.nextReason.startsWith("the rate stratum cannot be compared"));
   if (faulted.length > 0) console.log(`${faulted.length} of those carry evidence from before the rate was stratified, so today's rule refuses to compare them: ${faulted.map((c) => c.iteration).join(", ")}.`);
+  console.log(`${stopperChunks} chunk decisions had no rail bound, so the stopper would have been asked about them.`);
   const assumed = cases.filter((c) => c.suiteAssumed).length;
   if (assumed > 0) console.log(`${assumed} reached the gate on a regression suite that never ran in the record; those are replayed as if it passes.`);
   if (baselineMisses > 0) console.log(`${baselineMisses} recorded baselines could not be reconstructed from the evaluations table.`);

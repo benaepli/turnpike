@@ -175,7 +175,7 @@ for (const sc of scenarios) {
   if (e.chunksMeanMax !== undefined && meanChunks > e.chunksMeanMax) failures.push(`${sc.name}: mean chunks ${meanChunks.toFixed(1)} > ${e.chunksMeanMax}`);
   if (e.oneChunkReject && oneChunkRejects < REPS * 0.95) failures.push(`${sc.name}: only ${oneChunkRejects}/${REPS} rejected at the first chunk`);
 }
-console.log(`policy: chunk=${T}s explore budget, baseline ${BASE.chunks} chunks / ${BASE.runs} runs (about ${Math.round(T * BASE_RPS)} runs at baseline throughput) maxChunks=${rule.maxChunks} minChunks=${rule.minChunks} rejectP=${rule.rejectP} inconclusiveP=${rule.inconclusiveP} throughputFloor=${rule.throughputFloor} (minimum effect derived from baseline counts and the cap)`);
+console.log(`policy: chunk=${T}s explore budget, baseline ${BASE.chunks} chunks / ${BASE.runs} runs (about ${Math.round(T * BASE_RPS)} runs at baseline throughput) maxChunks=${rule.maxChunks} minChunks=${rule.minChunks} inconclusiveP=${rule.inconclusiveP} throughputFloor=${rule.throughputFloor} (minimum effect derived from baseline counts and the cap)`);
 if (failures.length > 0) {
   console.log(`expectations not met:\n  ${failures.join("\n  ")}`);
   if (assertMode) process.exit(1);

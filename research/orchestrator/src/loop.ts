@@ -980,10 +980,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       } catch { /* advisory only; never blocks an evaluation */ }
       violationRate = violationPrior(state);
       const res = await timed("evaluate", () => runSequential({
-        ctx, hypothesisId: h.id, kind, baseline: pooledCountsOf(baseline.sequential), prior,
+        ctx, hypothesisId: h.id, prediction: `${h.title}. ${h.rationale}`, kind,
+        baseline: pooledCountsOf(baseline.sequential), prior,
         baselineKey: baselineId, violationPrior: violationRate,
         maxChunksTotal: policy.sequential.maxChunks * (policy.sequential.maxResumes + 1),
-        onChunk: (seq, d) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, exposureSec: Math.round(seq.exposureSec), rps: seq.rpsChunks.at(-1) ?? 0, depth4: seq.depth4, depth5: seq.depth5, depth6: seq.depth6plus, depth7: seq.depth7plus, depth8: seq.depth8plus, h2: seq.h2Count, violations: seq.violations, anomalies: seq.anomalies, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors }),
+        onChunk: (seq, d, stopper) => journal(state, n, "seq_chunk", { chunk: seq.chunks, runs: seq.runs, exposureSec: Math.round(seq.exposureSec), rps: seq.rpsChunks.at(-1) ?? 0, depth4: seq.depth4, depth5: seq.depth5, depth6: seq.depth6plus, depth7: seq.depth7plus, depth8: seq.depth8plus, h2: seq.h2Count, violations: seq.violations, anomalies: seq.anomalies, verdict: d.verdict, reason: d.reason, posteriors: d.posteriors, stopper }),
         onAnomaly: (e, reason) => journal(state, n, "seq_chunk_anomaly", { seed: e.seed, reason, runs: e.metrics.runs, rps: e.metrics.runsPerSec, exposureMs: e.metrics.exposureMs, suspendedMs: e.suspendedMs, utilStats: e.utilStats }),
         stopRequested,
       }));

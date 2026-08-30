@@ -254,7 +254,7 @@ export function renderStatus(
   );
   const sq = policy.sequential;
   lines.push(
-    `- Sequential: ${sq.exploreBudgetSec} s explore budget per chunk (interleaved grid, at most ${sq.maxRunsPerConfig} runs/config), objective rung events per explore-second, ${sq.minChunks}-${sq.maxChunks} chunks, reject at P(effect>=separable)<${sq.rejectP}, inconclusive at cap with P(better)>=${sq.inconclusiveP}, throughput floor ${1 - policy.regression.throughputTolerance}, resumes ${sq.maxResumes}`,
+    `- Sequential: ${sq.exploreBudgetSec} s explore budget per chunk (interleaved grid, at most ${sq.maxRunsPerConfig} runs/config), objective rung events per explore-second, ${sq.minChunks}-${sq.maxChunks} chunks, inconclusive at cap with P(better)>=${sq.inconclusiveP}, throughput floor ${1 - policy.regression.throughputTolerance}, resumes ${sq.maxResumes}`,
   );
   lines.push(
     `- Evaluation: spec=${policy.evaluation.spec}, audit every ${policy.audit.everyK} iterations`,

@@ -171,6 +171,9 @@ async function textRole<T>(opts: {
   // A short phase whose output must survive a stop request runs to
   // completion instead of aborting on the STOP sentinel.
   stoppable?: boolean;
+  // Wall the call is aborted at. A role whose answer is worth less than the
+  // work it defers must not cost more than that work.
+  deadlineMs?: number;
 }): Promise<RoleResult<T>> {
   let lastErr = "no attempts";
   let raw = "";
@@ -180,7 +183,7 @@ async function textRole<T>(opts: {
     const prompt = attempt === 0
       ? opts.prompt
       : `${opts.prompt}\n\nYour previous reply did not validate: ${lastErr}\nReply with ONLY the corrected JSON.`;
-    const sc = stopController();
+    const sc = stopController(opts.deadlineMs);
     if (opts.stoppable === false) sc.dispose();
     const r = await collect(query({
       prompt,
@@ -399,6 +402,32 @@ export async function rejudgePool(policy: Policy, pool: Hypothesis[], calibratio
     prompt: `## Findings already established (observations log)\n${readIfExists(path.join(ROOT, "research/observations/OBSERVATIONS.md")).slice(-9000)}\n\n## Recent evidence (decisions, deltas, reflections)\n${recentEvidence.slice(0, 16000)}\n\n## Calibration: predicted vs realized\n${calibration || "(none)"}\n\n## Mechanism utilization in the evaluation config\n${utilization.slice(0, 4000)}\n\n${JUDGE_RUBRIC}\n\n## Pool to re-score\n${JSON.stringify(pool.map((h) => ({ id: h.id, kind: h.kind, title: h.title, description: h.description.slice(0, 600), buildsOn: h.buildsOn, expectedGain: h.expectedGain, expectedCost: h.expectedCost, parent: h.parent })), null, 1).slice(0, 40000)}\n\nRe-derive expectedGain and expectedCost from the rubric's anchors above rather than carrying a pool entry's existing numbers forward. The anchors change, and a score written against older ones does not mean what it says under these; a pool whose entries were scored against different anchors cannot be ranked against itself.\n\nReply with ONLY JSON: {"updates": [{"id": "...", "expectedGain": 0-10, "expectedCost": 0.1-10, "action": "keep"|"park", "reason": "one line"}]} covering EVERY pool id.`,
     schema: RejudgeResult,
     retries: 1,
+  });
+}
+
+// Whether a sequential sample is worth its next chunk. The rule owns every
+// terminal verdict; this answers only stop or continue, so the worst a wrong
+// answer can do is buy or skip one chunk. The figures come first because
+// they are the whole input: the harness computes every number, including the
+// null band each rung's own event count implies, and the reply adds no
+// number of its own.
+export const StopAnswer = z.object({
+  action: z.enum(["stop", "continue"]),
+  reason: z.string().min(3).max(400),
+});
+export type StopAnswer = z.infer<typeof StopAnswer>;
+
+export async function askChunkStopper(
+  policy: Policy, deadlineMs: number, payload: unknown,
+): Promise<RoleResult<StopAnswer>> {
+  return textRole({
+    model: policy.models.judge,
+    system: "You decide whether one more chunk of sampling is worth buying. You are not a gate: you cannot merge, close or judge a hypothesis, and the harness resolves a stop through its own rule. Answer stop when a further chunk cannot change what the sample already says, continue when it can.",
+    prompt: `## Figures\n${JSON.stringify(payload, null, 1)}\n\n## How to read them\n- Rates are rung events per explore-second on the arms the objective is separated over. \`ratio\` is candidate over baseline.\n- \`nullBand\` is the spread two seeds of one unchanged binary produce at that rung's own event count. A \`ratio\` inside \`1 +/- nullBand\` carries no information about the candidate, however large it looks.\n- \`pGreater\` is the posterior that the candidate's rate is higher; \`pRegress\` that it fell beyond the margin. Both near 0.5 means the sample has resolved nothing yet.\n- \`mei\` is the smallest relative effect the merge gate could separate at the chunk cap. An effect far below it cannot become a merge however long sampling runs.\n- \`canStillAdvance\` false means no remaining chunk can produce an advance.\n- \`exploreSecPerChunk\` is what the next chunk costs, and \`chunksRemaining\` is how many the rule would still buy.\n\nReply with ONLY JSON: {"action": "stop"|"continue", "reason": "one line"}`,
+    schema: StopAnswer,
+    retries: 0,
+    maxTurns: 1,
+    deadlineMs,
   });
 }
 

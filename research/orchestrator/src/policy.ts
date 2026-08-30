@@ -40,7 +40,6 @@ export const Policy = z.object({
     maxRunsPerConfig: z.number().int().positive(),
     maxChunks: z.number().int().positive(),
     minChunks: z.number().int().positive(),
-    rejectP: z.number().min(0).max(0.5),
     inconclusiveP: z.number().min(0.5).max(1),
     niP: z.number().min(0.5).max(1),
     regressMargin: z.number().positive(),
@@ -49,7 +48,7 @@ export const Policy = z.object({
     draws: z.number().int().min(200),
     wallSecPerChunk: z.number().int().positive(),
   }).default({
-    exploreBudgetSec: 90, maxRunsPerConfig: 4000, maxChunks: 4, minChunks: 2, rejectP: 0.05,
+    exploreBudgetSec: 90, maxRunsPerConfig: 4000, maxChunks: 4, minChunks: 2,
     inconclusiveP: 0.9, niP: 0.95,
     regressMargin: 0.25, maxResumes: 2, resumeCooldown: 2, draws: 2000, wallSecPerChunk: 900,
   }),
