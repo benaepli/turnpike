@@ -43,6 +43,9 @@
     "hold_down_receivers": false
   },
   "partial_fanout_crash_bias": 0.5,
+  "faults": {
+    "recovery_weight_placebo": true
+  },
   "feedback": {
     "mode": "timeline",
     "steer": true,
