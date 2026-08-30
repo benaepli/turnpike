@@ -506,6 +506,10 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
   if (i.lintFailures.length > 0) out.push("lint failures stand");
   if (cmp.stratumFault !== null) out.push("the rate stratum is faulted");
   if (!firingPasses(i.firing)) out.push("the predicted mechanism did not fire");
+  // The rung the objective is named on, separated below the baseline at the
+  // merge z. The sampler refuses to advance this shape, so reaching here means
+  // the two disagree; a verdict is not the place to settle that.
+  if (f.nonInferiorFailures.length > 0) out.push(`separated below baseline on ${f.nonInferiorFailures.join(", ")}`);
   if (f.throughput.ratio < f.throughput.floor) out.push(`throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}`);
   // A change to what an execution means can move every rung without exploring
   // anything new, so its evidence cannot certify it; the loop's own rule book
