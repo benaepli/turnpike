@@ -139,3 +139,35 @@ admitting one reading.
 All three violations on record involve one node crash-recovering three times,
 the configured maximum, which is the condition the nonce defect needs to
 confuse one recovery round with another.
+
+## Correction (2026-08-30): the kv_store defect is causal, not cosmetic
+
+This file records that failing to rebuild `kv_store` when a view change
+truncates the log "does not cause the loss; it makes it observable". Run
+210233 (signature 66606a25bbc1ea90, session seed 1001, arm grid) is a
+counterexample, and the polarity is reversed.
+
+There, uid 5 is never lost from any log: it sits at log index 2 on all three
+nodes and appears in every later view-change payload. What is lost is node 0
+applying it. `applied_op_count` (`VR.spur:53`) is a position into `log`, and
+`enter_normal_mode` (`VR.spur:267`) replaces the log wholesale at `:271`
+without clamping it or rebuilding `kv_store`. After a view change truncates
+node 0's already-applied op 3, slot 3 is refilled by a different write, and
+the apply guard at `:127` reads `applied_op_count < commit_number` as 3 < 3
+and skips it permanently. Node 0's log stays correct forever; its state
+machine is missing the write, and a read served by node 0 two hundred steps
+later returns the shorter list.
+
+So the defect can be the loss rather than only its symptom, with the state
+machine behind the log rather than ahead of it. The enabler is the volatile
+`recovery_nonce` (`:71`, `:93`, `:433`): every recovery reuses nonce 1, so a
+`RecoveryResponse` generated two rounds earlier is accepted and rolls a
+replica backwards, which is what lets a view change truncate an applied
+entry. Both are implementation defects with no counterpart in the
+pseudocode - VR Revisited section 4.2 step 5 speaks of operations not
+executed previously, which is a statement about operation identity, not a
+position in a log that STARTVIEW can replace.
+
+The paper-level question this file already raises is exercised a second time
+and stands: a replica with no stable storage has no protocol-internal source
+for a nonce unique across incarnations.
