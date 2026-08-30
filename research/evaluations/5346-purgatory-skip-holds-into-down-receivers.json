@@ -1,0 +1,555 @@
+{
+  "hypothesis": {
+    "id": "purgatory-skip-holds-into-down-receivers",
+    "parent": null,
+    "kind": "ablate",
+    "title": "Split purgatory's holds by receiver liveness and suppress the measured-absorbed half",
+    "description": "Add `purgatory.hold_down_receivers` (bool, default true = today's behavior). At the purgatory delay decision site (the module owning purgatory.delayed_sends), classify each candidate send by whether its destination is currently down/restarting; when the field is false, pass those sends through undelayed while every other send is held with the same probability and the same duration draw, so hold volume, injected delay and RNG consumption are untouched on the sender-side population. Counters next to the existing purgatory group: holds_down_receiver, holds_up_receiver, passthrough_down_receiver. Fire criterion: with the field false, passthrough_down_receiver > 0 and holds_down_receiver == 0; the split counters under the DEFAULT are themselves the first measurement of how the working mechanism divides between the two populations.",
+    "category": "scheduler",
+    "buildsOn": [
+      "purgatory delay_probability",
+      "purgatory.delayed_sends counter",
+      "deliveryEffects acted counters"
+    ],
+    "expectedGain": 4,
+    "expectedCost": 2,
+    "rationale": "Purgatory is the one delay mechanism with a large measured positive effect (grid 27.37 d>=6/s vs grid-no-purgatory 16.34), and after six falsified dose/targeting variants nobody has decomposed it. This is the first subtractive proposal in the family: it removes the half whose deliveries are acted on 1.8% of the time and keeps the half at 15.9%, at zero change to the retained population. Both outcomes are informative — flat depth with higher throughput retires an absorbed surface; a depth drop retires the acted-fraction pricing that four families are built on.",
+    "generalityArgument": "The predicate is 'destination node is currently crashed/restarting', a property of simulator fault state. No handler, message type, timer label or role; a no-op on fault-free specs.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-30T03:20:00.000Z",
+    "firingCounter": null,
+    "notes": "Red team, and the reason this is gain 4 not 5: the proposer's own premise may be inverted. Holding a message aimed at a DOWN receiver is plausibly the exact mechanism by which purgatory manufactures the receiver-restarted-in-the-meantime condition — the hold is what lets the receiver come back before delivery. If so, suppressing it removes the load-bearing half and the 11-point d>=6/s gap collapses. Also note the family's record: purgatory-rate-to-stale-late-arm -0.0436, correlate-purgatory-release-steps -0.0010, param sweeps closed, hold-range bisect merged with no depth gain. Adds one tunable (+0.5). FALSIFIER: depth>=6 events per explore-second with hold_down_receivers=false vs default at two seeds; a drop beyond the null band confirms the receiver-side holds are load-bearing and refutes acted-fraction as a way to price a perturbation."
+  },
+  "decision": {
+    "hypothesisId": "purgatory-skip-holds-into-down-receivers",
+    "verdict": "auto_merge",
+    "reasons": [
+      "non-inferior ablation (flag-off stage)"
+    ],
+    "objectiveDeltas": {
+      "stratified": 1,
+      "violations": -8.270696591149693e-7,
+      "depth>=4:pooled": 0.0006163658419817697,
+      "depth>=4": -0.008695936673634108,
+      "depth>=5:pooled": -0.021511523477281025,
+      "depth>=5": -0.0046130623012869965,
+      "depth>=6:pooled": -0.02618061022067275,
+      "depth>=6": -0.010891679161078582,
+      "depth>=7:pooled": -0.04426625116595995,
+      "depth>=7": -0.014043788959321901,
+      "depth>=8:pooled": -0.029395669022304505,
+      "depth>=8": 0.030492694776568685,
+      "h2": -0.007048895020463408,
+      "throughput": -0.008031305933882127,
+      "primary": -0.010891679161078582,
+      "panelZ": 0,
+      "params": 0
+    },
+    "regressionPassed": true,
+    "lintPassed": true,
+    "rayonThreads": 14
+  },
+  "evaluations": {
+    "sequential": [
+      {
+        "id": "purgatory-skip-holds-into-down-receivers-sequential-1000-1788059474782",
+        "hypothesisId": "purgatory-skip-holds-into-down-receivers",
+        "fidelity": "sequential",
+        "graderVersion": "ta:08b1b45+porc:ebf06c5",
+        "spurCommit": "ea2da9f313e5d48653194b1aa315622162862a98",
+        "superCommit": "e4ca17f0c6ef1115768fcf52258bccbe0ea74b6c",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 1000,
+        "startedAtIso": "2026-08-30T03:11:14.783Z",
+        "rayonThreads": 14,
+        "metrics": {
+          "runs": 300480,
+          "runsPerSec": 1000.5027819491291,
+          "exposureMs": 300329,
+          "unpairedFraction": 0.5049570793405648,
+          "h1Rate": 0.488002529286475,
+          "h2Rate": 0.41388112353567624,
+          "h2bRate": 0.42375199680511183,
+          "h3Rate": 0.36520234291799786,
+          "h4Rate": 0.9114916134185304,
+          "gradedRuns": 300480,
+          "meanPrefixDepth": 3.272078008519702,
+          "maxPrefixDepth": 9,
+          "depthAtLeast": [
+            300480,
+            271237,
+            210265,
+            140763,
+            47018,
+            10744,
+            2318,
+            368,
+            1
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 21094,
+          "gradeWallMs": 67754,
+          "campaign": {
+            "wallSec": 300,
+            "allocation": "round_robin",
+            "reward": "termination_completed",
+            "runsTotal": 300480,
+            "sliceUnitSec": 20,
+            "cancelled": false,
+            "arms": [
+              {
+                "index": 0,
+                "id": "grid",
+                "mode": "grid",
+                "overlay": {},
+                "slices": 3,
+                "runs": 41280,
+                "wallMs": 60049,
+                "rewardRate": 194.95745141467802,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  41280,
+                  37468,
+                  29097,
+                  19681,
+                  6753,
+                  1687,
+                  388,
+                  58,
+                  0
+                ],
+                "gradedRuns": 41280,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 1,
+                "id": "grid-short",
+                "mode": "grid",
+                "overlay": {
+                  "max_iterations": 1500
+                },
+                "slices": 3,
+                "runs": 131552,
+                "wallMs": 60011,
+                "rewardRate": 545.3333555514822,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  131552,
+                  119182,
+                  92407,
+                  62703,
+                  21818,
+                  5226,
+                  1133,
+                  175,
+                  1
+                ],
+                "gradedRuns": 131552,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 2,
+                "id": "grid-no-purgatory",
+                "mode": "grid",
+                "overlay": {
+                  "purgatory.delay_probability": 0
+                },
+                "slices": 3,
+                "runs": 39488,
+                "wallMs": 60090,
+                "rewardRate": 192.62772507904808,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  39488,
+                  35208,
+                  26424,
+                  17137,
+                  5124,
+                  962,
+                  171,
+                  29,
+                  0
+                ],
+                "gradedRuns": 39488,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 3,
+                "id": "grid-post-fault-2",
+                "mode": "grid",
+                "overlay": {
+                  "post_fault_client_ops": 2
+                },
+                "slices": 3,
+                "runs": 43296,
+                "wallMs": 60099,
+                "rewardRate": 213.59756401936806,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  43296,
+                  38949,
+                  30024,
+                  19184,
+                  6788,
+                  1571,
+                  341,
+                  71,
+                  0
+                ],
+                "gradedRuns": 43296,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 4,
+                "id": "aos",
+                "mode": "aos",
+                "overlay": {},
+                "slices": 3,
+                "runs": 44864,
+                "wallMs": 60063,
+                "rewardRate": 230.3081764147645,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  44864,
+                  40430,
+                  32313,
+                  22058,
+                  6535,
+                  1298,
+                  285,
+                  35,
+                  0
+                ],
+                "gradedRuns": 44864,
+                "violations": 0,
+                "firstViolationMs": null
+              }
+            ]
+          }
+        },
+        "exploreWallMs": 300779,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 300329,
+          "runsCompleted": 300480,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 300,
+          "budgetHit": true,
+          "writerFlushMs": 13
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 300480,
+            "planComplete": 82678,
+            "planCompleteWithPendingWork": 82678,
+            "iterationsExhausted": 217691,
+            "deadlock": 111,
+            "stepsUsedSum": 916201909,
+            "stepBudgetSum": 1210896000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 194861887,
+              "acted": 71214618
+            },
+            "biased": {
+              "deliveries": 23516379,
+              "acted": 2591221
+            },
+            "delayed": {
+              "deliveries": 22787045,
+              "acted": 2544647
+            },
+            "senderRestarted": {
+              "deliveries": 295491,
+              "acted": 42478
+            },
+            "receiverRestarted": {
+              "deliveries": 571182,
+              "acted": 12864
+            }
+          },
+          "steerAuthority": {
+            "steps": 916201909,
+            "preferenceExpressed": 0,
+            "preferenceHonored": 0,
+            "honored": 0,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      },
+      {
+        "id": "purgatory-skip-holds-into-down-receivers-sequential-1001-1788059865482",
+        "hypothesisId": "purgatory-skip-holds-into-down-receivers",
+        "fidelity": "sequential",
+        "graderVersion": "ta:08b1b45+porc:ebf06c5",
+        "spurCommit": "ea2da9f313e5d48653194b1aa315622162862a98",
+        "superCommit": "e4ca17f0c6ef1115768fcf52258bccbe0ea74b6c",
+        "configPath": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+        "spec": "/home/benaepli/Rust/turnpike/bin/spur/VR.spur",
+        "seed": 1001,
+        "startedAtIso": "2026-08-30T03:17:45.482Z",
+        "rayonThreads": 14,
+        "metrics": {
+          "runs": 299360,
+          "runsPerSec": 996.5644890676183,
+          "exposureMs": 300392,
+          "unpairedFraction": 0.5035999907486272,
+          "h1Rate": 0.4820283270978087,
+          "h2Rate": 0.40652725815072155,
+          "h2bRate": 0.41957175307322286,
+          "h3Rate": 0.36275721539283806,
+          "h4Rate": 0.9127037680384821,
+          "gradedRuns": 299360,
+          "meanPrefixDepth": 3.2751837252805984,
+          "maxPrefixDepth": 9,
+          "depthAtLeast": [
+            299360,
+            270352,
+            208831,
+            140334,
+            47428,
+            11434,
+            2318,
+            398,
+            4
+          ],
+          "violations": 0,
+          "unknown": 0,
+          "porcupineWallMs": 20535,
+          "gradeWallMs": 68801,
+          "campaign": {
+            "wallSec": 300,
+            "allocation": "round_robin",
+            "reward": "termination_completed",
+            "runsTotal": 299360,
+            "sliceUnitSec": 20,
+            "cancelled": false,
+            "arms": [
+              {
+                "index": 0,
+                "id": "grid",
+                "mode": "grid",
+                "overlay": {},
+                "slices": 3,
+                "runs": 41632,
+                "wallMs": 60072,
+                "rewardRate": 195.88160873618324,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  41632,
+                  37612,
+                  29210,
+                  19839,
+                  6903,
+                  1696,
+                  366,
+                  49,
+                  0
+                ],
+                "gradedRuns": 41632,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 1,
+                "id": "grid-short",
+                "mode": "grid",
+                "overlay": {
+                  "max_iterations": 1500
+                },
+                "slices": 3,
+                "runs": 134080,
+                "wallMs": 60017,
+                "rewardRate": 557.6753253244914,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  134080,
+                  121537,
+                  94140,
+                  64111,
+                  22479,
+                  5416,
+                  1193,
+                  197,
+                  3
+                ],
+                "gradedRuns": 134080,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 2,
+                "id": "grid-no-purgatory",
+                "mode": "grid",
+                "overlay": {
+                  "purgatory.delay_probability": 0
+                },
+                "slices": 3,
+                "runs": 40320,
+                "wallMs": 60093,
+                "rewardRate": 196.1459737407019,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  40320,
+                  35923,
+                  27056,
+                  17473,
+                  5292,
+                  1041,
+                  162,
+                  23,
+                  0
+                ],
+                "gradedRuns": 40320,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 3,
+                "id": "grid-post-fault-2",
+                "mode": "grid",
+                "overlay": {
+                  "post_fault_client_ops": 2
+                },
+                "slices": 3,
+                "runs": 43552,
+                "wallMs": 60061,
+                "rewardRate": 215.93047068813374,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  43552,
+                  39083,
+                  29921,
+                  19448,
+                  6841,
+                  1657,
+                  341,
+                  89,
+                  1
+                ],
+                "gradedRuns": 43552,
+                "violations": 0,
+                "firstViolationMs": null
+              },
+              {
+                "index": 4,
+                "id": "aos",
+                "mode": "aos",
+                "overlay": {},
+                "slices": 3,
+                "runs": 39776,
+                "wallMs": 60132,
+                "rewardRate": 181.00179604869288,
+                "epochs": 0,
+                "droppedAtRound": null,
+                "depthAtLeast": [
+                  39776,
+                  36197,
+                  28504,
+                  19463,
+                  5913,
+                  1624,
+                  256,
+                  40,
+                  0
+                ],
+                "gradedRuns": 39776,
+                "violations": 0,
+                "firstViolationMs": null
+              }
+            ]
+          }
+        },
+        "exploreWallMs": 300817,
+        "suspendedMs": 0,
+        "ok": true,
+        "error": null,
+        "session": {
+          "wallMs": 300392,
+          "runsCompleted": 299360,
+          "runsFailed": 0,
+          "runsSkipped": 0,
+          "budgetSec": 300,
+          "budgetHit": true,
+          "writerFlushMs": 18
+        },
+        "utilStats": {
+          "termination": {
+            "runs": 299360,
+            "planComplete": 80877,
+            "planCompleteWithPendingWork": 80877,
+            "iterationsExhausted": 218353,
+            "deadlock": 130,
+            "stepsUsedSum": 912757752,
+            "stepBudgetSum": 1192800000
+          },
+          "deliveryEffects": {
+            "all": {
+              "deliveries": 195065481,
+              "acted": 73181792
+            },
+            "biased": {
+              "deliveries": 23400332,
+              "acted": 2665528
+            },
+            "delayed": {
+              "deliveries": 22687433,
+              "acted": 2619031
+            },
+            "senderRestarted": {
+              "deliveries": 292703,
+              "acted": 43191
+            },
+            "receiverRestarted": {
+              "deliveries": 555859,
+              "acted": 11987
+            }
+          },
+          "steerAuthority": {
+            "steps": 912757752,
+            "preferenceExpressed": 0,
+            "preferenceHonored": 0,
+            "honored": 0,
+            "blockedByTimerGate": 0
+          }
+        },
+        "timingAnomaly": null
+      }
+    ]
+  },
+  "spurFiles": [
+    "spur-core/src/simulator/core/exec.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/util_stats.rs"
+  ],
+  "superFiles": [
+    "scheduler_configs/loop/general_vr.json"
+  ],
+  "graderVersion": "ta:08b1b45+porc:ebf06c5",
+  "generalConfigParams": {
+    "before": 20,
+    "after": 20
+  }
+}

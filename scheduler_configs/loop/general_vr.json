@@ -39,7 +39,8 @@
     "delay_duration_range": [
       5,
       300
-    ]
+    ],
+    "hold_down_receivers": false
   },
   "feedback": {
     "mode": "timeline",
