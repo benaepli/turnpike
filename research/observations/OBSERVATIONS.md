@@ -2896,3 +2896,38 @@ Policy suggestions: Add a hard pre-implement liveness gate: reject any hypothesi
 ## 2026-08-30T02:02:21.425Z
 
 **prefix-extension-policy-depth-diagnostic** (auto_merge): Merged as enabling/non-inferior (auto_merge, regression+lint pass, 0 violations, throughput +1.1%, primary +0.003 — all deltas noise-scale; pooled depth deltas negative, stratified positive, i.e. no signal either way). Counters landed in explorer.rs/path.rs/util_stats.rs/campaign.rs and one new gate field (generalConfigParams 19->20). CRITICAL: the diagnostic produced ZERO information in this eval — neither seed-1000 nor seed-1001 utilStats contains a prefixExtension block (only termination/deliveryEffects/steerAuthority), so the default-off gate was never flipped in general_vr.json's eval path. The measurement this hypothesis existed to make has not been made; only the plumbing is merged. Restated evidence from these runs: depth distribution is budget-invariant to a precision that rules out budget entirely — grid (24000 iters) d>=6 = 376/41664 = 0.90%, grid-short (1500 iters) d>=6 = 1198/133472 = 0.90%, identical to 2 sig figs; d>=7 0.13% vs 0.16%. Global meanPrefixDepth 3.256-3.262, max 9, d>=7 ~0.0013. Step utilization 79% (956.4M/1209.6M), iterationsExhausted 74.8% of runs, planComplete 25.2% — and planCompleteWithPendingWork == planComplete EXACTLY (75953/75953, 78349/78349), i.e. every plan-complete termination fires with a non-empty pending frontier at ~depth 3. That equality is the first mechanistic candidate for the ceiling and was visible without the new counters. Two incidental observations: (a) steerAuthority.preferenceExpressed == 0 over 956M steps — the steer path is entirely inert in this config; (b) biased/delayed deliveries are acted on at 11.1% (2.62M/23.70M) vs 36.5% (71.6M/196.2M) for all deliveries — injected faults land disproportionately on deliveries that change nothing. Also flag: .cargo/config.toml is in the diff of a declared no-behavior-change instrumentation patch; worth a look that it is not a perf/codegen confound behind the +1.1% throughput.
+
+## 2026-08-30T02:16:39.020Z
+
+**prefix-extension-diagnostic-readout-arm** (no code produced): The fence for `kind=arm` permits writes only to `scheduler_configs/loop/general_vr.json` (Rust, `research/observations/`, and even `tmp/` are denied, as is building or running `spur`). I verified the config lane is writable with a probe edit that I reverted, so the tree is byte-identical to how I found it. Here is what I established and the deliverable table, extracted from counters that already exist on disk.
+
+## What I found first
+
+`scheduler_configs/loop/general_vr.json` **already carries the gate on**: `"emit_prefix_extension": true` (line 59, session-level) alongside `"stats": true`, and `research/policy.json` confirms this file is `policy.evaluation.configTemplate`. `materializeConfig` does not drop the key, so the next evaluation runs with the counters live. The flip the hypothesis asked for is already in the tree — no edit was needed or made.
+
+I confirmed the block is non-empty in two sessions written by the current binary: `tmp/loop/audit-util.utilization.json` (1,080 runs) and `tmp/loop/prefix-extension-smoke` (5 arms, 25,664 runs, the current arm set), whose `campaign.json` carries `arms[].counters.prefix_extension.all` per arm.
+
+## Deliverable: stop-bucket histogram per arm
+
+`complete/quiet` = plan finished, nothing queued; `complete/pending` = plan finished, work still queued; `budget/releasing` = budget cut a run still releasing; `budget/blocked` = budget cut a run whose queued work had stopped being releasable; `budget/idle` = budget cut a run with nothing queued. `blocked` = share of steps that offered queued work and released none.
+
+| arm | runs | quiet | complete/pending | budget/releasing | blocked | idle | deadlock | steps/run | blocked steps | pending/run |
+|---|---|---|---|---|---|---|---|---|---|---|
+| grid (6000) | 3584 | 0 | 29.10% (1043) | 70.87% (2540) | 0 | 0 | 1 | 4491 | 3.83% | 8.69 |
+| grid-short (1500) | 11264 | 0 | 24.87% (2801) | 75.08% (8457) | 0 | 0 | 6 | 1286 | 3.56% | 8.79 |
+| grid-no-purgatory | 3392 | 0 | 28.92% (981) | 70.93% (2406) | 0 | 0 | 5 | 4341 | 5.04% | 6.38 |
+| grid-post-fault-2 | 3680 | 0 | 29.86% (1099) | 70.11% (2580) | 0 | 0 | 1 | 4451 | 3.15% | 8.73 |
+| aos | 3744 | 0 | 28.13% (1053) | 71.88% (2691) | 0 | 0 | 0 | 4699 | 3.41% | 9.66 |
+| session | 25664 | 0 | 27.19% (6977) | 72.76% (18674) | 0 | 0 | 13 | 3089 | 3.77% | 8.57 |
+
+Split by nodes that completed a crash-and-recover cycle (session-level only — the per-arm delta drops arrays, so the arm records lose this stratification):
+
+| population | runs | complete/pending | budget/releasing | steps/run | blocked steps | tail/run |
+|---|---|---|---|---|---|---|
+| 0 recovered | 3412 | 0% (0) | 99.62% (3399) | 3886 | 17.91% | 0.387 |
+| 1 recovered | 13007 | 49.30% (6412) | 50.70% (6595) | 2339 | 1.95% | 0.018 |
+| 2+ recovered | 9245 | 6.11% (565) | 93.89% (8680) | 3851 | 0.067% | 0.0002 |
+
+**The four buckets, answered.** (i) No distinguishable pending event at the frontier: **exactly zero** — `budget_blocked` and `budget_idle` are 0 in every arm and every stratum over 25,664 runs, and idle steps are 0. (ii) Dedup/hash hit: confined to `aos` — `dedup.checks` is 3,744, exactly that arm's run count, 375 hits (10.0%); grid arms never dedup. (iii) Depth cap: vacuous, the explorer has none. (iv) Step budget: 72.76% of runs; the other 27.19% stop because the plan ran out of events with work still queued, and `plan_complete_quiescent` is 0 everywhere. Step utilization 76.8%, 6.28 planned events unfired per run.
+
+**Reading.** The stop mix is flat across a 4x budget range (24.9% complete at 1500 iterations vs 29.1% at 6000), matching the known budget-invariance of depth; with zero blocked and zero idle stops, the ceiling is neither budget nor frontier starvation — runs keep releasing work right to the cut and that work stops adding graded depth. The one large effect is fault depth: two-or-more-recovery runs complete 6.11% of the time against 49.30% for one-recovery runs, 93.89% are cut mid-flow, and their blocked-step share is 0.067%, ~270
