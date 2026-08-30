@@ -437,7 +437,10 @@ function hardStop(i: FinalGateInputs, cmp: Comparison): { verdict: GateDecision[
   return null;
 }
 
-function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCounts, cmp: Comparison): MergeFigures {
+/** The figures, from counts that are already pooled. Exported so an offline
+ *  simulation reads the same figures the gate does rather than a second copy
+ *  of the arithmetic; `i.confirmEvals` is not consulted here. */
+export function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCounts, cmp: Comparison): MergeFigures {
   const cs = cand.rateStratum;
   const bs = base.rateStratum;
   const band = nullBand(cs?.depth[PRIMARY_RUNG - 1] ?? 0, bs?.depth[PRIMARY_RUNG - 1] ?? 0);
