@@ -427,8 +427,8 @@ function lintProtectedPathsInner(superFiles: string[]): string[] {
  * evaluation explores `policy.evaluation.configTemplate`; regression and the
  * perf lane load their own named files. A config outside that set is dead
  * weight: the hypothesis that adds it is measured against the unmodified
- * template, so its delta is seed noise and non-inferiority passes for a
- * change that never ran. Config work has to edit a loaded file in place.
+ * template, so its delta is seed noise about a change that never ran. Config
+ * work has to edit a loaded file in place.
  */
 /**
  * Key paths in `research/policy.json` that the Policy schema does not declare,

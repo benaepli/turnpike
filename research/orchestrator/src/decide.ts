@@ -241,7 +241,8 @@ export function compareToBaseline(
       if ((ADVANCE_RUNGS as readonly number[]).includes(d.k)
           && rateRatioSeparated(cSucc, cs.exposureSec, bSucc, bs.exposureSec, z, xv)) improved.push(`depth>=${d.k}`);
     }
-    // The deep rungs per run may not fall beyond the non-inferiority margin:
+    // The deep rungs per run may not fall beyond the margin: a per-second
+    // gain bought by making runs shallower is depth traded for speed, and
     // the sequential rule holds an advance until they are known to hold.
     if (d.k === 5 || d.k === 6) {
       const g = compareRatesPoisson(d.succ, d.n, b.succ, b.n, 0, DEEP_RUNG_MARGIN, DEEP_RUNG_DRAWS, DEEP_RUNG_SEED + d.k);

@@ -3,7 +3,7 @@
 // workload, interleaved (ABBA...) to cancel thermal/cache drift, and demands
 // strict dominance (min candidate > max baseline) plus a minimum relative
 // improvement before it passes. Nothing here reads the ladder - semantic
-// safety is the ladder-non-inferiority + regression gates, not this file.
+// safety is the ladder gate and the regression suite, not this file.
 import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import * as path from "node:path";
