@@ -10,7 +10,7 @@ import {
 } from "./agents.js";
 import {
   CAMPAIGN_EPOCH_FLOOR, chunkStratum, classifyChangeRisk, finalGate, mergeCase, perfGate,
-  stratumOf, unmeasurableReasons,
+  ruleVerdict, stratumOf, unmeasurableReasons,
   type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
@@ -1081,10 +1081,12 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       }
       // The suite is the expensive half of a decision, so it is bought only
       // where the outcome could still be a merge or reach a human. A close
-      // does not pay for a result nobody reads.
+      // does not pay for a result nobody reads. With no decider answer the
+      // rule's own verdict decides, so an outage does not buy a suite for
+      // every closure.
       const worthTheSuite = "stop" in c
         ? c.stop.verdict === "needs_human"
-        : picked === undefined || picked.verdict !== "close";
+        : (picked ?? ruleVerdict(c.figures)).verdict !== "close";
       if (worthTheSuite) {
         const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
         regressionPassed = regr.passed;
