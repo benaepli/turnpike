@@ -22,8 +22,7 @@ import {
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
 import { POLICY_KEY_PATHS, loadPolicy } from "./policy.js";
-import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, resolveRoot, run, templateHasCampaign } from "./runners.js";
-import { diffConfigPaths, type PanelArms, type PanelSummary } from "./panel.js";
+import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, templateHasCampaign } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
 import { LoopState } from "./state.js";
@@ -673,7 +672,7 @@ function reloadPolicy(deps: LoopDeps): Record<string, unknown> {
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => before[k] !== after[k]).sort();
   if (changed.length === 0) return {};
   if (next.policy.evaluation.rayonThreads !== deps.policy.evaluation.rayonThreads) {
-    return { policyReloadRefused: "evaluation.rayonThreads keys the baseline and the panel manifest", changed };
+    return { policyReloadRefused: "evaluation.rayonThreads keys the baseline", changed };
   }
   const measurement = changed.filter((k) => /^(sequential|evaluation)\./.test(k));
   const sampling = deps.state.listHypotheses("inconclusive").some((h) => loadSeqState(deps.state, h.id) !== null);
@@ -933,7 +932,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     let perfDecision: GateDecision | null = null;
     let seqOutcome = "";
     let escalated = false;
-    let panelSummary: PanelSummary | null = null;
     let escalateReason: string | null = null;
     let violationRate: RatePrior | null = null;
 
@@ -949,7 +947,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         for (const e of screen) state.addEvaluation(e);
         const screenNI = nonInferior(objectiveCounts(screen), objectiveCounts(baseline.screen));
         journal(state, n, "perf-screen-ni", screenNI);
-        const panelArms = buildPanelArms(policy, n, h, spurFiles);
         const touchesSemantics = classifyChangeRisk(spurFiles) === "semantics";
         let promoteNI: boolean | null = null;
         if (screenNI.ok && touchesSemantics) {
@@ -960,8 +957,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           journal(state, n, "perf-promote-ni", { ok: promoteNI });
         }
         if (screenNI.ok) {
-          const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
-          panelSummary = regr.panel;
+          const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
           regressionPassed = regr.passed;
           journal(state, n, "regression", regr);
         }
@@ -1044,8 +1040,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // as a PR rather than being deleted.
         journal(state, n, "escalated", { id: h.id, reason: res.reason, chunks: res.seq.chunks });
         confirmEvals = res.evals.filter((e) => e.ok);
-        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
-        panelSummary = regr.panel;
+        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
         regressionPassed = regr.passed;
         journal(state, n, "regression", regr);
         escalated = true;
@@ -1061,8 +1056,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // protocol. The screen arm's rate is a different regime (shorter,
         // faster runs) and would read a level candidate as slower.
         throughputRatio = throughputRatioOf(pooledFromSeq(res.seq), pooledCountsOf(baseline.sequential));
-        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec, buildPanelArms(policy, n, h, spurFiles)));
-        panelSummary = regr.panel;
+        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
         regressionPassed = regr.passed;
         regressionDetail = regr.cases.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`).join("; ");
         journal(state, n, "regression", regr);
@@ -1081,7 +1075,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       throughputRatio,
       throughputFloor: 1 - policy.regression.throughputTolerance,
       violationPrior: violationRate,
-      panel: panelSummary,
       unmeasurable,
     });
     if (!perfDecision && !decisionInputsReady && sampled) {
@@ -1218,42 +1211,15 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
 }
 
 
-/** Paired arms for the panel: the candidate's binary and config template
- *  against the baseline's, measured in the same window on the same seed, so a
- *  session-length or seed effect cancels rather than being attributed. The
- *  seed rotates per iteration: the historical Mencius case ran at a fixed
- *  session_seed forever, which measured explorer nondeterminism rather than
- *  the seed space. */
-const PANEL_SEED_BASE = 20000;
-
-function buildPanelArms(policy: Policy, n: number, h: Hypothesis, spurFiles: string[]): PanelArms | null {
-  const candidateTemplate = resolveRoot(policy.evaluation.configTemplate);
-  const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
-  let baselineTemplate: string | null = null;
-  if (existsSync(baselineBin)) {
-    baselineTemplate = path.join(ROOT, "tmp", "loop", "panel.base.config.json");
-    writeFileSync(baselineTemplate, showFile(SUPER, RESEARCH_BRANCH, policy.evaluation.configTemplate));
-  }
-  return {
-    candidateBinary: SPUR_BIN,
-    candidateTemplate,
-    baselineBinary: existsSync(baselineBin) ? baselineBin : null,
-    baselineTemplate,
-    seed: PANEL_SEED_BASE + n,
-    changedSpurCode: spurFiles.length > 0,
-    declaredFiringCounter: h.firingCounter ?? null,
-  };
-}
-
 export async function runLoop(deps: LoopDeps): Promise<void> {
   // Runs share a feedback map across the parallel set, so the snapshot a run
   // sees depends on how many threads are running. A candidate measured at one
   // thread count cannot be compared with a baseline measured at another, so
-  // the host's resolved count selects the baseline and the panel manifest.
+  // the host's resolved count selects the baseline.
   const hostThreads = deps.policy.evaluation.rayonThreads;
   const startBaseline = loadBaseline(deps.state, hostThreads);
   if (!startBaseline || startBaseline.sequential.length === 0) {
-    console.error(`no sequential baseline recorded at ${hostThreads} threads; run \`cli baseline\`, then \`cli panel-calibrate\` and \`cli regression\` under this CPU mask before starting the loop`);
+    console.error(`no sequential baseline recorded at ${hostThreads} threads; run \`cli baseline\` and \`cli regression\` under this CPU mask before starting the loop`);
     return;
   }
   const freshness = baselineFreshness(startBaseline);

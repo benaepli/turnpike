@@ -74,7 +74,6 @@ export const Policy = z.object({
     explorer: z.enum(["standard", "genetic", "aos", "continuous", "campaign"]).default("standard"),
   }),
   regression: z.object({
-    panelManifest: z.string(),
     vrNoFaultConfig: z.string(),
     throughputTolerance: z.number().positive(),
     wallSecPerCase: z.number().int().positive(),

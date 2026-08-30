@@ -9,7 +9,6 @@
 // throughput at or above the floor.
 // Non-inferiority (ablate/enabling base) = no objective worse than margin.
 import type { BenchResult } from "./bench.js";
-import type { PanelSummary } from "./panel.js";
 import type { Evaluation, GateDecision, Hypothesis, RateStratum } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
 import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv } from "./stats.js";
@@ -287,10 +286,6 @@ export function classifyChangeRisk(changedSpurFiles: string[]): "opt_in" | "sema
   return "opt_in";
 }
 
-/** A broad decline routes to review rather than blocking. Blocking is the
- *  collapse gate's job and it acts per member through the regression suite. */
-export const PANEL_HUMAN_Z = 2.0;
-
 /** Why a campaign could not have measured this diff. The binary a chunk runs
  *  is built from spur/, and the config it loads is materialized from a
  *  template under scheduler_configs/; a diff touching neither leaves the
@@ -315,18 +310,14 @@ export interface FinalGateInputs {
   throughputRatio: number | null; // cand runs per explore-second / baseline's
   // Below this ratio a gain cannot merge: the objective already credits
   // throughput, so a slower candidate has to have earned its rate. Required,
-  // like panel: an optional input nobody supplies is a defect no typecheck
-  // can see.
+  // like unmeasurable: an optional input nobody supplies is a defect no
+  // typecheck can see.
   throughputFloor: number;
-  // Required, not optional: an optional input nobody supplies is a defect no
-  // typecheck can see, and this one disarmed the downgrade for every decision
-  // the loop ever made.
-  panel: PanelSummary | null;
   // The archive violation rate the candidate's violations are separated
   // against; null falls back to the baseline's own count.
   violationPrior?: RatePrior | null | undefined;
-  // Required for the same reason panel is: an optional input nobody supplies
-  // is a defect no typecheck can see. Non-empty means no sample was taken.
+  // Required, not optional: an optional input nobody supplies is a defect no
+  // typecheck can see. Non-empty means no sample was taken.
   unmeasurable: string[];
 }
 
@@ -415,15 +406,6 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     }
   }
 
-  // A broad decline across judging members routes to review. It never blocks:
-  // blocking is the collapse gate, which acts per member through the
-  // regression suite and reaches this function as regressionPassed.
-  if (verdict === "auto_merge" && i.panel !== null && i.panel.combinedZ !== null
-      && i.panel.combinedZ <= -PANEL_HUMAN_Z) {
-    verdict = "needs_human";
-    reasons.push(`panel detection down across ${i.panel.judging.length} judging member(s) (combined z ${i.panel.combinedZ.toFixed(2)})`);
-  }
-
   const primary = primaryDelta(cmp);
   // Run rate multiplies every rung, so it is inside the objective now; it is
   // still recorded on its own so erosion across merges stays visible as a
@@ -433,13 +415,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
     hypothesisId: i.hypothesis.id,
     verdict,
     reasons,
-    // Recorded only when a panel judged. Writing 0 for "no panel" made an
-    // unsupplied panel indistinguishable from a neutral one, which is what
-    // hid the wiring defect across 95 decisions.
-    objectiveDeltas: {
-      ...cmp.deltas, primary, throughput,
-      ...(i.panel?.combinedZ != null ? { panelZ: i.panel.combinedZ } : {}),
-    },
+    objectiveDeltas: { ...cmp.deltas, primary, throughput },
     regressionPassed: i.regressionPassed,
     lintPassed: i.lintFailures.length === 0,
     ...(harnessFailure ? { harnessFailure: true } : {}),
@@ -518,7 +494,7 @@ export function selfTestUnmeasured(): string[] {
   const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
   const base: FinalGateInputs = {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
-    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, throughputFloor: 0.8, panel: null, unmeasurable: [],
+    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, throughputFloor: 0.8, unmeasurable: [],
   };
   const un = finalGate({ ...base, unmeasurable: ["u"] });
   check(un.verdict === "needs_human", `an unmeasurable diff reaches a human, got ${un.verdict}`);
@@ -543,42 +519,5 @@ export function selfTestUnmeasured(): string[] {
     const sampled = (t.match(/(?<![-\w])sampled\b/g) ?? []).length;
     check(sampled === 5, `loop.ts must use sampled once per branch plus its definition (5), found ${sampled}`);
   }
-  return f;
-}
-
-/** The panel's authority, asserted against finalGate itself. */
-export function selfTestPanelAuthority(): string[] {
-  const f: string[] = [];
-  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
-  const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
-  const base: FinalGateInputs = {
-    hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
-    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, throughputFloor: 0.8, panel: null, unmeasurable: [],
-  };
-  const panel = (combinedZ: number | null, judging: string[]): PanelSummary => ({
-    members: [], judging, nonJudging: [], combinedZ, collapsedMembers: [], wallMs: 0,
-  });
-
-  const noPanel = finalGate(base);
-  const neutral = finalGate({ ...base, panel: panel(0.05, ["a", "b"]) });
-  check(noPanel.verdict === neutral.verdict,
-    `a neutral panel must not change the verdict: ${noPanel.verdict} vs ${neutral.verdict}`);
-
-  const declined = finalGate({ ...base, panel: panel(-2.5, ["a", "b"]) });
-  check(declined.verdict === "needs_human" || noPanel.verdict !== "auto_merge",
-    `a combined z of -2.5 must downgrade an auto_merge, got ${declined.verdict}`);
-  check(noPanel.verdict === "closed" || declined.verdict !== "closed",
-    "the panel must never turn a non-closed verdict into a closure");
-
-  const improved = finalGate({ ...base, panel: panel(3.0, ["a", "b"]) });
-  check(improved.verdict === noPanel.verdict,
-    "a panel that improved must not promote anything the ladder did not");
-
-  const noStanding = finalGate({ ...base, panel: panel(null, []) });
-  check(noStanding.verdict === noPanel.verdict,
-    "a panel with no judging member must not change the verdict");
-
-  check((declined.objectiveDeltas["panelZ"] ?? 0) === -2.5, "panelZ must be recorded on the decision");
-  check(!("panelZ" in noPanel.objectiveDeltas), "a decision made without a panel must not record a panelZ");
   return f;
 }

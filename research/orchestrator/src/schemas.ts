@@ -40,8 +40,9 @@ export const Hypothesis = z.object({
   prUrls: z.array(z.string()).default([]),
   createdAtIso: z.string(),
   // Dotted path into utilization.json that the hypothesis claims its
-  // mechanism increments. The panel refuses to judge a member where the
-  // counter is zero: no occasions is not a negative result.
+  // mechanism increments. Recorded with the hypothesis; a counter that stayed
+  // zero means the mechanism had no occasions, which is not a negative result
+  // about it.
   firingCounter: z.string().nullable().default(null),
   notes: z.string().default(""),
 });

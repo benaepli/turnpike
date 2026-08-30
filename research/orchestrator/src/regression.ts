@@ -4,16 +4,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { EvalContext } from "./evaluate.js";
-import { ROOT, cleanupDir, explore, materializeConfig, porcupine, resolveRoot } from "./runners.js";
+import { ROOT, cleanupDir, explore, porcupine, resolveRoot } from "./runners.js";
 import { runBench } from "./bench.js";
 import { RESEARCH_BRANCH, SUPER, showFile } from "./gitops.js";
-import { keyedManifestPath, loadPanelManifest, runPanel, type PanelArms, type PanelSummary, type PanelMemberResult } from "./panel.js";
 
 export interface RegressionCase {
   name: string;
   passed: boolean;
   detail: string;
-  panel?: PanelMemberResult;
 }
 
 type Model = "kv" | "kv_rmw";
@@ -101,24 +99,11 @@ async function runCase(name: string, body: () => Promise<RegressionCase>): Promi
 export async function runRegression(
   ctx: EvalContext,
   baselineRunsPerSec: number | null,
-  arms: PanelArms | null,
-): Promise<{ passed: boolean; cases: RegressionCase[]; panel: PanelSummary | null }> {
+): Promise<{ passed: boolean; cases: RegressionCase[] }> {
   const reg = ctx.policy.regression;
   const cases: RegressionCase[] = [];
 
-  // The panel replaces the two hard-coded Mencius cases. A gate member whose
-  // detection collapses fails the suite through the same path a regression
-  // always has; a report member is recorded and never binds.
-  let panel: PanelSummary | null = null;
-  if (arms !== null) {
-    const manifest = loadPanelManifest(keyedManifestPath(ctx.policy.regression.panelManifest, ctx.policy.evaluation.rayonThreads), ctx.policy.regression.wallSecPerCase, 1 - ctx.policy.regression.throughputTolerance);
-    panel = await runPanel(ctx, manifest, arms);
-    for (const r of panel.members) {
-      cases.push({ name: `panel-${r.id}`, passed: !r.collapsed, detail: r.detail, panel: r });
-    }
-  }
-
-  // 3. VR without faults must be clean.
+  // 1. VR without faults must be clean.
   cases.push(
     await runCase("vr-nofault-clean", async () => {
       const name = "vr-nofault-clean";
@@ -134,7 +119,7 @@ export async function runRegression(
     }),
   );
 
-  // 4. Throughput: one screen-fidelity-style run of the general VR template.
+  // 2. Throughput: one screen-fidelity-style run of the general VR template.
   cases.push(
     await runCase("throughput", async () => {
       const name = "throughput";
@@ -166,5 +151,5 @@ export async function runRegression(
     }),
   );
 
-  return { passed: cases.every((c) => c.passed), cases, panel };
+  return { passed: cases.every((c) => c.passed), cases };
 }

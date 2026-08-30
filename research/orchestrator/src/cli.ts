@@ -1,18 +1,17 @@
 // CLI entrypoints. Run from research/orchestrator with:
 //   npx tsx src/cli.ts <command>
 // Commands: baseline | once | start | status | regression | selftest | profile
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { runEvaluation, selfTestRunIdentity, type EvalContext } from "./evaluate.js";
 import { commitLanes, currentCommit, ensureClean, selfTestArmSetGrowth, SPUR, SUPER, SUPER_LANES } from "./gitops.js";
 import { baselineEvidencePath, baselineKey, graderVersion, loadBaseline, loadReference, selfTestBaselineKeys, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, violationPrior, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
 import { baselineLadder, renderPolicyMd, selfTestRender, writeStatus } from "./render.js";
-import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
+import { buildSpur, ROOT, SPUR_BIN } from "./runners.js";
 import { runRegression } from "./regression.js";
-import { selfTestStats, selfTestPosteriors, selfTestSurvival } from "./stats.js";
-import { calibrateMember, keyedManifestPath, loadPanelManifest, selfTestFiring, selfTestPanel, selfTestPanelGate, validateManifest, type PanelArms } from "./panel.js";
-import { selfTestPanelAuthority, selfTestUnmeasured } from "./decide.js";
+import { selfTestStats, selfTestPosteriors } from "./stats.js";
+import { selfTestUnmeasured } from "./decide.js";
 import { pooledCountsOf, selfTestGateConsistency, seqRuleOf } from "./sequential.js";
 import { LoopState } from "./state.js";
 
@@ -80,9 +79,9 @@ async function main(): Promise<void> {
         const { policy, clamps } = loadPolicy(POLICY_PATH);
         const stored = loadBaseline(state, policy.evaluation.rayonThreads);
         const live = stored && stored.sequential.some((e) => e.ok) ? { base: pooledCountsOf(stored.sequential), rule: seqRuleOf(policy, violationPrior(state)) } : undefined;
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestFiring(), ...selfTestPanelAuthority(), ...selfTestUnmeasured(), ...selfTestArmSetGrowth(), ...selfTestGateConsistency(live), ...selfTestBaselineKeys(), ...selfTestRender(existsSync(baselineEvidencePath(policy.evaluation.rayonThreads)) ? baselineEvidencePath(policy.evaluation.rayonThreads) : undefined), ...selfTestRunIdentity()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestUnmeasured(), ...selfTestArmSetGrowth(), ...selfTestGateConsistency(live), ...selfTestBaselineKeys(), ...selfTestRender(existsSync(baselineEvidencePath(policy.evaluation.rayonThreads)) ? baselineEvidencePath(policy.evaluation.rayonThreads) : undefined), ...selfTestRunIdentity()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
-        console.log("stats + posterior + panel + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
+        console.log("stats + posterior + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
         console.log("models:", policy.models);
         console.log("SPUR_BIN exists:", existsSync(SPUR_BIN));
         console.log("grader version:", graderVersion());
@@ -179,63 +178,9 @@ async function main(): Promise<void> {
         if (!b.ok) throw new Error("build failed");
         const baseline = loadBaseline(state, policy.evaluation.rayonThreads);
         const ctx: EvalContext = { policy, binary: SPUR_BIN, graderVersion: graderVersion(), spurCommit: currentCommit(SPUR), superCommit: currentCommit(SUPER) };
-        // A/A by default: both arms are HEAD, so every z should sit near zero
-        // and nothing should collapse. Pass a seed to vary the session.
-        const seed = Number(process.argv[3] ?? 20000);
-        const template = resolveRoot(policy.evaluation.configTemplate);
-        const arms: PanelArms = {
-          candidateBinary: SPUR_BIN, candidateTemplate: template,
-          baselineBinary: SPUR_BIN, baselineTemplate: template,
-          seed, changedSpurCode: false, declaredFiringCounter: null,
-        };
-        const r = await runRegression(ctx, baseline?.runsPerSec ?? null, arms);
+        const r = await runRegression(ctx, baseline?.runsPerSec ?? null);
         for (const c of r.cases) console.log(`${c.passed ? "PASS" : "FAIL"} ${c.name}: ${c.detail}`);
-        if (r.panel) {
-          console.log(`panel: judging=[${r.panel.judging.join(", ")}] combinedZ=${r.panel.combinedZ === null ? "null" : r.panel.combinedZ.toFixed(2)} wall=${(r.panel.wallMs / 1000).toFixed(0)}s`);
-          for (const nj of r.panel.nonJudging) console.log(`  not judging ${nj.id}: ${nj.reason}`);
-        }
         process.exitCode = r.passed ? 0 : 1;
-        break;
-      }
-      case "panel-calibrate": {
-        // Measures every member on HEAD at its manifest wall over N seeds of
-        // replicates and writes eventsPerSec, dispersion, tauBestSec and
-        // runsPerSec back into the manifest. The rates a member is admitted
-        // on (expectedRate, controls, ceiling) are not touched here.
-        const { policy } = loadPolicy(POLICY_PATH);
-        const b = await buildSpur(policy.budgets.maxBuildSeconds);
-        if (!b.ok) throw new Error("build failed");
-        const seeds = Number(process.argv[3] ?? 4);
-        // Calibration belongs to the thread count it was measured at, so it
-        // is written to the manifest named for this count, seeded from the
-        // bare manifest when no such file exists yet.
-        const basePath = resolveRoot(policy.regression.panelManifest);
-        const manifestPath = basePath.replace(/\.json$/, `.${policy.evaluation.rayonThreads}.json`);
-        if (!existsSync(manifestPath)) copyFileSync(basePath, manifestPath);
-        const manifest = loadPanelManifest(manifestPath);
-        if (manifest.version !== 2) throw new Error("panel-calibrate applies to a version-2 manifest");
-        const ctx: EvalContext = { policy, binary: SPUR_BIN, graderVersion: graderVersion(), spurCommit: currentCommit(SPUR), superCommit: currentCommit(SUPER) };
-        const template = resolveRoot(policy.evaluation.configTemplate);
-        const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as { members: Array<Record<string, unknown> & { id: string; calibration: Record<string, unknown> }> };
-        console.log("id | seeds | runs | violations | exposure s | events/s | runs/s | dispersion | tau s | truncated");
-        for (const m of manifest.members) {
-          const c = await calibrateMember(ctx, m, SPUR_BIN, template, seeds);
-          console.log(`${c.id} | ${c.seeds} | ${c.runs} | ${c.violations} | ${c.exposureSec.toFixed(1)} | ${c.eventsPerSec.toFixed(4)} | ${c.runsPerSec.toFixed(0)} | ${c.dispersion.toFixed(3)} | ${c.tauSec === null ? "-" : c.tauSec.toFixed(2)} | ${c.truncated}`);
-          const entry = raw.members.find((x) => x.id === m.id);
-          if (!entry) continue;
-          entry.calibration = {
-            ...entry.calibration,
-            atIso: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-            eventsPerSec: Number(c.eventsPerSec.toFixed(5)),
-            tauBestSec: Number((c.tauSec ?? 0).toFixed(4)),
-            dispersion: Number(c.dispersion.toFixed(3)),
-            runsPerSec: Math.round(c.runsPerSec),
-          };
-          writeFileSync(manifestPath, JSON.stringify(raw, null, 2) + "\n");
-        }
-        const errs = validateManifest(loadPanelManifest(manifestPath), policy.regression.wallSecPerCase, 1 - policy.regression.throughputTolerance);
-        if (errs.length) { console.error("manifest invalid after calibration:", errs); process.exitCode = 1; }
-        else console.log(`manifest calibrated: ${manifestPath}`);
         break;
       }
       case "profile": {
