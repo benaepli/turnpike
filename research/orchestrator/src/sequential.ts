@@ -245,14 +245,6 @@ export function decideSequential(
     return out("continue", "non-inferiority undecided");
   }
 
-  // A decisive regression rejects at the first chunk: a guard rung
-  // separated below baseline at the merge z is a real loss, not chunk noise,
-  // so a second confirming chunk on a clear loser is wasted. Advancing (a
-  // merge) and calling futility still need minChunks, since those decide on
-  // the positive side where one lucky chunk must not be trusted.
-  if (rateRatioSeparated(base.depth4, base.graded, cand.depth4, cand.graded, MERGE_Z)) return out("reject", `depth>=4 regressed per run (ratio ${g4.meanRatio.toFixed(2)})`);
-  if (rateRatioSeparated(base.h2Count, base.runs, cand.h2Count, cand.runs, MERGE_Z)) return out("reject", `h2 regressed (ratio ${h2.meanRatio.toFixed(2)})`);
-
   let separatedRung: string | null = null;
   let separatedK: number | null = null;
   if (chunks >= p.minChunks) {

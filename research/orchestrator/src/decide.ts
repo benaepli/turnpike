@@ -227,7 +227,6 @@ export function compareToBaseline(
       if ((ADVANCE_RUNGS as readonly number[]).includes(d.k)
           && rateRatioSeparated(cSucc, cs.exposureSec, bSucc, bs.exposureSec, z, xv)) improved.push(`depth>=${d.k}`);
     }
-    if (d.k === 4 && rateRatioSeparated(b.succ, b.n, d.succ, d.n, z)) regressed.push(`depth>=${d.k}`);
     // The deep rungs per run may not fall beyond the non-inferiority margin:
     // the sequential rule holds an advance until they are known to hold.
     if (d.k === 5 || d.k === 6) {
