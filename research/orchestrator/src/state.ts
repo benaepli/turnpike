@@ -179,6 +179,20 @@ export class LoopState {
       .run(v.id, v.hypothesisId, v.fidelity, v.startedAtIso, JSON.stringify(v));
   }
 
+  // The per-hypothesis diagnostic in the operator reference; no loop phase
+  // reads it.
+  evaluationsFor(hypothesisId: string): Evaluation[] {
+    const rows = this.db
+      .prepare<[string], JsonRow>(
+        "SELECT json FROM evaluations WHERE hypothesis_id = ? ORDER BY created_at ASC, id ASC",
+      )
+      .all(hypothesisId);
+    return rows.map((r) => {
+      const raw: unknown = JSON.parse(r.json);
+      return Evaluation.parse(raw);
+    });
+  }
+
   allEvaluations(): Evaluation[] {
     const rows = this.db
       .prepare<[], JsonRow>(
