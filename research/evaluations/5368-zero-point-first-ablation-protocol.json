@@ -1,0 +1,47 @@
+{
+  "hypothesis": {
+    "id": "zero-point-first-ablation-protocol",
+    "parent": "post-fault-client-ops-zero-ablation",
+    "kind": "meta",
+    "title": "Zero point first: no dose ladder on a scalar knob until the knob-off measurement exists",
+    "description": "Rubric/proposer-rule edit only, no spur or harness code: a hypothesis that doses or tunes a scalar scheduler knob (post_fault_client_ops-style, purgatory.delay_probability-style, partial_fanout_crash_bias-style) may not open a second evaluation in its family until the knob-off point has been measured and recorded, encoded as an in-place scalar override in the graded settings of scheduler_configs/loop/general_vr.json (never as a new or re-overlaid campaign arm, per the existing overlay-swap rule). The off measurement must report the mechanism's own firing counters per arm (the pairs_seen/edges_added analogue named in firingCounter) so 'the mechanism was actually off' is checkable rather than asserted. Scope is deliberately narrow: this governs evaluation ORDER within a knob family and nothing else — not the gate, not the runner, not which config anything is graded against, and not whether a flat knob is later deleted.",
+    "category": "policy",
+    "buildsOn": [
+      "config_override"
+    ],
+    "expectedGain": 3,
+    "expectedCost": 0.2,
+    "rationale": "The post_fault_client_ops closure is the direct evidence: five evaluations (dose grid, quiescence window, probabilistic dose, in-campaign arm, zero ablation) reached a verdict the zero point alone would have delivered first, because interior dose points cannot separate 'weak effect' from 'no effect'. The config surface still carries several untested scalar knobs, so the rule pays back on each one. Gain is capped at 2.5 rather than the proposed 4 for two reasons: it moves no ladder rung by construction, and the substantive lesson is already written into the observations log, so the marginal value here is only that the rule becomes binding at judge time instead of advisory at propose time. Cost is a rubric edit on the no-eval apply path for meta/policy hypotheses that touch no spur source.",
+    "generalityArgument": "A rule about the order in which a tunable's range is sampled depends on nothing in VR, crash-recovery semantics, or any spec structure; it transfers unchanged to a Raft or Paxos subject.",
+    "status": "proposed",
+    "branch": null,
+    "prUrls": [],
+    "createdAtIso": "2026-08-30T17:20:00.000Z",
+    "firingCounter": null,
+    "notes": "[unparked iteration 5367] Verbatim the lesson the post_fault_client_ops closure paid five evaluations for (run the zero point first); rule-only, no harness rewiring, and it saves whole iterations at 0.2 cost."
+  },
+  "decision": {
+    "hypothesisId": "zero-point-first-ablation-protocol",
+    "verdict": "needs_human",
+    "reasons": [
+      "no file under spur/ or scheduler_configs/ differs from the baseline, so a campaign would run the baseline binary on the baseline config and sample nothing"
+    ],
+    "objectiveDeltas": {
+      "params": 0
+    },
+    "regressionPassed": null,
+    "lintPassed": true,
+    "rayonThreads": 14
+  },
+  "evaluations": {},
+  "spurFiles": [],
+  "superFiles": [
+    "research/observations/OBSERVATIONS.md",
+    "research/observations/ZERO_POINT_FIRST.md"
+  ],
+  "graderVersion": "ta:08b1b45+porc:ebf06c5",
+  "generalConfigParams": {
+    "before": 24,
+    "after": 24
+  }
+}
