@@ -47,11 +47,14 @@ They sum to -0.0578 and compound to -0.0568, against +0.0616 from the one
 superiority merge of the same epoch. Read as a ratchet that gives back what
 the loop earns, that is wrong three ways.
 
-- Every one of the thirteen is inside the counting floor. At depth>=6 a chunk
-  carries about 2,000 events on the grid stratum, so the A/A spread is 3.15%
-  (`EVAL_NOISE_FLOOR.md`). No `|delta|` here reaches it.
-- Thirteen draws at that floor have a sum with sd 0.114. The observed -0.058
-  is **0.51 sigma from zero**.
+- Twelve of the thirteen are inside the counting floor. Each is a two-chunk
+  candidate against the four-chunk baseline, so the applicable A/A spread is
+  `sqrt(1/3980 + 1/8248)` = **1.93%**, not the 3.14% that a chunk against a
+  single chunk gives (`EVAL_NOISE_FLOOR.md` states the chunk-against-chunk
+  figure and it is the wrong comparator for a merge). Only 5353 at -1.96%
+  reaches it, and only barely.
+- Thirteen draws at that floor have a sum with sd 0.070. The observed -0.058
+  is **0.83 sigma from zero**.
 - Seven of thirteen are negative. A sign test gives p = 1.00.
 
 The deltas are also measured against thirteen different baselines, each

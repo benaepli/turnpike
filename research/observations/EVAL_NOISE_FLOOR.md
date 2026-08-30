@@ -154,3 +154,16 @@ excluded. The concern recorded against the recovery-selection site - that
 arm-mix drift makes single-term A/B deltas uninterpretable there - is correct
 for the pooled figures it was raised against and does not carry to the
 stratified statistic the gate has read since.
+
+### The band depends on how many chunks are pooled (2026-08-30)
+
+The 3.1% above is one chunk against one chunk. A merge is decided on a
+two-chunk candidate against the four-chunk baseline, which is
+`sqrt(1/3980 + 1/8248)` = **1.93%** at the current event counts. Quote the
+figure for the comparison actually being made; the code computes it from the
+counts it holds, so only prose can get this wrong.
+
+Event counts are also a property of the host mask, not of the rung. The live
+14-thread baseline carries about 2,060 depth>=6 grid-stratum events per chunk.
+A reading taken from the stale 30-thread baseline gives a materially narrower
+band and does not describe the regime the loop runs in.
