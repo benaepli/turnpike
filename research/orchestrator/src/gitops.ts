@@ -510,6 +510,55 @@ export function lintArmScope(
 }
 
 /**
+ * A hypothesis that compares parameter values tests one value; the next value
+ * is a separate hypothesis. Several new arms at once is that sweep wearing a
+ * different shape, and it also moves the arm set the rate stratum pools, so
+ * the candidate cannot be compared with the baseline at all and spends a
+ * chunk to learn only that. Not gated on kind: an add hypothesis that
+ * restructures the campaign while changing spur reaches the same dead end.
+ */
+export function lintArmSetGrowth(templateBefore: string | null, templateAfter: string | null): string[] {
+  if (templateBefore === null || templateAfter === null) return [];
+  let added: string[];
+  try {
+    const armIds = (text: string): string[] => {
+      const c = (JSON.parse(text) as { campaign?: { arms?: Array<{ id?: unknown }> } }).campaign;
+      return (c?.arms ?? []).map((a) => String(a.id ?? ""));
+    };
+    const before = new Set(armIds(templateBefore));
+    added = armIds(templateAfter).filter((id) => !before.has(id));
+  } catch {
+    return [];
+  }
+  return added.length > 1
+    ? [`the campaign gains ${added.length} arms (${added.join(", ")}); one hypothesis tests one value, propose the others separately`]
+    : [];
+}
+
+/** The arm-growth rule, asserted directly: a rubric clause asking for it was
+ *  not enough, and the miss costs an implement and a chunk. */
+export function selfTestArmSetGrowth(): string[] {
+  const f: string[] = [];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const tpl = (ids: string[]): string =>
+    JSON.stringify({ max_iterations: 6000, campaign: { arms: ids.map((id) => ({ id, mode: "grid", overlay: {} })) } });
+  const base = ["grid", "grid-short", "grid-no-purgatory", "grid-post-fault-2"];
+  const lint = (after: string[]): string[] => lintArmSetGrowth(tpl(base), tpl(after));
+
+  check(lint(base).length === 0, "an unchanged arm set is clean");
+  check(lint([...base, "grid-deep"]).length === 0, "one added arm is allowed");
+  check(lint(base.slice(0, 3)).length === 0, "removing arms is not growth");
+  check(lint(base.map((i) => (i === "grid-post-fault-2" ? "grid-post-fault-3" : i))).length === 0,
+    "replacing one arm counts as one addition");
+  // The shape that reached iteration 5365: one arm replaced by three.
+  const sweep = ["grid", "grid-short", "grid-no-purgatory", "grid-post-fault-p25", "grid-post-fault-p50", "grid-post-fault-p75"];
+  check(lint(sweep).some((e) => e.includes("gains 3 arms")), "a three-arm sweep is refused with its count named");
+  check(lintArmSetGrowth(null, tpl(sweep)).length === 0, "a template the candidate did not change is not judged");
+  check(lintArmSetGrowth("not json", tpl(sweep)).length === 0, "invalid JSON is reported by the envelope check, not here");
+  return f;
+}
+
+/**
  * A halving or bandit allocation ranks arms by an in-process reward, which
  * is only allowed once the validation lane has shown that reward tracks the
  * graded outcome; the admitted reward is recorded as a line of the

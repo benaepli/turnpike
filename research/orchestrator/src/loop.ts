@@ -17,7 +17,7 @@ import { numericLeaves, runEvaluation, runOneEvaluation, type EvalContext } from
 import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
 import {
   RESEARCH_BRANCH, SPUR, SUPER, SUPER_LANES, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, preservingOperatorTree, snapshotWork, rebaseOnto, resetBranchTo,
-  currentCommit, deleteBranch, diffText, createPr, lintArmScope, lintCampaignAllocation, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
+  currentCommit, deleteBranch, diffText, createPr, lintArmScope, lintArmSetGrowth, lintCampaignAllocation, lintInertConfigs, lintInertPolicyKeys, lintProtectedPaths, lintRulerSubject,
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
@@ -904,6 +904,10 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       ]),
       ...lintArmScope(
         h.kind, spurFiles, superFiles, policy.evaluation.configTemplate,
+        superFiles.includes(policy.evaluation.configTemplate) ? showFile(SUPER, RESEARCH_BRANCH, policy.evaluation.configTemplate) : null,
+        superFiles.includes(policy.evaluation.configTemplate) ? readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8") : null,
+      ),
+      ...lintArmSetGrowth(
         superFiles.includes(policy.evaluation.configTemplate) ? showFile(SUPER, RESEARCH_BRANCH, policy.evaluation.configTemplate) : null,
         superFiles.includes(policy.evaluation.configTemplate) ? readFileSync(path.join(ROOT, policy.evaluation.configTemplate), "utf8") : null,
       ),
