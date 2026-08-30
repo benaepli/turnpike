@@ -14,21 +14,9 @@ export function wilson(successes: number, n: number, z = 1.96): [number, number]
   return [Math.max(0, center - half), Math.min(1, center + half)];
 }
 
-/**
- * True iff rate A is better than rate B with CI separation: the Wilson lower
- * bound of A strictly exceeds the Wilson upper bound of B.
- */
-export function rateImprovesCI(aSucc: number, aN: number, bSucc: number, bN: number, z = 1.96): boolean {
-  const [aLower] = wilson(aSucc, aN, z);
-  const [, bUpper] = wilson(bSucc, bN, z);
-  return aLower > bUpper;
-}
-
 // True iff rate A exceeds rate B: the two-sample MOVER (Newcombe) lower bound
 // on (pA - pB) is above zero. This is the difference-test analogue of
-// rateNonInferior and the statistic MERGE_Z was derived for; it is about
-// sqrt(2) less conservative than requiring the one-sample Wilson intervals
-// not to overlap (rateImprovesCI).
+// rateNonInferior and the statistic MERGE_Z was derived for.
 export function rateSuperiorCI(aSucc: number, aN: number, bSucc: number, bN: number, z = 1.96): boolean {
   const pA = aN > 0 ? aSucc / aN : 0;
   const pB = bN > 0 ? bSucc / bN : 0;
@@ -65,17 +53,6 @@ export function rateNonInferior(
   return diffLower >= -margin;
 }
 
-/** Pool binomial counts across entries. */
-export function poolCounts(entries: Array<{ succ: number; n: number }>): { succ: number; n: number } {
-  let succ = 0;
-  let n = 0;
-  for (const e of entries) {
-    succ += e.succ;
-    n += e.n;
-  }
-  return { succ, n };
-}
-
 /** Returns a list of failed assertions (empty = all pass). */
 export function selfTestStats(): string[] {
   const failures: string[] = [];
@@ -92,15 +69,9 @@ export function selfTestStats(): string[] {
     `wilson(50,100) should contain 0.5, got [${w50[0]}, ${w50[1]}]`,
   );
 
-  check(rateImprovesCI(90, 100, 10, 100), "rateImprovesCI(90,100,10,100) should be true");
-  check(!rateImprovesCI(11, 100, 10, 100), "rateImprovesCI(11,100,10,100) should be false");
+  check(rateSuperiorCI(90, 100, 10, 100), "rateSuperiorCI(90,100,10,100) should be true");
+  check(!rateSuperiorCI(11, 100, 10, 100), "rateSuperiorCI(11,100,10,100) should be false");
   check(rateNonInferior(9, 100, 10, 100, 0.1), "rateNonInferior(9,100,10,100,0.1) should be true");
-
-  const pooled = poolCounts([
-    { succ: 3, n: 10 },
-    { succ: 4, n: 20 },
-  ]);
-  check(pooled.succ === 7 && pooled.n === 30, `poolCounts should pool to {7,30}, got {${pooled.succ},${pooled.n}}`);
 
   return failures;
 }
@@ -150,12 +121,6 @@ export function gammaSample(shape: number, u: () => number): number {
   }
 }
 
-export function betaSample(a: number, b: number, u: () => number): number {
-  const x = gammaSample(a, u);
-  const y = gammaSample(b, u);
-  return x / (x + y);
-}
-
 export interface RateComparison {
   pGreater: number;     // P(candidate rate > baseline rate)
   pAtLeastMei: number;  // P(candidate rate >= baseline * (1 + meiRel))
@@ -163,36 +128,6 @@ export interface RateComparison {
   meanRatio: number;    // posterior mean of candidate / baseline
   candMean: number;
   baseMean: number;
-}
-
-export function compareRates(
-  candSucc: number, candN: number, baseSucc: number, baseN: number,
-  meiRel: number, marginRel: number, draws = 2000, seed = 1,
-): RateComparison {
-  if (candN <= 0 || baseN <= 0) {
-    return { pGreater: 0.5, pAtLeastMei: 0, pRegress: 0, meanRatio: 1, candMean: 0, baseMean: 0 };
-  }
-  const u = seededUniform(seed);
-  let greater = 0;
-  let mei = 0;
-  let regress = 0;
-  let ratio = 0;
-  for (let i = 0; i < draws; i++) {
-    const pc = betaSample(candSucc + 0.5, candN - candSucc + 0.5, u);
-    const pb = betaSample(baseSucc + 0.5, baseN - baseSucc + 0.5, u);
-    if (pc > pb) greater++;
-    if (pc >= pb * (1 + meiRel)) mei++;
-    if (pc < pb * (1 - marginRel)) regress++;
-    ratio += pb > 0 ? pc / pb : 1;
-  }
-  return {
-    pGreater: greater / draws,
-    pAtLeastMei: mei / draws,
-    pRegress: regress / draws,
-    meanRatio: ratio / draws,
-    candMean: (candSucc + 0.5) / (candN + 1),
-    baseMean: (baseSucc + 0.5) / (baseN + 1),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -414,21 +349,15 @@ export function selfTestPosteriors(): string[] {
   const cv = throughputCv([603, 601, 600, 589]);
   if (cv < THROUGHPUT_CV_FLOOR || cv > 0.02) failures.push(`throughput cv ${cv}`);
   if (throughputCv([600]) !== THROUGHPUT_CV_FLOOR) failures.push("one chunk has the floor cv");
+  // The gamma sampler the posteriors are drawn from, against its own moments.
   const u = seededUniform(7);
   let s = 0;
   let s2 = 0;
   const n = 20000;
-  for (let i = 0; i < n; i++) { const x = betaSample(2, 5, u); s += x; s2 += x * x; }
+  for (let i = 0; i < n; i++) { const x = gammaSample(2, u); s += x; s2 += x * x; }
   const mean = s / n;
   const varc = s2 / n - mean * mean;
-  if (Math.abs(mean - 2 / 7) > 0.01) failures.push(`beta(2,5) mean ${mean.toFixed(4)} != 0.2857`);
-  if (Math.abs(varc - (2 * 5) / (49 * 8)) > 0.003) failures.push(`beta(2,5) variance ${varc.toFixed(4)} != 0.0255`);
-  const flat = compareRates(230, 64800, 228, 64800, 0.4, 0.25, 2000, 3);
-  if (flat.pGreater < 0.35 || flat.pGreater > 0.65) failures.push(`equal rates pGreater ${flat.pGreater}`);
-  if (flat.pAtLeastMei > 0.02) failures.push(`equal rates pAtLeastMei ${flat.pAtLeastMei}`);
-  const up = compareRates(105, 20000, 228, 64800, 0.4, 0.25, 2000, 3); // +49% at 20k runs
-  if (up.pGreater < 0.99) failures.push(`+49% at 20k pGreater ${up.pGreater}`);
-  const down = compareRates(600, 20000, 3222, 64800, 0.25, 0.25, 2000, 3); // -40% on a 5% rate
-  if (down.pRegress < 0.95) failures.push(`-40% pRegress ${down.pRegress}`);
+  if (Math.abs(mean - 2) > 0.05) failures.push(`gamma(2) mean ${mean.toFixed(4)} != 2`);
+  if (Math.abs(varc - 2) > 0.1) failures.push(`gamma(2) variance ${varc.toFixed(4)} != 2`);
   return failures;
 }

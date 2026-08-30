@@ -10,9 +10,9 @@
 // Non-inferiority (ablate/enabling base) = no objective worse than margin.
 import type { BenchResult } from "./bench.js";
 import type { PanelSummary } from "./panel.js";
-import type { Evaluation, GateDecision, Hypothesis, LadderMetrics, RateStratum } from "./schemas.js";
+import type { Evaluation, GateDecision, Hypothesis, RateStratum } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
-import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv, wilson } from "./stats.js";
+import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv } from "./stats.js";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { ROOT } from "./paths.js";
@@ -300,9 +300,10 @@ export interface FinalGateInputs {
   changedSpurFiles: string[];
   throughputRatio: number | null; // cand runs per explore-second / baseline's
   // Below this ratio a gain cannot merge: the objective already credits
-  // throughput, so a slower candidate has to have earned its rate. Defaults
-  // to the regression suite's tolerance.
-  throughputFloor?: number | undefined;
+  // throughput, so a slower candidate has to have earned its rate. Required,
+  // like panel: an optional input nobody supplies is a defect no typecheck
+  // can see.
+  throughputFloor: number;
   // Required, not optional: an optional input nobody supplies is a defect no
   // typecheck can see, and this one disarmed the downgrade for every decision
   // the loop ever made.
@@ -314,8 +315,6 @@ export interface FinalGateInputs {
   // is a defect no typecheck can see. Non-empty means no sample was taken.
   unmeasurable: string[];
 }
-
-export const DEFAULT_THROUGHPUT_FLOOR = 0.8;
 
 export function finalGate(i: FinalGateInputs): GateDecision {
   // A diff a campaign cannot read is not a negative result: it goes to a
@@ -336,7 +335,7 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   const reasons: string[] = [];
   let verdict: GateDecision["verdict"];
   let harnessFailure = false;
-  const floor = i.throughputFloor ?? DEFAULT_THROUGHPUT_FLOOR;
+  const floor = i.throughputFloor;
 
   if (i.lintFailures.length > 0) {
     verdict = "closed";
@@ -433,19 +432,6 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   };
 }
 
-export function summarizeLadder(m: LadderMetrics): string {
-  const p = (k: number): string => {
-    const c = m.depthAtLeast[k - 1] ?? 0;
-    const [lo, hi] = wilson(c, m.gradedRuns);
-    return `P(d>=${k})=${(m.gradedRuns ? c / m.gradedRuns : 0).toFixed(4)} [${lo.toFixed(4)},${hi.toFixed(4)}]`;
-  };
-  const perSec = (k: number): string => {
-    const c = m.depthAtLeast[k - 1] ?? 0;
-    return m.exposureMs > 0 ? `d>=${k}/s=${(c / (m.exposureMs / 1000)).toFixed(2)}` : `d>=${k}/s=-`;
-  };
-  return `runs=${m.runs} viol=${m.violations} unk=${m.unknown} ${p(4)} ${p(6)} ${p(8)} ${perSec(6)} h2=${m.h2Rate.toFixed(3)} rps=${m.runsPerSec.toFixed(1)} exposure=${Math.round(m.exposureMs / 1000)}s`;
-}
-
 // Gate for perf-kind hypotheses: A/B bench superiority is the objective;
 // ladder non-inferiority + regression are the semantic safety net. Perf work
 // legitimately touches hot execution files, so the semantics-file rule is
@@ -518,7 +504,7 @@ export function selfTestUnmeasured(): string[] {
   const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
   const base: FinalGateInputs = {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
-    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, panel: null, unmeasurable: [],
+    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, throughputFloor: 0.8, panel: null, unmeasurable: [],
   };
   const un = finalGate({ ...base, unmeasurable: ["u"] });
   check(un.verdict === "needs_human", `an unmeasurable diff reaches a human, got ${un.verdict}`);
@@ -553,7 +539,7 @@ export function selfTestPanelAuthority(): string[] {
   const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
   const base: FinalGateInputs = {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
-    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, panel: null, unmeasurable: [],
+    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, throughputFloor: 0.8, panel: null, unmeasurable: [],
   };
   const panel = (combinedZ: number | null, judging: string[]): PanelSummary => ({
     members: [], judging, nonJudging: [], combinedZ, collapsedMembers: [], wallMs: 0,

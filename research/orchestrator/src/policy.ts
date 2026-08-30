@@ -26,7 +26,6 @@ export const Policy = z.object({
     propose: z.string(),
     judge: z.string(),
     implement: z.string(),
-    diagnose: z.string(),
     reflect: z.string(),
     audit: z.string(),
   }),
@@ -35,9 +34,7 @@ export const Policy = z.object({
   }),
   fidelities: z.object({ screen: Fidelity, promote: Fidelity }),
   budgets: z.object({
-    maxWallMinutesPerHypothesis: z.number().positive(),
     maxLineageDepth: z.number().int().positive(),
-    stagnationWindow: z.number().int().positive(),
     maxImplementTurns: z.number().int().positive(),
     maxImplementMinutes: z.number().positive(),
     maxBuildSeconds: z.number().int().positive(),
@@ -92,15 +89,29 @@ export const Policy = z.object({
 });
 export type Policy = z.infer<typeof Policy>;
 
-/// Top-level keys the schema declares. Zod strips anything else on parse, so
-/// a key absent from this list never reaches the running policy.
-export const POLICY_KEYS: readonly string[] = Object.keys(Policy.shape);
+/// Every key path the schema declares, dotted from the root. Zod strips
+/// anything else on parse, so a path absent from this set never reaches the
+/// running policy. Nested, because a nested inert key is stripped just as
+/// silently as a top-level one.
+export const POLICY_KEY_PATHS: ReadonlySet<string> = (() => {
+  const out = new Set<string>();
+  const walk = (node: unknown, prefix: string): void => {
+    const props = (node as { properties?: Record<string, unknown> } | null)?.properties;
+    if (!props) return;
+    for (const [k, v] of Object.entries(props)) {
+      const p = prefix ? `${prefix}.${k}` : k;
+      out.add(p);
+      walk(v, p);
+    }
+  };
+  walk(z.toJSONSchema(Policy, { io: "input" }), "");
+  return out;
+})();
 
 // Mechanism-level floors/ceilings. The loop can propose policy changes only
 // inside this box.
 export const HARD_LIMITS = {
   minExplorationQuota: 0.2,
-  maxWallMinutesPerHypothesis: 180,
   maxImplementTurns: 120,
   maxExploreWallSec: 3600,
   minExploreBudgetSec: 30,
@@ -119,7 +130,6 @@ export function clampPolicy(p: Policy): { policy: Policy; clamps: string[] } {
     return out;
   };
   c.bandit.explorationQuota = clampNum("bandit.explorationQuota", c.bandit.explorationQuota, HARD_LIMITS.minExplorationQuota, 1);
-  c.budgets.maxWallMinutesPerHypothesis = clampNum("budgets.maxWallMinutesPerHypothesis", c.budgets.maxWallMinutesPerHypothesis, 1, HARD_LIMITS.maxWallMinutesPerHypothesis);
   c.budgets.maxImplementTurns = clampNum("budgets.maxImplementTurns", c.budgets.maxImplementTurns, 5, HARD_LIMITS.maxImplementTurns);
   c.budgets.maxImplementMinutes = clampNum("budgets.maxImplementMinutes", c.budgets.maxImplementMinutes, 2, 60);
   c.budgets.maxBuildSeconds = clampNum("budgets.maxBuildSeconds", c.budgets.maxBuildSeconds, 60, HARD_LIMITS.maxBuildSeconds);

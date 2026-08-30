@@ -243,11 +243,11 @@ export function renderStatus(
   lines.push("");
   const m = policy.models;
   lines.push(
-    `- Models: propose=${m.propose}, judge=${m.judge}, implement=${m.implement}, diagnose=${m.diagnose}, reflect=${m.reflect}, audit=${m.audit}`,
+    `- Models: propose=${m.propose}, judge=${m.judge}, implement=${m.implement}, reflect=${m.reflect}, audit=${m.audit}`,
   );
   const b = policy.budgets;
   lines.push(
-    `- Budgets: ${b.maxWallMinutesPerHypothesis} wall-min/hypothesis, ${b.maxImplementTurns} implement turns, ${b.maxBuildSeconds}s build, ${b.minFreeDiskGb}GB free disk floor`,
+    `- Budgets: ${b.maxImplementTurns} implement turns, ${b.maxBuildSeconds}s build, ${b.minFreeDiskGb}GB free disk floor`,
   );
   lines.push(
     `- Bandit: explorationQuota=${policy.bandit.explorationQuota}`,

@@ -3,7 +3,6 @@
 // shell. Read-mostly helpers return parsed values; mutating helpers throw
 // GitError on unexpected failure.
 import { execFileSync } from "node:child_process";
-import { z } from "zod";
 import type { HypothesisKind } from "./schemas.js";
 
 import { SUPER, SPUR } from "./paths.js";
@@ -389,17 +388,6 @@ export function mergePrSquash(cwd: string, url: string): boolean {
     .ok;
 }
 
-const PrListJson = z.array(z.object({ url: z.string() }));
-
-/** URL of an open PR whose head is `head`, or null if none exists. */
-export function prExistsFor(cwd: string, head: string): string | null {
-  const out = must("gh", ["pr", "list", "--head", head, "--json", "url"], cwd);
-  const raw: unknown = JSON.parse(out);
-  const parsed = PrListJson.safeParse(raw);
-  if (!parsed.success) return null;
-  return parsed.data[0]?.url ?? null;
-}
-
 // ---------------------------------------------------------------------------
 // Protected paths + lint
 // ---------------------------------------------------------------------------
@@ -443,25 +431,31 @@ function lintProtectedPathsInner(superFiles: string[]): string[] {
  * change that never ran. Config work has to edit a loaded file in place.
  */
 /**
- * Top-level keys in `research/policy.json` that the Policy schema does not
- * declare. Zod strips unknown keys on parse, so such a key never reaches the
- * running policy and is read by nothing: the hypothesis that adds it passes
- * the gate having changed no behavior at all. Caught here rather than by
- * making the schema strict, so a bad key fails one hypothesis instead of
+ * Key paths in `research/policy.json` that the Policy schema does not declare,
+ * at any depth. Zod strips unknown keys on parse, so such a key never reaches
+ * the running policy and is read by nothing: the hypothesis that adds it
+ * passes the gate having changed no behavior at all. Caught here rather than
+ * by making the schema strict, so a bad key fails one hypothesis instead of
  * refusing to start the daemon.
  */
 export function lintInertPolicyKeys(
   policyJsonText: string | null,
-  schemaKeys: readonly string[],
+  schemaKeyPaths: ReadonlySet<string>,
 ): string[] {
   if (!policyJsonText) return [];
   let raw: unknown;
   try { raw = JSON.parse(policyJsonText); } catch { return ["policy.json is not valid JSON"]; }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return ["policy.json is not a JSON object"];
-  const known = new Set(schemaKeys);
-  return Object.keys(raw as Record<string, unknown>)
-    .filter((k) => !known.has(k))
-    .map((k) => `inert policy key (schema drops it on parse): ${k}`);
+  const out: string[] = [];
+  const walk = (node: Record<string, unknown>, prefix: string): void => {
+    for (const [k, v] of Object.entries(node)) {
+      const p = prefix ? `${prefix}.${k}` : k;
+      if (!schemaKeyPaths.has(p)) { out.push(`inert policy key (schema drops it on parse): ${p}`); continue; }
+      if (typeof v === "object" && v !== null && !Array.isArray(v)) walk(v as Record<string, unknown>, p);
+    }
+  };
+  walk(raw as Record<string, unknown>, "");
+  return out;
 }
 
 export function lintInertConfigs(

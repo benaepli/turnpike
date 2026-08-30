@@ -21,7 +21,7 @@ import {
   lintVrNames, mergePrSquash, push, resetHard, tag, pushTag,
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
-import { POLICY_KEYS, loadPolicy } from "./policy.js";
+import { POLICY_KEY_PATHS, loadPolicy } from "./policy.js";
 import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, resolveRoot, run, templateHasCampaign } from "./runners.js";
 import { diffConfigPaths, type PanelArms, type PanelSummary } from "./panel.js";
 import { runRegression } from "./regression.js";
@@ -895,7 +895,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         superFiles.includes("research/policy.json")
           ? readFileSync(path.join(ROOT, "research/policy.json"), "utf8")
           : null,
-        POLICY_KEYS,
+        POLICY_KEY_PATHS,
       ),
       ...lintInertConfigs(superFiles, [
         policy.evaluation.configTemplate,

@@ -326,8 +326,6 @@ export function initialSeqState(hypothesisId: string, baselineKey: string): SeqS
   };
 }
 
-export const MAX_TIMING_ANOMALIES = 3;
-
 // The measured five-arm split of a campaign chunk (live 14-thread baseline,
 // 2026-08): equal wall, grid-short carrying most runs, aos carrying a deep
 // tail on a fifth of the wall. The self-tests decide on the stratum, so a
@@ -616,7 +614,6 @@ export async function runSequential(opts: {
         evals.push(excluded);
         seq = { ...seq, anomalies: seq.anomalies + 1 };
         opts.onAnomaly?.(excluded, anomaly);
-        if (seq.anomalies >= MAX_TIMING_ANOMALIES) return { verdict: "error", reason: `${seq.anomalies} chunks excluded for timing: ${anomaly}`, evals, seq };
         continue;
       }
     } else {

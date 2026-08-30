@@ -3,7 +3,6 @@
     "propose": "claude-opus-5",
     "judge": "claude-opus-5",
     "implement": "claude-opus-5",
-    "diagnose": "claude-opus-5",
     "reflect": "claude-opus-5",
     "audit": "claude-opus-5"
   },
@@ -32,9 +31,7 @@
     }
   },
   "budgets": {
-    "maxWallMinutesPerHypothesis": 150,
     "maxLineageDepth": 6,
-    "stagnationWindow": 8,
     "maxImplementTurns": 220,
     "maxBuildSeconds": 600,
     "minFreeDiskGb": 40,

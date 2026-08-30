@@ -6,22 +6,6 @@ import type { Policy } from "./policy.js";
 import type { LoopState } from "./state.js";
 import { loadSeqState } from "./sequential.js";
 
-export interface SelectInputs {
-  pool: Hypothesis[];              // status === "proposed"
-}
-
-export function lineageRoot(h: Hypothesis, byId: Map<string, Hypothesis>): string {
-  let cur = h;
-  const seen = new Set<string>();
-  while (cur.parent && !seen.has(cur.parent)) {
-    seen.add(cur.parent);
-    const p = byId.get(cur.parent);
-    if (!p) break;
-    cur = p;
-  }
-  return cur.id;
-}
-
 export function lineageDepth(h: Hypothesis, byId: Map<string, Hypothesis>): number {
   let d = 0;
   let cur: Hypothesis | undefined = h;

@@ -18,12 +18,6 @@ export interface RegressionCase {
 
 type Model = "kv" | "kv_rmw";
 
-/** kv_rmw when the spec declares an RMW handler, kv otherwise. */
-function modelForSpec(specPath: string): Model {
-  const text = fs.readFileSync(specPath, "utf8");
-  return text.includes("fn RMW") ? "kv_rmw" : "kv";
-}
-
 function caseDir(name: string): string {
   return path.join(ROOT, "tmp", "loop", `regr-${name}`);
 }

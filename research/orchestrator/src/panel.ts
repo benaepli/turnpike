@@ -12,7 +12,6 @@ import * as path from "node:path";
 import { z } from "zod";
 import { ROOT } from "./paths.js";
 import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, readSessionSibling, readUtilizationSibling, resolveRoot, runsTable } from "./runners.js";
-export { readUtilizationSibling };
 import type { EvalContext } from "./evaluate.js";
 import { kmMedian, logRankZ, poissonRateRatioZ, type Censored } from "./stats.js";
 
