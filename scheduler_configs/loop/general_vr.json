@@ -98,6 +98,13 @@
         }
       },
       {
+        "id": "grid-deep",
+        "mode": "grid",
+        "overlay": {
+          "max_iterations": 24000
+        }
+      },
+      {
         "id": "aos",
         "mode": "aos",
         "overlay": {}
