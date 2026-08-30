@@ -26,6 +26,12 @@ function prepDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+// Runs per config for the throughput A/B's workload. It has to be small
+// enough that a round finishes inside policy.perf.roundWallSec on the slower
+// of the two binaries, and large enough that the rps estimate is not one
+// startup; the bench fails a round that produces under half of it.
+const THROUGHPUT_RUNS_PER_CONFIG = 100;
+
 interface CaseRun {
   totalRuns: number;
   violations: number;
@@ -137,7 +143,7 @@ export async function runRegression(
       fs.writeFileSync(baseTemplate, showFile(SUPER, RESEARCH_BRANCH, ctx.policy.evaluation.configTemplate));
       const b = await runBench(ctx.policy, ctx.binary, baselineBin, {
         templatePath: baseTemplate,
-        runsPerConfig: ctx.policy.fidelities.screen.runsPerConfig,
+        runsPerConfig: THROUGHPUT_RUNS_PER_CONFIG,
         rounds: 2,
       });
       if (b.baseMean <= 0) return { name, passed: false, detail: `bench failed: ${b.detail}` };

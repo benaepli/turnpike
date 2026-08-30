@@ -13,14 +13,6 @@ export function defaultRayonThreads(): number {
   return Math.max(1, os.availableParallelism() - 2);
 }
 
-const Fidelity = z.object({
-  exploreWallSec: z.number().int().positive(),
-  runsPerConfig: z.number().int().positive(),
-  gradeMaxRuns: z.number().int().nonnegative(),
-  gradeBudgetMs: z.number().int().nonnegative(),
-  seeds: z.array(z.number().int()).min(1),
-});
-
 export const Policy = z.object({
   models: z.object({
     propose: z.string(),
@@ -32,7 +24,6 @@ export const Policy = z.object({
   bandit: z.object({
     explorationQuota: z.number().min(0).max(1),
   }),
-  fidelities: z.object({ screen: Fidelity, promote: Fidelity }),
   budgets: z.object({
     maxLineageDepth: z.number().int().positive(),
     maxImplementTurns: z.number().int().positive(),
@@ -135,9 +126,6 @@ export function clampPolicy(p: Policy): { policy: Policy; clamps: string[] } {
   c.budgets.minFreeDiskGb = clampNum("budgets.minFreeDiskGb", c.budgets.minFreeDiskGb, HARD_LIMITS.minFreeDiskGbFloor, 1000);
   c.sequential.maxChunks = clampNum("sequential.maxChunks", c.sequential.maxChunks, 1, HARD_LIMITS.maxSequentialChunks);
   c.sequential.exploreBudgetSec = clampNum("sequential.exploreBudgetSec", c.sequential.exploreBudgetSec, HARD_LIMITS.minExploreBudgetSec, HARD_LIMITS.maxExploreBudgetSec);
-  for (const f of ["screen", "promote"] as const) {
-    c.fidelities[f].exploreWallSec = clampNum(`fidelities.${f}.exploreWallSec`, c.fidelities[f].exploreWallSec, 10, HARD_LIMITS.maxExploreWallSec);
-  }
   return { policy: c, clamps };
 }
 

@@ -422,16 +422,11 @@ export function finalGate(i: FinalGateInputs): GateDecision {
   };
 }
 
-// Gate for perf-kind hypotheses: A/B bench superiority is the objective;
-// ladder non-inferiority + regression are the semantic safety net. Perf work
-// legitimately touches hot execution files, so the semantics-file rule is
-// relaxed here - but only behind promote-fidelity non-inferiority.
+// Gate for perf-kind hypotheses: A/B bench superiority is the objective and
+// the regression suite is the semantic safety net.
 export interface PerfGateInputs {
   hypothesis: Hypothesis;
   bench: BenchResult;
-  screenNI: { ok: boolean; failures: string[] };
-  promoteNI: boolean | null; // null = not run
-  touchesSemantics: boolean;
   regressionPassed: boolean;
   lintFailures: string[];
 }
@@ -445,18 +440,9 @@ export function perfGate(i: PerfGateInputs): GateDecision {
   } else if (!i.bench.pass) {
     verdict = "closed";
     reasons.push(`bench: ${i.bench.detail}`);
-  } else if (!i.screenNI.ok) {
-    verdict = "closed";
-    reasons.push(`ladder not non-inferior at screen: ${i.screenNI.failures.join(", ")}`);
   } else if (!i.regressionPassed) {
     verdict = "closed";
     reasons.push("regression suite failed");
-  } else if (i.touchesSemantics && i.promoteNI === false) {
-    verdict = "closed";
-    reasons.push("semantics files touched and promote-fidelity non-inferiority failed");
-  } else if (i.touchesSemantics && i.promoteNI === null) {
-    verdict = "needs_human";
-    reasons.push("semantics files touched; promote-fidelity non-inferiority not available");
   } else {
     verdict = "auto_merge";
     reasons.push(`bench: ${i.bench.detail}`);

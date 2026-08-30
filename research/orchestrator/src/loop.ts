@@ -9,11 +9,11 @@ import {
   reflectOnOutcome, rejudgePool, runAudit, validateProposed,
 } from "./agents.js";
 import {
-  CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, classifyChangeRisk, compareToBaseline, finalGate,
-  nonInferior, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons, type RatePrior,
+  CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, compareToBaseline, finalGate,
+  objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
-import { numericLeaves, runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
+import { numericLeaves, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
 import {
   RESEARCH_BRANCH, SPUR, SUPER, SUPER_LANES, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, preservingOperatorTree, snapshotWork, rebaseOnto, resetBranchTo,
@@ -43,9 +43,6 @@ export function graderVersion(): string {
 }
 
 const BaselineMeta = z.object({
-  screen: z.array(Evaluation),
-  promote: z.array(Evaluation),
-  confirm: z.array(Evaluation),
   // Chunks gathered with the sequential protocol itself (chunk size, seed
   // family): the frontier rates depend on runs per config, so candidates
   // are only compared with a baseline measured the same way.
@@ -229,7 +226,7 @@ export function selfTestBaselineKeys(): string[] {
   const state = new LoopState(path.join(dir, "state.sqlite"));
   try {
     const meta = (threads: number, rps: number): string =>
-      JSON.stringify({ screen: [], promote: [], confirm: [], sequential: [], runsPerSec: rps, rayonThreads: threads });
+      JSON.stringify({ sequential: [], runsPerSec: rps, rayonThreads: threads });
     state.setMeta(baselineKey(14), meta(14, 100));
     state.setMeta(baselineKey(30), meta(30, 600));
     check(loadBaseline(state, 14)?.runsPerSec === 100, "loadBaseline picks the 14-thread baseline");
@@ -942,27 +939,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       journal(state, n, "bench", bench);
       if (stopRequested()) { parkForStop(state, n, h, branch, "bench"); return; }
       if (bench.pass) {
-        const screen = await timed("evaluate", () => runEvaluation(ctx, h.id, "screen"));
-        allEvals["screen"] = screen;
-        for (const e of screen) state.addEvaluation(e);
-        const screenNI = nonInferior(objectiveCounts(screen), objectiveCounts(baseline.screen));
-        journal(state, n, "perf-screen-ni", screenNI);
-        const touchesSemantics = classifyChangeRisk(spurFiles) === "semantics";
-        let promoteNI: boolean | null = null;
-        if (screenNI.ok && touchesSemantics) {
-          const promote = await timed("evaluate", () => runEvaluation(ctx, h.id, "promote"));
-          allEvals["promote"] = promote;
-          for (const e of promote) state.addEvaluation(e);
-          promoteNI = nonInferior(objectiveCounts(promote), objectiveCounts(baseline.promote)).ok;
-          journal(state, n, "perf-promote-ni", { ok: promoteNI });
-        }
-        if (screenNI.ok) {
-          const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
-          regressionPassed = regr.passed;
-          journal(state, n, "regression", regr);
-        }
+        const regr = await timed("regression", () => runRegression(ctx, baseline.runsPerSec));
+        regressionPassed = regr.passed;
+        journal(state, n, "regression", regr);
         throughputRatio = 1 + bench.improvement;
-        perfDecision = perfGate({ hypothesis: h, bench, screenNI, promoteNI, touchesSemantics, regressionPassed, lintFailures });
+        perfDecision = perfGate({ hypothesis: h, bench, regressionPassed, lintFailures });
       } else {
         perfDecision = {
           hypothesisId: h.id, verdict: "closed", reasons: [`bench: ${bench.detail}`],
@@ -1117,9 +1098,6 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         for (const e of sequential) if (!allEvals["sequential"]?.includes(e)) state.addEvaluation(e);
         journal(state, n, "baseline_sequential", { chunks: sequential.length, counts: pooledCountsOf(sequential) });
         const newBaseline: BaselineMeta = {
-          screen: allEvals["screen"] ?? baseline.screen,
-          promote: allEvals["promote"] ?? baseline.promote,
-          confirm: baseline.confirm,
           sequential,
           runsPerSec: baseline.runsPerSec * (throughputRatio ?? 1),
           rayonThreads: policy.evaluation.rayonThreads,

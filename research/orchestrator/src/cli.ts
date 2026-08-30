@@ -3,7 +3,7 @@
 // Commands: baseline | once | start | status | regression | selftest | profile
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
-import { runEvaluation, selfTestRunIdentity, type EvalContext } from "./evaluate.js";
+import { selfTestRunIdentity, type EvalContext } from "./evaluate.js";
 import { commitLanes, currentCommit, ensureClean, selfTestArmSetGrowth, SPUR, SUPER, SUPER_LANES } from "./gitops.js";
 import { baselineEvidencePath, baselineKey, graderVersion, loadBaseline, loadReference, selfTestBaselineKeys, rejudge, runIteration, runLoop, sequentialBaselineChunks, topUpSequentialBaseline, violationPrior, type BaselineMeta } from "./loop.js";
 import { loadPolicy } from "./policy.js";
@@ -28,24 +28,19 @@ async function cmdBaseline(state: LoopState): Promise<void> {
     policy, binary: SPUR_BIN, graderVersion: graderVersion(),
     spurCommit: currentCommit(SPUR), superCommit: currentCommit(SUPER),
   };
-  const out: Partial<BaselineMeta> = {};
-  for (const f of ["screen", "promote"] as const) {
-    console.log(`baseline ${f} evaluation...`);
-    const evals = await runEvaluation(ctx, "baseline", f);
-    for (const e of evals) {
-      state.addEvaluation(e);
-      console.log(`  seed ${e.seed}: ok=${e.ok} runs=${e.metrics.runs} viol=${e.metrics.violations} meanDepth=${e.metrics.meanPrefixDepth.toFixed(2)} rps=${e.metrics.runsPerSec.toFixed(1)}${e.error ? " err=" + e.error : ""}`);
-    }
-    out[f] = evals;
-  }
   console.log("baseline sequential chunks...");
   const sequential = await topUpSequentialBaseline(ctx, [], sequentialBaselineChunks(policy));
-  for (const e of sequential) state.addEvaluation(e);
-  const screenOk = (out.screen ?? []).filter((e) => e.ok);
-  const rps = screenOk.length ? screenOk.reduce((a, e) => a + e.metrics.runsPerSec, 0) / screenOk.length : 0;
+  for (const e of sequential) {
+    state.addEvaluation(e);
+    console.log(`  seed ${e.seed}: ok=${e.ok} runs=${e.metrics.runs} viol=${e.metrics.violations} meanDepth=${e.metrics.meanPrefixDepth.toFixed(2)} rps=${e.metrics.runsPerSec.toFixed(1)}${e.error ? " err=" + e.error : ""}`);
+  }
+  // The rate the throughput case and the baseline listing quote, measured on
+  // the chunks the loop actually compares against rather than on a rung that
+  // no longer runs.
+  const chunksOk = sequential.filter((e) => e.ok);
+  const rps = chunksOk.length ? chunksOk.reduce((a, e) => a + e.metrics.runsPerSec, 0) / chunksOk.length : 0;
   const baseline: BaselineMeta = {
-    screen: out.screen ?? [], promote: out.promote ?? [], confirm: out.confirm ?? [], sequential, runsPerSec: rps,
-    rayonThreads: policy.evaluation.rayonThreads,
+    sequential, runsPerSec: rps, rayonThreads: policy.evaluation.rayonThreads,
   };
   const threads = policy.evaluation.rayonThreads;
   state.setMeta(baselineKey(threads), JSON.stringify(baseline));

@@ -75,10 +75,10 @@ export function pooledLadder(evals: Evaluation[]): LadderMetrics | null {
 }
 
 /** The ladder a stored baseline is judged by: its sequential chunks pooled,
- *  or the confirm rung of a baseline recorded before the sequential protocol. */
-export function baselineLadder(meta: { sequential: Evaluation[]; confirm: Evaluation[] } | null): LadderMetrics | null {
+ */
+export function baselineLadder(meta: { sequential: Evaluation[] } | null): LadderMetrics | null {
   if (meta === null) return null;
-  return pooledLadder(meta.sequential) ?? meta.confirm[0]?.metrics ?? null;
+  return pooledLadder(meta.sequential);
 }
 
 export function ladderTable(
@@ -252,10 +252,6 @@ export function renderStatus(
   lines.push(
     `- Bandit: explorationQuota=${policy.bandit.explorationQuota}`,
   );
-  const f = policy.fidelities;
-  lines.push(
-    `- Fidelity explore wall (s): screen=${f.screen.exploreWallSec}, promote=${f.promote.exploreWallSec}`,
-  );
   const sq = policy.sequential;
   lines.push(
     `- Sequential: ${sq.exploreBudgetSec} s explore budget per chunk (interleaved grid, at most ${sq.maxRunsPerConfig} runs/config), objective rung events per explore-second, ${sq.minChunks}-${sq.maxChunks} chunks, reject at P(effect>=separable)<${sq.rejectP}, inconclusive at cap with P(better)>=${sq.inconclusiveP}, throughput floor ${1 - policy.regression.throughputTolerance}, resumes ${sq.maxResumes}`,
@@ -323,20 +319,6 @@ export function renderPolicyMd(
   lines.push(`- explorationQuota: ${policy.bandit.explorationQuota}`);
   lines.push("");
 
-  lines.push("## Fidelities");
-  lines.push("");
-  lines.push(
-    "| Rung | exploreWallSec | runsPerConfig | gradeMaxRuns | gradeBudgetMs | seeds |",
-  );
-  lines.push("| --- | --- | --- | --- | --- | --- |");
-  for (const rung of ["screen", "promote"] as const) {
-    const fd = policy.fidelities[rung];
-    lines.push(
-      `| ${rung} | ${fd.exploreWallSec} | ${fd.runsPerConfig} | ${fd.gradeMaxRuns} | ${fd.gradeBudgetMs} | ${fd.seeds.join(", ")} |`,
-    );
-  }
-  lines.push("");
-
   lines.push("## Sequential evaluation");
   lines.push("");
   for (const [key, value] of Object.entries(policy.sequential)) {
@@ -401,7 +383,7 @@ export function selfTestRender(evidencePath?: string): string[] {
   const f: string[] = [];
   const p = evidencePath ?? join(SUPER, "research", "evaluations", "000-baseline.json");
   if (!existsSync(p)) return f;
-  const parsed = z.object({ baseline: z.object({ sequential: z.array(Evaluation).default([]), confirm: z.array(Evaluation).default([]) }) }).safeParse(JSON.parse(readFileSync(p, "utf8")));
+  const parsed = z.object({ baseline: z.object({ sequential: z.array(Evaluation).default([]) }) }).safeParse(JSON.parse(readFileSync(p, "utf8")));
   if (!parsed.success) { f.push(`000-baseline.json does not parse: ${parsed.error.message.slice(0, 200)}`); return f; }
   const ladder = baselineLadder(parsed.data.baseline);
   if (ladder === null) { f.push("the recorded baseline pools to no ladder"); return f; }

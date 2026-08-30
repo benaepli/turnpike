@@ -370,26 +370,6 @@ export async function runOneEvaluation(
   }
 }
 
-// Run the fixed-fidelity rung (every seed of the rung); used by the baseline
-// and by the confirm stage.
-export async function runEvaluation(
-  ctx: EvalContext,
-  hypothesisId: string,
-  fidelity: Exclude<FidelityName, "sequential" | "confirm">,
-): Promise<Evaluation[]> {
-  const fid = ctx.policy.fidelities[fidelity];
-  const evals: Evaluation[] = [];
-  for (const seed of fid.seeds) {
-    const e = await runOneEvaluation(ctx, hypothesisId, fidelity, seed, {
-      runsPerConfig: fid.runsPerConfig, exploreWallSec: fid.exploreWallSec,
-      gradeMaxRuns: fid.gradeMaxRuns, gradeBudgetMs: fid.gradeBudgetMs,
-    });
-    evals.push(e);
-    if (e.error === "disk guard") break;
-  }
-  return evals;
-}
-
 export function aggregateDepthCounts(evals: Evaluation[], k: number): { succ: number; n: number } {
   let succ = 0;
   let n = 0;
