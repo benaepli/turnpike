@@ -386,6 +386,13 @@ export function finalGate(i: FinalGateInputs): GateDecision {
         // compare it with the arms the change touches.
         verdict = "needs_human";
         reasons.push("the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches");
+      } else if (classifyChangeRisk(i.changedSpurFiles) === "semantics") {
+        // A change to what an execution means can move every rung without
+        // exploring anything new, so its evidence cannot certify it. Both
+        // times this fired the review changed the implementation before it
+        // merged, which is the branch working rather than a false park.
+        verdict = "needs_human";
+        reasons.push("touches execution-semantics files");
       } else {
         verdict = "auto_merge";
         reasons.push(`improved: ${cmp.improved.join(", ") || "(non-inferior)"}`);
