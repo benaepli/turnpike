@@ -92,7 +92,9 @@ const scenarios: Scenario[] = [
   // ratio while the objective is a rate, so it also killed candidates whose
   // rate was up. The measured price of removing it is one extra chunk here.
   { name: "harmful (-40% d4 per run)", rps: 1, e4: -0.4, e5: -0.4, e6: -0.4, e7: -0.4, eh2: -0.1, expect: { rejectMin: 100, chunksMeanMax: 2 } },
-  { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, expect: { advanceMin: 90 } },
+  // depth>=7 does not carry a merge, so a gain confined to it costs the full
+  // sample and reaches a human rather than being merged or discarded.
+  { name: "d7-only +40%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0.4, eh2: 0, expect: { advanceMax: 0, escalateMin: 90 } },
   { name: "h2-only +10%", rps: 1, e4: 0, e5: 0, e6: 0, e7: 0, eh2: 0.1, expect: { advanceMax: 3 } },
   // The deep-rung guard is a 25% relative margin: a decline inside it
   // advances, one at the margin is held for a human, one beyond it rejects.

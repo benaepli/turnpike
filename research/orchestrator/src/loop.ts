@@ -448,7 +448,7 @@ export function evaluationContext(state: LoopState, policy: Policy): string {
       campaign = `\nThe evaluation is a campaign: one session of ${policy.sequential.exploreBudgetSec} s split across arms by ${cfg.campaign.allocation?.kind ?? "round_robin"} allocation (reward ${cfg.campaign.reward?.kind ?? "termination_completed"}), each arm keeping its own feedback state. Arms: ${arms}. The ladder is the union of the arms; per-arm rung rates are recorded in every evaluation. An arm-kind hypothesis edits only the campaign block (add, drop or re-overlay a generic arm); a mechanism a hypothesis adds to spur is measured under every arm that enables it.`;
     } catch { /* reported without the arm list */ }
   }
-  return `Primary objective: depth>=6 events per explore-second, the per-run rung probability times runs per second (GOAL.md rule 6); depth>=7 extends sampling and depth>=8 is recorded.\nExplorer: -e ${policy.evaluation.explorer} on ${policy.evaluation.configTemplate}; scalar settings ${modes}.${campaign}\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
+  return `Primary objective: depth>=6 events per explore-second, the per-run rung probability times runs per second (GOAL.md rule 6); depth>=7 and depth>=8 are recorded and never decided on.\nExplorer: -e ${policy.evaluation.explorer} on ${policy.evaluation.configTemplate}; scalar settings ${modes}.${campaign}\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
 }
 
 // Number of top-level keys in the general evaluation config: the loop's
@@ -1024,7 +1024,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // (low pMei) will never separate against the fixed-size baseline, so
         // it is closed rather than re-sampled every cooldown.
         const bestPMei = Math.max(res.seq.posteriors["depth>=4:pMei"] ?? 0, res.seq.posteriors["depth>=5:pMei"] ?? 0,
-          res.seq.posteriors["depth>=6:pMei"] ?? 0, res.seq.posteriors["depth>=7:pMei"] ?? 0, res.seq.posteriors["depth>=8:pMei"] ?? 0);
+          res.seq.posteriors["depth>=6:pMei"] ?? 0);
         if (bestPMei >= RESUME_PMEI_MIN && res.seq.resumes < policy.sequential.maxResumes) {
           markInconclusive(state, n, h, branch, res.seq, res.reason, spurFiles.length > 0);
           return;

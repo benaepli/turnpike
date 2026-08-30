@@ -153,9 +153,11 @@ export function objectiveCounts(evals: Evaluation[]): ObjectiveCounts {
   };
 }
 
-// The rungs a separated per-second gain can advance on. Deeper rungs carry
-// too few events per session to decide (research/observations/POWER_FLOOR.md).
-export const ADVANCE_RUNGS = [4, 5, 6, 7, 8] as const;
+// The rungs a separated per-second gain can advance on. depth>=7 and depth>=8
+// carry a few hundred events a chunk against the primary rung's thousands, so
+// they are recorded and never decided on
+// (research/observations/POWER_FLOOR.md).
+export const ADVANCE_RUNGS = [4, 5, 6] as const;
 // The rung the objective is named on. A separated gain on a shallower rung
 // does not carry a merge past a primary rung that is known to have fallen.
 export const PRIMARY_RUNG = 6;

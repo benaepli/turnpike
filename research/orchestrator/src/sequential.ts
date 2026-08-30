@@ -167,6 +167,7 @@ export function decideSequential(
   };
   const perSec = (k: number, m: number, s: number) =>
     compareRatesPoisson(sd(cs, k), cs.exposureSec, sd(bs, k), bs.exposureSec, m, p.regressMargin, p.draws, s, xv(k));
+  const sep = (k: number): boolean => rateRatioSeparated(sd(cs, k), cs.exposureSec, sd(bs, k), bs.exposureSec, MERGE_Z, xv(k));
   const d4 = perSec(4, mei.depth4, seed);
   const d5 = perSec(5, mei.depth5, seed + 1);
   const d6 = perSec(6, mei.depth6, seed + 3);
@@ -196,6 +197,9 @@ export function decideSequential(
     "depth>=5:cv": rungCv(cs, 5), "depth>=6:cv": rungCv(cs, 6), "depth>=7:cv": rungCv(cs, 7),
     "stratum:chunks": cs.chunks, "stratum:exposureSec": cs.exposureSec,
   };
+  // Which rungs cleared the merge gate's separation test, recorded for every
+  // rung including the two that cannot advance on it.
+  for (const k of [4, 5, 6, 7, 8]) posteriors[`depth>=${k}:separated`] = sep(k) ? 1 : 0;
   const out = (verdict: SeqVerdict, reason: string): SeqDecision => ({ verdict, reason, posteriors });
 
   // A violation counts for the candidate only when it exceeds what the
@@ -228,10 +232,7 @@ export function decideSequential(
   if (chunks >= p.minChunks) {
     if (belowFloor) return out("reject", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
     if (deepRegress >= p.niP) return out("reject", `deep rungs regressed per run beyond the ${(p.regressMargin * 100).toFixed(0)}% margin (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
-    const sep = (k: number): boolean => rateRatioSeparated(sd(cs, k), cs.exposureSec, sd(bs, k), bs.exposureSec, MERGE_Z, xv(k));
-    if (sep(8)) { separatedK = 8; separatedRung = `depth>=8 per second separated at z ${MERGE_Z} (ratio ${d8.meanRatio.toFixed(2)})`; }
-    else if (sep(7)) { separatedK = 7; separatedRung = `depth>=7 per second separated at z ${MERGE_Z} (ratio ${d7.meanRatio.toFixed(2)})`; }
-    else if (sep(6)) { separatedK = 6; separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`; }
+    if (sep(6)) { separatedK = 6; separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`; }
     else if (sep(5)) { separatedK = 5; separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`; }
     else if (sep(4)) { separatedK = 4; separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`; }
     // A rung shallower than the primary carries the session's run count as
@@ -250,6 +251,12 @@ export function decideSequential(
   }
   if (chunks >= p.maxChunks) {
     if (jackpot) return out("escalate", `rare evidence below gate separation (violations ${cand.violations}, d6 ${cand.depth6plus}, d7 ${cand.depth7plus}, d8 ${cand.depth8plus})`);
+    // A rung the gate does not merge on can still have separated. The finding
+    // goes to a human rather than being deleted as a negative result.
+    if (sep(8) || sep(7)) {
+      const k = sep(8) ? 8 : 7;
+      return out("escalate", `depth>=${k} per second separated at z ${MERGE_Z} (ratio ${(k === 8 ? d8 : d7).meanRatio.toFixed(2)}) on a rung the gate does not merge on`);
+    }
     if (separatedRung !== null) return out("escalate", `${separatedRung} with shallower deep runs unresolved (pRegress d5 ${g5.pRegress.toFixed(3)}, d6 ${g6.pRegress.toFixed(3)})`);
     const best = Math.max(d4.pGreater, d5.pGreater, d6.pGreater, d7.pGreater, d8.pGreater);
     return best >= p.inconclusiveP
