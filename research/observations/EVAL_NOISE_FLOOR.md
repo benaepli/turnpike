@@ -87,52 +87,52 @@ from the arm question and is not answered here.
 
 ## The null band on the stratified rate is a counting floor (2026-08-30)
 
+Corrected 2026-08-30: an earlier version of this section read
+`depthAtLeast[k]` as rung k. The array is zero-based on rung 1, so
+`depth[k-1]` is rung k, which is how `decide.ts` reads it
+(`cs.depth[PRIMARY_RUNG - 1]`). Every figure below was one rung too deep, and
+the numbers quoted for depth>=6 were depth>=7's. The conclusion survives the
+correction; the numbers did not.
+
 Two evaluations in the record are accidental A/A pairs: the candidate binary
 explores the same schedules as the baseline, so every delta they produced is
 noise by construction.
 
 - Iteration 5367, `recovery-steer-identity-multiplier-placebo`. The multiplier
-  is clamped to 1.0, and `recovery_weight_placebo.flipped` is 0 across both
+  is clamped to 1.0 and `recovery_weight_placebo.flipped` is 0 across both
   seeds against 199,560 and 206,701 evaluations of the term, so no candidate's
-  rank ever changed. It carries a real code-path cost (`params` +1, throughput
-  -1.05%) but no change of schedule.
+  rank ever changed.
 - Iteration 5352, `hazard-rate-vs-primary-decorrelation-audit`. The diff
   touches no file under `spur/` or `scheduler_configs/`, so the campaign ran
-  the baseline binary on the baseline config. `params` 0, throughput -0.03%.
+  the baseline binary on the baseline config.
 
 Seed-to-seed on the grid stratum, against the Poisson floor its own event
 count implies:
 
-| rung | 5367 | 5352 | 1 sigma from counts | events per chunk |
+| rung | events per chunk | 1 sigma from counts | 5367 | 5352 |
 | --- | --- | --- | --- | --- |
-| depth>=4 | +0.43% (0.62 s) | +0.26% (0.36 s) | 0.70% | 41,000 |
-| depth>=5 | +1.51% (1.06 s) | +0.76% (0.53 s) | 1.43% | 9,700 |
-| depth>=6 | +3.28% (1.04 s) | -1.13% (0.36 s) | 3.15% | 2,000 |
-| depth>=7 | +2.26% (0.28 s) | -4.73% (0.61 s) | 7.9% | 320 |
+| depth>=4 | 118,000 | 0.41% | -0.10% (0.25 s) | +0.65% (1.59 s) |
+| depth>=5 | 41,000 | 0.70% | +0.43% (0.62 s) | +0.26% (0.36 s) |
+| depth>=6 | 9,700 | 1.43% | +1.51% (1.06 s) | +0.76% (0.53 s) |
+| depth>=7 | 2,000 | 3.15% | +3.28% (1.04 s) | -1.13% (0.36 s) |
 
-Eight comparisons, every one inside 1.1 sigma. On the stratified rate the
+Eight comparisons, every one inside 1.6 sigma. On the stratified rate the
 observed dispersion is the dispersion the event count alone predicts, so the
 sampling share of this file's pooled table - 5.8x at depth>=5, 16.3x at
 depth>=6 - is excess that stratification removed rather than variance the
 metric carries. Two pairs corroborate that; they do not measure the variance
 ratio, which still wants the six-seed family.
 
-**The band is therefore computed, not looked up.** For a candidate and a
-baseline carrying `ec` and `eb` events at a rung, the A/A spread is
+**The band is computed, not looked up.** For a candidate and a baseline
+carrying `ec` and `eb` events at a rung, the A/A spread is
 `sqrt(1/ec + 1/eb)`. Nothing needs to read a number out of this file, and
-nothing goes stale when the arm set or the budget changes.
+nothing goes stale when the arm set or the budget changes. That property is
+what kept the off-by-one above out of the code: `nullBand` takes counts.
 
-At the primary rung that is about 3.1% for a chunk against a chunk. The gate's
-own `mei` on the same runs was 0.0310 (5367), 0.0319 (5369) and 0.0361 (5361),
-so the minimum effect the gate claims to separate already equals the counting
-floor, which is the coherence this reading predicts. Iteration 5361's +6.16%
-is about twice that floor, which is why it separated on two chunks.
-
-An earlier reading of 5352 alone put the band at `|primary| <= 0.003`. That is
-one draw of a quantity whose spread is 0.031, and it understated the floor
-tenfold; `OBSERVATIONS.md` records the correction at
-`recovery-steer-identity-multiplier-placebo`. Any rule that treats a
-sub-3% move at the primary rung as evidence is reading counting noise.
+At the primary rung the live 14-thread baseline carries about 9,890 events per
+chunk, so a merge - a two-chunk candidate against the four-chunk baseline -
+has a band of **0.87%**, and a chunk against a single chunk has 1.43%. Quote
+the figure for the comparison actually being made.
 
 ## Arm-mix drift is an aos phenomenon
 
@@ -148,22 +148,9 @@ with how fast it runs rather than being held. Between the two 5367 seeds:
 | aos | 35,392 -> 40,160 | +13.47% |
 
 The four grid arms hold their run counts to about 1%; `aos` moves 13.5%, and
-its depth>=6 rate moves 14.8% with it. Mix drift across a pooled ladder is
+its depth>=6 rate moves +17.8% with it. Mix drift across a pooled ladder is
 almost entirely this one arm, which is what the epoch-11 stratification
 excluded. The concern recorded against the recovery-selection site - that
 arm-mix drift makes single-term A/B deltas uninterpretable there - is correct
 for the pooled figures it was raised against and does not carry to the
 stratified statistic the gate has read since.
-
-### The band depends on how many chunks are pooled (2026-08-30)
-
-The 3.1% above is one chunk against one chunk. A merge is decided on a
-two-chunk candidate against the four-chunk baseline, which is
-`sqrt(1/3980 + 1/8248)` = **1.93%** at the current event counts. Quote the
-figure for the comparison actually being made; the code computes it from the
-counts it holds, so only prose can get this wrong.
-
-Event counts are also a property of the host mask, not of the rung. The live
-14-thread baseline carries about 2,060 depth>=6 grid-stratum events per chunk.
-A reading taken from the stale 30-thread baseline gives a materially narrower
-band and does not describe the regime the loop runs in.

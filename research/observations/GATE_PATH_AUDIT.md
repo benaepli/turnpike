@@ -23,7 +23,13 @@ must not be counted interchangeably. `sequential.ts` is what the sampling
 verdict comes from, so the sampling verdict is the one that describes how a
 merge was earned.
 
-## The compounding ratchet is not real
+## The compounding ratchet: neither established nor refuted
+
+Corrected 2026-08-30. This section first reported the thirteen merges below as
+compounding to -5.68%, and was then rewritten to call that 0.51 sigma of
+noise. Both readings were computed against a band that was one rung too deep -
+`depthAtLeast[k]` is rung k+1, not rung k. At the correct index the honest
+answer is that the record does not settle the question.
 
 The thirteen epoch-11 merges that advanced on non-inferiority:
 
@@ -43,24 +49,28 @@ The thirteen epoch-11 merges that advanced on non-inferiority:
 | 5363 | quiet-stretch-depth-telemetry-readonly | -0.0141 | 0.120 | 0.030 |
 | 5367 | recovery-steer-identity-multiplier-placebo | -0.0128 | 0.152 | 0.031 |
 
-They sum to -0.0578 and compound to -0.0568, against +0.0616 from the one
-superiority merge of the same epoch. Read as a ratchet that gives back what
-the loop earns, that is wrong three ways.
+Each is a two-chunk candidate against the four-chunk baseline, so the counting
+floor is `sqrt(1/19780 + 1/39560)` = **0.87%** at the live event counts.
 
-- Twelve of the thirteen are inside the counting floor. Each is a two-chunk
-  candidate against the four-chunk baseline, so the applicable A/A spread is
-  `sqrt(1/3980 + 1/8248)` = **1.93%**, not the 3.14% that a chunk against a
-  single chunk gives (`EVAL_NOISE_FLOOR.md` states the chunk-against-chunk
-  figure and it is the wrong comparator for a merge). Only 5353 at -1.96%
-  reaches it, and only barely.
-- Thirteen draws at that floor have a sum with sd 0.070. The observed -0.058
-  is **0.83 sigma from zero**.
-- Seven of thirteen are negative. A sign test gives p = 1.00.
+- **Six of the thirteen are individually outside it**: -0.0151, -0.0109,
+  -0.0196, +0.0121, -0.0141, -0.0128.
+- They sum to -0.0579 against a sd of 0.0314 for thirteen independent draws:
+  **1.84 sigma**, one-sided p about 0.033.
+- Seven of thirteen are negative, so a sign test gives p = 1.00. The negatives
+  average -1.25% and the positives +0.50%, which is where the sum comes from.
 
-The deltas are also measured against thirteen different baselines, each
-refreshed from the previous merge's own chunks, so they are serially dependent
-and summing them was never licensed in the first place. There is no evidence
-the non-inferiority path eroded the objective.
+So the magnitude test is marginal and the sign test is silent. What kept the
+earlier retraction from being simply wrong is an argument that does not depend
+on the band at all: the thirteen deltas are measured against thirteen
+different baselines, each refreshed from the previous merge's own chunks, so
+they are serially dependent and summing them was never licensed. A 1.84-sigma
+sum of thirteen dependent draws is not evidence of a ratchet, and it is not
+evidence against one either.
+
+**Do not cite either number as settled.** The claim that this path compounded
+-5.6% of real loss is unsupported; so is the claim that it is demonstrably
+noise. Answering it needs an experiment the record cannot supply: several
+independent candidates measured against one fixed baseline.
 
 ## The real defect is that the path merges on non-evidence
 
