@@ -115,6 +115,10 @@ export function calibrationFactor(state: LoopState, threads: number): number {
     const d = state.getDecision(h.id);
     if (!d) continue;
     if (!comparableDecision(d, epoch, threads)) continue;
+    // A decision with no primary was never sampled. Counting it as a realized
+    // zero teaches the calibration that the hypothesis failed when nothing
+    // tested it, and its predicted gain would sit in the denominator forever.
+    if (!("primary" in d.objectiveDeltas)) continue;
     n++;
     predicted += h.expectedGain;
     realized += Math.min(10, Math.max(0, (d.objectiveDeltas["primary"] ?? 0)) / 0.1 * 10);

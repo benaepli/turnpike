@@ -12,7 +12,7 @@ import { buildSpur, ROOT, SPUR_BIN, resolveRoot } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { selfTestStats, selfTestPosteriors, selfTestSurvival } from "./stats.js";
 import { calibrateMember, keyedManifestPath, loadPanelManifest, selfTestFiring, selfTestPanel, selfTestPanelGate, validateManifest, type PanelArms } from "./panel.js";
-import { selfTestPanelAuthority } from "./decide.js";
+import { selfTestPanelAuthority, selfTestUnmeasured } from "./decide.js";
 import { pooledCountsOf, selfTestGateConsistency, seqRuleOf } from "./sequential.js";
 import { LoopState } from "./state.js";
 
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
         const { policy, clamps } = loadPolicy(POLICY_PATH);
         const stored = loadBaseline(state, policy.evaluation.rayonThreads);
         const live = stored && stored.sequential.some((e) => e.ok) ? { base: pooledCountsOf(stored.sequential), rule: seqRuleOf(policy, violationPrior(state)) } : undefined;
-        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestFiring(), ...selfTestPanelAuthority(), ...selfTestGateConsistency(live), ...selfTestBaselineKeys(), ...selfTestRender(existsSync(baselineEvidencePath(policy.evaluation.rayonThreads)) ? baselineEvidencePath(policy.evaluation.rayonThreads) : undefined), ...selfTestRunIdentity()];
+        const failures = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestSurvival(), ...selfTestPanel(), ...selfTestPanelGate(), ...selfTestFiring(), ...selfTestPanelAuthority(), ...selfTestUnmeasured(), ...selfTestGateConsistency(live), ...selfTestBaselineKeys(), ...selfTestRender(existsSync(baselineEvidencePath(policy.evaluation.rayonThreads)) ? baselineEvidencePath(policy.evaluation.rayonThreads) : undefined), ...selfTestRunIdentity()];
         if (failures.length) { console.error("selftest FAILED:", failures); process.exit(1); }
         console.log("stats + posterior + panel + gate-consistency selftest ok; policy loads ok; clamps:", clamps.length ? clamps : "(none)");
         console.log("models:", policy.models);

@@ -10,7 +10,7 @@ import {
 } from "./agents.js";
 import {
   CAMPAIGN_EPOCH_FLOOR, MERGE_Z, chunkStratum, classifyChangeRisk, compareToBaseline, finalGate,
-  nonInferior, objectiveCounts, perfGate, primaryDelta, stratumOf, type RatePrior,
+  nonInferior, objectiveCounts, perfGate, primaryDelta, stratumOf, unmeasurableReasons, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
 import { numericLeaves, runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
@@ -457,7 +457,7 @@ function generalConfigParamCount(policy: Policy): number {
 
 export function calibrationTable(state: LoopState): string {
   return state.recentDecisions(30).reverse()
-    .map(({ hypothesis: x, decision: d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta (relative) ${(d.objectiveDeltas["primary"] ?? 0).toFixed(4)}`)
+    .map(({ hypothesis: x, decision: d }) => `${x.id} [${x.kind}]: predicted gain ${x.expectedGain}/cost ${x.expectedCost} -> ${d.verdict}, primary delta (relative) ${"primary" in d.objectiveDeltas ? (d.objectiveDeltas["primary"] as number).toFixed(4) : "not measured"}`)
     .join("\n");
 }
 
@@ -886,6 +886,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       return;
     }
 
+    const unmeasurable = unmeasurableReasons(spurFiles, superFiles);
     const lintFailures = [
       ...lintProtectedPaths(h.kind === "meta" ? superFiles.filter((f) => f !== "research/policy.json") : superFiles),
       ...lintRulerSubject(h.kind, superFiles),
@@ -932,7 +933,8 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
     let escalateReason: string | null = null;
     let violationRate: RatePrior | null = null;
 
-    if (lintFailures.length === 0 && h.kind === "perf") {
+    const sampled = lintFailures.length === 0 && unmeasurable.length === 0;
+    if (sampled && h.kind === "perf") {
       const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
       const bench = await timed("bench", () => runBench(policy, SPUR_BIN, baselineBin));
       journal(state, n, "bench", bench);
@@ -968,7 +970,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
           regressionPassed: null, lintPassed: true,
         };
       }
-    } else if (lintFailures.length === 0) {
+    } else if (sampled) {
       const kind: SeqKind = h.kind === "ablate" || h.kind === "enabling" || h.kind === "meta" ? "noninferiority" : "superiority";
       // A stop mid-sample continues where it left off; a deliberate resume
       // of an inconclusive result spends one of the allowed resumes. Counts
@@ -1076,8 +1078,9 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       throughputFloor: 1 - policy.regression.throughputTolerance,
       violationPrior: violationRate,
       panel: panelSummary,
+      unmeasurable,
     });
-    if (!perfDecision && !decisionInputsReady && lintFailures.length === 0) {
+    if (!perfDecision && !decisionInputsReady && sampled) {
       decision.verdict = "closed";
       decision.reasons = [`sequential evaluation ${seqOutcome}`];
       const ran = allEvals["sequential"] ?? [];
@@ -1089,7 +1092,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         decision.objectiveDeltas = { ...cmp.deltas, h1: h1(ran) - h1(baseRan), h3: h3(ran) - h3(baseRan), primary: primaryDelta(cmp) };
       }
     }
-    if (escalated && lintFailures.length === 0) {
+    if (escalated && sampled) {
       decision.verdict = "needs_human";
       decision.reasons = [`${escalateReason ?? "rare evidence below gate separation"} - human review of the pooled evidence`];
     }

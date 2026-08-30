@@ -13,6 +13,9 @@ import type { PanelSummary } from "./panel.js";
 import type { Evaluation, GateDecision, Hypothesis, LadderMetrics, RateStratum } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
 import { compareRatesPoisson, rateSuperiorCI, rateNonInferior, rateRatioSeparated, throughputCv, wilson } from "./stats.js";
+import { existsSync, readFileSync } from "node:fs";
+import * as path from "node:path";
+import { ROOT } from "./paths.js";
 
 // Arms whose events feed the rate the gate separates on. An aos arm refines
 // a recorded tape, so one deep lineage compounds inside a session: on the
@@ -274,6 +277,17 @@ export function classifyChangeRisk(changedSpurFiles: string[]): "opt_in" | "sema
  *  collapse gate's job and it acts per member through the regression suite. */
 export const PANEL_HUMAN_Z = 2.0;
 
+/** Why a campaign could not have measured this diff. The binary a chunk runs
+ *  is built from spur/, and the config it loads is materialized from a
+ *  template under scheduler_configs/; a diff touching neither leaves the
+ *  candidate and the baseline the same program on the same config, so the
+ *  chunk samples the null band. Empty means the diff is measurable. */
+export function unmeasurableReasons(spurFiles: string[], superFiles: string[]): string[] {
+  if (spurFiles.length > 0) return [];
+  if (superFiles.some((f) => f.startsWith("scheduler_configs/"))) return [];
+  return ["no file under spur/ or scheduler_configs/ differs from the baseline, so a campaign would run the baseline binary on the baseline config and sample nothing"];
+}
+
 export interface FinalGateInputs {
   hypothesis: Hypothesis;
   confirmEvals: Evaluation[];
@@ -296,11 +310,26 @@ export interface FinalGateInputs {
   // The archive violation rate the candidate's violations are separated
   // against; null falls back to the baseline's own count.
   violationPrior?: RatePrior | null | undefined;
+  // Required for the same reason panel is: an optional input nobody supplies
+  // is a defect no typecheck can see. Non-empty means no sample was taken.
+  unmeasurable: string[];
 }
 
 export const DEFAULT_THROUGHPUT_FLOOR = 0.8;
 
 export function finalGate(i: FinalGateInputs): GateDecision {
+  // A diff a campaign cannot read is not a negative result: it goes to a
+  // human with its report and no measured delta. Tested after the lints so a
+  // defective diff still closes rather than reaching the review queue, and
+  // it returns rather than joining the verdict chain so that no delta from
+  // an empty evaluation is recorded. regressionPassed is null because the
+  // suite did not fail, it did not run.
+  if (i.lintFailures.length === 0 && i.unmeasurable.length > 0) {
+    return {
+      hypothesisId: i.hypothesis.id, verdict: "needs_human", reasons: i.unmeasurable,
+      objectiveDeltas: {}, regressionPassed: null, lintPassed: true,
+    };
+  }
   const cand = objectiveCounts(i.confirmEvals);
   const base = objectiveCounts(i.baselineEvals);
   const cmp = compareToBaseline(cand, base, MERGE_Z, i.violationPrior ?? null);
@@ -466,6 +495,57 @@ export function perfGate(i: PerfGateInputs): GateDecision {
   };
 }
 
+/** The unmeasurable path. Its failure modes are a wrong argument order and a
+ *  partially applied substitution, neither of which a typecheck can see, so
+ *  two of these assertions read the source itself. */
+export function selfTestUnmeasured(): string[] {
+  const f: string[] = [];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const u = unmeasurableReasons;
+
+  check(u(["spur-core/src/simulator/core/exec.rs"], []).length === 0, "a spur source change is measurable");
+  check(u([], ["scheduler_configs/loop/general_vr.json"]).length === 0, "a scheduler config change is measurable");
+  check(u([], ["research/observations/HAZARD_PREDICTIVENESS.md", "research/observations/hazard_predictiveness.mjs"]).length > 0,
+    "an observations-only diff is not measurable");
+  check(u([], ["research/policy.json"]).length > 0, "a policy change cannot be measured by its own campaign");
+  check(u([], []).length > 0, "an empty diff is not measurable");
+  // The gitlink is stripped before this runs; accepting it would make every
+  // superproject-only diff read as measurable again.
+  check(u([], ["spur"]).length > 0, "the spur gitlink is not a spur source change");
+  // Prefix, not substring.
+  check(u([], ["research/observations/scheduler_configs-audit.md"]).length > 0, "the config test is a path prefix");
+
+  const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
+  const base: FinalGateInputs = {
+    hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
+    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, panel: null, unmeasurable: [],
+  };
+  const un = finalGate({ ...base, unmeasurable: ["u"] });
+  check(un.verdict === "needs_human", `an unmeasurable diff reaches a human, got ${un.verdict}`);
+  check(!("primary" in un.objectiveDeltas), "an unmeasured decision records no primary delta");
+  check(un.regressionPassed === null, "the regression suite did not fail, it did not run");
+  // A defective diff closes rather than reaching the review queue.
+  const both = finalGate({ ...base, unmeasurable: ["u"], lintFailures: ["l"] });
+  check(both.verdict === "closed" && (both.reasons[0] ?? "").startsWith("lint failures:"),
+    `lint outranks unmeasurable, got ${both.verdict}`);
+  // The reason must not read as a harness failure to the judge; state.ts
+  // stamps that from the literal "no changes".
+  check(!u([], []).some((r) => /no changes/.test(r)), "the reason must not trip the harness-failure test");
+
+  const loopSrc = path.join(ROOT, "research/orchestrator/src/loop.ts");
+  if (existsSync(loopSrc)) {
+    const t = readFileSync(loopSrc, "utf8");
+    const calls = (t.match(/unmeasurableReasons\(spurFiles, superFiles\)/g) ?? []).length;
+    check(calls === 1, `loop.ts must call unmeasurableReasons(spurFiles, superFiles) exactly once, found ${calls}`);
+    const guards = (t.match(/lintFailures\.length === 0/g) ?? []).length;
+    check(guards === 1, `loop.ts must test lintFailures.length === 0 only where sampled is defined, found ${guards}`);
+    // Not \b on the left: a comment already says "re-sampled".
+    const sampled = (t.match(/(?<![-\w])sampled\b/g) ?? []).length;
+    check(sampled === 5, `loop.ts must use sampled once per branch plus its definition (5), found ${sampled}`);
+  }
+  return f;
+}
+
 /** The panel's authority, asserted against finalGate itself. */
 export function selfTestPanelAuthority(): string[] {
   const f: string[] = [];
@@ -473,7 +553,7 @@ export function selfTestPanelAuthority(): string[] {
   const h = { id: "h", kind: "add", category: "scheduler" } as unknown as Hypothesis;
   const base: FinalGateInputs = {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
-    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, panel: null,
+    lintFailures: [], changedSpurFiles: [], throughputRatio: 1, panel: null, unmeasurable: [],
   };
   const panel = (combinedZ: number | null, judging: string[]): PanelSummary => ({
     members: [], judging, nonJudging: [], combinedZ, collapsedMembers: [], wallMs: 0,
