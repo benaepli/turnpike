@@ -84,3 +84,73 @@ in standard error; recompute them on the stratified rate before using them.
 The six-seed single-mask measurement this file asks for is still worth its
 wall clock, because the thread-count question it was aimed at is separate
 from the arm question and is not answered here.
+
+## The null band on the stratified rate is a counting floor (2026-08-30)
+
+Two evaluations in the record are accidental A/A pairs: the candidate binary
+explores the same schedules as the baseline, so every delta they produced is
+noise by construction.
+
+- Iteration 5367, `recovery-steer-identity-multiplier-placebo`. The multiplier
+  is clamped to 1.0, and `recovery_weight_placebo.flipped` is 0 across both
+  seeds against 199,560 and 206,701 evaluations of the term, so no candidate's
+  rank ever changed. It carries a real code-path cost (`params` +1, throughput
+  -1.05%) but no change of schedule.
+- Iteration 5352, `hazard-rate-vs-primary-decorrelation-audit`. The diff
+  touches no file under `spur/` or `scheduler_configs/`, so the campaign ran
+  the baseline binary on the baseline config. `params` 0, throughput -0.03%.
+
+Seed-to-seed on the grid stratum, against the Poisson floor its own event
+count implies:
+
+| rung | 5367 | 5352 | 1 sigma from counts | events per chunk |
+| --- | --- | --- | --- | --- |
+| depth>=4 | +0.43% (0.62 s) | +0.26% (0.36 s) | 0.70% | 41,000 |
+| depth>=5 | +1.51% (1.06 s) | +0.76% (0.53 s) | 1.43% | 9,700 |
+| depth>=6 | +3.28% (1.04 s) | -1.13% (0.36 s) | 3.15% | 2,000 |
+| depth>=7 | +2.26% (0.28 s) | -4.73% (0.61 s) | 7.9% | 320 |
+
+Eight comparisons, every one inside 1.1 sigma. On the stratified rate the
+observed dispersion is the dispersion the event count alone predicts, so the
+sampling share of this file's pooled table - 5.8x at depth>=5, 16.3x at
+depth>=6 - is excess that stratification removed rather than variance the
+metric carries. Two pairs corroborate that; they do not measure the variance
+ratio, which still wants the six-seed family.
+
+**The band is therefore computed, not looked up.** For a candidate and a
+baseline carrying `ec` and `eb` events at a rung, the A/A spread is
+`sqrt(1/ec + 1/eb)`. Nothing needs to read a number out of this file, and
+nothing goes stale when the arm set or the budget changes.
+
+At the primary rung that is about 3.1% for a chunk against a chunk. The gate's
+own `mei` on the same runs was 0.0310 (5367), 0.0319 (5369) and 0.0361 (5361),
+so the minimum effect the gate claims to separate already equals the counting
+floor, which is the coherence this reading predicts. Iteration 5361's +6.16%
+is about twice that floor, which is why it separated on two chunks.
+
+An earlier reading of 5352 alone put the band at `|primary| <= 0.003`. That is
+one draw of a quantity whose spread is 0.031, and it understated the floor
+tenfold; `OBSERVATIONS.md` records the correction at
+`recovery-steer-identity-multiplier-placebo`. Any rule that treats a
+sub-3% move at the primary rung as evidence is reading counting noise.
+
+## Arm-mix drift is an aos phenomenon
+
+`round_robin` gives each arm a fixed wall slice, so an arm's run count varies
+with how fast it runs rather than being held. Between the two 5367 seeds:
+
+| arm | runs | drift |
+| --- | --- | --- |
+| grid | 38,784 -> 38,784 | 0.00% |
+| grid-short | 127,904 -> 127,168 | -0.58% |
+| grid-no-purgatory | 37,728 -> 37,472 | -0.68% |
+| grid-post-fault-2 | 40,416 -> 40,864 | +1.11% |
+| aos | 35,392 -> 40,160 | +13.47% |
+
+The four grid arms hold their run counts to about 1%; `aos` moves 13.5%, and
+its depth>=6 rate moves 14.8% with it. Mix drift across a pooled ladder is
+almost entirely this one arm, which is what the epoch-11 stratification
+excluded. The concern recorded against the recovery-selection site - that
+arm-mix drift makes single-term A/B deltas uninterpretable there - is correct
+for the pooled figures it was raised against and does not carry to the
+stratified statistic the gate has read since.
