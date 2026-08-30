@@ -402,11 +402,11 @@ export async function rejudgePool(policy: Policy, pool: Hypothesis[], calibratio
   });
 }
 
-export async function reflectOnOutcome(policy: Policy, h: Hypothesis, evidence: string): Promise<RoleResult<Reflection>> {
+export async function reflectOnOutcome(policy: Policy, h: Hypothesis, evidence: string, counters: string): Promise<RoleResult<Reflection>> {
   return textRole({
     model: policy.models.reflect,
     system: "You are a research scientist writing a terse, information-dense lab-notebook entry after an experiment.",
-    prompt: `## Hypothesis\n${JSON.stringify(h, null, 2)}\n\n## Evidence (evaluations, decision, diff summary)\n${evidence.slice(0, 20000)}\n\nReply with ONLY JSON: {"hypothesisId": "${h.id}", "whatWeLearned": "...", "suggestedChildren": [...0-2 follow-up hypotheses, same shape as pool hypotheses...], "suggestedDeprioritize": ["hypothesis-ids"]}\nFor suggestedChildren use: ${HYPOTHESIS_JSON_GUIDE}`,
+    prompt: `## Hypothesis\n${JSON.stringify(h, null, 2)}\n\n## Evidence (evaluations, decision, diff summary)\n${evidence.slice(0, 20000)}\n\n## Mechanism counters, every counter the explorer emits\nA counter that reads zero here is off or unreached, not missing. Do not propose instrumenting a counter listed below.\n${counters.slice(0, 12000)}\n\nReply with ONLY JSON: {"hypothesisId": "${h.id}", "whatWeLearned": "...", "suggestedChildren": [...0-2 follow-up hypotheses, same shape as pool hypotheses...], "suggestedDeprioritize": ["hypothesis-ids"]}\nFor suggestedChildren use: ${HYPOTHESIS_JSON_GUIDE}`,
     schema: Reflection,
     retries: 1,
     stoppable: false,

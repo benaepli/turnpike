@@ -13,7 +13,7 @@ import {
   nonInferior, objectiveCounts, perfGate, primaryDelta, stratumOf, type RatePrior,
 } from "./decide.js";
 import { collectProfile, runBench } from "./bench.js";
-import { runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
+import { numericLeaves, runEvaluation, runOneEvaluation, type EvalContext } from "./evaluate.js";
 import { classifyChunkTiming, initialSeqState, loadSeqState, medianRps, pooledCountsOf, pooledFromSeq, runSequential, throughputRatioOf, type SeqKind } from "./sequential.js";
 import {
   RESEARCH_BRANCH, SPUR, SUPER, SUPER_LANES, showFile, changedFiles, changedOnRef, checkout, checkoutPaths, commitHypothesisPair, commitPaths, createBranch, currentBranch, preservingOperatorTree, snapshotWork, rebaseOnto, resetBranchTo,
@@ -349,6 +349,54 @@ function preflight(): void {
   });
 }
 
+// The stored utilization dump as sorted `path = value` lines. An agent that
+// reads only the evaluation record sees a projection of the counters, so a
+// mechanism whose counter was dropped there reads as unmeasurable and the
+// reflection proposes instrumenting what already exists.
+function counterLines(state: LoopState): string {
+  const raw = state.getMeta("utilization");
+  if (!raw) return "(no utilization snapshot)";
+  try {
+    const out: Record<string, number> = {};
+    numericLeaves(JSON.parse(raw) as unknown, "", out);
+    const keys = Object.keys(out).sort();
+    return keys.length > 0 ? keys.map((k) => `${k} = ${out[k]}`).join("\n") : "(snapshot holds no counters)";
+  } catch {
+    return "(utilization snapshot unreadable)";
+  }
+}
+
+// Everything the pool admits passes the judge, whatever produced it.
+// Reflection supplies most candidates and its prompt carries one
+// hypothesis's evidence with no view of the pool, so a child cannot know
+// what already exists; routing only the proposer's output through the judge
+// applied the deduplication rule to a small minority of entries.
+async function admitCandidates(
+  deps: LoopDeps, iteration: number, candidates: unknown[], source: string, parent?: string,
+): Promise<void> {
+  const { state, policy } = deps;
+  if (candidates.length === 0) return;
+  const poolSummaries = state.listHypotheses().map((h) => `${h.id} [${h.kind}/${h.status}]: ${h.title}`);
+  const judged = await judgeHypotheses(policy, candidates, poolSummaries, calibrationTable(state), evaluationContext(state, policy));
+  const kept = judged.value?.hypotheses ?? candidates;
+  const { valid, rejected } = validateProposed(kept);
+  const room = Math.max(0, policy.proposal.maxPoolSize - state.listHypotheses("proposed").length);
+  let admitted = 0;
+  for (const h of valid.slice(0, room)) {
+    if (state.getHypothesis(h.id)) continue;
+    state.upsertHypothesis(parent === undefined ? h : { ...h, parent: h.parent ?? parent });
+    admitted++;
+  }
+  // Counted apart because they answer different questions: how selective the
+  // judge was, and how much of its output failed to parse. One field for
+  // both read as zero rejections while four in five candidates were dropped.
+  journal(state, iteration, "judge", {
+    source, seen: candidates.length, admitted,
+    droppedByJudge: Math.max(0, candidates.length - kept.length),
+    malformed: rejected.length, judgeCost: judged.costUsd,
+  });
+}
+
 async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
   const { state, policy } = deps;
   const proposed = state.listHypotheses("proposed");
@@ -371,16 +419,7 @@ async function refillPool(deps: LoopDeps, iteration: number): Promise<void> {
     throw new Error(`all ${lenses.length} proposal lenses failed at zero cost: ${errors[0]}`);
   }
   if (candidates.length === 0) return;
-  const poolSummaries = state.listHypotheses().map((h) => `${h.id} [${h.kind}/${h.status}]: ${h.title}`);
-  const calibration = calibrationTable(state);
-  const judged = await judgeHypotheses(policy, candidates, poolSummaries, calibration, evalContext);
-  const kept = judged.value?.hypotheses ?? candidates;
-  const { valid, rejected } = validateProposed(kept);
-  const room = Math.max(0, policy.proposal.maxPoolSize - state.listHypotheses("proposed").length);
-  for (const h of valid.slice(0, room)) {
-    if (!state.getHypothesis(h.id)) state.upsertHypothesis(h);
-  }
-  journal(state, iteration, "judge", { kept: valid.length, rejected: rejected.length, judgeCost: judged.costUsd });
+  await admitCandidates(deps, iteration, candidates, "propose");
 }
 
 // What a candidate is measured on: the general config's mode settings and
@@ -1097,14 +1136,11 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       cleanupToResearchBranch(branch);
     }
 
-    const refl = await timed("reflect", () => reflectOnOutcome(policy, h, JSON.stringify(evidence).slice(0, 20000)));
+    const refl = await timed("reflect", () => reflectOnOutcome(policy, h, JSON.stringify(evidence).slice(0, 20000), counterLines(state)));
     if (refl.value) {
       appendObservation(`**${h.id}** (${decision.verdict}): ${refl.value.whatWeLearned}`);
       persistObservations(n);
-      const { valid } = validateProposed(refl.value.suggestedChildren);
-      for (const child of valid.slice(0, 2)) {
-        if (!state.getHypothesis(child.id)) state.upsertHypothesis({ ...child, parent: child.parent ?? h.id });
-      }
+      await admitCandidates(deps, n, refl.value.suggestedChildren.slice(0, 2), `reflect:${h.id}`, h.id);
       for (const dep of refl.value.suggestedDeprioritize) {
         const target = state.getHypothesis(dep);
         if (target && target.status === "proposed") state.upsertHypothesis({ ...target, status: "parked", notes: `deprioritized after ${h.id}` });

@@ -205,6 +205,12 @@ export const UtilStats = z.object({
     honored: z.number(),
     blockedByTimerGate: z.number(),
   }),
+  // Every scalar counter the explorer emitted, under its dotted path. The
+  // typed blocks above are a hand-maintained projection and the explorer's
+  // counter set grows with every merge, so a reader of an evaluation record
+  // saw numerators whose denominators had been dropped. Defaulted so records
+  // written before this field parse unchanged.
+  counters: z.record(z.string(), z.number()).default({}),
 });
 export type UtilStats = z.infer<typeof UtilStats>;
 
