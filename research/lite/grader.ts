@@ -904,10 +904,10 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
     });
   }
 
-  const binary = flags.get("binary") ?? path.join(ROOT, "tmp", "lite", "base", "spur", "target", "release", "spur");
-  const template = path.join(ROOT, "tmp", "lite", "base", "scheduler_configs", "loop", "general_vr.json");
+  const binary = flags.get("binary") ?? path.join(ROOT, "spur", "target", "release", "spur");
+  const template = path.join(ROOT, "scheduler_configs", "loop", "general_vr.json");
   for (const [what, f] of [["binary", binary], ["config template", template]] as const) {
-    if (!fs.existsSync(f)) throw new Error(`${what} missing: ${f} (is the tmp/lite/base worktree set up and built?)`);
+    if (!fs.existsSync(f)) throw new Error(`${what} missing: ${f} (is the main tree on research/lite with the baseline built?)`);
   }
   const seed = Number(flags.get("seed") ?? "1000");
   const scale = Number(flags.get("scale") ?? "3");
