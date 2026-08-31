@@ -133,3 +133,51 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   purgatory dose; the proposal conflated no-history-growth quiescence with
   the release census. Its safety-measurement goal is folded into the
   parent's run_cap.over_cap_completions export.
+
+## timer-admission-context-odds-probe
+
+- kind: add | category: scheduler | origin: user | status: awaiting-approval
+- title: Steer effective p_timer at queue selection by learned
+  per-context-cell timer acted odds
+- Moderated lane, third user idea. Probe runs (run_id % 32 == 16, disjoint
+  from run_cap's phase 0) learn per-cell timer acted rates from the existing
+  per-firing state-token probe; steered runs multiply p_timer at the
+  Probabilistic roll by clamp(cell_rate/global_rate, 0.25, 4.0), 200-firing
+  floor per cell, 48 structural cells (pending-deliveries x in-flight x
+  node-max inert streak x restart recency). No config field. Judge: gain 6,
+  cost 0 - every checkable claim verified; baseline shows 2.5-60x acted-rate
+  separation on two of four cell axes; but ~92% of firings are at
+  uncontested steps, so the lever is promotion-only over ~8% of firing mass
+  (band trimmed to +2..6% accordingly). Plan (with the judge's four
+  admission conditions): research/lite/plans/timer-admission-context-odds-probe.md.
+  Prediction freezes at user approval.
+
+## timer-admission-two-arm-acted-contrast
+
+- kind: add | category: scheduler | origin: user | status: not-admitted
+  (judge gain 3, cost 0)
+- title: Two-arm probe contrast - timer vs displaced delivery, per
+  structural context
+- Same lever and cells as timer-admission-context-odds-probe. Judge
+  arithmetic kills it as written: global timer odds 0.138 vs delivery odds
+  0.650 puts the unnormalized odds ratio (~0.21) below the 0.25 clamp floor,
+  so nearly every cell saturates at x0.25 - the refuted uniform down-weight
+  with extra machinery; delivery-draw cell attribution is also unspecified
+  (counterfactual timer unidentified at delivery wins). Its stated
+  starvation risk is empty (~555k timer-arm samples/chunk). Revisit only if
+  the parent merges AND per-cell probe rates suggest delivery-conditioned
+  contrast adds information - then with global-odds normalization and an
+  attribution rule.
+
+## timer-steer-coverage-holdout-governor
+
+- kind: add | category: scheduler | origin: user | status: rejected-by-judge
+  (gain 1)
+- title: Context-odds timer bias governed by a randomized coverage holdout
+- Governor statistic is degenerate under the current config:
+  general_vr.json sets novelty_enabled false, and the baseline shows all
+  347,880 runs novelty-ablated with 5 cumulative distinct timeline keys -
+  novel-keys-per-run compares ~0 vs ~0, so the governor never governs. The
+  holdout idea itself is already present in the parent (phase-16 probes).
+  Revisit only if a novelty-enabled config lands via its own re-baselined
+  iteration.
