@@ -35,3 +35,15 @@ a validation run: one chunk is below minChunks and is not evidence about the
 dose. Flow finding: agent worktrees are cut from main, which lacks
 scheduler_configs/loop/ - the skill now seeds the subject from research/lite
 before editing.
+
+## 2026-08-30 - panel anchor (first panel check of the merged lite tree)
+
+`grader.ts panel` at scale 3, seed 1000, manifest.30 calibration in parens:
+paxos-accept-stale-ballot 1561 violations over 96.0k runs in 31.4 s, 49.77
+events/s (33.78), 3061 runs/s (1959); mencius-opt1-2 261 violations over
+32.2k runs in 45.5 s, 5.73 events/s (4.57), 708 runs/s (544). Both members
+above calibration, consistent with a faster host state rather than a
+scheduler change; these figures are the anchor later panel entries compare
+against. Mechanics finding: without wall_budget_sec in the materialized
+config a member whose grid outlasts the wall is SIGKILLed and porcupine
+cannot read the unflushed DB - the subcommand now sets it.

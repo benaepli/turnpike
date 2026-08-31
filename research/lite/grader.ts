@@ -37,7 +37,7 @@ import {
   MERGE_Z, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, addStratum, chunkStratum, compareToBaseline,
   figuresOf, mergeBlockers, objectiveCounts, ruleVerdict, type FinalGateInputs, type RatePrior,
 } from "../orchestrator/src/decide.js";
-import { ROOT, freeDiskGb } from "../orchestrator/src/runners.js";
+import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot } from "../orchestrator/src/runners.js";
 import { selfTestPosteriors, selfTestStats } from "../orchestrator/src/stats.js";
 import { Evaluation, SeqState } from "../orchestrator/src/schemas.js";
 
@@ -851,6 +851,113 @@ async function cmdSelftest(): Promise<void> {
   if (failures.length > 0) process.exitCode = 1;
 }
 
+
+// The retired bug panel's manifest still describes each known-bug spec:
+// workload overlay, fault declaration, porcupine model, calibrated rates.
+interface PanelMember {
+  id: string;
+  spec: string;
+  role: string;
+  porcupineModel: string;
+  overlay: Record<string, unknown>;
+  faults: { numCrashes: unknown };
+  maxIterations: number;
+  wallSec: number;
+  expectedRate: number;
+  calibration: { eventsPerSec: number; runsPerSec: number };
+}
+
+// The members whose calibrated event rates can resolve inside a short wall;
+// the rest are reachable via --members.
+const DEFAULT_PANEL_MEMBERS = ["paxos-accept-stale-ballot", "mencius-opt1-2"];
+
+function panelManifest(threads: number): { path: string; members: PanelMember[] } {
+  const candidates = [
+    path.join(ROOT, "research", "panel", `manifest.${threads}.json`),
+    path.join(ROOT, "research", "panel", "manifest.json"),
+  ];
+  const found = candidates.find((c) => fs.existsSync(c));
+  if (found === undefined) throw new Error(`no panel manifest under research/panel/ (tried ${candidates.join(", ")})`);
+  const raw = JSON.parse(fs.readFileSync(found, "utf8")) as { members: PanelMember[] };
+  return { path: found, members: raw.members };
+}
+
+// Rate check of the merged lite tree on the known-bug panel specs. No verdict
+// and no gate: one explore + porcupine per member, rates emitted next to the
+// manifest calibration for the operator agent to read.
+async function cmdPanel(flags: Map<string, string>): Promise<void> {
+  const cfg = liteConfig();
+  refuseIfLoopActive();
+  const threads = cfg.budgets.rayonThreads;
+  const manifest = panelManifest(threads);
+
+  const sel = flags.get("members") ?? "";
+  let members: PanelMember[];
+  if (sel === "all") {
+    members = manifest.members;
+  } else {
+    const ids = sel === "" ? DEFAULT_PANEL_MEMBERS : sel.split(",").map((x) => x.trim()).filter((x) => x !== "");
+    members = ids.map((id) => {
+      const m = manifest.members.find((x) => x.id === id);
+      if (m === undefined) throw new Error(`panel member ${id} not in ${manifest.path} (have: ${manifest.members.map((x) => x.id).join(", ")})`);
+      return m;
+    });
+  }
+
+  const binary = flags.get("binary") ?? path.join(ROOT, "tmp", "lite", "base", "spur", "target", "release", "spur");
+  const template = path.join(ROOT, "tmp", "lite", "base", "scheduler_configs", "loop", "general_vr.json");
+  for (const [what, f] of [["binary", binary], ["config template", template]] as const) {
+    if (!fs.existsSync(f)) throw new Error(`${what} missing: ${f} (is the tmp/lite/base worktree set up and built?)`);
+  }
+  const seed = Number(flags.get("seed") ?? "1000");
+  const scale = Number(flags.get("scale") ?? "3");
+  if (!Number.isFinite(seed) || !Number.isFinite(scale) || scale <= 0) throw new Error("--seed and --scale must be positive numbers");
+
+  const rows: Record<string, unknown>[] = [];
+  for (const m of members) {
+    const dir = path.join(ROOT, "tmp", "loop", "lite", `panel-${m.id}`);
+    if (fs.existsSync(dir)) cleanupDir(dir);
+    fs.mkdirSync(dir, { recursive: true });
+    const cfgPath = path.join(dir, "config.json");
+    const wallSec = m.wallSec * scale;
+    // wall_budget_sec makes the explorer cut the grid and flush its DB
+    // itself; the explore() deadline is only the guard behind it.
+    materializeConfig(template, cfgPath, {
+      runsPerConfig: 4000,
+      sessionSeed: seed,
+      dropKeys: CAMPAIGN_ONLY_KEYS,
+      extra: { ...m.overlay, num_crashes: m.faults.numCrashes, max_iterations: m.maxIterations, wall_budget_sec: wallSec },
+    });
+    const ex = await explore({
+      binary, configPath: cfgPath, spec: resolveRoot(m.spec),
+      outputDir: path.join(dir, "out"), wallSec, rayonThreads: threads,
+    });
+    // A killed explore leaves a valid partial corpus; the measured wall is
+    // the rate denominator either way.
+    const porc = await porcupine({
+      inputDir: path.join(dir, "out"), model: m.porcupineModel === "kv_rmw" ? "kv_rmw" : "kv",
+      timeoutMsPerRun: 10_000, timeoutMs: 900_000,
+    });
+    const exploreSec = ex.wallMs / 1000;
+    rows.push({
+      id: m.id,
+      role: m.role,
+      wallSecBudget: wallSec,
+      exploreSec: Math.round(exploreSec * 10) / 10,
+      exploreTimedOut: ex.timedOut,
+      runs: porc.parsed?.total_runs ?? 0,
+      violations: porc.parsed?.violations ?? 0,
+      unknown: porc.parsed?.unknown ?? 0,
+      violationsPerExploreSec: porc.parsed === null || exploreSec === 0 ? null : porc.parsed.violations / exploreSec,
+      runsPerSec: porc.parsed === null || exploreSec === 0 ? null : porc.parsed.total_runs / exploreSec,
+      calibration: { eventsPerSec: m.calibration.eventsPerSec, runsPerSec: m.calibration.runsPerSec, expectedRate: m.expectedRate },
+      porcupineFailure: porc.parsed === null ? `no parseable porcupine JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})` : null,
+    });
+    cleanupDir(dir);
+  }
+  emit({ phase: "panel", manifest: manifest.path, binary, template, seed, scale, members: rows });
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const cmd = argv[0] ?? "";
@@ -874,8 +981,9 @@ async function main(): Promise<void> {
     case "finish": await cmdFinish(flags); break;
     case "baseline": await cmdBaseline(flags); break;
     case "selftest": await cmdSelftest(); break;
+    case "panel": await cmdPanel(flags); break;
     default:
-      throw new Error(`unknown command ${cmd || "(none)"}; use start|chunk|status|finish|baseline|selftest`);
+      throw new Error(`unknown command ${cmd || "(none)"}; use start|chunk|status|finish|baseline|selftest|panel`);
   }
 }
 

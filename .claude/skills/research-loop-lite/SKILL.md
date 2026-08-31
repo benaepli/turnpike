@@ -45,8 +45,9 @@ any `scheduler_configs/` outside `scheduler_configs/loop/`.
 
 1. **Propose** - spawn a proposer subagent (prompt template below). Feed it
    one lens, rotating through the `PROPOSAL_LENSES` array in
-   `research/orchestrator/src/agents.ts` across iterations, plus an optional
-   focus directive of your own (see Direction authority).
+   `research/orchestrator/src/agents.ts` across iterations, plus a focus
+   directive of your own (see Direction authority - steering toward
+   mechanism-level work is the default, not the exception).
 2. **Judge** - spawn a judge subagent on the proposals plus the current pool.
    Update `research/lite/pool.md` with its scored keep-list. Pick the top
    candidate by expectedGain minus expectedCost.
@@ -62,16 +63,22 @@ any `scheduler_configs/` outside `scheduler_configs/loop/`.
    `tmp/loop/lite/<name>/` and any leftover implementer worktrees
    (`git worktree prune`).
 7. Every 5 iterations, run a direction review: has a violation appeared
-   anywhere? Are you optimizing a proxy the goal file warns about? Which
+   anywhere? Are you optimizing a proxy the goal file warns about? Run the
+   panel check (section below) and log its rates. Which
    decided candidates were steered or seeded (`origin: operator-agent`), did
-   the steering narrow the search, and has it paid for itself? Re-read the
+   the steering narrow the search, and has it paid for itself? Have recent
+   iterations drifted into parameter tuning or config doses - and if so, do
+   the next directives pull back to mechanism level? Re-read the
    goal file and prune the pool. Write the verdict into
    `research/lite/observations.md`.
 
 ## Direction authority
 
-You set the project's direction, not only its verdicts. Three channels, all
-optional:
+You set the project's direction, not only its verdicts, and you are
+expected to steer. The default direction is substantial: mechanism-level
+changes to how the explorer searches, not parameter tuning. Use the focus
+directive most rounds to hold the proposer there; an unsteered round is a
+deliberate choice to sample the lens cold, not the default. Three channels:
 
 - **Focus directive** - append one short steering paragraph to the proposer
   prompt ("this round, focus on X because Y"). The lens still rotates and
@@ -102,27 +109,72 @@ from `PROPOSAL_LENSES`; and the `HYPOTHESIS_JSON_GUIDE` constant from
 `research/orchestrator/src/agents.ts` as the output format. Constraints to
 state verbatim:
 
-- 2-4 hypotheses through the lens, each implementable in under 300 lines of
-  Rust or config change, opt-in (config-gated, default off), protocol-agnostic.
+- 2-4 hypotheses through the lens. Size is not a constraint - a substantial
+  mechanism is welcome - and config gating is not required: a change may
+  replace default behavior outright. The bar is that the idea plausibly
+  improves violation discovery per explore-second and generalizes to the
+  full protocol panel (nothing VR-specific; the generalityArgument field
+  carries this).
+- Prefer mechanism-level hypotheses: new scheduling behavior, new feedback
+  signals, new fault-timing structure - changes to HOW the explorer
+  searches. A parameter dose on an existing knob is worth proposing only as
+  a follow-up to a merged mechanism or to a recorded observation that names
+  that knob.
+- Two overrides to the JSON guide: the description names the mechanism, and
+  mentions a gating config field only if the change has one; firingCounter
+  may name a counter the change itself adds, not only one the explorer
+  already emits.
 - Change only the subject: `spur/` or `scheduler_configs/loop/`. Never the
   harness, the orchestrator, the grader, the evaluation protocol, or the
   campaign arm set of `general_vr.json` (an arm change moves the unit of
   comparison and the grader refuses it).
 - Every hypothesis carries a frozen prediction: rung, sizePct band,
-  firingCounter (a counter the explorer already emits), falsifier. The
-  prediction is graded, never rewritten.
+  firingCounter, falsifier. The prediction is graded, never rewritten.
 
 ## Judge subagent
 
-Give it: the candidates, the pool, the last ~200 lines of both observation
-logs, and the `JUDGE_RUBRIC` constant from
-`research/orchestrator/src/agents.ts` (it is the scoring rubric: cost
-anchors, gain anchors, already-set/already-answered/out-of-bounds rejections,
-red-team-then-score process). It returns the deduplicated keep-list with its
-own expectedGain/expectedCost. Reject anything the rubric scores 0 rather
-than carrying it into the pool. Strip origin marks and any steering text
-from what you hand it: the judge scores every candidate blind to whether
-you steered or seeded it.
+Spawn it as a read-capable subagent, not a text-only prompt: it verifies
+claims in the repo before scoring. Give it: the candidates, the pool, the
+last ~200 lines of both observation logs, and where each kind of claim is
+checkable - `scheduler_configs/loop/general_vr.json` (current values),
+the observation logs (already-answered), `spur/spur-core` source (cited
+mechanisms and counters exist), the baseline cache under
+`research/lite/baselines/` (utilStats counter names). It returns the
+deduplicated keep-list with its own expectedGain/expectedCost. Strip origin
+marks and any steering text from what you hand it: the judge scores every
+candidate blind to whether you steered or seeded it. Reject anything the
+rubric scores 0 rather than carrying it into the pool. The rubric, to state
+verbatim:
+
+- expectedCost is 0 for every candidate, except a fixed 2 when the change
+  could invalidate correctness or measurement validity: it touches
+  `spur-core/src/simulator/core/exec.rs`, `history.rs`, event accounting,
+  or the linearizability recording path. Size, gating, and implementation
+  time are not costs. Candidates rank on expectedGain minus expectedCost.
+- expectedGain is an argument grade, not an effect forecast. Score how well
+  the causal story is argued and evidenced: a clear mechanism-to-observable
+  path whose checkable claims you verified is 7-9; a plausible story
+  resting on thin or unchecked evidence is 3-5; "more coverage or novelty in general"
+  is 1-2; no falsifiable content is 0. No named rung or percentage band is
+  required.
+- Verify what is checkable: a cited counter exists, a cited config value
+  is current, a cited mechanism or code path exists, the question is not
+  already answered in the observation logs. Verification covers the
+  supporting evidence, not the outcome - what a new mechanism will do is a
+  prediction, and grading predictions is the harness's job, not yours. A
+  checkable claim found false sinks the score and is named in the notes; a
+  claim that cannot be checked yet merely earns no evidence credit.
+- Red-team first: for each candidate, write the strongest case that it will
+  NOT improve violation discovery, then score.
+- Reject (score 0): already-set (the proposed config value equals the
+  current one); already-answered (the observation logs record the result);
+  out-of-bounds (harness, orchestrator, grader, evaluation protocol, or
+  the campaign arm block); protocol-specific (ask: what value would another
+  protocol need here, and how would anyone know?).
+- Dedupe against the pool; two proposals riding the same mechanism cannot
+  both score high.
+- Every candidate keeps a checkable frozen prediction: rewrite a sloppy one
+  before admission, never after.
 
 ## Implementer subagent (worktree isolation)
 
@@ -137,8 +189,9 @@ in full, and these instructions:
   `git restore --source research/lite --staged --worktree -- scheduler_configs/loop spur`
   then, if Rust work is needed, `git submodule update --init spur` (verify
   `spur/Cargo.toml` exists afterwards).
-- Implement exactly this hypothesis, minimally. Opt-in: new behavior behind a
-  config field defaulting to today's semantics. Rust work lives in
+- Implement exactly this hypothesis, at whatever size it needs and no
+  bigger. Config gating is optional: changing default behavior is fine; add
+  a config field only when the hypothesis calls for one. Rust work lives in
   `spur/spur-core`; config work in `scheduler_configs/loop/`. If the
   mechanism must be enabled for evaluation, enable it in
   `scheduler_configs/loop/general_vr.json` - but never touch its `campaign`
@@ -154,7 +207,7 @@ in full, and these instructions:
   `cand-spur`, `git -C spur diff > spur.patch` (plus any untracked spur files
   under an `untracked/` mirror), `git diff > super.patch` for superproject
   changes, and the edited `general_vr.json`. End with a summary: files
-  changed, the gating config field, the predicted effect.
+  changed, the config field if any, the predicted effect.
 - Config-only hypothesis (no spur edit): skip the build and the smoke run;
   export the baseline binary `tmp/lite/base/spur/target/release/spur` as
   `cand-spur` and an empty `spur.patch`.
@@ -227,7 +280,40 @@ You decide, but depart from the rule only with a written reason:
   or nothing separated and no prediction was met.
 - **Merge** only when: something in `improved` separated, no blocker above
   stands, the firing counter shows occasions, and `finish --regression`
-  passed.
+  passed. Read `spur.patch` and `super.patch` before merging - with no size
+  cap on changes, your review of the diff is the only check that the code
+  does what the hypothesis says.
+
+## Panel check (occasional, never a gate)
+
+The goal file's yardstick is the whole protocol panel. Measure it on the
+MERGED lite tree - at every direction review (step 7) and after a merge
+lands - never on a candidate and never as a merge gate:
+
+```
+cd research/orchestrator && npx tsx ../lite/grader.ts panel
+```
+
+One explore + porcupine per member (default: the two members whose
+calibrated event rates resolve in a short wall, `paxos-accept-stale-ballot`
+and `mencius-opt1-2`; `--members all` runs the rest, `--scale N` lengthens
+the walls). Takes a few minutes. The output is per-member rates beside the
+manifest's calibration; reading them is your job:
+
+- The FIRST run establishes lite's own anchor - the manifest calibration
+  predates recent merges - so log it and compare later runs against the
+  previous panel entry in `research/lite/observations.md`.
+- Rates well below the anchor: suspect recent merges harmed cross-protocol
+  bug-finding; consider reverting or filing for the user.
+- Rates above the anchor: portfolio evidence - a general heuristic got
+  better at a different bug type. Log it with the mechanism that plausibly
+  caused it.
+- Single-digit violation counts resolve nothing in either direction.
+
+Log the rates to `observations.md` every time. Caveat: the panel's "clean
+controls" are known dirty (`research/observations/PANEL_RETIRED.md`); this
+check compares violation rates on the bug specs only and never attributes
+an individual violation to a specific defect.
 
 ## Merge procedure
 
