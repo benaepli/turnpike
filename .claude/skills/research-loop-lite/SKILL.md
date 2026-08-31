@@ -324,7 +324,9 @@ You decide, but depart from the rule only with a written reason:
   stands, the firing counter shows occasions, and `finish --regression`
   passed. Read `spur.patch` and `super.patch` before merging - with no size
   cap on changes, your review of the diff is the only check that the code
-  does what the hypothesis says.
+  does what the hypothesis says. Before merging, run an A/A control chunk
+  (baseline on both sides) in the same session; per-second rates swing
+  under null, so trust pooled per-run probabilities more.
 
 ## Panel check (occasional, never a gate)
 
