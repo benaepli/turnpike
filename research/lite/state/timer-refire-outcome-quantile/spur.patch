@@ -1,0 +1,476 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index 3ad4c76..28aafb1 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -10,4 +10,5 @@ pub mod history;
+ mod path;
+ pub mod plan_config;
+ pub mod rng;
++mod timer_budget;
+ pub mod util_stats;
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index 497d820..c2efd5e 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -27,6 +27,7 @@ use crate::simulator::feedback::{
+ };
+ use crate::simulator::history::{HistoryWriter, LogBackend, create_writer};
+ use crate::simulator::rng::{LiveRng, SCHEDULE_SALT, WORKLOAD_SALT, derive_seed};
++use crate::simulator::timer_budget;
+ use crate::simulator::util_stats;
+ use log::{error, info};
+ use rayon::prelude::*;
+@@ -832,6 +833,7 @@ pub fn run_explorer_campaign(
+ 
+     info!("campaign session_seed = {}", config.envelope.session_seed);
+     util_stats::set_enabled(config.envelope.stats);
++    timer_budget::reset();
+     util_stats::set_acted_fraction_enabled(config.envelope.emit_acted_fraction);
+     util_stats::set_acceptance_distance_enabled(config.envelope.emit_acceptance_distance);
+     util_stats::set_crash_census_enabled(config.envelope.emit_crash_census);
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index 71dec2d..799560c 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -18,6 +18,7 @@ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::path::Topology;
+ use crate::simulator::path::TopologyInfo;
+ use crate::simulator::rng::{Stream, StreamRng};
++use crate::simulator::timer_budget;
+ use crate::simulator::util_stats;
+ use crate::simulator::util_stats::DeliveryBias;
+ use imbl::OrdSet;
+@@ -128,7 +129,20 @@ fn score_with_terms<H: HashPolicy, F: Feedback>(
+     } else {
+         0.0
+     };
+-    (blend(terms, novelty, priority, quick_fire, bonus), mask)
++    let mut score = blend(terms, novelty, priority, quick_fire, bonus);
++    // A timer class that has already fired this run as often as completed
++    // runs exhibit is damped, never zeroed, so late refires lose ground to
++    // under-budget classes without becoming unreachable.
++    if let Runnable::Timer(t) = r
++        && !state.timer_budget.is_empty()
++        && let Some(vertex) = state.timer_resume_vertex(t.channel)
++        && let Some(budget) = state.timer_budget.budget(vertex)
++        && state.timer_refires(t.node.index, vertex) >= budget
++    {
++        score *= timer_budget::REFIRE_DAMP;
++        util_stats::record_refire_damped();
++    }
++    (score, mask)
+ }
+ 
+ /// Score a runnable in [0, 1]. For a recover of a node that is down,
+@@ -1015,6 +1029,18 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         }
+                         state.nodes[node_index] = r_node_env;
+                         reader.timer_entry = Some(reader.pc);
++                        // Counted whether or not the stats probes are on:
++                        // the refire budget reads these counts. Over-budget
++                        // is judged before this firing is added, matching
++                        // the scoring-time gate.
++                        let over_budget = state
++                            .timer_budget
++                            .budget(reader.pc)
++                            .is_some_and(|b| state.timer_refires(node_index, reader.pc) >= b);
++                        state.note_timer_refire(node_index, reader.pc);
++                        if over_budget {
++                            util_stats::record_refire_over_budget();
++                        }
+                         state.push_to_local(node_index, Runnable::Record(reader));
+                     }
+                 }
+@@ -1626,6 +1652,100 @@ mod tests {
+         0.25 + 0.75 * priority
+     }
+ 
++    /// A timer whose class has fired past its learned budget this run scores
++    /// exactly the damp multiple of an identical under-budget timer; a class
++    /// the snapshot does not hold, and a channel with no parked reader, score
++    /// as if no budget existed.
++    #[test]
++    fn over_budget_timers_score_the_damp_multiple() {
++        use crate::simulator::core::state::{ChannelState, Timer};
++        use crate::simulator::core::values::ChannelId;
++        use crate::simulator::timer_budget;
++
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut state = empty_state();
++        let node_id = NodeId {
++            role: crate::analysis::resolver::NameId(0),
++            index: 0,
++        };
++
++        let parked_reader = |state: &mut State<NoHashing>, resume_pc: Vertex| {
++            let env = Env::<NoHashing>::with_slots(1);
++            Record {
++                pc: resume_pc,
++                node: node_id,
++                origin_node: node_id,
++                continuation: Continuation::Recover,
++                entry_pc: resume_pc,
++                initial_env: env.clone(),
++                env,
++                priority: 0.5,
++                causal_operation_id: None,
++                trace_id: None,
++                link_seq: None,
++                origin_incarnation: state.incarnation(node_id),
++                bias: DeliveryBias::NONE,
++                timer_entry: None,
++                send_ordinal: state.next_send_ordinal(node_id),
++                receiver_token_at_send: state.node_state_token(node_id),
++            }
++        };
++        let lhs = crate::compiler::cfg::Lhs::Var(crate::compiler::cfg::SELF_SLOT);
++        let budgeted_pc: Vertex = 7;
++        let free_pc: Vertex = 8;
++        let mut channel_at = |state: &mut State<NoHashing>, id: usize, pc: Vertex| {
++            let channel = ChannelId { node: node_id, id };
++            let mut chan = ChannelState::new();
++            let reader = parked_reader(state, pc);
++            chan.push_waiting_reader(reader, lhs.clone());
++            state.channels.insert(channel, chan);
++            channel
++        };
++        let budgeted_chan = channel_at(&mut state, 0, budgeted_pc);
++        let free_chan = channel_at(&mut state, 1, free_pc);
++        let empty_chan = ChannelId { node: node_id, id: 2 };
++        state.channels.insert(empty_chan, ChannelState::new());
++
++        timer_budget::reset();
++        for _ in 0..100 {
++            timer_budget::merge_run(timer_budget::Outcome::Completed, &[(0, budgeted_pc, 2)]);
++        }
++        state.timer_budget = timer_budget::snapshot();
++        assert_eq!(state.timer_budget.budget(budgeted_pc), Some(2));
++        for pc in [budgeted_pc, free_pc] {
++            state.note_timer_refire(0, pc);
++            state.note_timer_refire(0, pc);
++        }
++
++        let timer_on = |channel: ChannelId| {
++            Runnable::Timer(Timer {
++                pc: 0,
++                node: node_id,
++                channel,
++                priority: 0.5,
++                label: None,
++            })
++        };
++        let terms = ResolvedTerms::default();
++        let score = |state: &State<NoHashing>, r: &Runnable<NoHashing>| {
++            score_runnable::<NoHashing, NoFeedback>(r, &(), &(), state, &terms)
++        };
++        let over = score(&state, &timer_on(budgeted_chan));
++        let under = score(&state, &timer_on(free_chan));
++        let classless = score(&state, &timer_on(empty_chan));
++        assert!(
++            (over - timer_budget::REFIRE_DAMP * under).abs() < 1e-12,
++            "over-budget score {over} is not the damp multiple of {under}"
++        );
++        assert_eq!(under, classless, "an unbudgeted class scores as identity");
++
++        // One firing short of the budget is identity too.
++        state.timer_firings.clear();
++        state.note_timer_refire(0, budgeted_pc);
++        assert_eq!(score(&state, &timer_on(budgeted_chan)), under);
++        timer_budget::reset();
++    }
++
+     #[test]
+     fn proportional_selection_matches_expected_distribution() {
+         let _serial = crate::simulator::config_override::exclusive_session();
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index d74e851..0699b39 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -7,6 +7,7 @@ use crate::simulator::core::steer_terms::Term;
+ use crate::simulator::core::values::{ChannelId, Env, LinkId, Value};
+ use crate::simulator::hash_utils::{HashPolicy, compute_hash};
+ use crate::simulator::rng::{Stream, StreamRng};
++use crate::simulator::timer_budget::TimerBudgetSnap;
+ use crate::simulator::util_stats::DeliveryBias;
+ use imbl::{HashMap as ImHashMap, OrdSet, Vector};
+ use rand_distr::{Beta, Distribution};
+@@ -586,6 +587,14 @@ pub struct State<H: HashPolicy> {
+     /// Consecutive inert timer firings per (node index, resume vertex),
+     /// reset when a firing at that vertex changes the node's state.
+     timer_inert_streaks: Vec<(usize, Vertex, u32)>,
++    /// Timer firings this run per (node index, resume vertex), kept whether
++    /// or not the stats probes are enabled because the refire budget reads
++    /// it. Excluded from `signature()` and `Hash`, so it cannot change
++    /// deduplication.
++    pub timer_firings: Vec<(usize, Vertex, u32)>,
++    /// Learned per-class refire budgets, frozen for this run at run start.
++    /// Scheduling bias, not protocol state: excluded from `signature()`.
++    pub timer_budget: Arc<TimerBudgetSnap>,
+     /// Per-node send bookkeeping the score's predicates read; indexed like
+     /// `nodes`. Kept exact by the queue hooks below and excluded from
+     /// `signature()`, so it cannot change deduplication.
+@@ -689,6 +698,8 @@ impl<H: HashPolicy> State<H> {
+             link_deliver_seq: ImHashMap::new(),
+             timer_stats: TimerRunStats::default(),
+             timer_inert_streaks: Vec::new(),
++            timer_firings: Vec::new(),
++            timer_budget: Arc::new(TimerBudgetSnap::default()),
+             send_ledger: vec![SendLedger::default(); num_nodes],
+             net_stale_records: 0,
+             net_requests: 0,
+@@ -719,6 +730,37 @@ impl<H: HashPolicy> State<H> {
+             .unwrap_or(0)
+     }
+ 
++    /// Timer firings so far this run at `pc` on node `node`.
++    pub fn timer_refires(&self, node: usize, pc: Vertex) -> u32 {
++        self.timer_firings
++            .iter()
++            .find(|(n, p, _)| *n == node && *p == pc)
++            .map(|(_, _, c)| *c)
++            .unwrap_or(0)
++    }
++
++    /// Count one timer firing that woke a record at `pc` on node `node`.
++    pub fn note_timer_refire(&mut self, node: usize, pc: Vertex) {
++        match self
++            .timer_firings
++            .iter_mut()
++            .find(|(n, p, _)| *n == node && *p == pc)
++        {
++            Some(e) => e.2 += 1,
++            None => self.timer_firings.push((node, pc, 1)),
++        }
++    }
++
++    /// The vertex the front waiting reader of `channel` resumes at, which is
++    /// the class a firing of the channel's timer would be attributed to. A
++    /// channel with no parked reader fires into the buffer and has no class.
++    pub fn timer_resume_vertex(&self, channel: ChannelId) -> Option<Vertex> {
++        self.channels
++            .get(&channel)
++            .and_then(|c| c.waiting_readers.front())
++            .map(|w| w.0.pc)
++    }
++
+     /// Account one timer firing that woke a record at `pc` on node `node`.
+     pub fn note_timer_effect(&mut self, node: usize, pc: Vertex, inflight: bool, acted: bool) {
+         let t = &mut self.timer_stats;
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index ddd370e..3bc2b91 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -22,6 +22,7 @@ use crate::simulator::rng::{
+     LiveRng, RecRng, RecordRng, Recording, ReplayRng, RngSource, SCHEDULE_SALT, StreamRng,
+     StreamSet, WORKLOAD_SALT, derive_seed, mutate_tape,
+ };
++use crate::simulator::timer_budget;
+ use crate::simulator::util_stats;
+ use crossbeam::channel;
+ use log::{debug, error, info, warn};
+@@ -1131,6 +1132,7 @@ pub fn run_explorer(
+ 
+     info!("session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
++    timer_budget::reset();
+     util_stats::set_acted_fraction_enabled(config.emit_acted_fraction);
+     util_stats::set_acceptance_distance_enabled(config.emit_acceptance_distance);
+     util_stats::set_crash_census_enabled(config.emit_crash_census);
+@@ -1523,6 +1525,7 @@ pub fn run_explorer_genetic(
+ 
+     info!("session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
++    timer_budget::reset();
+     util_stats::set_acted_fraction_enabled(config.emit_acted_fraction);
+     util_stats::set_acceptance_distance_enabled(config.emit_acceptance_distance);
+     util_stats::set_crash_census_enabled(config.emit_crash_census);
+@@ -1960,6 +1963,7 @@ pub fn run_explorer_aos(
+ 
+     info!("AOS session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
++    timer_budget::reset();
+     util_stats::set_acted_fraction_enabled(config.emit_acted_fraction);
+     util_stats::set_acceptance_distance_enabled(config.emit_acceptance_distance);
+     util_stats::set_crash_census_enabled(config.emit_crash_census);
+@@ -2285,6 +2289,7 @@ impl<F: Feedback> Strategy<F> for CurriculumExplorer<F> {
+         // so this cannot race the per-run merges.
+         if self.decay_factor < 1.0 {
+             F::decay(&self.global_state.feedback, self.decay_factor);
++            timer_budget::decay(self.decay_factor);
+         }
+ 
+         StepReport {
+@@ -2607,6 +2612,7 @@ pub fn run_explorer_continuous(
+ 
+     info!("Continuous session_seed = {}", config.envelope.session_seed);
+     util_stats::set_enabled(config.envelope.stats);
++    timer_budget::reset();
+     util_stats::set_acted_fraction_enabled(config.envelope.emit_acted_fraction);
+     util_stats::set_acceptance_distance_enabled(config.envelope.emit_acceptance_distance);
+     util_stats::set_crash_census_enabled(config.envelope.emit_crash_census);
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 959adca..f392fbe 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -14,6 +14,7 @@ use crate::simulator::path::plan::{
+     ClientOpSpec, DeliverSpec, EventAction, ExecutionPlan, PlanEngine, PlannedEvent,
+ };
+ use crate::simulator::rng::StreamRng;
++use crate::simulator::timer_budget;
+ use crate::simulator::util_stats::{self, DeliveryBias, RunEnd, RunExtension, RunTermination};
+ use ecow::EcoString;
+ use log::{info, warn};
+@@ -297,6 +298,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     rng: &mut impl StreamRng,
+ ) -> Result<RunOutcome, RuntimeError> {
+     util_stats::begin_run();
++    path_state.state.timer_budget = timer_budget::snapshot();
+     let mut selector = queue_policy.to_selector();
+     let mut op_id_counter = 0i32;
+     let mut in_progress: HashMap<i32, NodeIndex> = HashMap::new();
+@@ -393,6 +395,10 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 recovered_nodes.len(),
+                 &census,
+             );
++            timer_budget::merge_run(
++                timer_budget::Outcome::Completed,
++                &path_state.state.timer_firings,
++            );
+             return Ok(RunOutcome::Completed { steps: step });
+         }
+ 
+@@ -427,6 +433,10 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 recovered_nodes.len(),
+                 &census,
+             );
++            timer_budget::merge_run(
++                timer_budget::Outcome::Deadlocked,
++                &path_state.state.timer_firings,
++            );
+             return Ok(RunOutcome::Deadlock {
+                 step,
+                 pending_ops: in_progress.len(),
+@@ -776,6 +786,10 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         recovered_nodes.len(),
+         &census,
+     );
++    timer_budget::merge_run(
++        timer_budget::Outcome::Exhausted,
++        &path_state.state.timer_firings,
++    );
+     Ok(RunOutcome::IterationsExhausted {
+         outstanding_events: engine.outstanding_count(),
+     })
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 922d3a4..9c72b4e 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -273,6 +273,11 @@ static TIMER_STREAK_ACTED: [AtomicU64; STREAK_BUCKETS] =
+ static TIMER_STEER_EVALUATED: AtomicU64 = AtomicU64::new(0);
+ static TIMER_STEER_RAISED: AtomicU64 = AtomicU64::new(0);
+ static TIMER_STEER_LOWERED: AtomicU64 = AtomicU64::new(0);
++
++static TIMER_REFIRE_DAMPED: AtomicU64 = AtomicU64::new(0);
++static TIMER_REFIRE_OVER_BUDGET: AtomicU64 = AtomicU64::new(0);
++/// Gauge, not a counter: overwritten with the current learned-class count.
++static TIMER_REFIRE_CLASSES_LEARNED: AtomicU64 = AtomicU64::new(0);
+ static TIMELINE_KEYS: Mutex<TimelineKeyGrowth> = Mutex::new(TimelineKeyGrowth::new());
+ 
+ /// Runs per point on the timeline-key growth curve, and the most points a
+@@ -402,6 +407,9 @@ pub fn set_enabled(on: bool) {
+             &TIMER_STEER_EVALUATED,
+             &TIMER_STEER_RAISED,
+             &TIMER_STEER_LOWERED,
++            &TIMER_REFIRE_DAMPED,
++            &TIMER_REFIRE_OVER_BUDGET,
++            &TIMER_REFIRE_CLASSES_LEARNED,
+         ] {
+             c.store(0, Ordering::Relaxed);
+         }
+@@ -2276,6 +2284,50 @@ pub fn record_timer_admission(chose_timer: bool) {
+     }
+ }
+ 
++/// One timer's selection score was reduced because its class had fired past
++/// its learned budget this run.
++#[inline]
++pub fn record_refire_damped() {
++    if !enabled() {
++        return;
++    }
++    TIMER_REFIRE_DAMPED.fetch_add(1, Ordering::Relaxed);
++}
++
++/// One timer fired while its class was past its learned budget.
++#[inline]
++pub fn record_refire_over_budget() {
++    if !enabled() {
++        return;
++    }
++    TIMER_REFIRE_OVER_BUDGET.fetch_add(1, Ordering::Relaxed);
++}
++
++/// Publish how many timer classes currently hold a learned budget.
++#[inline]
++pub fn set_refire_classes_learned(n: u64) {
++    TIMER_REFIRE_CLASSES_LEARNED.store(n, Ordering::Relaxed);
++}
++
++/// Refire-budget activity: selection scores damped, firings taken while a
++/// class was past budget, and the classes holding a budget right now.
++#[derive(Serialize)]
++pub struct TimerRefireBudgetStats {
++    pub damped: u64,
++    pub classes_learned: u64,
++    pub over_budget_firings: u64,
++}
++
++impl TimerRefireBudgetStats {
++    fn read() -> Self {
++        Self {
++            damped: TIMER_REFIRE_DAMPED.load(Ordering::Relaxed),
++            classes_learned: TIMER_REFIRE_CLASSES_LEARNED.load(Ordering::Relaxed),
++            over_budget_firings: TIMER_REFIRE_OVER_BUDGET.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ impl TimerEffectStats {
+     fn read() -> Self {
+         let fired = TIMERS_FIRED.load(Ordering::Relaxed);
+@@ -2681,6 +2733,7 @@ pub struct UtilizationSnapshot {
+     pub delivery_effects: DeliveryEffectStats,
+     pub timer_effects: TimerEffectStats,
+     pub timer_steer: TimerSteerStats,
++    pub timer_refire_budget: TimerRefireBudgetStats,
+     pub crash_anchor: CrashAnchorStats,
+     pub termination: TerminationStats,
+     pub prefix_extension: PrefixExtensionStats,
+@@ -2855,6 +2908,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         },
+         timer_effects: TimerEffectStats::read(),
+         timer_steer: TimerSteerStats::read(),
++        timer_refire_budget: TimerRefireBudgetStats::read(),
+         crash_anchor: CrashAnchorStats {
+             steps_with_crash_eligible: CA_STEPS_WITH_CRASH_ELIGIBLE.load(Ordering::Relaxed),
+             offered: CA_OFFERED.load(Ordering::Relaxed),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 8d5a5ae..91bdcd5 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -393,6 +393,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         delivery_effects: _,
+         timer_effects: _,
+         timer_steer: _,
++        timer_refire_budget: _,
+         crash_anchor: _,
+         termination: _,
+         prefix_extension: _,
+@@ -420,6 +421,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "delivery_effects",
+         "timer_effects",
+         "timer_steer",
++        "timer_refire_budget",
+         "crash_anchor",
+         "termination",
+         "prefix_extension",

@@ -1,0 +1,184 @@
+{
+ "name": "learned-run-cap-probe-p99",
+ "createdAtIso": "2026-08-31T04:03:10.120Z",
+ "note": "",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/learned-run-cap-probe-p99/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/learned-run-cap-probe-p99/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:learned-run-cap-probe-p99"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/lite/base/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/lite/base/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/tmp/lite/base/spur"
+ },
+ "identity": {
+  "spurTree": "d22321ae599feec46f14e54d038280808432b36c",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/d22321ae599f-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-learned-run-cap-probe-p99",
+  "chunks": 2,
+  "runs": 831600,
+  "graded": 831600,
+  "depth4": 400703,
+  "depth5": 139244,
+  "depth6plus": 33168,
+  "depth7plus": 6880,
+  "depth8plus": 1020,
+  "violations": 1,
+  "h2Count": 379945,
+  "exposureSec": 600.877,
+  "rpsChunks": [
+   1455.7290626622469,
+   1312.2110189774608
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 1,
+   "depth>=4:pMei": 0.8885,
+   "depth>=4:ratio": 1.175404941043029,
+   "depth>=4:mei": 0.11463257395320457,
+   "depth>=5:pGreater": 1,
+   "depth>=5:pMei": 0.8415,
+   "depth>=5:ratio": 1.1697860654380303,
+   "depth>=5:mei": 0.11972647153941765,
+   "depth>=6:pGreater": 0.9995,
+   "depth>=6:pMei": 0.816,
+   "depth>=6:ratio": 1.1617862323440387,
+   "depth>=6:mei": 0.11689524400894334,
+   "depth>=7:pGreater": 0.997,
+   "depth>=7:pMei": 0.623,
+   "depth>=7:ratio": 1.1360241013632042,
+   "depth>=7:mei": 0.11896434316782285,
+   "depth>=8:pGreater": 0.956,
+   "depth>=8:pMei": 0.2575,
+   "depth>=8:ratio": 1.1463985719250014,
+   "depth>=8:mei": 0.20391497393874247,
+   "h2:pGreater": 0.408,
+   "h2:ratio": 0.999488170068027,
+   "h2:mei": 0.00571086666510405,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.2008517295830707,
+   "throughput:cv": 0.07332715226409228,
+   "depth>=5:cv": 0.06166819920264086,
+   "depth>=6:cv": 0.05922479265861658,
+   "depth>=7:cv": 0.05645235726433208,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.65200000000004,
+   "depth>=4:separated": 1,
+   "depth>=5:separated": 1,
+   "depth>=6:separated": 1,
+   "depth>=7:separated": 1,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "stop",
+  "lastIteration": 0,
+  "baselineKey": "d22321ae599f|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 704640,
+   "graded": 704640,
+   "exposureSec": 480.65200000000004,
+   "depth": [
+    704640,
+    641493,
+    499992,
+    337239,
+    118363,
+    28018,
+    5713,
+    871,
+    9
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.366,
+     "depth": [
+      367080,
+      334302,
+      260466,
+      175696,
+      61772,
+      14598,
+      2971,
+      458,
+      3
+     ]
+    },
+    {
+     "exposureSec": 240.286,
+     "depth": [
+      337560,
+      307191,
+      239526,
+      161543,
+      56591,
+      13420,
+      2742,
+      413,
+      6
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-learned-run-cap-probe-p99-sequential-1000-1788148994671",
+  "lite-learned-run-cap-probe-p99-sequential-1001-1788149544689"
+ ],
+ "history": [
+  {
+   "atIso": "2026-08-31T04:10:27.197Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 433
+  },
+  {
+   "atIso": "2026-08-31T04:19:27.217Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict stop: violations appeared (1)",
+   "wallSec": 423
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

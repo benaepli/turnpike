@@ -1,0 +1,135 @@
+# Lite Loop Hypothesis Pool
+
+Scored candidates awaiting implementation. One section per hypothesis: id,
+kind, title, description, frozen prediction, expectedGain/expectedCost,
+origin (proposer | operator-agent | user),
+status (proposed | awaiting-approval | implemented | closed | merged | human).
+
+## timer-refire-outcome-quantile
+
+- kind: add | category: scheduler | origin: user | status: closed (2026-08-31, refuted net of A/A drift control)
+- title: Cross-run learned refire budget: damp a timer class past the firing
+  count that completed runs exhibit
+- description: Session-global per-timer-class (resume vertex) firing-count
+  histogram split by run outcome (Completed vs IterationsExhausted), merged
+  at run end from TimerRunStats, decayed like GlobalTimeline. Derives a
+  per-class refire budget (~p90 of completed-run firing counts,
+  Laplace-smoothed, min 200 firings before deviating). In score_runnable a
+  Runnable::Timer whose within-run count for that node passed its budget is
+  score-multiplied by 0.25 (bounded, never zero). No config field. Counters:
+  timer_refire_budget.damped / .classes_learned / .over_budget_firings.
+- frozen prediction (admitted 2026-08-30): firingCounter
+  timer_refire_budget.damped, floor 50000; rung depth>=6; sizePct 0.04-0.15;
+  falsifier: damped >= 50000 yet depth>=6/s ratio < 1.03 at the sequential
+  cap, or h2 drops > 2% relative. Independent observable:
+  termination.all.iterations_exhausted share falls >= 3pp from ~72%, and
+  timer_effects.inert_streak.long.fired per run falls >= 25% while
+  timer_effects.all.acted per run stays within 5%.
+- judge: expectedGain 6, expectedCost 0. All citations verified. Red team:
+  count-conditioning may reduce to the falsified phase-of-budget gating;
+  outcome labels are length-confounded (exhausted runs fire more of every
+  class); score damping cannot shorten exhausted runs (no stall exit merged),
+  so the runs/s story depends entirely on completion conversion.
+
+## timer-class-completion-credit
+
+- kind: add | category: feedback | origin: user | status: proposed
+- title: Per-class completion-odds credit reweighting within the timer queue
+- description: Session-global per-class (completed, exhausted) firing weights
+  from TimerRunStats + RunOutcome, decayed; bounded multiplier [0.5, 2.0] =
+  smoothed odds ratio vs session average, identity until 200 firings, applied
+  in score_runnable. Two-sided (promotes and demotes). No config field.
+  Counters: timer_outcome_credit.reweighted / .up / .down / .classes.
+- frozen prediction (rewritten by judge before admission, per rubric): rung
+  depth>=6, sizePct 0.02-0.10, firingCounter timer_outcome_credit.reweighted,
+  floor 50000. Independent observable REWRITTEN: timer_steer.raised/lowered
+  admission split shifts >= 5% relative and .up and .down each exceed 10% of
+  .reweighted (the original timer_effects.by_key table is not in the exported
+  eval record). Falsifier: reweighted >= 50000 with .up and .down nonzero,
+  yet depth>=6/s ratio < 1.02 AND plan_complete share moves < 1pp.
+- judge: expectedGain 4, expectedCost 0. Rides the same learning mechanism as
+  timer-refire-outcome-quantile (dedupe: only one ranks high). Value: cheapest
+  premise test for the family; a null discounts the siblings' learning half.
+
+## timer-send-debt-brake
+
+- kind: add | category: scheduler | origin: user | status: proposed
+- title: Within-run message-debt brake: deprioritize a timer whose previous
+  firings' sends are still undelivered
+- description: Tag records enqueued in timer-woken segments with the waking
+  timer's resume vertex; per-(node, vertex) debt = such records still
+  undelivered; Runnable::Timer with debt d scores * max(0.25, 1/(1+d)).
+  Counters: timer_debt.evaluated / .damped / .peak.
+- frozen prediction: rung depth>=6, sizePct 0.03-0.12, firingCounter
+  timer_debt.damped, floor 50000. Independent observable (2nd clause
+  rewritten by judge): deliveryEffects deliveries per run falls >= 8% with
+  acted_fraction rising, and termination.all.pending_work_at_exit_sum per
+  completing run falls >= 15% from baseline ~29.6 (the cited ~9k backlog
+  figure was unsupported). Falsifier: damped >= 50000 yet depth>=6/s < 1.03,
+  or deliveries per run unchanged, or h2 regresses > 2% relative.
+- judge: expectedGain 4, expectedCost 2 (hooks the record lifecycle — event
+  accounting surface; a missed decrement path silently biases). Red team:
+  against a never-draining frontier debt is almost always positive, so the
+  brake likely collapses to the falsified uniform timer down-weight.
+
+## learned-run-cap-probe-p99
+
+- kind: add | category: scheduler | origin: user | status: merged (3bb90a1, 2026-08-31; prediction band missed low, see observations)
+- title: Session-learned primary run cap at p99 x 1.5 of probe-completed
+  lengths; config max_iterations demoted to backup terminator
+- description: New run_cap.rs session-global learner keyed by post-arm-overlay
+  max_iterations (backup budget). run_id % 32 == 0 runs are probes: always run
+  to backup, sole feeders of the learner. Non-probe effective cap =
+  min(backup, ceil(1.5 * p99 of scope's completed-probe lengths)), identity
+  until 200 completed probe samples per scope. New termination class
+  (RunEnd/RunOutcome LearnedCapReached, termination.all.learned_cap_reached).
+  Learner exports run_cap.probes / .probe_completions / .over_cap_completions
+  (would-have-been-killed completions - absorbs variant 3's safety
+  measurement) / .scopes_learned / .current_cap_max_scope (diagnostic). Zero
+  config fields; constants PROBE_PERIOD=32, QUANTILE=0.99, HEADROOM=1.5,
+  MIN_COMPLETED_SAMPLES=200. Plan:
+  research/lite/plans/learned-run-cap-probe-p99.md
+- frozen prediction (freezes at user approval): firingCounter
+  termination.all.learned_cap_reached, floor 1000; rung depth>=6
+  events/explore-second; sizePct +0.30 to +1.20. Falsifier: per-run
+  P(depth>=6) falls > 5% below same-seed baseline in any capped arm after an
+  A/A drift control; or rate gain < +30% with the cap engaged; or
+  learned_cap_reached stays 0 while the 6000 scope has >= 200 completed
+  probe samples. Independent observables: iterations_exhausted share in
+  6000-backup scopes collapses toward the ~1/32 probe share;
+  run_cap.probes ~ runs/32; over_cap_completions reported (large values are
+  the conservatism warning). Judge rewrite applied: "cap settles below 4000"
+  demoted to reported diagnostic.
+- judge: expectedGain 7, expectedCost 0. All citations and code anchors
+  verified; effect arithmetic redone (gain +122% if cap lands ~1500, ~+45%
+  at ~3200, ~+15% at ~4700; realized point hangs on unmeasured p99). Risks:
+  depth preservation at short caps approximate (grid-short -3.1% pooled vs
+  the 5% clause with ~2.5% chunk noise); gain is throughput-shaped
+  (legitimate: violations are per-run events, so runs/s at flat per-run
+  probability is violations/s).
+
+## learned-run-cap-max-observed
+
+- kind: add | category: scheduler | origin: user | status: closed (dominated: parent merged with per-run depth preserved; headroom question answered)
+- title: Conservatism contrast: primary cap at running max of
+  probe-completed lengths
+- Held unbuilt per judge familyAdvice: activate only if
+  learned-run-cap-probe-p99 trips its depth-preservation falsifier (then
+  max-observed is the conservative frontier to price); close as dominated if
+  the parent passes. expectedGain 4, expectedCost 0. Prediction as proposed
+  (+8-30% d>=6/s, floor 100 on termination.learned_cap_reached) with judge
+  rewrite pending if activated: "plan_complete unchanged" must exclude the
+  pre-convergence warmup window.
+
+## learned-cap-progress-conditioned
+
+- kind: add | category: scheduler | origin: user | status: rejected-by-judge
+- title: Progress-conditioned learned cap (terminate only quiescent runs
+  past the learned length)
+- Rejected on a checkable false claim: baseline prefix_extension counters
+  show 100% of exhausted runs are budget_releasing, tail_without_release_sum
+  22043/347880 runs (~0.06 steps/run) - the arming condition (release-free
+  stretch >= max(cap/8, 64)) essentially never passes under the current
+  purgatory dose; the proposal conflated no-history-growth quiescence with
+  the release census. Its safety-measurement goal is folded into the
+  parent's run_cap.over_cap_completions export.

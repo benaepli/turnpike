@@ -1,0 +1,10 @@
+{
+  "extends": "../orchestrator/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "sourceMap": false,
+    "typeRoots": ["../orchestrator/node_modules/@types"]
+  },
+  "include": ["grader.ts", "../orchestrator/src/**/*.ts"]
+}

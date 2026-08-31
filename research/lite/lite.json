@@ -1,0 +1,23 @@
+{
+  "goalFile": "research/GOAL.md",
+  "spec": "bin/spur/VR.spur",
+  "configTemplate": "scheduler_configs/loop/general_vr.json",
+  "branch": "research/lite",
+  "relevantFiles": [
+    "research/GOAL.md",
+    "research/STYLE.md",
+    "research/observations/OBSERVATIONS.md",
+    "scheduler_configs/loop/general_vr.json",
+    "spur/spur-core/src/simulator/"
+  ],
+  "budgets": {
+    "chunkSec": 300,
+    "maxChunks": 4,
+    "minChunks": 2,
+    "rayonThreads": 30,
+    "maxBuildSeconds": 600
+  },
+  "porcupineModel": "kv",
+  "violationPrior": null,
+  "allowBigLoopBaselineRecord": true
+}

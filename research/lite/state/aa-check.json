@@ -1,0 +1,184 @@
+{
+ "name": "aa-check",
+ "createdAtIso": "2026-08-30T23:32:17.847Z",
+ "note": "",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/lite/base/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/lite/base/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:aa-check"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/lite/base/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/lite/base/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/tmp/lite/base/spur"
+ },
+ "identity": {
+  "spurTree": "d22321ae599feec46f14e54d038280808432b36c",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/d22321ae599f-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-aa-check",
+  "chunks": 2,
+  "runs": 690360,
+  "graded": 690360,
+  "depth4": 332105,
+  "depth5": 117915,
+  "depth6plus": 28406,
+  "depth7plus": 5999,
+  "depth8plus": 906,
+  "violations": 1,
+  "h2Count": 318228,
+  "exposureSec": 601.072,
+  "rpsChunks": [
+   1154.9513116585963,
+   1142.1380632790028
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.3695,
+   "depth>=4:pMei": 0,
+   "depth>=4:ratio": 0.9966199916084736,
+   "depth>=4:mei": 0.027695855683949125,
+   "depth>=5:pGreater": 0.377,
+   "depth>=5:pMei": 0.002,
+   "depth>=5:ratio": 0.9958008488738188,
+   "depth>=5:mei": 0.034720826611308986,
+   "depth>=6:pGreater": 0.367,
+   "depth>=6:pMei": 0.002,
+   "depth>=6:ratio": 0.994023521304978,
+   "depth>=6:mei": 0.05407101654244546,
+   "depth>=7:pGreater": 0.1015,
+   "depth>=7:pMei": 0,
+   "depth>=7:ratio": 0.970978271106622,
+   "depth>=7:mei": 0.054955173604550135,
+   "depth>=8:pGreater": 0.262,
+   "depth>=8:pMei": 0.001,
+   "depth>=8:ratio": 0.9609564650340674,
+   "depth>=8:mei": 0.15990600561162704,
+   "h2:pGreater": 0.9995,
+   "h2:ratio": 1.0082423793014768,
+   "h2:mei": 0.005880095856611958,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 0.9965741330696225,
+   "throughput:cv": 0.01,
+   "depth>=5:cv": 0.014180230423610106,
+   "depth>=6:cv": 0.02368249863633459,
+   "depth>=7:cv": 0.011522176521231433,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.798,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "stop",
+  "lastIteration": 0,
+  "baselineKey": "d22321ae599f|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 596460,
+   "graded": 596460,
+   "exposureSec": 480.798,
+   "depth": [
+    596460,
+    542530,
+    423507,
+    286447,
+    100745,
+    23966,
+    4888,
+    734,
+    6
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.50599999999997,
+     "depth": [
+      300300,
+      273381,
+      213278,
+      144162,
+      50900,
+      12189,
+      2465,
+      375,
+      3
+     ]
+    },
+    {
+     "exposureSec": 240.29200000000003,
+     "depth": [
+      296160,
+      269149,
+      210229,
+      142285,
+      49845,
+      11777,
+      2423,
+      359,
+      3
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-aa-check-sequential-1000-1788133207904",
+  "lite-aa-check-sequential-1001-1788134082697"
+ ],
+ "history": [
+  {
+   "atIso": "2026-08-30T23:47:02.986Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict stop: violations appeared (1)",
+   "wallSec": 830
+  },
+  {
+   "atIso": "2026-08-31T00:01:34.494Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict stop: violations appeared (1)",
+   "wallSec": 825
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

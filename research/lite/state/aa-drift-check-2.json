@@ -1,0 +1,160 @@
+{
+ "name": "aa-drift-check-2",
+ "createdAtIso": "2026-08-31T03:55:54.393Z",
+ "note": "",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/lite/base/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/lite/base/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:aa-drift-check-2"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/lite/base/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/lite/base/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/tmp/lite/base/spur"
+ },
+ "identity": {
+  "spurTree": "d22321ae599feec46f14e54d038280808432b36c",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/d22321ae599f-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-aa-drift-check-2",
+  "chunks": 1,
+  "runs": 359040,
+  "graded": 359040,
+  "depth4": 172875,
+  "depth5": 61029,
+  "depth6plus": 14184,
+  "depth7plus": 2915,
+  "depth8plus": 476,
+  "violations": 0,
+  "h2Count": 169408,
+  "exposureSec": 300.316,
+  "rpsChunks": [
+   1195.5406971323541
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1001,
+  "posteriors": {
+   "depth>=4:pGreater": 0.996,
+   "depth>=4:pMei": 0.5315,
+   "depth>=4:ratio": 1.0405180797688172,
+   "depth>=4:mei": 0.039002534846080794,
+   "depth>=5:pGreater": 0.986,
+   "depth>=5:pMei": 0.401,
+   "depth>=5:ratio": 1.0366078840340212,
+   "depth>=5:mei": 0.04046409990284622,
+   "depth>=6:pGreater": 0.878,
+   "depth>=6:pMei": 0.1115,
+   "depth>=6:ratio": 1.023132906757392,
+   "depth>=6:mei": 0.04698961961607042,
+   "depth>=7:pGreater": 0.716,
+   "depth>=7:pMei": 0.047,
+   "depth>=7:ratio": 1.0186319934180854,
+   "depth>=7:mei": 0.07134453724219285,
+   "depth>=8:pGreater": 0.767,
+   "depth>=8:pMei": 0.1015,
+   "depth>=8:ratio": 1.0553894573334641,
+   "depth>=8:mei": 0.15661535460480294,
+   "h2:pGreater": 1,
+   "h2:ratio": 1.0356812374814748,
+   "h2:mei": 0.007558559767407714,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.0323927624567066,
+   "throughput:cv": 0.01,
+   "depth>=5:cv": 0.01,
+   "depth>=6:cv": 0.01,
+   "depth>=7:cv": 0.01,
+   "stratum:chunks": 1,
+   "stratum:exposureSec": 240.23000000000002,
+   "depth>=4:separated": 1,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "d22321ae599f|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 1,
+   "runs": 311520,
+   "graded": 311520,
+   "exposureSec": 240.23000000000002,
+   "depth": [
+    311520,
+    283576,
+    221454,
+    149988,
+    52624,
+    12432,
+    2555,
+    416,
+    5
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.23000000000002,
+     "depth": [
+      311520,
+      283576,
+      221454,
+      149988,
+      52624,
+      12432,
+      2555,
+      416,
+      5
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000
+ ],
+ "evalIds": [
+  "lite-aa-drift-check-2-sequential-1000-1788148559146"
+ ],
+ "history": [
+  {
+   "atIso": "2026-08-31T04:02:53.066Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 414
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}
