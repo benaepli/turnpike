@@ -158,3 +158,68 @@ throughput; mencius engages less. Both members preserve per-run rates, so
 the gain is genuine corpus-per-wall, not truncation artifact. This is the
 portfolio evidence the mechanism's generality argument promised. New
 anchor for future panels: 120.87 / 6.11.
+
+## 2026-08-31 - timer-admission-context-odds-probe (user idea, moderated lane; MERGED)
+
+Third moderated-lane iteration, held at awaiting-approval and built on the
+user's explicit go-ahead. User idea: probe-contrast timer steering on
+structural context - the four caveats (context features not classes,
+counterfactual credit not correlation, constants only as safety floors,
+coverage objective not termination) entered the proposer prompt as
+non-negotiable constraints. Three variants elaborated; the judge verified
+every checkable claim, ranked context-odds first (gain 6, cost 0), scored
+the two-arm contrast 3 (unnormalized global odds ratio 0.21 sits below the
+0.25 clamp floor, collapsing it to the refuted uniform down-weight) and the
+coverage governor 1 (novelty_enabled false ablates its statistic to ~0 vs
+~0). Two new census facts from the vet: ~92% of timer firings happen at
+uncontested steps the admission lever cannot touch, and every scheduler
+change now has a feedback path through the learned run cap. Plan:
+research/lite/plans/timer-admission-context-odds-probe.md. Built clean (333
+tests, 11 new), two cosmetic deviations, diff reviewed hunk-for-hunk.
+
+Mechanism: probe runs (run_id % 32 == 16, disjoint from run_cap's phase 0)
+take the stock roll and alone feed a 48-cell learner (pending-deliveries x
+in-flight x node-max inert-streak x restart-recency) keyed by per-firing
+acted outcomes; steered runs multiply the Probabilistic selector's p_timer
+by clamp(cell_rate/global_rate, 0.25, 4.0), 200-firing floor per cell;
+non-Probabilistic selectors excluded and counted. No config field.
+
+Result over 2 chunks (732,420 candidate runs, seeds 1000-1001, both sides
+measured fresh in-session): depth>=6/s pooled 1.190 (band 0.008, z 2.7 -
+the typed rule stopped itself), depth>=5 1.123, depth>=7 1.138, throughput
+0.915. Per-run P(depth>=6) +30% pooled; steps/sec identical across sides,
+so the throughput drop is composition (steered runs average ~12% longer),
+not slowdown. Every predicted observable moved as predicted: steered
+acted_fraction 0.131 vs base 0.114, long-streak firing share 0.728 ->
+0.687, contested timer-win share 0.032 -> 0.053, probe acted rate flat at
+~0.078-0.087 (the unsteered control). Firing: biased_steps ~1.05B/chunk,
+38/48 cells engaged, steps_excluded_selector 32-44M (aos arms). Regression
+passed; advice merge, blockers none. MERGED as ed21963 (spur 249189d).
+
+Prediction bookkeeping: the frozen band +2..6% MISSED HIGH (realized +19%
+per second, +30% per run) - the second consecutive band miss on magnitude,
+opposite sign from run-cap's. Falsifier clauses all held (firing floor,
+cells_engaged, +2% over the hostile A/A floor: +19.0% - 9.6% = +9.4%).
+
+MEASUREMENT FINDING (bigger than the iteration): the same-session A/A
+control (base binary both sides, same seed) read throughput 1.141 and all
+rungs +10-11% under null. Cause is not host drift: steps/sec was flat all
+session; the learned run cap's trajectory is session-nondeterministic (cap
+gauge 4283 in the A/A rerun vs 5975 in the cached measurement at the SAME
+seed - p99 is estimated from a few thousand racy probe completions), and
+cap trajectory alone moves runs/s and every per-second rung ~14% at chunk
+scale. Consequences: (1) per-second nullBands from event counts understate
+the true null since the run-cap merge; (2) per-run probabilities remain
+the robust comparator (A/A per-run d>=6 swings only -3.9%); (3) future
+grades should read the cap gauge on both sides every chunk and treat
+per-second separations near ~15% as suspect unless caps match. This
+iteration's merge survives because chunk-1 caps were identical across
+sides (5975/5975), chunk-2's cap draw disfavored the candidate (5471 vs
+5075 lengthens candidate runs), and the per-run read (+30%) dwarfs the
+null swing. The run cap's session variance itself is now a named target:
+freezing the cap learner's estimate earlier, or widening the probe stream,
+would shrink the grader's null band back down - candidate follow-up filed
+in the pool alongside the quantile/headroom dose contrast.
+
+Violations: 0 candidate, 0 baseline in 1.53M runs - consistent with the
+~1.3/million background at this sample size; nothing to archive.

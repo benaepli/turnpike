@@ -136,7 +136,8 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## timer-admission-context-odds-probe
 
-- kind: add | category: scheduler | origin: user | status: awaiting-approval
+- kind: add | category: scheduler | origin: user | status: MERGED 2026-08-31
+  (superproject ed21963, spur 249189d; d>=6/s pooled 1.190, per-run +30%)
 - title: Steer effective p_timer at queue selection by learned
   per-context-cell timer acted odds
 - Moderated lane, third user idea. Probe runs (run_id % 32 == 16, disjoint
@@ -181,3 +182,18 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   holdout idea itself is already present in the parent (phase-16 probes).
   Revisit only if a novelty-enabled config lands via its own re-baselined
   iteration.
+
+## run-cap-trajectory-variance-fix
+
+- kind: change | category: scheduler | origin: operator-agent | status: pool
+- title: Shrink the learned run cap's session-to-session trajectory variance
+- Motivating fact (2026-08-31 A/A control): identical binary/config/seed drew
+  cap 4283 vs 5975; cap trajectory alone moves runs/s and every per-second
+  rung ~14% at chunk scale, so the grader's per-second null bands understate
+  the true null. Candidate shapes (one per iteration, not together): freeze
+  the cap after N probe completions instead of tracking a racing quantile;
+  widen the probe stream or the histogram's sample floor so the p99 estimate
+  stabilizes before the cap engages; or blend toward a longer-horizon
+  quantile. Prediction to freeze at admission: A/A base-vs-base throughput
+  ratio inside ~1.03 (vs today's 1.14) with the merged tree's depth
+  rates preserved. Doubles as the quantile/headroom dose-contrast vehicle.

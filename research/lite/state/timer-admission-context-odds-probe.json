@@ -1,0 +1,184 @@
+{
+ "name": "timer-admission-context-odds-probe",
+ "createdAtIso": "2026-08-31T22:33:28.556Z",
+ "note": "",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/timer-admission-context-odds-probe/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/timer-admission-context-odds-probe/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:timer-admission-context-odds-probe"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "ecf13e42f19667935dac85a2618d49f8193107a9",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/ecf13e42f196-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-timer-admission-context-odds-probe",
+  "chunks": 2,
+  "runs": 732420,
+  "graded": 732420,
+  "depth4": 384577,
+  "depth5": 149490,
+  "depth6plus": 38255,
+  "depth7plus": 7499,
+  "depth8plus": 1120,
+  "violations": 0,
+  "h2Count": 342677,
+  "exposureSec": 600.877,
+  "rpsChunks": [
+   1179.8453894714423,
+   1258.006525068247
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.585,
+   "depth>=4:pMei": 0.0085,
+   "depth>=4:ratio": 1.0060304988594053,
+   "depth>=4:mei": 0.07115225803990906,
+   "depth>=5:pGreater": 1,
+   "depth>=5:pMei": 0.971,
+   "depth>=5:ratio": 1.1234145520461425,
+   "depth>=5:mei": 0.06898328412382136,
+   "depth>=6:pGreater": 1,
+   "depth>=6:pMei": 1,
+   "depth>=6:ratio": 1.1901390112467856,
+   "depth>=6:mei": 0.06348380768194284,
+   "depth>=7:pGreater": 0.992,
+   "depth>=7:pMei": 0.496,
+   "depth>=7:ratio": 1.1382918157455892,
+   "depth>=7:mei": 0.13765767708334448,
+   "depth>=8:pGreater": 0.9235,
+   "depth>=8:pMei": 0.184,
+   "depth>=8:ratio": 1.0998081611956079,
+   "depth>=8:mei": 0.1646700318160674,
+   "h2:pGreater": 1,
+   "h2:ratio": 1.0112858949810404,
+   "h2:mei": 0.005518072270586322,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 0.91527939275873,
+   "throughput:cv": 0.04534177705882304,
+   "depth>=5:cv": 0.03434396706303113,
+   "depth>=6:cv": 0.02996278054113915,
+   "depth>=7:cv": 0.057839162722020526,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.65999999999997,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 1,
+   "depth>=6:separated": 1,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "stop",
+  "lastIteration": 0,
+  "baselineKey": "ecf13e42f196|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 626640,
+   "graded": 626640,
+   "exposureSec": 480.65999999999997,
+   "depth": [
+    626640,
+    578352,
+    464282,
+    331026,
+    129438,
+    33057,
+    6535,
+    969,
+    7
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.34,
+     "depth": [
+      305700,
+      282110,
+      226203,
+      161333,
+      63150,
+      16179,
+      3134,
+      463,
+      4
+     ]
+    },
+    {
+     "exposureSec": 240.32,
+     "depth": [
+      320940,
+      296242,
+      238079,
+      169693,
+      66288,
+      16878,
+      3401,
+      506,
+      3
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-timer-admission-context-odds-probe-sequential-1000-1788216051670",
+  "lite-timer-admission-context-odds-probe-sequential-1001-1788216994433"
+ ],
+ "history": [
+  {
+   "atIso": "2026-08-31T22:47:46.925Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 838
+  },
+  {
+   "atIso": "2026-08-31T23:03:33.585Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict stop: depth>=6 per second separated at z 2.7 (ratio 1.19)",
+   "wallSec": 842
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}
