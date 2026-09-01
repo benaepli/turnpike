@@ -185,8 +185,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## run-cap-trajectory-variance-fix
 
-- kind: change | category: scheduler | origin: operator-agent | status: approved-building
-  (user approved the amended plan 2026-08-31; prediction frozen at approval;
+- kind: change | category: scheduler | origin: operator-agent | status: MERGED 2026-08-31
+  (c61d303, spur 46b9c5c; A/A 1.004-1.007 vs 1.10-1.14 disease; one proxy
+  clause fired once, recorded;
   judge gain 7, cost 0 - ranked first over the four fault-timing proposals;
   plan research/lite/plans/run-cap-trajectory-variance-fix.md, amended at
   the hold per user objection to freeze-forever under future long

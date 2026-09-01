@@ -1,0 +1,184 @@
+{
+ "name": "aa-runcap-freeze-1",
+ "createdAtIso": "2026-09-01T01:11:31.502Z",
+ "note": "",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/run-cap-trajectory-variance-fix/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:aa-runcap-freeze-1"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/run-cap-trajectory-variance-fix/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "../../.claude/worktrees/agent-a81194c07edccc61f/spur"
+ },
+ "identity": {
+  "spurTree": "49a85e84b542be0930c05adeb4074775a23eebf7+dirty",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/49a85e84b542-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-aa-runcap-freeze-1",
+  "chunks": 2,
+  "runs": 729240,
+  "graded": 729240,
+  "depth4": 381753,
+  "depth5": 147308,
+  "depth6plus": 37211,
+  "depth7plus": 7332,
+  "depth8plus": 1106,
+  "violations": 0,
+  "h2Count": 340471,
+  "exposureSec": 600.7909999999999,
+  "rpsChunks": [
+   1197.1638760360838,
+   1230.4373445723932
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.5265,
+   "depth>=4:pMei": 0.003,
+   "depth>=4:ratio": 1.0013299000794087,
+   "depth>=4:mei": 0.04182780079215298,
+   "depth>=5:pGreater": 0.597,
+   "depth>=5:pMei": 0.009,
+   "depth>=5:ratio": 1.0039573118636926,
+   "depth>=5:mei": 0.04102227929981483,
+   "depth>=6:pGreater": 0.6105,
+   "depth>=6:pMei": 0.018,
+   "depth>=6:ratio": 1.0064114905083321,
+   "depth>=6:mei": 0.051834401709903,
+   "depth>=7:pGreater": 0.4955,
+   "depth>=7:pMei": 0.0095,
+   "depth>=7:ratio": 1.0004211684713196,
+   "depth>=7:mei": 0.06500394641896365,
+   "depth>=8:pGreater": 0.461,
+   "depth>=8:pMei": 0.0055,
+   "depth>=8:ratio": 0.9957814778023999,
+   "depth>=8:mei": 0.16710123773211907,
+   "h2:pGreater": 0.041,
+   "h2:ratio": 0.9957365281241872,
+   "h2:mei": 0.005667646774889202,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.0066128082703998,
+   "throughput:cv": 0.019383657444136813,
+   "depth>=5:cv": 0.01330940897091006,
+   "depth>=6:cv": 0.019705506914771513,
+   "depth>=7:cv": 0.024409123880822323,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.623,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "49a85e84b542|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 622200,
+   "graded": 622200,
+   "exposureSec": 480.623,
+   "depth": [
+    622200,
+    573908,
+    460682,
+    328024,
+    128864,
+    32809,
+    6468,
+    963,
+    6
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.298,
+     "depth": [
+      307140,
+      283429,
+      227483,
+      162234,
+      63822,
+      16175,
+      3178,
+      467,
+      1
+     ]
+    },
+    {
+     "exposureSec": 240.325,
+     "depth": [
+      315060,
+      290479,
+      233199,
+      165790,
+      65042,
+      16634,
+      3290,
+      496,
+      5
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-aa-runcap-freeze-1-sequential-1000-1788225511661",
+  "lite-aa-runcap-freeze-1-sequential-1001-1788226345933"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-01T01:25:28.665Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 837
+  },
+  {
+   "atIso": "2026-09-01T01:39:24.299Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 835
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": false
+}

@@ -223,3 +223,68 @@ in the pool alongside the quantile/headroom dose contrast.
 
 Violations: 0 candidate, 0 baseline in 1.53M runs - consistent with the
 ~1.3/million background at this sample size; nothing to archive.
+
+## 2026-08-31 - run-cap-trajectory-variance-fix (operator-seeded, moderated round; MERGED)
+
+First true proposer round of the lite loop (fault-injection lens, operator
+directive: mechanism scale), run under a user-requested hold. The proposer
+delivered four crash/recovery-timing mechanisms; the judge verified their
+claims and ranked the pool's operator-seeded instrument fix above all four
+(gain 7 vs 6/5/4/2), on sequencing: every fault-timing prediction is
+unreadable under the ~14% cap-trajectory null. Keep-list recorded in
+pool.md: crash-placement-completion-span-draw held next-up with four
+admission rewrites; recovery-drain-point-sampler queued (drain is NOT
+monotone - a recovering receiver re-enters the victim's message into
+flight); crash-context-admission-odds parked; cascade-fault-window-admission
+rejected (overlapping crash windows are a recorded zero-violation stratum,
+0/91 vs 23.6% disjoint, on an all-3-node config).
+
+The plan was amended at the hold on a user objection: freeze-forever
+assumes a stationary completed-length distribution, wrong for the intended
+long sessions with varying node/crash counts. Amended shape: recompute the
+cap only when a scope's completed count crosses doubling checkpoints (200,
+400, 800, ...), constant in between - adaptive at log-many points, one
+doubling of staleness worst-case. Built clean (309 lib tests, 9 run_cap
+tests), three benign deviations, diff reviewed.
+
+Result, graded by A/A pairs per the plan: two independent base-vs-base
+sessions with the fixed binary on both sides read pooled throughput 1.0066
+and 1.0042 with every rung depth>=4..8 inside 0.7% - against the frozen
+3.5% band and the merged tree's 1.10-1.14 disease. Preservation vs the
+merged tree: throughput 1.0144, per-run P(depth>=6) flat, learned_cap_reached
+133-141k/chunk, over_cap ~0.1%, cap_recomputes 7/chunk. Regression passed.
+Typed advice 'human' (the rule only reads rung separations; this
+prediction claims none) - departed with written reason. MERGED as c61d303
+(spur 46b9c5c).
+
+Honest bookkeeping: the >10% cross-side cap-gauge proxy clause fired once
+(10.7%, seed 1000, session 1; the other three pairs read 2.0-7.2%).
+Checkpoint estimates still spread 10-15% across processes (seed-1000 draws
+5363/5471/5903/5939; seed-1001 draws 5219/5471/5867/6000) - inherent
+p99-at-3200-samples noise, since probe-completion lengths themselves
+differ across processes through the other racy learners. The fix's actual
+delivery is that the estimates are now rate-inert: constant between
+checkpoints, clustering near backup where sensitivity is low, and the
+cap's own feedback loop is severed. Partial falsifier fire recorded; the
+outcome clauses the proxy protected passed 4/4 pairs by 5-10x margin.
+
+MEASUREMENT RULER RESTORED: with the fix merged, base-vs-base A/A reads
+~0.4-0.7% on per-second rates at chunk scale - the grader's event-count
+null bands are honest again, and the fault-timing family's per-second
+prediction bands (crash-placement next) are readable. The A/A merge gate
+in the skill stays: it now costs one cheap confirmation rather than
+standing in for a broken ruler.
+
+## 2026-09-01 - panel check after the checkpoint-fix merge
+
+grader.ts panel on the merged tree (first panel carrying BOTH the
+timer-context steering and the checkpoint fix; the post-timer-context
+panel was interrupted, so the previous anchors 120.87/6.11 are
+post-run-cap only): paxos-accept-stale-ballot 139.17 violations/explore-sec
+at 6775 runs/s with per-run violation rate 0.0205 (anchor 0.0169, +21%
+per run); mencius-opt1-2 6.17 violations/s at 593 runs/s with per-run rate
+0.0104 (anchor 0.0081, +29% per run). The shape is timer-context's
+signature - runs/s down, per-run probability up - now visible on both
+panel members' ground-truth bugs, which is the portfolio evidence its
+generality argument promised. Violations/s: paxos +15%, mencius +1%. New
+anchors for future panels: 139.17 / 6.17.
