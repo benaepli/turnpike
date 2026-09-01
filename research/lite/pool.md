@@ -208,8 +208,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-placement-completion-span-draw
 
-- kind: add | category: scheduler | origin: proposer | status: building
-  (admitted 2026-09-01 with judge rewrites applied; judge gain 6, cost 0)
+- kind: add | category: scheduler | origin: proposer | status: MERGED 2026-09-01
+  (cfdcdf6, spur 032ea69; d>=6/s 2.39, posture contrast 2.157x, panel
+  paxos per-run violations +35%; band missed high)
 - title: Crash placement drawn uniformly over the completed-run span instead
   of geometrically at readiness
 - Crash timing is the census-named open axis (baseline: 3.70M crash-eligible

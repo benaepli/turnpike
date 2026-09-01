@@ -288,3 +288,117 @@ signature - runs/s down, per-run probability up - now visible on both
 panel members' ground-truth bugs, which is the portfolio evidence its
 generality argument promised. Violations/s: paxos +15%, mencius +1%. New
 anchors for future panels: 139.17 / 6.17.
+
+## 2026-09-01 - crash-placement-completion-span-draw (proposer, admitted with rewrites; MERGED)
+
+The fault-timing round's runner-up, built once the checkpoint fix made
+per-second bands readable. Admitted with the judge's four rewrites folded
+into the frozen prediction before the build: draw bounded at
+min(L50, 3*effective_cap/4); L50 learned only from stock-posture uncapped
+probes (run_id % 64 == 0) on the run cap's checkpoint discipline; the
+placed-vs-stock posture contrast made the primary falsifier; draws,
+capped_draws, held_steps_sum exported beside holds.
+
+Mechanism: half the runs by id ((run_id >> 5) & 1) hold each pending crash
+until a step drawn uniformly over [readiness, min(L50, 3/4 cap)), enforced
+through the crash eligibility mask; the other half are untouched, so each
+session carries its own randomized control.
+
+Result over 2 chunks (720,480 candidate runs): depth>=6/s 2.390 (band
+0.007), depth>=5 1.535, depth>=7 3.187, throughput 0.997. Per-run
+P(depth>=6) 0.134 vs 0.052 at identical runs/s (1199 vs 1194-1211),
+steps/run (3145 vs 3170) and cap gauges - the gain is per-run depth, not
+run length, truncation or cap coupling. Advice merge, no blockers, nothing
+regressed, regression passed. MERGED as cfdcdf6 (spur 032ea69).
+
+PRIMARY FALSIFIER PASSED, and this is the iteration's real evidence.
+Because the grader stores only aggregates, the posture contrast was
+computed by hand: one 120 s candidate campaign, graded with
+-grade-run-depths, split by run_id posture. Placed reach depth>=6 at
+2.157x stock (+-1.9% 1se, n = 74,400 per posture), monotone in depth
+(1.135/1.435/2.157/2.918/2.590). A same-config baseline control run
+confirms the stock posture is unchanged (stock/base 0.999/1.012/1.013/
+1.004/1.011), so the entire effect sits in the placed half and the
+"stock is byte-identical" claim holds empirically, not just by
+construction. The 120 s overall (1.60x) is lower than the 300 s chunks
+(2.55x) because the L50 learner is cold early: placed runs draw no hold
+until a scope clears its 200-sample floor, so short sessions dilute the
+mechanism. Implied placed/stock at chunk length is ~4x.
+
+Firing: crash_place.holds ~92M per chunk against a 50k floor; 221k draws;
+mean displacement 416 steps; capped_draws 0, so the 3/4-cap reserve never
+bound and L50 was always the tighter bound.
+
+Frozen band +5..25% per second MISSED HIGH: realized +139%. Third
+consecutive magnitude miss (run cap low, timer context high, this one
+high); the loop's size predictions carry no demonstrated calibration and
+should be read as direction-plus-floor, not as forecasts.
+
+PROXY CAVEAT, stated plainly: zero violations on VR either side in 1.44M
+runs. Depth is a proxy the goal file records decoupling once before.
+What keeps this from being pure proxy-chasing is the panel (below).
+
+## 2026-09-01 - panel check after the crash-placement merge
+
+paxos-accept-stale-ballot 183.14 violations/explore-sec at 6632 runs/s,
+per-run rate 0.02762 (previous anchor 139.17 at per-run 0.0205): +32%
+violations/s with +35% per RUN - ground-truth bug discovery, not tempo.
+mencius-opt1-2 6.24 violations/s at 601 runs/s, per-run 0.01037 (anchor
+6.17, 0.01041): flat. Attribution: paxos's bug needs a crash placed
+inside a ballot window, which uniform placement over the completed span
+samples far better than placement at readiness; mencius's bug does not
+turn on crash timing. New anchors: 183.14 / 6.24.
+
+## 2026-09-01 - direction review (iteration 5)
+
+Has a violation appeared? Not on VR under a general config in this
+session's ~4M runs. Two archived VR signatures remain from 2026-08-30/31
+(937c018242c1f683, ef8604ee1e73dc1f), both grid-short, both consistent
+with the ~1.3/million corpus background rather than with any candidate.
+The goal's "reproducibly" clause is untouched: no mechanism has yet
+produced a VR violation it can claim.
+
+Are we optimizing a proxy the goal warns about? Partly, and it needs
+watching. Three of four merges this session moved depth per second by
+large factors (1.16, 1.19, 2.39) with zero VR violations. The defence is
+the panel: paxos per-run violation probability has gone 0.0163 -> 0.0169
+-> 0.0205 -> 0.0276 across the merges, i.e. ground truth improved 69%
+per run on a different protocol's real bug while VR stayed silent. That
+is the portfolio evidence the goal asks for, and it argues the depth
+gains are real search improvements rather than DAG-matching artifacts.
+The residual risk is that VR's bug needs something none of these
+mechanisms supply. Two consequences for direction: (1) the next rounds
+should include at least one candidate whose story is about VR's specific
+hazard structure (recovery races) rather than general placement, which
+is what recovery-drain-point-sampler already is; (2) a violation-replay
+iteration on the two archived signatures is now the cheapest route to
+the "reproducibly" half of the goal and should be scheduled, not
+deferred again.
+
+Steering audit. Origins this session: user (2 merges: learned run cap,
+timer context), operator-agent (1 merge: checkpoint fix), proposer (1
+merge: crash placement). The operator-seeded candidate was an instrument
+fix whose value showed immediately - it turned a 10-14% per-second null
+into 0.4-0.7%, which is what let this iteration read a 2.39 ratio with
+confidence. Steering has paid for itself and has not narrowed the search:
+the one cold proposer round produced the largest win of the session, and
+the judge overturned the operator's own ranking once (putting the pool
+incumbent above four fresh proposals), which is the guardrail working.
+
+Drift check. No iteration this session was a parameter dose; all four
+merges were mechanism-level (new module or new decision rule). The
+rejected/parked candidates were rejected on evidence, not on size. No
+pull-back directive needed for the next round.
+
+Pool state after pruning: recovery-drain-point-sampler (next up, judge
+gain 5, needs its d=k internal-null rewrite at admission);
+crash-context-admission-odds-probe (parked, label class refuted);
+cascade-fault-window-admission (rejected, respecification must answer
+OBSERVATIONS.md:841-869); timer-class-completion-credit and
+timer-send-debt-brake (family damaged by the refire close, both riding
+score reweighting which the multiplier census shows has no authority -
+recommend closing both next round unless re-argued through admission);
+learned-run-cap-max-observed and learned-cap-progress-conditioned
+(closed). New follow-up worth seeding: the quantile/headroom dose
+contrast on the now-deterministic cap, which the checkpoint fix finally
+made interpretable.
