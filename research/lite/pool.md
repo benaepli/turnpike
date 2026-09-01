@@ -208,22 +208,34 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-placement-completion-span-draw
 
-- kind: add | category: scheduler | origin: proposer | status: proposed
-  (judge gain 6, cost 0; held next-up behind run-cap-trajectory-variance-fix)
+- kind: add | category: scheduler | origin: proposer | status: building
+  (admitted 2026-09-01 with judge rewrites applied; judge gain 6, cost 0)
 - title: Crash placement drawn uniformly over the completed-run span instead
   of geometrically at readiness
 - Crash timing is the census-named open axis (baseline: 3.70M crash-eligible
   steps vs 722.6k crashes taken - placement is geometric within ~5 eligible
   steps of readiness); actuator is the eligibility mask, which the census
   shows has authority. Posture split ((run_id >> 5) & 1): half of runs stay
-  exactly stock, giving an internal placed-vs-stock contrast immune to the
-  cap-trajectory null. Judge rewrites required at admission: (a) bound the
-  draw below effective_cap minus a recovery-tail margin; (b) learn L50 from
-  stock-posture probes only (run_id % 64 == 0); (c) cross-side clause net of
-  same-session A/A, same-side posture contrast primary; (d) export
-  crash_place.draws and crash_place.capped_draws beside holds. Frozen
-  prediction (pre-rewrite draft): rung depth>=6, sizePct +5..25%, counter
-  crash_place.holds floor 50000, falsifier on the posture contrast.
+  exactly stock, giving an internal placed-vs-stock contrast immune to
+  residual measurement noise.
+- FROZEN PREDICTION (admission rewrite applied 2026-09-01, judge conditions
+  a-d folded in): rung depth>=6, sizePct +5..25% per second; firingCounter
+  crash_place.holds, floor 50000 per chunk; diagnostics crash_place.draws,
+  crash_place.capped_draws, crash_place.held_steps_sum exported beside it.
+  Mechanism bounds per the rewrites: draw t ~ U[t_ready, min(L50,
+  3*effective_cap/4)) - the quarter reserve is the recovery-tail margin;
+  L50 learned only from stock-posture uncapped probes (run_id % 64 == 0)
+  in a fault_timing.rs scope table with doubling-checkpoint recomputes
+  (the run_cap pattern), 200-sample floor. Falsifier: with holds >= 50000
+  per chunk, refuted if placed-posture pooled per-run P(depth>=6) <=
+  stock-posture pooled per-run P(depth>=6) on the candidate side (primary,
+  same seeds), or if candidate/baseline pooled per-run P(depth>=6) < 1.05
+  net of a same-session A/A control; closed without a rate read if holds
+  < 50000 or the L50 table never reaches its floor. Independent
+  observables: held_steps_sum/holds >> 0 (crashes displaced right); placed
+  runs' plan_complete share falls while stock runs' share is unchanged;
+  cap gauge read on both sides each chunk (placed-posture probes lengthen,
+  raising later checkpoints - a watched coupling, not a falsifier).
 
 ## recovery-drain-point-sampler
 
