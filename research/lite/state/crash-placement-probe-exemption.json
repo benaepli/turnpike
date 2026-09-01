@@ -1,0 +1,184 @@
+{
+ "name": "crash-placement-probe-exemption",
+ "createdAtIso": "2026-09-01T20:06:04.563Z",
+ "note": "run-cap probes never placed; every probe feeds the span learner (1/64 -> 1/32). Frozen prediction in scratchpad/step3-prediction.md: depth>=6/s +2..15%, firing = placed acted-share rises above 62%",
+ "cand": {
+  "bin": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/bins/spur-cand3",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:crash-placement-probe-exemption"
+ },
+ "base": {
+  "bin": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/bins/spur-base3",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/spur-base3"
+ },
+ "identity": {
+  "spurTree": "45f35cb419d1c53c675cc945c0d1fa4a9866ff70",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/45f35cb419d1-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-crash-placement-probe-exemption",
+  "chunks": 2,
+  "runs": 711900,
+  "graded": 711900,
+  "depth4": 457272,
+  "depth5": 253893,
+  "depth6plus": 107198,
+  "depth7plus": 29136,
+  "depth8plus": 3741,
+  "violations": 0,
+  "h2Count": 456057,
+  "exposureSec": 600.885,
+  "rpsChunks": [
+   1167.1931640774533,
+   1202.3083681674166
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.9745,
+   "depth>=4:pMei": 0.307,
+   "depth>=4:ratio": 1.0340731416418243,
+   "depth>=4:mei": 0.04311530754014428,
+   "depth>=5:pGreater": 1,
+   "depth>=5:pMei": 0.9875,
+   "depth>=5:ratio": 1.0915137481629085,
+   "depth>=5:mei": 0.047510114263144325,
+   "depth>=6:pGreater": 1,
+   "depth>=6:pMei": 1,
+   "depth>=6:ratio": 1.1507576782923568,
+   "depth>=6:mei": 0.04830991655619675,
+   "depth>=7:pGreater": 1,
+   "depth>=7:pMei": 1,
+   "depth>=7:ratio": 1.1919456640045878,
+   "depth>=7:mei": 0.03908805557332519,
+   "depth>=8:pGreater": 1,
+   "depth>=8:pMei": 0.953,
+   "depth>=8:ratio": 1.1542843671288918,
+   "depth>=8:mei": 0.08682081383164775,
+   "h2:pGreater": 1,
+   "h2:ratio": 1.0470437953854161,
+   "h2:mei": 0.0050020856655490845,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 0.9949437158807111,
+   "throughput:cv": 0.020958162378767034,
+   "depth>=5:cv": 0.01880425406425244,
+   "depth>=6:cv": 0.016808942186850768,
+   "depth>=7:cv": 0.013139106547924955,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.544,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 1,
+   "depth>=6:separated": 1,
+   "depth>=7:separated": 1,
+   "depth>=8:separated": 1
+  },
+  "lastVerdict": "stop",
+  "lastIteration": 0,
+  "baselineKey": "45f35cb419d1|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 608760,
+   "graded": 608760,
+   "exposureSec": 480.544,
+   "depth": [
+    608760,
+    574801,
+    490078,
+    390812,
+    214986,
+    90036,
+    24392,
+    3091,
+    64
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.219,
+     "depth": [
+      299820,
+      283107,
+      241368,
+      192596,
+      106040,
+      44473,
+      12080,
+      1577,
+      33
+     ]
+    },
+    {
+     "exposureSec": 240.325,
+     "depth": [
+      308940,
+      291694,
+      248710,
+      198216,
+      108946,
+      45563,
+      12312,
+      1514,
+      31
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-crash-placement-probe-exemption-sequential-1000-1788293599935",
+  "lite-crash-placement-probe-exemption-sequential-1001-1788294444915"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-01T20:20:21.967Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 845
+  },
+  {
+   "atIso": "2026-09-01T20:34:29.126Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict stop: depth>=6 per second separated at z 2.7 (ratio 1.15)",
+   "wallSec": 847
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

@@ -1,0 +1,184 @@
+{
+ "name": "probe-phase-grid-alias-fix",
+ "createdAtIso": "2026-09-01T18:36:56.062Z",
+ "note": "probe/posture phase read from a mixed run id so probe streams cover every configuration; frozen prediction in research/lite/plans/probe-phase-grid-alias-fix.md: depth>=6/s +3%..+25%, firing = probes cover 54 of 54 configs",
+ "cand": {
+  "bin": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/bins/spur-cand",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:probe-phase-grid-alias-fix"
+ },
+ "base": {
+  "bin": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/bins/spur-base",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/spur-base"
+ },
+ "identity": {
+  "spurTree": "67bc88b2ded2be28825d990d60e64cc569adb2b6",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/67bc88b2ded2-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-probe-phase-grid-alias-fix",
+  "chunks": 2,
+  "runs": 714000,
+  "graded": 714000,
+  "depth4": 446366,
+  "depth5": 238703,
+  "depth6plus": 97402,
+  "depth7plus": 26284,
+  "depth8plus": 3438,
+  "violations": 0,
+  "h2Count": 438645,
+  "exposureSec": 600.953,
+  "rpsChunks": [
+   1180.013042494577,
+   1196.2170061618458
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.9115,
+   "depth>=4:pMei": 0.0915,
+   "depth>=4:ratio": 1.013603207273662,
+   "depth>=4:mei": 0.027539118903184376,
+   "depth>=5:pGreater": 0.979,
+   "depth>=5:pMei": 0.281,
+   "depth>=5:ratio": 1.0214419262946022,
+   "depth>=5:mei": 0.028028604452005664,
+   "depth>=6:pGreater": 0.949,
+   "depth>=6:pMei": 0.1795,
+   "depth>=6:ratio": 1.0322708753626575,
+   "depth>=6:mei": 0.0500448983687298,
+   "depth>=7:pGreater": 0.822,
+   "depth>=7:pMei": 0.0445,
+   "depth>=7:ratio": 1.0251998714717958,
+   "depth>=7:mei": 0.07467372438850348,
+   "depth>=8:pGreater": 0.9625,
+   "depth>=8:pMei": 0.245,
+   "depth>=8:ratio": 1.0768461127481226,
+   "depth>=8:mei": 0.10646074318409723,
+   "h2:pGreater": 0.9075,
+   "h2:ratio": 1.0027338727008317,
+   "h2:mei": 0.005025779916728102,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.0156301624280462,
+   "throughput:cv": 0.01,
+   "depth>=5:cv": 0.01,
+   "depth>=6:cv": 0.022995571842160896,
+   "depth>=7:cv": 0.03450136993213502,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.659,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "67bc88b2ded2|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 609780,
+   "graded": 609780,
+   "exposureSec": 480.659,
+   "depth": [
+    609780,
+    572933,
+    482804,
+    376892,
+    197298,
+    78924,
+    20749,
+    2708,
+    47
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.362,
+     "depth": [
+      303120,
+      284930,
+      240639,
+      188402,
+      99351,
+      40109,
+      10629,
+      1395,
+      23
+     ]
+    },
+    {
+     "exposureSec": 240.29699999999997,
+     "depth": [
+      306660,
+      288003,
+      242165,
+      188490,
+      97947,
+      38815,
+      10120,
+      1313,
+      24
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-probe-phase-grid-alias-fix-sequential-1000-1788288248674",
+  "lite-probe-phase-grid-alias-fix-sequential-1001-1788291157617"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-01T18:51:09.881Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 845
+  },
+  {
+   "atIso": "2026-09-01T19:39:40.432Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 846
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

@@ -1,0 +1,184 @@
+{
+ "name": "crash-placement-fraction-0-9",
+ "createdAtIso": "2026-09-01T20:39:23.117Z",
+ "note": "DEFAULT_FRACTION 0.5 -> 0.9; placed share 0.484 -> 0.891. Frozen prediction in scratchpad/step4-prediction.md: depth>=6/s +35..65% centred +49%, derived from the measured internal contrast 4.579 with learners invariant to the fraction",
+ "cand": {
+  "bin": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/bins/spur-cand4",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:crash-placement-fraction-0-9"
+ },
+ "base": {
+  "bin": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/bins/spur-base4",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/d41094cc-14d3-49d3-adb9-2f37e8222a3a/scratchpad/spur-base4"
+ },
+ "identity": {
+  "spurTree": "b3d1cd5377460bd1ab1a63823c801a9ef776b553",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/b3d1cd537746-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-crash-placement-fraction-0-9",
+  "chunks": 2,
+  "runs": 703020,
+  "graded": 703020,
+  "depth4": 521934,
+  "depth5": 337658,
+  "depth6plus": 162187,
+  "depth7plus": 46022,
+  "depth8plus": 5609,
+  "violations": 0,
+  "h2Count": 544963,
+  "exposureSec": 600.813,
+  "rpsChunks": [
+   1160.7312227314023,
+   1179.502547198082
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 1,
+   "depth>=4:pMei": 1,
+   "depth>=4:ratio": 1.1218431242542286,
+   "depth>=4:mei": 0.04967371306696458,
+   "depth>=5:pGreater": 1,
+   "depth>=5:pMei": 1,
+   "depth>=5:ratio": 1.3031857478691116,
+   "depth>=5:mei": 0.04293027830380396,
+   "depth>=6:pGreater": 1,
+   "depth>=6:pMei": 1,
+   "depth>=6:ratio": 1.4830839927071124,
+   "depth>=6:mei": 0.04033602933312715,
+   "depth>=7:pGreater": 1,
+   "depth>=7:pMei": 1,
+   "depth>=7:ratio": 1.5452379823635187,
+   "depth>=7:mei": 0.0398931361981527,
+   "depth>=8:pGreater": 1,
+   "depth>=8:pMei": 1,
+   "depth>=8:ratio": 1.4836650252591062,
+   "depth>=8:mei": 0.08885522821827094,
+   "h2:pGreater": 1,
+   "h2:ratio": 1.2138808403891286,
+   "h2:mei": 0.004898738924070676,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 0.9781178663651863,
+   "throughput:cv": 0.01134359395441264,
+   "depth>=5:cv": 0.01,
+   "depth>=6:cv": 0.01,
+   "depth>=7:cv": 0.01,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.606,
+   "depth>=4:separated": 1,
+   "depth>=5:separated": 1,
+   "depth>=6:separated": 1,
+   "depth>=7:separated": 1,
+   "depth>=8:separated": 1
+  },
+  "lastVerdict": "stop",
+  "lastIteration": 0,
+  "baselineKey": "b3d1cd537746|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 596700,
+   "graded": 596700,
+   "exposureSec": 480.606,
+   "depth": [
+    596700,
+    574035,
+    512080,
+    438599,
+    280389,
+    133757,
+    37909,
+    4578,
+    94
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.317,
+     "depth": [
+      295380,
+      284203,
+      253919,
+      217732,
+      139655,
+      66665,
+      18924,
+      2291,
+      53
+     ]
+    },
+    {
+     "exposureSec": 240.28900000000002,
+     "depth": [
+      301320,
+      289832,
+      258161,
+      220867,
+      140734,
+      67092,
+      18985,
+      2287,
+      41
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-crash-placement-fraction-0-9-sequential-1000-1788295587352",
+  "lite-crash-placement-fraction-0-9-sequential-1001-1788296443711"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-01T20:53:37.151Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 854
+  },
+  {
+   "atIso": "2026-09-01T21:07:54.795Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict stop: depth>=6 per second separated at z 2.7 (ratio 1.48)",
+   "wallSec": 857
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}
