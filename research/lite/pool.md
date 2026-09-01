@@ -187,8 +187,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 - kind: change | category: scheduler | origin: operator-agent | status: awaiting-approval
   (judge gain 7, cost 0 - ranked first over the four fault-timing proposals;
-  plan research/lite/plans/run-cap-trajectory-variance-fix.md, shape chosen:
-  freeze at the existing 200-sample floor, zero new constants)
+  plan research/lite/plans/run-cap-trajectory-variance-fix.md, amended at
+  the hold per user objection to freeze-forever under future long
+  non-stationary sessions - shape is now deterministic doubling-checkpoint
+  recompute at completed counts 200, 400, 800, ...; constant between
+  checkpoints, adaptive forever, zero new constants)
 - title: Shrink the learned run cap's session-to-session trajectory variance
 - Motivating fact (2026-08-31 A/A control): identical binary/config/seed drew
   cap 4283 vs 5975; cap trajectory alone moves runs/s and every per-second
