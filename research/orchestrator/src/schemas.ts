@@ -103,8 +103,29 @@ export const LadderMetrics = z.object({
   // Per-arm accounting when the session was a campaign; the ladder above is
   // the union of the arms.
   campaign: z.lazy(() => CampaignMetrics).nullable().default(null),
+  // Per-(arm, variant) accounting: the same joins as the arms, split again
+  // by the mechanisms that selected each run. Empty on a corpus written
+  // before the explorer tagged its runs.
+  variants: z.array(z.lazy(() => VariantMetrics)).default([]),
 });
 export type LadderMetrics = z.infer<typeof LadderMetrics>;
+
+// One (arm, variant) cell. Variant is the run's tag bitfield, so cells are
+// grouped by tag rather than by an arithmetic guess at which runs a
+// mechanism selected; grouping keeps the arm because an arm's overlay can
+// change what a session's runs are.
+export const VariantMetrics = z.object({
+  arm: z.string(),
+  variant: z.number().int(),
+  runs: z.number().int(),
+  gradedRuns: z.number().int(),
+  depthAtLeast: z.array(z.number().int()),
+  violations: z.number().int(),
+  // Summed active run time, so a group's mean wall time is available: a
+  // per-run gain that costs run time is not a per-second gain.
+  wallUsSum: z.number(),
+});
+export type VariantMetrics = z.infer<typeof VariantMetrics>;
 
 export const CampaignArmMetrics = z.object({
   index: z.number().int(),
@@ -190,6 +211,10 @@ export const RunRow = z.object({
   timers_idle_fired: z.number().default(0),
   timers_idle_acted: z.number().default(0),
   max_inert_streak: z.number().default(0),
+  // Bitfield naming the session-global mechanisms that selected the run:
+  // 1 placed crashes, 2 run-cap probe, 4 timer-context probe, 8 a crash hold
+  // was actually drawn. Zero on a corpus written before the column.
+  variant: z.number().default(0),
 });
 export type RunRow = z.infer<typeof RunRow>;
 

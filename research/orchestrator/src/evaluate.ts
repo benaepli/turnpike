@@ -3,7 +3,7 @@
 // record (schemas.ts).
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { CampaignJson, CampaignMetrics, Evaluation, FidelityName, LadderMetrics, PorcupineJson, RunRow, TraceGradeJson, UtilStats } from "./schemas.js";
+import type { CampaignJson, CampaignMetrics, Evaluation, FidelityName, LadderMetrics, PorcupineJson, RunRow, TraceGradeJson, UtilStats, VariantMetrics } from "./schemas.js";
 import type { Policy } from "./policy.js";
 import { ROOT, cleanupDir, explore, freeDiskGb, grade, materializeConfig, porcupine, readCampaignSibling, readSessionSibling, readUtilizationSibling, resolveRoot, run, runsTable, templateHasCampaign } from "./runners.js";
 
@@ -36,6 +36,7 @@ const ZERO_METRICS: LadderMetrics = {
   gradeWallMs: 0,
   exposureMs: 0,
   campaign: null,
+  variants: [],
 };
 
 // Per-arm ladder counts: every graded run's depth and every verdict joined
@@ -117,7 +118,74 @@ function assembleMetrics(
     porcupineWallMs: Math.round(porcupineWallMs),
     gradeWallMs: Math.round(gradeWallMs),
     campaign: null,
+    variants: [],
   };
+}
+
+// Per-(arm, variant) ladder counts, joined the same way the arms are. The
+// point is the contrast inside one session: a mechanism that treats part of
+// its runs leaves treated and untreated populations under identical host
+// and learner conditions, which no comparison between two processes can
+// match. Every arm's cells are kept; which arms count toward a rate is the
+// reader's decision, and the arm is part of the key so it can make it.
+export function variantMetrics(
+  rows: RunRow[], runDepths: Array<[number, number]>, violatingRunIds: number[],
+): VariantMetrics[] {
+  const depthOf = new Map<number, number>();
+  for (const [id, d] of runDepths) depthOf.set(id, d);
+  const violating = new Set(violatingRunIds);
+  const cells = new Map<string, { arm: string; variant: number; runs: number; graded: number; depthAtLeast: number[]; violations: number; wallUsSum: number }>();
+  for (const r of rows) {
+    const key = `${r.arm}\u0000${r.variant}`;
+    let acc = cells.get(key);
+    if (acc === undefined) {
+      acc = { arm: r.arm, variant: r.variant, runs: 0, graded: 0, depthAtLeast: [], violations: 0, wallUsSum: 0 };
+      cells.set(key, acc);
+    }
+    acc.runs++;
+    acc.wallUsSum += r.wall_us;
+    const d = depthOf.get(r.run_id);
+    if (d !== undefined) {
+      acc.graded++;
+      for (let k = 1; k <= d; k++) acc.depthAtLeast[k - 1] = (acc.depthAtLeast[k - 1] ?? 0) + 1;
+    }
+    if (violating.has(r.run_id)) acc.violations++;
+  }
+  const width = Math.max(0, ...[...cells.values()].map((c) => c.depthAtLeast.length));
+  return [...cells.values()]
+    .sort((a, b) => (a.arm === b.arm ? a.variant - b.variant : a.arm < b.arm ? -1 : 1))
+    .map((c) => ({
+      arm: c.arm, variant: c.variant, runs: c.runs, gradedRuns: c.graded,
+      depthAtLeast: Array.from({ length: width }, (_, i) => c.depthAtLeast[i] ?? 0),
+      violations: c.violations, wallUsSum: c.wallUsSum,
+    }));
+}
+
+// Fold several sessions' cells into one table, keyed the same way. Counts
+// add, so the pooled contrast is the whole sample's; a caller that took one
+// session's cells instead would report a contrast at a fraction of the
+// precision it paid for.
+export function sumVariantCells(lists: VariantMetrics[][]): VariantMetrics[] {
+  const cells = new Map<string, VariantMetrics>();
+  for (const list of lists) {
+    for (const c of list) {
+      const key = `${c.arm}\u0000${c.variant}`;
+      const acc = cells.get(key);
+      if (acc === undefined) {
+        cells.set(key, { ...c, depthAtLeast: [...c.depthAtLeast] });
+        continue;
+      }
+      acc.runs += c.runs;
+      acc.gradedRuns += c.gradedRuns;
+      acc.violations += c.violations;
+      acc.wallUsSum += c.wallUsSum;
+      for (let i = 0; i < c.depthAtLeast.length; i++) acc.depthAtLeast[i] = (acc.depthAtLeast[i] ?? 0) + (c.depthAtLeast[i] ?? 0);
+    }
+  }
+  const width = Math.max(0, ...[...cells.values()].map((c) => c.depthAtLeast.length));
+  return [...cells.values()]
+    .sort((a, b) => (a.arm === b.arm ? a.variant - b.variant : a.arm < b.arm ? -1 : 1))
+    .map((c) => ({ ...c, depthAtLeast: Array.from({ length: width }, (_, i) => c.depthAtLeast[i] ?? 0) }));
 }
 
 export interface OneEvalOpts {
@@ -328,6 +396,7 @@ export async function runOneEvaluation(
     if (campaignReport !== null) {
       const depths = (gr.parsed?.grade_dags?.[0]?.run_depths ?? []) as Array<[number, number]>;
       metrics.campaign = campaignMetrics(campaignReport, rows, depths, violatingIds);
+      metrics.variants = variantMetrics(rows, depths, violatingIds);
     }
     if (violatingIds.length > 0) {
       await preserveViolations(ctx, base.id, outputDir, configPath, violatingIds, porc.parsed, rows);
@@ -418,7 +487,7 @@ export function checkRunIdentity(
 export function selfTestRunIdentity(): string[] {
   const f: string[] = [];
   const row = (id: number): RunRow => ({ run_id: id, arm: "grid", arm_index: 0, config_index: 0, steps_used: 1, wall_us: 1, end_reason: "plan_complete", session_offset_ms: 0,
-    timers_fired: 0, timers_acted: 0, timers_inflight_fired: 0, timers_inflight_acted: 0, timers_idle_fired: 0, timers_idle_acted: 0, max_inert_streak: 0 });
+    timers_fired: 0, timers_acted: 0, timers_inflight_fired: 0, timers_inflight_acted: 0, timers_idle_fired: 0, timers_idle_acted: 0, max_inert_streak: 0, variant: 0 });
   if (checkRunIdentity([row(1), row(2)], [2], { present: true, runs: 2 }, 2) !== null) f.push("distinct ids with matching totals are sound");
   if (checkRunIdentity([row(1), row(1)], [], { present: true, runs: 2 }, 1) === null) f.push("a duplicated run id must be reported");
   if (checkRunIdentity([row(1)], [7], { present: true, runs: 1 }, 1) === null) f.push("a violating id without a row must be reported");

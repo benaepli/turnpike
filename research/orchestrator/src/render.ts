@@ -3,6 +3,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Evaluation, type LadderMetrics } from "./schemas.js";
+import { sumVariantCells } from "./evaluate.js";
 import { z } from "zod";
 import type { Policy } from "./policy.js";
 import type { LoopState } from "./state.js";
@@ -71,6 +72,7 @@ export function pooledLadder(evals: Evaluation[]): LadderMetrics | null {
     porcupineWallMs: sum((m) => m.porcupineWallMs), gradeWallMs: sum((m) => m.gradeWallMs),
     exposureMs,
     campaign: ms[0]!.campaign,
+    variants: sumVariantCells(ms.map((m) => m.variants)),
   };
 }
 

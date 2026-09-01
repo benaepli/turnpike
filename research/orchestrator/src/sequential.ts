@@ -401,6 +401,7 @@ export function syntheticEvaluation(seed: number, m: {
       depthAtLeast: useCampaign ? camp.depthAtLeast : m.depthAtLeast,
       violations: m.violations ?? 0, unknown: 0, porcupineWallMs: 0, gradeWallMs: 0,
       campaign: useCampaign ? camp.campaign : null,
+      variants: [],
     },
   };
 }

@@ -10,8 +10,8 @@
 // nothing, because a merge spends a merge and moves the baseline the next
 // candidate is measured against.
 import type { BenchResult } from "./bench.js";
-import type { Evaluation, GateDecision, Hypothesis, HypothesisKind, Prediction, RateStratum } from "./schemas.js";
-import { aggregateDepthCounts, aggregateViolations } from "./evaluate.js";
+import type { Evaluation, GateDecision, Hypothesis, HypothesisKind, Prediction, RateStratum, VariantMetrics } from "./schemas.js";
+import { aggregateDepthCounts, aggregateViolations, sumVariantCells } from "./evaluate.js";
 import { firingIsHarnessGap, firingPasses, type FiringResult } from "./firing.js";
 import { compareRatesPoisson, rateSuperiorCI, rateRatioSeparated, throughputCv } from "./stats.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -27,6 +27,91 @@ import { ROOT } from "./paths.js";
 // it leaves the rate estimator only. Selected by mode, so an aos arm added
 // under another id is excluded with it.
 export const RATE_EXCLUDED_ARM_MODES: readonly string[] = ["aos"];
+
+// The run tag's bits, as `run_variant.rs` defines them. A mechanism that
+// treats part of a session's runs makes the untreated remainder its own
+// control: same host, same binary, same learner trajectory, randomized by
+// run id. That contrast is immune to the between-process drift that a
+// candidate-versus-baseline ratio carries, so where it exists it is the
+// stronger evidence.
+//
+// It measures the marginal effect of treating one more run given the
+// session's shared state, which equals the total effect only when the
+// mechanism feeds no shared state. Where it does - a learner both
+// populations write to - the cross-binary comparison is still the tool.
+export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+  { bit: 1, name: "crashPlaced" },
+  { bit: 2, name: "runCapProbe" },
+  { bit: 4, name: "timerSteerOff" },
+  { bit: 8, name: "crashHoldDrawn" },
+];
+
+export interface VariantSide {
+  runs: number;
+  gradedRuns: number;
+  meanWallUs: number;
+}
+
+export interface VariantContrast {
+  bit: number;
+  name: string;
+  treated: VariantSide;
+  control: VariantSide;
+  // Per rung: the treated group's share of graded runs reaching the rung
+  // over the control group's, with a 95% interval on the log ratio.
+  rungs: Array<{ rung: string; treatedRate: number; controlRate: number; ratio: number; lo: number; hi: number }>;
+}
+
+function variantSide(cells: VariantMetrics[]): { side: VariantSide; depth: number[] } {
+  const runs = cells.reduce((a, c) => a + c.runs, 0);
+  const gradedRuns = cells.reduce((a, c) => a + c.gradedRuns, 0);
+  const wall = cells.reduce((a, c) => a + c.wallUsSum, 0);
+  const width = Math.max(0, ...cells.map((c) => c.depthAtLeast.length));
+  const depth = Array.from({ length: width }, (_, i) => cells.reduce((a, c) => a + (c.depthAtLeast[i] ?? 0), 0));
+  return { side: { runs, gradedRuns, meanWallUs: runs > 0 ? wall / runs : 0 }, depth };
+}
+
+/** The cells of every chunk, pooled, with the arms the rate excludes dropped. */
+export function pooledVariantCells(evals: Evaluation[]): VariantMetrics[] {
+  const lists: VariantMetrics[][] = [];
+  for (const e of evals) {
+    const modes = new Map((e.metrics.campaign?.arms ?? []).map((a) => [a.id, a.mode]));
+    lists.push(e.metrics.variants.filter((c) => !RATE_EXCLUDED_ARM_MODES.includes(modes.get(c.arm) ?? "")));
+  }
+  return sumVariantCells(lists);
+}
+
+/** One contrast per tag bit that both populations of these chunks carry. */
+export function variantContrasts(evals: Evaluation[]): VariantContrast[] {
+  const cells = pooledVariantCells(evals);
+  const out: VariantContrast[] = [];
+  for (const { bit, name } of VARIANT_BITS) {
+    const t = variantSide(cells.filter((c) => (c.variant & bit) !== 0));
+    const u = variantSide(cells.filter((c) => (c.variant & bit) === 0));
+    if (t.side.gradedRuns === 0 || u.side.gradedRuns === 0) continue;
+    const width = Math.max(t.depth.length, u.depth.length);
+    const rungs: VariantContrast["rungs"] = [];
+    for (let i = 0; i < width; i++) {
+      const a = t.depth[i] ?? 0;
+      const b = u.depth[i] ?? 0;
+      if (a === 0 && b === 0) continue;
+      const p1 = a / t.side.gradedRuns;
+      const p2 = b / u.side.gradedRuns;
+      const ratio = p2 > 0 ? p1 / p2 : 0;
+      // Log-ratio standard error for two binomial proportions; undefined
+      // when either count is zero, which is reported as an open interval
+      // rather than a fabricated one.
+      const se = a > 0 && b > 0 ? Math.sqrt((1 - p1) / a + (1 - p2) / b) : NaN;
+      rungs.push({
+        rung: `depth>=${i + 1}`, treatedRate: p1, controlRate: p2, ratio,
+        lo: Number.isFinite(se) ? ratio * Math.exp(-1.96 * se) : 0,
+        hi: Number.isFinite(se) ? ratio * Math.exp(1.96 * se) : Infinity,
+      });
+    }
+    out.push({ bit, name, treated: t.side, control: u.side, rungs });
+  }
+  return out;
+}
 
 export function emptyStratum(): RateStratum {
   return { armIds: [], chunks: 0, runs: 0, graded: 0, exposureSec: 0, depth: [], perChunk: [] };

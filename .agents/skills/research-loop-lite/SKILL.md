@@ -174,6 +174,11 @@ state verbatim:
   comparison and the grader refuses it).
 - Every hypothesis carries a frozen prediction: rung, sizePct band,
   firingCounter, falsifier. The prediction is graded, never rewritten.
+- If the mechanism can be turned off for part of a session's runs, turn it
+  off for part of them and tag those runs
+  (`spur-core/src/simulator/run_variant.rs`). The untreated remainder is
+  then a control under identical conditions, which no comparison between
+  two processes can match.
 
 ## Judge subagent
 
@@ -329,6 +334,14 @@ You decide, but depart from the rule only with a written reason:
   does what the hypothesis says. Before merging, run an A/A control chunk
   (baseline on both sides) in the same session; per-second rates swing
   under null, so trust pooled per-run probabilities more.
+
+When the change tagged its runs, `status` and `finish` print
+`variantContrasts`: the treated-versus-untreated ratio inside each session.
+Read it first - it is randomized and immune to between-process drift. It
+measures the effect of treating one more run given the session's shared
+state, so it equals the whole effect only when the mechanism feeds no
+shared state; where it feeds a session-global learner, the cross-binary
+comparison is still what the gate separates on.
 
 ## Panel check (occasional, never a gate)
 

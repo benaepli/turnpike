@@ -29,6 +29,10 @@ type RunRow struct {
 	TimersIdleFired     int32 `json:"timers_idle_fired"`
 	TimersIdleActed     int32 `json:"timers_idle_acted"`
 	MaxInertStreak      int32 `json:"max_inert_streak"`
+	// Bitfield naming the session-global mechanisms that selected the run:
+	// 1 placed crashes, 2 run-cap probe, 4 timer-context probe, 8 a crash
+	// hold was actually drawn. Zero for a corpus written before the column.
+	Variant int32 `json:"variant"`
 }
 
 // runsDir returns the runs table directory of a parquet corpus, or "" when
@@ -134,6 +138,8 @@ func ReadRuns(path string) ([]RunRow, error) {
 				r.TimersIdleActed = int32(asInt64(v))
 			case "max_inert_streak":
 				r.MaxInertStreak = int32(asInt64(v))
+			case "variant":
+				r.Variant = int32(asInt64(v))
 			}
 		}
 		out = append(out, r)

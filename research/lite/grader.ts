@@ -35,7 +35,8 @@ import {
 import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/stopper.js";
 import {
   MERGE_Z, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, addStratum, chunkStratum, compareToBaseline,
-  figuresOf, mergeBlockers, objectiveCounts, ruleVerdict, type FinalGateInputs, type RatePrior,
+  figuresOf, mergeBlockers, objectiveCounts, ruleVerdict, variantContrasts,
+  type FinalGateInputs, type RatePrior, type VariantContrast,
 } from "../orchestrator/src/decide.js";
 import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot } from "../orchestrator/src/runners.js";
 import { selfTestPosteriors, selfTestStats } from "../orchestrator/src/stats.js";
@@ -407,6 +408,10 @@ function buildStatus(state: SessionState, cache: BaselineCache, policy: Policy, 
       anomalies: state.seq.anomalies,
       failures: state.failures.total,
     },
+    variantContrasts: variantReport(
+      candEvalsOf(state, false),
+      cache.chunks.filter((c) => state.usedSeeds.includes(c.seed)),
+    ),
     files: { state: stateFileFor(state.name), chunkDir: chunkDirFor(state.name) },
     budget: {
       freeDiskGb: Math.round(freeDiskGb(ROOT) * 10) / 10,
@@ -658,19 +663,42 @@ async function cmdStatus(flags: Map<string, string>): Promise<void> {
   emit(buildStatus(state, cache, policy, cfg, { phase: state.finished ? "finished" : state.seq.chunks > 0 ? "sampling" : "started" }));
 }
 
+// The candidate's folded chunk records. `strict` is for the paths that
+// cannot proceed without them; status reports what it can find.
+function candEvalsOf(state: SessionState, strict: boolean): Evaluation[] {
+  const out: Evaluation[] = [];
+  for (const seed of state.usedSeeds) {
+    const p = path.join(chunkDirFor(state.name), `chunk-${seed}.cand.json`);
+    if (!strict && !fs.existsSync(p)) continue;
+    const parsed = Evaluation.safeParse(JSON.parse(fs.readFileSync(p, "utf8")));
+    if (!parsed.success) {
+      if (strict) throw new Error(`unreadable chunk record ${p}`);
+      continue;
+    }
+    out.push(parsed.data);
+  }
+  return out;
+}
+
+// The treated-versus-untreated contrasts the candidate's own runs carry,
+// on both sides of the pair. Reporting only: no gate reads these, because a
+// mechanism that feeds session-global state has a marginal effect here and
+// a total effect in the cross-binary ratio, and the gate separates on the
+// latter.
+function variantReport(cand: Evaluation[], base: Evaluation[]): Record<string, VariantContrast[]> | null {
+  const c = variantContrasts(cand);
+  const b = variantContrasts(base);
+  if (c.length === 0 && b.length === 0) return null;
+  return { candidate: c, baseline: b };
+}
+
 async function cmdFinish(flags: Map<string, string>): Promise<void> {
   const cfg = liteConfig();
   const policy = policyFor(cfg);
   const state = loadState(need(flags, "name"));
   const cache = loadCache(state.cacheFile);
   if (cache === null) throw new Error(`baseline cache ${state.cacheFile} is missing`);
-  const candEvals: Evaluation[] = [];
-  for (const seed of state.usedSeeds) {
-    const p = path.join(chunkDirFor(state.name), `chunk-${seed}.cand.json`);
-    const parsed = Evaluation.safeParse(JSON.parse(fs.readFileSync(p, "utf8")));
-    if (!parsed.success) throw new Error(`unreadable chunk record ${p}`);
-    candEvals.push(parsed.data);
-  }
+  const candEvals = candEvalsOf(state, true);
   if (candEvals.length === 0) throw new Error(`session ${state.name} folded no chunks; nothing to finish`);
   const used = new Set(state.usedSeeds);
   const baseEvals = cache.chunks.filter((c) => used.has(c.seed));
@@ -729,6 +757,7 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
     },
     sample: figures.sample,
     violations: { candidate: candCounts.violations, baseline: baseCounts.violations },
+    variantContrasts: variantReport(candEvals, baseEvals),
     regression,
     adviceVerdict: advice.verdict,
     adviceReason: advice.reason,
