@@ -185,7 +185,10 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## run-cap-trajectory-variance-fix
 
-- kind: change | category: scheduler | origin: operator-agent | status: pool
+- kind: change | category: scheduler | origin: operator-agent | status: awaiting-approval
+  (judge gain 7, cost 0 - ranked first over the four fault-timing proposals;
+  plan research/lite/plans/run-cap-trajectory-variance-fix.md, shape chosen:
+  freeze at the existing 200-sample floor, zero new constants)
 - title: Shrink the learned run cap's session-to-session trajectory variance
 - Motivating fact (2026-08-31 A/A control): identical binary/config/seed drew
   cap 4283 vs 5975; cap trajectory alone moves runs/s and every per-second
@@ -197,3 +200,66 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   quantile. Prediction to freeze at admission: A/A base-vs-base throughput
   ratio inside ~1.03 (vs today's 1.14) with the merged tree's depth
   rates preserved. Doubles as the quantile/headroom dose-contrast vehicle.
+
+## crash-placement-completion-span-draw
+
+- kind: add | category: scheduler | origin: proposer | status: proposed
+  (judge gain 6, cost 0; held next-up behind run-cap-trajectory-variance-fix)
+- title: Crash placement drawn uniformly over the completed-run span instead
+  of geometrically at readiness
+- Crash timing is the census-named open axis (baseline: 3.70M crash-eligible
+  steps vs 722.6k crashes taken - placement is geometric within ~5 eligible
+  steps of readiness); actuator is the eligibility mask, which the census
+  shows has authority. Posture split ((run_id >> 5) & 1): half of runs stay
+  exactly stock, giving an internal placed-vs-stock contrast immune to the
+  cap-trajectory null. Judge rewrites required at admission: (a) bound the
+  draw below effective_cap minus a recovery-tail margin; (b) learn L50 from
+  stock-posture probes only (run_id % 64 == 0); (c) cross-side clause net of
+  same-session A/A, same-side posture contrast primary; (d) export
+  crash_place.draws and crash_place.capped_draws beside holds. Frozen
+  prediction (pre-rewrite draft): rung depth>=6, sizePct +5..25%, counter
+  crash_place.holds floor 50000, falsifier on the posture contrast.
+
+## recovery-drain-point-sampler
+
+- kind: add | category: scheduler | origin: proposer | status: proposed
+  (judge gain 5, cost 0; queued behind crash-placement's result)
+- title: Recovery admission stratified uniformly over the victim's own
+  in-flight send drain
+- Snapshot k = victim's in_flight at crash, draw d ~ U{0..k}, withhold
+  Recover via is_ineligible until in_flight <= d; d=k is stock, k=0 (59% of
+  crashes) never held. senderRestarted-falls binding proof verified
+  mechanically (incarnation bumps at recovery; 443k stale-sender deliveries
+  per chunk, 19.0% acted vs 2.1% receiver-restarted). Judge caveats: drain
+  is NOT monotone (a crashed receiver recovering re-enters the victim's
+  message into flight); site carries seven closures plus a placebo warning;
+  no internal control as drafted. Rewrites required: d=k runs as the
+  randomized same-side null (primary clause), hold bound ~400 steps against
+  the purgatory pin, A/A-netted bar.
+
+## cascade-fault-window-admission
+
+- kind: add | category: scheduler | origin: proposer | status: rejected-by-judge (gain 2)
+- title: Later crashes held to land inside another node's crash or
+  fresh-restart window
+- Steers toward a recorded zero-violation stratum: overlapping crash windows
+  0/91 violations vs 23.6% for disjoint (OBSERVATIONS.md:841-846) on a
+  100%-3-node config where two down is quorum loss; and the hold has no
+  reopening path once the first freshness window closes (the valve never
+  fires on this rig), so late second crashes are held to run end. A
+  fresh-window-only bounded-hold respecification may re-enter, but must
+  answer OBSERVATIONS.md:841-869.
+
+## crash-context-admission-odds-probe
+
+- kind: add | category: scheduler | origin: proposer | status: parked
+  (judge gain 4, cost 0)
+- title: Learned per-context crash-admission odds replacing the fixed
+  partial-fanout coin, probe-contrast
+- Identity point verified (r=1 reproduces the 0.5 coin exactly); phase 8
+  disjoint from 0/16; label plumbing feasible without touching accounting.
+  Parked because the run-end label class (post-recovery window outcome) is
+  the shape refuted in timer-refire-outcome-quantile and the dose (a coin
+  moving crashes ~5 eligible steps) is the weakest of the round. Revisit
+  only after crash-placement/recovery-drain shows the timing axis moves
+  depth, and then with a decision-adjacent secondary label.
