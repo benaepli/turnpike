@@ -540,3 +540,26 @@ is now confounded with placement, because probes are the only never-placed
 population - its contrast reads 0.361 after Step 3 where it read 0.976
 before. The honest cap measurement is the 0.976, taken between the alias
 fix and Step 3, and it says the learned cap costs nothing at depth>=6.
+
+**Panel, after both merges.** paxos-accept-stale-ballot 223.42
+violations/explore-sec against the 183.14 anchor (+22.0%); mencius-opt1-2
+6.304 against 6.24 (+1.0%). Neither known bug got harder to find, and the
+paxos rate - real linearizability violations, not a proxy - is up more than
+a fifth. That is the portfolio answer to the caveat above: these merges do
+move ground truth, on a protocol whose bug this search shape happens to
+suit. VR's silence is therefore better read as VR's bug needing something
+none of these mechanisms supply than as the depth gains being artifacts.
+
+New anchors for the next session: paxos 223.42, mencius 6.30.
+
+Direction. The instrument work is done and has paid for itself twice over:
+the variant tags turned a manual fourteen-minute recovery into a line of
+grader output, and the first thing they measured was a defect that had been
+mis-calibrating both learners since they were merged. The flip is done and
+sized from measurement. What has not moved is the thing the goal asks for.
+Three iterations, 3.5M runs, zero VR violations. The next round should stop
+improving general placement and take up the two items the last direction
+review already named and this one did not touch: a candidate aimed at VR's
+recovery races specifically, and a violation-replay iteration on the two
+archived signatures, which is the cheapest remaining route to the
+"reproducibly" half of the goal.
