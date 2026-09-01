@@ -185,8 +185,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## run-cap-trajectory-variance-fix
 
-- kind: change | category: scheduler | origin: operator-agent | status: awaiting-approval
-  (judge gain 7, cost 0 - ranked first over the four fault-timing proposals;
+- kind: change | category: scheduler | origin: operator-agent | status: approved-building
+  (user approved the amended plan 2026-08-31; prediction frozen at approval;
+  judge gain 7, cost 0 - ranked first over the four fault-timing proposals;
   plan research/lite/plans/run-cap-trajectory-variance-fix.md, amended at
   the hold per user objection to freeze-forever under future long
   non-stationary sessions - shape is now deterministic doubling-checkpoint
