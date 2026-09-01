@@ -1,0 +1,348 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index e0570bf..6f12580 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -12,6 +12,7 @@ mod path;
+ pub mod plan_config;
+ pub mod rng;
+ pub mod run_cap;
++pub mod run_phase;
+ pub mod run_variant;
+ pub mod timer_context;
+ pub mod util_stats;
+diff --git a/spur-core/src/simulator/fault_timing.rs b/spur-core/src/simulator/fault_timing.rs
+index 1f7d751..7567850 100644
+--- a/spur-core/src/simulator/fault_timing.rs
++++ b/spur-core/src/simulator/fault_timing.rs
+@@ -15,6 +15,7 @@
+ 
+ use crate::simulator::rng::{Stream, StreamRng};
+ use crate::simulator::run_cap;
++use crate::simulator::run_phase;
+ use crate::simulator::util_stats;
+ use dashmap::DashMap;
+ use std::sync::LazyLock;
+@@ -66,14 +67,14 @@ pub fn set_fraction(fraction: f64) {
+ /// Whether this run draws crash holds. The complementary runs are left
+ /// exactly stock, including their random-stream draw counts.
+ pub fn is_placed(run_id: i64) -> bool {
+-    run_id.rem_euclid(POSTURE_PERIOD) >= PLACED_FROM.load(Ordering::Relaxed)
++    run_phase::phase(run_id, POSTURE_PERIOD) >= PLACED_FROM.load(Ordering::Relaxed)
+ }
+ 
+ /// Whether this run's completed length may feed the learner: a run-cap
+ /// probe (uncapped) in the stock posture. Phase 0 is stock at every
+ /// fraction, so the feed never dries up and never reads a placed length.
+ fn feeds_learner(run_id: i64) -> bool {
+-    run_id.rem_euclid(POSTURE_PERIOD) == 0
++    run_phase::phase(run_id, POSTURE_PERIOD) == 0
+ }
+ 
+ struct ScopeAccum {
+@@ -247,24 +248,34 @@ mod tests {
+     impl StreamRng for CountingRng {}
+ 
+     fn feed(n: usize, backup: i32, steps: i32) {
++        let feeder = id_at_phase(0);
+         for _ in 0..n {
+-            merge_stock_probe(0, backup, run_cap::Outcome::Completed, steps);
++            merge_stock_probe(feeder, backup, run_cap::Outcome::Completed, steps);
+         }
+     }
+ 
++    /// A run id whose posture phase is `want`.
++    fn id_at_phase(want: i64) -> i64 {
++        (0..1_000_000i64)
++            .find(|&id| run_phase::phase(id, POSTURE_PERIOD) == want)
++            .expect("every phase is reachable")
++    }
++
++    /// Share of a long id range in the placed posture.
++    fn placed_share() -> f64 {
++        let n = 64_000i64;
++        (-n..n).filter(|&id| is_placed(id)).count() as f64 / (2 * n) as f64
++    }
++
+     #[test]
+-    fn posture_splits_run_ids_by_bit_five_with_negative_ids_sane() {
++    fn the_posture_splits_the_run_ids_in_half_including_negative_ones() {
+         let _serial = config_override::exclusive_session();
+         reset();
+-        for id in 0..32 {
+-            assert!(!is_placed(id), "id {id} is stock");
+-        }
+-        for id in 32..64 {
+-            assert!(is_placed(id), "id {id} is placed");
+-        }
+-        assert!(!is_placed(64));
+-        assert!(is_placed(-32), "-32 wraps to phase 32");
+-        assert!(!is_placed(-64), "-64 wraps to phase 0");
++        let share = placed_share();
++        assert!((share - 0.5).abs() < 0.01, "placed share {share} is not about half");
++        assert!(is_placed(id_at_phase(POSTURE_PERIOD - 1)), "the top phase is placed");
++        assert!(!is_placed(id_at_phase(0)), "phase 0 is stock");
++        assert!((-64_000..0).any(is_placed), "negative ids reach the placed posture");
+     }
+ 
+     #[test]
+@@ -272,33 +283,38 @@ mod tests {
+         let _serial = config_override::exclusive_session();
+         reset();
+         set_fraction(0.0);
+-        assert!((0..64).all(|id| !is_placed(id)), "zero places nothing");
++        assert_eq!(placed_share(), 0.0, "zero places nothing");
+         set_fraction(1.0);
+-        assert!(!is_placed(0), "phase 0 stays stock so the learner keeps its feed");
+-        assert!((1..64).all(is_placed), "every other phase is placed");
++        assert!(!is_placed(id_at_phase(0)), "phase 0 stays stock so the learner keeps its feed");
++        for phase in 1..POSTURE_PERIOD {
++            assert!(is_placed(id_at_phase(phase)), "phase {phase} should be placed at one");
++        }
+         set_fraction(0.97);
+-        let placed = (0..64).filter(|&id| is_placed(id)).count();
+-        assert_eq!(placed, 62, "0.97 of 64 phases rounds to 62");
+-        assert!(!is_placed(0) && !is_placed(1), "the two lowest phases stay stock");
++        // 0.97 of 64 phases rounds to 62, so the two lowest stay stock.
++        assert!(!is_placed(id_at_phase(0)) && !is_placed(id_at_phase(1)));
++        assert!(is_placed(id_at_phase(2)));
++        let share = placed_share();
++        assert!((share - 62.0 / 64.0).abs() < 0.01, "share {share} is not 62 of 64");
+         reset();
+-        assert_eq!(
+-            (0..64).filter(|&id| is_placed(id)).count(),
+-            32,
+-            "reset restores the default half"
+-        );
++        assert!((placed_share() - 0.5).abs() < 0.01, "reset restores the default half");
+     }
+ 
+     #[test]
+     fn only_stock_posture_completed_probes_feed_the_learner() {
+         let _serial = config_override::exclusive_session();
+         reset();
++        let placed_probe = id_at_phase(run_cap::PROBE_PERIOD);
++        assert!(run_cap::is_probe(placed_probe) && is_placed(placed_probe));
++        let ordinary = id_at_phase(1);
++        assert!(!run_cap::is_probe(ordinary));
++        let feeder = id_at_phase(0);
+         for _ in 0..200 {
+             // A placed-posture run-cap probe, a non-probe run, and every
+             // non-completed outcome all stay out of the histogram.
+-            merge_stock_probe(32, 6000, run_cap::Outcome::Completed, 1200);
+-            merge_stock_probe(1, 6000, run_cap::Outcome::Completed, 1200);
+-            merge_stock_probe(0, 6000, run_cap::Outcome::Exhausted, 6000);
+-            merge_stock_probe(0, 6000, run_cap::Outcome::Deadlocked, 40);
++            merge_stock_probe(placed_probe, 6000, run_cap::Outcome::Completed, 1200);
++            merge_stock_probe(ordinary, 6000, run_cap::Outcome::Completed, 1200);
++            merge_stock_probe(feeder, 6000, run_cap::Outcome::Exhausted, 6000);
++            merge_stock_probe(feeder, 6000, run_cap::Outcome::Deadlocked, 40);
+         }
+         assert_eq!(median(6000), None, "nothing above reaches the floor");
+         feed(200, 6000, 1200);
+@@ -345,8 +361,10 @@ mod tests {
+         reset();
+         feed(200, 6000, 1200);
+         let mut rng = CountingRng::new(7);
+-        assert_eq!(draw_hold(0, 6000, 6000, 10, &mut rng), None);
+-        assert_eq!(draw_hold(1, 6000, 6000, 10, &mut rng), None);
++        for phase in 0..run_cap::PROBE_PERIOD {
++            let id = id_at_phase(phase);
++            assert_eq!(draw_hold(id, 6000, 6000, 10, &mut rng), None, "run {id} is stock");
++        }
+         assert_eq!(rng.draws, 0, "stock posture must not touch the stream");
+         reset();
+     }
+@@ -357,16 +375,17 @@ mod tests {
+         reset();
+         feed(200, 6000, 1200);
+         let mut rng = CountingRng::new(7);
++        let placed = id_at_phase(POSTURE_PERIOD - 1);
+         for _ in 0..100 {
+-            let t = draw_hold(32, 6000, 6000, 10, &mut rng).expect("engaged scope draws");
++            let t = draw_hold(placed, 6000, 6000, 10, &mut rng).expect("engaged scope draws");
+             assert!((10..1223).contains(&t), "target {t} escapes [t_ready, U)");
+         }
+         assert_eq!(
+-            draw_hold(32, 6000, 6000, 1223, &mut rng),
++            draw_hold(placed, 6000, 6000, 1223, &mut rng),
+             None,
+             "a spent span draws nothing"
+         );
+-        assert_eq!(draw_hold(32, 1500, 6000, 10, &mut rng), None, "unengaged scope");
++        assert_eq!(draw_hold(placed, 1500, 6000, 10, &mut rng), None, "unengaged scope");
+         reset();
+     }
+ 
+@@ -378,12 +397,13 @@ mod tests {
+         feed(200, 6000, 1200);
+         let before = util_stats::snapshot().crash_place;
+         let mut rng = CountingRng::new(3);
++        let placed = id_at_phase(POSTURE_PERIOD - 1);
+         // Three quarters of a 400-step cap is 300, under the 1223 median.
+         for _ in 0..50 {
+-            let t = draw_hold(32, 6000, 400, 0, &mut rng).expect("capped span still draws");
++            let t = draw_hold(placed, 6000, 400, 0, &mut rng).expect("capped span still draws");
+             assert!((0..300).contains(&t), "target {t} escapes the reserve bound");
+         }
+-        let t = draw_hold(32, 6000, 6000, 0, &mut rng).expect("uncapped draw");
++        let t = draw_hold(placed, 6000, 6000, 0, &mut rng).expect("uncapped draw");
+         assert!((0..1223).contains(&t));
+         let after = util_stats::snapshot().crash_place;
+         util_stats::set_enabled(false);
+diff --git a/spur-core/src/simulator/run_cap.rs b/spur-core/src/simulator/run_cap.rs
+index 0a8fad2..aff0c40 100644
+--- a/spur-core/src/simulator/run_cap.rs
++++ b/spur-core/src/simulator/run_cap.rs
+@@ -9,6 +9,7 @@
+ //! in between, so it is a deterministic function of the sample sequence
+ //! rather than of when run starts happen to read the histogram.
+ 
++use crate::simulator::run_phase;
+ use crate::simulator::util_stats;
+ use dashmap::DashMap;
+ use std::sync::LazyLock;
+@@ -107,9 +108,12 @@ impl ScopeAccum {
+ 
+ static TABLE: LazyLock<DashMap<i32, ScopeAccum>> = LazyLock::new(DashMap::new);
+ 
+-/// Whether this run is a probe that must run to the full budget.
++/// Whether this run is a probe that must run to the full budget. Read from
++/// the run's mixed phase, not the id itself: a phase taken straight off the
++/// id shares the id's factors with the configuration grid's width, and the
++/// probe stream then misses whole configurations (`run_phase`).
+ pub fn is_probe(run_id: i64) -> bool {
+-    run_id.rem_euclid(PROBE_PERIOD) == 0
++    run_phase::phase(run_id, PROBE_PERIOD) == 0
+ }
+ 
+ /// The step cap for a run whose configured budget is `backup`: the learned
+@@ -350,14 +354,25 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn probe_designation_is_periodic_and_safe_for_negative_ids() {
++    fn probes_are_one_run_in_the_period_and_spread_over_every_grid_width() {
+         let _serial = config_override::exclusive_session();
+-        assert!(is_probe(0));
+-        assert!(is_probe(32));
+-        for id in 1..32 {
+-            assert!(!is_probe(id));
++        let n = 64_000i64;
++        let probes: Vec<i64> = (0..n).filter(|&id| is_probe(id)).collect();
++        let want = n / PROBE_PERIOD;
++        assert!(
++            (probes.len() as i64 - want).abs() < want / 10,
++            "{} probes in {n} runs, expected about {want}",
++            probes.len()
++        );
++        // The reason the phase is mixed: against a grid walked in order, a
++        // probe stream that misses a residue never sees those configs.
++        for width in [2i64, 6, 27, 54] {
++            let mut seen = vec![false; width as usize];
++            for &id in &probes {
++                seen[id.rem_euclid(width) as usize] = true;
++            }
++            assert!(seen.iter().all(|&s| s), "probes miss a position of a {width}-wide grid");
+         }
+-        assert!(is_probe(-32));
+-        assert!(!is_probe(-1));
++        assert!((-64_000..0).any(is_probe), "negative ids designate probes too");
+     }
+ }
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 3810504..f5be515 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -72,14 +72,19 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn a_run_cap_probe_is_placed_at_the_default_fraction() {
++    fn the_populations_overlap_so_a_single_label_could_not_name_them() {
+         let _serial = config_override::exclusive_session();
+         fault_timing::reset();
+-        assert_eq!(from_run_id(0), RUN_CAP_PROBE, "phase 0 stays the stock probe");
+-        assert_eq!(
+-            from_run_id(32),
+-            CRASH_PLACED | RUN_CAP_PROBE,
+-            "phase 32 is both, so a single label could not name it"
+-        );
++        let mut both = 0;
++        let mut probe_only = 0;
++        for id in 0..64_000i64 {
++            let v = from_run_id(id);
++            if v & RUN_CAP_PROBE == 0 {
++                continue;
++            }
++            if v & CRASH_PLACED != 0 { both += 1 } else { probe_only += 1 }
++        }
++        assert!(both > 0, "no run is both a probe and placed");
++        assert!(probe_only > 0, "no probe is stock, so the learner has no feed");
+     }
+ }
+diff --git a/spur-core/src/simulator/timer_context.rs b/spur-core/src/simulator/timer_context.rs
+index b1aa5f1..6aee4b1 100644
+--- a/spur-core/src/simulator/timer_context.rs
++++ b/spur-core/src/simulator/timer_context.rs
+@@ -12,15 +12,14 @@
+ //! while the session records acted fractions (`emit_acted_fraction`).
+ 
+ use crate::simulator::run_cap;
++use crate::simulator::run_phase;
+ use crate::simulator::util_stats;
+ use std::sync::atomic::{AtomicU64, Ordering};
+ 
+-/// The run-id phase, modulo `run_cap::PROBE_PERIOD`, that marks a steer-off
+-/// probe run. Sharing run_cap's period with a different phase keeps the two
+-/// probe populations disjoint. When run ids are dealt round-robin across N
+-/// interleaved configs, a config sees this phase at a rate scaled by
+-/// gcd(PROBE_PERIOD, N); campaign mode draws run ids from one shared counter
+-/// and is unaffected.
++/// The phase, modulo `run_cap::PROBE_PERIOD`, that marks a steer-off probe
++/// run. Sharing run_cap's period with a different phase keeps the two probe
++/// populations disjoint. The phase is read from the run's mixed id
++/// (`run_phase`), so it does not align with the configuration grid's width.
+ pub const PROBE_PHASE: i64 = 16;
+ 
+ /// Firings a cell must accumulate before its multiplier engages.
+@@ -44,7 +43,7 @@ pub enum RunMode {
+ /// The mode a run id designates. Probe runs take the stock roll and are the
+ /// only runs whose firings the learner counts.
+ pub fn run_mode(run_id: i64) -> RunMode {
+-    if run_id.rem_euclid(run_cap::PROBE_PERIOD) == PROBE_PHASE {
++    if run_phase::phase(run_id, run_cap::PROBE_PERIOD) == PROBE_PHASE {
+         RunMode::Probe
+     } else {
+         RunMode::Steered
+@@ -253,17 +252,21 @@ mod tests {
+     #[test]
+     fn probe_phase_is_disjoint_from_run_cap_probes() {
+         let _serial = config_override::exclusive_session();
+-        for phase in 0..run_cap::PROBE_PERIOD {
+-            assert!(
+-                !(run_mode(phase) == RunMode::Probe && run_cap::is_probe(phase)),
+-                "phase {phase} is a probe for both learners"
+-            );
++        let n = 64_000i64;
++        let mut probes = 0i64;
++        for id in -n..n {
++            let both = run_mode(id) == RunMode::Probe && run_cap::is_probe(id);
++            assert!(!both, "run {id} is a probe for both learners");
++            if run_mode(id) == RunMode::Probe {
++                probes += 1;
++            }
+         }
+-        assert_eq!(run_mode(16), RunMode::Probe);
+-        assert_eq!(run_mode(48), RunMode::Probe);
+-        assert_eq!(run_mode(-16), RunMode::Probe);
+-        assert_eq!(run_mode(0), RunMode::Steered);
+-        assert_eq!(run_mode(-1), RunMode::Steered);
++        let want = 2 * n / run_cap::PROBE_PERIOD;
++        assert!(
++            (probes - want).abs() < want / 10,
++            "{probes} steer-off probes in {} runs, expected about {want}",
++            2 * n
++        );
+     }
+ 
+     #[test]

@@ -402,3 +402,86 @@ learned-run-cap-max-observed and learned-cap-progress-conditioned
 (closed). New follow-up worth seeding: the quantile/headroom dose
 contrast on the now-deterministic cap, which the checkpoint fix finally
 made interpretable.
+
+## Iteration 6 - per-run variant tags, and a probe stream that missed half the grid
+
+Operator work, not a proposer round. The approved plan was: tag every run
+with the session-global mechanisms that selected it, have the grader report
+the treated-versus-untreated contrast automatically, then raise crash
+placement toward full strength in two attributed steps.
+
+The tagging landed (`run_variant.rs`, a `variant` column on the runs table,
+per-(arm, variant) ladder cells, `variantContrasts` on `status` and
+`finish`). Verified as a no-op the deterministic way rather than the
+statistical one: same seed, same config, 324 runs, old binary against new.
+22 runs differed - against 25 for the old binary against *itself* and 19 for
+the new against itself. The explorer is not reproducible across processes,
+because the session-global learners are fed in thread-scheduling order, so
+a run-level diff has a noise floor of about 6%. Worth knowing on its own.
+
+Then the first thing the new column measured was a defect in the merged
+mechanisms. A run's phase was read straight off its id (`id % 32`). A grid
+is walked in order, so a run's configuration is a deterministic function of
+its id, and the phase then shares the id's factors with the grid width. At
+a 32-run probe period against the 54-configuration general_vr grid the
+common factor is two: 3,935 probes covering 27 distinct configurations,
+every one even, zero odd, in all four grid arms independently.
+`dependency_density` is the innermost grid axis over [0.0, 0.3], so config
+parity *is* density - every probe ran at density 0.0.
+
+The half no probe ever saw is the productive half:
+
+| | density 0.0 (probed) | density 0.3 (never probed) |
+|---|---|---|
+| median completed length | 1002 | 1200 |
+| P(depth>=6) | 0.0689 | 0.0999 |
+| runs hitting the learned cap | 7,323 | 8,247 |
+
+So `run_cap` learned its quantile from a distribution 20% short of the other
+half's and truncated the productive half harder, and `fault_timing` bounded
+its placement span by a median from the same half. The `timer_context`
+header even anticipated the aliasing and concluded campaign mode was
+unaffected; the measurement says it is not.
+
+`run_phase::phase` reduces a SplitMix64-mixed id instead. Nested periods
+keep their relationships because both are the same mixed value reduced, so
+a run at phase 0 of 64 is still at phase 0 of 32, and every phase stays a
+pure function of the run id. Firing was decisive: probe config coverage
+27/54 -> 54/54, even share 1.000 -> 0.499, each config sampled 59-91 times.
+
+Graded over 2 chunks and 714k runs the objective moved +3.2% (null band
+0.51%, pGreater 0.979) at throughput 1.0156 with the regression suite
+clean. Real, but under MERGE_Z, and `canStillAdvance` false - no further
+chunk can separate it. The frozen band was +3..25%, met at the bottom edge.
+Verdict `human`: the case for keeping it rests on correctness, which the
+gate does not encode, so it is filed rather than merged on my own judgment.
+One prediction clause was falsified - I expected the learned cap to rise
+once longer runs entered the quantile, and it fell (5219 -> 4859). The
+density-0.3 population completes less often (0.191 vs 0.254), so
+conditioning on completion selects its shorter runs.
+
+What the contrasts are now worth, pooled over 2 chunks, candidate side:
+
+- `crashPlaced` 3.800x [3.738, 3.863] at depth>=6, treated runs 6.3% longer.
+  The baseline side reads 3.855x, as it must - the fix does not touch crash
+  placement. This is the number the flip should be sized from, not the
+  2.157x measured in a 120s session, which was diluted by the learner's
+  cold start. At 120s only 29.7% of placed runs drew a hold; at 300s it is
+  62%.
+- `crashHoldDrawn` 5.305x, but that population is selected rather than
+  randomized, so it is an upper bound.
+- `runCapProbe` 0.976 [0.940, 1.014] - after the fix, uncapped probes are
+  indistinguishable from ordinary runs, i.e. **the learned cap costs
+  nothing on depth>=6**. Before the fix the same contrast read 1.068
+  [1.030, 1.108], which was config composition, not capping. This is the
+  Step 2 measurement the plan wanted, and it is only interpretable now.
+- `timerSteerOff` 0.921 [0.886, 0.958] - unsteered probes do worse, so the
+  merged timer-context steering is carrying its weight. On the baseline
+  side the same contrast is 0.975 [0.938, 1.013], not separated: the fix is
+  what makes it readable.
+
+Direction. The remaining two planned steps (exempt probes from placement,
+then raise the fraction) are unblocked and better founded than when the
+plan was written: the flip should be sized from 3.8x, and the capping
+confound the plan worried about is measured at nil. Both still wait on a
+decision about this iteration, since they build on its code.
