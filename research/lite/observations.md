@@ -485,3 +485,58 @@ then raise the fraction) are unblocked and better founded than when the
 plan was written: the flip should be sized from 3.8x, and the capping
 confound the plan worried about is measured at nil. Both still wait on a
 decision about this iteration, since they build on its code.
+
+## Iteration 7 - the crash-placement flip, in two attributed steps
+
+Both steps of the plan's flip, graded separately so the two mechanisms are
+attributable. Compounded against the tree that entered this session, the
+objective is up 1.15 x 1.48 = 1.71x on depth>=6 per explore-second, at
+throughput 0.973 and with the regression suite clean at every step.
+
+**Step 3, exempt run-cap probes from placement.** The span is learned from
+probe lengths, so a probe that is itself placed feeds a placement imprint
+back into the bound it sets - and half of them were, since the posture
+split put probes in both postures and only the stock half fed the learner.
+Exempting them outright makes every probe a feed, so the scope crosses its
+sample floor in half the runs it used to take. depth>=6/s 1.1508 against a
+0.49% null band, throughput 0.9949. Firing was the acted share among placed
+runs: 60.2% -> 79.8%, and the internal contrast rose 3.73x -> 4.58x purely
+because less of the treated pool sat inert. Frozen band +2..15%, missed
+just high at +15.07%.
+
+**Step 4, raise the placed share 0.484 -> 0.891.** Sized rather than
+guessed. Step 3 left both session-global learners reading run-cap probes
+only, and probes are exempt at every fraction, so neither learner's input
+moves with the share - which is exactly the condition under which a
+within-session contrast extrapolates across the fraction rather than merely
+describing the fraction it was measured at. The plan had warned this was
+not licensed; Step 3 made it so.
+
+  p = u(1 + f(r - 1)),  r = 4.579 measured,  wall cost 1.080x
+  per run  4.188 / 2.733 = 1.532
+  per sec  1.532 * (1.039 / 1.071) = 1.486
+
+Observed 1.4825, inside the +35..65% band and within 1% of the point
+estimate, at throughput 0.9781 against a predicted 0.97. The first
+prediction this session to land inside its band rather than miss high, and
+the only one derived from a measurement instead of estimated.
+
+The falsifier did not fire: the internal contrast reads 4.316 at the higher
+share against 4.604 at the lower, so placement's effect is close to
+additive across the population rather than saturating. Held at 0.9 rather
+than 1.0 on purpose - probes are exempt anyway, so a share of one would
+leave probes as the only unplaced runs, and they differ by being uncapped
+as well as unplaced. At 0.9 an ordinary stock control survives at about 8%
+of runs, 65k of them per two-chunk session.
+
+Still zero VR violations across 1.4M runs this iteration, as in every
+iteration since the goal was set. The proxy caveat stands: depth has
+decoupled from violations once already, and three merges in a row that move
+depth without moving VR ground truth is the pattern that caveat describes.
+The panel is the check on it.
+
+One instrument note for whoever reads the tags next. The run-cap-probe bit
+is now confounded with placement, because probes are the only never-placed
+population - its contrast reads 0.361 after Step 3 where it read 0.976
+before. The honest cap measurement is the 0.976, taken between the alias
+fix and Step 3, and it says the learned cap costs nothing at depth>=6.
