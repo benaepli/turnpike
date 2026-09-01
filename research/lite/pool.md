@@ -284,8 +284,10 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## client-request-placement-span-draw
 
-- kind: add | category: scheduler | origin: proposer | status: top of pool
-  (judge gain 8, cost 2, net 6) | parent: crash-placement-completion-span-draw
+- kind: add | category: scheduler | origin: proposer | status:
+  awaiting-approval (judge gain 8, cost 2, net 6) | parent:
+  crash-placement-completion-span-draw | plan:
+  research/lite/plans/client-request-placement-span-draw.md
 - title: Client requests get the admission placement crashes already have -
   hold a released request until later in the run's own activity instead of
   invoking it the step it becomes ready
