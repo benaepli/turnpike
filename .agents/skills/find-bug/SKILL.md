@@ -8,22 +8,12 @@ user-invocable: true
 
 You are searching for a known bug in a Spur protocol specification. You have a description of the bug and must systematically try to reproduce it using the simulator, while also analyzing the code for the root cause.
 
-## Arguments
+## Inputs
 
-Parse the arguments from the input:
-
-- `$1`: Path to the `.spur` spec file (required)
-- `$2`: Path to a plain text bug description file (required)
-- `--pdf PATH`: Optional paper PDF for additional context
-- `--tag-timers`: Optional flag allowing the skill to add labels to `set_timer()` calls in the spec
-
-### Example invocations
-
-```
-/find-bug bin/spur/VR.spur bugs/stale-read.txt
-/find-bug bin/spur/VR.spur bugs/lost-write.txt --pdf papers/vr-revisited.pdf
-/find-bug bin/spur/VR.spur bugs/election-timing.txt --tag-timers
-```
+- **Spec file** (required): path to the `.spur` spec file. Referred to as `$SPEC` in the commands below.
+- **Bug description** (required): path to a plain text bug description file.
+- **Paper PDF** (optional): a paper PDF for additional context.
+- **Tag timers** (optional flag): allows the skill to add labels to `set_timer()` calls in the spec.
 
 ## Phase 0: Setup
 
@@ -35,9 +25,9 @@ mkdir -p tmp && OUTPUT_DIR=$(mktemp -d tmp/spur_findbug_XXXXXX)
 
 Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Also use `$OUTPUT_DIR` for temporary config/plan JSON files. Print the directory name so the user knows where results are.
 
-2. **Read the spec file** (`$1`). Verify it exists and has a `ClientInterface` with `Read` and `Write`.
+2. **Read the spec file** (`$SPEC`). Verify it exists and has a `ClientInterface` with `Read` and `Write`.
 
-3. **Read the bug description** (`$2`). Extract:
+3. **Read the bug description**. Extract:
    - **Symptom**: what goes wrong (stale read, lost write, deadlock, split-brain, minority partition accepts writes, etc.)
    - **Trigger conditions**: what scenario causes it (leader crash during replication, concurrent writes, recovery after partition, network split during replication, etc.)
    - **Minimum topology**: how many nodes and faults are needed (infer from trigger conditions if not stated)
@@ -67,12 +57,12 @@ cd traceanalyzer && go build -o main main.go && cd .. && cd porcupine && go buil
 
 ## Phase 0.5: Tag Timers (conditional)
 
-Only enter this phase if `--tag-timers` was passed AND the bug is **timer-sensitive**.
+Only enter this phase if the tag-timers option was given AND the bug is **timer-sensitive**.
 
 1. **Find all `set_timer()` calls** in the spec:
 
    ```bash
-   grep -n 'set_timer()' $1
+   grep -n 'set_timer()' $SPEC
    ```
 
 2. **Infer labels** from surrounding context for each call:
@@ -84,7 +74,7 @@ Only enter this phase if `--tag-timers` was passed AND the bug is **timer-sensit
 
 4. **Verify compilation**: Run a quick compile check to ensure the labeled timers don't break anything:
    ```bash
-   cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config scheduler_configs/quick_check.json -y --output-dir $OUTPUT_DIR/output $1 2>&1 | head -5
+   cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config scheduler_configs/quick_check.json -y --output-dir $OUTPUT_DIR/output $SPEC 2>&1 | head -5
    ```
    If compilation fails, revert and report.
 
@@ -208,7 +198,7 @@ Available partition types:
 ### Run the plan
 
 ```bash
-RUST_LOG=info timeout 60 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- run-plan -p $OUTPUT_DIR/find_bug_plan.json -y --output-dir $OUTPUT_DIR/output $1 2>&1
+RUST_LOG=info timeout 60 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- run-plan -p $OUTPUT_DIR/find_bug_plan.json -y --output-dir $OUTPUT_DIR/output $SPEC 2>&1
 ```
 
 Handle exit codes:
@@ -301,7 +291,7 @@ You must size the exploration configurations to ensure they finish well within t
 ### Run
 
 ```bash
-RUST_LOG=info timeout 120 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_targeted.json -y --output-dir $OUTPUT_DIR/output $1 2>&1
+RUST_LOG=info timeout 120 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_targeted.json -y --output-dir $OUTPUT_DIR/output $SPEC 2>&1
 ```
 
 The `RUST_LOG=info` prefix shows per-run progress. If many runs hit `max_iterations`, this often indicates a **deadlock** rather than the target bug — investigate with `debug combined` on those runs.
@@ -349,7 +339,7 @@ Mutate the config based on Phase 2 trace analysis. Create `$OUTPUT_DIR/find_bug_
 3. Choose your parameter ranges and `num_runs_per_config` such that the Estimated Time (E = T / R_actual) safely fits within the 300s timeout (e.g., target ~240s).
 
 ```bash
-RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR/output $1 2>&1
+RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR/output $SPEC 2>&1
 ```
 
 Run traceanalyzer and Porcupine as in Phase 2.
@@ -361,7 +351,7 @@ If violation found → verify and report. If not → Phase 4.
 Use the genetic algorithm explorer with a broad config:
 
 ```bash
-RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e genetic --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR/output $1 2>&1
+RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e genetic --config $OUTPUT_DIR/find_bug_wide.json -y --output-dir $OUTPUT_DIR/output $SPEC 2>&1
 ```
 
 Run Porcupine. If violation found → verify and report. If not → Phase 5.
@@ -411,7 +401,7 @@ Combine all evidence — simulator results from all phases and code analysis fro
 
 - The Spur language reference is in `spur/design/language.md`
 - Simulator semantics are in `docs/simulator_semantics.md`
-- Debugging heuristics are in `.claude/rules/debugging.md`
+- Debugging heuristics are in `docs/agent/debugging.md`
 - Always use `-y` flag with explore/run-plan to auto-confirm output dir deletion
 - Always use `timeout` to cap runtime
 - Linearizability violations only manifest when a **Read observes broken state** — configs must have enough reads following writes on the same keys

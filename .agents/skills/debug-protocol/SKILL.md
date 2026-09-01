@@ -8,11 +8,11 @@ user-invocable: true
 
 You are debugging a distributed protocol specification written in the Spur language. Your job is to iteratively run the simulator, check for linearizability violations and deadlocks, diagnose issues, and propose fixes.
 
-## Arguments
+## Inputs
 
-- `$1`: Path to the `.spur` spec file (required)
-- `$2`: Path to the scheduler config JSON (required)
-- `$3`: Optional path to a pseudocode/reference file from the paper. If provided, read it first and use it as ground truth when diagnosing bugs.
+- **Spec file** (required): path to the `.spur` spec file. Referred to as `$SPEC` in the commands below.
+- **Scheduler config** (required): path to the scheduler config JSON. Referred to as `$CONFIG` in the commands below.
+- **Pseudocode reference** (optional): path to a pseudocode/reference file from the paper. If provided, read it first and use it as ground truth when diagnosing bugs.
 
 ## Pre-flight
 
@@ -24,11 +24,11 @@ mkdir -p tmp && OUTPUT_DIR=$(mktemp -d tmp/spur_debug_XXXXXX)
 
 Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Print the directory name so the user knows where results are.
 
-2. **Verify files exist**: Check that the spec file (`$1`) and config file (`$2`) exist. If not, stop and report.
+2. **Verify files exist**: Check that the spec file (`$SPEC`) and config file (`$CONFIG`) exist. If not, stop and report.
 
 3. **Check ClientInterface contract**: Read the spec file and verify it has a `ClientInterface` block containing `Read` and `Write` functions. These are required for linearizability checking. If missing, stop and tell the user.
 
-4. **Read pseudocode reference** (if `$3` provided): Read the pseudocode file. Keep it as context for diagnosing protocol logic bugs. Cross-reference the spec against it when looking for errors.
+4. **Read pseudocode reference** (if provided): Read the pseudocode file. Keep it as context for diagnosing protocol logic bugs. Cross-reference the spec against it when looking for errors.
 
 5. **Build Go tools** (once):
 
@@ -43,7 +43,7 @@ Repeat up to **5 iterations**. Track the iteration count.
 ### Step 1: Run Explorer
 
 ```bash
-RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $2 -y --output-dir $OUTPUT_DIR $1 2>&1
+RUST_LOG=info timeout 300 cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e standard --config $CONFIG -y --output-dir $OUTPUT_DIR $SPEC 2>&1
 ```
 
 The `RUST_LOG=info` prefix shows per-run progress, including whether runs are hitting `max_iterations` limits. If many runs hit the limit, this often indicates a **deadlock** — investigate with `debug combined` on those runs.

@@ -29,3 +29,5 @@ research/STATUS.md
 research/STOP
 research/DRAIN
 research/PARKED
+# generated Claude worktrees (live agent state, never tracked)
+.claude/worktrees/

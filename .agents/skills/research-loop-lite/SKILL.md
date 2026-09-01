@@ -8,7 +8,9 @@ user-invocable: true
 
 You are the loop. Each iteration you spawn a proposer, a judge, and an
 implementer as subagents, then drive the chunked grader yourself and make the
-merge decision yourself. The grader (`research/lite/grader.ts`) is the only
+merge decision yourself. (Subagent spawning and worktree isolation are
+Claude-specific tool mechanics; on other hosts, see
+`docs/agent/host-compatibility.md` for equivalents.) The grader (`research/lite/grader.ts`) is the only
 typed machinery: it measures and reports statistical validity; it never
 decides. Configuration lives in `research/lite/lite.json`; the goal is the
 file it names (`research/GOAL.md` by default). All paths below are relative

@@ -8,27 +8,16 @@ user-invocable: true
 
 You are implementing a distributed protocol as a Spur specification from pseudocode. You will generate a `.spur` file, then test it with the debug workflow.
 
-## Arguments
+## Inputs
 
-Parse the arguments from the input:
-
-- `$1`: Path to pseudocode file (required) — text or markdown with the algorithm
-- `$2`: Scope description (optional) — natural language describing what to implement. Examples:
+- **Pseudocode file** (required): text or markdown with the algorithm.
+- **Scope description** (optional): natural language describing what to implement. Examples:
   - `"full"` or omitted: implement everything
   - `"core replication only, no view changes or recovery"`: subset
   - `"add crash recovery"`: incremental addition to existing spec
-- `--pdf PATH`: Optional paper PDF for additional context
-- `--spec PATH`: Optional existing `.spur` file to modify instead of creating from scratch
-- `--config PATH`: Scheduler config for testing (optional, will ask user if not provided)
-
-### Example invocations
-
-```
-/implement-protocol pseudocode/vr.md
-/implement-protocol pseudocode/vr.md "core replication, no view changes"
-/implement-protocol pseudocode/vr.md --pdf papers/vr-revisited.pdf
-/implement-protocol pseudocode/vr.md "add crash recovery" --spec bin/spur/VR.spur
-```
+- **Paper PDF** (optional): a paper PDF for additional context.
+- **Existing spec** (optional): an existing `.spur` file to modify instead of creating from scratch.
+- **Scheduler config** (optional): config for testing; ask the user if not provided.
 
 ## Phase 1: Understand
 
@@ -39,7 +28,7 @@ Parse the arguments from the input:
    - Message delivery assumptions (reliable, FIFO, etc.)
    - Consistency guarantee (linearizability, sequential consistency, etc.)
 
-3. **If existing spec provided** (`--spec`): Read it thoroughly. Understand what's already implemented and what's missing.
+3. **If existing spec provided**: Read it thoroughly. Understand what's already implemented and what's missing.
 
 4. **Read existing specs for reference**: Look at specs in `bin/spur/` to understand idiomatic Spur patterns and conventions. Use these as style guides.
 
@@ -89,7 +78,7 @@ Write the spec file to `bin/spur/<ProtocolName>.spur`. Follow this structure:
    - Both functions may handle redirects if appropriate
    - Both must NOT return until the operation truly completes
 
-### If modifying an existing spec (`--spec`):
+### If modifying an existing spec:
 
 - Edit the existing file in place
 - Preserve existing structure and working code
@@ -121,18 +110,18 @@ Present the complete spec to the user for final review.
 
 ## Phase 5: Test
 
-1. If no `--config` was provided, ask the user which scheduler config to use. Suggest starting with a small config for initial testing.
+1. If no scheduler config was provided, ask the user which scheduler config to use. Suggest starting with a small config for initial testing.
 
-2. Chain into the debug workflow by invoking `/debug-protocol` with:
+2. Chain into the debug workflow by invoking the debug-protocol skill with:
    - The generated/modified spec file
    - The selected scheduler config
-   - The pseudocode file as the reference (3rd argument to debug-protocol)
+   - The pseudocode file as the reference (the pseudocode reference input to debug-protocol)
 
 ## Important Reminders
 
-- The Spur language reference is in `spur/design/language.md` and `.claude/rules/language.md`
+- The Spur language reference is in `spur/design/language.md` and `docs/agent/language.md`
 - Simulator semantics are in `docs/simulator_semantics.md`
-- Debugging heuristics are in `.claude/rules/debugging.md`
+- Debugging heuristics are in `docs/agent/debugging.md`
 - Existing specs in `bin/spur/` are the best style reference
 - ClientInterface MUST have Read and Write — Porcupine checks linearizability through these
 - New specs go in `bin/spur/`

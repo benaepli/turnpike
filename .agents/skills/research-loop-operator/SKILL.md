@@ -34,6 +34,8 @@ lints, PR flow, and protected paths are the safety net, not your judgment.
 3. Reap orphaned monitor processes from earlier sessions, then arm the three
    monitors from `reference/monitors.md` (event watcher + heartbeat + churn
    detector). Never run two of the same; stop duplicates with TaskStop.
+   (TaskStop and the other monitor tool mechanics are Claude-specific; on
+   other hosts, see `docs/agent/host-compatibility.md` for equivalents.)
 4. Read the last audit and last three decisions in the journal before
    forming any opinion about progress.
 
