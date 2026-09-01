@@ -281,3 +281,93 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   moving crashes ~5 eligible steps) is the weakest of the round. Revisit
   only after crash-placement/recovery-drain shows the timing axis moves
   depth, and then with a decision-adjacent secondary label.
+
+## client-request-placement-span-draw
+
+- kind: add | category: scheduler | origin: proposer | status: top of pool
+  (judge gain 8, cost 2, net 6) | parent: crash-placement-completion-span-draw
+- title: Client requests get the admission placement crashes already have -
+  hold a released request until later in the run's own activity instead of
+  invoking it the step it becomes ready
+- Every checkable claim held. There is genuinely no admission control on
+  client-op invocation anywhere in the simulator: crashes carry a Runnable
+  priority plus an eligibility mask and `crash_hold_until`, while client
+  requests are dispatched inline at `path.rs:458` in the step they become
+  ready. The dead `PlanEngine::mark_as_ready` (`path/plan.rs:126-137`,
+  `#[allow(dead_code)]`) has exactly the InProgress -> Ready signature the
+  hold needs, because `get_ready_events` performs the forward transition
+  itself. Reuses the actuator shape of this session's largest win on a
+  per-run population four times larger (~9 client events against 2 crashes),
+  with a band derived independently rather than borrowed.
+- Cost 2 is real: deferring invocation moves when invocation records reach
+  the history (the linearizability recording path) and reorders the
+  deadlock/termination test in the run loop.
+- Judge rewrote the prediction to add the run-length confound the original
+  omitted: steps/run and plan_complete share must be reported per posture,
+  and depth bought by lengthening runs (placed steps/run outside 15% of
+  stock) is not a pass.
+- Standing red-team note to answer in review: the nearest recorded evidence
+  is the post_fault_client_ops family, closed permanently at
+  `OBSERVATIONS.md:3052` by a zero ablation. That null is about plan
+  ORDERING; this candidate is about INVOCATION TIMING, which no log entry
+  touches. The distinction is the hypothesis's load-bearing claim.
+
+## post-fault-supply-census
+
+- kind: add | category: tooling | origin: proposer | status: parked behind
+  client-request-placement-span-draw (judge gain 5, cost 0)
+- title: Per-run census of client work and in-flight traffic surviving the
+  run's last fault cycle, tagged so the grader reads its depth contrast
+- Read-only diagnostic; counters and the free variant bit 1<<4 verified.
+  One claim FAILED: `State::flight_enter`/`flight_leave` do not track
+  crash-relative in-flight traffic - `SendLedger` holds a per-origin current
+  count whose floor resets at every handler entry (`state.rs:978-981`), so
+  the census's headline quantity needs new per-runnable bookkeeping it
+  budgets nothing for.
+- Also correlational by construction: the bit is an outcome, not an
+  assignment, and conditions on something mechanically tied to run length -
+  the same composition confound that made runCapProbe read 1.068 before the
+  alias fix. Run it only if the placement candidate comes back null, when
+  knowing whether late client work is scarce or merely mis-ordered becomes
+  the deciding measurement.
+
+## purgatory-fault-boundary-anchored-release
+
+- kind: add | category: scheduler | origin: proposer | status: queued behind
+  recovery-drain-point-sampler (judge gain 5, cost 2)
+- title: Release a withheld message one fault-cycle boundary later instead
+  of after a step budget drawn independently of the run's fault schedule
+- Sharpest quantitative observation of the round and every number checks
+  out: the delay draw is log-uniform over [5,300] with median ~39 steps
+  (`exec.rs:70-77`), while a placed crash now sits a mean 427 steps past
+  readiness - the delay budget and the fault schedule are drawn on
+  incomparable scales, so cross-fault survival is a coincidence no
+  delay_probability can arrange.
+- Discounted for three things: the acceptance-distance observable is not
+  exported in the eval record and its predicted direction is probably
+  backwards (the bucket indexes the receiver's handler entries since its own
+  restart, so releasing at a recovery pushes deliveries NEAR, not far); the
+  "run still has an uncompleted fault event" guard needs plan knowledge that
+  `exec.rs` does not have and no owner is named; and it attacks the same
+  pre-fault-traffic-survives-the-fault hazard as the pool incumbent
+  recovery-drain-point-sampler, which does it at cost 0.
+
+## fault-frontier-client-reservation
+
+- kind: add | category: config | origin: proposer | status: blocked
+  (judge gain 3, cost 0)
+- title: Reserve client work after the whole fault frontier instead of after
+  each fault independently, and prefer a state-mutating request
+- The mechanism critique is accurate line by line (`generator.rs:210-248`:
+  per-recover iteration, uniform choice over all client requests so a read
+  ~2/3 of the time, one edge each), and the targeting axis genuinely was
+  never swept. But the argument rebuts the weakest counter-evidence and is
+  silent on the strongest: `OBSERVATIONS.md:3052` records a zero ablation
+  closing the family permanently - with post_fault_client_ops = 0 every rung
+  moved inside the A/A band. If deleting all reservation edges is a null,
+  the effect available to retargeting the same edges is bounded by noise.
+  Its cited sweep line (5312) does not exist; the sweep is at 2769.
+- Blocked until the write-up states, in one sentence, why the zero ablation
+  does not bound this effect. Same precedent as cascade-fault-window-
+  admission, rejected for proposing into a stratum the log had already
+  characterised without answering the citation.
