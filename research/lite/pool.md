@@ -657,3 +657,60 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   per-arm evidence, and UCB1 at ucb_c 1.0 would deliver about +20%, not the
   claimed +30..50%. If wanted, it is operator-lane budget policy, which is
   where OBSERVATIONS.md:2784 already filed it.
+
+## directed-link-speed-class-run-skew
+
+- kind: add | category: scheduler | origin: proposer | status: admitted,
+  building behind the partition grading (judge gain 7, cost 0, net 7)
+- title: Per-run directed-link speed classes - a hard, run-persistent ordering
+  class on each ordered node pair, so message order carries correlation
+  across a run instead of independent per-message priorities
+- Every checkable claim held: priority is drawn once at record creation
+  (`exec.rs:206`) and never revised; `is_fifo_blocked` is the only pair-order
+  constraint; `Stream::SendDelay` is genuinely idle (the draw is skipped, not
+  zero-length); the queue-size computations and per-queue eligible builds all
+  filter through `is_ineligible`, so a mask there applies to routing and
+  selection alike; and within-queue selection is a stochastic tournament
+  re-taken every step, so a record's effective order really is re-randomized
+  per step and sustained one-sided skew really is exponentially rare.
+- The judge accepts "mask, not score" on the merits: the refuted scoring
+  mechanisms changed the rank inside one step's draw; this withholds a record
+  across many steps so a delivery can be deferred past a crash or recovery -
+  it changes what a run reaches, which is the operative criterion the three
+  merged masks share.
+- Judge added two clauses: at least 0.02 withheld offers per scheduler step,
+  and a withhold-duration histogram with a falsifier if more than 25% of mass
+  sits at the age cap (a degenerate partition rather than a speed class).
+  Dedup condition: if the partition candidate merges, re-argue this before a
+  second chunk is spent - if the age bound binds, a speed class IS a
+  partition with a 300-step repair.
+- Correction recorded for future proposals: the "released when it would empty
+  the eligible set" valve does not exist in merged code; the crash masks are
+  safe by expiry and re-roll. It must be built where a design relies on it.
+
+## recovery-buffer-release-policy-draw
+
+- kind: add | category: scheduler | origin: proposer | status: do not build
+  (judge gain 3, cost 2)
+- Plumbing claims all correct (`crash_node` never scans purgatory; the crash
+  buffer releases as one block), but the evidential core is falsified against
+  the current baseline: it quotes the sender_restarted acceptance-distance
+  row while the mechanism moves receiver_restarted deliveries, and on that
+  row bucket 0 is the BEST near bucket, so staging moves mass out of it; the
+  "0-2 entries" cluster does not exist - 60% of released deliveries already
+  land at five or more entries because the block competes in the network
+  queue. The DOUBLE arm is metric-invalid: duplicated delivery is a fault
+  model no panel spec is written against, supplies an extra oracle-matchable
+  deliver event, double-counts in flight accounting, and leaves a residue in
+  the caller's channel.
+
+## pending-crash-outbound-send-withhold
+
+- kind: add | category: scheduler | origin: proposer | status: parked, wait
+  for an oracle that carries the incarnation condition (judge gain 4, cost 0)
+- Sound and non-stalling, but its anchor is stale (victim_had_inflight_sends
+  is 0.662 post-ablation, not 0.71) and its concentration claim is backwards:
+  withholding all outbound records pushes in_flight away from 1, the value at
+  which the partial-fanout coin stops withholding, so it concentrates at the
+  fully-uninformed stratum and neutralizes the merged bias on treated runs.
+  Its primary quantity is invisible to the rung by its own admission.
