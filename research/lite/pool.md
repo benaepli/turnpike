@@ -585,3 +585,61 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   the shortest. Its recorded dead zone has also halved: inert on 28.9% of
   crashes now, not the 59% recorded when it was written. Its rewrites carry
   over to the successor unchanged.
+
+## purgatory-blind-delay-default-ablation
+
+- kind: ablate | category: scheduler | origin: proposer | status: admitted,
+  grading the config-only step (judge gain 8, cost 0, net 8 - highest of the
+  session) | plan: research/lite/plans/purgatory-blind-delay-default-ablation.md
+- The only candidate whose central effect is measured on the current
+  baseline rather than argued. Judge recomputed every cell: grid vs
+  grid-no-purgatory per-run P(depth>=6) 0.056748 vs 0.071379 (seed 1000) and
+  0.057789 vs 0.071241 (seed 1001); per explore-second 1.3218 and 1.3360.
+  The -41% record at OBSERVATIONS.md:3001 is real and predates the
+  fault-timing merges by a day; the sign flipped.
+- Design defect the judge caught: with the base rate at 0.0 the
+  grid-no-purgatory overlay is a no-op and the free null control vanishes,
+  so the posture form must keep 0.15 and add a `posture_share` field.
+  Graded as a pure ablation first, config-only, on the judge's advice.
+
+## timeline-novelty-scalefree-rarity-restore
+
+- kind: enabling | category: feedback | origin: proposer | status: queued
+  second (judge gain 6, cost 0)
+- Every quoted number reproduced exactly. Establishes a new reading of the
+  authority census: `quick_fire` has no OFFERS (568,954 of 1.09e9 decisions,
+  0.052%), not no authority, so its zero flip count says nothing about a
+  term evaluated on every entry-point Record. Judge rewrote the prediction:
+  the distinct-keys observable is entailed by flipping the flag, replaced
+  with an offered-share floor of 5% of contested decisions, and a runs/sec
+  floor of 0.95 added since the rung is per-second.
+
+## partition-fault-class-restore-with-repair-hold
+
+- kind: enabling | category: scheduler | origin: proposer | status: queued
+  third (judge gain 7, cost 2)
+- Strongest evidence file of the round: partition.rs is 310 lines never
+  executed under this config, and the judge redid both vacuity computations
+  from the source - the ring shape is always vacuous at three nodes and
+  exactly one bridge choice in three isolates nobody, so one draw in three
+  is a no-op. Cost 2 for event accounting: activation pulls records out of
+  flight and re-pushes them on heal. Held below 8 because the rung it must
+  be graded on is the one it argues cannot see it.
+- Judge rewrote the vacuity observable, which was tautological as written,
+  to `vacuous_shapes_skipped / draws` in 0.28..0.40.
+
+## adaptive-arm-allocation-bandit-salvage
+
+- kind: enabling | category: scheduler | origin: proposer | status: REJECTED,
+  out of bounds (judge score 0)
+- The grader would not refuse it - baseline identity compares arm ids and
+  modes only - but the implementer clause is categorical: never touch the
+  campaign block. Independently: its pooled gain is composition, not search
+  (grid-short wins on throughput, with per-run P(depth>=6) 0.0613 BELOW
+  grid-no-purgatory's 0.0714), and the per-arm-invariance falsifier
+  certifies that reading rather than excluding it. One checkable claim
+  false: the rewardRate ordering matches depth>=6/s on seed 1000 only; on
+  seed 1001 aos moves from second to fourth. The reward it proposes has no
+  per-arm evidence, and UCB1 at ucb_c 1.0 would deliver about +20%, not the
+  claimed +30..50%. If wanted, it is operator-lane budget policy, which is
+  where OBSERVATIONS.md:2784 already filed it.
