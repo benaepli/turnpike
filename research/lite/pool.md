@@ -630,8 +630,17 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## partition-fault-class-restore-with-repair-hold
 
-- kind: enabling | category: scheduler | origin: proposer | status: queued
-  third (judge gain 7, cost 2)
+- kind: enabling | category: scheduler | origin: proposer | status: CLOSED,
+  refuted by its primary falsifier (judge gain 7, cost 2)
+- Built with a build-time amendment (shape filter also requires every client
+  to reach a majority of servers, so only IsolateOne is admitted) and graded
+  over 997k runs. Fired at 67x its floor with the heal hold engaged at 211
+  steps and every safety clause clean. Probe-free internal contrast on
+  depth>=6 0.7914 [0.785,0.798] against a 1.05 bar, while stale-incarnation
+  deliveries per run rose 47%. The rung and the hazard ladder moved in
+  opposite directions - the blind-spot finding made concrete from the other
+  side. Latent bug found and reported, not fixed: MajoritiesRing is vacuous
+  at every node count (reach = n/2 equals the maximum ring distance).
 - Strongest evidence file of the round: partition.rs is 310 lines never
   executed under this config, and the judge redid both vacuity computations
   from the source - the ring shape is always vacuous at three nodes and

@@ -1,0 +1,184 @@
+{
+ "name": "partition-fault-class-restore-with-repair-hold",
+ "createdAtIso": "2026-09-02T07:48:40.695Z",
+ "note": "frozen prediction per judge rewrite (pool.md): probe-free internal contrast depth>=6 >1.05; cross-binary >=1.04 net of A/A; blocked_sends floor 200k; vacuous/draws 0.28..0.40; steps/run within 15%; unhealed_at_exit <20% of armed. Amended at build: shape filter also requires every client to reach a majority of servers, so only IsolateOne is admitted at 3 nodes.",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/partition-fault-class-restore-with-repair-hold/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/partition-fault-class-restore-with-repair-hold/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:partition-fault-class-restore-with-repair-hold"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-f9daa01b-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-partition-fault-class-restore-with-repair-hold",
+  "chunks": 2,
+  "runs": 996660,
+  "graded": 996660,
+  "depth4": 718077,
+  "depth5": 458913,
+  "depth6plus": 207804,
+  "depth7plus": 52959,
+  "depth8plus": 5834,
+  "violations": 0,
+  "h2Count": 715538,
+  "exposureSec": 600.5319999999999,
+  "rpsChunks": [
+   1784.9779675525167,
+   1534.3014988694374
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.105,
+   "depth>=4:pMei": 0,
+   "depth>=4:ratio": 0.925396526316705,
+   "depth>=4:mei": 0.17663036870212573,
+   "depth>=5:pGreater": 0.048,
+   "depth>=5:pMei": 0,
+   "depth>=5:ratio": 0.8968945509998227,
+   "depth>=5:mei": 0.18073661137065425,
+   "depth>=6:pGreater": 0.015,
+   "depth>=6:pMei": 0,
+   "depth>=6:ratio": 0.8634717157805053,
+   "depth>=6:mei": 0.18129555298268868,
+   "depth>=7:pGreater": 0.0035,
+   "depth>=7:pMei": 0,
+   "depth>=7:ratio": 0.8261252097204783,
+   "depth>=7:mei": 0.1944518738040204,
+   "depth>=8:pGreater": 0,
+   "depth>=8:pMei": 0,
+   "depth>=8:ratio": 0.7780090539736398,
+   "depth>=8:mei": 0.1833777359475978,
+   "h2:pGreater": 0,
+   "h2:ratio": 0.9706756232850439,
+   "h2:mei": 0.0037746767309581454,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 0.940922985569017,
+   "throughput:cv": 0.10680331842065482,
+   "depth>=5:cv": 0.08911363084289996,
+   "depth>=6:cv": 0.08955426962116705,
+   "depth>=7:cv": 0.09529324105982598,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.389,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|f9daa01b|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 827760,
+   "graded": 827760,
+   "exposureSec": 480.389,
+   "depth": [
+    827760,
+    794600,
+    698025,
+    591217,
+    375197,
+    169349,
+    43608,
+    4910,
+    90
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.159,
+     "depth": [
+      438660,
+      421406,
+      370641,
+      313896,
+      199392,
+      90024,
+      23270,
+      2593,
+      43
+     ]
+    },
+    {
+     "exposureSec": 240.23000000000002,
+     "depth": [
+      389100,
+      373194,
+      327384,
+      277321,
+      175805,
+      79325,
+      20338,
+      2317,
+      47
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-partition-fault-class-restore-with-repair-hold-sequential-1000-1788335321038",
+  "lite-partition-fault-class-restore-with-repair-hold-sequential-1001-1788335759709"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T07:55:59.186Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 438
+  },
+  {
+   "atIso": "2026-09-02T08:03:02.421Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 423
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

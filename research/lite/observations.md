@@ -911,3 +911,47 @@ lacks authority. The `timeline_keys` and `feedback` machinery can stay as
 instrumentation; nothing should be proposed through it again without a new
 argument for why re-ranking the same candidates in the same queue would
 change what a run reaches.
+
+## Iteration 13 - the partition class, closed; the rung and the hazard ladder part ways
+
+The dead partition machinery was enabled as a per-run posture with two fixes
+the code needed: shapes that block no pair are never drawn, and the repair is
+held over the learned completed span so an isolation lasts hundreds of steps
+rather than five. Two more fixes were needed at build time and are recorded
+as amendments, not drift: client nodes belong to no side of the Halves and
+Bridge shapes, so under them the whole workload froze; the filter now also
+requires every client to reach a majority of servers, which admits
+IsolateOne alone at three nodes - one server isolated while the other two
+keep serving, exactly the hypothesis's mechanism and nothing else. A latent
+bug surfaced on the way: the ring shape's reach equals the maximum ring
+distance at every node count, so it has never blocked anything. Reported,
+not fixed.
+
+It fired at 67x its floor. 416,674 partitions armed over 997k runs, 13.3M
+blocked sends per chunk, 360,396 heal holds engaged at a mean of 211 steps,
+shape shares on theory to three digits. Every safety clause held: steps per
+run 1.075x, unhealed at exit 17.6% of armed, throughput 0.94, zero
+violations either side.
+
+And it did the two things the goal's ladder says should go together, in
+opposite directions. Stale-incarnation deliveries per run rose from 3.39 to
+4.98 - up 47%, the largest move on that hazard rung this session. Depth>=6
+per run fell 21%: the probe-free randomized contrast read 0.7914
+[0.785, 0.798] against a 1.05 bar, and plan completion fell 6.7 points on
+partitioned runs. Closed on the primary falsifier.
+
+The reading is the direction review's blind-spot argument made concrete
+from the other side. A fault that isolates a node without wiping it produces
+far more of the generic hazard the goal file names one rung below depth, and
+it blocks the specific deliveries the oracle's chain requires for two
+hundred steps at a time, so runs hit their cap before the chain completes.
+The rung punishes exactly what the ladder rewards. Nothing graded on this
+oracle can tell whether that hazard brought the target closer, and this is
+now the third mechanism (after the two acted-ness candidates) to move a
+hazard rung strongly with depth flat or down.
+
+Instrument note kept from the build. The "released when it would leave the
+eligible set empty" valve that recent proposals describe as established does
+not exist in the merged tree; the crash masks are safe by expiry and re-roll
+only. Each candidate that relied on it built its own. Any design that needs
+it must write it.
