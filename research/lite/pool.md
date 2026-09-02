@@ -669,8 +669,14 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## directed-link-speed-class-run-skew
 
-- kind: add | category: scheduler | origin: proposer | status: admitted,
-  building behind the partition grading (judge gain 7, cost 0, net 7)
+- kind: add | category: scheduler | origin: proposer | status: CLOSED,
+  typed rule and falsifier agree (judge gain 7, cost 0)
+- Built and graded over 813k runs. Fired at 0.87 withheld offers per step
+  with the cap bucket at 7.3%; both hazard observables passed; internal
+  depth>=6 0.9646 [0.956,0.973], cross-binary 0.7663, throughput 0.767.
+  The throughput loss is shared by both halves (treated wall 1.010x
+  untreated), so it is a hot-path code cost, not the mechanism's - and
+  the internal contrast cannot see it. Fourth hazard-up-depth-down result.
 - title: Per-run directed-link speed classes - a hard, run-persistent ordering
   class on each ordered node pair, so message order carries correlation
   across a run instead of independent per-message priorities

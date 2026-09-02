@@ -955,3 +955,47 @@ eligible set empty" valve that recent proposals describe as established does
 not exist in the merged tree; the crash masks are safe by expiry and re-roll
 only. Each candidate that relied on it built its own. Any design that needs
 it must write it.
+
+## Iteration 14 - directed link speed classes, closed; and a limit of the internal contrast
+
+The judge's argument for this one was new: the four refuted scoring
+mechanisms re-ranked the same candidates inside one step's draw, while the
+merged masks changed which runnables were eligible across steps. A per-run
+speed class on each ordered pair, enforced through the eligibility mask,
+withholds a record across many steps so a delivery can be deferred past a
+fault - a correlated reordering a memoryless tournament produces at 2^-k.
+The engineering held: 0.87 withheld offers per step against a 0.02 floor,
+47% of steps masked, 7.3% of withheld deliveries reaching the age cap
+against a 25% limit, and both hazard observables passed - messages held at
+crash 5.55 per run against 4.92, stale-incarnation deliveries 3.66 against
+3.27, pooled over both halves.
+
+Depth fell. The randomized internal contrast read 0.9646 [0.956, 0.973]
+against a 1.05 bar, cross-binary depth>=6 per second 0.7663, and the typed
+rule stopped it itself on a throughput of 0.767 against a 0.95 floor. Hazard
+up, depth down, for the fourth time this session.
+
+The throughput number carries a lesson about the instrument. The 23% loss
+is paid by both halves: treated runs cost 1.010x the wall of untreated runs
+in the same session. So it is not the mechanism's marginal cost. It is a
+cost every run pays - most plausibly the eligibility closure, which now
+captures the class table and wraps the base predicate, no longer inlining
+the same way across the several queue scans each step performs. The
+randomized internal contrast measures a treatment's marginal effect given
+the shared code, and it is blind to a change in the shared code itself. For
+any candidate that touches the hot path, cross-binary throughput is the only
+honest read of cost, and a frozen throughput clause must be read there.
+
+Direction after fourteen iterations. The night's ledger is one merge (the
+purgatory ablation, +47% on the rung, +28% paxos, 3.27x mencius) and six
+closes, every one of which fired as designed. The four mechanisms that moved
+a hazard rung strongly - acted-stale-delivery timing twice, the partition,
+now link speed - all read depth flat or down. The two that moved the rung
+were placement in time and the removal of blind noise. The oracle's
+blindness to the incarnation condition is no longer an inference; it is the
+pattern of the record. The next candidate, the entry-clock placement, is
+the last unexamined axis of the family that has worked, and its null would
+close that family cleanly. After it, the review at iteration 15 should say
+plainly that further mechanism work on this rung has a ceiling the oracle
+sets, and that the user's decision on the oracle is what the loop is
+waiting on.

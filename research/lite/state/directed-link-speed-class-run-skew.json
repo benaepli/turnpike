@@ -1,0 +1,184 @@
+{
+ "name": "directed-link-speed-class-run-skew",
+ "createdAtIso": "2026-09-02T08:13:25.408Z",
+ "note": "frozen prediction per judge rewrite (pool.md): internal depth>=6 upper CI >=1.05; withheld_offers floor 2M and >=0.02/step; treated throughput >=0.95 of untreated; age_released <0.5 of withheld; cap bucket <25%; treated messages_held_at_crash and sender_restarted per run +8%",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/directed-link-speed-class-run-skew/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/directed-link-speed-class-run-skew/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:directed-link-speed-class-run-skew"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-f9daa01b-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-directed-link-speed-class-run-skew",
+  "chunks": 2,
+  "runs": 812760,
+  "graded": 812760,
+  "depth4": 595644,
+  "depth5": 383340,
+  "depth6plus": 175861,
+  "depth7plus": 46426,
+  "depth8plus": 5488,
+  "violations": 0,
+  "h2Count": 581848,
+  "exposureSec": 600.717,
+  "rpsChunks": [
+   1343.4087882822903,
+   1362.5602280257194
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0,
+   "depth>=4:pMei": 0,
+   "depth>=4:ratio": 0.7936603598786316,
+   "depth>=4:mei": 0.05941336443325158,
+   "depth>=5:pGreater": 0,
+   "depth>=5:pMei": 0,
+   "depth>=5:ratio": 0.7816870480354643,
+   "depth>=5:mei": 0.06390934267516683,
+   "depth>=6:pGreater": 0,
+   "depth>=6:pMei": 0,
+   "depth>=6:ratio": 0.7662820672183563,
+   "depth>=6:mei": 0.06324391987010336,
+   "depth>=7:pGreater": 0,
+   "depth>=7:pMei": 0,
+   "depth>=7:ratio": 0.7535501596072295,
+   "depth>=7:mei": 0.07124952698469444,
+   "depth>=8:pGreater": 0,
+   "depth>=8:pMei": 0,
+   "depth>=8:ratio": 0.7361504590357753,
+   "depth>=8:mei": 0.10852514033848941,
+   "h2:pGreater": 0,
+   "h2:ratio": 0.9679504589706516,
+   "h2:mei": 0.003920070852121288,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 0.7670710683183378,
+   "throughput:cv": 0.010009067236505898,
+   "depth>=5:cv": 0.01,
+   "depth>=6:cv": 0.01,
+   "depth>=7:cv": 0.01,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.48400000000004,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "stop",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|f9daa01b|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 697800,
+   "graded": 697800,
+   "exposureSec": 480.48400000000004,
+   "depth": [
+    697800,
+    670395,
+    596170,
+    509922,
+    327529,
+    150772,
+    39915,
+    4664,
+    100
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.264,
+     "depth": [
+      347340,
+      333930,
+      297194,
+      254262,
+      163284,
+      75393,
+      19992,
+      2301,
+      57
+     ]
+    },
+    {
+     "exposureSec": 240.22,
+     "depth": [
+      350460,
+      336465,
+      298976,
+      255660,
+      164245,
+      75379,
+      19923,
+      2363,
+      43
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-directed-link-speed-class-run-skew-sequential-1000-1788336805760",
+  "lite-directed-link-speed-class-run-skew-sequential-1001-1788337212377"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T08:20:11.876Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 406
+  },
+  {
+   "atIso": "2026-09-02T08:26:58.631Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict stop: throughput 0.767 below floor 0.8",
+   "wallSec": 406
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}
