@@ -1,5 +1,15 @@
 # Lite Loop Observations
 
+> **Epoch note (epoch 13, 2026-09-02).** Every prefix-depth figure recorded before the
+> traceanalyzer commit "witness-complete prefix depth over direct predecessors" was
+> measured under a matcher that credited a label when any matched ancestor in the DAG's
+> transitive closure preceded it and contracted any label with no candidate in the run.
+> From epoch 13 depth is witness-complete: depth >= k means the first k events of the
+> oracle DAG occurred in order with nothing skipped. General-mode depth >= 6 moves from
+> about 20% of runs to about 1%, and general max depth from 9 to 8. Ratios within one
+> epoch remain valid; levels across the boundary are not comparable.
+
+
 One entry per iteration, newest last: date, hypothesis id, verdict, the key
 figures the decision was made on, and what was learned.
 

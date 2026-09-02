@@ -18,7 +18,11 @@ Proxies steer sampling; they never declare victory. Depth has already
 decoupled once: general-config runs at the deepest rung were all linearizable.
 Operationally, graders separate candidates on depth>=6 events per
 explore-second - per-run probability times runs per second - so throughput
-multiplies every rung.
+multiplies every rung. From epoch 13 the rung is
+witness-complete: depth >= k means the first k events of the oracle DAG occurred
+in order with nothing skipped, so depth >= 6 requires the initiating crash and its
+view-change delivery, not merely six ordered events. Depth figures from earlier
+epochs are on a different scale and are not comparable.
 
 **It is a probability problem, not a reachability problem.** Plans only gate
 which events may be released; they create no states free exploration cannot

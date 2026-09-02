@@ -1,18 +1,19 @@
 {
-  "generated_at": "2026-08-24T08:23:29.905333+00:00",
-  "generator_spur_commit": "b04c56f0eff869d474e8ab3da65b691548345a9b",
+  "generated_at": "2026-09-02T21:04:46.198837+00:00",
+  "epoch": 13,
+  "generator_spur_commit": "4ff2a459637421f304d9689e97923df471516475",
+  "analyzer_commit": "12160cd",
   "oracle_dag": "research/oracle/relax_minimal.json",
   "grader_settings": {
     "dag_swaps": 200,
     "grade_max_runs": 2000
   },
-  "notes": "Labels come from porcupine_batch (ground truth) and the plans that generated each corpus, never from the grader. Measured calibration invariants a grader change must preserve (within tolerance): (1) every plan-driven corpus has mean_prefix_depth > unconstrained_c0 by a margin >= 1.0; (2) on findbug_archive, ALL violating runs have prefix_depth == max (8) \u2014 min depth over violating runs must stay at max; (3) 372 runs reach depth 8, of which 266 violate (71% precision at full depth); (4) porcupine verdicts per corpus are fixed ground truth. Note: relax-tier ordering by depth is NOT monotone in constraint count under the b04c56f binary (constrained plans stall more), so tier-vs-tier ordering is not an invariant.",
+  "notes": "Epoch 13: prefix depth is witness-complete over direct predecessors with contraction by kind. Labels come from porcupine_batch (ground truth) and the plans that generated each corpus. Invariants a grader change must preserve: (1) every plan-driven corpus has mean_prefix_depth above unconstrained_epoch13 by at least 1.0 (measured margin recorded in 'measured'); (2) on find_bug_plan every violating run reaches the deepest witness-complete prefix its own event set admits - verified by the exact witness search on every graded run - and sits at depth >= max-1; runs 2345 and 2721 stop at 8 because no read follows both deliveries to node 0; (3) find_bug_plan: 145 runs at depth >= 8 of which 11 violate, 90 at depth 9 of which 9 violate; (4) porcupine verdicts per corpus are fixed ground truth. findbug_archive and unconstrained_c0 have no run store on disk and are retired from the invariants; their epoch-12 figures are kept under 'retired'. Plan corpora are not step-identical across run-plan invocations (one delivery step differed between two regenerations) while verdicts and depths reproduce, so sha256 fields identify a specific regeneration, not the corpus.",
   "corpora": {
     "find_bug_plan": {
       "plan": "research/oracle/tiers/find_bug_plan.json",
-      "total_runs": 3000,
+      "runs": 3000,
       "violations": 11,
-      "unknown": 0,
       "violating_run_ids": [
         572,
         594,
@@ -26,9 +27,10 @@
         2345,
         2721
       ],
-      "mean_prefix_depth": 3.8235,
-      "max_prefix_depth": 8,
+      "mean_prefix_depth": 4.819,
+      "max_prefix_depth": 9,
       "depth_at_least": [
+        2000,
         2000,
         2000,
         2000,
@@ -36,62 +38,40 @@
         496,
         496,
         95,
-        64
+        55
       ],
-      "graded_runs": 2000,
-      "hazard_rates": {
-        "h1_rate": 0.2683333333333333,
-        "h2_rate": 0.26366666666666666,
-        "h2b_rate": 0.13866666666666666,
-        "h3_rate": 0.25033333333333335
-      },
-      "unpaired_fraction": 0.14926108374384237,
-      "sha256": {
-        "executions": "fa95cc60e942ce46aa78d028dca422b9e4fc8a8d054a98a68ad6e3ea1b2a7c32",
-        "traces": "ffac4a2fd8ca18d9c2faf092ba7c2ed39ad438ab5b82086e434e47c4bf3b0349"
-      }
+      "sha256_parquet": "d5a6197f70ae45087814026b4a6cd3787ceaf7047b36964c0f2283bbe5bad654"
     },
     "relax_3": {
       "plan": "research/oracle/tiers/relax_3.json",
-      "total_runs": 3000,
+      "runs": 3000,
       "violations": 0,
-      "unknown": 0,
       "violating_run_ids": [],
-      "mean_prefix_depth": 4.1385,
-      "max_prefix_depth": 7,
+      "mean_prefix_depth": 4.131,
+      "max_prefix_depth": 8,
       "depth_at_least": [
         2000,
         2000,
         2000,
         2000,
-        161,
-        99,
-        17
+        82,
+        82,
+        82,
+        16
       ],
-      "graded_runs": 2000,
-      "hazard_rates": {
-        "h1_rate": 0.319,
-        "h2_rate": 0.30666666666666664,
-        "h2b_rate": 0.584,
-        "h3_rate": 1
-      },
-      "unpaired_fraction": 0.07341147439851943,
-      "sha256": {
-        "executions": "812370ff4ba3d46cd79c6dec6075f8409dd406415eeabdb246407f0cd752e907",
-        "traces": "c6ef96e34fc44fad8032e30723dea006fa184193bf23d54f50fa2c7d0ba2c316"
-      }
+      "sha256_parquet": "5283cddf34e230b512153773df874807b7c052593ea43b1a2dc49bba2fddf646"
     },
     "relax_5": {
       "plan": "research/oracle/tiers/relax_5.json",
-      "total_runs": 3000,
+      "runs": 3000,
       "violations": 1,
-      "unknown": 0,
       "violating_run_ids": [
         1645
       ],
-      "mean_prefix_depth": 3.977,
-      "max_prefix_depth": 8,
+      "mean_prefix_depth": 4.9715,
+      "max_prefix_depth": 9,
       "depth_at_least": [
+        2000,
         2000,
         2000,
         2000,
@@ -99,35 +79,24 @@
         496,
         496,
         440,
-        26
+        15
       ],
-      "graded_runs": 2000,
-      "hazard_rates": {
-        "h1_rate": 0.2683333333333333,
-        "h2_rate": 0.2633333333333333,
-        "h2b_rate": 0.16033333333333333,
-        "h3_rate": 0.25033333333333335
-      },
-      "unpaired_fraction": 0.1825232678386763,
-      "sha256": {
-        "executions": "3f39363644749375cbdf1732be33334c430c50dbe1235d804707fb9b7262bb3c",
-        "traces": "9bc10e9e7b115a281e022aa53f5a90a278e90b6efd003e63900f3b475b23a642"
-      }
+      "sha256_parquet": "d527afe5571b1dc22976be9a740e8dc48fed5965ea90d089eebdc95e5610b30f"
     },
     "relax_minimal": {
       "plan": "research/oracle/tiers/relax_minimal.json",
-      "total_runs": 5000,
+      "runs": 5000,
       "violations": 4,
-      "unknown": 0,
       "violating_run_ids": [
         26,
         572,
         1212,
         3212
       ],
-      "mean_prefix_depth": 3.902,
-      "max_prefix_depth": 8,
+      "mean_prefix_depth": 4.902,
+      "max_prefix_depth": 9,
       "depth_at_least": [
+        2000,
         2000,
         2000,
         2000,
@@ -137,135 +106,47 @@
         158,
         158
       ],
-      "graded_runs": 2000,
-      "hazard_rates": {
-        "h1_rate": 0.2612,
-        "h2_rate": 0.2568,
-        "h2b_rate": 0.1472,
-        "h3_rate": 0.2446
-      },
-      "unpaired_fraction": 0.16962952910842719,
-      "sha256": {
-        "executions": "5a92c1851e964a52b9b4eeb715f21b9843f8399ef6adab8fc9b82541ed222b40",
-        "traces": "d3d04f518f36a3461585e7be8c1156fadfd7165bd683f705e5fc4df68b7d8e79"
-      }
+      "sha256_parquet": "769368d9a06dbf324b29720e415d0b8e493e90047496da13f14b2aa32e6438ae"
     },
-    "findbug_archive": {
+    "unconstrained_epoch13": {
       "plan": null,
-      "total_runs": 5000,
-      "violations": 266,
-      "unknown": 0,
-      "violating_run_ids": [
-        2,
-        36,
-        54,
-        75,
-        137,
-        154,
-        180,
-        200,
-        204,
-        240,
-        270,
-        291,
-        299,
-        304,
-        376,
-        389,
-        402,
-        447,
-        457,
-        474,
-        486,
-        530,
-        536,
-        541,
-        586,
-        594,
-        612,
-        635,
-        677,
-        726,
-        739,
-        747,
-        768,
-        776,
-        855,
-        885,
-        901,
-        907,
-        910,
-        951,
-        968,
-        979,
-        999,
-        1018,
-        1036,
-        1037,
-        1053,
-        1059,
-        1081,
-        1088
-      ],
-      "mean_prefix_depth": 3.85,
-      "max_prefix_depth": 8,
-      "depth_at_least": [
-        2000,
-        2000,
-        2000,
-        468,
-        468,
-        468,
-        148,
-        148
-      ],
-      "graded_runs": 2000,
-      "hazard_rates": {
-        "h1_rate": 0.2628,
-        "h2_rate": 0.2596,
-        "h2b_rate": 0.1542,
-        "h3_rate": 0.2436
-      },
-      "unpaired_fraction": 0.16376969038565997,
-      "sha256": {
-        "executions": "341708be2cdb8a4ead01990fd3e5403501986b845dec53df610d8778202fca0d",
-        "traces": "0d2c951cfbb2a9844b5846bb2672210378971b89ace97fc960f5a71a1060b9bd"
-      }
-    },
-    "unconstrained_c0": {
-      "plan": null,
-      "total_runs": 5040,
+      "runs": 564288,
       "violations": 0,
-      "unknown": 7,
       "violating_run_ids": [],
-      "mean_prefix_depth": 2.1985,
-      "max_prefix_depth": 4,
+      "mean_prefix_depth": 1.444,
+      "max_prefix_depth": 9,
       "depth_at_least": [
-        1985,
-        1857,
-        493,
-        62
+        1150,
+        1067,
+        320,
+        305,
+        20,
+        20,
+        3,
+        2,
+        1
       ],
-      "graded_runs": 2000,
-      "hazard_rates": {
-        "h1_rate": 0.2837301587301587,
-        "h2_rate": 0.18988095238095237,
-        "h2b_rate": 0.22043650793650793,
-        "h3_rate": 0.1376984126984127
-      },
-      "unpaired_fraction": 0.14026957229277956,
-      "sha256": {
-        "executions": "8e7a094f492ffe61a3d1e531940ab28dba1814a64e5717960cdad2cf0fd82673",
-        "traces": "c5662d28e7b2cff311dfe0b2b0c02775a588686bbb6845ee062bc2af19c47f8d"
+      "sha256_parquet": "a0c1c6ec3b91502d8c767904c2f3e70086d2c2de22ccb816ab124f6c034cae4d",
+      "generator": {
+        "config": "scheduler_configs/loop/general_vr.json",
+        "session_seed": 20260902,
+        "wall_budget_sec": 300,
+        "note": "fixed-seed general explore; replaces unconstrained_c0 (no store on disk); graded against research/oracle/relax_minimal_general.json, which differs from relax_minimal.json only in the client key name (key1 vs x) because the general config writes key1"
       }
     }
   },
   "measured": {
-    "findbug_archive_full_grade": {
-      "violating_runs_depth": "all 266 at depth 8",
-      "clean_mean_depth": 3.652,
-      "runs_at_max_depth": 372,
-      "precision_at_full_depth": 0.71
-    }
+    "invariant1_margin": 2.6870000000000003,
+    "plan_means": {
+      "find_bug_plan": 4.819,
+      "relax_3": 4.131,
+      "relax_5": 4.9715,
+      "relax_minimal": 4.902
+    },
+    "unconstrained_mean": 1.444
+  },
+  "retired": {
+    "findbug_archive_epoch12": null,
+    "unconstrained_c0_epoch12": "see corpus/unconstrained_c0.porcupine.json; no store"
   }
 }
