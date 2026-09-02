@@ -96,13 +96,29 @@ export function pooledVariantCells(evals: Evaluation[]): VariantMetrics[] {
   return sumVariantCells(lists);
 }
 
-/** One contrast per tag bit that both populations of these chunks carry. */
+/** One contrast per tag bit that both populations of these chunks carry.
+ *
+ * A mechanism that exempts run-cap probes puts every probe in its control,
+ * which at the session's probe rate roughly doubles their weight there.
+ * Probes are uncapped and are exempt from crash placement, so they reach the
+ * deep rungs at a fraction of an ordinary run's rate and drag the control
+ * down: the contrast then reports the exemption rather than the mechanism.
+ * When no treated cell carries the probe bit, probes are dropped from both
+ * sides so the comparison is between populations that differ by the
+ * mechanism alone.
+ */
 export function variantContrasts(evals: Evaluation[]): VariantContrast[] {
   const cells = pooledVariantCells(evals);
+  const probeBit = 2;
   const out: VariantContrast[] = [];
   for (const { bit, name } of VARIANT_BITS) {
-    const t = variantSide(cells.filter((c) => (c.variant & bit) !== 0));
-    const u = variantSide(cells.filter((c) => (c.variant & bit) === 0));
+    let scope = cells;
+    if (bit !== probeBit) {
+      const treatedHasProbe = cells.some((c) => (c.variant & bit) !== 0 && (c.variant & probeBit) !== 0);
+      if (!treatedHasProbe) scope = cells.filter((c) => (c.variant & probeBit) === 0);
+    }
+    const t = variantSide(scope.filter((c) => (c.variant & bit) !== 0));
+    const u = variantSide(scope.filter((c) => (c.variant & bit) === 0));
     if (t.side.gradedRuns === 0 || u.side.gradedRuns === 0) continue;
     const width = Math.max(t.depth.length, u.depth.length);
     const rungs: VariantContrast["rungs"] = [];
