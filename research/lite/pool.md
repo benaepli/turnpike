@@ -308,6 +308,14 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   omitted: steps/run and plan_complete share must be reported per posture,
   and depth bought by lengthening runs (placed steps/run outside 15% of
   stock) is not a pass.
+- Amended on the operator's instruction before approval. The hold now uses
+  a local held map rather than re-offering through the plan engine, which
+  would have left the ready list non-empty and permanently suppressed the
+  deadlock test. And which requests are held is a blind coin rather than an
+  exemption for the first request of each kind: the exemption was chosen by
+  reading the oracle's root, and a rule that consults the scoring function
+  cannot tell us whether the search improved. Band lowered to 0.05..0.40 and
+  a shallow-rung gate added, since the coin holds early writes too.
 - Standing red-team note to answer in review: the nearest recorded evidence
   is the post_fault_client_ops family, closed permanently at
   `OBSERVATIONS.md:3052` by a zero ablation. That null is about plan
