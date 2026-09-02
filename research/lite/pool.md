@@ -765,8 +765,8 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-fanout-phase-anchored-release
 
-- kind: add | category: scheduler | origin: proposer | status: queued as the
-  immediate successor at the same site (judge gain 6, cost 0) | supersedes
+- kind: add | category: scheduler | origin: proposer | status: admitted,
+  building behind the entry-clock grading (judge gain 6, cost 0) | supersedes
   crash-fanout-position-draw, which it repairs per the review's instruction
 - The placed crash releases at a drawn phase of the victim's fan-out (EARLY:
   segment issued >=1 send, none delivered; MID: >=2 issued, some delivered;
