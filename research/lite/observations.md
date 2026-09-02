@@ -1369,3 +1369,28 @@ placement: most placed crashes are the run's first.
 Grader note: a session with no declared bit wrote null internal posteriors
 and its second chunk refused the state; fixed at 2297812 so the applies
 flag alone is published when no bit is declared.
+
+## Iteration 18: holding orphaned sends until the peer answers cuts depth
+
+The destination-answer release - hold a crashed node's stale in-flight
+sends to a peer until that peer has replied to the node's new incarnation -
+fired at three times its floor and read 0.8219 [0.7746, 0.8721] on the
+depth-6 per-run contrast, chunks 0.830 and 0.814, against a frozen band of
+[1.03, 1.12]. Its own observables refuted it too: 91% of holds expired at
+the 96-step window (clause 45%), and the share of stale deliveries whose
+destination had already answered rose only from 0.264 to 0.340 (clause
+1.5x). Steps per run were flat, throughput 1.036, no violations either side.
+
+What the record now says, taken with the purgatory ablation (+47% from
+removing blind delay), the BEHIND stratification (0.9948) and the
+reaction arm (iteration 17): every hold or delay of a message, blind or
+conditioned on protocol state, has cost depth or done nothing, because the
+reply the condition waits for seldom arrives inside the window and the
+delayed stale message pushes the view change past the run cap. The one
+mechanism that moved the rung up placed the CRASH on protocol activity.
+The message-ordering family is closed: the destination-answer release, the
+round-trip hold, the quiescence hold and the entry-clocked delay. The
+control census is worth keeping in mind: on untouched runs, only 26% of
+stale deliveries land after the destination answered the new incarnation,
+so the ordering the target needs is rare under free scheduling - but making
+it common by holding the message is not the way to reach it.

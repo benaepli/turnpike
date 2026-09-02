@@ -872,9 +872,10 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## stale-outbound-hold-until-restart-round-trip
 
-- kind: add | category: scheduler | origin: proposer | status: KEPT,
-  re-ranked at iteration 18 to gain 3 (dominated by
-  orphan-release-on-destination-answer: its "round trip" closes on any
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 18 with the family - the tighter destination-answer release read
+  0.82 on depth>=6 and this looser release has nothing left to add (was KEPT,
+  re-ranked to gain 3 as dominated by orphan-release-on-destination-answer: its "round trip" closes on any
   delivery-triggered entry after one fresh delivery, from any origin
   including a client; it arms at recovery so gap-consumed ghosts escape;
   its HOLD/STOCK draw halves the dose on the declared bit). Close as
@@ -938,8 +939,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## orphan-release-on-destination-answer
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 18 (judge gain 7, cost 0; iteration-18 top pick) | parent: none
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 18 - refuted and harmful: depth>=6 per-run 0.8219 [0.7746,
+  0.8721] (z -8.9) against a band of [1.03, 1.12]; expired/armed 0.908
+  (clause 0.45); answered-first share 0.264 -> 0.340, 1.29x (clause 1.5x).
+  The hold is mostly a blind 96-step delay of the stale message | parent: none
   (family: stale-incarnation record mask; siblings
   orphan-hold-until-origin-restart-quiescence,
   orphan-delay-clocked-by-origin-restart-entries,
@@ -994,9 +998,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## orphan-hold-until-origin-restart-quiescence
 
-- kind: add | category: scheduler | origin: proposer | status: KEPT at
-  iteration 18 (judge gain 5, cost 0; 6 stand-alone, discounted for
-  family dedupe) | parent: stale-outbound-hold-until-restart-round-trip
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 18 with the family - a longer hold than the one that read 0.82;
+  the judge's own caveat (quiescence rare, degrades into the retired blind
+  delay) is what the sibling's 0.908 expiry showed (was KEPT, gain 5) |
+  parent: stale-outbound-hold-until-restart-round-trip
 - Mechanism: arm at the crash (victim with sends in flight); mask its
   ghost records until the origin has restarted, taken at least one handler
   entry, has no fresh send outstanding, and no fresh record from a live
@@ -1013,8 +1019,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## orphan-delay-clocked-by-origin-restart-entries
 
-- kind: add | category: scheduler | origin: proposer | status: KEPT at
-  iteration 18 (judge gain 4, cost 0; diagnostic member of the family)
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 18 with the family - the question it would answer (does an
+  activity-clocked delay of orphans help) is answered by the sibling's
+  0.82: delaying the stale message costs depth within the cap (was KEPT,
+  gain 4; diagnostic member of the family)
 - Mechanism: for orphans only, replace purgatory's step budget by a
   protocol-activity clock - one k per run from {2, 4, 8, 16}; ghosts
   masked until the origin has taken k handler entries since its restart,
