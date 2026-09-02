@@ -237,6 +237,10 @@ function main(): void {
         throughputFloor: 1 - policy.regression.throughputTolerance,
         violationPrior: prior,
         unmeasurable: [],
+        // No recorded hypothesis declared a treatment bit, so every replayed
+        // decision is on the cross-binary path.
+        treatmentBit: null,
+        perRunBand: null,
         // Nothing in the record carries a prediction, so the firing check
         // has nothing to grade against and cannot change a replayed verdict.
         firing: firingCheck({ prediction: null, counters: {}, changedSpurFiles: [], configPaths: null }),

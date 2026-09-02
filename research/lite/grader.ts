@@ -10,11 +10,14 @@
 //   start    --name <slug> --cand-bin <path> --base-bin <path>
 //            --base-template <path> [--cand-template <path>]
 //            [--cand-spec <path>] [--base-spur <dir>] [--note <text>] [--force]
+//            [--treatment-bit <int>] [--band-min <frac> --band-max <frac>]
 //   chunk    --name <slug>
 //   status   --name <slug>
 //   finish   --name <slug> [--regression]
 //   baseline --base-bin <path> --base-template <path> --chunks <n>
 //            [--base-spur <dir>]
+//   freeze-epoch --epoch <n> [--base-template <path>] [--base-spur <dir>]
+//            [--layout-null-band <frac>] [--layout-source <text>] [--force]
 //   selftest
 //
 // Stdout carries exactly one JSON object per invocation; every progress line
@@ -26,7 +29,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 import { HARD_LIMITS, loadPolicy, type Policy } from "../orchestrator/src/policy.js";
-import { runOneEvaluation, selfTestRunIdentity, type EvalContext } from "../orchestrator/src/evaluate.js";
+import { runOneEvaluation, selfTestRunIdentity, sumVariantCells, type EvalContext } from "../orchestrator/src/evaluate.js";
 import {
   canStillAdvance, classifyChunkTiming, classifyPooled, decideSequential, initialSeqState, medianRps,
   pooledCountsOf, pooledFromSeq, selfTestGateConsistency, seqRuleOf, syntheticEvaluation,
@@ -34,13 +37,17 @@ import {
 } from "../orchestrator/src/sequential.js";
 import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/stopper.js";
 import {
-  MERGE_Z, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, addStratum, chunkStratum, compareToBaseline,
-  figuresOf, mergeBlockers, objectiveCounts, ruleVerdict, variantContrasts,
-  type FinalGateInputs, type RatePrior, type VariantContrast,
+  CROSS_BINARY_NULL_FLOOR, EPOCH_DRIFT_WARN, EPOCH_THROUGHPUT_FLOOR, INTERNAL_OVERDISPERSION, INTERNAL_Z, MERGE_Z,
+  NON_DECLARABLE_BITS, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, RULE_VERSION, VARIANT_BITS, addStratum,
+  chunkStratum, compareToBaseline, figuresOf, internalPrimary, mergeBlockers, objectiveCounts,
+  projectedEpochThroughput, ruleVerdict, selfTestInternalPrimary, variantBitsMissingFromSource,
+  variantContrasts,
+  type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
 } from "../orchestrator/src/decide.js";
 import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot } from "../orchestrator/src/runners.js";
 import { selfTestPosteriors, selfTestStats } from "../orchestrator/src/stats.js";
 import { Evaluation, SeqState } from "../orchestrator/src/schemas.js";
+import { RECORDED_DECLARATIONS } from "./declarations.js";
 
 // The orchestrator modules narrate progress on stdout; this process promises
 // its caller a single JSON object there, so their narration moves to stderr.
@@ -50,6 +57,9 @@ const LITE_DIR = path.join(ROOT, "research", "lite");
 const STATE_DIR = path.join(LITE_DIR, "state");
 const BASELINE_DIR = path.join(LITE_DIR, "baselines");
 const CONFIG_PATH = path.join(LITE_DIR, "lite.json");
+// The epoch's frozen throughput baseline and the ledger of merges since it,
+// so throughput spent a few percent at a time is charged somewhere.
+const EPOCH_PATH = path.join(LITE_DIR, "epoch-baseline.json");
 // Path the recorded baseline's chunks were measured against, resolved at the
 // record's own superproject commit when adoption is considered.
 const RECORD_TEMPLATE_PATH = "scheduler_configs/loop/general_vr.json";
@@ -169,6 +179,49 @@ function saveCache(file: string, cache: BaselineCache): void {
   fs.writeFileSync(file, JSON.stringify(cache, null, 1));
 }
 
+// The frozen throughput baseline of an epoch, and every merge landed since.
+// Written by `freeze-epoch` and appended to by hand at each merge: an
+// automatic re-freeze would be the compounding hole under another name.
+interface EpochBaseline {
+  epoch: number;
+  frozenAtIso: string;
+  identity: BaselineIdentity;
+  runsPerSec: number;
+  source: string;
+  // The spread two builds of identical source produce on the primary rung,
+  // measured once per epoch by a build-layout control.
+  layoutNullBand: number;
+  layoutSource: string;
+  layoutMeasuredAtIso: string;
+  merges: Array<{ atIso: string; name: string; commit: string | null; ratio: number; cumulative: number; measuredRps: number | null }>;
+}
+
+function loadEpochBaseline(): EpochBaseline | null {
+  if (!fs.existsSync(EPOCH_PATH)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(EPOCH_PATH, "utf8")) as EpochBaseline;
+  } catch {
+    return null;
+  }
+}
+
+/** What the ledger says the epoch's cumulative throughput stands at, and
+ *  what merging this candidate would leave it at. A missing file leaves the
+ *  budget inert rather than assuming one. */
+function epochReading(epoch: EpochBaseline | null, throughputRatio: number, candRps: number | null): {
+  frozenRps: number | null; cumulative: number | null; projected: number | null; measured: number | null; floor: number; drift: number | null;
+} {
+  const cumulative = epoch === null ? null : epoch.merges.at(-1)?.cumulative ?? 1;
+  const projected = cumulative === null ? null : cumulative * throughputRatio;
+  const measured = epoch === null || epoch.runsPerSec <= 0 || candRps === null ? null : candRps / epoch.runsPerSec;
+  const drift = measured === null || projected === null || projected <= 0 ? null : measured / projected - 1;
+  return { frozenRps: epoch?.runsPerSec ?? null, cumulative, projected, measured, floor: EPOCH_THROUGHPUT_FLOOR, drift };
+}
+
+function layoutFloorOf(epoch: EpochBaseline | null): number {
+  return epoch === null ? CROSS_BINARY_NULL_FLOOR : epoch.layoutNullBand;
+}
+
 // The big loop's recorded baseline is adopted only when it measured the same
 // quantity: same spur tree, same template content at the record's own commit,
 // same arm set and thread count, and chunk exposures within 10% of this
@@ -222,6 +275,11 @@ interface SessionState {
   identity: BaselineIdentity;
   cacheFile: string;
   limits: { chunkSec: number; maxChunks: number; minChunks: number; rayonThreads: number };
+  // The declared treatment: the run tag the mechanism is randomized by, and
+  // the frozen band on the per-run ratio of treated to untreated runs.
+  // Absent on sessions started before the declaration was asked for, which
+  // is the fallback path.
+  treatment?: { bit: number; name: string; band: { min: number; max: number } | null; declaredAtIso: string } | undefined;
   seq: SeqState;
   usedSeeds: number[];
   evalIds: string[];
@@ -306,6 +364,110 @@ function pairedBaseline(cache: BaselineCache, usedSeeds: number[]): PooledCounts
   return pooledCountsOf(cache.chunks.filter((c) => used.has(c.seed)));
 }
 
+/** The session's declared treatment, or the fallback path. */
+function treatmentOf(state: SessionState): { bit: number | null; band: { min: number; max: number } | null } {
+  return { bit: state.treatment?.bit ?? null, band: state.treatment?.band ?? null };
+}
+
+/** What the merge gate makes of the chunks in hand. Computed for `status`
+ *  too, because the operator's real question at every chunk is what `finish`
+ *  will print, and that used to cost a `finish` to learn. */
+interface GateReading {
+  inputs: FinalGateInputs;
+  figures: MergeFigures;
+  verdict: { verdict: string; reason: string };
+  blockers: string[];
+  throughputRatio: number;
+  epoch: ReturnType<typeof epochReading>;
+  epochFrozen: boolean;
+}
+
+function gateReadingOf(
+  state: SessionState, candEvals: Evaluation[], baseEvals: Evaluation[], policy: Policy, cfg: LiteConfig,
+  regression: { passed: boolean; detail?: string } | null,
+): GateReading | null {
+  if (candEvals.length === 0 || baseEvals.length === 0) return null;
+  const candCounts = objectiveCounts(candEvals);
+  const baseCounts = objectiveCounts(baseEvals);
+  const cmp = compareToBaseline(candCounts, baseCounts, MERGE_Z, cfg.violationPrior);
+  const throughputRatio = candCounts.exposureSec > 0 && baseCounts.exposureSec > 0 && baseCounts.runs > 0
+    ? (candCounts.runs / candCounts.exposureSec) / (baseCounts.runs / baseCounts.exposureSec)
+    : 1;
+  const epochFile = loadEpochBaseline();
+  const epoch = epochReading(epochFile, throughputRatio, candCounts.exposureSec > 0 ? candCounts.runs / candCounts.exposureSec : null);
+  const t = treatmentOf(state);
+  const inputs: FinalGateInputs = {
+    hypothesis: { id: `lite-${state.name}`, kind: "add", prediction: null } as unknown as FinalGateInputs["hypothesis"],
+    confirmEvals: candEvals,
+    baselineEvals: baseEvals,
+    regressionPassed: regression === null ? null : regression.passed,
+    ...(regression?.detail === undefined ? {} : { regressionDetail: regression.detail }),
+    lintFailures: [],
+    changedSpurFiles: [],
+    changedSuperFiles: [],
+    throughputRatio,
+    throughputFloor: 1 - policy.regression.throughputTolerance,
+    violationPrior: cfg.violationPrior,
+    unmeasurable: [],
+    firing: { status: "not-claimed", detail: "lite leaves the firing check to the operator; read utilStats.counters in the chunk records" },
+    treatmentBit: t.bit,
+    perRunBand: t.band,
+    epochThroughput: epochFile === null ? null : { frozenRps: epoch.frozenRps, cumulative: epoch.cumulative, floor: epoch.floor },
+    crossBinaryNullFloor: layoutFloorOf(epochFile),
+  };
+  const ip = internalPrimary(candEvals, baseEvals, t.bit, t.band, candCounts.chunks);
+  const figures = figuresOf(inputs, candCounts, baseCounts, cmp, ip);
+  return {
+    inputs, figures, verdict: ruleVerdict(figures), blockers: mergeBlockers(inputs, figures, cmp),
+    throughputRatio, epoch, epochFrozen: epochFile !== null,
+  };
+}
+
+/** The merge criterion, in the shape a reader decides on. */
+function primaryBlock(g: GateReading): Record<string, unknown> {
+  const ip = g.figures.internal;
+  if (ip === null) return { kind: "cross-binary", reason: "the chunks carry no run tags" };
+  return {
+    kind: ip.applies ? "internal" : "cross-binary",
+    inapplicableReason: ip.inapplicableReason,
+    bit: ip.bit, name: ip.name, rung: ip.rung,
+    ratio: ip.ratio, lo: ip.lo, hi: ip.hi, z: ip.z,
+    seCount: ip.seCount, seEff: ip.seEff, perChunkRatios: ip.perChunkRatios,
+    matchedOnMask: ip.matchedOnMask, matchedOn: ip.matchedOn,
+    treatedShare: ip.treatedShare,
+    differenceInDifferences: ip.differenceInDifferences,
+    meiAtCap: ip.meiAtCap, band: ip.band, bandReading: ip.bandReading,
+    treated: ip.treated, control: ip.control,
+    balance: ip.balance,
+    verdict: !ip.applies ? "does not apply"
+      : ip.separatedUp ? `separated up at z ${INTERNAL_Z}`
+        : ip.separatedDown ? `separated down at z ${INTERNAL_Z}`
+          : ip.bandReading === "refuted" ? "the frozen band is excluded"
+            : "resolves neither way",
+  };
+}
+
+/** The cross-binary rung and throughput: cost and regression only. */
+function costBlock(g: GateReading): Record<string, unknown> {
+  const f = g.figures;
+  const ratio = 1 + (f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0);
+  return {
+    label: `cross-binary depth>=${PRIMARY_RUNG} per explore-second - COST AND REGRESSION ONLY, not the primary`,
+    ratio,
+    nullBand: f.primaryNullBand,
+    layoutFloor: f.crossBinaryNullFloor,
+    insideLayoutFloor: Math.abs(ratio - 1) < f.crossBinaryNullFloor,
+    primaryRungRegressed: f.primaryRungRegressed,
+    throughput: {
+      ratio: f.throughput.ratio,
+      floor: f.throughput.floor,
+      epoch: g.epochFrozen
+        ? { frozenRps: g.epoch.frozenRps, cumulative: g.epoch.cumulative, projected: g.epoch.projected, measured: g.epoch.measured, floor: g.epoch.floor, drift: g.epoch.drift }
+        : null,
+    },
+  };
+}
+
 interface Assessment {
   cand: PooledCounts;
   base: PooledCounts;
@@ -314,15 +476,16 @@ interface Assessment {
   stopper: StopperPayload | null;
   csa: boolean;
   rule: SeqRule;
+  gate: GateReading | null;
 }
 
-function assess(state: SessionState, cache: BaselineCache, policy: Policy, cfg: LiteConfig): Assessment {
-  const rule = seqRuleOf(policy, cfg.violationPrior);
+function assess(state: SessionState, cache: BaselineCache, policy: Policy, cfg: LiteConfig, gate: GateReading | null): Assessment {
+  const rule = seqRuleOf(policy, cfg.violationPrior, treatmentOf(state));
   const cand = pooledFromSeq(state.seq);
   const base = pairedBaseline(cache, state.usedSeeds);
   if (state.seq.chunks === 0 || base.chunks === 0) {
     return {
-      cand, base, rule,
+      cand, base, rule, gate,
       ruled: { verdict: "continue", reason: "no paired chunks folded yet", posteriors: {} },
       resolvedIfStopped: null, stopper: null, csa: true,
     };
@@ -330,7 +493,7 @@ function assess(state: SessionState, cache: BaselineCache, policy: Policy, cfg: 
   const ruled = decideSequential(cand, base, state.seq.chunks, rule);
   const csa = canStillAdvance(cand, base, state.seq.chunks, rule);
   return {
-    cand, base, rule, ruled, csa,
+    cand, base, rule, ruled, csa, gate,
     resolvedIfStopped: classifyPooled(ruled, cand, base, state.seq.chunks, rule),
     stopper: buildStopperPayload({
       hypothesisId: `lite-${state.name}`, prediction: state.note, ruled,
@@ -341,10 +504,30 @@ function assess(state: SessionState, cache: BaselineCache, policy: Policy, cfg: 
 
 function adviceOf(a: Assessment): string[] {
   const out: string[] = [];
+  const ip = a.gate?.figures.internal ?? null;
+  if (ip !== null && ip.applies) {
+    out.push(ip.separatedUp
+      ? `the internal per-run contrast is ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]: separated above 1.0 with an effect at or above the floor`
+      : ip.separatedDown
+        ? `the internal per-run contrast is ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]: separated below 1.0`
+        : `the internal per-run contrast is ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]: resolves neither the mechanism nor its band`);
+  } else if (ip !== null && ip.inapplicableReason !== null) {
+    out.push(`no internal primary: ${ip.inapplicableReason}; this session is on the cross-binary fallback path (null floor ${((a.gate?.figures.crossBinaryNullFloor ?? CROSS_BINARY_NULL_FLOOR) * 100).toFixed(0)}%)`);
+  }
+  if (a.gate !== null) {
+    const f = a.gate.figures;
+    const ratio = 1 + (f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0);
+    if (Math.abs(ratio - 1) < f.crossBinaryNullFloor) {
+      out.push(`the cross-binary rung ratio ${ratio.toFixed(4)} sits inside the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% build-layout floor: it is a cost reading, not evidence of a gain`);
+    }
+    if (a.gate.epoch.drift !== null && Math.abs(a.gate.epoch.drift) > EPOCH_DRIFT_WARN) {
+      out.push(`the ledger and the measured drift disagree by ${(a.gate.epoch.drift * 100).toFixed(1)}%: host drift, a template change, or a missing ledger row`);
+    }
+  }
   if (a.stopper === null) return out;
   const primary = a.stopper.rungs.find((r) => r.rung === `depth>=${PRIMARY_RUNG}`);
   if (primary !== undefined && primary.insideNullBand) {
-    out.push(`primary rung ratio ${primary.ratio.toFixed(3)} sits inside its null band (${primary.nullBand.toFixed(3)}): no information either way yet`);
+    out.push(`cost rung ratio ${primary.ratio.toFixed(3)} sits inside its null band (${primary.nullBand.toFixed(3)}): no information either way yet`);
   }
   if (a.cand.violations > 0) {
     out.push(`candidate produced ${a.cand.violations} violation(s); evidence under research/logs/violations/<eval-id>/`);
@@ -380,7 +563,10 @@ interface StatusExtras {
 }
 
 function buildStatus(state: SessionState, cache: BaselineCache, policy: Policy, cfg: LiteConfig, x: StatusExtras): Record<string, unknown> {
-  const a = assess(state, cache, policy, cfg);
+  const candEvals = candEvalsOf(state, false);
+  const baseEvals = cache.chunks.filter((c) => state.usedSeeds.includes(c.seed));
+  const gate = gateReadingOf(state, candEvals, baseEvals, policy, cfg, null);
+  const a = assess(state, cache, policy, cfg, gate);
   const lastWall = x.lastChunkWallSec ?? state.history.filter((h) => h.event === "chunk").at(-1)?.wallSec ?? null;
   return {
     name: state.name,
@@ -390,7 +576,15 @@ function buildStatus(state: SessionState, cache: BaselineCache, policy: Policy, 
     minChunks: a.rule.minChunks,
     verdict: a.ruled.verdict,
     reason: x.reason ?? a.ruled.reason,
-    resolvedIfStopped: a.resolvedIfStopped === null ? null : { verdict: a.resolvedIfStopped.verdict, reason: a.resolvedIfStopped.reason },
+    resolvedIfStopped: a.resolvedIfStopped === null
+      ? null
+      : {
+        verdict: a.resolvedIfStopped.verdict,
+        reason: a.resolvedIfStopped.reason,
+        // What `finish` would print on the chunks in hand, minus the
+        // regression suite it has not bought.
+        rule: gate === null ? null : { verdict: gate.verdict.verdict, reason: gate.verdict.reason, blockers: gate.blockers },
+      },
     canStillAdvance: a.csa,
     stopper: a.stopper,
     advice: [...(x.advice ?? []), ...adviceOf(a)],
@@ -408,10 +602,9 @@ function buildStatus(state: SessionState, cache: BaselineCache, policy: Policy, 
       anomalies: state.seq.anomalies,
       failures: state.failures.total,
     },
-    variantContrasts: variantReport(
-      candEvalsOf(state, false),
-      cache.chunks.filter((c) => state.usedSeeds.includes(c.seed)),
-    ),
+    primary: gate === null ? null : primaryBlock(gate),
+    cost: gate === null ? null : costBlock(gate),
+    variantContrasts: variantReport(candEvals, baseEvals),
     files: { state: stateFileFor(state.name), chunkDir: chunkDirFor(state.name) },
     budget: {
       freeDiskGb: Math.round(freeDiskGb(ROOT) * 10) / 10,
@@ -456,6 +649,39 @@ function baseSpurDirOf(flags: Map<string, string>): string {
   return derived;
 }
 
+/** The declared treatment, checked before a single chunk is bought. A bit
+ *  that is not on the roster, or that names an instrument rather than a
+ *  randomized treatment, is a session that would grade nothing; naming the
+ *  bit in the same commit that adds the tag is the precondition, not a
+ *  convention. */
+function declaredTreatment(flags: Map<string, string>): NonNullable<SessionState["treatment"]> | null {
+  const raw = flags.get("treatment-bit");
+  const bandMin = flags.get("band-min");
+  const bandMax = flags.get("band-max");
+  if (raw === undefined) {
+    if (bandMin !== undefined || bandMax !== undefined) throw new Error("--band-min/--band-max name the per-run ratio of a declared bit; pass --treatment-bit too");
+    return null;
+  }
+  const bit = Number(raw);
+  if (!Number.isInteger(bit) || bit <= 0 || (bit & (bit - 1)) !== 0) throw new Error(`--treatment-bit must be a power of two, got ${raw}`);
+  const known = VARIANT_BITS.find((v) => v.bit === bit);
+  if (known === undefined) {
+    throw new Error(`bit ${bit} is not named in VARIANT_BITS (research/orchestrator/src/decide.ts); add it in the same commit that adds the tag to spur/spur-core/src/simulator/run_variant.rs`);
+  }
+  if (NON_DECLARABLE_BITS.includes(bit)) {
+    throw new Error(`bit ${bit} (${known.name}) names an instrument or an outcome, not a treatment randomized by run id; it cannot be a session's primary`);
+  }
+  if ((bandMin === undefined) !== (bandMax === undefined)) throw new Error("--band-min and --band-max are declared together or not at all");
+  let band: { min: number; max: number } | null = null;
+  if (bandMin !== undefined && bandMax !== undefined) {
+    const min = Number(bandMin);
+    const max = Number(bandMax);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) throw new Error(`--band-min ${bandMin} and --band-max ${bandMax} must be fractions with min <= max`);
+    band = { min, max };
+  }
+  return { bit, name: known.name, band, declaredAtIso: new Date().toISOString() };
+}
+
 async function cmdStart(flags: Map<string, string>): Promise<void> {
   const cfg = liteConfig();
   const policy = policyFor(cfg);
@@ -498,6 +724,7 @@ async function cmdStart(flags: Map<string, string>): Promise<void> {
   if (fs.existsSync(stateFileFor(name)) && flags.get("force") !== "true") {
     throw new Error(`session ${name} already exists; pass --force to overwrite it`);
   }
+  const treatment = declaredTreatment(flags);
   const state: SessionState = {
     name,
     createdAtIso: new Date().toISOString(),
@@ -512,6 +739,7 @@ async function cmdStart(flags: Map<string, string>): Promise<void> {
       minChunks: policy.sequential.minChunks,
       rayonThreads: policy.evaluation.rayonThreads,
     },
+    ...(treatment === null ? {} : { treatment }),
     seq: initialSeqState(`lite-${name}`, identityKey(identity)),
     usedSeeds: [],
     evalIds: [],
@@ -638,12 +866,13 @@ async function cmdChunk(flags: Map<string, string>): Promise<void> {
     violations: state.seq.violations + c.violations,
     h2Count: state.seq.h2Count + c.h2Count,
     rateStratum: addStratum(state.seq.rateStratum, chunkStratum(e)),
+    variants: sumVariantCells([state.seq.variants, c.variants]),
   };
   state.usedSeeds.push(seed);
   state.evalIds.push(e.id);
   writeChunkFile(state.name, seed, "cand", e);
 
-  const a = assess(state, cache, policy, cfg);
+  const a = assess(state, cache, policy, cfg, null);
   state.seq = { ...state.seq, posteriors: a.ruled.posteriors, lastVerdict: a.ruled.verdict };
   record("chunk", `verdict ${a.ruled.verdict}: ${a.ruled.reason}`);
   saveState(state);
@@ -705,9 +934,6 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
   const candCounts = objectiveCounts(candEvals);
   const baseCounts = objectiveCounts(baseEvals);
   const cmp = compareToBaseline(candCounts, baseCounts, MERGE_Z, cfg.violationPrior);
-  const throughputRatio = candCounts.exposureSec > 0 && baseCounts.exposureSec > 0 && baseCounts.runs > 0
-    ? (candCounts.runs / candCounts.exposureSec) / (baseCounts.runs / baseCounts.exposureSec)
-    : 1;
 
   let regression: { passed: boolean; cases: Array<{ name: string; passed: boolean; detail: string }> } | null = null;
   if (flags.get("regression") === "true") {
@@ -721,28 +947,24 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
   // The gate machinery wants a hypothesis and a firing result; lite supplies
   // a neutral stand-in and leaves the firing question to whoever reads the
   // mechanism counters in the chunk records.
-  const inputs: FinalGateInputs = {
-    hypothesis: { id: `lite-${state.name}`, kind: "add", prediction: null } as unknown as FinalGateInputs["hypothesis"],
-    confirmEvals: candEvals,
-    baselineEvals: baseEvals,
-    regressionPassed: regression === null ? null : regression.passed,
-    lintFailures: [],
-    changedSpurFiles: [],
-    changedSuperFiles: [],
-    throughputRatio,
-    throughputFloor: 1 - policy.regression.throughputTolerance,
-    violationPrior: cfg.violationPrior,
-    unmeasurable: [],
-    firing: { status: "not-claimed", detail: "lite leaves the firing check to the operator; read utilStats.counters in the chunk records" },
-  };
-  const figures = figuresOf(inputs, candCounts, baseCounts, cmp);
-  const advice = ruleVerdict(figures);
-  const blockers = mergeBlockers(inputs, figures, cmp);
+  const gate = gateReadingOf(state, candEvals, baseEvals, policy, cfg, regression === null ? null : { passed: regression.passed });
+  if (gate === null) throw new Error(`session ${state.name} has no paired baseline chunks; nothing to finish`);
+  const figures = gate.figures;
+  const throughputRatio = gate.throughputRatio;
+  const advice = gate.verdict;
+  const blockers = gate.blockers;
   state.finished = true;
   saveState(state);
+  const a = assess(state, cache, policy, cfg, gate);
   emit({
     name: state.name,
     phase: "finished",
+    ruleVersion: RULE_VERSION,
+    primaryKind: figures.internal !== null && figures.internal.applies ? "internal" : "cross-binary",
+    treatmentBit: state.treatment?.bit ?? null,
+    primary: primaryBlock(gate),
+    cost: costBlock(gate),
+    advice: adviceOf(a),
     comparison: {
       improved: cmp.improved,
       regressed: cmp.regressed,
@@ -821,6 +1043,47 @@ async function cmdBaseline(flags: Map<string, string>): Promise<void> {
   if (cache.chunks.length < target) process.exitCode = 1;
 }
 
+// The epoch's throughput baseline is frozen by hand and never automatically:
+// a re-freeze that follows the tree is the compounding hole under another
+// name. Every merge appends its row to the ledger the file carries.
+async function cmdFreezeEpoch(flags: Map<string, string>): Promise<void> {
+  const cfg = liteConfig();
+  const policy = policyFor(cfg);
+  const epoch = Number(need(flags, "epoch"));
+  if (!Number.isInteger(epoch) || epoch < 1) throw new Error(`--epoch must be a positive integer, got ${flags.get("epoch")}`);
+  const baseTemplate = path.resolve(flags.get("base-template") ?? path.join(ROOT, cfg.configTemplate));
+  const baseSpurDir = path.resolve(flags.get("base-spur") ?? path.join(ROOT, "spur"));
+  const identity = identityFor(baseSpurDir, baseTemplate, policy);
+  const cacheFile = cacheFileFor(identity);
+  const cache = loadCache(cacheFile);
+  if (cache === null || cache.chunks.length === 0) {
+    throw new Error(`no baseline cache at ${cacheFile}; run \`baseline\` under this identity before freezing an epoch`);
+  }
+  const rps = medianRps(pooledCountsOf(cache.chunks));
+  if (rps === null) throw new Error(`the baseline cache at ${cacheFile} carries no usable throughput`);
+  const existing = loadEpochBaseline();
+  if (existing !== null && flags.get("force") !== "true") {
+    throw new Error(`epoch ${existing.epoch} is already frozen in ${EPOCH_PATH} at ${existing.runsPerSec} runs/s; pass --force to replace it`);
+  }
+  const band = flags.get("layout-null-band");
+  const file: EpochBaseline = {
+    epoch,
+    frozenAtIso: new Date().toISOString(),
+    identity,
+    runsPerSec: rps,
+    source: `median over ${path.relative(ROOT, cacheFile)} (${cache.chunks.length} chunks)`,
+    layoutNullBand: band === undefined ? CROSS_BINARY_NULL_FLOOR : Number(band),
+    layoutSource: flags.get("layout-source") ?? `unmeasured for this epoch: the ${CROSS_BINARY_NULL_FLOOR} constant stands until a build-layout control is run`,
+    layoutMeasuredAtIso: flags.get("layout-measured") ?? new Date().toISOString(),
+    merges: [],
+  };
+  if (!Number.isFinite(file.layoutNullBand) || file.layoutNullBand < 0 || file.layoutNullBand > 0.5) {
+    throw new Error(`--layout-null-band must be a fraction in [0, 0.5], got ${band}`);
+  }
+  fs.writeFileSync(EPOCH_PATH, `${JSON.stringify(file, null, 1)}\n`);
+  emit({ phase: "finished", file: EPOCH_PATH, epoch, runsPerSec: rps, source: file.source, layoutNullBand: file.layoutNullBand });
+}
+
 async function cmdSelftest(): Promise<void> {
   const cfg = liteConfig();
   const policy = policyFor(cfg);
@@ -876,7 +1139,146 @@ async function cmdSelftest(): Promise<void> {
   if (!fs.existsSync(template)) failures.push(`configured template ${template} is missing`);
   else if (templateArmIds(template).length === 0) failures.push(`configured template ${template} carries no campaign arms`);
 
-  emit({ phase: failures.length === 0 ? "finished" : "error", failures, gateConsistencyBaseline: liveDetail });
+  // The internal primary: its own seams on synthetic cells, then the
+  // recorded sessions it was derived from.
+  const warnings: string[] = [];
+  failures.push(...selfTestInternalPrimary());
+  const skipped: string[] = [];
+  const recorded = (name: string): { cand: Evaluation[]; base: Evaluation[] } | null => {
+    if (!fs.existsSync(stateFileFor(name))) return null;
+    const st = loadState(name);
+    const cache = loadCache(st.cacheFile);
+    if (cache === null) return null;
+    const cand = candEvalsOf(st, false);
+    if (cand.length === 0) return null;
+    return { cand, base: cache.chunks.filter((c) => st.usedSeeds.includes(c.seed)) };
+  };
+
+  // The matching, against the session it was derived from: the fan-out phase
+  // anchor only exists on placed runs, so its control is the placed and
+  // untreated population and nothing wider.
+  const nested = recorded("crash-fanout-phase-anchored-release");
+  if (nested === null) skipped.push("crash-fanout-phase-anchored-release is not on disk, so the matching check has no recorded fixture");
+  else {
+    const matched = internalPrimary(nested.cand, [], 512, null, 4);
+    const unmatched = variantContrasts(nested.cand).find((c) => c.bit === 512)?.rungs.find((r) => r.rung === `depth>=${PRIMARY_RUNG}`)?.ratio ?? 0;
+    if (Math.abs(matched.ratio - 1.0497) > 0.001) failures.push(`the matched contrast on bit 512 must read 1.0497, got ${matched.ratio.toFixed(4)}`);
+    if (Math.abs(unmatched - 1.1904) > 0.001) failures.push(`the unmatched survey contrast on bit 512 must read 1.1904, got ${unmatched.toFixed(4)}`);
+    if (matched.matchedOnMask !== 1) failures.push(`bit 512 must match on crashPlaced, got mask ${matched.matchedOnMask}`);
+  }
+
+  // The tolerances must not be so tight that they refuse real evidence: no
+  // recorded matched session may carry a balance fault. And the dispersion
+  // the interval is charged must still cover what the chunks show.
+  let dof = 0;
+  let inflation = 0;
+  for (const d of RECORDED_DECLARATIONS) {
+    if (d.bit === null) continue;
+    const r = recorded(d.name);
+    if (r === null) { skipped.push(`${d.name} is not on disk`); continue; }
+    const cells = r.cand.map((e) => e.metrics.variants);
+    if (cells.every((c) => c.length === 0)) { skipped.push(`${d.name} carries no variant cells`); continue; }
+    const ip = internalPrimary(r.cand, r.base, d.bit, d.band, r.cand.length);
+    if (ip.balance.faults.length > 0 && !NON_DECLARABLE_BITS.includes(d.bit)) {
+      failures.push(`${d.name} (bit ${d.bit}) must balance after matching, got [${ip.balance.faults.join("; ")}]`);
+    }
+    // Candidate-side only, so the dispersion measured is the contrast's own
+    // and not the difference of two.
+    const perChunk = r.cand.map((e) => internalPrimary([e], [], d.bit, null, 1));
+    const ratios = perChunk.map((x) => x.ratio).filter((x) => Number.isFinite(x) && x > 0);
+    const ses = perChunk.map((x) => x.seCount).filter((x) => Number.isFinite(x) && x > 0);
+    if (ratios.length < 2 || ses.length !== ratios.length) continue;
+    const logs = ratios.map((x) => Math.log(x));
+    const mean = logs.reduce((a, x) => a + x, 0) / logs.length;
+    const sd = Math.sqrt(logs.reduce((a, x) => a + (x - mean) ** 2, 0) / (logs.length - 1));
+    const meanSe = ses.reduce((a, x) => a + x, 0) / ses.length;
+    if (meanSe <= 0) continue;
+    dof += ratios.length - 1;
+    inflation += (ratios.length - 1) * (sd / meanSe) ** 2;
+  }
+  const measuredInflation = dof > 0 ? inflation / dof : 0;
+  if (dof > 0 && measuredInflation > INTERNAL_OVERDISPERSION) {
+    failures.push(`the recorded chunk-to-chunk dispersion is ${measuredInflation.toFixed(2)}x the counting variance, above the ${INTERNAL_OVERDISPERSION} the interval is charged`);
+  }
+
+  // The share-shift guard, on the two sessions that separate a dose from a
+  // contrast: the same bit on both sides is differenced, a bit whose treated
+  // share moved is not measurable internally at all.
+  const shifted = recorded("crash-placement-fraction-0-9");
+  if (shifted === null) skipped.push("crash-placement-fraction-0-9 is not on disk");
+  else {
+    const ip = internalPrimary(shifted.cand, shifted.base, 1, null, 2);
+    if (ip.applies || !(ip.inapplicableReason ?? "").includes("treated share shifted")) {
+      failures.push(`a dose that moved the treated share must be inapplicable, got applies ${ip.applies} (${ip.inapplicableReason})`);
+    }
+  }
+  const exempt = recorded("crash-placement-probe-exemption");
+  if (exempt === null) skipped.push("crash-placement-probe-exemption is not on disk");
+  else {
+    const ip = internalPrimary(exempt.cand, exempt.base, 1, null, 2);
+    if (!ip.applies || !ip.differenceInDifferences) failures.push(`a bit present on both sides must apply and be differenced, got applies ${ip.applies} did ${ip.differenceInDifferences}`);
+  }
+
+  // Declaration hygiene. A roster bit whose tag is not in the explorer's
+  // source names a population no chunk can carry; that is a warning until a
+  // live session declares it, and an error then.
+  const missing = variantBitsMissingFromSource();
+  if (missing.length > 0) warnings.push(`VARIANT_BITS entries with no tag in run_variant.rs: ${missing.join(", ")}`);
+  if (fs.existsSync(STATE_DIR)) {
+    for (const f of fs.readdirSync(STATE_DIR).filter((x) => x.endsWith(".json"))) {
+      let st: SessionState;
+      try { st = loadState(path.basename(f, ".json")); } catch { continue; }
+      const bit = st.treatment?.bit;
+      if (bit === undefined || st.finished) continue;
+      if (missing.some((m) => m.endsWith(`(${bit})`))) {
+        failures.push(`live session ${st.name} declares bit ${bit}, whose tag is not in run_variant.rs`);
+      }
+    }
+  }
+
+  // The epoch baseline, when one is frozen: its ledger must be a running
+  // product, and the tree it was frozen on must still be recognisable.
+  const epochFile = loadEpochBaseline();
+  if (epochFile !== null) {
+    let running = 1;
+    for (const m of epochFile.merges) {
+      running *= m.ratio;
+      if (Math.abs(running - m.cumulative) > 1e-9) {
+        failures.push(`epoch ledger row ${m.name} carries cumulative ${m.cumulative}, against the running product ${running.toFixed(6)}`);
+      }
+    }
+    if (epochFile.layoutMeasuredAtIso < epochFile.frozenAtIso) {
+      warnings.push(`the epoch's layout band was measured at ${epochFile.layoutMeasuredAtIso}, before the epoch was frozen at ${epochFile.frozenAtIso}: it describes a toolchain the epoch has left`);
+    }
+    const frozenCache = loadCache(cacheFileFor(epochFile.identity));
+    if (frozenCache === null) warnings.push(`the baseline cache the epoch was frozen on (${cacheFileFor(epochFile.identity)}) is gone`);
+    const currentTemplate = path.join(ROOT, cfg.configTemplate);
+    if (fs.existsSync(currentTemplate) && fs.existsSync(path.join(ROOT, "spur", "Cargo.toml"))) {
+      const current = identityFor(path.join(ROOT, "spur"), currentTemplate, policy);
+      const currentCache = loadCache(cacheFileFor(current));
+      if (identityKey(current) !== identityKey(epochFile.identity)) {
+        // Expected inside an epoch: every merge moves the spur tree. The
+        // ledger is what carries the epoch forward, not the identity.
+        warnings.push(`the current baseline identity ${identityKey(current)} is not the epoch's frozen ${identityKey(epochFile.identity)}; the ledger carries the epoch, a re-freeze bumps it`);
+      }
+      const rps = currentCache === null ? null : medianRps(pooledCountsOf(currentCache.chunks));
+      const cumulative = epochFile.merges.at(-1)?.cumulative ?? 1;
+      if (rps !== null && epochFile.runsPerSec > 0) {
+        const drift = rps / epochFile.runsPerSec / cumulative - 1;
+        if (Math.abs(drift) > EPOCH_DRIFT_WARN) {
+          warnings.push(`the epoch ledger says ${cumulative.toFixed(3)} and the measured baseline says ${(rps / epochFile.runsPerSec).toFixed(3)}: ${(drift * 100).toFixed(1)}% apart`);
+        }
+      }
+    }
+  }
+
+  emit({
+    phase: failures.length === 0 ? "finished" : "error",
+    failures, warnings, skipped,
+    gateConsistencyBaseline: liveDetail,
+    ruleVersion: RULE_VERSION,
+    overdispersion: { measured: measuredInflation, charged: INTERNAL_OVERDISPERSION, dof },
+  });
   if (failures.length > 0) process.exitCode = 1;
 }
 
@@ -1009,10 +1411,11 @@ async function main(): Promise<void> {
     case "status": await cmdStatus(flags); break;
     case "finish": await cmdFinish(flags); break;
     case "baseline": await cmdBaseline(flags); break;
+    case "freeze-epoch": await cmdFreezeEpoch(flags); break;
     case "selftest": await cmdSelftest(); break;
     case "panel": await cmdPanel(flags); break;
     default:
-      throw new Error(`unknown command ${cmd || "(none)"}; use start|chunk|status|finish|baseline|selftest|panel`);
+      throw new Error(`unknown command ${cmd || "(none)"}; use start|chunk|status|finish|baseline|freeze-epoch|selftest|panel`);
   }
 }
 

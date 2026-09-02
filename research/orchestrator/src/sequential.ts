@@ -9,18 +9,19 @@
 // it costs. The per-run guards stay per run; their job is to catch runs
 // getting shallower, and throughput has its own floor.
 import type { Policy } from "./policy.js";
-import { runOneEvaluation, type EvalContext } from "./evaluate.js";
+import { runOneEvaluation, sumVariantCells, type EvalContext } from "./evaluate.js";
 import type { LoopState } from "./state.js";
 import { compareRatesPoisson, rateRatioSeparated, throughputCv } from "./stats.js";
 import {
-  ADVANCE_RUNGS, DEEP_GUARD_RUNGS, DEEP_RUNG_MARGIN, MERGE_Z, PRIMARY_RUNG, addStratum, chunkStratum,
-  compareToBaseline, deepRungPRegress, deepRungReading, emptyStratum, finalGate, mergeCase, objectiveCounts,
-  primaryDelta, primaryRungRegressed, rateVarianceOf, ruleVerdict, rungCv, stratumFault,
+  ADVANCE_RUNGS, CROSS_BINARY_NULL_FLOOR, DEEP_GUARD_RUNGS, DEEP_RUNG_MARGIN, INTERNAL_Z,
+  MERGE_Z, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, addStratum, chunkStratum,
+  compareToBaseline, deepRungPRegress, deepRungReading, emptyStratum, finalGate, internalPrimaryCells, mergeCase,
+  objectiveCounts, primaryDelta, primaryRungRegressed, rateVarianceOf, ruleVerdict, rungCv, stratumFault,
   type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
 import { askStopper, buildStopperPayload, nullBand, type StopperRecord, type StopperRung } from "./stopper.js";
 import { HARD_LIMITS } from "./policy.js";
-import { CampaignMetrics, Evaluation, RateStratum, SeqState } from "./schemas.js";
+import { CampaignMetrics, Evaluation, RateStratum, SeqState, type VariantMetrics } from "./schemas.js";
 
 export function loadSeqState(state: LoopState, id: string): SeqState | null {
   const raw = state.getMeta(`seq:${id}`);
@@ -47,6 +48,10 @@ export interface PooledCounts {
   // arm set that changed mid-sample - and nothing downstream may treat that
   // as an ordinary comparison.
   rateStratum: RateStratum | null;
+  // The pooled per-(arm, variant) cells the internal contrast is read off.
+  // Empty means the chunks carry no run tags, which is no internal primary
+  // rather than no treated runs.
+  variants: VariantMetrics[];
 }
 
 // What the rule says about buying another chunk, and nothing else. `stop`
@@ -66,13 +71,17 @@ export function emptyCounts(): PooledCounts {
   return {
     runs: 0, graded: 0, chunks: 0, exposureSec: 0, depth4: 0, depth5: 0, depth6plus: 0,
     depth7plus: 0, depth8plus: 0, violations: 0, h2Count: 0, rpsChunks: [], rateStratum: emptyStratum(),
+    variants: [],
   };
 }
 
 export function pooledCountsOf(evals: Evaluation[]): PooledCounts {
   const c = emptyCounts();
+  const cells: VariantMetrics[][] = [];
   for (const e of evals) {
     if (!e.ok) continue;
+    const modes = new Map((e.metrics.campaign?.arms ?? []).map((a) => [a.id, a.mode]));
+    cells.push(e.metrics.variants.filter((v) => !RATE_EXCLUDED_ARM_MODES.includes(modes.get(v.arm) ?? "")));
     const d = e.metrics.depthAtLeast;
     c.runs += e.metrics.runs;
     c.graded += e.metrics.gradedRuns;
@@ -88,6 +97,7 @@ export function pooledCountsOf(evals: Evaluation[]): PooledCounts {
     c.rpsChunks.push(e.metrics.runsPerSec);
     c.rateStratum = addStratum(c.rateStratum, chunkStratum(e));
   }
+  c.variants = sumVariantCells(cells);
   return c;
 }
 
@@ -97,7 +107,7 @@ export function pooledFromSeq(seq: SeqState): PooledCounts {
     depth4: seq.depth4, depth5: seq.depth5, depth6plus: seq.depth6plus,
     depth7plus: seq.depth7plus, depth8plus: seq.depth8plus,
     violations: seq.violations, h2Count: seq.h2Count, rpsChunks: seq.rpsChunks,
-    rateStratum: seq.rateStratum,
+    rateStratum: seq.rateStratum, variants: seq.variants,
   };
 }
 
@@ -114,10 +124,21 @@ export interface SeqRule extends SeqPolicy {
   // The archive violation rate a candidate's violations are separated
   // against; null falls back to the baseline's own count.
   violationPrior: RatePrior | null;
+  // The declared treatment bit and the frozen band on the per-run ratio of
+  // treated to untreated runs. null is the fallback path, where the sample
+  // is judged on the cross-binary rung alone.
+  treatmentBit: number | null;
+  perRunBand: { min: number; max: number } | null;
 }
 
-export function seqRuleOf(policy: Policy, violationPrior: RatePrior | null = null): SeqRule {
-  return { ...policy.sequential, throughputFloor: 1 - policy.regression.throughputTolerance, violationPrior };
+export function seqRuleOf(
+  policy: Policy, violationPrior: RatePrior | null = null,
+  treatment: { bit: number | null; band: { min: number; max: number } | null } = { bit: null, band: null },
+): SeqRule {
+  return {
+    ...policy.sequential, throughputFloor: 1 - policy.regression.throughputTolerance, violationPrior,
+    treatmentBit: treatment.bit, perRunBand: treatment.band,
+  };
 }
 
 function decisionSeed(cand: PooledCounts, chunks: number): number {
@@ -198,6 +219,7 @@ export function decideSequential(
   }
   const h2 = compareRatesPoisson(cand.h2Count, cand.runs, base.h2Count, base.runs, mei.h2, p.regressMargin, p.draws, seed + 2);
   const throughputRatio = throughputRatioOf(cand, base);
+  const ip = internalPrimaryCells(cand.variants, base.variants, p.treatmentBit, p.perRunBand, chunks, p.maxChunks);
   const posteriors: Record<string, number> = {
     "depth>=4:pGreater": d4.pGreater, "depth>=4:pMei": d4.pAtLeastMei, "depth>=4:ratio": d4.meanRatio, "depth>=4:mei": mei.depth4,
     "depth>=5:pGreater": d5.pGreater, "depth>=5:pMei": d5.pAtLeastMei, "depth>=5:ratio": d5.meanRatio, "depth>=5:mei": mei.depth5,
@@ -212,6 +234,10 @@ export function decideSequential(
     // only in a widened interval.
     "depth>=5:cv": rungCv(cs, 5), "depth>=6:cv": rungCv(cs, 6), "depth>=7:cv": rungCv(cs, 7),
     "stratum:chunks": cs.chunks, "stratum:exposureSec": cs.exposureSec,
+    // The internal primary, published whether or not it applies: an
+    // inapplicable contrast is a fact about the session, not a gap.
+    "internal:applies": ip.applies ? 1 : 0, "internal:ratio": ip.ratio, "internal:lo": ip.lo, "internal:hi": ip.hi,
+    "internal:z": ip.z, "internal:mei": ip.meiAtCap, "internal:share": ip.treatedShare.candidate,
   };
   // Which rungs cleared the merge gate's separation test, recorded for every
   // rung including the two that cannot advance on it.
@@ -238,7 +264,19 @@ export function decideSequential(
   if (chunks >= p.minChunks) {
     if (belowFloor) return out("stop", `throughput ${throughputRatio.toFixed(3)} below floor ${p.throughputFloor}`);
     if (deepRegressed.length > 0) return out("stop", `deep rungs regressed per run beyond the ${(DEEP_RUNG_MARGIN * 100).toFixed(0)}% margin: ${deepRegressed.join(", ")}`);
-    if (sep(6)) separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`;
+    // The randomized within-session contrast is the merge criterion where a
+    // treatment bit was declared, so it is also what ends the sample: a
+    // contrast that has separated in either direction has said all another
+    // chunk could.
+    if (ip.applies) {
+      if (ip.separatedDown) return out("stop", `the internal per-run contrast separated below 1.0 (${ip.ratio.toFixed(4)})`);
+      if (ip.bandReading === "refuted") return out("stop", `the frozen per-run band is excluded by [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]`);
+      if (ip.separatedUp) return out("stop", `the internal per-run contrast separated at z ${INTERNAL_Z} (${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}])`);
+    }
+    // A cross-binary separation inside the build-layout floor resolves
+    // nothing - two builds of identical source read 0.951 on this rung - so
+    // stopping on it would buy a stop that cannot become a verdict.
+    if (sep(6) && Math.abs(d6.meanRatio - 1) > CROSS_BINARY_NULL_FLOOR) separatedRung = `depth>=6 per second separated at z ${MERGE_Z} (ratio ${d6.meanRatio.toFixed(2)})`;
     else if (sep(5)) separatedRung = `depth>=5 per second separated at z ${MERGE_Z} (ratio ${d5.meanRatio.toFixed(2)})`;
     else if (sep(4)) separatedRung = `depth>=4 per second separated at z ${MERGE_Z} (ratio ${d4.meanRatio.toFixed(2)})`;
     // A separated rung stops the sample only when the deep rungs per run are
@@ -264,6 +302,11 @@ export function decideSequential(
 // rung's observed rate ratio to the chunk cap: if the ratio held and the
 // sample grew to the cap, would the rung separate at the merge gate's z?
 export function canStillAdvance(cand: PooledCounts, base: PooledCounts, chunks: number, p: SeqRule): boolean {
+  // The internal contrast's own projection. Its standard error shrinks with
+  // pooled events rather than with exposure, so a session whose cross-binary
+  // rung can no longer separate may still resolve its declared bit.
+  const ip = internalPrimaryCells(cand.variants, base.variants, p.treatmentBit, p.perRunBand, chunks, p.maxChunks);
+  if (ip.applies && ip.ratio - 1 >= ip.meiAtCap) return true;
   const cs = cand.rateStratum;
   const bs = base.rateStratum;
   if (cs === null || bs === null || chunks <= 0 || cs.exposureSec <= 0 || bs.exposureSec <= 0) return true;
@@ -337,7 +380,7 @@ export function initialSeqState(hypothesisId: string, baselineKey: string): SeqS
     hypothesisId, chunks: 0, runs: 0, graded: 0, depth4: 0, depth5: 0, depth6plus: 0, depth7plus: 0, depth8plus: 0,
     violations: 0, h2Count: 0, exposureSec: 0, rpsChunks: [], anomalies: 0, slowConfirmed: false,
     resumes: 0, nextSeed: 1000, posteriors: {}, lastVerdict: "", lastIteration: 0, baselineKey,
-    rateStratum: emptyStratum(),
+    rateStratum: emptyStratum(), variants: [],
   };
 }
 
@@ -385,6 +428,7 @@ function syntheticCampaign(
 export function syntheticEvaluation(seed: number, m: {
   runs: number; exposureMs: number; depthAtLeast: number[]; h2Rate: number; violations?: number;
   suspendedMs?: number; withSession?: boolean; armScale?: Record<string, number>; noCampaign?: boolean;
+  variants?: VariantMetrics[];
 }): Evaluation {
   const camp = syntheticCampaign(m.runs, m.exposureMs, m.depthAtLeast, m.armScale ?? {});
   const useCampaign = !(m.noCampaign ?? false);
@@ -401,7 +445,7 @@ export function syntheticEvaluation(seed: number, m: {
       depthAtLeast: useCampaign ? camp.depthAtLeast : m.depthAtLeast,
       violations: m.violations ?? 0, unknown: 0, porcupineWallMs: 0, gradeWallMs: 0,
       campaign: useCampaign ? camp.campaign : null,
-      variants: [],
+      variants: m.variants ?? [],
     },
   };
 }
@@ -414,7 +458,7 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   const rule: SeqRule = live?.rule ?? {
     exploreBudgetSec: 90, maxRunsPerConfig: 4000, maxChunks: 4, minChunks: 2, inconclusiveP: 0.9, niP: 0.95,
     regressMargin: 0.25, maxResumes: 2, resumeCooldown: 2, draws: 2000, wallSecPerChunk: 900, throughputFloor: 0.8,
-    violationPrior: null,
+    violationPrior: null, treatmentBit: null, perRunBand: null,
   };
   // The synthetic chunk has the recorded baseline's per-chunk shape when one
   // is available, so the cap check below follows the live regime.
@@ -450,14 +494,14 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   // The gate on a set of synthetic chunks, and the rule's own reading of the
   // figures it produces. null means the case is settled in code before any
   // verdict is reached, which is itself the assertion for a faulted stratum.
-  const gateOn = (cand: Evaluation[]): FinalGateInputs => ({
+  const gateOn = (cand: Evaluation[], bit: number | null = null): FinalGateInputs => ({
     hypothesis: { id: "synthetic", kind: "add" } as unknown as Parameters<typeof finalGate>[0]["hypothesis"],
     confirmEvals: cand, baselineEvals: base, regressionPassed: true, lintFailures: [],
     changedSpurFiles: [], changedSuperFiles: [], throughputRatio: 1, throughputFloor: rule.throughputFloor,
-    unmeasurable: [], firing: { status: "not-claimed", detail: "" },
+    unmeasurable: [], firing: { status: "not-claimed", detail: "" }, treatmentBit: bit, perRunBand: null,
   });
-  const ruleOn = (cand: Evaluation[]): { verdict: MergeVerdict; reason: string } | null => {
-    const c = mergeCase(gateOn(cand));
+  const ruleOn = (cand: Evaluation[], bit: number | null = null): { verdict: MergeVerdict; reason: string } | null => {
+    const c = mergeCase(gateOn(cand, bit));
     return "figures" in c ? ruleVerdict(c.figures) : null;
   };
   // Sampling stops on a separated rung; the gate then reads the same chunks.
@@ -634,6 +678,35 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   const forcedGuard = finalGate(gateOn(unresolvedGuard), { verdict: "merge", reason: "a decider said so" });
   if (forcedGuard.verdict === "auto_merge") f.push("a supplied merge must not stand while a deep rung per run is unresolved");
 
+  // The internal primary, in the sampler and in the gate. A contrast that
+  // separated up must both end the sample and reach a merge; one that
+  // separated down must end it and close; one inside the effect floor must
+  // not end it at all. The same contradiction argument as the cases above:
+  // a stop the gate then refuses on the same figures deletes a branch for
+  // nothing.
+  const tagged = (treatedEvents: number, controlEvents: number) => (e: Evaluation): Evaluation => ({
+    ...e,
+    metrics: {
+      ...e.metrics,
+      variants: [
+        { arm: "grid", variant: 16, runs: 100_000, gradedRuns: 100_000, depthAtLeast: [100_000, 100_000, 100_000, 100_000, 100_000, treatedEvents], violations: 0, wallUsSum: 1e8, stepsUsedSum: 1e7, planCompleteRuns: 100_000 },
+        { arm: "grid", variant: 0, runs: 100_000, gradedRuns: 100_000, depthAtLeast: [100_000, 100_000, 100_000, 100_000, 100_000, controlEvents], violations: 0, wallUsSum: 1e8, stepsUsedSum: 1e7, planCompleteRuns: 100_000 },
+      ],
+    },
+  });
+  const taggedRule: SeqRule = { ...rule, treatmentBit: 16 };
+  for (const [name, treated, control, wantStop, wantVerdict] of [
+    ["a separated internal gain", 25_000, 20_000, true, "merge"],
+    ["a separated internal loss", 20_000, 25_000, true, "close"],
+    ["an internal contrast inside the effect floor", 20_100, 20_000, false, "human"],
+  ] as Array<[string, number, number, boolean, MergeVerdict]>) {
+    const cand = cases[0]!.cand.map(tagged(treated, control));
+    const seq = decideSequential(pooledCountsOf(cand), pooledCountsOf(base), 2, taggedRule);
+    const stopped = seq.verdict === "stop" && seq.reason.startsWith("the internal per-run contrast");
+    if (stopped !== wantStop) f.push(`${name}: the sampler must ${wantStop ? "" : "not "}stop on the internal rail, got ${seq.verdict} (${seq.reason})`);
+    const got = ruleOn(cand, 16);
+    if (got?.verdict !== wantVerdict) f.push(`${name}: the gate must read ${wantVerdict}, got ${JSON.stringify(got)}`);
+  }
   // The mid-run stopper's rails and the band it reads with.
   //
   // A stop resolves through the rule, so it must always resolve: over every
@@ -779,6 +852,7 @@ export async function runSequential(opts: {
       depth7plus: seq.depth7plus + c.depth7plus, depth8plus: seq.depth8plus + c.depth8plus,
       violations: seq.violations + c.violations, h2Count: seq.h2Count + c.h2Count,
       rateStratum: addStratum(seq.rateStratum, chunkStratum(e)),
+      variants: sumVariantCells([seq.variants, c.variants]),
     };
     const active = { ...rule, maxChunks: Math.min(opts.maxChunksTotal, p.maxChunks * (seq.resumes + 1)) };
     const pooled = pooledFromSeq(seq);

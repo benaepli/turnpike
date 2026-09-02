@@ -1,0 +1,87 @@
+{
+ "epoch": 12,
+ "frozenAtIso": "2026-08-30T23:33:12.989Z",
+ "identity": {
+  "spurTree": "d22321ae599feec46f14e54d038280808432b36c",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "runsPerSec": 1152.5,
+ "source": "median over research/lite/baselines/d22321ae599f-30-1497728c-300.json (2 chunks), the first session of the epoch",
+ "layoutNullBand": 0.05,
+ "layoutSource": "bb-build-layout-control, 2026-09-02: depth>=6/s 0.9510 and throughput 0.9634 for identical source rebuilt",
+ "layoutMeasuredAtIso": "2026-09-02T09:16:54Z",
+ "merges": [
+  {
+   "atIso": "2026-08-31T05:25:00Z",
+   "name": "learned-run-cap-probe-p99",
+   "commit": "3bb90a1",
+   "ratio": 1.2009,
+   "cumulative": 1.2009,
+   "measuredRps": 1331.74
+  },
+  {
+   "atIso": "2026-08-31T23:30:00Z",
+   "name": "timer-admission-context-odds-probe",
+   "commit": "ed21963",
+   "ratio": 0.91527939275873,
+   "cumulative": 1.099159022763959,
+   "measuredRps": null
+  },
+  {
+   "atIso": "2026-09-01T00:45:00Z",
+   "name": "run-cap-trajectory-variance-fix",
+   "commit": "c61d303",
+   "ratio": 1.0144,
+   "cumulative": 1.11498691269176,
+   "measuredRps": 1202.44
+  },
+  {
+   "atIso": "2026-09-01T02:30:00Z",
+   "name": "crash-placement-completion-span-draw",
+   "commit": "cfdcdf6",
+   "ratio": 0.9972,
+   "cumulative": 1.111864949336223,
+   "measuredRps": 1205.82
+  },
+  {
+   "atIso": "2026-09-01T20:02:53Z",
+   "name": "probe-phase-grid-alias-fix",
+   "commit": "43824c2",
+   "ratio": 1.0156,
+   "cumulative": 1.129210042545868,
+   "measuredRps": 1190.77
+  },
+  {
+   "atIso": "2026-09-01T21:09:13Z",
+   "name": "crash-placement-probe-exemption",
+   "commit": "752b427",
+   "ratio": 0.9949,
+   "cumulative": 1.123451071328884,
+   "measuredRps": 1196.3
+  },
+  {
+   "atIso": "2026-09-01T21:09:13Z",
+   "name": "crash-placement-fraction-0-9",
+   "commit": "752b427",
+   "ratio": 0.9781,
+   "cumulative": 1.0988474928667815,
+   "measuredRps": 1165.82
+  },
+  {
+   "atIso": "2026-09-02T06:51:28Z",
+   "name": "purgatory-blind-delay-default-ablation",
+   "commit": "2b0aef7",
+   "ratio": 1.4907,
+   "cumulative": 1.6380519576165111,
+   "measuredRps": 1763.83
+  }
+ ]
+}

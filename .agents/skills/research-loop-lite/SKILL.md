@@ -172,13 +172,42 @@ state verbatim:
   harness, the orchestrator, the grader, the evaluation protocol, or the
   campaign arm set of `general_vr.json` (an arm change moves the unit of
   comparison and the grader refuses it).
-- Every hypothesis carries a frozen prediction: rung, sizePct band,
-  firingCounter, falsifier. The prediction is graded, never rewritten.
-- If the mechanism can be turned off for part of a session's runs, turn it
-  off for part of them and tag those runs
-  (`spur-core/src/simulator/run_variant.rs`). The untreated remainder is
-  then a control under identical conditions, which no comparison between
-  two processes can match.
+- Every hypothesis carries a frozen prediction: the **declared variant
+  bit**, the rung, the **band on the per-run ratio** of treated to untreated
+  runs, the firing counter, and the falsifier. The prediction is graded,
+  never rewritten.
+- If the mechanism can be turned off for part of a session's runs, it
+  **must** be: turn it off for a randomized part of them and tag those runs
+  (`spur/spur-core/src/simulator/run_variant.rs`), declare the bit at
+  `start`, and register its name in `VARIANT_BITS`
+  (`research/orchestrator/src/decide.ts`) in the same commit. The untreated
+  remainder is the control the merge is decided on. A mechanism with no
+  internal control can only be graded on the cross-binary rung, where
+  nothing under 5% separates.
+
+**Frozen prediction template** (all fields required; graded, never
+rewritten):
+
+> - **Treatment bit**: `<name>` = `1 << k`, registered in `run_variant.rs`
+>   and `VARIANT_BITS`. Treated share: `<f>` of runs, drawn by run id. If the
+>   mechanism cannot be turned off per run, say so here and name the reason;
+>   the candidate is then graded on the cross-binary rung, where nothing
+>   under +5% separates.
+> - **Rung and band**: on `depth>=6`, the **per-run ratio** of treated to
+>   untreated runs in the same session, probe-free and matched on co-bits,
+>   will land in **[1.05, 1.25]**. (Not a per-second figure: per-second mixes
+>   throughput with 4-5% of build-layout noise.)
+> - **Firing counter**: `<dotted.path>` in `utilization.json` at or above
+>   `<floor>` per chunk.
+> - **Independent observable**: `<something the rung does not measure>`,
+>   expected `<value>`.
+> - **Falsifier**: the prediction is refuted if the contrast's 2.7-sigma
+>   interval lies entirely below 1.05, or if `<observable>` moves the wrong
+>   way. State the sign explicitly; "no effect" is refutation only if the
+>   band's lower edge is above 1.
+> - **Cost clause**: cross-binary throughput will stay at or above `<floor>`
+>   of the paired baseline; a shared hot-path cost is invisible to the
+>   contrast and must be read there.
 
 ## Judge subagent
 
@@ -274,12 +303,19 @@ npx tsx ../lite/grader.ts start --name <name> \
   --cand-bin ../../tmp/loop/lite/<name>/cand-spur \
   --cand-template ../../tmp/loop/lite/<name>/general_vr.json \
   --base-bin ../../spur/target/release/spur \
-  --base-template ../../scheduler_configs/loop/general_vr.json
+  --base-template ../../scheduler_configs/loop/general_vr.json \
+  --treatment-bit 512 --band-min 0.05 --band-max 0.25
 
 npx tsx ../lite/grader.ts chunk --name <name>    # one paired chunk
 npx tsx ../lite/grader.ts status --name <name>   # reprint, runs nothing
 npx tsx ../lite/grader.ts finish --name <name> [--regression]
 ```
+
+`--treatment-bit` declares the run tag the mechanism is randomized by and
+`--band-min/--band-max` the frozen band on its per-run ratio; `start` refuses
+a bit that is not in `VARIANT_BITS` or that names an instrument, before a
+single chunk is bought. Omit them only when the mechanism cannot be turned
+off per run, which puts the session on the cross-binary fallback path.
 
 A `chunk` call costs ~6 minutes when the baseline seed is cached and ~12 when
 the baseline must be measured (`baseline.measuredThisCall` says which
@@ -287,16 +323,23 @@ happened; run it in the background and read the JSON when it exits). A
 config-only candidate still needs real chunks - the binary is the same but
 the config is not.
 
-How to read the status: `stopper.rungs[*]` carries each rung's
-events-per-explore-second ratio, its `nullBand` (the A/A spread its own event
-counts imply - a ratio inside the band is NO information, however large),
-`pGreater`, `pRegress`, and `mei` (the smallest effect still separable at the
-chunk cap). `verdict` is the typed rule's advisory reading. `resolvedIfStopped`
-is what the sample resolves to if you stop now.
+How to read the status: `primary` carries the merge criterion - the
+randomized per-run contrast of treated to untreated runs, its interval,
+`meiAtCap` (the smallest effect still separable at the chunk cap), and its
+`bandReading` against the frozen band. `cost` carries the cross-binary
+per-second rung and throughput, which can only block: a ratio inside the 5%
+build-layout floor is a cost reading, not evidence of a gain.
+`stopper.rungs[*]` carries each cost rung's events-per-explore-second ratio,
+its `nullBand`, `pGreater`, `pRegress`, and `mei`. `verdict` is the sampler's
+reading; `resolvedIfStopped.rule` is the verdict `finish` would print on the
+chunks in hand.
 
 Stop calling `chunk` when any of:
+- `primary.verdict` separates in either direction, or `primary.bandReading`
+  reads `refuted`;
 - `verdict` is not `continue` (the rule itself stopped: separation, floor,
-  deep-rung regression, violations, or cap);
+  deep-rung regression, violations, or cap), and where that separation is
+  the cross-binary rung, its ratio is outside the 5% build-layout floor;
 - a violation appeared (`stopper.violations.candidate > 0`) - go straight to
   evidence under `research/logs/violations/`. Calibrate before crediting the
   candidate: the general corpus produces a background violation roughly once
@@ -318,30 +361,39 @@ case costs ~10 minutes); plain `finish` when closing.
 `finish` prints `adviceVerdict` (the typed rule's reading) and `blockers`.
 You decide, but depart from the rule only with a written reason:
 
-- **Close** when: `primaryRungRegressed`; throughput below floor; anything in
-  `regressed`; the regression suite failed; or the mechanism never fired
-  (check the hypothesis's firingCounter in the chunk records'
-  `utilStats.counters` - the grader does not automate this, you do).
-- **File for the user** (log it, keep the patches, do not merge) when:
-  `unresolvedGuards` is non-empty; the only improvement is `violations`;
-  `stratumFault` is non-null; the diff touches
+- **Close** when: the internal contrast separates below 1.0, or its interval
+  excludes the frozen band; the cross-binary rung is separated below the
+  baseline by more than 5%; throughput is below the floor, or merging would
+  put cumulative throughput under 0.90 of the frozen epoch baseline
+  (`cost.throughput.epoch`); anything is in `regressed`; the regression
+  suite failed; or the mechanism never fired (check the hypothesis's
+  firingCounter in the chunk records' `utilStats.counters` - the grader does
+  not automate this, you do).
+- **File for the user** (log it, keep the patches, do not merge) when: the
+  internal primary applies and resolves neither way; `primary.balance.faults`
+  is non-empty; `unresolvedGuards` is non-empty; the only improvement is
+  `violations`; `stratumFault` is non-null; the diff touches
   `spur-core/src/simulator/core/exec.rs` or `spur-core/src/simulator/history.rs`;
   or nothing separated and no prediction was met.
-- **Merge** only when: something in `improved` separated, no blocker above
-  stands, the firing counter shows occasions, and `finish --regression`
-  passed. Read `spur.patch` and `super.patch` before merging - with no size
-  cap on changes, your review of the diff is the only check that the code
-  does what the hypothesis says. Before merging, run an A/A control chunk
-  (baseline on both sides) in the same session; per-second rates swing
-  under null, so trust pooled per-run probabilities more.
+- **Merge** only when: the internal contrast separates above 1.0 at z 2.7
+  with an effect of at least 2%, no blocker above stands, the firing counter
+  shows occasions, and `finish --regression` passed. Read `spur.patch` and
+  `super.patch` before merging - with no size cap on changes, your review of
+  the diff is the only check that the code does what the hypothesis says,
+  and that the bit is drawn by run id rather than by which runs the
+  mechanism happened to help. An A/A control chunk cannot see build layout
+  (two builds of identical source read 0.951 on this rung); the internal
+  contrast is what carries a small effect, so run it instead.
 
-When the change tagged its runs, `status` and `finish` print
-`variantContrasts`: the treated-versus-untreated ratio inside each session.
-Read it first - it is randomized and immune to between-process drift. It
-measures the effect of treating one more run given the session's shared
-state, so it equals the whole effect only when the mechanism feeds no
-shared state; where it feeds a session-global learner, the cross-binary
-comparison is still what the gate separates on.
+`status` and `finish` also print `variantContrasts`, the survey over every
+tag bit. It is how a new bit is sanity-checked; the control there is every
+untreated run, while `primary` matches the control on the treated
+population's co-bits, so the two differ where a bit is nested. Two standing
+caveats on the contrast: it is blind to a cost paid by both halves of a
+session (a shared hot-path slowdown reads 1.0), which is why `cost` stays a
+blocker; and it measures the effect of treating one more run given the
+session's shared state, so where the mechanism feeds a session-global
+learner it is a marginal effect, not the whole one.
 
 ## Panel check (occasional, never a gate)
 
@@ -392,6 +444,11 @@ Work in the main tree, on branch `research/lite`; verify it is clean first
 4. Rebuild the baseline binary. The next `start` computes a new baseline
    identity (the spur tree moved) and measures a fresh cache - that is the
    designed cost of a merge, paid one seed at a time.
+5. Append the merge's row to `research/lite/epoch-baseline.json`: `name`,
+   `commit`, `ratio` (the session's throughput ratio), `cumulative` (the
+   running product), and `measuredRps` from the fresh cache at step 4. The
+   file is frozen once per epoch by `freeze-epoch` and never automatically:
+   the ledger is what keeps four-percent leaks from compounding unseen.
 
 Log files (`observations.md`, `decisions.jsonl`, `pool.md`, `plans/`,
 `state/`) are tracked on `research/lite`: commit them here at each
@@ -400,8 +457,11 @@ branch.
 decisions.jsonl line shape:
 `{"atIso", "name", "hypothesisId", "origin", "verdict", "reason",
 "primaryDelta", "primaryNullBand", "chunks", "runs", "throughputRatio",
-"regressionPassed", "stateFile", "commit"}` (commit null unless merged;
-origin is "proposer", "operator-agent", or "user").
+"regressionPassed", "stateFile", "commit", "ruleVersion", "primaryKind",
+"treatmentBit", "internalRatio", "internalLo", "internalHi",
+"epochCumulativeThroughput"}` (commit null unless merged; origin is
+"proposer", "operator-agent", or "user"; `ruleVersion` and `primaryKind`
+come from `finish`, and a row with neither predates the internal primary).
 
 ## Coexistence and cleanup
 

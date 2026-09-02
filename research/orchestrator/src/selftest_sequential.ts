@@ -37,6 +37,7 @@ function recordedBaseline(): PooledCounts {
       chunks: 4, runs: 184464, graded: 184464, exposureSec: 288.8, depth: gridDepth,
       perChunk: [0, 1, 2, 3].map(() => ({ exposureSec: 72.2, depth: gridDepth.map((v) => Math.round(v / 4)) })),
     },
+    variants: [],
   };
 }
 const BASE: PooledCounts = recordedBaseline();
@@ -112,7 +113,7 @@ function gateVerdictOf(cand: PooledCounts): MergeVerdict {
     throughputRatio: throughputRatioOf(cand, BASE), throughputFloor: rule.throughputFloor,
     unmeasurable: [], firing: { status: "not-claimed", detail: "" },
   } as unknown as FinalGateInputs;
-  return ruleVerdict(figuresOf(stub, co, BASE_OBJECTIVES, cmp)).verdict;
+  return ruleVerdict(figuresOf(stub, co, BASE_OBJECTIVES, cmp, null)).verdict;
 }
 
 // The rule decides only when to stop, so its own tally has two terminal

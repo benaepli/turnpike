@@ -53,6 +53,59 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 1024, name: "entryClock" },
 ];
 
+// The tag that marks a run-cap probe. Probes are about 3% of runs, are
+// uncapped and are never placed, so they reach the deep rungs at a fraction
+// of an ordinary run's rate.
+export const PROBE_BIT = 2;
+// Bits that name an instrument or an outcome, never a treatment. 2 and 4 are
+// probe postures the loop already merged; 8 is downstream of the treatment
+// rather than randomized by the run id, so a candidate could choose it after
+// seeing which runs it helped.
+export const NON_DECLARABLE_BITS: readonly number[] = [2, 4, 8];
+
+// The internal contrast's own thresholds. The z is MERGE_Z, so the two paths
+// are one confidence regime rather than two.
+export const INTERNAL_Z = 2.7;
+// Resolution floor on |r - 1|. Below it the contrast is not distinguishing a
+// mechanism from harness residue: a reclocking verified not to have moved
+// placement still read +1.1%, and arm composition and co-bit drift are worth
+// a few tenths of a percent on their own.
+export const INTERNAL_MIN_EFFECT = 0.02;
+// The binomial log-ratio standard error is optimistic chunk to chunk. Over
+// the recorded sessions the dof-weighted (sd/SE)^2 is 1.26; the selftest
+// recomputes it, so an arm change that re-inflates dispersion is caught
+// before a verdict is.
+export const INTERNAL_OVERDISPERSION = 1.3;
+// A treatment thinner than this cannot carry a session-level per-run claim:
+// at 3% of runs the minimum separable effect at the chunk cap is near 4%.
+export const TREATED_SHARE_MIN = 0.05;
+// A bit whose treated share moved between candidate and baseline measures a
+// dose, not a contrast, and the internal read is structurally blind to it.
+export const TREATED_SHARE_SHIFT_MAX = 0.05;
+// Balance tolerances on the matched control. After matching, the recorded
+// sessions sit at 0.006 and 0.0066; unmatched, a nested bit shows 0.55.
+export const COBIT_SHARE_MAX = 0.02;
+export const ARM_COMPOSITION_MAX = 0.02;
+// A gross tripwire only: legitimate mechanisms move steps per run by a few
+// percent, and this does not catch the co-bit confound.
+export const STEPS_PER_RUN_MAX = 0.25;
+// Below this the interval is wider than the effect floor at any plausible
+// ratio, so the contrast could not resolve the mechanism either way.
+export const MATCHED_CONTROL_MIN_GRADED = 20_000;
+// Two builds of identical source differ by their layout: the recorded
+// build-layout control read depth>=6 per second at 0.951. A cross-binary
+// ratio inside this band is a cost reading, not evidence of a gain.
+export const CROSS_BINARY_NULL_FLOOR = 0.05;
+// Cumulative throughput a merge may leave the epoch at, against the frozen
+// epoch baseline, and the disagreement between ledger and measurement that
+// is worth an advisory.
+export const EPOCH_THROUGHPUT_FLOOR = 0.9;
+export const EPOCH_DRIFT_WARN = 0.05;
+// Verdict semantics, not measurement identity: a decision record carrying
+// this was made on the internal primary. Absence reads as the cross-binary
+// primary that preceded it.
+export const RULE_VERSION = "internal-primary-v1";
+
 export interface VariantSide {
   runs: number;
   gradedRuns: number;
@@ -101,27 +154,28 @@ export function pooledVariantCells(evals: Evaluation[]): VariantMetrics[] {
   return sumVariantCells(lists);
 }
 
-/** One contrast per tag bit that both populations of these chunks carry.
+/** Probes leave every contrast except the one about probes.
  *
  * A mechanism that exempts run-cap probes puts every probe in its control,
- * which at the session's probe rate roughly doubles their weight there.
- * Probes are uncapped and are exempt from crash placement, so they reach the
- * deep rungs at a fraction of an ordinary run's rate and drag the control
- * down: the contrast then reports the exemption rather than the mechanism.
- * When no treated cell carries the probe bit, probes are dropped from both
- * sides so the comparison is between populations that differ by the
- * mechanism alone.
- */
+ * which at the session's probe rate roughly doubles their weight there, and
+ * probes reach the deep rungs at a fraction of an ordinary run's rate. A
+ * mechanism that covers them in proportion loses nothing by their removal:
+ * over the recorded sessions the drop moves a proportionally covered
+ * contrast by at most 0.16% and removes a 3-5% bias where coverage is
+ * partial or absent. */
+export function probeFreeScope(cells: VariantMetrics[], bit: number): VariantMetrics[] {
+  return bit === PROBE_BIT ? cells : cells.filter((c) => (c.variant & PROBE_BIT) === 0);
+}
+
+/** One contrast per tag bit that both populations of these chunks carry.
+ *  Reporting: the survey a new bit is sanity-checked against. The control
+ *  here is every untreated run, not the matched population the merge
+ *  primary uses, so a nested bit reads its host population's rate. */
 export function variantContrasts(evals: Evaluation[]): VariantContrast[] {
   const cells = pooledVariantCells(evals);
-  const probeBit = 2;
   const out: VariantContrast[] = [];
   for (const { bit, name } of VARIANT_BITS) {
-    let scope = cells;
-    if (bit !== probeBit) {
-      const treatedHasProbe = cells.some((c) => (c.variant & bit) !== 0 && (c.variant & probeBit) !== 0);
-      if (!treatedHasProbe) scope = cells.filter((c) => (c.variant & probeBit) === 0);
-    }
+    const scope = probeFreeScope(cells, bit);
     const t = variantSide(scope.filter((c) => (c.variant & bit) !== 0));
     const u = variantSide(scope.filter((c) => (c.variant & bit) === 0));
     if (t.side.gradedRuns === 0 || u.side.gradedRuns === 0) continue;
@@ -147,6 +201,289 @@ export function variantContrasts(evals: Evaluation[]): VariantContrast[] {
     out.push({ bit, name, treated: t.side, control: u.side, rungs });
   }
   return out;
+}
+
+/** One side of the internal contrast at the rung the objective is named on. */
+export interface InternalSide {
+  runs: number;
+  gradedRuns: number;
+  events: number;
+  rate: number;
+  meanStepsUsed: number;
+  meanWallUs: number;
+  planCompleteShare: number;
+}
+
+/** The randomized within-session per-run contrast a declared treatment bit
+ *  carries: treated runs against the untreated runs of the same session,
+ *  probe-free and matched on the treated population's invariant co-bits.
+ *  `applies` false means the session has no such contrast and the verdict
+ *  falls back to the cross-binary rung. */
+export interface InternalPrimary {
+  bit: number;
+  name: string;
+  rung: string;
+  applies: boolean;
+  inapplicableReason: string | null;
+  // The co-bits the control was matched on, as a mask.
+  matchedOnMask: number;
+  matchedOn: string[];
+  // Treated share of all runs, probes included. null on the baseline side
+  // means the baseline carries no run with the bit, so there is nothing to
+  // difference against and the candidate-side ratio stands alone.
+  treatedShare: { candidate: number; baseline: number | null };
+  treated: InternalSide;
+  control: InternalSide;
+  ratio: number;
+  seCount: number;
+  seEff: number;
+  lo: number;
+  hi: number;
+  z: number;
+  separatedUp: boolean;
+  separatedDown: boolean;
+  differenceInDifferences: boolean;
+  balance: {
+    cobit: Array<{ bit: number; name: string; treated: number; control: number }>;
+    armL1: number;
+    stepsPerRunRatio: number | null;
+    probeShare: { treated: number; control: number };
+    faults: string[];
+  };
+  band: { min: number; max: number } | null;
+  bandReading: "met" | "undecided" | "refuted" | null;
+  meiAtCap: number;
+  perChunkRatios: number[];
+}
+
+function bitNameOf(bit: number): string {
+  return VARIANT_BITS.find((v) => v.bit === bit)?.name ?? `bit ${bit}`;
+}
+
+function sideAt(cells: VariantMetrics[], k: number): InternalSide {
+  const { side, depth } = variantSide(cells);
+  const events = depth[k - 1] ?? 0;
+  return {
+    runs: side.runs,
+    gradedRuns: side.gradedRuns,
+    events,
+    rate: side.gradedRuns > 0 ? events / side.gradedRuns : 0,
+    meanStepsUsed: side.meanStepsUsed,
+    meanWallUs: side.meanWallUs,
+    planCompleteShare: side.planCompleteShare,
+  };
+}
+
+/** The tags every treated run carries beside the treatment. A bit that only
+ *  exists on a sub-population - an anchor that only placed runs can have -
+ *  makes its whole host population invariant, and a control drawn without it
+ *  reports the host population's rate rather than the mechanism's. */
+export function invariantCoBits(treated: VariantMetrics[], bit: number): number {
+  let inv: number | null = null;
+  for (const c of treated) {
+    if (c.runs <= 0) continue;
+    const m = c.variant & ~bit;
+    inv = inv === null ? m : inv & m;
+  }
+  return inv ?? 0;
+}
+
+interface RawContrast {
+  treated: InternalSide;
+  control: InternalSide;
+  ratio: number;
+  se: number;
+  inv: number;
+  treatedCells: VariantMetrics[];
+  controlCells: VariantMetrics[];
+}
+
+/** The matched contrast on one body of cells: probes dropped, the control
+ *  restricted to the treated population's invariant co-bits. */
+function matchedContrast(cells: VariantMetrics[], bit: number, k: number): RawContrast {
+  const scope = probeFreeScope(cells, bit);
+  const treatedCells = scope.filter((c) => (c.variant & bit) !== 0);
+  const inv = invariantCoBits(treatedCells, bit);
+  const controlCells = scope.filter((c) => (c.variant & bit) === 0 && (c.variant & inv) === inv);
+  const treated = sideAt(treatedCells, k);
+  const control = sideAt(controlCells, k);
+  const p1 = treated.rate;
+  const p2 = control.rate;
+  const ratio = p2 > 0 ? p1 / p2 : NaN;
+  const se = treated.events > 0 && control.events > 0
+    ? Math.sqrt((1 - p1) / treated.events + (1 - p2) / control.events)
+    : NaN;
+  return { treated, control, ratio, se, inv, treatedCells, controlCells };
+}
+
+/** Share of a population's runs carrying a bit. */
+function bitShare(cells: VariantMetrics[], bit: number): number {
+  const runs = cells.reduce((a, c) => a + c.runs, 0);
+  if (runs <= 0) return 0;
+  return cells.filter((c) => (c.variant & bit) !== 0).reduce((a, c) => a + c.runs, 0) / runs;
+}
+
+/** Half the L1 distance between two populations' per-arm run shares. The
+ *  arms span a range of per-run P(depth>=6), so a composition that drifted
+ *  moves the contrast without any mechanism doing it. */
+function armCompositionL1(a: VariantMetrics[], b: VariantMetrics[]): number {
+  const shares = (cells: VariantMetrics[]): Map<string, number> => {
+    const runs = cells.reduce((s, c) => s + c.runs, 0);
+    const m = new Map<string, number>();
+    for (const c of cells) m.set(c.arm, (m.get(c.arm) ?? 0) + (runs > 0 ? c.runs / runs : 0));
+    return m;
+  };
+  const sa = shares(a);
+  const sb = shares(b);
+  let l1 = 0;
+  for (const arm of new Set([...sa.keys(), ...sb.keys()])) l1 += Math.abs((sa.get(arm) ?? 0) - (sb.get(arm) ?? 0));
+  return l1 / 2;
+}
+
+function emptySide(): InternalSide {
+  return { runs: 0, gradedRuns: 0, events: 0, rate: 0, meanStepsUsed: 0, meanWallUs: 0, planCompleteShare: 0 };
+}
+
+/** The internal primary from pooled cells. `chunks` and `maxChunks` are the
+ *  sample in hand and the cap it can grow to; `perChunkCells` supplies the
+ *  chunk-to-chunk dispersion where the caller has the chunks separately, and
+ *  an empty list charges the fixed over-dispersion alone. */
+export function internalPrimaryCells(
+  candCells: VariantMetrics[],
+  baseCells: VariantMetrics[],
+  bit: number | null,
+  band: { min: number; max: number } | null,
+  chunks: number,
+  maxChunks: number,
+  perChunkCells: VariantMetrics[][] = [],
+): InternalPrimary {
+  const k = PRIMARY_RUNG;
+  const blank = (b: number, reason: string): InternalPrimary => ({
+    bit: b, name: b > 0 ? bitNameOf(b) : "", rung: `depth>=${k}`,
+    applies: false, inapplicableReason: reason,
+    matchedOnMask: 0, matchedOn: [],
+    treatedShare: { candidate: 0, baseline: null },
+    treated: emptySide(), control: emptySide(),
+    ratio: NaN, seCount: NaN, seEff: NaN, lo: NaN, hi: NaN, z: NaN,
+    separatedUp: false, separatedDown: false, differenceInDifferences: false,
+    balance: { cobit: [], armL1: 0, stepsPerRunRatio: null, probeShare: { treated: 0, control: 0 }, faults: [] },
+    band, bandReading: null, meiAtCap: INTERNAL_MIN_EFFECT, perChunkRatios: [],
+  });
+  if (bit === null) return blank(0, "no treatment bit declared");
+  if (!VARIANT_BITS.some((v) => v.bit === bit)) return blank(bit, `bit ${bit} is not on the roster in VARIANT_BITS`);
+  if (NON_DECLARABLE_BITS.includes(bit)) return blank(bit, `bit ${bit} (${bitNameOf(bit)}) names an instrument or an outcome, not a treatment`);
+
+  const c = matchedContrast(candCells, bit, k);
+  const b = matchedContrast(baseCells, bit, k);
+  const candRuns = candCells.reduce((a, x) => a + x.runs, 0);
+  const baseRuns = baseCells.reduce((a, x) => a + x.runs, 0);
+  const candShare = candRuns > 0 ? c.treated.runs / candRuns : 0;
+  // Absent from the baseline is not a share of zero: there is nothing to
+  // difference against, and the candidate-side contrast stands alone.
+  const baseShare = b.treated.runs > 0 && baseRuns > 0 ? b.treated.runs / baseRuns : null;
+
+  // Balance, on the matched populations. Reported whatever the verdict, so a
+  // reader can see how far from balanced a refused contrast was.
+  const cobit = VARIANT_BITS
+    .filter((v) => v.bit !== bit)
+    .map((v) => ({ bit: v.bit, name: v.name, treated: bitShare(c.treatedCells, v.bit), control: bitShare(c.controlCells, v.bit) }));
+  const armL1 = armCompositionL1(c.treatedCells, c.controlCells);
+  const stepsPerRunRatio = c.treated.meanStepsUsed > 0 && c.control.meanStepsUsed > 0
+    ? c.treated.meanStepsUsed / c.control.meanStepsUsed
+    : null;
+  const preTreated = candCells.filter((x) => (x.variant & bit) !== 0);
+  const preControl = candCells.filter((x) => (x.variant & bit) === 0);
+  const balance = {
+    cobit,
+    armL1,
+    stepsPerRunRatio,
+    probeShare: { treated: bitShare(preTreated, PROBE_BIT), control: bitShare(preControl, PROBE_BIT) },
+    faults: [] as string[],
+  };
+  // A confounder is a tag the two populations carry at different rates
+  // despite the run id drawing both. Two kinds of co-bit are not that: a bit
+  // naming an instrument or an outcome, which is downstream of the treatment
+  // by construction, and a bit no untreated run carries at all, which the
+  // treatment is what produces. Both are part of what the mechanism does,
+  // and refusing them would refuse every mechanism that has an outcome bit.
+  for (const x of cobit) {
+    if (NON_DECLARABLE_BITS.includes(x.bit) || x.control === 0) continue;
+    if (Math.abs(x.treated - x.control) > COBIT_SHARE_MAX) {
+      balance.faults.push(`co-bit ${x.name} share ${x.treated.toFixed(4)} treated against ${x.control.toFixed(4)} control`);
+    }
+  }
+  if (armL1 > ARM_COMPOSITION_MAX) balance.faults.push(`arm composition L1/2 ${armL1.toFixed(4)}`);
+  if (stepsPerRunRatio !== null && Math.abs(stepsPerRunRatio - 1) > STEPS_PER_RUN_MAX) {
+    balance.faults.push(`steps per run ${stepsPerRunRatio.toFixed(3)} treated to control`);
+  }
+
+  const matchedOn = VARIANT_BITS.filter((v) => (c.inv & v.bit) !== 0).map((v) => v.name);
+  const perChunkRatios = perChunkCells
+    .map((cells) => matchedContrast(cells, bit, k).ratio)
+    .filter((r) => Number.isFinite(r) && r > 0);
+
+  // The candidate-side reading, or the difference in differences where the
+  // baseline carries the bit too: the same tag on an unchanged binary has its
+  // own contrast, and only the change between them is the candidate's.
+  const did = baseShare !== null && Number.isFinite(b.ratio) && b.ratio > 0 && Number.isFinite(c.ratio);
+  const ratio = did ? c.ratio / b.ratio : c.ratio;
+  const seCount = did ? Math.sqrt(c.se ** 2 + b.se ** 2) : c.se;
+  const chunkVar = !did && perChunkRatios.length >= 3
+    ? variance(perChunkRatios.map((r) => Math.log(r))) / perChunkRatios.length
+    : 0;
+  const seEff = Math.sqrt(Math.max(INTERNAL_OVERDISPERSION * seCount ** 2, chunkVar));
+  const lo = ratio * Math.exp(-INTERNAL_Z * seEff);
+  const hi = ratio * Math.exp(INTERNAL_Z * seEff);
+  const z = Number.isFinite(seEff) && seEff > 0 ? Math.log(ratio) / seEff : NaN;
+  const separatedUp = Number.isFinite(lo) && lo > 1 && ratio - 1 >= INTERNAL_MIN_EFFECT;
+  const separatedDown = Number.isFinite(hi) && hi < 1 && 1 - ratio >= INTERNAL_MIN_EFFECT;
+  const bandReading: InternalPrimary["bandReading"] = band === null
+    ? null
+    : !Number.isFinite(hi) ? "undecided"
+      : hi < 1 + band.min ? "refuted"
+        : ratio >= 1 + band.min && ratio <= 1 + band.max ? "met" : "undecided";
+  const seAtCap = maxChunks > 0 && chunks > 0 ? seEff * Math.sqrt(chunks / maxChunks) : seEff;
+  const meiAtCap = Number.isFinite(seAtCap) ? Math.max(INTERNAL_MIN_EFFECT, INTERNAL_Z * seAtCap) : Infinity;
+
+  let reason: string | null = null;
+  if (c.treated.gradedRuns === 0) reason = `bit ${bit} (${bitNameOf(bit)}) tags no graded run in this session`;
+  else if (c.control.gradedRuns === 0) reason = "no untreated run matches the treated population's co-bits";
+  else if (!Number.isFinite(ratio) || ratio <= 0) reason = "a side carries no events at the rung, so no ratio exists";
+  else if (c.control.gradedRuns < MATCHED_CONTROL_MIN_GRADED) {
+    reason = `the matched control carries ${c.control.gradedRuns} graded runs, below ${MATCHED_CONTROL_MIN_GRADED}`;
+  } else if (candShare < TREATED_SHARE_MIN) reason = `treated share ${candShare.toFixed(4)} is below ${TREATED_SHARE_MIN}`;
+  else if (baseShare !== null && Math.abs(candShare - baseShare) > TREATED_SHARE_SHIFT_MAX) {
+    reason = `treated share shifted between candidate and baseline (${candShare.toFixed(4)} against ${baseShare.toFixed(4)}): the change is a dose, not a contrast`;
+  } else if (balance.faults.length > 0) reason = `the declared bit's control population is unbalanced: ${balance.faults.join("; ")}`;
+
+  return {
+    bit, name: bitNameOf(bit), rung: `depth>=${k}`,
+    applies: reason === null, inapplicableReason: reason,
+    matchedOnMask: c.inv, matchedOn,
+    treatedShare: { candidate: candShare, baseline: baseShare },
+    treated: c.treated, control: c.control,
+    ratio, seCount, seEff, lo, hi, z,
+    separatedUp, separatedDown, differenceInDifferences: did,
+    balance, band, bandReading, meiAtCap, perChunkRatios,
+  };
+}
+
+function variance(xs: number[]): number {
+  if (xs.length < 2) return 0;
+  const mean = xs.reduce((a, x) => a + x, 0) / xs.length;
+  return xs.reduce((a, x) => a + (x - mean) ** 2, 0) / (xs.length - 1);
+}
+
+/** The internal primary over a session's chunk records. */
+export function internalPrimary(
+  candEvals: Evaluation[], baseEvals: Evaluation[], bit: number | null,
+  band: { min: number; max: number } | null, maxChunks: number,
+): InternalPrimary {
+  const ok = candEvals.filter((e) => e.ok);
+  return internalPrimaryCells(
+    pooledVariantCells(ok), pooledVariantCells(baseEvals.filter((e) => e.ok)), bit, band,
+    ok.length, Math.max(maxChunks, ok.length), ok.map((e) => pooledVariantCells([e])),
+  );
 }
 
 export function emptyStratum(): RateStratum {
@@ -476,6 +813,20 @@ export interface FinalGateInputs {
   // unmeasurable is: a merge may not touch the loop's own rule book, and an
   // input nobody supplies is a defect no typecheck can see.
   changedSuperFiles: string[];
+  // The variant bit the hypothesis declared its mechanism on, and the band it
+  // froze for the per-run ratio of treated to untreated runs. Required, like
+  // unmeasurable: a declaration nobody supplies is a candidate silently
+  // graded on the fallback path. null means none was declared.
+  treatmentBit: number | null;
+  perRunBand: { min: number; max: number } | null;
+  // The frozen epoch throughput baseline and the ledger of merges since, so
+  // a merge cannot spend a few percent of throughput that no single session
+  // is charged for. Absent leaves the blocker inert.
+  epochThroughput?: { frozenRps: number | null; cumulative: number | null; floor: number } | null | undefined;
+  // The build-layout band a cross-binary ratio has to clear. Absent uses the
+  // constant; the epoch baseline carries a re-measured one, so re-measuring
+  // it moves the rule without a code change.
+  crossBinaryNullFloor?: number | undefined;
 }
 
 // The merge decision is made in three layers, in this order.
@@ -529,6 +880,14 @@ export interface MergeFigures {
   predictionInBand: boolean | null;
   touchesSemantics: boolean;
   touchesPolicy: boolean;
+  // The merge criterion where a treatment bit was declared: the randomized
+  // within-session per-run contrast. null where the session carries no
+  // variant cells at all.
+  internal: InternalPrimary | null;
+  // The band a cross-binary ratio has to clear to be evidence rather than
+  // build layout.
+  crossBinaryNullFloor: number;
+  epochThroughput: { frozenRps: number | null; cumulative: number | null; floor: number } | null;
 }
 
 function hardStop(i: FinalGateInputs, cmp: Comparison): { verdict: GateDecision["verdict"]; reason: string; harnessFailure: boolean } | null {
@@ -561,7 +920,10 @@ function hardStop(i: FinalGateInputs, cmp: Comparison): { verdict: GateDecision[
 /** The figures, from counts that are already pooled. Exported so an offline
  *  simulation reads the same figures the gate does rather than a second copy
  *  of the arithmetic; `i.confirmEvals` is not consulted here. */
-export function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCounts, cmp: Comparison): MergeFigures {
+export function figuresOf(
+  i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCounts, cmp: Comparison,
+  internal: InternalPrimary | null,
+): MergeFigures {
   const cs = cand.rateStratum;
   const bs = base.rateStratum;
   const band = nullBand(cs?.depth[PRIMARY_RUNG - 1] ?? 0, bs?.depth[PRIMARY_RUNG - 1] ?? 0);
@@ -595,6 +957,9 @@ export function figuresOf(i: FinalGateInputs, cand: ObjectiveCounts, base: Objec
     predictionInBand: relative && predicted !== null ? predicted >= p.sizePct.min && predicted <= p.sizePct.max : null,
     touchesSemantics: classifyChangeRisk(i.changedSpurFiles) === "semantics",
     touchesPolicy: i.changedSuperFiles.includes(POLICY_FILE),
+    internal,
+    crossBinaryNullFloor: i.crossBinaryNullFloor ?? CROSS_BINARY_NULL_FLOOR,
+    epochThroughput: i.epochThroughput ?? null,
   };
 }
 
@@ -623,20 +988,69 @@ function primaryBelowBandWithShallowerGain(f: MergeFigures): boolean {
  *  is not a result about the hypothesis, and a human can still merge a branch
  *  a closure would have destroyed. */
 export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: string } {
-  if (f.primaryRungRegressed) {
-    return { verdict: "close", reason: `depth>=${PRIMARY_RUNG} per second is separated below the baseline at z ${MERGE_Z}` };
+  // Cost first. The cross-binary rung is the honest read of what a candidate
+  // costs the whole session, and it is two-sided: a fall beyond the layout
+  // floor closes whatever the internal contrast says, because a mechanism
+  // whose marginal effect is positive can still poison shared state.
+  const crossBinary = f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0;
+  if (f.primaryRungRegressed && Math.abs(crossBinary) > f.crossBinaryNullFloor) {
+    return {
+      verdict: "close",
+      reason: `depth>=${PRIMARY_RUNG} per second separated below the baseline at z ${MERGE_Z} by ${(crossBinary * 100).toFixed(2)}%, more than the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% build-layout floor`,
+    };
   }
   if (f.throughput.ratio < f.throughput.floor) {
     return { verdict: "close", reason: `throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}` };
   }
+  const epochProjected = projectedEpochThroughput(f);
+  if (epochProjected !== null && epochProjected < (f.epochThroughput?.floor ?? EPOCH_THROUGHPUT_FLOOR)) {
+    return {
+      verdict: "close",
+      reason: `merging would put cumulative throughput at ${epochProjected.toFixed(3)} of the frozen epoch baseline, below the ${(f.epochThroughput?.floor ?? EPOCH_THROUGHPUT_FLOOR).toFixed(2)} budget`,
+    };
+  }
   if (f.regressed.length > 0) {
     return { verdict: "close", reason: `the figures resolve against the candidate (regressed=[${f.regressed}])` };
   }
-  if (f.improved.length === 0) {
-    return { verdict: "human", reason: `no CI-separated improvement (improved=[${f.improved}], regressed=[${f.regressed}])` };
+
+  // The primary, where a treatment bit was declared and its contrast is
+  // measurable: the untreated runs of the same session are the control, so
+  // between-process drift and build layout are differenced out.
+  const ip = f.internal;
+  if (ip !== null && ip.applies) {
+    if (ip.separatedDown) {
+      return { verdict: "close", reason: `the internal per-run contrast separated below 1.0 (${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}])` };
+    }
+    if (ip.bandReading === "refuted") {
+      return { verdict: "close", reason: `the frozen per-run band ${(1 + (ip.band?.min ?? 0)).toFixed(2)} is excluded by [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]` };
+    }
+    if (!ip.separatedUp) {
+      return {
+        verdict: "human",
+        reason: `the internal contrast ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}] resolves neither the mechanism nor its band`,
+      };
+    }
+    if (f.deepRungsUnresolved.length > 0) {
+      return { verdict: "human", reason: `a rung separated but the deep rungs per run are unresolved: ${f.deepRungsUnresolved.join(", ")}` };
+    }
+    return {
+      verdict: "merge",
+      reason: `internal per-run contrast on depth>=${PRIMARY_RUNG}: ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}] at z ${INTERNAL_Z}, effect at or above ${(INTERNAL_MIN_EFFECT * 100).toFixed(0)}%`,
+    };
   }
-  if (f.deepRungsUnresolved.length > 0) {
-    return { verdict: "human", reason: `a rung separated but the deep rungs per run are unresolved: ${f.deepRungsUnresolved.join(", ")}` };
+
+  // The fallback, where no internal control was declared or its contrast is
+  // not measurable. Two builds of identical source differ by their layout, so
+  // nothing inside that band separates anything here.
+  // Read on the rung's own relative delta, not on `primary`: primary carries
+  // the violations rate where violations are the improvement, and that is an
+  // absolute difference, on a different scale from a relative floor.
+  if (crossBinary <= f.crossBinaryNullFloor) {
+    const why = ip === null || ip.inapplicableReason === null ? "no declared treatment bit" : ip.inapplicableReason;
+    return {
+      verdict: "human",
+      reason: `cross-binary depth>=${PRIMARY_RUNG}/s ${(crossBinary * 100).toFixed(2)}% is inside the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% build-layout floor; with ${why} nothing here can separate`,
+    };
   }
   if (primaryBelowBandWithShallowerGain(f)) {
     const d = f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0;
@@ -645,10 +1059,28 @@ export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: s
       reason: `the gain is on a shallower rung while depth>=${PRIMARY_RUNG} is ${(d * 100).toFixed(2)}% against a ${(f.primaryNullBand * 100).toFixed(2)}% band`,
     };
   }
+  if (!f.improved.includes(`depth>=${PRIMARY_RUNG}`)) {
+    return { verdict: "human", reason: `no CI-separated improvement on depth>=${PRIMARY_RUNG} (improved=[${f.improved}], regressed=[${f.regressed}])` };
+  }
+  if (f.deepRungsUnresolved.length > 0) {
+    return { verdict: "human", reason: `a rung separated but the deep rungs per run are unresolved: ${f.deepRungsUnresolved.join(", ")}` };
+  }
   if (f.violationsOnlyImprovement) {
     return { verdict: "human", reason: "the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches" };
   }
-  return { verdict: "merge", reason: `improved: ${f.improved.join(", ")}` };
+  return {
+    verdict: "merge",
+    reason: `cross-binary fallback: depth>=${PRIMARY_RUNG}/s ${(crossBinary * 100).toFixed(2)}% clears the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% layout floor and separates at z ${MERGE_Z} (no internal control declared)`,
+  };
+}
+
+/** What merging would leave cumulative throughput at, against the frozen
+ *  epoch baseline. null when no epoch is frozen, which leaves the budget
+ *  inert rather than assuming one. */
+export function projectedEpochThroughput(f: MergeFigures): number | null {
+  const e = f.epochThroughput;
+  if (e === null || e.cumulative === null) return null;
+  return e.cumulative * f.throughput.ratio;
 }
 
 /** Why a merge may not stand unattended. Empty means it may. */
@@ -663,6 +1095,21 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
   // the two disagree; a verdict is not the place to settle that.
   if (f.primaryRungRegressed) out.push(`depth>=${PRIMARY_RUNG} per second separated below the baseline at z ${MERGE_Z}`);
   if (f.throughput.ratio < f.throughput.floor) out.push(`throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}`);
+  // Throughput is spent a few percent at a time and the loss compounds, so
+  // the budget is read against the frozen epoch baseline rather than against
+  // the previous merge alone.
+  const projected = projectedEpochThroughput(f);
+  if (projected !== null && projected < (f.epochThroughput?.floor ?? EPOCH_THROUGHPUT_FLOOR)) {
+    out.push(`merging would put cumulative throughput at ${projected.toFixed(3)} of the frozen epoch baseline, below the ${(f.epochThroughput?.floor ?? EPOCH_THROUGHPUT_FLOOR).toFixed(2)} budget`);
+  }
+  // A supplied merge may not bypass the balance check: an unbalanced control
+  // is a contrast about the populations, not about the mechanism.
+  if (f.internal !== null && f.internal.balance.faults.length > 0) {
+    out.push(`the declared bit's control population is unbalanced: ${f.internal.balance.faults.join("; ")}`);
+  }
+  if (f.internal !== null && f.internal.applies && !f.internal.separatedUp) {
+    out.push("the internal primary applies and did not separate");
+  }
   if (f.deepRungsUnresolved.length > 0) out.push(`deep rungs per run unresolved: ${f.deepRungsUnresolved.join(", ")}`);
   if (primaryBelowBandWithShallowerGain(f)) out.push(`depth>=${PRIMARY_RUNG} is below its band with the gain on a shallower rung`);
   // A sample that separated nothing may still be a merge, but only where the
@@ -670,6 +1117,7 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
   // and met, and the mechanism had occasions. Without all three there is
   // nothing to distinguish the result from a no-op.
   if (f.improved.length === 0
+      && !(f.internal !== null && f.internal.applies && f.internal.separatedUp)
       && !(f.prediction !== null && f.predictionInBand === true && f.firing.status === "fired")) {
     out.push("nothing separated and no stated prediction was met");
   }
@@ -720,7 +1168,13 @@ function finalGateParts(i: FinalGateInputs): { stop: GateDecision | null; figure
       figures: null, cmp, cand,
     };
   }
-  return { stop: null, figures: figuresOf(i, cand, base, cmp), cmp, cand };
+  // The internal primary is computed from the same chunk records the counts
+  // came from: the cap is the sample in hand, because the gate runs once the
+  // sampler has already stopped.
+  const internal = i.confirmEvals.length === 0 && i.treatmentBit === null
+    ? null
+    : internalPrimary(i.confirmEvals, i.baselineEvals, i.treatmentBit, i.perRunBand, cand.chunks);
+  return { stop: null, figures: figuresOf(i, cand, base, cmp, internal), cmp, cand };
 }
 
 export function finalGate(i: FinalGateInputs, chosen?: { verdict: MergeVerdict; reason: string }): GateDecision {
@@ -827,6 +1281,7 @@ export function selfTestUnmeasured(): string[] {
     hypothesis: h, confirmEvals: [], baselineEvals: [], regressionPassed: true,
     lintFailures: [], changedSpurFiles: [], changedSuperFiles: [], throughputRatio: 1, throughputFloor: 0.8,
     unmeasurable: [], firing: { status: "fired", detail: "mechanism.occasions = 1" },
+    treatmentBit: null, perRunBand: null,
   };
   const un = finalGate({ ...base, unmeasurable: ["u"] });
   check(un.verdict === "needs_human", `an unmeasurable diff reaches a human, got ${un.verdict}`);
@@ -885,11 +1340,12 @@ export function selfTestUnmeasured(): string[] {
   // rung - are counts no empty evaluation set can carry.
   const cleanFigures: MergeFigures = {
     hypothesisId: "h", kind: "add", superior: true, improved: [`depth>=${PRIMARY_RUNG}`], regressed: [],
-    primaryRungRegressed: false, deepRungsUnresolved: [], deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.05 },
-    primary: 0.05, primaryNullBand: 0.01, primaryInsideNullBand: false,
+    primaryRungRegressed: false, deepRungsUnresolved: [], deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.1 },
+    primary: 0.1, primaryNullBand: 0.01, primaryInsideNullBand: false,
     throughput: { ratio: 1, floor: 0.8 }, sample: { chunks: 2, runs: 100, exposureSec: 100 },
     violationsOnlyImprovement: false, firing: { status: "fired", detail: "" }, prediction: null,
     predictedRungDelta: null, predictionInBand: null, touchesSemantics: false, touchesPolicy: false,
+    internal: null, crossBinaryNullFloor: CROSS_BINARY_NULL_FLOOR, epochThroughput: null,
   };
   const cleanCmp: Comparison = { improved: cleanFigures.improved, regressed: [], unresolvedGuards: [], deltas: {}, stratumFault: null };
   const verdictOn = (over: Partial<MergeFigures>): MergeVerdict => ruleVerdict({ ...cleanFigures, ...over }).verdict;
@@ -903,8 +1359,11 @@ export function selfTestUnmeasured(): string[] {
   const shallow = { improved: ["depth>=4"], deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.02 }, primaryNullBand: 0.01 };
   check(verdictOn(shallow) === "human", `a shallow gain over a primary rung below its band reaches a human, got ${verdictOn(shallow)}`);
   check(blockersOn(shallow).length > 0, "a primary rung below its band holds a supplied merge for review");
-  check(verdictOn({ ...shallow, deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.005 } }) === "merge", "a primary rung inside its band is not a reading");
-  check(verdictOn({ ...shallow, primaryNullBand: -1 }) === "merge", "a band that could not be computed is not a reading");
+  // A primary rung inside its band is not a reading, so the shallow-gain
+  // branch does not fire; the gain is still on the wrong rung, and only a
+  // separated depth>=6 carries the fallback path.
+  check(verdictOn({ ...shallow, deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.005 } }) === "human", "a gain on a shallower rung alone does not merge");
+  check(verdictOn({ ...shallow, primaryNullBand: -1 }) === "human", "a band that could not be computed is not a reading");
   // Nothing separated: a merge needs a stated prediction that fired and
   // landed in its band, which is the only thing distinguishing the result
   // from a no-op.
@@ -933,5 +1392,149 @@ export function selfTestUnmeasured(): string[] {
     const sampled = (t.match(/(?<![-\w])sampled\b/g) ?? []).length;
     check(sampled === 4, `loop.ts must use sampled once per branch plus its definition (4), found ${sampled}`);
   }
+  return f;
+}
+
+/** Roster bits whose tag is not defined in the explorer's own source. A
+ *  roster entry whose tag was never merged names a population no chunk can
+ *  carry, so a session that declares it would be graded on cells that do not
+ *  exist. Advisory here; the caller decides which of them are live. */
+export function variantBitsMissingFromSource(): string[] {
+  const src = path.join(ROOT, "spur/spur-core/src/simulator/run_variant.rs");
+  if (!existsSync(src)) return [];
+  const text = readFileSync(src, "utf8");
+  const out: string[] = [];
+  for (const { bit, name } of VARIANT_BITS) {
+    const konst = name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+    const m = new RegExp(`pub const ${konst}\\s*:\\s*i32\\s*=\\s*1\\s*<<\\s*(\\d+)`).exec(text);
+    if (m === null || 1 << Number(m[1]) !== bit) out.push(`${name} (${bit})`);
+  }
+  return out;
+}
+
+/** The internal primary's own seams, on synthetic cells: the probe rule, the
+ *  co-bit matching, the balance checks, and the declaration roster. The
+ *  recorded-session checks are the lite grader's, because the sessions are
+ *  its records.
+ *
+ *  The contrast is blind to a cost paid by both halves of a session - a
+ *  shared hot-path slowdown reads 1.0 here - so the cross-binary throughput
+ *  floor and the epoch throughput budget are the only cost read there is.
+ *  Weakening either leaves this rule with none. */
+export function selfTestInternalPrimary(): string[] {
+  const f: string[] = [];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const cell = (variant: number, runs: number, events: number, arm = "grid", steps = 100): VariantMetrics => ({
+    arm, variant, runs, gradedRuns: runs,
+    depthAtLeast: [runs, runs, runs, runs, runs, events],
+    violations: 0, wallUsSum: runs * 1000, stepsUsedSum: runs * steps, planCompleteRuns: runs,
+  });
+  const band = { min: 0.05, max: 0.25 };
+  const ip = (cells: VariantMetrics[], bit: number | null, b: { min: number; max: number } | null = null): InternalPrimary =>
+    internalPrimaryCells(cells, [], bit, b, 2, 2);
+  // The contrast a reader would get by leaving probes in the control.
+  const withProbes = (cells: VariantMetrics[], bit: number): number => {
+    const rate = (cs: VariantMetrics[]): number => {
+      const g = cs.reduce((a, c) => a + c.gradedRuns, 0);
+      return g > 0 ? cs.reduce((a, c) => a + (c.depthAtLeast[PRIMARY_RUNG - 1] ?? 0), 0) / g : 0;
+    };
+    return rate(cells.filter((c) => (c.variant & bit) !== 0)) / rate(cells.filter((c) => (c.variant & bit) === 0));
+  };
+
+  // 1. The probe rule. Where the mechanism exempts probes they sit entirely
+  // in its control and drag it down; the reported number must be the
+  // probe-free one. Where coverage is proportional the drop changes nothing.
+  const exempting = [cell(16, 100_000, 25_000), cell(0, 100_000, 25_000), cell(2, 4_000, 200)];
+  const exempt = ip(exempting, 16);
+  check(Math.abs(withProbes(exempting, 16) - 1) > 0.005, "the exemption fixture must move the contrast when probes stay in the control, else it tests nothing");
+  check(Math.abs(exempt.ratio - 1) < 1e-9, `the probe-free contrast must be 1.0 on the exemption fixture, got ${exempt.ratio}`);
+  const proportional = [cell(16, 100_000, 26_000), cell(18, 4_000, 208), cell(0, 100_000, 25_000), cell(2, 4_000, 200)];
+  const prop = ip(proportional, 16);
+  check(Math.abs(prop.ratio / withProbes(proportional, 16) - 1) < 0.005,
+    `proportional probe coverage must agree with and without the drop, got ${prop.ratio} against ${withProbes(proportional, 16)}`);
+
+  // 2. Matching. A bit that only exists on placed runs must be compared with
+  // placed untreated runs, not with the whole untreated population.
+  const nested = [cell(513, 100_000, 25_000), cell(1, 100_000, 24_000), cell(0, 100_000, 5_000)];
+  const nest = ip(nested, 512);
+  check(nest.matchedOnMask === 1 && nest.matchedOn.includes("crashPlaced"), `a nested bit must match on its host population, got mask ${nest.matchedOnMask}`);
+  check(Math.abs(nest.ratio - 25_000 / 24_000) < 1e-9, `the matched contrast must be the placed-against-placed ratio, got ${nest.ratio}`);
+  check(withProbes(nested, 512) > 1.5, "the nesting fixture must show a large unmatched ratio, else the matching is not tested");
+  check(nest.applies && nest.separatedUp, `a matched 4% gain on this sample must separate up, got applies ${nest.applies} lo ${nest.lo}`);
+  check(internalPrimaryCells(nested, [], 512, { min: 0.1, max: 0.3 }, 2, 2).bandReading === "refuted",
+    "a frozen band above the interval must read as refuted");
+
+  // 3. Balance. A co-bit whose share differs between the matched populations
+  // is a contrast about the populations, not about the mechanism.
+  const skewed = [cell(16, 90_000, 22_500), cell(80, 10_000, 2_500), cell(0, 96_000, 24_000), cell(64, 4_000, 1_000)];
+  const skew = ip(skewed, 16);
+  check(skew.balance.faults.length > 0 && !skew.applies, `a 6-point co-bit gap must fault, got faults [${skew.balance.faults}] applies ${skew.applies}`);
+  check(exempt.balance.faults.length === 0 && prop.balance.faults.length === 0 && nest.balance.faults.length === 0,
+    "a balanced fixture must produce no balance faults, else the tolerances refuse real evidence");
+  // Records written before the steps column carry zero, which is unavailable
+  // rather than a ratio of zero.
+  const noSteps = [cell(16, 100_000, 25_000, "grid", 0), cell(0, 100_000, 24_000, "grid", 0)];
+  const bare = ip(noSteps, 16);
+  check(bare.balance.stepsPerRunRatio === null && bare.balance.faults.length === 0,
+    "a record with no steps column must report the ratio as unavailable, not fault on it");
+  // Arm composition, on the same rates: only the mix moved.
+  const mixed = [
+    cell(16, 90_000, 22_500, "grid"), cell(16, 10_000, 2_500, "grid-short"),
+    cell(0, 60_000, 15_000, "grid"), cell(0, 40_000, 10_000, "grid-short"),
+  ];
+  check(ip(mixed, 16).balance.faults.some((x) => x.startsWith("arm composition")), "a 30-point arm composition gap must fault");
+
+  // 4. Declaration. A bit off the roster, an instrument bit, and no bit at
+  // all are three different inapplicable readings, and none of them is a
+  // contrast.
+  for (const [bit, want] of [[null, "no treatment bit declared"], [2048, "not on the roster"], [2, "instrument"], [8, "instrument"]] as Array<[number | null, string]>) {
+    const r = ip(exempting, bit);
+    check(!r.applies && (r.inapplicableReason ?? "").includes(want), `bit ${bit} must be inapplicable for ${want}, got ${r.inapplicableReason}`);
+  }
+  // A treatment too thin to carry a session-level claim, and a control too
+  // small to resolve one.
+  check(!ip([cell(16, 2_000, 500), cell(0, 100_000, 25_000)], 16).applies, "a treated share below the floor must be inapplicable");
+  check(!ip([cell(16, 100_000, 25_000), cell(0, 10_000, 2_500)], 16).applies, "a matched control below the graded floor must be inapplicable");
+
+  // 5. The difference in differences, where the baseline carries the bit too,
+  // and the share shift that makes the internal read meaningless.
+  const candSide = [cell(1, 100_000, 25_000), cell(0, 100_000, 20_000)];
+  const baseSide = [cell(1, 100_000, 22_000), cell(0, 100_000, 20_000)];
+  const did = internalPrimaryCells(candSide, baseSide, 1, band, 2, 2);
+  check(did.differenceInDifferences, "a bit present on both sides must be differenced");
+  check(Math.abs(did.ratio - (25_000 / 20_000) / (22_000 / 20_000)) < 1e-9, `the difference in differences must divide the two contrasts, got ${did.ratio}`);
+  const shifted = internalPrimaryCells([cell(1, 180_000, 45_000), cell(0, 20_000, 4_000)], baseSide, 1, band, 2, 2);
+  check(!shifted.applies && (shifted.inapplicableReason ?? "").includes("treated share shifted"),
+    `a treated share that moved between candidate and baseline must be inapplicable, got ${shifted.inapplicableReason}`);
+
+  // 6. The verdict the figures reach. A separated internal contrast merges
+  // where nothing cross-binary separated; one below 1.0 closes; one inside
+  // the floor reaches a human rather than merging on the cross-binary rung.
+  const figures = (over: Partial<MergeFigures>): MergeFigures => ({
+    hypothesisId: "h", kind: "add", superior: false, improved: [], regressed: [],
+    primaryRungRegressed: false, deepRungsUnresolved: [], deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.01 },
+    primary: 0.01, primaryNullBand: 0.005, primaryInsideNullBand: false,
+    throughput: { ratio: 1, floor: 0.8 }, sample: { chunks: 2, runs: 100, exposureSec: 100 },
+    violationsOnlyImprovement: false, firing: { status: "fired", detail: "" }, prediction: null,
+    predictedRungDelta: null, predictionInBand: null, touchesSemantics: false, touchesPolicy: false,
+    internal: null, crossBinaryNullFloor: CROSS_BINARY_NULL_FLOOR, epochThroughput: null,
+    ...over,
+  });
+  check(ruleVerdict(figures({ internal: nest })).verdict === "merge",
+    `a separated internal contrast must merge with the cross-binary rung inside its floor, got ${ruleVerdict(figures({ internal: nest })).reason}`);
+  const down = internalPrimaryCells([cell(16, 100_000, 20_000), cell(0, 100_000, 25_000)], [], 16, null, 2, 2);
+  check(down.separatedDown && ruleVerdict(figures({ internal: down })).verdict === "close", "an internal contrast below 1.0 must close");
+  const flat = internalPrimaryCells([cell(16, 100_000, 25_000), cell(0, 100_000, 25_000)], [], 16, null, 2, 2);
+  check(ruleVerdict(figures({ internal: flat })).verdict === "human", "an internal contrast that resolves neither way must reach a human");
+  check(ruleVerdict(figures({ internal: null })).verdict === "human", "a cross-binary delta inside the layout floor must not merge on the fallback path");
+  check(ruleVerdict(figures({ internal: null, primary: 0.3, deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.3 }, improved: [`depth>=${PRIMARY_RUNG}`] })).verdict === "merge",
+    "a cross-binary gain that clears the layout floor and separates must merge on the fallback path");
+  // The epoch budget, and the two-sided cross-binary cost read.
+  check(ruleVerdict(figures({ internal: nest, epochThroughput: { frozenRps: 1000, cumulative: 0.95, floor: EPOCH_THROUGHPUT_FLOOR }, throughput: { ratio: 0.9, floor: 0.8 } })).verdict === "close",
+    "a merge that would spend the epoch's throughput budget must close");
+  check(ruleVerdict(figures({ internal: nest, primaryRungRegressed: true, deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.2 } })).verdict === "close",
+    "a cross-binary fall beyond the layout floor closes whatever the internal contrast says");
+  check(ruleVerdict(figures({ internal: nest, primaryRungRegressed: true, deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.01 } })).verdict === "merge",
+    "a cross-binary fall inside the layout floor is not a cost reading");
   return f;
 }

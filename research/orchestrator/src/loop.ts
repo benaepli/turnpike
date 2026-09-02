@@ -1061,6 +1061,10 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
       violationPrior: violationRate,
       unmeasurable,
       firing,
+      // The big loop's hypotheses carry no declared treatment bit, so every
+      // candidate here is read on the cross-binary rung.
+      treatmentBit: null,
+      perRunBand: null,
     });
     // The verdict is asked before the regression suite is bought, so a close
     // does not pay for a suite nobody reads. A hard stop is settled in code

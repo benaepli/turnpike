@@ -397,6 +397,10 @@ export const SeqState = z.object({
   // before stratification parses as null, which forces a reset rather than
   // resuming with counts that mean something else.
   rateStratum: RateStratum.nullable().default(null),
+  // The pooled per-(arm, variant) cells the internal contrast is read off.
+  // A state written before the tag column parses as empty, which is no
+  // internal primary rather than no treated runs.
+  variants: z.array(VariantMetrics).default([]),
 });
 export type SeqState = z.infer<typeof SeqState>;
 
