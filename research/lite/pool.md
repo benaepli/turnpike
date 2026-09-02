@@ -774,9 +774,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-fanout-phase-anchored-release
 
-- kind: add | category: scheduler | origin: proposer | status: RE-ADMITTED
-  for epoch 13 as its first graded candidate (judge gain 6, cost 0) | patch:
-  research/lite/patches/crash-fanout-phase-anchored-release/
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  7134f43 (spur 6f07962), the first epoch-13 decision: internal contrast
+  1.1854 [1.1195, 1.2551] inside the frozen band [1.05, 1.40], firing 2.5x
+  floor, throughput 1.0032, regression passed | patch: applied; the kept copy
+  under research/lite/patches/ was removed at merge
 - Epoch-12 result: internal contrast 1.0500 [1.0448, 1.0551] on a rung two
   thirds of whose deep runs never crashed the node whose message the chain
   says went stale; under the new grader rule the replay merges it. Re-graded

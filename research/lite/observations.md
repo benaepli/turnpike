@@ -1319,3 +1319,18 @@ times at steps 310/311, 342/343 and 377/380, every attempt announcing nonce
 Logged under research/logs/violations/lite-base-sequential-1000-1788383192343
 with signature 73555b51e7d2a69a; the finding in
 research/lite/findings/vr-recovery-nonce-reuse.md stands.
+
+## First epoch-13 decision: the fan-out anchor merges
+
+The re-admitted crash-fanout-phase-anchored-release was graded as the first
+session to declare its bit at `start` (512, crashPhase, band [0.05, 0.40]).
+The internal per-run contrast on the witness-complete depth-6 rung read
+1.1854 [1.1195, 1.2551], chunks 1.168 and 1.202, against a frozen band of
+[1.05, 1.40]; under the epoch-12 rung the same bytes read 1.0500. The
+tripling is what the mechanism argument predicted: the chain now demands a
+delivery after the initiating node's crash, and anchoring the crash to the
+victim's fan-out is what makes that delivery exist. Firing 255,832 and
+256,354 armed per chunk; every condition-released crash caught the victim
+with sends in flight; throughput 1.0032; regression passed; no candidate
+violations over 1.053M runs. Merged at 7134f43 (spur 6f07962). The next
+`start` measures a fresh baseline cache against the moved spur tree.
