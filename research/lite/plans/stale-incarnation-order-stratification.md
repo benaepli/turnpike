@@ -1,6 +1,6 @@
 # stale-incarnation-order-stratification
 
-status: admitted, building | origin: proposer | judge gain 7, cost 0, net 7
+status: closed, refuted by primary falsifier (see decisions.jsonl) | origin: proposer | judge gain 7, cost 0, net 7
 
 ## Frozen prediction (frozen at admission, with the judge's rewrite)
 

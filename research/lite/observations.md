@@ -629,3 +629,61 @@ candidate aimed at recovery races specifically, and a violation-replay
 iteration on the two archived signatures - remain untouched, and the
 scheduling-theory round produced nothing that displaced them. They are the
 next thing.
+
+## Iteration 9 - stale-incarnation ordering, closed; acted-ness is not the bottleneck
+
+A recovery-race round, as two direction reviews had asked. The steering was
+built on a measurement: stale-incarnation deliveries - a message arriving
+after its sender crashed and restarted - run at 4.36 per run, and only 10.9%
+of them change the receiver's state. So the directive said the bottleneck
+was effect, not supply, and asked for a mechanism that raised the acted
+share rather than the count.
+
+The winning candidate did exactly that, and did it well. Each stale message
+was forced to arrive either before (AHEAD) or after (BEHIND) its sender's
+post-restart traffic, by a coin, with both arms counted. It fired at 672,912
+constraints and 47.3M masked offers against a 50k floor, and every safety
+clause held: expiries 3.9% of armings, steps per run 1.007x, plan completion
++0.06 points, zero violations either side.
+
+The arms separated. AHEAD deliveries acted at 11.99% and BEHIND at 9.46%, on
+about 700k deliveries each, stable across both chunks (1.275x then 1.267x
+pooled). A message from a dead incarnation is about a quarter more likely to
+change its receiver if it lands before the sender's fresh traffic does. That
+is a real, general, and previously unmeasured fact about this simulator.
+
+And depth did not move. The randomized internal contrast - 300k treated runs
+against 300k untreated in the same session - read depth>=6 at 0.9948
+[0.985, 1.004], with the frozen 1.04 bar outside the interval. Cross-binary
+1.0156 against a 0.0039 null at throughput 1.0085, and canStillAdvance false.
+Closed on its primary falsifier. The arm clause sat in the frozen undecided
+band, above the 1.2x refute and below the 1.5x pass.
+
+What this settles. Raising how often stale deliveries act, by a quarter in
+one arm, produced no depth. Whatever the objective is short of, it is not
+that. The directive's framing - effect not supply - is unsupported, and the
+round's shared premise had already been refuted by the judge as read: the
+ladder's bottom rung is receivers whose state was wiped at recovery, the
+population that moved least, not most. The acceptance-distance census, now
+exported, gives the actual shape: sender-restarted deliveries act at 0.117
+when the receiver has zero entries since its restart, peak at 0.142 for one
+to two entries, and decay to 0.101 past sixteen. Hump-shaped, not monotone
+in either direction.
+
+Two instrument results this iteration outlast the candidate. The
+acceptance-distance table was computed, enabled, present in the raw dump,
+and dropped by the orchestrator's leaf flattener, which returned early on
+every array; it had blocked the frozen observable of three candidates.
+Arrays now flatten by index under a 64-element cap. And the retracted item:
+chunk 1 read throughput at 1.0216 and I speculated a refactor had sped the
+hot path; chunk 2 read 0.9954 and the pool is 1.0085. Noise, not a finding.
+
+Direction. This is the second recovery-race framing to close this session
+(client placement was the late-client-work reading; this was the acted-
+stale-delivery reading). Both mechanisms did what they were built to do and
+moved nothing. Iterations 6 through 9 have compounded the objective 1.71x
+through fault placement alone, with the panel confirming it, and zero VR
+violations across about 4.9M runs. The next iteration is the direction
+review, and it should ask directly whether depth>=6 on this oracle is still
+measuring anything the goal needs - two mechanisms have now moved what the
+trace requires without moving the rung.

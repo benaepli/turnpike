@@ -1,0 +1,184 @@
+{
+ "name": "stale-incarnation-order-stratification",
+ "createdAtIso": "2026-09-02T05:13:21.951Z",
+ "note": "frozen prediction in research/lite/plans/stale-incarnation-order-stratification.md: two-arm acted-rate contrast >=1.5x primary; depth>=6 treated/untreated >=1.04 probes dropped; masked_offers floor 50k",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/stale-incarnation-order-stratification/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/stale-incarnation-order-stratification/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:stale-incarnation-order-stratification"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-stale-incarnation-order-stratification",
+  "chunks": 2,
+  "runs": 706560,
+  "graded": 706560,
+  "depth4": 525249,
+  "depth5": 339071,
+  "depth6plus": 162275,
+  "depth7plus": 46531,
+  "depth8plus": 5689,
+  "violations": 0,
+  "h2Count": 548384,
+  "exposureSec": 600.941,
+  "rpsChunks": [
+   1191.0570864634751,
+   1160.458166667776
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.926,
+   "depth>=4:pMei": 0.1025,
+   "depth>=4:ratio": 1.0166955127280146,
+   "depth>=4:mei": 0.031202989998219792,
+   "depth>=5:pGreater": 0.863,
+   "depth>=5:pMei": 0.06,
+   "depth>=5:ratio": 1.014430640706685,
+   "depth>=5:mei": 0.03450105122203747,
+   "depth>=6:pGreater": 0.876,
+   "depth>=6:pMei": 0.0695,
+   "depth>=6:ratio": 1.0155633754161324,
+   "depth>=6:mei": 0.035106537237657574,
+   "depth>=7:pGreater": 0.799,
+   "depth>=7:pMei": 0.035,
+   "depth>=7:ratio": 1.0122109671119852,
+   "depth>=7:mei": 0.03753402755243605,
+   "depth>=8:pGreater": 0.2415,
+   "depth>=8:pMei": 0,
+   "depth>=8:ratio": 0.9850615873110072,
+   "depth>=8:mei": 0.05502236701254896,
+   "h2:pGreater": 0.9955,
+   "h2:ratio": 1.0051648534110829,
+   "h2:mei": 0.004489368182730151,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.0085219518322346,
+   "throughput:cv": 0.01840235027666608,
+   "depth>=5:cv": 0.014690288671148228,
+   "depth>=6:cv": 0.014681400850222385,
+   "depth>=7:cv": 0.014395510080689592,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.66200000000003,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 600720,
+   "graded": 600720,
+   "exposureSec": 480.66200000000003,
+   "depth": [
+    600720,
+    578014,
+    516084,
+    442661,
+    282700,
+    134870,
+    38299,
+    4687,
+    104
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.288,
+     "depth": [
+      302340,
+      290943,
+      259918,
+      223025,
+      142793,
+      68123,
+      19341,
+      2336,
+      47
+     ]
+    },
+    {
+     "exposureSec": 240.37400000000002,
+     "depth": [
+      298380,
+      287071,
+      256166,
+      219636,
+      139907,
+      66747,
+      18958,
+      2351,
+      57
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-stale-incarnation-order-stratification-sequential-1000-1788326002294",
+  "lite-stale-incarnation-order-stratification-sequential-1001-1788326436673"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T05:20:36.166Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 434
+  },
+  {
+   "atIso": "2026-09-02T05:27:47.589Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 431
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

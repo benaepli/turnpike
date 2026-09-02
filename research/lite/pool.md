@@ -484,9 +484,17 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## stale-incarnation-order-stratification
 
-- kind: add | category: scheduler | origin: proposer | status: admitted,
-  building (judge gain 7, cost 0, net 7 - highest of the session) | frozen
-  prediction: research/lite/plans/stale-incarnation-order-stratification.md
+- kind: add | category: scheduler | origin: proposer | status: CLOSED,
+  refuted by its primary falsifier (judge gain 7, cost 0) | record:
+  research/lite/plans/stale-incarnation-order-stratification.md
+- Built and graded over 706k runs. Fired far above floor with every safety
+  clause clean, and the randomized internal contrast on depth>=6 read 0.9948
+  [0.985,1.004] against a 1.04 bar. The arms separated at 1.267x - AHEAD
+  acted 11.99%, BEHIND 9.46% - real and stable but inside the frozen
+  undecided band. Finding kept: arrival order relative to the sender's
+  fresh incarnation changes acted-ness by about a quarter and that change
+  does not reach depth, so acted-ness of stale deliveries is not what the
+  objective is short of.
 - title: Stratify whether a message from a dead incarnation is delivered
   before or after its sender's post-restart traffic, and measure which acts
 - Zero failed claims. The eligibility mask already excludes Records via
