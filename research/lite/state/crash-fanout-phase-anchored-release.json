@@ -1,0 +1,232 @@
+{
+ "name": "crash-fanout-phase-anchored-release",
+ "createdAtIso": "2026-09-02T09:27:58.045Z",
+ "note": "frozen prediction per judge rewrite (pool.md): internal depth>=6 anchored (EARLY+MID) vs STOCK half of placed >1.05; crash_phase.armed floor 100k; release-time victim_had_inflight on CONDITION-released >=0.95 (close if <0.90, read on condition-released per the implementer's flag; aggregate also recorded); MID bucket_1 +10pts; expired/armed <0.5 per arm; steps/run <1.15x; throughput >=0.95; crashes/run within 2%",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/crash-fanout-phase-anchored-release/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/crash-fanout-phase-anchored-release/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:crash-fanout-phase-anchored-release"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-f9daa01b-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-crash-fanout-phase-anchored-release",
+  "chunks": 4,
+  "runs": 2062680,
+  "graded": 2062680,
+  "depth4": 1530397,
+  "depth5": 1009269,
+  "depth6plus": 482999,
+  "depth7plus": 131307,
+  "depth8plus": 15837,
+  "violations": 0,
+  "h2Count": 1584677,
+  "exposureSec": 1201.2350000000001,
+  "rpsChunks": [
+   1743.691182641012,
+   1704.1174178464735,
+   1708.9423259438345,
+   1711.7803914257845
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1004,
+  "posteriors": {
+   "depth>=4:pGreater": 0.578,
+   "depth>=4:pMei": 0.01,
+   "depth>=4:ratio": 1.0072592840877104,
+   "depth>=4:mei": 0.10138539191496866,
+   "depth>=5:pGreater": 0.648,
+   "depth>=5:pMei": 0.0085,
+   "depth>=5:ratio": 1.0154547416837179,
+   "depth>=5:mei": 0.10406997233646832,
+   "depth>=6:pGreater": 0.778,
+   "depth>=6:pMei": 0.032,
+   "depth>=6:ratio": 1.0300875714965554,
+   "depth>=6:mei": 0.1057601015798172,
+   "depth>=7:pGreater": 0.8985,
+   "depth>=7:pMei": 0.0905,
+   "depth>=7:ratio": 1.048240631589058,
+   "depth>=7:mei": 0.10000750646272993,
+   "depth>=8:pGreater": 0.924,
+   "depth>=8:pMei": 0.1285,
+   "depth>=8:ratio": 1.0639296243639051,
+   "depth>=8:mei": 0.1154364135276046,
+   "h2:pGreater": 1,
+   "h2:ratio": 1.0424305588488185,
+   "h2:mei": 0.003101246485952131,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.005623031388226,
+   "throughput:cv": 0.010474390884077554,
+   "depth>=5:cv": 0.010999970371572125,
+   "depth>=6:cv": 0.012139495016058535,
+   "depth>=7:cv": 0.01,
+   "stratum:chunks": 4,
+   "stratum:exposureSec": 960.914,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "stop",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|f9daa01b|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 4,
+   "runs": 1705920,
+   "graded": 1705920,
+   "exposureSec": 960.914,
+   "depth": [
+    1705920,
+    1639564,
+    1460204,
+    1261299,
+    830281,
+    396501,
+    108725,
+    13131,
+    274
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.215,
+     "depth": [
+      430500,
+      414089,
+      368974,
+      318925,
+      210267,
+      100260,
+      27317,
+      3309,
+      71
+     ]
+    },
+    {
+     "exposureSec": 240.173,
+     "depth": [
+      424140,
+      407501,
+      362404,
+      312358,
+      205130,
+      97505,
+      26805,
+      3260,
+      53
+     ]
+    },
+    {
+     "exposureSec": 240.209,
+     "depth": [
+      423240,
+      406648,
+      362286,
+      313509,
+      206271,
+      98906,
+      27176,
+      3255,
+      82
+     ]
+    },
+    {
+     "exposureSec": 240.317,
+     "depth": [
+      428040,
+      411326,
+      366540,
+      316507,
+      208613,
+      99830,
+      27427,
+      3307,
+      68
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001,
+  1002,
+  1003
+ ],
+ "evalIds": [
+  "lite-crash-fanout-phase-anchored-release-sequential-1000-1788341278398",
+  "lite-crash-fanout-phase-anchored-release-sequential-1001-1788341712736",
+  "lite-crash-fanout-phase-anchored-release-sequential-1002-1788342599520",
+  "lite-crash-fanout-phase-anchored-release-sequential-1003-1788343470239"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T09:35:12.231Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 434
+  },
+  {
+   "atIso": "2026-09-02T09:42:23.827Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 431
+  },
+  {
+   "atIso": "2026-09-02T09:57:12.865Z",
+   "seed": 1002,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 852
+  },
+  {
+   "atIso": "2026-09-02T10:11:44.136Z",
+   "seed": 1003,
+   "event": "chunk",
+   "detail": "verdict stop: cap reached with pGreater 0.778",
+   "wallSec": 871
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

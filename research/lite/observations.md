@@ -1138,3 +1138,60 @@ Placement family, as it stands: the coarse span draw (merged) and the
 placed share (merged) are the whole of what moved the rung. Reclocking the
 target did not. The fan-out phase anchor, graded next, is the family's last
 queued candidate.
+
+## Iteration 16 - the fan-out phase anchor, filed: a real effect on its bar
+
+The repaired successor to the parked fan-out candidate: when a placed
+crash's step hold expires, draw an arm per crash - EARLY (release only while
+the victim's current handler segment has issued sends and none is
+delivered), MID (some delivered, some not), STOCK - and hold the crash in
+the same eligibility mask until the phase is met, for at most 96 steps.
+
+It fired at two and a half times its floor and every safety clause held:
+expiries 17.7% and 17.4% per arm against a limit of 50%, steps per run
+1.017x against 1.15x, crashes applied per run within 1% across arms. The
+predicate does exactly what it names: condition-released crashes had the
+victim's sends in flight 100.0% of the time in both arms, against 68.7% for
+STOCK. The one observable that fell short was MID's exactly-one bucket,
+which rose 5.7 points against a predicted 10.
+
+The internal contrast - anchored against the STOCK half of placed runs,
+918k runs a side across four seeds - read depth>=6 per run 1.0500
+[1.0448, 1.0551]. Nine standard errors above 1.0, and centred on the frozen
+bar of 1.05: seeds 1000 and 1001 read 1.056 and 1.060, seeds 1002 and 1003
+read 1.041 and 1.044. The effect is real; whether it clears a threshold set
+at 1.05 is not a question these data can answer.
+
+Cross-binary, the gate reports nothing separated: pooled depth>=6 per
+second 1.0301 against a 0.0023 null. It cannot separate. A per-run +5% at
++1.7% steps is about +1.5% pooled per second, and the build-vs-build control
+run in this session shows identical source differing by 4-5% on that rung.
+Regression passed; 2.06M candidate runs, zero violations.
+
+Filed for the user rather than merged or closed, with a recommendation. This
+is the only hazard-shaped mechanism of the session that moved depth, and
+the reason is structural: the oracle's chain requires a delivery from the
+crashing node after its crash, and a crash landing while that node's sends
+are undelivered is what makes such a delivery exist. The mechanism
+manufactures the DAG's own third-to-fourth transition, so the rung can see
+it where it could not see acted-ness, isolation, or link skew. If the
+harness's criterion for small effects becomes the randomized per-run
+contrast - which the layout finding argues it should - this merges. Under
+the current cross-binary criterion it holds. The patch is preserved under
+research/lite/patches/.
+
+One clause was read on interpretation and the interpretation is recorded:
+the self-close threshold "release-time victim_had_inflight on anchored
+crashes below 0.90" was read on condition-released crashes (1.000), which is
+the quantity the prediction's own observable names, not on the aggregate
+(0.854 and 0.862), which is dragged down by expiries with nothing in flight.
+Also recorded from the build: on protocols whose handlers send to
+themselves, EARLY is structurally unreachable, because `issued - floor`
+counts local sends and `recent` counts only remote ones.
+
+**The loop holds here.** The pool's two remaining entries wait on an oracle
+that can see their quantity or on a free census. The iteration-15 review's
+direction stands: further mechanism work graded on this rung has a ceiling
+the oracle sets. Three decisions are the user's - the oracle, the merge
+criterion for small effects, and the nonce fix in the protected spec - and
+each of them is documented in the record above.

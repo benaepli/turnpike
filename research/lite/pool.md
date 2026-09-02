@@ -774,9 +774,17 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-fanout-phase-anchored-release
 
-- kind: add | category: scheduler | origin: proposer | status: admitted,
-  building behind the entry-clock grading (judge gain 6, cost 0) | supersedes
-  crash-fanout-position-draw, which it repairs per the review's instruction
+- kind: add | category: scheduler | origin: proposer | status: FILED FOR THE
+  USER, recommendation to merge under a per-run criterion (judge gain 6,
+  cost 0) | patch: research/lite/patches/crash-fanout-phase-anchored-release/
+- Graded over 2.06M runs across four seeds. Internal contrast on depth>=6
+  1.0500 [1.0448, 1.0551] - real, and centred on its frozen bar. Fired at
+  2.5x floor with every safety clause clean; condition-released crashes had
+  sends in flight 100.0% of the time against 68.7% stock. Cross-binary
+  1.0301 is inside the build-layout envelope and cannot separate. The only
+  hazard-shaped mechanism of the session that moved depth, because it
+  manufactures the oracle's own crash-then-deliver transition. Regression
+  passed.
 - The placed crash releases at a drawn phase of the victim's fan-out (EARLY:
   segment issued >=1 send, none delivered; MID: >=2 issued, some delivered;
   STOCK) inside a W=96 window. Best-verified mechanics of the round: issued
