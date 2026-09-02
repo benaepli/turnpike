@@ -1085,3 +1085,56 @@ only remaining queued candidate whose effect the rung might see. After
 that, the honest statement is that mechanism work on this rung has reached
 the ceiling the oracle sets, and the loop should hold rather than spend
 chunks on a fifth hazard-up-depth-down result.
+
+## Iteration 15 - entry-clock placement, closed; and the size of build-layout noise
+
+The last unexamined axis of the placement family: draw the crash target on
+a handler-entry clock instead of the step clock, half of placed runs each
+way, with the span learned in entry units. It fired - 410k entry holds per
+chunk against a 200k floor, backstop releases 0.000 - and every safety
+clause held: steps per run 0.999x, plan completion -0.5 points, crashes per
+run within 0.2%, hold-length p95 in the same bucket for both halves.
+
+It did not place crashes differently. The entries-per-step ratio is 0.39
+and nearly constant within a run, so the entry clock is the step clock
+scaled, and the two halves' entries-at-crash quantiles differ by a single
+bucket at p90 and not at all at p10 or p50. That is not evidence that the
+placement quantile does not matter; it is evidence that this reclocking did
+not move it, which is the weaker and honest statement. The randomized
+internal contrast read 1.0156 [about 1.006, 1.025] against the frozen 1.04
+bar. Refuted.
+
+The typed rule said merge. Cross-binary depth>=6 per second read 1.0659
+against a 0.0031 null at throughput 1.0498 - a separation at z 2.7, and the
+first candidate since the ablation to reach one. The decision departs from
+it, and the reason is a measurement made for the purpose. The candidate's
+cross-binary gain decomposes into about 1.5% per run, matching the internal
+contrast exactly, plus about 5% throughput. A patch that adds an integer
+increment per handler entry cannot make the binary 5% faster. So the
+baseline commit was compiled fresh in another directory - 632 bytes
+different from the main-tree binary, identical source - and graded against
+the main-tree binary with the same template. It read throughput 0.9634 and
+depth>=6 per second 0.9510 against a 0.0045 null band.
+
+**Two builds of identical source differ by four to five percent on the
+per-second rung.** The same-binary A/A, which read 1.022 in iteration 11,
+cannot see this because it runs one binary against itself. Every candidate
+this loop grades is a separate build. Consequences, stated plainly:
+
+- A single-build candidate cannot be honestly separated on the per-second
+  rung at effects under about 5%, however many chunks are bought. The
+  randomized internal contrast is blind to shared hot-path cost (iteration
+  14) but immune to layout, and it is the read that decides small effects.
+- No past merge is undermined. Crash placement at 2.39x, the flip at 1.15x
+  and 1.48x, and the ablation at 1.47x all clear the envelope by a wide
+  margin; the alias fix was merged as a correctness fix, not on separation.
+- The grader should either gate on the per-run probability as its primary,
+  or normalize a candidate's throughput by a build-layout control, before
+  another small per-second separation is read as a result. That is a
+  change to the measurement harness, which is the operator's to make, and
+  it is flagged for the user rather than made tonight.
+
+Placement family, as it stands: the coarse span draw (merged) and the
+placed share (merged) are the whole of what moved the rung. Reclocking the
+target did not. The fan-out phase anchor, graded next, is the family's last
+queued candidate.

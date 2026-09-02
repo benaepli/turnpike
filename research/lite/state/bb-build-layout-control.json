@@ -1,0 +1,160 @@
+{
+ "name": "bb-build-layout-control",
+ "createdAtIso": "2026-09-02T09:08:25.378Z",
+ "note": "build-vs-build control: baseline commit 4ff2a45 compiled fresh in another directory against the main-tree baseline binary, same template; measures build-layout throughput noise a same-binary A/A cannot see.",
+ "cand": {
+  "bin": "/tmp/claude-1000/-home-benaepli-Rust-turnpike/a9b7ef1d-0d30-4e4a-ac8f-8cc6f6a9dee4/scratchpad/bins/spur-bb",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:bb-build-layout-control"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-f9daa01b-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-bb-build-layout-control",
+  "chunks": 1,
+  "runs": 510360,
+  "graded": 510360,
+  "depth4": 378125,
+  "depth5": 246986,
+  "depth6plus": 116091,
+  "depth7plus": 31103,
+  "depth8plus": 3695,
+  "violations": 0,
+  "h2Count": 378034,
+  "exposureSec": 300.346,
+  "rpsChunks": [
+   1699.2402096248993
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1001,
+  "posteriors": {
+   "depth>=4:pGreater": 0.0005,
+   "depth>=4:pMei": 0,
+   "depth>=4:ratio": 0.9491395352326932,
+   "depth>=4:mei": 0.03854616139377733,
+   "depth>=5:pGreater": 0,
+   "depth>=5:pMei": 0,
+   "depth>=5:ratio": 0.9498503336505244,
+   "depth>=5:mei": 0.03873593361484075,
+   "depth>=6:pGreater": 0.001,
+   "depth>=6:pMei": 0,
+   "depth>=6:ratio": 0.9510006105588643,
+   "depth>=6:mei": 0.03935160726667783,
+   "depth>=7:pGreater": 0.0035,
+   "depth>=7:pMei": 0,
+   "depth>=7:ratio": 0.9571208374330771,
+   "depth>=7:mei": 0.04235072062786362,
+   "depth>=8:pGreater": 0.0755,
+   "depth>=8:pMei": 0,
+   "depth>=8:ratio": 0.9602313737928708,
+   "depth>=8:mei": 0.0651104354783826,
+   "h2:pGreater": 0.1955,
+   "h2:ratio": 0.9980318777185881,
+   "h2:mei": 0.004799578045436599,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 0.9466254148609645,
+   "throughput:cv": 0.01,
+   "depth>=5:cv": 0.01,
+   "depth>=6:cv": 0.01,
+   "depth>=7:cv": 0.01,
+   "stratum:chunks": 1,
+   "stratum:exposureSec": 240.26399999999998,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|f9daa01b|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 1,
+   "runs": 422340,
+   "graded": 422340,
+   "exposureSec": 240.26399999999998,
+   "depth": [
+    422340,
+    406095,
+    361094,
+    311071,
+    203801,
+    95745,
+    26001,
+    3148,
+    58
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.26399999999998,
+     "depth": [
+      422340,
+      406095,
+      361094,
+      311071,
+      203801,
+      95745,
+      26001,
+      3148,
+      58
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000
+ ],
+ "evalIds": [
+  "lite-bb-build-layout-control-sequential-1000-1788340105728"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T09:15:37.261Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 432
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": false
+}

@@ -736,8 +736,17 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## activity-clock-crash-placement
 
-- kind: add | category: scheduler | origin: proposer | status: admitted,
-  building behind the link-speed grading (judge gain 6, cost 0, net 6)
+- kind: add | category: scheduler | origin: proposer | status: CLOSED,
+  frozen falsifier fired; typed merge advice departed from with reason
+  (judge gain 6, cost 0)
+- Graded over 1.11M runs. Fired at 410k entry holds per chunk with every
+  safety clause clean, and the randomized internal contrast read 1.0156
+  against a 1.04 bar. The typed rule said merge on cross-binary 1.0659 at
+  throughput 1.05; a same-session build-vs-build control of identical
+  source read 0.951 on the rung and 0.963 on throughput, so the separation
+  is inside build-layout noise. The entry clock is a reparameterization of
+  the step clock on this workload (entries per step 0.39, near constant),
+  so the halves placed crashes at nearly the same points.
 - title: Crash targets drawn on a handler-entry clock instead of the step
   clock, with the span learned in the same units
 - Half of placed runs draw the crash target over the learned median
