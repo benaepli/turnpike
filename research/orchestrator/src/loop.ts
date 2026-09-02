@@ -2,6 +2,7 @@
 // clearly fenced phases. Every phase is timed, journaled, and recoverable -
 // an exception resets both repos to research/vr-loop and the loop continues.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import {
@@ -24,7 +25,7 @@ import {
 } from "./gitops.js";
 import type { Policy } from "./policy.js";
 import { POLICY_KEY_PATHS, loadPolicy } from "./policy.js";
-import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, templateHasCampaign } from "./runners.js";
+import { CAMPAIGN_ONLY_KEYS, buildSpurCached, SPUR_BIN, cleanupDir, explore, materializeConfig, resolveRoot, templateHasCampaign } from "./runners.js";
 import { runRegression } from "./regression.js";
 import { Evaluation, Hypothesis, type GateDecision, type SeqState } from "./schemas.js";
 import { LoopState } from "./state.js";
@@ -44,10 +45,18 @@ function textOrNull(read: () => string): string | null {
   try { return read(); } catch { return null; }
 }
 
+// The full definition of the depth scale: the analyzer that computes it, the
+// checker that supplies the verdicts, and the oracle DAG the prefix is
+// measured against. The DAG is content-hashed because editing it rescales
+// depth without touching a single line of traceanalyzer.
 export function graderVersion(): string {
   const ta = execFileSync("git", ["log", "-1", "--format=%h", "--", "traceanalyzer"], { cwd: SUPER }).toString().trim();
   const porc = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.join(SUPER, "porcupine") }).toString().trim();
-  return `ta:${ta}+porc:${porc}`;
+  const { policy } = loadPolicy(path.join(SUPER, "research", "policy.json"));
+  const oracle = createHash("sha256")
+    .update(policy.evaluation.oracleDags.map((f) => readFileSync(resolveRoot(f), "utf8")).join("\0"))
+    .digest("hex").slice(0, 8);
+  return `ta:${ta}+porc:${porc}+oracle:${oracle}`;
 }
 
 const BaselineMeta = z.object({

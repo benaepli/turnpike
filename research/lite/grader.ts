@@ -100,10 +100,16 @@ function gitOut(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd }).toString().trim();
 }
 
+// The full definition of the depth scale: the analyzer that computes it, the
+// checker that supplies the verdicts, and the oracle DAG the prefix is
+// measured against. The DAG is content-hashed because editing it rescales
+// depth without touching a single line of traceanalyzer.
 function graderVersionOf(): string {
   const ta = gitOut(ROOT, ["log", "-1", "--format=%h", "--", "traceanalyzer"]);
   const porc = gitOut(path.join(ROOT, "porcupine"), ["rev-parse", "--short", "HEAD"]);
-  return `ta:${ta}+porc:${porc}`;
+  const { policy } = loadPolicy(path.join(ROOT, "research", "policy.json"));
+  const oracle = sha256(policy.evaluation.oracleDags.map((f) => fs.readFileSync(resolveRoot(f), "utf8")).join("\0")).slice(0, 8);
+  return `ta:${ta}+porc:${porc}+oracle:${oracle}`;
 }
 
 // A dirty tree is a different program than its HEAD, so the marker keeps a
@@ -130,13 +136,19 @@ function templateArmIds(templatePath: string): string[] {
 // What determines whether two baseline measurements are the same quantity:
 // the spur tree the binary was built from, the template content, the arm set
 // the rate pools, the thread count (runs share a feedback map across the
-// parallel set) and the chunk budget.
+// parallel set), the chunk budget, and the grader version - a depth measured
+// under a different analyzer or a different oracle DAG is a different
+// quantity, however identical the binary.
 interface BaselineIdentity {
   spurTree: string;
   templateSha: string;
   armIds: string[];
   rayonThreads: number;
   chunkSec: number;
+  // Optional in the type only so caches written before the term parse; a
+  // cache with none makes no claim about its analyzer and can never match a
+  // current identity, because the filename carries the term too.
+  graderVersion?: string;
 }
 
 interface BaselineCache {
@@ -152,24 +164,47 @@ function identityFor(baseSpurDir: string, baseTemplate: string, policy: Policy):
     armIds: templateArmIds(baseTemplate),
     rayonThreads: policy.evaluation.rayonThreads,
     chunkSec: policy.sequential.exploreBudgetSec,
+    graderVersion: graderVersionOf(),
   };
 }
 
+/** The grader version as a filename term. Hashed rather than spelled out
+ *  because the version carries colons and plus signs; the readable string is
+ *  kept inside the cache. */
+function graderSlug(graderVersion: string | undefined): string {
+  return graderVersion === undefined ? "g0" : `g${sha256(graderVersion).slice(0, 8)}`;
+}
+
 function identityKey(id: BaselineIdentity): string {
-  return `${id.spurTree.slice(0, 12)}|${id.armIds.join(",")}|${id.templateSha.slice(0, 8)}|${id.rayonThreads}|${id.chunkSec}`;
+  return `${id.spurTree.slice(0, 12)}|${id.armIds.join(",")}|${id.templateSha.slice(0, 8)}|${id.rayonThreads}|${id.chunkSec}|${id.graderVersion ?? "unversioned"}`;
 }
 
 function cacheFileFor(id: BaselineIdentity): string {
-  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.templateSha.slice(0, 8)}-${id.chunkSec}.json`);
+  return path.join(
+    BASELINE_DIR,
+    `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.templateSha.slice(0, 8)}-${id.chunkSec}-${graderSlug(id.graderVersion)}.json`,
+  );
 }
 
 function loadCache(file: string): BaselineCache | null {
   if (!fs.existsSync(file)) return null;
   const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { identity: BaselineIdentity; source: BaselineCache["source"]; chunks: unknown[] };
   const chunks: Evaluation[] = [];
+  // A chunk measured under another analyzer or another oracle DAG is on a
+  // different depth scale, so it is dropped rather than pooled. A cache
+  // written before the identity carried the term makes no claim about its
+  // analyzer and keeps its chunks; its filename can no longer be produced,
+  // so nothing current can reach it.
+  const want = raw.identity?.graderVersion;
+  let dropped = 0;
   for (const c of raw.chunks) {
     const p = Evaluation.safeParse(c);
-    if (p.success) chunks.push(p.data);
+    if (!p.success) continue;
+    if (want !== undefined && p.data.graderVersion !== want) { dropped++; continue; }
+    chunks.push(p.data);
+  }
+  if (dropped > 0) {
+    console.error(`[lite] dropped ${dropped} chunk(s) from ${path.basename(file)}: measured under another grader version than ${want ?? "(none)"}`);
   }
   return { identity: raw.identity, source: raw.source, chunks };
 }
@@ -229,13 +264,15 @@ function layoutFloorOf(epoch: EpochBaseline | null): number {
 function tryAdoptRecord(id: BaselineIdentity): { chunks: Evaluation[]; detail: string } | null {
   const recordPath = path.join(ROOT, "research", "evaluations", `000-baseline-${id.rayonThreads}.json`);
   if (!fs.existsSync(recordPath)) return null;
-  let raw: { baseline?: { sequential?: unknown[]; rayonThreads?: number } };
+  let raw: { graderVersion?: string; baseline?: { sequential?: unknown[]; rayonThreads?: number } };
   try {
     raw = JSON.parse(fs.readFileSync(recordPath, "utf8")) as typeof raw;
   } catch {
     return null;
   }
   if (raw.baseline?.rayonThreads !== id.rayonThreads) return null;
+  // The record's depth figures were computed by the analyzer named on it.
+  if (raw.graderVersion !== id.graderVersion) return null;
   const chunks: Evaluation[] = [];
   for (const c of raw.baseline?.sequential ?? []) {
     const p = Evaluation.safeParse(c);
@@ -1236,6 +1273,43 @@ async function cmdSelftest(): Promise<void> {
     }
   }
 
+  // The depth scale is part of the baseline identity, so chunks graded by
+  // one analyzer and oracle can never pool with chunks graded by another.
+  // After an analyzer change the current identity owns a filename nothing
+  // has written yet, and the caches of the previous scale keep theirs.
+  const currentTemplate = path.join(ROOT, cfg.configTemplate);
+  const haveTree = fs.existsSync(currentTemplate) && fs.existsSync(path.join(ROOT, "spur", "Cargo.toml"));
+  const currentIdentity = haveTree ? identityFor(path.join(ROOT, "spur"), currentTemplate, policy) : null;
+  const currentCacheFile = currentIdentity === null ? null : cacheFileFor(currentIdentity);
+  let currentCacheChunks: number | null = null;
+  if (currentIdentity !== null && currentCacheFile !== null) {
+    const cache = loadCache(currentCacheFile);
+    currentCacheChunks = cache === null ? 0 : cache.chunks.length;
+    if (cache === null) {
+      warnings.push(`no baseline cache for the current grader version yet (${path.basename(currentCacheFile)}); the next start or baseline measures one`);
+    } else if (cache.chunks.some((c) => c.graderVersion !== currentIdentity.graderVersion)) {
+      failures.push(`${path.basename(currentCacheFile)} holds chunks graded under another version than ${currentIdentity.graderVersion}`);
+    }
+    if (fs.existsSync(BASELINE_DIR)) {
+      for (const f of fs.readdirSync(BASELINE_DIR)) {
+        if (f === path.basename(currentCacheFile)) continue;
+        const c = loadCache(path.join(BASELINE_DIR, f));
+        if (c === null) continue;
+        if (identityKey(c.identity) === identityKey(currentIdentity)) {
+          failures.push(`baseline cache ${f} claims the current identity but is not the file it would be written to (${path.basename(currentCacheFile)})`);
+        }
+        const sameProgram = c.identity.spurTree === currentIdentity.spurTree && c.identity.templateSha === currentIdentity.templateSha;
+        const shared = c.chunks.filter((x) => x.graderVersion === currentIdentity.graderVersion).length;
+        if (sameProgram && shared > 0) {
+          failures.push(`baseline cache ${f} holds ${shared} chunk(s) on the current grader version that a fresh cache would measure again`);
+        }
+      }
+    }
+    if (tryAdoptRecord(currentIdentity) !== null) {
+      failures.push("the big loop's recorded baseline must not be adopted under a different grader version");
+    }
+  }
+
   // The epoch baseline, when one is frozen: its ledger must be a running
   // product, and the tree it was frozen on must still be recognisable.
   const epochFile = loadEpochBaseline();
@@ -1252,9 +1326,8 @@ async function cmdSelftest(): Promise<void> {
     }
     const frozenCache = loadCache(cacheFileFor(epochFile.identity));
     if (frozenCache === null) warnings.push(`the baseline cache the epoch was frozen on (${cacheFileFor(epochFile.identity)}) is gone`);
-    const currentTemplate = path.join(ROOT, cfg.configTemplate);
-    if (fs.existsSync(currentTemplate) && fs.existsSync(path.join(ROOT, "spur", "Cargo.toml"))) {
-      const current = identityFor(path.join(ROOT, "spur"), currentTemplate, policy);
+    if (currentIdentity !== null) {
+      const current = currentIdentity;
       const currentCache = loadCache(cacheFileFor(current));
       if (identityKey(current) !== identityKey(epochFile.identity)) {
         // Expected inside an epoch: every merge moves the spur tree. The
@@ -1277,6 +1350,8 @@ async function cmdSelftest(): Promise<void> {
     failures, warnings, skipped,
     gateConsistencyBaseline: liveDetail,
     ruleVersion: RULE_VERSION,
+    graderVersion: currentIdentity?.graderVersion ?? graderVersionOf(),
+    baselineCache: currentCacheFile === null ? null : { file: path.relative(ROOT, currentCacheFile), chunks: currentCacheChunks },
     overdispersion: { measured: measuredInflation, charged: INTERNAL_OVERDISPERSION, dof },
   });
   if (failures.length > 0) process.exitCode = 1;
