@@ -825,3 +825,104 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   case LOADED releases immediately on most crashes and is nearly STOCK.
   Gate added: if the STOCK-arm base rate exceeds 0.60, close without a
   chunk. Same actuator as the fan-out anchor; at most one per iteration.
+
+## crash-fanout-reaction-triggered-arm
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 17 (judge gain 6, cost 0; iteration-17 top pick) | parent:
+  crash-fanout-phase-anchored-release
+- Mechanism: a fourth arm, REACTION, for the placed-crash anchor. On a
+  salted half of anchored runs (bit 1 << 14, crashPhaseReaction), a crash
+  whose run has already had a fault (some node crashed, or some incarnation
+  above 0 at the draw step) draws from a four-arm table {EARLY, MID, STOCK,
+  REACTION}; REACTION releases only while the victim's current handler
+  segment was woken by a fault-crossing delivery (origin currently crashed
+  or restarted since sending, both computed at the dispatch site already),
+  inside the existing 96-step window and cap reserve. A crash before any
+  fault, and every untreated run, draws from the merged three-arm table with
+  its own modulus, so the control is byte-identical to the merged behaviour.
+- Why: the named event is both an oracle edge (deliver_svc_1_to_2 ->
+  crash_2) and the target's own steps 3-4 - the initiating node crashes
+  while its reaction sends are still delayed. The merged anchor lands
+  crashes on fan-out in general; this arm lands them on fan-out that was
+  itself caused by a fault. MID's exactly-one-in-flight bucket rose 5.7
+  points against a predicted 10, so the anchor's phase draw is only half
+  selective on the segment kind that matters.
+- Frozen prediction (epoch 13, per-run template): treatment bit
+  CRASH_PHASE_REACTION = 1 << 14 (crashPhaseReaction), salted half of
+  anchored runs, drawn by run id, about 0.22 of runs; rung depth>=6 per-run
+  ratio treated against untreated, probe-free, co-bit matched within
+  crashPhase = 1, band [1.02, 1.12]; firing counter
+  crash_phase.reaction.armed >= 15,000 per chunk, with
+  crash_phase.reaction.{condition, expired, broadcast_releases,
+  skipped_no_fault} exported; independent observable:
+  reaction.broadcast_releases / reaction.condition >= 0.50, REACTION's
+  expired/armed reported beside MID's 17.4%; falsifier: the depth>=6
+  interval entirely below 1.02 (treated LOWER), or broadcast share below
+  0.35, or reaction.expired / reaction.armed above 0.60, or treated steps
+  per run above 1.10x untreated; cost clause: cross-binary throughput at or
+  above 0.97 of the paired baseline.
+- Implementation constraint from the judge: the untreated anchored draw
+  keeps the three-arm table (do not append to CrashPhaseArm::ALL); a test
+  must show identical arm sequences on untreated anchored runs before and
+  after.
+
+## stale-outbound-hold-until-restart-round-trip
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 17 (judge gain 4, cost 0; runner-up) | parent:
+  stale-incarnation-order-stratification
+- Mechanism: at recovery, a HOLD arm masks the node's stale-incarnation
+  records in is_ineligible until its restart round trip closes (one fresh
+  send delivered, then one delivery-triggered handler entry), bounded 96
+  steps, inert when nothing stale remains. Aligned with the target's order
+  (a view-changing peer does not answer Recovery, so the recovery must be
+  answered before the stale message is consumed).
+- Frozen prediction: bit STALE_ROUND_TRIP = 1 << 12 (staleRoundTrip),
+  salted half of all runs; depth>=6 per-run band [1.02, 1.10]; firing
+  stale_hold.armed >= 80,000 per chunk with stale_hold.{inert, stock,
+  condition, expired, masked_offers}; independent observable: depth>=7
+  per-run ratio >= 1.08; falsifier: depth>=6 interval entirely below 1.00
+  (treated LOWER), or depth>=7 interval entirely below 1.08, or
+  expired/armed above 0.50, or treated plan_complete more than 5 points
+  below untreated; cost: throughput >= 0.97.
+- Judge caveat: same actuator family as the closed stale-order
+  stratification (its BEHIND arm read 0.9948); re-enters on the epoch
+  argument only.
+
+## recovery-stranded-drain-phase-anchored-release
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 17 (judge gain 4, cost 0) | parent: recovery-drain-point-sampler
+- Mechanism: the recovery-side mirror of the fan-out anchor - each placed
+  crash snapshots the victim's stranded sends and a treated run draws
+  {FIRST_DRAIN: hold recovery until one stranded send is delivered and one
+  remains; PEER_REACTED: hold until a peer segment woken by a stranded send
+  has issued a send; STOCK}, 96-step window plus cap reserve, monotone drain
+  counter at the dispatch site.
+- Frozen prediction: bit RECOVER_PHASE = 1 << 11 (recoverPhase), salted half
+  of placed runs; depth>=6 per-run band [1.03, 1.18]; firing
+  recover_phase.armed >= 100,000 per chunk; independent observable:
+  crash_phase.release_trigger_crossing share on condition-released
+  second-or-later crashes >= 1.3x treated over untreated; falsifier: depth>=6
+  interval entirely below 1.03, crossing share not above untreated, treated
+  steps per run above 1.10x, expired/armed above 0.60, plan_complete more
+  than 5 points below or recoveries per run off by more than 2%; cost:
+  throughput >= 0.97.
+- Judge caveat: both arms put a peer's consumption of a stranded send before
+  the recovery, which is the order the target forbids; third entry of a
+  recovery-hold family whose one measured member read 0.9855.
+
+## restart-buffer-fresh-first-release
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT, DO NOT
+  BUILD IN THIS FORM (judge gain 2, cost 2, net 0) | parent:
+  recovery-buffer-release-policy-draw
+- Mechanism: hold the crash buffer released at recovery until the recovered
+  node's first fresh send is delivered (FRESH_FIRST) or deliver it before any
+  fresh inbound (BUFFERED_FIRST), plus STOCK.
+- Why held back: receiver-restarted deliveries are 0.54% of deliveries, and
+  a side-vector hold hides records from all_queues_empty(), so a drained
+  queue could end the run with the block never delivered - event
+  accounting, hence cost 2. Buildable only as a Record mask that keeps the
+  records in the network queue. Band would be [1.02, 1.08], bit 1 << 13.
