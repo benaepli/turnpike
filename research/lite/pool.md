@@ -723,3 +723,64 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   which the partial-fanout coin stops withholding, so it concentrates at the
   fully-uninformed stratum and neutralizes the merged bias on treated runs.
   Its primary quantity is invisible to the rung by its own admission.
+
+## activity-clock-crash-placement
+
+- kind: add | category: scheduler | origin: proposer | status: admitted,
+  building behind the link-speed grading (judge gain 6, cost 0, net 6)
+- title: Crash targets drawn on a handler-entry clock instead of the step
+  clock, with the span learned in the same units
+- Half of placed runs draw the crash target over the learned median
+  handler-entry count of completed probes and are withheld until the run's
+  global entry counter reaches it; the other half keep the step-clock draw
+  as the randomized control. Verified: `note_handler_entry` increments only
+  on Delivery and Timer triggers; the placer's three learner call sites and
+  discipline are as described; no learner records anything in entry units
+  today. Tie with the fan-out anchor broken on decisiveness: this is the
+  only candidate of the round whose effect and null are both readable on the
+  graded rung.
+- FAILED claim, and it is the safety claim: "the shared backstop means
+  entry-clock runs cannot run longer" is backwards. `crash_place.capped_draws`
+  is 0 over 1.58M draws, so L50 is below 3/4 of the cap in every draw and the
+  3/4-cap backstop is looser than the step-clock bound. Judge rewrote the
+  prediction: firing = draws that held at least one step (floor 200k);
+  observable = p10/p50/p90 of entries elapsed and steps elapsed at crash
+  application per half (entries quantiles separated, steps p50 within 15%),
+  not a mean shift a monotone reparameterization does not entail; safety =
+  p95 realized hold length on the entry half within 2x the step half's,
+  backstop releases below 0.35 of draws, per-half plan_complete within 2
+  points and crashes per run within 2%. Primary internal contrast >1.04 and
+  band 0.05..0.25 kept; the judge reads the band as optimistic since an
+  entry clock is a reparameterization of the step clock.
+
+## crash-fanout-phase-anchored-release
+
+- kind: add | category: scheduler | origin: proposer | status: queued as the
+  immediate successor at the same site (judge gain 6, cost 0) | supersedes
+  crash-fanout-position-draw, which it repairs per the review's instruction
+- The placed crash releases at a drawn phase of the victim's fan-out (EARLY:
+  segment issued >=1 send, none delivered; MID: >=2 issued, some delivered;
+  STOCK) inside a W=96 window. Best-verified mechanics of the round: issued
+  monotone, floor set only at handler entry, continuations do not reset the
+  segment. Two corrections: the exactly-one in-flight bucket is 20.2% on the
+  current baseline, not the quoted 15%, so the stratum is the largest after
+  3plus rather than rare; and the `crash_anchor.*` counter namespace already
+  exists, so firing renames to `crash_phase.armed`. The self-close clause
+  must be read at the release decision, not at application, because the
+  partial-fanout coin (verified at 0.4999) still re-rolls afterwards;
+  expired/armed read per arm since MID selects only broadcast segments.
+- Incidental verified fact: `crash_place.holds` equals `held_steps_sum`
+  exactly in both chunks, proving the mask is the sole gate on a held crash.
+
+## inbound-delivery-anchored-crash-release
+
+- kind: add | category: scheduler | origin: proposer | status: do not build
+  yet; collect the inbound base rate first (judge gain 4, cost 0)
+- Plumbing correct and cheap (a `remote_dest` sibling on the two flight
+  sites; crash-buffered messages are not in flight under the existing
+  convention and the mirror inherits it). But the dose is unmeasured: no
+  inbound census exists, the outbound analogue is 0.66 spread over two
+  peers, so P(inbound >= 1 at hold expiry) is plausibly 0.5-0.7, in which
+  case LOADED releases immediately on most crashes and is nearly STOCK.
+  Gate added: if the STOCK-arm base rate exceeds 0.60, close without a
+  chunk. Same actuator as the fan-out anchor; at most one per iteration.
