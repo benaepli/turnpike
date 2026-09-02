@@ -124,6 +124,12 @@ export const VariantMetrics = z.object({
   // Summed active run time, so a group's mean wall time is available: a
   // per-run gain that costs run time is not a per-second gain.
   wallUsSum: z.number(),
+  // Summed scheduler steps and the count of runs that finished their plan.
+  // A mechanism that defers work can raise a group's depth by making its
+  // runs longer rather than by ordering them better; these separate the
+  // two. Default so cached chunks written before them still parse.
+  stepsUsedSum: z.number().default(0),
+  planCompleteRuns: z.number().int().default(0),
 });
 export type VariantMetrics = z.infer<typeof VariantMetrics>;
 

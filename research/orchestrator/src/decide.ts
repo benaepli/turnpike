@@ -44,12 +44,16 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 2, name: "runCapProbe" },
   { bit: 4, name: "timerSteerOff" },
   { bit: 8, name: "crashHoldDrawn" },
+  { bit: 16, name: "clientPlaced" },
+  { bit: 32, name: "clientHoldDrawn" },
 ];
 
 export interface VariantSide {
   runs: number;
   gradedRuns: number;
   meanWallUs: number;
+  meanStepsUsed: number;
+  planCompleteShare: number;
 }
 
 export interface VariantContrast {
@@ -66,9 +70,20 @@ function variantSide(cells: VariantMetrics[]): { side: VariantSide; depth: numbe
   const runs = cells.reduce((a, c) => a + c.runs, 0);
   const gradedRuns = cells.reduce((a, c) => a + c.gradedRuns, 0);
   const wall = cells.reduce((a, c) => a + c.wallUsSum, 0);
+  const steps = cells.reduce((a, c) => a + c.stepsUsedSum, 0);
+  const complete = cells.reduce((a, c) => a + c.planCompleteRuns, 0);
   const width = Math.max(0, ...cells.map((c) => c.depthAtLeast.length));
   const depth = Array.from({ length: width }, (_, i) => cells.reduce((a, c) => a + (c.depthAtLeast[i] ?? 0), 0));
-  return { side: { runs, gradedRuns, meanWallUs: runs > 0 ? wall / runs : 0 }, depth };
+  return {
+    side: {
+      runs,
+      gradedRuns,
+      meanWallUs: runs > 0 ? wall / runs : 0,
+      meanStepsUsed: runs > 0 ? steps / runs : 0,
+      planCompleteShare: runs > 0 ? complete / runs : 0,
+    },
+    depth,
+  };
 }
 
 /** The cells of every chunk, pooled, with the arms the rate excludes dropped. */

@@ -134,16 +134,18 @@ export function variantMetrics(
   const depthOf = new Map<number, number>();
   for (const [id, d] of runDepths) depthOf.set(id, d);
   const violating = new Set(violatingRunIds);
-  const cells = new Map<string, { arm: string; variant: number; runs: number; graded: number; depthAtLeast: number[]; violations: number; wallUsSum: number }>();
+  const cells = new Map<string, { arm: string; variant: number; runs: number; graded: number; depthAtLeast: number[]; violations: number; wallUsSum: number; stepsUsedSum: number; planCompleteRuns: number }>();
   for (const r of rows) {
     const key = `${r.arm}\u0000${r.variant}`;
     let acc = cells.get(key);
     if (acc === undefined) {
-      acc = { arm: r.arm, variant: r.variant, runs: 0, graded: 0, depthAtLeast: [], violations: 0, wallUsSum: 0 };
+      acc = { arm: r.arm, variant: r.variant, runs: 0, graded: 0, depthAtLeast: [], violations: 0, wallUsSum: 0, stepsUsedSum: 0, planCompleteRuns: 0 };
       cells.set(key, acc);
     }
     acc.runs++;
     acc.wallUsSum += r.wall_us;
+    acc.stepsUsedSum += r.steps_used;
+    if (r.end_reason === "plan_complete") acc.planCompleteRuns++;
     const d = depthOf.get(r.run_id);
     if (d !== undefined) {
       acc.graded++;
@@ -158,6 +160,7 @@ export function variantMetrics(
       arm: c.arm, variant: c.variant, runs: c.runs, gradedRuns: c.graded,
       depthAtLeast: Array.from({ length: width }, (_, i) => c.depthAtLeast[i] ?? 0),
       violations: c.violations, wallUsSum: c.wallUsSum,
+      stepsUsedSum: c.stepsUsedSum, planCompleteRuns: c.planCompleteRuns,
     }));
 }
 
@@ -179,6 +182,8 @@ export function sumVariantCells(lists: VariantMetrics[][]): VariantMetrics[] {
       acc.gradedRuns += c.gradedRuns;
       acc.violations += c.violations;
       acc.wallUsSum += c.wallUsSum;
+      acc.stepsUsedSum += c.stepsUsedSum;
+      acc.planCompleteRuns += c.planCompleteRuns;
       for (let i = 0; i < c.depthAtLeast.length; i++) acc.depthAtLeast[i] = (acc.depthAtLeast[i] ?? 0) + (c.depthAtLeast[i] ?? 0);
     }
   }
