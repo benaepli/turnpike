@@ -484,8 +484,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## stale-incarnation-order-stratification
 
-- kind: add | category: scheduler | origin: proposer | status: TOP OF POOL,
-  awaiting approval (judge gain 7, cost 0, net 7 - highest of the session)
+- kind: add | category: scheduler | origin: proposer | status: admitted,
+  building (judge gain 7, cost 0, net 7 - highest of the session) | frozen
+  prediction: research/lite/plans/stale-incarnation-order-stratification.md
 - title: Stratify whether a message from a dead incarnation is delivered
   before or after its sender's post-restart traffic, and measure which acts
 - Zero failed claims. The eligibility mask already excludes Records via
