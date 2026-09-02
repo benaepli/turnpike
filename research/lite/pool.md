@@ -350,8 +350,8 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## purgatory-fault-boundary-anchored-release
 
-- kind: add | category: scheduler | origin: proposer | status: queued behind
-  recovery-drain-point-sampler (judge gain 5, cost 2)
+- kind: add | category: scheduler | origin: proposer | status: CLOSED as
+  dominated by stale-incarnation-order-stratification (built, closed)
 - title: Release a withheld message one fault-cycle boundary later instead
   of after a step budget drawn independently of the run's fault schedule
 - Sharpest quantitative observation of the round and every number checks
@@ -521,8 +521,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## restart-latency-foreign-progress-draw
 
-- kind: add | category: scheduler | origin: proposer | status: second, build
-  after the above (judge gain 6, cost 0)
+- kind: add | category: scheduler | origin: proposer | status: admitted,
+  building (judge gain 6, cost 0) | frozen prediction:
+  research/lite/plans/restart-latency-foreign-progress-draw.md
 - title: Stratify how much of the rest of the system runs between a crash and
   the victim's restart, including a forced zero-progress arm
 - `SendLedger::entries` verified monotone by construction (`state.rs:984`,

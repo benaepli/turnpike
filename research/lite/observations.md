@@ -687,3 +687,90 @@ violations across about 4.9M runs. The next iteration is the direction
 review, and it should ask directly whether depth>=6 on this oracle is still
 measuring anything the goal needs - two mechanisms have now moved what the
 trace requires without moving the rung.
+
+## Direction review at iteration 10
+
+Operator-authorized autonomous session; the user is offline and has
+delegated the decisions normally escalated. Every decision below carries
+its reason and is committed as it lands.
+
+**Has a violation appeared anywhere?** Not in this loop: zero across about
+4.9M runs in iterations 6-9. The archive holds 19 VR violations with 14
+distinct signatures from the big loop's history, 11 of them from grid-short.
+They have never been classified, and they are not the target bug.
+
+Every one of the 16 archived logs has the same shape: exactly three
+recoveries, every one announcing nonce 1. Run 66227 shows the mechanism end
+to end. Node 2 crashes at step 3 while still recovering from step 2; its
+second attempt reuses nonce 1, because `recovery_nonce` in `VR.spur:71` is a
+volatile counter the crash resets to 0; it accepts a RecoveryResponse
+addressed to its first attempt, carrying the empty pre-commit log; it
+"recovers" at step 34 with op_number 0 after write uid 1 was committed at
+step 17; and its empty log seeds view 1 at step 63. Reads at steps 451 and
+566 return [5, 2, 7] - the acknowledged write uid 1 is gone from some
+replicas. A lost write.
+
+Classification: **implementation bug in the translation.** VR-Revisited
+section 4.3 requires the recovery nonce be unique and names this exact
+hazard - a recovering replica has no state, so it must draw the nonce from
+a clock or a counter kept on disk. The spec keeps it in memory. `bin/spur`
+is protected, so this is reported to the user rather than fixed; a persisted
+or random nonce would remove it. Two consequences for the loop. The target
+bug in bug.md has never been observed, in this loop or the big loop. And the
+violations rung is contaminated: a candidate that raised crash-during-
+recovery frequency would raise violations without approaching the target,
+which is a reason the grader's caution about crediting single violations is
+correct and should stay.
+
+**Is depth a proxy the goal warns about?** Yes, and this review can now say
+precisely how. The oracle at relax_minimal_general.json places recover_2 at
+depth 6, w2 at 7, the deliveries to node 0 at 8 and the reads at 9. Its
+labels are crash, recover, deliver-by-handler, write and read. It cannot
+express that the view-change message was sent by a dead incarnation, or that
+the recovering node came back in the old view - and that is the bug. So a
+run can match all nine labels in order and be linearizable, which is what
+the goal file records having happened. Iteration 9 moved stale-delivery
+acted-ness by a quarter in one arm and depth read 0.9948; that is not
+evidence the mechanism did nothing for the target, it is evidence the rung
+cannot see the property the target needs. The rung remains the goal's
+operational separator and throughput multiplies it, so mechanisms that raise
+it are progress by the goal's own definition and the panel confirms they
+generalize. But nothing graded on this rung can tell us whether the target
+got closer. An oracle that carries the incarnation condition is the fix, and
+`research/oracle` is protected: the user's call.
+
+**Panel.** paxos 220.95 against the 223.42 anchor, mencius 6.35 against
+6.30. Flat. Known bugs stay findable; the flip and the two closes did no
+harm.
+
+**Steering audit.** Iterations 6-7: four operator-agent merges (variance
+fix, alias fix, probe exemption, fraction) and one proposer merge (crash
+placement). Iterations 8-9: two proposer candidates, both steered by a focus
+directive, both closed by their falsifiers. The operator work paid for
+itself - it produced the 1.71x and the instrument fixes - but both steered
+proposer rounds closed, and the premise the second directive rested on was
+refuted by the judge before the candidate was built. The unsteered
+scheduling-theory round produced nothing buildable. Steering has not
+narrowed the search - three lenses were sampled - but it has not found the
+target either, and neither has anything else.
+
+**Drift.** Step 4 was a parameter dose, derived from a measurement rather
+than swept. Iterations 8-9 were mechanism-level. No pull-back needed.
+
+**Pool prune.** Closed: purgatory-fault-boundary-anchored-release (dominated
+by the built-and-closed ordering candidate, per the judge's ruling);
+timer-class-completion-credit and timer-send-debt-brake (family damaged by
+the refire close, riding score reweighting the multiplier census shows has
+no authority; recommended closed at the previous review). Kept queued:
+restart-latency-foreign-progress-draw (judge net 6, the successor to crash
+placement at the recovery site; admitted below). Parked: crash-fanout-
+position-draw (needs its counter corrected to issued - floor),
+recovery-window-width-draw (behind restart-latency), post-fault-supply-
+census, crash-context-admission-odds-probe.
+
+**Direction for the night.** Iteration 10 builds restart-latency-foreign-
+progress-draw with the judge's three fixes, because it is verified, queued,
+and the only candidate at the site two reviews named. Then two cold rounds
+on lenses this loop has not sampled - ablation and salvage, then message
+delay and reordering - steered on altitude only. Each is graded on the rung
+the goal names, with the proxy caveat above standing over all of them.
