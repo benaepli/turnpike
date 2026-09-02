@@ -1334,3 +1334,12 @@ victim's fan-out is what makes that delivery exist. Firing 255,832 and
 with sends in flight; throughput 1.0032; regression passed; no candidate
 violations over 1.053M runs. Merged at 7134f43 (spur 6f07962). The next
 `start` measures a fresh baseline cache against the moved spur tree.
+
+## Panel check after the fan-out merge
+
+On the merged tree (spur 6f07962), seed 1000, scale 3: paxos-accept-stale-ballot
+286.76 violations per explore-second (3,588 over 12.5 s, 95,991 runs) against
+the iteration-11 anchor of 282.96; mencius-opt1-2 21.73 (989 over 45.5 s,
+65,589 runs) against 20.79. Flat to slightly up on both members; the anchor
+did not cost cross-protocol bug-finding and there is no portfolio claim to
+make from a 1-4% move at this wall. New anchors: paxos 286.76, mencius 21.73.
