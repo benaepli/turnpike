@@ -872,8 +872,14 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## stale-outbound-hold-until-restart-round-trip
 
-- kind: add | category: scheduler | origin: proposer | status: KEPT at
-  iteration 17 (judge gain 4, cost 0; runner-up) | parent:
+- kind: add | category: scheduler | origin: proposer | status: KEPT,
+  re-ranked at iteration 18 to gain 3 (dominated by
+  orphan-release-on-destination-answer: its "round trip" closes on any
+  delivery-triggered entry after one fresh delivery, from any origin
+  including a client; it arms at recovery so gap-consumed ghosts escape;
+  its HOLD/STOCK draw halves the dose on the declared bit). Close as
+  superseded if the destination-answer release merges; close with it if
+  that release is refuted with a low control answered share | parent:
   stale-incarnation-order-stratification
 - Mechanism: at recovery, a HOLD arm masks the node's stale-incarnation
   records in is_ineligible until its restart round trip closes (one fresh
@@ -929,3 +935,96 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   queue could end the run with the block never delivered - event
   accounting, hence cost 2. Buildable only as a Record mask that keeps the
   records in the network queue. Band would be [1.02, 1.08], bit 1 << 13.
+
+## orphan-release-on-destination-answer
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 18 (judge gain 7, cost 0; iteration-18 top pick) | parent: none
+  (family: stale-incarnation record mask; siblings
+  orphan-hold-until-origin-restart-quiescence,
+  orphan-delay-clocked-by-origin-restart-entries,
+  stale-outbound-hold-until-restart-round-trip)
+- Mechanism: a pair-scoped hold on a crashed node's orphaned sends,
+  released by the destination's own reply. When a treated run crashes a
+  node v with sends in flight, v is armed; while armed, a remote record
+  from v to d whose incarnation is stale (or while v is crashed) is masked
+  in is_ineligible until d has sent a remote record back to v's current
+  incarnation from a handler segment that a fresh delivery from v woke.
+  Each (v, d) pair releases on its own; bounded by armed_at + 96 steps or
+  the run's step reserve; inert when no orphan to d remains. Records stay
+  in the network queue. Bookkeeping: SendLedger gains woke_by (origin and
+  freshness of the delivery that woke the current segment, stamped at the
+  dispatch site) and answered (a bitmask over destinations, reset at the
+  incarnation bump); the answer is detected at flight entry for remote
+  records only, never the implicit return channel send. A census at the
+  dispatch site records, for every sender-restarted delivery on BOTH
+  halves, whether the destination had answered the origin's current
+  incarnation before consuming the ghost.
+- Why: the one ordering the target cannot do without is at the
+  destination - it must answer the recovering node before it reacts to
+  that node's ghost, since a peer that has reacted no longer answers and
+  the recovery never closes. The closed BEHIND arm ordered the ghost after
+  the destination merely received fresh traffic (necessary, not
+  sufficient; 0.9948 on the old rung); the round-trip hold releases on the
+  origin's first reply from anyone, which at three nodes is the other peer
+  half the time. The destination's own reply is the minimal sufficient
+  condition, so it holds shortest and expires least.
+- Frozen prediction (epoch 13, per-run template): bit GHOST_PEER_ANSWER =
+  1 << 16 (ghostPeerAnswer), salted half of all runs, drawn by run id, no
+  probe exemption; rung depth>=6 per-run ratio treated against untreated,
+  probe-free, co-bit matched, band [1.03, 1.12]; firing
+  ghost_answer.armed >= 100,000 per chunk, with ghost_answer.{masked_offers,
+  condition, expired, inert} and ghost_answer.census.{treated,control}.
+  {answered, unanswered} exported; independent observable: treated answered
+  share of stale-incarnation deliveries >= 1.5x the control share (treated
+  HIGHER), and expired/armed <= 0.45; falsifier: the depth>=6 interval
+  entirely below 1.03, or treated answered share below 1.5x control, or
+  expired/armed above 0.45, or treated steps per run above 1.04x, or
+  treated plan_complete more than 3 points below untreated, or
+  stale-incarnation deliveries per treated run more than 10% below
+  untreated, or crash_phase expired/armed on treated runs more than 3
+  points above untreated; cost clause: cross-binary throughput >= 0.97.
+  The 0.45/0.80 absolute levels in the proposal are ungrounded (no counter
+  observes them today); the clause is relative for that reason.
+- Liveness: a fresh record is never masked and the release is the
+  destination's own fresh reply, so two armed nodes cannot wait on each
+  other; a fully masked step is a blocked step, not a run end. The
+  untreated half draws nothing, reads no config, and runs the merged
+  crash_phase.rs unchanged.
+
+## orphan-hold-until-origin-restart-quiescence
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 18 (judge gain 5, cost 0; 6 stand-alone, discounted for
+  family dedupe) | parent: stale-outbound-hold-until-restart-round-trip
+- Mechanism: arm at the crash (victim with sends in flight); mask its
+  ghost records until the origin has restarted, taken at least one handler
+  entry, has no fresh send outstanding, and no fresh record from a live
+  origin is pending to it (masked ghosts excluded); 96-step/step-reserve
+  expiry. Frozen: bit GHOST_QUIESCENCE = 1 << 15, half of all runs; band
+  [1.03, 1.15]; firing ghost_hold.armed >= 100,000; observable: treated
+  quiescent share of stale deliveries >= 1.8x control; falsifier as the
+  sibling's plus expired/armed above 0.55 and steps above 1.05x; cost
+  0.97. Census on both halves.
+- Judge caveat: the pending-inbound clause counts client requests (mean
+  5.14 client ops in flight at a crash), so quiescence is likely rare and
+  the hold degrades into the retired ~96-step blind delay; read
+  expired/armed at chunk 1 and stop early if expiries dominate.
+
+## orphan-delay-clocked-by-origin-restart-entries
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 18 (judge gain 4, cost 0; diagnostic member of the family)
+- Mechanism: for orphans only, replace purgatory's step budget by a
+  protocol-activity clock - one k per run from {2, 4, 8, 16}; ghosts
+  masked until the origin has taken k handler entries since its restart,
+  or the window; per-arm release and stale-acted counters. Frozen: bits
+  GHOST_ENTRY_CLOCK = 1 << 17 (half of all runs) and GHOST_ENTRY_CLOCK_HIGH
+  = 1 << 18 (k in {8, 16}); band [1.02, 1.10] on bit 17; firing
+  ghost_clock.armed >= 100,000; observable: k=2 stale acted rate >= 1.3x
+  k=16, bit-18 depth <= 1.00 within treated; falsifier as the siblings'
+  plus pooled expired/armed above 0.40; cost 0.97; draw k from a dedicated
+  stream, not Stream::SendDelay.
+- Judge caveat: the absolute per-arm acted levels the proposal named are
+  below today's baseline sender_restarted.acted_fraction of 0.176 and were
+  dropped; the ratio clause stands.
