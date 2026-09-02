@@ -595,9 +595,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## purgatory-blind-delay-default-ablation
 
-- kind: ablate | category: scheduler | origin: proposer | status: admitted,
-  grading the config-only step (judge gain 8, cost 0, net 8 - highest of the
-  session) | plan: research/lite/plans/purgatory-blind-delay-default-ablation.md
+- kind: ablate | category: scheduler | origin: proposer | status: MERGED (config-only
+  step; judge gain 8, cost 0, net 8) - depth>=6/s 1.4651, panel paxos +28%,
+  mencius 3.27x | plan: research/lite/plans/purgatory-blind-delay-default-ablation.md
 - The only candidate whose central effect is measured on the current
   baseline rather than argued. Judge recomputed every cell: grid vs
   grid-no-purgatory per-run P(depth>=6) 0.056748 vs 0.071379 (seed 1000) and

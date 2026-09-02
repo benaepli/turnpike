@@ -812,3 +812,66 @@ contrast is the number trusted; the cross-binary per-second read on one
 candidate build carries drift the A/A band does not capture, plausibly code
 layout across separate builds. A merge decision should run the A/A the
 skill already requires.
+
+## Iteration 11 - blind message delay retired: +47% on the rung, 3.3x on mencius
+
+The salvage lens found its candidate in the baseline's own arm census. The
+campaign runs `grid` and `grid-no-purgatory` as two arms identical except
+`purgatory.delay_probability` (0.15 against 0.0), and on both seeds of the
+current baseline the undelayed arm led by 26% per run and 32-34% per
+explore-second. The record says the opposite - OBSERVATIONS.md:3001 has the
+no-purgatory arm at -41% - but that record is a day older than the crash-
+placement merges, and the argument was that placement now supplies the
+fault-versus-traffic separation a blind delay used to supply by accident.
+The judge recomputed every cell to four decimals and ranked it net 8, the
+session's highest, and advised grading the pure config-only ablation first.
+
+Result, over 1.04M candidate runs: depth>=6 per explore-second **1.4651**
+against a 0.0036 null, every rung 4-8 separated at pGreater 1.0, throughput
+1.49. Regression clean, no blockers, advice merge. Merged.
+
+What the numbers actually say, because the mechanism story was partly wrong.
+The gain is throughput at roughly flat per-run depth (about 0.97): runs
+without delays finish in 2046 steps instead of 3104, so half again as many
+of them fit in a chunk, and each is about as deep. Two stated observables
+failed. `all.acted_fraction` fell from 0.377 to 0.313 rather than rising -
+the composition of deliveries shifted in a way the story did not anticipate.
+And the grid arm rose only 2.4% per run, not toward the no-purgatory arm's
+26%: the judge's red team was right that a between-arm contrast measures the
+marginal effect of one odd arm given learners fed by the others, and does
+not license a global ablation. `learned_cap_reached` rose from 0.27 to 0.39
+of runs, which is that learner effect showing - shorter runs taught a lower
+cap.
+
+Not a Goodhart trade. The goal's proxy ladder moves up at every rung, not
+only the graded one. Per run: raw stale-incarnation deliveries fall 20%, but
+the ones that act rise 12%, and deliveries crossing a crash or recovery rise
+32%. Per second: stale-acted +64%, crossing +94%. Blind delay was diluting:
+a delayed message mostly landed after the state it mattered to was gone
+(acted 0.124), while the crash buffer - not purgatory - is what produces
+crossings, and it produces more of them now.
+
+**Panel.** paxos 282.96 against the 220.95 anchor, +28%. mencius **20.79
+against 6.35, 3.27x** - 946 real linearizability violations in a 45-second
+wall against 289. The largest portfolio gain this project has recorded, on a
+protocol whose bug was never the target. New anchors: paxos 282.96, mencius
+20.79.
+
+**A/A control.** Baseline against itself read depth>=6 at 1.0221 with a
+computed null band of 0.0055. The true per-second null on this host is
+about 2%, four times the band. This accounts for the cross-binary drift
+logged in iterations 8 and 10 (+2.7% and +4.1% against negative internal
+contrasts) as noise, and it is a reason to keep trusting the randomized
+internal contrast over any single-build cross-binary read. It is not a
+reason to change the gate tonight on one sample; the earlier A/As read
+0.4-0.7% on the previous host.
+
+Housekeeping the merge leaves. `grid-no-purgatory`'s overlay is now a no-op
+and that arm duplicates `grid`; the arm set is untouched because the grader
+keys on it, but an arm-composition pass is due (operator lane). The posture
+form - keep 0.15 with a `posture_share` field so one run in eight is
+delayed and an internal control survives - is open as step 2 and is no
+longer urgent: the pure ablation separated on its own and the panel is the
+control that matters. The prediction's band was +8..32% and the result
+was +46.5%: missed high, the fourth time this session a placement or
+ablation effect has exceeded its band.

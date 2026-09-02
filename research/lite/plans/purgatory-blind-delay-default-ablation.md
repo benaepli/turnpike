@@ -1,6 +1,6 @@
 # purgatory-blind-delay-default-ablation
 
-status: admitted, grading config-only step first | origin: proposer | judge gain 8, cost 0, net 8
+status: step 1 MERGED (see decisions.jsonl); step 2 posture form open | origin: proposer | judge gain 8, cost 0, net 8
 
 ## Step 1 (this session): pure ablation, config-only
 

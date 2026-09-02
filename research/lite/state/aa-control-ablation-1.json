@@ -1,0 +1,160 @@
+{
+ "name": "aa-control-ablation-1",
+ "createdAtIso": "2026-09-02T06:41:23.308Z",
+ "note": "A/A control before the purgatory-ablation merge decision: baseline binary and template on both sides",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:aa-control-ablation-1"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-aa-control-ablation-1",
+  "chunks": 1,
+  "runs": 353880,
+  "graded": 353880,
+  "depth4": 264329,
+  "depth5": 172271,
+  "depth6plus": 83695,
+  "depth7plus": 24058,
+  "depth8plus": 2880,
+  "violations": 0,
+  "h2Count": 275226,
+  "exposureSec": 300.441,
+  "rpsChunks": [
+   1177.8685332561136
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1001,
+  "posteriors": {
+   "depth>=4:pGreater": 0.9355,
+   "depth>=4:pMei": 0.1425,
+   "depth>=4:ratio": 1.0226314405564552,
+   "depth>=4:mei": 0.03873220816113408,
+   "depth>=5:pGreater": 0.916,
+   "depth>=5:pMei": 0.103,
+   "depth>=5:ratio": 1.0204318380992796,
+   "depth>=5:mei": 0.039032951685417094,
+   "depth>=6:pGreater": 0.9185,
+   "depth>=6:pMei": 0.1315,
+   "depth>=6:ratio": 1.0221497342756032,
+   "depth>=6:mei": 0.03994064049352701,
+   "depth>=7:pGreater": 0.833,
+   "depth>=7:pMei": 0.0685,
+   "depth>=7:ratio": 1.016996251665004,
+   "depth>=7:mei": 0.04405993283964863,
+   "depth>=8:pGreater": 0.1175,
+   "depth>=8:pMei": 0.001,
+   "depth>=8:ratio": 0.9635214618220118,
+   "depth>=8:mei": 0.07255804361713789,
+   "h2:pGreater": 0.721,
+   "h2:ratio": 1.0014908859588636,
+   "h2:mei": 0.005810863683488715,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.0232809487015586,
+   "throughput:cv": 0.01,
+   "depth>=5:cv": 0.01,
+   "depth>=6:cv": 0.01,
+   "depth>=7:cv": 0.01,
+   "stratum:chunks": 1,
+   "stratum:exposureSec": 240.361,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 1,
+   "runs": 298920,
+   "graded": 298920,
+   "exposureSec": 240.361,
+   "depth": [
+    298920,
+    287845,
+    257125,
+    220792,
+    141800,
+    67804,
+    19169,
+    2304,
+    34
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.361,
+     "depth": [
+      298920,
+      287845,
+      257125,
+      220792,
+      141800,
+      67804,
+      19169,
+      2304,
+      34
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000
+ ],
+ "evalIds": [
+  "lite-aa-control-ablation-1-sequential-1000-1788331286448"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T06:48:38.082Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 432
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": false
+}

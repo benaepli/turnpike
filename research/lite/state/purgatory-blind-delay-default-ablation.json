@@ -34,43 +34,151 @@
  },
  "seq": {
   "hypothesisId": "lite-purgatory-blind-delay-default-ablation",
-  "chunks": 0,
-  "runs": 0,
-  "graded": 0,
-  "depth4": 0,
-  "depth5": 0,
-  "depth6plus": 0,
-  "depth7plus": 0,
-  "depth8plus": 0,
+  "chunks": 2,
+  "runs": 1043700,
+  "graded": 1043700,
+  "depth4": 771740,
+  "depth5": 506772,
+  "depth6plus": 238313,
+  "depth7plus": 65499,
+  "depth8plus": 7685,
   "violations": 0,
-  "h2Count": 0,
-  "exposureSec": 0,
-  "rpsChunks": [],
+  "h2Count": 772992,
+  "exposureSec": 600.537,
+  "rpsChunks": [
+   1711.8935336903523,
+   1763.9947647640645
+  ],
   "anomalies": 0,
   "slowConfirmed": false,
   "resumes": 0,
-  "nextSeed": 1000,
-  "posteriors": {},
-  "lastVerdict": "",
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 1,
+   "depth>=4:pMei": 1,
+   "depth>=4:ratio": 1.4572215777822008,
+   "depth>=4:mei": 0.02984344068523053,
+   "depth>=5:pGreater": 1,
+   "depth>=5:pMei": 1,
+   "depth>=5:ratio": 1.4872570201894408,
+   "depth>=5:mei": 0.027716790393246742,
+   "depth>=6:pGreater": 1,
+   "depth>=6:pMei": 1,
+   "depth>=6:ratio": 1.4650810185665706,
+   "depth>=6:mei": 0.02848376046422276,
+   "depth>=7:pGreater": 1,
+   "depth>=7:pMei": 1,
+   "depth>=7:ratio": 1.3925339357900606,
+   "depth>=7:mei": 0.03190593658873336,
+   "depth>=8:pGreater": 1,
+   "depth>=8:pMei": 1,
+   "depth>=8:ratio": 1.3325829085101355,
+   "depth>=8:mei": 0.05502536712753951,
+   "h2:pGreater": 0,
+   "h2:ratio": 0.9591347339556661,
+   "h2:mei": 0.004242199460298256,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.490747387675352,
+   "throughput:cv": 0.021198111467949556,
+   "depth>=5:cv": 0.01,
+   "depth>=6:cv": 0.01,
+   "depth>=7:cv": 0.01,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.455,
+   "depth>=4:separated": 1,
+   "depth>=5:separated": 1,
+   "depth>=6:separated": 1,
+   "depth>=7:separated": 1,
+   "depth>=8:separated": 1
+  },
+  "lastVerdict": "stop",
   "lastIteration": 0,
   "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
   "rateStratum": {
-   "armIds": [],
-   "chunks": 0,
-   "runs": 0,
-   "graded": 0,
-   "exposureSec": 0,
-   "depth": [],
-   "perChunk": []
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 862080,
+   "graded": 862080,
+   "exposureSec": 480.455,
+   "depth": [
+    862080,
+    828669,
+    736676,
+    634396,
+    414579,
+    194507,
+    52657,
+    6336,
+    123
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.226,
+     "depth": [
+      426720,
+      410457,
+      365260,
+      315139,
+      206390,
+      97189,
+      26282,
+      3173,
+      61
+     ]
+    },
+    {
+     "exposureSec": 240.22899999999998,
+     "depth": [
+      435360,
+      418212,
+      371416,
+      319257,
+      208189,
+      97318,
+      26375,
+      3163,
+      62
+     ]
+    }
+   ]
   }
  },
- "usedSeeds": [],
- "evalIds": [],
- "history": [],
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-purgatory-blind-delay-default-ablation-sequential-1000-1788330373959",
+  "lite-purgatory-blind-delay-default-ablation-sequential-1001-1788330807002"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T06:33:26.497Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 433
+  },
+  {
+   "atIso": "2026-09-02T06:40:40.010Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict stop: depth>=6 per second separated at z 2.7 (ratio 1.47)",
+   "wallSec": 433
+  }
+ ],
  "failures": {
   "consecutive": 0,
   "total": 0
  },
  "lastWasSlow": false,
- "finished": false
+ "finished": true
 }
