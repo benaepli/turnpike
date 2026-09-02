@@ -611,8 +611,15 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## timeline-novelty-scalefree-rarity-restore
 
-- kind: enabling | category: feedback | origin: proposer | status: queued
-  second (judge gain 6, cost 0)
+- kind: enabling | category: feedback | origin: proposer | status: CLOSED,
+  refuted - typed rule and falsifier agree (judge gain 6, cost 0)
+- Built and graded over 854k runs. Fired at 44.5M flips per chunk with the
+  term varying on 56% of contested decisions - authority was never the
+  problem - and read depth>=6/s 0.8065 (-19%), throughput 0.796, internal
+  contrast 0.9801 with novelty-off runs ahead. The restored term changed
+  what ran 44 million times a chunk, made per-run depth slightly worse, and
+  cost 15% wall per treated run. Fourth scoring mechanism refuted; closes
+  coverage-guided within-queue selection under this objective.
 - Every quoted number reproduced exactly. Establishes a new reading of the
   authority census: `quick_fire` has no OFFERS (568,954 of 1.09e9 decisions,
   0.052%), not no authority, so its zero flip count says nothing about a

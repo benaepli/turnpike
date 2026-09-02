@@ -875,3 +875,39 @@ longer urgent: the pure ablation separated on its own and the panel is the
 control that matters. The prediction's band was +8..32% and the result
 was +46.5%: missed high, the fourth time this session a placement or
 ablation effect has exceeded its band.
+
+## Iteration 12 - novelty restored, and scoring is refuted at full strength
+
+The scoring function's novelty term has been off by configuration for the
+whole loop, and its rarity metric would have self-erased if turned on. The
+candidate restored the term on seven runs in eight, replaced the rarity with
+a scale-free one, memoised the per-candidate bias, and added an authority
+census so the mechanism would report its own reach. The judge's reading of
+the authority problem was new and correct: the multiplier's zero flip count
+came from having no offers (0.05% of decisions), not no authority.
+
+It fired far beyond every floor. 44.5M flips per chunk against a floor of
+5M; the term varied on 56% of contested decisions against 5%; mean spread
+0.26 against 0.10; 8,954 distinct timeline keys where there had been five.
+The scheduler's within-queue choice changed 44 million times a chunk.
+
+And it made things worse on every axis. Cross-binary depth>=6 per second
+0.8065 against a 0.0034 null - the typed rule itself stopped it as separated
+below the baseline. Throughput 0.796 against a 0.95 floor. The randomized
+internal contrast, 626k novelty-on runs against 89k novelty-off in the same
+session, read 0.9801 [0.967, 0.993]: the ablated eighth was better per run.
+Treated runs cost 1.149x the wall for 1.020x the steps - a per-step cost on
+the hot path, some of it the census scoring each contested selection twice,
+which a follow-up could sample rather than pay in full. Closed; the rule and
+the falsifier agree.
+
+What this settles. This was the strongest form of the scoring reading the
+loop can build: the term the function was designed around, restored with
+full range, with measured authority, on a randomized in-session control. It
+is the fourth score-reweighting mechanism refuted against three merged
+eligibility masks and one merged ablation. Coverage-guided within-queue
+selection does not help this objective, and the reason is not that scoring
+lacks authority. The `timeline_keys` and `feedback` machinery can stay as
+instrumentation; nothing should be proposed through it again without a new
+argument for why re-ranking the same candidates in the same queue would
+change what a run reaches.

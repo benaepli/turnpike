@@ -1,0 +1,184 @@
+{
+ "name": "timeline-novelty-scalefree-rarity-restore",
+ "createdAtIso": "2026-09-02T06:59:42.785Z",
+ "note": "frozen prediction per judge rewrite (pool.md): depth>=6/s >=1.03 net of A/A; flipped floor 5M; offered share >=0.05; mean_spread >=0.10; runs/sec >=0.95; novelty-off posture P(d>=6) < novelty-on. Candidate template = main tree (post-ablation) on both sides; binary is the only difference.",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/timeline-novelty-scalefree-rarity-restore/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:timeline-novelty-scalefree-rarity-restore"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-f9daa01b-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-timeline-novelty-scalefree-rarity-restore",
+  "chunks": 2,
+  "runs": 854400,
+  "graded": 854400,
+  "depth4": 633370,
+  "depth5": 415022,
+  "depth6plus": 194881,
+  "depth7plus": 52931,
+  "depth8plus": 6167,
+  "violations": 0,
+  "h2Count": 634388,
+  "exposureSec": 600.69,
+  "rpsChunks": [
+   1440.0671192331895,
+   1404.6595566861674
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0,
+   "depth>=4:pMei": 0,
+   "depth>=4:ratio": 0.8182273049722637,
+   "depth>=4:mei": 0.06505193077828848,
+   "depth>=5:pGreater": 0,
+   "depth>=5:pMei": 0,
+   "depth>=5:ratio": 0.8126328154304889,
+   "depth>=5:mei": 0.07092787013234307,
+   "depth>=6:pGreater": 0,
+   "depth>=6:pMei": 0,
+   "depth>=6:ratio": 0.8064723960302262,
+   "depth>=6:mei": 0.06688208883554751,
+   "depth>=7:pGreater": 0,
+   "depth>=7:pMei": 0,
+   "depth>=7:ratio": 0.8054307453501277,
+   "depth>=7:mei": 0.07728221411268828,
+   "depth>=8:pGreater": 0,
+   "depth>=8:pMei": 0,
+   "depth>=8:ratio": 0.8022626290254183,
+   "depth>=8:mei": 0.1052742344654333,
+   "h2:pGreater": 0.992,
+   "h2:ratio": 1.0038359643819903,
+   "h2:mei": 0.0038821973794132647,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 0.8064065397440581,
+   "throughput:cv": 0.017602343166550228,
+   "depth>=5:cv": 0.01896397396450735,
+   "depth>=6:cv": 0.01516188562290345,
+   "depth>=7:cv": 0.018596532776404825,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.544,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|f9daa01b|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 715080,
+   "graded": 715080,
+   "exposureSec": 480.544,
+   "depth": [
+    715080,
+    687950,
+    611326,
+    525465,
+    340818,
+    158857,
+    42683,
+    5085,
+    102
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.293,
+     "depth": [
+      361440,
+      347896,
+      309314,
+      265933,
+      172709,
+      80287,
+      21624,
+      2566,
+      48
+     ]
+    },
+    {
+     "exposureSec": 240.251,
+     "depth": [
+      353640,
+      340054,
+      302012,
+      259532,
+      168109,
+      78570,
+      21059,
+      2519,
+      54
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-timeline-novelty-scalefree-rarity-restore-sequential-1000-1788332819553",
+  "lite-timeline-novelty-scalefree-rarity-restore-sequential-1001-1788333663784"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T07:13:49.929Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 847
+  },
+  {
+   "atIso": "2026-09-02T07:27:52.001Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 842
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}
