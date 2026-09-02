@@ -321,6 +321,8 @@ func TestSwapCanUnassign(t *testing.T) {
 	// With b=50: a->b satisfied(1/1), b->c unsatisfied(0/1), a->c satisfied(1/1) -> 2/3
 	// Greedy picks b=50 (respects a=10 predecessor). Score = 2/3.
 	// This test verifies the swap phase doesn't make things worse by unassigning b.
+	// Prefix depth is read off the witness greedy as well as this assignment,
+	// so a swap that trades a chain hop for an unrelated edge cannot lower it.
 	if score < 2.0/3.0-1e-9 {
 		t.Errorf("score: got %f, want >= 0.667 (swap phase should not hurt)", score)
 	}

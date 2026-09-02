@@ -22,13 +22,16 @@ type RunResult struct {
 	MatchedLabels       int      `json:"matched_labels"`
 	TotalLabels         int      `json:"total_labels"`
 	ZeroCandidateLabels []string `json:"zero_candidate_labels,omitempty"`
-	CrowdedOutLabels    []string `json:"crowded_out_labels,omitempty"`
-	TruncatedLabels     []string `json:"truncated_labels,omitempty"`
-	ChainScore          float64  `json:"chain_score"`
-	LongestChain        int      `json:"longest_chain"`
-	CriticalPath        int      `json:"critical_path"`
-	PrefixDepth         int      `json:"prefix_depth"`
-	PrefixPath          []string `json:"prefix_path,omitempty"`
+	// CrowdedOutLabels are labels with candidates that ended unassigned:
+	// every candidate was taken by another label, or none followed the
+	// label's assigned predecessors.
+	CrowdedOutLabels []string `json:"crowded_out_labels,omitempty"`
+	TruncatedLabels  []string `json:"truncated_labels,omitempty"`
+	ChainScore       float64  `json:"chain_score"`
+	LongestChain     int      `json:"longest_chain"`
+	CriticalPath     int      `json:"critical_path"`
+	PrefixDepth      int      `json:"prefix_depth"`
+	PrefixPath       []string `json:"prefix_path,omitempty"`
 }
 
 // EdgeFreq reports how often a given DAG edge was satisfied across all runs.
@@ -259,12 +262,32 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 		if len(truncated) > 0 {
 			sort.Strings(truncated)
 		}
-		return matched{rid: rid, truncated: truncated, o: bestMatchingFull(labels, cands, cfg.Dependencies, allDeps, rid, nSwaps)}
+		return matched{rid: rid, truncated: truncated, o: bestMatchingFull(labels, cands, cfg.Dependencies, allDeps, structuralUnmatchable, rid, nSwaps)}
 	}
 
 	encoding, err := reader.TimerEncoding(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("probe timer encoding: %w", err)
+	}
+	// A corpus with no timer rows cannot observe a timer admission at all, so
+	// the label is unobservable for this corpus rather than merely absent
+	// from a run. Without this the whole chain would stop at the first
+	// allow_timer on every pre-timer corpus.
+	if encoding == "none" {
+		fired := make([]string, 0)
+		for id, spec := range cfg.Events {
+			if spec.Kind == KindAllowTimer {
+				structuralUnmatchable[id] = true
+				fired = append(fired, id)
+			}
+		}
+		if len(fired) > 0 {
+			sort.Strings(fired)
+			log.Printf(
+				"Warning: corpus %s records no timer firings; treating allow_timer labels %v as unobservable",
+				dbPath, fired,
+			)
+		}
 	}
 	rowFilter := timerRowFilter(cfg, encoding)
 
@@ -421,6 +444,12 @@ func ComputeDagOrderOpts(dbPath, configPath string, runID int64, nSwaps int, opt
 			}
 		}
 		result.MaxPrefixDepth = maxD
+		if maxD == 0 {
+			log.Printf(
+				"Warning: no run in %s reached prefix depth 1 for config %s; every DAG root is unmatched",
+				dbPath, configPath,
+			)
+		}
 		result.MeanPrefixDepth = float64(sum) / float64(len(prefixDepths))
 		sortedD := append([]int(nil), prefixDepths...)
 		sort.Ints(sortedD)

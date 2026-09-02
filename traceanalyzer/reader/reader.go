@@ -349,6 +349,9 @@ type EnterRow struct {
 	// Sender is the node of the first Dispatch row carrying the same
 	// trace_id in seq_num order, or -1 when no Dispatch row joins.
 	Sender int64
+	// DispatchStep is the step of that same Dispatch row, or -1 when no
+	// Dispatch row joins.
+	DispatchStep int32
 }
 
 // ReadEntersForMatching reads, per run, the Enter rows of the named
@@ -376,14 +379,16 @@ func ReadEntersForMatching(dbPath string, runIDs []int64, functions []string, pe
 	source := TracesSource(dbPath, AllRuns())
 	inRuns := fmt.Sprintf("run_id IN (%s)", joinInt64s(runIDs))
 	query := fmt.Sprintf(`WITH d AS (
-			SELECT run_id, trace_id, arg_min(node_id, seq_num) AS sender
+			SELECT run_id, trace_id, arg_min(node_id, seq_num) AS sender,
+				arg_min(step, seq_num) AS dispatch_step
 			FROM %s WHERE %s AND trace_kind = 'Dispatch' GROUP BY run_id, trace_id),
 		e AS (
 			SELECT run_id, seq_num, node_id, step, function_name, trace_id
 			FROM %s WHERE %s AND trace_kind = 'Enter' AND function_name IN (%s))
-		SELECT run_id, seq_num, node_id, step, function_name, trace_id, sender FROM (
+		SELECT run_id, seq_num, node_id, step, function_name, trace_id, sender, dispatch_step FROM (
 			SELECT e.run_id, e.seq_num, e.node_id, e.step, e.function_name, e.trace_id,
 				coalesce(d.sender, -1) AS sender,
+				coalesce(d.dispatch_step, -1) AS dispatch_step,
 				row_number() OVER (PARTITION BY e.run_id, e.function_name, e.node_id, coalesce(d.sender, -1) ORDER BY e.seq_num) AS rn
 			FROM e LEFT JOIN d ON d.run_id = e.run_id AND d.trace_id = e.trace_id)
 		WHERE rn <= %d ORDER BY run_id, seq_num ASC`,
@@ -395,7 +400,7 @@ func ReadEntersForMatching(dbPath string, runIDs []int64, functions []string, pe
 	defer rows.Close()
 	for rows.Next() {
 		var r EnterRow
-		if err := rows.Scan(&r.RunID, &r.SeqNum, &r.NodeID, &r.Step, &r.FunctionName, &r.TraceID, &r.Sender); err != nil {
+		if err := rows.Scan(&r.RunID, &r.SeqNum, &r.NodeID, &r.Step, &r.FunctionName, &r.TraceID, &r.Sender, &r.DispatchStep); err != nil {
 			return nil, fmt.Errorf("failed to scan handler entry: %w", err)
 		}
 		result[r.RunID] = append(result[r.RunID], r)

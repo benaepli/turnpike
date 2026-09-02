@@ -53,38 +53,55 @@ type assignment struct {
 	topo    []int                 // topologically sorted label indices
 	edges   [][2]int              // deps as label-index pairs
 	unmatch map[int]struct{}      // label indices with zero candidates
+	// contracted holds label indices whose kind cannot be observed in this
+	// corpus at all. They are spliced out of the predecessor relation.
+	contracted map[int]struct{}
+	// survIn holds direct predecessors with contracted vertices replaced by
+	// their own direct predecessors, transitively.
+	survIn map[int][]int
 }
 
 // matchOutcome bundles everything bestMatchingFull derives from one run's
 // assignment.
 type matchOutcome struct {
-	Assign       map[string]Event
-	Score        float64  // edge-satisfaction in [0, 1]
-	Matched      []string // labels with an assigned event
-	ZeroCand     []string // labels with zero candidates
-	CrowdedOut   []string // labels that lost all candidates to injectivity
-	LongestChain int      // unanchored longest satisfied path (vertices)
-	CriticalPath int      // longest path ignoring satisfaction (vertices)
-	PrefixDepth  int      // root-anchored longest satisfied chain (vertices, 0 possible)
-	PrefixPath   []string // labels forming the winning prefix chain, in order
+	Assign   map[string]Event
+	Score    float64  // edge-satisfaction in [0, 1]
+	Matched  []string // labels with an assigned event
+	ZeroCand []string // labels with zero candidates
+	// CrowdedOut holds labels that had candidates but ended unassigned:
+	// every candidate was claimed by another label, or none followed the
+	// label's assigned predecessors.
+	CrowdedOut   []string
+	LongestChain int // unanchored longest satisfied path (vertices)
+	CriticalPath int // longest path ignoring satisfaction (vertices)
+	// PrefixDepth is the deepest witness-complete chain from a root, in
+	// vertices. It is read off two admissible injective assignments - the
+	// witness-exact greedy and the edge-optimal one - and is the deeper of
+	// the two. Score and Assign come from the edge-optimal assignment alone.
+	PrefixDepth int
+	PrefixPath  []string // labels forming the winning prefix chain, in order
 }
 
 // bestMatchingFull runs greedy topo assignment + random local swaps. This is a
 // heuristic: greedy can claim a successor's only candidate for an earlier
 // label, and the swap budget is bounded - there is no optimality guarantee.
+// unobservable names the labels whose kind cannot be observed in this corpus;
+// they are contracted out of the chain the prefix depth walks.
 func bestMatchingFull(
 	labels []string,
 	cands map[string][]Event,
 	directDeps, allDeps [][2]string,
+	unobservable map[string]bool,
 	seed int64,
 	nSwaps int,
 ) matchOutcome {
-	a := newAssignment(labels, cands, directDeps, allDeps)
+	a := newAssignment(labels, cands, directDeps, allDeps, unobservable)
 
 	// Greedy pass in topological order.
 	for _, li := range a.topo {
 		a.assignEarliestAfterPredecessors(li)
 	}
+	witnessChoice := a.witnessGreedy()
 
 	bestSat, bestElig := a.edgeSatisfaction()
 	bestChoice := append([]int(nil), a.choice...)
@@ -174,7 +191,13 @@ func bestMatchingFull(
 	sort.Strings(zeroCand)
 	sort.Strings(crowdedOut)
 	longestChain, criticalPath := a.longestSatisfiableChain()
-	prefixDepth, prefixPath := a.rootAnchoredPrefix()
+	// The swap phase maximizes satisfied edges, which is not depth, so a move
+	// that raises the edge count can break the witness chain. Ties go to the
+	// edge-optimal assignment so the path agrees with Assign where it can.
+	prefixDepth, prefixPath := a.rootAnchoredPrefix(a.choice)
+	if wd, wp := a.rootAnchoredPrefix(witnessChoice); wd > prefixDepth {
+		prefixDepth, prefixPath = wd, wp
+	}
 	return matchOutcome{
 		Assign:       assign,
 		Score:        score,
@@ -189,6 +212,7 @@ func bestMatchingFull(
 }
 
 // bestMatching is the legacy tuple-returning wrapper kept for existing tests.
+// It declares no unobservable kinds.
 func bestMatching(
 	labels []string,
 	cands map[string][]Event,
@@ -196,26 +220,24 @@ func bestMatching(
 	seed int64,
 	nSwaps int,
 ) (map[string]Event, float64, []string, []string, []string, int, int) {
-	o := bestMatchingFull(labels, cands, directDeps, allDeps, seed, nSwaps)
+	o := bestMatchingFull(labels, cands, directDeps, allDeps, nil, seed, nSwaps)
 	return o.Assign, o.Score, o.Matched, o.ZeroCand, o.CrowdedOut, o.LongestChain, o.CriticalPath
 }
 
-// rootAnchoredPrefix computes the longest satisfied chain that starts at a
-// chain root, over the transitive-closure edge set restricted to labels that
-// have candidates in this run. A label is a root when every one of its
-// closure predecessors is unmatchable in this run (zero candidates) - i.e.
-// nothing observable was required before it. Unlike longestSatisfiableChain
-// (which is unanchored and never below 1), this measures true prefix
-// progress along the plan DAG and is 0 when not even a root was matched.
-// Returns the depth in vertices and the winning chain's labels in order.
-func (a *assignment) rootAnchoredPrefix() (int, []string) {
+// rootAnchoredPrefix computes the longest witness-complete chain that starts
+// at a chain root, over the direct-predecessor relation with contracted
+// vertices spliced out. A vertex extends the chain only when every one of its
+// surviving predecessors is matched, is itself on a chain from a root, and
+// strictly precedes it; a root is a vertex with no surviving predecessor.
+// Depth k therefore means the first k events of the plan happened in order
+// with nothing skipped. Unlike longestSatisfiableChain (which is unanchored
+// and never below 1), this is 0 when not even a root was matched. choice is
+// the assignment to read, so the caller can evaluate more than one. Returns
+// the depth in vertices and the winning chain's labels in order.
+func (a *assignment) rootAnchoredPrefix(choice []int) (int, []string) {
 	n := len(a.labels)
-	closIn := make(map[int][]int, n)
-	for _, e := range a.edges {
-		closIn[e[1]] = append(closIn[e[1]], e[0])
-	}
-	assigned := func(li int) bool { return a.choice[li] >= 0 }
-	eventOf := func(li int) Event { return a.cands[a.labels[li]][a.choice[li]] }
+	assigned := func(li int) bool { return choice[li] >= 0 }
+	eventOf := func(li int) Event { return a.cands[a.labels[li]][choice[li]] }
 
 	dp := make([]int, n)
 	parent := make([]int, n)
@@ -223,26 +245,34 @@ func (a *assignment) rootAnchoredPrefix() (int, []string) {
 		parent[i] = -1
 	}
 	for _, li := range a.topo {
-		if _, um := a.unmatch[li]; um {
+		if _, c := a.contracted[li]; c {
+			// Never a chain member, never a parent.
 			continue
 		}
-		isRoot := true
-		best, bestParent := 0, -1
-		for _, u := range closIn[li] {
-			if _, um := a.unmatch[u]; um {
-				continue
+		preds := a.survIn[li]
+		if len(preds) == 0 {
+			if assigned(li) {
+				dp[li] = 1
 			}
-			isRoot = false
-			if dp[u] >= 1 && assigned(u) && assigned(li) && lessThan(eventOf(u), eventOf(li)) && dp[u]+1 > best {
+			continue
+		}
+		if !assigned(li) {
+			continue
+		}
+		ok := true
+		best, bestParent := 0, -1
+		for _, u := range preds {
+			// dp[u] >= 1 forbids a chain from starting mid-DAG: an
+			// unassigned root has dp 0 and poisons everything below it.
+			if dp[u] < 1 || !assigned(u) || !lessThan(eventOf(u), eventOf(li)) {
+				ok = false
+				break
+			}
+			if dp[u]+1 > best {
 				best, bestParent = dp[u]+1, u
 			}
 		}
-		switch {
-		case isRoot && assigned(li):
-			dp[li] = 1
-		case isRoot:
-			dp[li] = 0
-		default:
+		if ok {
 			dp[li], parent[li] = best, bestParent
 		}
 	}
@@ -276,7 +306,7 @@ func better(satA, eligA, satB, eligB int) bool {
 	return satA*eligB > satB*eligA
 }
 
-func newAssignment(labels []string, cands map[string][]Event, directDeps, allDeps [][2]string) *assignment {
+func newAssignment(labels []string, cands map[string][]Event, directDeps, allDeps [][2]string, unobservable map[string]bool) *assignment {
 	// Stable label order for determinism.
 	sortedLabels := append([]string(nil), labels...)
 	sort.Strings(sortedLabels)
@@ -295,6 +325,9 @@ func newAssignment(labels []string, cands map[string][]Event, directDeps, allDep
 		depOut:  make(map[int][]int),
 		depIn:   make(map[int][]int),
 		unmatch: make(map[int]struct{}),
+
+		contracted: make(map[int]struct{}),
+		survIn:     make(map[int][]int),
 	}
 	for i := range a.choice {
 		a.choice[i] = -1
@@ -325,6 +358,37 @@ func newAssignment(labels []string, cands map[string][]Event, directDeps, allDep
 		if len(a.cands[lbl]) == 0 {
 			a.unmatch[li] = struct{}{}
 		}
+		if unobservable[lbl] {
+			a.contracted[li] = struct{}{}
+		}
+	}
+
+	// Splice contracted vertices out of the predecessor relation: a
+	// successor inherits a contracted predecessor's own predecessors,
+	// transitively. A vertex all of whose predecessors contract away becomes
+	// a root.
+	for v := range a.labels {
+		seen := make(map[int]bool)
+		var out []int
+		var walk func(u int)
+		walk = func(u int) {
+			if seen[u] {
+				return
+			}
+			seen[u] = true
+			if _, c := a.contracted[u]; c {
+				for _, w := range a.depIn[u] {
+					walk(w)
+				}
+				return
+			}
+			out = append(out, u)
+		}
+		for _, u := range a.depIn[v] {
+			walk(u)
+		}
+		sort.Ints(out)
+		a.survIn[v] = out
 	}
 
 	a.topo = topoSort(len(a.labels), a.depIn, a.depOut)
@@ -377,6 +441,66 @@ func topoSort(n int, depIn, depOut map[int][]int) []int {
 	return out
 }
 
+// witnessGreedy assigns every label its earliest unused candidate that
+// strictly follows each of its surviving predecessors, and leaves a label
+// unassigned when one of those predecessors is unassigned: a label cannot
+// stand on an event that was never observed. Topo order guarantees every
+// surviving predecessor is already placed, so by induction each label lands
+// on the earliest event it can take over all witness-complete embeddings,
+// modulo injectivity, which can only push a choice later. Contracted labels
+// are skipped: they are never chain members and would only claim candidates
+// other labels need.
+//
+// It writes its own choice slice and its own injectivity set, so the
+// edge-satisfaction assignment and the swap phase are untouched by it.
+func (a *assignment) witnessGreedy() []int {
+	choice := make([]int, len(a.labels))
+	for i := range choice {
+		choice[i] = -1
+	}
+	used := make(map[eventKey]struct{}, len(a.labels))
+	for _, li := range a.topo {
+		if _, c := a.contracted[li]; c {
+			continue
+		}
+		cand := a.cands[a.labels[li]]
+		if len(cand) == 0 {
+			continue
+		}
+		preds := make([]Event, 0, len(a.survIn[li]))
+		blocked := false
+		for _, p := range a.survIn[li] {
+			c := choice[p]
+			if c < 0 {
+				blocked = true
+				break
+			}
+			preds = append(preds, a.cands[a.labels[p]][c])
+		}
+		if blocked {
+			continue
+		}
+		for i, ev := range cand {
+			if _, u := used[keyOf(ev)]; u {
+				continue
+			}
+			ok := true
+			for _, pred := range preds {
+				if !lessThan(pred, ev) {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				choice[li] = i
+				used[keyOf(ev)] = struct{}{}
+				break
+			}
+		}
+	}
+	return choice
+}
+
 // assignEarliestAfterPredecessors picks the earliest unused candidate for `li`
 // that strictly follows every already-assigned predecessor in the lessThan
 // order. If no predecessor-respecting candidate exists, the label is left
@@ -384,6 +508,9 @@ func topoSort(n int, depIn, depOut map[int][]int) []int {
 // unsatisfied, forcing a bad pick would give the same score on violated
 // edges but risk stealing a candidate from another label via injectivity.
 // The swap phase can assign or unassign later with global scoring.
+//
+// This is the edge-satisfaction assignment. The prefix depth is read off a
+// separate pass, witnessGreedy, so the two never constrain each other.
 func (a *assignment) assignEarliestAfterPredecessors(li int) {
 	lbl := a.labels[li]
 	cand := a.cands[lbl]

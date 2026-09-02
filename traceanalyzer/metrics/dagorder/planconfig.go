@@ -47,10 +47,12 @@ func (k EventKind) String() string {
 }
 
 // Matchable reports whether events of this kind can be located in
-// non-plan-mode trace/execution output. A timer admission matches a timer
-// firing on the target node with the same label; a corpus written before
-// timer firings were recorded has no candidates for it, and the label is
-// contracted out of the chain as any zero-candidate label is.
+// non-plan-mode trace/execution output. Kind alone decides it: a label of a
+// matchable kind with no candidates in a run stays required and fails every
+// chain that runs through it. A timer admission matches a timer firing on the
+// target node with the same label, so it is matchable, but a corpus written
+// before timer firings were recorded holds no such row anywhere and the
+// caller marks those labels unobservable for that corpus.
 func (k EventKind) Matchable() bool {
 	switch k {
 	case KindWrite, KindRead, KindRmw, KindCrash, KindRecover, KindDeliver, KindAllowTimer:
