@@ -284,10 +284,17 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## client-request-placement-span-draw
 
-- kind: add | category: scheduler | origin: proposer | status:
-  awaiting-approval (judge gain 8, cost 2, net 6) | parent:
+- kind: add | category: scheduler | origin: proposer | status: CLOSED,
+  refuted by its own falsifier | parent:
   crash-placement-completion-span-draw | plan:
   research/lite/plans/client-request-placement-span-draw.md
+- Built and graded over 683k runs. Fired exactly as designed and bought
+  nothing: probe-free internal contrast 0.9836, cross-binary 1.0097 against
+  a 0.0039 null and a frozen bar of 1.05. Closes the invocation-timing axis
+  alongside the ordering axis the post_fault_client_ops ablation closed, and
+  with it the late-client-work family. Its lasting product is the instrument
+  fix: the internal contrast was reporting the probe exemption rather than
+  the mechanism.
 - title: Client requests get the admission placement crashes already have -
   hold a released request until later in the run's own activity instead of
   invoking it the step it becomes ready

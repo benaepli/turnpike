@@ -1,0 +1,184 @@
+{
+ "name": "client-request-placement-span-draw",
+ "createdAtIso": "2026-09-02T01:35:29.365Z",
+ "note": "",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/client-request-placement-span-draw/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/client-request-placement-span-draw/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:client-request-placement-span-draw"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-client-request-placement-span-draw",
+  "chunks": 2,
+  "runs": 705360,
+  "graded": 705360,
+  "depth4": 514450,
+  "depth5": 330980,
+  "depth6plus": 161849,
+  "depth7plus": 46232,
+  "depth8plus": 6339,
+  "violations": 0,
+  "h2Count": 537868,
+  "exposureSec": 600.861,
+  "rpsChunks": [
+   1139.4275899259023,
+   1208.399484767696
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.482,
+   "depth>=4:pMei": 0.004,
+   "depth>=4:ratio": 0.999376996666398,
+   "depth>=4:mei": 0.07709886731931459,
+   "depth>=5:pGreater": 0.4275,
+   "depth>=5:pMei": 0.0045,
+   "depth>=5:ratio": 0.9948800867229537,
+   "depth>=5:mei": 0.07827783252877234,
+   "depth>=6:pGreater": 0.619,
+   "depth>=6:pMei": 0.0065,
+   "depth>=6:ratio": 1.0096671993291673,
+   "depth>=6:mei": 0.0844656794003018,
+   "depth>=7:pGreater": 0.521,
+   "depth>=7:pMei": 0.0045,
+   "depth>=7:ratio": 1.0024879464893304,
+   "depth>=7:mei": 0.09732999324118563,
+   "depth>=8:pGreater": 0.9665,
+   "depth>=8:pMei": 0.279,
+   "depth>=8:ratio": 1.0649933129257605,
+   "depth>=8:mei": 0.08503718529181802,
+   "h2:pGreater": 0,
+   "h2:ratio": 0.9876037420056104,
+   "h2:mei": 0.004490633924511949,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.0069431576977956,
+   "throughput:cv": 0.04154521862329454,
+   "depth>=5:cv": 0.03962686949053195,
+   "depth>=6:cv": 0.04283388925673139,
+   "depth>=7:cv": 0.04919006131966914,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.60299999999995,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 600960,
+   "graded": 600960,
+   "exposureSec": 480.60299999999995,
+   "depth": [
+    600960,
+    575211,
+    510986,
+    434575,
+    277132,
+    133974,
+    37916,
+    5067,
+    130
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.29399999999998,
+     "depth": [
+      292800,
+      280195,
+      248759,
+      211357,
+      134679,
+      64956,
+      18298,
+      2470,
+      66
+     ]
+    },
+    {
+     "exposureSec": 240.309,
+     "depth": [
+      308160,
+      295016,
+      262227,
+      223218,
+      142453,
+      69018,
+      19618,
+      2597,
+      64
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-client-request-placement-span-draw-sequential-1000-1788313368971",
+  "lite-client-request-placement-span-draw-sequential-1001-1788314230196"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T01:49:57.272Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 858
+  },
+  {
+   "atIso": "2026-09-02T02:04:24.259Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 866
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

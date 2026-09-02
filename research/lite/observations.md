@@ -563,3 +563,69 @@ review already named and this one did not touch: a candidate aimed at VR's
 recovery races specifically, and a violation-replay iteration on the two
 archived signatures, which is the cheapest remaining route to the
 "reproducibly" half of the goal.
+
+## Iteration 8 - client-request placement, closed by its own falsifier
+
+The gap was real and verified: crashes carry a hold and an eligibility mask,
+client requests are invoked inline the step they become eligible, and there
+is no client-op analogue anywhere in the simulator. So the workload is
+front-loaded and almost nothing is left to issue by the time a run's faults
+have played out. The mechanism gave requests the same hold, drawn over the
+learned completed-run span, on about half the runs.
+
+Two corrections were made before it was built, and both mattered.
+
+The proposal held requests by returning them to the plan engine and
+re-offering them each step. That would have left the ready list non-empty
+forever, and the deadlock test's first condition is that the list is empty,
+so the test could never have fired again for the rest of a run. Held
+requests went into a local map instead.
+
+And the design originally exempted the first request of each kind, to keep
+the oracle DAG's root event early - a rule chosen by reading the scoring
+function. It was replaced with a blind coin at one half that reads nothing
+about the request. The band was lowered to 0.05..0.40 and a shallow-rung
+gate added, because the coin holds early writes too.
+
+Result: refuted, cleanly. The mechanism fired exactly as designed - 76,989
+holds in a 90s smoke, mean intended displacement 348 steps inside the
+300-600 band, zero requests still held at run exit - and both safety gates
+passed, steps per run 1.018 and depth>=2 at 0.991. Over 683k runs the
+probe-free internal contrast is 0.9836 and the cross-binary rung is 1.0097
+against a 0.0039 null band, against a frozen bar of 1.05. Moving client
+invocations later buys nothing.
+
+That is worth more than it looks. The plan-ORDERING axis was already closed
+by the post_fault_client_ops zero ablation. The invocation-TIMING axis was
+the remaining live reading of that null, and the argument for why the
+ablation did not bound it was specific and checkable. It has now been
+checked and the family closes with it: late client work is not what this
+search is short of.
+
+**Instrument defect found and fixed, which is the more portable result.**
+The grader's internal contrast was reporting the exemption rather than the
+mechanism. A mechanism that exempts run-cap probes puts every probe into its
+control, roughly doubling their weight there; probes are uncapped and, since
+the crash placer began exempting them, are the only never-placed runs, so
+they reach depth>=6 at about 0.24x an ordinary run. The client-placement
+contrast read 1.047 with probes in the control and 0.985 without - the whole
+apparent effect was the confound, and a chunk-1 read of "+4.7%, keep going"
+was the wrong call that this nearly produced. The contrast now drops probes
+from both sides whenever the treated half exempts them.
+
+Corrections to figures recorded earlier this session. The crash-placement
+internal contrast reads 3.652 probe-free against the 3.935 printed at the
+same chunk, so the 3.80 and 4.58 figures in iterations 6 and 7 are
+overstated by roughly 5-8%. Neither correction changes a decision: Steps 3
+and 4 were both taken on cross-binary separation, and the Step 4 sizing used
+r = 4.579, which was measured before probes were exempt and is therefore not
+affected by this confound at all.
+
+Direction. Three iterations of general placement work have now compounded
+the objective 1.71x with the panel confirming it is real search improvement,
+and a fourth has closed a family. Still zero VR violations, now across
+roughly 4.2M runs. The two items the last two direction reviews named - a
+candidate aimed at recovery races specifically, and a violation-replay
+iteration on the two archived signatures - remain untouched, and the
+scheduling-theory round produced nothing that displaced them. They are the
+next thing.
