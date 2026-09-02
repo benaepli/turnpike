@@ -1,0 +1,1007 @@
+{
+ "name": "lite-base-post-fanout",
+ "createdAtIso": "2026-09-02T21:43:36.773Z",
+ "note": "A/A baseline measurement after the fan-out merge; cache only",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:lite-base-post-fanout"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "d31b6194001da881a27227a1231119348ba3aa73",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300,
+  "graderVersion": "ta:12160cd+porc:ebf06c5+oracle:fa7de9e3"
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/d31b6194001d-30-f9daa01b-300-g47b08ab8.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-lite-base-post-fanout",
+  "chunks": 2,
+  "runs": 1064160,
+  "graded": 1064160,
+  "depth4": 159342,
+  "depth5": 14510,
+  "depth6plus": 13808,
+  "depth7plus": 1549,
+  "depth8plus": 769,
+  "violations": 0,
+  "h2Count": 817663,
+  "exposureSec": 600.505,
+  "rpsChunks": [
+   1782.6114465153296,
+   1761.6021105648158
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.7375,
+   "depth>=4:pMei": 0.024,
+   "depth>=4:ratio": 1.0175674427293995,
+   "depth>=4:mei": 0.07176187627698943,
+   "depth>=5:pGreater": 0.636,
+   "depth>=5:pMei": 0.0155,
+   "depth>=5:ratio": 1.0163695187075745,
+   "depth>=5:mei": 0.10544750608580375,
+   "depth>=6:pGreater": 0.6195,
+   "depth>=6:pMei": 0.0195,
+   "depth>=6:ratio": 1.0153967201709153,
+   "depth>=6:mei": 0.10955335719515404,
+   "depth>=7:pGreater": 0.6755,
+   "depth>=7:pMei": 0.0295,
+   "depth>=7:ratio": 1.02220955335589,
+   "depth>=7:mei": 0.11534232289045108,
+   "depth>=8:pGreater": 0.473,
+   "depth>=8:pMei": 0.0105,
+   "depth>=8:ratio": 0.9992524115836195,
+   "depth>=8:mei": 0.1437404940079315,
+   "h2:pGreater": 0.024,
+   "h2:ratio": 0.9968981401503949,
+   "h2:mei": 0.003691088548660262,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.033243167132226,
+   "throughput:cv": 0.01,
+   "depth>=5:cv": 0.01851204154592005,
+   "depth>=6:cv": 0.015886422781195127,
+   "depth>=7:cv": 0.013448504829771559,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.36,
+   "internal:applies": 0,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "d31b6194001d|grid,grid-no-purgatory,grid-post-fault-2,grid-short|f9daa01b|30|300|ta:12160cd+porc:ebf06c5+oracle:fa7de9e3",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 878280,
+   "graded": 878280,
+   "exposureSec": 480.36,
+   "depth": [
+    486596,
+    457717,
+    134124,
+    129670,
+    12125,
+    11540,
+    1347,
+    661,
+    57
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.214,
+     "depth": [
+      244939,
+      230516,
+      67440,
+      65214,
+      5984,
+      5706,
+      680,
+      330,
+      27
+     ]
+    },
+    {
+     "exposureSec": 240.14600000000002,
+     "depth": [
+      241657,
+      227201,
+      66684,
+      64456,
+      6141,
+      5834,
+      667,
+      331,
+      30
+     ]
+    }
+   ]
+  },
+  "variants": [
+   {
+    "arm": "grid",
+    "variant": 0,
+    "runs": 12396,
+    "gradedRuns": 12396,
+    "depthAtLeast": [
+     6330,
+     5895,
+     607,
+     567,
+     10,
+     9,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 180697448,
+    "stepsUsedSum": 34702882,
+    "planCompleteRuns": 3449
+   },
+   {
+    "arm": "grid",
+    "variant": 1,
+    "runs": 15415,
+    "gradedRuns": 15415,
+    "depthAtLeast": [
+     8025,
+     7384,
+     803,
+     743,
+     12,
+     11,
+     1,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 343563309,
+    "stepsUsedSum": 66640554,
+    "planCompleteRuns": 4553
+   },
+   {
+    "arm": "grid",
+    "variant": 2,
+    "runs": 4939,
+    "gradedRuns": 4939,
+    "depthAtLeast": [
+     2517,
+     2335,
+     240,
+     222,
+     2,
+     2,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 98423969,
+    "stepsUsedSum": 21874242,
+    "planCompleteRuns": 1416
+   },
+   {
+    "arm": "grid",
+    "variant": 5,
+    "runs": 475,
+    "gradedRuns": 475,
+    "depthAtLeast": [
+     247,
+     210,
+     8,
+     8,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 10823786,
+    "stepsUsedSum": 2063298,
+    "planCompleteRuns": 138
+   },
+   {
+    "arm": "grid",
+    "variant": 9,
+    "runs": 52432,
+    "gradedRuns": 52432,
+    "depthAtLeast": [
+     29509,
+     27984,
+     9669,
+     9306,
+     893,
+     848,
+     100,
+     54,
+     6
+    ],
+    "violations": 0,
+    "wallUsSum": 653925116,
+    "stepsUsedSum": 115899174,
+    "planCompleteRuns": 18367
+   },
+   {
+    "arm": "grid",
+    "variant": 13,
+    "runs": 1931,
+    "gradedRuns": 1931,
+    "depthAtLeast": [
+     1104,
+     977,
+     327,
+     309,
+     27,
+     27,
+     2,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 20950475,
+    "stepsUsedSum": 3721981,
+    "planCompleteRuns": 840
+   },
+   {
+    "arm": "grid",
+    "variant": 513,
+    "runs": 15228,
+    "gradedRuns": 15228,
+    "depthAtLeast": [
+     7875,
+     7232,
+     768,
+     707,
+     7,
+     6,
+     1,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 341936944,
+    "stepsUsedSum": 66170925,
+    "planCompleteRuns": 4441
+   },
+   {
+    "arm": "grid",
+    "variant": 517,
+    "runs": 516,
+    "gradedRuns": 516,
+    "depthAtLeast": [
+     256,
+     222,
+     11,
+     10,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 12023371,
+    "stepsUsedSum": 2324753,
+    "planCompleteRuns": 135
+   },
+   {
+    "arm": "grid",
+    "variant": 521,
+    "runs": 52457,
+    "gradedRuns": 52457,
+    "depthAtLeast": [
+     29732,
+     28220,
+     10100,
+     9816,
+     1126,
+     1076,
+     111,
+     54,
+     4
+    ],
+    "violations": 0,
+    "wallUsSum": 664782418,
+    "stepsUsedSum": 118270301,
+    "planCompleteRuns": 17549
+   },
+   {
+    "arm": "grid",
+    "variant": 525,
+    "runs": 1951,
+    "gradedRuns": 1951,
+    "depthAtLeast": [
+     1163,
+     1054,
+     366,
+     360,
+     34,
+     32,
+     2,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 22086432,
+    "stepsUsedSum": 3984406,
+    "planCompleteRuns": 771
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 0,
+    "runs": 13240,
+    "gradedRuns": 13240,
+    "depthAtLeast": [
+     6747,
+     6295,
+     716,
+     672,
+     13,
+     12,
+     2,
+     2,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 174689050,
+    "stepsUsedSum": 33455735,
+    "planCompleteRuns": 3690
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 1,
+    "runs": 6334,
+    "gradedRuns": 6334,
+    "depthAtLeast": [
+     3370,
+     3160,
+     394,
+     373,
+     8,
+     6,
+     1,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 136826048,
+    "stepsUsedSum": 25970545,
+    "planCompleteRuns": 2050
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 2,
+    "runs": 5548,
+    "gradedRuns": 5548,
+    "depthAtLeast": [
+     2843,
+     2652,
+     272,
+     255,
+     8,
+     7,
+     2,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 108764398,
+    "stepsUsedSum": 24828328,
+    "planCompleteRuns": 1551
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 5,
+    "runs": 191,
+    "gradedRuns": 191,
+    "depthAtLeast": [
+     105,
+     94,
+     9,
+     8,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 4335997,
+    "stepsUsedSum": 900364,
+    "planCompleteRuns": 43
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 9,
+    "runs": 69142,
+    "gradedRuns": 69142,
+    "depthAtLeast": [
+     39222,
+     37173,
+     12948,
+     12528,
+     1194,
+     1134,
+     113,
+     59,
+     7
+    ],
+    "violations": 0,
+    "wallUsSum": 859767698,
+    "stepsUsedSum": 153203379,
+    "planCompleteRuns": 24130
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 13,
+    "runs": 2652,
+    "gradedRuns": 2652,
+    "depthAtLeast": [
+     1549,
+     1399,
+     484,
+     474,
+     26,
+     24,
+     2,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 29246254,
+    "stepsUsedSum": 5305360,
+    "planCompleteRuns": 1083
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 513,
+    "runs": 6218,
+    "gradedRuns": 6218,
+    "depthAtLeast": [
+     3335,
+     3121,
+     408,
+     392,
+     7,
+     7,
+     1,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 134690382,
+    "stepsUsedSum": 25519027,
+    "planCompleteRuns": 1989
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 517,
+    "runs": 227,
+    "gradedRuns": 227,
+    "depthAtLeast": [
+     119,
+     95,
+     8,
+     7,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 5018388,
+    "stepsUsedSum": 978256,
+    "planCompleteRuns": 67
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 521,
+    "runs": 69100,
+    "gradedRuns": 69100,
+    "depthAtLeast": [
+     39109,
+     37108,
+     13275,
+     12865,
+     1364,
+     1284,
+     139,
+     57,
+     3
+    ],
+    "violations": 0,
+    "wallUsSum": 876878511,
+    "stepsUsedSum": 155959149,
+    "planCompleteRuns": 23108
+   },
+   {
+    "arm": "grid-no-purgatory",
+    "variant": 525,
+    "runs": 2428,
+    "gradedRuns": 2428,
+    "depthAtLeast": [
+     1395,
+     1266,
+     449,
+     433,
+     42,
+     40,
+     3,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 26848603,
+    "stepsUsedSum": 4776921,
+    "planCompleteRuns": 1026
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 0,
+    "runs": 15038,
+    "gradedRuns": 15038,
+    "depthAtLeast": [
+     7463,
+     6940,
+     536,
+     501,
+     3,
+     2,
+     1,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 177727212,
+    "stepsUsedSum": 35291643,
+    "planCompleteRuns": 4451
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 1,
+    "runs": 433,
+    "gradedRuns": 433,
+    "depthAtLeast": [
+     283,
+     270,
+     72,
+     67,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 5647842,
+    "stepsUsedSum": 764620,
+    "planCompleteRuns": 256
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 2,
+    "runs": 6083,
+    "gradedRuns": 6083,
+    "depthAtLeast": [
+     3048,
+     2854,
+     221,
+     210,
+     3,
+     2,
+     1,
+     1,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 111998032,
+    "stepsUsedSum": 26884294,
+    "planCompleteRuns": 1768
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 9,
+    "runs": 82252,
+    "gradedRuns": 82252,
+    "depthAtLeast": [
+     45857,
+     43065,
+     12464,
+     12167,
+     996,
+     963,
+     153,
+     80,
+     5
+    ],
+    "violations": 0,
+    "wallUsSum": 1000845335,
+    "stepsUsedSum": 181737244,
+    "planCompleteRuns": 29870
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 13,
+    "runs": 3060,
+    "gradedRuns": 3060,
+    "depthAtLeast": [
+     1786,
+     1561,
+     398,
+     390,
+     28,
+     28,
+     8,
+     5,
+     1
+    ],
+    "violations": 0,
+    "wallUsSum": 33117743,
+    "stepsUsedSum": 5969727,
+    "planCompleteRuns": 1338
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 513,
+    "runs": 407,
+    "gradedRuns": 407,
+    "depthAtLeast": [
+     249,
+     237,
+     69,
+     66,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 5310464,
+    "stepsUsedSum": 725130,
+    "planCompleteRuns": 238
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 517,
+    "runs": 1,
+    "gradedRuns": 1,
+    "depthAtLeast": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 9507,
+    "stepsUsedSum": 3059,
+    "planCompleteRuns": 0
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 521,
+    "runs": 82158,
+    "gradedRuns": 82158,
+    "depthAtLeast": [
+     45508,
+     42753,
+     12532,
+     12229,
+     1190,
+     1135,
+     167,
+     75,
+     9
+    ],
+    "violations": 0,
+    "wallUsSum": 1023306836,
+    "stepsUsedSum": 185244092,
+    "planCompleteRuns": 28500
+   },
+   {
+    "arm": "grid-post-fault-2",
+    "variant": 525,
+    "runs": 3048,
+    "gradedRuns": 3048,
+    "depthAtLeast": [
+     1745,
+     1526,
+     457,
+     449,
+     43,
+     43,
+     6,
+     3,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 32828559,
+    "stepsUsedSum": 6004333,
+    "planCompleteRuns": 1324
+   },
+   {
+    "arm": "grid-short",
+    "variant": 0,
+    "runs": 27547,
+    "gradedRuns": 27547,
+    "depthAtLeast": [
+     13895,
+     12909,
+     1381,
+     1274,
+     20,
+     14,
+     5,
+     3,
+     1
+    ],
+    "violations": 0,
+    "wallUsSum": 193780209,
+    "stepsUsedSum": 34139580,
+    "planCompleteRuns": 7313
+   },
+   {
+    "arm": "grid-short",
+    "variant": 1,
+    "runs": 22196,
+    "gradedRuns": 22196,
+    "depthAtLeast": [
+     11567,
+     10764,
+     1297,
+     1165,
+     15,
+     15,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 157743922,
+    "stepsUsedSum": 26995797,
+    "planCompleteRuns": 6488
+   },
+   {
+    "arm": "grid-short",
+    "variant": 2,
+    "runs": 10987,
+    "gradedRuns": 10987,
+    "depthAtLeast": [
+     5650,
+     5279,
+     564,
+     527,
+     10,
+     8,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 77040143,
+    "stepsUsedSum": 13548212,
+    "planCompleteRuns": 2972
+   },
+   {
+    "arm": "grid-short",
+    "variant": 5,
+    "runs": 721,
+    "gradedRuns": 721,
+    "depthAtLeast": [
+     363,
+     317,
+     12,
+     10,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 4820602,
+    "stepsUsedSum": 845903,
+    "planCompleteRuns": 195
+   },
+   {
+    "arm": "grid-short",
+    "variant": 9,
+    "runs": 129418,
+    "gradedRuns": 129418,
+    "depthAtLeast": [
+     73497,
+     69557,
+     24378,
+     23523,
+     2218,
+     2120,
+     256,
+     134,
+     8
+    ],
+    "violations": 0,
+    "wallUsSum": 998457991,
+    "stepsUsedSum": 153919808,
+    "planCompleteRuns": 44463
+   },
+   {
+    "arm": "grid-short",
+    "variant": 13,
+    "runs": 4668,
+    "gradedRuns": 4668,
+    "depthAtLeast": [
+     2808,
+     2514,
+     875,
+     853,
+     73,
+     71,
+     11,
+     4,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 32304735,
+    "stepsUsedSum": 4896664,
+    "planCompleteRuns": 1979
+   },
+   {
+    "arm": "grid-short",
+    "variant": 513,
+    "runs": 22263,
+    "gradedRuns": 22263,
+    "depthAtLeast": [
+     11398,
+     10620,
+     1260,
+     1154,
+     20,
+     16,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 159168804,
+    "stepsUsedSum": 27121764,
+    "planCompleteRuns": 6523
+   },
+   {
+    "arm": "grid-short",
+    "variant": 517,
+    "runs": 720,
+    "gradedRuns": 720,
+    "depthAtLeast": [
+     368,
+     320,
+     13,
+     12,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "violations": 0,
+    "wallUsSum": 4536732,
+    "stepsUsedSum": 841042,
+    "planCompleteRuns": 200
+   },
+   {
+    "arm": "grid-short",
+    "variant": 521,
+    "runs": 129645,
+    "gradedRuns": 129645,
+    "depthAtLeast": [
+     73739,
+     69795,
+     24880,
+     24189,
+     2644,
+     2512,
+     248,
+     115,
+     12
+    ],
+    "violations": 0,
+    "wallUsSum": 1011540182,
+    "stepsUsedSum": 156210710,
+    "planCompleteRuns": 42907
+   },
+   {
+    "arm": "grid-short",
+    "variant": 525,
+    "runs": 4815,
+    "gradedRuns": 4815,
+    "depthAtLeast": [
+     2820,
+     2560,
+     853,
+     829,
+     89,
+     86,
+     11,
+     7,
+     1
+    ],
+    "violations": 0,
+    "wallUsSum": 33921551,
+    "stepsUsedSum": 5195124,
+    "planCompleteRuns": 1955
+   }
+  ]
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-lite-base-post-fanout-sequential-1000-1788385856466",
+  "lite-lite-base-post-fanout-sequential-1001-1788386831699"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T21:58:16.378Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 879
+  },
+  {
+   "atIso": "2026-09-02T22:14:30.111Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 873
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

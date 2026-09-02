@@ -19,5 +19,21 @@
  "layoutNullBand": 0.05,
  "layoutSource": "bb-build-layout-control, 2026-09-02: identical source built twice read depth>=6/s 0.9510 and throughput 0.9634",
  "layoutMeasuredAtIso": "2026-09-02T09:20:00Z",
- "merges": []
+ "merges": [
+  {
+   "name": "crash-fanout-phase-anchored-release",
+   "commit": "7134f43",
+   "spurCommit": "6f07962",
+   "ratio": 1.0032172441530152,
+   "cumulative": 1.0032172441530152,
+   "measuredRps": 1715.1030466703528,
+   "measuredRpsChunks": [
+    1763.6892214551885,
+    1666.5168718855168
+   ],
+   "cacheFile": "research/lite/baselines/d31b6194001d-30-f9daa01b-300-g47b08ab8.json",
+   "measuredAtIso": "2026-09-02T22:14:29Z",
+   "note": "measured via the A/A session lite-base-post-fanout; the median sits at 0.981 of the frozen epoch figure, inside the known hour-scale host drift, and the seed-1001 baseline chunk overlapped a short typecheck and selftest in its first half-minute"
+  }
+ ]
 }
