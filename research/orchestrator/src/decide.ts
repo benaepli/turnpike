@@ -48,6 +48,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 32, name: "restartLatency" },
   { bit: 64, name: "noveltyOn" },
   { bit: 128, name: "partitioned" },
+  { bit: 256, name: "linkSpeed" },
 ];
 
 export interface VariantSide {
