@@ -481,3 +481,97 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 - Judge rewrote the design to need a third arm: treated / random-abandon-at-
   matched-rate / untreated, with a gain over untreated alone recorded as a
   truncation dose rather than evidence for the fingerprint.
+
+## stale-incarnation-order-stratification
+
+- kind: add | category: scheduler | origin: proposer | status: TOP OF POOL,
+  awaiting approval (judge gain 7, cost 0, net 7 - highest of the session)
+- title: Stratify whether a message from a dead incarnation is delivered
+  before or after its sender's post-restart traffic, and measure which acts
+- Zero failed claims. The eligibility mask already excludes Records via
+  reservations and FIFO blocking (`scheduler.rs:773-782`), and every
+  queue-size computation already filters through the same closure, so a
+  constraint on Records is the established pattern rather than a first - the
+  proposer's own cost-2 self-assessment rested on a false "first constraint
+  on Records" claim. Arming site verified at `scheduler.rs:1390`,
+  `origin_incarnation` stamped at `exec.rs:210`, the 1e-19 free-scheduling
+  survival figure verified at `OBSERVATIONS.md:893-895`.
+- Decisive property: its primary result does not depend on this round's
+  shared premise. It randomizes the exact binary the premise is about into
+  two equal-mass arms inside one treated population and reports each arm's
+  acted rate, so it is informative either way. It is also structurally immune
+  to both measurement defects this repo has actually suffered - the arms come
+  from the same population, so no composition confound, and it does not move
+  the timestamps the arms are compared on.
+- Judge kept the arm-separation primary verbatim and added three safety
+  clauses: treated steps/run within 15% of untreated, treated plan_complete
+  within 5 points, and the per-(origin,destination) constraint bounded by no
+  more than the configured delay maximum - the AHEAD arm can otherwise block
+  a node-pair stream for the full 300-step purgatory horizon and the
+  empty-eligible-set valve will essentially never fire in a 3-node system.
+
+## restart-latency-foreign-progress-draw
+
+- kind: add | category: scheduler | origin: proposer | status: second, build
+  after the above (judge gain 6, cost 0)
+- title: Stratify how much of the rest of the system runs between a crash and
+  the victim's restart, including a forced zero-progress arm
+- `SendLedger::entries` verified monotone by construction (`state.rs:984`,
+  saturating_add only, never reset), so the draw variable always terminates
+  and has support on every crash. Crashes stranding the victim's own sends
+  are now 71.1%, better than when the round was written.
+- Three fixes required at admission. The salt is load-bearing: `run_phase.rs`
+  is a single unsalted mixer and every mechanism reduces the SAME mixed
+  value, so a new period alone gives a correlated posture, not an independent
+  one - it needs `mix(run_id ^ SALT)`. The independent observable as frozen
+  is not computable: `deliveryEffects` is a session-global atomic with no
+  variant split, so per-posture counters must be budgeted. And the 8-rung
+  ladder has mean 15.9 against a current crash-to-restart interval of mean
+  5.4, so seven of eight rungs push the opposite way from the prediction -
+  judge replaced it with a three-arm equal-mass draw {g=0, ladder, stock}
+  and unfroze the direction.
+
+## crash-fanout-position-draw
+
+- kind: add | category: scheduler | origin: proposer | status: do not build
+  in this form (judge gain 3, cost 0)
+- Its load-bearing counter claim is FALSE. `SendLedger::recent` is not
+  monotone within a segment: `flight_leave` decrements it (`state.rs:922`),
+  because it counts the segment's sends STILL UNDELIVERED, not sends issued.
+  A "hold until the segment has issued s further sends" condition built on it
+  can be reached, un-reached, and never reached. Repairable - the monotone
+  quantity is `issued - floor` - but not as written.
+- Its premise has also reversed since the chunk it cites. Exactly-one
+  in-flight was 12.7% against exactly-two 15.6%; it is now 15.4% against
+  15.1%, so the "rare stratum" is the second-largest bucket and has grown 21%
+  with no mechanism aimed at it. And the census buckets total undelivered
+  records, not per-segment position, so the frozen observable is not the
+  mechanism's own quantity.
+
+## recovery-window-width-draw
+
+- kind: add | category: scheduler | origin: proposer | status: parked behind
+  restart-latency (judge gain 4, cost 0)
+- Headline observable is tautological: the window closes when a foreign
+  message enters a handler (`util_stats.rs:1382-1385`) and the mechanism
+  withholds exactly those records, so p50 rising 3x is the definition of the
+  mechanism having run, not evidence it worked.
+- Its anti-overlap disclaimer is backwards. `crash_inside_recovery_window`
+  fires whenever a crash lands while another node's window is open, so
+  widening every window mechanically raises the overlap stratum the log
+  records as zero-violation (0/91 against 23.6%, `OBSERVATIONS.md:845`).
+- Its safety anchor is stale by half: unclosed windows were 12.2% at the
+  cited chunk and are 6.2% now, so the frozen "no more than 5 points above
+  12.2%" would permit an 80% relative rise in stalled recoveries and pass.
+
+## recovery-drain-point-sampler
+
+- STATUS CHANGE: closed as dominated by restart-latency-foreign-progress-draw
+  at the same admission site. Its draw variable `in_flight` is non-monotone
+  (`flight_leave` decrements at `state.rs:919`; a crashed destination's
+  buffered records re-enter flight at its recovery), so the withhold
+  condition is not guaranteed to be reached from above, and it cannot express
+  a zero-foreign-progress restart at all - its d=0 is the LONGEST hold, not
+  the shortest. Its recorded dead zone has also halved: inert on 28.9% of
+  crashes now, not the 59% recorded when it was written. Its rewrites carry
+  over to the successor unchanged.
