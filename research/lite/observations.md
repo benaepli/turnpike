@@ -1306,3 +1306,16 @@ to max depth.
 Scratch artifacts left for inspection: `tmp/loop/judge-store` (4.2 GB
 general corpus), `tmp/loop/judge-plan` (3,000-run plan corpus), and the
 prototype grader under the session scratchpad. Nothing tracked was edited.
+
+## Epoch 13 is live; one background violation in its first baseline chunk
+
+The epoch bumped to 13 after the baseline under the witness-complete rung
+read 6,390 depth-6 events per chunk (1.22% of runs), six times the power
+floor, so the primary rung stays 6. The first baseline chunk also produced
+the first violation any lite session has seen: run 150198, arm aos, and it
+is the recovery-nonce bug to the letter - node 2 crashes and recovers three
+times at steps 310/311, 342/343 and 377/380, every attempt announcing nonce
+1. Background rate, unrelated to the target, in the arm the rung excludes.
+Logged under research/logs/violations/lite-base-sequential-1000-1788383192343
+with signature 73555b51e7d2a69a; the finding in
+research/lite/findings/vr-recovery-nonce-reuse.md stands.
