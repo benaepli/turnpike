@@ -774,9 +774,21 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-fanout-phase-anchored-release
 
-- kind: add | category: scheduler | origin: proposer | status: FILED FOR THE
-  USER, recommendation to merge under a per-run criterion (judge gain 6,
-  cost 0) | patch: research/lite/patches/crash-fanout-phase-anchored-release/
+- kind: add | category: scheduler | origin: proposer | status: RE-ADMITTED
+  for epoch 13 as its first graded candidate (judge gain 6, cost 0) | patch:
+  research/lite/patches/crash-fanout-phase-anchored-release/
+- Epoch-12 result: internal contrast 1.0500 [1.0448, 1.0551] on a rung two
+  thirds of whose deep runs never crashed the node whose message the chain
+  says went stale; under the new grader rule the replay merges it. Re-graded
+  under epoch 13 because the rung changed underneath it and its mechanism -
+  anchoring the crash to the victim's fan-out - is exactly the depth 3 to 4
+  transition the strict chain now requires. Frozen for epoch 13 (per-run
+  template): declared bit 512 (crashPhase); band on the per-run depth>=6
+  ratio, anchored half against the STOCK half of placed runs, [1.05, 1.40];
+  firing crash_phase.armed >= 100,000 per chunk; falsifier: the 2.7-sigma
+  interval entirely below 1.05, or release-time victim_had_inflight on
+  condition-released crashes below 0.90; cost clause: cross-binary
+  throughput >= 0.95 of the paired baseline.
 - Graded over 2.06M runs across four seeds. Internal contrast on depth>=6
   1.0500 [1.0448, 1.0551] - real, and centred on its frozen bar. Fired at
   2.5x floor with every safety clause clean; condition-released crashes had
