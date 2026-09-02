@@ -1195,3 +1195,20 @@ direction stands: further mechanism work graded on this rung has a ceiling
 the oracle sets. Three decisions are the user's - the oracle, the merge
 criterion for small effects, and the nonce fix in the protected spec - and
 each of them is documented in the record above.
+
+## Correction to the iteration-10 and iteration-15 reviews
+
+Both reviews say the target bug in bug.md "has never been observed". That is
+true of every general-config run in this loop and the big loop, and false as
+written. `research/corpus/findbug_archive.porcupine.json` holds 266
+violations in 5,000 runs under the bug-finding plan, and the corpus manifest
+records that every violating run sits at the maximum prefix depth (8), with
+372 runs reaching depth 8 of which 266 violate - 71% precision at full depth
+under the plan. Under the general config, runs at depth 8 and beyond are
+linearizable at a rate indistinguishable from zero across millions. The
+target is reproducible when the plan forces its trace, and has never been
+reached by an unconstrained search. That gap - 71% against 0% at the same
+depth - is the sharpest statement of what the score is missing, and it is
+the validation set for any sharper score: on the plan corpus its deepest
+runs must stay violations at least as often, and on the general baseline its
+deepest runs must be scored lower than the current rung scores them.
