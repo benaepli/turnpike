@@ -828,9 +828,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-fanout-reaction-triggered-arm
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 17 (judge gain 6, cost 0; iteration-17 top pick) | parent:
-  crash-fanout-phase-anchored-release
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 17 - refuted by its falsifier: REACTION expired on 0.833 of
+  armings (clause 0.60) and broadcast share of condition releases was 0.084
+  (clause 0.35); depth>=6 per-run 1.0275 [0.9529, 1.1080] resolved neither
+  way. Fault-caused wakeups inside the window are rare and single-send |
+  parent: crash-fanout-phase-anchored-release
 - Mechanism: a fourth arm, REACTION, for the placed-crash anchor. On a
   salted half of anchored runs (bit 1 << 14, crashPhaseReaction), a crash
   whose run has already had a fault (some node crashed, or some incarnation

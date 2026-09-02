@@ -1343,3 +1343,29 @@ the iteration-11 anchor of 282.96; mencius-opt1-2 21.73 (989 over 45.5 s,
 65,589 runs) against 20.79. Flat to slightly up on both members; the anchor
 did not cost cross-protocol bug-finding and there is no portfolio claim to
 make from a 1-4% move at this wall. New anchors: paxos 286.76, mencius 21.73.
+
+## Iteration 17: the reaction-triggered arm closes on its own falsifier
+
+The fourth arm for the placed-crash anchor, releasing only while the
+victim's segment was woken by a fault-crossing delivery, fired as predicted
+(22,477 and 23,262 armed per chunk against a floor of 15,000; treated share
+0.222) and then expired on 83% of its armings against a clause of 60%,
+while MID expires on 17%. When the condition did hold, only 8% of the
+releases landed on a broadcast segment against a clause of 35%. The depth-6
+per-run contrast read 1.0275 [0.9529, 1.1080] and resolved neither way;
+chunk 1 read 1.056 and chunk 2 1.001. Throughput 1.056, steps per run
+0.994x, zero violations on either side of 1.09M candidate runs.
+
+What it says about the race: inside the 96-step hold window, the victim's
+segments are seldom woken by a message from a node that has crashed or
+restarted since sending, and when one is, it is a single reply, not the
+broadcast the chain needs. Conditioning the anchor on the cause of the
+fan-out therefore does not sharpen it; the merged anchor's phase draw is
+already what selects the segment kind. The first fault of a run remains the
+common case for the anchored crash (223,675 draws skipped for having no
+prior fault against 45,739 armed), which is itself a fact about the
+placement: most placed crashes are the run's first.
+
+Grader note: a session with no declared bit wrote null internal posteriors
+and its second chunk refused the state; fixed at 2297812 so the applies
+flag alone is published when no bit is declared.
