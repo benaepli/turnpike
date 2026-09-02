@@ -51,6 +51,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 256, name: "linkSpeed" },
   { bit: 512, name: "crashPhase" },
   { bit: 1024, name: "entryClock" },
+  { bit: 16384, name: "crashPhaseReaction" },
 ];
 
 // The tag that marks a run-cap probe. Probes are about 3% of runs, are
