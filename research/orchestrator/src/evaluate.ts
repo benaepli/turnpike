@@ -210,12 +210,22 @@ const obj = (v: unknown): Record<string, unknown> =>
 /** Every finite numeric leaf under its dotted path. Arrays are histograms
  *  and growth curves rather than counters, so they are skipped: the point is
  *  that no counter is missing, not that every number is present. */
+// Arrays longer than this are skipped: the dump's fixed-shape tables (bucket
+// histograms, per-key breakdowns) are all far shorter, and anything sized by
+// the run count must never be flattened into a per-chunk record.
+const MAX_FLATTENED_ARRAY = 64;
+
 export function numericLeaves(v: unknown, prefix: string, out: Record<string, number>): void {
   if (typeof v === "number") {
     if (Number.isFinite(v)) out[prefix] = v;
     return;
   }
-  if (Array.isArray(v) || typeof v !== "object" || v === null) return;
+  if (Array.isArray(v)) {
+    if (v.length > MAX_FLATTENED_ARRAY) return;
+    v.forEach((sub, i) => numericLeaves(sub, prefix ? `${prefix}.${i}` : String(i), out));
+    return;
+  }
+  if (typeof v !== "object" || v === null) return;
   for (const [k, sub] of Object.entries(v as Record<string, unknown>)) {
     numericLeaves(sub, prefix ? `${prefix}.${k}` : k, out);
   }
