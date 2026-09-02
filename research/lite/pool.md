@@ -270,6 +270,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-context-admission-odds-probe
 
+- STATUS CHANGE at the iteration-15 review: CLOSED - score-adjacent; the scoring family was refuted at full strength in iteration 12.
 - kind: add | category: scheduler | origin: proposer | status: parked
   (judge gain 4, cost 0)
 - title: Learned per-context crash-admission odds replacing the fixed
@@ -331,6 +332,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## post-fault-supply-census
 
+- STATUS CHANGE at the iteration-15 review: CLOSED - the late-client-work family it was meant to diagnose closed in iteration 8.
 - kind: add | category: tooling | origin: proposer | status: parked behind
   client-request-placement-span-draw (judge gain 5, cost 0)
 - title: Per-run census of client work and in-flight traffic surviving the
@@ -550,6 +552,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-fanout-position-draw
 
+- STATUS CHANGE at the iteration-15 review: CLOSED - superseded by crash-fanout-phase-anchored-release, which repairs its counter and bounds its hold.
 - kind: add | category: scheduler | origin: proposer | status: do not build
   in this form (judge gain 3, cost 0)
 - Its load-bearing counter claim is FALSE. `SendLedger::recent` is not
@@ -567,6 +570,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## recovery-window-width-draw
 
+- STATUS CHANGE at the iteration-15 review: CLOSED - its indirect route through the spread of receiver states is the hazard-up-depth-down pattern the record now shows four times.
 - kind: add | category: scheduler | origin: proposer | status: parked behind
   restart-latency (judge gain 4, cost 0)
 - Headline observable is tautological: the window closes when a foreign

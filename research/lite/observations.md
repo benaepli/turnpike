@@ -999,3 +999,89 @@ close that family cleanly. After it, the review at iteration 15 should say
 plainly that further mechanism work on this rung has a ceiling the oracle
 sets, and that the user's decision on the oracle is what the loop is
 waiting on.
+
+## Direction review at iteration 15
+
+Written as the opening of iteration 15 while the entry-clock candidate
+builds; the panel is not rerun because nothing has merged since the
+iteration-11 panel (paxos 282.96, mencius 20.79) and it measures the same
+tree.
+
+**Has a violation appeared anywhere?** No. Zero VR violations across the
+5.2M candidate runs graded since the last review, and zero in every
+baseline chunk. The archive's 19 are the recovery-nonce bug, classified at
+the last review and reported in
+`research/lite/findings/vr-recovery-nonce-reuse.md`. The target bug in
+bug.md has still never been observed anywhere.
+
+**Is depth a proxy the goal warns about?** The last review argued it from
+the oracle's label set. This review can state it as the pattern of the
+record. Six candidates graded since then, every one of which fired as
+designed and passed its safety clauses:
+
+| mechanism | hazard rung moved | depth>=6, internal |
+|---|---|---|
+| restart latency (it. 10) | stale acting 2.6x across arms | 0.9855 |
+| purgatory ablation (it. 11) | acted stale +12%, crossing +32% per run | merged, +47%/s |
+| novelty restore (it. 12) | scoring authority 44M flips | 0.9801, -19%/s |
+| partition class (it. 13) | stale deliveries +47% per run | 0.7914 |
+| link speed (it. 14) | held-at-crash +13%, stale +12% | 0.9646 |
+
+Four mechanisms moved a hazard rung the goal file places one step below
+depth, strongly, and read depth flat or down. The two things that moved the
+rung upward this session were placing faults in time and removing blind
+noise. The oracle at relax_minimal_general.json cannot express a dead-
+incarnation sender or an old-view recovery, and the record now shows what
+that costs: the ladder's rungs are not monotone in each other under this
+oracle. The rung remains the goal's operational separator, and the loop has
+respected it - but nothing graded on it can say whether the hazards these
+mechanisms manufactured brought the target closer, and the review's
+standing recommendation is unchanged and sharper: an oracle carrying the
+incarnation condition is the user's decision, and it is the decision the
+loop is waiting on.
+
+**Panel.** Unchanged tree since iteration 11: paxos 282.96 (+28% over the
+prior anchor), mencius 20.79 (3.27x). The ablation remains the largest
+portfolio gain recorded.
+
+**Steering audit.** Six decisions since the last review, all proposer-
+origin candidates selected by the judge; no operator seeding. Operator
+steering took three forms: the direction to build the judge's queued
+second-ranked candidate first; two build-time amendments to the partition
+candidate (the shape filter must leave a majority reachable), recorded as
+amendments rather than drift; and the choice to grade the ablation as a
+config-only step on the judge's advice. Three typed 'human' verdicts were
+departed from with written reasons, all closes on fired falsifiers. The
+steering did not narrow the search - five lenses were sampled - and the one
+merge came from a lens the operator chose cold (ablation and salvage) with
+no content directive. The two content directives given (the recovery-race
+round's "effect not supply") were both refuted by their own candidates.
+
+**Drift.** One config ablation, tied to a recorded observation naming the
+knob and graded as a mechanism removal. Everything else mechanism-level. No
+pull-back needed.
+
+**Instrument findings this cycle.** The true A/A null on this host is about
+2% per second, four times the computed band (iteration 11). The internal
+contrast is blind to shared hot-path cost (iteration 14). The "empty
+eligible set valve" that proposals cite as established does not exist in
+merged code (iteration 13). The `MajoritiesRing` partition shape is vacuous
+at every node count, a latent bug (iteration 13). All recorded.
+
+**Pool prune.** Closed as superseded or answered: crash-fanout-position-draw
+(repaired by crash-fanout-phase-anchored-release), recovery-window-width-draw
+(its indirect route through receiver-state spread is the pattern the record
+now shows does not reach depth), post-fault-supply-census (the late-client-
+work family it was to diagnose closed in iteration 8), crash-context-
+admission-odds-probe (score-adjacent, family refuted). Kept: crash-fanout-
+phase-anchored-release (queued next at the same site), pending-crash-
+outbound-send-withhold and inbound-delivery-anchored-crash-release (both
+wait on an oracle that can see their quantity or a free census).
+
+**Direction.** Iteration 15 grades the entry-clock placement, the last
+unexamined axis of the one family that has moved the rung; its null closes
+that family cleanly. If it closes, the fan-out phase anchor follows as the
+only remaining queued candidate whose effect the rung might see. After
+that, the honest statement is that mechanism work on this rung has reached
+the ceiling the oracle sets, and the loop should hold rather than spend
+chunks on a fifth hazard-up-depth-down result.
