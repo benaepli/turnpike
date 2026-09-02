@@ -234,10 +234,14 @@ export function decideSequential(
     // only in a widened interval.
     "depth>=5:cv": rungCv(cs, 5), "depth>=6:cv": rungCv(cs, 6), "depth>=7:cv": rungCv(cs, 7),
     "stratum:chunks": cs.chunks, "stratum:exposureSec": cs.exposureSec,
-    // The internal primary, published whether or not it applies: an
-    // inapplicable contrast is a fact about the session, not a gap.
-    "internal:applies": ip.applies ? 1 : 0, "internal:ratio": ip.ratio, "internal:lo": ip.lo, "internal:hi": ip.hi,
-    "internal:z": ip.z, "internal:mei": ip.meiAtCap, "internal:share": ip.treatedShare.candidate,
+    // Whether the internal primary applies is published for every session;
+    // its figures only when it does, since the posteriors hold numbers and a
+    // session with no declared bit has none to publish.
+    "internal:applies": ip.applies ? 1 : 0,
+    ...(ip.applies ? {
+      "internal:ratio": ip.ratio, "internal:lo": ip.lo, "internal:hi": ip.hi,
+      "internal:z": ip.z, "internal:mei": ip.meiAtCap, "internal:share": ip.treatedShare.candidate,
+    } : {}),
   };
   // Which rungs cleared the merge gate's separation test, recorded for every
   // rung including the two that cannot advance on it.
