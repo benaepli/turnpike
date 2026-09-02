@@ -373,3 +373,96 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   does not bound this effect. Same precedent as cascade-fault-window-
   admission, rejected for proposing into a stratum the log had already
   characterised without answering the citation.
+
+## causal-chain-priority-inheritance-with-demotion-points
+
+- kind: add | category: scheduler | origin: proposer | status: scored, not
+  built (judge gain 6, cost 2, net 4) - best of the scheduling-theory round
+- title: Priorities that belong to a causal chain rather than to an event,
+  with a bounded number of per-run demotion points over the learned span
+- The only proposal of the round whose central mechanism claim survived
+  verification: there really is no priority persistence across hops - every
+  created runnable draws a fresh Beta at `exec.rs:206/259/579` and
+  `path.rs:196`. Inheritance supplies the persistent object that PCT-style
+  demotion points need, and the points are sited from a measured fact (long
+  inert-streak acted fraction 0.0092, frontier never drains) rather than
+  from the step budget. Throughput plausibly positive: a field copy replaces
+  a Beta sample.
+- Ceiling to be clear-eyed about: it acts on within-queue SCORING, and this
+  repo has merged three eligibility-mask mechanisms and refuted its one
+  scoring mechanism. Authority there is measurably thin - 45% of steps
+  contested, configured multiplier flips nothing, novelty ablated so the
+  score is a constant plus 0.75*priority over a 0.30-wide band.
+- Judge kept the prediction, adding one clause at admission: report the
+  within-queue tie rate, since equal chain keys are the degenerate failure
+  its own risk paragraph names and `live_chains_p90` does not detect. Also
+  names a fourth Record creation site the description missed,
+  `scheduler.rs:1538`.
+
+## semi-markov-queue-class-bursts
+
+- kind: add | category: scheduler | origin: proposer | status: scored, not
+  built (judge gain 4, cost 0, net 4)
+- title: Replace the memoryless queue-class roll with a heavy-tailed
+  semi-Markov process preserving the class marginals exactly
+- Best experimental design of the round - a four-arm within-session dose
+  curve carrying its own byte-identical i.i.d. control - attached to a
+  partly false story. Two checkable claims FAILED. "Stretches beyond about
+  ten steps effectively never occur" is off by an order of magnitude: with
+  the default p_network 0.17 a 10-step network-free stretch has probability
+  0.155 and ~50-step stretches occur ~96,000 times per chunk. And "past
+  parameter doses on p_local/p_timer moved nothing" is unsupported - grep
+  finds zero hits in either log, and the nearest result is the opposite,
+  timer-admission-context-odds-probe merging at 1.19.
+- Its headline observable is also unmeetable as frozen: class shares cannot
+  be "within 3% of configured" because `try_select` falls through on an
+  empty class, which is why the realized timer share is ~21% against a
+  configured 0.03. And a sojourn bypasses `select_timer_biased`, silently
+  disabling a merged +19% mechanism on treated arms.
+- Judge rewrote both: shares within 10% of the alpha=infinity arm's REALIZED
+  shares, and treated arms must route through `select_timer_biased`.
+
+## pos-conflict-resampled-priority-order
+
+- kind: add | category: scheduler | origin: proposer | status: scored, not
+  built (judge gain 3, cost 0, net 3)
+- title: Partial-order sampling - one global priority frontier with keys
+  resampled only on conflict
+- Superb mechanical verification craft - it named all ~13 queue-mutation
+  sites and an exhaustive grep found none missed - but its load-bearing
+  causal claim is FALSE and inverts the argument. Priority is not "redrawn
+  every step": it is stamped once at creation and never touched again
+  (`Record::reset` does not reset it, `state.rs:293-296`; continuations
+  re-push the same record, `exec.rs:639,649`). So a low-priority record
+  already sits behind the frontier indefinitely, and conflict-resampling
+  would make within-queue keys LESS persistent than today, not more.
+- Deleting the class roll also removes the empty-queue fallthrough that
+  lifts the realized timer share to ~21%; a marginal-preserving global order
+  would cut timer admissions ~7x, an uncontrolled dose in the direction the
+  falsifier only bounds from above. Same mechanism family as
+  causal-chain-priority-inheritance; they cannot both score high and the
+  tie-break went on verification, not preference.
+
+## partial-order-class-restart-sampler
+
+- kind: add | category: feedback | origin: proposer | status: scored, do not
+  build in this form (judge gain 3, cost 2, net 1)
+- title: Abandon a run whose prefix is partial-order-equivalent to prefixes
+  already sampled, and spend the wall-clock on a fresh run
+- Cannot attribute its own predicted gain. Early truncation is ALREADY a
+  large measured win on this rig, and the judge measured it from the
+  baseline in hand: the `grid-short` arm (cap 1500) produces 4,184 depth>=6
+  runs in 60,056 ms against `grid`'s 1,956 in 60,097 ms - 2.14x the
+  objective at a quarter of the cap - while per-run P(depth>=6) FALLS from
+  3.89% to 2.91%. So abandoning a quarter of runs at quarter-cap raises the
+  objective whether or not the fingerprint carries any information, and the
+  whole predicted band 0.08..0.35 sits inside what a generic truncation dose
+  delivers alone.
+- Its motivating claim is also read off an ablated channel: timeline keys
+  do read 5 distinct values at run 100, but `novelty_ablated_runs` is
+  351,660 of 351,660 - the config sets `novelty_enabled: false`. The signal
+  is off by configuration, not degenerate by nature. Same misreading that
+  got timer-steer-coverage-holdout-governor rejected.
+- Judge rewrote the design to need a third arm: treated / random-abandon-at-
+  matched-rate / untreated, with a gain over untreated alone recorded as a
+  truncation dose rather than evidence for the fingerprint.
