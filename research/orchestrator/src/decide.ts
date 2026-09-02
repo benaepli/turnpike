@@ -44,8 +44,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 2, name: "runCapProbe" },
   { bit: 4, name: "timerSteerOff" },
   { bit: 8, name: "crashHoldDrawn" },
-  { bit: 16, name: "clientPlaced" },
-  { bit: 32, name: "clientHoldDrawn" },
+  { bit: 16, name: "staleOrder" },
 ];
 
 export interface VariantSide {
