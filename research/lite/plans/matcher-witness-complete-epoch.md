@@ -469,3 +469,33 @@ Reverting after step 9 means: revert commits 8, 7, 6, 4; delete the new cache fi
 - /home/benaepli/Rust/turnpike/traceanalyzer/metrics/dagorder/dagorder.go
 - /home/benaepli/Rust/turnpike/research/lite/grader.ts
 - /home/benaepli/Rust/turnpike/research/corpus/manifest.json
+---
+
+## Corrections found at implementation (Go side, before commit)
+
+1. **The general-store gate expectation G1 was an undercount.** The judge's
+   prototype lacked the witness-exact greedy and the two-assignment read, so
+   its 83 depth-6 runs (0.69%) was not the deepest witness-complete depth
+   those runs admit. The implementation's exactness test - heuristic depth
+   equals an independent exact witness search on every one of the 12,000
+   graded runs, 0 mismatches - gives the true ladder
+   `[6609, 6100, 1611, 1554, 130, 121, 11, 7]`: rung 6 is **121 = 1.01%**.
+   The purpose assertions hold exactly: zero depth-6 runs lack `crash_nl`,
+   and all 121 sit on the single path `w1, allow_t1, crash_nl,
+   deliver_svc_1_to_2, crash_2, recover_2`. The general-store gate is
+   restated as the plan corpus's: exactness on every run, plus G3 and G4.
+   Projected per 300s chunk: ~5,300 rung-6 events, 5.3x the floor.
+2. **The tightened greedy must not feed the edge assignment.** Applied to
+   the production greedy it halved `mean_score` on the general store (0.568
+   to 0.286) by leaving labels unassigned that the swap phase never recovers
+   - the R4 risk realized. Edge satisfaction has nothing to do with prefix
+   depth, so the witness-exact greedy runs as a separate pass whose choice
+   feeds only `rootAnchoredPrefix`; the production greedy, swap, `Score`,
+   `Assign` and `CrowdedOut` stay byte-identical to the pre-change analyzer.
+   `PrefixDepth` is the max over the witness-greedy assignment and the
+   edge-optimal one.
+3. Run 2721's sole `deliver_svc_2_to_0` candidate is at step 94, not 97 as
+   tabulated; the infeasibility conclusion is unchanged (only read at 53).
+4. The `encoding == "none"` clause never fired on either corpus (both probe
+   as `column`), and the contracted set is empty for both oracles, so
+   contraction by kind was a no-op throughout - as predicted, defensive only.
