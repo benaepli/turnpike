@@ -521,9 +521,16 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## restart-latency-foreign-progress-draw
 
-- kind: add | category: scheduler | origin: proposer | status: admitted,
-  building (judge gain 6, cost 0) | frozen prediction:
+- kind: add | category: scheduler | origin: proposer | status: CLOSED, refuted
+  by its primary falsifier (judge gain 6, cost 0) | record:
   research/lite/plans/restart-latency-foreign-progress-draw.md
+- Built and graded over 720k runs. Internal depth>=6 0.9855 [0.976,0.995]
+  against a 1.10 bar. Arms separated 2.63x: delaying the restart cuts the
+  stale acted fraction from 0.11 to 0.044, forcing an immediate restart
+  matches stock. With iteration 9 this closes the acted-stale-delivery
+  reading from both sides: raising acting moved depth nowhere, cutting it
+  sharply moved depth down 1.5%. The interval itself is a real general lever
+  on acting, kept as a finding.
 - title: Stratify how much of the rest of the system runs between a crash and
   the victim's restart, including a forced zero-progress arm
 - `SendLedger::entries` verified monotone by construction (`state.rs:984`,

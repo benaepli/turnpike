@@ -1,0 +1,184 @@
+{
+ "name": "restart-latency-foreign-progress-draw",
+ "createdAtIso": "2026-09-02T06:11:13.175Z",
+ "note": "frozen prediction in research/lite/plans/restart-latency-foreign-progress-draw.md: depth>=6 treated/untreated >=1.10; per-arm stale acted fractions, refute if all within 1.2x; draws floor 50k",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/restart-latency-foreign-progress-draw/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/restart-latency-foreign-progress-draw/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:restart-latency-foreign-progress-draw"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "templateSha": "1497728c006c27abb0344562a3a0a9b911a67d045f3ff7935e934bc25751e83f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/7555e6a5bbef-30-1497728c-300.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "seq": {
+  "hypothesisId": "lite-restart-latency-foreign-progress-draw",
+  "chunks": 2,
+  "runs": 719880,
+  "graded": 719880,
+  "depth4": 534629,
+  "depth5": 344799,
+  "depth6plus": 165079,
+  "depth7plus": 46640,
+  "depth8plus": 5835,
+  "violations": 0,
+  "h2Count": 545298,
+  "exposureSec": 600.899,
+  "rpsChunks": [
+   1170.8154963615907,
+   1225.1866100042264
+  ],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1002,
+  "posteriors": {
+   "depth>=4:pGreater": 0.922,
+   "depth>=4:pMei": 0.1125,
+   "depth>=4:ratio": 1.0330156395677472,
+   "depth>=4:mei": 0.06248535710135441,
+   "depth>=5:pGreater": 0.943,
+   "depth>=5:pMei": 0.16,
+   "depth>=5:ratio": 1.0365977188434805,
+   "depth>=5:mei": 0.06047592225575324,
+   "depth>=6:pGreater": 0.9645,
+   "depth>=6:pMei": 0.2285,
+   "depth>=6:ratio": 1.0406838086555084,
+   "depth>=6:mei": 0.05684868519307565,
+   "depth>=7:pGreater": 0.973,
+   "depth>=7:pMei": 0.2605,
+   "depth>=7:ratio": 1.0340825737366326,
+   "depth>=7:mei": 0.045398329931419706,
+   "depth>=8:pGreater": 0.669,
+   "depth>=8:pMei": 0.0265,
+   "depth>=8:ratio": 1.0214444259256052,
+   "depth>=8:mei": 0.11558036889994579,
+   "h2:pGreater": 0,
+   "h2:ratio": 0.981066075880231,
+   "h2:mei": 0.004475578714072648,
+   "depth>=4:pRegress": 0,
+   "depth>=5:pRegress": 0,
+   "depth>=6:pRegress": 0,
+   "h2:pRegress": 0,
+   "throughput:ratio": 1.0276063288140416,
+   "throughput:cv": 0.032091944372858755,
+   "depth>=5:cv": 0.02987685057068664,
+   "depth>=6:cv": 0.027641446009356765,
+   "depth>=7:cv": 0.01965101754784851,
+   "stratum:chunks": 2,
+   "stratum:exposureSec": 480.668,
+   "depth>=4:separated": 0,
+   "depth>=5:separated": 0,
+   "depth>=6:separated": 0,
+   "depth>=7:separated": 0,
+   "depth>=8:separated": 0
+  },
+  "lastVerdict": "continue",
+  "lastIteration": 0,
+  "baselineKey": "7555e6a5bbef|grid,grid-no-purgatory,grid-post-fault-2,grid-short|1497728c|30|300",
+  "rateStratum": {
+   "armIds": [
+    "grid",
+    "grid-no-purgatory",
+    "grid-post-fault-2",
+    "grid-short"
+   ],
+   "chunks": 2,
+   "runs": 609120,
+   "graded": 609120,
+   "exposureSec": 480.668,
+   "depth": [
+    609120,
+    586418,
+    524183,
+    449803,
+    288883,
+    138159,
+    39118,
+    4848,
+    95
+   ],
+   "perChunk": [
+    {
+     "exposureSec": 240.319,
+     "depth": [
+      298080,
+      286918,
+      256563,
+      220046,
+      141381,
+      67725,
+      19286,
+      2331,
+      45
+     ]
+    },
+    {
+     "exposureSec": 240.349,
+     "depth": [
+      311040,
+      299500,
+      267620,
+      229757,
+      147502,
+      70434,
+      19832,
+      2517,
+      50
+     ]
+    }
+   ]
+  }
+ },
+ "usedSeeds": [
+  1000,
+  1001
+ ],
+ "evalIds": [
+  "lite-restart-latency-foreign-progress-draw-sequential-1000-1788329473533",
+  "lite-restart-latency-foreign-progress-draw-sequential-1001-1788329906607"
+ ],
+ "history": [
+  {
+   "atIso": "2026-09-02T06:18:26.097Z",
+   "seed": 1000,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 433
+  },
+  {
+   "atIso": "2026-09-02T06:25:42.906Z",
+   "seed": 1001,
+   "event": "chunk",
+   "detail": "verdict continue: undecided",
+   "wallSec": 436
+  }
+ ],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": true
+}

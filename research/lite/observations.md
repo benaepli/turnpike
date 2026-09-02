@@ -774,3 +774,41 @@ and the only candidate at the site two reviews named. Then two cold rounds
 on lenses this loop has not sampled - ablation and salvage, then message
 delay and reordering - steered on altitude only. Each is graded on the rung
 the goal names, with the proxy caveat above standing over all of them.
+
+## Iteration 10 - restart latency, closed; the acted-stale-delivery reading is closed from both sides
+
+The judge's second-ranked recovery-race candidate, built with its three
+fixes: a salted posture, per-arm stale counters, and a three-arm draw per
+crash - ZERO (mask everything but the victim's restart for up to 16 steps),
+LADDER (withhold the restart until the other nodes take g handler entries,
+g from {1..64}), STOCK.
+
+It fired at 6.5x its floor and every safety clause held. The arms separated
+2.63x and stayed there across both chunks: stale deliveries from a node
+whose restart was delayed act at 0.044; from a node restarted immediately,
+0.115; stock, 0.111. ZERO matching STOCK is expected - stock's interval is
+already about three steps. The lever is real and general: how much the rest
+of the system moves between a crash and the restart controls whether the
+victim's stranded messages change anything when they land, by a factor of
+two and a half.
+
+Depth did not follow. The randomized internal contrast read 0.9855
+[0.976, 0.995] against a 1.10 bar - treated runs slightly worse. Closed on
+the primary falsifier.
+
+Put beside iteration 9 the picture is symmetric. Raising stale acted-ness by
+a quarter in one arm moved depth nowhere; cutting it by three fifths in
+another moved depth down about 1.5%. Acted stale deliveries are a minor
+ingredient of the rung and not its headroom. The directive that steered
+the recovery-race round - the bottleneck is effect, not supply - is now
+refuted twice by mechanisms that did exactly what they were built to do.
+
+One instrument note. The cross-binary rung read 1.0407 at throughput 1.0276
+while the internal contrast read 0.9855: the candidate's untreated half
+exceeded the baseline by about 2% per run with no cause identified. This is
+the second single-build cross-binary read (iteration 8 was the first) to
+disagree in sign with its own randomized internal control. The internal
+contrast is the number trusted; the cross-binary per-second read on one
+candidate build carries drift the A/A band does not capture, plausibly code
+layout across separate builds. A merge decision should run the A/A the
+skill already requires.
