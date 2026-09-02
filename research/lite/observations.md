@@ -1212,3 +1212,87 @@ depth - is the sharpest statement of what the score is missing, and it is
 the validation set for any sharper score: on the plan corpus its deepest
 runs must stay violations at least as often, and on the general baseline its
 deepest runs must be scored lower than the current rung scores them.
+
+## Score-sharpening round (measurement, not scheduler) - proposed and judged, nothing built
+
+At the user's request, with the protection on the oracle and the trace
+analyzer lifted for the purpose of proposing, one proposer and one judge
+round on how progress toward the target is scored. The four proposals are
+kept at research/lite/plans/score-sharpening-round-candidates.md.
+
+**The finding that decides it, reproduced by the judge on a fresh
+210,120-run general store, 12,000 runs graded with the shipped analyzer:**
+the matcher credits a label when any matched ancestor in the DAG's
+TRANSITIVE CLOSURE precedes it, so a chain may skip a direct predecessor
+(`matching.go:212-215` builds `closIn` from `a.edges`, the closure;
+`:231-239` skips an unassigned direct predecessor; `prefix_test.go:26-45`
+documents the skip as intended). Measured: of 2,396 runs at depth>=6,
+**1,604 (66.9%) have no `crash_nl` anywhere on their winning chain**; at
+depth>=8, 66 of 77 (85.7%). The single most common depth-6 chain is
+`w1 -> allow_t1 -> deliver_svc_1_to_2 -> crash_2 -> recover_2 ->
+deliver_svc_1_to_0` - a view-change message credited as "from node 1" in
+runs where node 1 never crashed. **The graded primary rung has never
+required the bug's initiating fault.** This is why 20% of general runs reach
+depth 6 and none violate, and it is the mechanism behind every "hazard up,
+depth flat" result this session.
+
+The judge split the cause and it changes the fix. Of the 1,604 crash-less
+deep chains, 1,195 (half of all depth-6 runs) are runs where node 1 never
+crashed at all: `crash_nl` has zero candidates and the zero-candidate rule
+(`matching.go:324-327`) contracts it out of the chain. Only 409 (17%) are
+the closure skip proper. So witness-completeness alone - proposal 2 as
+written - leaves 71.2% of deep chains without the initiating crash, worse
+than today at depth 7. Delivered only when contraction is narrowed from
+"no candidates in this run" to "the label's kind is structurally
+unobservable" (`EventKind.Matchable()`, already computed). With both
+changes, prototyped in scratch and measured:
+
+| matcher | general depth>=6 | lacking crash_nl | plan corpus depth>=6 |
+|---|---|---|---|
+| today (closure) | 2396 / 12000 = 19.97% | 66.9% | 751 / 3000 = 25.0% |
+| witness-complete only | 569 = 4.74% | 71.2% | 751 = 25.0% |
+| + contract by kind | **83 = 0.69%** | **0.0%** | **751 = 25.0%** |
+
+The plan corpus loses nothing at rung 6; the general baseline loses
+**28.9x**. The modal general depth-6 chain becomes exactly bug.md steps 1-4.
+That ratio is the measurement the correction note asked for, and it is the
+first time the score separates the search that finds the bug from the one
+that does not.
+
+**Ranking** (judge, argument grade with verification): witness-complete
+depth with contraction-by-kind 8 (recommend with changes); randomized
+within-session primary 8 (recommend with changes); commit-time client labels
+6 (diagnostic only, ride the same epoch); stale-incarnation typing of the
+deliver label 5 (redundant once crash_nl is required; keep its
+dispatch-before-crash column, one aggregate in an existing CTE).
+
+**Corrections the judge made to the proposals.** Node symmetry is not
+needed for power - rung 6 clears the floor at ~3,600 events per chunk
+without it - and its id space is not role-qualified (`history.rs:40,73`
+discard the role; client and server indices overlap), so it must not ship
+without that fix. The grade budget is 1,800 s not 300 s, and matching is
+2.4 s of 34.6 s, so symmetry would have been free anyway. The plan-path
+strict-key claim is false; `node_symmetry` would have to go in both oracle
+files or validation compares apples to oranges. And the prototype dropped 2
+of 11 known plan-corpus violations from depth 9 to 8 - manifest invariant 2
+breaks - because witness-completeness makes the greedy assignment
+load-bearing; recovering them is the gate on a correct implementation.
+
+**Recommended package, in order.** First the grader change (randomized
+within-session per-run contrast as the merge primary; cross-binary
+throughput kept as a blocker measured against a FROZEN epoch baseline so
+4% leaks cannot compound; a declared treatment bit required; the
+partial-probe-coverage hole at `decide.ts:122` closed) - no epoch bump, no
+corpus, validated by paper replay against this session's record, which it
+reproduces on evidence in every case including merging iteration 16. Then
+the matcher change as one epoch bump, bundling the commit-time labels as
+diagnostics and the dispatch-step column. First concrete step: replace the
+`closIn` construction in `matching.go` with direct-edge predecessors,
+contract only `!Matchable()`, require every surviving direct predecessor
+matched and earlier, tighten `assignEarliestAfterPredecessors` to match,
+regrade `tmp/loop/judge-plan`, and confirm all 11 known violations return
+to max depth.
+
+Scratch artifacts left for inspection: `tmp/loop/judge-store` (4.2 GB
+general corpus), `tmp/loop/judge-plan` (3,000-run plan corpus), and the
+prototype grader under the session scratchpad. Nothing tracked was edited.
