@@ -1,6 +1,6 @@
 # restart-latency-foreign-progress-draw
 
-status: admitted, building | origin: proposer | judge gain 6, cost 0
+status: closed, refuted by primary falsifier (see decisions.jsonl) | origin: proposer | judge gain 6, cost 0
 
 ## Frozen prediction (frozen at admission, with the judge's rewrite)
 
