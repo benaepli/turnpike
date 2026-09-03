@@ -1894,3 +1894,24 @@ and its dead incarnation's StartViewChange are both in flight to the peer
 at the same time, and depth 8 is decided by which of the two eligible
 records the scheduler dispatches first - a same-step choice, not a hold
 and not a release time. The round now proposing asks exactly that.
+
+## Iteration 26: the first epoch-14 merge - fresh before ghost at dispatch
+
+A same-step preference, not a hold: when the tournament draws a record from
+a dead incarnation and a record from that origin's current incarnation to
+the same destination is eligible, take the fresh one. Depth>=8 per run
+read 1.1205 [1.0612, 1.1832] (z 5.65), depth>=9 1.233; the overtake share
+went from 0.711 to 1.000 (every ghost entry from a restarted origin now
+lands after the peer heard the new incarnation); 614,396 swaps over two
+chunks with 6% repeats and no step unfilled; throughput 1.079; regression
+passed; no violations. The census on the candidate's own kept explore
+found the substance for the first time in general runs: the recovered
+node's request answered before the peer left the old view in 5 of 3,720
+treated depth-8 runs against 0 of 3,340 control, R4 3 against 0. Merged at
+e10f046.
+
+The cost is upstream: depth 6 and 7 read 0.967, so the preference removes
+about 3% of chain-shaped runs while lifting the transition into depth 8 by
+about 16%. Which record a peer takes first, when two from the same origin
+are eligible at once, was the lever the census pointed at three rounds
+ago; holds and timers were the wrong instruments for it.

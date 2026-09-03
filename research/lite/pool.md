@@ -1516,8 +1516,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## fresh-first-same-pair-dispatch-tiebreak
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 26 (judge gain 7, cost 0; iteration-26 top pick)
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  e10f046 - depth>=8 per run 1.1205 [1.0612, 1.1832], depth>=9 1.233,
+  overtake share 1.41x, census P4_2 5 vs 0 on depth-8 runs, throughput 1.079,
+  regression passed; depth>=6/7 read 0.967 (expectation [0.98, 1.03]
+  missed, recorded)
 - Mechanism: a same-step dispatch preference, not a hold. In the network
   branch of schedule_runnable, after the stock tournament has drawn a record
   and spent its RNG draws: on a treated run (bit 1 << 24, freshFirstPair,
