@@ -64,6 +64,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 8192, name: "replayTierDeep" },
   { bit: 2048, name: "replayInheritBits" },
   { bit: 32768, name: "pairSendOrder" },
+  { bit: 262144, name: "clientFanoutRelease" },
 ];
 
 // The tag that marks a run-cap probe. Probes are about 3% of runs, are

@@ -1778,3 +1778,59 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   member's stock draw and only pulls the others earlier, so it converts
   mixed outcomes into all-before - the wrong direction for the
   receiver-recovering class; its remaining content is the send-order rule.
+
+## client-release-into-ghost-consumer-fanout-window
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 31 (judge gain 6, cost 2 by the pool's precedent for invocation
+  timing; iteration-31 top pick) | parent: client-request-placement-span-
+  draw (closed under the old rung, whose oracle had no w2 label)
+- Mechanism: workload timing anchored to protocol activity. A post-fault
+  request - a planned client request that becomes ready after the run's
+  first executed crash (about 1.5 per run; step-0 requests are never
+  touched) - is held on the treated half (bit 1 << 18) and released, one
+  per firing, at the step a node's ledger shows it just consumed an acted
+  fault-crossing entry and answered with a full fan-out none of which has
+  landed: the census's ghost-built round read live. The request is invoked
+  the following step, inside the window between the fan-out and its first
+  delivery; expiry at ready + 32 steps. A held request is a plan event that
+  has no record yet, so nothing in flight is delayed - the same kind of
+  choice the plan's own post-fault edge makes today.
+- Why: depth 10 needs w2 issued after the ghost DoViewChange landed (in the
+  violating run, the very next step) and depth 11 needs it to commit in the
+  old view inside that window; today all requests are invoked the step they
+  become ready, so whether one is pending at depth 9 is chance, and P(10|9)
+  reads about 0.04. Judge caveats: on the chain shape the first firing is
+  the depth-8 fan-out, so the depth-10 gain lives in second-or-later
+  releases; "by construction" and "no draw consumed" struck (the client
+  op's priority is drawn at invocation).
+- Frozen prediction (epoch 14): bit 262144 (1 << 18, clientFanoutRelease),
+  treated share about 0.485; firing per chunk: client_anchor.held >=
+  400,000, fanout_windows >= 100,000 on both halves, released.anchor >=
+  40,000, released.anchor.second_or_later >= 10,000, with released split by
+  firing ordinal and request kind and a histogram of held count at the
+  first firing; primary depth>=10 per-run treated/control in [1.3, 3.5]
+  read at four chunks - pass if the lower edge clears 1.0 with the point
+  >= 1.3, extend to eight chunks if the interval straddles 1.3 with the
+  point in [1.0, 1.3); depth>=8 in [0.95, 1.05]; depth>=9 in [0.95, 1.10];
+  independent observable: treated share of post-fault invocations inside a
+  ghost-consumer fan-out window >= 0.30 against control <= 0.05, and the
+  census's P3_issued_after > 0 among treated depth>=9 runs on a kept
+  explore; falsifier: with the firing floors met and the in-window share
+  >= 4x control, the depth>=10 interval's upper edge below 1.3; inert if
+  expiry/held > 0.8 or the in-window share < 4x; depth>=8 below 0.95 or
+  depth>=9 below 0.90 refutes on the primary; plan_complete more than 3
+  points below control, outstanding planned events per run treated minus
+  control > 0.15, or held_at_exit > 1% of held refutes on completion;
+  cost: throughput >= 0.97 of 2139.37, steps <= 1.05x, expiry share
+  reported. Follow-up if the first firing eats the releases: a second-
+  acted-ghost-at-the-same-node anchor.
+
+## client-release-on-recovery-return / fault-paced-post-fault-workload / client-release-on-acted-ghost-entry
+
+- kind: add | origin: proposer | status: HELD at iteration 31 (judge gains
+  3, 3, 2): the recovery-return anchor rarely exists on the priced runs
+  (the ghost sender completes recovery in 65 of 412 general fan-outs); the
+  paced workload diffuses four anchors over one bit; releasing all held
+  requests at the first acted ghost fires on the depth-8 SVC and lands w2
+  before the DVC.
