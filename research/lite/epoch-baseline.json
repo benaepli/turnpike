@@ -1,8 +1,8 @@
 {
- "epoch": 13,
- "frozenAtIso": "2026-09-02T21:22:19.370Z",
+ "epoch": 14,
+ "frozenAtIso": "2026-09-03T06:35:05.466Z",
  "identity": {
-  "spurTree": "7555e6a5bbef797c325fd435977152bbcd1f6dfe",
+  "spurTree": "aba61f7362597976b4e20db917e42442f79305eb",
   "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
   "armIds": [
    "grid",
@@ -12,73 +12,12 @@
   ],
   "rayonThreads": 30,
   "chunkSec": 300,
-  "graderVersion": "ta:12160cd+porc:ebf06c5+oracle:fa7de9e3"
+  "graderVersion": "ta:12160cd+porc:ebf06c5+oracle:390ec49e"
  },
- "runsPerSec": 1747.5799480574115,
- "source": "median over research/lite/baselines/7555e6a5bbef-30-f9daa01b-300-g47b08ab8.json (2 chunks)",
+ "runsPerSec": 2041.8467725654139,
+ "source": "median over research/lite/baselines/aba61f736259-30-f9daa01b-300-g0d3de012.json (2 chunks)",
  "layoutNullBand": 0.05,
- "layoutSource": "bb-build-layout-control, 2026-09-02: identical source built twice read depth>=6/s 0.9510 and throughput 0.9634",
+ "layoutSource": "bb-build-layout-control, 2026-09-02: identical source built twice read 0.9634 on the per-second rung",
  "layoutMeasuredAtIso": "2026-09-02T09:20:00Z",
- "merges": [
-  {
-   "name": "crash-fanout-phase-anchored-release",
-   "commit": "7134f43",
-   "spurCommit": "6f07962",
-   "ratio": 1.0032172441530152,
-   "cumulative": 1.0032172441530152,
-   "measuredRps": 1715.1030466703528,
-   "measuredRpsChunks": [
-    1763.6892214551885,
-    1666.5168718855168
-   ],
-   "cacheFile": "research/lite/baselines/d31b6194001d-30-f9daa01b-300-g47b08ab8.json",
-   "measuredAtIso": "2026-09-02T22:14:29Z",
-   "note": "measured via the A/A session lite-base-post-fanout; the median sits at 0.981 of the frozen epoch figure, inside the known hour-scale host drift, and the seed-1001 baseline chunk overlapped a short typecheck and selftest in its first half-minute"
-  },
-  {
-   "name": "ghost-absorber-crash-retarget",
-   "commit": "fabf0ea",
-   "spurCommit": "1c4d55f",
-   "ratio": 0.9773169047081472,
-   "cumulative": 0.9804611718054624,
-   "measuredRps": 1702.755222270097,
-   "measuredRpsChunks": [
-    1720.1014761990373,
-    1685.4089683411567
-   ],
-   "cacheFile": "research/lite/baselines/1b3d47331bd2-30-f9daa01b-300-g47b08ab8.json",
-   "measuredAtIso": "2026-09-03T02:00:33Z",
-   "note": "measured by the baseline chunks of session ghost-absorber-retarget-redraw; depth>=6 events per chunk on the merged tree [10111, 9044] against 6928/6654 before the retarget"
-  },
-  {
-   "name": "ghost-prefix-replay-corpus",
-   "commit": "919f12c",
-   "spurCommit": "c5e49c2",
-   "ratio": 1.063,
-   "cumulative": 1.0422302256292064,
-   "measuredRps": 1810.7264020715297,
-   "measuredRpsChunks": [
-    1772.8980179028133,
-    1848.5547862402461
-   ],
-   "cacheFile": "research/lite/baselines/b678cb8c772b-30-f9daa01b-300-g47b08ab8.json",
-   "measuredAtIso": "2026-09-03T03:01:38Z",
-   "note": "measured by grader baseline --chunks 2 after the corpus merge; depth>=6 events per chunk on the merged tree [15187, 16066] against 10111/9044 before it"
-  },
-  {
-   "name": "trace-print-format-pipeline-direct-write",
-   "commit": "f72f3ff",
-   "spurCommit": "e513cac",
-   "ratio": 1.0924,
-   "cumulative": 1.1385322984773452,
-   "measuredRps": 1916.0324600458478,
-   "measuredRpsChunks": [
-    1878.1284656655578,
-    1953.9364544261377
-   ],
-   "cacheFile": "research/lite/baselines/aba61f736259-30-f9daa01b-300-g47b08ab8.json",
-   "measuredAtIso": "2026-09-03T04:40:00Z",
-   "note": "measured by grader baseline --chunks 2 after the formatting merge; depth>=6 events per chunk [15449, 16076]"
-  }
- ]
+ "merges": []
 }

@@ -1782,3 +1782,9 @@ path the chain does not follow past the ghost DoViewChange - while depth
 8, the merge primary, is reached by every violating tier (relax_minimal
 218 runs at depth 8). The manifest's first invariant holds with a margin
 of 2.62 over the unconstrained mean of 1.53.
+
+Epoch 14 frozen at 2041.85 runs per second (seeds 2063.1 and 2020.6 after
+seed 1001 was re-measured on an idle CPU; the first measurement had
+overlapped the grader's typechecks and read 6.5% low), depth-8 events
+6,495 and 6,100 per chunk, grader selftest clean with primary rung 8, and
+the epoch-13 record replaying unchanged under its own rule version.
