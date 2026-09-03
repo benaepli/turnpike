@@ -1103,11 +1103,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## ghost-prefix-replay-corpus
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 21 (judge gain 6, cost 2; iteration-21 pick, with the
-  retarget-census-after-landing-fix counter reordering as its first
-  commit). P(signal) measured: ghost_signal.fired_runs 246,458 over two
-  chunks of the retarget session, about a quarter of runs
+- kind: add | category: feedback | origin: proposer | status: MERGED at
+  919f12c (spur c5e49c2) - depth>=6 per-run slots/fresh 2.1907 [2.1049,
+  2.2800] (z 53), per second 1.68, throughput 1.063, regression passed;
+  fidelity clause fired (0.436 vs 0.5) and PREFIX/PLAN-ONLY read 1.124:
+  the gain is mostly plan re-sampling of signal-firing runs. Slot runs
+  complete plans at 0.078 vs 0.306. Follow-ups: children inherit the
+  parent's mechanism bits; a plan-only variant without tapes
 - Mechanism: grid arms record every run's RNG tape as the aos arm does; a
   run whose first fault-crossing delivery enters a node with a crash
   pending is admitted to a per-arm corpus (64 parents, up to 8 children
@@ -1196,9 +1198,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## retarget-census-after-landing-fix
 
 - kind: ablate | category: scheduler | origin: operator-agent | status:
-  ADMITTED at iteration 21, counter half only (judge gain 5, cost 0),
-  bundled as the first commit of ghost-prefix-replay-corpus and checked on
-  that session's first chunk; the hold half is STRUCK (its retarget-instead-
+  MERGED at 919f12c inside ghost-prefix-replay-corpus, counter half only
+  (judge gain 5, cost 0): exact identities held on both chunks, early/mid
+  apply shares 0.834/0.838 and stock 0.738 inside their predicted bands; the hold half is STRUCK (its retarget-instead-
   of-hold form is byte for byte the redraw under grading; its exclusion form
   is unbounded). Judge corrections: the wrong-node rows are 19.4-19.8% of
   treated crash rows (9.4% of all), and the hold governs about 20 per

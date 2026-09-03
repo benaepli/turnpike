@@ -1565,3 +1565,34 @@ second (0.974 of the frozen epoch figure, cumulative ledger 0.9805), and
 10,111 and 9,044 depth-6 events per chunk against 6,928 and 6,654 before
 the retarget merge - the whole-population view of a 1.71x effect on half
 the runs.
+
+## Iteration 21: replaying the prefixes of signal-firing runs doubles depth
+
+The prefix-replay corpus - grid arms record every fresh run's RNG tape, a
+run in which a ghost delivery enters a node with a crash pending is
+admitted as a parent, and a salted half of run ids replay a parent's tape
+to that step with a fresh suffix or rerun its plan, config and workload -
+read 2.1907 [2.1049, 2.2800] on depth-6 per run (z 53; [2.02, 2.37] with
+the standard error doubled for correlated children), inside its band of
+[1.30, 4.00]. Depth-6 events per second rose 68% cross-binary at
+throughput 1.063; depth-8 per treated run 1.83x. Regression passed, no
+violations either side of 1.09M candidate runs. Merged at 919f12c on the
+grader rule, following the user's retarget decision, with one falsifier
+clause recorded as fired.
+
+That clause is attribution: prefix fidelity was 0.436 against 0.5, and
+PREFIX children beat PLAN-ONLY children by 1.12x, not 1.3x. Children run
+under their own run id, so their placement, phase, retarget and timer bits
+differ from the parent's and the tape alone does not pin the prefix. The
+gain is therefore mostly plan re-sampling: rerunning the plan, config and
+workload seed of a run that produced the hazard doubles depth-6 per run by
+itself, and the tape adds about a tenth on top. Slot runs complete their
+plans at 0.078 against 0.306 for fresh runs - they are hazard-concentrated
+runs that end at the cap, which is what makes them deep.
+
+The bundled census reordering held its exact identities on both chunks
+and moved the anchor arms' apply shares as predicted (early 0.834, mid
+0.838, stock 0.738). Follow-ups for the pool: children inheriting the
+parent's mechanism bits, and a plan-only corpus without tape recording.
+The spur tree moved; the next session measures the fresh cache and the
+ledger row follows it.
