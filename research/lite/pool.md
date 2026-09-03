@@ -1361,9 +1361,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## ghost-pending-timer-hold
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 24 (judge gain 7, cost 0; iteration-24 top pick) | steered by
-  the chain-precision census
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 24 under epoch 14 - bound (timer firings with a ghost pending
+  0.614x) but acted-on-ghost share only 1.130x and depth>=8 per run 1.005:
+  peers' messages advance the round, so holding the receiver's timer alone
+  does not keep it in the ghost's round | steered by the chain-precision
+  census
 - Mechanism: timer admission, not a message hold. On a salted half of runs
   (bit 1 << 25, ghostPendingTimerHold; probes exempt), a node's timer
   firings are ineligible while a remote record to that node from an origin

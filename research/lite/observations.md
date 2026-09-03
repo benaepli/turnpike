@@ -1788,3 +1788,25 @@ seed 1001 was re-measured on an idle CPU; the first measurement had
 overlapped the grader's typechecks and read 6.5% low), depth-8 events
 6,495 and 6,100 per chunk, grader selftest clean with primary rung 8, and
 the epoch-13 record replaying unchanged under its own rule version.
+
+## Iteration 24: a timer hold binds but does not hold the round
+
+The first candidate graded under epoch 14. Holding a node's timer firings
+while a ghost to it is undelivered fired 1.39M episodes over two chunks,
+two thirds released by the ghost landing, and cut treated timer firings
+with a ghost pending to 0.614x control - the mechanism did what it said.
+The acted-on-ghost share rose only to 1.130x (target 1.20) and the ghost
+sent share to 1.072x; depth>=6 read 1.016, depth>=8 1.005, depth>=9
+1.056 probe-free per run; steps 0.99x, plan completion up 0.9 points,
+throughput 0.989. Closed: no stated prediction met. The reason is the one
+the judge raised at admission - a node's round advances on peers'
+StartViewChange, StartView and RecoveryResponse messages as well as on its
+own timer, so quieting the receiver's clock does not keep it in the ghost's
+round. The corpus achieves the ordering not by quiet clocks but by timing:
+node 2 recovers while node 1 is still in view 0. Recovery timing is the
+lever epoch 14's rung prices, and the next round proposes it.
+
+Grader note: the treatment exempted timer-steer probe runs (bit 4) that
+the control population kept, which the grader reported as a co-bit
+imbalance on replaySlot; the per-run scope now drops bit-4 runs on both
+sides, as it already dropped run-cap probes.
