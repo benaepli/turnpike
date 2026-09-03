@@ -1628,7 +1628,18 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 27, ADMITTED for its own session: fidelity 1.029 against 0.313
   for own-id children, and 0.974 for own-id children whose bits happened to
   match - the run-id-keyed mechanism draws were the whole fidelity gap.
-  Needs a session where it is the declared bit on the PREFIX half |
+  ADMITTED at iteration 28 as its own candidate, the tiers stripped out:
+  bit 1 << 11 declared, PREFIX children only, the answered table and the
+  deep signals removed. Frozen: fidelity of inherited children >= 0.65
+  (measured 1.03 in the bundled session against 0.31 own-id) with no
+  inherited child tagged as a probe; depth>=8 per run inherited against
+  own-id prefix children in [1.00, 1.35], decided only if the interval,
+  inflated by sqrt(1 + (m - 1) / 2) for children per parent, clears 1.00;
+  depth 6 in [0.98, 1.15]; firing inherited children >= 40,000 per chunk;
+  PREFIX over PLAN-ONLY reported against 1.12; falsifier: fidelity below
+  0.65, any probe tag, or the inflated depth>=8 interval entirely below
+  1.00; cost throughput >= 0.98, steps <= 1.05x, plan_complete within 3
+  points |
   parent: ghost-prefix-replay-corpus
 - Mechanism: on a salted half of PREFIX children (bit 1 << 11,
   replayInheritBits), every run-id-keyed mechanism draw (crash placement,
