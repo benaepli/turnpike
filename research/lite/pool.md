@@ -1294,8 +1294,14 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## general-chain-funnel-census
 
-- kind: diagnostic | origin: proposer | status: RUNNING at iteration 23
-  (judge gain 7, cost 0) | tool: research/lite/tools/ghost_census.py
+- kind: diagnostic | origin: proposer | status: DONE at iteration 23
+  (judge gain 7, cost 0) | tool: research/lite/tools/ghost_census.py |
+  report: research/lite/findings/chain-precision-census.md. Readings:
+  R1->R2 is the largest drop (47/54 lost at depth 9, 516/672 at depth 8;
+  the ghost's round is stale at the receiver in 54-62% of failures); R4 is
+  0 of 2,265 general runs (node 2's reactions reach node 1 only while it is
+  still recovering, or never); view churn median 22 views at depth 9 in
+  general against 2 in the corpus
 - Survival funnel over general depth>=7 runs against the corpus: R1 the
   matched StartViewChange 1->2 is a ghost (sender crashed between dispatch
   and delivery) -> R2 acted on -> R3 node 2 crashed before its reactions
@@ -1309,8 +1315,10 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## ghost-quorum-epoch-formation-census
 
-- kind: diagnostic | origin: proposer | status: RUNNING at iteration 23
-  (judge gain 7, cost 0)
+- kind: diagnostic | origin: proposer | status: DONE at iteration 23
+  (judge gain 7, cost 0). Readings: 11/11 vs 0/81 vs 0/53 on the corpus;
+  16-23% of general runs at every depth (412 of 2,265) with zero
+  violations - never a label alone
 - The fan-out's quorum window (from the receiver's "entering view change"
   log row to the fan-out dispatch) contains a ghost from a restarted
   sender. Judge pre-check with the exact window: 11/11 violating, 0/81
@@ -1322,8 +1330,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## old-epoch-commit-window-census
 
-- kind: diagnostic | origin: proposer | status: RUNNING at iteration 23
-  (judge gain 6, cost 0)
+- kind: diagnostic | origin: proposer | status: DONE at iteration 23
+  (judge gain 6, cost 0). Readings: the old-view commit whose uid is absent
+  from the new log is 1.000/1.000 on the corpus and 0 everywhere in
+  general; the ghost sender's recovery into the OLD view is 11/11 vs 0 of
+  412 general ghost-built fan-outs (65 recover into the new view, 347 never
+  complete); its recovery request answered before the fan-out node left
+  the old view is 11/11 vs 0/875
 - A client write commits at a node in the old view after the fan-out was
   sent and before that node enters the new view. Redefined by the judge as
   an acted old-view PrepareOK for the write, joined through
@@ -1336,8 +1349,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## ghost-pair-acted-census
 
-- kind: diagnostic | origin: proposer | status: RUNNING at iteration 23
-  (judge gain 5, cost 0; its separating part is the ordering clause)
+- kind: diagnostic | origin: proposer | status: DONE at iteration 23
+  (judge gain 5, cost 0; the ordering clause separates 11/11 vs 0/81 and
+  coincides with the quorum-window set)
 - Two acted-on ghost deliveries from restarted senders. Pre-check: the
   generic form leaks (51/81 non-violating), fired by double-crash Recovery
   replies; the ordering clause - the ghost StartViewChange acted on at a

@@ -1688,3 +1688,49 @@ each corpus grades under its own file and labels are comparable one to
 one; and porcupine reports violating runs as text on stderr, not in its
 JSON. Both databases, their per-run depths and the violating ids are kept
 under tmp/loop/precision/ for the round.
+
+## Iteration 23 result: the general explorer builds the chain and misses the timing
+
+The census (research/lite/tools/ghost_census.py, report in
+research/lite/findings/chain-precision-census.md) read 5,265 runs in one
+pass: the 3,000-run corpus and every general run at depth 6 to 9. It
+reproduced the judge's pre-check exactly and settled what separates the
+eleven violating runs from everything else.
+
+Necessary and sufficient on the corpus, absent in general: the ghost
+DoViewChange's sender recovers into the OLD view - its recovery request is
+answered by the fan-out node before that node leaves the old view - in
+11 of 11 violating runs, in 0 of 412 general runs with a ghost-built
+fan-out (65 recover into the new view, 347 never complete recovery), and in
+0 of 875 general depth-8 and depth-9 runs. The old-view commit whose write
+is missing from the new log follows from it (1.000 precision and recall on
+the corpus, 0 everywhere in general).
+
+Not the deficit: ghosts and ghost quorums. General runs make as many
+ghosts per run as the corpus, and a ghost-built fan-out occurs in 16-23%
+of general runs at every depth with zero violations.
+
+Where the general chain dies, in order: the ghost StartViewChange lands on
+node 2 but is not acted on because node 2's round is already stale or
+complete (47 of 54 depth-9 runs; general runs churn through a median of
+22 views in 842 steps against 2 views in 95 steps on the corpus, the
+timers free-running); node 2's reactions reach node 1 only while node 1
+is still recovering, or never (R4 is 0 of 2,265 general runs); and the
+ghost's sender never recovers into the old round because its recovery
+request lands on a node already in view change and is dropped.
+
+What this means for the loop. The depth rung rewards the chain's shape,
+and the night's merges multiplied that shape 2.4x per second; the rung
+cannot see any of the three timing conditions above, and the record's
+one mechanism that enforced the decisive ordering - hold the ghost until
+the peer has answered the recovery - read 0.82 on depth-6 and was closed
+for it. Two decisions follow. For the user: an oracle label extension
+carrying the conjunction ghost-built fan-out AND the ghost sender's
+recovery into the old view AND an old-view commit inside the window,
+which would make the rung reward the runs that violate; a fan-out-on-ghost
+label alone has near-zero precision on general runs. For the loop, under
+the present rung: the first rung the general explorer loses is a timing
+one the current rung does not price - round advance at the receiver while
+a dead incarnation's message is undelivered - so the next mechanism round
+is steered at timer admission (view churn), with the census tool's R2 as
+its independent observable.

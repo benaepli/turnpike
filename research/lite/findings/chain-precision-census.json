@@ -1,0 +1,2544 @@
+{
+ "errors": [],
+ "populations": {
+  "A": {
+   "P2b_sender_rc": {
+    "none": 7,
+    "old_view": 4
+   },
+   "P2b_sender_rc_any": {
+    "old_view": 11
+   },
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 11,
+    "old_view_recovery": 11
+   },
+   "R2_class": {},
+   "R2_classes_all_messages": {},
+   "R4_class": {},
+   "R4_classes_all_messages": {
+    "acted": 21,
+    "same_view_in_view_change": 1,
+    "to_other_node": 10,
+    "undelivered_StartViewChange": 1
+   },
+   "agreement": {
+    "P2a_r_vs_P2c": 1.0,
+    "P2a_vs_P2b": 1.0
+   },
+   "end_reason": {
+    "plan_complete": 11
+   },
+   "funnel": [
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R1",
+     "survivors": 11
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R2",
+     "survivors": 11
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R3",
+     "survivors": 11
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R4",
+     "survivors": 11
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R5",
+     "survivors": 11
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R6",
+     "survivors": 11
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R7",
+     "survivors": 11
+    }
+   ],
+   "last_step": {
+    "max": 105,
+    "mean": 95.0909090909091,
+    "median": 92.0,
+    "min": 86,
+    "q1": 90.5,
+    "q3": 99.5
+   },
+   "n": 11,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 1,
+    "mean": 1.0,
+    "median": 1.0,
+    "min": 1,
+    "q1": 1.0,
+    "q3": 1.0
+   },
+   "n_ghost": {
+    "max": 6,
+    "mean": 4.7272727272727275,
+    "median": 5.0,
+    "min": 4,
+    "q1": 4.0,
+    "q3": 5.0
+   },
+   "n_vc_entries": {
+    "max": 5,
+    "mean": 4.363636363636363,
+    "median": 5.0,
+    "min": 3,
+    "q1": 3.5,
+    "q3": 5.0
+   },
+   "n_views": {
+    "max": 2,
+    "mean": 2.0,
+    "median": 2.0,
+    "min": 2,
+    "q1": 2.0,
+    "q3": 2.0
+   },
+   "predicates": {
+    "P1a": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P1b": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P1c": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P2a": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P2a_r": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P2b": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P2b_and_P3b": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P2b_and_P3b_d0": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P2b_and_P3b_same": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P2c": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3_ghost": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3_ghost_lost": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3_issued_after": {
+     "count": 10,
+     "rate": 0.9090909090909091
+    },
+    "P3_lost": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3_old_view_recovery": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3a": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3a_c": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3b": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P3b_d0": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P4_2": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "P4_nl": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "R1": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "R1_first": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "R1_fresh_only": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R2": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "R3": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "R4": {
+     "count": 11,
+     "rate": 1.0
+    },
+    "R4_loose": {
+     "count": 11,
+     "rate": 1.0
+    }
+   },
+   "steps": {
+    "max": 106,
+    "mean": 96.0909090909091,
+    "median": 93.0,
+    "min": 87,
+    "q1": 91.5,
+    "q3": 100.5
+   },
+   "violating": 11
+  },
+  "B": {
+   "P2b_sender_rc": {},
+   "P2b_sender_rc_any": {},
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 0,
+    "old_view_recovery": 0
+   },
+   "R2_class": {},
+   "R2_classes_all_messages": {},
+   "R4_class": {
+    "receiver_recovering": 59
+   },
+   "R4_classes_all_messages": {
+    "acted": 22,
+    "other": 41,
+    "receiver_recovering": 99,
+    "to_other_node": 81
+   },
+   "agreement": {
+    "P2a_r_vs_P2c": 0.3333333333333333,
+    "P2a_vs_P2b": 0.3333333333333333
+   },
+   "end_reason": {
+    "plan_complete": 81
+   },
+   "funnel": [
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R1",
+     "survivors": 81
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R2",
+     "survivors": 81
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R3",
+     "survivors": 81
+    },
+    {
+     "conditional": 0.2716049382716049,
+     "lost": 59,
+     "rate": 0.2716049382716049,
+     "rung": "R4",
+     "survivors": 22
+    },
+    {
+     "conditional": 0.0,
+     "lost": 22,
+     "rate": 0.0,
+     "rung": "R5",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R6",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R7",
+     "survivors": 0
+    }
+   ],
+   "last_step": {
+    "max": 110,
+    "mean": 97.58024691358025,
+    "median": 97.0,
+    "min": 89,
+    "q1": 95.0,
+    "q3": 100.0
+   },
+   "n": 81,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 1,
+    "mean": 1.0,
+    "median": 1.0,
+    "min": 1,
+    "q1": 1.0,
+    "q3": 1.0
+   },
+   "n_ghost": {
+    "max": 6,
+    "mean": 5.481481481481482,
+    "median": 5.0,
+    "min": 5,
+    "q1": 5.0,
+    "q3": 6.0
+   },
+   "n_vc_entries": {
+    "max": 5,
+    "mean": 4.320987654320987,
+    "median": 4.0,
+    "min": 4,
+    "q1": 4.0,
+    "q3": 5.0
+   },
+   "n_views": {
+    "max": 2,
+    "mean": 2.0,
+    "median": 2.0,
+    "min": 2,
+    "q1": 2.0,
+    "q3": 2.0
+   },
+   "predicates": {
+    "P1a": {
+     "count": 51,
+     "rate": 0.6296296296296297
+    },
+    "P1b": {
+     "count": 22,
+     "rate": 0.2716049382716049
+    },
+    "P1c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2a": {
+     "count": 54,
+     "rate": 0.6666666666666666
+    },
+    "P2a_r": {
+     "count": 54,
+     "rate": 0.6666666666666666
+    },
+    "P2b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_same": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_issued_after": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_old_view_recovery": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a": {
+     "count": 81,
+     "rate": 1.0
+    },
+    "P3a_c": {
+     "count": 81,
+     "rate": 1.0
+    },
+    "P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_2": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_nl": {
+     "count": 81,
+     "rate": 1.0
+    },
+    "R1": {
+     "count": 81,
+     "rate": 1.0
+    },
+    "R1_first": {
+     "count": 81,
+     "rate": 1.0
+    },
+    "R1_fresh_only": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R2": {
+     "count": 81,
+     "rate": 1.0
+    },
+    "R3": {
+     "count": 81,
+     "rate": 1.0
+    },
+    "R4": {
+     "count": 22,
+     "rate": 0.2716049382716049
+    },
+    "R4_loose": {
+     "count": 22,
+     "rate": 0.2716049382716049
+    }
+   },
+   "steps": {
+    "max": 111,
+    "mean": 98.58024691358025,
+    "median": 98.0,
+    "min": 90,
+    "q1": 96.0,
+    "q3": 101.0
+   },
+   "violating": 0
+  },
+  "C": {
+   "P2b_sender_rc": {},
+   "P2b_sender_rc_any": {},
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 0,
+    "old_view_recovery": 0
+   },
+   "R2_class": {},
+   "R2_classes_all_messages": {},
+   "R4_class": {
+    "receiver_recovering": 47
+   },
+   "R4_classes_all_messages": {
+    "acted": 6,
+    "other": 14,
+    "receiver_recovering": 86,
+    "to_other_node": 52,
+    "undelivered_StartViewChange": 1
+   },
+   "agreement": {
+    "P2a_r_vs_P2c": 0.1320754716981132,
+    "P2a_vs_P2b": 0.1320754716981132
+   },
+   "end_reason": {
+    "iterations_exhausted": 42,
+    "plan_complete": 11
+   },
+   "funnel": [
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R1",
+     "survivors": 53
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R2",
+     "survivors": 53
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R3",
+     "survivors": 53
+    },
+    {
+     "conditional": 0.11320754716981132,
+     "lost": 47,
+     "rate": 0.11320754716981132,
+     "rung": "R4",
+     "survivors": 6
+    },
+    {
+     "conditional": 0.0,
+     "lost": 6,
+     "rate": 0.0,
+     "rung": "R5",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R6",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R7",
+     "survivors": 0
+    }
+   ],
+   "last_step": {
+    "max": 107,
+    "mean": 62.528301886792455,
+    "median": 53.0,
+    "min": 52,
+    "q1": 53.0,
+    "q3": 53.0
+   },
+   "n": 53,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 1,
+    "mean": 0.20754716981132076,
+    "median": 0.0,
+    "min": 0,
+    "q1": 0.0,
+    "q3": 0.0
+   },
+   "n_ghost": {
+    "max": 6,
+    "mean": 5.471698113207547,
+    "median": 5.0,
+    "min": 4,
+    "q1": 5.0,
+    "q3": 6.0
+   },
+   "n_vc_entries": {
+    "max": 5,
+    "mean": 4.113207547169812,
+    "median": 4.0,
+    "min": 4,
+    "q1": 4.0,
+    "q3": 4.0
+   },
+   "n_views": {
+    "max": 2,
+    "mean": 2.0,
+    "median": 2.0,
+    "min": 2,
+    "q1": 2.0,
+    "q3": 2.0
+   },
+   "predicates": {
+    "P1a": {
+     "count": 26,
+     "rate": 0.49056603773584906
+    },
+    "P1b": {
+     "count": 6,
+     "rate": 0.11320754716981132
+    },
+    "P1c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2a": {
+     "count": 46,
+     "rate": 0.8679245283018868
+    },
+    "P2a_r": {
+     "count": 46,
+     "rate": 0.8679245283018868
+    },
+    "P2b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_same": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3": {
+     "count": 1,
+     "rate": 0.018867924528301886
+    },
+    "P3_ghost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_issued_after": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_old_view_recovery": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a": {
+     "count": 53,
+     "rate": 1.0
+    },
+    "P3a_c": {
+     "count": 53,
+     "rate": 1.0
+    },
+    "P3b": {
+     "count": 1,
+     "rate": 0.018867924528301886
+    },
+    "P3b_d0": {
+     "count": 1,
+     "rate": 0.018867924528301886
+    },
+    "P4_2": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_nl": {
+     "count": 53,
+     "rate": 1.0
+    },
+    "R1": {
+     "count": 53,
+     "rate": 1.0
+    },
+    "R1_first": {
+     "count": 53,
+     "rate": 1.0
+    },
+    "R1_fresh_only": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R2": {
+     "count": 53,
+     "rate": 1.0
+    },
+    "R3": {
+     "count": 53,
+     "rate": 1.0
+    },
+    "R4": {
+     "count": 6,
+     "rate": 0.11320754716981132
+    },
+    "R4_loose": {
+     "count": 6,
+     "rate": 0.11320754716981132
+    }
+   },
+   "steps": {
+    "max": 10000,
+    "mean": 7945.207547169812,
+    "median": 10000.0,
+    "min": 89,
+    "q1": 10000.0,
+    "q3": 10000.0
+   },
+   "violating": 0
+  },
+  "D": {
+   "P2b_sender_rc": {
+    "none": 17
+   },
+   "P2b_sender_rc_any": {
+    "new_view": 9,
+    "none": 8
+   },
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 0,
+    "old_view_recovery": 0
+   },
+   "R2_class": {
+    "receiver_recovering": 3,
+    "same_view_in_view_change": 3,
+    "same_view_receiver_normal": 12,
+    "stale_view": 29
+   },
+   "R2_classes_all_messages": {
+    "receiver_recovering": 16,
+    "same_view_in_view_change": 4,
+    "same_view_receiver_normal": 16,
+    "stale_view": 42
+   },
+   "R4_class": {
+    "none_delivered_to_node_1": 1
+   },
+   "R4_classes_all_messages": {
+    "to_other_node": 1
+   },
+   "agreement": {
+    "P2a_r_vs_P2c": 0.9864864864864865,
+    "P2a_vs_P2b": 0.9864864864864865
+   },
+   "end_reason": {
+    "iterations_exhausted": 8,
+    "learned_cap_reached": 21,
+    "plan_complete": 45
+   },
+   "funnel": [
+    {
+     "conditional": 0.7297297297297297,
+     "lost": 20,
+     "rate": 0.7297297297297297,
+     "rung": "R1",
+     "survivors": 54
+    },
+    {
+     "conditional": 0.12962962962962962,
+     "lost": 47,
+     "rate": 0.0945945945945946,
+     "rung": "R2",
+     "survivors": 7
+    },
+    {
+     "conditional": 0.14285714285714285,
+     "lost": 6,
+     "rate": 0.013513513513513514,
+     "rung": "R3",
+     "survivors": 1
+    },
+    {
+     "conditional": 0.0,
+     "lost": 1,
+     "rate": 0.0,
+     "rung": "R4",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R5",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R6",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R7",
+     "survivors": 0
+    }
+   ],
+   "last_step": {
+    "max": 3058,
+    "mean": 1384.2702702702702,
+    "median": 841.0,
+    "min": 371,
+    "q1": 562.75,
+    "q3": 2623.5
+   },
+   "n": 74,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 42,
+    "mean": 16.56756756756757,
+    "median": 16.0,
+    "min": 1,
+    "q1": 11.0,
+    "q3": 22.0
+   },
+   "n_ghost": {
+    "max": 22,
+    "mean": 7.418918918918919,
+    "median": 7.0,
+    "min": 0,
+    "q1": 4.0,
+    "q3": 10.0
+   },
+   "n_vc_entries": {
+    "max": 156,
+    "mean": 61.75675675675676,
+    "median": 55.5,
+    "min": 13,
+    "q1": 41.25,
+    "q3": 78.5
+   },
+   "n_views": {
+    "max": 65,
+    "mean": 24.364864864864863,
+    "median": 22.0,
+    "min": 6,
+    "q1": 16.0,
+    "q3": 29.75
+   },
+   "predicates": {
+    "P1a": {
+     "count": 8,
+     "rate": 0.10810810810810811
+    },
+    "P1b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P1c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2a": {
+     "count": 18,
+     "rate": 0.24324324324324326
+    },
+    "P2a_r": {
+     "count": 15,
+     "rate": 0.20270270270270271
+    },
+    "P2b": {
+     "count": 17,
+     "rate": 0.22972972972972974
+    },
+    "P2b_and_P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_same": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2c": {
+     "count": 14,
+     "rate": 0.1891891891891892
+    },
+    "P3": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_issued_after": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_old_view_recovery": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a": {
+     "count": 63,
+     "rate": 0.8513513513513513
+    },
+    "P3a_c": {
+     "count": 42,
+     "rate": 0.5675675675675675
+    },
+    "P3b": {
+     "count": 3,
+     "rate": 0.04054054054054054
+    },
+    "P3b_d0": {
+     "count": 1,
+     "rate": 0.013513513513513514
+    },
+    "P4_2": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_nl": {
+     "count": 34,
+     "rate": 0.4594594594594595
+    },
+    "R1": {
+     "count": 54,
+     "rate": 0.7297297297297297
+    },
+    "R1_first": {
+     "count": 46,
+     "rate": 0.6216216216216216
+    },
+    "R1_fresh_only": {
+     "count": 20,
+     "rate": 0.2702702702702703
+    },
+    "R2": {
+     "count": 7,
+     "rate": 0.0945945945945946
+    },
+    "R3": {
+     "count": 1,
+     "rate": 0.013513513513513514
+    },
+    "R4": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R4_loose": {
+     "count": 0,
+     "rate": 0.0
+    }
+   },
+   "steps": {
+    "max": 3059,
+    "mean": 1385.837837837838,
+    "median": 842.0,
+    "min": 372,
+    "q1": 563.75,
+    "q3": 2627.0
+   },
+   "violating": 0
+  },
+  "E": {
+   "P2b_sender_rc": {
+    "none": 150
+   },
+   "P2b_sender_rc_any": {
+    "new_view": 37,
+    "none": 113
+   },
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 0,
+    "old_view_recovery": 0
+   },
+   "R2_class": {
+    "receiver_recovering": 35,
+    "same_view_in_view_change": 67,
+    "same_view_receiver_normal": 77,
+    "stale_view": 337
+   },
+   "R2_classes_all_messages": {
+    "receiver_recovering": 228,
+    "same_view_in_view_change": 72,
+    "same_view_receiver_normal": 93,
+    "stale_view": 593
+   },
+   "R4_class": {
+    "none_delivered_to_node_1": 24,
+    "receiver_recovering": 29,
+    "same_view_receiver_normal": 1,
+    "sender_not_restarted": 2,
+    "stale_view": 1
+   },
+   "R4_classes_all_messages": {
+    "receiver_recovering": 36,
+    "same_view_receiver_normal": 1,
+    "sender_not_restarted": 2,
+    "stale_view": 1,
+    "to_other_node": 49,
+    "undelivered_DoViewChange": 1
+   },
+   "agreement": {
+    "P2a_r_vs_P2c": 0.9837702871410736,
+    "P2a_vs_P2b": 0.9837702871410736
+   },
+   "end_reason": {
+    "iterations_exhausted": 185,
+    "learned_cap_reached": 382,
+    "plan_complete": 234
+   },
+   "funnel": [
+    {
+     "conditional": 0.8389513108614233,
+     "lost": 129,
+     "rate": 0.8389513108614233,
+     "rung": "R1",
+     "survivors": 672
+    },
+    {
+     "conditional": 0.23214285714285715,
+     "lost": 516,
+     "rate": 0.1947565543071161,
+     "rung": "R2",
+     "survivors": 156
+    },
+    {
+     "conditional": 0.36538461538461536,
+     "lost": 99,
+     "rate": 0.07116104868913857,
+     "rung": "R3",
+     "survivors": 57
+    },
+    {
+     "conditional": 0.0,
+     "lost": 57,
+     "rate": 0.0,
+     "rung": "R4",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R5",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R6",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R7",
+     "survivors": 0
+    }
+   ],
+   "last_step": {
+    "max": 5998,
+    "mean": 1901.6404494382023,
+    "median": 1499.0,
+    "min": 209,
+    "q1": 895.0,
+    "q3": 2913.0
+   },
+   "n": 801,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 143,
+    "mean": 13.198501872659175,
+    "median": 9.0,
+    "min": 0,
+    "q1": 5.0,
+    "q3": 15.0
+   },
+   "n_ghost": {
+    "max": 41,
+    "mean": 9.239700374531836,
+    "median": 8.0,
+    "min": 0,
+    "q1": 5.0,
+    "q3": 12.0
+   },
+   "n_vc_entries": {
+    "max": 538,
+    "mean": 51.30212234706617,
+    "median": 38.0,
+    "min": 3,
+    "q1": 24.0,
+    "q3": 56.0
+   },
+   "n_views": {
+    "max": 243,
+    "mean": 21.93632958801498,
+    "median": 16.0,
+    "min": 3,
+    "q1": 10.0,
+    "q3": 22.0
+   },
+   "predicates": {
+    "P1a": {
+     "count": 103,
+     "rate": 0.1285892634207241
+    },
+    "P1b": {
+     "count": 5,
+     "rate": 0.006242197253433208
+    },
+    "P1c": {
+     "count": 1,
+     "rate": 0.0012484394506866417
+    },
+    "P2a": {
+     "count": 163,
+     "rate": 0.2034956304619226
+    },
+    "P2a_r": {
+     "count": 147,
+     "rate": 0.18352059925093633
+    },
+    "P2b": {
+     "count": 150,
+     "rate": 0.18726591760299627
+    },
+    "P2b_and_P3b": {
+     "count": 4,
+     "rate": 0.004993757802746567
+    },
+    "P2b_and_P3b_d0": {
+     "count": 3,
+     "rate": 0.003745318352059925
+    },
+    "P2b_and_P3b_same": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2c": {
+     "count": 134,
+     "rate": 0.16729088639200998
+    },
+    "P3": {
+     "count": 1,
+     "rate": 0.0012484394506866417
+    },
+    "P3_ghost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_issued_after": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_old_view_recovery": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a": {
+     "count": 533,
+     "rate": 0.66541822721598
+    },
+    "P3a_c": {
+     "count": 237,
+     "rate": 0.2958801498127341
+    },
+    "P3b": {
+     "count": 28,
+     "rate": 0.03495630461922597
+    },
+    "P3b_d0": {
+     "count": 24,
+     "rate": 0.0299625468164794
+    },
+    "P4_2": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_nl": {
+     "count": 251,
+     "rate": 0.31335830212234705
+    },
+    "R1": {
+     "count": 672,
+     "rate": 0.8389513108614233
+    },
+    "R1_first": {
+     "count": 622,
+     "rate": 0.7765293383270911
+    },
+    "R1_fresh_only": {
+     "count": 129,
+     "rate": 0.16104868913857678
+    },
+    "R2": {
+     "count": 156,
+     "rate": 0.1947565543071161
+    },
+    "R3": {
+     "count": 57,
+     "rate": 0.07116104868913857
+    },
+    "R4": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R4_loose": {
+     "count": 0,
+     "rate": 0.0
+    }
+   },
+   "steps": {
+    "max": 6000,
+    "mean": 1903.8701622971287,
+    "median": 1500.0,
+    "min": 210,
+    "q1": 896.0,
+    "q3": 2915.0
+   },
+   "violating": 0
+  },
+  "F": {
+   "P2b_sender_rc": {
+    "none": 181
+   },
+   "P2b_sender_rc_any": {
+    "new_view": 15,
+    "none": 166
+   },
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 0,
+    "old_view_recovery": 0
+   },
+   "R2_class": {
+    "receiver_recovering": 100,
+    "same_view_in_view_change": 120,
+    "same_view_receiver_normal": 106,
+    "stale_view": 469
+   },
+   "R2_classes_all_messages": {
+    "receiver_recovering": 212,
+    "same_view_in_view_change": 129,
+    "same_view_receiver_normal": 120,
+    "stale_view": 780
+   },
+   "R4_class": {
+    "none_delivered_to_node_1": 6,
+    "receiver_recovering": 14,
+    "sender_not_restarted": 2
+   },
+   "R4_classes_all_messages": {
+    "receiver_recovering": 18,
+    "sender_not_restarted": 2,
+    "to_other_node": 8,
+    "undelivered_DoViewChange": 1,
+    "undelivered_StartViewChange": 1
+   },
+   "agreement": {
+    "P2a_r_vs_P2c": 0.998165137614679,
+    "P2a_vs_P2b": 0.998165137614679
+   },
+   "end_reason": {
+    "iterations_exhausted": 321,
+    "learned_cap_reached": 690,
+    "plan_complete": 79
+   },
+   "funnel": [
+    {
+     "conditional": 0.9678899082568807,
+     "lost": 35,
+     "rate": 0.9678899082568807,
+     "rung": "R1",
+     "survivors": 1055
+    },
+    {
+     "conditional": 0.24644549763033174,
+     "lost": 795,
+     "rate": 0.23853211009174313,
+     "rung": "R2",
+     "survivors": 260
+    },
+    {
+     "conditional": 0.08461538461538462,
+     "lost": 238,
+     "rate": 0.02018348623853211,
+     "rung": "R3",
+     "survivors": 22
+    },
+    {
+     "conditional": 0.0,
+     "lost": 22,
+     "rate": 0.0,
+     "rung": "R4",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R5",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R6",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R7",
+     "survivors": 0
+    }
+   ],
+   "last_step": {
+    "max": 3058,
+    "mean": 2288.1798165137616,
+    "median": 2626.0,
+    "min": 240,
+    "q1": 1498.0,
+    "q3": 3052.0
+   },
+   "n": 1090,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 33,
+    "mean": 8.341284403669725,
+    "median": 7.0,
+    "min": 0,
+    "q1": 4.0,
+    "q3": 12.0
+   },
+   "n_ghost": {
+    "max": 71,
+    "mean": 6.268807339449541,
+    "median": 5.0,
+    "min": 0,
+    "q1": 3.0,
+    "q3": 8.0
+   },
+   "n_vc_entries": {
+    "max": 196,
+    "mean": 32.99908256880734,
+    "median": 30.0,
+    "min": 3,
+    "q1": 18.0,
+    "q3": 45.0
+   },
+   "n_views": {
+    "max": 78,
+    "mean": 14.451376146788991,
+    "median": 13.0,
+    "min": 3,
+    "q1": 9.0,
+    "q3": 19.0
+   },
+   "predicates": {
+    "P1a": {
+     "count": 98,
+     "rate": 0.08990825688073395
+    },
+    "P1b": {
+     "count": 2,
+     "rate": 0.001834862385321101
+    },
+    "P1c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2a": {
+     "count": 183,
+     "rate": 0.16788990825688074
+    },
+    "P2a_r": {
+     "count": 164,
+     "rate": 0.15045871559633028
+    },
+    "P2b": {
+     "count": 181,
+     "rate": 0.16605504587155964
+    },
+    "P2b_and_P3b": {
+     "count": 5,
+     "rate": 0.0045871559633027525
+    },
+    "P2b_and_P3b_d0": {
+     "count": 3,
+     "rate": 0.0027522935779816515
+    },
+    "P2b_and_P3b_same": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2c": {
+     "count": 162,
+     "rate": 0.14862385321100918
+    },
+    "P3": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_issued_after": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_old_view_recovery": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a": {
+     "count": 654,
+     "rate": 0.6
+    },
+    "P3a_c": {
+     "count": 186,
+     "rate": 0.1706422018348624
+    },
+    "P3b": {
+     "count": 22,
+     "rate": 0.02018348623853211
+    },
+    "P3b_d0": {
+     "count": 17,
+     "rate": 0.015596330275229359
+    },
+    "P4_2": {
+     "count": 1,
+     "rate": 0.0009174311926605505
+    },
+    "P4_nl": {
+     "count": 212,
+     "rate": 0.1944954128440367
+    },
+    "R1": {
+     "count": 1055,
+     "rate": 0.9678899082568807
+    },
+    "R1_first": {
+     "count": 1036,
+     "rate": 0.9504587155963303
+    },
+    "R1_fresh_only": {
+     "count": 35,
+     "rate": 0.03211009174311927
+    },
+    "R2": {
+     "count": 260,
+     "rate": 0.23853211009174313
+    },
+    "R3": {
+     "count": 22,
+     "rate": 0.02018348623853211
+    },
+    "R4": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R4_loose": {
+     "count": 0,
+     "rate": 0.0
+    }
+   },
+   "steps": {
+    "max": 3059,
+    "mean": 2290.755963302752,
+    "median": 2627.0,
+    "min": 241,
+    "q1": 1500.0,
+    "q3": 3059.0
+   },
+   "violating": 0
+  },
+  "G": {
+   "P2b_sender_rc": {
+    "none": 64
+   },
+   "P2b_sender_rc_any": {
+    "new_view": 4,
+    "none": 60
+   },
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 0,
+    "old_view_recovery": 0
+   },
+   "R2_class": {
+    "receiver_recovering": 25,
+    "same_view_in_view_change": 30,
+    "same_view_receiver_normal": 36,
+    "stale_view": 119
+   },
+   "R2_classes_all_messages": {
+    "receiver_recovering": 93,
+    "same_view_in_view_change": 38,
+    "same_view_receiver_normal": 37,
+    "stale_view": 188
+   },
+   "R4_class": {
+    "none_delivered_to_node_1": 7,
+    "receiver_recovering": 5
+   },
+   "R4_classes_all_messages": {
+    "receiver_recovering": 6,
+    "stale_view": 1,
+    "to_other_node": 9,
+    "undelivered_StartViewChange": 1
+   },
+   "agreement": {
+    "P2a_r_vs_P2c": 0.9966666666666667,
+    "P2a_vs_P2b": 0.9966666666666667
+   },
+   "end_reason": {
+    "iterations_exhausted": 104,
+    "learned_cap_reached": 173,
+    "plan_complete": 23
+   },
+   "funnel": [
+    {
+     "conditional": 0.9366666666666666,
+     "lost": 19,
+     "rate": 0.9366666666666666,
+     "rung": "R1",
+     "survivors": 281
+    },
+    {
+     "conditional": 0.2526690391459075,
+     "lost": 210,
+     "rate": 0.23666666666666666,
+     "rung": "R2",
+     "survivors": 71
+    },
+    {
+     "conditional": 0.16901408450704225,
+     "lost": 59,
+     "rate": 0.04,
+     "rung": "R3",
+     "survivors": 12
+    },
+    {
+     "conditional": 0.0,
+     "lost": 12,
+     "rate": 0.0,
+     "rung": "R4",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R5",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R6",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R7",
+     "survivors": 0
+    }
+   ],
+   "last_step": {
+    "max": 3058,
+    "mean": 2227.1133333333332,
+    "median": 2625.0,
+    "min": 292,
+    "q1": 1498.0,
+    "q3": 3053.25
+   },
+   "n": 300,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 128,
+    "mean": 8.223333333333333,
+    "median": 6.0,
+    "min": 0,
+    "q1": 3.0,
+    "q3": 11.0
+   },
+   "n_ghost": {
+    "max": 63,
+    "mean": 7.97,
+    "median": 6.0,
+    "min": 1,
+    "q1": 4.0,
+    "q3": 11.0
+   },
+   "n_vc_entries": {
+    "max": 391,
+    "mean": 33.95666666666666,
+    "median": 28.0,
+    "min": 3,
+    "q1": 17.0,
+    "q3": 45.0
+   },
+   "n_views": {
+    "max": 189,
+    "mean": 15.053333333333333,
+    "median": 13.0,
+    "min": 3,
+    "q1": 9.0,
+    "q3": 19.0
+   },
+   "predicates": {
+    "P1a": {
+     "count": 37,
+     "rate": 0.12333333333333334
+    },
+    "P1b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P1c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2a": {
+     "count": 65,
+     "rate": 0.21666666666666667
+    },
+    "P2a_r": {
+     "count": 57,
+     "rate": 0.19
+    },
+    "P2b": {
+     "count": 64,
+     "rate": 0.21333333333333335
+    },
+    "P2b_and_P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_same": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2c": {
+     "count": 56,
+     "rate": 0.18666666666666668
+    },
+    "P3": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_issued_after": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_old_view_recovery": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a": {
+     "count": 156,
+     "rate": 0.52
+    },
+    "P3a_c": {
+     "count": 44,
+     "rate": 0.14666666666666667
+    },
+    "P3b": {
+     "count": 10,
+     "rate": 0.03333333333333333
+    },
+    "P3b_d0": {
+     "count": 8,
+     "rate": 0.02666666666666667
+    },
+    "P4_2": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_nl": {
+     "count": 53,
+     "rate": 0.17666666666666667
+    },
+    "R1": {
+     "count": 281,
+     "rate": 0.9366666666666666
+    },
+    "R1_first": {
+     "count": 273,
+     "rate": 0.91
+    },
+    "R1_fresh_only": {
+     "count": 19,
+     "rate": 0.06333333333333334
+    },
+    "R2": {
+     "count": 71,
+     "rate": 0.23666666666666666
+    },
+    "R3": {
+     "count": 12,
+     "rate": 0.04
+    },
+    "R4": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R4_loose": {
+     "count": 0,
+     "rate": 0.0
+    }
+   },
+   "steps": {
+    "max": 3059,
+    "mean": 2229.85,
+    "median": 2627.0,
+    "min": 293,
+    "q1": 1500.0,
+    "q3": 3059.0
+   },
+   "violating": 0
+  },
+  "plan4": {
+   "P2b_sender_rc": {},
+   "P2b_sender_rc_any": {},
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 0,
+    "old_view_recovery": 0
+   },
+   "R2_class": {},
+   "R2_classes_all_messages": {},
+   "R4_class": {},
+   "R4_classes_all_messages": {},
+   "agreement": {
+    "P2a_r_vs_P2c": 1.0,
+    "P2a_vs_P2b": 1.0
+   },
+   "end_reason": {
+    "iterations_exhausted": 2249
+   },
+   "funnel": [
+    {
+     "conditional": 0.0,
+     "lost": 2249,
+     "rate": 0.0,
+     "rung": "R1",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R2",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R3",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R4",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R5",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R6",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R7",
+     "survivors": 0
+    }
+   ],
+   "last_step": {
+    "max": 23,
+    "mean": 22.986216096042686,
+    "median": 23.0,
+    "min": 22,
+    "q1": 23.0,
+    "q3": 23.0
+   },
+   "n": 2249,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 0,
+    "mean": 0.0,
+    "median": 0.0,
+    "min": 0,
+    "q1": 0.0,
+    "q3": 0.0
+   },
+   "n_ghost": {
+    "max": 1,
+    "mean": 0.02401067140951534,
+    "median": 0.0,
+    "min": 0,
+    "q1": 0.0,
+    "q3": 0.0
+   },
+   "n_vc_entries": {
+    "max": 0,
+    "mean": 0.0,
+    "median": 0.0,
+    "min": 0,
+    "q1": 0.0,
+    "q3": 0.0
+   },
+   "n_views": {
+    "max": 1,
+    "mean": 1.0,
+    "median": 1.0,
+    "min": 1,
+    "q1": 1.0,
+    "q3": 1.0
+   },
+   "predicates": {
+    "P1a": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P1b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P1c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2a": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2a_r": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_same": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_issued_after": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_old_view_recovery": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a_c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_2": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_nl": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R1": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R1_first": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R1_fresh_only": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R2": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R3": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R4": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R4_loose": {
+     "count": 0,
+     "rate": 0.0
+    }
+   },
+   "steps": {
+    "max": 10000,
+    "mean": 10000.0,
+    "median": 10000.0,
+    "min": 10000,
+    "q1": 10000.0,
+    "q3": 10000.0
+   },
+   "violating": 0
+  },
+  "plan7": {
+   "P2b_sender_rc": {
+    "none": 45,
+    "old_view": 3
+   },
+   "P2b_sender_rc_any": {
+    "new_view": 22,
+    "none": 21,
+    "old_view": 5
+   },
+   "P3_old_view_recovery_among_P3_ghost": {
+    "P3_ghost": 0,
+    "old_view_recovery": 0
+   },
+   "R2_class": {},
+   "R2_classes_all_messages": {},
+   "R4_class": {
+    "receiver_recovering": 470
+   },
+   "R4_classes_all_messages": {
+    "acted": 184,
+    "other": 55,
+    "receiver_recovering": 969,
+    "same_view_receiver_normal": 4,
+    "undelivered_StartViewChange": 606
+   },
+   "agreement": {
+    "P2a_r_vs_P2c": 1.0,
+    "P2a_vs_P2b": 1.0
+   },
+   "end_reason": {
+    "iterations_exhausted": 606
+   },
+   "funnel": [
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R1",
+     "survivors": 606
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R2",
+     "survivors": 606
+    },
+    {
+     "conditional": 1.0,
+     "lost": 0,
+     "rate": 1.0,
+     "rung": "R3",
+     "survivors": 606
+    },
+    {
+     "conditional": 0.22442244224422442,
+     "lost": 470,
+     "rate": 0.22442244224422442,
+     "rung": "R4",
+     "survivors": 136
+    },
+    {
+     "conditional": 0.35294117647058826,
+     "lost": 88,
+     "rate": 0.07920792079207921,
+     "rung": "R5",
+     "survivors": 48
+    },
+    {
+     "conditional": 0.0,
+     "lost": 48,
+     "rate": 0.0,
+     "rung": "R6",
+     "survivors": 0
+    },
+    {
+     "conditional": null,
+     "lost": 0,
+     "rate": 0.0,
+     "rung": "R7",
+     "survivors": 0
+    }
+   ],
+   "last_step": {
+    "max": 43,
+    "mean": 37.07425742574257,
+    "median": 36.0,
+    "min": 35,
+    "q1": 36.0,
+    "q3": 37.0
+   },
+   "n": 606,
+   "n_enter_dupes": 0,
+   "n_fanouts": {
+    "max": 1,
+    "mean": 0.12376237623762376,
+    "median": 0.0,
+    "min": 0,
+    "q1": 0.0,
+    "q3": 0.0
+   },
+   "n_ghost": {
+    "max": 5,
+    "mean": 3.1419141914191417,
+    "median": 3.0,
+    "min": 3,
+    "q1": 3.0,
+    "q3": 3.0
+   },
+   "n_vc_entries": {
+    "max": 4,
+    "mean": 2.273927392739274,
+    "median": 2.0,
+    "min": 2,
+    "q1": 2.0,
+    "q3": 2.0
+   },
+   "n_views": {
+    "max": 2,
+    "mean": 2.0,
+    "median": 2.0,
+    "min": 2,
+    "q1": 2.0,
+    "q3": 2.0
+   },
+   "predicates": {
+    "P1a": {
+     "count": 136,
+     "rate": 0.22442244224422442
+    },
+    "P1b": {
+     "count": 136,
+     "rate": 0.22442244224422442
+    },
+    "P1c": {
+     "count": 52,
+     "rate": 0.0858085808580858
+    },
+    "P2a": {
+     "count": 48,
+     "rate": 0.07920792079207921
+    },
+    "P2a_r": {
+     "count": 48,
+     "rate": 0.07920792079207921
+    },
+    "P2b": {
+     "count": 48,
+     "rate": 0.07920792079207921
+    },
+    "P2b_and_P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2b_and_P3b_same": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P2c": {
+     "count": 48,
+     "rate": 0.07920792079207921
+    },
+    "P3": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_ghost_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_issued_after": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_lost": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3_old_view_recovery": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3a_c": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3b": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P3b_d0": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "P4_2": {
+     "count": 5,
+     "rate": 0.00825082508250825
+    },
+    "P4_nl": {
+     "count": 174,
+     "rate": 0.2871287128712871
+    },
+    "R1": {
+     "count": 606,
+     "rate": 1.0
+    },
+    "R1_first": {
+     "count": 606,
+     "rate": 1.0
+    },
+    "R1_fresh_only": {
+     "count": 0,
+     "rate": 0.0
+    },
+    "R2": {
+     "count": 606,
+     "rate": 1.0
+    },
+    "R3": {
+     "count": 606,
+     "rate": 1.0
+    },
+    "R4": {
+     "count": 136,
+     "rate": 0.22442244224422442
+    },
+    "R4_loose": {
+     "count": 136,
+     "rate": 0.22442244224422442
+    }
+   },
+   "steps": {
+    "max": 10000,
+    "mean": 10000.0,
+    "median": 10000.0,
+    "min": 10000,
+    "q1": 10000.0,
+    "q3": 10000.0
+   },
+   "violating": 0
+  }
+ },
+ "precision_recall": {
+  "tmp/loop/precision/plan (all, n=3000)": {
+   "P1c": {
+    "fn": 0,
+    "fp": 52,
+    "precision": 0.1746031746031746,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2a": {
+    "fn": 0,
+    "fp": 148,
+    "precision": 0.06918238993710692,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2b": {
+    "fn": 0,
+    "fp": 48,
+    "precision": 0.1864406779661017,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2b_and_P3b": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2b_and_P3b_d0": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2b_and_P3b_same": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2c": {
+    "fn": 0,
+    "fp": 48,
+    "precision": 0.1864406779661017,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3": {
+    "fn": 0,
+    "fp": 1,
+    "precision": 0.9166666666666666,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3_ghost": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3_ghost_lost": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3_lost": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3a": {
+    "fn": 0,
+    "fp": 134,
+    "precision": 0.07586206896551724,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3b": {
+    "fn": 0,
+    "fp": 1,
+    "precision": 0.9166666666666666,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P4_2": {
+    "fn": 0,
+    "fp": 5,
+    "precision": 0.6875,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P4_nl": {
+    "fn": 0,
+    "fp": 308,
+    "precision": 0.034482758620689655,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "R4": {
+    "fn": 0,
+    "fp": 164,
+    "precision": 0.06285714285714286,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "R4_loose": {
+    "fn": 0,
+    "fp": 164,
+    "precision": 0.06285714285714286,
+    "recall": 1.0,
+    "tp": 11
+   }
+  },
+  "tmp/loop/precision/plan (depth>=8, n=145)": {
+   "P1c": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2a": {
+    "fn": 0,
+    "fp": 100,
+    "precision": 0.0990990990990991,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2b": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2b_and_P3b": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2b_and_P3b_d0": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2b_and_P3b_same": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P2c": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3": {
+    "fn": 0,
+    "fp": 1,
+    "precision": 0.9166666666666666,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3_ghost": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3_ghost_lost": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3_lost": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3a": {
+    "fn": 0,
+    "fp": 134,
+    "precision": 0.07586206896551724,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P3b": {
+    "fn": 0,
+    "fp": 1,
+    "precision": 0.9166666666666666,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P4_2": {
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "P4_nl": {
+    "fn": 0,
+    "fp": 134,
+    "precision": 0.07586206896551724,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "R4": {
+    "fn": 0,
+    "fp": 28,
+    "precision": 0.28205128205128205,
+    "recall": 1.0,
+    "tp": 11
+   },
+   "R4_loose": {
+    "fn": 0,
+    "fp": 28,
+    "precision": 0.28205128205128205,
+    "recall": 1.0,
+    "tp": 11
+   }
+  }
+ }
+}
