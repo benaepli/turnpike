@@ -161,6 +161,20 @@ then porcupine on the output.
   one slot, as predicted. Awaits the three-seed calibration and its control
   read before joining the slow set.
 
+- raft-commit-prev-term: proven 2026-09-03. Plan
+  `research/lite/plans/raft-commit-prev-term-figure8-plan.json`, 31 events
+  (17 allow_timer used as quiescence barriers under p_timer 0, 3 crashes, 2
+  recovers, single-release delivers): injected spec porcupine exit 2, host
+  `raft_clean.spur` exit 0. Node 0 leads term 3 and applies the term-1
+  entry on one ack (the injected commit); node 2 leads term 4, truncates
+  node 1's index 1 to w2 and commits it; node 1's state machine keeps [1]
+  and its own term-5 read returns [1] after node 2 read [2]. Two tool facts
+  the plan format imposes: a deliver spec (function, from, to) can be
+  released once per plan, and with 3 nodes the stale read must come from a
+  follower's state machine, not from the old leader. The member joins the
+  slow set as a count-only hard member; its zero under the general config
+  is now a probability, not a reachability, result.
+
 ## 3. Calibration protocol
 
 Regime: calibrate with the panel subcommand's own mechanics so the

@@ -244,7 +244,7 @@
         ]
       },
       "maxIterations": 12000,
-      "role": "report",
+      "role": "hard",
       "expectedRate": 1e-05,
       "calibration": {
         "atIso": "2026-08-28T20:42:08Z",
@@ -259,9 +259,10 @@
         "eventsPerSec": 0,
         "tauBestSec": 0
       },
-      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal.",
+      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal. Reachability proven 2026-09-03 by research/lite/plans/raft-commit-prev-term-figure8-plan.json; count-only member, never a rate.",
       "wallSec": 15,
-      "replicates": 3
+      "replicates": 3,
+      "tier": "hard"
     },
     {
       "id": "raft-forget-vote",

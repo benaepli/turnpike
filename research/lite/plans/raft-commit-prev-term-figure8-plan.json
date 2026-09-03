@@ -1,0 +1,312 @@
+{
+  "num_servers": 3,
+  "num_runs": 1,
+  "max_iterations": 2000,
+  "strict_timers": true,
+  "queue_policy": {
+    "type": "Probabilistic",
+    "p_local": 0.8,
+    "p_timer": 0.0
+  },
+  "events": {
+    "t0_elect1": {
+      "allow_timer": [
+        0,
+        "election"
+      ]
+    },
+    "t0_hb1": {
+      "allow_timer": [
+        0,
+        "election"
+      ]
+    },
+    "w1": {
+      "write": [
+        0,
+        "x"
+      ]
+    },
+    "write_at_0": {
+      "deliver": {
+        "function": "Node.Write",
+        "to": 0
+      }
+    },
+    "crash_0a": {
+      "crash": 0
+    },
+    "t2_clear": {
+      "allow_timer": [
+        2,
+        "election"
+      ]
+    },
+    "t2_elect2": {
+      "allow_timer": [
+        2,
+        "election"
+      ]
+    },
+    "t2_hb2": {
+      "allow_timer": [
+        2,
+        "election"
+      ]
+    },
+    "w2": {
+      "write": [
+        2,
+        "x"
+      ]
+    },
+    "write_at_2": {
+      "deliver": {
+        "function": "Node.Write",
+        "to": 2
+      }
+    },
+    "crash_2a": {
+      "crash": 2
+    },
+    "recover_0": {
+      "recover": 0
+    },
+    "release_ae_0_1": {
+      "deliver": {
+        "function": "Node.AppendEntries",
+        "from": 0,
+        "to": 1
+      }
+    },
+    "t0_elect3": {
+      "allow_timer": [
+        0,
+        "election"
+      ]
+    },
+    "t0_hb3_commit": {
+      "allow_timer": [
+        0,
+        "election"
+      ]
+    },
+    "t0_hb3_settle": {
+      "allow_timer": [
+        0,
+        "election"
+      ]
+    },
+    "crash_0b": {
+      "crash": 0
+    },
+    "recover_2": {
+      "recover": 2
+    },
+    "t2_elect4": {
+      "allow_timer": [
+        2,
+        "election"
+      ]
+    },
+    "t2_hb4": {
+      "allow_timer": [
+        2,
+        "election"
+      ]
+    },
+    "release_ae_2_1": {
+      "deliver": {
+        "function": "Node.AppendEntries",
+        "from": 2,
+        "to": 1
+      }
+    },
+    "t2_hb4_settle": {
+      "allow_timer": [
+        2,
+        "election"
+      ]
+    },
+    "r_a": {
+      "read": [
+        2,
+        "x"
+      ]
+    },
+    "t1_clear": {
+      "allow_timer": [
+        1,
+        "election"
+      ]
+    },
+    "t1_elect5": {
+      "allow_timer": [
+        1,
+        "election"
+      ]
+    },
+    "t1_hb5": {
+      "allow_timer": [
+        1,
+        "election"
+      ]
+    },
+    "r_b": {
+      "read": [
+        1,
+        "x"
+      ]
+    },
+    "end_rvr_2_0": {
+      "deliver": {
+        "function": "Node.RequestVoteReply",
+        "from": 2,
+        "to": 0
+      }
+    },
+    "end_ae_0_2": {
+      "deliver": {
+        "function": "Node.AppendEntries",
+        "from": 0,
+        "to": 2
+      }
+    },
+    "end_rvr_0_2": {
+      "deliver": {
+        "function": "Node.RequestVoteReply",
+        "from": 0,
+        "to": 2
+      }
+    },
+    "end_ae_2_0": {
+      "deliver": {
+        "function": "Node.AppendEntries",
+        "from": 2,
+        "to": 0
+      }
+    }
+  },
+  "dependencies": [
+    [
+      "t0_elect1",
+      "t0_hb1"
+    ],
+    [
+      "t0_hb1",
+      "w1"
+    ],
+    [
+      "t0_hb1",
+      "write_at_0"
+    ],
+    [
+      "write_at_0",
+      "crash_0a"
+    ],
+    [
+      "crash_0a",
+      "t2_clear"
+    ],
+    [
+      "t2_clear",
+      "t2_elect2"
+    ],
+    [
+      "t2_elect2",
+      "t2_hb2"
+    ],
+    [
+      "t2_hb2",
+      "w2"
+    ],
+    [
+      "t2_hb2",
+      "write_at_2"
+    ],
+    [
+      "write_at_2",
+      "crash_2a"
+    ],
+    [
+      "crash_2a",
+      "recover_0"
+    ],
+    [
+      "recover_0",
+      "release_ae_0_1"
+    ],
+    [
+      "release_ae_0_1",
+      "t0_elect3"
+    ],
+    [
+      "t0_elect3",
+      "t0_hb3_commit"
+    ],
+    [
+      "t0_hb3_commit",
+      "t0_hb3_settle"
+    ],
+    [
+      "t0_hb3_settle",
+      "crash_0b"
+    ],
+    [
+      "crash_0b",
+      "recover_2"
+    ],
+    [
+      "recover_2",
+      "t2_elect4"
+    ],
+    [
+      "t2_elect4",
+      "t2_hb4"
+    ],
+    [
+      "t2_hb4",
+      "release_ae_2_1"
+    ],
+    [
+      "release_ae_2_1",
+      "t2_hb4_settle"
+    ],
+    [
+      "t2_hb4_settle",
+      "r_a"
+    ],
+    [
+      "r_a",
+      "t1_clear"
+    ],
+    [
+      "t1_clear",
+      "t1_elect5"
+    ],
+    [
+      "t1_elect5",
+      "t1_hb5"
+    ],
+    [
+      "t1_hb5",
+      "r_b"
+    ],
+    [
+      "r_b",
+      "end_rvr_2_0"
+    ],
+    [
+      "r_b",
+      "end_ae_0_2"
+    ],
+    [
+      "r_b",
+      "end_rvr_0_2"
+    ],
+    [
+      "r_b",
+      "end_ae_2_0"
+    ]
+  ]
+}
