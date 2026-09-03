@@ -1103,10 +1103,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## ghost-prefix-replay-corpus
 
-- kind: add | category: feedback | origin: proposer | status: KEPT at
-  iteration 19 (judge gain 6, cost 2), sequenced behind
-  ghost-absorber-crash-retarget, whose ghost_signal.fired_runs census
-  measures the P(signal) this proposal's band depends on
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 21 (judge gain 6, cost 2; iteration-21 pick, with the
+  retarget-census-after-landing-fix counter reordering as its first
+  commit). P(signal) measured: ghost_signal.fired_runs 246,458 over two
+  chunks of the retarget session, about a quarter of runs
 - Mechanism: grid arms record every run's RNG tape as the aos arm does; a
   run whose first fault-crossing delivery enters a node with a crash
   pending is admitted to a per-arm corpus (64 parents, up to 8 children
@@ -1193,8 +1194,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## retarget-census-after-landing-fix
 
 - kind: ablate | category: scheduler | origin: operator-agent | status:
-  PROPOSED at iteration 20 for the next judge round | parent:
-  ghost-absorber-crash-retarget
+  ADMITTED at iteration 21, counter half only (judge gain 5, cost 0),
+  bundled as the first commit of ghost-prefix-replay-corpus and checked on
+  that session's first chunk; the hold half is STRUCK (its retarget-instead-
+  of-hold form is byte for byte the redraw under grading; its exclusion form
+  is unbounded). Judge corrections: the wrong-node rows are 19.4-19.8% of
+  treated crash rows (9.4% of all), and the hold governs about 20 per
+  10,000 treated runs, not 2 | parent: ghost-absorber-crash-retarget
 - Mechanism: two implementation gaps in the merged retarget, from
   research/lite/findings/retarget-crash-deficit-analysis.md. (1) The
   crash-anchor, crash census and crash_phase apply counters read the
