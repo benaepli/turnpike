@@ -57,6 +57,8 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 8388608, name: "ghostAbsorberRedraw" },
   { bit: 1048576, name: "replaySlot" },
   { bit: 2097152, name: "replayPrefix" },
+  { bit: 33554432, name: "ghostPendingTimerHold" },
+  { bit: 67108864, name: "ghostPendingTimerHoldLong" },
 ];
 
 // The tag that marks a run-cap probe. Probes are about 3% of runs, are

@@ -1358,3 +1358,72 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   recovered node 1 before the ghost DoViewChange - separates 11/11 vs 0/81
   (all 22 failures: DoViewChange landed first and was dropped) but is the
   same eleven runs as the quorum window.
+
+## ghost-pending-timer-hold
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 24 (judge gain 7, cost 0; iteration-24 top pick) | steered by
+  the chain-precision census
+- Mechanism: timer admission, not a message hold. On a salted half of runs
+  (bit 1 << 25, ghostPendingTimerHold; probes exempt), a node's timer
+  firings are ineligible while a remote record to that node from an origin
+  that is crashed or has changed incarnation is still undelivered - the
+  dispatch site's existing fault_crossing test. An episode opens at the
+  first masked offer and closes when the ghost lands or at 32 steps (128 on
+  a nested salted half, bit 1 << 26), after which the node stays unmasked
+  until no ghost is pending once. A liveness lift drops the mask for the
+  step whenever no other runnable would be eligible, so a held timer never
+  makes a blocked step. No record is masked or reordered. A both-halves
+  census counts timer firings with a ghost pending, ghost deliveries, ghost
+  acted (state token changed) and ghost sent (issued delta), gated on
+  net_stale_records > 0 or any node crashed so quiet stretches pay one
+  branch.
+- Why: the census found the general chain dies first where the crashed
+  sender's StartViewChange lands on a round the receiver has already left
+  (47 of 54 depth-9 runs); general runs churn through a median of 22 views
+  because timers free-run. A broadcast from a crashed sender puts a ghost in
+  front of every live peer's timer at once, so holding timers while a ghost
+  is pending leaves no free clock to advance the round - the corpus's
+  construction stated as a rule. Its natural length is the flight time of a
+  message, a few steps, not the 96-step budget on which the message-hold
+  family expired.
+- Frozen prediction (epoch 13, per-run template): bits 1 << 25
+  (ghostPendingTimerHold) and nested 1 << 26 (ghostPendingTimerHoldLong);
+  treated share about 0.47; rung depth>=6 per-run ratio treated against
+  untreated, probe-free, co-bit matched, band [-3%, +12%] (a null is
+  allowed; the claim is carried by the observables); firing
+  ghost_timer_hold.episodes >= 400,000 per chunk with masked_offers,
+  released_by_landing, expired, lifted_for_liveness, long_bound_runs and
+  the census exported; independent observables: (a) treated ghost acted
+  share >= 1.20x control (control 0.161), (b) treated share of timer
+  firings with a ghost pending <= 0.50x control, (c) treated ghost sent
+  share >= 1.30x control, (d) post-session census on a kept explore:
+  treated R2 >= 1.3x control at depth>=8 (control 19.5%), (e) nested: the
+  long bound expires less and acts at least as often; falsifier: the
+  depth>=6 interval entirely below 0.97, or (a) below 1.10x, or (b) above
+  0.70x, or treated steps per run above 1.05x control (baseline 2,384), or
+  treated plan_complete more than 3 points below control (baseline 23.05%),
+  or crashes or recovers per treated run outside 1% of control (2.062 and
+  1.876); cost clause: throughput >= 0.97, regression passes. Verdict map:
+  observables met and depth flat in [0.97, 1.02] -> file for the user (a
+  precision result the rung cannot price); observables met and depth up ->
+  merge; (a) or (b) missed -> close.
+
+## restart-opening-timer-hold
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 24 (judge gain 4, cost 0), sequenced behind
+  ghost-pending-timer-hold: on the target chain every recovery request
+  travels beside a ghost from the same origin, so the ghost hold already
+  holds those timers, and its own rung is lost to a Recovery-versus-ghost
+  race at one destination that no timer hold touches. Bit 1 << 27; hold a
+  node's timers while an undelivered record to it comes from a restarted
+  origin's opening segment; 64-step bound.
+
+## clock-debt-timer-hold
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 24 (judge gain 3, cost 0) until its control-half refire census
+  exists: the debt clears on any delivery and timer-driven churn is
+  delivery-interleaved by construction, so it binds only for a node whose
+  peers are all down. Bit 1 << 28.
