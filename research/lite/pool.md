@@ -1442,3 +1442,70 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   "Epoch 14". Follow-up deferred: the dispatched-before matcher field
   (ghost = dispatched before the sender's crash) that would take the
   general tail from 984/46/15/9 at depths 9-12 to about 595/10/1/0.
+
+## restart-before-stranded-drain-preempt
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 25 (judge gain 6, cost 0; iteration-25 top pick) | parent:
+  recovery-stranded-drain-phase-anchored-release (closed at iteration 18
+  under a rung that could not price the race)
+- Mechanism: recovery timing keyed on the victim's own stranded fan-out,
+  in the one direction the closed family never read on a rung that sees
+  it: BEFORE the first consumption. On a salted half of runs (bit 1 << 29,
+  recoverPreempt; probes exempt) a plan-released Recover(v) offered while v
+  crashed with remote sends in flight and none of them has yet entered a
+  handler is taken at that step ahead of every other eligible runnable - a
+  preemption before the queue selector, after the crash hold mask. No record
+  is masked, held or reordered; only the one fault event is displaced, as a
+  released crash displaces a delivery today. Once any stranded send is
+  consumed the rule lapses for that pair. Nothing is drawn; the untreated
+  half is byte-identical. Judge correction: restart-latency's forced-
+  immediate arm was this direction, read on depth>=6 where it matched
+  stock; epoch 14's depth 8 is exactly "ghost SVC 2->1 still undelivered
+  when Recovery 2->1 lands" (baseline P(8|7) 0.384/0.372), which caps the
+  gain at 6 and makes the re-read admissible.
+- Frozen prediction (epoch 14): bit RECOVER_PREEMPT = 1 << 29
+  (536870912, recoverPreempt); treated share about 0.47; primary depth>=8
+  per-run ratio treated against untreated in [1.06, 1.30]; depth>=6 in
+  [0.99, 1.04]; firing recover_preempt.preempted >= 200,000 per chunk (half
+  of the 370-380k eligible recoveries the treated half inherits from
+  recoveries_with_own_prior_sends_inflight 810k/786k); counters
+  recover_preempt.{eligible, preempted, lapsed_before_queued (only when
+  the plan holds a RecoverNode for v), stock_before_drain (both halves),
+  ghost_entries_from_restarted_origin (both halves), overtaken (both
+  halves)}, stranded and consumed both defined on remote records;
+  observables: (a) preempted/eligible >= 0.85 treated, control's
+  stock_before_drain/eligible reported (expected 0.5-0.8); (b)
+  overtaken/ghost_entries_from_restarted_origin treated >= 1.30x control;
+  (c) depth>=9 per run >= 1.05 and depth>=11 events per chunk >= 1.3x
+  control on the treated half; falsifier: depth>=8 interval entirely below
+  1.03, or (a) below 0.70 (report lapsed_before_queued/eligible; above 0.30
+  names the plan edge), or (b) below 1.10x, or treated steps per run above
+  1.05x control (baseline probe-free 2,113 and 2,174 per chunk), or treated
+  plan_complete more than 3 points below control (probe-free 21.4% and
+  20.6%), or crashes or recovers per treated run outside 1% of control
+  (2.085/2.126 and 1.894/1.923); cost: throughput >= 0.97 of 2041.85, the
+  preempt scan gated on some node crashed with stranded > 0 and consumed
+  == 0, regression passes. Verdict map: (a) and (b) met and depth>=8 up ->
+  merge; observables met and depth>=8 in [0.97, 1.03] -> file with the
+  depth>=11 count; (a) or (b) missed -> close, recording
+  lapsed_before_queued (which decides whether Recover events exempt from
+  density edges are worth a round).
+
+## crash-hold-while-peer-restart-unsettled
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 25 (judge gain 3, cost 0): in general runs 81% of the
+  receiver-recovering failures have node 1 waiting on the victim itself, so
+  a hold on a peer's recovery progress expires by construction on the
+  rung's chain; the "settled" predicate over-approximates (a recovering node
+  that drops a ghost still "heard" from it). Admissible again with a
+  readiness predicate a recovering node cannot satisfy by dropping a
+  message.
+
+## restart-release-on-ghost-destination-settled
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 25 (judge gain 2): collapses to its parent on one run shape and
+  delays the restart into the drain on the other; not to be built in this
+  form.
