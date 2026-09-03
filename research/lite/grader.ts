@@ -1399,6 +1399,10 @@ interface PanelMember {
 // The members whose calibrated event rates can resolve inside a short wall;
 // the rest are reachable via --members.
 const DEFAULT_PANEL_MEMBERS = ["paxos-accept-stale-ballot", "mencius-opt1-2", "raft-stale-vote", "paxos-fixed-recover-stale-scout"];
+// The slow set: members whose events are rare enough that only a long wall
+// gives a read, run at direction reviews via --members hard. Counts, not
+// rates, when the expected events are under three.
+const HARD_PANEL_MEMBERS = ["paxos-fixed-host-control", "paxos-fixed-forget-promise", "raft-forget-vote", "raft-commit-prev-term"];
 
 function panelManifest(threads: number): { path: string; members: PanelMember[] } {
   const candidates = [
@@ -1425,7 +1429,7 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
   if (sel === "all") {
     members = manifest.members;
   } else {
-    const ids = sel === "" ? DEFAULT_PANEL_MEMBERS : sel.split(",").map((x) => x.trim()).filter((x) => x !== "");
+    const ids = sel === "" ? DEFAULT_PANEL_MEMBERS : sel === "hard" ? HARD_PANEL_MEMBERS : sel.split(",").map((x) => x.trim()).filter((x) => x !== "");
     members = ids.map((id) => {
       const m = manifest.members.find((x) => x.id === id);
       if (m === undefined) throw new Error(`panel member ${id} not in ${manifest.path} (have: ${manifest.members.map((x) => x.id).join(", ")})`);
@@ -1468,6 +1472,10 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
       timeoutMsPerRun: 10_000, timeoutMs: 900_000,
     });
     const exploreSec = ex.wallMs / 1000;
+    // Events the calibration predicts for this wall; a member under three
+    // expected events reports a count, never a rate.
+    const expectedEvents = m.calibration.eventsPerSec * exploreSec;
+    const violations = porc.parsed?.violations ?? 0;
     rows.push({
       id: m.id,
       role: m.role,
@@ -1475,8 +1483,10 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
       exploreSec: Math.round(exploreSec * 10) / 10,
       exploreTimedOut: ex.timedOut,
       runs: porc.parsed?.total_runs ?? 0,
-      violations: porc.parsed?.violations ?? 0,
+      violations,
       unknown: porc.parsed?.unknown ?? 0,
+      expectedEvents: Math.round(expectedEvents * 10) / 10,
+      read: expectedEvents < 3 || violations < 3 ? "count-only" : "rate",
       violationsPerExploreSec: porc.parsed === null || exploreSec === 0 ? null : porc.parsed.violations / exploreSec,
       runsPerSec: porc.parsed === null || exploreSec === 0 ? null : porc.parsed.total_runs / exploreSec,
       calibration: { eventsPerSec: m.calibration.eventsPerSec, runsPerSec: m.calibration.runsPerSec, expectedRate: m.expectedRate },
