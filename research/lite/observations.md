@@ -1994,3 +1994,19 @@ every message entry from a crashed-once origin, cost 11% of the session.
 A lean form - the same preference, the census sampled on a sixteenth of
 runs - is admitted as iteration 30's candidate to collect the 15% at zero
 cost; a merge would come on the advance rung with depth 8 flat.
+
+## Background violation in the lean send-order session
+
+Chunk 3 of pair-send-order-lean (seed 1002) produced one violation: run
+193095, aos arm, control half (variant 521 carries no pairSendOrder bit).
+It is the recovery-nonce reuse to the letter - node 1 crashes at step 478
+and recovers announcing nonce 1, crashes again at 484 and recovers
+announcing nonce 1, and its peers answer both incarnations' Recovery
+requests under the same nonce, so the second incarnation can complete
+recovery on a response meant for the first (node 2's empty-log response
+arrives before node 0's full one). Porcupine signature a310de55a3c8ef61;
+archived under research/logs/violations/lite-pair-send-order-lean-
+sequential-1002-1788453687293. Background rate, in the arm the rung
+excludes, on the untreated half; the finding in
+research/lite/findings/vr-recovery-nonce-reuse.md stands and this is its
+third instance.
