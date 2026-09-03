@@ -1596,3 +1596,17 @@ and moved the anchor arms' apply shares as predicted (early 0.834, mid
 parent's mechanism bits, and a plan-only corpus without tape recording.
 The spur tree moved; the next session measures the fresh cache and the
 ledger row follows it.
+
+## Panel check after the corpus merge; profile refreshed
+
+On the merged tree (spur c5e49c2): paxos-accept-stale-ballot 280.88
+violations per second (3,550 over 95,994 runs, 3.70% per run) against
+279.79; mencius-opt1-2 21.72 (988 over 65,480 runs, 1.51% per run) against
+20.87. Flat per run on both members across the two merges of the night;
+the mencius throughput dip of the retarget check is gone. Anchors stay
+paxos 280.88, mencius 21.72. The explorer profile in
+research/observations/PROFILE.md was regenerated on this binary (bench
+workload, standard explorer, 30 threads); the top symbols are unchanged in
+kind - eval, execute_common_label, memmove and malloc, then formatting and
+JSON string serialization at about 8% together - and the bench does not
+exercise the campaign's tape recording, which lives only in the grid arms.
