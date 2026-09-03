@@ -1140,9 +1140,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## ghost-absorber-retarget-redraw
 
-- kind: add | category: scheduler | origin: operator-agent | status:
-  ADMITTED at iteration 20 (judge gain 6, cost 2 inherited from the parent)
-  | parent: ghost-absorber-crash-retarget (merged fabf0ea)
+- kind: add | category: scheduler | origin: operator-agent | status: CLOSED
+  at iteration 20 on its firing floor - 257 and 270 victim-down landings per
+  chunk against 2,000; the hold governs ~20 crashes per 10,000 treated runs
+  and is bounded harmless by population; redraw/hold depth>=6 0.9998
+  [0.9415, 1.0617] | parent: ghost-absorber-crash-retarget (merged fabf0ea)
 - Mechanism: the merged retarget's crashed-victim hold turned off on a
   nested half. On a salted half of the retarget-treated runs (bit 1 << 23,
   ghostAbsorberRedraw, own salt, probes exempt by inheritance, about 0.24

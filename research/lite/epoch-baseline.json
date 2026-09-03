@@ -34,6 +34,21 @@
    "cacheFile": "research/lite/baselines/d31b6194001d-30-f9daa01b-300-g47b08ab8.json",
    "measuredAtIso": "2026-09-02T22:14:29Z",
    "note": "measured via the A/A session lite-base-post-fanout; the median sits at 0.981 of the frozen epoch figure, inside the known hour-scale host drift, and the seed-1001 baseline chunk overlapped a short typecheck and selftest in its first half-minute"
+  },
+  {
+   "name": "ghost-absorber-crash-retarget",
+   "commit": "fabf0ea",
+   "spurCommit": "1c4d55f",
+   "ratio": 0.9773169047081472,
+   "cumulative": 0.9804611718054624,
+   "measuredRps": 1702.755222270097,
+   "measuredRpsChunks": [
+    1720.1014761990373,
+    1685.4089683411567
+   ],
+   "cacheFile": "research/lite/baselines/1b3d47331bd2-30-f9daa01b-300-g47b08ab8.json",
+   "measuredAtIso": "2026-09-03T02:00:33Z",
+   "note": "measured by the baseline chunks of session ghost-absorber-retarget-redraw; depth>=6 events per chunk on the merged tree [10111, 9044] against 6928/6654 before the retarget"
   }
  ]
 }

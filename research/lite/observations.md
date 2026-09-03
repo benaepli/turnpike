@@ -1545,3 +1545,23 @@ A workload fact worth the user's eye, separate from the mechanism: a
 ClientInterface that never times out cannot recover from a primary crash
 between accept and commit, and every such run is spent to the cap. Whether
 the spec's client should resend on a timer is a protected-spec decision.
+
+## Iteration 20: the crashed-victim hold is a footnote, not the cost
+
+The nested redraw - the merged retarget with its crashed-victim hold
+replaced by a redraw on a quarter of runs - closed on its firing floor: 257
+and 270 victim-down landings per chunk against a floor of 2,000, with 274
+and 272 per-crash holds on the twin quarter. The hold governs about 20
+crashes per 10,000 retarget-treated runs; the parent's 954,094 "hold tests"
+were those few crashes tested every step to the cap. Redraw against hold
+read 0.9998 [0.9415, 1.0617] on depth-6 per run, as two quarters that
+differ on a fifth of a percent of their runs must. The retarget's real cost
+- 6.6 points of plan completion - is therefore the retarget's own: it
+crashes the active primary, and a client that never times out is stranded
+to the cap.
+
+The session's baseline chunks measured the merged tree: 1702.76 runs per
+second (0.974 of the frozen epoch figure, cumulative ledger 0.9805), and
+10,111 and 9,044 depth-6 events per chunk against 6,928 and 6,654 before
+the retarget merge - the whole-population view of a 1.71x effect on half
+the runs.
