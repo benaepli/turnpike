@@ -109,10 +109,49 @@ export const CROSS_BINARY_NULL_FLOOR = 0.05;
 // is worth an advisory.
 export const EPOCH_THROUGHPUT_FLOOR = 0.9;
 export const EPOCH_DRIFT_WARN = 0.05;
-// Verdict semantics, not measurement identity: a decision record carrying
-// this was made on the internal primary. Absence reads as the cross-binary
-// primary that preceded it.
-export const RULE_VERSION = "internal-primary-v1";
+// Verdict semantics, not measurement identity: a decision record carries the
+// rule version it was decided under, and the rung table is keyed on it so a
+// recorded decision replays on the rungs it was made on. Absence reads as
+// the first internal-primary version, which decided on depth>=6.
+export const RULE_VERSION_V1 = "internal-primary-v1";
+export const RULE_VERSION_V2 = "internal-primary-v2";
+export const RULE_VERSION = RULE_VERSION_V2;
+
+/** The rungs a rule version decides on. `primary` names the objective.
+ *  `advance` are the per-second rungs a separated gain may carry a merge on,
+ *  the primary among them. `deepGuard` are the rungs whose per-run rate may
+ *  not fall beyond the margin. `reported` are the rungs every readout and
+ *  posterior covers; a rung deeper than the record's ladder reads as zero
+ *  events. Under v2 the oracle ladder is 20 labels deep and depth>=8 is the
+ *  first rung that carries a recovery-timing condition while still clearing
+ *  the power floor (about 6,600 events a 300 s chunk against 984 at depth>=9
+ *  and 46 at depth>=10); depth>=6 stays guarded because it is the rung every
+ *  epoch is compared on. */
+export interface RuleRungs {
+  primary: number;
+  advance: readonly number[];
+  deepGuard: readonly number[];
+  reported: readonly number[];
+}
+const RULE_RUNGS_V1: RuleRungs = { primary: 6, advance: [4, 5, 6], deepGuard: [5, 6], reported: [4, 5, 6, 7, 8] };
+const RULE_RUNGS_V2: RuleRungs = { primary: 8, advance: [8, 9, 10], deepGuard: [6, 8], reported: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13] };
+export function ruleRungsFor(ruleVersion: string | null | undefined): RuleRungs {
+  if (ruleVersion === RULE_VERSION_V2) return RULE_RUNGS_V2;
+  if (ruleVersion === RULE_VERSION_V1 || ruleVersion === null || ruleVersion === undefined) return RULE_RUNGS_V1;
+  throw new Error(`unknown rule version ${ruleVersion}`);
+}
+export function primaryRungFor(ruleVersion: string | null | undefined): number {
+  return ruleRungsFor(ruleVersion).primary;
+}
+// The live rule's rungs. Anything deciding a recorded session passes that
+// record's version instead of reading these.
+export const PRIMARY_RUNG = ruleRungsFor(RULE_VERSION).primary;
+export const ADVANCE_RUNGS = ruleRungsFor(RULE_VERSION).advance;
+export const DEEP_GUARD_RUNGS = ruleRungsFor(RULE_VERSION).deepGuard;
+export const REPORTED_RUNGS = ruleRungsFor(RULE_VERSION).reported;
+// Events per chunk the primary rung has to carry for a 10% effect to be
+// separable at the chunk cap; a rung below it is recorded, never decided on.
+export const PRIMARY_RUNG_MIN_EVENTS_PER_CHUNK = 1000;
 
 export interface VariantSide {
   runs: number;
@@ -364,8 +403,9 @@ export function internalPrimaryCells(
   chunks: number,
   maxChunks: number,
   perChunkCells: VariantMetrics[][] = [],
+  primaryRung: number = PRIMARY_RUNG,
 ): InternalPrimary {
-  const k = PRIMARY_RUNG;
+  const k = primaryRung;
   const blank = (b: number, reason: string): InternalPrimary => ({
     bit: b, name: b > 0 ? bitNameOf(b) : "", rung: `depth>=${k}`,
     applies: false, inapplicableReason: reason,
@@ -485,12 +525,12 @@ function variance(xs: number[]): number {
 /** The internal primary over a session's chunk records. */
 export function internalPrimary(
   candEvals: Evaluation[], baseEvals: Evaluation[], bit: number | null,
-  band: { min: number; max: number } | null, maxChunks: number,
+  band: { min: number; max: number } | null, maxChunks: number, primaryRung: number = PRIMARY_RUNG,
 ): InternalPrimary {
   const ok = candEvals.filter((e) => e.ok);
   return internalPrimaryCells(
     pooledVariantCells(ok), pooledVariantCells(baseEvals.filter((e) => e.ok)), bit, band,
-    ok.length, Math.max(maxChunks, ok.length), ok.map((e) => pooledVariantCells([e])),
+    ok.length, Math.max(maxChunks, ok.length), ok.map((e) => pooledVariantCells([e])), primaryRung,
   );
 }
 
@@ -593,7 +633,7 @@ export const CAMPAIGN_EPOCH_FLOOR = 7;
 
 export interface ObjectiveCounts {
   violations: { succ: number; n: number };
-  depth: Array<{ k: number; succ: number; n: number }>; // k = 4..8, n = graded runs
+  depth: Array<{ k: number; succ: number; n: number }>; // k over the rule's reported rungs, n = graded runs
   h2: { succ: number; n: number };
   runs: number;
   chunks: number;
@@ -602,9 +642,9 @@ export interface ObjectiveCounts {
   rateStratum: RateStratum | null;
 }
 
-export function objectiveCounts(evals: Evaluation[]): ObjectiveCounts {
+export function objectiveCounts(evals: Evaluation[], ruleVersion: string = RULE_VERSION): ObjectiveCounts {
   const ok = evals.filter((e) => e.ok);
-  const depth = [4, 5, 6, 7, 8].map((k) => ({ k, ...aggregateDepthCounts(ok, k) }));
+  const depth = ruleRungsFor(ruleVersion).reported.map((k) => ({ k, ...aggregateDepthCounts(ok, k) }));
   const h2succ = ok.reduce((a, e) => a + Math.round(e.metrics.h2Rate * e.metrics.runs), 0);
   const runs = ok.reduce((a, e) => a + e.metrics.runs, 0);
   return {
@@ -619,15 +659,6 @@ export function objectiveCounts(evals: Evaluation[]): ObjectiveCounts {
   };
 }
 
-// The rungs a separated per-second gain can advance on. depth>=7 and depth>=8
-// carry a few hundred events a chunk against the primary rung's thousands, so
-// they are recorded and never decided on
-// (research/observations/POWER_FLOOR.md).
-export const ADVANCE_RUNGS = [4, 5, 6] as const;
-// The rung the objective is named on. A separated gain on a shallower rung
-// does not carry a merge past a primary rung that is known to have fallen.
-export const PRIMARY_RUNG = 6;
-
 export interface Comparison {
   improved: string[];
   regressed: string[];
@@ -639,15 +670,15 @@ export interface Comparison {
   stratumFault: StratumFault | null;
 }
 
-/** Violations when they are the separated improvement, otherwise depth>=6
- *  per second. The violations delta is an absolute rate difference and the
- *  depth deltas are relative ratios; a consumer must not mix the two scales.
- *  Selecting on `improved` rather than on a non-zero delta is load-bearing
- *  once violations are compared against a prior: a clean candidate then has
- *  a tiny non-zero violations delta, which would otherwise displace depth>=6
- *  in every recorded primary. */
-export function primaryDelta(cmp: Comparison): number {
-  return cmp.improved.includes("violations") ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas["depth>=6"] ?? 0);
+/** Violations when they are the separated improvement, otherwise the primary
+ *  rung per second. The violations delta is an absolute rate difference and
+ *  the depth deltas are relative ratios; a consumer must not mix the two
+ *  scales. Selecting on `improved` rather than on a non-zero delta is
+ *  load-bearing once violations are compared against a prior: a clean
+ *  candidate then has a tiny non-zero violations delta, which would otherwise
+ *  displace the rung in every recorded primary. */
+export function primaryDelta(cmp: Comparison, primaryRung: number = PRIMARY_RUNG): number {
+  return cmp.improved.includes("violations") ? (cmp.deltas["violations"] ?? 0) : (cmp.deltas[`depth>=${primaryRung}`] ?? 0);
 }
 
 // z defaults to 1.96 (promote: spends compute, not merges). The merge gate
@@ -664,9 +695,6 @@ export const DEEP_RUNG_MARGIN = 0.25;
 const DEEP_RUNG_NIP = 0.95;
 const DEEP_RUNG_DRAWS = 2000;
 const DEEP_RUNG_SEED = 7;
-// The rungs the guard is applied to, per graded run.
-export const DEEP_GUARD_RUNGS = [5, 6] as const;
-
 /** Posterior that rung k's per-run rate fell beyond the margin. One
  *  definition, called by the stopping rule and by the gate, so the two cannot
  *  read the same chunks differently. */
@@ -683,7 +711,9 @@ export function deepRungReading(pRegress: number): "held" | "unresolved" | "regr
 }
 export function compareToBaseline(
   cand: ObjectiveCounts, base: ObjectiveCounts, z = 1.96, violationPrior: RatePrior | null = null,
+  ruleVersion: string = RULE_VERSION,
 ): Comparison {
+  const rungs = ruleRungsFor(ruleVersion);
   const improved: string[] = [];
   const regressed: string[] = [];
   const unresolvedGuards: string[] = [];
@@ -726,14 +756,14 @@ export function compareToBaseline(
       const csr = perSec(cSucc, cs.exposureSec);
       const bsr = perSec(bSucc, bs.exposureSec);
       deltas[`depth>=${d.k}`] = bsr > 0 ? csr / bsr - 1 : 0;
-      if ((ADVANCE_RUNGS as readonly number[]).includes(d.k)
+      if (rungs.advance.includes(d.k)
           && rateRatioSeparated(cSucc, cs.exposureSec, bSucc, bs.exposureSec, z, xv)) improved.push(`depth>=${d.k}`);
     }
     // The deep rungs per run may not fall beyond the margin: a per-second
     // gain bought by making runs shallower is depth traded for speed. A
     // posterior that settles neither way is recorded as unresolved, because a
     // guard that has not answered is not a guard that held.
-    if ((DEEP_GUARD_RUNGS as readonly number[]).includes(d.k)) {
+    if (rungs.deepGuard.includes(d.k)) {
       const reading = deepRungReading(deepRungPRegress(d.succ, d.n, b.succ, b.n, d.k));
       if (reading === "regressed") regressed.push(`depth>=${d.k} per run`);
       else if (reading === "unresolved") unresolvedGuards.push(`depth>=${d.k} per run`);
@@ -753,13 +783,13 @@ export function compareToBaseline(
  *  superiority side separates gains on, with the arguments swapped. False
  *  when either side carries no stratum: a comparison that does not exist is
  *  not a regression, and stratumFault settles that case upstream. */
-export function primaryRungRegressed(cand: ObjectiveCounts, base: ObjectiveCounts): boolean {
+export function primaryRungRegressed(cand: ObjectiveCounts, base: ObjectiveCounts, primaryRung: number = PRIMARY_RUNG): boolean {
   const cs = cand.rateStratum;
   const bs = base.rateStratum;
   if (cs === null || bs === null) return false;
-  const cSucc = cs.depth[PRIMARY_RUNG - 1] ?? 0;
-  const bSucc = bs.depth[PRIMARY_RUNG - 1] ?? 0;
-  return rateRatioSeparated(bSucc, bs.exposureSec, cSucc, cs.exposureSec, MERGE_Z, rateVarianceOf(cs, bs, PRIMARY_RUNG));
+  const cSucc = cs.depth[primaryRung - 1] ?? 0;
+  const bSucc = bs.depth[primaryRung - 1] ?? 0;
+  return rateRatioSeparated(bSucc, bs.exposureSec, cSucc, cs.exposureSec, MERGE_Z, rateVarianceOf(cs, bs, primaryRung));
 }
 
 // Spur files whose edits change what an execution means rather than which
@@ -855,6 +885,11 @@ export type MergeVerdict = "merge" | "close" | "human";
 export interface MergeFigures {
   hypothesisId: string;
   kind: HypothesisKind;
+  // The rule version the figures were computed under and the rung it names
+  // as the objective. The verdict reads these rather than the live constants
+  // so a recorded session is judged on the rungs its record was made on.
+  ruleVersion: string;
+  primaryRung: number;
   // The rule's own reading of the same figures, as evidence rather than as a
   // branch: a separated improvement with no separated regression.
   superior: boolean;
@@ -930,12 +965,13 @@ function hardStop(i: FinalGateInputs, cmp: Comparison): { verdict: GateDecision[
  *  of the arithmetic; `i.confirmEvals` is not consulted here. */
 export function figuresOf(
   i: FinalGateInputs, cand: ObjectiveCounts, base: ObjectiveCounts, cmp: Comparison,
-  internal: InternalPrimary | null,
+  internal: InternalPrimary | null, ruleVersion: string = RULE_VERSION,
 ): MergeFigures {
+  const primaryRung = primaryRungFor(ruleVersion);
   const cs = cand.rateStratum;
   const bs = base.rateStratum;
-  const band = nullBand(cs?.depth[PRIMARY_RUNG - 1] ?? 0, bs?.depth[PRIMARY_RUNG - 1] ?? 0);
-  const primary = primaryDelta(cmp);
+  const band = nullBand(cs?.depth[primaryRung - 1] ?? 0, bs?.depth[primaryRung - 1] ?? 0);
+  const primary = primaryDelta(cmp, primaryRung);
   // Nullish, not null: a record written before predictions existed carries
   // no field at all rather than a null one.
   const p = i.hypothesis.prediction ?? null;
@@ -947,10 +983,12 @@ export function figuresOf(
   return {
     hypothesisId: i.hypothesis.id,
     kind: i.hypothesis.kind,
+    ruleVersion,
+    primaryRung,
     superior: cmp.improved.length > 0 && cmp.regressed.length === 0,
     improved: cmp.improved,
     regressed: cmp.regressed,
-    primaryRungRegressed: primaryRungRegressed(cand, base),
+    primaryRungRegressed: primaryRungRegressed(cand, base, primaryRung),
     deepRungsUnresolved: cmp.unresolvedGuards,
     deltas: cmp.deltas,
     primary,
@@ -971,18 +1009,32 @@ export function figuresOf(
   };
 }
 
-/** True when the separated gain is on a rung shallower than the primary one
- *  and the primary rung's own delta is below the spread its event counts
- *  imply. A shallow rung carries the session's run count as much as its
- *  depth, so a gain there while the primary is down is depth traded for speed
- *  wearing the objective's name. A band that could not be computed - either
- *  side with no events at that rung - is not a reading, and a resolved fall
- *  is `regressed`'s business, not this one's. */
-function primaryBelowBandWithShallowerGain(f: MergeFigures): boolean {
-  const shallower = f.improved.some((k) => k === "depth>=4" || k === "depth>=5");
-  if (!shallower || f.improved.includes(`depth>=${PRIMARY_RUNG}`)) return false;
+/** True when the separated gain is on a rung other than the primary one and
+ *  the primary rung's own delta is below the spread its event counts imply.
+ *  A shallow rung carries the session's run count as much as its depth, and
+ *  a deep one carries few events, so a gain on either while the primary is
+ *  down is depth traded for speed wearing the objective's name. A band that
+ *  could not be computed - either side with no events at that rung - is not
+ *  a reading, and a resolved fall is `regressed`'s business, not this one's. */
+function primaryBelowBandWithOtherGain(f: MergeFigures): boolean {
+  const primaryKey = `depth>=${f.primaryRung}`;
+  const other = f.improved.some((k) => k.startsWith("depth>=") && k !== primaryKey);
+  if (!other || f.improved.includes(primaryKey)) return false;
   if (!(f.primaryNullBand > 0)) return false;
-  return (f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0) < -f.primaryNullBand;
+  return (f.deltas[primaryKey] ?? 0) < -f.primaryNullBand;
+}
+
+/** The advance rungs other than the primary whose per-second rate separated
+ *  above the baseline and outside the build-layout floor. A candidate whose
+ *  primary is flat may still merge on one of these: the deeper rungs carry
+ *  the conditions the objective is reaching for, and a separation there at
+ *  the merge z is evidence whatever the primary did, as long as the primary
+ *  is not below its own band. */
+function separatedDeeperAdvances(f: MergeFigures): string[] {
+  return ruleRungsFor(f.ruleVersion).advance
+    .filter((k) => k > f.primaryRung)
+    .map((k) => `depth>=${k}`)
+    .filter((key) => f.improved.includes(key) && (f.deltas[key] ?? 0) > f.crossBinaryNullFloor);
 }
 
 /** The verdict the statistical rule reaches on the figures. It is the
@@ -1000,11 +1052,12 @@ export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: s
   // costs the whole session, and it is two-sided: a fall beyond the layout
   // floor closes whatever the internal contrast says, because a mechanism
   // whose marginal effect is positive can still poison shared state.
-  const crossBinary = f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0;
+  const primaryKey = `depth>=${f.primaryRung}`;
+  const crossBinary = f.deltas[primaryKey] ?? 0;
   if (f.primaryRungRegressed && Math.abs(crossBinary) > f.crossBinaryNullFloor) {
     return {
       verdict: "close",
-      reason: `depth>=${PRIMARY_RUNG} per second separated below the baseline at z ${MERGE_Z} by ${(crossBinary * 100).toFixed(2)}%, more than the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% build-layout floor`,
+      reason: `${primaryKey} per second separated below the baseline at z ${MERGE_Z} by ${(crossBinary * 100).toFixed(2)}%, more than the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% build-layout floor`,
     };
   }
   if (f.throughput.ratio < f.throughput.floor) {
@@ -1043,32 +1096,34 @@ export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: s
     }
     return {
       verdict: "merge",
-      reason: `internal per-run contrast on depth>=${PRIMARY_RUNG}: ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}] at z ${INTERNAL_Z}, effect at or above ${(INTERNAL_MIN_EFFECT * 100).toFixed(0)}%`,
+      reason: `internal per-run contrast on ${primaryKey}: ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}] at z ${INTERNAL_Z}, effect at or above ${(INTERNAL_MIN_EFFECT * 100).toFixed(0)}%`,
     };
   }
 
   // The fallback, where no internal control was declared or its contrast is
   // not measurable. Two builds of identical source differ by their layout, so
-  // nothing inside that band separates anything here.
+  // nothing inside that band separates anything here - on the primary rung
+  // or on a deeper advance rung, which carries the same layout shift.
   // Read on the rung's own relative delta, not on `primary`: primary carries
   // the violations rate where violations are the improvement, and that is an
   // absolute difference, on a different scale from a relative floor.
-  if (crossBinary <= f.crossBinaryNullFloor) {
+  const deeper = separatedDeeperAdvances(f);
+  if (primaryBelowBandWithOtherGain(f)) {
+    return {
+      verdict: "human",
+      reason: `the gain is on another rung (${f.improved.filter((k) => k.startsWith("depth>=")).join(", ")}) while ${primaryKey} is ${(crossBinary * 100).toFixed(2)}% against a ${(f.primaryNullBand * 100).toFixed(2)}% band`,
+    };
+  }
+  if (crossBinary <= f.crossBinaryNullFloor && deeper.length === 0) {
     const why = ip === null || ip.inapplicableReason === null ? "no declared treatment bit" : ip.inapplicableReason;
     return {
       verdict: "human",
-      reason: `cross-binary depth>=${PRIMARY_RUNG}/s ${(crossBinary * 100).toFixed(2)}% is inside the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% build-layout floor; with ${why} nothing here can separate`,
+      reason: `cross-binary ${primaryKey}/s ${(crossBinary * 100).toFixed(2)}% is inside the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% build-layout floor; with ${why} nothing here can separate`,
     };
   }
-  if (primaryBelowBandWithShallowerGain(f)) {
-    const d = f.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0;
-    return {
-      verdict: "human",
-      reason: `the gain is on a shallower rung while depth>=${PRIMARY_RUNG} is ${(d * 100).toFixed(2)}% against a ${(f.primaryNullBand * 100).toFixed(2)}% band`,
-    };
-  }
-  if (!f.improved.includes(`depth>=${PRIMARY_RUNG}`)) {
-    return { verdict: "human", reason: `no CI-separated improvement on depth>=${PRIMARY_RUNG} (improved=[${f.improved}], regressed=[${f.regressed}])` };
+  const primaryUp = f.improved.includes(primaryKey) && crossBinary > f.crossBinaryNullFloor;
+  if (!primaryUp && deeper.length === 0) {
+    return { verdict: "human", reason: `no CI-separated improvement on ${primaryKey} or a deeper advance rung (improved=[${f.improved}], regressed=[${f.regressed}])` };
   }
   if (f.deepRungsUnresolved.length > 0) {
     return { verdict: "human", reason: `a rung separated but the deep rungs per run are unresolved: ${f.deepRungsUnresolved.join(", ")}` };
@@ -1076,9 +1131,16 @@ export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: s
   if (f.violationsOnlyImprovement) {
     return { verdict: "human", reason: "the only separated improvement is a violation; check its arm in violating_runs.json against the arms this change touches" };
   }
+  if (!primaryUp) {
+    const detail = deeper.map((k) => `${k}/s ${((f.deltas[k] ?? 0) * 100).toFixed(2)}%`).join(", ");
+    return {
+      verdict: "merge",
+      reason: `cross-binary fallback on a deeper advance rung: ${detail} clears the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% layout floor and separates at z ${MERGE_Z} with ${primaryKey}/s flat at ${(crossBinary * 100).toFixed(2)}% (no internal control declared)`,
+    };
+  }
   return {
     verdict: "merge",
-    reason: `cross-binary fallback: depth>=${PRIMARY_RUNG}/s ${(crossBinary * 100).toFixed(2)}% clears the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% layout floor and separates at z ${MERGE_Z} (no internal control declared)`,
+    reason: `cross-binary fallback: ${primaryKey}/s ${(crossBinary * 100).toFixed(2)}% clears the ${(f.crossBinaryNullFloor * 100).toFixed(0)}% layout floor and separates at z ${MERGE_Z} (no internal control declared)`,
   };
 }
 
@@ -1101,7 +1163,7 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
   // The rung the objective is named on, separated below the baseline at the
   // merge z. The sampler refuses to advance this shape, so reaching here means
   // the two disagree; a verdict is not the place to settle that.
-  if (f.primaryRungRegressed) out.push(`depth>=${PRIMARY_RUNG} per second separated below the baseline at z ${MERGE_Z}`);
+  if (f.primaryRungRegressed) out.push(`depth>=${f.primaryRung} per second separated below the baseline at z ${MERGE_Z}`);
   if (f.throughput.ratio < f.throughput.floor) out.push(`throughput ratio ${f.throughput.ratio.toFixed(3)} below floor ${f.throughput.floor}`);
   // Throughput is spent a few percent at a time and the loss compounds, so
   // the budget is read against the frozen epoch baseline rather than against
@@ -1119,7 +1181,7 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
     out.push("the internal primary applies and did not separate");
   }
   if (f.deepRungsUnresolved.length > 0) out.push(`deep rungs per run unresolved: ${f.deepRungsUnresolved.join(", ")}`);
-  if (primaryBelowBandWithShallowerGain(f)) out.push(`depth>=${PRIMARY_RUNG} is below its band with the gain on a shallower rung`);
+  if (primaryBelowBandWithOtherGain(f)) out.push(`depth>=${f.primaryRung} is below its band with the gain on another rung`);
   // A sample that separated nothing may still be a merge, but only where the
   // hypothesis said beforehand what it would produce, that claim was checked
   // and met, and the mechanism had occasions. Without all three there is
@@ -1278,7 +1340,7 @@ export function selfTestUnmeasured(): string[] {
   // prediction that fired and landed in its band, so the clean fixture
   // carries one: an empty evaluation set separates nothing.
   const stated: Prediction = {
-    firingCounter: "mechanism.occasions", firingFloor: 1, rung: `depth>=${PRIMARY_RUNG}`,
+    firingCounter: "mechanism.occasions", firingFloor: 1, rung: `depth>=${PRIMARY_RUNG}` as Prediction["rung"],
     sizePct: { min: -0.01, max: 0.01 },
     mechanism: "the change is inert on the rates by construction",
     independentObservable: "the counter it exports",
@@ -1347,7 +1409,8 @@ export function selfTestUnmeasured(): string[] {
   // being tested - an unresolved guard, a shallow gain over a fallen primary
   // rung - are counts no empty evaluation set can carry.
   const cleanFigures: MergeFigures = {
-    hypothesisId: "h", kind: "add", superior: true, improved: [`depth>=${PRIMARY_RUNG}`], regressed: [],
+    hypothesisId: "h", kind: "add", ruleVersion: RULE_VERSION, primaryRung: PRIMARY_RUNG,
+    superior: true, improved: [`depth>=${PRIMARY_RUNG}`], regressed: [],
     primaryRungRegressed: false, deepRungsUnresolved: [], deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.1 },
     primary: 0.1, primaryNullBand: 0.01, primaryInsideNullBand: false,
     throughput: { ratio: 1, floor: 0.8 }, sample: { chunks: 2, runs: 100, exposureSec: 100 },
@@ -1367,11 +1430,29 @@ export function selfTestUnmeasured(): string[] {
   const shallow = { improved: ["depth>=4"], deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.02 }, primaryNullBand: 0.01 };
   check(verdictOn(shallow) === "human", `a shallow gain over a primary rung below its band reaches a human, got ${verdictOn(shallow)}`);
   check(blockersOn(shallow).length > 0, "a primary rung below its band holds a supplied merge for review");
-  // A primary rung inside its band is not a reading, so the shallow-gain
-  // branch does not fire; the gain is still on the wrong rung, and only a
-  // separated depth>=6 carries the fallback path.
+  // A primary rung inside its band is not a reading, so the other-gain
+  // branch does not fire; the gain is still on a rung that cannot advance,
+  // and only the primary or a deeper advance rung carries the fallback path.
   check(verdictOn({ ...shallow, deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.005 } }) === "human", "a gain on a shallower rung alone does not merge");
   check(verdictOn({ ...shallow, primaryNullBand: -1 }) === "human", "a band that could not be computed is not a reading");
+  // A deeper advance rung separated outside the layout floor carries a merge
+  // over a flat primary, and not over one below its band; a deeper rung
+  // that is not an advance rung carries nothing.
+  const deeperAdvance = ruleRungsFor(RULE_VERSION).advance.filter((k) => k !== PRIMARY_RUNG);
+  const deepest = ruleRungsFor(RULE_VERSION).reported.filter((k) => !ruleRungsFor(RULE_VERSION).advance.includes(k) && k > PRIMARY_RUNG);
+  for (const k of deeperAdvance) {
+    const flatPrimary = { improved: [`depth>=${k}`], deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.004, [`depth>=${k}`]: 0.3 }, primaryNullBand: 0.01 };
+    check(verdictOn(flatPrimary) === "merge", `a separated depth>=${k} over a flat primary merges on the fallback path, got ${verdictOn(flatPrimary)}`);
+    check(blockersOn(flatPrimary).length === 0, `a separated depth>=${k} over a flat primary leaves no blocker, got [${blockersOn(flatPrimary)}]`);
+    const fallenPrimary = { ...flatPrimary, deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.02, [`depth>=${k}`]: 0.3 } };
+    check(verdictOn(fallenPrimary) === "human", `a separated depth>=${k} over a primary below its band reaches a human, got ${verdictOn(fallenPrimary)}`);
+    const insideFloor = { ...flatPrimary, deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.004, [`depth>=${k}`]: 0.03 } };
+    check(verdictOn(insideFloor) === "human", `a depth>=${k} separation inside the layout floor does not merge, got ${verdictOn(insideFloor)}`);
+  }
+  for (const k of deepest) {
+    const tail = { improved: [`depth>=${k}`], deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.004, [`depth>=${k}`]: 0.5 }, primaryNullBand: 0.01 };
+    check(verdictOn(tail) === "human", `a gain on depth>=${k}, which is not an advance rung, does not merge, got ${verdictOn(tail)}`);
+  }
   // Nothing separated: a merge needs a stated prediction that fired and
   // landed in its band, which is the only thing distinguishing the result
   // from a no-op.
@@ -1432,9 +1513,11 @@ export function variantBitsMissingFromSource(): string[] {
 export function selfTestInternalPrimary(): string[] {
   const f: string[] = [];
   const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  // Every run reaches the rungs above the primary; `events` reach the
+  // primary itself.
   const cell = (variant: number, runs: number, events: number, arm = "grid", steps = 100): VariantMetrics => ({
     arm, variant, runs, gradedRuns: runs,
-    depthAtLeast: [runs, runs, runs, runs, runs, events],
+    depthAtLeast: Array.from({ length: PRIMARY_RUNG }, (_, i) => (i === PRIMARY_RUNG - 1 ? events : runs)),
     violations: 0, wallUsSum: runs * 1000, stepsUsedSum: runs * steps, planCompleteRuns: runs,
   });
   const band = { min: 0.05, max: 0.25 };
@@ -1519,7 +1602,8 @@ export function selfTestInternalPrimary(): string[] {
   // where nothing cross-binary separated; one below 1.0 closes; one inside
   // the floor reaches a human rather than merging on the cross-binary rung.
   const figures = (over: Partial<MergeFigures>): MergeFigures => ({
-    hypothesisId: "h", kind: "add", superior: false, improved: [], regressed: [],
+    hypothesisId: "h", kind: "add", ruleVersion: RULE_VERSION, primaryRung: PRIMARY_RUNG,
+    superior: false, improved: [], regressed: [],
     primaryRungRegressed: false, deepRungsUnresolved: [], deltas: { [`depth>=${PRIMARY_RUNG}`]: 0.01 },
     primary: 0.01, primaryNullBand: 0.005, primaryInsideNullBand: false,
     throughput: { ratio: 1, floor: 0.8 }, sample: { chunks: 2, runs: 100, exposureSec: 100 },

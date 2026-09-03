@@ -31,15 +31,15 @@ import { execFileSync } from "node:child_process";
 import { HARD_LIMITS, loadPolicy, type Policy } from "../orchestrator/src/policy.js";
 import { runOneEvaluation, selfTestRunIdentity, sumVariantCells, type EvalContext } from "../orchestrator/src/evaluate.js";
 import {
-  canStillAdvance, classifyChunkTiming, classifyPooled, decideSequential, initialSeqState, medianRps,
-  pooledCountsOf, pooledFromSeq, selfTestGateConsistency, seqRuleOf, syntheticEvaluation,
+  SYNTHETIC_CHUNK, canStillAdvance, classifyChunkTiming, classifyPooled, decideSequential, initialSeqState, medianRps,
+  pooledCountsOf, pooledFromSeq, pooledLadder, selfTestGateConsistency, seqRuleOf, syntheticEvaluation,
   type PooledCounts, type SeqDecision, type SeqRule,
 } from "../orchestrator/src/sequential.js";
 import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/stopper.js";
 import {
   CROSS_BINARY_NULL_FLOOR, EPOCH_DRIFT_WARN, EPOCH_THROUGHPUT_FLOOR, INTERNAL_OVERDISPERSION, INTERNAL_Z, MERGE_Z,
   NON_DECLARABLE_BITS, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, RULE_VERSION, VARIANT_BITS, addStratum,
-  chunkStratum, compareToBaseline, figuresOf, internalPrimary, mergeBlockers, objectiveCounts,
+  chunkStratum, compareToBaseline, figuresOf, internalPrimary, mergeBlockers, objectiveCounts, primaryRungFor,
   projectedEpochThroughput, ruleVerdict, selfTestInternalPrimary, variantBitsMissingFromSource,
   variantContrasts,
   type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
@@ -47,7 +47,7 @@ import {
 import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot } from "../orchestrator/src/runners.js";
 import { selfTestPosteriors, selfTestStats } from "../orchestrator/src/stats.js";
 import { Evaluation, SeqState } from "../orchestrator/src/schemas.js";
-import { RECORDED_DECLARATIONS } from "./declarations.js";
+import { RECORDED_DECLARATIONS, recordedRuleVersionFor } from "./declarations.js";
 
 // The orchestrator modules narrate progress on stdout; this process promises
 // its caller a single JSON object there, so their narration moves to stderr.
@@ -997,6 +997,7 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
     name: state.name,
     phase: "finished",
     ruleVersion: RULE_VERSION,
+    primaryRung: PRIMARY_RUNG,
     primaryKind: figures.internal !== null && figures.internal.applies ? "internal" : "cross-binary",
     treatmentBit: state.treatment?.bit ?? null,
     primary: primaryBlock(gate),
@@ -1015,6 +1016,9 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
       throughputRatio,
     },
     sample: figures.sample,
+    // Every reported rung's events on both sides of the pair, with its
+    // per-second ratio, null band and posteriors.
+    rungs: a.stopper?.rungs ?? null,
     violations: { candidate: candCounts.violations, baseline: baseCounts.violations },
     variantContrasts: variantReport(candEvals, baseEvals),
     regression,
@@ -1126,16 +1130,19 @@ async function cmdSelftest(): Promise<void> {
   const policy = policyFor(cfg);
   const failures: string[] = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestRunIdentity()];
 
-  // The gate-consistency suite needs live baseline figures: under the 300 s
-  // chunk policy its synthetic defaults sit in a regime the thresholds were
-  // not derived for and it fails on them by design.
-  let liveDetail = "(none: gate consistency ran on synthetic defaults)";
-  let live: { base: PooledCounts; rule: SeqRule } | undefined;
-  const candidates: Evaluation[][] = [];
+  // The gate-consistency suite runs on live baseline figures where a cache
+  // graded on the current oracle ladder exists, so its assertions follow the
+  // regime the loop runs in; a cache from another grader version measures
+  // other rungs and cannot stand in, and without one the synthetic chunk on
+  // the current ladder is used.
+  const graderVersion = graderVersionOf();
+  let liveDetail = "(none: gate consistency ran on the synthetic chunk of the current ladder)";
+  let live: { base: PooledCounts; rule: SeqRule; ladder: number[] } | undefined;
+  const candidates: Array<{ chunks: Evaluation[]; file: string }> = [];
   if (fs.existsSync(BASELINE_DIR)) {
-    for (const f of fs.readdirSync(BASELINE_DIR)) {
+    for (const f of fs.readdirSync(BASELINE_DIR).sort()) {
       const c = loadCache(path.join(BASELINE_DIR, f));
-      if (c !== null && c.chunks.length >= 2) candidates.push(c.chunks);
+      if (c !== null && c.chunks.length >= 2 && c.identity.graderVersion === graderVersion) candidates.push({ chunks: c.chunks, file: f });
     }
   }
   if (candidates.length === 0) {
@@ -1145,15 +1152,15 @@ async function cmdSelftest(): Promise<void> {
       const chunks: Evaluation[] = [];
       for (const c of raw.baseline?.sequential ?? []) {
         const p = Evaluation.safeParse(c);
-        if (p.success && p.data.ok) chunks.push(p.data);
+        if (p.success && p.data.ok && p.data.graderVersion === graderVersion) chunks.push(p.data);
       }
-      if (chunks.length >= 2) candidates.push(chunks);
+      if (chunks.length >= 2) candidates.push({ chunks, file: path.relative(ROOT, recordPath) });
     }
   }
   const liveChunks = candidates[0];
   if (liveChunks !== undefined) {
-    live = { base: pooledCountsOf(liveChunks), rule: seqRuleOf(policy, null) };
-    liveDetail = `pooled from ${liveChunks.length} recorded baseline chunks`;
+    live = { base: pooledCountsOf(liveChunks.chunks), rule: seqRuleOf(policy, null), ladder: pooledLadder(liveChunks.chunks) };
+    liveDetail = `pooled from ${liveChunks.chunks.length} recorded baseline chunks in ${liveChunks.file}`;
   }
   failures.push(...selfTestGateConsistency(live));
 
@@ -1162,7 +1169,7 @@ async function cmdSelftest(): Promise<void> {
   // the configured template still carries a campaign block.
   const seq = initialSeqState("lite-selftest", "k");
   if (!SeqState.safeParse(JSON.parse(JSON.stringify(seq))).success) failures.push("initial seq state must round-trip through the SeqState schema");
-  const synth = syntheticEvaluation(1, { runs: 1000, exposureMs: 60_000, depthAtLeast: [1000, 900, 800, 700, 600, 500, 50, 5], h2Rate: 0.4 });
+  const synth = syntheticEvaluation(1, { runs: SYNTHETIC_CHUNK.runs, exposureMs: SYNTHETIC_CHUNK.exposureMs, depthAtLeast: SYNTHETIC_CHUNK.depthAtLeast, h2Rate: SYNTHETIC_CHUNK.h2Rate });
   const stratum = chunkStratum(synth);
   if (stratum === null) failures.push("a synthetic campaign chunk must carry a stratum");
   else if (stratum.armIds.includes("aos")) failures.push("the rate stratum must exclude the aos arm");
@@ -1177,30 +1184,34 @@ async function cmdSelftest(): Promise<void> {
   else if (templateArmIds(template).length === 0) failures.push(`configured template ${template} carries no campaign arms`);
 
   // The internal primary: its own seams on synthetic cells, then the
-  // recorded sessions it was derived from.
+  // recorded sessions it was derived from. A recorded session is read on the
+  // primary rung of the rule version its decision row carries, never on the
+  // live rule's, so a change of primary rung leaves these fixtures standing.
   const warnings: string[] = [];
   failures.push(...selfTestInternalPrimary());
   const skipped: string[] = [];
-  const recorded = (name: string): { cand: Evaluation[]; base: Evaluation[] } | null => {
+  const recorded = (name: string): { cand: Evaluation[]; base: Evaluation[]; rung: number } | null => {
     if (!fs.existsSync(stateFileFor(name))) return null;
     const st = loadState(name);
     const cache = loadCache(st.cacheFile);
     if (cache === null) return null;
     const cand = candEvalsOf(st, false);
     if (cand.length === 0) return null;
-    return { cand, base: cache.chunks.filter((c) => st.usedSeeds.includes(c.seed)) };
+    return { cand, base: cache.chunks.filter((c) => st.usedSeeds.includes(c.seed)), rung: primaryRungFor(recordedRuleVersionFor(name)) };
   };
 
   // The matching, against the session it was derived from: the fan-out phase
   // anchor only exists on placed runs, so its control is the placed and
-  // untreated population and nothing wider.
+  // untreated population and nothing wider. The figures are the ones the
+  // session's decision row carries, on its own primary rung.
   const nested = recorded("crash-fanout-phase-anchored-release");
   if (nested === null) skipped.push("crash-fanout-phase-anchored-release is not on disk, so the matching check has no recorded fixture");
   else {
-    const matched = internalPrimary(nested.cand, [], 512, null, 4);
-    const unmatched = variantContrasts(nested.cand).find((c) => c.bit === 512)?.rungs.find((r) => r.rung === `depth>=${PRIMARY_RUNG}`)?.ratio ?? 0;
-    if (Math.abs(matched.ratio - 1.0497) > 0.001) failures.push(`the matched contrast on bit 512 must read 1.0497, got ${matched.ratio.toFixed(4)}`);
-    if (Math.abs(unmatched - 1.1904) > 0.001) failures.push(`the unmatched survey contrast on bit 512 must read 1.1904, got ${unmatched.toFixed(4)}`);
+    if (nested.rung !== 6) failures.push(`crash-fanout-phase-anchored-release was decided on depth>=6, but its record resolves to depth>=${nested.rung}`);
+    const matched = internalPrimary(nested.cand, [], 512, null, 4, nested.rung);
+    const unmatched = variantContrasts(nested.cand).find((c) => c.bit === 512)?.rungs.find((r) => r.rung === `depth>=${nested.rung}`)?.ratio ?? 0;
+    if (Math.abs(matched.ratio - 1.1854) > 0.001) failures.push(`the matched contrast on bit 512 must read 1.1854, got ${matched.ratio.toFixed(4)}`);
+    if (Math.abs(unmatched - 1.3826) > 0.001) failures.push(`the unmatched survey contrast on bit 512 must read 1.3826, got ${unmatched.toFixed(4)}`);
     if (matched.matchedOnMask !== 1) failures.push(`bit 512 must match on crashPlaced, got mask ${matched.matchedOnMask}`);
   }
 
@@ -1215,13 +1226,13 @@ async function cmdSelftest(): Promise<void> {
     if (r === null) { skipped.push(`${d.name} is not on disk`); continue; }
     const cells = r.cand.map((e) => e.metrics.variants);
     if (cells.every((c) => c.length === 0)) { skipped.push(`${d.name} carries no variant cells`); continue; }
-    const ip = internalPrimary(r.cand, r.base, d.bit, d.band, r.cand.length);
+    const ip = internalPrimary(r.cand, r.base, d.bit, d.band, r.cand.length, r.rung);
     if (ip.balance.faults.length > 0 && !NON_DECLARABLE_BITS.includes(d.bit)) {
       failures.push(`${d.name} (bit ${d.bit}) must balance after matching, got [${ip.balance.faults.join("; ")}]`);
     }
     // Candidate-side only, so the dispersion measured is the contrast's own
     // and not the difference of two.
-    const perChunk = r.cand.map((e) => internalPrimary([e], [], d.bit, null, 1));
+    const perChunk = r.cand.map((e) => internalPrimary([e], [], d.bit, null, 1, r.rung));
     const ratios = perChunk.map((x) => x.ratio).filter((x) => Number.isFinite(x) && x > 0);
     const ses = perChunk.map((x) => x.seCount).filter((x) => Number.isFinite(x) && x > 0);
     if (ratios.length < 2 || ses.length !== ratios.length) continue;
@@ -1244,7 +1255,7 @@ async function cmdSelftest(): Promise<void> {
   const shifted = recorded("crash-placement-fraction-0-9");
   if (shifted === null) skipped.push("crash-placement-fraction-0-9 is not on disk");
   else {
-    const ip = internalPrimary(shifted.cand, shifted.base, 1, null, 2);
+    const ip = internalPrimary(shifted.cand, shifted.base, 1, null, 2, shifted.rung);
     if (ip.applies || !(ip.inapplicableReason ?? "").includes("treated share shifted")) {
       failures.push(`a dose that moved the treated share must be inapplicable, got applies ${ip.applies} (${ip.inapplicableReason})`);
     }
@@ -1252,7 +1263,7 @@ async function cmdSelftest(): Promise<void> {
   const exempt = recorded("crash-placement-probe-exemption");
   if (exempt === null) skipped.push("crash-placement-probe-exemption is not on disk");
   else {
-    const ip = internalPrimary(exempt.cand, exempt.base, 1, null, 2);
+    const ip = internalPrimary(exempt.cand, exempt.base, 1, null, 2, exempt.rung);
     if (!ip.applies || !ip.differenceInDifferences) failures.push(`a bit present on both sides must apply and be differenced, got applies ${ip.applies} did ${ip.differenceInDifferences}`);
   }
 
@@ -1350,7 +1361,8 @@ async function cmdSelftest(): Promise<void> {
     failures, warnings, skipped,
     gateConsistencyBaseline: liveDetail,
     ruleVersion: RULE_VERSION,
-    graderVersion: currentIdentity?.graderVersion ?? graderVersionOf(),
+    primaryRung: PRIMARY_RUNG,
+    graderVersion,
     baselineCache: currentCacheFile === null ? null : { file: path.relative(ROOT, currentCacheFile), chunks: currentCacheChunks },
     overdispersion: { measured: measuredInflation, charged: INTERNAL_OVERDISPERSION, dof },
   });

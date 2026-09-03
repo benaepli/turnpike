@@ -9,6 +9,7 @@ import type { Policy } from "./policy.js";
 import type { LoopState } from "./state.js";
 import { SUPER } from "./gitops.js";
 import { loadSeqState } from "./sequential.js";
+import { ADVANCE_RUNGS, PRIMARY_RUNG, REPORTED_RUNGS } from "./decide.js";
 
 const STATUS_PATH = join(SUPER, "research", "STATUS.md");
 const OBSERVATIONS_PATH = join(
@@ -92,12 +93,12 @@ export function ladderTable(
     ["violations", (m) => String(m.violations)],
     ["meanPrefixDepth", (m) => m.meanPrefixDepth.toFixed(2)],
   ];
-  for (let k = 4; k <= 8; k++) {
+  for (const k of REPORTED_RUNGS) {
     rows.push([`P(depth>=${k})`, (m) => pDepthAtLeast(m, k).toFixed(3)]);
   }
-  // Rung events per explore-second, the objective the gate decides on. Rungs
-  // above 7 are too sparse to decide on and are left as probabilities.
-  for (let k = 4; k <= 7; k++) {
+  // Rung events per explore-second, the objective the gate decides on. A
+  // record whose ladder stops short of a rung reads as zero there.
+  for (const k of REPORTED_RUNGS) {
     rows.push([`depth>=${k} /s`, (m) => (m.exposureMs > 0 ? ((m.depthAtLeast[k - 1] ?? 0) / (m.exposureMs / 1000)).toFixed(2) : "-")]);
   }
   rows.push(
@@ -162,13 +163,14 @@ export function renderStatus(
     lines.push("");
     lines.push(`Budget ${camp.wallSec} s, allocation ${camp.allocation}, reward ${camp.reward}, ${camp.runsTotal} runs.`);
     lines.push("");
-    lines.push("| arm | mode | overlay | slices | wall share | runs/s | depth>=5 /s | depth>=6 /s | violations | reward rate | dropped at round |");
-    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+    const armRungs = [...new Set([5, 6, PRIMARY_RUNG])].sort((x, y) => x - y);
+    lines.push(`| arm | mode | overlay | slices | wall share | runs/s | ${armRungs.map((k) => `depth>=${k} /s`).join(" | ")} | violations | reward rate | dropped at round |`);
+    lines.push(`| --- | --- | --- | --- | --- | --- | ${armRungs.map(() => "---").join(" | ")} | --- | --- | --- |`);
     const totalWall = camp.arms.reduce((a, x) => a + x.wallMs, 0);
     for (const a of camp.arms) {
       const sec = a.wallMs / 1000;
       const perSec = (k: number): string => (sec > 0 ? ((a.depthAtLeast[k - 1] ?? 0) / sec).toFixed(2) : "-");
-      lines.push(`| ${a.id} | ${a.mode} | ${oneLine(JSON.stringify(a.overlay), 40)} | ${a.slices} | ${totalWall > 0 ? (100 * a.wallMs / totalWall).toFixed(0) : "-"}% | ${sec > 0 ? (a.runs / sec).toFixed(0) : "-"} | ${perSec(5)} | ${perSec(6)} | ${a.violations} | ${a.rewardRate.toFixed(1)} | ${a.droppedAtRound ?? "-"} |`);
+      lines.push(`| ${a.id} | ${a.mode} | ${oneLine(JSON.stringify(a.overlay), 40)} | ${a.slices} | ${totalWall > 0 ? (100 * a.wallMs / totalWall).toFixed(0) : "-"}% | ${sec > 0 ? (a.runs / sec).toFixed(0) : "-"} | ${armRungs.map(perSec).join(" | ")} | ${a.violations} | ${a.rewardRate.toFixed(1)} | ${a.droppedAtRound ?? "-"} |`);
     }
     lines.push("");
   }
@@ -200,15 +202,13 @@ export function renderStatus(
   if (inconclusive.length > 0) {
     lines.push("## Inconclusive (resumable)");
     lines.push("");
-    lines.push("| id | chunks | runs | P(depth>=4 up) | P(depth>=5 up) | P(depth>=6 up) | resumes | last iteration |");
-    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
+    lines.push(`| id | chunks | runs | ${ADVANCE_RUNGS.map((k) => `P(depth>=${k} up)`).join(" | ")} | resumes | last iteration |`);
+    lines.push(`| --- | --- | --- | ${ADVANCE_RUNGS.map(() => "---").join(" | ")} | --- | --- |`);
     for (const h of inconclusive) {
       const seq = loadSeqState(state, h.id);
       if (!seq) continue;
-      const p4 = (seq.posteriors["depth>=4:pGreater"] ?? 0).toFixed(3);
-      const p5 = (seq.posteriors["depth>=5:pGreater"] ?? 0).toFixed(3);
-      const p6 = (seq.posteriors["depth>=6:pGreater"] ?? 0).toFixed(3);
-      lines.push(`| ${h.id} | ${seq.chunks} | ${seq.runs} | ${p4} | ${p5} | ${p6} | ${seq.resumes} | ${seq.lastIteration} |`);
+      const ps = ADVANCE_RUNGS.map((k) => (seq.posteriors[`depth>=${k}:pGreater`] ?? 0).toFixed(3)).join(" | ");
+      lines.push(`| ${h.id} | ${seq.chunks} | ${seq.runs} | ${ps} | ${seq.resumes} | ${seq.lastIteration} |`);
     }
     lines.push("");
   }

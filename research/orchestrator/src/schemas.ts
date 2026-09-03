@@ -38,7 +38,10 @@ export const Prediction = z.object({
   // The rung claimed to move and the relative band claimed for it, as
   // fractions: {min: 0.05, max: 0.15} is +5% to +15%. A band, because "some
   // improvement" is not a claim anything can be graded against.
-  rung: z.enum(["depth>=4", "depth>=5", "depth>=6", "depth>=7", "depth>=8", "violations", "h2", "throughput"]),
+  rung: z.enum([
+    "depth>=4", "depth>=5", "depth>=6", "depth>=7", "depth>=8", "depth>=9", "depth>=10", "depth>=11", "depth>=12", "depth>=13",
+    "violations", "h2", "throughput",
+  ]),
   sizePct: z.object({ min: z.number(), max: z.number() }),
   mechanism: z.string().min(20),
   independentObservable: z.string().min(10),

@@ -22,7 +22,15 @@ multiplies every rung. From epoch 13 the rung is
 witness-complete: depth >= k means the first k events of the oracle DAG occurred
 in order with nothing skipped, so depth >= 6 requires the initiating crash and its
 view-change delivery, not merely six ordered events. Depth figures from earlier
-epochs are on a different scale and are not comparable.
+epochs are on a different scale and are not comparable. From epoch 14 the
+oracle DAG is the 20-label `relax_minimal_general_v2.json` and the objective
+is depth>=8 events per explore-second: depth 8 is the initiating node's
+post-restart Recovery delivered to its recovered peer before that peer sees
+the ghost StartViewChange, the first recovery-timing condition on the
+violating path and the first rung the general explorer fails on it. Depth>=6
+keeps its epoch-13 meaning and stays the cross-epoch comparison rung;
+depth>=9 and depth>=10 are advance rungs a separated gain may carry on, and
+depth 11-13 are recorded only.
 
 **It is a probability problem, not a reachability problem.** Plans only gate
 which events may be released; they create no states free exploration cannot

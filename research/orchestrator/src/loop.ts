@@ -10,7 +10,7 @@ import {
   reflectOnOutcome, rejudgePool, runAudit, validateProposed,
 } from "./agents.js";
 import {
-  CAMPAIGN_EPOCH_FLOOR, chunkStratum, classifyChangeRisk, finalGate, mergeCase, perfGate,
+  ADVANCE_RUNGS, CAMPAIGN_EPOCH_FLOOR, PRIMARY_RUNG, chunkStratum, classifyChangeRisk, finalGate, mergeCase, perfGate,
   ruleVerdict, stratumOf, unmeasurableReasons,
   type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
@@ -457,7 +457,7 @@ export function evaluationContext(state: LoopState, policy: Policy): string {
       campaign = `\nThe evaluation is a campaign: one session of ${policy.sequential.exploreBudgetSec} s split across arms by ${cfg.campaign.allocation?.kind ?? "round_robin"} allocation (reward ${cfg.campaign.reward?.kind ?? "termination_completed"}), each arm keeping its own feedback state. Arms: ${arms}. The ladder is the union of the arms; per-arm rung rates are recorded in every evaluation. An arm-kind hypothesis edits only the campaign block (add, drop or re-overlay a generic arm); a mechanism a hypothesis adds to spur is measured under every arm that enables it.`;
     } catch { /* reported without the arm list */ }
   }
-  return `Primary objective: depth>=6 events per explore-second, the per-run rung probability times runs per second (GOAL.md rule 6); depth>=7 and depth>=8 are recorded and never decided on.\nExplorer: -e ${policy.evaluation.explorer} on ${policy.evaluation.configTemplate}; scalar settings ${modes}.${campaign}\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
+  return `Primary objective: depth>=${PRIMARY_RUNG} events per explore-second, the per-run rung probability times runs per second (GOAL.md rule 6); a separated gain may also carry on depth>=${ADVANCE_RUNGS.filter((k) => k !== PRIMARY_RUNG).join(" or depth>=")}, and every other rung is recorded and never decided on.\nExplorer: -e ${policy.evaluation.explorer} on ${policy.evaluation.configTemplate}; scalar settings ${modes}.${campaign}\nMechanisms with zero recorded activity under this config: ${inactive.length ? inactive.join(", ") : "(none)"}. A change whose effect is confined to one of these cannot be measured; it has to be an enabling hypothesis that switches the mechanism on in the general config, and buildsOn must name the mechanisms a change needs to be active.`;
 }
 
 // Number of top-level keys in the general evaluation config: the loop's
@@ -624,7 +624,7 @@ function markInconclusive(state: LoopState, n: number, h: Hypothesis, branch: st
     if (spurChanged) push(SPUR, branch, { setUpstream: true });
     push(SUPER, branch, { setUpstream: true });
   } catch { /* the local branches still hold the work */ }
-  const best = Math.max(seq.posteriors["depth>=4:pGreater"] ?? 0, seq.posteriors["depth>=5:pGreater"] ?? 0, seq.posteriors["depth>=6:pGreater"] ?? 0);
+  const best = Math.max(...ADVANCE_RUNGS.map((k) => seq.posteriors[`depth>=${k}:pGreater`] ?? 0));
   state.setMeta(`seq:${h.id}`, JSON.stringify({ ...seq, lastIteration: n }));
   state.upsertHypothesis({ ...h, status: "inconclusive", branch, notes: `[inconclusive iteration ${n}] ${reason}; pGreater ${best.toFixed(3)} after ${seq.chunks} chunks / ${seq.runs} runs; resumes ${seq.resumes}` });
   journal(state, n, "inconclusive", { id: h.id, reason, chunks: seq.chunks, runs: seq.runs, posteriors: seq.posteriors, resumes: seq.resumes });
@@ -1027,8 +1027,7 @@ export async function runIteration(deps: LoopDeps): Promise<void> {
         // the separable threshold. A precisely-measured sub-threshold effect
         // (low pMei) will never separate against the fixed-size baseline, so
         // it is closed rather than re-sampled every cooldown.
-        const bestPMei = Math.max(res.seq.posteriors["depth>=4:pMei"] ?? 0, res.seq.posteriors["depth>=5:pMei"] ?? 0,
-          res.seq.posteriors["depth>=6:pMei"] ?? 0);
+        const bestPMei = Math.max(...ADVANCE_RUNGS.map((k) => res.seq.posteriors[`depth>=${k}:pMei`] ?? 0));
         if (bestPMei >= RESUME_PMEI_MIN && res.seq.resumes < policy.sequential.maxResumes) {
           markInconclusive(state, n, h, branch, res.seq, res.reason, spurFiles.length > 0);
           return;

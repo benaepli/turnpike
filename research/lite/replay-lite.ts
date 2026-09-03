@@ -10,17 +10,22 @@
 // have declared come from declarations.ts, which reads them off the written
 // record. Every declared bit is asserted against the tag actually present in
 // the cells, so a declaration cannot be invented here.
+//
+// Each session is re-decided under the rule version its decision row
+// carries, so a record made on one primary rung is not re-read on another;
+// a row with no version predates versioning and replays on the first
+// internal-primary rules.
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 import {
-  CROSS_BINARY_NULL_FLOOR, EPOCH_THROUGHPUT_FLOOR, MERGE_Z, PRIMARY_RUNG, RULE_VERSION, compareToBaseline,
-  figuresOf, internalPrimary, mergeBlockers, objectiveCounts, ruleVerdict,
+  CROSS_BINARY_NULL_FLOOR, EPOCH_THROUGHPUT_FLOOR, MERGE_Z, RULE_VERSION, RULE_VERSION_V1, compareToBaseline,
+  figuresOf, internalPrimary, mergeBlockers, objectiveCounts, primaryRungFor, ruleVerdict,
   type FinalGateInputs, type InternalPrimary, type MergeVerdict,
 } from "../orchestrator/src/decide.js";
 import { ROOT } from "../orchestrator/src/paths.js";
 import { Evaluation } from "../orchestrator/src/schemas.js";
-import { RECORDED_DECLARATIONS, declarationFor } from "./declarations.js";
+import { RECORDED_DECLARATIONS, declarationFor, recordedRuleVersionFor } from "./declarations.js";
 
 // The table the assertion is made against: what each recorded session would
 // have declared at `start`.
@@ -52,7 +57,7 @@ const EXPECTED: Record<string, { want: MergeVerdict; why: string }> = {
   "partition-fault-class-restore-with-repair-hold": { want: "close", why: "the cross-binary rung fell beyond the layout floor" },
   "directed-link-speed-class-run-skew": { want: "close", why: "the cross-binary rung fell beyond the layout floor" },
   "activity-clock-crash-placement": { want: "close", why: "the internal contrast is 1.0109 and its frozen 1.04 band is excluded" },
-  "crash-fanout-phase-anchored-release": { want: "merge", why: "the internal contrast is 1.0497 [1.0394, 1.0602], separated above 1.0 with a 5% effect" },
+  "crash-fanout-phase-anchored-release": { want: "merge", why: "the internal contrast is 1.1854 [1.1195, 1.2551], separated above 1.0 with an effect above the 5% floor" },
   "probe-phase-grid-alias-fix": { want: "human", why: "bit 2 names an instrument, so the fallback carries it and +3.2% is inside the layout floor" },
   "timer-refire-outcome-quantile": { want: "human", why: "no bit, and +3.6% is inside the layout floor" },
 };
@@ -61,6 +66,8 @@ interface Session {
   name: string;
   cand: Evaluation[];
   base: Evaluation[];
+  // The rule version the record was decided under; null predates versioning.
+  ruleVersion: string | null;
   recorded: { verdict: string; reason: string; throughputRatio: number; regressionPassed: boolean | null } | null;
 }
 
@@ -69,6 +76,8 @@ interface Row {
   old: string;
   next: MergeVerdict;
   reason: string;
+  ruleVersion: string;
+  primaryRung: number;
   primaryKind: string;
   internal: InternalPrimary | null;
   crossBinary: number;
@@ -122,7 +131,7 @@ function loadSessions(): Session[] {
       const parsed = Evaluation.safeParse(c);
       if (parsed.success && state.usedSeeds.includes(parsed.data.seed)) base.push(parsed.data);
     }
-    out.push({ name, cand, base, recorded: decisions.get(name) ?? null });
+    out.push({ name, cand, base, ruleVersion: recordedRuleVersionFor(name), recorded: decisions.get(name) ?? null });
   }
   return out;
 }
@@ -132,9 +141,11 @@ function decide(s: Session, throughputFloor: number): Row | null {
   const decl = declarationFor(s.name);
   const bit = decl?.bit ?? null;
   const band = decl?.band ?? null;
-  const cand = objectiveCounts(s.cand);
-  const base = objectiveCounts(s.base);
-  const cmp = compareToBaseline(cand, base, MERGE_Z, null);
+  const ruleVersion = s.ruleVersion ?? RULE_VERSION_V1;
+  const primaryRung = primaryRungFor(ruleVersion);
+  const cand = objectiveCounts(s.cand, ruleVersion);
+  const base = objectiveCounts(s.base, ruleVersion);
+  const cmp = compareToBaseline(cand, base, MERGE_Z, null, ruleVersion);
   const throughputRatio = cand.exposureSec > 0 && base.exposureSec > 0 && base.runs > 0
     ? (cand.runs / cand.exposureSec) / (base.runs / base.exposureSec)
     : 1;
@@ -160,17 +171,19 @@ function decide(s: Session, throughputFloor: number): Row | null {
     epochThroughput: epochFile === null ? null : { frozenRps: epochFile.runsPerSec, cumulative, floor: EPOCH_THROUGHPUT_FLOOR },
     crossBinaryNullFloor: epochFile?.layoutNullBand ?? CROSS_BINARY_NULL_FLOOR,
   };
-  const ip = internalPrimary(s.cand, s.base, bit, band, cand.chunks);
-  const figures = figuresOf(inputs, cand, base, cmp, ip);
+  const ip = internalPrimary(s.cand, s.base, bit, band, cand.chunks, primaryRung);
+  const figures = figuresOf(inputs, cand, base, cmp, ip, ruleVersion);
   const verdict = ruleVerdict(figures);
   return {
     name: s.name,
     old: s.recorded?.verdict ?? "(none)",
     next: verdict.verdict,
     reason: verdict.reason,
+    ruleVersion,
+    primaryRung,
     primaryKind: ip.applies ? "internal" : "cross-binary",
     internal: ip,
-    crossBinary: 1 + (cmp.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0),
+    crossBinary: 1 + (cmp.deltas[`depth>=${primaryRung}`] ?? 0),
     throughput: throughputRatio,
     blockers: mergeBlockers(inputs, figures, cmp),
     declaredBit: bit,
@@ -209,13 +222,16 @@ function main(): void {
     rows.push(r);
   }
 
-  console.log(`replayed ${rows.length} recorded lite sessions under ${RULE_VERSION}, throughput floor ${throughputFloor}\n`);
-  const head = ["session", "old", "new", "primary", "internal r", "[lo", "hi]", "cross", "thr"];
-  console.log(`${head[0]!.padEnd(48)}${head[1]!.padEnd(9)}${head[2]!.padEnd(7)}${head[3]!.padEnd(14)}${head[4]!.padStart(10)}${head[5]!.padStart(10)}${head[6]!.padStart(10)}${head[7]!.padStart(9)}${head[8]!.padStart(9)}`);
+  const byVersion = new Map<string, number>();
+  for (const r of rows) byVersion.set(r.ruleVersion, (byVersion.get(r.ruleVersion) ?? 0) + 1);
+  const versions = [...byVersion.entries()].map(([v, n]) => `${n} under ${v} (depth>=${primaryRungFor(v)})`).join(", ");
+  console.log(`replayed ${rows.length} recorded lite sessions, each under the rule version its record carries: ${versions}; live rule ${RULE_VERSION} (depth>=${primaryRungFor(RULE_VERSION)}); throughput floor ${throughputFloor}\n`);
+  const head = ["session", "old", "new", "rung", "primary", "internal r", "[lo", "hi]", "cross", "thr"];
+  console.log(`${head[0]!.padEnd(48)}${head[1]!.padEnd(9)}${head[2]!.padEnd(7)}${head[3]!.padEnd(6)}${head[4]!.padEnd(14)}${head[5]!.padStart(10)}${head[6]!.padStart(10)}${head[7]!.padStart(10)}${head[8]!.padStart(9)}${head[9]!.padStart(9)}`);
   for (const r of rows.sort((a, b) => a.name.localeCompare(b.name))) {
     const ip = r.internal;
     console.log(
-      `${r.name.padEnd(48)}${r.old.padEnd(9)}${r.next.padEnd(7)}${r.primaryKind.padEnd(14)}`
+      `${r.name.padEnd(48)}${r.old.padEnd(9)}${r.next.padEnd(7)}${`d>=${r.primaryRung}`.padEnd(6)}${r.primaryKind.padEnd(14)}`
       + `${(ip === null || !ip.applies ? "-" : fmt(ip.ratio)).padStart(10)}`
       + `${(ip === null || !ip.applies ? "-" : fmt(ip.lo)).padStart(10)}`
       + `${(ip === null || !ip.applies ? "-" : fmt(ip.hi)).padStart(10)}`

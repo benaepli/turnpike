@@ -9,6 +9,26 @@
 > about 20% of runs to about 1%, and general max depth from 9 to 8. Ratios within one
 > epoch remain valid; levels across the boundary are not comparable.
 
+> **Epoch note (epoch 14, 2026-09-03).** The oracle DAG moves from
+> `research/oracle/relax_minimal_general.json` (13 labels, max depth 9) to
+> `research/oracle/relax_minimal_general_v2.json` (20 labels, max depth 13). Depths 1-6
+> are identical to epoch 13 to the run. The new rungs: 7 = the initiating node's
+> post-restart Recovery delivered to its recovered peer; 8 = the ghost StartViewChange
+> delivered to that peer after the Recovery (the first condition the general explorer
+> fails on the violating path); 9 = the ghost DoViewChange after the SVC; 10 = the
+> second write after the ghost quorum; 11 = the old-view PrepareOK back to the old
+> primary; 12 = the new leader's StartView reaching the old primary after that commit;
+> 13 = the reads. Validation on the kept stores, per 300 s general chunk: depth>=6
+> about 17,800 events, >=7 17,462, >=8 6,654, >=9 984, >=10 46, >=11 15, >=12 9,
+> >=13 0; the 3,000-run corpus puts all 11 violating runs at depth 13 and no
+> non-violating run at depth 11 or deeper. The grader's merge primary is depth>=8
+> under rule version `internal-primary-v2` (about 6,600 events a chunk, above the
+> 1,000-event power floor); depth>=9 and >=10 are advance rungs a separated
+> per-second gain may carry over a flat primary; the per-run guards sit on depth>=6
+> and >=8; depth>=6 stays the cross-epoch comparison rung. Recorded epoch-13 decisions
+> keep their `internal-primary-v1` rule version and replay on depth>=6. The grader
+> identity becomes `ta:12160cd+porc:ebf06c5+oracle:390ec49e`.
+
 
 Dated notes appended by the research loop.
 

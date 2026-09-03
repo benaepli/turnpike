@@ -227,7 +227,7 @@ const HYPOTHESIS_JSON_GUIDE = `Reply with ONLY a JSON object: {"hypotheses": [..
  "buildsOn": ["mechanism names this depends on"], "expectedGain": 0-10, "expectedCost": 0.1-10,
  "rationale": "why this should move the ladder", "generalityArgument": "why this is protocol-agnostic (rule 1)",
  "prediction": {"firingCounter": "dotted.path.in.utilization.json" or null, "firingFloor": 1,
-   "rung": "depth>=4"|"depth>=5"|"depth>=6"|"depth>=7"|"depth>=8"|"violations"|"h2"|"throughput",
+   "rung": "depth>=4"|"depth>=5"|"depth>=6"|"depth>=7"|"depth>=8"|"depth>=9"|"depth>=10"|"depth>=11"|"depth>=12"|"depth>=13"|"violations"|"h2"|"throughput",
    "sizePct": {"min": 0.05, "max": 0.15}, "mechanism": "how the change produces that move",
    "independentObservable": "something else this predicts that the rung does not",
    "falsifier": "the result that would refute it"},
@@ -268,8 +268,8 @@ export async function proposeHypotheses(policy: Policy, lens: string, statusMd: 
 
 const JUDGE_RUBRIC = `## Scoring rubric (you assign expectedGain/expectedCost; proposer values are advisory only)
 expectedCost anchors, in the same units as expectedGain: candidates are ranked on expectedGain minus expectedCost, so a cost is the gain a candidate must return to earn the iteration it takes. Evaluation holds about two thirds of every iteration whatever the candidate is, and implementation about eight minutes, so the honest spread is narrow: config-only change 0.2 | <=50 lines Rust 0.5 | scheduler-core change 1 | new instrumentation/plumbing 1.5 | +1 if it touches execution semantics (core/exec.rs, history.rs - routes to needs-human). Cost separates candidates whose gains are comparable; it does not outweigh a difference in gain.
-The primary objective is depth>=6 events per explore-second (GOAL.md rule 6): a rung's rate is its per-run probability times runs per second, so a change that raises either factor without lowering the other moves the objective by the same relative amount.
-expectedGain anchors, per-run factor: must name WHICH ladder rung's conditional probability it lifts (depth>=4, >=5, >=6, violations, h2) and the causal path to a specific crash/recovery/delivery event. Rung-specific causal story with a plausible >=1.5x effect: 6-8. Same but indirect/partial: 3-5. "More novelty/coverage in general": 1-2.
+The primary objective is the epoch's primary rung (GOAL.md; depth>=8 from epoch 14, depth>=6 before it) in events per explore-second: a rung's rate is its per-run probability times runs per second, so a change that raises either factor without lowering the other moves the objective by the same relative amount.
+expectedGain anchors, per-run factor: must name WHICH ladder rung's conditional probability it lifts (depth>=4 through depth>=13, violations, h2) and the causal path to a specific crash/recovery/delivery event. Rung-specific causal story with a plausible >=1.5x effect: 6-8. Same but indirect/partial: 3-5. "More novelty/coverage in general": 1-2.
 expectedGain anchors, per-second factor (kind perf): must name the measured hotspot and the expected runs/s delta on the bench, with per-run rung probabilities unchanged. >=30%: 7 | >=15%: 5 | >=5%: 3 | below the 5% bench gate: 0-1.
 Cannot state a falsifying result (a screen result for the per-run factor, a bench result for the per-second factor): 0-1.
 Parameter surface: +0.5 expectedCost per new tunable (a config field or a constant in code, hidden defaults included); credit for each tunable removed or subsumed. A mechanism that needs a value a different protocol could not derive scores expectedGain <= 3 unless it also removes a tunable. Ask of every candidate: what value would another protocol need here, and how would anyone know?

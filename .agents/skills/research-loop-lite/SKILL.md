@@ -193,10 +193,11 @@ rewritten):
 >   mechanism cannot be turned off per run, say so here and name the reason;
 >   the candidate is then graded on the cross-binary rung, where nothing
 >   under +5% separates.
-> - **Rung and band**: on `depth>=6`, the **per-run ratio** of treated to
->   untreated runs in the same session, probe-free and matched on co-bits,
->   will land in **[1.05, 1.25]**. (Not a per-second figure: per-second mixes
->   throughput with 4-5% of build-layout noise.)
+> - **Rung and band**: on the epoch's primary rung (`depth>=8` under epoch
+>   14; `depth>=6` stays the cross-epoch comparison rung), the **per-run
+>   ratio** of treated to untreated runs in the same session, probe-free and
+>   matched on co-bits, will land in **[1.05, 1.25]**. (Not a per-second
+>   figure: per-second mixes throughput with 4-5% of build-layout noise.)
 > - **Firing counter**: `<dotted.path>` in `utilization.json` at or above
 >   `<floor>` per chunk.
 > - **Independent observable**: `<something the rung does not measure>`,
@@ -323,16 +324,22 @@ happened; run it in the background and read the JSON when it exits). A
 config-only candidate still needs real chunks - the binary is the same but
 the config is not.
 
-How to read the status: `primary` carries the merge criterion - the
-randomized per-run contrast of treated to untreated runs, its interval,
-`meiAtCap` (the smallest effect still separable at the chunk cap), and its
-`bandReading` against the frozen band. `cost` carries the cross-binary
-per-second rung and throughput, which can only block: a ratio inside the 5%
-build-layout floor is a cost reading, not evidence of a gain.
-`stopper.rungs[*]` carries each cost rung's events-per-explore-second ratio,
-its `nullBand`, `pGreater`, `pRegress`, and `mei`. `verdict` is the sampler's
-reading; `resolvedIfStopped.rule` is the verdict `finish` would print on the
-chunks in hand.
+How to read the status: every rung figure is on the epoch's primary rung
+(`depth>=8` under epoch 14, rule version `internal-primary-v2`; `depth>=6`
+stays the cross-epoch comparison rung and a per-run guard). `primary`
+carries the merge criterion - the randomized per-run contrast of treated to
+untreated runs on that rung, its interval, `meiAtCap` (the smallest effect
+still separable at the chunk cap), and its `bandReading` against the frozen
+band. `cost` carries the cross-binary per-second primary rung and
+throughput, which can only block: a ratio inside the 5% build-layout floor
+is a cost reading, not evidence of a gain. `stopper.rungs[*]` carries every
+reported rung from `depth>=4` through `depth>=13`: events on both sides, the
+events-per-explore-second ratio, its `nullBand`, `pGreater`, `pRegress`, and
+`mei`. On the cross-binary fallback path a separated `depth>=9` or
+`depth>=10` (the advance rungs) can carry a merge over a flat primary, never
+over one below its band; rungs 11-13 are recorded and never decided on.
+`verdict` is the sampler's reading; `resolvedIfStopped.rule` is the verdict
+`finish` would print on the chunks in hand.
 
 Stop calling `chunk` when any of:
 - `primary.verdict` separates in either direction, or `primary.bandReading`

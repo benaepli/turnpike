@@ -11,13 +11,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { askChunkStopper } from "./agents.js";
-import { PRIMARY_RUNG } from "./decide.js";
+import { PRIMARY_RUNG, REPORTED_RUNGS } from "./decide.js";
 import { ROOT } from "./paths.js";
 import type { Policy } from "./policy.js";
 import type { PooledCounts, SeqDecision, SeqRule } from "./sequential.js";
 
 // The rungs the payload reports. Every one the rule computes a posterior for.
-const RUNGS = [4, 5, 6, 7, 8] as const;
+const RUNGS = REPORTED_RUNGS;
 // Violating runs are evidence, not a metric: enough of them to see whether an
 // arm repeats, not the whole table.
 const MAX_VIOLATING_RUNS = 20;

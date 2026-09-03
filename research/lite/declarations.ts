@@ -6,6 +6,27 @@
 //
 // A session with no entry declared nothing and is graded on the cross-binary
 // rung. New sessions declare at `start` instead of here.
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+import { ROOT } from "../orchestrator/src/paths.js";
+
+const DECISIONS_PATH = path.join(ROOT, "research", "lite", "decisions.jsonl");
+
+/** The rule version a recorded session was decided under: the last decision
+ *  row for the name that carries one. null where the record carries none,
+ *  which reads as the first internal-primary version. A session is judged on
+ *  the rungs its record was made on, whatever the live rule decides on. */
+export function recordedRuleVersionFor(name: string): string | null {
+  if (!fs.existsSync(DECISIONS_PATH)) return null;
+  let version: string | null = null;
+  for (const line of fs.readFileSync(DECISIONS_PATH, "utf8").split("\n")) {
+    if (line.trim().length === 0) continue;
+    const row = JSON.parse(line) as { name?: string; ruleVersion?: string };
+    if (row.name === name && typeof row.ruleVersion === "string") version = row.ruleVersion;
+  }
+  return version;
+}
 
 export interface RecordedDeclaration {
   name: string;
