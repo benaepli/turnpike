@@ -1229,3 +1229,63 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   victim_swap.victim_crashed_holds per run within 0.5x of today on treated
   runs; falsifier: the bit-19 interval entirely outside [1.60, 1.85], or
   census_mismatch above 0.5%, or throughput below 0.98.
+
+## trace-print-format-pipeline-direct-write
+
+- kind: perf | category: performance | origin: proposer | status: ADMITTED
+  at iteration 22 (judge gain 6, cost 2: touches exec.rs and history.rs,
+  so the decision is filed for the user whatever the grade)
+- Hotspot: the trace and print formatting pipeline - core::fmt::write
+  3.69% self on the fresh profile, String::write_str 2.43%, Value::fmt
+  1.06%, serde_json serialize_str 2.27% - on every delivery of every run:
+  each @trace handler produces three rows whose parameters are formatted
+  with to_string into a Vec<String>, each println builds its string through
+  Plus concatenations and IntToString via fmt, and serialize_traces re-walks
+  every row into Vec<JsonValue> inside a nested par_iter, cloning payloads
+  and names. The traces table is grader instrumentation and must stay byte
+  for byte identical; the change alters no byte.
+- Change: Value::write_to appending exactly the Display bytes (Display
+  delegates to it); trace parameters formatted into one reusable scratch
+  string with the JSON payload written once per item through
+  serde_json::to_writer; TraceEntry carries the pre-serialized payload and
+  an Arc<str> name; serialize_traces and serialize_logs move rows into the
+  writer sequentially with no JsonValue and no clone; Print builds its
+  content through write_to; string Plus and IntToString allocate once.
+- Frozen prediction: kind perf, rung throughput - cross-binary runs per
+  explore-second on general_vr.json in [+8%, +12%] (point +9%);
+  independent observable: per-run allocation count under a counting
+  allocator on bench.json with VR.spur falls by at least 20% (negative
+  sign) with traces rows per run unchanged; paired wall per step per shared
+  run id falls by the rung's ratio; cost clause: depth>=6 per run on the
+  crashPhase (512) internal contrast unchanged, and identical per shared
+  run id since no schedule moves; steps per run per arm identical.
+  Falsifier: the throughput interval entirely below +8%; any shared run id
+  differing in executions rows, steps_used, or utilStats counters; any
+  byte of the traces or logs parquet differing on the golden set; or the
+  allocation count not falling. The judge's arithmetic puts the honest
+  point at +8-9%, on the floor: serialize_str is kept per item.
+- Acceptance test (implementer): fixed-seed standard runs of VR, Paxos,
+  Raft and the six fixtures before and after; equal digests of executions
+  (run_id, seq_num, kind, action, payload, step), runs (workload_seed,
+  schedule_seed, steps_used, end_reason) and every utilStats counter
+  including tape_words_sum; equal hashes of all traces and logs rows
+  ordered by (run_id, seq_num); property tests that write_to equals Display
+  on nested and edge-case values and that inline payload bytes equal
+  serde_json::to_string of the same items.
+
+## handler-invocation-fixed-overhead-take-env
+
+- kind: perf | category: performance | origin: proposer | status: HELD at
+  iteration 22 (judge gain 3, cost 2) until a debug counter reads the
+  node-environment copy fraction; never in the same binary as the
+  formatting rewrite
+- Hotspot: execute_common_label 4.90% and exec 2.09% with make_unique
+  1.92%, make_local_env 1.60% and SipHasher 2.15% beneath them; the
+  proposal's mem::take of the node environment with write-back, compile-
+  time call-target resolution and a single-allocation frame. Judge: the
+  local environment is shared at every entry and TraceEnter writes a local
+  slot first, so make_unique fires on every traced entry regardless; the
+  node-env copy fires only when a node variable is written, measured at
+  40.9% of ordinary deliveries; corrected gain about +6%, inside the layout
+  band. Hazards traced and found safe (two mid-exec readers of the node
+  env; complete exit paths; no crash interleaves exec).
