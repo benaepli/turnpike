@@ -1878,3 +1878,19 @@ and is what the running round asks for.
 **Goal.** Re-read. The objective is depth-8 events per explore-second; the
 epoch-14 baseline reads about 6,300 per chunk at 2,042 runs per second,
 and the ledger starts at 1.0 for the epoch.
+
+## Iteration 25: restarting earlier changes nothing, because stock already does
+
+The restart preemption took 97.5% of eligible recoveries before any
+stranded send was consumed, against a control rate of 88.5% -
+the stock explorer already restarts a crashed node before its ghosts drain
+nine times in ten. The overtake share of ghost entries from a restarted
+origin stayed at 0.362 against 0.367 (falsifier below 1.10x fired), depth>=8
+read 1.0341 [0.9759, 1.0957], depth 6 0.991, depth 9 1.018; steps and
+plan completion flat, throughput 1.013, no violations. Closed.
+
+What it establishes: in most runs the recovered node's Recovery request
+and its dead incarnation's StartViewChange are both in flight to the peer
+at the same time, and depth 8 is decided by which of the two eligible
+records the scheduler dispatches first - a same-step choice, not a hold
+and not a release time. The round now proposing asks exactly that.

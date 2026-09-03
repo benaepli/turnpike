@@ -1445,10 +1445,14 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## restart-before-stranded-drain-preempt
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 25 (judge gain 6, cost 0; iteration-25 top pick) | parent:
-  recovery-stranded-drain-phase-anchored-release (closed at iteration 18
-  under a rung that could not price the race)
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 25 on its falsifier - overtake share 0.988x control (clause
+  1.10x); the mechanism fired (0.975 of eligible recoveries
+  preempted) but the stock explorer already restarts before the drain
+  0.885 of the time, so there was no headroom;
+  depth>=8 1.0341. The dispatch choice between the Recovery request
+  and the ghost decides depth 8 | parent:
+  recovery-stranded-drain-phase-anchored-release
 - Mechanism: recovery timing keyed on the victim's own stranded fan-out,
   in the one direction the closed family never read on a rung that sees
   it: BEFORE the first consumption. On a salted half of runs (bit 1 << 29,
