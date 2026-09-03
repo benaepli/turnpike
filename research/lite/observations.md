@@ -2222,3 +2222,11 @@ whole depth-10 lever, and the length of that delay is a free parameter
 nobody has varied - a whole-half contrast on the length (16, 32, 64) is the
 natural follow-up and is a dose on a merged mechanism, which the proposer
 rules allow.
+
+**Fixed-host Paxos members calibrated** (three seeds, 288,000 runs each
+row): the fixed host 0 violations; paxos-fixed-forget-promise 29 (1.0e-4
+per run, 0.70 per second); paxos-fixed-recover-stale-scout 85 (3.0e-4 per
+run, 1.88 per second). Both are now attributable recovery-shaped members;
+the scout member joins the quick guard set at wallSec 15 and forget-promise
+the slow set at wallSec 45. The quick set is now four members: the two easy
+ones, raft-stale-vote and the Paxos stale scout.

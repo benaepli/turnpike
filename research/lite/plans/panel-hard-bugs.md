@@ -193,6 +193,19 @@ manifest (their reads are in observations.md); the unfixed injections stay
 on disk as records. Calibration of the three new rows: three seeds each,
 member rate must clear 20x the fixed-host control.
 
+Calibration on the fixed host (2026-09-03, three seeds pooled, scale 3,
+merged tree spur f769929):
+
+| member | runs | violations | per run | per second | per seed | tier | set |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| paxos-fixed-host-control | 288,000 | 0 | < 1.0e-5 | 0 | 0, 0, 0 | control | with either set |
+| paxos-fixed-forget-promise | 287,605 | 29 | 1.0e-4 | 0.70 | 6, 14, 9 | hard | slow, wallSec 45 (E about 95) |
+| paxos-fixed-recover-stale-scout | 288,000 | 85 | 3.0e-4 | 1.88 | 27, 32, 26 | hard (15 short of medium) | quick, wallSec 15 (E about 85) |
+
+Both members separate from their control without bound (0 control
+events), so both are attributable; the scout member joins the quick guard
+set because 45 s already yields about 85 events, enough to see a 2x move.
+
 ## 3. Calibration protocol
 
 Regime: calibrate with the panel subcommand's own mechanics so the

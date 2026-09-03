@@ -1398,7 +1398,7 @@ interface PanelMember {
 
 // The members whose calibrated event rates can resolve inside a short wall;
 // the rest are reachable via --members.
-const DEFAULT_PANEL_MEMBERS = ["paxos-accept-stale-ballot", "mencius-opt1-2", "raft-stale-vote"];
+const DEFAULT_PANEL_MEMBERS = ["paxos-accept-stale-ballot", "mencius-opt1-2", "raft-stale-vote", "paxos-fixed-recover-stale-scout"];
 
 function panelManifest(threads: number): { path: string; members: PanelMember[] } {
   const candidates = [

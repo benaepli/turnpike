@@ -376,24 +376,30 @@
       },
       "maxIterations": 8000,
       "role": "control",
-      "expectedRate": null,
+      "expectedRate": 0.0,
       "calibration": {
-        "atIso": null,
-        "rateRuns": 0,
+        "atIso": "2026-09-03T23:30:00Z",
+        "rateRuns": 288000,
         "rateViolations": 0,
         "dispersion": 1,
-        "cleanRuns": null,
-        "cleanViolations": null,
+        "cleanRuns": 288000,
+        "cleanViolations": 0,
         "hostCeiling": 0.0251,
         "budgetRatio": 1,
-        "runsPerSec": 6600,
-        "eventsPerSec": 0,
-        "tauBestSec": null
+        "runsPerSec": 6555,
+        "eventsPerSec": 0.0,
+        "tauBestSec": null,
+        "seeds": [
+          1000,
+          1001,
+          1002
+        ],
+        "perSeedViolations": null
       },
       "notes": "Added 2026-09-03 after Paxos.spur was classified (research/lite/findings/paxos-host-crash-violation.md). 0 violations in 52,017 runs under the forget-promise overlay at seed 1000.",
       "wallSec": 15,
       "replicates": 3,
-      "tier": "uncalibrated"
+      "tier": "control"
     },
     {
       "id": "paxos-fixed-forget-promise",
@@ -442,24 +448,35 @@
       },
       "maxIterations": 8000,
       "role": "hard",
-      "expectedRate": null,
+      "expectedRate": 0.0001008,
       "calibration": {
-        "atIso": null,
-        "rateRuns": 0,
-        "rateViolations": 0,
-        "dispersion": 1,
-        "cleanRuns": null,
-        "cleanViolations": null,
+        "atIso": "2026-09-03T23:30:00Z",
+        "rateRuns": 287605,
+        "rateViolations": 29,
+        "dispersion": 1.69,
+        "cleanRuns": 288000,
+        "cleanViolations": 0,
         "hostCeiling": 0.0251,
         "budgetRatio": 1,
-        "runsPerSec": 6600,
-        "eventsPerSec": 0,
-        "tauBestSec": null
+        "runsPerSec": 6891,
+        "eventsPerSec": 0.6954,
+        "tauBestSec": null,
+        "seeds": [
+          1000,
+          1001,
+          1002
+        ],
+        "perSeedViolations": [
+          6,
+          14,
+          9
+        ]
       },
-      "notes": "Re-derived from the fixed host 2026-09-03. Reachability: research/lite/plans/paxos-forget-promise-plan.json (300/300 violate, fixed host 0/300). Calibration pending.",
-      "wallSec": 15,
+      "notes": "Re-derived from the fixed host 2026-09-03. Reachability: research/lite/plans/paxos-forget-promise-plan.json (300/300 violate, fixed host 0/300). Calibrated 2026-09-03 on the merged tree (spur f769929) with the panel mechanics at scale 3, three seeds pooled; the fixed host read 0 in 288,000 under the same overlay.",
+      "wallSec": 45,
       "replicates": 3,
-      "tier": "uncalibrated"
+      "tier": "hard",
+      "expectedEvents": 93.9
     },
     {
       "id": "paxos-fixed-recover-stale-scout",
@@ -507,25 +524,36 @@
         ]
       },
       "maxIterations": 8000,
-      "role": "hard",
-      "expectedRate": null,
+      "role": "gate-report",
+      "expectedRate": 0.0002951,
       "calibration": {
-        "atIso": null,
-        "rateRuns": 0,
-        "rateViolations": 0,
-        "dispersion": 1,
-        "cleanRuns": null,
-        "cleanViolations": null,
+        "atIso": "2026-09-03T23:30:00Z",
+        "rateRuns": 288000,
+        "rateViolations": 85,
+        "dispersion": 1.0,
+        "cleanRuns": 288000,
+        "cleanViolations": 0,
         "hostCeiling": 0.0251,
         "budgetRatio": 1,
-        "runsPerSec": 6600,
-        "eventsPerSec": 0,
-        "tauBestSec": null
+        "runsPerSec": 6356,
+        "eventsPerSec": 1.8764,
+        "tauBestSec": null,
+        "seeds": [
+          1000,
+          1001,
+          1002
+        ],
+        "perSeedViolations": [
+          27,
+          32,
+          26
+        ]
       },
-      "notes": "Re-derived from the fixed host 2026-09-03. Reachability: research/lite/plans/paxos-recover-stale-scout-plan.json (runs 34 and 154 of 300 violate, fixed host 0/300). Calibration pending.",
+      "notes": "Re-derived from the fixed host 2026-09-03. Reachability: research/lite/plans/paxos-recover-stale-scout-plan.json (runs 34 and 154 of 300 violate, fixed host 0/300). Calibrated 2026-09-03 on the merged tree (spur f769929) with the panel mechanics at scale 3, three seeds pooled; the fixed host read 0 in 288,000 under the same overlay.",
       "wallSec": 15,
       "replicates": 3,
-      "tier": "uncalibrated"
+      "tier": "hard",
+      "expectedEvents": 84.4
     }
   ]
 }
