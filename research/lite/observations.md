@@ -2122,3 +2122,33 @@ Read with iteration 29-30: the loop's last three merges are all about
 WHEN something that already exists is allowed to happen - a dispatch
 choice between two records, the order inside a pair, and now the moment a
 client request is issued - and none of them holds a record in flight.
+
+## Panel: the four dormant recovery-shaped members read on the merged tree
+
+First run of `panel --members all` (seed 1000, scale 3) on the tree after
+the iteration-31 merge (5ded656, spur f769929). The 2026-08-28 calibration
+was taken under a different regime (Raft at 950 runs per second against
+6,100 here), so this read is the anchor for the panel from now on, not a
+comparison against the manifest.
+
+| member | runs | violations | per run | per second | note |
+| --- | --- | --- | --- | --- | --- |
+| paxos-accept-stale-ballot | 95,993 | 3,386 | 3.53% | 307 | flat per run |
+| mencius-opt1-2 | 48,069 | 721 | 1.50% | 15.8 | flat per run |
+| raft-stale-vote | 278,072 | 112 | 4.0e-4 | 2.47 | calibration 3.0e-4 on 54 events, z 1.8 up |
+| raft-forget-vote | 288,000 | 7 | 2.4e-5 | 0.16 | calibration 3 in 171,604; count only |
+| raft-commit-prev-term | 277,282 | 0 | < 1.1e-5 | 0 | never observed; needs the figure-8 run-plan |
+| paxos-forget-promise | 95,860 | 335 | 3.5e-3 | 23.2 | calibration 4 in 19,992 with 3 in the control |
+
+paxos-forget-promise is the striking row: 17x its calibrated per-run rate,
+on a member the calibration marked unattributable because Paxos.spur itself
+violated at 1.5e-4 under the same overlay. Nothing can be said until the
+control is re-read on this tree under the identical overlay and wall; that
+read is queued behind the baseline cache. If the control stays near 1e-4,
+this is the first recovery-shaped member the fault mechanisms moved, and by
+a lot; if the control moved with it, the merged crash placement is reaching
+Paxos.spur's own unclassified recovery bug, which is a finding of its own.
+
+raft-stale-vote is promoted to the quick guard set at wallSec 40 (its
+per-run rate is the guard from here; about 300 expected events per read).
+The two easy members are unchanged per run, as at every merge.

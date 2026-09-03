@@ -179,7 +179,7 @@
         ]
       },
       "maxIterations": 12000,
-      "role": "report",
+      "role": "gate-report",
       "expectedRate": 0.0002998,
       "calibration": {
         "atIso": "2026-08-28T20:38:52Z",
@@ -194,8 +194,8 @@
         "eventsPerSec": 0.29776,
         "tauBestSec": 2.415
       },
-      "notes": "14% of its host ceiling; reaches the bug but cannot resolve a rate change at any affordable count.",
-      "wallSec": 15,
+      "notes": "14% of its host ceiling; reaches the bug but cannot resolve a rate change at any affordable count. Promoted to the quick set on 2026-09-03 after the merged-tree read (112/278,072 in 45 s at seed 1000, scale 3); wallSec 40 gives about 300 expected events at that rate.",
+      "wallSec": 40,
       "replicates": 3
     },
     {
@@ -245,7 +245,7 @@
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 0.00001,
+      "expectedRate": 1e-05,
       "calibration": {
         "atIso": "2026-08-28T20:42:08Z",
         "rateRuns": 20016,
@@ -310,7 +310,7 @@
       },
       "maxIterations": 12000,
       "role": "report",
-      "expectedRate": 0.00001,
+      "expectedRate": 1e-05,
       "calibration": {
         "atIso": "2026-08-28T20:45:24Z",
         "rateRuns": 20016,
