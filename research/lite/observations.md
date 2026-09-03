@@ -1665,3 +1665,26 @@ anchors: paxos 315.44, mencius 22.80. The fresh baseline cache reads
 1916.03 runs per second, 1.096 of the frozen epoch figure, with 15,449 and
 16,076 depth-6 events and 40 and 66 depth-9 events per chunk; the ledger's
 cumulative throughput stands at 1.1385 after four merges.
+
+## Iteration 23: a diagnostic round on precision, not a premise check
+
+The premise-check lens was set aside on the user's point that the general
+config demonstrably reaches the chain: on the merged tree one 300 s
+session of 633,408 runs reached depth 6 in 15,823 runs, depth 7 in 1,090,
+depth 8 in 801 and depth 9 in 74, with zero violations. The regenerated
+bug-finding corpus (3,000 run-plan runs) reaches depth 9 in 90 runs and
+violates in 11, the same eleven run ids as the manifest - the run-plan
+path is run-for-run deterministic where the campaign is not. So the chain
+shape the oracle matches is necessary and far from sufficient: about one
+depth-9 corpus run in eight violates, and none of several hundred general
+depth-9 runs tonight did. The round therefore proposes diagnostics that
+read, from the stored rows of depth-8 and depth-9 runs, what separates the
+violating runs from the rest, in a form that can drive an oracle proposal
+to the user or steer the next mechanism.
+
+Two small facts for anyone repeating this: the two oracle files differ
+only in the key name (the corpus writes x, the general workload key1), so
+each corpus grades under its own file and labels are comparable one to
+one; and porcupine reports violating runs as text on stderr, not in its
+JSON. Both databases, their per-run depths and the violating ids are kept
+under tmp/loop/precision/ for the round.
