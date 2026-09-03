@@ -2186,3 +2186,20 @@ bin/spur/panel/ and its Paxos members are re-derived from it.
 pooled 998 against 1,041 in 288,000. The injection adds nothing visible
 over the host background; every Paxos F2 member is unattributable until
 the fixed host exists, and the calibration is repeated on it.
+
+## Iteration 32: holding the Recover until the peer settles kills depth 8
+
+The peer-settled restart release (bit 1 << 30) was graded over four chunks
+on the merged tree and refuted: depth>=8 per run 0.450 [0.436, 0.465],
+depth>=9 0.703, depth>=7 flat, while depth>=11 and 12 read 1.79 [1.02,
+3.14] and 2.17 [1.10, 4.30] on a few dozen events. The firing was as built
+(held 0.47 of eligible, 90% released by drain, held 23 steps) but the
+peer-settled release fired in 2.7% of holds instead of the predicted 30%,
+and both observables were flat. The race the mechanism wins - the dead
+incarnation's record reaching the recovering peer before the Recover, 18%
+of treated restarts against 1.4% - is the inverse of label 8, so the
+mechanism removes the chain's own ordering at the primary rung. Closed per
+the frozen map; the deep-rung enrichment is filed in the plan. Lesson for
+the census: P4_2 (the Recovery answered before the peer leaves the old
+view) is about the peer's view, not about which of the ghost and the
+Recover arrives first; the two were conflated in the proposal.

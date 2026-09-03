@@ -51,3 +51,38 @@ answered in the old round.
 
 `start --treatment-bit 1073741824 --band-min -0.08 --band-max 0.06`,
 four chunks; then a kept explore for the census split by bit.
+
+## Verdict (2026-09-03)
+
+Closed, refuted on the primary. Four chunks on the merged tree (spur
+f769929), 948,752 treated against 950,075 control runs:
+
+| rung | treated/control per run | interval |
+| --- | --- | --- |
+| depth>=7 | 1.009 | [0.993, 1.025] |
+| depth>=8 | 0.450 | [0.436, 0.465] |
+| depth>=9 | 0.703 | [0.657, 0.752] |
+| depth>=10 | 1.057 | [0.841, 1.329] |
+| depth>=11 | 1.792 | [1.022, 3.142] |
+| depth>=12 | 2.170 | [1.095, 4.300] |
+
+Firing: held 410,859 (0.47 of eligible), released drained 0.90, expired
+0.075, peer_settled 0.027 (predicted >= 0.30, missed), held steps per held
+22.7, held_at_exit 2, lifted 0. Race counter: the dead incarnation's record
+reached the recovering peer before the Recover in 0.178 of treated restarts
+against 0.014 on control. Observables missed: settled receivers' fresh
+request acted share 0.560 against 0.561; ghost entries per restart into a
+settled receiver 1.07x. Cost: throughput 0.955, depth>=8 per explore-second
+0.71, steps 0.998, plan completion +0.08 points.
+
+Reading: the mechanism does what it says and that is why it fails. Label 8
+of the oracle is the ghost StartViewChange acting AFTER the Recovery; the
+hold makes the ghost land BEFORE the Recover in one restart of six, so the
+chain's depth-7 to depth-8 transition is removed in those runs and depth 8
+halves. The runs that still pass depth 8 are enriched at depth 11 and 12,
+which says the later ordering (old-view PrepareOK, StartView) benefits from
+a peer that has already absorbed the ghost. A rule that applied the hold
+only after the chain's ghost-after-Recovery ordering had already happened
+in the run would keep the tail gain without the depth-8 loss, but that
+ordering is not visible to the scheduler online; left as a note for the
+proposer.

@@ -1840,8 +1840,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## restart-release-after-peer-settles
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 32 (judge gain 6, cost 0; iteration-32 top pick) | parent:
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 32 (refuted: depth>=8 per run 0.450 [0.436, 0.465]; the hold
+  puts the ghost before the Recover, which is the opposite of label 8;
+  depth>=11 and 12 about 1.8-2.2x with lower edges above 1.0, filed as a
+  finding, not credited) | parent:
   recovering-receiver-reply-first-deferral (held) and the closed restart
   preemption
 - Mechanism: a fault-side release rule on the RECOVER of the second fault
