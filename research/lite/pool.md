@@ -1513,3 +1513,71 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 25 (judge gain 2): collapses to its parent on one run shape and
   delays the restart into the drain on the other; not to be built in this
   form.
+
+## fresh-first-same-pair-dispatch-tiebreak
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 26 (judge gain 7, cost 0; iteration-26 top pick)
+- Mechanism: a same-step dispatch preference, not a hold. In the network
+  branch of schedule_runnable, after the stock tournament has drawn a record
+  and spent its RNG draws: on a treated run (bit 1 << 24, freshFirstPair,
+  salted half by run id, probes exempt), if the drawn record is from a
+  dead incarnation of its origin and an eligible record from that origin's
+  current incarnation to the same destination exists, take that fresh record
+  instead. The ghost stays eligible every step, no step goes unfilled, no
+  expiry, no draw consumed; the scan is gated on the origin's ledger having
+  both fresh and stale records in flight. Channel sends are neutral.
+- Why: iteration 25 established that the Recovery request and the ghost
+  StartViewChange are both in flight to the peer at once and the dispatch
+  choice decides depth 8; the control's overtake share of 0.37 says the stock
+  tournament takes the ghost first about 60% of the time. Under a same-pair
+  fresh-first rule the swap fires once per restart episode (the fresh
+  backlog is the one Recovery record) and the overtake share should rise to
+  0.8-0.9.
+- Frozen prediction (epoch 14): bit FRESH_FIRST_PAIR = 1 << 24 (16777216);
+  primary depth>=8 per-run ratio treated against untreated in [1.12, 2.60]
+  (expected 1.5-2.4); depth>=6 in [0.98, 1.03]; depth>=7 in [0.99, 1.05];
+  depth>=9 and 11 reported; firing fresh_first.swaps >= 100,000 per chunk
+  and fresh_first.contested_dispatches >= 300,000 per chunk (both halves);
+  independent observable: treated overtake share >= 1.30x control (control
+  about 0.37); reported: control stale_drawn/contested (the coin),
+  repeat_swaps/swaps <= 0.25 with a swap-count histogram, contested_down,
+  and a post-session census of P4_2 and R4 on treated versus control
+  depth>=8 runs; falsifier: depth>=8 interval entirely below 1.03, or
+  overtake below 1.10x, or repeat_swaps/swaps above 0.25, or any treated
+  contested dispatch that delivered the stale record while a fresh same-pair
+  record was eligible, or treated steps per run above 1.05x control
+  (probe-free 2,102 and 2,163), or plan_complete more than 3 points below
+  control (21.9% and 21.1%), or crashes or recovers per treated run outside
+  1% of control; cost: throughput >= 0.97 of 2041.85, regression passes.
+  Verdict map: depth>=8 up, overtake met, treated P4_2 share not below
+  control -> merge; depth>=8 up and overtake met but P4_2 below control ->
+  file for the user (the swap forbids the RecoveryResponse-before-Recovery
+  order node 1 needs to finish its own recovery); observable met and depth 8
+  flat -> file with depth 9 and 11; observable missed -> close.
+- Judge corrections: the proposal's depth-9 mechanism does not exist for
+  this chain (node 2's RecoveryResponse to node 1 is sent before crash_2 and
+  is itself stale); the three-way class's automated read would be polluted
+  by its own stale-first arm (co-bit matching matches only bits set on every
+  treated cell).
+
+## fresh-first-destination-wide-restart-episode
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 26 (judge gain 4) for the round after the same-pair read;
+  bit 1 << 30 in its own session; amplifies the RecoveryResponse
+  displacement hazard.
+
+## pair-order-drawn-class-fresh-stale-stock
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 26 (judge gain 3): its stale-first arm pollutes the automated
+  contrast; if the same-pair read is flat, run stale-first alone as a
+  half-of-runs session on bit 1 << 12 with a negative band.
+
+## restart-opening-send-first-at-every-peer
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 26 (judge gain 4, cost 2 as proposed - an exec.rs stamp; cost 0
+  if "opening" is derived from a send-ordinal range on the ledger); bit
+  1 << 17 when built.
