@@ -2260,3 +2260,79 @@ with a depth cost, which iteration 29 proposed and iteration 32's result
 argues against unless the hold is placed on the request rather than the
 Recover. The consistent small gradient across rungs is recorded; eight
 chunks would resolve depth 8 at this size.
+
+## Direction review at iteration 35
+
+**Has a violation appeared anywhere?** No. Zero candidate violations in the
+three sessions since iteration 30 (7.25M candidate runs: 2.44M, 2.40M,
+2.41M) and zero in their baseline halves. The recovery-nonce reuse did not
+recur. The target bug has not been seen under any general config.
+
+**Is depth a proxy the goal warns about?** The stretch's central result
+says the rung still tracks the path: the deferral moved depth 10 by 2.5x
+and the ablation showed the delay alone does it, while the peer-settled
+hold moved depth 11-12 up 2x and depth 8 down by half at the same time -
+the rungs disagree exactly where the mechanism inverts the chain's own
+ordering, which is what a faithful proxy should do. The residual risk is
+unchanged: depths 10-13 encode one path; the per-run rate at depth 13 is
+about 1e-5 on the current tree (3 to 6 events per 900k runs) and nothing
+has moved it. Depth 8 objective: 6,670-7,312 events per chunk at 2,042 runs
+per second against 6,300 at the epoch freeze.
+
+**Panel.** Now four quick members and four slow ones, all with a clean
+control, after the Paxos host bug was classified (implementation bug in
+Paxos.spur, filed) and a fixed host added. Quick set after the
+simplification merge: paxos-accept-stale-ballot 3.51%, mencius-opt1-2
+1.52%, raft-stale-vote 3.96e-4, paxos-fixed-recover-stale-scout 3.0e-4 per
+run - every one flat against its previous read or calibration. Slow set,
+first read (grid-bounded, so the run counts equal the quick set's; the
+manifest now gives these members 10x the runs from the next review):
+paxos-fixed-forget-promise 4 in 95,859 (calibration 1.0e-4; count-only),
+raft-forget-vote 5 in 288,000 (1.7e-5, at calibration; count-only),
+raft-commit-prev-term 0 in 288,000 (reachability proven by run-plan),
+fixed host 0 in 96,000. Portfolio reading: the crash-path merges have not
+moved any recovery-shaped member per run; they are VR-general-config gains
+so far, not cross-protocol ones. That is the honest state and the panel is
+now able to say so with attributable members.
+
+**Steering audit.** Five decisions since iteration 30: one merge on the
+rule (the client release, proposer), one simplification by operator
+decision on a seeded ablation (the grader read human by design), two closes
+(peer-settled hold, refuted on its primary; the ablation's parent's window,
+removed), one file (the reply-first swap, unresolved). Operator steering
+this stretch: the deferral-only ablation (seeded; paid for itself - it
+removed a mechanism and named the lever), the "online ordering signal"
+directive for iteration 34 (produced a well-argued candidate that did not
+fire where it aimed), the panel plan (user-authorized; six agent tasks, all
+landed). The directives narrowed the search to the receiver-recovering
+class for two rounds; both rounds returned the same lesson from different
+sides (a hold costs depth 8, a same-step swap never meets the contest), so
+the class is now understood rather than merely targeted, and the next
+directive moves off it.
+
+**Drift.** Mechanism-level throughout on the loop side. The eval side this
+stretch was larger than before: the panel plan (three new specs, two
+run-plan proofs, a classification, manifest and grader changes for the hard
+set). It was user-directed and it produced one real finding about a
+checked-in spec, but it consumed most of an afternoon of agent time while
+one mechanism grade ran at a time; from here the panel returns to its
+occasional cadence (quick set after merges, slow set at reviews).
+
+**Pool.** Prune: recovering-receiver-reply-first-deferral (superseded),
+crash-arm-skips-reply-to-recovering-peer (kept for two stretches without a
+build; the receiver-recovering class is now understood as an arrival gap
+and this candidate is a reply-side rewrite in the same class - demote to
+closed unless the next proposer round re-argues it), the deferred
+dispatched-before matcher constraint (eval work, out of the loop's lane).
+Open and next: the deferral-length contrast (seeded), an ablation of a
+never-measured merged mechanism (retarget, crash placement) and a salvage
+aimed at depth 8 -> 9 (iteration 35's round, proposing now), the kept
+ghost-follow-through (bit 17). Filed with patches: the reply-first swap
+(re-grade at eight chunks resolves its depth-8 gradient if nothing better
+is in the pool).
+
+**Goal.** Re-read. Nothing this stretch changes the objective; the
+question the next stretch should answer is whether the 32-step deferral is
+at its best length and whether the depth 8 -> 9 transition (the recovered
+node's ghost DoViewChange acting at the new primary) can be moved by a
+mechanism that does not hold anything.

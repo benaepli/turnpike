@@ -1897,7 +1897,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## crash-arm-skips-reply-to-recovering-peer
 
-- kind: add | category: scheduler | origin: proposer | status: KEPT at
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at iteration 35 (direction review: kept two stretches without a build; the receiver-recovering class is now understood as an arrival gap, and a reply-side rewrite in that class has no new argument; reopen only if a proposer re-argues it) | previously KEPT at
   iteration 32 (judge gain 5, cost 0) for the following session with a
   required rewrite: the skip must key on a FRESH-incarnation waking
   delivery (as written it also fires on the ghost fan-out itself), proven
