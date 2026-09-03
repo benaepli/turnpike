@@ -1915,3 +1915,12 @@ about 3% of chain-shaped runs while lifting the transition into depth 8 by
 about 16%. Which record a peer takes first, when two from the same origin
 are eligible at once, was the lever the census pointed at three rounds
 ago; holds and timers were the wrong instruments for it.
+
+Post-merge panel and cache (spur 6db3b34): see the ledger row for the
+figures.
+Panel: paxos-accept-stale-ballot 323.40 violations per second
+(3569 over 95991 runs, 3.72% per run) against 315.44; mencius-opt1-2
+23.57 (1072 over 70887, 1.51% per run) against 22.80.
+Fresh cache: 2139.37 runs per second (seeds 2207.0 and 2071.7), depth-8
+events 7699 and 7149 per chunk against 6,495 and 6,100 at the epoch freeze,
+depth-9 1234 and 1138, depth-11 11 and 11.

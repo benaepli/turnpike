@@ -19,5 +19,21 @@
  "layoutNullBand": 0.05,
  "layoutSource": "bb-build-layout-control, 2026-09-02: identical source built twice read 0.9634 on the per-second rung",
  "layoutMeasuredAtIso": "2026-09-02T09:20:00Z",
- "merges": []
+ "merges": [
+  {
+   "name": "fresh-first-same-pair-dispatch-tiebreak",
+   "commit": "e10f046",
+   "spurCommit": "6db3b34",
+   "ratio": 1.079,
+   "cumulative": 1.079,
+   "measuredRps": 2139.3730572395198,
+   "measuredRpsChunks": [
+    2207.031640382963,
+    2071.7144740960766
+   ],
+   "cacheFile": "research/lite/baselines/ba634c99e024-30-f9daa01b-300-g0d3de012.json",
+   "measuredAtIso": "2026-09-03T09:20:00Z",
+   "note": "measured by grader baseline --chunks 2 after the fresh-first merge; depth>=8 events per chunk [7699, 7149] against 6495/6100 at the epoch freeze"
+  }
+ ]
 }
