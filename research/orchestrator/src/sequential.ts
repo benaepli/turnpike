@@ -169,6 +169,18 @@ export function minimumEffect(baseCount: number, baseExposure: number, capExposu
   return MERGE_Z * Math.sqrt(1 / expectedCand + 1 / baseCount + Math.max(0, extraVar));
 }
 
+/** Posteriors as the state file can hold them. A rung with no baseline
+ *  events has an infinite minimum effect, and JSON writes that as null,
+ *  which the state schema then refuses; the sentinel keeps the comparison
+ *  ("no effect clears it") while staying a number. */
+export function storablePosteriors(p: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(p)) {
+    out[k] = Number.isFinite(v) ? v : Number.isNaN(v) ? 0 : v > 0 ? Number.MAX_VALUE : -Number.MAX_VALUE;
+  }
+  return out;
+}
+
 // The stopping rule, and only the stopping rule. It says when the sample in
 // hand is all there will be; what the figures mean is decided once, at the
 // merge gate. Sampling stops when a rung's events per explore-second already
@@ -939,7 +951,7 @@ export async function runSequential(opts: {
         ? classifyPooled(ruled, pooled, opts.baseline, seq.chunks, active)
         : ruled;
     }
-    seq = { ...seq, posteriors: decision.posteriors, lastVerdict: decision.verdict };
+    seq = { ...seq, posteriors: storablePosteriors(decision.posteriors), lastVerdict: decision.verdict };
     opts.onChunk(seq, decision, stopper);
     if (decision.verdict !== "continue") return { verdict: decision.verdict, reason: decision.reason, evals, seq };
   }

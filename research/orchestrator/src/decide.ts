@@ -1589,7 +1589,7 @@ export function selfTestInternalPrimary(): string[] {
   // 4. Declaration. A bit off the roster, an instrument bit, and no bit at
   // all are three different inapplicable readings, and none of them is a
   // contrast.
-  for (const [bit, want] of [[null, "no treatment bit declared"], [2048, "not on the roster"], [2, "instrument"], [8, "instrument"]] as Array<[number | null, string]>) {
+  for (const [bit, want] of [[null, "no treatment bit declared"], [4096, "not on the roster"], [2, "instrument"], [8, "instrument"]] as Array<[number | null, string]>) {
     const r = ip(exempting, bit);
     check(!r.applies && (r.inapplicableReason ?? "").includes(want), `bit ${bit} must be inapplicable for ${want}, got ${r.inapplicableReason}`);
   }

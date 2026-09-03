@@ -33,7 +33,7 @@ import { runOneEvaluation, selfTestRunIdentity, sumVariantCells, type EvalContex
 import {
   SYNTHETIC_CHUNK, canStillAdvance, classifyChunkTiming, classifyPooled, decideSequential, initialSeqState, medianRps,
   pooledCountsOf, pooledFromSeq, pooledLadder, selfTestGateConsistency, seqRuleOf, syntheticEvaluation,
-  type PooledCounts, type SeqDecision, type SeqRule,
+  storablePosteriors, type PooledCounts, type SeqDecision, type SeqRule,
 } from "../orchestrator/src/sequential.js";
 import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/stopper.js";
 import {
@@ -910,7 +910,7 @@ async function cmdChunk(flags: Map<string, string>): Promise<void> {
   writeChunkFile(state.name, seed, "cand", e);
 
   const a = assess(state, cache, policy, cfg, null);
-  state.seq = { ...state.seq, posteriors: a.ruled.posteriors, lastVerdict: a.ruled.verdict };
+  state.seq = { ...state.seq, posteriors: storablePosteriors(a.ruled.posteriors), lastVerdict: a.ruled.verdict };
   record("chunk", `verdict ${a.ruled.verdict}: ${a.ruled.reason}`);
   saveState(state);
   emit(buildStatus(state, cache, policy, cfg, {
