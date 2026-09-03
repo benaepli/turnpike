@@ -1584,3 +1584,77 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 26 (judge gain 4, cost 2 as proposed - an exec.rs stamp; cost 0
   if "opening" is derived from a send-ordinal range on the ledger); bit
   1 << 17 when built.
+
+## replay-tier-answered-overtake-cut
+
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 27 (judge gain 6, cost 0; iteration-27 top pick) | parent:
+  ghost-prefix-replay-corpus
+- Mechanism: two deeper corpus tiers beside the merged one. Tier 2 admits
+  a parent at the first ghost entry into a node that had already heard AND
+  replied to the origin's current incarnation (a per-pair answered flag
+  written at network entry; the protocol-free reading of "receiver not
+  recovering"), with the cut at that step; tier 3 at the second ghost from
+  the same dead incarnation into that peer (the depth-9 shape). Treated
+  slots (bit 1 << 13, replayTierDeep, a salted half of slot ids) serve the
+  deepest non-empty tier; control slots serve tier 1 as today. The corpus
+  is oversupplied at the depth-4 signal (65,620 parents against 221,689
+  children per chunk, 8 children each), so selectivity is free until the
+  signal rate falls below about 42% of today's. The heard table's update
+  moves out of the util_stats gate.
+- Frozen prediction (epoch 14): bit REPLAY_TIER_DEEP = 1 << 13 (8192);
+  treated share 0.19; depth>=8 per run treated slots against control
+  slots, co-bit matched, band [1.12, 2.20] on the SE-inflated interval
+  (multiply seEff by sqrt(1 + (m - 1) * 0.5), m = children per parent on
+  the thinner side); depth 6 in [0.95, 1.25]; depth>=9 ratio at least the
+  depth>=8 ratio, expected [1.15, 3.0]; firing per chunk: tier-2 plus
+  tier-3 children >= 40,000, tier-2 parents >= 5,000, deep_signal.tier2_
+  fired_runs >= 60,000 (ghost_signal.fired_runs 253,917 on the cache);
+  independent observables: tier-2/3 children fire the deep signal at >=
+  1.5x the tier-1 children's own-signal share (0.733), mean cut step tier 2
+  above tier 1, tier fallback share reported, post-session census P4_2 and
+  R4 on treated versus control depth-8 runs; falsifier: deep-signal ratio
+  below 1.2x, or tier-2 parents below 5,000, or the inflated depth>=8
+  interval entirely below 1.03; cost: throughput >= 0.97 of the fresh
+  cache (2139.37), steps per run <= 1.05x control slots, plan_complete
+  within 3 points of control slots.
+
+## replay-prefix-inherit-parent-bits
+
+- kind: enabling | category: feedback | origin: proposer | status: ADMITTED
+  at iteration 27 as a bundled fidelity read (judge gain 4, cost 0) |
+  parent: ghost-prefix-replay-corpus
+- Mechanism: on a salted half of PREFIX children (bit 1 << 11,
+  replayInheritBits), every run-id-keyed mechanism draw (crash placement,
+  crash phase, retarget, fresh-first, slot and prefix bits) is taken under
+  the PARENT's run id, so the replayed tape pins the prefix; the child keeps
+  its own DB id, slot bits and suffix seed; children of probe parents are
+  not inherited from (counted). The runs-table variant carries
+  from_run_id(mechanism_id) plus the child's grid-arm bits and the inherit
+  bit.
+- Frozen prediction: primary observable inherited-children fidelity >=
+  0.65 (against control prefix fidelity about 0.437), bits_differed share
+  >= 0.6; consistency check: own-id children whose bits happen to equal
+  the parent's read fidelity within 5 points of inherited children; firing:
+  inherited children >= 40,000 per chunk; depth>=8 per run inherited
+  against own-id prefix children read on the co-bit-stratified cells (a
+  balance fault on crashPlaced/crashPhase is expected), band [1.00, 1.35]
+  reported, decided only if the inflated interval clears 1.00; depth 6 in
+  [0.98, 1.15]; falsifier: fidelity below 0.65 (the divergence is shared
+  learned state - file that finding), or any inherited child tagged as a
+  probe, or the stratified depth>=8 read entirely below 1.00; cost:
+  throughput >= 0.98, steps <= 1.05x, plan_complete within 3 points.
+
+## replay-cut-at-last-signal
+
+- kind: add | category: feedback | origin: proposer | status: HELD at
+  iteration 27 (judge gain 3): the seed truncates the tape at the first cut
+  today, so both cuts must be kept; direction uncertain after iteration 25;
+  bit 1 << 15 when built, after the inheritance read.
+
+## replay-key-stratified-serving
+
+- kind: add | category: feedback | origin: proposer | status: HELD at
+  iteration 27 (judge gain 3): the target's first-cut key is the modal one
+  and half the signature keys are unreachable; bit 1 << 18 when built, after
+  the tier counters show which stratum carries depth-8 children.
