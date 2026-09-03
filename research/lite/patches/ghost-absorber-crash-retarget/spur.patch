@@ -1,0 +1,928 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index 0c54f51..149260a 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -6,6 +6,7 @@ mod curriculum;
+ pub mod campaign;
+ pub mod explorer;
+ pub mod fault_timing;
++pub mod ghost_absorber;
+ mod feedback;
+ mod hash_utils;
+ pub mod history;
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index edfc5ca..f7c0a2a 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -13,6 +13,7 @@ use crate::simulator::core::state::{
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+ use crate::simulator::core::values::{Env, Value};
+ use crate::simulator::crash_phase;
++use crate::simulator::ghost_absorber;
+ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::feedback::Feedback;
+ use crate::simulator::hash_utils::HashPolicy;
+@@ -780,6 +781,15 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     // item from scheduling via the same plumbing, so combine them here.
+     let link_deliver_seq = state.link_deliver_seq.clone();
+     let crash_block_mask = crash_defer_mask | crash_hold_mask;
++    // A planned crash whose victim is already down waits for that node to
++    // come back. Only a retargeted crash can leave a plan in that position,
++    // so the check is confined to runs that retarget; it holds the crash in
++    // the queue rather than dropping it, so the plan's pair still completes.
++    let crashed_victims: Vec<NodeId> = if state.retarget.enabled {
++        state.crash_info.currently_crashed.iter().copied().collect()
++    } else {
++        Vec::new()
++    };
+     let is_ineligible = |r: &Runnable<H>| {
+         if crash_block_mask != 0
+             && let Runnable::Crash { node_id, .. } = r
+@@ -788,6 +798,13 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         {
+             return true;
+         }
++        if !crashed_victims.is_empty()
++            && let Runnable::Crash { node_id, .. } = r
++            && crashed_victims.contains(node_id)
++        {
++            util_stats::record_victim_crashed_hold();
++            return true;
++        }
+         reservations.iter().any(|res| res.matches(r)) || is_fifo_blocked(r, &link_deliver_seq)
+     };
+ 
+@@ -1063,8 +1080,20 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 let ledger = state.send_ledger.get(node_id.index).copied().unwrap_or_default();
+                 util_stats::record_crash_phase_apply(arm, ledger.in_flight);
+             }
+-            crash_node(state, node_id);
+-            Ok(ScheduleResult::Crash { node_id })
++            let victim = retarget_crash(state, node_id, topology.num_servers.max(0) as usize);
++            if util_stats::enabled() {
++                let ledger = state.send_ledger.get(victim.index).copied().unwrap_or_default();
++                util_stats::record_victim_swap_census(
++                    state.retarget.enabled,
++                    ledger.last_ghost_step >= 0,
++                    ledger.in_flight > 0,
++                );
++            }
++            crash_node(state, victim);
++            Ok(ScheduleResult::Crash {
++                node_id: victim,
++                planned: node_id,
++            })
+         }
+         Runnable::Recover { node_id, .. } => {
+             recover_crashed_node::<H, L, F>(
+@@ -1192,6 +1221,22 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     // node counts, not the continuations it is re-queued as.
+                     let message_entry = record_origin != record_dest && r.pc == record_entry_pc;
+                     let entry_step = state.crash_info.current_step;
++                    // A delivery from a sender that is down, or that restarted
++                    // since sending, marks its receiver as having absorbed
++                    // state from an incarnation that no longer exists.
++                    let ghost = (message_entry
++                        && state.fault_crossing(record_origin, r.origin_incarnation))
++                    .then(|| state.node_state_token(record_dest));
++                    if ghost.is_some()
++                        && !state.retarget.signal_counted
++                        && state
++                            .send_ledger
++                            .get(record_dest.index)
++                            .is_some_and(|l| l.crash_pending > 0)
++                    {
++                        state.retarget.signal_counted = true;
++                        util_stats::record_ghost_signal_run();
++                    }
+                     let probe = (util_stats::acted_fraction_enabled() && message_entry).then(|| {
+                         let mut bias = r.bias;
+                         if r.origin_incarnation != state.incarnation(record_origin) {
+@@ -1246,6 +1291,9 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         purgatory_config,
+                         rng,
+                     )?;
++                    if let Some(before) = ghost {
++                        state.note_ghost_delivery(record_dest.index, entry_step, before);
++                    }
+                     if let Some((bias, before, distance)) = probe {
+                         let acted = state.node_state_token(record_dest) != before;
+                         util_stats::record_delivery(bias, acted, distance);
+@@ -1304,6 +1352,47 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     }
+ }
+ 
++/// Where a released planned crash of `planned` lands. On a run that does
++/// not retarget this is `planned` itself and nothing is read or counted. On
++/// a treated run the crash moves to the live server that most recently took
++/// a fault-crossing delivery, unless the plan still has a crash or recover
++/// outstanding on that server or the best absorber is `planned` itself.
++/// Candidates are the servers, which are the first `servers` nodes; the
++/// clients that follow them are never crashed.
++fn retarget_crash<H: HashPolicy>(state: &State<H>, planned: NodeId, servers: usize) -> NodeId {
++    if !state.retarget.enabled {
++        return planned;
++    }
++    let decision = ghost_absorber::choose(
++        planned.index,
++        &state.send_ledger,
++        servers,
++        |n| {
++            !state.crash_info.currently_crashed.contains(&NodeId {
++                role: planned.role,
++                index: n,
++            })
++        },
++        |n| {
++            state.retarget.has_pending_pair(n)
++                || state.send_ledger.get(n).is_some_and(|l| l.crash_pending > 0)
++        },
++    );
++    let (outcome, victim) = match decision.choice {
++        ghost_absorber::Choice::Retarget { node, acted } => (
++            util_stats::VictimSwap::Applied { acted },
++            NodeId {
++                role: planned.role,
++                index: node,
++            },
++        ),
++        ghost_absorber::Choice::SameVictim => (util_stats::VictimSwap::SameVictim, planned),
++        ghost_absorber::Choice::NoAbsorber => (util_stats::VictimSwap::NoAbsorber, planned),
++    };
++    util_stats::record_victim_swap(outcome, decision.skipped_pending_pair);
++    victim
++}
++
+ fn crash_node<H: HashPolicy>(state: &mut State<H>, node_id: NodeId) {
+     if state.crash_info.currently_crashed.contains(&node_id) {
+         warn!("Node {} is already crashed", node_id);
+@@ -1311,6 +1400,7 @@ fn crash_node<H: HashPolicy>(state: &mut State<H>, node_id: NodeId) {
+     }
+     state.crash_info.currently_crashed.insert(node_id);
+     state.note_handler_entry(node_id.index, HandlerTrigger::None);
++    state.clear_ghost_mark(node_id.index);
+ 
+     let mut held: u64 = 0;
+     let mut dropped: u64 = 0;
+@@ -2045,6 +2135,39 @@ mod tests {
+         assert!(route_by_terms(&state, &info, &terms, &mut rng).is_none(), "no sends in flight");
+     }
+ 
++    /// A crash wipes what its node absorbed, so a node that comes back never
++    /// ranks on a mark from a state it no longer holds; a run that does not
++    /// retarget keeps the plan's victim without consulting the marks.
++    #[test]
++    fn a_crash_clears_the_node_s_ghost_mark_and_only_treated_runs_retarget() {
++        let role = crate::analysis::resolver::NameId(0);
++        let mut state = State::<NoHashing>::new(&[(role, 3)], 1);
++        state.send_ledger[1].last_ghost_step = 40;
++        state.send_ledger[1].last_ghost_acted = true;
++        state.send_ledger[2].last_ghost_step = 9;
++        let planned = NodeId { role, index: 0 };
++        assert_eq!(retarget_crash(&state, planned, 3), planned, "an untreated run keeps the victim");
++
++        state.retarget.enabled = true;
++        assert_eq!(retarget_crash(&state, planned, 3), NodeId { role, index: 1 });
++        state.retarget.pending_pair_mask = 1 << 1;
++        assert_eq!(retarget_crash(&state, planned, 3), NodeId { role, index: 2 });
++        state.retarget.pending_pair_mask = 0;
++        state.send_ledger[2].crash_pending = 1;
++        assert_eq!(retarget_crash(&state, NodeId { role, index: 1 }, 3), NodeId { role, index: 1 });
++
++        crash_node(&mut state, NodeId { role, index: 1 });
++        assert_eq!(state.send_ledger[1].last_ghost_step, -1);
++        assert!(!state.send_ledger[1].last_ghost_acted);
++        assert_eq!(state.send_ledger[2].last_ghost_step, 9, "another node's mark stays");
++        state.send_ledger[2].crash_pending = 0;
++        assert_eq!(
++            retarget_crash(&state, planned, 3),
++            NodeId { role, index: 2 },
++            "a node that is down is not a candidate"
++        );
++    }
++
+     #[test]
+     fn select_within_queue_handles_singleton() {
+         let _serial = crate::simulator::config_override::exclusive_session();
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index a78de2b..abdd067 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -6,6 +6,7 @@ use crate::simulator::core::partition::{PartitionInfo, PartitionType};
+ use crate::simulator::core::steer_terms::Term;
+ use crate::simulator::core::values::{ChannelId, Env, LinkId, Value};
+ use crate::simulator::crash_phase;
++use crate::simulator::ghost_absorber;
+ use crate::simulator::hash_utils::{HashPolicy, compute_hash};
+ use crate::simulator::rng::{Stream, StreamRng};
+ use crate::simulator::util_stats::DeliveryBias;
+@@ -524,8 +525,9 @@ pub enum ScheduleResult<H: HashPolicy> {
+     None,
+     /// A client operation completed.
+     ClientOp(ClientOpResult<H>),
+-    /// A crash was executed on the given node.
+-    Crash { node_id: NodeId },
++    /// A crash was executed on `node_id`; `planned` is the node the plan
++    /// named, which differs only when the crash was retargeted.
++    Crash { node_id: NodeId, planned: NodeId },
+     /// A recovery was executed on the given node.
+     Recover { node_id: NodeId },
+     /// A labeled timer fired.
+@@ -604,6 +606,11 @@ pub struct State<H: HashPolicy> {
+     /// having acted are different facts and the run row reports both.
+     /// Observation only, excluded from `signature()`.
+     pub crash_hold_drawn: bool,
++    /// Where this run stands with crash retargeting: whether it is on, which
++    /// nodes hold an outstanding planned crash or recover, and whether the
++    /// once-per-run signal has been counted. Scheduling bookkeeping like
++    /// `crash_hold_until`, excluded from `signature()`.
++    pub retarget: ghost_absorber::RunState,
+     /// Remote records in the network queue whose origin has restarted since
+     /// sending them: the sum over nodes of `net_records - net_fresh`.
+     pub net_stale_records: u32,
+@@ -631,8 +638,11 @@ pub enum HandlerTrigger {
+ /// the crashes of this node waiting in its local queue. `entries` counts the
+ /// handler entries the node has taken in this run and `entries_at_restart` its
+ /// value when the node last came back from a crash, so their difference is how
+-/// far the node has moved past that restart.
+-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++/// far the node has moved past that restart. `last_ghost_step` is the step
++/// of the last delivery this node took whose sender was crashed or had
++/// restarted since sending, -1 when none since the node's own last restart;
++/// `last_ghost_acted` says whether that delivery wrote the node's state.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct SendLedger {
+     pub issued: u32,
+     pub floor: u32,
+@@ -644,6 +654,27 @@ pub struct SendLedger {
+     pub crash_pending: u32,
+     pub entries: u32,
+     pub entries_at_restart: u32,
++    pub last_ghost_step: i32,
++    pub last_ghost_acted: bool,
++}
++
++impl Default for SendLedger {
++    fn default() -> Self {
++        Self {
++            issued: 0,
++            floor: 0,
++            trigger: HandlerTrigger::None,
++            in_flight: 0,
++            recent: 0,
++            net_records: 0,
++            net_fresh: 0,
++            crash_pending: 0,
++            entries: 0,
++            entries_at_restart: 0,
++            last_ghost_step: -1,
++            last_ghost_acted: false,
++        }
++    }
+ }
+ 
+ /// Per-run totals of timer firings that woke a waiting record, split by
+@@ -707,6 +738,7 @@ impl<H: HashPolicy> State<H> {
+             crash_hold_until: vec![0; num_nodes],
+             crash_phase: crash_phase::RunAnchor::with_nodes(num_nodes),
+             crash_hold_drawn: false,
++            retarget: ghost_absorber::RunState::default(),
+             net_stale_records: 0,
+             net_requests: 0,
+         }
+@@ -1012,6 +1044,32 @@ impl<H: HashPolicy> State<H> {
+         }
+     }
+ 
++    /// Whether a message sent by `origin` at incarnation `sent_at` crosses a
++    /// fault when delivered now: the sender is down, or it came back from a
++    /// crash since sending.
++    pub fn fault_crossing(&self, origin: NodeId, sent_at: u32) -> bool {
++        self.crash_info.currently_crashed.contains(&origin) || sent_at != self.incarnation(origin)
++    }
++
++    /// `node` took a fault-crossing delivery at `step`; `before` is the
++    /// node's state token from just before the handler ran, so the mark
++    /// records whether the delivery wrote anything.
++    pub fn note_ghost_delivery(&mut self, node: usize, step: i32, before: u64) {
++        let acted = self.nodes.get(node).is_some_and(|env| env.writes != before);
++        if let Some(l) = self.send_ledger.get_mut(node) {
++            l.last_ghost_step = step;
++            l.last_ghost_acted = acted;
++        }
++    }
++
++    /// `node` is going down: whatever it absorbed is lost with its state.
++    pub fn clear_ghost_mark(&mut self, node: usize) {
++        if let Some(l) = self.send_ledger.get_mut(node) {
++            l.last_ghost_step = -1;
++            l.last_ghost_acted = false;
++        }
++    }
++
+     /// Which crash term a crash of `node` satisfies right now, if any.
+     pub fn crash_after_sends_term(&self, node: usize) -> Option<Term> {
+         let l = self.send_ledger.get(node)?;
+@@ -1415,6 +1473,38 @@ mod ledger_tests {
+         assert_eq!(state.net_requests, requests, "request count drifted {when}");
+     }
+ 
++    /// Only a delivery whose sender is down or has restarted since sending
++    /// marks its receiver, and the mark says whether the handler wrote state.
++    #[test]
++    fn a_fault_crossing_delivery_marks_its_receiver_with_what_it_did() {
++        let mut st = state();
++        let a = node(SERVER, 0);
++        assert_eq!(st.send_ledger[1].last_ghost_step, -1);
++        assert!(!st.fault_crossing(a, st.incarnation(a)), "a live sender at its current incarnation");
++        st.crash_info.currently_crashed.insert(a);
++        assert!(st.fault_crossing(a, st.incarnation(a)), "a sender that is down");
++        st.crash_info.currently_crashed.remove(&a);
++        st.incarnations[0] = 1;
++        assert!(st.fault_crossing(a, 0), "a sender that restarted since sending");
++        assert!(!st.fault_crossing(a, 1));
++
++        let before = st.node_state_token(node(SERVER, 1));
++        st.note_ghost_delivery(1, 17, before);
++        assert_eq!(st.send_ledger[1].last_ghost_step, 17);
++        assert!(!st.send_ledger[1].last_ghost_acted, "no write since the token was taken");
++
++        let before = st.node_state_token(node(SERVER, 1));
++        st.nodes[1].set(1, Value::<NoHashing>::int(5));
++        st.note_ghost_delivery(1, 23, before);
++        assert_eq!(st.send_ledger[1].last_ghost_step, 23);
++        assert!(st.send_ledger[1].last_ghost_acted, "the handler wrote state");
++        assert_eq!(st.send_ledger[0].last_ghost_step, -1, "other nodes are untouched");
++
++        st.clear_ghost_mark(1);
++        assert_eq!(st.send_ledger[1].last_ghost_step, -1);
++        assert!(!st.send_ledger[1].last_ghost_acted);
++    }
++
+     #[test]
+     fn crash_after_sends_keys_on_last_trigger() {
+         let mut st = state();
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index 5ee49aa..25edfb7 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -1102,6 +1102,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &config.steer_terms,
+         &config.purgatory,
+         config.partial_fanout_crash_bias,
++        crate::simulator::ghost_absorber::is_treated(run_id),
+         &mut rec,
+     )?;
+ 
+@@ -1415,6 +1416,7 @@ fn run_single_plan<F: Feedback>(
+         terms,
+         purgatory_config,
+         partial_fanout_crash_bias,
++        false,
+         &mut rng,
+     )?;
+ 
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index f32e7cd..f4bae54 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -301,9 +301,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     terms: &ResolvedTerms,
+     purgatory_config: &PurgatoryConfig,
+     partial_fanout_crash_bias: f64,
++    retarget_crashes: bool,
+     rng: &mut impl StreamRng,
+ ) -> Result<RunOutcome, RuntimeError> {
+     util_stats::begin_run();
++    path_state.state.retarget.enabled = retarget_crashes;
+     let backup = max_iterations;
+     let is_probe = run_cap::is_probe(run_id);
+     let effective_cap = if is_probe {
+@@ -315,8 +317,14 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     let mut selector = queue_policy.to_selector();
+     let mut op_id_counter = 0i32;
+     let mut in_progress: HashMap<i32, NodeIndex> = HashMap::new();
+-    // Map from node_id index to the plan engine NodeIndex for pending crash/recover events
+-    let mut pending_crash_recover: HashMap<usize, NodeIndex> = HashMap::new();
++    // Plan engine NodeIndex of the queued crash, and of the queued recover,
++    // per node index. The plan serializes a node's pairs, so each node has at
++    // most one of each outstanding; a retargeted crash leaves its recover
++    // keyed on the node the crash landed on, which `victim_remap` records
++    // from the plan's victim until that recover is issued.
++    let mut pending_crash: HashMap<usize, NodeIndex> = HashMap::new();
++    let mut pending_recover: HashMap<usize, NodeIndex> = HashMap::new();
++    let mut victim_remap: HashMap<usize, NodeId> = HashMap::new();
+     // Map from (node_index, label) to the plan engine NodeIndex for pending AllowTimer events
+     let mut pending_allow_timer: HashMap<(usize, String), NodeIndex> = HashMap::new();
+     let mut pending_partition: Option<NodeIndex> = None;
+@@ -548,16 +556,17 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                             );
+                         }
+                     }
+-                    pending_crash_recover.insert(nid.index, node_idx);
++                    pending_crash.insert(nid.index, node_idx);
+                 }
+                 EventAction::RecoverNode(node_id) => {
+                     let nid =
+                         validate_node(&path_state.state, *node_id as usize, server_role, "Node")?;
++                    let target = victim_remap.remove(&nid.index).unwrap_or(nid);
+                     path_state.state.push_runnable(Runnable::Recover {
+-                        node_id: nid,
++                        node_id: target,
+                         priority: policy.sample(rng, RunnableCategory::Recover),
+                     });
+-                    pending_crash_recover.insert(nid.index, node_idx);
++                    pending_recover.insert(target.index, node_idx);
+                 }
+                 EventAction::AllowTimer(node_id, label) => {
+                     let key = (*node_id as usize, label.clone());
+@@ -605,6 +614,16 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+ 
+         let history_start_len = path_state.history.len();
+ 
++        if retarget_crashes {
++            let mut mask = 0u64;
++            for &n in pending_crash.keys().chain(pending_recover.keys()) {
++                if n < u64::BITS as usize {
++                    mask |= 1u64 << n;
++                }
++            }
++            path_state.state.retarget.pending_pair_mask = mask;
++        }
++
+         if path_state.state.all_queues_empty() {
+             census.idle();
+             util_stats::record_steer_reach(util_stats::SteerReach::NoScheduleAttempt);
+@@ -651,7 +670,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         step: path_state.state.crash_info.current_step,
+                     });
+                 }
+-                ScheduleResult::Crash { node_id } => {
++                ScheduleResult::Crash { node_id, planned } => {
+                     path_state.history.push(Operation {
+                         client_id: -1,
+                         op_action: "System.Crash".to_string(),
+@@ -661,9 +680,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         step: path_state.state.crash_info.current_step,
+                     });
+                     crashed_nodes.insert(node_id.index);
+-                    if let Some(plan_node) = pending_crash_recover.remove(&node_id.index) {
++                    if let Some(plan_node) = pending_crash.remove(&planned.index) {
+                         engine.mark_event_completed(plan_node);
+                     }
++                    if node_id != planned {
++                        victim_remap.insert(planned.index, node_id);
++                    }
+                 }
+                 ScheduleResult::Recover { node_id } => {
+                     path_state.history.push(Operation {
+@@ -677,7 +699,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     if crashed_nodes.contains(&node_id.index) {
+                         recovered_nodes.insert(node_id.index);
+                     }
+-                    if let Some(plan_node) = pending_crash_recover.remove(&node_id.index) {
++                    if let Some(plan_node) = pending_recover.remove(&node_id.index) {
+                         engine.mark_event_completed(plan_node);
+                     }
+                 }
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 5cbcb00..7d5a72e 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -15,6 +15,7 @@
+ 
+ use crate::simulator::crash_phase;
+ use crate::simulator::fault_timing;
++use crate::simulator::ghost_absorber;
+ use crate::simulator::run_cap;
+ use crate::simulator::timer_context;
+ 
+@@ -33,6 +34,9 @@ pub const CRASH_HOLD_DRAWN: i32 = 1 << 3;
+ /// The run's placed crashes wait for a drawn phase of the victim's own
+ /// fan-out once their step hold expires, instead of competing at once.
+ pub const CRASH_PHASE: i32 = 1 << 9;
++/// The run's planned crashes move to the live node that last took a
++/// delivery whose sender was down or had restarted since sending.
++pub const GHOST_ABSORBER_RETARGET: i32 = 1 << 19;
+ 
+ /// The whole tag: what the run id selected, plus what the run did.
+ pub fn of(run_id: i64, crash_hold_drawn: bool) -> i32 {
+@@ -54,6 +58,9 @@ pub fn from_run_id(run_id: i64) -> i32 {
+     if crash_phase::is_anchored(run_id) {
+         v |= CRASH_PHASE;
+     }
++    if ghost_absorber::is_treated(run_id) {
++        v |= GHOST_ABSORBER_RETARGET;
++    }
+     v
+ }
+ 
+@@ -75,6 +82,7 @@ mod tests {
+                 timer_context::run_mode(id) == timer_context::RunMode::Probe
+             );
+             assert_eq!(v & CRASH_PHASE != 0, crash_phase::is_anchored(id));
++            assert_eq!(v & GHOST_ABSORBER_RETARGET != 0, ghost_absorber::is_treated(id));
+             assert_eq!(v & CRASH_HOLD_DRAWN, 0, "the acted bit is not an id bit");
+             assert_eq!(of(id, true), v | CRASH_HOLD_DRAWN);
+             assert_eq!(of(id, false), v);
+@@ -110,6 +118,14 @@ mod tests {
+         );
+         assert!(timer_probe_placed > 0, "no timer probe is placed, so the bits never overlap");
+         assert_eq!(cap_probe_placed, 0, "a run-cap probe must never be placed");
++        let retargeted = (0..64_000i64)
++            .filter(|&id| from_run_id(id) & GHOST_ABSORBER_RETARGET != 0)
++            .count();
++        let retargeted_probes = (0..64_000i64)
++            .filter(|&id| from_run_id(id) & (GHOST_ABSORBER_RETARGET | RUN_CAP_PROBE) == GHOST_ABSORBER_RETARGET | RUN_CAP_PROBE)
++            .count();
++        assert!(retargeted > 0 && retargeted < 64_000, "the retarget split leaves no contrast");
++        assert_eq!(retargeted_probes, 0, "a run-cap probe must never be retargeted");
+         assert!(ordinary_stock > 0, "no stock run that is not a probe, so there is no control");
+     }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 43bc14f..5abffa9 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -81,6 +81,20 @@ static CA_TIMING_BIAS_WITHHELD: AtomicU64 = AtomicU64::new(0);
+ static CC_DECISIONS: AtomicU64 = AtomicU64::new(0);
+ static CC_VICTIM_INFLIGHT: AtomicU64 = AtomicU64::new(0);
+ static CC_ANY_CANDIDATE_INFLIGHT: AtomicU64 = AtomicU64::new(0);
++static VS_APPLIED: AtomicU64 = AtomicU64::new(0);
++static VS_ACTED_ABSORBER: AtomicU64 = AtomicU64::new(0);
++static VS_SAME_VICTIM: AtomicU64 = AtomicU64::new(0);
++static VS_NO_ABSORBER: AtomicU64 = AtomicU64::new(0);
++static VS_SKIPPED_PENDING_PAIR: AtomicU64 = AtomicU64::new(0);
++static VS_VICTIM_CRASHED_HOLDS: AtomicU64 = AtomicU64::new(0);
++static GS_FIRED_RUNS: AtomicU64 = AtomicU64::new(0);
++
++/// The crash census split by retarget half: index 0 is the control half,
++/// index 1 the treated half.
++const VS_HALVES: usize = 2;
++static VS_CENSUS_CRASHES: [AtomicU64; VS_HALVES] = [const { AtomicU64::new(0) }; VS_HALVES];
++static VS_CENSUS_ABSORBED: [AtomicU64; VS_HALVES] = [const { AtomicU64::new(0) }; VS_HALVES];
++static VS_CENSUS_INFLIGHT: [AtomicU64; VS_HALVES] = [const { AtomicU64::new(0) }; VS_HALVES];
+ static RW_CLOSED: AtomicU64 = AtomicU64::new(0);
+ static RW_WIDTH_SUM: AtomicU64 = AtomicU64::new(0);
+ static RW_MAX: AtomicU64 = AtomicU64::new(0);
+@@ -376,6 +390,13 @@ pub fn set_enabled(on: bool) {
+             &CC_DECISIONS,
+             &CC_VICTIM_INFLIGHT,
+             &CC_ANY_CANDIDATE_INFLIGHT,
++            &VS_APPLIED,
++            &VS_ACTED_ABSORBER,
++            &VS_SAME_VICTIM,
++            &VS_NO_ABSORBER,
++            &VS_SKIPPED_PENDING_PAIR,
++            &VS_VICTIM_CRASHED_HOLDS,
++            &GS_FIRED_RUNS,
+             &RW_CLOSED,
+             &RW_WIDTH_SUM,
+             &RW_MAX,
+@@ -407,6 +428,9 @@ pub fn set_enabled(on: bool) {
+             .chain(DELIVERIES_ACTED.iter())
+             .chain(MA_FLIPPED.iter())
+             .chain(CC_INFLIGHT.iter())
++            .chain(VS_CENSUS_CRASHES.iter())
++            .chain(VS_CENSUS_ABSORBED.iter())
++            .chain(VS_CENSUS_INFLIGHT.iter())
+             .chain(ACCEPT_DIST.iter().flatten())
+             .chain(ACCEPT_DIST_ACTED.iter().flatten())
+         {
+@@ -1548,6 +1572,83 @@ pub fn record_crash_census(victim_inflight: u32, any_candidate_inflight: bool) {
+     CC_INFLIGHT[slot].fetch_add(1, Ordering::Relaxed);
+ }
+ 
++/// Where a released crash landed once the absorber ranking was consulted.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum VictimSwap {
++    /// The crash moved to another node; `acted` is that node's mark.
++    Applied { acted: bool },
++    /// The best absorber was the planned victim.
++    SameVictim,
++    /// No live node carried a usable mark.
++    NoAbsorber,
++}
++
++/// A treated run released a planned crash and consulted the absorber
++/// ranking; `skipped_pending_pair` means a better-ranked node was passed
++/// over because the plan still had a crash or recover outstanding on it.
++#[inline]
++pub fn record_victim_swap(outcome: VictimSwap, skipped_pending_pair: bool) {
++    if !enabled() {
++        return;
++    }
++    match outcome {
++        VictimSwap::Applied { acted } => {
++            VS_APPLIED.fetch_add(1, Ordering::Relaxed);
++            if acted {
++                VS_ACTED_ABSORBER.fetch_add(1, Ordering::Relaxed);
++            }
++        }
++        VictimSwap::SameVictim => {
++            VS_SAME_VICTIM.fetch_add(1, Ordering::Relaxed);
++        }
++        VictimSwap::NoAbsorber => {
++            VS_NO_ABSORBER.fetch_add(1, Ordering::Relaxed);
++        }
++    }
++    if skipped_pending_pair {
++        VS_SKIPPED_PENDING_PAIR.fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// One eligibility test withheld a planned crash because its victim is
++/// already down, which only a prior retarget can bring about.
++#[inline]
++pub fn record_victim_crashed_hold() {
++    if !enabled() {
++        return;
++    }
++    VS_VICTIM_CRASHED_HOLDS.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A crash was applied on the treated or the control half to a node that
++/// had (`absorbed`) or had not taken a fault-crossing delivery since its
++/// last restart, and was (`inflight`) or was not holding an undelivered
++/// send of its own.
++#[inline]
++pub fn record_victim_swap_census(treated: bool, absorbed: bool, inflight: bool) {
++    if !enabled() {
++        return;
++    }
++    let i = treated as usize;
++    VS_CENSUS_CRASHES[i].fetch_add(1, Ordering::Relaxed);
++    if absorbed {
++        VS_CENSUS_ABSORBED[i].fetch_add(1, Ordering::Relaxed);
++    }
++    if inflight {
++        VS_CENSUS_INFLIGHT[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// The first time in a run a fault-crossing delivery entered a node whose
++/// own crash was queued. Called once per run at most.
++#[inline]
++pub fn record_ghost_signal_run() {
++    if !enabled() {
++        return;
++    }
++    GS_FIRED_RUNS.fetch_add(1, Ordering::Relaxed);
++}
++
+ /// Why a single plan execution stopped.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum RunEnd {
+@@ -3087,6 +3188,88 @@ impl CrashPhaseStats {
+     }
+ }
+ 
++/// One half of the crash census under the retarget split. `crashes` is the
++/// denominator; `victim_had_absorbed` counts the crashes whose actual victim
++/// had taken a fault-crossing delivery since its last restart, and
++/// `victim_had_inflight_sends` those whose victim was holding an undelivered
++/// send of its own.
++#[derive(Serialize, Debug)]
++pub struct VictimSwapHalfStats {
++    pub crashes: u64,
++    pub victim_had_absorbed: u64,
++    pub victim_had_inflight_sends: u64,
++}
++
++impl VictimSwapHalfStats {
++    fn read(treated: bool) -> Self {
++        let i = treated as usize;
++        Self {
++            crashes: VS_CENSUS_CRASHES[i].load(Ordering::Relaxed),
++            victim_had_absorbed: VS_CENSUS_ABSORBED[i].load(Ordering::Relaxed),
++            victim_had_inflight_sends: VS_CENSUS_INFLIGHT[i].load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// The crash census on each half of the retarget split.
++#[derive(Serialize, Debug)]
++pub struct VictimSwapCensusStats {
++    pub treated: VictimSwapHalfStats,
++    pub control: VictimSwapHalfStats,
++}
++
++/// The crash retarget block. `applied` is the number the mechanism is read
++/// as having fired: planned crashes that landed on another node than the
++/// plan's victim. `acted_absorber` is the subset whose new victim's mark had
++/// written state. `same_victim` and `no_absorber` are the releases that kept
++/// the victim, `skipped_pending_pair` the releases where a better-ranked
++/// node was passed over for an outstanding pair, and
++/// `victim_crashed_holds` the eligibility tests that withheld a planned
++/// crash whose victim was already down.
++#[derive(Serialize, Debug)]
++pub struct VictimSwapStats {
++    pub applied: u64,
++    pub acted_absorber: u64,
++    pub same_victim: u64,
++    pub no_absorber: u64,
++    pub skipped_pending_pair: u64,
++    pub victim_crashed_holds: u64,
++    pub census: VictimSwapCensusStats,
++}
++
++impl VictimSwapStats {
++    fn read() -> Self {
++        Self {
++            applied: VS_APPLIED.load(Ordering::Relaxed),
++            acted_absorber: VS_ACTED_ABSORBER.load(Ordering::Relaxed),
++            same_victim: VS_SAME_VICTIM.load(Ordering::Relaxed),
++            no_absorber: VS_NO_ABSORBER.load(Ordering::Relaxed),
++            skipped_pending_pair: VS_SKIPPED_PENDING_PAIR.load(Ordering::Relaxed),
++            victim_crashed_holds: VS_VICTIM_CRASHED_HOLDS.load(Ordering::Relaxed),
++            census: VictimSwapCensusStats {
++                treated: VictimSwapHalfStats::read(true),
++                control: VictimSwapHalfStats::read(false),
++            },
++        }
++    }
++}
++
++/// Runs in which a fault-crossing delivery entered a node whose own crash
++/// was queued: the situation the retarget exists to act on, counted on both
++/// halves.
++#[derive(Serialize, Debug)]
++pub struct GhostSignalStats {
++    pub fired_runs: u64,
++}
++
++impl GhostSignalStats {
++    fn read() -> Self {
++        Self {
++            fired_runs: GS_FIRED_RUNS.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// The timer-context block: the learner's probe traffic, the steered rolls
+ /// that applied a learned multiplier, the rolls an unsupported selector
+ /// excluded, and a gauge of the cells currently engaged. `cells_engaged` is
+@@ -3147,6 +3330,8 @@ pub struct UtilizationSnapshot {
+     pub run_cap: RunCapStats,
+     pub crash_place: CrashPlaceStats,
+     pub crash_phase: CrashPhaseStats,
++    pub victim_swap: VictimSwapStats,
++    pub ghost_signal: GhostSignalStats,
+     pub timer_context: TimerContextStats,
+     pub timeline_keys: TimelineKeyStats,
+     pub steer_terms: SteerTermStats,
+@@ -3338,6 +3523,8 @@ pub fn snapshot() -> UtilizationSnapshot {
+         run_cap: RunCapStats::read(),
+         crash_place: CrashPlaceStats::read(),
+         crash_phase: CrashPhaseStats::read(),
++        victim_swap: VictimSwapStats::read(),
++        ghost_signal: GhostSignalStats::read(),
+         timer_context: TimerContextStats::read(),
+         timeline_keys: TimelineKeyStats::read(),
+         steer_terms: SteerTermStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index a0e6188..a6d5380 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -14,9 +14,9 @@
+ use serde_json::{Map, Value};
+ use spur_core::simulator::util_stats::{
+     self, AcceptanceDistanceBucket, AcceptanceDistanceStats, CrashCensusStats, CrashPhaseArmStats,
+-    CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, RunCapStats,
+-    SteerAuthorityStats, TerminationStats, TerminationTally, TimerContextStats,
+-    UtilizationSnapshot,
++    CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, GhostSignalStats,
++    RunCapStats, SteerAuthorityStats, TerminationStats, TerminationTally, TimerContextStats,
++    UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats, VictimSwapStats,
+ };
+ use std::collections::BTreeMap;
+ 
+@@ -524,6 +524,83 @@ fn crash_phase_leaves(prefix: &str, c: &CrashPhaseStats) -> Vec<(String, Value)>
+     out
+ }
+ 
++fn victim_swap_half(m: &mut Marks) -> VictimSwapHalfStats {
++    VictimSwapHalfStats {
++        crashes: m.int(),
++        victim_had_absorbed: m.int(),
++        victim_had_inflight_sends: m.int(),
++    }
++}
++
++fn victim_swap_half_leaves(prefix: &str, h: &VictimSwapHalfStats) -> Vec<(String, Value)> {
++    let VictimSwapHalfStats {
++        crashes,
++        victim_had_absorbed,
++        victim_had_inflight_sends,
++    } = h;
++    vec![
++        leaf(prefix, "crashes", *crashes),
++        leaf(prefix, "victim_had_absorbed", *victim_had_absorbed),
++        leaf(prefix, "victim_had_inflight_sends", *victim_had_inflight_sends),
++    ]
++}
++
++fn victim_swap(m: &mut Marks) -> VictimSwapStats {
++    VictimSwapStats {
++        applied: m.int(),
++        acted_absorber: m.int(),
++        same_victim: m.int(),
++        no_absorber: m.int(),
++        skipped_pending_pair: m.int(),
++        victim_crashed_holds: m.int(),
++        census: VictimSwapCensusStats {
++            treated: victim_swap_half(m),
++            control: victim_swap_half(m),
++        },
++    }
++}
++
++fn victim_swap_leaves(prefix: &str, v: &VictimSwapStats) -> Vec<(String, Value)> {
++    let VictimSwapStats {
++        applied,
++        acted_absorber,
++        same_victim,
++        no_absorber,
++        skipped_pending_pair,
++        victim_crashed_holds,
++        census,
++    } = v;
++    let VictimSwapCensusStats { treated, control } = census;
++    let mut out = vec![
++        leaf(prefix, "applied", *applied),
++        leaf(prefix, "acted_absorber", *acted_absorber),
++        leaf(prefix, "same_victim", *same_victim),
++        leaf(prefix, "no_absorber", *no_absorber),
++        leaf(prefix, "skipped_pending_pair", *skipped_pending_pair),
++        leaf(prefix, "victim_crashed_holds", *victim_crashed_holds),
++    ];
++    out.extend(victim_swap_half_leaves(
++        &format!("{prefix}.census.treated"),
++        treated,
++    ));
++    out.extend(victim_swap_half_leaves(
++        &format!("{prefix}.census.control"),
++        control,
++    ));
++    out
++}
++
++fn ghost_signal(m: &mut Marks) -> GhostSignalStats {
++    GhostSignalStats {
++        fired_runs: m.int(),
++    }
++}
++
++fn ghost_signal_leaves(prefix: &str, g: &GhostSignalStats) -> Vec<(String, Value)> {
++    let GhostSignalStats { fired_runs } = g;
++    vec![leaf(prefix, "fired_runs", *fired_runs)]
++}
++
+ fn timer_context(m: &mut Marks) -> TimerContextStats {
+     TimerContextStats {
+         probe_firings: m.int(),
+@@ -588,6 +665,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         run_cap: _,
+         crash_place: _,
+         crash_phase: _,
++        victim_swap: _,
++        ghost_signal: _,
+         timer_context: _,
+         timeline_keys: _,
+         steer_terms: _,
+@@ -619,6 +698,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "run_cap",
+         "crash_place",
+         "crash_phase",
++        "victim_swap",
++        "ghost_signal",
+         "timer_context",
+         "timeline_keys",
+         "steer_terms",
+@@ -685,6 +766,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.run_cap = run_cap(&mut m);
+     s.crash_place = crash_place(&mut m);
+     s.crash_phase = crash_phase(&mut m);
++    s.victim_swap = victim_swap(&mut m);
++    s.ghost_signal = ghost_signal(&mut m);
+     s.timer_context = timer_context(&mut m);
+     let mut expected = steer_authority_leaves("steer_authority", &s.steer_authority);
+     expected.extend(termination_leaves("termination", &s.termination));
+@@ -695,6 +778,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(run_cap_leaves("run_cap", &s.run_cap));
+     expected.extend(crash_place_leaves("crash_place", &s.crash_place));
+     expected.extend(crash_phase_leaves("crash_phase", &s.crash_phase));
++    expected.extend(victim_swap_leaves("victim_swap", &s.victim_swap));
++    expected.extend(ghost_signal_leaves("ghost_signal", &s.ghost_signal));
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
+     (s, expected)
+ }
+@@ -731,6 +816,8 @@ fn every_counter_field_reaches_the_written_json() {
+         "run_cap",
+         "crash_place",
+         "crash_phase",
++        "victim_swap",
++        "ghost_signal",
+         "timer_context",
+     ] {
+         let mut actual = BTreeMap::new();

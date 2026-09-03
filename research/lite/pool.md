@@ -1040,8 +1040,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## ghost-absorber-crash-retarget
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 19 (judge gain 7, cost 2, net 5; iteration-19 top pick) |
+- kind: add | category: scheduler | origin: proposer | status: FILED FOR
+  THE USER at iteration 19 - depth>=6 per-run 1.7093 [1.6242, 1.7989]
+  (z 28), per second 1.347, throughput 0.977, regression passed, grader rule
+  merge; but two guard clauses of its own falsifier fired: crashes per
+  treated run 0.9345 of control (clause 1%) and plan_complete -6.6 points
+  (clause 3), both from the crashed-victim hold. Patch kept under
+  research/lite/patches/; follow-up ghost-absorber-retarget-redraw seeded |
   parent: none (extends the fault-placement family the fan-out anchor
   belongs to)
 - Mechanism: fault target selection keyed on incarnation crossings. A

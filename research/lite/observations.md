@@ -1394,3 +1394,36 @@ control census is worth keeping in mind: on untouched runs, only 26% of
 stale deliveries land after the destination answered the new incarnation,
 so the ordering the target needs is rare under free scheduling - but making
 it common by holding the message is not the way to reach it.
+
+## Iteration 19: retargeting the crash onto the ghost's absorber lifts depth 71%
+
+The ghost-absorber retarget - on the treated half, a placed crash lands on
+the live node that most recently consumed a delivery from a crashed or
+restarted origin, with the plan's paired recover remapped to it - read
+1.7093 [1.6242, 1.7989] on the depth-6 per-run contrast (chunks 1.640 and
+1.782, z 28), inside its frozen band of [1.25, 3.00]. Depth-6 events per
+explore-second rose 35% cross-binary at throughput 0.977. The retarget
+fired 177,879 times over two chunks; the actual victim had absorbed a ghost
+on 31.8% of treated crashes against 17.0% on control (1.87x). Regression
+passed; no violations either side of 1.0M candidate runs.
+
+It is filed for the user rather than merged because two of its own guard
+clauses fired: treated runs landed 6.5% fewer crashes (clause 1%) and
+completed 6.6 points fewer plans (clause 3). Both come from one rewrite the
+judge required at admission - a planned crash whose victim is already down
+is held until that node recovers - which produced 954,094 hold tests and
+often no crash before the run cap. The grader's rule says merge; the frozen
+falsifier says refuted; merging over a fired falsifier would rewrite the
+prediction after the fact, so the user decides, and a seeded follow-up
+that redraws the victim instead of holding is under judgment. If the gain
+came from targeting, the follow-up keeps it and clears the rails; if it came
+from the hold's delay of the second crash onto the recovered node, the
+follow-up loses it and the parent's misses are intrinsic.
+
+What the result says about the search: the ladder's weak link is which node
+the second crash names, not when. Under a uniform victim draw the crash
+names the ghost's absorber one time in three; steering it there by protocol
+activity moved the rung more than every timing mechanism combined, while
+every message hold or delay cost depth. The crash census of the merged code
+compared the plan's victim to itself, which is why this axis went unmeasured
+for nineteen iterations.
