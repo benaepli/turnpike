@@ -65,6 +65,8 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
 // uncapped and are never placed, so they reach the deep rungs at a fraction
 // of an ordinary run's rate.
 export const PROBE_BIT = 2;
+// The timer-steer probes, exempt from treatments the same way.
+export const TIMER_PROBE_BIT = 4;
 // Bits that name an instrument or an outcome, never a treatment. 2 and 4 are
 // probe postures the loop already merged; 8 is downstream of the treatment
 // rather than randomized by the run id, so a candidate could choose it after
@@ -211,7 +213,12 @@ export function pooledVariantCells(evals: Evaluation[]): VariantMetrics[] {
  * contrast by at most 0.16% and removes a 3-5% bias where coverage is
  * partial or absent. */
 export function probeFreeScope(cells: VariantMetrics[], bit: number): VariantMetrics[] {
-  return bit === PROBE_BIT ? cells : cells.filter((c) => (c.variant & PROBE_BIT) === 0);
+  // Both probe populations leave the scope: the run-cap probes and the
+  // timer-steer probes. A treatment that exempts one of them would otherwise
+  // face a control that still carries it, and every co-bit share would tilt.
+  if (bit === PROBE_BIT) return cells;
+  if (bit === TIMER_PROBE_BIT) return cells.filter((c) => (c.variant & PROBE_BIT) === 0);
+  return cells.filter((c) => (c.variant & (PROBE_BIT | TIMER_PROBE_BIT)) === 0);
 }
 
 /** One contrast per tag bit that both populations of these chunks carry.

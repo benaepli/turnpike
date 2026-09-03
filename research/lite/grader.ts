@@ -1210,8 +1210,8 @@ async function cmdSelftest(): Promise<void> {
     if (nested.rung !== 6) failures.push(`crash-fanout-phase-anchored-release was decided on depth>=6, but its record resolves to depth>=${nested.rung}`);
     const matched = internalPrimary(nested.cand, [], 512, null, 4, nested.rung);
     const unmatched = variantContrasts(nested.cand).find((c) => c.bit === 512)?.rungs.find((r) => r.rung === `depth>=${nested.rung}`)?.ratio ?? 0;
-    if (Math.abs(matched.ratio - 1.1854) > 0.001) failures.push(`the matched contrast on bit 512 must read 1.1854, got ${matched.ratio.toFixed(4)}`);
-    if (Math.abs(unmatched - 1.3826) > 0.001) failures.push(`the unmatched survey contrast on bit 512 must read 1.3826, got ${unmatched.toFixed(4)}`);
+    if (Math.abs(matched.ratio - 1.1812) > 0.001) failures.push(`the matched contrast on bit 512 must read 1.1812, got ${matched.ratio.toFixed(4)}`);
+    if (Math.abs(unmatched - 1.3850) > 0.001) failures.push(`the unmatched survey contrast on bit 512 must read 1.3850, got ${unmatched.toFixed(4)}`);
     if (matched.matchedOnMask !== 1) failures.push(`bit 512 must match on crashPlaced, got mask ${matched.matchedOnMask}`);
   }
 
