@@ -148,6 +148,19 @@ w2 without w1. About 20 labels. `raft_clean.spur` under the same plan reads
 0. Run with `spur run-plan bin/spur/panel/raft_commit_prev_term.spur -p <plan> -o tmp/loop/lite/plan-raft-f8 -y`
 then porcupine on the output.
 
+### Reachability proofs recorded
+
+- A (`paxos_recover_stale_scout.spur`): proven 2026-09-03. Plan
+  `research/lite/plans/paxos-recover-stale-scout-plan.json`, 16 labels,
+  300 runs: injected spec porcupine exit 2 (runs 34 and 154), host
+  `Paxos.spur` exit 0 under the identical plan. Violating run 34: node 1
+  scouts at (2,1), is preempted, node 2 leads at (4,2) and decides w1 in
+  slot 1, node 1 crashes and recovers scouting at (5,1), adopts on the
+  (2,1) promises from 0 and 2 (empty pvals), puts w2 in slot 1 and performs
+  it; reads give [2] at node 1 and [1] at nodes 0 and 2. Two commands in
+  one slot, as predicted. Awaits the three-seed calibration and its control
+  read before joining the slow set.
+
 ## 3. Calibration protocol
 
 Regime: calibrate with the panel subcommand's own mechanics so the
