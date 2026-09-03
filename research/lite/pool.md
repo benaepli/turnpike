@@ -1628,7 +1628,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 27, ADMITTED for its own session: fidelity 1.029 against 0.313
   for own-id children, and 0.974 for own-id children whose bits happened to
   match - the run-id-keyed mechanism draws were the whole fidelity gap.
-  ADMITTED at iteration 28 as its own candidate, the tiers stripped out:
+  CLOSED at iteration 28 on its cost clause: fidelity 1.056 against 0.322
+  (bits-equal control 0.987) confirms the finding, but the depth>=8 read
+  1.3461 is confounded by the parents' crash-placed bits (0.996 vs 0.917)
+  and is 1.080 stratified over 32 matched strata, the same as depth 6
+  (1.103); the session's depth>=8 events per second read 0.944 at throughput
+  0.977 against a 0.98 clause, because inherited children are heavier runs.
+  Was admitted as its own candidate with the tiers stripped out:
   bit 1 << 11 declared, PREFIX children only, the answered table and the
   deep signals removed. Frozen: fidelity of inherited children >= 0.65
   (measured 1.03 in the bundled session against 0.31 own-id) with no

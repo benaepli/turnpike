@@ -1952,3 +1952,26 @@ bit, and it makes prefix replay mean what it says.
 Grader note: a rung with no baseline events has an infinite minimum
 effect, which JSON writes as null and the state schema refuses, so the
 session's second chunk could not read its own state (fixed at aef8e96).
+
+## Iteration 28: faithful replay costs more than it returns
+
+Running a prefix child's run-id-keyed mechanism draws under its parent's
+id lifted prefix fidelity to 1.056 from 0.322, with own-id children whose
+bits happened to match at 0.987. The corpus's 0.44 fidelity was the
+mechanism bits, and now that is measured rather than argued.
+
+It closes anyway. Inherited children inherit their parents' bits, and every
+parent placed a crash, so the treated half is enriched (crash-placed 0.996
+against 0.917) and the grader's depth>=8 read of 1.3461 is confounded;
+stratified over 32 matched strata the gain is 1.080 on depth 8 and 1.103
+on depth 6 - real but not specific to the rung, which is what "a faithful
+child of a productive parent" should look like. The cost is the reason to
+stop: depth>=8 events per explore-second read 0.944 cross-binary at
+throughput 0.977 against the frozen clause of 0.98, because those children
+are heavier runs. At a tenth of the population the mechanism spends more
+per second than it returns.
+
+What to keep: prefix replay only reproduces a prefix when the child's
+mechanism bits match its parent's, so any future corpus that means "replay
+this prefix" must inherit them, and must budget for the heavier population
+it then draws.
