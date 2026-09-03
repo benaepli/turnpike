@@ -1810,3 +1810,71 @@ Grader note: the treatment exempted timer-steer probe runs (bit 4) that
 the control population kept, which the grader reported as a co-bit
 imbalance on replaySlot; the per-run scope now drops bit-4 runs on both
 sides, as it already dropped run-cap probes.
+
+## Direction review at iteration 25
+
+Written after the epoch-14 landing and the first candidate graded under it.
+
+**Has a violation appeared anywhere?** Not the target. Zero violations in
+every candidate and baseline chunk of iterations 21-24 (5.7M candidate
+runs) and in the two kept general sessions (633,408 and the epoch-14
+baseline's 1.2M). The corpus still violates in its eleven runs, now all at
+the chain's maximum depth.
+
+**Is depth a proxy the goal warns about?** It was, and the round said so
+exactly: under the epoch-13 chain a general run reached depth 9 about 70
+times per million runs and never violated, while a corpus depth-9 run
+violated one time in eight. The census found the missing conditions -
+the recovered node's Recovery request answered before the peer consumes
+its ghost, and the old-view commit that follows - and epoch 14's oracle
+carries them. Under it every violating corpus run sits at depth 13 and no
+non-violating corpus run reaches depth 11; the general tail reads 15, 9
+and 1 at depths 11 to 13 across the two kept sessions. The proxy risk that
+remains is stated in the tier grades: depths 10 to 13 encode the
+find_bug_plan's violating path, and the relax tiers' violations stop at
+depth 9, so the primary at depth 8 is shared by every violating path while
+the top of the chain is one path's. The rung is honest about what it
+prices; it does not price every way to violate.
+
+**Panel.** Post-epoch-14 tree (unchanged since the formatting merge):
+paxos 312.54 violations per second (3,552 over 95,994 runs, 3.70% per
+run) against 315.44; mencius 22.64 (1,030 over 67,932, 1.52%) against
+22.80. Flat. Anchors stay paxos 315.44, mencius 22.80.
+
+**Steering audit.** Eight decisions since iteration 20: two merges by the
+user after filings (the retarget over fired guard clauses, the formatting
+rewrite over the protected-file rule), one merge on the rule (the corpus,
+with an attribution clause fired and recorded), three closes (redraw on
+its floor; timer hold on unmet observables; one earlier), and two filings.
+Operator steering: the redraw seed (closed on its floor - the hold it
+tested governs 20 crashes in 10,000); the diagnostic round in place of a
+premise check, on the user's point; the oracle extension, designed from
+the census and landed under the user's overnight authority; the perf lens
+with a refreshed profile; and the recovery-timing directive now running.
+The census was the night's decisive steer: it turned "why do deep runs
+not violate" from an argument into eleven-versus-zero numbers and an
+oracle. Its cost was one round without a mechanism candidate.
+
+**Drift.** Two rounds of the last five were eval work (the census and the
+epoch bump); the user's standing priority is simulator changes, and the
+oracle work is now landed and closed - the next rounds are mechanism
+rounds judged on the new rung. One process correction stands from the
+last review and was applied: guard-clause thresholds must cite a counter
+and a baseline value. One new one: a per-run treatment that exempts a
+probe population must be graded with that population out of both halves
+(fixed in the grader at bb7680f after the timer hold's session).
+
+**Pool.** Closed this stretch: the redraw, the timer hold. Held: the
+restart-opening and clock-debt timer holds (the timer hold's result says
+quieting one clock does not hold the round; both are unlikely to pay).
+Open: the two feedback entries kept at iteration 19 (the corpus merged;
+the Thompson config walk is its PLAN-ONLY half and is superseded unless a
+cheaper corpus is wanted), the handler-overhead perf candidate held for a
+counter, and the recovery-timing round now proposing. Under epoch 14 the
+message-hold family's closure rests on a rung that could not see its
+target; a recovery-timing design that does not hold messages is admissible
+and is what the running round asks for.
+
+**Goal.** Re-read. The objective is depth-8 events per explore-second; the
+epoch-14 baseline reads about 6,300 per chunk at 2,042 runs per second,
+and the ledger starts at 1.0 for the epoch.
