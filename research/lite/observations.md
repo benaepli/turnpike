@@ -1656,7 +1656,12 @@ the rebuild, and the ledger row follows the cache.
 
 ## Panel and cache after the formatting merge
 
-On the merged tree (spur e513cac): see the figures in the ledger row and
-the decisions record; the panel's per-run violation rates are unchanged by
-construction (no schedule moved) and the per-second rates follow the
-throughput gain.
+On the merged tree (spur e513cac): paxos-accept-stale-ballot 315.44
+violations per second (3,549 over 95,994 runs, 3.70% per run) against
+280.88 before the merge; mencius-opt1-2 22.80 (1,037 over 68,384 runs,
+1.52% per run) against 21.72. Per-run rates unchanged, per-second rates up
+12% and 5% with runs per second - the shape of a pure speed change. New
+anchors: paxos 315.44, mencius 22.80. The fresh baseline cache reads
+1916.03 runs per second, 1.096 of the frozen epoch figure, with 15,449 and
+16,076 depth-6 events and 40 and 66 depth-9 events per chunk; the ledger's
+cumulative throughput stands at 1.1385 after four merges.
