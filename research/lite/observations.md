@@ -1734,3 +1734,37 @@ one the current rung does not price - round advance at the receiver while
 a dead incarnation's message is undelivered - so the next mechanism round
 is steered at timer admission (view churn), with the census tool's R2 as
 its independent observable.
+
+## Epoch 14: the oracle carries the recovery-answer conditions
+
+With the user's overnight authority over protected paths, the census's
+result became an oracle: research/oracle/relax_minimal_general_v2.json
+keeps the thirteen labels of the old chain as its prefix (depths 1 to 6
+unchanged to the run) and adds, after the second recovery, the Recovery
+2->1 delivered after both recoveries (depth 7), the ghost StartViewChange
+2->1 delivered after that Recovery (depth 8 - the first condition the
+general explorer fails on the violating path), the ghost DoViewChange
+after the SVC (9), w2 (10), the RecoveryResponses as side labels, the
+old-view PrepareOK 2->0 after w2 (11), StartView 1->0 after the commit
+(12) and the reads (13). Existing label kinds only; a dispatched-before
+matcher field that would tighten the general tail further is designed and
+deferred (research/lite/plans/oracle-v2-epoch14.md).
+
+Validation on the kept stores: all eleven violating corpus runs reach
+depth 13 and no non-violating corpus run reaches depth 11 or deeper
+(the old oracle put 79 non-violating runs at its maximum); the general
+session reads, per 300 s chunk, depth>=6 about 17,800 as before, depth>=7
+17,462, depth>=8 6,654, depth>=9 984, depth>=10 46, depth>=11 15,
+depth>=12 9, depth>=13 0. The merge primary moves to depth 8 (6.7x the
+power floor); depth 6 stays the cross-epoch comparison rung; depths 9
+and 10 are the advance rungs. The policy's oracle pointer moved at
+5bba601; the grader's rule version becomes internal-primary-v2; the
+baseline cache is being measured under the new identity and the ledger
+is frozen after it.
+
+The iteration-24 timer hold is graded under epoch 14: its frozen depth-6
+band stays readable because depths 1 to 6 did not change, and its epoch-14
+primary is re-frozen before the session on depth>=8 at [1.03, 1.30] - the
+hold aims at exactly the transition depth 8 encodes (node 1 still in the
+old view when the recovered node's message reaches it), and a mechanism
+that only multiplied chain shape would read near 1.0 there.

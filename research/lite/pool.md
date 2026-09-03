@@ -1408,6 +1408,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   observables met and depth flat in [0.97, 1.02] -> file for the user (a
   precision result the rung cannot price); observables met and depth up ->
   merge; (a) or (b) missed -> close.
+- Epoch-14 re-freeze (before the session): primary depth>=8 per-run ratio
+  treated against untreated in [1.03, 1.30]; the depth>=6 band above stays
+  the admission claim and is read from the same session.
 
 ## restart-opening-timer-hold
 
@@ -1427,3 +1430,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   exists: the debt clears on any delivery and timer-driven churn is
   delivery-interleaved by construction, so it binds only for a node whose
   peers are all down. Bit 1 << 28.
+
+## oracle-v2-recovery-answer-chain
+
+- kind: grader/oracle | origin: operator-agent (from the iteration-23
+  census) | status: LANDED as epoch 14 at 5bba601 (policy pointer) - see
+  research/lite/plans/oracle-v2-epoch14.md and the observations entry
+  "Epoch 14". Follow-up deferred: the dispatched-before matcher field
+  (ghost = dispatched before the sender's crash) that would take the
+  general tail from 984/46/15/9 at depths 9-12 to about 595/10/1/0.
