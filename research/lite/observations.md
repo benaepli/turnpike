@@ -1610,3 +1610,25 @@ workload, standard explorer, 30 threads); the top symbols are unchanged in
 kind - eval, execute_common_label, memmove and malloc, then formatting and
 JSON string serialization at about 8% together - and the bench does not
 exercise the campaign's tape recording, which lives only in the grid arms.
+
+## Finding: the explorer is not run-for-run deterministic under the thread pool
+
+While building the acceptance test for the formatting rewrite, the
+implementer ran the unmodified baseline twice on VR with bench.json, seed
+777, and the default 32-thread pool: run 793 ended plan_complete at 842
+steps in one invocation and iterations_exhausted in the other. With
+RAYON_NUM_THREADS=1 the same binary is fully deterministic - runs,
+executions and every utilStats counter identical across invocations - and
+so are the candidate and baseline against each other on VR, Paxos, Raft
+and the six fixtures. The session therefore shares cross-run state whose
+order of update depends on thread timing (the learned run cap, the arms'
+feedback state, the replay corpus are the candidates), so any two
+multi-threaded sessions of one binary differ in a few runs.
+
+Consequences for the record: "byte-identical control" claims made from
+same-binary comparisons hold per run only single-threaded; the grader's
+per-run contrasts are unaffected, because they compare populations by run
+id within one session and never rely on run-for-run equality; and any
+future acceptance test of a semantics-preserving change must run with one
+thread. Which shared state carries the timing dependence is not
+established and is worth one diagnostic.
