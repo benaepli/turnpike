@@ -2031,3 +2031,67 @@ records to one peer in send order fixes a fair coin on the SVC/DVC order
 and buys about a tenth of depth 9; the rest of the depth-8 runs that fail
 depth 9 fail it because node 1 is still recovering when both land, which
 no dispatch order changes.
+
+Post-merge panel and cache (spur f28f1b5): paxos-accept-stale-ballot
+318.88 violations per second (3,516 over 95,996 runs, 3.66% per run)
+against 323.40; mencius-opt1-2 23.13 (1,052 over 69,784, 1.51%) against
+23.57. Flat per run. Fresh cache 2125.53 runs per second (1.041 of the
+frozen figure), depth-8 events 6,752 and 7,037 per chunk, depth-9 1,130
+and 1,129, depth-10 46 and 48. The previous cache read 7,699 and 7,149 on
+depth 8 and 1,234 and 1,138 on depth 9, so across sessions the merged tree
+reads about 7% lower on depth 8 and 5% lower on depth 9 - the opposite
+sign of the merge's within-session read, inside a session's chunk-to-chunk
+spread of 4-5%, and recorded here so the next sessions' control halves can
+settle it. The ledger's cumulative throughput stands at 1.0665.
+
+## Direction review at iteration 30
+
+**Has a violation appeared anywhere?** Not the target. One in the lean
+send-order session's chunk 3 (run 193095, aos arm, control half), the
+recovery-nonce reuse for the third time; classified. Zero others across
+about 8M candidate runs since iteration 25.
+
+**Is depth a proxy the goal warns about?** Epoch 14's rung prices the
+ordering the census found decisive, and the two epoch-14 merges moved it
+where the census said the losses were: fresh-first lifted depth 8 by 12%
+and depth 9 by 23%; send order lifted depth 9 by about 10% more with depth
+8 flat. Both are same-step dispatch preferences, the one instrument the
+record had not tried. The residual proxy risk is the same as at iteration
+25: depths 10 to 13 encode one violating path, and depth 10's transition
+is the steepest left (about 4% of depth-9 runs). The census's substance
+predicate appeared in general runs for the first time this stretch (5 of
+3,720 treated depth-8 runs of the fresh-first candidate).
+
+**Panel.** Flat per run across both epoch-14 merges (paxos 3.66-3.72%,
+mencius 1.51% per run); per-second rates track throughput. Anchors:
+paxos 318.88, mencius 23.13.
+
+**Steering audit.** Five decisions since iteration 25: one merge on the
+rule (fresh-first), one merge by operator decision (send order, z 2.57
+against a 2.7 rule, pooled evidence recorded), three closes (restart
+preemption on its falsifier; tiered corpus on its band; inheritance on
+cost). Operator steering: the census-driven directives (recovery timing,
+then dispatch order) - the first refuted and the second the stretch's two
+merges; the lean re-implementation of the send-order preference after its
+census cost; the grader's rule version v3 so a declared bit can merge on
+an advance rung; a fourth-chunk purchase where two left a read unresolved.
+One departure from the rule, named as such in the decision record.
+
+**Drift.** All mechanism-level. The eval side-track was two small grader
+fixes (probe scope, non-finite posteriors) and the v3 rule. Two process
+notes: the both-halves census pattern is a shared hot-path cost and must
+be sampled from the start; and a same-step preference must be checked for
+the residue it leaves in the queue (the high-priority record it displaces
+stays and competes), which the send-order grade showed as harmless here
+but the implementer flagged as a starvation risk on saturated configs.
+
+**Pool.** Open and next: workload timing anchored to protocol activity
+(iteration 31, proposing now) for depth 10; the recovering-receiver
+reply-first deferral in its cost-0 form for the receiver-recovering class;
+the deferred dispatched-before matcher constraint. Closed this stretch:
+the tiered corpus, the inheritance (a finding, kept), the census-heavy
+send-order parent, the PCT and ghost-block shapes at admission.
+
+**Goal.** Re-read. Objective depth-8 events per explore-second; the merged
+tree reads about 6,900 per chunk at 2,126 runs per second against 6,300 at
+the epoch freeze.

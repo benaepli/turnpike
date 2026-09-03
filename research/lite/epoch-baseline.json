@@ -34,6 +34,21 @@
    "cacheFile": "research/lite/baselines/ba634c99e024-30-f9daa01b-300-g0d3de012.json",
    "measuredAtIso": "2026-09-03T09:20:00Z",
    "note": "measured by grader baseline --chunks 2 after the fresh-first merge; depth>=8 events per chunk [7699, 7149] against 6495/6100 at the epoch freeze"
+  },
+  {
+   "name": "pair-send-order-lean",
+   "commit": "1921761",
+   "spurCommit": "f28f1b5",
+   "ratio": 0.9884,
+   "cumulative": 1.0664836,
+   "measuredRps": 2125.52764248349,
+   "measuredRpsChunks": [
+    2065.148987603512,
+    2185.9062973634686
+   ],
+   "cacheFile": "research/lite/baselines/9d6dfc9c38a3-30-f9daa01b-300-g0d3de012.json",
+   "measuredAtIso": "2026-09-03T17:40:00Z",
+   "note": "measured by grader baseline --chunks 2 after the send-order merge; depth>=8 events per chunk [6752, 7037], depth>=9 [1130, 1129]; against 7699/7149 and 1234/1138 on the previous cache - a cross-session drop of about 7% on depth 8 and 5% on depth 9, the opposite sign of the within-session read, inside one session's chunk spread but recorded"
   }
  ]
 }
