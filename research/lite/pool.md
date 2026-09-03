@@ -1913,7 +1913,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## post-fault-request-deferral-ablation
 
 - kind: ablate | category: scheduler | origin: operator-agent | status:
-  ADMITTED at iteration 33 (judge gain 6, cost 0; rewritten - the
+  DECIDED at iteration 33 - the window is ornament, simplify to the
+  deferral (depth>=10 deferral-only over anchored 1.28 [0.85, 1.93], lower
+  edge above the map's 0.70; deferral-only over control 2.95 [2.02, 4.29]
+  passes the merged rule's own criterion; anchored over control 2.30
+  replicates iteration 31) | previously ADMITTED at iteration 33 (judge gain 6, cost 0; rewritten - the
   containment band [0.70, 1.10] is unattainable at four chunks, so the
   decisive read is the deferral-only quarter against the bit-18-clear
   control on depth 10 under the merged rule's own criterion, with the

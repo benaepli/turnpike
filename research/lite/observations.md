@@ -2203,3 +2203,22 @@ the frozen map; the deep-rung enrichment is filed in the plan. Lesson for
 the census: P4_2 (the Recovery answered before the peer leaves the old
 view) is about the peer's view, not about which of the ghost and the
 Recover arrives first; the two were conflated in the proposal.
+
+## Iteration 33: the fan-out window was ornament; the deferral carries depth 10
+
+The nested ablation split the bit-18 treated half into an anchored quarter
+(the merged rule) and a deferral-only quarter (held post-fault requests
+leave only at the 32-step expiry or when the queue runs dry). Four chunks:
+deferral-only over anchored on depth>=10 1.28 [0.85, 1.93], depth>=8 0.996
+(null held), depth>=9 1.04; deferral-only over control 2.95 [2.02, 4.29] on
+128 against 87 events, anchored over control 2.30 [1.55, 3.42] - the
+merged result replicates and the plain deferral does at least as well.
+Firing exactly as frozen (anchor released 7.8% on the anchored quarter,
+zero on the other; hold steps 33.0 per released). Decision by the frozen
+map: simplify the merged rule to the plain deferral and drop the window
+release; the window census stays for observability. What the loop now
+knows: issuing the post-fault client requests about 32 steps late is the
+whole depth-10 lever, and the length of that delay is a free parameter
+nobody has varied - a whole-half contrast on the length (16, 32, 64) is the
+natural follow-up and is a dose on a merged mechanism, which the proposer
+rules allow.
