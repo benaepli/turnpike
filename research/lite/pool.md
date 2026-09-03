@@ -1291,3 +1291,56 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   40.9% of ordinary deliveries; corrected gain about +6%, inside the layout
   band. Hazards traced and found safe (two mid-exec readers of the node
   env; complete exit paths; no crash interleaves exec).
+
+## general-chain-funnel-census
+
+- kind: diagnostic | origin: proposer | status: RUNNING at iteration 23
+  (judge gain 7, cost 0) | tool: research/lite/tools/ghost_census.py
+- Survival funnel over general depth>=7 runs against the corpus: R1 the
+  matched StartViewChange 1->2 is a ghost (sender crashed between dispatch
+  and delivery) -> R2 acted on -> R3 node 2 crashed before its reactions
+  landed -> R4 the reaction ghost acted on by a recovered node 1 -> R5
+  ghost-built fan-out -> R6 commit window -> R7 violation. Judge pre-check
+  on the general session: R1 54/74 depth-9 and 672/801 depth-8, R2 7 and
+  156, R3 1 and 57, R4 0 and 0 - the largest drop is R1 -> R2, a rung the
+  proposal had no row for: the ghost is not acted on because node 2's view
+  is already stale (29 of 47) or already completed (12 of 47); general runs
+  churn through 15-64 views.
+
+## ghost-quorum-epoch-formation-census
+
+- kind: diagnostic | origin: proposer | status: RUNNING at iteration 23
+  (judge gain 7, cost 0)
+- The fan-out's quorum window (from the receiver's "entering view change"
+  log row to the fan-out dispatch) contains a ghost from a restarted
+  sender. Judge pre-check with the exact window: 11/11 violating, 0/81
+  corpus non-violating depth-9, 0/53 depth-8; general 17/74 depth-9 and
+  150/801 depth-8 with zero violations, so a ghost-built quorum alone has
+  near-zero precision on general runs. The generic window as proposed was
+  broken (it excluded the quorum-completing ghost; it counted dropped
+  ghosts) and is corrected in the tool.
+
+## old-epoch-commit-window-census
+
+- kind: diagnostic | origin: proposer | status: RUNNING at iteration 23
+  (judge gain 6, cost 0)
+- A client write commits at a node in the old view after the fan-out was
+  sent and before that node enters the new view. Redefined by the judge as
+  an acted old-view PrepareOK for the write, joined through
+  CausalOperationID. Pre-check: 11/11, 0/81, 1/74, 24/801; the conjunction
+  with the ghost-quorum window reads 0/74 and 3/801 on general runs, and in
+  all three hits the ghost DoViewChange's sender never completed recovery
+  or recovered into the new view - bug.md step 4 is the unmet condition.
+  The corpus cannot test this one independently: its plan gates w2 after
+  the DoViewChange delivery, so the quorum predicate implies it there.
+
+## ghost-pair-acted-census
+
+- kind: diagnostic | origin: proposer | status: RUNNING at iteration 23
+  (judge gain 5, cost 0; its separating part is the ordering clause)
+- Two acted-on ghost deliveries from restarted senders. Pre-check: the
+  generic form leaks (51/81 non-violating), fired by double-crash Recovery
+  replies; the ordering clause - the ghost StartViewChange acted on at a
+  recovered node 1 before the ghost DoViewChange - separates 11/11 vs 0/81
+  (all 22 failures: DoViewChange landed first and was dropped) but is the
+  same eleven runs as the quorum window.
