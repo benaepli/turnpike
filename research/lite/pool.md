@@ -1681,3 +1681,71 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 27 (judge gain 3): the target's first-cut key is the modal one
   and half the signature keys are unreachable; bit 1 << 18 when built, after
   the tier counters show which stratum carries depth-8 children.
+
+## pair-send-order-dispatch-fault-scoped
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 29 (judge gain 7, cost 0; iteration-29 top pick) | parent:
+  fresh-first-same-pair-dispatch-tiebreak
+- Mechanism: a same-step preference after the tournament draw and the
+  merged fresh-first swap, on a salted half of runs (bit 1 << 15,
+  pairSendOrder; probes exempt). If the record about to be taken is a
+  remote record whose origin has crashed at least once in the run, and an
+  eligible record with the same origin, destination and origin incarnation
+  has a lower send ordinal, take that one instead. The order inside the
+  incarnation class fresh-first picked becomes send order; nothing is
+  masked or delayed; no draw is consumed; the scan is gated on the origin's
+  ledger holding two or more records in the queue. Unlike FifoLink (a spec
+  opt-in and a hard eligibility constraint that can empty a step), this
+  only orders among co-eligible records.
+- Why: at n=3 the first StartViewChange of a new view meets quorum at once,
+  so the DoViewChange leaves the same handler right after the SVC broadcast
+  with the next send ordinal, and each record's priority is drawn once at
+  creation under novelty ablation - the tournament orders the two siblings
+  by a fair coin, fixed per pair. Depth 9 needs SVC before DVC at node 1;
+  P(9|8) reads 0.16 on the merged tree, so a perfect fix has a ceiling of
+  about 2.0x. Judge correction: the corpus plan does NOT order svc before
+  dvc; only the v2 oracle does.
+- Frozen prediction (epoch 14): bit PAIR_SEND_ORDER = 1 << 15 (32768);
+  treated share about 0.47; primary depth>=8 per-run ratio in [0.98, 1.10]
+  (a stated null); depth>=9 per-run in [1.30, 2.00]; depth>=6 in [0.98,
+  1.03]; depth>=11 events on the treated half >= 1.5x control reported;
+  firing: pair_order.contests >= 300,000 per chunk on both halves,
+  pair_order.corrected >= 60,000 per chunk, control inorder_draws/contests
+  in [0.35, 0.65]; independent observable: census inversions/pair_entries
+  control in [0.25, 0.60], treated <= 0.02; post-session census on a kept
+  explore: treated depth-8 runs' "DVC before SVC at a recovered node 1"
+  class = 0 and R4 >= 2x control; falsifier: depth>=9 interval entirely
+  below 1.10, or treated inversions above 0.05, or control inversions below
+  0.25 (no coin to fix), or corrected below floor, or steps > 1.05x, or
+  plan_complete more than 3 points below, or crashes/recovers off 1%; a
+  depth>=8 interval entirely below 0.97 closes regardless; cost: throughput
+  >= 0.97 of 2139.37, regression passes. Verdict map: depth 9 up and
+  inversions ~0 -> merge; depth 9 flat with inversions ~0 -> file with
+  P(DVC exists | depth 8); inversions not removed -> close.
+
+## recovering-receiver-reply-first-deferral
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 29 (judge gain 5; cost 2 as proposed via a Record field in
+  exec.rs, 0 with a side map keyed on (origin, send_ordinal)): a no-expiry
+  hold in effect, but the first design meeting the pool's condition for
+  the receiver-recovering class - a readiness predicate (acted on replies
+  from more than half the peers its opening sends addressed) a recovering
+  node cannot satisfy by dropping a message. Bit 1 << 22 when built, after
+  the send-order read.
+
+## pct-fault-change-point-stream-dominance
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 29 (judge gain 3): a dominated stream is held for the whole
+  fault window whenever the dominant one has an eligible record, and the
+  placebo arm needs a second bit. Not to be built in this form.
+
+## restarted-sender-ghost-block-dispatch
+
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  admission, iteration 29 (judge gain 2): the block opens at the first
+  member's stock draw and only pulls the others earlier, so it converts
+  mixed outcomes into all-before - the wrong direction for the
+  receiver-recovering class; its remaining content is the send-order rule.
