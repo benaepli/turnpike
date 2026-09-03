@@ -1037,3 +1037,94 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 - Judge caveat: the absolute per-arm acted levels the proposal named are
   below today's baseline sender_restarted.acted_fraction of 0.176 and were
   dropped; the ratio clause stands.
+
+## ghost-absorber-crash-retarget
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 19 (judge gain 7, cost 2, net 5; iteration-19 top pick) |
+  parent: none (extends the fault-placement family the fan-out anchor
+  belongs to)
+- Mechanism: fault target selection keyed on incarnation crossings. A
+  detector on every run marks, at the dispatch site, each delivery whose
+  origin is currently crashed or has restarted since sending, and records
+  on the destination's ledger the step of its most recent such consumption
+  and whether the handler acted. On the treated half (bit 1 << 19,
+  ghostAbsorberRetarget, salted half of all runs, run-cap probes exempt),
+  when a placed crash on plan victim v is applied, the crash lands instead
+  on the live node d that most recently consumed a fault-crossing delivery
+  (acted preferred), and the plan's paired recover is remapped from v to d
+  so the mandatory crash-recover pair stays a pair. Placement timing and
+  the fan-out anchor's hold are evaluated on v as today; only the identity
+  of the node that dies changes. Judge rewrites: candidates exclude any
+  node with an outstanding crash-recover pair (victim_swap.skipped_pending_
+  pair); a planned crash whose victim is already crashed at release is held
+  in the crash mask until it recovers (victim_swap.victim_crashed_holds); no
+  extra crash_pending decrement (take_local already does it); campaign
+  runs only - the run-plan path that regenerates the corpus keeps plan
+  victims; two both-halves diagnostics, crash_census victim_had_inflight
+  per half and ghost_signal.fired_runs.
+- Why: the ladder loses 91% of runs between depth 4 and 5: 79,114 runs per
+  chunk reach depth 4 (the null recover or the ghost delivery) and 7,257
+  reach depth 5, the absorber's crash after it. Under a uniform victim draw
+  the second crash names the node that absorbed the ghost one time in
+  three; retargeting replaces that third with the probability that the
+  most recent absorber is the right node, about a half or more, so the
+  channel ratio is 1.5 to 2.25. The crash census in the merged code
+  compares the plan's victim to itself, so which node dies has never been
+  measured. It acts on WHICH node a fault hits, not on message timing,
+  which the record says costs depth.
+- Frozen prediction (epoch 13, per-run template): bit
+  GHOST_ABSORBER_RETARGET = 1 << 19 (ghostAbsorberRetarget), salted half of
+  all runs by run id, probes exempt; rung depth>=6 per-run ratio treated
+  against untreated, probe-free, co-bit matched, band [1.25, 3.00]; firing
+  victim_swap.applied >= 60,000 per chunk, with victim_swap.{no_absorber,
+  same_victim, acted_absorber, skipped_pending_pair, victim_crashed_holds}
+  and victim_swap.census.{treated,control}.{crashes, victim_had_absorbed}
+  exported; independent observable: treated absorbed-victim share >= 1.5x
+  control (treated HIGHER), crashes applied per treated run within 1% of
+  untreated; falsifier: the depth>=6 interval entirely below 1.25, or
+  absorbed-victim share below 1.5x control, or crashes per run off by more
+  than 1%, or treated steps per run above 1.10x, or treated plan_complete
+  more than 3 points below untreated; cost clause: cross-binary throughput
+  >= 0.97 of the paired baseline. Band arithmetic: misses below 1.25 if the
+  most recent absorber is the right node less than 42% of the time.
+- Measurement validity: the bit turns off only the retarget; the detector
+  and census run on every run and draw no randomness; no session-global
+  learner is touched, so the untreated half is byte-identical to the merged
+  behaviour and the contrast measures the whole per-run effect.
+
+## ghost-prefix-replay-corpus
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 19 (judge gain 6, cost 2), sequenced behind
+  ghost-absorber-crash-retarget, whose ghost_signal.fired_runs census
+  measures the P(signal) this proposal's band depends on
+- Mechanism: grid arms record every run's RNG tape as the aos arm does; a
+  run whose first fault-crossing delivery enters a node with a crash
+  pending is admitted to a per-arm corpus (64 parents, up to 8 children
+  each) with the tape position at that step. Half the slots by run id run a
+  child: PREFIX replays the parent's tape to the cut with a fresh suffix,
+  PLAN-ONLY reruns only the parent's plan; probes never become children.
+  Bits 1 << 20 (slot) and 1 << 21 (PREFIX vs PLAN-ONLY). Band [1.30, 4.00];
+  firing replay.children >= 100,000; observables: prefix fidelity >= 0.5,
+  PREFIX >= 1.3x PLAN-ONLY, depth>=8 per treated run >= 0.9x control; cost
+  0.92 (tape recording is a shared hot-path cost the contrast cannot see).
+- Judge caveats: P(signal) and fidelity are unmeasured and the lower edge
+  hinges on both; children of one parent are correlated (inflate seEff
+  about 2x at 8 per parent); the existing aos replay corpus reads below
+  grid per run (1.12% vs 1.30%).
+
+## hazard-thompson-config-walk
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 19 (judge gain 4, cost 0; dedupe discount - it is the PLAN-ONLY
+  arm of ghost-prefix-replay-corpus)
+- Mechanism: per-arm Beta posteriors over config_index rewarded by the
+  ghost-with-crash-pending signal; treated non-probe slots draw their config
+  by Thompson sampling, untreated slots keep the round-robin cursor. Bit
+  1 << 22. Band [1.15, 1.80]; firing config_walk.thompson_draws >= 150,000;
+  observable: treated hazard rate >= 1.3x control; steps clause 1.15x; cost
+  0.90 with a panel blocker at 0.85x the anchors.
+- Judge corrections: the "two-fold density difference" is 1.45x on the
+  epoch-12 rung; the dead-third claim (one-crash configs cannot reach depth
+  5) holds.
