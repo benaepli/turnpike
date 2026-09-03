@@ -1587,9 +1587,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## replay-tier-answered-overtake-cut
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 27 (judge gain 6, cost 0; iteration-27 top pick) | parent:
-  ghost-prefix-replay-corpus
+- kind: add | category: feedback | origin: proposer | status: CLOSED at
+  iteration 27 - band refuted: depth>=8 0.6453 [0.5986, 0.6956], depth 6
+  0.595, depth 9 0.644; deep children fired their signal 0.617 against tier-1's
+  0.768 (clause 1.5x). The deep cut lands late, so children replay to a
+  finished state (0.803 of control steps, +25.6 points of plan completion)
+  instead of searching | parent: ghost-prefix-replay-corpus
 - Mechanism: two deeper corpus tiers beside the merged one. Tier 2 admits
   a parent at the first ghost entry into a node that had already heard AND
   replied to the origin's current incarnation (a per-pair answered flag
@@ -1621,8 +1624,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## replay-prefix-inherit-parent-bits
 
-- kind: enabling | category: feedback | origin: proposer | status: ADMITTED
-  at iteration 27 as a bundled fidelity read (judge gain 4, cost 0) |
+- kind: enabling | category: feedback | origin: proposer | status: READ at
+  iteration 27, ADMITTED for its own session: fidelity 1.029 against 0.313
+  for own-id children, and 0.974 for own-id children whose bits happened to
+  match - the run-id-keyed mechanism draws were the whole fidelity gap.
+  Needs a session where it is the declared bit on the PREFIX half |
   parent: ghost-prefix-replay-corpus
 - Mechanism: on a salted half of PREFIX children (bit 1 << 11,
   replayInheritBits), every run-id-keyed mechanism draw (crash placement,

@@ -1924,3 +1924,31 @@ Panel: paxos-accept-stale-ballot 323.40 violations per second
 Fresh cache: 2139.37 runs per second (seeds 2207.0 and 2071.7), depth-8
 events 7699 and 7149 per chunk against 6,495 and 6,100 at the epoch freeze,
 depth-9 1234 and 1138, depth-11 11 and 11.
+
+## Iteration 27: a deeper cut buys nothing; the bits were the fidelity gap
+
+Two changes rode one session. The tiered corpus - admit a parent at the
+ghost entry into a peer that had already heard and answered the sender's
+new incarnation, or at the second such ghost, and serve treated slots from
+the deepest ring - fired enormously (332,289 tier-2 and 153,654 tier-3 parents per
+session) and read 0.6453 [0.5986, 0.6956] on depth 8 against its band of
+[1.12, 2.20]: refuted, with depth 6 at 0.595 and depth 9 at 0.644. Its own
+observable missed too (0.617 of deep children fired their tier's signal
+against 0.768 for tier-1 children). The reason is visible in the run
+shape: treated slot runs used 0.803 of the control's steps and completed
++25.6 points more plans. A cut taken late in the run leaves the child almost
+no budget to explore - it replays to a finished state. Depth is bought by
+re-sampling a plan early and letting the suffix vary, which the merged
+corpus already does. Closed.
+
+The bundled read is the finding. Running a prefix child's run-id-keyed
+mechanism draws under its PARENT's id lifted prefix fidelity from 0.313 to
+1.029, and own-id children whose bits happened to match the parent's read
+0.974. So the corpus's 0.44 fidelity, recorded at its merge, was entirely
+the mechanism bits differing between parent and child, not shared learned
+state. That is worth its own session with the inheritance as the declared
+bit, and it makes prefix replay mean what it says.
+
+Grader note: a rung with no baseline events has an infinite minimum
+effect, which JSON writes as null and the state schema refuses, so the
+session's second chunk could not read its own state (fixed at aef8e96).
