@@ -2181,7 +2181,8 @@ fix (persist the counter, compare kind and uid) is not applied, since
 Paxos.spur is protected; the panel gets an additive fixed host under
 bin/spur/panel/ and its Paxos members are re-derived from it.
 
-**Scout member calibration under the general config**: seeds 1000 and 1001
-read 305 and 355 in 96,000 against the host control's 355 and 338. The
-injection adds nothing visible over the host background; every Paxos F2
-member is unattributable until the fixed host exists.
+**Scout member calibration under the general config**: three seeds, member
+305, 355, 338 in 96,000 each against the host control's 355, 338, 348;
+pooled 998 against 1,041 in 288,000. The injection adds nothing visible
+over the host background; every Paxos F2 member is unattributable until
+the fixed host exists, and the calibration is repeated on it.
