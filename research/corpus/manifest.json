@@ -8,11 +8,14 @@
   "dag_swaps": 200,
   "grade_max_runs": 3000
  },
- "notes": "Epoch 14: the oracle chain grew from 13 to 20 labels; depths 1-6 are unchanged from epoch 13, and depths 7-13 encode the recovery-answer ordering, the ghost DoViewChange, w2, the old-view PrepareOK, StartView 1->0 and the reads. Invariants a grader change must preserve: (1) every plan-driven corpus has mean_prefix_depth above unconstrained_epoch14 by at least 1.0; (2) on find_bug_plan every violating run reaches depth 13, the maximum, and no non-violating run reaches depth 11 or deeper; (3) find_bug_plan: 11 runs at depth >= 11, all violating; 116 at depth 10, none violating; (4) porcupine verdicts per corpus are fixed ground truth (the run-plan path reproduced the epoch-13 violating ids exactly). relax_3, relax_5 and relax_minimal carry their epoch-13 figures under the old oracle until regenerated and regraded under the v2 twin (pending, marked). Plan corpora are not step-identical across run-plan invocations; sha256 fields identify a regeneration.",
+ "notes": "Epoch 14: the oracle chain grew from 13 to 20 labels; depths 1-6 are unchanged from epoch 13, and depths 7-13 encode the recovery-answer ordering, the ghost DoViewChange, w2, the old-view PrepareOK, StartView 1->0 and the reads. Invariants a grader change must preserve: (1) every plan-driven corpus has mean_prefix_depth above unconstrained_epoch14 by at least 1.0; (2) on find_bug_plan every violating run reaches depth 13, the maximum, and no non-violating run reaches depth 11 or deeper; (3) find_bug_plan: 11 runs at depth >= 11, all violating; 116 at depth 10, none violating; (4) porcupine verdicts per corpus are fixed ground truth (the run-plan path reproduced the epoch-13 violating ids exactly). relax_3, relax_5 and relax_minimal were regenerated on 2026-09-03 and graded under the v2 twin. Plan corpora are not step-identical across run-plan invocations; sha256 fields identify a regeneration.",
  "measured": {
-  "invariant1_margin": 3.4646,
+  "invariant1_margin": 2.6176,
   "plan_means": {
-   "find_bug_plan": 4.994
+   "find_bug_plan": 4.994,
+   "relax_3": 4.147,
+   "relax_5": 4.9217,
+   "relax_minimal": 4.9014
   },
   "unconstrained_mean": 1.5294,
   "find_bug_plan_depth13_violating": 11,
@@ -120,20 +123,32 @@
    "runs": 3000,
    "violations": 0,
    "violating_run_ids": [],
-   "mean_prefix_depth": 4.131,
-   "max_prefix_depth": 8,
+   "mean_prefix_depth": 4.147,
+   "max_prefix_depth": 10,
    "depth_at_least": [
-    2000,
-    2000,
-    2000,
-    2000,
-    82,
-    82,
-    82,
-    16
+    3000,
+    3000,
+    3000,
+    3000,
+    116,
+    116,
+    116,
+    53,
+    20,
+    20,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
    ],
-   "sha256_parquet": "5283cddf34e230b512153773df874807b7c052593ea43b1a2dc49bba2fddf646",
-   "pending": "regrade under relax_minimal_v2.json"
+   "sha256_parquet": "5a97b7372960980b92ecf7a49fe0bca5734228d3da36e096efe473e48080ebc7",
+   "store": "tmp/loop/precision/relax_3 (kept for the epoch)"
   },
   "relax_5": {
    "plan": "research/oracle/tiers/relax_5.json",
@@ -142,21 +157,32 @@
    "violating_run_ids": [
     1645
    ],
-   "mean_prefix_depth": 4.9715,
+   "mean_prefix_depth": 4.9217,
    "max_prefix_depth": 9,
    "depth_at_least": [
-    2000,
-    2000,
-    2000,
-    2000,
-    496,
-    496,
-    496,
-    440,
-    15
+    3000,
+    3000,
+    3000,
+    3000,
+    751,
+    751,
+    751,
+    395,
+    117,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
    ],
-   "sha256_parquet": "d527afe5571b1dc22976be9a740e8dc48fed5965ea90d089eebdc95e5610b30f",
-   "pending": "regrade under relax_minimal_v2.json"
+   "sha256_parquet": "ec31abdd19b1e79793088d48cac4cacceb04150f6084018ab6168f58680c7e07",
+   "store": "tmp/loop/precision/relax_5 (kept for the epoch)"
   },
   "relax_minimal": {
    "plan": "research/oracle/tiers/relax_minimal.json",
@@ -168,21 +194,32 @@
     1212,
     3212
    ],
-   "mean_prefix_depth": 4.902,
+   "mean_prefix_depth": 4.9014,
    "max_prefix_depth": 9,
    "depth_at_least": [
-    2000,
-    2000,
-    2000,
-    2000,
-    496,
-    496,
-    496,
-    158,
-    158
+    5000,
+    5000,
+    5000,
+    5000,
+    1223,
+    1223,
+    1223,
+    620,
+    218,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
    ],
-   "sha256_parquet": "769368d9a06dbf324b29720e415d0b8e493e90047496da13f14b2aa32e6438ae",
-   "pending": "regrade under relax_minimal_v2.json"
+   "sha256_parquet": "c5543a0c3595c10665cc3ce0de433c4995607abad82121a46d35a62d518480e1",
+   "store": "tmp/loop/precision/relax_minimal (kept for the epoch)"
   }
  },
  "retired": {
