@@ -1693,9 +1693,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## pair-send-order-lean
 
-- kind: add | category: scheduler | origin: operator-agent | status:
-  ADMITTED at iteration 30 as the zero-cost form of the closed parent |
-  parent: pair-send-order-dispatch-fault-scoped
+- kind: add | category: scheduler | origin: operator-agent | status: MERGED
+  at 1921761 (spur f28f1b5) by operator decision - depth>=9 per run 1.098
+  [0.995, 1.211] at z 2.57 over four chunks (rule 2.7; grader read human),
+  pooled with the parent about 1.12 clearing 1.02; depth 8 flat; cost
+  clean; treated inversions 0 against 0.374 | parent:
+  pair-send-order-dispatch-fault-scoped
 - Mechanism: the same same-step preference on the same bit (1 << 15),
   with the census taken only on a salted 1/16 of runs (both halves) and the
   contest counters kept O(1) at the preference site; no queue scan on

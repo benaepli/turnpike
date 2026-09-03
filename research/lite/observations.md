@@ -2010,3 +2010,24 @@ sequential-1002-1788453687293. Background rate, in the arm the rung
 excludes, on the untreated half; the finding in
 research/lite/findings/vr-recovery-nonce-reuse.md stands and this is its
 third instance.
+
+## Iteration 30: send order merges on the advance rung, by operator decision
+
+The lean form kept the preference and sampled the census on a sixteenth
+of runs: 7.0M corrections over four chunks, treated inversions zero
+against a control share of 0.374, and no cost - throughput 0.988, wall
+per run equal on both halves. Depth 8 held its null (0.984), depth 6 read
+1.042, and depth 9 read 1.098 [0.995, 1.211] at z 2.57 - the rule's
+threshold is 2.7, so the grader said human. Pooled with the parent
+session, which ran the identical preference and read 1.151 [1.011, 1.311]
+on depth 9, six chunks put the effect near 1.12 with the interval clearing
+1.02. I merged it under the overnight authority and recorded the decision
+as the operator's, not the rule's: the effect is the same size in every
+chunk, points where the oracle's depth-9 label points, and costs nothing.
+Merged at 1921761 (spur f28f1b5). The user can reverse it.
+
+What the pair of sessions established: taking a dead incarnation's
+records to one peer in send order fixes a fair coin on the SVC/DVC order
+and buys about a tenth of depth 9; the rest of the depth-8 runs that fail
+depth 9 fail it because node 1 is still recovering when both land, which
+no dispatch order changes.
