@@ -1133,3 +1133,56 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 - Judge corrections: the "two-fold density difference" is 1.45x on the
   epoch-12 rung; the dead-third claim (one-crash configs cannot reach depth
   5) holds.
+
+## ghost-absorber-retarget-redraw
+
+- kind: add | category: scheduler | origin: operator-agent | status:
+  ADMITTED at iteration 20 (judge gain 6, cost 2 inherited from the parent)
+  | parent: ghost-absorber-crash-retarget (merged fabf0ea)
+- Mechanism: the merged retarget's crashed-victim hold turned off on a
+  nested half. On a salted half of the retarget-treated runs (bit 1 << 23,
+  ghostAbsorberRedraw, own salt, probes exempt by inheritance, about 0.24
+  of all runs), a placed crash whose planned victim is already down is not
+  held: it lands on the best live absorber if one exists, otherwise on a
+  live node without an outstanding crash-recover pair drawn from a
+  dedicated RNG stream (Stream::Retarget, so the run's other draws match
+  its hold twin), and the paired recover is remapped as in the parent. If
+  no such node exists the crash falls back to the merged hold
+  (victim_swap.redraw_fallback_holds). Untreated retarget runs keep the
+  hold byte for byte; the census gains a third cell {control, hold, redraw}.
+- Why: the parent read 1.709 on depth>=6 per run with two guard clauses
+  fired - 6.5% fewer crashes landed and 6.6 points fewer plans completed on
+  treated runs. Whether the hold is a rail cost, a hidden contributor to the
+  gain (a held crash lands on the recovered node's ghost absorber at the
+  step it comes back, the oracle's step-4 shape), or innocent of both is
+  what this decides in one session; the parent's cross-session form could
+  not.
+- Frozen prediction (epoch 13, nested per-run template): bit
+  GHOST_ABSORBER_REDRAW = 1 << 23 (ghostAbsorberRedraw); rung depth>=6
+  per-run ratio of redraw runs to hold runs (bit 23 within bit 19,
+  probe-free, co-bit matched), band [1.02, 1.15]; firing
+  victim_swap.victim_down_landings (redraw quarter) >= 2,000 per chunk with
+  victim_swap.victim_down_holds (hold quarter, per crash) expected within
+  15% of it as randomized twins - below the floor the hold governed under
+  1% of treated runs and the round closes with the hold bounded harmless
+  and the parent's misses attributed to the retarget itself;
+  victim_swap.{applied, no_absorber, same_victim, acted_absorber,
+  skipped_pending_pair, redrawn, redraw_fallback_holds,
+  victim_crashed_holds} and the three-cell census exported. Independent
+  observables: redraw crashes applied per run >= 1.03x hold runs (HIGHER);
+  redraw plan_complete >= hold + 3 points (HIGHER); redraw absorbed-victim
+  share >= 0.9x hold share and both >= 1.5x untreated. Falsifier: the
+  depth>=6 interval entirely below 1.00 (redraw LOWER - the hold
+  contributed; keep the hold); or redraw crashes per run below 1.02x hold;
+  or redraw plan_complete not above hold's; or redraw steps per run above
+  1.02x hold; or absorbed share below 0.9x hold. Cost clause: cross-binary
+  throughput >= 0.97; secondary within-session reading redraw wall per run
+  <= 1.00x hold wall per run. Verdict rule: band met and rails clean ->
+  merge; interval containing 1.00 with rails clean -> merge on the rails,
+  depth recorded neutral; any falsifier -> close with the named reading.
+- Judge arithmetic worth keeping: the hold cannot explain the parent's
+  whole crash deficit (488k hold tests at 3+ tests per step is at most
+  ~160k held steps against ~31k lost crashes per chunk-half), so a route
+  that survives hold removal - a plan crash gated on a client op stuck
+  behind the stall the retarget provokes - is live, and the crashes clause
+  is the decisive rail.
