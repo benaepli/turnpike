@@ -1632,3 +1632,20 @@ id within one session and never rely on run-for-run equality; and any
 future acceptance test of a semantics-preserving change must run with one
 thread. Which shared state carries the timing dependence is not
 established and is worth one diagnostic.
+
+## Iteration 22: the formatting rewrite reads +9% throughput, filed for the user
+
+The trace and print formatting rewrite - one write_to producing the
+Display bytes, the trace payload written once per item, rows moved into
+the writer, single-allocation string concatenation - read 1.0924 on
+cross-binary runs per explore-second (chunks 1.1012 and 1.0840), inside
+its frozen band of [+8%, +12%] and above the 5% layout floor. The read
+that layout cannot fake agrees: wall per step fell to 0.936 and 0.917 of
+the baseline's with steps per run flat on every arm. Depth-6 events per
+second rose 8.4%; the crashPhase contrast was unchanged. The acceptance
+test held byte for byte single-threaded on VR, Paxos, Raft and the six
+fixtures at two seeds - executions, runs, every counter, every trace and
+log row - and allocations per run fell 28.9%. Regression passed; no
+violations either side of 1.19M candidate runs. The grader's rule says
+merge; the diff touches exec.rs and history.rs, so the decision is the
+user's, with the loop's recommendation to merge.

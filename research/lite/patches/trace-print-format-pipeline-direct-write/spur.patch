@@ -1,0 +1,845 @@
+diff --git a/spur-core/Cargo.toml b/spur-core/Cargo.toml
+index f9afe29..8f43e4d 100644
+--- a/spur-core/Cargo.toml
++++ b/spur-core/Cargo.toml
+@@ -34,7 +34,7 @@ spur-ast = { path = "../spur-ast" }
+ spur-liquid = { path = "../spur-liquid" }
+ phf = "0.13.1"
+ phf_macros = "0.13.1"
+-serde = { version = "1.0", features = ["derive"] }
++serde = { version = "1.0", features = ["derive", "rc"] }
+ serde_json = "1.0"
+ thiserror = "2.0.17"
+ ecow = { version = "0.2.6", features = ["serde"] }
+diff --git a/spur-core/src/compiler/cfg.rs b/spur-core/src/compiler/cfg.rs
+index 545b4bf..1f1aab3 100644
+--- a/spur-core/src/compiler/cfg.rs
++++ b/spur-core/src/compiler/cfg.rs
+@@ -11,6 +11,7 @@ use crate::compiler::lowered::{
+ use crate::parser::Span;
+ use ecow::EcoString;
+ use std::collections::HashMap;
++use std::sync::Arc;
+ 
+ /// Bundles the control-flow targets that are threaded through every
+ /// compilation call (break, continue, return, return slot).
+@@ -345,6 +346,8 @@ impl Compiler {
+             )
+         });
+         let qualified_name = format!("{}.{}", qualifier, func.original_name);
++        // Both trace labels of the function share one copy of the name.
++        let traced_name: Arc<str> = Arc::from(qualified_name.as_str());
+ 
+         // If traced, allocate a hidden slot for the trace invocation ID.
+         let trace_id_slot = if is_traced {
+@@ -358,7 +361,7 @@ impl Compiler {
+         let effective_return_target = if is_traced {
+             let tid_slot = trace_id_slot.unwrap();
+             self.add_label(Label::TraceExit(
+-                qualified_name.clone(),
++                traced_name.clone(),
+                 Expr::Var(tid_slot),
+                 Expr::Var(return_slot),
+                 final_return_vertex,
+@@ -386,7 +389,7 @@ impl Compiler {
+                 })
+                 .collect();
+             self.add_label(Label::TraceEnter(
+-                qualified_name.clone(),
++                traced_name,
+                 param_exprs,
+                 Lhs::Var(tid_slot),
+                 body_entry,
+@@ -1416,7 +1419,7 @@ impl Compiler {
+             .copied()
+             .unwrap_or(false)
+         {
+-            self.add_label(Label::TraceDispatch(func_name, arg_exprs, async_vertex))
++            self.add_label(Label::TraceDispatch(Arc::from(func_name), arg_exprs, async_vertex))
+         } else {
+             async_vertex
+         };
+diff --git a/spur-core/src/compiler/cfg/ir.rs b/spur-core/src/compiler/cfg/ir.rs
+index d5c79b7..8082c52 100644
+--- a/spur-core/src/compiler/cfg/ir.rs
++++ b/spur-core/src/compiler/cfg/ir.rs
+@@ -5,6 +5,7 @@ use ecow::EcoString;
+ use serde::ser::SerializeMap;
+ use serde::{Serialize, Serializer};
+ use std::collections::HashMap;
++use std::sync::Arc;
+ 
+ /// Serialize a HashMap<NameId, V> with NameId keys as string representations of their inner usize.
+ fn serialize_nameid_map<V: Serialize, S: Serializer>(
+@@ -149,21 +150,21 @@ pub enum Label {
+     Break(Vertex /* break_target_vertex */),
+     Continue(Vertex /* continue_target_vertex */),
+     TraceDispatch(
+-        String,    /* func_name */
++        Arc<str>,  /* func_name */
+         Vec<Expr>, /* param exprs */
+         Vertex,    /* next */
+     ),
+     TraceEnter(
+-        String,    /* func_name */
++        Arc<str>,  /* func_name */
+         Vec<Expr>, /* param exprs */
+         Lhs,       /* trace_id_slot */
+         Vertex,    /* next */
+     ),
+     TraceExit(
+-        String, /* func_name */
+-        Expr,   /* trace_id_expr */
+-        Expr,   /* return_val_expr */
+-        Vertex, /* next */
++        Arc<str>, /* func_name */
++        Expr,     /* trace_id_expr */
++        Expr,     /* return_val_expr */
++        Vertex,   /* next */
+     ),
+ }
+ 
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index 00a6d68..a8e1e89 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -1,7 +1,9 @@
+ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::{Expr, FunctionInfo, Lhs, VarSlot};
+ use crate::simulator::core::error::RuntimeError;
+-use crate::simulator::core::values::{Env, Value, ValueKind, ValueMap, ValueSeq, hash_map_entry};
++use crate::simulator::core::values::{
++    Decimal, Env, Value, ValueKind, ValueMap, ValueSeq, hash_map_entry,
++};
+ use crate::simulator::hash_utils::HashPolicy;
+ use ecow::EcoString;
+ use std::collections::HashMap;
+@@ -149,10 +151,10 @@ pub fn eval<H: HashPolicy>(
+             match (&v1.kind, &v2.kind) {
+                 (ValueKind::Int(i1), ValueKind::Int(i2)) => Ok(Value::<H>::int(i1 + i2)),
+                 (ValueKind::String(s1), ValueKind::String(s2)) => {
+-                    let mut result = String::new();
++                    let mut result = EcoString::with_capacity(s1.len() + s2.len());
+                     result.push_str(s1.as_str());
+                     result.push_str(s2.as_str());
+-                    Ok(Value::<H>::string(EcoString::from(result)))
++                    Ok(Value::<H>::string(result))
+                 }
+                 _ => Err(RuntimeError::TypeError {
+                     expected: "int or string",
+@@ -358,11 +360,10 @@ pub fn eval<H: HashPolicy>(
+                 }),
+             }
+         }
+-        Expr::IntToString(e) => Ok(Value::<H>::string(EcoString::from(
+-            eval(local_env, node_env, e, role_names)?
+-                .as_int()?
+-                .to_string(),
+-        ))),
++        Expr::IntToString(e) => {
++            let n = eval(local_env, node_env, e, role_names)?.as_int()?;
++            Ok(Value::<H>::string(EcoString::from(Decimal::of_i64(n).as_str())))
++        }
+         Expr::BoolToString(e) => Ok(Value::<H>::string(EcoString::from(
+             eval(local_env, node_env, e, role_names)?
+                 .as_bool()?
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index 86aadd1..24685f8 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -12,6 +12,64 @@ use crate::simulator::feedback::Feedback;
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::util_stats;
+ use crate::simulator::util_stats::DeliveryBias;
++use std::cell::RefCell;
++
++/// Scratch for building one trace payload: the parameter texts laid end to
++/// end, and where each one ends. Kept per thread so formatting a parameter
++/// allocates nothing after the first row on that thread.
++#[derive(Default)]
++struct TraceScratch {
++    text: String,
++    ends: Vec<usize>,
++}
++
++thread_local! {
++    static TRACE_SCRATCH: RefCell<TraceScratch> = RefCell::new(TraceScratch::default());
++}
++
++/// Formats each evaluated parameter and returns the JSON array of the
++/// texts, byte for byte what `serde_json` writes for a `Vec<String>` of the
++/// same items. A parameter whose evaluation failed reads "<error>".
++fn trace_payload<H: HashPolicy>(
++    values: impl Iterator<Item = Result<Value<H>, RuntimeError>>,
++) -> String {
++    TRACE_SCRATCH.with(|scratch| {
++        let scratch = &mut *scratch.borrow_mut();
++        scratch.text.clear();
++        scratch.ends.clear();
++        for value in values {
++            match value {
++                Ok(v) => {
++                    let _ = v.write_to(&mut scratch.text);
++                }
++                Err(_) => scratch.text.push_str("<error>"),
++            }
++            scratch.ends.push(scratch.text.len());
++        }
++        json_string_array(&scratch.text, &scratch.ends)
++    })
++}
++
++/// JSON array whose elements are the pieces of `text` ending at each offset
++/// in `ends`, in order. `ends` must be non-decreasing and bounded by
++/// `text.len()`, with every offset on a character boundary.
++pub(crate) fn json_string_array(text: &str, ends: &[usize]) -> String {
++    let mut out: Vec<u8> = Vec::with_capacity(text.len() + 2 + 4 * ends.len());
++    out.push(b'[');
++    let mut start = 0;
++    for (i, &end) in ends.iter().enumerate() {
++        if i > 0 {
++            out.push(b',');
++        }
++        // Writing into a Vec cannot fail.
++        let _ = serde_json::to_writer(&mut out, &text[start..end]);
++        start = end;
++    }
++    out.push(b']');
++    // serde_json escapes control characters and copies other text through, so
++    // the bytes are valid UTF-8.
++    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
++}
+ 
+ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+@@ -280,9 +338,11 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+         }
+         Label::Print(expr, next) => {
+             let val = eval(local_env, node_env, expr, &program.id_to_name)?;
++            let mut content = String::new();
++            let _ = val.write_to(&mut content);
+             logger.log(LogEntry {
+                 node: node_id,
+-                content: val.to_string(),
++                content,
+                 step: state.crash_info.current_step,
+             });
+             Ok(Some(StepOutcome::Continue(*next)))
+@@ -372,14 +432,11 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                 .take()
+                 .unwrap_or_else(|| state.alloc_unique_id() as i64);
+             store(trace_id_lhs, Value::int(id), local_env, node_env)?;
+-            let payload: Vec<String> = param_exprs
+-                .iter()
+-                .map(|e| {
+-                    eval(local_env, node_env, e, &program.id_to_name)
+-                        .map(|v| v.to_string())
+-                        .unwrap_or_else(|_| "<error>".to_string())
+-                })
+-                .collect();
++            let payload = trace_payload(
++                param_exprs
++                    .iter()
++                    .map(|e| eval(local_env, node_env, e, &program.id_to_name)),
++            );
+             logger.log_trace(TraceEntry {
+                 node: node_id,
+                 function_name: func_name.clone(),
+@@ -400,7 +457,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                 node: node_id,
+                 function_name: func_name.clone(),
+                 kind: TraceKind::Exit,
+-                payload: vec![return_val.to_string()],
++                payload: trace_payload(std::iter::once(Ok(return_val))),
+                 schedulable_count: state.total_runnable_count(),
+                 step: state.crash_info.current_step,
+                 trace_id,
+@@ -411,14 +468,11 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+         Label::TraceDispatch(func_name, param_exprs, next) => {
+             let id = state.alloc_unique_id() as i64;
+             *pending_trace_id = Some(id);
+-            let payload: Vec<String> = param_exprs
+-                .iter()
+-                .map(|e| {
+-                    eval(local_env, node_env, e, &program.id_to_name)
+-                        .map(|v| v.to_string())
+-                        .unwrap_or_else(|_| "<error>".to_string())
+-                })
+-                .collect();
++            let payload = trace_payload(
++                param_exprs
++                    .iter()
++                    .map(|e| eval(local_env, node_env, e, &program.id_to_name)),
++            );
+             logger.log_trace(TraceEntry {
+                 node: node_id,
+                 function_name: func_name.clone(),
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 94d0a5f..7d721eb 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -16,6 +16,54 @@ fn slot(idx: u32) -> VarSlot {
+     VarSlot::Local(idx, NameId(idx as usize))
+ }
+ 
++#[test]
++fn json_string_array_matches_serde_vec_of_strings() {
++    let cases: Vec<Vec<&str>> = vec![
++        vec![],
++        vec![""],
++        vec!["", ""],
++        vec!["0"],
++        vec!["\"quoted\"", "back\\slash"],
++        vec!["new\nline", "tab\t", "cr\r", "bell\u{7}", "nul\0", "esc\u{1b}", "del\u{7f}"],
++        vec!["unicode \u{e9}\u{1f600} \u{2028}", "</script>", "a/b"],
++        vec!["[node(NameId(10)#0), node(NameId(10)#1)]", "{  }", "Some(\"x\")", "()"],
++    ];
++    for items in cases {
++        let mut text = String::new();
++        let mut ends = Vec::new();
++        for item in &items {
++            text.push_str(item);
++            ends.push(text.len());
++        }
++        let expected = serde_json::to_string(
++            &items
++                .iter()
++                .map(|s| serde_json::Value::String(s.to_string()))
++                .collect::<Vec<_>>(),
++        )
++        .unwrap();
++        assert_eq!(json_string_array(&text, &ends), expected, "items {items:?}");
++    }
++}
++
++#[test]
++fn trace_payload_formats_values_and_errors() {
++    let values: Vec<Result<Value<WithHashing>, RuntimeError>> = vec![
++        Ok(Value::int(-7)),
++        Err(RuntimeError::TypeError {
++            expected: "int",
++            got: "bool",
++        }),
++        Ok(Value::string("q\"s".into())),
++    ];
++    assert_eq!(
++        trace_payload(values.into_iter()),
++        "[\"-7\",\"<error>\",\"\\\"q\\\"s\\\"\"]"
++    );
++    let none: Vec<Result<Value<WithHashing>, RuntimeError>> = vec![];
++    assert_eq!(trace_payload(none.into_iter()), "[]");
++}
++
+ fn node_slot(idx: u32) -> VarSlot {
+     VarSlot::Node(idx, NameId(1000 + idx as usize))
+ }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index aeb73e2..32bedad 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -234,9 +234,11 @@ pub enum TraceKind {
+ #[derive(Clone, Debug)]
+ pub struct TraceEntry {
+     pub node: NodeId,
+-    pub function_name: String,
++    /// Shared with the label that emitted the entry, so a row costs no copy.
++    pub function_name: Arc<str>,
+     pub kind: TraceKind,
+-    pub payload: Vec<String>,
++    /// JSON array of the parameter texts, serialized when the entry is made.
++    pub payload: String,
+     pub schedulable_count: usize,
+     pub step: i32,
+     pub trace_id: i64,
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index 6fc17b5..863f47f 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -369,55 +369,138 @@ impl<H: HashPolicy> Hash for Value<H> {
+     }
+ }
+ 
+-impl<H: HashPolicy> std::fmt::Display for Value<H> {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++/// Decimal text of an integer held in a stack buffer, so it can be appended
++/// to a string without formatting machinery or a temporary allocation.
++pub struct Decimal {
++    buf: [u8; 20],
++    start: usize,
++}
++
++impl Decimal {
++    pub fn of_i64(n: i64) -> Self {
++        let mut d = Self::of_u64(n.unsigned_abs());
++        if n < 0 {
++            d.start -= 1;
++            d.buf[d.start] = b'-';
++        }
++        d
++    }
++
++    pub fn of_u64(mut n: u64) -> Self {
++        let mut buf = [0u8; 20];
++        let mut start = buf.len();
++        loop {
++            start -= 1;
++            buf[start] = b'0' + (n % 10) as u8;
++            n /= 10;
++            if n == 0 {
++                break;
++            }
++        }
++        Self { buf, start }
++    }
++
++    pub fn as_str(&self) -> &str {
++        // The buffer holds only ASCII digits and an optional leading sign.
++        std::str::from_utf8(&self.buf[self.start..]).unwrap_or("")
++    }
++}
++
++fn write_node_id<W: std::fmt::Write + ?Sized>(out: &mut W, n: &NodeId) -> std::fmt::Result {
++    out.write_str("NameId(")?;
++    out.write_str(Decimal::of_u64(n.role.0 as u64).as_str())?;
++    out.write_str(")#")?;
++    out.write_str(Decimal::of_u64(n.index as u64).as_str())
++}
++
++fn write_seq<H: HashPolicy, W: std::fmt::Write + ?Sized>(
++    out: &mut W,
++    open: &str,
++    items: &ValueSeq<H>,
++    close: &str,
++) -> std::fmt::Result {
++    out.write_str(open)?;
++    for (i, item) in items.iter().enumerate() {
++        if i > 0 {
++            out.write_str(", ")?;
++        }
++        item.write_to(out)?;
++    }
++    out.write_str(close)
++}
++
++impl<H: HashPolicy> Value<H> {
++    /// Appends the textual form of the value to `out`. This is the single
++    /// definition of that text; `Display` forwards here, so appending to a
++    /// `String` and formatting produce the same bytes.
++    pub fn write_to<W: std::fmt::Write + ?Sized>(&self, out: &mut W) -> std::fmt::Result {
+         use ValueKind::*;
+         match &self.kind {
+-            Int(n) => write!(f, "{}", n),
+-            Bool(b) => write!(f, "{}", b),
+-            String(s) => write!(f, "\"{}\"", s),
+-            Node(n) => write!(f, "node({})", n),
+-            Unit => write!(f, "()"),
+-            Option(None) => write!(f, "None"),
+-            Option(Some(v)) => write!(f, "Some({})", v),
+-            Channel(ch) => write!(f, "channel({}, {})", ch.node, ch.id),
+-            FifoLink(link_id, peer) => write!(f, "fifo_link({}, {})", link_id.0, peer),
+-            Tuple(items) => {
+-                write!(f, "(")?;
+-                for (i, item) in items.iter().enumerate() {
+-                    if i > 0 {
+-                        write!(f, ", ")?;
+-                    }
+-                    write!(f, "{}", item)?;
+-                }
+-                write!(f, ")")
++            Int(n) => out.write_str(Decimal::of_i64(*n).as_str()),
++            Bool(true) => out.write_str("true"),
++            Bool(false) => out.write_str("false"),
++            String(s) => {
++                out.write_char('"')?;
++                out.write_str(s)?;
++                out.write_char('"')
+             }
+-            List(items) => {
+-                write!(f, "[")?;
+-                for (i, item) in items.iter().enumerate() {
+-                    if i > 0 {
+-                        write!(f, ", ")?;
+-                    }
+-                    write!(f, "{}", item)?;
+-                }
+-                write!(f, "]")
++            Node(n) => {
++                out.write_str("node(")?;
++                write_node_id(out, n)?;
++                out.write_char(')')
+             }
++            Unit => out.write_str("()"),
++            Option(None) => out.write_str("None"),
++            Option(Some(v)) => {
++                out.write_str("Some(")?;
++                v.write_to(out)?;
++                out.write_char(')')
++            }
++            Channel(ch) => {
++                out.write_str("channel(")?;
++                write_node_id(out, &ch.node)?;
++                out.write_str(", ")?;
++                out.write_str(Decimal::of_u64(ch.id as u64).as_str())?;
++                out.write_char(')')
++            }
++            FifoLink(link_id, peer) => {
++                out.write_str("fifo_link(")?;
++                out.write_str(Decimal::of_u64(link_id.0 as u64).as_str())?;
++                out.write_str(", ")?;
++                write_node_id(out, peer)?;
++                out.write_char(')')
++            }
++            Tuple(items) => write_seq(out, "(", items, ")"),
++            List(items) => write_seq(out, "[", items, "]"),
+             Map(map) => {
+-                write!(f, "{{ ")?;
++                out.write_str("{ ")?;
+                 for (i, (k, v)) in map.iter().enumerate() {
+                     if i > 0 {
+-                        write!(f, ", ")?;
++                        out.write_str(", ")?;
+                     }
+-                    write!(f, "{}: {}", k, v)?;
++                    k.write_to(out)?;
++                    out.write_str(": ")?;
++                    v.write_to(out)?;
+                 }
+-                write!(f, " }}")
++                out.write_str(" }")
++            }
++            Variant(_, name, None) => out.write_str(name),
++            Variant(_, name, Some(payload)) => {
++                out.write_str(name)?;
++                out.write_char('(')?;
++                payload.write_to(out)?;
++                out.write_char(')')
+             }
+-            Variant(_, name, None) => write!(f, "{}", name),
+-            Variant(_, name, Some(payload)) => write!(f, "{}({})", name, payload),
+         }
+     }
+ }
+ 
++impl<H: HashPolicy> std::fmt::Display for Value<H> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        self.write_to(f)
++    }
++}
++
+ impl<H: HashPolicy> Value<H> {
+     pub fn type_name(&self) -> &'static str {
+         use ValueKind::*;
+@@ -654,6 +737,187 @@ impl<H: HashPolicy> Env<H> {
+ mod tests {
+     use super::*;
+     use proptest::prelude::*;
++
++    /// Independent, formatter-based rendering of a value, kept as the
++    /// reference the appending writer must match byte for byte.
++    struct Reference<'a, H: HashPolicy>(&'a Value<H>);
++
++    impl<H: HashPolicy> std::fmt::Display for Reference<'_, H> {
++        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++            use ValueKind::*;
++            match &self.0.kind {
++                Int(n) => write!(f, "{}", n),
++                Bool(b) => write!(f, "{}", b),
++                String(s) => write!(f, "\"{}\"", s),
++                Node(n) => write!(f, "node({})", n),
++                Unit => write!(f, "()"),
++                Option(None) => write!(f, "None"),
++                Option(Some(v)) => write!(f, "Some({})", Reference(v)),
++                Channel(ch) => write!(f, "channel({}, {})", ch.node, ch.id),
++                FifoLink(link_id, peer) => write!(f, "fifo_link({}, {})", link_id.0, peer),
++                Tuple(items) => {
++                    write!(f, "(")?;
++                    for (i, item) in items.iter().enumerate() {
++                        if i > 0 {
++                            write!(f, ", ")?;
++                        }
++                        write!(f, "{}", Reference(item))?;
++                    }
++                    write!(f, ")")
++                }
++                List(items) => {
++                    write!(f, "[")?;
++                    for (i, item) in items.iter().enumerate() {
++                        if i > 0 {
++                            write!(f, ", ")?;
++                        }
++                        write!(f, "{}", Reference(item))?;
++                    }
++                    write!(f, "]")
++                }
++                Map(map) => {
++                    write!(f, "{{ ")?;
++                    for (i, (k, v)) in map.iter().enumerate() {
++                        if i > 0 {
++                            write!(f, ", ")?;
++                        }
++                        write!(f, "{}: {}", Reference(k), Reference(v))?;
++                    }
++                    write!(f, " }}")
++                }
++                Variant(_, name, None) => write!(f, "{}", name),
++                Variant(_, name, Some(payload)) => write!(f, "{}({})", name, Reference(payload)),
++            }
++        }
++    }
++
++    fn assert_text_matches_reference(v: &Value<WithHashing>) {
++        let expected = Reference(v).to_string();
++        let mut appended = String::from("prefix|");
++        v.write_to(&mut appended).unwrap();
++        assert_eq!(appended, format!("prefix|{expected}"), "{v:?}");
++        assert_eq!(v.to_string(), expected, "{v:?}");
++        assert_eq!(format!("<{v}>"), format!("<{expected}>"), "{v:?}");
++    }
++
++    #[test]
++    fn decimal_matches_std_formatting() {
++        for n in [
++            i64::MIN,
++            i64::MIN + 1,
++            -1_000_000_000_000,
++            -10,
++            -9,
++            -1,
++            0,
++            1,
++            9,
++            10,
++            99,
++            100,
++            i64::MAX - 1,
++            i64::MAX,
++        ] {
++            assert_eq!(Decimal::of_i64(n).as_str(), n.to_string());
++        }
++        for n in [0u64, 1, 9, 10, 12345, u64::MAX, usize::MAX as u64] {
++            assert_eq!(Decimal::of_u64(n).as_str(), n.to_string());
++        }
++    }
++
++    #[test]
++    fn write_to_matches_reference_on_enumerated_values() {
++        type V = Value<WithHashing>;
++        let node = |role: usize, index: usize| NodeId {
++            role: NameId(role),
++            index,
++        };
++        let s = |t: &str| V::string(EcoString::from(t));
++        let seq = |items: Vec<V>| ValueSeq::from(items);
++        let map = |entries: Vec<(V, V)>| {
++            let mut m = ValueMap::<WithHashing>::default();
++            for (k, v) in entries {
++                m.insert(k, v);
++            }
++            V::map(m)
++        };
++        let leaves: Vec<V> = vec![
++            V::int(i64::MIN),
++            V::int(i64::MAX),
++            V::int(0),
++            V::int(-1),
++            V::int(-42),
++            V::int(7),
++            V::bool(true),
++            V::bool(false),
++            V::unit(),
++            s(""),
++            s("plain"),
++            s("with \"quotes\""),
++            s("back\\slash"),
++            s("new\nline\ttab\r"),
++            s("control \u{0}\u{1}\u{1f}\u{7f}"),
++            s("unicode \u{e9}\u{4e2d}\u{1f600}"),
++            V::node(node(0, 0)),
++            V::node(node(usize::MAX, 17)),
++            V::channel(ChannelId {
++                node: node(3, 1),
++                id: 9,
++            }),
++            V::channel(ChannelId {
++                node: node(0, 0),
++                id: usize::MAX,
++            }),
++            V::fifo_link(LinkId(0), node(2, 5)),
++            V::fifo_link(LinkId(usize::MAX), node(1, 0)),
++            V::option_none(),
++            V::variant(0, EcoString::from("Empty"), None),
++            V::variant(1, EcoString::from("Prepare"), Some(Arc::new(V::int(3)))),
++        ];
++        let mut cases: Vec<V> = leaves.clone();
++        cases.push(V::option_some(V::option_some(s("x"))));
++        cases.push(V::option_some(V::option_none()));
++        cases.push(V::tuple(seq(vec![])));
++        cases.push(V::tuple(seq(vec![V::int(1)])));
++        cases.push(V::tuple(seq(vec![
++            V::int(1),
++            V::tuple(seq(vec![s("a"), V::bool(false)])),
++            V::unit(),
++        ])));
++        cases.push(V::list(seq(vec![])));
++        cases.push(V::list(seq(vec![V::list(seq(vec![]))])));
++        cases.push(V::list(seq(leaves.clone())));
++        cases.push(map(vec![]));
++        cases.push(map(vec![(s("k"), V::int(1))]));
++        cases.push(map(vec![
++            (s("a"), map(vec![])),
++            (V::int(2), V::list(seq(vec![V::int(3), V::int(4)]))),
++            (V::tuple(seq(vec![s("t"), V::int(0)])), V::option_some(s("v"))),
++        ]));
++        cases.push(V::variant(
++            2,
++            EcoString::from("Commit"),
++            Some(Arc::new(V::tuple(seq(vec![
++                V::int(1),
++                map(vec![(s("k"), V::list(seq(leaves.clone())))]),
++            ])))),
++        ));
++        cases.push(V::variant(
++            3,
++            EcoString::from("Wrap"),
++            Some(Arc::new(V::variant(0, EcoString::from("Empty"), None))),
++        ));
++        for v in &cases {
++            assert_text_matches_reference(v);
++        }
++    }
++
++    proptest! {
++        #[test]
++        fn write_to_matches_reference_on_arbitrary_values(v in arb_value()) {
++            assert_text_matches_reference(&v);
++        }
++    }
+     use std::collections::hash_map::DefaultHasher;
+     use std::hash::{Hash, Hasher};
+ 
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index cfc4a84..b23ccf8 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -1137,8 +1137,8 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     F::merge(&global_state.feedback, &path_state.feedback);
+ 
+     let serialized = serialize_history(&path_state.history);
+-    let serialized_logs = serialize_logs(&path_state.logs.entries);
+-    let serialized_traces = serialize_traces(&path_state.logs.traces);
++    let serialized_logs = serialize_logs(std::mem::take(&mut path_state.logs.entries));
++    let serialized_traces = serialize_traces(std::mem::take(&mut path_state.logs.traces));
+     writer.write(run_id, serialized, serialized_logs, serialized_traces);
+     writer.write_run(run_row(
+         run_id,
+@@ -1446,8 +1446,8 @@ fn run_single_plan<F: Feedback>(
+     F::merge(&global_state.feedback, &path_state.feedback);
+ 
+     let serialized = serialize_history(&path_state.history);
+-    let serialized_logs = serialize_logs(&path_state.logs.entries);
+-    let serialized_traces = serialize_traces(&path_state.logs.traces);
++    let serialized_logs = serialize_logs(std::mem::take(&mut path_state.logs.entries));
++    let serialized_traces = serialize_traces(std::mem::take(&mut path_state.logs.traces));
+     writer.write(run_id, serialized, serialized_logs, serialized_traces);
+     writer.write_run(run_row(
+         run_id,
+diff --git a/spur-core/src/simulator/history.rs b/spur-core/src/simulator/history.rs
+index ab6f53b..b82a911 100644
+--- a/spur-core/src/simulator/history.rs
++++ b/spur-core/src/simulator/history.rs
+@@ -34,11 +34,12 @@ pub struct PersistableLog {
+     pub step: i32,
+ }
+ 
+-pub fn serialize_logs(logs: &[LogEntry]) -> Vec<PersistableLog> {
+-    logs.par_iter()
++/// Rows keep the order of `logs`; the text moves into each row unchanged.
++pub fn serialize_logs(logs: Vec<LogEntry>) -> Vec<PersistableLog> {
++    logs.into_iter()
+         .map(|l| PersistableLog {
+             node_id: l.node.index as i64,
+-            content: l.content.clone(),
++            content: l.content,
+             step: l.step,
+         })
+         .collect()
+@@ -47,42 +48,33 @@ pub fn serialize_logs(logs: &[LogEntry]) -> Vec<PersistableLog> {
+ pub struct PersistableTrace {
+     pub node_id: i64,
+     pub step: i32,
+-    pub function_name: String,
++    pub function_name: Arc<str>,
+     pub trace_kind: &'static str,
++    /// JSON array of the parameter texts.
+     pub payload: String,
+     pub schedulable_count: i64,
+     pub trace_id: i64,
+     pub causal_operation_id: Option<i64>,
+ }
+ 
+-pub fn serialize_traces(traces: &[TraceEntry]) -> Vec<PersistableTrace> {
++/// Rows keep the order of `traces`; the name and the already serialized
++/// payload move into each row unchanged.
++pub fn serialize_traces(traces: Vec<TraceEntry>) -> Vec<PersistableTrace> {
+     traces
+-        .par_iter()
+-        .map(|t| {
+-            let payload = if t.payload.is_empty() {
+-                "[]".to_string()
+-            } else {
+-                let items: Vec<JsonValue> = t
+-                    .payload
+-                    .iter()
+-                    .map(|s| JsonValue::String(s.clone()))
+-                    .collect();
+-                serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+-            };
+-            PersistableTrace {
+-                node_id: t.node.index as i64,
+-                step: t.step,
+-                function_name: t.function_name.clone(),
+-                trace_kind: match t.kind {
+-                    TraceKind::Dispatch => "Dispatch",
+-                    TraceKind::Enter => "Enter",
+-                    TraceKind::Exit => "Exit",
+-                },
+-                payload,
+-                schedulable_count: t.schedulable_count as i64,
+-                trace_id: t.trace_id,
+-                causal_operation_id: t.causal_operation_id,
+-            }
++        .into_iter()
++        .map(|t| PersistableTrace {
++            node_id: t.node.index as i64,
++            step: t.step,
++            function_name: t.function_name,
++            trace_kind: match t.kind {
++                TraceKind::Dispatch => "Dispatch",
++                TraceKind::Enter => "Enter",
++                TraceKind::Exit => "Exit",
++            },
++            payload: t.payload,
++            schedulable_count: t.schedulable_count as i64,
++            trace_id: t.trace_id,
++            causal_operation_id: t.causal_operation_id,
+         })
+         .collect()
+ }
+@@ -431,7 +423,7 @@ fn append_traces_batch(
+     let steps: Int32Array = traces.iter().map(|t| t.step).collect::<Vec<_>>().into();
+     let func_names: StringArray = traces
+         .iter()
+-        .map(|t| t.function_name.as_str())
++        .map(|t| &*t.function_name)
+         .collect::<Vec<_>>()
+         .into();
+     let kinds: StringArray = traces
+@@ -885,7 +877,7 @@ mod parquet_writer_tests {
+                 .map(|i| PersistableTrace {
+                     node_id: 0,
+                     step: i as i32,
+-                    function_name: "f".to_string(),
++                    function_name: Arc::from("f"),
+                     trace_kind: "enter",
+                     payload: "{}".to_string(),
+                     schedulable_count: 0,
