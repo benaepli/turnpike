@@ -67,6 +67,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 262144, name: "clientFanoutRelease" },
   { bit: 1073741824, name: "restartAfterPeerSettle" },
   { bit: 134217728, name: "clientDeferralOnly" },
+  { bit: 4194304, name: "replyFirstRecovering" },
 ];
 
 // The tag that marks a run-cap probe. Probes are about 3% of runs, are
