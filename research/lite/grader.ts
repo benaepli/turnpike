@@ -1393,6 +1393,7 @@ interface PanelMember {
   maxIterations: number;
   wallSec: number;
   expectedRate: number;
+  runsPerConfig?: number;
   calibration: { eventsPerSec: number; runsPerSec: number };
 }
 
@@ -1456,7 +1457,9 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
     // wall_budget_sec makes the explorer cut the grid and flush its DB
     // itself; the explore() deadline is only the guard behind it.
     materializeConfig(template, cfgPath, {
-      runsPerConfig: 4000,
+      // The grid exhausts long before the wall on every member, so the run
+      // count, not the wall, sets a member's events; rare members raise it.
+      runsPerConfig: m.runsPerConfig ?? 4000,
       sessionSeed: seed,
       dropKeys: CAMPAIGN_ONLY_KEYS,
       extra: { ...m.overlay, num_crashes: m.faults.numCrashes, max_iterations: m.maxIterations, wall_budget_sec: wallSec },

@@ -259,11 +259,12 @@
         "eventsPerSec": 0,
         "tauBestSec": 0
       },
-      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal. Reachability proven 2026-09-03 by research/lite/plans/raft-commit-prev-term-figure8-plan.json; count-only member, never a rate. Slow set at wallSec 200 (600 s at scale 3) from 2026-09-03; count-only.",
+      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal. Reachability proven 2026-09-03 by research/lite/plans/raft-commit-prev-term-figure8-plan.json; count-only member, never a rate. Slow set at wallSec 200 (600 s at scale 3) from 2026-09-03; count-only. Slow set: runsPerConfig 40000 (the grid, not the wall, sets the run count).",
       "wallSec": 200,
       "replicates": 3,
       "tier": "hard",
-      "expectedEvents": 0
+      "expectedEvents": 0,
+      "runsPerConfig": 40000
     },
     {
       "id": "raft-forget-vote",
@@ -326,11 +327,12 @@
         "eventsPerSec": 0.01654,
         "tauBestSec": 0
       },
-      "notes": "never observed despite 60,048 crash-recover cycles over its calibration. Slow set at wallSec 200 (600 s at scale 3) from 2026-09-03; count-only.",
+      "notes": "never observed despite 60,048 crash-recover cycles over its calibration. Slow set at wallSec 200 (600 s at scale 3) from 2026-09-03; count-only. Slow set: runsPerConfig 40000 (the grid, not the wall, sets the run count).",
       "wallSec": 200,
       "replicates": 3,
       "tier": "hard",
-      "expectedEvents": 9.9
+      "expectedEvents": 9.9,
+      "runsPerConfig": 40000
     },
     {
       "id": "paxos-fixed-host-control",
@@ -399,10 +401,11 @@
         ],
         "perSeedViolations": null
       },
-      "notes": "Added 2026-09-03 after Paxos.spur was classified (research/lite/findings/paxos-host-crash-violation.md). 0 violations in 52,017 runs under the forget-promise overlay at seed 1000.",
-      "wallSec": 15,
+      "notes": "Added 2026-09-03 after Paxos.spur was classified (research/lite/findings/paxos-host-crash-violation.md). 0 violations in 52,017 runs under the forget-promise overlay at seed 1000. Slow set: runsPerConfig 20000 (the grid, not the wall, sets the run count).",
+      "wallSec": 200,
       "replicates": 3,
-      "tier": "control"
+      "tier": "control",
+      "runsPerConfig": 20000
     },
     {
       "id": "paxos-fixed-forget-promise",
@@ -475,11 +478,12 @@
           9
         ]
       },
-      "notes": "Re-derived from the fixed host 2026-09-03. Reachability: research/lite/plans/paxos-forget-promise-plan.json (300/300 violate, fixed host 0/300). Calibrated 2026-09-03 on the merged tree (spur f769929) with the panel mechanics at scale 3, three seeds pooled; the fixed host read 0 in 288,000 under the same overlay.",
-      "wallSec": 45,
+      "notes": "Re-derived from the fixed host 2026-09-03. Reachability: research/lite/plans/paxos-forget-promise-plan.json (300/300 violate, fixed host 0/300). Calibrated 2026-09-03 on the merged tree (spur f769929) with the panel mechanics at scale 3, three seeds pooled; the fixed host read 0 in 288,000 under the same overlay. Slow set: runsPerConfig 20000 (the grid, not the wall, sets the run count).",
+      "wallSec": 200,
       "replicates": 3,
       "tier": "hard",
-      "expectedEvents": 93.9
+      "expectedEvents": 93.9,
+      "runsPerConfig": 20000
     },
     {
       "id": "paxos-fixed-recover-stale-scout",
