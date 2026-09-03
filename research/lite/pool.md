@@ -1232,12 +1232,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## trace-print-format-pipeline-direct-write
 
-- kind: perf | category: performance | origin: proposer | status: FILED FOR
-  THE USER at iteration 22 with a merge recommendation - throughput 1.0924
-  (band [1.08, 1.12] met), wall per step 0.93/0.92, depth>=6 per second
-  1.084, acceptance byte-identical single-threaded, allocations -28.9%,
-  regression passed; routed to the user because it touches exec.rs and
-  history.rs. Patch under research/lite/patches/
+- kind: perf | category: performance | origin: proposer | status: MERGED at
+  f72f3ff (spur e513cac) on the user's decision after a filing - throughput
+  1.0924 (band [1.08, 1.12] met), wall per step 0.93/0.92, depth>=6 per
+  second 1.084, acceptance byte-identical single-threaded, allocations
+  -28.9%, regression passed
 - Hotspot: the trace and print formatting pipeline - core::fmt::write
   3.69% self on the fresh profile, String::write_str 2.43%, Value::fmt
   1.06%, serde_json serialize_str 2.27% - on every delivery of every run:

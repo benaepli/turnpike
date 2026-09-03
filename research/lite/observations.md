@@ -1649,3 +1649,7 @@ log row - and allocations per run fell 28.9%. Regression passed; no
 violations either side of 1.19M candidate runs. The grader's rule says
 merge; the diff touches exec.rs and history.rs, so the decision is the
 user's, with the loop's recommendation to merge.
+
+The user merged the formatting rewrite on reading the filing (f72f3ff,
+spur e513cac). The tree moved; the panel and a fresh baseline cache follow
+the rebuild, and the ledger row follows the cache.
