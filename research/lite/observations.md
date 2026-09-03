@@ -2095,3 +2095,30 @@ send-order parent, the PCT and ghost-block shapes at admission.
 **Goal.** Re-read. Objective depth-8 events per explore-second; the merged
 tree reads about 6,900 per chunk at 2,126 runs per second against 6,300 at
 the epoch freeze.
+
+## Iteration 31: deferring post-fault client requests moves the steepest rung
+
+Post-fault client requests - the two or three per run that become ready
+after the first crash - were held on the treated half and released one per
+firing of a ghost-consumer fan-out window, or at 32 steps. Over four
+chunks: depth 8 1.012 (null held), depth 9 1.124 [1.013, 1.247], depth 10
+2.52 [1.58, 4.03] on 237 against 94 events, depth 11 55 against 17,
+throughput 0.994, plan completion +0.55 points, regression passed, no
+violations in 2.54M candidate runs. The grader's v3 rule merged it on the
+advance rung; merged at 5ded656 (spur f769929). This is the first mechanism
+to move depth 10, the chain's steepest transition.
+
+The attribution is not what the hypothesis said. Windows open in a third
+of runs, the anchor released 7.8% of held requests, and 92% expired at 32
+steps - two of the frozen clauses read the anchor as inert. So the
+effect is carried by the deferral: issuing post-fault requests about 32
+steps late puts the write after the recovered node's ghost DoViewChange
+has landed, which is what depth 10 asks for, and the window adds the rest
+at most. The merged rule is kept as graded; a deferral-only ablation is
+proposed for the next round, and if it matches, the rule should be
+simplified to the plain deferral and its length studied.
+
+Read with iteration 29-30: the loop's last three merges are all about
+WHEN something that already exists is allowed to happen - a dispatch
+choice between two records, the order inside a pair, and now the moment a
+client request is issued - and none of them holds a record in flight.

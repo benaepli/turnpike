@@ -1781,10 +1781,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## client-release-into-ghost-consumer-fanout-window
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 31 (judge gain 6, cost 2 by the pool's precedent for invocation
-  timing; iteration-31 top pick) | parent: client-request-placement-span-
-  draw (closed under the old rung, whose oracle had no w2 label)
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  5ded656 (spur f769929) on the v3 advance rung after four chunks - depth 9
+  1.124 [1.013, 1.247], depth 10 2.52 [1.58, 4.03], depth 11 55 vs 17,
+  depth 8 flat, throughput 0.994; the anchor's own clauses read inert (92%
+  of holds expire), so the 32-step deferral of post-fault requests carries
+  most of the effect - see post-fault-request-deferral-ablation | parent:
+  client-request-placement-span-draw
 - Mechanism: workload timing anchored to protocol activity. A post-fault
   request - a planned client request that becomes ready after the run's
   first executed crash (about 1.5 per run; step-0 requests are never
@@ -1902,3 +1905,28 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 32 (judge gain 2): its release provision lands exactly on the
   answer segment, confounding the predicted null with the sibling's chain-
   killer. Bit 1 << 17 if ever built.
+
+## post-fault-request-deferral-ablation
+
+- kind: ablate | category: scheduler | origin: operator-agent | status:
+  PROPOSED at iteration 31 for the next judge round | parent:
+  client-release-into-ghost-consumer-fanout-window (merged)
+- Mechanism: within the merged mechanism's treated half, a nested salted
+  half (a free bit) disables the window release and keeps only the
+  expiry: every post-fault request is invoked at ready + 32 steps (or at
+  a dry queue). The other quarter keeps the merged rule. Nothing else
+  changes.
+- Why: the merged candidate's anchor released 7.8% of held requests and
+  92% expired, yet depth 9 rose 12% and depth 10 2.5x. If the deferral-only
+  quarter matches the anchored quarter on depth 9 and 10, the window is
+  ornament and the merged rule should be simplified to a plain deferral
+  (and its length becomes the next question); if the anchored quarter is
+  higher, the window earns its place.
+- Frozen prediction: nested contrast deferral-only against anchored within
+  the treated half; depth>=10 per run in [0.70, 1.10] (null expected -
+  the deferral is the mechanism); depth>=9 in [0.90, 1.10]; depth>=8 null;
+  firing: the deferral quarter's expired/held >= 0.99 and the anchored
+  quarter's anchor share about 0.08; falsifier: the deferral quarter's
+  depth>=10 interval entirely below 0.70 (the window matters) or above
+  1.30 (the window hurts); cost and steps clauses as the parent's;
+  four chunks.
