@@ -1,54 +1,69 @@
 {
- "epoch": 14,
- "frozenAtIso": "2026-09-03T06:35:05.466Z",
- "identity": {
-  "spurTree": "aba61f7362597976b4e20db917e42442f79305eb",
-  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
-  "armIds": [
-   "grid",
-   "grid-no-purgatory",
-   "grid-post-fault-2",
-   "grid-short"
-  ],
-  "rayonThreads": 30,
-  "chunkSec": 300,
-  "graderVersion": "ta:12160cd+porc:ebf06c5+oracle:390ec49e"
- },
- "runsPerSec": 2041.8467725654139,
- "source": "median over research/lite/baselines/aba61f736259-30-f9daa01b-300-g0d3de012.json (2 chunks)",
- "layoutNullBand": 0.05,
- "layoutSource": "bb-build-layout-control, 2026-09-02: identical source built twice read 0.9634 on the per-second rung",
- "layoutMeasuredAtIso": "2026-09-02T09:20:00Z",
- "merges": [
-  {
-   "name": "fresh-first-same-pair-dispatch-tiebreak",
-   "commit": "e10f046",
-   "spurCommit": "6db3b34",
-   "ratio": 1.079,
-   "cumulative": 1.079,
-   "measuredRps": 2139.3730572395198,
-   "measuredRpsChunks": [
-    2207.031640382963,
-    2071.7144740960766
-   ],
-   "cacheFile": "research/lite/baselines/ba634c99e024-30-f9daa01b-300-g0d3de012.json",
-   "measuredAtIso": "2026-09-03T09:20:00Z",
-   "note": "measured by grader baseline --chunks 2 after the fresh-first merge; depth>=8 events per chunk [7699, 7149] against 6495/6100 at the epoch freeze"
+  "epoch": 14,
+  "frozenAtIso": "2026-09-03T06:35:05.466Z",
+  "identity": {
+    "spurTree": "aba61f7362597976b4e20db917e42442f79305eb",
+    "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+    "armIds": [
+      "grid",
+      "grid-no-purgatory",
+      "grid-post-fault-2",
+      "grid-short"
+    ],
+    "rayonThreads": 30,
+    "chunkSec": 300,
+    "graderVersion": "ta:12160cd+porc:ebf06c5+oracle:390ec49e"
   },
-  {
-   "name": "pair-send-order-lean",
-   "commit": "1921761",
-   "spurCommit": "f28f1b5",
-   "ratio": 0.9884,
-   "cumulative": 1.0664836,
-   "measuredRps": 2125.52764248349,
-   "measuredRpsChunks": [
-    2065.148987603512,
-    2185.9062973634686
-   ],
-   "cacheFile": "research/lite/baselines/9d6dfc9c38a3-30-f9daa01b-300-g0d3de012.json",
-   "measuredAtIso": "2026-09-03T17:40:00Z",
-   "note": "measured by grader baseline --chunks 2 after the send-order merge; depth>=8 events per chunk [6752, 7037], depth>=9 [1130, 1129]; against 7699/7149 and 1234/1138 on the previous cache - a cross-session drop of about 7% on depth 8 and 5% on depth 9, the opposite sign of the within-session read, inside one session's chunk spread but recorded"
-  }
- ]
+  "runsPerSec": 2041.8467725654139,
+  "source": "median over research/lite/baselines/aba61f736259-30-f9daa01b-300-g0d3de012.json (2 chunks)",
+  "layoutNullBand": 0.05,
+  "layoutSource": "bb-build-layout-control, 2026-09-02: identical source built twice read 0.9634 on the per-second rung",
+  "layoutMeasuredAtIso": "2026-09-02T09:20:00Z",
+  "merges": [
+    {
+      "name": "fresh-first-same-pair-dispatch-tiebreak",
+      "commit": "e10f046",
+      "spurCommit": "6db3b34",
+      "ratio": 1.079,
+      "cumulative": 1.079,
+      "measuredRps": 2139.3730572395198,
+      "measuredRpsChunks": [
+        2207.031640382963,
+        2071.7144740960766
+      ],
+      "cacheFile": "research/lite/baselines/ba634c99e024-30-f9daa01b-300-g0d3de012.json",
+      "measuredAtIso": "2026-09-03T09:20:00Z",
+      "note": "measured by grader baseline --chunks 2 after the fresh-first merge; depth>=8 events per chunk [7699, 7149] against 6495/6100 at the epoch freeze"
+    },
+    {
+      "name": "pair-send-order-lean",
+      "commit": "1921761",
+      "spurCommit": "f28f1b5",
+      "ratio": 0.9884,
+      "cumulative": 1.0664836,
+      "measuredRps": 2125.52764248349,
+      "measuredRpsChunks": [
+        2065.148987603512,
+        2185.9062973634686
+      ],
+      "cacheFile": "research/lite/baselines/9d6dfc9c38a3-30-f9daa01b-300-g0d3de012.json",
+      "measuredAtIso": "2026-09-03T17:40:00Z",
+      "note": "measured by grader baseline --chunks 2 after the send-order merge; depth>=8 events per chunk [6752, 7037], depth>=9 [1130, 1129]; against 7699/7149 and 1234/1138 on the previous cache - a cross-session drop of about 7% on depth 8 and 5% on depth 9, the opposite sign of the within-session read, inside one session's chunk spread but recorded"
+    },
+    {
+      "name": "client-release-into-ghost-consumer-fanout-window",
+      "commit": "5ded656",
+      "spurCommit": "f769929",
+      "ratio": 0.9942,
+      "cumulative": 1.060298,
+      "measuredRps": 2087.721689664715,
+      "measuredRpsChunks": [
+        1989.2902813299231,
+        2186.153097999507
+      ],
+      "cacheFile": "research/lite/baselines/c868e2728937-30-f9daa01b-300-g0d3de012.json",
+      "measuredAtIso": "2026-09-03T19:17:00Z",
+      "note": "ratio is the four-chunk grade read (candidate over base, 0.9942); measured by grader baseline --chunks 2 after the merge; events per chunk depth>=8 [6343, 7355], depth>=9 [1152, 1310], depth>=10 [98, 94], depth>=11 [22, 19]; against [6752, 7037], [1130, 1129], [46, 48], [13, 9] on the first two chunks of the previous cache. Depth 10 roughly doubled on the cache as the grade predicted; the first chunk's throughput (1989) is the lowest chunk of the epoch and is recorded, not explained."
+    }
+  ]
 }
