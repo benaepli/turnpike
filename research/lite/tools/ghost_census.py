@@ -9,9 +9,18 @@ committed in the old view after the new view's broadcast was sent (P3). Only
 the per-run row is kept; dumps are never stored.
 
 Subcommands:
-  select  print run ids taken from a grade file's run_depths at one depth
+  select  print run ids taken from a grade file's run_depths at one depth or
+          in a depth range, optionally filtered or split by a variant bit
   census  evaluate populations of runs; write a per-run CSV and a JSON summary
   tables  render a JSON summary as markdown tables
+
+Variant masks: each run's `variant` is the explorer's bitfield of the
+session-global mechanisms that selected the run (1 placed crashes, 2 run-cap
+probe, 4 timer-context probe, 8 a crash hold was drawn; bits from 1 << 19 up
+are candidate treatment bits). The dump of a run does not carry it; it comes
+from the runs table written by `traceanalyzer/main -input DB -runs`, the same
+JSON the --runs-table option reads for steps and end reason. A treated versus
+control split by a bit drops the probe runs (bits 2 and 4) from both halves.
 
 Column conventions of a dump: executions rows carry Kind, Action, Step,
 UniqueID and a JSON Payload whose first element names the node for Crash,
@@ -54,6 +63,13 @@ WRITE = 'ClientInterface.Write'
 # Set by the census command before workers fork.
 SAME_STEP_ONLY = False
 
+# Variant bits of runs that no treatment applies to: run-cap probes and
+# timer-context probes. A split by a treatment bit drops them from both halves.
+PROBE_MASK = 2 | 4
+
+# Predicates a treated versus control split reports by default.
+SPLIT_PREDS = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'P2b', 'P3', 'P3_ghost', 'P4_2', 'P4_nl']
+
 RE_INIT = re.compile(r'^Node (\d+) initialized')
 RE_REC_START = re.compile(r'^Node (\d+) starting recovery')
 RE_REC_DONE = re.compile(r'^Node (\d+) recovery complete\. view=(\d+)')
@@ -73,7 +89,7 @@ BOOL_FIELDS = [
 ]
 FUNNEL = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7']
 FIELDS = [
-    'pop', 'db', 'run_id', 'depth', 'violating', 'steps', 'last_step', 'end_reason',
+    'pop', 'db', 'run_id', 'depth', 'violating', 'steps', 'last_step', 'end_reason', 'variant',
     'n_servers', 'n_crash', 'n_recover', 'n_timer_fired', 'n_enter_dupes',
     'n_unattributed_dispatches', 'n_fallback_dispatches', 'n_views', 'n_vc_entries', 'n_msgs',
     'n_ghost', 'n_ghost_restarted', 'n_ghost_acted',
@@ -716,7 +732,7 @@ def dump_run(traceanalyzer, db, run_id):
 
 
 def worker(job):
-    traceanalyzer, pop, db, run_id, depth, violating, steps, end_reason = job
+    traceanalyzer, pop, db, run_id, depth, violating, steps, end_reason, variant = job
     try:
         run = Run(dump_run(traceanalyzer, db, run_id), fallback=not SAME_STEP_ONLY)
         row = evaluate(run)
@@ -730,6 +746,7 @@ def worker(job):
     if steps is not None:
         row['steps'] = steps
     row['end_reason'] = end_reason or ''
+    row['variant'] = variant
     row['R5'] = row['R4'] and row['P2b']
     row['R6'] = row['R5'] and row['P3_ghost']
     row['R7'] = row['R6'] and bool(violating)
@@ -752,9 +769,30 @@ def read_depths(path):
 
 
 def read_runs_table(path):
+    """run_id -> (steps_used, end_reason, variant) from the JSON that
+    `traceanalyzer/main -runs` writes. A corpus from before the variant column
+    existed reports variant 0 for every run."""
     with open(path) as fh:
         rows = json.load(fh)
-    return {r['run_id']: (r.get('steps_used'), r.get('end_reason')) for r in rows}
+    return {r['run_id']: (r.get('steps_used'), r.get('end_reason'), r.get('variant', 0))
+            for r in rows}
+
+
+def variant_ok(variant, set_bits, clear_bits):
+    """True when `variant` has every bit of `set_bits` set and every bit of
+    `clear_bits` clear. An unknown variant (None) passes only when nothing is
+    asked of it."""
+    if variant is None:
+        return not set_bits and not clear_bits
+    return all(variant & b for b in set_bits) and not any(variant & b for b in clear_bits)
+
+
+def split_half(variant, bit, probe_mask=PROBE_MASK):
+    """'treated', 'control', or None when the run is a probe or its variant
+    is unknown."""
+    if variant is None or variant & probe_mask:
+        return None
+    return 'treated' if variant & bit else 'control'
 
 
 def parse_kv(items):
@@ -765,14 +803,60 @@ def parse_kv(items):
     return out
 
 
-def cmd_select(a):
-    depths = read_depths(a.grade)
-    exclude = set(read_ids(a.exclude)) if a.exclude else set()
-    ids = sorted(rid for rid, d in depths.items() if d == a.depth and rid not in exclude)
+def in_depth_range(d, a):
+    if a.depth is not None and d != a.depth:
+        return False
+    if a.min_depth is not None and d < a.min_depth:
+        return False
+    if a.max_depth is not None and d > a.max_depth:
+        return False
+    return True
+
+
+def sample_ids(ids, a):
     if a.sample and a.sample < len(ids):
         rng = random.Random(a.seed)
         ids = sorted(rng.sample(ids, a.sample))
-    print(' '.join(str(x) for x in ids))
+    return ids
+
+
+def cmd_select(a):
+    if a.depth is None and a.min_depth is None and a.max_depth is None:
+        sys.exit('select: give --depth or a --min-depth/--max-depth range')
+    needs_variant = a.variant_bit or a.variant_clear or a.split_bit
+    if needs_variant and not a.runs_table:
+        sys.exit('select: --variant-bit, --variant-clear and --split-bit need --runs-table')
+    depths = read_depths(a.grade)
+    exclude = set(read_ids(a.exclude)) if a.exclude else set()
+    variants = {}
+    if a.runs_table:
+        variants = {rid: v for rid, (_, _, v) in read_runs_table(a.runs_table).items()}
+    ids = sorted(rid for rid, d in depths.items()
+                 if in_depth_range(d, a) and rid not in exclude)
+    ids = [rid for rid in ids if variant_ok(variants.get(rid) if a.runs_table else None,
+                                           a.variant_bit or [], a.variant_clear or [])]
+    if not a.split_bit:
+        print(' '.join(str(x) for x in sample_ids(ids, a)))
+        return
+    halves = {'treated': [], 'control': []}
+    dropped = Counter()
+    for rid in ids:
+        h = split_half(variants.get(rid), a.split_bit, a.probe_mask)
+        if h is None:
+            dropped['unknown' if variants.get(rid) is None else 'probe'] += 1
+        else:
+            halves[h].append(rid)
+    for h in ('treated', 'control'):
+        lst = sample_ids(halves[h], a)
+        line = ' '.join(str(x) for x in lst)
+        if a.out:
+            with open('%s.%s' % (a.out, h), 'w') as fh:
+                fh.write(line + '\n')
+        else:
+            print('%s %s' % (h, line))
+    print('split bit %d: treated=%d control=%d dropped=%s' % (
+        a.split_bit, len(halves['treated']), len(halves['control']), dict(dropped)),
+        file=sys.stderr)
 
 
 def quantiles(values):
@@ -788,13 +872,52 @@ def quantiles(values):
             'mean': sum(vals) / len(vals)}
 
 
-def summarize(rows):
+def split_summary(rows, bit, probe_mask=PROBE_MASK, preds=None):
+    """Per population: treated (bit set) versus control (bit clear) counts and
+    shares of each predicate and the ratio of shares, over the runs that are
+    not probes. Bool fields and funnel rungs are all reported; `preds` names
+    the ones the tables print first."""
+    preds = preds or SPLIT_PREDS
+    fields = preds + [f for f in BOOL_FIELDS + FUNNEL if f not in preds]
+    pops = defaultdict(lambda: {'treated': [], 'control': []})
+    dropped = defaultdict(Counter)
+    for r in rows:
+        if 'error' in r:
+            continue
+        h = split_half(r.get('variant'), bit, probe_mask)
+        if h is None:
+            dropped[r['pop']]['unknown' if r.get('variant') is None else 'probe'] += 1
+        else:
+            pops[r['pop']][h].append(r)
+    out = {'bit': bit, 'probe_mask': probe_mask, 'preds': preds, 'populations': {}}
+    for pop, halves in sorted(pops.items()):
+        t, c = halves['treated'], halves['control']
+        s = {'treated_n': len(t), 'control_n': len(c), 'dropped': dict(dropped[pop]),
+             'treated_violating': sum(1 for r in t if r['violating']),
+             'control_violating': sum(1 for r in c if r['violating']),
+             'predicates': {}}
+        for f in fields:
+            tc = sum(1 for r in t if r.get(f))
+            cc = sum(1 for r in c if r.get(f))
+            ts = tc / len(t) if t else None
+            cs = cc / len(c) if c else None
+            s['predicates'][f] = {
+                'treated_count': tc, 'treated_share': ts,
+                'control_count': cc, 'control_share': cs,
+                'ratio': (ts / cs) if (ts is not None and cs) else None}
+        out['populations'][pop] = s
+    return out
+
+
+def summarize(rows, split_bit=None, probe_mask=PROBE_MASK):
     pops = defaultdict(list)
     for r in rows:
         if 'error' in r:
             continue
         pops[r['pop']].append(r)
     summary = {'populations': {}, 'precision_recall': {}}
+    if split_bit:
+        summary['split'] = split_summary(rows, split_bit, probe_mask)
     for pop, rs in sorted(pops.items()):
         s = {'n': len(rs), 'violating': sum(1 for r in rs if r['violating'])}
         s['predicates'] = {}
@@ -870,9 +993,9 @@ def cmd_census(a):
         name, rest = spec.split('=', 1)
         db, ids = rest.rsplit(':', 1)
         for rid in read_ids(ids):
-            steps, end = runs_tables.get(db, {}).get(rid, (None, None))
+            steps, end, variant = runs_tables.get(db, {}).get(rid, (None, None, None))
             jobs.append((a.traceanalyzer, name, db, rid, depths.get(db, {}).get(rid),
-                         1 if rid in violating.get(db, set()) else 0, steps, end))
+                         1 if rid in violating.get(db, set()) else 0, steps, end, variant))
     rows = []
     with Pool(a.workers) as pool:
         for i, row in enumerate(pool.imap_unordered(worker, jobs, chunksize=4)):
@@ -885,7 +1008,7 @@ def cmd_census(a):
         w.writeheader()
         for r in rows:
             w.writerow({k: (int(v) if isinstance(v, bool) else v) for k, v in r.items()})
-    summary = summarize(rows)
+    summary = summarize(rows, a.split_bit, a.probe_mask)
     with open(a.json, 'w') as fh:
         json.dump(summary, fh, indent=1, sort_keys=True)
     print('rows=%d errors=%d' % (len(rows), len(summary['errors'])), file=sys.stderr)
@@ -895,11 +1018,67 @@ def pct(c, n):
     return '%d/%d (%.1f%%)' % (c, n, 100.0 * c / n) if n else '-'
 
 
+def read_census_csv(path):
+    """Per-run rows of a census CSV with the columns the split needs typed
+    back: bool fields and funnel rungs as ints, variant and violating as ints
+    or None."""
+    rows = []
+    with open(path, newline='') as fh:
+        for r in csv.DictReader(fh):
+            # Every CSV row has the error column; only a non-empty one marks
+            # a failed run, and the in-memory rows carry the key only then.
+            if r.pop('error', ''):
+                continue
+            for f in BOOL_FIELDS + FUNNEL + ['violating']:
+                r[f] = as_int(r.get(f)) or 0
+            r['variant'] = as_int(r.get('variant'))
+            rows.append(r)
+    return rows
+
+
+def split_tables(sp, pops):
+    """Markdown rows for one split summary: for each population a table of
+    the named predicates first, then the rest, with treated and control counts,
+    shares and the ratio of shares."""
+    out = []
+    for pop in pops:
+        s = sp['populations'].get(pop)
+        if s is None:
+            continue
+        out.append('Treated (bit %d set) versus control (bit clear) on %s: treated n=%d (violating %d), '
+                   'control n=%d (violating %d), dropped %s' % (
+                       sp['bit'], pop, s['treated_n'], s['treated_violating'],
+                       s['control_n'], s['control_violating'], s['dropped'] or '{}'))
+        out.append('')
+        out.append('| predicate | treated | control | ratio treated/control |')
+        out.append('|---|---|---|---|')
+        # The JSON summary is written with sorted keys; the named predicates
+        # come first, then the rest in name order.
+        named = sp['preds']
+        order = named + sorted(f for f in s['predicates'] if f not in named)
+        for f in order:
+            v = s['predicates'][f]
+            out.append('| %s | %s | %s | %s |' % (
+                f, pct(v['treated_count'], s['treated_n']), pct(v['control_count'], s['control_n']),
+                '-' if v['ratio'] is None else '%.3f' % v['ratio']))
+        out.append('')
+    return out
+
+
 def cmd_tables(a):
     with open(a.json) as fh:
         s = json.load(fh)
     pops = a.pops.split(',') if a.pops else sorted(s['populations'])
     P = s['populations']
+    if a.split_bit:
+        if not a.csv:
+            sys.exit('tables: --split-bit needs --csv, the census CSV holding each run\'s variant')
+        s['split'] = split_summary(read_census_csv(a.csv), a.split_bit, a.probe_mask)
+    if a.split_only:
+        if 'split' not in s:
+            sys.exit('tables: no split in the summary; give --split-bit with --csv')
+        print('\n'.join(split_tables(s['split'], pops)))
+        return
     out = []
     out.append('| predicate | ' + ' | '.join(pops) + ' |')
     out.append('|---|' + '---|' * len(pops))
@@ -954,6 +1133,8 @@ def cmd_tables(a):
                 '-' if v['precision'] is None else '%.3f' % v['precision'],
                 '-' if v['recall'] is None else '%.3f' % v['recall']))
         out.append('')
+    if 'split' in s:
+        out.extend(split_tables(s['split'], pops))
     print('\n'.join(out))
 
 
@@ -962,17 +1143,37 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     s = sub.add_parser('select')
     s.add_argument('--grade', required=True)
-    s.add_argument('--depth', type=int, required=True)
+    s.add_argument('--depth', type=int, help='exactly this depth')
+    s.add_argument('--min-depth', type=int, help='depth >= N; combines with --max-depth')
+    s.add_argument('--max-depth', type=int, help='depth <= N')
     s.add_argument('--exclude')
-    s.add_argument('--sample', type=int, default=0)
+    s.add_argument('--sample', type=int, default=0,
+                   help='cap the printed ids (each half separately under --split-bit)')
     s.add_argument('--seed', type=int, default=1)
+    s.add_argument('--runs-table', help='RUNS_JSON from `traceanalyzer/main -runs`; source of variants')
+    s.add_argument('--variant-bit', type=int, action='append',
+                   help='keep runs whose variant has this bit set; repeatable')
+    s.add_argument('--variant-clear', type=int, action='append',
+                   help='keep runs whose variant has this bit clear; repeatable')
+    s.add_argument('--split-bit', type=int,
+                   help='emit two id lists, treated (bit set) and control (bit clear), '
+                        'probes excluded from both')
+    s.add_argument('--probe-mask', type=int, default=PROBE_MASK,
+                   help='variant bits that mark probe runs a split drops (default %d)' % PROBE_MASK)
+    s.add_argument('--out', help='under --split-bit write OUT.treated and OUT.control '
+                                 'instead of printing both lists')
     s.set_defaults(fn=cmd_select)
     c = sub.add_parser('census')
     c.add_argument('--pop', action='append', required=True,
                    help='NAME=DB_DIR:ID_FILE; repeatable')
     c.add_argument('--depths', action='append', help='DB_DIR=GRADE_JSON')
     c.add_argument('--violating', action='append', help='DB_DIR=ID_FILE')
-    c.add_argument('--runs-table', action='append', help='DB_DIR=RUNS_JSON')
+    c.add_argument('--runs-table', action='append',
+                   help='DB_DIR=RUNS_JSON from `traceanalyzer/main -runs`; also the source of variants')
+    c.add_argument('--split-bit', type=int,
+                   help='add a treated versus control section split by this variant bit')
+    c.add_argument('--probe-mask', type=int, default=PROBE_MASK,
+                   help='variant bits that mark probe runs a split drops (default %d)' % PROBE_MASK)
     c.add_argument('--traceanalyzer', default='traceanalyzer/main')
     c.add_argument('--workers', type=int, default=8)
     c.add_argument('--same-step-only', action='store_true',
@@ -983,6 +1184,11 @@ def main():
     t = sub.add_parser('tables')
     t.add_argument('--json', required=True)
     t.add_argument('--pops', help='comma-separated population names in column order')
+    t.add_argument('--csv', help='census CSV; with --split-bit the split is computed from it')
+    t.add_argument('--split-bit', type=int,
+                   help='split the CSV rows by this variant bit instead of using the summary\'s split')
+    t.add_argument('--probe-mask', type=int, default=PROBE_MASK)
+    t.add_argument('--split-only', action='store_true', help='print only the split section')
     t.set_defaults(fn=cmd_tables)
     a = ap.parse_args()
     a.fn(a)
