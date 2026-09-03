@@ -2166,3 +2166,22 @@ paxos-forget-promise stays out of every set (unattributable); the control
 becomes a candidate hard member in its own right once the violation is
 classified from a kept trace (paper, implementation, or ambiguous, per
 CLAUDE.md), which is the next panel step.
+
+**Paxos.spur's crash violation is an implementation bug** (finding:
+`research/lite/findings/paxos-host-crash-violation.md`). The spec has no
+client, so the replica mints the request id from a volatile counter,
+compares commands on (node, req_id) only, and reseeds the counter from
+slot_num on recovery; a post-crash request then reuses the identity of a
+pre-crash command still in flight, and the paper's cid-based dedup, which
+is sound under its own assumption, acknowledges the wrong write or drops
+the new one. Three surface shapes (242 double executions, 55 lost writes,
+6 stale reads in 303 violating runs), one mechanism; ballots, promises,
+pmax and acceptor persistence all follow the paper. Not a paper bug. The
+fix (persist the counter, compare kind and uid) is not applied, since
+Paxos.spur is protected; the panel gets an additive fixed host under
+bin/spur/panel/ and its Paxos members are re-derived from it.
+
+**Scout member calibration under the general config**: seeds 1000 and 1001
+read 305 and 355 in 96,000 against the host control's 355 and 338. The
+injection adds nothing visible over the host background; every Paxos F2
+member is unattributable until the fixed host exists.

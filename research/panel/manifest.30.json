@@ -457,6 +457,72 @@
       "notes": "Control for paxos-forget-promise: same overlay, same faults, unmodified host. Added 2026-09-03 so the member can be attributed on the same tree and host it is read on.",
       "wallSec": 15,
       "replicates": 3
+    },
+    {
+      "id": "paxos-recover-stale-scout",
+      "spec": "bin/spur/panel/paxos_recover_stale_scout.spur",
+      "cleanSpec": "bin/spur/Paxos.spur",
+      "shape": "recovered leader adopts on P1b promises addressed to its pre-crash scout; incomplete pmax; a chosen slot gets a second command",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 3,
+          "step": 1
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "dependency_density": [
+          0
+        ]
+      },
+      "maxIterations": 8000,
+      "role": "hard",
+      "expectedRate": null,
+      "calibration": {
+        "atIso": null,
+        "rateRuns": 0,
+        "rateViolations": 0,
+        "dispersion": 1,
+        "cleanRuns": null,
+        "cleanViolations": null,
+        "hostCeiling": 0.0251,
+        "budgetRatio": 1,
+        "runsPerSec": 6600,
+        "eventsPerSec": 0,
+        "tauBestSec": null
+      },
+      "notes": "Reachability proven 2026-09-03 by research/lite/plans/paxos-recover-stale-scout-plan.json (16 labels; injected exit 2, host exit 0). Calibration pending: three seeds against paxos-host-recovery-control under this overlay; must clear 20x the control.",
+      "wallSec": 15,
+      "replicates": 3,
+      "tier": "uncalibrated"
     }
   ]
 }
