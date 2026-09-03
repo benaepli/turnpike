@@ -2242,3 +2242,21 @@ its runs per second read 1,504 against 1,056 on the previous panel, a host
 or layout effect on a spec this change cannot touch, recorded not
 explained); raft-stale-vote 114 in 288,000 (3.96e-4, flat against 4.0e-4);
 paxos-fixed-recover-stale-scout 29 in 96,000 (3.0e-4, at its calibration).
+
+## Iteration 34: the reply-first swap fires, but not at the contest it was built for
+
+The same-step preference for a dead incarnation's reply at an unsettled
+restarted receiver (bit 1 << 22) graded over four chunks on the simplified
+tree: depth>=8 1.032 [0.985, 1.080], depth>=9 1.056, depth>=10 1.125,
+depth>=11 1.38 [0.87, 2.20] on 43 against 31 events. Nothing separated and
+the depth-11 merge claim (2.0x) was not met; filed, patches kept. The swap
+fired 143,000 times per chunk but displaced a fresh-first pick only 11,200
+times, and fresh-first's overtaken share stayed at 0.9989: the ghost
+RecoveryResponse and the fresh Recovery request to node 1 are almost never
+eligible in the same step, so the census's "coin" at the recovering
+receiver is not a coin but an arrival gap. That closes the same-step family
+for the receiver-recovering class; what remains for that class is a hold
+with a depth cost, which iteration 29 proposed and iteration 32's result
+argues against unless the hold is placed on the request rather than the
+Recover. The consistent small gradient across rungs is recorded; eight
+chunks would resolve depth 8 at this size.

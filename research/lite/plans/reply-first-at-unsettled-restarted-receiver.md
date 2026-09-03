@@ -30,3 +30,39 @@ The census's R3->R4 losses on general depth-8 runs are 29 of 57 'receiver_recove
 chunks; the merge claim is depth>=11 pooled over the four chunks with at
 least 40 treated events, read from the cells; then a kept explore for the
 census P4_2 split by bit.
+
+## Verdict (2026-09-04)
+
+Filed for the user; not merged, patches kept under
+`tmp/loop/lite/reply-first-at-unsettled-restarted-receiver/`. Four chunks,
+935,391 treated against 933,636 control runs (spur 327bf72):
+
+| rung | treated/control per run | interval | events |
+| --- | --- | --- | --- |
+| depth>=7 | 1.008 | [0.992, 1.024] | 29,380 / 29,103 |
+| depth>=8 | 1.032 | [0.985, 1.080] | 11,843 / 11,458 |
+| depth>=9 | 1.056 | [0.994, 1.121] | 2,191 / 2,071 |
+| depth>=10 | 1.125 | [0.912, 1.388] | 186 / 165 |
+| depth>=11 | 1.384 | [0.872, 2.197] | 43 / 31 |
+| depth>=12 | 1.386 | [0.756, 2.541] | 25 / 18 |
+
+Band on depth>=8 met; merge claim on depth>=11 (>= 2.0 with 40 treated
+events) not met and not refuted (the interval reaches 2.2). Firing: swaps
+143,000 per chunk (floor 100,000, met); swaps_over_fresh 11,200 per chunk
+(floor 20,000, missed); contests 353,000 per chunk; contests skipped for a
+settled receiver 3.1M per chunk; stale flags 884,000 per chunk. Observables:
+ghost entries landing after settle 0.120 against 0.106 (1.13x, predicted
+1.25x); fresh-first overtaken share 0.9989 (predicted below 0.99). Cost:
+throughput 0.973, steps 0.997, plan completion +0.2 points.
+
+Reading: the mechanism fires often but almost never at the contest the
+hypothesis named. The dead incarnation's RecoveryResponse and the fresh
+Recovery request to the recovering node are rarely eligible in the same
+step; the request is usually dispatched while the reply is still in
+flight, so no same-step preference can reorder them. The R4
+receiver-recovering loss is an arrival-timing gap, which is why it was
+first proposed as a hold (iteration 29). Everything the swap does touch
+moves the rungs up by a small, consistent gradient (1.03, 1.06, 1.13,
+1.38) that four chunks cannot resolve; a re-grade at eight chunks would
+resolve depth 8 at this effect size and is the cheapest follow-up if the
+pool has nothing better.
