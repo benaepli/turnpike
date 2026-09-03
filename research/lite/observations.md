@@ -1427,3 +1427,8 @@ activity moved the rung more than every timing mechanism combined, while
 every message hold or delay cost depth. The crash census of the merged code
 compared the plan's victim to itself, which is why this axis went unmeasured
 for nineteen iterations.
+
+The user merged the retarget on reading the filing (fabf0ea, spur
+1c4d55f), accepting the two guard-clause misses against the gain. The
+spur tree moved again, so the next start measures a fresh baseline cache;
+the direction review for iteration 20 is written against the merged tree.
