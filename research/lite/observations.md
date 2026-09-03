@@ -1432,3 +1432,83 @@ The user merged the retarget on reading the filing (fabf0ea, spur
 1c4d55f), accepting the two guard-clause misses against the gain. The
 spur tree moved again, so the next start measures a fresh baseline cache;
 the direction review for iteration 20 is written against the merged tree.
+
+## Direction review at iteration 20
+
+Written after the retarget merge, on the merged tree (spur 1c4d55f).
+
+**Has a violation appeared anywhere?** Not the target. One violation in
+the epoch-13 baseline's first chunk (run 150198, aos arm) was the
+recovery-nonce reuse, classified and archived; zero violations across the
+5.2M candidate runs graded in iterations 17-19 and zero in every other
+baseline or A/A chunk. The bug in bug.md has still never been observed
+under a general config.
+
+**Is depth a proxy the goal warns about?** The epoch-13 rung changed the
+answer. Under the witness-complete matcher a depth-6 run carries the bug's
+first four steps in order, and the decoupling the iteration-15 review
+recorded - hazard rungs up, depth flat - stopped appearing: the record
+since the epoch bump reads in one direction.
+
+| mechanism | acts on | depth>=6 per run, internal |
+|---|---|---|
+| fan-out anchor (it. 16, re-graded) | when the crash lands | 1.185 merged |
+| reaction-triggered arm (it. 17) | when the crash lands, conditioned on cause | 1.027 closed |
+| destination-answer hold (it. 18) | when the stale message is delivered | 0.822 closed |
+| ghost-absorber retarget (it. 19) | which node the crash hits | 1.709 merged |
+
+Placing faults on protocol activity moved the rung; conditioning the
+placement on the cause of the activity did not; holding a message cost
+depth. The remaining proxy risk is the one the panel guards: the rung is
+the target's own chain, so a mechanism that manufactures the chain's
+transition is rewarded whether or not it generalizes. The retarget's
+census (31.8% of treated crashes hit a node that had absorbed a ghost,
+against 17.0%) is protocol-agnostic in form, and the panel says the merged
+tree is flat per run on both members.
+
+**Panel.** Post-retarget: paxos 279.79 violations per second (3,553 over
+12.7 s, 95,994 runs) against 286.76 before it; mencius 20.87 (950 over
+45.5 s, 62,846 runs) against 21.73. Per-run violation rates are unchanged
+(mencius 1.51% both times, paxos 3.70% both times); the moves are a 4%
+throughput dip on mencius and a 1% one on paxos, of the size the hold's
+longer runs predict. Single-digit moves resolve nothing; the retarget
+neither helped nor harmed cross-protocol bug-finding per run. New anchors:
+paxos 279.79, mencius 20.87.
+
+**Steering audit.** Seven decisions since the last review: five proposer
+candidates selected by the judge (two merged, one on re-grade; three
+closed), one operator control (bb-build-layout-control), and one filing
+turned into a merge by the user. Operator steering took four forms. The
+score change itself - the witness-complete rung and the per-run merge
+primary - which the user authorized and which re-ranked the fan-out anchor
+from a filing to a merge without changing a byte of it. A focus directive
+every round: recovery-side anchoring (refuted by its candidate), message
+ordering relative to recovery (refuted, and the family closed), and
+feedback keyed on incarnation crossings (the largest effect the loop has
+measured). The first operator seed, the redraw follow-up, written after
+the retarget's guard clauses fired; it goes through the judge like any
+other. And a filing on a merge-rule pass because the frozen falsifier had
+fired, which the user resolved by merging. Steering narrowed the search to
+the crash-recovery race in every round, deliberately: two directives lost,
+one won by a wide margin, and the lens rotation was kept.
+
+**Drift.** No parameter doses; every candidate was a mechanism. One
+process drift to correct: the judge's admission rewrites have been adding
+guard clauses with round thresholds (1% on crashes per run, 3 points on
+plan completion) that no counter grounded, and the first candidate to
+trip them was the strongest of the session. Guard clauses stay, but from
+the next round a clause's threshold must cite the counter and the
+baseline value it was set from, or be omitted.
+
+**Pool.** The message-hold family is closed (four entries). The fault-
+placement family holds the two merges and the redraw seed. The two
+feedback entries kept at iteration 19 (prefix replay corpus, Thompson
+config walk) stay, sequenced behind the redraw, and the corpus one now has
+the P(signal) census it lacked: ghost_signal.fired_runs 246,458 over two
+chunks, about a quarter of runs. Older kept entries (timer and run-cap
+follow-ups) were not re-read this review.
+
+**Goal.** Re-read; the objective is depth-6 events per explore-second and
+the loop is on it. The two merges of this session compound to about 1.185
+x 1.709 per run on the treated halves at 0.98 of the epoch's throughput;
+the epoch ledger carries the cumulative figure.
