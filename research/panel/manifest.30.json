@@ -392,6 +392,71 @@
       "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate.",
       "wallSec": 15,
       "replicates": 3
+    },
+    {
+      "id": "paxos-host-recovery-control",
+      "spec": "bin/spur/Paxos.spur",
+      "cleanSpec": null,
+      "shape": "Paxos.spur unmodified under the paxos-forget-promise overlay; whatever violates here is the host background that member must clear by 20x",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 3,
+          "step": 1
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "dependency_density": [
+          0
+        ]
+      },
+      "maxIterations": 8000,
+      "role": "control",
+      "expectedRate": 0.00015,
+      "calibration": {
+        "atIso": "2026-08-28T20:49:12Z",
+        "rateRuns": 19992,
+        "rateViolations": 3,
+        "dispersion": 1,
+        "cleanRuns": null,
+        "cleanViolations": null,
+        "hostCeiling": 0.0251,
+        "budgetRatio": 1,
+        "runsPerSec": 3568,
+        "eventsPerSec": 0.64,
+        "tauBestSec": null
+      },
+      "notes": "Control for paxos-forget-promise: same overlay, same faults, unmodified host. Added 2026-09-03 so the member can be attributed on the same tree and host it is read on.",
+      "wallSec": 15,
+      "replicates": 3
     }
   ]
 }

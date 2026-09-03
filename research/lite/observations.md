@@ -2152,3 +2152,17 @@ Paxos.spur's own unclassified recovery bug, which is a finding of its own.
 raft-stale-vote is promoted to the quick guard set at wallSec 40 (its
 per-run rate is the guard from here; about 300 expected events per read).
 The two easy members are unchanged per run, as at every merge.
+
+**Control read (same session, same tree).** A control member
+`paxos-host-recovery-control` (Paxos.spur unmodified, the forget-promise
+overlay and faults) was added to the manifest and read next to the member
+at scale 3: control 355 in 96,000 against member 335 in 95,860. The
+injection contributes nothing measurable; the whole rate is the host
+background, and that background now reads 3.7e-3 per run against 1.5e-4
+at the 2026-08-28 calibration - 25x per run with the runs per second only
+1.9x higher. The merged crash mechanisms reach Paxos.spur's own
+recovery-shaped violation far more often than the calibration tree did.
+paxos-forget-promise stays out of every set (unattributable); the control
+becomes a candidate hard member in its own right once the violation is
+classified from a kept trace (paper, implementation, or ambiguous, per
+CLAUDE.md), which is the next panel step.
