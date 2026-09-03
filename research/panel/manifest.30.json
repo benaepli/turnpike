@@ -259,10 +259,11 @@
         "eventsPerSec": 0,
         "tauBestSec": 0
       },
-      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal. Reachability proven 2026-09-03 by research/lite/plans/raft-commit-prev-term-figure8-plan.json; count-only member, never a rate.",
-      "wallSec": 15,
+      "notes": "never observed; the deepest member and the closest analogue to the VR target. any detection is the signal. Reachability proven 2026-09-03 by research/lite/plans/raft-commit-prev-term-figure8-plan.json; count-only member, never a rate. Slow set at wallSec 200 (600 s at scale 3) from 2026-09-03; count-only.",
+      "wallSec": 200,
       "replicates": 3,
-      "tier": "hard"
+      "tier": "hard",
+      "expectedEvents": 0
     },
     {
       "id": "raft-forget-vote",
@@ -310,7 +311,7 @@
         ]
       },
       "maxIterations": 12000,
-      "role": "report",
+      "role": "hard",
       "expectedRate": 1e-05,
       "calibration": {
         "atIso": "2026-08-28T20:45:24Z",
@@ -325,9 +326,11 @@
         "eventsPerSec": 0.01654,
         "tauBestSec": 0
       },
-      "notes": "never observed despite 60,048 crash-recover cycles over its calibration.",
-      "wallSec": 15,
-      "replicates": 3
+      "notes": "never observed despite 60,048 crash-recover cycles over its calibration. Slow set at wallSec 200 (600 s at scale 3) from 2026-09-03; count-only.",
+      "wallSec": 200,
+      "replicates": 3,
+      "tier": "hard",
+      "expectedEvents": 9.9
     },
     {
       "id": "paxos-fixed-host-control",
