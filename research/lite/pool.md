@@ -1999,3 +1999,33 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 - kind: add | category: feedback | origin: proposer | status: REJECTED at iteration 34 (judge score 0: already answered) | parent: replay-corpus (iteration 27)
 - Reason: Already answered, and on a false premise. The candidate rests on 'its own read named the cause as the cut, not the signal', but iteration 27's session record splits its slots by the prefix bit: tier-2 PLAN-ONLY children (bit 13 set, bit 21 clear - no cut, fresh schedule from step 0, exactly the serving proposed here) read depth 8 per run 0.00985 against tier-1 plan-only 0.01561 (0.63x), depth 9 0.60x, depth 6 0.61x, over 120,589 runs in research/lite/state/replay-tier-answered-overtake-cut/chunk-100{0,1}.cand.json (tier-2 prefix children read 0.71x, so the cut was not the main loss). Plan re-sampling on a deeper incarnation-ordered signal (heard-and-replied ghost entry) has been measured without a cut and lost to tier 1 by a third; the S2 refinement (settled, acted) narrows the same family and offers no reason its plans would re-sample better. Also confounded as designed: control slots serve tier 1 half-prefix (1.12x plan-only), so the slot contrast is biased against the treatment. Supply and the plan-only channel (campaign.rs:393 GridRun::Child prefix=false) are real; the premise is not.
+
+## post-fault-deferral-length-contrast
+
+- kind: dose | category: scheduler | origin: operator-agent | status:
+  PROPOSED at iteration 33 for the next judge round | parent:
+  post-fault-request-deferral-ablation (decided: simplify) and
+  client-release-into-ghost-consumer-fanout-window (merged)
+- Mechanism: the merged deferral holds post-fault client requests for 32
+  steps. On a salted half of the bit-18 treated runs (bit 1 << 28,
+  clientDeferralLong, own salt, probes exempt) the expiry is 64 steps
+  instead of 32; nothing else changes, the dry-queue release stays. A
+  second session can later try 16 under the same bit if 64 loses.
+- Why: iteration 33 showed the delay is the whole depth-10 lever and its
+  length has never been varied. Depth 10 asks for the second write to land
+  after the recovered node's ghost DoViewChange has acted at the new
+  primary; the census puts that entry a few dozen steps after the second
+  recover in most runs, so 32 may be short of it in a fraction of runs
+  and 64 would cover them, at the cost of pushing requests past the end
+  of the plan in short runs (held_at_exit rises).
+- Frozen prediction (draft; the judge rewrites at admission): bit
+  268435456 (1 << 28) set only when bit 18 is set, own salt, about 0.24 of
+  all runs per quarter. Grader primary (declared bit 28, depth>=8) band
+  [-0.06, +0.06], null expected. Merge claim on the advance rungs: depth>=10
+  long/short per run >= 1.25 with the lower edge above 1.0 over four chunks
+  (the 32-step quarter reads about 0.00026 per run, 120 events per four
+  chunks per quarter); depth>=9 in [0.95, 1.15] reported. Firing: long
+  quarter hold steps per released in [63, 66], held_at_exit/held <= 3%
+  (the short quarter reads 0.008%); refuter: plan_complete more than 3
+  points below the short quarter, or depth>=10 long/short interval
+  entirely below 0.90. Cost: throughput >= 0.97, steps <= 1.05x.
