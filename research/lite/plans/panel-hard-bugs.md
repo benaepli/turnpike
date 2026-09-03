@@ -175,6 +175,24 @@ then porcupine on the output.
   slow set as a count-only hard member; its zero under the general config
   is now a probability, not a reachability, result.
 
+### Fixed Paxos host (2026-09-03)
+
+Paxos.spur's crash violation is an implementation bug (request identity
+minted from a volatile counter, compared without uid, reseeded from
+slot_num on recovery; `research/lite/findings/paxos-host-crash-violation.md`).
+The panel host is now `bin/spur/panel/paxos_host_fixed.spur`: the counter is
+persisted and restored, writes are identified by uid and reads by request
+id, a re-delivered write that is already decided returns at once, and
+pending requests resolve by uid. 0 violations in 52,017 runs under the F2
+overlay (the unfixed host: 3.7e-3 per run). Members re-derived from it:
+`paxos_fixed_forget_promise.spur` (proof: `paxos-forget-promise-plan.json`,
+300/300 violate, host 0/300) and `paxos_fixed_recover_stale_scout.spur`
+(scout plan, 2/300 violate, host 0/300). The original `paxos-forget-promise`,
+`paxos-recover-stale-scout` and `paxos-host-recovery-control` rows leave the
+manifest (their reads are in observations.md); the unfixed injections stay
+on disk as records. Calibration of the three new rows: three seeds each,
+member rate must clear 20x the fixed-host control.
+
 ## 3. Calibration protocol
 
 Regime: calibrate with the panel subcommand's own mechanics so the

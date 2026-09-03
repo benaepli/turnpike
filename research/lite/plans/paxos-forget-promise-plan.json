@@ -1,0 +1,217 @@
+{
+  "num_servers": 3,
+  "num_runs": 300,
+  "max_iterations": 4000,
+  "strict_timers": true,
+  "events": {
+    "p1a_0_to_1": {
+      "deliver": {
+        "function": "Node.HandleP1a",
+        "from": 0,
+        "to": 1
+      }
+    },
+    "p1a_1_to_1": {
+      "deliver": {
+        "function": "Node.HandleP1a",
+        "from": 1,
+        "to": 1
+      }
+    },
+    "p1a_2_to_1": {
+      "deliver": {
+        "function": "Node.HandleP1a",
+        "from": 2,
+        "to": 1
+      }
+    },
+    "p1a_0_to_2": {
+      "deliver": {
+        "function": "Node.HandleP1a",
+        "from": 0,
+        "to": 2
+      }
+    },
+    "p1a_1_to_0": {
+      "deliver": {
+        "function": "Node.HandleP1a",
+        "from": 1,
+        "to": 0
+      }
+    },
+    "p1a_2_to_0": {
+      "deliver": {
+        "function": "Node.HandleP1a",
+        "from": 2,
+        "to": 0
+      }
+    },
+    "w2": {
+      "write": [
+        2,
+        "x"
+      ]
+    },
+    "propose_2_to_0": {
+      "deliver": {
+        "function": "Node.HandlePropose",
+        "from": 2,
+        "to": 0
+      }
+    },
+    "propose_0_to_2": {
+      "deliver": {
+        "function": "Node.HandlePropose",
+        "from": 0,
+        "to": 2
+      }
+    },
+    "p2a_2_to_0": {
+      "deliver": {
+        "function": "Node.HandleP2a",
+        "from": 2,
+        "to": 0
+      }
+    },
+    "p2a_0_to_2": {
+      "deliver": {
+        "function": "Node.HandleP2a",
+        "from": 0,
+        "to": 2
+      }
+    },
+    "crash_1": {
+      "crash": 1
+    },
+    "recover_1": {
+      "recover": 1
+    },
+    "w1": {
+      "write": [
+        0,
+        "x"
+      ]
+    },
+    "p2b_1_to_0": {
+      "deliver": {
+        "function": "Node.HandleP2bResponse",
+        "from": 1,
+        "to": 0
+      }
+    },
+    "allow_t0": {
+      "allow_timer": [
+        0,
+        "leader"
+      ]
+    },
+    "dec_0_to_0": {
+      "deliver": {
+        "function": "Node.HandleDecision",
+        "from": 0,
+        "to": 0
+      }
+    },
+    "dec_2_to_0": {
+      "deliver": {
+        "function": "Node.HandleDecision",
+        "from": 2,
+        "to": 0
+      }
+    },
+    "r0": {
+      "read": [
+        0,
+        "x"
+      ]
+    },
+    "r2": {
+      "read": [
+        2,
+        "x"
+      ]
+    }
+  },
+  "dependencies": [
+    [
+      "p1a_0_to_1",
+      "p1a_2_to_1"
+    ],
+    [
+      "p1a_2_to_1",
+      "w2"
+    ],
+    [
+      "w2",
+      "crash_1"
+    ],
+    [
+      "crash_1",
+      "recover_1"
+    ],
+    [
+      "recover_1",
+      "w1"
+    ],
+    [
+      "recover_1",
+      "p2b_1_to_0"
+    ],
+    [
+      "p2b_1_to_0",
+      "allow_t0"
+    ],
+    [
+      "recover_1",
+      "dec_0_to_0"
+    ],
+    [
+      "dec_0_to_0",
+      "dec_2_to_0"
+    ],
+    [
+      "w1",
+      "r0"
+    ],
+    [
+      "w2",
+      "r0"
+    ],
+    [
+      "r0",
+      "propose_2_to_0"
+    ],
+    [
+      "r0",
+      "propose_0_to_2"
+    ],
+    [
+      "r0",
+      "p2a_2_to_0"
+    ],
+    [
+      "r0",
+      "p2a_0_to_2"
+    ],
+    [
+      "r0",
+      "r2"
+    ],
+    [
+      "r2",
+      "p1a_0_to_2"
+    ],
+    [
+      "r2",
+      "p1a_1_to_0"
+    ],
+    [
+      "r2",
+      "p1a_2_to_0"
+    ],
+    [
+      "r2",
+      "p1a_1_to_1"
+    ]
+  ]
+}

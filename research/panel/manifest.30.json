@@ -330,75 +330,10 @@
       "replicates": 3
     },
     {
-      "id": "paxos-forget-promise",
-      "spec": "bin/spur/panel/paxos_forget_promise.spur",
-      "cleanSpec": "bin/spur/Paxos.spur",
-      "shape": "a recovered acceptor forgets its promised ballot and accepts a superseded round",
-      "faults": {
-        "class": "F2",
-        "numCrashes": {
-          "min": 1,
-          "max": 2,
-          "step": 1
-        },
-        "requiresRecovery": true
-      },
-      "porcupineModel": "kv",
-      "overlay": {
-        "num_servers": {
-          "min": 3,
-          "max": 3,
-          "step": 1
-        },
-        "num_write_ops": {
-          "min": 3,
-          "max": 5,
-          "step": 1
-        },
-        "num_read_ops": {
-          "min": 1,
-          "max": 2,
-          "step": 1
-        },
-        "num_keys": {
-          "min": 1,
-          "max": 1,
-          "step": 1
-        },
-        "max_concurrent_writes": {
-          "min": 2,
-          "max": 3,
-          "step": 1
-        },
-        "dependency_density": [
-          0
-        ]
-      },
-      "maxIterations": 8000,
-      "role": "report",
-      "expectedRate": 0.0002001,
-      "calibration": {
-        "atIso": "2026-08-28T20:49:12Z",
-        "rateRuns": 19992,
-        "rateViolations": 4,
-        "dispersion": 1,
-        "cleanRuns": 19992,
-        "cleanViolations": 3,
-        "hostCeiling": 0.0251,
-        "budgetRatio": 1,
-        "runsPerSec": 3568,
-        "eventsPerSec": 0.85439,
-        "tauBestSec": 1.435
-      },
-      "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate.",
-      "wallSec": 15,
-      "replicates": 3
-    },
-    {
-      "id": "paxos-host-recovery-control",
-      "spec": "bin/spur/Paxos.spur",
+      "id": "paxos-fixed-host-control",
+      "spec": "bin/spur/panel/paxos_host_fixed.spur",
       "cleanSpec": null,
-      "shape": "Paxos.spur unmodified under the paxos-forget-promise overlay; whatever violates here is the host background that member must clear by 20x",
+      "shape": "Paxos.spur with the request-identity fix; the clean host every fixed Paxos member is derived from and compared against",
       "faults": {
         "class": "F2",
         "numCrashes": {
@@ -441,28 +376,95 @@
       },
       "maxIterations": 8000,
       "role": "control",
-      "expectedRate": 0.00015,
+      "expectedRate": null,
       "calibration": {
-        "atIso": "2026-08-28T20:49:12Z",
-        "rateRuns": 19992,
-        "rateViolations": 3,
+        "atIso": null,
+        "rateRuns": 0,
+        "rateViolations": 0,
         "dispersion": 1,
         "cleanRuns": null,
         "cleanViolations": null,
         "hostCeiling": 0.0251,
         "budgetRatio": 1,
-        "runsPerSec": 3568,
-        "eventsPerSec": 0.64,
+        "runsPerSec": 6600,
+        "eventsPerSec": 0,
         "tauBestSec": null
       },
-      "notes": "Control for paxos-forget-promise: same overlay, same faults, unmodified host. Added 2026-09-03 so the member can be attributed on the same tree and host it is read on.",
+      "notes": "Added 2026-09-03 after Paxos.spur was classified (research/lite/findings/paxos-host-crash-violation.md). 0 violations in 52,017 runs under the forget-promise overlay at seed 1000.",
       "wallSec": 15,
-      "replicates": 3
+      "replicates": 3,
+      "tier": "uncalibrated"
     },
     {
-      "id": "paxos-recover-stale-scout",
-      "spec": "bin/spur/panel/paxos_recover_stale_scout.spur",
-      "cleanSpec": "bin/spur/Paxos.spur",
+      "id": "paxos-fixed-forget-promise",
+      "spec": "bin/spur/panel/paxos_fixed_forget_promise.spur",
+      "cleanSpec": "bin/spur/panel/paxos_host_fixed.spur",
+      "shape": "recovered acceptor forgets its promise and accepts a superseded ballot; two commands in one slot",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 3,
+          "step": 1
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "dependency_density": [
+          0
+        ]
+      },
+      "maxIterations": 8000,
+      "role": "hard",
+      "expectedRate": null,
+      "calibration": {
+        "atIso": null,
+        "rateRuns": 0,
+        "rateViolations": 0,
+        "dispersion": 1,
+        "cleanRuns": null,
+        "cleanViolations": null,
+        "hostCeiling": 0.0251,
+        "budgetRatio": 1,
+        "runsPerSec": 6600,
+        "eventsPerSec": 0,
+        "tauBestSec": null
+      },
+      "notes": "Re-derived from the fixed host 2026-09-03. Reachability: research/lite/plans/paxos-forget-promise-plan.json (300/300 violate, fixed host 0/300). Calibration pending.",
+      "wallSec": 15,
+      "replicates": 3,
+      "tier": "uncalibrated"
+    },
+    {
+      "id": "paxos-fixed-recover-stale-scout",
+      "spec": "bin/spur/panel/paxos_fixed_recover_stale_scout.spur",
+      "cleanSpec": "bin/spur/panel/paxos_host_fixed.spur",
       "shape": "recovered leader adopts on P1b promises addressed to its pre-crash scout; incomplete pmax; a chosen slot gets a second command",
       "faults": {
         "class": "F2",
@@ -520,7 +522,7 @@
         "eventsPerSec": 0,
         "tauBestSec": null
       },
-      "notes": "Reachability proven 2026-09-03 by research/lite/plans/paxos-recover-stale-scout-plan.json (16 labels; injected exit 2, host exit 0). Calibration pending: three seeds against paxos-host-recovery-control under this overlay; must clear 20x the control.",
+      "notes": "Re-derived from the fixed host 2026-09-03. Reachability: research/lite/plans/paxos-recover-stale-scout-plan.json (runs 34 and 154 of 300 violate, fixed host 0/300). Calibration pending.",
       "wallSec": 15,
       "replicates": 3,
       "tier": "uncalibrated"
