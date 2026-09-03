@@ -1975,3 +1975,22 @@ What to keep: prefix replay only reproduces a prefix when the child's
 mechanism bits match its parent's, so any future corpus that means "replay
 this prefix" must inherit them, and must budget for the heavier population
 it then draws.
+
+## Iteration 29: send order fixes a coin worth 15% of depth 9, and the census ate 11% of throughput
+
+Taking two records from the same dead incarnation to the same peer in send
+order - a same-step replacement after the tournament and the fresh-first
+swap - did exactly what it said: 3.4M corrections over two chunks, zero
+inversions on treated runs against a control share of 0.384, and the
+tournament's in-order share on control of 0.246. Depth 8 held its null
+(0.985), depth 9 rose to 1.151 [1.011, 1.311] per run, depth 6 1.05. The
+band was [1.30, 2.00]: a fair-coin fix should have doubled depth 9 if the
+order were the only thing failing runs there, so most depth-8 runs fail
+depth 9 for another reason - the census's receiver-recovering class.
+
+It closed on cost. Throughput read 0.892 cross-binary while wall per run
+was equal on both halves: the both-halves census, which scans the queue on
+every message entry from a crashed-once origin, cost 11% of the session.
+A lean form - the same preference, the census sampled on a sixteenth of
+runs - is admitted as iteration 30's candidate to collect the 15% at zero
+cost; a merge would come on the advance rung with depth 8 flat.

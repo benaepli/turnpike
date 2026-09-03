@@ -1684,9 +1684,35 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## pair-send-order-dispatch-fault-scoped
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 29 (judge gain 7, cost 0; iteration-29 top pick) | parent:
-  fresh-first-same-pair-dispatch-tiebreak
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 29 on its cost clause (throughput 0.892; the both-halves census
+  scans the queue per entry) with the band missed: depth 9 per run 1.151
+  [1.011, 1.311] against [1.30, 2.00], depth 8 0.985 (null held), treated
+  inversions 0 against 0.384 control. Lean follow-up admitted below |
+  parent: fresh-first-same-pair-dispatch-tiebreak
+
+## pair-send-order-lean
+
+- kind: add | category: scheduler | origin: operator-agent | status:
+  ADMITTED at iteration 30 as the zero-cost form of the closed parent |
+  parent: pair-send-order-dispatch-fault-scoped
+- Mechanism: the same same-step preference on the same bit (1 << 15),
+  with the census taken only on a salted 1/16 of runs (both halves) and the
+  contest counters kept O(1) at the preference site; no queue scan on
+  entries outside the sample. The preference itself scans only the
+  eligible set at a step where the pick's origin has crashed and holds two
+  or more records.
+- Frozen prediction (epoch 14): depth>=8 per run in [0.97, 1.08] (null);
+  depth>=9 per run in [1.08, 1.30] (the parent read 1.151 [1.011, 1.311]);
+  depth 6 in [0.98, 1.08]; firing pair_order.corrected >= 60,000 per
+  chunk; census on the sample: treated inversions <= 0.02, control in
+  [0.25, 0.60]; falsifier: depth-9 interval entirely below 1.03, treated
+  inversions above 0.05, steps above 1.05x, plan_complete more than 3
+  points below, crashes or recovers off 1%; cost: cross-binary throughput
+  >= 0.97 of 2139.37 AND wall per run treated/untreated within 1%. Verdict
+  map: depth 9 separated above 1.0 with depth 8 not below its band and
+  cost met -> merge on the advance rung; cost missed again -> close and
+  record the census cost as the loop's lesson.
 - Mechanism: a same-step preference after the tournament draw and the
   merged fresh-first swap, on a salted half of runs (bit 1 << 15,
   pairSendOrder; probes exempt). If the record about to be taken is a
