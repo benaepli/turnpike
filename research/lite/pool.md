@@ -1834,3 +1834,71 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   paced workload diffuses four anchors over one bit; releasing all held
   requests at the first acted ghost fires on the depth-8 SVC and lands w2
   before the DVC.
+
+## restart-release-after-peer-settles
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 32 (judge gain 6, cost 0; iteration-32 top pick) | parent:
+  recovering-receiver-reply-first-deferral (held) and the closed restart
+  preemption
+- Mechanism: a fault-side release rule on the RECOVER of the second fault
+  pair, keyed on a peer's recovery progress. Per node a RestartState: open,
+  opening peers (the distinct remote destinations of the RecoverInit
+  segment's sends), replied peers (opening peers from which a delivery-
+  triggered entry ACTED since the restart), settled when a majority of the
+  opening peers have replied and acted (or there were none); cleared at
+  crash. On the treated half (bit 1 << 30, restartAfterPeerSettle; probes
+  exempt), a plan-released Recover(v) is withheld through a recover mask
+  (sibling of the crash hold mask) while some live peer q has an open,
+  unsettled RestartState AND v's dead incarnation still has an undelivered
+  remote record to q (a side map keyed (origin, dest, incarnation) kept in
+  the two in-flight hooks). The hold ends at the first of: q settles; that
+  count reaches zero; 96 steps. No record is masked; the restart is what
+  waits. Deadlock-free: records from a crashed node stay in the queue, so
+  q's wait on v's reply resolves without v's restart; acted-only replies
+  cannot be satisfied by dropping.
+- Why: fresh-first made the restarted node's request always beat its dead
+  incarnation's reply to node 1 (treated overtaken 1,324,046 of 1,324,046
+  ghost entries), so node 1 completes recovery on the wrong message order
+  and drops what follows; the census's P4_2 (the recovered node's request
+  answered in the old round) reads 5/3,720 on general depth-8 runs. Judge
+  corrections: settled is necessary, not sufficient, for the spec's
+  recovery-complete line; the hold does not order SVC/DVC against node 1's
+  replies, so depth 9 is reported, not gated; a release race on depth 8
+  (a ghost of v to q dispatched between the release and the Recover's
+  dispatch) widens the primary band.
+- Frozen prediction (epoch 14): bit 1073741824 (1 << 30); treated share
+  about 0.485; firing per chunk: restart_settle.held >= 30,000 treated,
+  restart_settle.eligible within 5% on both halves, released.peer_settled
+  / held >= 0.30, released.expired / held <= 0.50, held_at_exit / held <=
+  0.01, held steps per held in [4, 60]; primary depth>=8 per run in
+  [0.92, 1.06]; the race counter released.ghost_dispatched_before_recover
+  reported (expected <= 0.35 of released); depth>=9 in [0.97, 1.15]
+  reported; the advance read: depth>=11 events on the treated half >= 2.0x
+  control pooled over four chunks with at least 24 treated events (baseline
+  13 and 11 per chunk), depth>=10 reported; depth>=6 in [0.98, 1.03];
+  observables: settled_receiver.fresh_request_acted share treated >= 1.20x
+  control; ghost_entry_receiver.settled share treated >= 1.15x control;
+  census P4_2 among treated depth>=8 runs >= 3x control's on a kept
+  explore; completion: plan_complete within 3 points, crashes and recovers
+  per run within 1%; steps <= 1.05x; cost: throughput >= 0.97 of the
+  current cache (2132.3), wall per step equal within 1%. Verdict map:
+  observables met and depth>=11 up with depth>=8 >= 0.95 -> merge on the
+  advance rung or file (operator call, small counts); depth>=8 in [0.92,
+  0.95) -> file with the race counter; depth>=11 flat -> file; observables
+  missed -> close and retire the restart-timing branch.
+
+## crash-arm-skips-reply-to-recovering-peer
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 32 (judge gain 5, cost 0) for the following session with a
+  required rewrite: the skip must key on a FRESH-incarnation waking
+  delivery (as written it also fires on the ghost fan-out itself), proven
+  by a both-halves ghost_woken_not_skipped counter. Bit 1 << 12.
+
+## crash-arm-peer-settled-release
+
+- kind: add | category: scheduler | origin: proposer | status: HELD at
+  iteration 32 (judge gain 2): its release provision lands exactly on the
+  answer segment, confounding the predicted null with the sibling's chain-
+  killer. Bit 1 << 17 if ever built.
