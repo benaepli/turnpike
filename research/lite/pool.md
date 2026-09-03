@@ -1043,10 +1043,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 - kind: add | category: scheduler | origin: proposer | status: MERGED at
   fabf0ea (spur 1c4d55f) on the user's decision after a filing - depth>=6
   per-run 1.7093 [1.6242, 1.7989] (z 28), per second 1.347, throughput
-  0.977, regression passed, grader rule merge; two guard clauses of its own
-  falsifier fired: crashes per treated run 0.9345 of control (clause 1%)
-  and plan_complete -6.6 points (clause 3), both from the crashed-victim
-  hold. Follow-up ghost-absorber-retarget-redraw seeded to remove them |
+  0.977, regression passed, grader rule merge; one guard clause of its own
+  falsifier fired, plan_complete -6.6 points (clause 3), an intrinsic cost
+  of crashing the active primary while VR.spur clients never time out. The
+  crashes-per-run miss recorded at filing was a denominator error (probe
+  crashes in the control bucket); corrected ratio 0.995, clause met. The
+  crashed-victim hold governs ~2 crashes per 10,000 treated runs, so it
+  explains neither. Follow-up ghost-absorber-retarget-redraw measures it |
   parent: none (extends the fault-placement family the fan-out anchor
   belongs to)
 - Mechanism: fault target selection keyed on incarnation crossings. A
@@ -1186,3 +1189,33 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   that survives hold removal - a plan crash gated on a client op stuck
   behind the stall the retarget provokes - is live, and the crashes clause
   is the decisive rail.
+
+## retarget-census-after-landing-fix
+
+- kind: ablate | category: scheduler | origin: operator-agent | status:
+  PROPOSED at iteration 20 for the next judge round | parent:
+  ghost-absorber-crash-retarget
+- Mechanism: two implementation gaps in the merged retarget, from
+  research/lite/findings/retarget-crash-deficit-analysis.md. (1) The
+  crash-anchor, crash census and crash_phase apply counters read the
+  planned victim's ledger before retarget_crash runs, so on treated runs
+  about 17% of those rows describe a node that did not crash; move the
+  reads after the landing is known. (2) With density edges a plan can carry
+  Crash(d) -> Recover(v); after Crash(v) lands on d, Recover(v) waits on
+  Crash(d), which the crashed-victim hold withholds until d recovers - a
+  wait cycle absent on control that holds a crash to the cap. Exclude
+  nodes with an uncompleted plan crash from choose(), or retarget instead
+  of holding.
+- Why: (1) is measurement validity for every census the loop reads about
+  crashes; (2) is the entire population the redraw follow-up measures and
+  is fixable inside the merged rule. Neither should move depth; the frozen
+  prediction is a null band with the counters as the claim.
+- Frozen prediction: no new bit (a fix to the merged mechanism's shared
+  path; the treated half is bit 19 as today); rung depth>=6 per-run ratio
+  on bit 19 within [1.60, 1.85] (the merged read was 1.709 - the fix must
+  not move it); cross-binary throughput >= 0.98; census rows on treated
+  runs whose victim differs from the crash-anchor row fall to 0 (new
+  counter victim_swap.census_mismatch, expected 0 against ~17% today);
+  victim_swap.victim_crashed_holds per run within 0.5x of today on treated
+  runs; falsifier: the bit-19 interval entirely outside [1.60, 1.85], or
+  census_mismatch above 0.5%, or throughput below 0.98.

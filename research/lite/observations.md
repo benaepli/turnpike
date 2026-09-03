@@ -1512,3 +1512,36 @@ follow-ups) were not re-read this review.
 the loop is on it. The two merges of this session compound to about 1.185
 x 1.709 per run on the treated halves at 0.98 of the epoch's throughput;
 the epoch ledger carries the cumulative figure.
+
+## Correction to iteration 19: the crash deficit was a denominator error
+
+The filing and merge records for ghost-absorber-crash-retarget state that
+treated runs landed 6.5% fewer crashes per run (1.8669 vs 1.9977). That
+figure is wrong. The census splits on the retarget's enabled flag, which
+is false for run-cap probes, so the control bucket's crashes include the
+probes' crashes while the divisor counted control runs only; dividing by
+control-plus-probe runs gives 1.8761, a ratio of 0.995, and the untreated
+baseline cache lands 1.8667 crashes per run against treated's 1.8669. The
+crashes-per-run clause was met. The plan-completion clause (0.269 vs
+0.335) and the 6.3% longer treated runs are real and split correctly by
+variant cell, and they hold within every arm at every budget, so the run
+cap is where those runs end, not why they fail.
+
+The route, traced in research/lite/findings/retarget-crash-deficit-
+analysis.md: VR.spur's clients never time out, so a request the primary
+accepted just before it crashed is stranded until the cap, timers keep the
+queues non-empty so no deadlock exit fires, and the absorber ranking lands
+crashes on exactly that primary more often than a uniform draw. The cost
+and the depth gain are the same fact. Two implementation gaps came out of
+the trace and go to the next round as a fix candidate: the crash-anchor,
+census and phase apply counters read the planned victim's ledger before
+the retarget, so on treated runs about 17% of those rows describe the
+wrong node; and with density edges a Crash(d) -> Recover(v) edge plus the
+crashed-victim hold makes a wait cycle that holds a crash to the cap
+(about 2 per 10,000 treated runs, the whole population the redraw
+follow-up is now measuring).
+
+A workload fact worth the user's eye, separate from the mechanism: a
+ClientInterface that never times out cannot recover from a primary crash
+between accept and commit, and every such run is spent to the cap. Whether
+the spec's client should resend on a timer is a protected-spec decision.
