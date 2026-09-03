@@ -1909,8 +1909,37 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## post-fault-request-deferral-ablation
 
 - kind: ablate | category: scheduler | origin: operator-agent | status:
-  PROPOSED at iteration 31 for the next judge round | parent:
-  client-release-into-ghost-consumer-fanout-window (merged)
+  ADMITTED at iteration 33 (judge gain 6, cost 0; rewritten - the
+  containment band [0.70, 1.10] is unattainable at four chunks, so the
+  decisive read is the deferral-only quarter against the bit-18-clear
+  control on depth 10 under the merged rule's own criterion, with the
+  quarter-versus-quarter interval reported and extendable to eight chunks)
+  | parent: client-release-into-ghost-consumer-fanout-window (merged)
+- Frozen prediction (rewritten): bit 134217728 (1 << 27, clientDeferralOnly),
+  set only when bit 18 is set, own salt (about 0.24 of runs per quarter);
+  expiry 32 and dry-queue release identical on both quarters; windows
+  evaluated and counted on all runs. Firing per chunk: deferral quarter
+  held >= 350,000, released.anchor == 0, (expiry + dry_queue)/held >=
+  0.99, hold steps per released in [32, 34]; anchored quarter anchor/held
+  in [0.06, 0.10], expiry/held in [0.88, 0.94]; fanout_windows per run
+  per quarter within 5%; held_at_exit <= 1% on both. Grader primary
+  (declared bit 27, depth>=8): band [-0.05, +0.05], null expected;
+  depth>=9 in [0.90, 1.10] reported; depth>=10 deferral-only/anchored per
+  run reported with its interval. Verdict map at four chunks: hi < 1.0
+  with point <= 0.55 -> the window matters, keep the merged rule and build
+  the second-acted-ghost anchor; lo >= 0.70 -> the window is ornament,
+  simplify to the deferral; otherwise extend to eight chunks (then the same
+  map; still straddling -> file as "window adds at most about a third" and
+  simplify on cost grounds). Sufficiency read from the cells in the
+  grader's matched scope: deferral-only quarter vs bit-18-clear control at
+  depth>=10 must pass the merged rule's criterion (lower edge > 1.0, point
+  >= 1.3); anchored quarter vs control expected about 2.5 as a replication;
+  failing both refutes the merged result itself (escalate). Refuters:
+  bit-27 depth>=8 outside [0.95, 1.05]; plan_complete between quarters
+  more than 3 points apart; held_at_exit > 1%; steps between quarters >
+  1.02x. Cost: throughput >= 0.97, steps <= 1.05x. Not to be combined with
+  a deferral-length arm (it would cut the cells and break the co-bit
+  matching); the length is a later whole-half contrast.
 - Mechanism: within the merged mechanism's treated half, a nested salted
   half (a free bit) disables the window release and keeps only the
   expiry: every post-fault request is invoked at ready + 32 steps (or at
