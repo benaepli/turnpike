@@ -49,6 +49,21 @@
    "cacheFile": "research/lite/baselines/1b3d47331bd2-30-f9daa01b-300-g47b08ab8.json",
    "measuredAtIso": "2026-09-03T02:00:33Z",
    "note": "measured by the baseline chunks of session ghost-absorber-retarget-redraw; depth>=6 events per chunk on the merged tree [10111, 9044] against 6928/6654 before the retarget"
+  },
+  {
+   "name": "ghost-prefix-replay-corpus",
+   "commit": "919f12c",
+   "spurCommit": "c5e49c2",
+   "ratio": 1.063,
+   "cumulative": 1.0422302256292064,
+   "measuredRps": 1810.7264020715297,
+   "measuredRpsChunks": [
+    1772.8980179028133,
+    1848.5547862402461
+   ],
+   "cacheFile": "research/lite/baselines/b678cb8c772b-30-f9daa01b-300-g47b08ab8.json",
+   "measuredAtIso": "2026-09-03T03:01:38Z",
+   "note": "measured by grader baseline --chunks 2 after the corpus merge; depth>=6 events per chunk on the merged tree [15187, 16066] against 10111/9044 before it"
   }
  ]
 }
