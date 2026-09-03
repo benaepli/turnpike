@@ -2230,3 +2230,15 @@ run, 1.88 per second). Both are now attributable recovery-shaped members;
 the scout member joins the quick guard set at wallSec 15 and forget-promise
 the slow set at wallSec 45. The quick set is now four members: the two easy
 ones, raft-stale-vote and the Paxos stale scout.
+
+**Post-merge reads after the simplification (spur 327bf72).** Fresh cache:
+2,042 runs per second (2,018 and 2,067), events per chunk depth>=8 [6670,
+7312], depth>=9 [1118, 1257], depth>=10 [88, 100], depth>=11 [17, 27]
+against [98, 94] and [22, 19] at depth 10 and 11 on the previous cache: the
+plain deferral keeps the depth-10 gain, as the ablation said it would.
+Quick panel (four members, scale 3): paxos-accept-stale-ballot 3,374 in
+95,992 (3.51%, flat); mencius-opt1-2 1,037 in 68,411 (1.52%, flat per run;
+its runs per second read 1,504 against 1,056 on the previous panel, a host
+or layout effect on a spec this change cannot touch, recorded not
+explained); raft-stale-vote 114 in 288,000 (3.96e-4, flat against 4.0e-4);
+paxos-fixed-recover-stale-scout 29 in 96,000 (3.0e-4, at its calibration).

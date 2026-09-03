@@ -64,6 +64,21 @@
       "cacheFile": "research/lite/baselines/c868e2728937-30-f9daa01b-300-g0d3de012.json",
       "measuredAtIso": "2026-09-03T19:17:00Z",
       "note": "ratio is the four-chunk grade read (candidate over base, 0.9942); measured by grader baseline --chunks 2 after the merge; events per chunk depth>=8 [6343, 7355], depth>=9 [1152, 1310], depth>=10 [98, 94], depth>=11 [22, 19]; against [6752, 7037], [1130, 1129], [46, 48], [13, 9] on the first two chunks of the previous cache. Depth 10 roughly doubled on the cache as the grade predicted; the first chunk's throughput (1989) is the lowest chunk of the epoch and is recorded, not explained."
+    },
+    {
+      "name": "post-fault-request-deferral-simplified",
+      "commit": "88b35b1",
+      "spurCommit": "327bf72",
+      "ratio": 0.9781,
+      "cumulative": 1.0370775,
+      "measuredRps": 2042.0697766729193,
+      "measuredRpsChunks": [
+        2017.7,
+        2066.5
+      ],
+      "cacheFile": "research/lite/baselines/2150b1c09798-30-f9daa01b-300-g0d3de012.json",
+      "measuredAtIso": "2026-09-04T01:40:00Z",
+      "note": "simplification of the merged client release to the plain 32-step deferral, decided on the iteration-33 ablation (no grade session of this binary, so ratio is cache-to-cache against the previous merge's cache and carries the 4-5% build-layout noise); events per chunk depth>=8 [6670, 7312], depth>=9 [1118, 1257], depth>=10 [88, 100], depth>=11 [17, 27] against [6343, 7355], [1152, 1310], [98, 94], [22, 19] on the previous cache: depth 10 holds without the window release."
     }
   ]
 }
