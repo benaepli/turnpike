@@ -14,8 +14,8 @@ import type { LoopState } from "./state.js";
 import { compareRatesPoisson, rateRatioSeparated, throughputCv, type RateComparison } from "./stats.js";
 import {
   ADVANCE_RUNGS, CROSS_BINARY_NULL_FLOOR, DEEP_GUARD_RUNGS, DEEP_RUNG_MARGIN, INTERNAL_Z,
-  MERGE_Z, PRIMARY_RUNG, PRIMARY_RUNG_MIN_EVENTS_PER_CHUNK, RATE_EXCLUDED_ARM_MODES, REPORTED_RUNGS, addStratum, chunkStratum,
-  compareToBaseline, deepRungPRegress, deepRungReading, emptyStratum, finalGate, internalPrimaryCells, mergeCase,
+  MERGE_Z, PRIMARY_RUNG, PRIMARY_RUNG_MIN_EVENTS_PER_CHUNK, RATE_EXCLUDED_ARM_MODES, REPORTED_RUNGS, RULE_VERSION, addStratum, chunkStratum,
+  compareToBaseline, deepRungPRegress, deepRungReading, emptyStratum, finalGate, internalAdvanceRungsFor, internalPrimaryCells, mergeCase,
   objectiveCounts, primaryDelta, primaryRungRegressed, rateVarianceOf, ruleVerdict, rungCv, stratumFault,
   type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
@@ -248,7 +248,7 @@ export function decideSequential(
   }
   const h2 = compareRatesPoisson(cand.h2Count, cand.runs, base.h2Count, base.runs, meiH2, p.regressMargin, p.draws, seed + 2);
   const throughputRatio = throughputRatioOf(cand, base);
-  const ip = internalPrimaryCells(cand.variants, base.variants, p.treatmentBit, p.perRunBand, chunks, p.maxChunks);
+  const ip = internalPrimaryCells(cand.variants, base.variants, p.treatmentBit, p.perRunBand, chunks, p.maxChunks, [], PRIMARY_RUNG, internalAdvanceRungsFor(RULE_VERSION));
   const posteriors: Record<string, number> = {
     "h2:pGreater": h2.pGreater, "h2:ratio": h2.meanRatio, "h2:mei": meiH2,
     "depth>=4:pRegress": g4.pRegress, "h2:pRegress": h2.pRegress,
@@ -263,6 +263,16 @@ export function decideSequential(
       "internal:z": ip.z, "internal:mei": ip.meiAtCap, "internal:share": ip.treatedShare.candidate,
     } : {}),
   };
+  // The same contrast on each advance rung deeper than the primary, so the
+  // rung the gate may merge on is visible in the chunk line; `separated` is
+  // 1 up, -1 down, 0 for neither.
+  for (const a of ip.applies ? ip.advance : []) {
+    posteriors[`internal:depth>=${a.rung}:ratio`] = a.ratio;
+    posteriors[`internal:depth>=${a.rung}:lo`] = a.lo;
+    posteriors[`internal:depth>=${a.rung}:hi`] = a.hi;
+    posteriors[`internal:depth>=${a.rung}:z`] = a.z;
+    posteriors[`internal:depth>=${a.rung}:separated`] = a.verdict === "separated up" ? 1 : a.verdict === "separated down" ? -1 : 0;
+  }
   for (const [k, r] of rungs) {
     posteriors[`depth>=${k}:pGreater`] = r.post.pGreater;
     posteriors[`depth>=${k}:pMei`] = r.post.pAtLeastMei;

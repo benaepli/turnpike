@@ -39,7 +39,7 @@ import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/st
 import {
   CROSS_BINARY_NULL_FLOOR, EPOCH_DRIFT_WARN, EPOCH_THROUGHPUT_FLOOR, INTERNAL_OVERDISPERSION, INTERNAL_Z, MERGE_Z,
   NON_DECLARABLE_BITS, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, RULE_VERSION, VARIANT_BITS, addStratum,
-  chunkStratum, compareToBaseline, figuresOf, internalPrimary, mergeBlockers, objectiveCounts, primaryRungFor,
+  chunkStratum, compareToBaseline, figuresOf, internalAdvanceRungsFor, internalPrimary, mergeBlockers, objectiveCounts, primaryRungFor,
   projectedEpochThroughput, ruleVerdict, selfTestInternalPrimary, variantBitsMissingFromSource,
   variantContrasts,
   type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
@@ -452,7 +452,7 @@ function gateReadingOf(
     epochThroughput: epochFile === null ? null : { frozenRps: epoch.frozenRps, cumulative: epoch.cumulative, floor: epoch.floor },
     crossBinaryNullFloor: layoutFloorOf(epochFile),
   };
-  const ip = internalPrimary(candEvals, baseEvals, t.bit, t.band, candCounts.chunks);
+  const ip = internalPrimary(candEvals, baseEvals, t.bit, t.band, candCounts.chunks, PRIMARY_RUNG, internalAdvanceRungsFor(RULE_VERSION));
   const figures = figuresOf(inputs, candCounts, baseCounts, cmp, ip);
   return {
     inputs, figures, verdict: ruleVerdict(figures), blockers: mergeBlockers(inputs, figures, cmp),
@@ -481,6 +481,10 @@ function primaryBlock(g: GateReading): Record<string, unknown> {
         : ip.separatedDown ? `separated down at z ${INTERNAL_Z}`
           : ip.bandReading === "refuted" ? "the frozen band is excluded"
             : "resolves neither way",
+    // The same contrast on each advance rung deeper than the primary. Where
+    // the primary resolves neither way, one separated up carries the merge
+    // and one separated down sends the session to a person.
+    advance: g.figures.internalAdvance.map((a) => ({ rung: `depth>=${a.rung}`, ratio: a.ratio, lo: a.lo, hi: a.hi, z: a.z, verdict: a.verdict })),
   };
 }
 
@@ -548,6 +552,12 @@ function adviceOf(a: Assessment): string[] {
       : ip.separatedDown
         ? `the internal per-run contrast is ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]: separated below 1.0`
         : `the internal per-run contrast is ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]: resolves neither the mechanism nor its band`);
+    if (!ip.separatedUp && !ip.separatedDown) {
+      for (const a of ip.advance) {
+        out.push(`the internal contrast on depth>=${a.rung} is ${a.ratio.toFixed(4)} [${a.lo.toFixed(4)}, ${a.hi.toFixed(4)}]: ${a.verdict}`
+          + (a.verdict === "separated up" ? "; an advance rung separated up over a flat primary carries the merge unless another advance rung separated down" : ""));
+      }
+    }
   } else if (ip !== null && ip.inapplicableReason !== null) {
     out.push(`no internal primary: ${ip.inapplicableReason}; this session is on the cross-binary fallback path (null floor ${((a.gate?.figures.crossBinaryNullFloor ?? CROSS_BINARY_NULL_FLOOR) * 100).toFixed(0)}%)`);
   }
@@ -1001,6 +1011,7 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
     primaryKind: figures.internal !== null && figures.internal.applies ? "internal" : "cross-binary",
     treatmentBit: state.treatment?.bit ?? null,
     primary: primaryBlock(gate),
+    internalAdvance: figures.internalAdvance,
     cost: costBlock(gate),
     advice: adviceOf(a),
     comparison: {

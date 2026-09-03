@@ -49,6 +49,18 @@ export const RECORDED_DECLARATIONS: readonly RecordedDeclaration[] = [
   { name: "directed-link-speed-class-run-skew", bit: 256, band: { min: 0.05, max: 0.25 }, source: "iteration 14, 1.05 bar; upper edge not recorded" },
   { name: "activity-clock-crash-placement", bit: 1024, band: { min: 0.04, max: 0.25 }, source: "iteration 15, frozen 1.04 bar; upper edge not recorded" },
   { name: "crash-fanout-phase-anchored-release", bit: 512, band: { min: 0.05, max: 0.25 }, source: "iteration 16, frozen bar of 1.05" },
+  { name: "crash-fanout-reaction-triggered-arm", bit: 16384, band: { min: 0.02, max: 0.12 }, source: "iteration 17, epoch 13" },
+  { name: "orphan-release-on-destination-answer", bit: 65536, band: { min: 0.03, max: 0.12 }, source: "iteration 18, epoch 13" },
+  { name: "ghost-absorber-crash-retarget", bit: 524288, band: { min: 0.25, max: 2.0 }, source: "iteration 19, epoch 13" },
+  { name: "ghost-absorber-retarget-redraw", bit: 8388608, band: { min: 0.02, max: 0.15 }, source: "iteration 20, epoch 13, nested in bit 524288" },
+  { name: "ghost-prefix-replay-corpus", bit: 1048576, band: { min: 0.3, max: 3.0 }, source: "iteration 21, epoch 13" },
+  { name: "ghost-pending-timer-hold", bit: 33554432, band: { min: 0.03, max: 0.3 }, source: "iteration 24, epoch 14 re-freeze on depth 8" },
+  { name: "restart-before-stranded-drain-preempt", bit: 536870912, band: { min: 0.06, max: 0.3 }, source: "iteration 25, epoch 14" },
+  { name: "fresh-first-same-pair-dispatch-tiebreak", bit: 16777216, band: { min: 0.12, max: 1.6 }, source: "iteration 26, epoch 14" },
+  { name: "replay-tier-answered-overtake-cut", bit: 8192, band: { min: 0.12, max: 1.2 }, source: "iteration 27, epoch 14, nested in the slot half" },
+  { name: "replay-prefix-inherit-parent-bits", bit: 2048, band: { min: 0.0, max: 0.35 }, source: "iteration 28, epoch 14, nested in the prefix half" },
+  { name: "pair-send-order-dispatch-fault-scoped", bit: 32768, band: { min: -0.02, max: 0.1 }, source: "iteration 29, epoch 14, depth-8 null" },
+  { name: "pair-send-order-lean", bit: 32768, band: { min: -0.03, max: 0.08 }, source: "iteration 30, epoch 14, depth-8 null" },
   // The run-cap probe posture is an instrument, not a treatment. Declared
   // here so the rule is seen to refuse it rather than never being asked.
   { name: "probe-phase-grid-alias-fix", bit: 2, band: { min: 0.03, max: 0.25 }, source: "iteration 6, frozen band +3..25%" },

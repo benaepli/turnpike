@@ -20,7 +20,7 @@ import * as path from "node:path";
 
 import {
   CROSS_BINARY_NULL_FLOOR, EPOCH_THROUGHPUT_FLOOR, MERGE_Z, RULE_VERSION, RULE_VERSION_V1, compareToBaseline,
-  figuresOf, internalPrimary, mergeBlockers, objectiveCounts, primaryRungFor, ruleVerdict,
+  figuresOf, internalAdvanceRungsFor, internalPrimary, mergeBlockers, objectiveCounts, primaryRungFor, ruleVerdict,
   type FinalGateInputs, type InternalPrimary, type MergeVerdict,
 } from "../orchestrator/src/decide.js";
 import { ROOT } from "../orchestrator/src/paths.js";
@@ -171,7 +171,7 @@ function decide(s: Session, throughputFloor: number): Row | null {
     epochThroughput: epochFile === null ? null : { frozenRps: epochFile.runsPerSec, cumulative, floor: EPOCH_THROUGHPUT_FLOOR },
     crossBinaryNullFloor: epochFile?.layoutNullBand ?? CROSS_BINARY_NULL_FLOOR,
   };
-  const ip = internalPrimary(s.cand, s.base, bit, band, cand.chunks, primaryRung);
+  const ip = internalPrimary(s.cand, s.base, bit, band, cand.chunks, primaryRung, internalAdvanceRungsFor(ruleVersion));
   const figures = figuresOf(inputs, cand, base, cmp, ip, ruleVersion);
   const verdict = ruleVerdict(figures);
   return {
@@ -253,6 +253,9 @@ function main(): void {
       + ` share ${fmt(ip.treatedShare.candidate)}/${fmt(ip.treatedShare.baseline)} matched ${ip.matchedOnMask}`
       + ` band ${ip.bandReading ?? "-"}${ip.applies ? "" : ` (${ip.inapplicableReason ?? ""})`}`,
     );
+    for (const a of ip.advance) {
+      console.log(`  ${"".padEnd(48)} advance depth>=${a.rung} r ${fmt(a.ratio)} [${fmt(a.lo)}, ${fmt(a.hi)}] z ${fmt(a.z, 2)} ${a.verdict}`);
+    }
   }
 
   const failures: string[] = [...declarationFaults(sessions)];

@@ -122,7 +122,11 @@ export const EPOCH_DRIFT_WARN = 0.05;
 // the first internal-primary version, which decided on depth>=6.
 export const RULE_VERSION_V1 = "internal-primary-v1";
 export const RULE_VERSION_V2 = "internal-primary-v2";
-export const RULE_VERSION = RULE_VERSION_V2;
+// v3 decides on the v2 rungs and adds one reading: where a declared bit's
+// contrast on the primary rung resolves neither way, the same contrast on an
+// advance rung deeper than the primary may carry the merge or refuse it.
+export const RULE_VERSION_V3 = "internal-primary-v3";
+export const RULE_VERSION = RULE_VERSION_V3;
 
 /** The rungs a rule version decides on. `primary` names the objective.
  *  `advance` are the per-second rungs a separated gain may carry a merge on,
@@ -143,12 +147,18 @@ export interface RuleRungs {
 const RULE_RUNGS_V1: RuleRungs = { primary: 6, advance: [4, 5, 6], deepGuard: [5, 6], reported: [4, 5, 6, 7, 8] };
 const RULE_RUNGS_V2: RuleRungs = { primary: 8, advance: [8, 9, 10], deepGuard: [6, 8], reported: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13] };
 export function ruleRungsFor(ruleVersion: string | null | undefined): RuleRungs {
-  if (ruleVersion === RULE_VERSION_V2) return RULE_RUNGS_V2;
+  if (ruleVersion === RULE_VERSION_V2 || ruleVersion === RULE_VERSION_V3) return RULE_RUNGS_V2;
   if (ruleVersion === RULE_VERSION_V1 || ruleVersion === null || ruleVersion === undefined) return RULE_RUNGS_V1;
   throw new Error(`unknown rule version ${ruleVersion}`);
 }
 export function primaryRungFor(ruleVersion: string | null | undefined): number {
   return ruleRungsFor(ruleVersion).primary;
+}
+/** The advance rungs deeper than the primary, in ladder order: the rungs the
+ *  internal contrast is read on beside the primary. */
+export function internalAdvanceRungsFor(ruleVersion: string | null | undefined): readonly number[] {
+  const r = ruleRungsFor(ruleVersion);
+  return r.advance.filter((k) => k > r.primary);
 }
 // The live rule's rungs. Anything deciding a recorded session passes that
 // record's version instead of reading these.
@@ -273,6 +283,18 @@ export interface InternalSide {
   planCompleteShare: number;
 }
 
+/** The internal contrast read on one advance rung deeper than the primary:
+ *  the same treated and matched-control populations, the same z, effect
+ *  floor and over-dispersion, at that rung's events. */
+export interface InternalAdvance {
+  rung: number;
+  ratio: number;
+  lo: number;
+  hi: number;
+  z: number;
+  verdict: "separated up" | "separated down" | "resolves neither way" | "does not apply";
+}
+
 /** The randomized within-session per-run contrast a declared treatment bit
  *  carries: treated runs against the untreated runs of the same session,
  *  probe-free and matched on the treated population's invariant co-bits.
@@ -313,6 +335,8 @@ export interface InternalPrimary {
   bandReading: "met" | "undecided" | "refuted" | null;
   meiAtCap: number;
   perChunkRatios: number[];
+  // The contrast on each advance rung the caller asked for, in ladder order.
+  advance: InternalAdvance[];
 }
 
 function bitNameOf(bit: number): string {
@@ -406,7 +430,9 @@ function emptySide(): InternalSide {
 /** The internal primary from pooled cells. `chunks` and `maxChunks` are the
  *  sample in hand and the cap it can grow to; `perChunkCells` supplies the
  *  chunk-to-chunk dispersion where the caller has the chunks separately, and
- *  an empty list charges the fixed over-dispersion alone. */
+ *  an empty list charges the fixed over-dispersion alone. `advanceRungs` are
+ *  the rungs the same contrast is read on beside the primary; the band is
+ *  the primary's alone. */
 export function internalPrimaryCells(
   candCells: VariantMetrics[],
   baseCells: VariantMetrics[],
@@ -416,6 +442,7 @@ export function internalPrimaryCells(
   maxChunks: number,
   perChunkCells: VariantMetrics[][] = [],
   primaryRung: number = PRIMARY_RUNG,
+  advanceRungs: readonly number[] = [],
 ): InternalPrimary {
   const k = primaryRung;
   const blank = (b: number, reason: string): InternalPrimary => ({
@@ -427,7 +454,7 @@ export function internalPrimaryCells(
     ratio: NaN, seCount: NaN, seEff: NaN, lo: NaN, hi: NaN, z: NaN,
     separatedUp: false, separatedDown: false, differenceInDifferences: false,
     balance: { cobit: [], armL1: 0, stepsPerRunRatio: null, probeShare: { treated: 0, control: 0 }, faults: [] },
-    band, bandReading: null, meiAtCap: INTERNAL_MIN_EFFECT, perChunkRatios: [],
+    band, bandReading: null, meiAtCap: INTERNAL_MIN_EFFECT, perChunkRatios: [], advance: [],
   });
   if (bit === null) return blank(0, "no treatment bit declared");
   if (!VARIANT_BITS.some((v) => v.bit === bit)) return blank(bit, `bit ${bit} is not on the roster in VARIANT_BITS`);
@@ -516,6 +543,14 @@ export function internalPrimaryCells(
     reason = `treated share shifted between candidate and baseline (${candShare.toFixed(4)} against ${baseShare.toFixed(4)}): the change is a dose, not a contrast`;
   } else if (balance.faults.length > 0) reason = `the declared bit's control population is unbalanced: ${balance.faults.join("; ")}`;
 
+  const advance: InternalAdvance[] = advanceRungs.map((r) => {
+    const a = internalPrimaryCells(candCells, baseCells, bit, null, chunks, maxChunks, perChunkCells, r);
+    return {
+      rung: r, ratio: a.ratio, lo: a.lo, hi: a.hi, z: a.z,
+      verdict: !a.applies ? "does not apply" : a.separatedUp ? "separated up" : a.separatedDown ? "separated down" : "resolves neither way",
+    };
+  });
+
   return {
     bit, name: bitNameOf(bit), rung: `depth>=${k}`,
     applies: reason === null, inapplicableReason: reason,
@@ -524,7 +559,7 @@ export function internalPrimaryCells(
     treated: c.treated, control: c.control,
     ratio, seCount, seEff, lo, hi, z,
     separatedUp, separatedDown, differenceInDifferences: did,
-    balance, band, bandReading, meiAtCap, perChunkRatios,
+    balance, band, bandReading, meiAtCap, perChunkRatios, advance,
   };
 }
 
@@ -538,11 +573,12 @@ function variance(xs: number[]): number {
 export function internalPrimary(
   candEvals: Evaluation[], baseEvals: Evaluation[], bit: number | null,
   band: { min: number; max: number } | null, maxChunks: number, primaryRung: number = PRIMARY_RUNG,
+  advanceRungs: readonly number[] = [],
 ): InternalPrimary {
   const ok = candEvals.filter((e) => e.ok);
   return internalPrimaryCells(
     pooledVariantCells(ok), pooledVariantCells(baseEvals.filter((e) => e.ok)), bit, band,
-    ok.length, Math.max(maxChunks, ok.length), ok.map((e) => pooledVariantCells([e])), primaryRung,
+    ok.length, Math.max(maxChunks, ok.length), ok.map((e) => pooledVariantCells([e])), primaryRung, advanceRungs,
   );
 }
 
@@ -939,6 +975,9 @@ export interface MergeFigures {
   // within-session per-run contrast. null where the session carries no
   // variant cells at all.
   internal: InternalPrimary | null;
+  // The declared bit's contrast on each advance rung deeper than the primary.
+  // Reported under every rule version; only v3 decides on it.
+  internalAdvance: InternalAdvance[];
   // The band a cross-binary ratio has to clear to be evidence rather than
   // build layout.
   crossBinaryNullFloor: number;
@@ -1016,6 +1055,7 @@ export function figuresOf(
     touchesSemantics: classifyChangeRisk(i.changedSpurFiles) === "semantics",
     touchesPolicy: i.changedSuperFiles.includes(POLICY_FILE),
     internal,
+    internalAdvance: internal?.advance ?? [],
     crossBinaryNullFloor: i.crossBinaryNullFloor ?? CROSS_BINARY_NULL_FLOOR,
     epochThroughput: i.epochThroughput ?? null,
   };
@@ -1047,6 +1087,33 @@ function separatedDeeperAdvances(f: MergeFigures): string[] {
     .filter((k) => k > f.primaryRung)
     .map((k) => `depth>=${k}`)
     .filter((key) => f.improved.includes(key) && (f.deltas[key] ?? 0) > f.crossBinaryNullFloor);
+}
+
+function intervalOf(a: InternalAdvance): string {
+  return `${a.ratio.toFixed(4)} [${a.lo.toFixed(4)}, ${a.hi.toFixed(4)}]`;
+}
+
+/** The advance-rung contrasts the rule version may decide on: the first rung
+ *  separated up and the first separated down, in ladder order. Only v3 reads
+ *  them; under every earlier version they are reported and nothing more. */
+function internalAdvanceReading(f: MergeFigures): { up: InternalAdvance | undefined; down: InternalAdvance | undefined } {
+  if (f.ruleVersion !== RULE_VERSION_V3) return { up: undefined, down: undefined };
+  return {
+    up: f.internalAdvance.find((a) => a.verdict === "separated up"),
+    down: f.internalAdvance.find((a) => a.verdict === "separated down"),
+  };
+}
+
+/** Whether the declared bit's contrast separated up on a rung the rule may
+ *  merge on: the primary, or an advance rung while the primary resolves
+ *  neither way and no advance rung separated down. */
+function internalCarriesMerge(f: MergeFigures): boolean {
+  const ip = f.internal;
+  if (ip === null || !ip.applies) return false;
+  if (ip.separatedUp) return true;
+  if (ip.separatedDown || ip.bandReading === "refuted") return false;
+  const adv = internalAdvanceReading(f);
+  return adv.up !== undefined && adv.down === undefined;
 }
 
 /** The verdict the statistical rule reaches on the figures. It is the
@@ -1097,10 +1164,28 @@ export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: s
     if (ip.bandReading === "refuted") {
       return { verdict: "close", reason: `the frozen per-run band ${(1 + (ip.band?.min ?? 0)).toFixed(2)} is excluded by [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]` };
     }
+    const primaryInterval = `${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}]`;
     if (!ip.separatedUp) {
+      // The advance rungs deeper than the primary carry the same contrast.
+      // A rung separated down beside a flat primary is a finding for a
+      // person, whatever another rung says; one separated up with none down
+      // carries the merge the primary could not.
+      const adv = internalAdvanceReading(f);
+      if (adv.down !== undefined) {
+        return {
+          verdict: "human",
+          reason: `the internal contrast on ${primaryKey} ${primaryInterval} resolves neither way while depth>=${adv.down.rung} separated below 1.0 (${intervalOf(adv.down)})`,
+        };
+      }
+      if (adv.up === undefined) {
+        return { verdict: "human", reason: `the internal contrast ${primaryInterval} resolves neither the mechanism nor its band` };
+      }
+      if (f.deepRungsUnresolved.length > 0) {
+        return { verdict: "human", reason: `a rung separated but the deep rungs per run are unresolved: ${f.deepRungsUnresolved.join(", ")}` };
+      }
       return {
-        verdict: "human",
-        reason: `the internal contrast ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}] resolves neither the mechanism nor its band`,
+        verdict: "merge",
+        reason: `internal per-run contrast on depth>=${adv.up.rung}: ${intervalOf(adv.up)} at z ${INTERNAL_Z}, effect at or above ${(INTERNAL_MIN_EFFECT * 100).toFixed(0)}%, with ${primaryKey} at ${primaryInterval} resolving neither way`,
       };
     }
     if (f.deepRungsUnresolved.length > 0) {
@@ -1108,7 +1193,7 @@ export function ruleVerdict(f: MergeFigures): { verdict: MergeVerdict; reason: s
     }
     return {
       verdict: "merge",
-      reason: `internal per-run contrast on ${primaryKey}: ${ip.ratio.toFixed(4)} [${ip.lo.toFixed(4)}, ${ip.hi.toFixed(4)}] at z ${INTERNAL_Z}, effect at or above ${(INTERNAL_MIN_EFFECT * 100).toFixed(0)}%`,
+      reason: `internal per-run contrast on ${primaryKey}: ${primaryInterval} at z ${INTERNAL_Z}, effect at or above ${(INTERNAL_MIN_EFFECT * 100).toFixed(0)}%`,
     };
   }
 
@@ -1189,8 +1274,8 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
   if (f.internal !== null && f.internal.balance.faults.length > 0) {
     out.push(`the declared bit's control population is unbalanced: ${f.internal.balance.faults.join("; ")}`);
   }
-  if (f.internal !== null && f.internal.applies && !f.internal.separatedUp) {
-    out.push("the internal primary applies and did not separate");
+  if (f.internal !== null && f.internal.applies && !internalCarriesMerge(f)) {
+    out.push("the internal contrast applies and did not separate up on a rung the rule merges on");
   }
   if (f.deepRungsUnresolved.length > 0) out.push(`deep rungs per run unresolved: ${f.deepRungsUnresolved.join(", ")}`);
   if (primaryBelowBandWithOtherGain(f)) out.push(`depth>=${f.primaryRung} is below its band with the gain on another rung`);
@@ -1199,7 +1284,7 @@ export function mergeBlockers(i: FinalGateInputs, f: MergeFigures, cmp: Comparis
   // and met, and the mechanism had occasions. Without all three there is
   // nothing to distinguish the result from a no-op.
   if (f.improved.length === 0
-      && !(f.internal !== null && f.internal.applies && f.internal.separatedUp)
+      && !internalCarriesMerge(f)
       && !(f.prediction !== null && f.predictionInBand === true && f.firing.status === "fired")) {
     out.push("nothing separated and no stated prediction was met");
   }
@@ -1255,7 +1340,7 @@ function finalGateParts(i: FinalGateInputs): { stop: GateDecision | null; figure
   // sampler has already stopped.
   const internal = i.confirmEvals.length === 0 && i.treatmentBit === null
     ? null
-    : internalPrimary(i.confirmEvals, i.baselineEvals, i.treatmentBit, i.perRunBand, cand.chunks);
+    : internalPrimary(i.confirmEvals, i.baselineEvals, i.treatmentBit, i.perRunBand, cand.chunks, PRIMARY_RUNG, internalAdvanceRungsFor(RULE_VERSION));
   return { stop: null, figures: figuresOf(i, cand, base, cmp, internal), cmp, cand };
 }
 
@@ -1428,7 +1513,7 @@ export function selfTestUnmeasured(): string[] {
     throughput: { ratio: 1, floor: 0.8 }, sample: { chunks: 2, runs: 100, exposureSec: 100 },
     violationsOnlyImprovement: false, firing: { status: "fired", detail: "" }, prediction: null,
     predictedRungDelta: null, predictionInBand: null, touchesSemantics: false, touchesPolicy: false,
-    internal: null, crossBinaryNullFloor: CROSS_BINARY_NULL_FLOOR, epochThroughput: null,
+    internal: null, internalAdvance: [], crossBinaryNullFloor: CROSS_BINARY_NULL_FLOOR, epochThroughput: null,
   };
   const cleanCmp: Comparison = { improved: cleanFigures.improved, regressed: [], unresolvedGuards: [], deltas: {}, stratumFault: null };
   const verdictOn = (over: Partial<MergeFigures>): MergeVerdict => ruleVerdict({ ...cleanFigures, ...over }).verdict;
@@ -1621,7 +1706,7 @@ export function selfTestInternalPrimary(): string[] {
     throughput: { ratio: 1, floor: 0.8 }, sample: { chunks: 2, runs: 100, exposureSec: 100 },
     violationsOnlyImprovement: false, firing: { status: "fired", detail: "" }, prediction: null,
     predictedRungDelta: null, predictionInBand: null, touchesSemantics: false, touchesPolicy: false,
-    internal: null, crossBinaryNullFloor: CROSS_BINARY_NULL_FLOOR, epochThroughput: null,
+    internal: null, internalAdvance: over.internal?.advance ?? [], crossBinaryNullFloor: CROSS_BINARY_NULL_FLOOR, epochThroughput: null,
     ...over,
   });
   check(ruleVerdict(figures({ internal: nest })).verdict === "merge",
@@ -1640,5 +1725,66 @@ export function selfTestInternalPrimary(): string[] {
     "a cross-binary fall beyond the layout floor closes whatever the internal contrast says");
   check(ruleVerdict(figures({ internal: nest, primaryRungRegressed: true, deltas: { [`depth>=${PRIMARY_RUNG}`]: -0.01 } })).verdict === "merge",
     "a cross-binary fall inside the layout floor is not a cost reading");
+
+  // 7. The advance rungs, where the primary resolves neither way. Every run
+  // reaches the rungs above the primary; the primary and each advance rung
+  // carry the events given.
+  const advanceRungs = internalAdvanceRungsFor(RULE_VERSION);
+  const first = advanceRungs[0];
+  check(first !== undefined, "the live rule must carry an advance rung deeper than the primary, else the advance path is untested");
+  if (first !== undefined) {
+    const ladderLen = Math.max(PRIMARY_RUNG, ...advanceRungs);
+    const deep = (variant: number, events: Record<number, number>): VariantMetrics => ({
+      arm: "grid", variant, runs: 100_000, gradedRuns: 100_000,
+      depthAtLeast: Array.from({ length: ladderLen }, (_, i) => events[i + 1] ?? (i + 1 < PRIMARY_RUNG ? 100_000 : 0)),
+      violations: 0, wallUsSum: 1e8, stepsUsedSum: 1e7, planCompleteRuns: 100_000,
+    });
+    const deepCells = (treatedFirst: number, treatedRest = 300): VariantMetrics[] => {
+      const rest = Object.fromEntries(advanceRungs.slice(1).map((k) => [k, 300]));
+      const treatedRestEvents = Object.fromEntries(advanceRungs.slice(1).map((k) => [k, treatedRest]));
+      return [
+        deep(16, { ...treatedRestEvents, [PRIMARY_RUNG]: 25_000, [first]: treatedFirst }),
+        deep(0, { ...rest, [PRIMARY_RUNG]: 25_000, [first]: 5_000 }),
+      ];
+    };
+    const onAdvance = (treatedFirst: number, treatedRest = 300): InternalPrimary =>
+      internalPrimaryCells(deepCells(treatedFirst, treatedRest), [], 16, null, 2, 2, [], PRIMARY_RUNG, advanceRungs);
+    const carried = onAdvance(6_000);
+    check(carried.applies && !carried.separatedUp && !carried.separatedDown && carried.bandReading !== "refuted",
+      `the advance fixture's primary must resolve neither way, else it tests nothing (applies ${carried.applies}, ${carried.ratio})`);
+    check(carried.advance.length === advanceRungs.length && carried.advance.every((a, i) => a.rung === advanceRungs[i]),
+      `the figures must carry one contrast per advance rung in ladder order, got [${carried.advance.map((a) => a.rung)}]`);
+    check(carried.advance[0]?.verdict === "separated up", `a +20% depth>=${first} contrast must separate up, got ${carried.advance[0]?.verdict} lo ${carried.advance[0]?.lo}`);
+    check(carried.advance.slice(1).every((a) => a.verdict === "resolves neither way"), "the other advance rungs must resolve neither way on this fixture");
+    const v3 = ruleVerdict(figures({ internal: carried }));
+    check(v3.verdict === "merge" && v3.reason.includes(`depth>=${first}`) && v3.reason.includes(carried.advance[0]!.lo.toFixed(4)),
+      `an advance rung separated up over a flat primary must merge naming the rung and its interval, got ${JSON.stringify(v3)}`);
+    const v2 = ruleVerdict(figures({ internal: carried, ruleVersion: RULE_VERSION_V2 }));
+    check(v2.verdict === "human", `under ${RULE_VERSION_V2} the same figures must reach a human, got ${JSON.stringify(v2)}`);
+    const fell = onAdvance(4_000);
+    check(fell.advance[0]?.verdict === "separated down", `a -20% depth>=${first} contrast must separate down, got ${fell.advance[0]?.verdict}`);
+    const v3down = ruleVerdict(figures({ internal: fell }));
+    check(v3down.verdict === "human" && v3down.reason.includes(`depth>=${first}`),
+      `an advance rung separated down beside a flat primary must reach a human naming it, got ${JSON.stringify(v3down)}`);
+    const second = advanceRungs[1];
+    if (second !== undefined) {
+      // Up on the first advance rung and down on the second: mixed evidence
+      // reaches a person rather than merging on the rung that agrees.
+      const mixed = onAdvance(6_000, 100);
+      check(mixed.advance.some((a) => a.rung === second && a.verdict === "separated down"),
+        `a treated depth>=${second} at a third of the control must separate down, got ${mixed.advance.find((a) => a.rung === second)?.verdict}`);
+      check(ruleVerdict(figures({ internal: mixed })).verdict === "human", "an advance rung up beside another down must reach a human");
+    }
+    // The blockers agree with the verdict: a merge carried by an advance rung
+    // is not held for having separated nothing.
+    const inputs = { regressionPassed: true, lintFailures: [], firing: { status: "fired", detail: "" } } as unknown as FinalGateInputs;
+    const cmp: Comparison = { improved: [], regressed: [], unresolvedGuards: [], deltas: {}, stratumFault: null };
+    const held = mergeBlockers(inputs, figures({ internal: carried }), cmp);
+    check(held.length === 0, `an advance-rung merge must leave no blocker, got [${held}]`);
+    const heldFlat = mergeBlockers(inputs, figures({ internal: onAdvance(5_000) }), cmp);
+    check(heldFlat.some((b) => b.startsWith("the internal contrast applies")), "a contrast flat on every rung still holds a supplied merge");
+    check(mergeBlockers(inputs, figures({ internal: carried, ruleVersion: RULE_VERSION_V2 }), cmp).length > 0,
+      `under ${RULE_VERSION_V2} an advance-rung separation does not lift the blockers`);
+  }
   return f;
 }

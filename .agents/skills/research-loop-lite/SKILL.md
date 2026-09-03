@@ -325,7 +325,7 @@ config-only candidate still needs real chunks - the binary is the same but
 the config is not.
 
 How to read the status: every rung figure is on the epoch's primary rung
-(`depth>=8` under epoch 14, rule version `internal-primary-v2`; `depth>=6`
+(`depth>=8` under epoch 14, rule version `internal-primary-v3`; `depth>=6`
 stays the cross-epoch comparison rung and a per-run guard). `primary`
 carries the merge criterion - the randomized per-run contrast of treated to
 untreated runs on that rung, its interval, `meiAtCap` (the smallest effect
@@ -384,7 +384,11 @@ You decide, but depart from the rule only with a written reason:
   or nothing separated and no prediction was met.
 - **Merge** only when: the internal contrast separates above 1.0 at z 2.7
   with an effect of at least 2%, no blocker above stands, the firing counter
-  shows occasions, and `finish --regression` passed. Read `spur.patch` and
+  shows occasions, and `finish --regression` passed. The same contrast on an
+  advance rung deeper than the primary (`primary.advance`, `depth>=9` then
+  `depth>=10`) carries the merge when the primary resolves neither way and
+  its band is not refuted, provided no advance rung separated down; an
+  advance rung separated down beside a flat primary is filed for the user. Read `spur.patch` and
   `super.patch` before merging - with no size cap on changes, your review of
   the diff is the only check that the code does what the hypothesis says,
   and that the bit is drawn by run id rather than by which runs the
