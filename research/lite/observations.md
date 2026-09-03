@@ -1768,3 +1768,17 @@ primary is re-frozen before the session on depth>=8 at [1.03, 1.30] - the
 hold aims at exactly the transition depth 8 encodes (node 1 still in the
 old view when the recovered node's message reaches it), and a mechanism
 that only multiplied chain shape would read near 1.0 there.
+
+Epoch-14 baseline and tiers. The cache under the new identity
+(ta:12160cd+porc:ebf06c5+oracle:390ec49e) reads 1995.63 runs per second
+and 6,495 and 6,018 depth-8 events per chunk, 6.3x the power floor; one
+general run in seed 1000 reached depth 13 without violating, a
+counterexample the deferred dispatched-before constraint is designed to
+remove. The regenerated tiers under the v2 twin: relax_3 no violations,
+max depth 10; relax_5 one violating run at depth 9; relax_minimal four
+violating runs, all at depth 9. So depths 10 to 13 encode the
+find_bug_plan's violating path specifically - the tiers' violations take a
+path the chain does not follow past the ghost DoViewChange - while depth
+8, the merge primary, is reached by every violating tier (relax_minimal
+218 runs at depth 8). The manifest's first invariant holds with a margin
+of 2.62 over the unconstrained mean of 1.53.
