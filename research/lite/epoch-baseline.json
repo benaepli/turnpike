@@ -64,6 +64,21 @@
    "cacheFile": "research/lite/baselines/b678cb8c772b-30-f9daa01b-300-g47b08ab8.json",
    "measuredAtIso": "2026-09-03T03:01:38Z",
    "note": "measured by grader baseline --chunks 2 after the corpus merge; depth>=6 events per chunk on the merged tree [15187, 16066] against 10111/9044 before it"
+  },
+  {
+   "name": "trace-print-format-pipeline-direct-write",
+   "commit": "f72f3ff",
+   "spurCommit": "e513cac",
+   "ratio": 1.0924,
+   "cumulative": 1.1385322984773452,
+   "measuredRps": 1916.0324600458478,
+   "measuredRpsChunks": [
+    1878.1284656655578,
+    1953.9364544261377
+   ],
+   "cacheFile": "research/lite/baselines/aba61f736259-30-f9daa01b-300-g47b08ab8.json",
+   "measuredAtIso": "2026-09-03T04:40:00Z",
+   "note": "measured by grader baseline --chunks 2 after the formatting merge; depth>=6 events per chunk [15449, 16076]"
   }
  ]
 }

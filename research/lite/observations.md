@@ -1653,3 +1653,10 @@ user's, with the loop's recommendation to merge.
 The user merged the formatting rewrite on reading the filing (f72f3ff,
 spur e513cac). The tree moved; the panel and a fresh baseline cache follow
 the rebuild, and the ledger row follows the cache.
+
+## Panel and cache after the formatting merge
+
+On the merged tree (spur e513cac): see the figures in the ledger row and
+the decisions record; the panel's per-run violation rates are unchanged by
+construction (no schedule moved) and the per-second rates follow the
+throughput gain.
