@@ -2336,3 +2336,14 @@ question the next stretch should answer is whether the 32-step deferral is
 at its best length and whether the depth 8 -> 9 transition (the recovered
 node's ghost DoViewChange acting at the new primary) can be moved by a
 mechanism that does not hold anything.
+
+**Slow-set panel, first read at full run counts (2026-09-04, merged tree
+spur 327bf72, seed 1000).** paxos-fixed-host-control 0 in 480,000;
+paxos-fixed-forget-promise 44 in 479,513 (9.2e-5 per run, at its 1.0e-4
+calibration); raft-forget-vote 78 in 2,880,000 (2.7e-5 per run against a
+calibration of 3 events in 171,604, 1.7e-5, now re-calibrated on this
+read); raft-commit-prev-term 0 in 2,880,000 (upper bound about 1e-6 per
+run; reachable by its run-plan, so this is a probability, not a
+reachability, result). The four hard members now all have a usable read
+in about 16 minutes of explore. Nothing here attributes a move to the
+crash-path merges; these are the anchors the next review compares against.
