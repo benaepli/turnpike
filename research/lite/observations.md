@@ -2487,3 +2487,31 @@ progress-keyed release stays kept behind a census of the recovered node's
 acted count at the label-9 entry: the judge showed that at the most
 recently restarted node the third acted entry is the write itself, so the
 count must be read before any N is chosen.
+
+## Opposite-side members calibrated: the deferral suppresses the forget-accepted bug by 41 percent
+
+Three seeds pooled on the merged tree (spur 02df730), controls 0 under the
+same overlays: paxos-fixed-recover-forget-accepted 2,370 in 1,440,000
+(1.65e-3 per run, medium; joins the quick set); raft-accept-stale-term-
+append 1,337 in 8,640,000 (1.55e-4, medium-low; slow set at 720,000 runs);
+raft-recover-stale-append-reply 0 in 4,320,000 at 5 servers (hard,
+count-only; reachable by its plan).
+
+**Panel cells** (pooled over the three seeds, matched contrasts):
+
+| member | crashPlaced | crashPhase | ghostAbsorberRetarget | freshFirstPair | pairSendOrder | clientFanoutRelease |
+| --- | --- | --- | --- | --- | --- | --- |
+| paxos-fixed-recover-forget-accepted | 2283/0 events | 0.95 [0.84, 1.09] | 0.96 [0.85, 1.09] | 1.23 [1.08, 1.40] UP | 1.02 [0.89, 1.16] | 0.59 [0.51, 0.67] DOWN |
+| raft-accept-stale-term-append | 2.55 [1.59, 4.09] UP | 1.00 [0.84, 1.20] | 0.94 [0.79, 1.12] | 1.02 [0.86, 1.21] | 1.04 [0.87, 1.23] | 1.17 [0.98, 1.39] |
+
+Reading: the forget-accepted member is the clean inverse of the VR target
+on the request-timing axis - the 64-step deferral suppresses it by 41
+percent on the runs it acts on, the largest per-cell move the panel has
+recorded, while fresh-first lifts it 23 percent. Its crash-placement
+classification in the panel plan was wrong: the stock-placement tenth of
+runs found it 0 times in 110,000 against 2,283 in 1.33M on the placed
+half, so the fan-out placement is what reaches it, not a quiescent crash.
+The stale-term Raft member reads crash placement 2.55 up and the deferral
+1.17, not separated. The immediate half of the request-timing axis now has
+a member that shows what it buys; the crash-placement axis still lacks a
+member on its opposite side, which is what iteration 38 is testing.

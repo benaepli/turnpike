@@ -1411,11 +1411,11 @@ interface PanelMember {
 
 // The members whose calibrated event rates can resolve inside a short wall;
 // the rest are reachable via --members.
-const DEFAULT_PANEL_MEMBERS = ["paxos-accept-stale-ballot", "mencius-opt1-2", "raft-stale-vote", "paxos-fixed-recover-stale-scout"];
+const DEFAULT_PANEL_MEMBERS = ["paxos-accept-stale-ballot", "mencius-opt1-2", "raft-stale-vote", "paxos-fixed-recover-stale-scout", "paxos-fixed-recover-forget-accepted"];
 // The slow set: members whose events are rare enough that only a long wall
 // gives a read, run at direction reviews via --members hard. Counts, not
 // rates, when the expected events are under three.
-const HARD_PANEL_MEMBERS = ["paxos-fixed-host-control", "paxos-fixed-forget-promise", "raft-forget-vote", "raft-commit-prev-term"];
+const HARD_PANEL_MEMBERS = ["paxos-fixed-host-control", "paxos-fixed-forget-promise", "raft-forget-vote", "raft-commit-prev-term", "raft-accept-stale-term-append", "raft-recover-stale-append-reply"];
 
 function panelManifest(threads: number): { path: string; members: PanelMember[] } {
   const candidates = [

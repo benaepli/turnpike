@@ -88,3 +88,11 @@ Update: N1 is reachable at 5 servers (43-event plan, 5/5 violate, raft_clean
 (AppendEntries accepts a stale term, raft_clean.spur:303-307) is proven at 3
 servers (18 events, 5/5 violate, host 0/5) and joins beside it. Three
 opposite-side members await calibration.
+
+Calibration (2026-09-04): forget-accepted 1.65e-3 per run (medium, quick
+set), raft-accept-stale-term-append 1.55e-4 (medium-low, slow set at
+720,000 runs), raft-recover-stale-append-reply 0 in 4.32M at 5 servers
+(hard, count-only). The forget-accepted member reads the deferral 0.59
+DOWN and fresh-first 1.23 UP; the section-5 row that classed its crash side
+as "opposite" was wrong (placed crashes find it, stock never did in
+110,000 runs).
