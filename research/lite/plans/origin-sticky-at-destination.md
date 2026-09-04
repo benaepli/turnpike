@@ -102,3 +102,18 @@ Nearest pool neighbours checked for dedupe: restart-opening-send-first-at-every-
 Iteration-42 note: Carried forward unchanged from iteration 40 (judge gain 7, prediction already rewritten there). It remains the round's best-argued candidate: an untouched layer of the same-step decision, no config field, a directed mechanism, an honest keepIfVrLoses NONE, and the only panel member on the board (paxos-accept-stale-ballot, ~1,675 violations per half) with the power to resolve its predicted DOWN cell.
 
 False claims named at admission: ["'Making the receiver finish with that sender before switching raises the per-run probability that all three land in order, which is the primary rung's own condition.' The DAG constrains relative order only, and the order among labels 7-9 is already set by the two merged preferences. The mechanism clause has been rewritten to the grouping-and-interference argument, which is what the arm can actually claim.", "'In the arm-blind census, ... the share of message entries whose origin equals the destination's previous entry origin is at least 0.55 on treated against a control expected near 1/(servers-1), about 0.5 at three servers.' A 0.55 target against a 0.50 control is inside chunk-to-chunk noise for a bias that is supposed to be strong, and 1/(servers-1) is the wrong null anyway - the stock control's repeat share is an empirical quantity nobody has measured. The clause is replaced by a m
+
+## Pre-grade census (2026-09-05, implementer smoke, 51,584 runs)
+
+The observables are met and by a wide margin. Mean same-origin streak at a
+destination 3.066 on the treated half against 1.931 on the control, a
+factor of 1.588 (the prediction asked 1.25); repeat-entry share 0.674
+against 0.482, a factor of 1.398. Contests partition exactly: 9,693,459 =
+3,159,558 swaps + 1,332,377 with no last origin + 1,767,105 already on
+that origin + 3,434,419 whose last origin had nothing ready. Repeat swaps
+are 0.45 of swaps against the plan's expected 0.25, reported as it stands.
+The arm sits before fresh-first in the layer order, and it displaced that
+layer's own choice in 3,143,679 contests and pair order's in 3,083,600,
+so it is the dominant preference when it fires; the band's downward half
+[0.98, 1.02] exists for exactly that reason. Tests 398 unit plus all
+integration suites.
