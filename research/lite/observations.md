@@ -2708,3 +2708,32 @@ applied to every case that shared its shape. The loop should probably ask
 that question of the remaining merged mechanisms - fresh-first is the
 obvious next one, since iteration 39 measured it at a factor of four and
 nobody has asked which of its contests carry that.
+
+## Iteration 45: a preference and its inverse both lose, and that is the finding
+
+Sender alternation read depth>=8 0.949 [0.924, 0.974] and depth>=9 0.895,
+both separated below the drawn order, after sender grouping read 0.738 in
+the same position two iterations earlier. The arm fired exactly as
+specified: the override gate zero in every cell, the streak observable
+inverted to 0.74 of the control, 76.5M swaps. Closed, and the family with
+it.
+
+The pair of results answers a question the loop had not asked. The control
+in a dispatch tiebreak is not a neutral midpoint between two orderings; it
+is an unbiased coin, and its randomness is itself worth something, because
+across a session it explores both orders. A deterministic rule on a
+dimension the chain does not constrain replaces that coin with one fixed
+order in every run, and pays for it, whichever order it picks. Fresh-first
+sharpens the point rather than contradicting it: it is equally
+deterministic and worth a factor of four, because incarnation freshness is
+a dimension the chain does constrain - labels 7 through 9 are an
+incarnation-ordered sequence - while which sender a receiver hears from
+next is not.
+
+The practical rule this gives the proposer: before proposing a same-step
+preference, name the label in the oracle chain whose order it fixes. If
+there is none, the arm is spending schedule diversity for nothing, and both
+of its directions will lose. A methodological miss to fix as well: the
+quarter-strength dose cell was a function of the run id rather than a
+variant bit, so the grader could not split the rungs by cell and the dose
+question went unanswered.

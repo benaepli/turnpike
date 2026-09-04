@@ -105,3 +105,39 @@ alternation it counts a pick whose sender already differs, and a fifth
 decline below_streak carries the quarter cell's gate. The quarter cell is
 a pure function of the run id rather than a second variant bit, so the
 grader splits the cells from the counters rather than from a tag.
+
+## Verdict (2026-09-05)
+
+Closed, and the sender-preference family with it. 910,216 treated against
+907,622 control runs:
+
+| rung | treated / control | interval | events |
+| --- | --- | --- | --- |
+| depth>=6 | 0.970 | [0.954, 0.986] | 27,590 / 28,374 |
+| depth>=7 | 0.971 | [0.956, 0.987] | 27,182 / 27,903 |
+| depth>=8 | 0.949 | [0.924, 0.974] | 10,500 / 11,037 |
+| depth>=9 | 0.895 | [0.839, 0.956] | 1,715 / 1,910 |
+| depth>=10 | 0.808 | [0.657, 0.994] | 162 / 200 |
+
+The mechanism fired as specified: 76,502,971 swaps on the full cell and
+7,343,077 on the quarter, the override gate exactly zero in all three
+cells, the streak observable inverted. Plan completion fell to 0.170 from
+0.190, the only mechanism this stretch to move it materially, and
+throughput read 0.973.
+
+So the judge's red team was right and is now measured: sender grouping
+reads 0.738 and sender alternation 0.949, both below the drawn order. A
+mechanism and its inverse can both lose, because the control is not a
+midpoint between two orderings - it is an unbiased coin whose randomness
+is itself worth something, and a deterministic rule on a dimension the
+chain does not constrain replaces that coin with a fixed order in every
+run. Fresh-first is the contrast that makes the point precise: it is also
+a deterministic tiebreak and it is worth a factor of four, because
+incarnation freshness is a dimension the chain does constrain (labels 7 to
+9 are an incarnation-ordered sequence) while sender identity at a receiver
+is not.
+
+One methodological miss to carry forward: the quarter-strength cell was a
+pure function of the run id rather than a second variant bit, so the
+grader could not split the rungs by cell and the dose question went
+unanswered. A nested dose must be its own bit.

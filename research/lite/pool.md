@@ -2283,8 +2283,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## origin-alternation-at-destination
 
-- kind: add | category: scheduler | origin: operator-agent | status:
-  ADMITTED at iteration 45 (judge gain 5, cost 0, rank 2; the seeded case was half wrong - VR does complete recovery on a majority including the primary, but labels 7 to 9 are all node 2 to node 1 and the DAG carries no node-0-to-node-1 delivery at all, so "interleaving the two peers" was false. The judge supplied the repaired mechanism: StartViewChange is dropped while status is recovering (VR.spur:301), so node 0's RecoveryResponse must beat node 2's ghosts, which is a cross-origin ordering the merged layers do not touch. Band widened to [0.85, 1.30] and a quarter-strength nested cell is mandatory, because a mechanism and its inverse can both lose against a control that is a midpoint on the streak statistic but not on the space of prefixes) | parent:
+- kind: add | category: scheduler | origin: operator-agent | status: CLOSED at iteration 45, and with it the sender-preference family (depth>=8 0.9486 [0.9099, 0.9890] separated below 1.0, depth>=9 0.895 separated down, plan completion 0.170 against 0.190; the override gate read exactly zero in every cell and the streak observable inverted to 0.74 of control, so the arm did what it claimed). The judge's red team is now an empirical result: a preference and its inverse both lose against the drawn order, 0.738 one way and 0.949 the other | parent:
   origin-sticky-at-destination (closed, both layer positions)
 - Mechanism: the inverse of the closed arm and in the same place (the last
   dispatch layer, standing aside whenever fresh-first or pair order has a
