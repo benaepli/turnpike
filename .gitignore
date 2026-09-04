@@ -31,3 +31,4 @@ research/DRAIN
 research/PARKED
 # generated Claude worktrees (live agent state, never tracked)
 .claude/worktrees/
+research/lite/state/panel/*/*/runs.json

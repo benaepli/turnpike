@@ -2415,3 +2415,35 @@ tree now reads about 1.35x at depth 10 and 1.6x at depth 11 per chunk.
 Quick panel flat again: paxos 3.49%, mencius 1.52%, raft-stale-vote
 4.06e-4, paxos stale scout 3.13e-4. The epoch's cumulative throughput
 ledger stands at 0.994 of the freeze after nine merges.
+
+## First per-cell panel read: the deferral suppresses the Paxos stale-ballot bug
+
+The panel now joins porcupine's violating run ids to each run's variant tag
+and reports, per member, the per-run violation ratio on each mechanism's
+treated half against its matched untreated half (state under
+research/lite/state/panel/). First read on the merged tree (spur 02df730,
+quick set, seed 1000, scale 3):
+
+**Panel cells.**
+
+| member (violations) | crashPlaced | crashPhase | ghostAbsorberRetarget | freshFirstPair | pairSendOrder | clientFanoutRelease |
+| --- | --- | --- | --- | --- | --- | --- |
+| paxos-accept-stale-ballot (3353) | 1.79 [1.39, 2.30] UP | 1.01 [0.91, 1.13] | 0.97 [0.87, 1.08] | 0.97 [0.87, 1.08] | 1.03 [0.92, 1.14] | 0.86 [0.78, 0.96] DOWN |
+| mencius-opt1-2 (794) | 0.99 [0.66, 1.48] | 1.10 [0.87, 1.40] | 1.04 [0.84, 1.31] | 0.97 [0.77, 1.21] | 0.89 [0.71, 1.12] | 0.92 [0.74, 1.16] |
+| raft-stale-vote (117) | 1.16 [0.38, 3.60] | 1.24 [0.68, 2.29] | 0.95 [0.53, 1.70] | 0.79 [0.44, 1.41] | 1.09 [0.61, 1.96] | 0.95 [0.53, 1.70] |
+| paxos-fixed-recover-stale-scout (30) | 26/3 events | 0.86 [0.26, 2.89] | 0.53 [0.16, 1.75] | 1.06 [0.34, 3.34] | 1.22 [0.39, 3.86] | 0.70 [0.22, 2.25] |
+
+Reading: mencius, which has no crashes, is the null row and reads flat on
+every bit. paxos-accept-stale-ballot reads crashPlaced 1.79 UP - the crash
+placement finds it 79 percent more often per run - and clientFanoutRelease
+0.86 DOWN: the post-fault request deferral suppresses that bug by 14
+percent on the runs it acts on, exactly the inverse bias the direction note
+predicted, hidden until now inside a flat member total. Its bug needs two
+commands contesting a slot around a leadership change, so a late second
+request is the wrong side for it; the immediate half still carries it. The
+two rare members are count-only or wide on every bit. Consequences: the
+opposite-side members (an immediate-write Raft injection and a
+quiescent-crash Paxos injection) are being built so the request-timing and
+crash-placement axes each have a member on both sides; and the event-keyed
+release arm (iteration 37) must be read on this table as well as on the VR
+rung before it is kept.
