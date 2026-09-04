@@ -109,6 +109,21 @@
       "cacheFile": "research/lite/baselines/dc44e20e6726-30-f9daa01b-300-g0d3de012.json",
       "measuredAtIso": "2026-09-04T15:20:00Z",
       "note": "ratio is the second session's cross-binary throughput (0.976 on the first); regression vr-nofault-clean passed on the merged tree; events per chunk depth>=8 [6303, 6943], depth>=9 [1132, 1253], depth>=10 [114, 140], depth>=11 [33, 38] against [6279, 6920], [1120, 1247], [98, 139], [25, 29] on the 64-step cache. Two merges landed back to back; the cache's throughput (1,987 against 2,004) is inside layout noise."
+    },
+    {
+      "name": "pair-send-order-ghost-class-only",
+      "commit": "0536fa1",
+      "spurCommit": "d2ecb29",
+      "ratio": 1.0101,
+      "cumulative": 1.0039569246967208,
+      "measuredRps": 2073.0,
+      "measuredRpsChunks": [
+        2065.6,
+        2080.4
+      ],
+      "cacheFile": "research/lite/baselines/f88b238ce607-30-f9daa01b-300-g870d4c11.json",
+      "measuredAtIso": "2026-09-05T20:30:00Z",
+      "note": "narrowing, not an addition: the merged per-pair send-order rule now corrects only the dead incarnation's records, returning about 64 percent of its firing to the draw at a graded null on depth 8 (1.0074 [0.9524, 1.0657]). Regression vr-nofault-clean passed. Cache 2,073 runs per second, the epoch's highest, events per chunk depth>=8 [7260, 7084], depth>=9 [1317, 1251], depth>=10 [140, 110], depth>=11 [29, 33] against [6303, 6943], [1132, 1253], [114, 140], [33, 38] on the previous cache."
     }
   ]
 }

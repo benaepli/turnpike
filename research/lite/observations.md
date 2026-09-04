@@ -2737,3 +2737,14 @@ of its directions will lose. A methodological miss to fix as well: the
 quarter-strength dose cell was a function of the run id rather than a
 variant bit, so the grader could not split the rungs by cell and the dose
 question went unanswered.
+
+**Post-merge reads after the send-order narrowing (spur d2ecb29).**
+Regression passed. Fresh cache 2,073 runs per second, the epoch's highest
+(2,066 and 2,080, and the tightest pair of chunks the loop has measured),
+events per chunk depth>=8 [7260, 7084], depth>=9 [1317, 1251], depth>=10
+[140, 110], depth>=11 [29, 33]. Removing two thirds of a merged rule's
+firing left every rung where it was and bought throughput. Quick panel:
+paxos-accept-stale-ballot 3.53%, mencius-opt1-2 1.52%,
+paxos-fixed-recover-forget-accepted 1.92e-3, raft-stale-vote 3.37e-4,
+paxos-fixed-recover-stale-scout 2.71e-4 - all flat against the previous
+panel, the two rare members inside their count noise.
