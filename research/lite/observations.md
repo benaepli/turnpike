@@ -2533,3 +2533,21 @@ DoViewChange sends). The arm table should depend on the fault index, not
 the run: fan-out timing for the initiating crash, quiet timing for the
 next. Seeded. The panel side also corrected the plan: the forget members
 do not need a quiescent crash; they read down on it.
+
+## Iteration 39: reversing the fresh-first tiebreak costs three quarters of depth 8
+
+The stale-first arm (the inverse of the merged fresh-first same-pair
+tiebreak, on a salted quarter of the fresh-first runs) read depth>=8
+stale/fresh 0.232 [0.212, 0.254], depth>=9 0.387, depth>=10 0.594: the
+largest loss the loop has measured, and a measure of how much fresh-first
+is worth. Its panel side, three pooled seeds on the candidate binary, put
+both stale-shaped members above 1 without separating (raft-stale-vote 1.55
+[0.94, 2.57], the Paxos stale scout 1.56 [0.58, 4.18]) against a 2x keep
+threshold, so the arm is closed by its rule. The ordering classification
+was right about which members lean that way and the cost of serving them
+this way is too high; a narrower stale preference (only at a receiver that
+has completed recovery, or only for a pair's first ghost) is the follow-up
+worth proposing. Two opposite-side arms have now been closed by the same
+rule, and in both cases the VR loss was the informative part: the quiet
+crash costs a sixth of depth 8 and buys the 8-to-9 conversion, and
+fresh-first is worth a factor of four at depth 8.

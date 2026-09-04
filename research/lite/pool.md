@@ -2142,7 +2142,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## stale-first-same-pair-dispatch
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at iteration 39 (judge gain 7, cost 0; top pick; the inverse of the merged fresh-first tiebreak, an opposite-side arm on the delivery axis expected to lose on the VR primary and kept only if raft-stale-vote reads up per cell on the candidate binary) | parent: iteration-39 delivery-axis round
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at iteration 39 by its own keep rule (VR depth>=8 stale/fresh 0.232 [0.212, 0.254], a far larger loss than the frozen band [0.60, 0.90]; depth>=9 0.387 and depth>=10 0.594 separated down; the named panel member did not confirm: raft-stale-vote 1.55 [0.94, 2.57] on three pooled seeds against a 2x keep threshold, the stale scout 1.56 [0.58, 4.18], both suggestive and neither separated) | parent: iteration-39 delivery-axis round
 - Mechanism: New arm on the DELIVERY axis, the opposite side of freshFirstPair. In fresh_first_dispatch (scheduler.rs:1540-1600) the merged rule, on bit 24 runs, replaces a drawn ghost (origin_incarnation != incarnation(origin)) by the highest-priority eligible fresh record from the same origin to the same destination. On a nested salted quarter (bit 1 << 22, staleFirstPair, own salt STALEFST, set only when bit 24 is set; probes exempt by inheritance) the direction is inverted: when the drawn record is fresh and an eligible dead-incarnation record from the same origin to the same destination exists, take that ghost instead (highest priority, lowest queue index among equals; fresh_first::rival gains the index for the want_fresh == false search, which today only detects). Same gate (origin ledger has both net_fresh and stale records in the queue), same no-draw-consumed property, ghost census unchanged, channel sends neutral. pair_order_dispatch runs after it as today and orders inside the class taken. Counters (fresh_first block, third slot stale_arm): contests, swaps_to_stale, repeat_swaps, taken histogram, and the existing ghost-entry overtaken census read per arm. Registration: run_variant.rs STALE_FIRST_PAIR = 1 << 22 set only with FRESH_FIRST_PAIR; decide.ts VARIANT_BITS row 4194304 renamed from replyFirstRecovering (filed at iteration 34, patch kept, not in the tree: run_variant.rs sets no bit 22) to staleFirstPair. No config field. Nesting inside bit 24 gives the grader a matched two-sided read (stale quarter against fresh-first quarter, the coin's two ends) and leaves the stock half untouched as the third cell; while the arm is in the tree the pooled bit-24 headline reads (fresh + stale) against stock, the same acknowledged pooling the request-timing axis carries on bit 18.
 - Rationale: Fresh-first is the tree's one class-order bias and it reads as one: +12% on depth 8 for VR and 0.79 [0.44, 1.41] on raft-stale-vote in the first per-cell panel read. panel-per-cell-read.md section 5 classes two members as 'opposite: the stale reply first' (raft-stale-vote, paxos-fixed-recover-stale-scout). Read in simulator terms: the candidate's RequestVote (or the scout's P1a) is sent, the sender crashes and restarts, and the restarted incarnation's request to the same follower (acceptor) is co-eligible with the dead incarnation's; fresh-first lands the new-term request first, the follower's term (ballot) rises and the ghost is refused, so the stale grant that the buggy reply handler would count is never produced. Stale-first produces it every time the contest occurs. For VR the same swap at node 1 puts the ghost SVC 2->1 before the fresh Recovery 2->1, which inverts label 8, so the VR read is a frozen loss: the control's stock coin took the ghost first about 60% of the time and fresh-first's 100% fresh read 1.12 over stock, so 100% stale should read about 0.92 of stock and about 0.82 of the fresh-first quarter it is matched against. The one order at node 1 where a ghost first helps (RR 2->1 before Recovery 2->1) is an arrival gap, not a contest (iteration 34), so it does not offset the loss. This is the arm the pool held twice (pair-order-drawn-class-fresh-stale-stock, HELD at iteration 26: 'run stale-first alone with a negative band') and the direction note now asks for: a strategy whose bias is the mirror of a merged one, read per cell.
 - Generality: Rule: at a network step whose draw fell on a record from a sender's current incarnation, take instead an eligible record from that sender's dead incarnation to the same destination. Names no handler or role; the mirror image of the merged fresh-first rule, and inert wherever fresh-first is inert (no restarted sender with both classes in the queue). The panel decides which side a bug needs: a term- or ballot-guard bug that consumes a stale reply reads up on this cell, a recovery-completion bug reads down, a bug without restarts reads flat.
@@ -2199,3 +2199,29 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   against the fan-out arms' 0.84; falsifier depth>=9 interval entirely
   below 1.0 or depth>=8 below 0.95; cost throughput >= 0.97. Panel cells on
   the candidate binary reported for the forget members.
+
+## stale-first-at-settled-receiver-only
+
+- kind: add | category: scheduler | origin: operator-agent | status:
+  PROPOSED at iteration 39 for the next judge round | parent:
+  stale-first-same-pair-dispatch (closed) and fresh-first (merged)
+- Mechanism: the stale-first preference narrowed to the contests where the
+  reversal is plausibly wanted: the destination has completed a restart in
+  this run (its first delivery-triggered entry since the restart has acted)
+  and the contest is the first ghost of that pair, not every ghost. Every
+  other same-pair contest keeps the merged fresh-first order. Salted half
+  of the fresh-first treated runs, own bit.
+- Why: iteration 39 reversed every contest and cost three quarters of the
+  depth-8 rate while the two stale-shaped panel members read 1.55 and 1.56
+  without separating. The census says the stale quarter swapped 1.66M times
+  with 0.46 repeats per swap; a first-ghost-only rule at a settled receiver
+  cuts that by roughly the repeat factor and leaves the chain's depth-7/8
+  order (where the receiver is still recovering) untouched, which is where
+  the loss comes from.
+- Frozen prediction (draft; the judge rewrites): depth>=8 in [0.85, 1.02]
+  (a much smaller loss than 0.23, and the falsifier is a loss below 0.80);
+  panel keep rule: raft-stale-vote and paxos-fixed-recover-stale-scout each
+  >= 1.5 with the lower edge above 1.0 on three pooled seeds of the
+  candidate binary; firing swaps_to_stale between 0.15 and 0.35 of the
+  full arm's 1.66M per four chunks with repeat swaps under 0.05; cost
+  throughput >= 0.97.

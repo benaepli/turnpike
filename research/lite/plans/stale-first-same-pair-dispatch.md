@@ -145,3 +145,32 @@ eligible ghost of its pair and a fan-out leaves several ghosts per pair;
 the fresh arm's ratio is 0.05. Tests 391 unit plus all integration suites.
 The grade proceeds on the frozen prediction; the repeat-swap clause is
 read as stated.
+
+## Verdict (2026-09-05)
+
+Closed by the frozen keep rule. Four chunks, 456,347 stale-quarter against
+454,594 fresh-quarter runs (matched within the fresh-first treated half):
+
+| rung | stale / fresh per run | interval |
+| --- | --- | --- |
+| depth>=8 | 0.232 | [0.212, 0.254] |
+| depth>=9 | 0.387 | [0.328, 0.457] |
+| depth>=10 | 0.594 | [0.371, 0.952] |
+
+Firing exact: swaps to the stale record 1,663,722, overtaken share on the
+stale quarter 406 of 2,700,844 (0.0002) against 1.000 on the fresh quarter
+and 0.66 on the untreated control; repeat swaps 0.46 of swaps (the plan's
+clause said 0.25 and the pre-grade smoke 0.34; a fan-out leaves several
+ghosts per pair). Throughput 0.970, depth>=8 per second 0.76.
+
+Panel on the candidate binary, three seeds pooled: raft-stale-vote 1.55
+[0.94, 2.57], paxos-fixed-recover-stale-scout 1.56 [0.58, 4.18],
+paxos-accept-stale-ballot 0.99. The keep rule asked for 2x separated; both
+stale-shaped members point up and neither separates, so the arm is not
+kept. What this says: the merged fresh-first preference is worth about a
+quarter of the depth-8 rate on VR, the largest single-mechanism effect the
+loop has measured, and the members whose bugs need the stale record first
+are exactly the two the ordering classification named. A cheaper way to
+serve them is a narrower stale preference (only at a receiver that has
+completed recovery, or only for the first ghost of a pair), which would
+cost VR far less than reversing every contest.
