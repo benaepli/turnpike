@@ -526,7 +526,9 @@ export function syntheticEvaluation(seed: number, m: {
 // The sequential rule and the merge gate test the same pooled chunks; an
 // advance the gate then refuses would delete a branch on a contradiction.
 // Asserted here on synthetic chunks around the measured baseline counts.
-export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRule; ladder: number[] }): string[] {
+// `warnings` receives what the recorded baseline shows but no code can
+// change.
+export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRule; ladder: number[] }, warnings: string[] = []): string[] {
   const f: string[] = [];
   const rule: SeqRule = live?.rule ?? {
     exploreBudgetSec: 300, maxRunsPerConfig: 4000, maxChunks: 4, minChunks: 2, inconclusiveP: 0.9, niP: 0.95,
@@ -674,14 +676,23 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   if ((cmpV.deltas["violations"] ?? 0) === 0) f.push("the primary-selection case needs a non-zero violations delta to be a test");
   if (primaryDelta(cmpV) !== (cmpV.deltas[`depth>=${PRIMARY_RUNG}`] ?? 0)) f.push(`primary must be the depth>=${PRIMARY_RUNG} delta when violations did not improve, got ${primaryDelta(cmpV)}`);
 
-  // The dispersion the variance model charges must still cover what the
-  // recorded baseline shows. This is the assertion that would have caught
-  // the pooled statistic: it fires again the moment an arm change or a
-  // spur change re-inflates the primary rung's chunk-to-chunk scatter.
+  // The primary rung's chunk-to-chunk scatter on the recorded baseline. The
+  // variance model charges the measured cv (rateVarianceOf), so scatter
+  // above the counting cv widens the cross-binary interval rather than
+  // deflating z; what it costs is the minimum effect the chunk cap can
+  // separate, reported here whenever the scatter exceeds counting noise.
   const liveStratum = usable?.base.rateStratum;
   if (liveStratum && liveStratum.chunks >= 2) {
     const cvP = rungCv(liveStratum, PRIMARY_RUNG);
-    if (cvP > 0.025) f.push(`the recorded baseline's stratified depth>=${PRIMARY_RUNG} chunk cv is ${(cvP * 100).toFixed(2)}%, above the 2.5% the variance model is calibrated for`);
+    const eventsPerChunk = (liveStratum.depth[PRIMARY_RUNG - 1] ?? 0) / liveStratum.chunks;
+    const countingCv = eventsPerChunk > 0 ? 1 / Math.sqrt(eventsPerChunk) : Infinity;
+    if (cvP > countingCv) {
+      const capChunks = rule.maxChunks;
+      const chargedVar = cvP ** 2 / capChunks + cvP ** 2 / liveStratum.chunks;
+      const capExposure = (liveStratum.exposureSec / liveStratum.chunks) * capChunks;
+      const mei = minimumEffect(liveStratum.depth[PRIMARY_RUNG - 1] ?? 0, liveStratum.exposureSec, capExposure, chargedVar);
+      warnings.push(`the recorded baseline's stratified depth>=${PRIMARY_RUNG} chunk cv is ${(cvP * 100).toFixed(2)}% over ${liveStratum.chunks} chunks against a counting cv of ${(countingCv * 100).toFixed(2)}%; charged, the cross-binary rung separates no effect below ${(mei * 100).toFixed(1)}% at the ${capChunks}-chunk cap`);
+    }
   }
 
   // The chunk cap is justified by what the last chunk buys: at the measured

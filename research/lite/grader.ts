@@ -1173,7 +1173,8 @@ async function cmdSelftest(): Promise<void> {
     live = { base: pooledCountsOf(liveChunks.chunks), rule: seqRuleOf(policy, null), ladder: pooledLadder(liveChunks.chunks) };
     liveDetail = `pooled from ${liveChunks.chunks.length} recorded baseline chunks in ${liveChunks.file}`;
   }
-  failures.push(...selfTestGateConsistency(live));
+  const warnings: string[] = [];
+  failures.push(...selfTestGateConsistency(live, warnings));
 
   // Lite's own seams: state round-trips through the schema, the stratum
   // excludes the aos arm, the tools the evaluation shells out to exist, and
@@ -1198,7 +1199,6 @@ async function cmdSelftest(): Promise<void> {
   // recorded sessions it was derived from. A recorded session is read on the
   // primary rung of the rule version its decision row carries, never on the
   // live rule's, so a change of primary rung leaves these fixtures standing.
-  const warnings: string[] = [];
   failures.push(...selfTestInternalPrimary());
   const skipped: string[] = [];
   const recorded = (name: string): { cand: Evaluation[]; base: Evaluation[]; rung: number } | null => {
@@ -1226,9 +1226,18 @@ async function cmdSelftest(): Promise<void> {
     if (matched.matchedOnMask !== 1) failures.push(`bit 512 must match on crashPlaced, got mask ${matched.matchedOnMask}`);
   }
 
-  // The tolerances must not be so tight that they refuse real evidence: no
-  // recorded matched session may carry a balance fault. And the dispersion
-  // the interval is charged must still cover what the chunks show.
+  // The tolerances must read each recorded session as its record does: a
+  // session decided on the matched contrast carries no balance fault, and a
+  // session whose record names an unbalanced control reads those faults and
+  // no others. And the dispersion the interval is charged must still cover
+  // what the chunks show.
+  const faultKeyOf = (fault: string): string => {
+    const cobit = /^co-bit (\S+) share /.exec(fault);
+    if (cobit !== null) return cobit[1]!;
+    if (fault.startsWith("arm composition")) return "arm composition";
+    if (fault.startsWith("steps per run")) return "steps per run";
+    return fault;
+  };
   let dof = 0;
   let inflation = 0;
   for (const d of RECORDED_DECLARATIONS) {
@@ -1238,8 +1247,11 @@ async function cmdSelftest(): Promise<void> {
     const cells = r.cand.map((e) => e.metrics.variants);
     if (cells.every((c) => c.length === 0)) { skipped.push(`${d.name} carries no variant cells`); continue; }
     const ip = internalPrimary(r.cand, r.base, d.bit, d.band, r.cand.length, r.rung);
-    if (ip.balance.faults.length > 0 && !NON_DECLARABLE_BITS.includes(d.bit)) {
-      failures.push(`${d.name} (bit ${d.bit}) must balance after matching, got [${ip.balance.faults.join("; ")}]`);
+    const faultKeys = ip.balance.faults.map(faultKeyOf).sort();
+    const recordedKeys = [...(d.unbalancedOn ?? [])].sort();
+    if (!NON_DECLARABLE_BITS.includes(d.bit) && faultKeys.join("|") !== recordedKeys.join("|")) {
+      const want = recordedKeys.length === 0 ? "balance after matching" : `read its recorded imbalance on [${recordedKeys.join(", ")}]`;
+      failures.push(`${d.name} (bit ${d.bit}) must ${want}, got [${ip.balance.faults.join("; ")}]`);
     }
     // Candidate-side only, so the dispersion measured is the contrast's own
     // and not the difference of two.

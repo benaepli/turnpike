@@ -36,6 +36,10 @@ export interface RecordedDeclaration {
   band: { min: number; max: number } | null;
   // Where the band comes from, in the record's own words.
   source: string;
+  // The co-bits, or "arm composition", the record's matched control is
+  // unbalanced on. Absent where the record was decided on a balanced
+  // control. The selftest reads these faults back and no others.
+  unbalancedOn?: readonly string[];
 }
 
 export const RECORDED_DECLARATIONS: readonly RecordedDeclaration[] = [
@@ -57,8 +61,20 @@ export const RECORDED_DECLARATIONS: readonly RecordedDeclaration[] = [
   { name: "ghost-pending-timer-hold", bit: 33554432, band: { min: 0.03, max: 0.3 }, source: "iteration 24, epoch 14 re-freeze on depth 8" },
   { name: "restart-before-stranded-drain-preempt", bit: 536870912, band: { min: 0.06, max: 0.3 }, source: "iteration 25, epoch 14" },
   { name: "fresh-first-same-pair-dispatch-tiebreak", bit: 16777216, band: { min: 0.12, max: 1.6 }, source: "iteration 26, epoch 14" },
-  { name: "replay-tier-answered-overtake-cut", bit: 8192, band: { min: 0.12, max: 1.2 }, source: "iteration 27, epoch 14, nested in the slot half" },
-  { name: "replay-prefix-inherit-parent-bits", bit: 2048, band: { min: 0.0, max: 0.35 }, source: "iteration 28, epoch 14, nested in the prefix half" },
+  // Closed sessions whose control the record reads as unbalanced: children
+  // inherit their parents' bits, so the treated population carries the
+  // inheritance bit, crash placement and its phase at other rates than the
+  // untreated runs, and the arm mix moves with them.
+  {
+    name: "replay-tier-answered-overtake-cut", bit: 8192, band: { min: 0.12, max: 1.2 },
+    source: "iteration 27, epoch 14, nested in the slot half; closed with the inheritance bit at 0.243 treated against 0.221 control",
+    unbalancedOn: ["replayInheritBits"],
+  },
+  {
+    name: "replay-prefix-inherit-parent-bits", bit: 2048, band: { min: 0.0, max: 0.35 },
+    source: "iteration 28, epoch 14, nested in the prefix half; closed with crashPlaced at 0.996 treated against 0.917 control, a declared balance fault",
+    unbalancedOn: ["crashPlaced", "crashPhase", "arm composition"],
+  },
   { name: "pair-send-order-dispatch-fault-scoped", bit: 32768, band: { min: -0.02, max: 0.1 }, source: "iteration 29, epoch 14, depth-8 null" },
   { name: "pair-send-order-lean", bit: 32768, band: { min: -0.03, max: 0.08 }, source: "iteration 30, epoch 14, depth-8 null" },
   // The run-cap probe posture is an instrument, not a treatment. Declared
