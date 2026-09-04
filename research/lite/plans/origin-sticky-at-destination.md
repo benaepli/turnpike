@@ -147,3 +147,19 @@ placed above fresh-first costs a quarter of depth 8, which prices the
 layer order itself. It is not the admitted mechanism. Session 2 grades
 that: the identical preference as the LAST layer, breaking ties only among
 records the merged layers rank equally.
+
+## Session 2 build (iteration 43): the admitted layer order
+
+Rebuilt on the iteration-42 patch with the call site moved to last, after
+fresh-first and pair order, and standing aside whenever either layer
+expressed a preference. Both dispatch functions now return whether they
+chose, which is the smallest distinction that carries the information; the
+gate counters read exactly zero on the smoke (swaps over fresh-first 0,
+swaps over pair order 0) against 148.5M and 146.8M in session 1, with
+swaps still 3.16M and the streak observable at 1.505x. One deviation the
+implementer flagged and fixed: as the last layer the swap handed the
+destination a record the pair layers had never ranked, which broke the
+merged pair-order invariant test with 29 inversions; the fix reruns the
+two pure rankers on the swap target under the conditions their dispatch
+uses, recording nothing, so the origin layer chooses a sender and nothing
+else. Export tmp/loop/lite/origin-sticky-last-layer.
