@@ -2551,3 +2551,77 @@ worth proposing. Two opposite-side arms have now been closed by the same
 rule, and in both cases the VR loss was the informative part: the quiet
 crash costs a sixth of depth 8 and buys the 8-to-9 conversion, and
 fresh-first is worth a factor of four at depth 8.
+
+## Direction review at iteration 40
+
+**Has a violation appeared anywhere?** No. Zero candidate violations across
+the five sessions since the last review (about 12.4M candidate runs:
+2.64M, 2.52M, 2.31M, 2.34M and the two merge sessions) and zero on their
+baseline halves. The target bug has still never been seen under a general
+config.
+
+**Is depth a proxy the goal warns about?** The stretch produced the
+loop's sharpest test of that. Two arms lost on depth 8 and the losses were
+informative rather than noise: the quiet crash costs a sixth of depth 8
+and lifts the 8-to-9 conversion 1.55x (the judge separated the two
+arithmetically from the stored chunks), and reversing fresh-first costs
+three quarters of depth 8 while the two stale-shaped panel members point
+up. A proxy that only rewarded its own mechanisms would not have produced
+either reading. The residual risk is unchanged and now quantified: depth 13
+still sits at about 1e-5 per run and nothing has moved it.
+
+**Panel.** Eleven members, ten with a clean control, all read per cell.
+
+| member | per run | crashPlaced | clientFanoutRelease | freshFirstPair |
+| --- | --- | --- | --- | --- |
+| paxos-accept-stale-ballot | 3.49e-2 | 1.79 UP | 0.86 DOWN | 0.97 |
+| mencius-opt1-2 | 1.51e-2 | 0.99 | 0.94 | 0.99 |
+| paxos-fixed-recover-forget-accepted | 1.90e-3 | 172/0 events | 0.52 DOWN | 1.20 |
+| raft-stale-vote | 4.06e-4 | 1.16 | 0.95 | 0.79 |
+| paxos-fixed-recover-stale-scout | 3.13e-4 | 26/3 events | 0.70 | 1.06 |
+| raft-accept-stale-term-append | 1.60e-4 | 110/3 events | 1.30 | 0.91 |
+| paxos-fixed-forget-promise | 8.13e-5 | 0.39 | 0.76 | 0.76 |
+| raft-forget-vote | 2.67e-5 | 64/4 events | 0.39 DOWN | 1.96 |
+| paxos-fixed-host-control | 0 in 480,000 | - | - | - |
+| raft-commit-prev-term | 0 in 2,880,000 | - | - | - |
+| raft-recover-stale-append-reply | 0 in 1,440,000 | - | - | - |
+
+Every member is flat per run against its previous read or calibration, so
+the merges did no harm. The cells are the new information and they are
+consistent: the post-fault request deferral reads DOWN on three members
+(0.86, 0.52, 0.39) and never up, crash placement reads UP or count-only
+everywhere it resolves, and mencius, which has no crashes, is flat on all
+six bits. The deferral's inverse bugs are real, they are on the panel, and
+the immediate half of the axis is what serves them. That is the direction
+note working as intended.
+
+**Steering audit.** Nine decisions since iteration 35: two merges (the
+64-step deferral, the landing-node phase read), one simplification, two
+files (the reply-first swap, the event-keyed release), three closes (the
+peer-settled hold, the quiet crash, stale-first), one rejection at
+admission. The user's direction (strategies as arms, read per cell)
+produced the per-cell panel, three opposite-side members with run-plan
+proofs, and two arms closed by a rule that did not exist before. The
+operator's seeding produced the deferral ablation (which removed a
+mechanism) and the fault-index arm table (admitted at gain 8, the round's
+best-evidenced candidate). The rule that an arm losing on VR must name its
+panel member and be confirmed has now closed two candidates and is doing
+real work.
+
+**Drift.** The eval side this stretch was the per-cell panel and three new
+members, all user-directed; the loop side ran five mechanism rounds in
+parallel with it. Two process notes: a subagent's smoke can corrupt a
+concurrent grade's throughput chunk (iteration 36's first session), so
+builds and grades are now serialized through markers; and the Fable model
+quota ran out mid-round, so subagents run on Opus from here.
+
+**Pool.** 100 entries; 24 closed, 11 merged, 10 kept, 2 filed. Open and
+next: the fault-index crash arm table (admitted, building), origin-sticky
+dispatch and the ghost-class-only send-order narrowing (kept at gain 7 and
+6), the progress-keyed release behind its mandatory census, the narrowed
+stale-first at a settled receiver (gain 2, likely to stay shelved).
+
+**Goal.** Re-read. The objective is unchanged. What this stretch adds to
+it: the loop can now say what each merged mechanism is worth on the VR
+chain and what it costs on other protocols' bugs, which is the first time
+the portfolio question has been answerable at all.
