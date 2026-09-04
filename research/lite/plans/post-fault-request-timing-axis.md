@@ -290,3 +290,21 @@ Implementer watch: [
  "Probes must stay Immediate (arm(run_id) returns Immediate for run-cap and timer-context probes); extend run_variant.rs tests so bit 28 implies bit 18 and never a probe bit.",
  "Renaming decide.ts row 268435456 to clientEventRelease is an operator edit at admission, not candidate scope."
 ]
+
+## Pre-grade census (2026-09-04, implementer smoke, 47,360 runs)
+
+The event as built fires in about 4 percent of runs on every arm (the
+detector is arm-blind: 0.039, 0.043, 0.042 events per run); on the event
+arm released.event over held is 0.020, far under the 0.30 applicability
+floor, so the arm will grade as a 128-step dose read (the prediction's
+"inapplicable" branch), which is itself the length line's next question.
+Where it fires, 79 percent of first events fall within 64 steps of the
+first crash and 78-84 percent of firings are same-origin pairs, the ghost
+RecoveryResponse then the ghost StartViewChange at the recovered peer,
+one label before the DoViewChange the chain needs. Hold steps per released
+on the event arm 126.8 (19.5 on event releases); held_at_exit over held
+0.109 percent, at the falsifier's 0.1 percent edge. Tests 431 passed. The
+grade proceeds for the dose read and the eight-chunk census; the next arm
+should key on the second acted ghost at a restarted receiver, or on the
+first acted ghost whose origin differs from the previous one, which the
+same-origin counter now measures.
