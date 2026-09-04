@@ -58,7 +58,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 1048576, name: "replaySlot" },
   { bit: 2097152, name: "replayPrefix" },
   { bit: 33554432, name: "ghostPendingTimerHold" },
-  { bit: 67108864, name: "ghostPendingTimerHoldLong" },
+  { bit: 67108864, name: "originSticky" },
   { bit: 536870912, name: "recoverPreempt" },
   { bit: 16777216, name: "freshFirstPair" },
   { bit: 8192, name: "replayTierDeep" },
