@@ -2395,3 +2395,13 @@ planned victim's. The two fault mechanisms were keyed to different nodes
 for a fifth of treated crashes; they now agree. This is the portfolio
 framing's other half: a merge can also make two existing arms coherent
 without adding a new bias.
+
+**Post-merge reads after the 64-step deferral (spur 81be109).** Regression
+vr-nofault-clean passed (1,800 runs, 0 violations). Fresh cache 2,004 runs
+per second (1,844 and 2,163; the low chunk is recorded, not explained),
+events per chunk depth>=8 [6279, 6920], depth>=9 [1120, 1247], depth>=10
+[98, 139], depth>=11 [25, 29] against [88, 100] and [17, 27] on the
+32-step cache: depth 10 up about a quarter on the cache, as the contrast
+said. Quick panel: paxos-accept-stale-ballot 3.48%, mencius-opt1-2 1.52%,
+raft-stale-vote 3.89e-4, paxos-fixed-recover-stale-scout 3.13e-4 - all
+flat against the previous panel.

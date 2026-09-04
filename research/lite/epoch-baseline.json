@@ -79,6 +79,21 @@
       "cacheFile": "research/lite/baselines/2150b1c09798-30-f9daa01b-300-g0d3de012.json",
       "measuredAtIso": "2026-09-04T01:40:00Z",
       "note": "simplification of the merged client release to the plain 32-step deferral, decided on the iteration-33 ablation (no grade session of this binary, so ratio is cache-to-cache against the previous merge's cache and carries the 4-5% build-layout noise); events per chunk depth>=8 [6670, 7312], depth>=9 [1118, 1257], depth>=10 [88, 100], depth>=11 [17, 27] against [6343, 7355], [1152, 1310], [98, 94], [22, 19] on the previous cache: depth 10 holds without the window release."
+    },
+    {
+      "name": "post-fault-deferral-length-contrast",
+      "commit": "f9fd5fa",
+      "spurCommit": "81be109",
+      "ratio": 0.9666,
+      "cumulative": 1.0024390815613746,
+      "measuredRps": 2003.8,
+      "measuredRpsChunks": [
+        1844.1,
+        2163.4
+      ],
+      "cacheFile": "research/lite/baselines/c90ead2d4c06-30-f9daa01b-300-g0d3de012.json",
+      "measuredAtIso": "2026-09-04T14:10:00Z",
+      "note": "ratio is the clean second session's cross-binary throughput (the first session's 0.868 was contaminated by a concurrent smoke explore); regression vr-nofault-clean passed on the merged tree (1,800 runs, 0 violations); events per chunk depth>=8 [6279, 6920], depth>=9 [1120, 1247], depth>=10 [98, 139], depth>=11 [25, 29] against [6670, 7312], [1118, 1257], [88, 100], [17, 27] on the previous cache; chunk 1 throughput 1,844 is the lowest chunk of the epoch and is recorded, not explained."
     }
   ]
 }
