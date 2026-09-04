@@ -2466,3 +2466,24 @@ at the most recently restarted node since its restart (three, as the first
 dose) and releases on that, a clock every protocol has. Cost read on this
 candidate was a 4-10 percent throughput gain, which is build layout, not
 the mechanism.
+
+## Iteration 39 round: the delivery axis, and a census claim that did not survive
+
+The proposer named the delivery axis (how records addressed to or sent by
+a dead incarnation are treated after a crash) and offered a receiver-ghost
+hold predicting a VR gain on the claim that the chain's ghost StartViewChange
+and DoViewChange are buffered at the crashed peer and re-delivered after
+its recovery. The judge replayed the violating run 572: node 1 recovered
+at step 19 and completed recovery at 24; node 2 sent both records at 25 to
+the live incarnation and crashed at 26. Labels 8 and 9 are sender-ghosts,
+and no chain record can be a receiver-ghost because VR.spur answers
+Recovery only in normal status and never retries it. The hold has no
+mechanism on the chain and was demoted to rank 4. Admitted instead:
+stale-first-same-pair-dispatch, the inverse of the merged fresh-first
+tiebreak on a salted quarter of the fresh-first runs, predicted to lose on
+the VR primary (band [0.60, 0.90]) and kept only if raft-stale-vote reads
+up 2x per cell on three pooled seeds of the candidate binary. The seeded
+progress-keyed release stays kept behind a census of the recovered node's
+acted count at the label-9 entry: the judge showed that at the most
+recently restarted node the third acted entry is the write itself, so the
+count must be read before any N is chosen.
