@@ -54,7 +54,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 16384, name: "crashPhaseReaction" },
   { bit: 65536, name: "ghostPeerAnswer" },
   { bit: 524288, name: "ghostAbsorberRetarget" },
-  { bit: 8388608, name: "ghostAbsorberRedraw" },
+  { bit: 8388608, name: "crashPhaseOnLanding" },
   { bit: 1048576, name: "replaySlot" },
   { bit: 2097152, name: "replayPrefix" },
   { bit: 33554432, name: "ghostPendingTimerHold" },
@@ -68,6 +68,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 1073741824, name: "restartAfterPeerSettle" },
   { bit: 134217728, name: "clientDeferralOnly" },
   { bit: 4194304, name: "replyFirstRecovering" },
+  { bit: 268435456, name: "clientDeferralLong" },
 ];
 
 // The tag that marks a run-cap probe. Probes are about 3% of runs, are
