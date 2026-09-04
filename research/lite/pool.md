@@ -2003,7 +2003,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## post-fault-deferral-length-contrast
 
 - kind: dose | category: scheduler | origin: operator-agent | status:
-  ADMITTED at iteration 36 (judge gain 6, cost 0, rank 2 of the iteration-35
+  MERGE DECIDED at iteration 36 (eight chunks pooled over two sessions:
+  depth>=10 long/short 1.281 [1.019, 1.609] z 2.93, the merge claim met;
+  depth>=8 0.980 [0.945, 1.017]; the second session alone separated up on
+  depth>=10 at z 3.0 on the rule; the merged rule becomes a 64-step deferral
+  on the whole treated half) | previously ADMITTED at iteration 36 (judge gain 6, cost 0, rank 2 of the iteration-35
   round; prediction rewritten: eight-chunk extension, an overshoot sends the
   next dose to 16, held_at_exit clause 0.1%) | parent:
   post-fault-request-deferral-ablation (decided: simplify) and

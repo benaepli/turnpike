@@ -95,3 +95,24 @@ quarters 1.0045x. The depth>=10 interval straddles 1.0, so the frozen
 rule extends to eight chunks: a second four-chunk session on the same
 binary (post-fault-deferral-length-contrast-b) is queued and the two are
 pooled by cell counts.
+
+## Eight-chunk verdict (2026-09-04, sessions -contrast and -contrast-b pooled)
+
+| rung | long / short per run | interval | z | events long / short / control |
+| --- | --- | --- | --- | --- |
+| depth>=8 | 0.980 | [0.945, 1.017] | -1.46 | 10,804 / 11,094 / 21,127 |
+| depth>=9 | 1.035 | [0.953, 1.124] | 1.12 | 2,162 / 2,103 / 3,374 |
+| depth>=10 | 1.281 | [1.019, 1.609] | 2.93 | 318 / 250 / 157 |
+| depth>=11 | 1.240 | [0.763, 2.016] | 1.20 | 69 / 56 / 38 |
+
+The merge claim (depth>=10 long over short >= 1.25 with the lower edge
+above 1.0) is met on the pool; the second session alone read 1.50 [1.09,
+2.05] and the grader's rule separated it up on the advance rung. Against
+the bit-18-clear control the long quarter reads 4.07 on depth 10 and the
+short quarter 3.18. Depth>=8 null held. Firing as frozen in both sessions.
+Cost: the second session's throughput 0.967 (the first was contaminated),
+steps between quarters 1.005x, held_at_exit 0.025%. Decision: merge as the
+simplified rule - the post-fault deferral is 64 steps on the whole treated
+half, the bit-28 quartering is not kept. The next dose, if any, is 128
+against 64; a per-run adaptive length (release on the first ghost entry
+at the new primary) is the mechanism-level follow-up.

@@ -2347,3 +2347,19 @@ run; reachable by its run-plan, so this is a probability, not a
 reachability, result). The four hard members now all have a usable read
 in about 16 minutes of explore. Nothing here attributes a move to the
 crash-path merges; these are the anchors the next review compares against.
+
+## Iteration 36: the deferral is better at 64 steps than at 32
+
+Two four-chunk sessions on the same binary, pooled by cell counts (the
+frozen rule extends to eight when depth 10 straddles at four): long over
+short on depth>=10 1.281 [1.019, 1.609] at z 2.93 on 318 against 250
+events, depth>=8 0.980 [0.945, 1.017], depth>=9 1.035; the second session
+alone separated up on depth 10 at z 3.0. Against the untreated control
+the 64-step quarter reads 4.07 on depth 10 (the 32-step quarter 3.18,
+iteration 33's 2.95 and iteration 31's 2.52 replicated again). Merged as
+the plain 64-step deferral on the whole treated half. Two sessions have now
+said the same thing about this rung: the post-fault request must arrive
+after the recovered node's ghost DoViewChange has acted at the new primary,
+and the later it is issued the more often it does, at no cost to depth 8
+so far. The natural end of this line is not a longer constant but a
+release keyed on that entry itself.
