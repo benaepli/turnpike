@@ -635,6 +635,148 @@
         "requestTiming": "immediate (w2 must reach the new leader before the Decision for the slot arrives)",
         "crashPlacement": "opposite (a quiescent acceptor whose accept has landed)"
       }
+    },
+    {
+      "id": "raft-recover-stale-append-reply",
+      "spec": "bin/spur/panel/raft_recover_stale_append_reply.spur",
+      "cleanSpec": "bin/spur/panel/raft_clean.spur",
+      "shape": "a dead-incarnation AppendEntriesReply raises match_index at a re-elected leader, which commits an entry a later leader truncates",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 2,
+          "max": 4,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 5,
+          "max": 5,
+          "step": 1
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "dependency_density": [
+          0
+        ]
+      },
+      "maxIterations": 12000,
+      "role": "hard",
+      "expectedRate": null,
+      "calibration": {
+        "atIso": null,
+        "rateRuns": 0,
+        "rateViolations": 0,
+        "dispersion": 1,
+        "cleanRuns": null,
+        "cleanViolations": null,
+        "hostCeiling": 0.0021,
+        "budgetRatio": 1,
+        "runsPerSec": 6600,
+        "eventsPerSec": 0,
+        "tauBestSec": null
+      },
+      "notes": "Opposite-side member on request timing (research/lite/plans/panel-per-cell-read.md, N1). Unreachable at 3 servers (a stale ack can only cause a wrong commit after a truncation that needs a voter outside the acked set); proven at 5 servers by research/lite/plans/raft-recover-stale-append-reply-plan.json (5/5 violate, raft_clean 0/5), so its overlay runs 5 servers only. Calibration pending.",
+      "wallSec": 200,
+      "replicates": 3,
+      "tier": "uncalibrated",
+      "runsPerConfig": 40000,
+      "orderingClass": {
+        "requestTiming": "immediate (the second write must be appended before the ghost reply is consumed)",
+        "crashPlacement": "fan-out (the leader crashes after its AppendEntries fan-out, before the reply lands)"
+      }
+    },
+    {
+      "id": "raft-accept-stale-term-append",
+      "spec": "bin/spur/panel/raft_accept_stale_term_append.spur",
+      "cleanSpec": "bin/spur/panel/raft_clean.spur",
+      "shape": "a follower applies an AppendEntries from a stale term, truncating a committed entry",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 2,
+          "max": 4,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 5,
+          "step": 2
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "dependency_density": [
+          0
+        ]
+      },
+      "maxIterations": 12000,
+      "role": "hard",
+      "expectedRate": null,
+      "calibration": {
+        "atIso": null,
+        "rateRuns": 0,
+        "rateViolations": 0,
+        "dispersion": 1,
+        "cleanRuns": null,
+        "cleanViolations": null,
+        "hostCeiling": 0.0021,
+        "budgetRatio": 1,
+        "runsPerSec": 6600,
+        "eventsPerSec": 0,
+        "tauBestSec": null
+      },
+      "notes": "Opposite-side member on request timing, same ordering class as N1 at 3 servers. Proven by research/lite/plans/raft-accept-stale-term-append-plan.json (5/5 violate, raft_clean 0/5). Calibration pending.",
+      "wallSec": 200,
+      "replicates": 3,
+      "tier": "uncalibrated",
+      "runsPerConfig": 40000,
+      "orderingClass": {
+        "requestTiming": "immediate (the second write must land at the follower before the ghost AppendEntries arrives)",
+        "crashPlacement": "fan-out (the old leader crashes after its AppendEntries fan-out)"
+      }
     }
   ]
 }

@@ -81,3 +81,10 @@ vote of either node holding the entries, impossible with 3 nodes. Being
 retried at 5 nodes (the panel's Raft overlay runs 3 to 5); the alternative
 in the same ordering class is an AppendEntries that accepts a stale term
 (raft_clean.spur:303-307), being built.
+
+Update: N1 is reachable at 5 servers (43-event plan, 5/5 violate, raft_clean
+0/5; the plan deadlocks the host with all reads pending) and joins as a
+5-server-only member; the alternative raft_accept_stale_term_append.spur
+(AppendEntries accepts a stale term, raft_clean.spur:303-307) is proven at 3
+servers (18 events, 5/5 violate, host 0/5) and joins beside it. Three
+opposite-side members await calibration.
