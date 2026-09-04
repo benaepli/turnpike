@@ -202,3 +202,91 @@ Size: about 400 lines net including tests; one implementer session.
 
 Grading: start --treatment-bit 268435456 --band-min -0.06 --band-max
 0.06, four chunks, extension per the prediction.
+
+## Admission (2026-09-04, moderated lane, iteration 37)
+
+Judge evidence check: gain 5, cost 0. Verified: (a) DoViewChange 2->1 is a dead-incarnation record at delivery: node 2 sends SVC 2->1 and DVC 2->1 inside its StartViewChange handler at label 4 (VR.spur:299-330, new_primary->DoViewChange on SVC quorum), the DAG orders deliver_svc_1_to_2 -> crash_2 -> recover_2, and deliver_dvc_2_to_1 follows recover_2 via rec_2_to_1 -> svc_2_to_1 -> dvc_2_to_1, so origin_incarnation 0 != incarnation(node 2) = 1 at delivery.; (a) Chain order at node 1 per research/lite/plans/oracle-v2-epoch14.md table: 7 deliver_rec_2_to_1, 8 deliver_svc_2_to_1, 9 deliver_dvc_2_to_1, 10 w2. Ghost SVC acted, ghost DVC acted, then the request - as the plan says. Both ghosts write state at node 1: SVC(1) at a normal node in view 0 calls enter_view_change (status = 1, view_number = 1, VR.spur:239-243) and records the sender; DVC at the view-1 primary in status 1 writes do_view_change_senders and do_view_change_messages (VR.spur:332-345).; (b) scheduler.rs:1300-1302 computes ghost = fault_crossing(origin, origin_incarnation).then(|| node_state_token(dest)) and :1371-1372 calls state.note_ghost_delivery(dest, entry_step, before) after exec, on every message entry with no stats gate. state.rs:1092-1098 sets acted = env.writes != before and overwrites last_ghost_step / last_ghost_acted; clear_ghost_mark (state.rs:1101) is called on the crash path (scheduler.rs:1618). node_state_token is env.writes, a counter bumped on every state write (values.rs:684), so a handler that writes an unchanged value still reads acted an
+False or corrected claims: 'Recovery 2->1, label 8': the Recovery 2->1 is label 7; label 8 is the ghost SVC 2->1 landing after it (oracle-v2-epoch14.md chain table). The substance (keying on the Recovery releases before the ghost pair) stands; the numbering does not.; 'Builds on the 64-step deferral merge (EXPIRY_STEPS = 64, bit 28 quartering dropped)': the research/lite tree at spur 327bf72 has EXPIRY_STEPS = 32 and no quarter; the merge is decided at iteration 36 but not landed.; Shares 'A 0.485, B 0.24, C 0.24': measured 0.469 / 0.235 / 0.233 with probes at 0.063; B's quoted depth-10 rate 0.00026 is the 32-step quarter's, the 64-step quarter reads 0.00033-0.00037. Neither changes the power argument's conclusion.; 'mean hold steps on C below 64 with C >= B on depth 10 excludes the longer-constant reading': false by construction - at the 0.30 event floor with a 128 cap the mean hold over all C releases exceeds 89, and a depth-10 excess of C over B can only come from releases after 64 steps.
+
+Frozen prediction as admitted (replaces section 3 where they differ):
+
+```json
+{
+ "treatmentBit": {
+  "name": "clientEventRelease",
+  "value": 268435456,
+  "shift": 28,
+  "nestedIn": [
+   "clientFanoutRelease (262144)"
+  ],
+  "reuse": "row 268435456 renamed from clientDeferralLong (operator edit in decide.ts VARIANT_BITS; precedent bit 8388608)",
+  "salt": "own (EVENT_SALT)",
+  "treatedShareOfAllRuns": 0.233,
+  "controlShareOfAllRuns": "B 0.235 (bit 18 set, bit 28 clear); A 0.469 (bit 18 clear, probe-free)",
+  "probesExempt": "by inheritance from bit 18"
+ },
+ "precondition": "Built on the landed 64-step deferral (EXPIRY_STEPS = 64 on the whole bit-18 half, no bit-28 quarter); the tree at spur 327bf72 still reads 32, so the merge lands first or the fixed arm is not the arm iteration 36 merged.",
+ "rung": "depth>=8 (epoch 14 primary), per-run ratio event arm / fixed arm, probe-free, co-bit matched within clientFanoutRelease = 1",
+ "band": [
+  0.94,
+  1.06
+ ],
+ "bandNote": "null expected at the primary: label 8 is a server-side order at node 1 and request timing between A and B read 1.01 / 0.996 / 0.98 on this rung",
+ "firing": {
+  "counter": "client_anchor.event.released.event",
+  "floorPerChunk": "event arm held >= 150,000 (the fixed arm holds about 259,000 per chunk on the same share)",
+  "applicabilityGate": "released.event / held >= 0.30 on the event arm; below it the arm is a 128-step dose and the key reads are inapplicable",
+  "also": [
+   "fixed arm hold steps per released in [64, 66]",
+   "event arm: hold steps per event-released request reported (median expected below 64); hold steps per released over all event-arm releases reported with no band (at the 0.30 floor it is at least 89 by construction)",
+   "held_at_exit / held <= 0.1% on both arms (the fixed arm reads 0.025%; the event arm's 128 cap is the one at risk)",
+   "released.dry_queue reported on both arms",
+   "event census on all three arms: events_total, runs_by_events {0,1,2,3+}, first_event_step and first_ghost_acted_step histograms relative to the first crash {<16,<32,<64,<128,128+}, events_at_restarted_receiver; fixed and event arms within 5% of each other on events per run (their trajectories coincide until the first release); the immediate arm reported with no band (the fan-out census already differs 10% between the immediate and held halves)",
+   "ready_after_last_event: held requests on the event arm whose ready step followed the run's last E (these run to the cap), reported",
+   "same_origin_pair: E firings where the receiver's prior acted ghost came from the same origin incarnation as the firing entry, reported"
+  ]
+ },
+ "advanceRungs": {
+  "depth>=10": {
+   "mergeClaim": false,
+   "reading": "C/B per run pooled over four chunks, reported as the cap read: release timing in (64,128] after the ready step net of early false events. Not attributable to the key, because a release before 64 steps that follows the label-9 record is also covered by the fixed arm's hold on this rung. Expected >= 1.0.",
+   "falsifier": "interval entirely below 0.90: early false events outnumber the tail, the second acted ghost is the wrong key"
+  },
+  "depth>=11": {
+   "mergeClaim": true,
+   "expected": "C/B per run >= 1.5 with the lower edge above 1.0 pooled over eight chunks (two four-chunk sessions on the same binary; the fixed arm reads about 40 depth-11 events per four chunks, so 1.5x separates at z about 2.9 at eight and 1.25x cannot be resolved at this size). Rationale: after the label-9 record acts, the new primary broadcasts StartView; label 11 needs the post-fault write's PrepareOK 2->0 to land at node 0 before StartView 1->0, so only a release soon after the record helps.",
+   "extension": "the two sessions are queued from the start; a four-chunk read is a progress read, never a verdict"
+  },
+  "depth>=9": {
+   "expected": [
+    0.95,
+    1.2
+   ],
+   "reported": true
+  },
+  "depth>=12": {
+   "reported": true
+  }
+ },
+ "controlChecks": "from the cells: B/A depth>=10 in [3.0, 5.0] (iteration 36 read 4.07); C/A reported; the fixed arm's depth>=10 rate in [0.00028, 0.00042] per run (the control moved otherwise)",
+ "independentObservable": {
+  "statement": "On a kept explore of both sessions, read with the ghost_census.py dump path: among event-arm runs at depth>=9, the share whose post-fault Write invocation on node 0 falls within 16 steps after the Enter of the label-9 record (DVC 2->1 at node 1) is higher than the fixed arm's share; reported with both shares and counts. Also reported: events_at_restarted_receiver / events_total on the event arm, and same_origin_pair / events_total."
+ },
+ "falsifier": "depth>=10 C/B interval entirely below 0.90 (wrong key: remove C, keep the axis code, record the E1 census); or released.event / held < 0.30 (inapplicable: file as a 128 dose read); or depth>=8 C/B outside [0.94, 1.06]; or plan_complete between arms more than 2 points apart; or steps per run between arms > 1.03x; or held_at_exit / held > 0.1% on either arm",
+ "cost": "cross-binary throughput >= 0.97 of the paired cache; a read in [0.94, 0.97) with steps per run within 1.03x between arms and wall per step within 1% across arms is recorded as a layout read (iteration 33's three-slot counters read 0.942 and were not the merging binary), below 0.94 refutes; the hook adds three integer compares at an existing site",
+ "decisionMap": "depth>=11 claim met at eight chunks and depth>=10 not below 0.90 -> C stays as an arm beside A and B; depth>=10 entirely below 0.90 -> remove C, keep the axis code and the census; applicability gate failed -> file as a 128 dose read on the fixed arm's length line; depth>=11 straddling at eight chunks with depth>=10 >= 1.0 -> file as 'key unresolved at this rung's counts', C kept as an arm only by operator decision under the per-cell panel plan",
+ "grading": "start --treatment-bit 268435456 --band-min -0.06 --band-max 0.06, two four-chunk sessions on the same binary pooled by cell counts",
+ "rewritten": true
+}
+```
+
+Implementer watch: [
+ "Land the 64-step merge first (EXPIRY_STEPS = 64, quarter code removed) and build on it; the research/lite tree is at 32. The fixed arm must be the iteration-36 arm or the B/A control check and the [64, 66] clause do not apply.",
+ "Detect E inside note_ghost_delivery before the mark is overwritten: acted && origin_restarted && l.last_ghost_acted, with origin != receiver. Use r.origin_incarnation != state.incarnation(origin) for origin_restarted, computed before exec next to the ghost token at scheduler.rs:1300; the compare is already ungated.",
+ "Add the two cheap census counters the judge relies on: same_origin_pair (store the last acted ghost's origin and incarnation in the SendLedger) and ready_after_last_event; without them a depth-10 read below 1.0 cannot be told apart between the RR-ghost misfire and node-0 firings.",
+ "Before or alongside the grade, run ghost_census.py over depth>=8 runs of a kept explore and count runs whose RecoveryResponse 2->1 Enter at node 1 is after crash_2's step; that is the share of the chain population on which E fires one label early.",
+ "The 128 cap is the only depth-10 channel; do not read a depth-10 gain as the key. Queue both four-chunk sessions from the start since the key's claim is on depth>=11.",
+ "Per-arm counters are three-slot statics like iteration 33's; expect a cross-binary throughput read near 0.94-0.97 for layout and read cost by steps per run and wall per step across arms as well.",
+ "Probes must stay Immediate (arm(run_id) returns Immediate for run-cap and timer-context probes); extend run_variant.rs tests so bit 28 implies bit 18 and never a probe bit.",
+ "Renaming decide.ts row 268435456 to clientEventRelease is an operator edit at admission, not candidate scope."
+]
