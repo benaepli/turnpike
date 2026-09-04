@@ -65,3 +65,19 @@ strategies as arms, read per cell. Two facts to carry: the checked-out
 client_anchor.rs has EXPIRY_STEPS 32 until the 64-step merge lands, and
 bits 23, 27 and 28 exist only in candidate patches, not in the tree.
 
+
+## Build record (2026-09-04)
+
+Sections 1-3 landed (grader per-cell contrast, persisted panel state,
+traceanalyzer -runs-columns). First read logged in observations.md: the
+deferral reads 0.86 DOWN on paxos-accept-stale-ballot, crash placement 1.79
+UP; mencius flat on every bit. Members: N2
+(paxos_fixed_recover_forget_accepted.spur) proven, 5/5 violate under its
+plan and the fixed host 0/5; manifest row added, calibration pending. N1
+(raft_recover_stale_append_reply.spur) did not violate at 3 nodes: a stale
+ack of k entries can only cause a wrong commit if the leader's log was
+truncated below k, which needs an intermediate leader elected without the
+vote of either node holding the entries, impossible with 3 nodes. Being
+retried at 5 nodes (the panel's Raft overlay runs 3 to 5); the alternative
+in the same ordering class is an AppendEntries that accepts a stale term
+(raft_clean.spur:303-307), being built.

@@ -564,6 +564,77 @@
       "replicates": 3,
       "tier": "hard",
       "expectedEvents": 84.4
+    },
+    {
+      "id": "paxos-fixed-recover-forget-accepted",
+      "spec": "bin/spur/panel/paxos_fixed_recover_forget_accepted.spur",
+      "cleanSpec": "bin/spur/panel/paxos_host_fixed.spur",
+      "shape": "recovered acceptor forgets its accepted list; a later scout sees empty pvals and a chosen slot gets a second command",
+      "faults": {
+        "class": "F2",
+        "numCrashes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "requiresRecovery": true
+      },
+      "porcupineModel": "kv",
+      "overlay": {
+        "num_servers": {
+          "min": 3,
+          "max": 3,
+          "step": 1
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 5,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "dependency_density": [
+          0
+        ]
+      },
+      "maxIterations": 8000,
+      "role": "hard",
+      "expectedRate": null,
+      "calibration": {
+        "atIso": null,
+        "rateRuns": 0,
+        "rateViolations": 0,
+        "dispersion": 1,
+        "cleanRuns": null,
+        "cleanViolations": null,
+        "hostCeiling": 0.0251,
+        "budgetRatio": 1,
+        "runsPerSec": 6600,
+        "eventsPerSec": 0,
+        "tauBestSec": null
+      },
+      "notes": "Opposite-side member for the request-timing and crash-placement axes (research/lite/plans/panel-per-cell-read.md section 5, N2). Reachability proven 2026-09-04 by research/lite/plans/paxos-fixed-recover-forget-accepted-plan.json (5/5 violate, fixed host 0/5). Calibration pending.",
+      "wallSec": 45,
+      "replicates": 3,
+      "tier": "uncalibrated",
+      "runsPerConfig": 20000,
+      "orderingClass": {
+        "requestTiming": "immediate (w2 must reach the new leader before the Decision for the slot arrives)",
+        "crashPlacement": "opposite (a quiescent acceptor whose accept has landed)"
+      }
     }
   ]
 }
