@@ -77,3 +77,23 @@ Ranked first: a verified inconsistency between two merged mechanisms, a mechanis
 
 `start --treatment-bit 8388608 --band-min 0.04 --band-max 0.2`, four
 chunks; the decisive contrast and the extension rule are in the prediction.
+
+## Four-chunk read (2026-09-04, session crash-phase-on-landing-node)
+
+216,126 treated against 215,742 matched control runs (both with crash
+placement, the phase arm and the retarget set). Depth>=8 1.073 [0.997,
+1.154] at z 2.60 (band [1.04, 1.20] met, a hair short of the rule's 2.7);
+depth>=9 1.128 [0.925, 1.376] on 564 against 3,515 unmatched (the survey
+contrast; the matched interval is the one quoted); depth>=10 1.28 [0.62,
+2.66]. Firing: evaluated_on_other_node 32,000 per chunk (floor 12,000),
+condition_on_other_node 16,650 per chunk (floor 8,000), condition over
+evaluated 0.52 (the falsifier fires below 0.50), expired over evaluated
+0.168 against the merged arms' 0.18, mismatch_at_apply 7.5% of condition
+releases (clause 5%, missed by a little). Cost: throughput 0.976,
+depth>=8 per second 0.959 inside the layout floor, steps and plan
+completion equal. The rule reads human (nothing separated at 2.7); the
+gradient 1.07, 1.13, 1.28 is coherent with the hypothesis and the primary
+is one chunk short of separation, so a second four-chunk session on the
+same binary (crash-phase-on-landing-node-b) is queued behind the
+iteration-36 extension; the two are pooled by cell counts and the merge
+rule applied to the pool.

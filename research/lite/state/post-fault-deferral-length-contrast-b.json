@@ -1,0 +1,87 @@
+{
+ "name": "post-fault-deferral-length-contrast-b",
+ "createdAtIso": "2026-09-04T01:36:04.286Z",
+ "note": "iteration 36, second four chunks (the frozen prediction extends to eight when depth>=10 straddles 1.0 at four); same binary as post-fault-deferral-length-contrast",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/post-fault-deferral-length-contrast-b/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/post-fault-deferral-length-contrast-b/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:post-fault-deferral-length-contrast-b"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "2150b1c097982f6781be96ba5fc7f10bc45914c8",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300,
+  "graderVersion": "ta:12160cd+porc:ebf06c5+oracle:390ec49e"
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/2150b1c09798-30-f9daa01b-300-g0d3de012.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "treatment": {
+  "bit": 268435456,
+  "name": "clientDeferralLong",
+  "band": {
+   "min": -0.06,
+   "max": 0.06
+  },
+  "declaredAtIso": "2026-09-04T01:36:04.286Z"
+ },
+ "seq": {
+  "hypothesisId": "lite-post-fault-deferral-length-contrast-b",
+  "chunks": 0,
+  "runs": 0,
+  "graded": 0,
+  "depth4": 0,
+  "depth5": 0,
+  "depth6plus": 0,
+  "depth7plus": 0,
+  "depth8plus": 0,
+  "violations": 0,
+  "h2Count": 0,
+  "exposureSec": 0,
+  "rpsChunks": [],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1000,
+  "posteriors": {},
+  "lastVerdict": "",
+  "lastIteration": 0,
+  "baselineKey": "2150b1c09798|grid,grid-no-purgatory,grid-post-fault-2,grid-short|f9daa01b|30|300|ta:12160cd+porc:ebf06c5+oracle:390ec49e",
+  "rateStratum": {
+   "armIds": [],
+   "chunks": 0,
+   "runs": 0,
+   "graded": 0,
+   "exposureSec": 0,
+   "depth": [],
+   "perChunk": []
+  },
+  "variants": []
+ },
+ "usedSeeds": [],
+ "evalIds": [],
+ "history": [],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": false
+}
