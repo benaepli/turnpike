@@ -55,7 +55,7 @@
       "commit": "5ded656",
       "spurCommit": "f769929",
       "ratio": 0.9942,
-      "cumulative": 1.060298,
+      "cumulative": 1.06029799512,
       "measuredRps": 2087.721689664715,
       "measuredRpsChunks": [
         1989.2902813299231,
@@ -70,7 +70,7 @@
       "commit": "88b35b1",
       "spurCommit": "327bf72",
       "ratio": 0.9781,
-      "cumulative": 1.0370775,
+      "cumulative": 1.037077469026872,
       "measuredRps": 2042.0697766729193,
       "measuredRpsChunks": [
         2017.7,
