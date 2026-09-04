@@ -1500,6 +1500,26 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
   emit({ phase: "panel", manifest: manifest.path, binary, template, seed, scale, members: rows });
 }
 
+// The regression case on any binary, for a merge decided outside a single
+// finish call (a pooled pair of sessions, or a simplified rule built after
+// the grade). Same case, same wall, same reading as finish --regression.
+async function cmdRegression(flags: Map<string, string>): Promise<void> {
+  const cfg = liteConfig();
+  refuseIfLoopActive();
+  const policy = policyFor(cfg);
+  const bin = resolveRoot(flags.get("bin") ?? path.join("spur", "target", "release", "spur"));
+  const template = resolveRoot(flags.get("template") ?? cfg.configTemplate);
+  const spec = resolveRoot(cfg.spec);
+  for (const [what, f] of [["binary", bin], ["config template", template], ["spec", spec]] as const) {
+    if (!fs.existsSync(f)) throw new Error(`${what} missing: ${f}`);
+  }
+  const { runRegression } = await import("../orchestrator/src/regression.js");
+  const ctx = evalCtx(policy, bin, template, spec, flags.get("label") ?? "lite-regression");
+  console.error(`[lite] running the vr-nofault regression case (~${policy.regression.wallSecPerCase}s)`);
+  const regression = await runRegression(ctx, null);
+  emit({ phase: "regression", binary: bin, template, passed: regression.passed, cases: regression.cases });
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const cmd = argv[0] ?? "";
@@ -1525,6 +1545,7 @@ async function main(): Promise<void> {
     case "freeze-epoch": await cmdFreezeEpoch(flags); break;
     case "selftest": await cmdSelftest(); break;
     case "panel": await cmdPanel(flags); break;
+    case "regression": await cmdRegression(flags); break;
     default:
       throw new Error(`unknown command ${cmd || "(none)"}; use start|chunk|status|finish|baseline|freeze-epoch|selftest|panel`);
   }
