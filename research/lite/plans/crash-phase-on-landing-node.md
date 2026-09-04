@@ -97,3 +97,20 @@ is one chunk short of separation, so a second four-chunk session on the
 same binary (crash-phase-on-landing-node-b) is queued behind the
 iteration-36 extension; the two are pooled by cell counts and the merge
 rule applied to the pool.
+
+## Eight-chunk verdict (2026-09-04, sessions -node and -node-b pooled)
+
+Second session: matched depth>=8 1.071 [0.997, 1.152] z 2.57 on 3,673
+against 3,421 events (the first: 1.073 [0.997, 1.154] z 2.60); depth>=9
+0.998 [0.788, 1.263]; depth>=10 1.21 [0.61, 2.40]; throughput 0.992.
+Pooled matched primary: 1.072 [1.011, 1.138] z 3.18 on 7,293 against
+6,789 events - separated above 1.0 at the rule's 2.7 with a 7 percent
+effect, inside the frozen band [1.04, 1.20]. The frozen decisive contrast
+(depth>=9 in [1.10, 1.45]) did not resolve: 1.13 then 1.00, pooled about
+1.06 [0.93, 1.21]; depth>=10 about 1.24 unresolved. Firing as frozen in
+both sessions (condition over evaluated 0.52 and 0.51). Decision: merge on
+the primary as the plain rule - reading the phase arm on the node the
+retarget will land on, for every anchored retarget run - so the two
+merged mechanisms agree on which node's fan-out the crash is timed to.
+The depth-9 claim is recorded as not met; the merge is a coherence fix
+with a measured depth-8 gain, not the depth-9 gain the hypothesis wanted.

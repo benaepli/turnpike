@@ -2381,3 +2381,17 @@ immediate issue and the fixed deferral, not as a replacement; (3) panel
 members are chosen by the ordering class their bug needs, so every biased
 axis has a member on each side. Planning agents are writing (1) and (2);
 the loop procedure builds them.
+
+## Iteration 35: reading the crash phase on the landing node lifts depth 8 by 7 percent
+
+Two four-chunk sessions on the same binary read the same thing: matched
+depth>=8 1.073 and 1.071, pooled 1.072 [1.011, 1.138] at z 3.18 on 7,293
+against 6,789 events; depth>=9 did not resolve (1.13 then 1.00). The
+hypothesis's claim was depth 9; what it delivered is depth 8, which is the
+primary, at the rule's separation on the pool. Merged as the plain rule
+(the quartering is dropped): when the retarget moves a crash to the ghost
+absorber, the phase arm now watches that node's fan-out instead of the
+planned victim's. The two fault mechanisms were keyed to different nodes
+for a fifth of treated crashes; they now agree. This is the portfolio
+framing's other half: a merge can also make two existing arms coherent
+without adding a new bias.
