@@ -2625,3 +2625,26 @@ stale-first at a settled receiver (gain 2, likely to stay shelved).
 it: the loop can now say what each merged mechanism is worth on the VR
 chain and what it costs on other protocols' bugs, which is the first time
 the portfolio question has been answerable at all.
+
+## Iteration 41: the second crash IS the chain's ghost source
+
+The fault-index split fired exactly as designed - quiet arms on the first
+crash exactly zero, fan-out arms unchanged there, the in-flight observable
+0.16 against 0.99 - and matched depth>=8 still read 0.828 [0.760, 0.903].
+Since the first crash was untouched, the loss is the second crash's, and
+the reason is the chain's own structure: labels 8 and 9 are the ghost
+StartViewChange and DoViewChange that node 2 left in flight when it
+crashed. A quiet crash is one with nothing in flight, so it is a crash that
+produces no ghosts. The 8-to-9 conversion gain replicated (1.29 here
+against 1.55 at iteration 38) and is real, but it cannot pay for a loss at
+the rung it starts from.
+
+Three sessions have now spent themselves on the quiet family and the
+family closes, having produced one sharp piece of knowledge: the crash the
+chain needs is not early, not quiet, but selective - its in-flight sends
+should be exactly those addressed to the node that is recovering. That
+predicate is expressible (the ledger already carries in-flight
+destinations and the incarnation table says who restarted) and no existing
+arm can state it. Seeded as crash-quiet-except-toward-restarted-peer, the
+first candidate the loop has written whose definition came out of two
+refutations rather than a hypothesis about what might help.

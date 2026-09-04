@@ -127,3 +127,36 @@ Bit assignment changed from 'a new bit' to the reuse of 131072 (crashQuietPhase)
 Verified at admission: ["crash_phase.rs exposes arm_node(node, reserve) / arm_of(node) and the single draw site at rng.use_stream(Stream::CrashPhase); WINDOW = 96; is_anchored is the parent split. The table is drawn per placed crash, so keying the table by fault index is a change of which table the existing draw indexes, not a new draw - the treated run keeps consuming its twin's random sequence.", "The DAG confirms the shape the candidate claims: crash_nl (node 1) must precede deliver_svc_1_to_2, so the initiating crash needs node 1's fan-out in flight; crash_2 (node 2) is gated on deliver_svc_1_to_2 and precedes recover_2 and deliver_rec_2_to_1, i.e. it follows node 2's own SVC/DVC sends - a landed-or-answered moment. The fan-out table is right for the first crash and the quiet table for the second, exactly as claimed.", "I recomputed iteration 38's read myself from research/lite/state/crash-quiet-phase-arms/chunk-100{0,1,2,3}.cand.json, probe-free (variant & 6 == 0), restricted to the parent (variant & 513 == 513) and co-bit matched over 387 cell pairs, 248,664 treated against 745,732 control runs: depth>=6 0.809, depth>=7 0.816, depth>=8 0.820, depth>=9 1.271, depth>=10 1.413, depth>=11 3.21 on 31/29 events. These reproduce the reported 0.83 and 1.29.", "The decisive new number, not previously computed: P(depth>=9 | depth>=8) is 0.246 treated against 0.1586 control, a conditional ratio of 1.551, and 1.271 = 0.820 x 1.551 exactly. The 8-to-9 conversion gain is real and arithmetically separate fr
 
 False claims named at admission: []
+
+## Verdict (2026-09-05)
+
+Closed, refuted on its own band. Four chunks, 441,229 treated against
+439,340 matched control runs (crash placement and the phase arm on both,
+crash-hold share 0.906 against 0.905):
+
+| rung (matched) | treated / control | interval |
+| --- | --- | --- |
+| depth>=8 | 0.828 | [0.760, 0.903] |
+| depth>=9 | 1.066 | [0.906, 1.255] |
+| depth>=10 | 1.189 | [0.788, 1.794] |
+
+The implementation gate passed exactly: quiet arms armed on fault index 1
+exactly 0 (185,209 ANSWERED, 184,559 LANDED, 185,472 quiet STOCK, all on
+index 2 or later), the fan-out arms still armed 341,958 / 338,611 /
+337,177 on index 1, and the independent observable held - in-flight at
+apply on condition-released quiet crashes 0.158 (ANSWERED) and 0.191
+(LANDED) against the fan-out arms' 0.986 on the first crash. Throughput
+1.031.
+
+So the first crash was untouched and depth 8 still fell 17 percent: the
+loss belongs to the second crash. That is the chain's own structure. The
+ghost StartViewChange and DoViewChange of labels 8 and 9 are records node
+2 sent and left in flight when it crashed; a crash placed when node 2's
+network is quiet is a crash with no ghosts to leave. The conversion gain
+replicated (P(depth>=9 | depth>=8) ratio 1.29 here, 1.55 at iteration 38
+against a wider control) but cannot pay for a loss at the rung the
+conversion starts from.
+
+The two sessions together give the successor its predicate: the chain wants
+a crash whose in-flight sends are exactly those addressed to the recovering
+peer. Seeded as crash-quiet-except-toward-restarted-peer.
