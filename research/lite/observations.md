@@ -2363,3 +2363,21 @@ after the recovered node's ghost DoViewChange has acted at the new primary,
 and the later it is issued the more often it does, at no cost to depth 8
 so far. The natural end of this line is not a longer constant but a
 release keyed on that entry itself.
+
+## Direction set by the user after iteration 36: strategies as arms, read per cell
+
+Every ordering rule the loop has merged is a directional bias with an
+inverse bug (iteration 32 showed the inverse of label 8; the deferral
+suppresses any bug that needs an early post-crash request). The user's
+direction, agreed: the generalizable object is the choice, not the rule.
+The merged tree is already a portfolio - each mechanism is a salted
+per-run arm at a 50 percent share - so a merge means "add a strategy",
+never "replace behavior". Three changes, in order: (1) the panel reads
+violations per member per variant cell, so a strategy's bias shows
+instead of averaging out; (2) the event-keyed release of post-fault
+requests (after a recently restarted node's first message has acted at a
+live peer) enters as an additional arm on the request-timing axis beside
+immediate issue and the fixed deferral, not as a replacement; (3) panel
+members are chosen by the ordering class their bug needs, so every biased
+axis has a member on each side. Planning agents are writing (1) and (2);
+the loop procedure builds them.
