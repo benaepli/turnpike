@@ -2447,3 +2447,22 @@ quiescent-crash Paxos injection) are being built so the request-timing and
 crash-placement axes each have a member on both sides; and the event-keyed
 release arm (iteration 37) must be read on this table as well as on the VR
 rung before it is kept.
+
+## Iteration 37: the double-ghost event is too rare to be the key; the axis frame stays
+
+The event-keyed release arm (release held post-fault requests when a live
+node has acted twice on dead-incarnation records, cap 128) fired on 6
+percent of holds over eight chunks, so it graded as a 128-step dose:
+depth>=8 C/B 0.986 [0.953, 1.020], depth>=10 1.21 [1.00, 1.46], depth>=11
+1.15 [0.77, 1.71] against the key's 1.5 claim. Filed on the prediction's
+inapplicable branch. What the census adds: the two acted ghosts were
+same-origin pairs 84 percent of the time (the recovered peer's
+RecoveryResponse then StartViewChange, one label before the DoViewChange
+the write must follow), and only 16 percent of runs see the event at all.
+The lesson is the same one the deferral taught from the other side: the
+right release signal is progress at the recovered node, and the step
+constants were proxies for it. The next arm counts acted handler entries
+at the most recently restarted node since its restart (three, as the first
+dose) and releases on that, a clock every protocol has. Cost read on this
+candidate was a 4-10 percent throughput gain, which is build layout, not
+the mechanism.

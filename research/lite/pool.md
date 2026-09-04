@@ -2074,7 +2074,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## post-fault-request-timing-axis
 
-- kind: add | category: scheduler | origin: user | status: ADMITTED at
+- kind: add | category: scheduler | origin: user | status: FILED at iteration 37 (inapplicable branch of the frozen prediction: released.event over held 0.064 against the 0.30 floor, so arm C graded as a 128-step dose; eight chunks pooled C/B depth>=8 0.986 [0.953, 1.020], depth>=10 1.208 [0.997, 1.463], depth>=11 1.149 [0.772, 1.711] against the key claim of 1.5; 84 percent of events were same-origin pairs, one label early; the axis code stays filed with the patch, the event key is replaced by a progress-keyed successor, see post-fault-release-on-recovered-progress) | previously ADMITTED at
   iteration 37 through the moderated lane (the user set the direction and
   agreed to the plan; judge evidence check gain 5, cost 0;
   prediction rewritten at admission) | parent:
@@ -2110,3 +2110,32 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 - kind: meta | category: scheduler | origin: proposer | status: REJECTED at iteration 38 (judge score 0) | parent: iteration-38 fault-injection round
 - Reason: Inert, and premature (judge gain 0-1). In bounds as code (run_phase.rs, the mechanism modules, explorer.rs) and the allocation surface is a legitimate object under GOAL.md's 'ability to switch among them', but at its defaults it is a pure re-randomization of every merged arm's half (mix(id ^ salt) % 64 < 32 selects a different half than % 2 == 1) whose pass criterion is 'as today': an A/A with no mechanism content and nothing learned about exploration, costing a four-chunk session. Side effects are real and negative: every per-cell panel baseline (research/lite/state/panel) and every filed patch's re-grade (replyFirstRecovering, bit 22) would be read on new halves; and it adds a six-field config block, which GOAL.md names as the fallback, not the design, when no panel verdict has yet licensed any share other than one half. The share knob it introduces has one prospective user (the quiet quarter's share), and that share is fixed at the quarter through its panel read by the rank-1 decision rule. Build it, if ever, as part of the first share change a panel read licenses, with the A/A on re-randomized halves as that change's acceptance test; not as a round. Not a duplicate of the rejected adaptive-arm-allocation-bandit-salvage (which touched the campaign block), and the candidate is right that in-session adaptation is circular for the fault arms - that argument is filed as its useful content.
+
+## post-fault-release-on-recovered-progress
+
+- kind: add | category: scheduler | origin: operator-agent | status:
+  PROPOSED at iteration 37 for the next judge round | parent:
+  post-fault-request-timing-axis (filed) and the 64-step deferral (merged)
+- Mechanism: arm C of the request-timing axis keyed on protocol progress
+  instead of scheduler steps or a rare double-ghost event: a held post-fault
+  request is released when the most recently restarted node has acted (a
+  handler entry changed its state token) N times since its restart, N = 3
+  as the first dose, with the 128-step cap as the fallback. The count is
+  arm-blind and censused on all runs (acted entries since restart at the
+  first restart step of the request's hold).
+- Why: iteration 37 showed the double-ghost event fires in 4 percent of runs
+  and one label early when it does, while the chain needs the write after
+  the recovered peer's third acted entry (ghost RecoveryResponse, ghost
+  StartViewChange, ghost DoViewChange at node 1 are labels 7, 8, 9). Acted
+  entries since restart is a progress clock every protocol has; the step
+  constants 32 and 64 were proxies for it. Falsifiable against the 64-step
+  arm on depth 10 and 11 the way iteration 37 was, with released.progress
+  over held expected above 0.5 (the applicability floor the event arm
+  missed), and readable on the panel cells for the opposite-side members.
+- Frozen prediction (draft; the judge rewrites at admission): bit 28 reused
+  (clientEventRelease renamed clientProgressRelease), set within bit 18, own
+  salt; depth>=8 C/B in [0.94, 1.06]; decisive depth>=10 C/B >= 1.20 with
+  lower edge above 1.0 pooled over eight chunks, depth>=11 reported; firing
+  released.progress/held >= 0.5, steps per progress release reported (the
+  census says whether N = 3 lands after label 9); falsifier depth>=10 C/B
+  entirely below 0.90 or the floor missed; cost throughput >= 0.97.

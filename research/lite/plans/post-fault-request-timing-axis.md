@@ -308,3 +308,32 @@ grade proceeds for the dose read and the eight-chunk census; the next arm
 should key on the second acted ghost at a restarted receiver, or on the
 first acted ghost whose origin differs from the previous one, which the
 same-origin counter now measures.
+
+## Verdict (2026-09-04, sessions -axis and -axis-b pooled, eight chunks)
+
+Filed on the prediction's inapplicable branch. Firing: event arm held
+3,172,437, released by event 201,602 (0.064 of held against the 0.30
+floor), by expiry 2,967,181, hold steps per released 122.2 (fixed arm
+65.0); held_at_exit 0.102 percent (fixed 0.022); events per run 0.16 on
+every arm, 84 percent same-origin pairs; first event within 64 steps of
+the first crash in 63 percent of the runs that had one. So the arm is a
+128-step dose with a small early-release admixture, and that is how it
+reads:
+
+| rung | C / B per run | interval | events C / B / A |
+| --- | --- | --- | --- |
+| depth>=8 | 0.986 | [0.953, 1.020] | 12,457 / 12,617 / 25,027 |
+| depth>=9 | 1.004 | [0.930, 1.084] | 2,489 / 2,475 / 3,899 |
+| depth>=10 | 1.208 | [0.997, 1.463] | 438 / 362 / 183 |
+| depth>=11 | 1.149 | [0.772, 1.711] | 99 / 86 / 38 |
+| depth>=12 | 1.391 | [0.867, 2.232] | 78 / 56 / 28 |
+
+Against the immediate arm: depth 10 C/A 4.78, B/A 3.96 (iteration 36 read
+4.07 for the 64-step arm). Cost: cross-binary throughput 1.096 and 1.044
+(the candidate was faster; build layout), depth>=8 per second 1.07 and
+1.04. Reading: the 128-step tail buys a little more at depth 10 (1.21, not
+separated) at a fivefold held_at_exit; the double-ghost key is not the
+mechanism. The axis code (three arms, per-arm counters, event census) is
+worth keeping as the frame; the next arm keys the release on the recovered
+node's acted-entry count since restart (pool entry
+post-fault-release-on-recovered-progress).
