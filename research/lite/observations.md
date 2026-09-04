@@ -2405,3 +2405,13 @@ events per chunk depth>=8 [6279, 6920], depth>=9 [1120, 1247], depth>=10
 said. Quick panel: paxos-accept-stale-ballot 3.48%, mencius-opt1-2 1.52%,
 raft-stale-vote 3.89e-4, paxos-fixed-recover-stale-scout 3.13e-4 - all
 flat against the previous panel.
+
+**Post-merge reads after the landing-node phase read (spur 02df730).**
+Regression passed. Fresh cache 1,987 runs per second (1,901 and 2,073),
+events per chunk depth>=8 [6303, 6943], depth>=9 [1132, 1253], depth>=10
+[114, 140], depth>=11 [33, 38]. Two merges in a row: against the 32-step
+cache of the morning ([88, 100] at depth 10, [17, 27] at depth 11) the
+tree now reads about 1.35x at depth 10 and 1.6x at depth 11 per chunk.
+Quick panel flat again: paxos 3.49%, mencius 1.52%, raft-stale-vote
+4.06e-4, paxos stale scout 3.13e-4. The epoch's cumulative throughput
+ledger stands at 0.994 of the freeze after nine merges.
