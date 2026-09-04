@@ -61,3 +61,29 @@ its ghost-class twentieth, and the rest is cost. One judgment call by the
 implementer, pinned by a test: the class test uses the tree's existing
 fault-crossing predicate, so a sender crashed at incarnation 0 counts as
 the dead class rather than the fresh one.
+
+## Verdict (2026-09-05)
+
+Simplify. Four chunks, 476,400 ghost-only against 473,741 merged runs
+matched within the pair-order treated half:
+
+| rung | ghost-only / merged | interval |
+| --- | --- | --- |
+| depth>=8 | 1.007 | [0.952, 1.066] |
+| depth>=9 | 1.011 | [0.886, 1.153] |
+| depth>=10 | 0.833 | [0.546, 1.270] |
+
+Firing exact: the narrowed arm corrected 1,339,292 ghost-class pairs and
+suppressed 3,644,866 fresh-class ones, against the merged arm's 1,332,819
+ghost and 2,388,583 fresh; the treated half's ghost-class inversions read
+0 against the control's 162,219. So 64 percent of the merged rule's
+corrections were removed and the primary did not move, inside a band that
+would have caught a 5 percent loss. Throughput 1.010, depth>=8 per second
+1.001.
+
+Decision: narrow the merged per-pair send-order rule to the dead
+incarnation's records. The rule keeps what it was merged for - iteration 30
+argued the ghost class explicitly - and stops paying for corrections that
+buy nothing. This is the second merged mechanism an ablation has trimmed
+(the first was the fan-out window at iteration 33), and the pattern is the
+same: the merged rule was the right idea carried too wide.

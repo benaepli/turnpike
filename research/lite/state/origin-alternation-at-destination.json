@@ -1,0 +1,87 @@
+{
+ "name": "origin-alternation-at-destination",
+ "createdAtIso": "2026-09-04T19:42:40.773Z",
+ "note": "iteration 45: prefer a sender other than the one a destination last heard from, as the last dispatch layer; the mirror of a measured 0.74",
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/lite/origin-alternation-at-destination/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/origin-alternation-at-destination/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "lite-cand:origin-alternation-at-destination"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "dc44e20e67263e943da1520cd5cd674bed7bd9d7",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300,
+  "graderVersion": "ta:a32cc37+porc:ebf06c5+oracle:390ec49e"
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/dc44e20e6726-30-f9daa01b-300-g870d4c11.json",
+ "limits": {
+  "chunkSec": 300,
+  "maxChunks": 4,
+  "minChunks": 2,
+  "rayonThreads": 30
+ },
+ "treatment": {
+  "bit": 67108864,
+  "name": "originAlternate",
+  "band": {
+   "min": -0.15,
+   "max": 0.3
+  },
+  "declaredAtIso": "2026-09-04T19:42:40.773Z"
+ },
+ "seq": {
+  "hypothesisId": "lite-origin-alternation-at-destination",
+  "chunks": 0,
+  "runs": 0,
+  "graded": 0,
+  "depth4": 0,
+  "depth5": 0,
+  "depth6plus": 0,
+  "depth7plus": 0,
+  "depth8plus": 0,
+  "violations": 0,
+  "h2Count": 0,
+  "exposureSec": 0,
+  "rpsChunks": [],
+  "anomalies": 0,
+  "slowConfirmed": false,
+  "resumes": 0,
+  "nextSeed": 1000,
+  "posteriors": {},
+  "lastVerdict": "",
+  "lastIteration": 0,
+  "baselineKey": "dc44e20e6726|grid,grid-no-purgatory,grid-post-fault-2,grid-short|f9daa01b|30|300|ta:a32cc37+porc:ebf06c5+oracle:390ec49e",
+  "rateStratum": {
+   "armIds": [],
+   "chunks": 0,
+   "runs": 0,
+   "graded": 0,
+   "exposureSec": 0,
+   "depth": [],
+   "perChunk": []
+  },
+  "variants": []
+ },
+ "usedSeeds": [],
+ "evalIds": [],
+ "history": [],
+ "failures": {
+  "consecutive": 0,
+  "total": 0
+ },
+ "lastWasSlow": false,
+ "finished": false
+}

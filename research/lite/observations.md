@@ -2690,3 +2690,21 @@ read depth>=8 in [1.05, 1.35], and anything below 1.00 closes the family.
 Two refutations in a row have each produced a sharper successor than the
 hypothesis that failed, which is the pattern the last several rounds have
 settled into.
+
+## Iteration 44: two thirds of the send-order rule's corrections buy nothing
+
+The merged per-pair send-order rule was narrowed to the dead incarnation's
+records on a salted half of its treated runs. Depth>=8 read 1.007 [0.952,
+1.066] while 3,644,866 fresh-class corrections were suppressed, 64 percent
+of the rule's firing, and the treated half's ghost-class inversions fell to
+zero against the control's 162,219. A band that would have caught a 5
+percent loss saw nothing. The merged rule is therefore narrowed to the
+ghost class.
+
+That is the second time an ablation has trimmed a merged mechanism without
+cost (the fan-out window went the same way at iteration 33), and both
+trims were of the same kind: a rule admitted for a specific class was
+applied to every case that shared its shape. The loop should probably ask
+that question of the remaining merged mechanisms - fresh-first is the
+obvious next one, since iteration 39 measured it at a factor of four and
+nobody has asked which of its contests carry that.
