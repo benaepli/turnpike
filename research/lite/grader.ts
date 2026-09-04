@@ -29,7 +29,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 import { HARD_LIMITS, loadPolicy, type Policy } from "../orchestrator/src/policy.js";
-import { runOneEvaluation, selfTestRunIdentity, sumVariantCells, type EvalContext } from "../orchestrator/src/evaluate.js";
+import { runOneEvaluation, selfTestRunIdentity, sumVariantCells, variantMetrics, type EvalContext } from "../orchestrator/src/evaluate.js";
 import {
   SYNTHETIC_CHUNK, canStillAdvance, classifyChunkTiming, classifyPooled, decideSequential, initialSeqState, medianRps,
   pooledCountsOf, pooledFromSeq, pooledLadder, selfTestGateConsistency, seqRuleOf, syntheticEvaluation,
@@ -37,16 +37,16 @@ import {
 } from "../orchestrator/src/sequential.js";
 import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/stopper.js";
 import {
-  CROSS_BINARY_NULL_FLOOR, EPOCH_DRIFT_WARN, EPOCH_THROUGHPUT_FLOOR, INTERNAL_OVERDISPERSION, INTERNAL_Z, MERGE_Z,
+  CROSS_BINARY_NULL_FLOOR, EPOCH_DRIFT_WARN, EPOCH_THROUGHPUT_FLOOR, INTERNAL_MIN_EFFECT, INTERNAL_OVERDISPERSION, INTERNAL_Z, MERGE_Z,
   NON_DECLARABLE_BITS, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, RULE_VERSION, VARIANT_BITS, addStratum,
-  chunkStratum, compareToBaseline, figuresOf, internalAdvanceRungsFor, internalPrimary, mergeBlockers, objectiveCounts, primaryRungFor,
-  projectedEpochThroughput, ruleVerdict, selfTestInternalPrimary, variantBitsMissingFromSource,
+  chunkStratum, compareToBaseline, figuresOf, internalAdvanceRungsFor, internalPrimary, invariantCoBits, mergeBlockers, objectiveCounts, primaryRungFor,
+  probeFreeScope, projectedEpochThroughput, ruleVerdict, selfTestInternalPrimary, variantBitsMissingFromSource,
   variantContrasts,
   type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
 } from "../orchestrator/src/decide.js";
-import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot } from "../orchestrator/src/runners.js";
+import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot, runVariantTable } from "../orchestrator/src/runners.js";
 import { selfTestPosteriors, selfTestStats } from "../orchestrator/src/stats.js";
-import { Evaluation, SeqState } from "../orchestrator/src/schemas.js";
+import { Evaluation, SeqState, type RunRow, type RunVariantRow, type VariantMetrics } from "../orchestrator/src/schemas.js";
 import { RECORDED_DECLARATIONS, recordedRuleVersionFor } from "./declarations.js";
 
 // The orchestrator modules narrate progress on stdout; this process promises
@@ -1199,7 +1199,7 @@ async function cmdSelftest(): Promise<void> {
   // recorded sessions it was derived from. A recorded session is read on the
   // primary rung of the rule version its decision row carries, never on the
   // live rule's, so a change of primary rung leaves these fixtures standing.
-  failures.push(...selfTestInternalPrimary());
+  failures.push(...selfTestInternalPrimary(), ...selfTestPanelCells());
   const skipped: string[] = [];
   const recorded = (name: string): { cand: Evaluation[]; base: Evaluation[]; rung: number } | null => {
     if (!fs.existsSync(stateFileFor(name))) return null;
@@ -1428,9 +1428,149 @@ function panelManifest(threads: number): { path: string; members: PanelMember[] 
   return { path: found, members: raw.members };
 }
 
+// One treatment bit's per-run violation contrast on a member's corpus:
+// treated runs against the matched control, with a log-ratio interval.
+interface PanelCell {
+  bit: number;
+  name: string;
+  treatedRuns: number;
+  treatedViolations: number;
+  controlRuns: number;
+  controlViolations: number;
+  ratio: number;
+  lo: number;
+  hi: number;
+  read: "up" | "down" | "flat" | "count-only";
+}
+
+// Fewer violations than this on either half and the ratio is a count, not
+// a reading.
+const PANEL_CELL_MIN_VIOLATIONS = 5;
+// The panel has no campaign, so every run sits in one arm; the arm string
+// only keys the cells.
+const PANEL_ARM = "all";
+
+// The per-(arm, variant) cells of a panel corpus. The projected runs table
+// carries no cost columns, so the cost fields of each cell are zero and only
+// its run and violation counts are meaningful.
+function panelVariantCells(rows: RunVariantRow[], violatingRunIds: number[]): VariantMetrics[] {
+  const full: RunRow[] = rows.map((r) => ({
+    run_id: r.run_id, arm: PANEL_ARM, arm_index: 0, config_index: 0, steps_used: 0, wall_us: 0, end_reason: "", session_offset_ms: 0,
+    timers_fired: 0, timers_acted: 0, timers_inflight_fired: 0, timers_inflight_acted: 0, timers_idle_fired: 0, timers_idle_acted: 0,
+    max_inert_streak: 0, variant: r.variant,
+  }));
+  return variantMetrics(full, [], violatingRunIds);
+}
+
+// The matched contrast per registered treatment bit, read on violations per
+// run. The control is the probe-free untreated population restricted to the
+// treated population's invariant co-bits, so a bit that only exists on
+// placed runs is compared with placed runs. Bits naming an instrument or an
+// outcome, and bits no run of this corpus carries, produce no cell.
+function panelCells(cells: VariantMetrics[]): { cells: PanelCell[]; matchedOn: Record<string, string[]> } {
+  const out: PanelCell[] = [];
+  const matchedOn: Record<string, string[]> = {};
+  const sum = (cs: VariantMetrics[], f: (c: VariantMetrics) => number): number => cs.reduce((a, c) => a + f(c), 0);
+  for (const { bit, name } of VARIANT_BITS) {
+    if (NON_DECLARABLE_BITS.includes(bit)) continue;
+    const scope = probeFreeScope(cells, bit);
+    const treatedCells = scope.filter((c) => (c.variant & bit) !== 0);
+    const treatedRuns = sum(treatedCells, (c) => c.runs);
+    if (treatedRuns === 0) continue;
+    const inv = invariantCoBits(treatedCells, bit);
+    const controlCells = scope.filter((c) => (c.variant & bit) === 0 && (c.variant & inv) === inv);
+    const controlRuns = sum(controlCells, (c) => c.runs);
+    const treatedViolations = sum(treatedCells, (c) => c.violations);
+    const controlViolations = sum(controlCells, (c) => c.violations);
+    const p1 = treatedRuns > 0 ? treatedViolations / treatedRuns : 0;
+    const p2 = controlRuns > 0 ? controlViolations / controlRuns : 0;
+    const ratio = p2 > 0 ? p1 / p2 : NaN;
+    const se = treatedViolations > 0 && controlViolations > 0
+      ? Math.sqrt(INTERNAL_OVERDISPERSION * ((1 - p1) / treatedViolations + (1 - p2) / controlViolations))
+      : NaN;
+    const lo = ratio * Math.exp(-INTERNAL_Z * se);
+    const hi = ratio * Math.exp(INTERNAL_Z * se);
+    let read: PanelCell["read"];
+    if (treatedViolations < PANEL_CELL_MIN_VIOLATIONS || controlViolations < PANEL_CELL_MIN_VIOLATIONS || !Number.isFinite(ratio)) read = "count-only";
+    else if (lo > 1 && ratio - 1 >= INTERNAL_MIN_EFFECT) read = "up";
+    else if (hi < 1 && 1 - ratio >= INTERNAL_MIN_EFFECT) read = "down";
+    else read = "flat";
+    out.push({ bit, name, treatedRuns, treatedViolations, controlRuns, controlViolations, ratio, lo, hi, read });
+    const names = VARIANT_BITS.filter((v) => (inv & v.bit) !== 0).map((v) => v.name);
+    if (names.length > 0) matchedOn[name] = names;
+  }
+  return { cells: out, matchedOn };
+}
+
+function panelCellsSummary(member: string, cells: PanelCell[]): string {
+  const k = (n: number): string => (n >= 10_000 ? `${Math.round(n / 1000)}k` : String(n));
+  const parts = cells.map((c) => {
+    const counts = `${c.treatedViolations}/${k(c.treatedRuns)} vs ${c.controlViolations}/${k(c.controlRuns)}`;
+    if (c.read === "count-only") return `${c.name} count-only ${counts}`;
+    return `${c.name} ${c.ratio.toFixed(2)} [${c.lo.toFixed(2)},${c.hi.toFixed(2)}] ${counts} ${c.read}`;
+  });
+  return `panel-cells ${member}: ${parts.length === 0 ? "no tagged runs" : parts.join("; ")}`;
+}
+
+// The cell arithmetic on synthetic corpora: the matched control, the probe
+// drop, the count floor, and the effect floor on a saturated member.
+function selfTestPanelCells(): string[] {
+  const f: string[] = [];
+  const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
+  const rows = (variant: number, runs: number, violations: number, firstId: number): { rows: RunVariantRow[]; violating: number[] } => ({
+    rows: Array.from({ length: runs }, (_, i) => ({ run_id: firstId + i, variant })),
+    violating: Array.from({ length: violations }, (_, i) => firstId + i),
+  });
+  const corpus = (...parts: Array<{ rows: RunVariantRow[]; violating: number[] }>): VariantMetrics[] =>
+    panelVariantCells(parts.flatMap((p) => p.rows), parts.flatMap((p) => p.violating));
+  const cellOf = (r: ReturnType<typeof panelCells>, bit: number): PanelCell | undefined => r.cells.find((c) => c.bit === bit);
+
+  // A nested bit reads against its host population: crashPhase (512) only
+  // exists on placed runs (1), so its control is the placed untreated runs.
+  const nested = panelCells(corpus(rows(513, 1000, 100, 0), rows(1, 1000, 50, 1000), rows(0, 1000, 5, 2000), rows(2, 100, 50, 3000)));
+  const phase = cellOf(nested, 512);
+  check(phase !== undefined && phase.controlRuns === 1000 && phase.controlViolations === 50, `crashPhase must be matched to the placed control, got ${JSON.stringify(phase)}`);
+  check(phase !== undefined && Math.abs(phase.ratio - 2) < 1e-9 && phase.read === "up", `crashPhase must read up at ratio 2, got ${JSON.stringify(phase)}`);
+  check(nested.matchedOn["crashPhase"]?.join() === "crashPlaced", `crashPhase must report matching on crashPlaced, got ${JSON.stringify(nested.matchedOn)}`);
+  const placed = cellOf(nested, 1);
+  check(placed !== undefined && placed.treatedRuns === 2000 && placed.controlRuns === 1000 && placed.controlViolations === 5,
+    `crashPlaced must drop the probe runs from both halves, got ${JSON.stringify(placed)}`);
+  check(nested.cells.every((c) => !NON_DECLARABLE_BITS.includes(c.bit)), "instrument and outcome bits must produce no cell");
+  check(nested.cells.every((c) => c.treatedRuns > 0), "a bit no run carries must produce no cell");
+
+  // Under five violations on a half is a count, whatever the ratio says.
+  const sparse = panelCells(corpus(rows(16, 1000, 4, 0), rows(0, 1000, 40, 1000)));
+  check(cellOf(sparse, 16)?.read === "count-only", `four treated violations must read count-only, got ${JSON.stringify(cellOf(sparse, 16))}`);
+
+  // A saturated member resolves a 1.5 percent move with an interval clear of
+  // one; the effect floor keeps it flat. A four percent move reads.
+  const cell = (variant: number, runs: number, violations: number): VariantMetrics =>
+    ({ arm: PANEL_ARM, variant, runs, gradedRuns: 0, depthAtLeast: [], violations, wallUsSum: 0, stepsUsedSum: 0, planCompleteRuns: 0 });
+  const tiny = panelCells([cell(16, 1_000_000, 101_500), cell(0, 1_000_000, 100_000)]);
+  check((cellOf(tiny, 16)?.lo ?? 0) > 1, `the saturated fixture must resolve its move, else the floor is untested: ${JSON.stringify(cellOf(tiny, 16))}`);
+  check(cellOf(tiny, 16)?.read === "flat", `a 1.5 percent move must read flat under the effect floor, got ${JSON.stringify(cellOf(tiny, 16))}`);
+  const small = panelCells([cell(16, 200_000, 20_800), cell(0, 200_000, 20_000)]);
+  check(cellOf(small, 16)?.read === "up", `a four percent move at 20k events must read up, got ${JSON.stringify(cellOf(small, 16))}`);
+  const down = panelCells(corpus(rows(16, 10_000, 500, 0), rows(0, 10_000, 1000, 10_000)));
+  check(cellOf(down, 16)?.read === "down" && (cellOf(down, 16)?.hi ?? 1) < 1, `a halving must read down, got ${JSON.stringify(cellOf(down, 16))}`);
+
+  // The interval is the two-binomial log-ratio one, inflated by the
+  // overdispersion the primary charges.
+  const c = cellOf(down, 16);
+  if (c !== undefined) {
+    const se = Math.sqrt(INTERNAL_OVERDISPERSION * ((1 - 0.05) / 500 + (1 - 0.1) / 1000));
+    check(Math.abs(c.lo - 0.5 * Math.exp(-INTERNAL_Z * se)) < 1e-12 && Math.abs(c.hi - 0.5 * Math.exp(INTERNAL_Z * se)) < 1e-12,
+      `the interval must be ratio*exp(-+z*se) with se inflated by ${INTERNAL_OVERDISPERSION}, got [${c.lo}, ${c.hi}]`);
+  }
+  const summary = panelCellsSummary("fixture", down.cells);
+  check(summary.startsWith("panel-cells fixture: staleOrder 0.50 [") && summary.endsWith("] 500/10k vs 1000/10k down"), `unexpected summary line: ${summary}`);
+  return f;
+}
+
 // Rate check of the merged lite tree on the known-bug panel specs. No verdict
 // and no gate: one explore + porcupine per member, rates emitted next to the
-// manifest calibration for the operator agent to read.
+// manifest calibration for the operator agent to read, with the per-run
+// violation contrast of every treatment bit the corpus carries.
 async function cmdPanel(flags: Map<string, string>): Promise<void> {
   const cfg = liteConfig();
   refuseIfLoopActive();
@@ -1459,6 +1599,12 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
   const scale = Number(flags.get("scale") ?? "3");
   if (!Number.isFinite(seed) || !Number.isFinite(scale) || scale <= 0) throw new Error("--seed and --scale must be positive numbers");
 
+  // The two small files each member leaves behind for re-reads and pooling
+  // across sessions: porcupine's JSON and the runs table projected to id and
+  // tag. The corpus itself is deleted.
+  const iso = new Date().toISOString().replace(/[:.]/g, "-");
+  const panelStateDir = path.join(STATE_DIR, "panel", iso);
+
   const rows: Record<string, unknown>[] = [];
   for (const m of members) {
     const dir = path.join(ROOT, "tmp", "loop", "lite", `panel-${m.id}`);
@@ -1486,6 +1632,13 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
       inputDir: path.join(dir, "out"), model: m.porcupineModel === "kv_rmw" ? "kv_rmw" : "kv",
       timeoutMsPerRun: 10_000, timeoutMs: 900_000,
     });
+    const violatingIds = porc.parsed?.violating_run_ids ?? [];
+    const runRows = await runVariantTable(path.join(dir, "out"));
+    const memberStateDir = path.join(panelStateDir, m.id);
+    fs.mkdirSync(memberStateDir, { recursive: true });
+    fs.writeFileSync(path.join(memberStateDir, "porcupine.json"), JSON.stringify(porc.parsed) + "\n");
+    fs.writeFileSync(path.join(memberStateDir, "runs.json"), JSON.stringify(runRows) + "\n");
+    const contrast = panelCells(panelVariantCells(runRows, violatingIds));
     const exploreSec = ex.wallMs / 1000;
     // Events the calibration predicts for this wall; a member under three
     // expected events reports a count, never a rate.
@@ -1506,10 +1659,15 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
       runsPerSec: porc.parsed === null || exploreSec === 0 ? null : porc.parsed.total_runs / exploreSec,
       calibration: { eventsPerSec: m.calibration.eventsPerSec, runsPerSec: m.calibration.runsPerSec, expectedRate: m.expectedRate },
       porcupineFailure: porc.parsed === null ? `no parseable porcupine JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})` : null,
+      taggedRuns: runRows.length,
+      cells: contrast.cells,
+      cellsMatchedOn: contrast.matchedOn,
+      summary: panelCellsSummary(m.id, contrast.cells),
+      stateDir: path.relative(ROOT, memberStateDir),
     });
     cleanupDir(dir);
   }
-  emit({ phase: "panel", manifest: manifest.path, binary, template, seed, scale, members: rows });
+  emit({ phase: "panel", manifest: manifest.path, binary, template, seed, scale, stateDir: path.relative(ROOT, panelStateDir), members: rows });
 }
 
 // The regression case on any binary, for a merge decided outside a single

@@ -30,6 +30,7 @@ func main() {
 	gradeWorkers := flag.Int("grade-workers", runtime.GOMAXPROCS(0), "Grade mode: runs of one chunk matched concurrently; the output does not depend on the count")
 	batchRuns := flag.Int("batch-runs", 2000, "Runs per metric query batch; partials are merged in Go (0 = one query over all runs)")
 	runsTable := flag.Bool("runs", false, "Emit the runs table (one row per run: strategy, seeds, steps, wall, end reason) as JSON and exit")
+	runsColumns := flag.String("runs-columns", "", "With -runs: keep only these comma-separated JSON columns of each row (for example run_id,variant); empty keeps every column")
 	dumpRun := flag.Int64("dump-run", -1, "Emit one run's executions, traces and logs as JSON and exit (reads only that run)")
 	flag.Parse()
 
@@ -57,6 +58,16 @@ func main() {
 		}
 		if rows == nil {
 			rows = []reader.RunRow{}
+		}
+		if *runsColumns != "" {
+			cols := strings.Split(*runsColumns, ",")
+			for i := range cols {
+				cols[i] = strings.TrimSpace(cols[i])
+			}
+			if err := reader.WriteRunsProjected(os.Stdout, rows, cols); err != nil {
+				log.Fatalf("failed to write runs JSON: %v", err)
+			}
+			return
 		}
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(rows); err != nil {

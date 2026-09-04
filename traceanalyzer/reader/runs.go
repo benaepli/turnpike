@@ -1,9 +1,14 @@
 package reader
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 )
 
 // RunRow is one row of the explorer's runs table: which strategy issued the
@@ -175,6 +180,66 @@ func asInt64(v any) int64 {
 	default:
 		return 0
 	}
+}
+
+// runColumnIndex maps each RunRow JSON field name to its struct field index.
+func runColumnIndex() map[string]int {
+	t := reflect.TypeOf(RunRow{})
+	idx := make(map[string]int, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		name := strings.Split(t.Field(i).Tag.Get("json"), ",")[0]
+		if name != "" {
+			idx[name] = i
+		}
+	}
+	return idx
+}
+
+// WriteRunsProjected writes the runs table as one JSON array holding only
+// the named columns of each row, in the order given. Column names are the
+// JSON field names of RunRow; an unknown name is an error before any output
+// is written. Rows are streamed so a table of millions of runs never has a
+// second copy in memory.
+func WriteRunsProjected(w io.Writer, rows []RunRow, cols []string) error {
+	idx := runColumnIndex()
+	fields := make([]int, 0, len(cols))
+	keys := make([][]byte, 0, len(cols))
+	for _, c := range cols {
+		i, ok := idx[c]
+		if !ok {
+			return fmt.Errorf("unknown runs column %q", c)
+		}
+		fields = append(fields, i)
+		key, err := json.Marshal(c)
+		if err != nil {
+			return err
+		}
+		keys = append(keys, key)
+	}
+	bw := bufio.NewWriterSize(w, 1<<20)
+	bw.WriteByte('[')
+	for n := range rows {
+		if n > 0 {
+			bw.WriteByte(',')
+		}
+		rv := reflect.ValueOf(&rows[n]).Elem()
+		bw.WriteByte('{')
+		for k, i := range fields {
+			if k > 0 {
+				bw.WriteByte(',')
+			}
+			val, err := json.Marshal(rv.Field(i).Interface())
+			if err != nil {
+				return err
+			}
+			bw.Write(keys[k])
+			bw.WriteByte(':')
+			bw.Write(val)
+		}
+		bw.WriteByte('}')
+	}
+	bw.WriteString("]\n")
+	return bw.Flush()
 }
 
 func asString(v any) string {

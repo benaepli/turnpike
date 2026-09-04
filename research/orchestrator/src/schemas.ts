@@ -227,6 +227,15 @@ export const RunRow = z.object({
 });
 export type RunRow = z.infer<typeof RunRow>;
 
+// The runs table projected to run id and tag bitfield, as `traceanalyzer
+// -runs -runs-columns run_id,variant` prints it. A corpus of millions of
+// runs fits in memory in this shape where the full row does not.
+export const RunVariantRow = z.object({
+  run_id: z.number(),
+  variant: z.number().default(0),
+});
+export type RunVariantRow = z.infer<typeof RunVariantRow>;
+
 // The explorer's own account of a session (session.json).
 export const SessionSummary = z.object({
   wallMs: z.number().int(),

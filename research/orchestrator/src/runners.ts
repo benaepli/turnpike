@@ -6,7 +6,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
-import { CampaignJson, TraceGradeJson, PorcupineJson, RunRow, SessionSummary } from "./schemas.js";
+import { CampaignJson, TraceGradeJson, PorcupineJson, RunRow, RunVariantRow, SessionSummary } from "./schemas.js";
 
 import { ROOT } from "./paths.js";
 
@@ -224,6 +224,19 @@ export async function runsTable(inputDir: string, timeoutMs = 300_000): Promise<
     { timeoutMs, cwd: ROOT, maxBuffer: 512 * 1024 * 1024 },
   );
   const parsed = parseJsonWith(z.array(RunRow), cmd.stdout);
+  return parsed ?? [];
+}
+
+/** The runs table projected to run id and tag bitfield. Roughly 30 bytes a
+ *  row, so a corpus of millions of runs stays under the buffer and V8's
+ *  string limit where the full table would not. */
+export async function runVariantTable(inputDir: string, timeoutMs = 300_000): Promise<RunVariantRow[]> {
+  const cmd = await run(
+    path.join(ROOT, "traceanalyzer", "main"),
+    ["-input", inputDir, "-runs", "-runs-columns", "run_id,variant"],
+    { timeoutMs, cwd: ROOT, maxBuffer: 512 * 1024 * 1024 },
+  );
+  const parsed = parseJsonWith(z.array(RunVariantRow), cmd.stdout);
   return parsed ?? [];
 }
 
