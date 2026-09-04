@@ -45,3 +45,19 @@ Red team: The honest risk is the one the iteration-40 judge already wrote in: th
 Verified at admission: ["pair_order_dispatch at spur/spur-core/src/simulator/core/scheduler.rs:1617-1660 gates on state.incarnation(origin) == 0 && !currently_crashed (returns pick), then requires send_ledger net_records >= 2 - the sender-crashed-once gate the entry describes, covering both classes.", "The call order at scheduler.rs:1054-1055 is fresh_first_dispatch then pair_order_dispatch, both returning a plain usize.", "Bit 536870912 is listed in research/orchestrator/src/decide.ts VARIANT_BITS as recoverPreempt and is absent from spur/spur-core/src/simulator/run_variant.rs (which declares only bits 0,1,2,3,9,15,18,19,20,21,24), so the row is genuinely free for the rename."]
 
 False claims named at admission: []
+
+## Pre-grade census (2026-09-05, implementer smoke)
+
+The narrowing returns far more of the merged rule to the draw than the
+judge's floor assumed. On the merged arm, corrections split 4,403 ghost
+class against 78,691 fresh class, so the fresh class is 94.7 percent of
+merged corrections (the judge's applicability floor was 20 percent and its
+estimate 65 to 70). The narrowed arm corrects 4,341 ghost-class pairs and
+suppresses 130,082 fresh-class ones, and the treated half's ghost-class
+inversions read zero against the control's 567. So this session is close to
+an ablation of the merged rule rather than a narrowing of it: if depth 8
+holds inside [0.95, 1.05], the merged rule's value lies almost entirely in
+its ghost-class twentieth, and the rest is cost. One judgment call by the
+implementer, pinned by a test: the class test uses the tree's existing
+fault-crossing predicate, so a sender crashed at incarnation 0 counts as
+the dead class rather than the fresh one.
