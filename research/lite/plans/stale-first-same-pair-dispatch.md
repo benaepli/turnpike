@@ -132,3 +132,16 @@ Build on the merged tree. Grade four chunks on bit 4194304 (nested in 24), prima
 Cost 0: fresh_first.rs and the dispatch site in scheduler.rs only; no exec.rs, history.rs or event-accounting touch (the candidate wrote 0.5; the rubric has no such value). Nested quarter inside bit 24 gives the matched two-sided read the direction note asked for; while in the tree the pooled bit-24 headline reads fresh+stale against stock, which the ledger must record. Interaction with the receiver-ghost holds: none at the dispatch site (a hold masks before the draw; this swaps among eligibles).
 
 False claims named at admission: ["power clauses: '1.5x separates on two pooled seeds, 1.3x on four' is false under the grader's cell rule at about 27 events per quarter per seed; 2x needs three pooled seeds, 1.5x five; 1.3x is never confirmable at these counts", "'stock coin took the ghost first about 60%' is one of two disagreeing records (plan line 24 says 0.37 overtaken; the iteration-26 merge note says 0.711 overtaken); the derived 0.92 and the band floor 0.70 depend on which is right"]
+
+## Pre-grade census (2026-09-04, implementer smoke, 50,944 runs)
+
+Fresh quarter: swaps 6,776, overtaken share 1.000 on 23,048 ghost entries.
+Stale quarter: swaps to the stale record 14,083, overtaken share 0.0002 on
+23,261 ghost entries (the identity contested - stale_drawn - contested_down
+- swaps_to_stale = 0 holds exactly). Control half: overtaken share 0.626.
+Flag for the read: repeat swaps over swaps on the stale quarter 0.34,
+above the prediction's 0.25 clause - a fresh record is displaced once per
+eligible ghost of its pair and a fan-out leaves several ghosts per pair;
+the fresh arm's ratio is 0.05. Tests 391 unit plus all integration suites.
+The grade proceeds on the frozen prediction; the repeat-swap clause is
+read as stated.
