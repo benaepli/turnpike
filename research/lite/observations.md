@@ -2515,3 +2515,21 @@ The stale-term Raft member reads crash placement 2.55 up and the deferral
 1.17, not separated. The immediate half of the request-timing axis now has
 a member that shows what it buys; the crash-placement axis still lacks a
 member on its opposite side, which is what iteration 38 is testing.
+
+## Iteration 38: the quiet crash is wrong for the first crash and right for the second
+
+The first opposite-side crash arm (LANDED and ANSWERED phases on a salted
+quarter of the anchored runs) graded under the new keep rule: it lost on
+the VR primary, depth>=8 0.83 [0.77, 0.89], and none of the panel members
+it named read up on the candidate binary (forget-promise 4 against 44
+events, recover-forget-accepted 0.73, raft-forget-vote 0.59), so it is
+closed by its own rule. Two things it taught. The frozen VR band [0.08,
+0.45] was wildly pessimistic; the loss is a sixth, not two thirds. And
+depth>=9 separated up 1.29 [1.11, 1.50] with depth>=10 at 1.49 and plan
+completion 4 points higher: a crash placed when the node's network is
+quiet converts depth 8 to depth 9 better than a fan-out-timed one, which
+matches the chain (the second crash follows node 2's StartViewChange and
+DoViewChange sends). The arm table should depend on the fault index, not
+the run: fan-out timing for the initiating crash, quiet timing for the
+next. Seeded. The panel side also corrected the plan: the forget members
+do not need a quiescent crash; they read down on it.

@@ -172,3 +172,34 @@ read up on its named members is closed.
 ## Judge notes
 
 Ranked first and the only mechanism in the round: a verified inversion of the crash axis, reading the same ledger the merged arms read, with the twin-stream property preserved and every cited number reproducing. Its VR read is a frozen loss by design and the keep decision lives on the panel; the prediction below makes that read operational. Implementer: (1) the treated table is a separate [Landed, Answered, Stock] array drawn with the same % 3 so the control's random sequence is untouched - assert with a CountingRng twin test like crash_phase.rs:352-386; (2) read trigger from the landing node's ledger copy already taken at scheduler.rs:725, never the planned victim's; (3) add crash_phase.quiet.landed.released_with_peer_held (read node has a record in crash_info.queued_messages at a condition release) so 'landed' is reported net of set-aside records; (4) Fanout gains delivery_woken: bool; the test helper fanout() sets it false; (5) decide.ts VARIANT_BITS row {131072, crashQuietPhase} is operator registration in the same commit; (6) crash_phase.quiet.{runs, mapped_draws, landed/answered/stock: CrashPhaseArmStats} in util_stats.rs.
+
+## Verdict (2026-09-04)
+
+Closed by the frozen keep rule. Four chunks, 207,484 treated against 619,696
+matched control runs (crash placement and the phase arm set on both):
+
+| rung | quiet / fan-out per run | interval |
+| --- | --- | --- |
+| depth>=8 | 0.826 | [0.771, 0.886] |
+| depth>=9 | 1.290 | [1.111, 1.497] separated up |
+| depth>=10 | 1.493 | [0.972, 2.295] |
+
+Plan completion 0.224 against 0.182; throughput 0.959; depth>=8 per
+second 0.92. Firing: quiet arms armed 322,743 over four chunks, released on
+condition 62 percent, expired 42 percent (no reserve expiries); the
+independent observable held - in-flight share at apply on condition-
+released quiet crashes 0.16 (ANSWERED) and 0.19 (LANDED) against EARLY's
+0.92 and MID's 0.91. Panel on the candidate binary (three seeds):
+paxos-fixed-forget-promise 4 against 44 events on the quiet quarter (down,
+count-only), paxos-fixed-recover-forget-accepted 0.73 [0.44, 1.19],
+raft-forget-vote 0.59 [0.26, 1.38]; the fixed host 0 everywhere. No named
+member read up, so the arm is not kept.
+
+Reading: the frozen VR band [0.08, 0.45] was far too pessimistic (0.83),
+and the arm lifts the 8 to 9 conversion by 29 percent while costing 17
+percent at 8 - the quiet crash is the wrong timing for the initiating
+crash and plausibly the right timing for the second one. Seeded as
+crash-arm-table-by-fault-index. The panel members classed as needing a
+quiescent crash did not: they read down on the quiet quarter, so the
+section-5 crash-side classification of the forget members is withdrawn;
+what they need is not yet known.
