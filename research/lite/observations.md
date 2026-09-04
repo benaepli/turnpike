@@ -2667,3 +2667,26 @@ predicate but of where it sits in the order, and the loop had never
 measured that. Iteration 43 grades the admitted mechanism, the same
 predicate placed last, where it can only order records the merged layers
 call equal.
+
+## Iteration 43: sender grouping costs the same in either layer position
+
+The corrected build put the sender preference last, standing aside for
+both merged layers, and the gate held exactly: 152.0M swaps, zero over
+fresh-first, zero over pair order. Depth>=8 read 0.738 [0.718, 0.759]
+against session 1's 0.749. The layer order explained nothing, and the
+iteration-42 filing's account is withdrawn: grouping a receiver's
+deliveries by sender costs a quarter of depth 8 wherever the preference
+sits.
+
+The shape of the loss is the useful part. Depths 6 and 7 lose 3.5 percent,
+depth 8 loses 26 and depth 9 loses 22. Those two rungs are where node 1
+must hear from both peers: VR completes recovery on responses from a
+majority including the primary, and labels 7 through 9 interleave node 0's
+and node 2's records at node 1. A rule that drains one sender's queue
+before the other's delays exactly that. So the loop now has a mechanism
+whose measured failure names its own inverse, and the inverse has a
+mirrored quantitative prediction rather than a hope: alternation should
+read depth>=8 in [1.05, 1.35], and anything below 1.00 closes the family.
+Two refutations in a row have each produced a sharper successor than the
+hypothesis that failed, which is the pattern the last several rounds have
+settled into.

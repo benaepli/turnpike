@@ -163,3 +163,32 @@ merged pair-order invariant test with 29 inversions; the fix reruns the
 two pure rankers on the swap target under the conditions their dispatch
 uses, recording nothing, so the origin layer chooses a sender and nothing
 else. Export tmp/loop/lite/origin-sticky-last-layer.
+
+## Session 2 verdict (2026-09-05): the layer order was not the cause
+
+957,264 treated against 954,091 control runs, override counters exactly
+zero (152,027,696 swaps, none over fresh-first or pair order; 262,462 and
+862,872 contests declined to those layers):
+
+| rung | treated / control | interval | events |
+| --- | --- | --- | --- |
+| depth>=6 | 0.965 | [0.950, 0.981] | 29,222 / 30,166 |
+| depth>=7 | 0.966 | [0.951, 0.982] | 28,717 / 29,622 |
+| depth>=8 | 0.738 | [0.718, 0.759] | 8,770 / 11,844 |
+| depth>=9 | 0.780 | [0.731, 0.831] | 1,667 / 2,131 |
+| depth>=10 | 0.910 | [0.754, 1.097] | 209 / 229 |
+
+Against session 1's 0.749 at depth 8, with the arm now unable to displace
+either merged preference. So the session-1 filing was wrong about the
+cause: sender grouping costs a quarter of depth 8 in either position, and
+the 148.5M overrides were incidental. The mechanism is the cost. Streak
+observable 1.567, throughput 1.021, plan completion 0.198 against 0.189.
+
+What the two sessions jointly say: depths 6 and 7 lose 3.5 percent while 8
+and 9 lose a quarter and a fifth, and those are the rungs where a
+recovering node must hear from both of its peers (VR completes recovery on
+a majority including the primary; labels 7 to 9 interleave node 0's and
+node 2's records at node 1). Draining one sender's queue delays the other.
+The arm to build is the inverse, alternation, seeded as
+origin-alternation-at-destination with the mirrored band as its
+prediction.
