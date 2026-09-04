@@ -77,3 +77,21 @@ A clean dose on the one merged lever that moved depth 10, with both directions o
 
 `start --treatment-bit 268435456 --band-min -0.06 --band-max 0.06`, four
 chunks; the decisive contrast and the extension rule are in the prediction.
+
+## Four-chunk read (2026-09-04, session post-fault-deferral-length-contrast)
+
+417,655 long against 421,063 short runs. Depth>=8 long/short 0.969 [0.903,
+1.040] (band met); depth>=9 0.980 [0.855, 1.123]; depth>=10 1.078 [0.740,
+1.572] on 138 against 129 events; depth>=11 35 against 31. Both quarters
+against the bit-18-clear control: depth>=10 short 3.43 [2.32, 5.07], long
+3.70 [2.51, 5.44] - the 32-step quarter reproduces iteration 33 (2.95) and
+iteration 31 (2.52) within noise. Firing as frozen: hold steps per
+released 33.00 and 64.99; held_at_exit 0.009% and 0.025% (clause 0.1%
+met); dry-queue 184 and 186. Cost read is contaminated: chunk 1 of the
+candidate overlapped another implementer's smoke explore (candidate
+depth-8 per second 16.8 against 22-25 on chunks 2-4), so the session's
+throughput ratio of 0.868 is not a clean reading; steps per run between
+quarters 1.0045x. The depth>=10 interval straddles 1.0, so the frozen
+rule extends to eight chunks: a second four-chunk session on the same
+binary (post-fault-deferral-length-contrast-b) is queued and the two are
+pooled by cell counts.
