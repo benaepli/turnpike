@@ -2648,3 +2648,22 @@ destinations and the incarnation table says who restarted) and no existing
 arm can state it. Seeded as crash-quiet-except-toward-restarted-peer, the
 first candidate the loop has written whose definition came out of two
 refutations rather than a hypothesis about what might help.
+
+## Iteration 42: a dispatch preference is worth what its layer position says
+
+Origin stickiness (prefer the sender a receiver last heard from) was
+admitted as the last dispatch layer and built as the first. The counters
+made that visible without ambiguity: of 150.0M swaps, 148.5M displaced
+fresh-first's own choice and 146.8M displaced pair order's, so the arm
+replaced both merged preferences instead of breaking their ties. The read
+is therefore a measurement of that substitution: depth>=8 0.749 [0.729,
+0.770] with depths 6 and 7 down only 5.5 percent, which is close to what
+losing fresh-first alone would cost (iteration 39 put fresh-first at a
+factor of four on depth 8). Filed as such.
+
+The lesson is about the axis rather than the arm: on a dispatch stack with
+several same-step preferences, an arm's value is not a property of its
+predicate but of where it sits in the order, and the loop had never
+measured that. Iteration 43 grades the admitted mechanism, the same
+predicate placed last, where it can only order records the merged layers
+call equal.

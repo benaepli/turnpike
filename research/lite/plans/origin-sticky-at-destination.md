@@ -117,3 +117,33 @@ layer's own choice in 3,143,679 contests and pair order's in 3,083,600,
 so it is the dominant preference when it fires; the band's downward half
 [0.98, 1.02] exists for exactly that reason. Tests 398 unit plus all
 integration suites.
+
+## Session 1 (2026-09-05): built in the wrong layer order, filed as a different measurement
+
+961,115 treated against 957,599 control runs, plain split (the bit is not
+nested):
+
+| rung | treated / control | interval | events |
+| --- | --- | --- | --- |
+| depth>=6 | 0.945 | [0.930, 0.960] | 28,795 / 30,368 |
+| depth>=7 | 0.945 | [0.930, 0.961] | 28,300 / 29,822 |
+| depth>=8 | 0.749 | [0.729, 0.770] | 8,841 / 11,753 |
+| depth>=9 | 0.915 | [0.859, 0.975] | 1,861 / 2,026 |
+| depth>=10 | 1.047 | [0.869, 1.260] | 229 / 218 |
+
+The observables fired as predicted (mean same-origin streak 2.93 against
+2.16 in the graded census; swaps 150.0M). But the call site was placed
+before fresh_first_dispatch instead of after it, so the arm displaced
+fresh-first's own choice in 148,549,753 swaps and pair order's in
+146,769,965 - it did not tiebreak among equals, it replaced the two merged
+preferences wherever a destination had records from more than one sender.
+Iteration 39 measured fresh-first at a factor of four on depth 8, so a
+25 percent loss at depth 8 with only 5.5 percent at depths 6 and 7 is
+consistent with losing most of fresh-first's contribution and nothing
+else. Throughput 1.021.
+
+This is a real measurement and it is worth keeping: a same-step preference
+placed above fresh-first costs a quarter of depth 8, which prices the
+layer order itself. It is not the admitted mechanism. Session 2 grades
+that: the identical preference as the LAST layer, breaking ties only among
+records the merged layers rank equally.
