@@ -4764,3 +4764,25 @@ stock per cell), below the 0.15 build-fault line and re-read on chunk 1.
 Session pick-lead started on bit 256 with band [1.06, 1.22]; four
 chunks, seeds 1002 and 1003 of the merged tree's baseline measured
 inside it.
+
+**Chunk 1: the concentrating half separates at one chunk.** Coin
+quarter 126,406 grid runs; each learner quarter split 63k against 63k.
+Pooled over the three learners, the new half against the matching half:
+depth>=8 1.156 [1.065, 1.253] on 3,043 against 2,633, steps per run
+1.008; against the coin quarter 1.286 [1.169, 1.414], while the
+matching half reads 1.113 [1.009, 1.226] against the coin, in line with
+the last session's 1.09 to 1.11. Per learner, new against matching: A
+1.189 [1.027, 1.377], B 1.175 [1.028, 1.344], C 1.104 [0.957, 1.273].
+The shares on the new half are where the coin table said the prize
+was: B retarget 0.876, phase 0.787, pair 0.781 and stock 0.051 (matching
+0.654, 0.552, 0.575, 0.066); C hold 0.811, retarget 0.797, rush 0.079
+(matching 0.671, 0.642, 0.143); A fresh-first 0.793, retarget 0.688,
+phase 0.563, stock 0.108 (matching 0.600, 0.554, 0.482, 0.089). The flat
+axes stay inside the confound band: A hold 0.472, B fresh 0.520, C
+fresh 0.539. Mean leader margins per axis 0.66 to 0.88. Firing 77k
+concentrated runs per learner against the 60k floor; fallback 0.017.
+Depth 10 leans: C new half against the coin 3.0 [1.24, 7.3] on 30
+against 20, pooled new against matching 1.23 on 58 against 47, A+B
+pooled new against matching 28 against 22, nowhere near the 0.80 line.
+Candidate 657,240 runs at 2,189 per second, depth>=8 9,204 in the chunk
+against the baseline's 7,354 on the same seed, no violation.
