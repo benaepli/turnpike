@@ -3362,3 +3362,67 @@ rides on the mutating one.
 Two rounds, iterations 47 and 49, spent eight chunks and one minute
 respectively to reach the same conclusion about the same family; the
 difference is the pre-committed gate.
+
+## Direction review at iteration 50
+
+**Violations.** One, in iteration 48's chunk 3: the recovery-nonce reuse
+background bug, fourth occurrence, classified within the hour and not
+credited. The target has never appeared. Twenty-two runs in 2.3M completed
+the whole 13-rung chain with none violating, so the relaxed oracle is
+necessary and not sufficient - an oracle question, recorded for the user.
+
+**The proxy.** Two corrections to the loop's own record this stretch. The
+oracle's longest path is 13; every "depth 14" in this log was a scale
+ceiling. And fresh-first is worth 1.24 over the coin on this tree, not a
+factor of four (that is what its inverse costs). The funnel on the current
+tree: 8 to 9 0.179, 9 to 10 0.090, 10 to 11 0.234, 11 to 12 0.709, 12 to
+13 0.301. Depths 12 and 13 carry 73 and 22 runs in 2.3M and are not
+decidable by any arm at any affordable size; the VR-decisive rungs are 8, 9,
+10 and, at the edge, 11.
+
+**Panel.** Every readable cell of iterations 46 to 49 sat inside 1.30 with
+its interval spanning one except iteration 46's forget-accepted at six
+seeds; mencius, the structural A/A, has read 0.91 and 1.12, which is the
+noise floor. The panel decides arms of 1.3x and up and vetoes the rest. The
+hard set has not been re-run since 2026-09-04 (the hour it costs was not
+spent this stretch); the quick set's per-member rates were read on every
+candidate binary and are flat.
+
+**Steering audit, iterations 46 to 49.** Two merges: the rush arm (a
+direction added to the request-timing draw, decided on the panel, VR flat)
+and the fresh-first narrowing (48 percent of a rule returned to the draw
+at no cost, VR flat). Two closures of the progress-clock family, one at
+eight chunks and one at one minute, and one filing (reply-before-news,
+leaning right on two members, separating on neither). One operator seed
+rejected on an inverted mechanism. Both merges were the axis discipline
+working as designed, and neither moved a VR rung; four rounds and about
+twelve hours produced zero movement on depth 8, 9 or 10. The discipline is
+right about generality and has been paid for out of VR's time, which is the
+tradeoff the user named and asked to rebalance.
+
+**What the stretch established about the request-timing axis.** The 64-step
+hold is worth 3.3x at depth 10 and is the best of every form tested: 32 is
+worse, 128 is worse (0.743 separated down), and every progress-keyed
+release is inapplicable because the node whose crash opens the hold mostly
+does not restart and act within the run (latch on 8.9 percent of runs, 94
+percent of holds never). The hold's value is a fixed delay past the crash,
+not anything the recovering node does. The axis is exhausted for 9 to 10 at
+mechanism level; what remains on it is the class split, which the census
+can now sign, and whose VR read is a null.
+
+**Verdict and the next directives.** From here a candidate is admitted only
+with a VR-decisive rung - depth 10 or 11, band with the lower edge above
+one over eight chunks - and the panel is a veto, not a decider, until it has
+a member that can resolve a 1.15. The axis discipline stays (add a
+direction, keep the coin, no fitted constants, a pre-committed smoke gate on
+applicability) because it is what made the last four rounds legible; it no
+longer gets to decide a merge on its own. The one untried family with a
+VR-decisive rung is recovery completion at the recovered node - 10 to 11 at
+0.234, the second-worst step, where both RecoveryResponses must land at
+node 2 before its PrepareOK can follow w2 - and the kept inbound-admission
+axis acts there in its EARLY direction (promote records addressed to a node
+that has restarted and acted fewer than N times). Iteration 50 proposes on
+that, with the judge's corrections from iteration 48 carried in: a restart
+step must be added to State, the LATE direction needs no client-invocation
+counter if it is drawn as the inverse of EARLY on the same class, and the
+gate is read on the smoke.
