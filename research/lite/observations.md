@@ -4462,3 +4462,29 @@ against 0.0180 on the coin's. The mutual cycle's table at 58 events
 2.55, rush 0.29 at base 0.0187. Session cycle-before-request started on
 bit 128 with band [1.05, 1.18], seeds 1002 and 1003 of the merged tree's
 baseline measured inside it; four chunks straight through.
+
+**Chunk 1: every gate passes, the hold share moves, and the candidate
+side has a violation on a new signature.** Coin quarter 135,430 runs.
+Alignment for the bit-128 reward on the coin quarter: base 0.0196 on
+2,657 rewards, stock/placed 0.517, phase/placed 1.452, retarget 2.295,
+fresh 1.042, pair 1.176, hold/stock 3.379, rush/stock 0.326 - all five
+gates met. Its learner: hold share 0.632 and retarget 0.608 against coins
+of 0.499 and 0.500, rush 0.161, pair 0.525, phase 0.500, stock 0.095. The
+depth reads against the coin quarter (114,031 grid runs): C depth>=6
+1.133 [1.057, 1.214], depth>=8 1.077 [0.964, 1.203] on 1,584 against
+1,472, depth>=9 1.071, depth>=10 1.42 on 27 against 19, steps 1.002; B
+depth>=8 1.076 [0.963, 1.202], depth>=10 1.53 on 29 against 19; A
+depth>=8 1.061 [0.949, 1.185]. The other tables: the exchange reward
+hold/stock 2.836, rush/stock 0.300 at base 0.0131; the mutual cycle at
+base 0.0032 on 436 events with retarget 6.77. Candidate 577,680 runs at
+1,924 per second.
+
+Run 61138 violates: grid-short, configuration 50, 714 steps, plan
+complete, a replay-prefix child on the B learner's quarter carrying crash
+placed, hold drawn and the rush arm; signature ea076ff71851ec53, not in
+the loop's index (twenty entries since 2026-08-28). The evidence is
+archived under research/logs/violations/lite-cycle-before-request-
+sequential-1000-1788640468601 and is being classified while the chunks
+run; on the nonce-fixed spec the corpus has no known background rate, so
+the classification decides whether this is the target, a second spec
+bug, or something else.
