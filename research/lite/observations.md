@@ -2840,3 +2840,57 @@ anti-general thing the loop has merged.
 produce enough violations to resolve a cell at all. Generality is currently
 measurable on paxos-accept-stale-ballot, paxos-fixed-recover-forget-accepted
 and raft-forget-vote; the other eight can only veto on zero.
+
+## Iteration 46: the rush arm replicates the inverse pattern and resolves nothing
+
+The post-fault request-timing axis gained its opposite direction: a quarter
+of runs now issue a post-crash client request at its ready step and give its
+records the top of the priority range, against a hold half and a stock
+quarter. The arm fires hard and is not inert - 16.6M records prioritized per
+minute, and the dispatch-authority split says the preference layers ahead of
+the score displace a rushed record about 15 percent of the time.
+
+Four chunks, matched RUSH against STOCK (476,891 against 477,055, no balance
+faults): depth>=8 1.060 [0.976, 1.151], depth>=9 0.970, depth>=10 0.850,
+none separated. Throughput 0.987, cost clause met. The frozen band was
+[0.90, 1.02] and the reading sits above it, so the band reads undecided:
+the arm does not cost VR what it was expected to.
+
+The panel, three seeds pooled, is the reason the round matters. Every member
+that carries crashes reads the hold and the rush in opposite directions:
+
+| member | HOLD | RUSH |
+| --- | --- | --- |
+| paxos-fixed-recover-forget-accepted | 0.63 [0.45, 0.88] down | 1.32 [0.95, 1.83] |
+| raft-stale-vote | 0.66 [0.42, 1.04] | 1.28 [0.81, 2.03] |
+| paxos-fixed-recover-stale-scout | 0.92 [0.39, 2.16] | 1.24 [0.49, 3.13] |
+| paxos-accept-stale-ballot | 0.88 [0.81, 0.95] down | 1.05 [0.96, 1.14] |
+| mencius-opt1-2 | 0.94 [0.81, 1.09] | 0.91 [0.77, 1.09] |
+
+Four members inverted, in rank order: the two the hold hurts most are the
+two the rush helps most. mencius is the control and behaves like one - it
+runs zero crashes, so no request is ever post-fault and the arm cannot fire,
+which makes its row an A/A on 42,801 against 42,637 runs. That row also
+fixes the noise floor: an A/A here reads 0.91, so a cell inside ten percent
+of one is not evidence of anything.
+
+No rush cell separates. The decisive one, paxos-fixed-recover-forget-accepted,
+reads 1.32 with a lower edge of 0.95 - it misses by a hair on 205 against
+155 violations, and its per-seed readings were 1.24, 1.24 and 1.52. The
+frozen falsifier (below 1.00 pooled over three seeds) is not met, and the
+frozen positive claim (up per the grader's definition) is not met either.
+
+**Pre-committed extension, written before the runs.** The cell needs about
+forty percent more events to resolve a 1.32 at z 2.7, which is three more
+seeds. Three seeds are bought, for six pooled, and the decision is taken on
+those six and not extended again:
+
+- paxos-fixed-recover-forget-accepted reads UP on the pooled six (the
+  grader's own definition: lower edge above 1, ratio - 1 at or above 0.02,
+  five violations a side) -> merge the arm at the quarter.
+- It does not read up -> the arm is filed, not merged, with the directional
+  inversion recorded as the finding and the hold left alone.
+
+Naming the rule before the data is the point: the arm's own frozen
+prediction already specified three seeds, and buying more until something
+separates is fishing unless the stopping point is fixed in advance.
