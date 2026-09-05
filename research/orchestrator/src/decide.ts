@@ -51,7 +51,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 256, name: "linkSpeed" },
   { bit: 512, name: "crashPhase" },
   { bit: 1024, name: "entryClock" },
-  { bit: 16384, name: "crashPhaseReaction" },
+  { bit: 16384, name: "clientRushPriority" },
   { bit: 65536, name: "ghostPeerAnswer" },
   { bit: 524288, name: "ghostAbsorberRetarget" },
   { bit: 8388608, name: "crashPhaseOnLanding" },
@@ -314,6 +314,8 @@ export interface InternalPrimary {
   inapplicableReason: string | null;
   // The co-bits the control was matched on, as a mask.
   matchedOnMask: number;
+  // The co-bits the control was required to be clear of, as a mask.
+  matchedClearMask: number;
   matchedOn: string[];
   // Treated share of all runs, probes included. null on the baseline side
   // means the baseline carries no run with the bit, so there is nothing to
@@ -377,12 +379,32 @@ export function invariantCoBits(treated: VariantMetrics[], bit: number): number 
   return inv ?? 0;
 }
 
+/** The tags no treated run carries that some otherwise-matched control run
+ *  does. A treatment drawn over the complement of another is clear on every
+ *  run it treats, so a control that keeps the other treatment's runs
+ *  contrasts two mechanisms against each other rather than one against none.
+ *  Only a co-bit some control run actually carries is matched on, so a tag
+ *  absent from the whole body of cells restricts nothing. */
+export function complementCoBits(treated: VariantMetrics[], control: VariantMetrics[], bit: number): number {
+  let clear: number | null = null;
+  for (const c of treated) {
+    if (c.runs <= 0) continue;
+    clear = clear === null ? ~c.variant : clear & ~c.variant;
+  }
+  let present = 0;
+  for (const c of control) {
+    if (c.runs > 0) present |= c.variant;
+  }
+  return (clear ?? 0) & present & ~bit;
+}
+
 interface RawContrast {
   treated: InternalSide;
   control: InternalSide;
   ratio: number;
   se: number;
   inv: number;
+  comp: number;
   treatedCells: VariantMetrics[];
   controlCells: VariantMetrics[];
 }
@@ -393,7 +415,9 @@ function matchedContrast(cells: VariantMetrics[], bit: number, k: number): RawCo
   const scope = probeFreeScope(cells, bit);
   const treatedCells = scope.filter((c) => (c.variant & bit) !== 0);
   const inv = invariantCoBits(treatedCells, bit);
-  const controlCells = scope.filter((c) => (c.variant & bit) === 0 && (c.variant & inv) === inv);
+  const shared = scope.filter((c) => (c.variant & bit) === 0 && (c.variant & inv) === inv);
+  const comp = complementCoBits(treatedCells, shared, bit);
+  const controlCells = shared.filter((c) => (c.variant & comp) === 0);
   const treated = sideAt(treatedCells, k);
   const control = sideAt(controlCells, k);
   const p1 = treated.rate;
@@ -402,7 +426,7 @@ function matchedContrast(cells: VariantMetrics[], bit: number, k: number): RawCo
   const se = treated.events > 0 && control.events > 0
     ? Math.sqrt((1 - p1) / treated.events + (1 - p2) / control.events)
     : NaN;
-  return { treated, control, ratio, se, inv, treatedCells, controlCells };
+  return { treated, control, ratio, se, inv, comp, treatedCells, controlCells };
 }
 
 /** Share of a population's runs carrying a bit. */
@@ -454,7 +478,7 @@ export function internalPrimaryCells(
   const blank = (b: number, reason: string): InternalPrimary => ({
     bit: b, name: b > 0 ? bitNameOf(b) : "", rung: `depth>=${k}`,
     applies: false, inapplicableReason: reason,
-    matchedOnMask: 0, matchedOn: [],
+    matchedOnMask: 0, matchedClearMask: 0, matchedOn: [],
     treatedShare: { candidate: 0, baseline: null },
     treated: emptySide(), control: emptySide(),
     ratio: NaN, seCount: NaN, seEff: NaN, lo: NaN, hi: NaN, z: NaN,
@@ -510,7 +534,10 @@ export function internalPrimaryCells(
     balance.faults.push(`steps per run ${stepsPerRunRatio.toFixed(3)} treated to control`);
   }
 
-  const matchedOn = VARIANT_BITS.filter((v) => (c.inv & v.bit) !== 0).map((v) => v.name);
+  const matchedOn = [
+    ...VARIANT_BITS.filter((v) => (c.inv & v.bit) !== 0).map((v) => v.name),
+    ...VARIANT_BITS.filter((v) => (c.comp & v.bit) !== 0).map((v) => `not ${v.name}`),
+  ];
   const perChunkRatios = perChunkCells
     .map((cells) => matchedContrast(cells, bit, k).ratio)
     .filter((r) => Number.isFinite(r) && r > 0);
@@ -560,7 +587,7 @@ export function internalPrimaryCells(
   return {
     bit, name: bitNameOf(bit), rung: `depth>=${k}`,
     applies: reason === null, inapplicableReason: reason,
-    matchedOnMask: c.inv, matchedOn,
+    matchedOnMask: c.inv, matchedClearMask: c.comp, matchedOn,
     treatedShare: { candidate: candShare, baseline: baseShare },
     treated: c.treated, control: c.control,
     ratio, seCount, seEff, lo, hi, z,
@@ -1657,6 +1684,21 @@ export function selfTestInternalPrimary(): string[] {
   check(nest.applies && nest.separatedUp, `a matched 4% gain on this sample must separate up, got applies ${nest.applies} lo ${nest.lo}`);
   check(internalPrimaryCells(nested, [], 512, { min: 0.1, max: 0.3 }, 2, 2).bandReading === "refuted",
     "a frozen band above the interval must read as refuted");
+
+  // A bit drawn over the complement of another treatment is clear on every
+  // run it treats, so the control keeps only the runs the other treatment
+  // also left alone.
+  const complement = [cell(16384, 100_000, 25_000), cell(0, 100_000, 24_000), cell(262144, 200_000, 60_000)];
+  const comp = ip(complement, 16384);
+  check(comp.matchedClearMask === 262144 && comp.matchedOn.includes("not clientFanoutRelease"),
+    `a complement bit must match on the other treatment being clear, got mask ${comp.matchedClearMask} names ${comp.matchedOn.join()}`);
+  check(Math.abs(comp.ratio - 25_000 / 24_000) < 1e-9,
+    `the complement contrast must exclude the other treatment's runs, got ${comp.ratio}`);
+  check(withProbes(complement, 16384) < 0.95,
+    "the complement fixture must show a misleading unmatched ratio, else the matching is not tested");
+  // A tag no run of either side carries restricts nothing.
+  check(ip([cell(16384, 100_000, 25_000), cell(0, 100_000, 24_000)], 16384).matchedClearMask === 0,
+    "an absent co-bit must not enter the clear mask");
 
   // 3. Balance. A co-bit whose share differs between the matched populations
   // is a contrast about the populations, not about the mechanism.

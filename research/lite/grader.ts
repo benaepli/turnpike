@@ -39,7 +39,7 @@ import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/st
 import {
   CROSS_BINARY_NULL_FLOOR, EPOCH_DRIFT_WARN, EPOCH_THROUGHPUT_FLOOR, INTERNAL_MIN_EFFECT, INTERNAL_OVERDISPERSION, INTERNAL_Z, MERGE_Z,
   NON_DECLARABLE_BITS, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, RULE_VERSION, VARIANT_BITS, addStratum,
-  chunkStratum, compareToBaseline, figuresOf, internalAdvanceRungsFor, internalPrimary, invariantCoBits, mergeBlockers, objectiveCounts, primaryRungFor,
+  chunkStratum, compareToBaseline, complementCoBits, figuresOf, internalAdvanceRungsFor, internalPrimary, invariantCoBits, mergeBlockers, objectiveCounts, primaryRungFor,
   probeFreeScope, projectedEpochThroughput, ruleVerdict, selfTestInternalPrimary, variantBitsMissingFromSource,
   variantContrasts,
   type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
@@ -1478,7 +1478,9 @@ function panelCells(cells: VariantMetrics[]): { cells: PanelCell[]; matchedOn: R
     const treatedRuns = sum(treatedCells, (c) => c.runs);
     if (treatedRuns === 0) continue;
     const inv = invariantCoBits(treatedCells, bit);
-    const controlCells = scope.filter((c) => (c.variant & bit) === 0 && (c.variant & inv) === inv);
+    const shared = scope.filter((c) => (c.variant & bit) === 0 && (c.variant & inv) === inv);
+    const comp = complementCoBits(treatedCells, shared, bit);
+    const controlCells = shared.filter((c) => (c.variant & comp) === 0);
     const controlRuns = sum(controlCells, (c) => c.runs);
     const treatedViolations = sum(treatedCells, (c) => c.violations);
     const controlViolations = sum(controlCells, (c) => c.violations);
@@ -1496,7 +1498,10 @@ function panelCells(cells: VariantMetrics[]): { cells: PanelCell[]; matchedOn: R
     else if (hi < 1 && 1 - ratio >= INTERNAL_MIN_EFFECT) read = "down";
     else read = "flat";
     out.push({ bit, name, treatedRuns, treatedViolations, controlRuns, controlViolations, ratio, lo, hi, read });
-    const names = VARIANT_BITS.filter((v) => (inv & v.bit) !== 0).map((v) => v.name);
+    const names = [
+      ...VARIANT_BITS.filter((v) => (inv & v.bit) !== 0).map((v) => v.name),
+      ...VARIANT_BITS.filter((v) => (comp & v.bit) !== 0).map((v) => `not ${v.name}`),
+    ];
     if (names.length > 0) matchedOn[name] = names;
   }
   return { cells: out, matchedOn };
@@ -1532,6 +1537,15 @@ function selfTestPanelCells(): string[] {
   check(phase !== undefined && phase.controlRuns === 1000 && phase.controlViolations === 50, `crashPhase must be matched to the placed control, got ${JSON.stringify(phase)}`);
   check(phase !== undefined && Math.abs(phase.ratio - 2) < 1e-9 && phase.read === "up", `crashPhase must read up at ratio 2, got ${JSON.stringify(phase)}`);
   check(nested.matchedOn["crashPhase"]?.join() === "crashPlaced", `crashPhase must report matching on crashPlaced, got ${JSON.stringify(nested.matchedOn)}`);
+
+  // A bit drawn over the complement of another treatment drops that
+  // treatment's runs from its control.
+  const complement = panelCells(corpus(rows(16384, 10_000, 500, 0), rows(0, 10_000, 250, 10_000), rows(262144, 20_000, 2_000, 20_000)));
+  const compCell = cellOf(complement, 16384);
+  check(compCell !== undefined && compCell.controlRuns === 10_000 && compCell.controlViolations === 250,
+    `the complement control must exclude the other treatment's runs, got ${JSON.stringify(compCell)}`);
+  check(complement.matchedOn["clientRushPriority"]?.join() === "not clientFanoutRelease",
+    `a complement bit must report the tag it requires clear, got ${JSON.stringify(complement.matchedOn)}`);
   const placed = cellOf(nested, 1);
   check(placed !== undefined && placed.treatedRuns === 2000 && placed.controlRuns === 1000 && placed.controlViolations === 5,
     `crashPlaced must drop the probe runs from both halves, got ${JSON.stringify(placed)}`);
