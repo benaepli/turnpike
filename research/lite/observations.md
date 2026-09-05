@@ -3260,3 +3260,27 @@ contests 1.49M per chunk, news_strict 0.987, swaps_reply about 0.70 of the
 treated half's contests, no balance faults, throughput 1.068 (baseline-side
 artifact; steps per run identical at 2,158 against 2,151). The VR read is
 the guard it was declared to be; the panel decides.
+
+**Closed on the panel, three seeds.** REPLY_FIRST against stock:
+paxos-fixed-recover-forget-accepted 1.15 [0.83, 1.59] on 296 against 129
+violations, raft-stale-vote 1.30 [0.85, 2.00], paxos-accept-stale-ballot
+0.98 [0.91, 1.05], mencius 1.12 [0.97, 1.30] as the structural A/A - which
+puts the noise floor at 1.12 from above, having put it at 0.91 from below
+two rounds ago. NEWS_FIRST against stock: forget-accepted 0.99, raft-stale-
+vote 0.91, both flat and both unreadable as predicted, since the direction
+fired 28 times less often than its mirror. Both readable members lean the
+way the axis story says and neither separates; the frozen rule required the
+decisive cell UP by the grader's definition over three seeds and it is not.
+The arm is closed with the patch kept: no reply-first member on the current
+panel at the power three seeds give. Not extended, because the rule named
+three seeds and a 1.15 would not separate at six.
+
+What the round leaves: a verified rung map with no rung 14; the funnel's two
+hard steps named (9 to 10 at 0.090, 12 to 13 at 0.301); a fourth
+recovery-nonce violation, classified in a chunk; a cross-origin preference
+that costs VR nothing, leans the right way on two members, and cannot be
+told from noise at three seeds. Two things the record should say plainly:
+the panel has run out of power for arms of this size - every readable cell
+this round was inside 1.30 with intervals spanning one - and the last two
+rounds spent about five hours to narrow one rule and close two arms, which
+is the wall time the user has said the loop cannot afford.

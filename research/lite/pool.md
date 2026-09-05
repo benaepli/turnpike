@@ -2559,11 +2559,16 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## reply-before-news-at-destination
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 48 (judge gain 5, cost 0, rank 1 of four; the operator's
-  alternative was rejected on falsified claims, and both judgments name this
-  arm; the merge decision rests on the panel under the iteration-46 rule,
-  VR as guards only) | parent:
+- kind: add | category: scheduler | origin: proposer | status: FILED at
+  iteration 48 (panel rule not met over three seeds: forget-accepted 1.15
+  [0.83, 1.59] on REPLY_FIRST, raft-stale-vote 1.30 [0.85, 2.00], nothing
+  down, mencius A/A 1.12; VR guards met, depth>=8 1.015 [0.962, 1.070];
+  contests 1.49M per chunk, news_strict 0.987; NEWS_FIRST fired 28x less
+  than its mirror and is unreadable. Patch kept at
+  tmp/loop/lite/reply-news/spur.patch. Reopen only with a panel member whose
+  shape is a reply-before-news race at a never-restarted coordinator, or at
+  a power that separates 1.15) | previously ADMITTED at iteration 48 (judge
+  gain 5, cost 0, rank 1 of four) | parent:
   fresh-first-same-pair-dispatch-tiebreak (merged, narrowed) and
   pair-send-order-ghost-class-only (merged)
 - Mechanism: a cross-origin same-step preference at one destination,
