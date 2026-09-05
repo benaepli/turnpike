@@ -4822,3 +4822,18 @@ against the coin. Firing 283k concentrated runs per learner; fallback
 0.018. The A+B pooled depth-10 read against matching is 124 against 103,
 nowhere near the human clause. No violations on 2,419,080 candidate
 runs. The regression case and the panel run next.
+
+**Finish.** The regression case passes (vr-nofault-clean, 1,800 runs,
+zero violations). Cost, cross-binary against the merged tree's baseline
+on the four paired seeds: throughput 1.038, depth>=8 per explore-second
+1.093 against a null band of 0.009 - the whole campaign, the coin
+quarter and the matching halves included, reads nine percent more
+depth-8 events per second than the tree, from a change to half of three
+quarters. The epoch ledger would move from 0.914 to 0.949 against its
+0.90 floor. The grader's own primary for bit 256 prints 1.169 [1.109,
+1.233], band met, steps 1.010; its advice line prints human on the
+co-bit blocker (the new half carries the learner bits at 0.334 against
+0.200 in the grader's default control, which is the split's shape) and
+on a rule that read no stated prediction as met - the admitted read is
+the pooled within-learner contrast written before the session, and it
+passed. The panel runs next; the decision follows it.
