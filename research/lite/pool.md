@@ -2555,3 +2555,68 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   victim_swap.no_absorber is 321,307 of 479,257 releases, so on two thirds
   of releases no node carries a mark and the inverse comparator degenerates
   to a lowest-index rule. Reopen only with thresholds read from the census.
+
+
+## reply-before-news-at-destination
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 48 (judge gain 5, cost 0, rank 1 of four; held for the
+  operator's direction decision, because its VR read is unresolvable by
+  construction and the merge would rest on the panel alone) | parent:
+  fresh-first-same-pair-dispatch-tiebreak (merged, narrowed) and
+  pair-send-order-ghost-class-only (merged)
+- Mechanism: a cross-origin same-step preference at one destination,
+  composed after fresh_first_dispatch and pair_order_dispatch. Class REPLY:
+  a remote record whose origin has restarted and whose origin_incarnation is
+  the origin's current one. Class NEWS: a remote record whose origin's state
+  token has moved since the destination last took an entry from that origin
+  (a per-(destination, origin) token table, one write per delivery, written
+  OUTSIDE the util_stats gate). REPLY_FIRST takes the REPLY rival,
+  NEWS_FIRST the NEWS rival, stock keeps the draw; displaced record stays
+  eligible; no draw consumed. Bits 8192 (replyBeforeNews, half) and 2048
+  (newsBeforeReply, a quarter of the rest), stock quarter the control.
+- Chain edge fixed: PrepareOK 2->0 before {StartView 1->0, StartViewChange
+  1->0, StartViewChange 2->0} at node 0 - the grader's rung 11 to 12. That
+  transition converts at 0.70 pooled over 24 baseline chunks, so the largest
+  attainable depth>=12 ratio is 1.43 while eight chunks need 1.65 to
+  separate: VR is a guard (depth>=8 [0.95, 1.10], depth>=10 [0.95, 1.30]),
+  never decisive. Panel decides on the iteration-46 rule:
+  paxos-fixed-recover-forget-accepted UP on REPLY_FIRST and DOWN (<= 0.90) on
+  NEWS_FIRST over three seeds; raft-stale-vote must not read DOWN. Firing
+  reply_news.contests >= 60,000 per chunk, swaps_reply/contests >= 0.5, and
+  news_strict/contests reported. Cost throughput >= 0.97.
+
+## recovering-receiver-inbound-admission-axis
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 48 (judge gain 3, cost 2, rank 2; not scheduled) | parent:
+  post-fault-request-timing-axis (filed)
+- Why held back: its central ordering - both RecoveryResponses to the
+  restarted node after w2 - has no edge in the DAG (they are co-predecessors
+  of the PrepareOK). It needs a restart ordinal (State has only an
+  incarnation count) and a run-level client-invocation counter (at the
+  history push, hence cost 2). The gate would likely open within a few steps
+  of each restart. EARLY is the direction with a case, not LATE.
+
+## restart-progress-priority-change-point
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 48 at the floor (judge gain 2, cost 2, rank 3; do not build as
+  written) | parent: post-fault-release-on-recovered-progress (closed)
+- Why: a one-shot re-draw of queued priorities breaks the treated/untreated
+  random-stream parity every merged rule asserts by test, making any depth
+  read uninterpretable. Correct about one thing: priority is not in
+  Record::hash, so a queue re-draw is safe for dedup. PCT change points
+  remain genuinely unattempted; a parity-preserving form (a fixed band shift
+  rather than a re-draw) could be re-proposed.
+
+## origin-restart-class-order-at-recovering-receiver
+
+- kind: add | category: scheduler | origin: proposer | status: REJECTED at
+  iteration 48 (judge score 0: already answered) | parent: fresh-first
+- Reason: the sender-choice-at-a-destination family is closed in both
+  directions (0.738 at iteration 43, 0.949 at iteration 45), and the two
+  labels it means (RecoveryResponse 0->2 and 1->2) are concurrent in the
+  DAG - the exact condition under which a preference and its inverse both
+  lose. Its "strict subset of reply-before-news" claim is false (it admits
+  ghosts).

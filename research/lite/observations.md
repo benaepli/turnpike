@@ -3159,3 +3159,44 @@ ghost deliveries, 0.090) and 12 to 13 (the second RecoveryResponse landing
 last, 0.301); 13 to 14 - the recovered node's PrepareOK beating the
 StartView at the coordinator - has never occurred. Iteration 48's four
 proposals are aimed at the last three rows.
+
+**A correction to the table above, and to every "depth 14" in this log.**
+The oracle DAG has 20 labels but a longest path of 13, so the grader's
+`depthAtLeast` has exactly 13 slots and there is no rung 14: the last row of
+the funnel table is a scale ceiling reported as a measurement, not a
+transition that never happens. The rungs, from the DAG: 7 {Recovery 2->1,
+RecoveryResponse 0->2}, 8 {StartViewChange 2->1, RecoveryResponse 1->2},
+9 {DoViewChange 2->1}, 10 {w2}, 11 {PrepareOK 2->0}, 12 {StartView 1->0 and
+the two StartViewChanges to 0}, 13 {the three reads}. Read on that map, the
+funnel's hard steps are 9 to 10 (the second write after the third ghost
+delivery, 0.090) and 12 to 13 (the reads after the StartView, 0.301); 11 to
+12 - the recovered node's PrepareOK before the StartView at the coordinator,
+the race the round's directive named - already converts at 0.70 pooled.
+
+Twenty-two runs in 2.3M completed the whole chain and none violated. GOAL.md
+records that depth decoupled from violations once before; this is the
+current size of that gap, and it says the relaxed chain is necessary and not
+sufficient.
+
+**Judgment.** All four proposals indexed the oracle by linear-extension
+position rather than by rung, so their decisive-rung arithmetic was shifted
+by one from position 8 on; the judge's correction is the round's main
+product. reply-before-news-at-destination ranked first (gain 5, cost 0): the
+only arm naming a real DAG edge (PrepareOK 2->0 before the StartView and
+StartViewChanges at node 0) and picking the direction the edge argues for,
+no new state, no step constant - but its VR read is unresolvable by
+construction, since the transition it acts on converts at 0.70 and caps the
+attainable depth>=12 ratio at 1.43 where eight chunks need 1.65 to separate.
+Rewritten so VR is a guard and the panel decides on the iteration-46 rule,
+with two build conditions: the heard-token table must be written outside
+`util_stats::enabled()`, and a `news_strict` share must be counted because
+the NEWS predicate as stated is near-universal. The inbound-admission axis
+(gain 3, cost 2) rests on an ordering the DAG does not contain - the two
+RecoveryResponses and w2 are co-predecessors of the PrepareOK, not ordered -
+and needs a restart ordinal and a client-invocation counter that do not
+exist, the latter at the history push. The PCT change point (gain 2, cost 2)
+breaks treated/untreated random-stream parity, which every merged rule
+asserts by test. The restarted-versus-quiet origin preference is rejected:
+the sender-choice family is closed in both directions (0.738, 0.949) and the
+two labels it means are concurrent in the DAG, the exact condition under
+which both directions lose.
