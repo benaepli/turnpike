@@ -3679,3 +3679,36 @@ depth>=8 events per explore-second on the four changed arms against the
 paired baseline in [1.30, 2.10], campaign-wide as the secondary in [1.20,
 1.80], grid-short inside [0.90, 1.10], and depths 10 to 13 per second
 reported. If it passes, the merge is held for the user.
+
+**Eight chunks: the dose passes every band, and the merge is held for the
+user as pre-committed.** 6,361,924 candidate runs against 4,417,344
+baseline runs on the same eight seeds, no violations either side. On the
+four changed arms, depth>=8 events per explore-second read 1.545 against
+the frozen band [1.30, 2.10], with per-run depth>=8 at 1.006 - the shorter
+budget costs nothing per run there - and depth>=10 to 13 per second at
+1.47, 1.35, 1.37 and 1.47. Campaign-wide, depth>=8 per second read 1.311
+(the grader's own cross-binary view 1.355, separated at z 2.7 with a null
+band of 0.006, its rule printing merge), depth>=10 1.29, depths 11 to 13
+1.16, 1.16, 1.18. Runs per second 1.44. This is the largest movement of the
+epoch's objective in the epoch's history, from one config field.
+
+The invariance control did not hold still, and that is the round's second
+finding. grid-short's configuration is identical under both templates, yet
+its depth>=8 rate fell 5.5 percent (19,454 against 20,593 events, far
+outside counting noise) and its deep rungs fell a quarter to a third (65
+against 86, 43 against 60, 13 against 20). The run-cap scope and the
+crash-placement span are learned campaign-wide, so shortening four arms'
+budgets re-tuned the fifth; the arms are coupled through shared learners
+and a base-field dose is not the clean per-arm intervention the design
+assumed. That coupling is also why the campaign-wide deep gains are half
+the changed arms' gains: grid-short's loss offsets them.
+
+Why the merge is held rather than taken. The panel cannot see this change -
+every member sets its own step budget and the grader overrides the base
+field - so its generality is unguarded by construction, and the loop's rule
+since iteration 46 is that a merge no panel member can read is the user's
+call. Merging changes the template hash, invalidates every cached baseline
+and re-bases the epoch. And the coupling finding says the cleaner form is
+probably the dose plus per-arm learners, which is a design choice. The
+candidate export, the session state and this reading are all kept; the
+decision and iteration 54's direction wait on the user.

@@ -2888,8 +2888,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   bit; MERGE HELD FOR THE USER if it passes (judge gain 7, cost 0, rank 1 of
   four). Smoke gate PASSED: steps/run 2,796 -> 1,600, rps 1.71x, plan
   completion 0.226 -> 0.224, no zero arm; learned cap reached 0.294 -> 0.
-  Session budget-2000 grading, eight chunks | parent:
-  learned-run-cap-probe-p99 (merged)
+  Eight chunks PASSED every band: four-changed-arm depth>=8/sec 1.545
+  [1.30, 2.10], campaign-wide 1.311 (grader 1.355 separated, rule: merge),
+  grid-short 0.947 inside [0.90, 1.10] but its deep rungs fell 25-35 percent
+  through shared learners (run-cap scope, placement span) - the arms are
+  coupled and the base field is not a clean per-arm dose. Per-run depth>=8
+  1.006 on the changed arms. MERGE HELD FOR THE USER; export
+  tmp/loop/lite/budget-2000 kept | parent: learned-run-cap-probe-p99 (merged)
 - Change: scheduler_configs/loop/general_vr.json max_iterations 6000 -> 2000;
   nothing else; the campaign block and grid-short's 1500 overlay untouched.
 - Evidence, recomputed by the judge from 16 cached chunks with probes out
