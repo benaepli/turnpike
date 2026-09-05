@@ -2654,10 +2654,19 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## post-fault-release-on-hold-opener-progress-no-cap
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 49 behind a pre-committed smoke gate (judge gain 5, cost 2, rank
-  1 of three); graded only if the 60-second smoke passes all four clauses,
-  otherwise closed on the census without a chunk | parent:
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 49 on the smoke gate, no chunk bought: release.progress / held
+  0.050 (floor 0.50), held_at_exit / held 0.950 (cap 0.01), steps per run
+  1.194x the 64-step quarter (cap 1.08), dry-queue releases 11 of 52,192.
+  The latch opened on 8.9 percent of treated runs; the census (one hold in
+  four) reads within_64 2,323, beyond_64 914, never 51,495 - the opener
+  restarts and acts three times in about 6 percent of holds and never in 94.
+  Plan completion 3.1 percent against 22.8. Patch and smoke utilization kept
+  at tmp/loop/lite/opener-progress. This closes the progress-clock family:
+  the node whose crash opens the hold mostly does not come back and act
+  within the run, so no release keyed on it is applicable with or without a
+  cap | previously ADMITTED at iteration 49 behind the gate (judge gain 5,
+  cost 2, rank 1 of three) | parent:
   post-fault-release-on-recovered-progress (closed), the 64-step hold
 - Mechanism: on a salted half of the hold-half runs (bit 4096
   clientOpenerProgress, nested in bit 1<<18, own salt, probes exempt by

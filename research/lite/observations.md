@@ -3335,3 +3335,30 @@ runs already end on a cap with events outstanding and 9.0 percent of
 executed crashes never see their recover run - and if it does, the row
 closes on the census at the cost of one minute of running, which finishes
 the progress-clock family the way iteration 47 should have been finished.
+
+**Closed on the gate, one minute of running.** On the treated quarter the
+latch released 2,611 of 52,192 held requests (0.050 against a floor of
+0.50); 49,570 were still held at run end (0.950 against a cap of 0.01);
+steps per run were 1.194x the 64-step quarter's (cap 1.08); the dry-queue
+rule released 11. The latch opened on 8.9 percent of treated runs, and the
+arm-blind census reads within_64 2,323, beyond_64 914, never 51,495: where
+the opener does come back and act num_servers times it mostly does so
+inside 64 steps, but in 94 percent of holds it does not do so at all before
+the run ends. Plan completion on the treated quarter fell from 22.8 to 3.1
+percent. No chunk was bought. The progress-clock family is finished: the
+node whose crash opens the hold mostly does not restart and act within the
+run, so a release keyed on its progress is inapplicable whatever the cap,
+and the merged 64-step hold's value rests on a fixed delay past the crash,
+not on anything the recovering node does.
+
+The class census, free in the same binary, is the round's product: on the
+VR config the merged hold holds 81,537 reads against 42,625 writes (66 to
+34) and its post-fault population is 182,349 reads against 95,762 writes.
+The panel members are the inverse, 3:1 writes. The class split kept from
+this round can now carry a panel sign taken from data: what the hold delays
+on the panel is mostly writes, so its panel harm, if it rides on one class,
+rides on the mutating one.
+
+Two rounds, iterations 47 and 49, spent eight chunks and one minute
+respectively to reach the same conclusion about the same family; the
+difference is the pre-committed gate.
