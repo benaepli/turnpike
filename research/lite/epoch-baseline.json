@@ -1,129 +1,146 @@
 {
-  "epoch": 14,
-  "frozenAtIso": "2026-09-03T06:35:05.466Z",
-  "identity": {
-    "spurTree": "aba61f7362597976b4e20db917e42442f79305eb",
-    "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
-    "armIds": [
-      "grid",
-      "grid-no-purgatory",
-      "grid-post-fault-2",
-      "grid-short"
-    ],
-    "rayonThreads": 30,
-    "chunkSec": 300,
-    "graderVersion": "ta:12160cd+porc:ebf06c5+oracle:390ec49e"
+ "epoch": 14,
+ "frozenAtIso": "2026-09-03T06:35:05.466Z",
+ "identity": {
+  "spurTree": "aba61f7362597976b4e20db917e42442f79305eb",
+  "templateSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "armIds": [
+   "grid",
+   "grid-no-purgatory",
+   "grid-post-fault-2",
+   "grid-short"
+  ],
+  "rayonThreads": 30,
+  "chunkSec": 300,
+  "graderVersion": "ta:12160cd+porc:ebf06c5+oracle:390ec49e"
+ },
+ "runsPerSec": 2041.8467725654139,
+ "source": "median over research/lite/baselines/aba61f736259-30-f9daa01b-300-g0d3de012.json (2 chunks)",
+ "layoutNullBand": 0.05,
+ "layoutSource": "bb-build-layout-control, 2026-09-02: identical source built twice read 0.9634 on the per-second rung",
+ "layoutMeasuredAtIso": "2026-09-02T09:20:00Z",
+ "merges": [
+  {
+   "name": "fresh-first-same-pair-dispatch-tiebreak",
+   "commit": "e10f046",
+   "spurCommit": "6db3b34",
+   "ratio": 1.079,
+   "cumulative": 1.079,
+   "measuredRps": 2139.3730572395198,
+   "measuredRpsChunks": [
+    2207.031640382963,
+    2071.7144740960766
+   ],
+   "cacheFile": "research/lite/baselines/ba634c99e024-30-f9daa01b-300-g0d3de012.json",
+   "measuredAtIso": "2026-09-03T09:20:00Z",
+   "note": "measured by grader baseline --chunks 2 after the fresh-first merge; depth>=8 events per chunk [7699, 7149] against 6495/6100 at the epoch freeze"
   },
-  "runsPerSec": 2041.8467725654139,
-  "source": "median over research/lite/baselines/aba61f736259-30-f9daa01b-300-g0d3de012.json (2 chunks)",
-  "layoutNullBand": 0.05,
-  "layoutSource": "bb-build-layout-control, 2026-09-02: identical source built twice read 0.9634 on the per-second rung",
-  "layoutMeasuredAtIso": "2026-09-02T09:20:00Z",
-  "merges": [
-    {
-      "name": "fresh-first-same-pair-dispatch-tiebreak",
-      "commit": "e10f046",
-      "spurCommit": "6db3b34",
-      "ratio": 1.079,
-      "cumulative": 1.079,
-      "measuredRps": 2139.3730572395198,
-      "measuredRpsChunks": [
-        2207.031640382963,
-        2071.7144740960766
-      ],
-      "cacheFile": "research/lite/baselines/ba634c99e024-30-f9daa01b-300-g0d3de012.json",
-      "measuredAtIso": "2026-09-03T09:20:00Z",
-      "note": "measured by grader baseline --chunks 2 after the fresh-first merge; depth>=8 events per chunk [7699, 7149] against 6495/6100 at the epoch freeze"
-    },
-    {
-      "name": "pair-send-order-lean",
-      "commit": "1921761",
-      "spurCommit": "f28f1b5",
-      "ratio": 0.9884,
-      "cumulative": 1.0664836,
-      "measuredRps": 2125.52764248349,
-      "measuredRpsChunks": [
-        2065.148987603512,
-        2185.9062973634686
-      ],
-      "cacheFile": "research/lite/baselines/9d6dfc9c38a3-30-f9daa01b-300-g0d3de012.json",
-      "measuredAtIso": "2026-09-03T17:40:00Z",
-      "note": "measured by grader baseline --chunks 2 after the send-order merge; depth>=8 events per chunk [6752, 7037], depth>=9 [1130, 1129]; against 7699/7149 and 1234/1138 on the previous cache - a cross-session drop of about 7% on depth 8 and 5% on depth 9, the opposite sign of the within-session read, inside one session's chunk spread but recorded"
-    },
-    {
-      "name": "client-release-into-ghost-consumer-fanout-window",
-      "commit": "5ded656",
-      "spurCommit": "f769929",
-      "ratio": 0.9942,
-      "cumulative": 1.06029799512,
-      "measuredRps": 2087.721689664715,
-      "measuredRpsChunks": [
-        1989.2902813299231,
-        2186.153097999507
-      ],
-      "cacheFile": "research/lite/baselines/c868e2728937-30-f9daa01b-300-g0d3de012.json",
-      "measuredAtIso": "2026-09-03T19:17:00Z",
-      "note": "ratio is the four-chunk grade read (candidate over base, 0.9942); measured by grader baseline --chunks 2 after the merge; events per chunk depth>=8 [6343, 7355], depth>=9 [1152, 1310], depth>=10 [98, 94], depth>=11 [22, 19]; against [6752, 7037], [1130, 1129], [46, 48], [13, 9] on the first two chunks of the previous cache. Depth 10 roughly doubled on the cache as the grade predicted; the first chunk's throughput (1989) is the lowest chunk of the epoch and is recorded, not explained."
-    },
-    {
-      "name": "post-fault-request-deferral-simplified",
-      "commit": "88b35b1",
-      "spurCommit": "327bf72",
-      "ratio": 0.9781,
-      "cumulative": 1.037077469026872,
-      "measuredRps": 2042.0697766729193,
-      "measuredRpsChunks": [
-        2017.7,
-        2066.5
-      ],
-      "cacheFile": "research/lite/baselines/2150b1c09798-30-f9daa01b-300-g0d3de012.json",
-      "measuredAtIso": "2026-09-04T01:40:00Z",
-      "note": "simplification of the merged client release to the plain 32-step deferral, decided on the iteration-33 ablation (no grade session of this binary, so ratio is cache-to-cache against the previous merge's cache and carries the 4-5% build-layout noise); events per chunk depth>=8 [6670, 7312], depth>=9 [1118, 1257], depth>=10 [88, 100], depth>=11 [17, 27] against [6343, 7355], [1152, 1310], [98, 94], [22, 19] on the previous cache: depth 10 holds without the window release."
-    },
-    {
-      "name": "post-fault-deferral-length-contrast",
-      "commit": "f9fd5fa",
-      "spurCommit": "81be109",
-      "ratio": 0.9666,
-      "cumulative": 1.0024390815613746,
-      "measuredRps": 2003.8,
-      "measuredRpsChunks": [
-        1844.1,
-        2163.4
-      ],
-      "cacheFile": "research/lite/baselines/c90ead2d4c06-30-f9daa01b-300-g0d3de012.json",
-      "measuredAtIso": "2026-09-04T14:10:00Z",
-      "note": "ratio is the clean second session's cross-binary throughput (the first session's 0.868 was contaminated by a concurrent smoke explore); regression vr-nofault-clean passed on the merged tree (1,800 runs, 0 violations); events per chunk depth>=8 [6279, 6920], depth>=9 [1120, 1247], depth>=10 [98, 139], depth>=11 [25, 29] against [6670, 7312], [1118, 1257], [88, 100], [17, 27] on the previous cache; chunk 1 throughput 1,844 is the lowest chunk of the epoch and is recorded, not explained."
-    },
-    {
-      "name": "crash-phase-on-landing-node",
-      "commit": "f9a0b0d",
-      "spurCommit": "02df730",
-      "ratio": 0.9915,
-      "cumulative": 0.993918349368103,
-      "measuredRps": 1987.0,
-      "measuredRpsChunks": [
-        1901.1,
-        2072.8
-      ],
-      "cacheFile": "research/lite/baselines/dc44e20e6726-30-f9daa01b-300-g0d3de012.json",
-      "measuredAtIso": "2026-09-04T15:20:00Z",
-      "note": "ratio is the second session's cross-binary throughput (0.976 on the first); regression vr-nofault-clean passed on the merged tree; events per chunk depth>=8 [6303, 6943], depth>=9 [1132, 1253], depth>=10 [114, 140], depth>=11 [33, 38] against [6279, 6920], [1120, 1247], [98, 139], [25, 29] on the 64-step cache. Two merges landed back to back; the cache's throughput (1,987 against 2,004) is inside layout noise."
-    },
-    {
-      "name": "pair-send-order-ghost-class-only",
-      "commit": "0536fa1",
-      "spurCommit": "d2ecb29",
-      "ratio": 1.0101,
-      "cumulative": 1.0039569246967208,
-      "measuredRps": 2073.0,
-      "measuredRpsChunks": [
-        2065.6,
-        2080.4
-      ],
-      "cacheFile": "research/lite/baselines/f88b238ce607-30-f9daa01b-300-g870d4c11.json",
-      "measuredAtIso": "2026-09-05T20:30:00Z",
-      "note": "narrowing, not an addition: the merged per-pair send-order rule now corrects only the dead incarnation's records, returning about 64 percent of its firing to the draw at a graded null on depth 8 (1.0074 [0.9524, 1.0657]). Regression vr-nofault-clean passed. Cache 2,073 runs per second, the epoch's highest, events per chunk depth>=8 [7260, 7084], depth>=9 [1317, 1251], depth>=10 [140, 110], depth>=11 [29, 33] against [6303, 6943], [1132, 1253], [114, 140], [33, 38] on the previous cache."
-    }
-  ]
+  {
+   "name": "pair-send-order-lean",
+   "commit": "1921761",
+   "spurCommit": "f28f1b5",
+   "ratio": 0.9884,
+   "cumulative": 1.0664836,
+   "measuredRps": 2125.52764248349,
+   "measuredRpsChunks": [
+    2065.148987603512,
+    2185.9062973634686
+   ],
+   "cacheFile": "research/lite/baselines/9d6dfc9c38a3-30-f9daa01b-300-g0d3de012.json",
+   "measuredAtIso": "2026-09-03T17:40:00Z",
+   "note": "measured by grader baseline --chunks 2 after the send-order merge; depth>=8 events per chunk [6752, 7037], depth>=9 [1130, 1129]; against 7699/7149 and 1234/1138 on the previous cache - a cross-session drop of about 7% on depth 8 and 5% on depth 9, the opposite sign of the within-session read, inside one session's chunk spread but recorded"
+  },
+  {
+   "name": "client-release-into-ghost-consumer-fanout-window",
+   "commit": "5ded656",
+   "spurCommit": "f769929",
+   "ratio": 0.9942,
+   "cumulative": 1.06029799512,
+   "measuredRps": 2087.721689664715,
+   "measuredRpsChunks": [
+    1989.2902813299231,
+    2186.153097999507
+   ],
+   "cacheFile": "research/lite/baselines/c868e2728937-30-f9daa01b-300-g0d3de012.json",
+   "measuredAtIso": "2026-09-03T19:17:00Z",
+   "note": "ratio is the four-chunk grade read (candidate over base, 0.9942); measured by grader baseline --chunks 2 after the merge; events per chunk depth>=8 [6343, 7355], depth>=9 [1152, 1310], depth>=10 [98, 94], depth>=11 [22, 19]; against [6752, 7037], [1130, 1129], [46, 48], [13, 9] on the first two chunks of the previous cache. Depth 10 roughly doubled on the cache as the grade predicted; the first chunk's throughput (1989) is the lowest chunk of the epoch and is recorded, not explained."
+  },
+  {
+   "name": "post-fault-request-deferral-simplified",
+   "commit": "88b35b1",
+   "spurCommit": "327bf72",
+   "ratio": 0.9781,
+   "cumulative": 1.037077469026872,
+   "measuredRps": 2042.0697766729193,
+   "measuredRpsChunks": [
+    2017.7,
+    2066.5
+   ],
+   "cacheFile": "research/lite/baselines/2150b1c09798-30-f9daa01b-300-g0d3de012.json",
+   "measuredAtIso": "2026-09-04T01:40:00Z",
+   "note": "simplification of the merged client release to the plain 32-step deferral, decided on the iteration-33 ablation (no grade session of this binary, so ratio is cache-to-cache against the previous merge's cache and carries the 4-5% build-layout noise); events per chunk depth>=8 [6670, 7312], depth>=9 [1118, 1257], depth>=10 [88, 100], depth>=11 [17, 27] against [6343, 7355], [1152, 1310], [98, 94], [22, 19] on the previous cache: depth 10 holds without the window release."
+  },
+  {
+   "name": "post-fault-deferral-length-contrast",
+   "commit": "f9fd5fa",
+   "spurCommit": "81be109",
+   "ratio": 0.9666,
+   "cumulative": 1.0024390815613746,
+   "measuredRps": 2003.8,
+   "measuredRpsChunks": [
+    1844.1,
+    2163.4
+   ],
+   "cacheFile": "research/lite/baselines/c90ead2d4c06-30-f9daa01b-300-g0d3de012.json",
+   "measuredAtIso": "2026-09-04T14:10:00Z",
+   "note": "ratio is the clean second session's cross-binary throughput (the first session's 0.868 was contaminated by a concurrent smoke explore); regression vr-nofault-clean passed on the merged tree (1,800 runs, 0 violations); events per chunk depth>=8 [6279, 6920], depth>=9 [1120, 1247], depth>=10 [98, 139], depth>=11 [25, 29] against [6670, 7312], [1118, 1257], [88, 100], [17, 27] on the previous cache; chunk 1 throughput 1,844 is the lowest chunk of the epoch and is recorded, not explained."
+  },
+  {
+   "name": "crash-phase-on-landing-node",
+   "commit": "f9a0b0d",
+   "spurCommit": "02df730",
+   "ratio": 0.9915,
+   "cumulative": 0.993918349368103,
+   "measuredRps": 1987.0,
+   "measuredRpsChunks": [
+    1901.1,
+    2072.8
+   ],
+   "cacheFile": "research/lite/baselines/dc44e20e6726-30-f9daa01b-300-g0d3de012.json",
+   "measuredAtIso": "2026-09-04T15:20:00Z",
+   "note": "ratio is the second session's cross-binary throughput (0.976 on the first); regression vr-nofault-clean passed on the merged tree; events per chunk depth>=8 [6303, 6943], depth>=9 [1132, 1253], depth>=10 [114, 140], depth>=11 [33, 38] against [6279, 6920], [1120, 1247], [98, 139], [25, 29] on the 64-step cache. Two merges landed back to back; the cache's throughput (1,987 against 2,004) is inside layout noise."
+  },
+  {
+   "name": "pair-send-order-ghost-class-only",
+   "commit": "0536fa1",
+   "spurCommit": "d2ecb29",
+   "ratio": 1.0101,
+   "cumulative": 1.0039569246967208,
+   "measuredRps": 2073.0,
+   "measuredRpsChunks": [
+    2065.6,
+    2080.4
+   ],
+   "cacheFile": "research/lite/baselines/f88b238ce607-30-f9daa01b-300-g870d4c11.json",
+   "measuredAtIso": "2026-09-05T20:30:00Z",
+   "note": "narrowing, not an addition: the merged per-pair send-order rule now corrects only the dead incarnation's records, returning about 64 percent of its firing to the draw at a graded null on depth 8 (1.0074 [0.9524, 1.0657]). Regression vr-nofault-clean passed. Cache 2,073 runs per second, the epoch's highest, events per chunk depth>=8 [7260, 7084], depth>=9 [1317, 1251], depth>=10 [140, 110], depth>=11 [29, 33] against [6303, 6943], [1132, 1253], [114, 140], [33, 38] on the previous cache."
+  },
+  {
+   "name": "post-fault-request-rush-arm",
+   "commit": "PENDING",
+   "spurCommit": "0500275",
+   "ratio": 0.9733,
+   "cumulative": 0.9771512748073184,
+   "measuredRps": 2022.1,
+   "measuredRpsChunks": [
+    2017.6,
+    1910.9,
+    2146.8,
+    2026.7
+   ],
+   "cacheFile": "research/lite/baselines/c54cbb7df9bf-30-f9daa01b-300-g870d4c11.json",
+   "measuredAtIso": "2026-09-05T03:20:00Z",
+   "note": "adds the opposite direction to the post-fault request-timing axis: a quarter of runs issue the post-crash client request at its ready step and give its records the top of the priority range, against a hold half and a stock quarter. VR did not decide it - matched RUSH against STOCK over four chunks read depth>=8 1.060 [0.976, 1.151], above the frozen band [0.90, 1.02] and unseparated, and the grader's own rule printed human. The merge rests on the pre-committed panel rule: paxos-fixed-recover-forget-accepted reads 1.27 [1.01, 1.60] up over six pooled seeds where the hold reads 0.59 [0.47, 0.75] down, and all four crash-carrying members read the two directions in opposite senses. Regression vr-nofault-clean passed. As first merged (spur 8bdde0c) the arm cost 4.6 percent of runs per second, four chunks [1956.9, 1993.7, 2007.1, 1968.2] against [2065.6, 2080.4, 2094.4, 2074.9] with no overlap and every rung falling in step; the cost was the two censuses, not the mechanism, and sampling them (one step in 64 for the dispatch split, one operation in 8 for the delivery distance) returned the reading to 0.973, inside the 5 percent layout band with the ranges overlapping. The sampled cache's spread is wide (1910.9 to 2146.8) and the median is recorded as measured, not smoothed. Events per chunk depth>=8 [7028, 6293, 7316, 6915], depth>=9 [1249, 1062, 1309, 1291], depth>=10 [101, 101, 122, 152], depth>=11 [27, 24, 31, 31]."
+  }
+ ]
 }

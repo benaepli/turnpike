@@ -2328,8 +2328,18 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## post-fault-request-rush-arm
 
 - kind: add | category: scheduler | origin: proposer | status:
-  ADMITTED at iteration 46 (judge gain 8, cost 2, rank 1; top pick; the
-  independent observable was rewritten before admission) | parent:
+  MERGED at iteration 46 (spur 0500275). VR did not decide it: matched RUSH
+  against STOCK over four chunks read depth>=8 1.060 [0.976, 1.151], above
+  the frozen band and unseparated, and the grader printed `human`. The merge
+  is on the pre-committed panel rule - paxos-fixed-recover-forget-accepted
+  1.27 [1.01, 1.60] UP over six pooled seeds against the hold's 0.59 [0.47,
+  0.75] DOWN, with all four crash-carrying members reading the two
+  directions in opposite senses and the crash-free member an A/A on both.
+  The first build cost 4.6 percent of throughput from two unsampled
+  censuses; sampling them (one step in 64, one operation in 8) returned it
+  to 0.973 | previously ADMITTED at iteration 46 (judge gain 8, cost 2,
+  rank 1; top pick; the independent observable was rewritten before
+  admission) | parent:
   post-fault-request-timing-axis (filed) and the merged 64-step hold
 - Mechanism: the inverse direction of the merged post-fault hold, added as
   a third arm so the axis carries both directions and the coin. A second

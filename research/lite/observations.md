@@ -2894,3 +2894,42 @@ those six and not extended again:
 Naming the rule before the data is the point: the arm's own frozen
 prediction already specified three seeds, and buying more until something
 separates is fishing unless the stopping point is fixed in advance.
+
+**Merged (spur 0500275).** The pre-committed rule fired: over six pooled
+seeds paxos-fixed-recover-forget-accepted reads 1.27 [1.01, 1.60] UP by the
+grader's own definition, on 403 against 316 violations, while the hold reads
+0.59 [0.47, 0.75] DOWN on the same corpus. raft-stale-vote's hold cell also
+separated once three more seeds were in (0.61 [0.44, 0.83]), so the hold is
+now confirmed down on three members and the rush is up on one and down on
+none.
+
+The merge is recorded for what it is. The grader's automated verdict was
+`human`, with two accurate blockers: the internal contrast did not separate
+on a rung the rule merges on, and the VR band was not met. The merge rests
+on the loop's opposite-side keep rule - name a panel member and a direction
+in advance, then confirm `up` per cell - not on the VR rung. What was bought
+is no VR gain, no VR cost, and one protocol's violation rate up 27 percent
+with the interval clear of one; what it establishes is that the axis now has
+two directions where it had one and a coin.
+
+**A throughput cost that was instrumentation, not mechanism.** The first
+merged build read 0.954 of the previous cache on runs per second, four
+chunks [1956.9, 1993.7, 2007.1, 1968.2] against [2065.6, 2080.4, 2094.4,
+2074.9] - non-overlapping ranges, with every rung falling in step and the
+per-run rates unchanged, which is the signature of a pure throughput cost.
+The cost clause was 0.97, so the clause was not met. The two expensive
+pieces were both censuses: the rushed-dispatch split scanned a step's
+candidates whenever the run had a rushed operation, and the delivery-distance
+table was consulted on every dispatch. Both are ratios, so both were sampled
+rather than removed - one step in 64, one operation in 8 - and the reading
+returned to 0.973, inside the layout band with the ranges overlapping. The
+diagnostics the judge asked for survive; the 5 percent does not.
+
+Two process notes worth keeping. The baseline cache is keyed on the spur
+commit, so a re-measure against an uncommitted change silently reuses the
+old chunks and exits 0; the first attempt at re-measuring the trim did
+exactly that and would have recorded the untrimmed number. And the sampled
+cache's own spread (1910.9 to 2146.8, 12 percent) is wider than the effect
+being argued about, which is the reason the 0.954 finding rests on
+non-overlapping ranges across four chunks each way rather than on any single
+median.
