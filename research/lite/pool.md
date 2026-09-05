@@ -2838,8 +2838,15 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 - kind: add | category: scheduler | origin: operator-agent (derived in-round
   from the cut's reading; the judge named this design in advance as "the
-  most informative single design") | status: ADMITTED at iteration 51 behind
-  the same smoke gate | parent: recovering-receiver-inbound-priority-axis
+  most informative single design") | status: GRADING at iteration 51 -
+  gate passed on all four clauses (0.907, 12.4, 0.428 ceiling-normalized,
+  0.999); the dispatch-share census was re-scoped to the rule's class after
+  reading 0.224 over the mixed population (both numbers kept); settle
+  latency -4.0 percent against a 5 percent falsifier, overridden with the
+  reason recorded (the observable counts backlog entries the rule now leaves
+  alone). Decisive read fixed: depth>=10 lower edge > 1.00 at z 2.7 over
+  eight chunks, guard depth>=8 [0.96, 1.12], no reinterpretation | previously
+  ADMITTED at iteration 51 behind the same smoke gate | parent: recovering-receiver-inbound-priority-axis
   (closed), recovering-receiver-early-fresh-scope-ablation (decided)
 - Mechanism: identical to the closed axis except that EARLY stamps only
   class records that do NOT carry DeliveryBias::RECEIVER_RESTARTED - records
