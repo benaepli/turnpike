@@ -3873,3 +3873,45 @@ against the coin's 0.08 - rarity rewards the direction whose contexts are
 rare because the direction is rare. Graded as admitted: four chunks,
 survey contrast for bit 64, the prior-fault and proxy-fault outcomes kept
 distinct as written at admission.
+
+**Two chunks close the selector, and the control half says why.** Treated
+against untreated on 506,774 against 507,400 probe-free runs over seeds
+1000 and 1001, steps per run 1.001, no fallback to speak of (0.8 percent
+of treated runs), 98.2 percent of chosen draws departing from the coins:
+depth>=8 0.905 [0.857, 0.955] against the admitted band [1.04, 1.16] -
+refuted, with the loss already at depth 3 (0.94) and carried to every
+rung, depth>=9 0.893, depth>=10 0.784 on thin counts. The learner did what
+it was built to do: the treated half's reward rate rose to 0.270 against
+the control's 0.244 (1.106, one and a half points short of the 1.12
+letter) while its depth fell a tenth. Per direction on the control half,
+which is a uniform experiment the coins drew, the reward orders the arms
+against depth on four of the five axes: stock crashes 0.544 against placed
+0.198 and phased 0.198; fresh-first off 0.264 against on 0.222; pair order
+off 0.259 against on 0.225; stock requests 0.279 against the hold 0.222
+and the rush 0.234; retarget flat at 0.250 and 0.237. So the selector
+moved the treated mix toward stock crashes (0.179 of chosen runs against
+the coin's 0.08 outside probes), away from fresh-first and pair order, and
+away from the hold, which is every direction the record reads as
+deep-productive, and paid for it at depth 3 onward. The reason is the
+reward's shape and not the learner: a schedule that concentrates (placed
+crashes, a preferred incarnation, a held request) makes post-recover
+contexts common, and rarity pays for diffusion. The judge's red team
+called this the fixed point of a coverage objective before a chunk was
+bought; the record's earlier readings on novelty and timeline scoring
+were the same sign; this is the first time the ordering has been read
+direction by direction.
+
+Decision: closed. The grader's advice line printed merge through its
+cross-binary fallback, because the candidate binary ran 1.146x the
+baseline's runs per second and depth>=8 per explore-second read 1.088 on
+that; the internal contrast is the admitted read and it is refuted, and a
+faster binary at a lower per-run rate is a cost reading, not a gain (the
+seed-1000 baseline chunk was measured while the proposer was reading the
+tree and reads 4.5 percent below its siblings, which accounts for part of
+it; the rest is unexplained and noted). Patch kept under
+research/lite/patches/axis-selector: the per-cell switch works and is
+cheap, and what it lacks is a reward that orders the arms as depth does.
+The per-direction control table is now the instrument for that question:
+any candidate reward can be read against depth on the coin half in one
+chunk before a learner is pointed at it, folded into the next selector
+build rather than measured on its own.

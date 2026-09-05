@@ -2992,9 +2992,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## per-cell-factored-axis-beta-selector-rarity-reward
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 54 (judge gain 5, cost 0, rank 2; implementing with the
-  operator's prior change) | parent: none
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 54 on two chunks (depth>=8 0.905 [0.857, 0.955] against [1.04,
+  1.16]; the learner fired, departures 0.98, and raised its reward 1.106x
+  while depth fell from rung 3 on; the rarity reward orders the arms against
+  depth on four of five axes on the control half; patch kept under
+  research/lite/patches/axis-selector, the switch is sound and the reward is
+  the open question) | parent: none
 - Per-cell (arm_index, config_index) learner over the run-level arm axes:
   crash {stock, placed, placed+phase}, retarget, fresh-first, pair order,
   request {hold, rush, stock}; one discounted Beta per direction (g 0.995),

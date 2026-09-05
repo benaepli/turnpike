@@ -1,0 +1,1267 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index 047ece1..f7fa8db 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -1,3 +1,4 @@
++pub mod arm_selector;
+ pub mod config_override;
+ mod core;
+ pub mod client_anchor;
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index bb3668a..597f3d5 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -967,6 +967,7 @@ pub fn run_explorer_campaign(
+     info!("campaign session_seed = {}", config.envelope.session_seed);
+     util_stats::set_enabled(config.envelope.stats);
+     crate::simulator::run_cap::reset();
++    crate::simulator::arm_selector::reset();
+     crate::simulator::fault_timing::reset();
+     crate::simulator::timer_context::reset();
+     crate::simulator::fault_timing::set_fraction(
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index 430dec9..60df072 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -12,6 +12,7 @@ use crate::simulator::core::state::{
+ };
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+ use crate::simulator::core::values::{Env, Value};
++use crate::simulator::arm_selector;
+ use crate::simulator::crash_phase;
+ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+@@ -1166,6 +1167,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 purgatory_config,
+                 rng,
+             )?;
++            state.recovers_applied += 1;
+             Ok(ScheduleResult::Recover { node_id })
+         }
+         Runnable::Partition { partition_type, .. } => {
+@@ -1278,6 +1280,18 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     // node counts, not the continuations it is re-queued as.
+                     let message_entry = record_origin != record_dest && r.pc == record_entry_pc;
+                     let entry_step = state.crash_info.current_step;
++                    // The context of every entry after the run's first
++                    // recover, read at run end by the arm selector.
++                    if message_entry && state.recovers_applied > 0 {
++                        let key = arm_selector::delivery_key(
++                            record_dest.index,
++                            record_entry_pc,
++                            state.fault_crossing(record_origin, r.origin_incarnation),
++                            state.incarnation(record_dest) > 0,
++                            state.entries_since_restart(record_dest.index),
++                        );
++                        state.recover_delivery_keys.push(key);
++                    }
+                     // Whether a ghost reached a destination that had already
+                     // heard from the sender's current incarnation, read off
+                     // the per-destination table before this entry is added.
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 96f4e9e..aa00e34 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -639,6 +639,14 @@ pub struct State<H: HashPolicy> {
+     /// number of scheduling draws taken by then when the run records its
+     /// draws. Observation only, excluded from `signature()`.
+     pub replay_cut: Option<ReplayCut>,
++    /// Recovers the run has applied so far. Observation only, excluded from
++    /// `signature()`.
++    pub recovers_applied: u32,
++    /// The delivery context of every message entry taken after the run's
++    /// first recover, packed by `arm_selector::delivery_key`, in entry
++    /// order. Read once at run end; observation only, excluded from
++    /// `signature()`.
++    pub recover_delivery_keys: Vec<u32>,
+     /// Remote records in the network queue whose origin has restarted since
+     /// sending them: the sum over nodes of `net_records - net_fresh`.
+     pub net_stale_records: u32,
+@@ -782,6 +790,8 @@ impl<H: HashPolicy> State<H> {
+             pair_order: pair_order::RunState::default(),
+             client_anchor: client_anchor::RunState::default(),
+             replay_cut: None,
++            recovers_applied: 0,
++            recover_delivery_keys: Vec::new(),
+             net_stale_records: 0,
+             net_requests: 0,
+         }
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index b8a651b..babeb91 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -25,8 +25,10 @@ use crate::simulator::rng::{
+     LiveRng, RecRng, RecordRng, Recording, ReplayRng, RngSource, SCHEDULE_SALT, StreamRng,
+     StreamSet, WORKLOAD_SALT, derive_seed, mutate_tape,
+ };
++use crate::simulator::arm_selector;
+ use crate::simulator::fault_timing;
+ use crate::simulator::run_cap;
++use crate::simulator::run_variant::ArmSet;
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats;
+ use crossbeam::channel;
+@@ -971,6 +973,7 @@ fn run_row(
+     max_iterations: i32,
+     wall: std::time::Duration,
+     timers: crate::simulator::core::state::TimerRunStats,
++    arms: &ArmSet,
+     crash_hold_drawn: bool,
+ ) -> crate::simulator::history::PersistableRun {
+     let (steps_used, end_reason) = match outcome {
+@@ -997,7 +1000,7 @@ fn run_row(
+         timers_idle_fired: timers.idle_fired as i32,
+         timers_idle_acted: timers.idle_acted as i32,
+         max_inert_streak: timers.max_inert_streak as i32,
+-        variant: crate::simulator::run_variant::of(run_id, crash_hold_drawn)
++        variant: crate::simulator::run_variant::of(run_id, arms, crash_hold_drawn)
+             | attribution.variant_bits,
+     }
+ }
+@@ -1100,6 +1103,10 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &mut rec,
+     )?;
+ 
++    // The arms are drawn before the plan runs and read nothing from the
++    // run's schedule stream.
++    let cell = (attribution.arm_index, attribution.config_index);
++    let arms = arm_selector::choose(run_id, schedule_seed, cell);
+     let outcome = exec_plan::<crate::simulator::hash_utils::NoHashing, F>(
+         &mut path_state,
+         program.clone(),
+@@ -1116,12 +1123,15 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &config.steer_terms,
+         &config.purgatory,
+         config.partial_fanout_crash_bias,
+-        crate::simulator::ghost_absorber::is_treated(run_id),
+-        crate::simulator::fresh_first::is_treated(run_id),
+-        crate::simulator::pair_order::is_treated(run_id),
+-        crate::simulator::client_anchor::arm(run_id),
++        &arms,
+         &mut rec,
+     )?;
++    arm_selector::observe(
++        cell,
++        arm_selector::is_treated(run_id),
++        &arms,
++        &mut std::mem::take(&mut path_state.state.recover_delivery_keys),
++    );
+ 
+     if let RunOutcome::Deadlock { step, pending_ops } = &outcome {
+         warn!(
+@@ -1152,6 +1162,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         config.max_iterations,
+         started.elapsed(),
+         path_state.state.timer_stats,
++        &arms,
+         path_state.state.crash_hold_drawn,
+     ));
+ 
+@@ -1190,6 +1201,7 @@ pub fn run_explorer(
+     info!("session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
+     run_cap::reset();
++    arm_selector::reset();
+     fault_timing::reset();
+     timer_context::reset();
+     fault_timing::set_fraction(config.faults.crash_placement_fraction);
+@@ -1418,6 +1430,7 @@ fn run_single_plan<F: Feedback>(
+         &mut rng,
+     )?;
+ 
++    let arms = ArmSet::crash_coin_only(run_id);
+     let outcome = exec_plan::<crate::simulator::hash_utils::NoHashing, F>(
+         &mut path_state,
+         program.clone(),
+@@ -1434,10 +1447,7 @@ fn run_single_plan<F: Feedback>(
+         terms,
+         purgatory_config,
+         partial_fanout_crash_bias,
+-        false,
+-        false,
+-        false,
+-        crate::simulator::client_anchor::Arm::Stock,
++        &arms,
+         &mut rng,
+     )?;
+ 
+@@ -1464,6 +1474,7 @@ fn run_single_plan<F: Feedback>(
+         max_iterations,
+         started.elapsed(),
+         path_state.state.timer_stats,
++        &arms,
+         path_state.state.crash_hold_drawn,
+     ));
+ 
+@@ -1591,6 +1602,7 @@ pub fn run_explorer_genetic(
+     info!("session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
+     run_cap::reset();
++    arm_selector::reset();
+     fault_timing::reset();
+     timer_context::reset();
+     fault_timing::set_fraction(config.faults.crash_placement_fraction);
+@@ -2032,6 +2044,7 @@ pub fn run_explorer_aos(
+     info!("AOS session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
+     run_cap::reset();
++    arm_selector::reset();
+     fault_timing::reset();
+     timer_context::reset();
+     fault_timing::set_fraction(config.faults.crash_placement_fraction);
+@@ -2686,6 +2699,7 @@ pub fn run_explorer_continuous(
+     info!("Continuous session_seed = {}", config.envelope.session_seed);
+     util_stats::set_enabled(config.envelope.stats);
+     run_cap::reset();
++    arm_selector::reset();
+     fault_timing::reset();
+     timer_context::reset();
+     fault_timing::set_fraction(config.envelope.faults.crash_placement_fraction);
+diff --git a/spur-core/src/simulator/fault_timing.rs b/spur-core/src/simulator/fault_timing.rs
+index c999482..b5ea027 100644
+--- a/spur-core/src/simulator/fault_timing.rs
++++ b/spur-core/src/simulator/fault_timing.rs
+@@ -74,6 +74,20 @@ pub fn is_placed(run_id: i64) -> bool {
+         && run_phase::phase(run_id, POSTURE_PERIOD) >= PLACED_FROM.load(Ordering::Relaxed)
+ }
+ 
++/// The share of the runs that are not run-cap probes whose posture is
++/// placed: the admitted phases less the probe phases among them, over the
++/// phases that are not probes. Phases are uniform over the ids, so this is
++/// the placed coin's probability on any population drawn independently of
++/// the posture phase.
++pub fn placed_share_of_unprobed() -> f64 {
++    let from = PLACED_FROM.load(Ordering::Relaxed);
++    let placed = (from..POSTURE_PERIOD)
++        .filter(|p| p.rem_euclid(run_cap::PROBE_PERIOD) != 0)
++        .count() as f64;
++    let unprobed = (POSTURE_PERIOD - POSTURE_PERIOD / run_cap::PROBE_PERIOD) as f64;
++    placed / unprobed
++}
++
+ /// Whether this run's completed length may feed the learner. Every run-cap
+ /// probe does, since none of them is placed - so the feed is one run in
+ /// `run_cap::PROBE_PERIOD` rather than one in `POSTURE_PERIOD`, and the
+@@ -167,17 +181,17 @@ pub fn cap_reserve(effective_cap: i32) -> i32 {
+ 
+ /// Draw the step a placed run holds a crash until: uniform over
+ /// `[t_ready, U)` where `U` is the learned median bounded by three quarters
+-/// of the run's frozen step cap. Returns None, drawing nothing from any
+-/// random stream, when the run is in the stock posture, the scope is below
+-/// its floor, or the span is already spent.
++/// of the run's frozen step cap. `placed` is the run's crash-axis arm.
++/// Returns None, drawing nothing from any random stream, when the run is
++/// not placed, the scope is below its floor, or the span is already spent.
+ pub fn draw_hold(
+-    run_id: i64,
++    placed: bool,
+     backup: i32,
+     effective_cap: i32,
+     t_ready: i32,
+     rng: &mut impl StreamRng,
+ ) -> Option<i32> {
+-    if !is_placed(run_id) {
++    if !placed {
+         return None;
+     }
+     let l50 = median(backup)?;
+@@ -411,11 +425,11 @@ mod tests {
+         for phase in 0..stock_phases {
+             let id = id_at_phase(phase);
+             assert!(!is_placed(id), "phase {phase} should be below the placed threshold");
+-            assert_eq!(draw_hold(id, 6000, 6000, 10, &mut rng), None, "run {id} is stock");
++            assert_eq!(draw_hold(is_placed(id), 6000, 6000, 10, &mut rng), None, "run {id} is stock");
+         }
+         // A probe is stock at every fraction, wherever its phase falls.
+         let probe = (0..1_000_000i64).find(|&id| run_cap::is_probe(id)).unwrap();
+-        assert_eq!(draw_hold(probe, 6000, 6000, 10, &mut rng), None, "a probe is never placed");
++        assert_eq!(draw_hold(is_placed(probe), 6000, 6000, 10, &mut rng), None, "a probe is never placed");
+         assert_eq!(rng.draws, 0, "stock posture must not touch the stream");
+         reset();
+     }
+@@ -428,15 +442,15 @@ mod tests {
+         let mut rng = CountingRng::new(7);
+         let placed = id_at_phase(POSTURE_PERIOD - 1);
+         for _ in 0..100 {
+-            let t = draw_hold(placed, 6000, 6000, 10, &mut rng).expect("engaged scope draws");
++            let t = draw_hold(is_placed(placed), 6000, 6000, 10, &mut rng).expect("engaged scope draws");
+             assert!((10..1223).contains(&t), "target {t} escapes [t_ready, U)");
+         }
+         assert_eq!(
+-            draw_hold(placed, 6000, 6000, 1223, &mut rng),
++            draw_hold(is_placed(placed), 6000, 6000, 1223, &mut rng),
+             None,
+             "a spent span draws nothing"
+         );
+-        assert_eq!(draw_hold(placed, 1500, 6000, 10, &mut rng), None, "unengaged scope");
++        assert_eq!(draw_hold(is_placed(placed), 1500, 6000, 10, &mut rng), None, "unengaged scope");
+         reset();
+     }
+ 
+@@ -451,10 +465,10 @@ mod tests {
+         let placed = id_at_phase(POSTURE_PERIOD - 1);
+         // Three quarters of a 400-step cap is 300, under the 1223 median.
+         for _ in 0..50 {
+-            let t = draw_hold(placed, 6000, 400, 0, &mut rng).expect("capped span still draws");
++            let t = draw_hold(is_placed(placed), 6000, 400, 0, &mut rng).expect("capped span still draws");
+             assert!((0..300).contains(&t), "target {t} escapes the reserve bound");
+         }
+-        let t = draw_hold(placed, 6000, 6000, 0, &mut rng).expect("uncapped draw");
++        let t = draw_hold(is_placed(placed), 6000, 6000, 0, &mut rng).expect("uncapped draw");
+         assert!((0..1223).contains(&t));
+         let after = util_stats::snapshot().crash_place;
+         util_stats::set_enabled(false);
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index b10eefa..b68dc17 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -8,7 +8,6 @@ use crate::simulator::core::{
+     make_local_env, schedule_runnable,
+ };
+ use crate::simulator::client_anchor::{self, HoldQueue, Released};
+-use crate::simulator::crash_phase;
+ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::feedback::Feedback;
+ use crate::simulator::hash_utils::HashPolicy;
+@@ -19,6 +18,7 @@ use crate::simulator::fault_timing;
+ use crate::simulator::pair_order as pair_order_split;
+ use crate::simulator::rng::StreamRng;
+ use crate::simulator::run_cap;
++use crate::simulator::run_variant::{ArmSet, CrashArm};
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats::{self, DeliveryBias, RunEnd, RunExtension, RunTermination};
+ use ecow::EcoString;
+@@ -416,18 +416,16 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     terms: &ResolvedTerms,
+     purgatory_config: &PurgatoryConfig,
+     partial_fanout_crash_bias: f64,
+-    retarget_crashes: bool,
+-    fresh_first: bool,
+-    pair_order: bool,
+-    client_anchor: client_anchor::Arm,
++    arms: &ArmSet,
+     rng: &mut impl StreamRng,
+ ) -> Result<RunOutcome, RuntimeError> {
+     util_stats::begin_run();
+-    path_state.state.retarget.enabled = retarget_crashes;
+-    path_state.state.fresh_first.enabled = fresh_first;
+-    path_state.state.pair_order.enabled = pair_order;
+-    path_state.state.client_anchor.arm = client_anchor;
+-    util_stats::record_client_anchor_arm_run(client_anchor);
++    path_state.state.retarget.enabled = arms.retarget;
++    path_state.state.fresh_first.enabled = arms.fresh_first;
++    path_state.state.pair_order.enabled = arms.pair_order;
++    path_state.state.client_anchor.arm = arms.request;
++    let pair_order = arms.pair_order;
++    util_stats::record_client_anchor_arm_run(arms.request);
+     let anchored = path_state.state.client_anchor.holds();
+     // Client requests that became ready after the run's first crash and are
+     // waiting out their hold, and the last step at which a window opened.
+@@ -653,11 +651,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         node_id: nid,
+                         priority: policy.sample(rng, RunnableCategory::Crash),
+                     });
+-                    // Placed-posture runs hold the crash until a step drawn
++                    // Placed runs hold the crash until a step drawn
+                     // uniformly over the learned completed-run span; stock
+-                    // runs draw nothing and behave exactly as before.
++                    // runs draw nothing.
+                     if let Some(target) =
+-                        fault_timing::draw_hold(run_id, backup, effective_cap, step, rng)
++                        fault_timing::draw_hold(arms.placed(), backup, effective_cap, step, rng)
+                     {
+                         path_state.state.crash_hold_drawn = true;
+                         if let Some(hold) =
+@@ -665,10 +663,10 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         {
+                             *hold = target;
+                         }
+-                        // On the anchored half of the placed runs the crash
+-                        // waits further, for a drawn phase of the victim's
+-                        // own fan-out, once that target step arrives.
+-                        if crash_phase::is_anchored(run_id) {
++                        // On the phase arm the crash waits further, for a
++                        // drawn phase of the victim's own fan-out, once that
++                        // target step arrives.
++                        if arms.crash == CrashArm::PlacedPhase {
+                             path_state.state.crash_phase.arm_node(
+                                 nid.index,
+                                 fault_timing::cap_reserve(effective_cap),
+@@ -733,7 +731,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+ 
+         let history_start_len = path_state.history.len();
+ 
+-        if retarget_crashes {
++        if arms.retarget {
+             let mut mask = 0u64;
+             for &n in pending_crash.keys().chain(pending_recover.keys()) {
+                 if n < u64::BITS as usize {
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index c9562ba..e2efb39 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -12,7 +12,13 @@
+ //! A timer-context probe is placed like any other run, and whether a placed
+ //! run acted is a separate fact from whether it was selected, so no single
+ //! label could name what a run was.
++//!
++//! The mechanism bits describe the arms the run actually ran under, held in
++//! an `ArmSet`. On most runs the arm set is the one the run id's coins name;
++//! a run the arm selector treats takes a learned arm set instead, and its
++//! tag carries the chosen bits plus `ARM_SELECTOR_AXIS`.
+ 
++use crate::simulator::arm_selector;
+ use crate::simulator::client_anchor;
+ use crate::simulator::crash_phase;
+ use crate::simulator::fault_timing;
+@@ -66,13 +72,220 @@ pub const REPLAY_PREFIX: i32 = 1 << 21;
+ /// incarnation, the run takes instead an eligible record from that sender's
+ /// current incarnation to the same destination.
+ pub const FRESH_FIRST_PAIR: i32 = 1 << 24;
++/// The run's arm set was drawn by the per-cell arm selector rather than by
++/// the run id's coins. The mechanism bits then name the chosen arms.
++pub const ARM_SELECTOR_AXIS: i32 = 1 << 6;
++
++/// The direction a run takes on the crash-timing axis.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub enum CrashArm {
++    /// Crashes compete at once; no hold is drawn.
++    #[default]
++    Stock,
++    /// Crashes hold until a step drawn over the learned completed-run span.
++    Placed,
++    /// Placed, and the crash then waits for a drawn phase of its victim's
++    /// own fan-out.
++    PlacedPhase,
++}
++
++impl CrashArm {
++    /// The index this direction occupies on its axis.
++    pub fn index(self) -> usize {
++        match self {
++            CrashArm::Stock => 0,
++            CrashArm::Placed => 1,
++            CrashArm::PlacedPhase => 2,
++        }
++    }
++
++    fn from_index(i: usize) -> Self {
++        match i {
++            0 => CrashArm::Stock,
++            1 => CrashArm::Placed,
++            _ => CrashArm::PlacedPhase,
++        }
++    }
++}
++
++/// Number of axes an arm set spans.
++pub const AXES: usize = 5;
++/// Number of directions over all axes.
++pub const DIRECTIONS: usize = 12;
++/// Number of distinct arm sets.
++pub const COMBINATIONS: usize = 72;
++/// Axis `a` owns the direction indices `AXIS_START[a]..AXIS_START[a + 1]`:
++/// crash, retarget, fresh-first, pair-order, request timing.
++pub const AXIS_START: [usize; AXES + 1] = [0, 3, 5, 7, 9, 12];
+ 
+-/// The whole tag: what the run id selected, plus what the run did.
+-pub fn of(run_id: i64, crash_hold_drawn: bool) -> i32 {
+-    from_run_id(run_id) | if crash_hold_drawn { CRASH_HOLD_DRAWN } else { 0 }
++/// The direction a run takes on each of the five mechanism axes. The
++/// mechanisms read their direction from here and never from the run id, so
++/// the set in effect is the only truth about what a run ran under.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct ArmSet {
++    pub crash: CrashArm,
++    pub retarget: bool,
++    pub fresh_first: bool,
++    pub pair_order: bool,
++    pub request: client_anchor::Arm,
+ }
+ 
+-/// The bits that follow from the run id alone.
++impl ArmSet {
++    /// The arm set the run id's coins name: the direction each mechanism
++    /// would draw for this id on its own, each with its own probe
++    /// exemptions.
++    pub fn coins(run_id: i64) -> Self {
++        let crash = if crash_phase::is_anchored(run_id) {
++            CrashArm::PlacedPhase
++        } else if fault_timing::is_placed(run_id) {
++            CrashArm::Placed
++        } else {
++            CrashArm::Stock
++        };
++        Self {
++            crash,
++            retarget: ghost_absorber::is_treated(run_id),
++            fresh_first: fresh_first::is_treated(run_id),
++            pair_order: pair_order::is_treated(run_id),
++            request: client_anchor::arm(run_id),
++        }
++    }
++
++    /// The crash axis from the coins and every other axis stock: what a run
++    /// of a user-written plan takes, since only crash placement acts on a
++    /// plan that was not generated.
++    pub fn crash_coin_only(run_id: i64) -> Self {
++        Self {
++            crash: Self::coins(run_id).crash,
++            ..Self::default()
++        }
++    }
++
++    /// Whether the run draws crash holds.
++    pub fn placed(&self) -> bool {
++        self.crash != CrashArm::Stock
++    }
++
++    /// The direction index the set takes on each axis, in axis order.
++    pub fn directions(&self) -> [usize; AXES] {
++        [
++            AXIS_START[0] + self.crash.index(),
++            AXIS_START[1] + self.retarget as usize,
++            AXIS_START[2] + self.fresh_first as usize,
++            AXIS_START[3] + self.pair_order as usize,
++            AXIS_START[4] + self.request.index(),
++        ]
++    }
++
++    /// The set whose direction on axis `a` is `directions[a]`, given as a
++    /// direction index within that axis's range.
++    pub fn from_directions(directions: [usize; AXES]) -> Self {
++        let on = |a: usize| directions[a] - AXIS_START[a];
++        Self {
++            crash: CrashArm::from_index(on(0)),
++            retarget: on(1) == 1,
++            fresh_first: on(2) == 1,
++            pair_order: on(3) == 1,
++            request: request_from_index(on(4)),
++        }
++    }
++
++    /// The set's position among the `COMBINATIONS` sets, mixed radix in
++    /// axis order.
++    pub fn index(&self) -> usize {
++        let d = self.directions();
++        let mut i = 0;
++        for a in 0..AXES {
++            i = i * (AXIS_START[a + 1] - AXIS_START[a]) + (d[a] - AXIS_START[a]);
++        }
++        i
++    }
++
++    /// The inverse of `index`.
++    pub fn from_index(mut index: usize) -> Self {
++        let mut directions = [0usize; AXES];
++        for a in (0..AXES).rev() {
++            let width = AXIS_START[a + 1] - AXIS_START[a];
++            directions[a] = AXIS_START[a] + index % width;
++            index /= width;
++        }
++        Self::from_directions(directions)
++    }
++
++    /// The share of the runs eligible for every mechanism - neither kind of
++    /// probe - whose coins land on `direction`. The shares of one axis sum
++    /// to one.
++    pub fn coin_probability(direction: usize) -> f64 {
++        let placed = fault_timing::placed_share_of_unprobed();
++        match direction {
++            0 => 1.0 - placed,
++            1 | 2 => placed / 2.0,
++            3..=8 => 0.5,
++            9 => 0.5,
++            _ => 0.25,
++        }
++    }
++}
++
++fn request_from_index(i: usize) -> client_anchor::Arm {
++    match i {
++        0 => client_anchor::Arm::Hold,
++        1 => client_anchor::Arm::Rush,
++        _ => client_anchor::Arm::Stock,
++    }
++}
++
++/// The mechanism bits an arm set names.
++pub fn of_arms(arms: &ArmSet) -> i32 {
++    let mut v = 0;
++    if arms.placed() {
++        v |= CRASH_PLACED;
++    }
++    if arms.crash == CrashArm::PlacedPhase {
++        v |= CRASH_PHASE;
++    }
++    if arms.retarget {
++        v |= GHOST_ABSORBER_RETARGET;
++    }
++    if arms.fresh_first {
++        v |= FRESH_FIRST_PAIR;
++    }
++    if arms.pair_order {
++        v |= PAIR_SEND_ORDER;
++    }
++    match arms.request {
++        client_anchor::Arm::Hold => v |= CLIENT_FANOUT_RELEASE,
++        client_anchor::Arm::Rush => v |= CLIENT_RUSH_PRIORITY,
++        client_anchor::Arm::Stock => {}
++    }
++    v
++}
++
++/// The bits that name a run's probe roles and its selector half, all pure
++/// functions of the run id.
++pub fn probe_bits(run_id: i64) -> i32 {
++    let mut v = 0;
++    if run_cap::is_probe(run_id) {
++        v |= RUN_CAP_PROBE;
++    }
++    if timer_context::run_mode(run_id) == timer_context::RunMode::Probe {
++        v |= TIMER_STEER_OFF;
++    }
++    if arm_selector::is_treated(run_id) {
++        v |= ARM_SELECTOR_AXIS;
++    }
++    v
++}
++
++/// The whole tag: the run's probe roles, the arms it ran under, and what
++/// the run did.
++pub fn of(run_id: i64, arms: &ArmSet, crash_hold_drawn: bool) -> i32 {
++    probe_bits(run_id) | of_arms(arms) | if crash_hold_drawn { CRASH_HOLD_DRAWN } else { 0 }
++}
++
++/// The bits the run id's coins alone would name, read straight from each
++/// mechanism's own coin. A run under its coin arm set carries exactly these
++/// bits plus its selector half.
+ pub fn from_run_id(run_id: i64) -> i32 {
+     let mut v = 0;
+     if fault_timing::is_placed(run_id) {
+@@ -148,8 +361,10 @@ mod tests {
+                 "a run took both directions of the request-timing axis"
+             );
+             assert_eq!(v & CRASH_HOLD_DRAWN, 0, "the acted bit is not an id bit");
+-            assert_eq!(of(id, true), v | CRASH_HOLD_DRAWN);
+-            assert_eq!(of(id, false), v);
++            let half = if arm_selector::is_treated(id) { ARM_SELECTOR_AXIS } else { 0 };
++            let coins = ArmSet::coins(id);
++            assert_eq!(of(id, &coins, true), v | half | CRASH_HOLD_DRAWN);
++            assert_eq!(of(id, &coins, false), v | half);
+             assert_eq!(v & (REPLAY_SLOT | REPLAY_PREFIX), 0, "the slot bits are the arm's");
+             let g = grid_arm_bits(id);
+             assert_eq!(g & REPLAY_SLOT != 0, replay_corpus::is_slot(id));
+@@ -158,6 +373,71 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn the_coin_arm_set_reproduces_every_mechanism_coin_over_64k_ids() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        let mut treated = 0i64;
++        for id in -32_000..32_000i64 {
++            let coins = ArmSet::coins(id);
++            assert_eq!(coins.placed(), fault_timing::is_placed(id), "run {id}: placed");
++            assert_eq!(
++                coins.crash == CrashArm::PlacedPhase,
++                crash_phase::is_anchored(id),
++                "run {id}: anchored"
++            );
++            assert_eq!(coins.retarget, ghost_absorber::is_treated(id), "run {id}: retarget");
++            assert_eq!(coins.fresh_first, fresh_first::is_treated(id), "run {id}: fresh first");
++            assert_eq!(coins.pair_order, pair_order::is_treated(id), "run {id}: pair order");
++            assert_eq!(coins.request, client_anchor::arm(id), "run {id}: request");
++            let half = if arm_selector::is_treated(id) { ARM_SELECTOR_AXIS } else { 0 };
++            assert_eq!(of(id, &coins, false), from_run_id(id) | half, "run {id}: tag");
++            assert_eq!(ArmSet::from_index(coins.index()), coins, "run {id}: index round trip");
++            let probe = run_cap::is_probe(id)
++                || timer_context::run_mode(id) == timer_context::RunMode::Probe;
++            if probe {
++                assert!(!arm_selector::is_treated(id), "run {id}: a probe is selector-treated");
++            }
++            treated += arm_selector::is_treated(id) as i64;
++        }
++        assert!(treated > 20_000 && treated < 40_000, "the selector split leaves no contrast");
++    }
++
++    #[test]
++    fn every_combination_index_round_trips_and_coins_sum_to_one_per_axis() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        for i in 0..COMBINATIONS {
++            let arms = ArmSet::from_index(i);
++            assert_eq!(arms.index(), i);
++            assert_eq!(ArmSet::from_directions(arms.directions()), arms);
++            for (a, d) in arms.directions().iter().enumerate() {
++                assert!((AXIS_START[a]..AXIS_START[a + 1]).contains(d));
++            }
++        }
++        for a in 0..AXES {
++            let sum: f64 = (AXIS_START[a]..AXIS_START[a + 1])
++                .map(ArmSet::coin_probability)
++                .sum();
++            assert!((sum - 1.0).abs() < 1e-9, "axis {a} coins sum to {sum}");
++        }
++        // The crash axis coins are the placed share of the runs neither
++        // probe exempts, read against a long id range.
++        let n = 64_000i64;
++        let eligible = (0..n)
++            .filter(|&id| {
++                !run_cap::is_probe(id)
++                    && timer_context::run_mode(id) != timer_context::RunMode::Probe
++            })
++            .collect::<Vec<_>>();
++        let placed = eligible.iter().filter(|&&id| fault_timing::is_placed(id)).count() as f64
++            / eligible.len() as f64;
++        let want = ArmSet::coin_probability(1) + ArmSet::coin_probability(2);
++        assert!((placed - want).abs() < 0.01, "placed share {placed} against coin {want}");
++        assert!(ArmSet::coin_probability(0) < 0.15, "the stock crash coin is small");
++        assert_eq!(of_arms(&ArmSet::default()), 0, "the all-stock set names no bit");
++    }
++
+     #[test]
+     fn the_slot_bits_spare_every_probe_and_leave_a_contrast() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 3a1a6c0..1df4ec5 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -7,6 +7,7 @@
+ 
+ use crate::simulator::core::steer_terms::{Term, TERMS};
+ use crate::simulator::client_anchor;
++use crate::simulator::run_variant;
+ use crate::simulator::fresh_first;
+ use serde::Serialize;
+ use std::cell::RefCell;
+@@ -160,6 +161,40 @@ static CAN_RUSH_WAS_PICK: AtomicU64 = AtomicU64::new(0);
+ static CAN_RUSH_DISPLACED: AtomicU64 = AtomicU64::new(0);
+ static CAN_FIRST_DELIVERY_SUM: [AtomicU64; CAN_ARMS] = [const { AtomicU64::new(0) }; CAN_ARMS];
+ static CAN_FIRST_DELIVERY_COUNT: [AtomicU64; CAN_ARMS] = [const { AtomicU64::new(0) }; CAN_ARMS];
++/// The arm selector. Counters over the treated half's draws, the reward
++/// read on both halves, and per-direction and per-combination tallies.
++const AX_HALVES: usize = 2;
++static AX_TREATED_RUNS: AtomicU64 = AtomicU64::new(0);
++static AX_CHOSEN_RUNS: AtomicU64 = AtomicU64::new(0);
++static AX_COIN_FALLBACK_RUNS: AtomicU64 = AtomicU64::new(0);
++static AX_DEPARTURES: AtomicU64 = AtomicU64::new(0);
++static AX_AXIS_LEADER_AGREEMENTS: AtomicU64 = AtomicU64::new(0);
++static AX_AXIS_DRAWS: AtomicU64 = AtomicU64::new(0);
++static AX_OBSERVATIONS: AtomicU64 = AtomicU64::new(0);
++static AX_REWARD_RUNS: [AtomicU64; AX_HALVES] = [const { AtomicU64::new(0) }; AX_HALVES];
++static AX_REWARD_POSITIVE: [AtomicU64; AX_HALVES] = [const { AtomicU64::new(0) }; AX_HALVES];
++static AX_CELLS: AtomicU64 = AtomicU64::new(0);
++static AX_KEYS_LIVE: AtomicU64 = AtomicU64::new(0);
++static AX_CHOSEN_PLACED_RUNS: AtomicU64 = AtomicU64::new(0);
++static AX_RUNS_WITHOUT_KEYS: AtomicU64 = AtomicU64::new(0);
++/// Reward tallies per campaign arm, slot `arm_index + 1` so an unattributed
++/// run lands in slot zero; arms past the width share the last slot.
++const AX_ARM_SLOTS: usize = 8;
++static AX_REWARD_RUNS_BY_ARM: [AtomicU64; AX_ARM_SLOTS] = [const { AtomicU64::new(0) }; AX_ARM_SLOTS];
++static AX_REWARD_POSITIVE_BY_ARM: [AtomicU64; AX_ARM_SLOTS] =
++    [const { AtomicU64::new(0) }; AX_ARM_SLOTS];
++static AX_CHOSEN_BY_DIRECTION: [AtomicU64; run_variant::DIRECTIONS] =
++    [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
++static AX_CONTROL_RUNS_BY_DIRECTION: [AtomicU64; run_variant::DIRECTIONS] =
++    [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
++static AX_CONTROL_REWARD_POSITIVE_BY_DIRECTION: [AtomicU64; run_variant::DIRECTIONS] =
++    [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
++static AX_CHOSEN_BY_COMBINATION: [AtomicU64; run_variant::COMBINATIONS] =
++    [const { AtomicU64::new(0) }; run_variant::COMBINATIONS];
++static AX_CONTROL_RUNS_BY_COMBINATION: [AtomicU64; run_variant::COMBINATIONS] =
++    [const { AtomicU64::new(0) }; run_variant::COMBINATIONS];
++static AX_CONTROL_REWARD_POSITIVE_BY_COMBINATION: [AtomicU64; run_variant::COMBINATIONS] =
++    [const { AtomicU64::new(0) }; run_variant::COMBINATIONS];
+ static RP_PARENTS_ADMITTED: AtomicU64 = AtomicU64::new(0);
+ static RP_CHILDREN: AtomicU64 = AtomicU64::new(0);
+ static RP_CHILDREN_PREFIX: AtomicU64 = AtomicU64::new(0);
+@@ -2045,6 +2080,98 @@ pub fn record_client_anchor_arm_run(arm: client_anchor::Arm) {
+     CAN_ARM_RUNS[arm.index()].fetch_add(1, Ordering::Relaxed);
+ }
+ 
++/// A run on the arm selector's treated half drew its arms: `chosen` is the
++/// learned set, or None when the cell was below warmup and the run took
++/// `coins`. `leader_agreements` counts the axes on which the drawn
++/// direction was the axis's highest posterior mean.
++pub fn record_arm_selector_treated_run(
++    chosen: Option<&run_variant::ArmSet>,
++    coins: &run_variant::ArmSet,
++    leader_agreements: u64,
++) {
++    if !enabled() {
++        return;
++    }
++    AX_TREATED_RUNS.fetch_add(1, Ordering::Relaxed);
++    let Some(arms) = chosen else {
++        AX_COIN_FALLBACK_RUNS.fetch_add(1, Ordering::Relaxed);
++        return;
++    };
++    AX_CHOSEN_RUNS.fetch_add(1, Ordering::Relaxed);
++    AX_AXIS_DRAWS.fetch_add(run_variant::AXES as u64, Ordering::Relaxed);
++    AX_AXIS_LEADER_AGREEMENTS.fetch_add(leader_agreements, Ordering::Relaxed);
++    if arms != coins {
++        AX_DEPARTURES.fetch_add(1, Ordering::Relaxed);
++    }
++    if arms.placed() {
++        AX_CHOSEN_PLACED_RUNS.fetch_add(1, Ordering::Relaxed);
++    }
++    for d in arms.directions() {
++        AX_CHOSEN_BY_DIRECTION[d].fetch_add(1, Ordering::Relaxed);
++    }
++    AX_CHOSEN_BY_COMBINATION[arms.index()].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A run's reward was read: `treated` names the half, `arms` the set the
++/// run carried, `reward` whether its score beat the cell's running mean,
++/// `no_keys` whether the run took no message entry after a recover, and
++/// `arm_index` the campaign arm the run's cell belongs to.
++pub fn record_arm_selector_observation(
++    treated: bool,
++    arms: &run_variant::ArmSet,
++    reward: bool,
++    no_keys: bool,
++    arm_index: i32,
++) {
++    if !enabled() {
++        return;
++    }
++    AX_OBSERVATIONS.fetch_add(1, Ordering::Relaxed);
++    if no_keys {
++        AX_RUNS_WITHOUT_KEYS.fetch_add(1, Ordering::Relaxed);
++    }
++    let slot = ((arm_index + 1).max(0) as usize).min(AX_ARM_SLOTS - 1);
++    AX_REWARD_RUNS_BY_ARM[slot].fetch_add(1, Ordering::Relaxed);
++    if reward {
++        AX_REWARD_POSITIVE_BY_ARM[slot].fetch_add(1, Ordering::Relaxed);
++    }
++    let half = treated as usize;
++    AX_REWARD_RUNS[half].fetch_add(1, Ordering::Relaxed);
++    if reward {
++        AX_REWARD_POSITIVE[half].fetch_add(1, Ordering::Relaxed);
++    }
++    if treated {
++        return;
++    }
++    for d in arms.directions() {
++        AX_CONTROL_RUNS_BY_DIRECTION[d].fetch_add(1, Ordering::Relaxed);
++        if reward {
++            AX_CONTROL_REWARD_POSITIVE_BY_DIRECTION[d].fetch_add(1, Ordering::Relaxed);
++        }
++    }
++    let c = arms.index();
++    AX_CONTROL_RUNS_BY_COMBINATION[c].fetch_add(1, Ordering::Relaxed);
++    if reward {
++        AX_CONTROL_REWARD_POSITIVE_BY_COMBINATION[c].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// Gauges, not counters, so they read with stats off: a cell was created,
++/// a key entered a cell's table.
++pub fn record_arm_selector_cell_created() {
++    AX_CELLS.fetch_add(1, Ordering::Relaxed);
++}
++
++pub fn record_arm_selector_key_created() {
++    AX_KEYS_LIVE.fetch_add(1, Ordering::Relaxed);
++}
++
++/// The learner was cleared, so its gauges read empty.
++pub fn reset_arm_selector_gauges() {
++    AX_CELLS.store(0, Ordering::Relaxed);
++    AX_KEYS_LIVE.store(0, Ordering::Relaxed);
++}
++
+ /// A post-crash client request was issued under the rush direction.
+ #[inline]
+ pub fn record_client_anchor_rush_op() {
+@@ -4247,6 +4374,79 @@ impl ClientAnchorStats {
+     }
+ }
+ 
++/// The arm selector block. The mechanism ran as intended when
++/// `chosen_runs` is most of `treated_runs`, `coin_fallback_runs` is the
++/// warmup remainder, and `axis_leader_agreements / axis_draws` sits well
++/// above the share independent draws would give. `departures` counts chosen
++/// runs whose set differs from the id's coins. `reward_runs` and
++/// `reward_positive` are read per half; `cells` and `keys_live` are gauges
++/// of the learner's tables. The per-direction and per-combination arrays
++/// follow `run_variant::AXIS_START` and `ArmSet::index`: the control half's
++/// runs and rewards say what the coins earned, and `chosen_by_*` what the
++/// treated half took. `runs_without_keys` counts runs that took no message
++/// entry after a recover and so scored zero; `reward_runs_by_arm` and
++/// `reward_positive_by_arm` split the reward by campaign arm, slot
++/// `arm_index + 1`, so a young arm's rate can be read against a mature one.
++#[derive(Serialize, Debug, Clone)]
++pub struct ArmSelectorAxisStats {
++    pub treated_runs: u64,
++    pub chosen_runs: u64,
++    pub coin_fallback_runs: u64,
++    pub departures: u64,
++    pub axis_leader_agreements: u64,
++    pub axis_draws: u64,
++    pub observations: u64,
++    pub reward_runs_treated: u64,
++    pub reward_positive_treated: u64,
++    pub reward_runs_control: u64,
++    pub reward_positive_control: u64,
++    pub cells: u64,
++    pub keys_live: u64,
++    pub chosen_placed_runs: u64,
++    pub runs_without_keys: u64,
++    pub reward_runs_by_arm: Vec<u64>,
++    pub reward_positive_by_arm: Vec<u64>,
++    pub chosen_by_direction: Vec<u64>,
++    pub control_runs_by_direction: Vec<u64>,
++    pub control_reward_positive_by_direction: Vec<u64>,
++    pub chosen_by_combination: Vec<u64>,
++    pub control_runs_by_combination: Vec<u64>,
++    pub control_reward_positive_by_combination: Vec<u64>,
++}
++
++impl ArmSelectorAxisStats {
++    fn read() -> Self {
++        let load = |a: &[AtomicU64]| a.iter().map(|n| n.load(Ordering::Relaxed)).collect();
++        Self {
++            treated_runs: AX_TREATED_RUNS.load(Ordering::Relaxed),
++            chosen_runs: AX_CHOSEN_RUNS.load(Ordering::Relaxed),
++            coin_fallback_runs: AX_COIN_FALLBACK_RUNS.load(Ordering::Relaxed),
++            departures: AX_DEPARTURES.load(Ordering::Relaxed),
++            axis_leader_agreements: AX_AXIS_LEADER_AGREEMENTS.load(Ordering::Relaxed),
++            axis_draws: AX_AXIS_DRAWS.load(Ordering::Relaxed),
++            observations: AX_OBSERVATIONS.load(Ordering::Relaxed),
++            reward_runs_treated: AX_REWARD_RUNS[1].load(Ordering::Relaxed),
++            reward_positive_treated: AX_REWARD_POSITIVE[1].load(Ordering::Relaxed),
++            reward_runs_control: AX_REWARD_RUNS[0].load(Ordering::Relaxed),
++            reward_positive_control: AX_REWARD_POSITIVE[0].load(Ordering::Relaxed),
++            cells: AX_CELLS.load(Ordering::Relaxed),
++            keys_live: AX_KEYS_LIVE.load(Ordering::Relaxed),
++            chosen_placed_runs: AX_CHOSEN_PLACED_RUNS.load(Ordering::Relaxed),
++            runs_without_keys: AX_RUNS_WITHOUT_KEYS.load(Ordering::Relaxed),
++            reward_runs_by_arm: load(&AX_REWARD_RUNS_BY_ARM),
++            reward_positive_by_arm: load(&AX_REWARD_POSITIVE_BY_ARM),
++            chosen_by_direction: load(&AX_CHOSEN_BY_DIRECTION),
++            control_runs_by_direction: load(&AX_CONTROL_RUNS_BY_DIRECTION),
++            control_reward_positive_by_direction: load(&AX_CONTROL_REWARD_POSITIVE_BY_DIRECTION),
++            chosen_by_combination: load(&AX_CHOSEN_BY_COMBINATION),
++            control_runs_by_combination: load(&AX_CONTROL_RUNS_BY_COMBINATION),
++            control_reward_positive_by_combination: load(
++                &AX_CONTROL_REWARD_POSITIVE_BY_COMBINATION,
++            ),
++        }
++    }
++}
++
+ /// The replay corpus of the grid arms. `parents_admitted` counts fresh runs
+ /// whose prefix entered a corpus; `children` the slots that ran a child,
+ /// split into `children_prefix` and `children_plan_only`; `slots_unfilled`
+@@ -4347,6 +4547,7 @@ pub struct UtilizationSnapshot {
+     pub fresh_first: FreshFirstStats,
+     pub pair_order: PairOrderStats,
+     pub client_anchor: ClientAnchorStats,
++    pub arm_selector_axis: ArmSelectorAxisStats,
+     pub replay: ReplayStats,
+     pub timer_context: TimerContextStats,
+     pub timeline_keys: TimelineKeyStats,
+@@ -4544,6 +4745,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         fresh_first: FreshFirstStats::read(),
+         pair_order: PairOrderStats::read(),
+         client_anchor: ClientAnchorStats::read(),
++        arm_selector_axis: ArmSelectorAxisStats::read(),
+         replay: ReplayStats::read(),
+         timer_context: TimerContextStats::read(),
+         timeline_keys: TimelineKeyStats::read(),
+diff --git a/spur-core/tests/client_anchor_release.rs b/spur-core/tests/client_anchor_release.rs
+index 7312f0d..4da5901 100644
+--- a/spur-core/tests/client_anchor_release.rs
++++ b/spur-core/tests/client_anchor_release.rs
+@@ -180,7 +180,11 @@ fn seed_span() {
+ 
+ fn placed_ids(treated: bool, n: usize) -> Vec<i64> {
+     let ids: Vec<i64> = (0..1_000_000i64)
+-        .filter(|&id| client_anchor::is_treated(id) == treated && fault_timing::is_placed(id))
++        .filter(|&id| {
++            client_anchor::is_treated(id) == treated
++                && fault_timing::is_placed(id)
++                && !spur_core::simulator::arm_selector::is_treated(id)
++        })
+         .take(n)
+         .collect();
+     assert_eq!(ids.len(), n, "not enough run ids on that half");
+diff --git a/spur-core/tests/crash_phase_anchor.rs b/spur-core/tests/crash_phase_anchor.rs
+index ce077b7..b3ad0d0 100644
+--- a/spur-core/tests/crash_phase_anchor.rs
++++ b/spur-core/tests/crash_phase_anchor.rs
+@@ -169,7 +169,7 @@ fn check() {
+     seed_span();
+ 
+     let anchored: Vec<i64> = (0..1_000_000i64)
+-        .filter(|&id| crash_phase::is_anchored(id))
++        .filter(|&id| crash_phase::is_anchored(id) && !spur_core::simulator::arm_selector::is_treated(id))
+         .take(RUNS)
+         .collect();
+     assert_eq!(anchored.len(), RUNS, "not enough anchored run ids");
+@@ -304,11 +304,19 @@ fn check_landing() {
+     seed_span();
+ 
+     let retargeting: Vec<i64> = (0..1_000_000i64)
+-        .filter(|&id| crash_phase::is_anchored(id) && ghost_absorber::is_treated(id))
++        .filter(|&id| {
++            crash_phase::is_anchored(id)
++                && ghost_absorber::is_treated(id)
++                && !spur_core::simulator::arm_selector::is_treated(id)
++        })
+         .take(RUNS)
+         .collect();
+     let plain: Vec<i64> = (0..1_000_000i64)
+-        .filter(|&id| crash_phase::is_anchored(id) && !ghost_absorber::is_treated(id))
++        .filter(|&id| {
++            crash_phase::is_anchored(id)
++                && !ghost_absorber::is_treated(id)
++                && !spur_core::simulator::arm_selector::is_treated(id)
++        })
+         .take(RUNS)
+         .collect();
+     assert_eq!(retargeting.len(), RUNS, "not enough retargeting run ids");
+diff --git a/spur-core/tests/fresh_first_dispatch.rs b/spur-core/tests/fresh_first_dispatch.rs
+index 94b01c3..11ef89e 100644
+--- a/spur-core/tests/fresh_first_dispatch.rs
++++ b/spur-core/tests/fresh_first_dispatch.rs
+@@ -166,7 +166,11 @@ fn seed_span() {
+ 
+ fn ids(treated: bool, n: usize) -> Vec<i64> {
+     let ids: Vec<i64> = (0..1_000_000i64)
+-        .filter(|&id| fresh_first::is_treated(id) == treated && fault_timing::is_placed(id))
++        .filter(|&id| {
++            fresh_first::is_treated(id) == treated
++                && fault_timing::is_placed(id)
++                && !spur_core::simulator::arm_selector::is_treated(id)
++        })
+         .take(n)
+         .collect();
+     assert_eq!(ids.len(), n, "not enough run ids on the half");
+diff --git a/spur-core/tests/ghost_absorber_retarget.rs b/spur-core/tests/ghost_absorber_retarget.rs
+index bc126bf..e30d7cc 100644
+--- a/spur-core/tests/ghost_absorber_retarget.rs
++++ b/spur-core/tests/ghost_absorber_retarget.rs
+@@ -205,7 +205,11 @@ fn check_treated() {
+     seed_span();
+     let (program, run_config) = compile();
+     let treated: Vec<i64> = (0..1_000_000i64)
+-        .filter(|&id| ghost_absorber::is_treated(id) && fault_timing::is_placed(id))
++        .filter(|&id| {
++            ghost_absorber::is_treated(id)
++                && fault_timing::is_placed(id)
++                && !spur_core::simulator::arm_selector::is_treated(id)
++        })
+         .take(TREATED_RUNS)
+         .collect();
+     assert_eq!(treated.len(), TREATED_RUNS, "not enough treated run ids");
+@@ -309,7 +313,11 @@ fn check_untreated() {
+     fault_timing::reset();
+     let (program, run_config) = compile();
+     let untreated: Vec<i64> = (0..1_000_000i64)
+-        .filter(|&id| !ghost_absorber::is_treated(id) && fault_timing::is_placed(id))
++        .filter(|&id| {
++            !ghost_absorber::is_treated(id)
++                && fault_timing::is_placed(id)
++                && !spur_core::simulator::arm_selector::is_treated(id)
++        })
+         .take(UNTREATED_RUNS)
+         .collect();
+ 
+diff --git a/spur-core/tests/pair_order_dispatch.rs b/spur-core/tests/pair_order_dispatch.rs
+index 6474c12..e83b99f 100644
+--- a/spur-core/tests/pair_order_dispatch.rs
++++ b/spur-core/tests/pair_order_dispatch.rs
+@@ -178,6 +178,7 @@ fn ids(treated: bool, census: bool, n: usize) -> Vec<i64> {
+             pair_order::is_treated(id) == treated
+                 && pair_order::is_census_run(id) == census
+                 && fault_timing::is_placed(id)
++                && !spur_core::simulator::arm_selector::is_treated(id)
+         })
+         .take(n)
+         .collect();
+diff --git a/spur-core/tests/replay_prefix_fidelity.rs b/spur-core/tests/replay_prefix_fidelity.rs
+index 4353ce2..2e9d72e 100644
+--- a/spur-core/tests/replay_prefix_fidelity.rs
++++ b/spur-core/tests/replay_prefix_fidelity.rs
+@@ -188,11 +188,14 @@ fn check_prefix() {
+     // Parent and child ids carry the same mechanism bits, so the only thing
+     // that differs between the two runs is the schedule seed the child falls
+     // back on once the replayed prefix runs out. Placed runs hold a queued
+-    // crash back, which is what lets a delivery reach its node first.
++    // crash back, which is what lets a delivery reach its node first. Runs
++    // on the arm selector's treated half take arms the id does not name,
++    // so they are left out.
+     let eligible = |id: i64| {
+         let v = run_variant::from_run_id(id);
+         v & run_variant::CRASH_PLACED != 0
+             && v & (run_variant::RUN_CAP_PROBE | run_variant::TIMER_STEER_OFF) == 0
++            && !spur_core::simulator::arm_selector::is_treated(id)
+     };
+     let candidates: Vec<i64> = (0..1_000_000i64)
+         .filter(|&id| eligible(id))
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 143afea..efac475 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -13,7 +13,7 @@
+ 
+ use serde_json::{Map, Value};
+ use spur_core::simulator::util_stats::{
+-    self, AcceptanceDistanceBucket, AcceptanceDistanceStats, ClientAnchorArmRuns,
++    self, AcceptanceDistanceBucket, AcceptanceDistanceStats, ArmSelectorAxisStats, ClientAnchorArmRuns,
+     ClientAnchorAxisStats, ClientAnchorCensusStats, ClientAnchorDistance,
+     ClientAnchorFirstDelivery, ClientAnchorHalfStats, ClientAnchorHeldHist,
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+@@ -788,6 +788,108 @@ fn replay(m: &mut Marks) -> ReplayStats {
+     }
+ }
+ 
++fn marks_vec(m: &mut Marks, n: usize) -> Vec<u64> {
++    (0..n).map(|_| m.int()).collect()
++}
++
++fn arm_selector_axis(m: &mut Marks) -> ArmSelectorAxisStats {
++    ArmSelectorAxisStats {
++        treated_runs: m.int(),
++        chosen_runs: m.int(),
++        coin_fallback_runs: m.int(),
++        departures: m.int(),
++        axis_leader_agreements: m.int(),
++        axis_draws: m.int(),
++        observations: m.int(),
++        reward_runs_treated: m.int(),
++        reward_positive_treated: m.int(),
++        reward_runs_control: m.int(),
++        reward_positive_control: m.int(),
++        cells: m.int(),
++        keys_live: m.int(),
++        chosen_placed_runs: m.int(),
++        runs_without_keys: m.int(),
++        reward_runs_by_arm: marks_vec(m, 8),
++        reward_positive_by_arm: marks_vec(m, 8),
++        chosen_by_direction: marks_vec(m, 12),
++        control_runs_by_direction: marks_vec(m, 12),
++        control_reward_positive_by_direction: marks_vec(m, 12),
++        chosen_by_combination: marks_vec(m, 72),
++        control_runs_by_combination: marks_vec(m, 72),
++        control_reward_positive_by_combination: marks_vec(m, 72),
++    }
++}
++
++fn vec_leaves(prefix: &str, name: &str, v: &[u64]) -> Vec<(String, Value)> {
++    let p = format!("{prefix}.{name}");
++    v.iter()
++        .enumerate()
++        .map(|(i, x)| leaf(&p, &i.to_string(), *x))
++        .collect()
++}
++
++fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(String, Value)> {
++    let ArmSelectorAxisStats {
++        treated_runs,
++        chosen_runs,
++        coin_fallback_runs,
++        departures,
++        axis_leader_agreements,
++        axis_draws,
++        observations,
++        reward_runs_treated,
++        reward_positive_treated,
++        reward_runs_control,
++        reward_positive_control,
++        cells,
++        keys_live,
++        chosen_placed_runs,
++        runs_without_keys,
++        reward_runs_by_arm,
++        reward_positive_by_arm,
++        chosen_by_direction,
++        control_runs_by_direction,
++        control_reward_positive_by_direction,
++        chosen_by_combination,
++        control_runs_by_combination,
++        control_reward_positive_by_combination,
++    } = a;
++    let mut out = vec![
++        leaf(prefix, "treated_runs", *treated_runs),
++        leaf(prefix, "chosen_runs", *chosen_runs),
++        leaf(prefix, "coin_fallback_runs", *coin_fallback_runs),
++        leaf(prefix, "departures", *departures),
++        leaf(prefix, "axis_leader_agreements", *axis_leader_agreements),
++        leaf(prefix, "axis_draws", *axis_draws),
++        leaf(prefix, "observations", *observations),
++        leaf(prefix, "reward_runs_treated", *reward_runs_treated),
++        leaf(prefix, "reward_positive_treated", *reward_positive_treated),
++        leaf(prefix, "reward_runs_control", *reward_runs_control),
++        leaf(prefix, "reward_positive_control", *reward_positive_control),
++        leaf(prefix, "cells", *cells),
++        leaf(prefix, "keys_live", *keys_live),
++        leaf(prefix, "chosen_placed_runs", *chosen_placed_runs),
++        leaf(prefix, "runs_without_keys", *runs_without_keys),
++    ];
++    out.extend(vec_leaves(prefix, "reward_runs_by_arm", reward_runs_by_arm));
++    out.extend(vec_leaves(prefix, "reward_positive_by_arm", reward_positive_by_arm));
++    out.extend(vec_leaves(prefix, "chosen_by_direction", chosen_by_direction));
++    out.extend(vec_leaves(prefix, "control_runs_by_direction", control_runs_by_direction));
++    out.extend(vec_leaves(
++        prefix,
++        "control_reward_positive_by_direction",
++        control_reward_positive_by_direction,
++    ));
++    out.extend(vec_leaves(prefix, "chosen_by_combination", chosen_by_combination));
++    out.extend(vec_leaves(prefix, "control_runs_by_combination", control_runs_by_combination));
++    out.extend(vec_leaves(
++        prefix,
++        "control_reward_positive_by_combination",
++        control_reward_positive_by_combination,
++    ));
++    out
++}
++
+ fn replay_leaves(prefix: &str, r: &ReplayStats) -> Vec<(String, Value)> {
+     let ReplayStats {
+         parents_admitted,
+@@ -1106,6 +1208,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         fresh_first: _,
+         pair_order: _,
+         client_anchor: _,
++        arm_selector_axis: _,
+         replay: _,
+         timer_context: _,
+         timeline_keys: _,
+@@ -1143,6 +1246,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "fresh_first",
+         "pair_order",
+         "client_anchor",
++        "arm_selector_axis",
+         "replay",
+         "timer_context",
+         "timeline_keys",
+@@ -1215,6 +1319,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.fresh_first = fresh_first(&mut m);
+     s.pair_order = pair_order(&mut m);
+     s.client_anchor = client_anchor(&mut m);
++    s.arm_selector_axis = arm_selector_axis(&mut m);
+     s.replay = replay(&mut m);
+     s.timer_context = timer_context(&mut m);
+     let mut expected = steer_authority_leaves("steer_authority", &s.steer_authority);
+@@ -1231,6 +1336,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(fresh_first_leaves("fresh_first", &s.fresh_first));
+     expected.extend(pair_order_leaves("pair_order", &s.pair_order));
+     expected.extend(client_anchor_leaves("client_anchor", &s.client_anchor));
++    expected.extend(arm_selector_axis_leaves("arm_selector_axis", &s.arm_selector_axis));
+     expected.extend(replay_leaves("replay", &s.replay));
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
+     (s, expected)
+@@ -1273,6 +1379,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "fresh_first",
+         "pair_order",
+         "client_anchor",
++        "arm_selector_axis",
+         "replay",
+         "timer_context",
+     ] {
