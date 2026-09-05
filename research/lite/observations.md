@@ -4969,3 +4969,12 @@ reading the tree (runs per second 1,867 and 1,980 against 1,930 and
 therefore carried by the session's paired read and not yet by the
 anchor; the next session's four paired seeds against this cache are the
 read that settles it, and the log says so before they run.
+
+**The longer-wall panel read is the same read.** At scale 9 the two rare
+members returned the same run counts as at scale 3 (288,000 and 96,000)
+and the same violations to the unit: these members are bound by their
+fixed run counts, not by wall, so the scale flag buys nothing there and
+the two panels on seed 1000 were one sample read twice. Independent
+samples need other seeds; the same two members run at seeds 1001 and
+1002 now, and the bit-128 and bit-256 cells are pooled over the three
+seeds before the next merge is decided.
