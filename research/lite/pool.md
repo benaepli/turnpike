@@ -3200,9 +3200,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## selector-pick-coin-times-leading-probability-within-learner-half
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 57 (judge gain 7, cost 0, rank 1; bit 256 armSelectorConcentrated
-  as a salted half of every learner quarter; implementing) | parent:
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  iteration 57 (46505e2, spur ebf6d4e; pooled new half against matching
+  half depth>=8 1.133 [1.086, 1.181] on four chunks, against the coin
+  quarter 1.228 and depth>=10 1.76 [1.17, 2.65]; cross-binary depth>=8 per
+  second 1.093, throughput 1.038; regression passed; panel flat) | parent:
   per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
 - The pick on the new half weights each direction by its coin share times
   the posterior probability that it leads its axis (Beta-difference

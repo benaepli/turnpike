@@ -4837,3 +4837,31 @@ co-bit blocker (the new half carries the learner bits at 0.334 against
 on a rule that read no stated prediction as met - the admitted read is
 the pooled within-learner contrast written before the session, and it
 passed. The panel runs next; the decision follows it.
+
+**Panel on the candidate binary, seed 1000, scale 3, bit-256 cells (the
+concentrating halves against every other run).** paxos-accept-stale-
+ballot 3.52e-2: 0.98 [0.88, 1.10]. mencius-opt1-2 1.51e-2: 1.15 [0.94,
+1.42]. raft-stale-vote 3.5e-4: 0.79 [0.40, 1.55]. paxos-fixed-recover-
+stale-scout 2.8e-4: 0.39 on 5 against 21. paxos-fixed-recover-forget-
+accepted 1.72e-3: 0.65 [0.38, 1.13]. Every member's rate is flat against
+the previous two panels and no cell separates. The bit-128 learner
+(cycle before request) leans down on raft-stale-vote for the second
+panel running, 0.41 [0.15, 1.09] on 14 against 34, and on forget-
+accepted 0.62 [0.30, 1.27] on 29 against 47; the two panels share a seed
+and are not independent samples, so this is one lean read twice, not
+two. It is the generality question the review at 55 named - a learner
+that pushes the hold and the retarget to 0.8 on every protocol may cost
+a member whose bug wants client work early - and the quick panel cannot
+resolve a 0.6 on 34 events. A longer wall on those two members is the
+read to take on the merged tree.
+
+**Decision: merged, as graded (46505e2, spur ebf6d4e).** The pick passes the
+read frozen before its session with the interval clear of one on the
+pooled contrast and on two of the three learners; the regression passes;
+the cross-binary cost reads the campaign nine percent higher on the
+objective at throughput 1.038; the panel vetoes nothing. This is the
+first merge of the epoch to move the objective per second campaign-wide
+from a mechanism, and it does so by letting the learners exploit what the
+coin quarter measures, which is what the three-way split was built for.
+The grader's advice line printed human on the split's co-bit shape and
+on its own band rule; the admitted read is what decided.
