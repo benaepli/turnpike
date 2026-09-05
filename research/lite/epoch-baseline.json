@@ -127,7 +127,7 @@
   },
   {
    "name": "post-fault-request-rush-arm",
-   "commit": "PENDING",
+   "commit": "6092cee",
    "spurCommit": "0500275",
    "ratio": 0.9733,
    "cumulative": 0.9771512748073184,

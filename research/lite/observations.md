@@ -2933,3 +2933,10 @@ cache's own spread (1910.9 to 2146.8, 12 percent) is wider than the effect
 being argued about, which is the reason the 0.954 finding rests on
 non-overlapping ranges across four chunks each way rather than on any single
 median.
+
+**Post-merge checks (spur 0500275).** Selftest zero failures, and
+clientRushPriority has dropped off the untagged-bits warning. The quick
+panel at seed 1000 on the merged tree reproduces the pre-merge seed-1000
+cells to the digit - forget-accepted 1.24 [0.73, 2.12], accept-stale-ballot
+1.04, raft-stale-vote 1.99, mencius 0.84 - which is the check that matters
+for the trim: sampling the two censuses changed no scheduling decision.
