@@ -3223,3 +3223,20 @@ judge's rewritten prediction: VR rungs as guards, the panel deciding on the
 iteration-46 rule, and news_strict / contests reported so that a
 near-universal NEWS predicate is caught as "restarted-origin-first wearing
 another name" rather than merged under a new label.
+
+**Build and smoke, before grading.** A new module, reply_news.rs, plus the
+dispatch hook composed after fresh-first and pair-order as the last layer;
+nothing in exec.rs, history.rs or path.rs; the per-(destination, origin)
+contact table is written in its own message-entry block outside the census
+gate; a CountingRng test asserts all three directions draw identically. The
+smoke run (93,120 runs, 60 s) puts news_strict / contests at 0.992 - the
+NEWS class rests on readings the origin's current incarnation wrote, so the
+judge's worry that the predicate was near-universal does not hold and the
+arm is not restarted-origin-first under another name. Two things to carry
+into the read. swaps_news is 28 times below swaps_reply on an arm only twice
+as small, so the NEWS_FIRST direction barely fires and its panel prediction
+(DOWN on forget-accepted) may be unreadable; the decisive contrast is
+REPLY_FIRST against stock either way. And 80 percent of contests are at
+destinations that never restarted - which for this arm is the point rather
+than a defect, since the edge it names sits at the coordinator, which never
+goes down on the chain.
