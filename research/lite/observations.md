@@ -3806,3 +3806,36 @@ contrast for bit 64 at z 2.7 with the 1.3 overdispersion, band [1.04,
 1.16], steps per run treated to control within 1.05 as the guard, with the
 prior-fault and proxy-fault outcomes the judge wrote kept distinct. Four
 chunks each, no extension without a written reason.
+
+**The fork builds and fires, and the cut sits too early to save anything.**
+The implementer refactored exec_plan into a start and a resume, gave the
+path state and its locals Clone, and took the fork at the end of the step
+in which the corpus's ghost signal fires; fork children resume with fresh
+schedule streams under the parent's mechanism bits, the fidelity test
+holds by construction, 390 unit tests and every integration test pass, and
+the smoke is clean: 7,571 parents admitted, 7,571 fork points taken, 6,563
+state-fork children, no fallback, clone wall 290 ms against 60 s on 30
+threads, 76 KB per fork point, RSS up 58 MB. What the smoke also fixed is
+the cut position: prefix steps 1.21M against continuation steps 14.74M,
+so the signal fires 184 steps into a 2,430-step run, 7.6 percent of the
+way, and a fork child's wall reads 0.93 of a tape child's (about 0.89 net
+of the unfilled slots both cells carry) against a gate of 0.85.
+
+Decision: not bought, patch kept under research/lite/patches/state-fork.
+The gate was set on a measured base and it failed; behind it the
+arithmetic is what closes the session. The fork's per-run gain is the
+fidelity gap, which iteration 28 read as about 1.08 at depth 8, and its
+per-wall gain is the prefix share, which is 0.07; the product sits between
+the refutation edge and the band's lower edge, and with the sibling
+inflation the judge required (2.12 on the interval) four chunks resolve
+nothing there. The baseline's own cells put numbers to the family: on
+seeds 1000 and 1001 fresh grid runs read depth>=8 0.0083 per run,
+plan-only children 0.0169 and tape-prefix children 0.0188, so the corpus's
+conditioning is worth 2.0x per run and the schedule prefix at 0.23
+fidelity a further 1.11x, at 1.06x the wall. Children are half of every
+grid arm's runs already. The lever the fork gives is not fidelity, it is
+cost: a fork child pays only what comes after the cut, and this cut is
+where nothing has happened yet. The follow-up is seeded below with the cut
+moved to the last planned recover applied after the signal, which is where
+the depth-8 race is drawn, so the continuation is the race and the prefix
+is everything before it.

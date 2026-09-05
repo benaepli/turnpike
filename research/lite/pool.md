@@ -2965,9 +2965,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## state-fork-continuations-at-ghost-signal-cut
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 54 (judge gain 7, cost 2, rank 1; implementing) | parent:
-  lite-postfault-state-fork
+- kind: add | category: scheduler | origin: proposer | status: FILED at
+  iteration 54 on its smoke gate (cut at 7.6 percent of the run, child wall
+  0.93 of a tape child against 0.85; machinery works, patch kept under
+  research/lite/patches/state-fork; the deeper cut is the follow-up
+  state-fork-cut-at-last-planned-recover) | parent: lite-postfault-state-fork
 - Clone the PathState and the exec_plan locals at the step where the
   corpus's ghost-signal cut fires on a fresh grid-arm parent; a state-fork
   slot (half of the prefix-replay slots, bit 256 replayStateFork, nested in
