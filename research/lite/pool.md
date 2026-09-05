@@ -2478,10 +2478,15 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## fresh-first-ablate-never-restarted-destination
 
 - kind: ablate | category: scheduler | origin: proposer | status:
-  CONFIRMED on VR at iteration 47, eight chunks: depth>=8 1.024, z 2.7
-  [0.990, 1.059], inside the frozen confirming band; 162,042 suppressions
-  per chunk, 48 percent of fresh-first's firing. Narrowing pending only the
-  panel sign check (raft-stale-vote must not read DOWN over three seeds) |
+  MERGED at iteration 47 as a narrowing of the fresh-first rule (spur
+  85ff891): the swap now happens only at a destination whose incarnation is
+  above zero, as the default with no arm. Eight chunks read depth>=8 1.024,
+  z 2.7 [0.990, 1.059], inside the frozen confirming band, with 162,042
+  suppressions per chunk - 48 percent of the rule's firing returned to the
+  draw; panel sign check passed over three seeds (raft-stale-vote 1.18
+  [0.70, 1.99], nothing down, mencius A/A 0.92). Counter renamed
+  fresh_first.skipped_never_restarted_dest; bit 1024 freshFirstDestCut is
+  now a registered row with no tag, like every closed arm |
   previously ADMITTED at iteration 47 as the session's secondary under an
   independent salt (judge gain 6, cost 0, rank 1 of four) | parent:
   fresh-first-same-pair-dispatch-tiebreak (merged)

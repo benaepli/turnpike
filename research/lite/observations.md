@@ -3079,3 +3079,19 @@ accept-stale-ballot against stock, so a longer hold takes that member back
 toward stock while costing VR a quarter of depth 10 and half of depth 11.
 That is a third inverse on the request-timing axis, recorded and not acted
 on: the arm is closed on VR and no round is spent on a dose.
+
+**Merged (spur 85ff891).** The narrowing landed as the default: fresh-first
+swaps only at a destination whose incarnation is above zero, and the drawn
+ghost stays elsewhere. Five files, 96 insertions, 9 deletions; nothing of the
+progress clock in it, and client_anchor.rs, path.rs, state.rs and
+run_variant.rs byte-identical to the previous tree. Suite green. The first
+apply attempt failed silently on a path: `git -C spur apply <relative>`
+resolves the patch relative to the submodule, so the build and tests that
+followed ran on the unchanged tree and passed - a green result that meant
+nothing. Absolute paths for anything handed to `git -C`, and the apply's
+exit code read before the build's.
+
+Two mechanism merges in two sessions, both on cross-protocol evidence: one
+added a direction to a draw, one returned a class of contests to the draw.
+Neither moved VR's primary rung, and neither was expected to. Regression
+and a two-chunk cache follow; the ledger row waits for the cache.
