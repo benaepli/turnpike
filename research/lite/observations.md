@@ -4134,3 +4134,23 @@ which both learners observe at the coin shares, so the treated thirds may
 exploit; this is the property of the three-way split that makes the
 deterministic rule sound here and not in a two-way design. Rebuild, same
 smoke, then the session.
+
+**Third build, graded.** With the pick at coin share times posterior mean
+the equal-posteriors test reproduces the coins to two decimals, and the
+smoke holds stock at 0.100 under A and 0.090 under B against 0.083 (from
+0.136 and 0.119 on the flat prior with a draw, 0.114 and 0.101 on the
+shrunk prior with a draw). The implementer's Monte Carlo of one cell's
+crash axis reproduces 0.102 at the smoke's 450 observations per cell and
+puts chunk-scale cells at 0.09 for A and at the coin for B: a single
+reward on a direction observed 25 times a window lifts its mean more than
+one on a direction observed 115 times, and the pick follows the mean, so
+the residual is finite-sample inflation of a rare reward that fades with
+cell age, not the rule. The signs held across all three builds:
+overtaken-ghost 0.035 with fresh on/off 1.61 and stock/placed 0.90,
+absorber 0.065 with retarget on/off 2.21 and stock/placed 0.29, the
+signal 0.170 with stock/placed 0.05. Chosen against coin at 60 s:
+fresh-first on 0.573 under A, retarget on 0.609 under B, the rest within
+a few points of the coin. Session started on bit 64 with band [1.04,
+1.12]; bit 32 is read from the same chunk records against the coin third;
+four chunks, straight through, the chunk-1 gates read on the counters
+before any depth read is credited.
