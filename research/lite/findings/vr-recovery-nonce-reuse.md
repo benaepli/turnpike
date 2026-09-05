@@ -38,10 +38,16 @@ must come from a clock or from a counter kept on disk. The spec keeps it in
 memory. With a unique nonce, the stale responses in step 3 and step 5 would
 be rejected at `VR.spur:433` and the recovery would wait for fresh ones.
 
-## Fix (not applied - `bin/spur/**` is protected)
+## Fix (applied 2026-09-05 by the user's decision)
 
-Persist the counter with `persist_data` across `RecoverInit`, or draw a
-random nonce. Either restores the paper's uniqueness requirement.
+`RecoverInit` now reads the last nonce with `retrieve_data<int>()`,
+increments it, and writes it back with `persist_data` before the Recovery
+requests go out, so every incarnation announces a fresh nonce and the check
+at `VR.spur:437` rejects responses addressed to an earlier one. A 60-second
+smoke of 2,160 runs was linearizable, with nonces 2 and 3 observed where a
+node recovered more than once. The spec content is part of the grader's
+baseline identity from this change on, so the caches measured against the
+old spec are not reused.
 
 ## Consequences for the research loop
 

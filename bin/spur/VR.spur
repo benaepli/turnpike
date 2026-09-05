@@ -90,7 +90,11 @@ role Node {
           replicas = append(replicas, peers[i]);
         }
 
-        recovery_nonce = recovery_nonce + 1;
+        // The nonce must be unique across incarnations of this replica, so it
+        // is drawn from a counter that survives the crash, not from memory.
+        var last_nonce: int? = retrieve_data<int>();
+        recovery_nonce = (last_nonce ?? 0) + 1;
+        persist_data(recovery_nonce);
         println("Node {self} starting recovery with nonce {recovery_nonce}");
 
         // Clear state from any previous recovery attempts

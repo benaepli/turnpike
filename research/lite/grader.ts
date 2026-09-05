@@ -145,21 +145,22 @@ function templateArmIds(templatePath: string): string[] {
 }
 
 // What determines whether two baseline measurements are the same quantity:
-// the spur tree the binary was built from, the template content, the arm set
-// the rate pools, the thread count (runs share a feedback map across the
-// parallel set), the chunk budget, and the grader version - a depth measured
-// under a different analyzer or a different oracle DAG is a different
-// quantity, however identical the binary.
+// the spur tree the binary was built from, the template content, the spec
+// content, the arm set the rate pools, the thread count (runs share a
+// feedback map across the parallel set), the chunk budget, and the grader
+// version - a depth measured under a different analyzer or a different
+// oracle DAG is a different quantity, however identical the binary.
 interface BaselineIdentity {
   spurTree: string;
   templateSha: string;
   armIds: string[];
   rayonThreads: number;
   chunkSec: number;
-  // Optional in the type only so caches written before the term parse; a
-  // cache with none makes no claim about its analyzer and can never match a
-  // current identity, because the filename carries the term too.
+  // Optional in the type only so caches written before the terms parse; a
+  // cache with none makes no claim about its analyzer or its spec and can
+  // never match a current identity, because the filename carries the terms.
   graderVersion?: string;
+  specSha?: string;
 }
 
 interface BaselineCache {
@@ -176,7 +177,12 @@ function identityFor(baseSpurDir: string, baseTemplate: string, policy: Policy):
     rayonThreads: policy.evaluation.rayonThreads,
     chunkSec: policy.sequential.exploreBudgetSec,
     graderVersion: graderVersionOf(),
+    specSha: sha256(fs.readFileSync(path.join(ROOT, liteConfig().spec), "utf8")),
   };
+}
+
+function specSlug(specSha: string | undefined): string {
+  return specSha === undefined ? "s0" : `s${specSha.slice(0, 8)}`;
 }
 
 /** The grader version as a filename term. Hashed rather than spelled out
@@ -187,13 +193,13 @@ function graderSlug(graderVersion: string | undefined): string {
 }
 
 function identityKey(id: BaselineIdentity): string {
-  return `${id.spurTree.slice(0, 12)}|${id.armIds.join(",")}|${id.templateSha.slice(0, 8)}|${id.rayonThreads}|${id.chunkSec}|${id.graderVersion ?? "unversioned"}`;
+  return `${id.spurTree.slice(0, 12)}|${id.armIds.join(",")}|${id.templateSha.slice(0, 8)}|${id.rayonThreads}|${id.chunkSec}|${id.graderVersion ?? "unversioned"}|${specSlug(id.specSha)}`;
 }
 
 function cacheFileFor(id: BaselineIdentity): string {
   return path.join(
     BASELINE_DIR,
-    `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.templateSha.slice(0, 8)}-${id.chunkSec}-${graderSlug(id.graderVersion)}.json`,
+    `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.templateSha.slice(0, 8)}-${id.chunkSec}-${graderSlug(id.graderVersion)}${id.specSha === undefined ? "" : `-${specSlug(id.specSha)}`}.json`,
   );
 }
 
@@ -311,6 +317,13 @@ function tryAdoptRecord(id: BaselineIdentity): { chunks: Evaluation[]; detail: s
     return null;
   }
   if (sha256(recTemplate) !== id.templateSha) return null;
+  let recSpec = "";
+  try {
+    recSpec = execFileSync("git", ["show", `${first.superCommit}:${liteConfig().spec}`], { cwd: ROOT }).toString();
+  } catch {
+    return null;
+  }
+  if (sha256(recSpec) !== id.specSha) return null;
   return { chunks, detail: `adopted ${chunks.length} chunks from ${path.basename(recordPath)}` };
 }
 
@@ -1353,7 +1366,8 @@ async function cmdSelftest(): Promise<void> {
         if (identityKey(c.identity) === identityKey(currentIdentity)) {
           failures.push(`baseline cache ${f} claims the current identity but is not the file it would be written to (${path.basename(currentCacheFile)})`);
         }
-        const sameProgram = c.identity.spurTree === currentIdentity.spurTree && c.identity.templateSha === currentIdentity.templateSha;
+        const sameProgram = c.identity.spurTree === currentIdentity.spurTree && c.identity.templateSha === currentIdentity.templateSha
+          && c.identity.specSha === currentIdentity.specSha;
         const shared = c.chunks.filter((x) => x.graderVersion === currentIdentity.graderVersion).length;
         if (sameProgram && shared > 0) {
           failures.push(`baseline cache ${f} holds ${shared} chunk(s) on the current grader version that a fresh cache would measure again`);
