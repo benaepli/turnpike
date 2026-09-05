@@ -4705,3 +4705,9 @@ posterior-mean leader as the exploitation ceiling, argued against as a
 merge; and crediting the posteriors from the coin quarter only, which
 removes the confound at no constant and is graded on shares since it
 cannot be split by run. Judged next.
+
+**Fresh anchor on the merged tree (quarters).** Two baseline chunks on
+seeds 1000 and 1001 at 1930 and 2068 runs per second; depth>=8 per
+chunk [7354, 7639] beside the previous merge's 7,567 and 7,504 on the
+same seeds; no violations. Ledger row appended: ratio 0.9915, cumulative
+0.914, measured 1999 runs per second.

@@ -173,6 +173,21 @@
    "cacheFile": "research/lite/baselines/286ea98c961e-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-05T20:00:00Z",
    "note": "measured by grader baseline --chunks 2 after the selector merge; the merged tree carries the coin third and the two learner thirds, bit 64 undecided, bit 32 passed at depth>=8 1.111 against the coin third; depth>=8 events per chunk [7567, 7504] against 6490/6790 on the pre-merge cache"
+  },
+  {
+   "name": "per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward",
+   "commit": "e2733f0",
+   "spurCommit": "38fcbcc",
+   "ratio": 0.9915,
+   "cumulative": 0.914406,
+   "measuredRps": 1998.8510113636698,
+   "measuredRpsChunks": [
+    1929.804694785644,
+    2067.8973279416955
+   ],
+   "cacheFile": "research/lite/baselines/14690c4725cf-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+   "measuredAtIso": "2026-09-05T22:00:00Z",
+   "note": "measured by grader baseline --chunks 2 after the third-learner merge (quarters); depth>=8 events per chunk [7354, 7639] against 7567/7504 on the previous merge's cache"
   }
  ]
 }
