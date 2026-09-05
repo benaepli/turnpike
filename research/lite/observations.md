@@ -3641,3 +3641,24 @@ whose planned fault cycles have all completed; a state checkpoint at the last
 planned recover with several continuations, which breaks the per-run unit
 and says so; and a per-cell Thompson walk over the config grid rewarded by a
 protocol-free post-fault shape. Judged next.
+
+**Judged.** The cached claim recomputes exactly - every ratio, the
+per-chunk range, every supply-census figure to the unit. Three things the
+proposer missed reshape it. The learned run cap binds before the budget
+(median scope about 3,300; 43 to 50 percent of runs end on it), so the
+contrast behind the 2.3x is 3,300 against 1,500 and a 2,000 dose buys about
+1.65x on the arms it changes. grid-short is not changed by a base-field dose
+and already supplies 37 percent of depth-8 events, so the campaign-wide
+ceiling is 1.84x and the realistic read about 1.47x; the proposer's band
+would have refuted a working mechanism and is rewritten around the four
+changed arms with grid-short as an invariance control. And the panel cannot
+see the dose at all - every member sets its own step budget and the grader
+overrides the base field - so the panel is a strict A/A here and the
+candidate's generality is unguarded. The judge also found the strongest
+counter-evidence: grid's own per-run depth>=6 fell from 3.89 to 2.93 percent
+across the window in which the learned cap shortened its budget. Graded
+anyway, because it costs nothing - no build, the baseline binary, one
+template field - and a null closes the budget axis for good. If it passes,
+the merge is held for the user: a budget change re-bases the epoch
+(template hash, every cached baseline, the ledger identity) and the panel
+cannot vouch for it.

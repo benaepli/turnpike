@@ -2879,3 +2879,75 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   and clause 3 restated ceiling-normalized: (EARLY share - STOCK share) /
   (1 - STOCK share) >= 0.35 (chunk 1 read (0.666-0.396)/(1-0.396) = 0.45 on
   the mixed arm). Cost throughput >= 0.97 after the paired steps read.
+
+
+## lite-run-budget-dose-2000
+
+- kind: add (config dose) | category: config | origin: proposer | status:
+  ADMITTED at iteration 53 behind a smoke gate, graded cross-binary with no
+  bit; MERGE HELD FOR THE USER if it passes (judge gain 7, cost 0, rank 1 of
+  four) | parent: learned-run-cap-probe-p99 (merged)
+- Change: scheduler_configs/loop/general_vr.json max_iterations 6000 -> 2000;
+  nothing else; the campaign block and grid-short's 1500 overlay untouched.
+- Evidence, recomputed by the judge from 16 cached chunks with probes out
+  and each arm's own wall as denominator: grid-short/grid events per second
+  2.33 / 2.39 / 2.31 / 2.73 / 3.05 / 2.91 at depth>=8..13, per-run 1.14 /
+  1.16 / 1.12 / 1.33 / 1.48 / 1.42, per-chunk depth>=8 in [2.02, 3.02] on
+  all 16; on 36 chunks the shallow result strengthens (2.36) and the deep
+  headline decays (2.28 / 2.37 / 1.78 at 11-13, depth>=13 per-run 0.86).
+- Confounds the judge priced: the learned cap binds first (median scope
+  ~3300, 43-50 percent of runs end on it), so the true contrast is ~3300 vs
+  1500 and the dose buys ~1.65x on the arms it touches; grid-short is
+  unchanged and carries 37 percent of depth-8 events, so the campaign-wide
+  ceiling is 1.84x and the realistic read ~1.47x; grid's own per-run
+  depth>=6 fell 3.89 -> 2.93 percent as the learned cap shortened its budget,
+  which points the other way and is the strongest argument against.
+- Frozen prediction (judge's rewrite): DECISIVE = depth>=8 events per
+  explore-second on the four changed arms (grid, grid-no-purgatory,
+  grid-post-fault-2 and the fourth), cross-binary against the paired-seed
+  baseline over eight chunks, band [1.30, 2.10]; campaign-wide depth>=8 per
+  second secondary at [1.20, 1.80]; grid-short per second is the invariance
+  control and must read inside [0.90, 1.10]; depth>=10 and >=11 per second
+  reported. Firing: mean steps per run on the changed arms in [900, 1700]
+  (the cap-scope floor is vacuous because the learner disengages at 2000).
+  SMOKE GATE: steps per run in [900, 1700] on the changed arms; runs per
+  second >= 1.4x the same-seed baseline smoke; plan-completion share within
+  0.05 of the baseline's; no arm at zero runs. PANEL: unreachable by
+  construction (members set their own maxIterations; grader overrides) -
+  read as a strict A/A and recorded as such; generality is unguarded, which
+  is why the merge is held. COST: wall per step within 1.02 (identical
+  binary); merging changes templateSha and invalidates every cached baseline
+  and the epoch identity.
+
+## lite-config-cell-deep-supply-walk
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 53 (judge gain 5, cost 0, rank 2) | parent:
+  hazard-thompson-config-walk (kept)
+- Per-cell Thompson walk over the config grid inside each arm, rewarded by a
+  protocol-free post-fault shape; bit 4194304. Does not touch the campaign
+  block. Bounded near 1.3x by the dead third of one-crash cells (rung 5 is a
+  second crash - verified).
+
+## lite-deep-run-budget-extension
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 53 (judge gain 4, cost 0, rank 3) | parent:
+  learned-run-cap-probe-p99
+- Two-tier cap: median-shoulder base, extended once for runs whose planned
+  fault cycles have all completed with plan events still unreleased; bit
+  131072. path.rs holds crashed/recovered sets and pending_recover, so the
+  predicate is computable; the cap is the loop bound at path.rs:516. Bounded
+  near 1.3x by the redistribution arithmetic. Re-price after the dose.
+
+## lite-postfault-state-fork
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 53 at the back (judge gain 5, cost 2, rank 4) | parent:
+  ghost-prefix-replay-corpus
+- Checkpoint State (Clone is derived, though the struct's own comment says
+  it is never cloned) at the last planned recover and run N continuations.
+  Cost 2: re-emitting the prefix's trace rows per continuation touches the
+  recording path. Breaks the per-run unit by construction; only a
+  cross-binary per-second read is honest. Schedule only after a budget
+  candidate has read.
