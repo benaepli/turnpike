@@ -5045,3 +5045,22 @@ previous merge's cache, seed 1001 8,019 against 7,639, about seven
 percent per chunk pooled, beside the session's 1.093 per second on four
 paired seeds. The "softer anchor" note above was the contended chunk
 speaking, not the tree.
+
+**Built; graded.** A run draws its learner over thirds, then explores
+with probability e = the minimum over axes of (1 - m)/m from that
+learner's cell, one before warmup; coin-drawn runs take the coins under
+the tag the tree gives them (asserted over 64k ids) and credit all three
+learners; learner runs pick every axis by the concentrating rule; the
+matching half and the fixed coin quarter are gone; 452 unit tests and
+every integration test green. The 60 s smoke: 99,212 draws, 30,755
+coin-drawn (0.31, of which 5,312 in warmup), mean top margin past warmup
+0.806; per learner A 0.307, B 0.280, C 0.352; per campaign arm grid
+0.420, grid-short 0.301, no-purgatory 0.397, post-fault-2 0.390, aos
+0.060 - the one cell with 87k runs per chunk explores least, as the
+rule says it should. Learner runs' shares against the coin-drawn runs':
+A fresh-first 0.721 against 0.503, B retarget 0.758, C hold 0.684 and
+rush 0.134; stock 0.09 to 0.13 on learner runs against 0.083, the
+young-cell lift. Session explore-odds started on the cross-binary
+fallback with no bit; four chunks, seeds 1002 and 1003 of the tree's
+baseline measured inside it; the read that decides is depth>=8 per run
+against the paired baseline, band [1.05, 1.13].
