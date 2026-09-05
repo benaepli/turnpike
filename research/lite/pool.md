@@ -2893,8 +2893,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   grid-short 0.947 inside [0.90, 1.10] but its deep rungs fell 25-35 percent
   through shared learners (run-cap scope, placement span) - the arms are
   coupled and the base field is not a clean per-arm dose. Per-run depth>=8
-  1.006 on the changed arms. MERGE HELD FOR THE USER; export
-  tmp/loop/lite/budget-2000 kept | parent: learned-run-cap-probe-p99 (merged)
+  1.006 on the changed arms. DECLINED BY THE USER: no config changes; the
+  loop is for simulator mechanisms. Finding kept (runs past the point where
+  plan events release buy no plan progress); the budget axis is closed.
+  Export tmp/loop/lite/budget-2000 kept | parent: learned-run-cap-probe-p99
+  (merged)
 - Change: scheduler_configs/loop/general_vr.json max_iterations 6000 -> 2000;
   nothing else; the campaign block and grid-short's 1500 overlay untouched.
 - Evidence, recomputed by the judge from 16 cached chunks with probes out

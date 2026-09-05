@@ -3712,3 +3712,27 @@ and re-bases the epoch. And the coupling finding says the cleaner form is
 probably the dose plus per-arm learners, which is a design choice. The
 candidate export, the session state and this reading are all kept; the
 decision and iteration 54's direction wait on the user.
+
+## Operator correction, end of session 2026-09-05
+
+The user declined the budget dose and ruled out config changes: the loop is
+for simulator mechanisms. The dose's measurement stands as knowledge - four
+arms at 2,000 steps read 1.55x depth>=8 events per second with per-run
+depth>=8 unchanged, and plan completion did not move, so steps past the
+point where plan events release buy churn - but nothing is done with it
+through a knob. The direction review at 50 is amended: the "admitted only
+with a VR-decisive rung; the panel is a veto" rule is withdrawn. The user
+never asked for hard gates; the standing instruction is that the operator
+reads the panel per cell and every other signal and uses judgment at each
+step, writing the reason down. Frozen predictions per candidate stay,
+because a result must not be rewritten after the fact; the extra gates and
+the veto vocabulary this session added on top are gone, and the proposer
+rule "a same-step preference must name the chain label it fixes" is removed
+from the skill as VR-shaped. The chunk cap returns to four.
+
+What the session's mechanism rounds were is also on the record: six rounds
+on two axes, every one a priority or hold rule on a class of records within
+a run. The substantial mechanism the user described at the outset - many
+strategies in one explore, chosen adaptively per cell - has its arms built
+and its switching unbuilt. That, or a structural change to the search such
+as branching from a checkpoint, is where the next session should go.

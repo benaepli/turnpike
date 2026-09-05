@@ -164,14 +164,6 @@ state verbatim:
   searches. A parameter dose on an existing knob is worth proposing only as
   a follow-up to a merged mechanism or to a recorded observation that names
   that knob.
-- A same-step dispatch preference must name the label in the oracle chain
-  whose order it fixes. Iterations 43 and 45 measured a preference and its
-  exact inverse at 0.74 and 0.95 on the primary rung: the control is an
-  unbiased coin whose randomness is worth something, so a deterministic
-  rule on a dimension the chain does not constrain loses in both
-  directions. Fresh-first is the counter-example that proves the rule -
-  equally deterministic, worth a factor of four, and its dimension
-  (incarnation freshness) is one the chain orders explicitly.
 - A nested dose or cell must have its own variant bit. Iteration 45's
   quarter-strength cell was a pure function of the run id, so the grader
   could not split its rungs and the dose question went unanswered.
