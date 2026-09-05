@@ -4154,3 +4154,34 @@ a few points of the coin. Session started on bit 64 with band [1.04,
 1.12]; bit 32 is read from the same chunk records against the coin third;
 four chunks, straight through, the chunk-1 gates read on the counters
 before any depth read is credited.
+
+**Chunk 1: the absorber reward passes its gates and leans up; the
+overtaken reward misses two letters on a base rate a third of its
+estimate.** Coin third 183,631 runs, probes out. Alignment on the coin
+third (stock/placed, phase/placed, retarget, fresh, pair, hold/stock,
+rush/stock): overtaken-ghost, base 0.0357 on 6,548 rewards: 0.818, 1.150,
+1.284, 1.661, 1.025, 1.008, 0.935; acted-absorber, base 0.0834 on 15,318:
+0.229, 1.454, 2.280, 0.982, 1.331, 1.030, 0.998; the signal, base 0.243 on
+fresh runs: 0.035, 1.137, 1.045, 1.009, 1.002, 1.020, 0.944; the union
+0.111: 0.435, 1.336, 1.877, 1.120, 1.214, 1.029, 0.983. The absorber
+reward meets all four of its chunk-1 gates and its firing floor; its
+learner moved the treated third to retarget on 0.640, phase 0.535, pair
+0.548 and stock 0.063 against coins of 0.500, 0.457, 0.503 and 0.083,
+departures 0.98, fallback 0.014, 217 cells. Against the coin third only
+(151,174 against 151,002 grid runs, steps per run 1.010): depth>=6 1.174
+[1.107, 1.246], depth>=8 1.135 [1.034, 1.246] on 2,299 against 2,023,
+depth>=9 1.127 [0.900, 1.413], depth>=10 1.33 on 36 against 27. The
+point sits a hair above the admitted band's upper edge and the lower edge
+is above one; by the rule fixed at admission this is a pass at one chunk,
+and three more chunks decide it. The overtaken-ghost reward reads its
+signs right (fresh 1.66 up, stock 0.82 down, rush 0.94 down) but its
+stock/placed misses the 0.8 letter at 0.818 and its firing floor of
+12,000 at 6,548, because the base rate is 0.036 where the proposer
+estimated 0.12; its learner still moved fresh-first to 0.584 and
+retarget to 0.547 and holds stock at 0.090, and its depth>=8 reads 1.067
+[0.971, 1.173], undecided. Both letters were set from the unmeasured
+base rate; the sign clause is met. The read continues for both and the
+gate misses are recorded against A. The signal reward's table is the
+calibration: 0.035 on stock against placed, everything else within a few
+percent of one, exactly as argued. No violations; candidate 588,720 runs
+at 1,960 per second.
