@@ -4185,3 +4185,16 @@ gate misses are recorded against A. The signal reward's table is the
 calibration: 0.035 on stock against placed, everything else within a few
 percent of one, exactly as argued. No violations; candidate 588,720 runs
 at 1,960 per second.
+
+**Two chunks pooled.** Coin third 310,453 grid runs. B (acted-absorber,
+bit 32): depth>=6 1.153 [1.106, 1.202], depth>=8 1.133 [1.061, 1.211] on
+4,551 against 4,013, depth>=9 1.104 [0.938, 1.299], depth>=10 1.28 on 68
+against 53; steps per run 1.009; shares retarget 0.623, phase 0.522, pair
+0.547, placed 0.927 against coins 0.499, 0.457, 0.503, 0.917. A
+(overtaken-ghost, bit 64): depth>=8 1.071 [1.002, 1.146] on 4,316 against
+4,013, depth>=9 1.065, depth>=10 1.39 on 74 against 53; steps 1.003;
+shares fresh 0.583, retarget 0.538, placed 0.901. Alignment on the pooled
+coin third holds: A's stock/placed 0.799, fresh 1.658; B's stock/placed
+0.229, retarget 2.243. Both learners read their reward up on their own
+third (A 0.0404 against 0.0369, B 0.1034 against 0.0846). Two chunks
+more, then the regression case and the panel on the candidate binary.
