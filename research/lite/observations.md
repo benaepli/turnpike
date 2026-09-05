@@ -3575,3 +3575,18 @@ point of 1.15 or better, no extension past eight, the panel as a veto only.
 A separation merges the arm; anything else closes the family with a fair
 reading, and the deep lean recorded here is the reason the re-test is paid
 for at all.
+
+## Iteration 52: the stripped re-test
+
+The census is gone from the hot path: nothing runs per handler entry or per
+dispatch step (the scheduler's non-test code is byte-identical to the base
+tree), and per remote push a STOCK run pays one enum compare while an EARLY
+run pays that plus an incarnation index before the window test. Cost gate:
+wall per step 0.9975 of the baseline pooled over twelve paired smokes, 0.985
+on the designated pair, against a cap of 1.02. The implementer's control is
+the useful number: a byte-identical build of the base tree in the worktree
+ran 1.02x the reference binary, so a single pair on this host has a build
+and load error bar wider than the gate, and pooled pairs are the read.
+Firing on the candidate smoke: 19.0 stamps per EARLY run, 0.876 of EARLY
+runs stamped, 76,849 backlog records declined. Eight chunks follow, straight
+through, primary depth>=10, as pre-committed at iteration 51.
