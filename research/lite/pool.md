@@ -2116,6 +2116,19 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 - kind: add | category: scheduler | origin: operator-agent | status:
   KEPT at iteration 44 (judge gain 5, cost 0, rank 4; still gated behind its census) | parent:
   post-fault-request-timing-axis (filed) and the 64-step deferral (merged)
+- Updated at iteration 46 (a duplicate proposal was folded in here rather
+  than opened as its own row). The release unit is acted handler entries at
+  the most recently restarted node, and it is cheaper than this entry
+  assumed: SendLedger already carries `entries` and `entries_at_restart`
+  (core/state.rs:686) and note_ghost_delivery already applies the
+  `env.writes != before` acted test (core/state.rs:1092), so the clock needs
+  a per-entry increment and a snapshot at note_incarnation_bump, not a new
+  accounting path. Bit 1024 (entryClock) is free to recycle. The census this
+  entry is gated behind stays mandatory and arm-blind. One clause must be
+  restored before admission: the decisive read is depth>=10 at or above 1.20
+  with the interval's lower edge above 1.00, because a band on depth>=8
+  alone leaves the arm unfalsifiable on the only rung the hold was merged
+  for.
 - Mechanism: arm C of the request-timing axis keyed on protocol progress
   instead of scheduler steps or a rare double-ghost event: a held post-fault
   request is released when the most recently restarted node has acted (a
