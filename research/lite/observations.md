@@ -4996,3 +4996,39 @@ per-protocol learner is supposed to learn that member's own mix - which
 these cells say it has not, at 217 cells over a member's 96k to 288k
 runs. It is the standing generality caveat on the selector, unresolved
 at the panel's resolution, and the next merge decision weighs it.
+
+**Judged.** The posterior-odds share takes the session at gain 7, cost
+0, in the per-learner-third form: a run draws its learner first by the
+selector phase over thirds, then explores with probability e = the
+minimum over the axes of (1 - m)/m, m the learner's leader margin in
+that cell, e = 1 before warmup; a coin-drawn run carries no learner bit
+and is credited to all three learners; a learner run picks every axis by
+the concentrating rule; the matching half is retired. The bundled
+ablation does not ride: the judge found that removing the unit prior
+makes the cell mean exactly zero before a cell's first reward, every
+Beta (0, n) with zero variance, and the pairwise lead a 0/0 that the
+pick's guard does not catch, so the pick would return the last direction
+on every axis until the first reward, which for learner C has a 0.63
+chance of not arriving inside the warmup; and coin-only credit starves
+per-chunk learners. Two findings reshape the whole family. First, the
+learners do not persist across a session: the grader runs one explorer
+process per chunk and the selector resets at session start, so a grid
+cell sees 1,420 to 3,500 runs in its life and the aos cell 87k, and
+every share number this loop has read is a young-cell number; the
+prior-owed rules cannot reach their floor in such cells (their session
+mean would read 0.32 to 0.46, and their own chunk-4 falsifier would fire
+on a correct build), while the odds rule per third, re-implemented in
+python from chunk 1003's coin table and run-weighted over the campaign's
+cells, reads +8.5 percent per run against the tree, the only candidate
+that clears the layout band (odds cell-max +6.0, prior-owed +3.7 to
++4.4, the change-point form +4.4, the bundle +0.9). Second, the fresh
+cache's seed-1000 chunk was measured during the scale-9 panel and reads
+0.91 per run and 0.78 per second against the same binary and seed an
+hour earlier; it is dropped and re-measured on an idle host before the
+session. Grading: cross-binary, no bit; primary depth>=8 per graded run
+against the paired baseline on four seeds, band [1.05, 1.13], pass with
+the point at or above 1.05 and the lower edge above 1.00 by the wider
+of the four chunk ratios' own dispersion and the binomial error at 1.3;
+refuted below 1.03; per second reported beside it with depth>=10; chunk-1
+gates on the coin-run count, the mean coin share and the learners'
+shares. Implementing.

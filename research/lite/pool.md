@@ -3258,3 +3258,54 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   prior in posterior(), which is real and live, and the dead
   total-at-or-below-zero fallback in sample_axis that would turn live
   with it) | parent: per-cell-factored-axis-beta-selector-rarity-reward
+
+## selector-explore-share-posterior-odds-against-leader-most-decided-axis
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 58 in the per-learner-third form (judge gain 7, cost 0, rank
+  1; no bit, cross-binary; implementing) | parent:
+  selector-pick-coin-times-leading-probability-within-learner-half
+- A run draws its learner over thirds, then explores with probability
+  e = min over axes of (1 - m)/m, m the learner's leader margin in the
+  cell, e = 1 before warmup; coin-drawn runs carry no learner bit and
+  credit all three learners; learner runs pick by the concentrating rule
+  on every axis; the matching half is retired.
+- Frozen prediction (judge's version): cross-binary depth>=8 per graded
+  run against the paired baseline on seeds 1000 to 1003, band [1.05,
+  1.13], pass with the point at or above 1.05 and the lower edge above
+  1.00 by the wider of the chunk ratios' dispersion and the binomial
+  error at 1.3; refuted below 1.03 or with the interval entirely below
+  1.05; per second and depth>=10 reported. Chunk-1 gates: explore.coin_runs
+  at or above 20,000, mean coin share in the judge's stated range, the
+  learners' shares on the axes their rewards separate at or above 0.75;
+  steps within 1.05; throughput at or above 0.97. Four chunks.
+
+## selector-explore-share-prior-owed-per-learner-third
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 58 (judge rank 2; its per-learner assignment is the form the
+  admitted rule took; its own share cannot reach its floor in cells that
+  live one chunk: modelled +3.7 percent, inside the layout band) |
+  parent: selector-pick-coin-times-leading-probability-within-learner-half
+
+## selector-explore-share-prior-owed-per-cell-max-over-learners
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 58 behind the per-third forms (judge: session-mean share
+  claim false in one-chunk cells, modelled +4.4 percent) | parent:
+  selector-pick-coin-times-leading-probability-within-learner-half
+
+## selector-explore-share-posterior-odds-with-coin-only-credit-and-unit-prior-removed
+
+- kind: ablate | category: scheduler | origin: proposer | status: REJECTED
+  at iteration 58 (judge: removing the unit prior makes the cell mean
+  zero before the first reward and the pairwise lead 0/0, uncaught by the
+  pick's guard; coin-only credit starves one-chunk learners; modelled
+  +0.9 percent) | parent: selector-posteriors-credited-from-coin-quarter-only
+
+## selector-explore-one-coin-axis-per-learner-run
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 58 (judge: a fixed exploration rate of one axis in five in a
+  change-point form, modelled +4.4 percent, inside the layout band) |
+  parent: selector-pick-coin-times-leading-probability-within-learner-half
