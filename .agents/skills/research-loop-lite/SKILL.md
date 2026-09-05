@@ -124,7 +124,14 @@ built strategy arms on a protocol-agnostic signal, branching the search
 from a checkpoint, new feedback loops. A round exists to test a mechanism;
 never spend one on a census, a calibration, or a measurement alone. If a
 mechanism needs a new observable, the implementer adds it in the same
-change and the grader reads it in the same session. Three channels: a **focus
+change and the grader reads it in the same session.
+
+Be patient. Finding the VR bug takes time, and the violation count will
+read zero for most of the loop's life. That is what the depth ladder is
+for: it is the measurement of progress toward the bug, and a zero on
+violations is not a reason to change what is measured, move the rungs,
+rescale the oracle, or reach for something drastic. Be persistent at the
+goal as given and the measurements as given. Three channels: a **focus
 directive** appended to the proposer prompt beside the rotating lens; an
 **elaboration**, where the proposer develops a rough idea of yours into a
 few variants under the normal constraints; and **seeding**, a fully-formed
