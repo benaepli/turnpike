@@ -2114,10 +2114,23 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## post-fault-release-on-recovered-progress
 
 - kind: add | category: scheduler | origin: operator-agent | status:
-  ADMITTED at iteration 47 as the session primary (the census is folded in
-  arm-blind, so the gate is satisfied in the grading session) | previously
-  KEPT at iteration 44 (judge gain 5, cost 0, rank 4) | parent:
-  post-fault-request-timing-axis (filed) and the 64-step deferral (merged)
+  CLOSED at iteration 47 on the inapplicable branch of its own frozen
+  prediction: over four chunks the clock released 68,039 holds per chunk
+  (floor 100,000) and 0.180 of the holds on its quarter (floor 0.5); the
+  arm-blind census puts the restarted node's third acted entry inside the
+  64-step window on 0.166 of all holds, mean acted count at release 3.32.
+  Graded as the 128-step dose it degenerates to, it read depth>=8 0.984
+  [0.930, 1.041], depth>=10 0.741 [0.519, 1.059], depth>=11 0.371 [0.209,
+  0.659] at z 1.96 - the longer hold is not better on the deep rungs, which
+  also revises iteration 37's 1.21 [1.00, 1.46] downward. Finding: acted
+  handler entries since restart is the right kind of clock but N = 3 is
+  slower than the hold's window four times in five on this tree; any
+  successor must pick N from the census (N = 1, "the restarted node has
+  acted at all", fires on most holds) and must be proposed as a mechanism
+  round, not a dose sweep. Not re-seeded here | previously ADMITTED at
+  iteration 47 as the session primary; KEPT at iteration 44 (judge gain 5,
+  cost 0, rank 4) | parent: post-fault-request-timing-axis (filed) and the
+  64-step deferral (merged)
 - Frozen prediction (admission, iteration 47): bit clientProgressRelease =
   1 << 28 (268435456), recycled from the dead clientEventRelease row, set
   only when CLIENT_FANOUT_RELEASE (1 << 18) is set, own salt, probes exempt
