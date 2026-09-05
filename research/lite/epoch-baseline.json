@@ -158,6 +158,21 @@
    "cacheFile": "research/lite/baselines/9a596cd8e076-30-f9daa01b-300-g870d4c11.json",
    "measuredAtIso": "2026-09-05T07:05:00Z",
    "note": "narrowing, not an addition: the fresh-first same-pair preference now swaps only at a destination whose incarnation is above zero, returning about 48 percent of its firing (162,042 swaps per chunk) to the draw. Read as the secondary of the progress-dest session under an independent salt, matched cut against full within the fresh-first half over eight chunks: depth>=8 1.024, z 2.7 [0.990, 1.059], inside the frozen confirming band [0.95, 1.06]; depth>=9 1.067 [0.986, 1.154]. Panel sign check over three seeds: raft-stale-vote 1.18 [0.70, 1.99], nothing down, mencius A/A 0.92. Regression vr-nofault-clean passed (1,800 runs, 0 violations). The session's primary, the progress-clocked release, was closed in the same round: inapplicable at N = 3 (0.180 of holds released by the clock against a floor of 0.5) and, as the 128-step hold it degenerates to, depth>=10 0.743 [0.573, 0.964] separated down. Four-chunk cache. The first two chunks read 1,802.6 and 1,905.5 (0.917) and were diagnosed before the ledger was written: steps per run ran 2,564 and 2,397 against a previous range of 2,112-2,489, and on this tree runs per second tracks run length; but within the graded session, on the same seeds, the cut quarter ran 2,245.0 steps per run against the full quarter's 2,249.8 (0.998), so the narrowing does not lengthen runs and the low chunks are seed-drawn run length. Events per chunk depth>=8 [6717, 6318, 7349, 6896], depth>=9 [1192, 1138, 1310, 1235], depth>=10 [113, 99, 117, 112], depth>=11 [27, 20, 26, 30]; per-run depth>=8 rate 1.027 of the previous cache's, consistent with the graded 1.024. The ledger ratio is cache to cache by convention and the selftest ties the cumulative to the measured cache; the narrowing's own throughput cost, read paired within the graded session as wall per run on the cut quarter against the full quarter, is 11,045 against 11,049 microseconds, 0.9996."
+  },
+  {
+   "name": "per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward",
+   "commit": "7bb10ea",
+   "spurCommit": "0587e8c",
+   "ratio": 0.996,
+   "cumulative": 0.922245,
+   "measuredRps": 2040.237818720942,
+   "measuredRpsChunks": [
+    2055.6869275603663,
+    2024.7887098815177
+   ],
+   "cacheFile": "research/lite/baselines/286ea98c961e-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+   "measuredAtIso": "2026-09-05T20:00:00Z",
+   "note": "measured by grader baseline --chunks 2 after the selector merge; the merged tree carries the coin third and the two learner thirds, bit 64 undecided, bit 32 passed at depth>=8 1.111 against the coin third; depth>=8 events per chunk [7567, 7504] against 6490/6790 on the pre-merge cache"
   }
  ]
 }
