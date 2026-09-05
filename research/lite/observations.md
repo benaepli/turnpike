@@ -3540,3 +3540,38 @@ reinterpreted: depth>=10 EARLY/STOCK with the 2.7-sigma lower edge above
 1.00 over eight chunks, depth>=8 inside [0.96, 1.12] as the guard, four
 chunks bought first and four more only if the first four leave the lower
 edge within reach of one.
+
+**Four chunks, filed - and the first deep lean of the epoch.** EARLY against
+STOCK, 622,026 against 619,042 runs, matched with rushed runs out of the
+control, no balance faults: depth>=8 0.983 [0.935, 1.032], the guard met;
+depth>=9 1.013 [0.904, 1.137]; depth>=10 1.067 [0.766, 1.488] on 178
+against 166 events; depth>=11 1.368 [0.868, 2.158] on 44 against 32;
+depth>=12 1.341 on 31 against 23; depth>=13 1.659 on 10 against 6. Every
+rung from 10 to 13 leans up, none separates, and the pre-fixed rule stops
+the session: at eight chunks the primary's interval narrows by about a
+factor of 1.4, so a point estimate of 1.067 would put the lower edge near
+0.84, and separation would need the point to hold at 1.27. Not in reach;
+not extended.
+
+The cross-binary throughput read 0.917, and this time it is the binary.
+Wall per step is 1.11x on every seed - 5.42, 5.38, 5.38, 5.42 microseconds
+against 4.82, 4.84, 4.92, 4.87 on the same seeds' baseline chunks - while
+steps per run scatter both ways (1.012, 0.948, 0.799, 0.927 on runs per
+second). Within the binary EARLY and STOCK run identical steps per run
+(2,205 against 2,213), so the contrast above is fair; but the arm as a
+change to the tree would fail its 0.97 cost clause by a wide margin. The
+cost is the census: the class test at every remote push, the settle check at
+every handler entry, and the sampled histograms and dispatch scan, on a hot
+path. Iteration 46's 4.6 percent had the same shape and sampling removed it.
+
+Decision: FILED, patch kept, with a pre-committed re-test written before it
+runs. The census is stripped to the arm's own firing counters (arm runs,
+stamps, runs with a stamp, backlog declined) and nothing per push or per
+entry beyond the class test the stamp itself needs; the smoke must read wall
+per step within 2 percent of the baseline's on the same seed or the re-test
+is not run; then EIGHT chunks, primary depth>=10 with the lower edge above
+1.00 at z 2.7, guard depth>=8 [0.96, 1.12], depth>=11 corroboration at a
+point of 1.15 or better, no extension past eight, the panel as a veto only.
+A separation merges the arm; anything else closes the family with a fair
+reading, and the deep lean recorded here is the reason the re-test is paid
+for at all.

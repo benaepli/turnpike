@@ -2838,7 +2838,14 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 - kind: add | category: scheduler | origin: operator-agent (derived in-round
   from the cut's reading; the judge named this design in advance as "the
-  most informative single design") | status: GRADING at iteration 51 -
+  most informative single design") | status: FILED at iteration 51 after
+  four chunks - depth>=10 1.067 [0.766, 1.488], depth>=11 1.368, depth>=12
+  1.341, depth>=13 1.659, guard 0.983 met, none separated; the binary's wall
+  per step is 1.11x on every seed (census on the hot path), so the arm as
+  built fails its cost clause. RE-TEST pre-committed as iteration 52: census
+  stripped to firing counters, smoke wall/step within 2 percent of baseline
+  or no run, eight chunks, primary depth>=10 lower edge > 1.00, no
+  extension. Previously GRADING at iteration 51 -
   gate passed on all four clauses (0.907, 12.4, 0.428 ceiling-normalized,
   0.999); the dispatch-share census was re-scoped to the rule's class after
   reading 0.224 over the mixed population (both numbers kept); settle
