@@ -3197,3 +3197,62 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   rate on both halves and the ordering clause is the hold's own action,
   already told by the release counters; one false claim) | parent:
   post-fault-request-timing-axis
+
+## selector-pick-coin-times-leading-probability-within-learner-half
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 57 (judge gain 7, cost 0, rank 1; bit 256 armSelectorConcentrated
+  as a salted half of every learner quarter; implementing) | parent:
+  per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
+- The pick on the new half weights each direction by its coin share times
+  the posterior probability that it leads its axis (Beta-difference
+  normal approximation, no draw, no constant); the coin exactly on a flat
+  axis pooled, the leader where the posteriors separate. Matching half
+  unchanged; both halves credit the same posteriors.
+- Frozen prediction (judge's version): depth>=8 per run, the pooled
+  new-rule half against the pooled matching half, z 2.7 with
+  overdispersion 1.3, band [1.06, 1.22], pass with the point inside and
+  the lower edge above 1.00; per learner reported; each half against the
+  coin quarter, the matching half's read compared with 1.106/1.091/1.077;
+  firing arm_selector_axis.concentrated_runs at or above 60,000 per
+  learner per chunk; shares on the new half as the build observable
+  (retarget and hold at or above 0.80 where the reward separates them,
+  flat-axis shares in [0.35, 0.65] as a confound signal); steps within
+  1.05; throughput at or above 0.97; depth>=10 a reported lean, pooled
+  A+B below 0.80 on 120 or more events to a human before a merge. Four
+  chunks.
+
+## selector-pick-leader-mixture-by-leading-margin-within-learner-half
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 57 (judge gain 4, rank 2; the same rule as the pick chosen on
+  binary axes, worse on the three-way axes in young cells; its claimed
+  hold share of 0.53 to 0.56 on the flat request axis was false, 0.41 to
+  0.46 on the judge's model) | parent:
+  selector-pick-coin-times-leading-probability-within-learner-half
+
+## selector-pick-thompson-argmax-of-posterior-samples-within-learner-half
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 57 behind the pick chosen (judge gain 3, rank 3; a flat
+  three-way axis tends to thirds and young cells lift stock to 0.28;
+  depth 10 on A and B modelled at 0.63 to 0.88) | parent:
+  selector-pick-coin-times-leading-probability-within-learner-half
+
+## selector-pick-greedy-posterior-mean-leader-within-learner-half
+
+- kind: ablate | category: scheduler | origin: proposer | status: KEPT at
+  iteration 57 as the exploitation ceiling, not a merge candidate (judge
+  gain 3, rank 4; the flat request axis locks on rush or stock in young
+  cells) | parent:
+  selector-pick-coin-times-leading-probability-within-learner-half
+
+## selector-posteriors-credited-from-coin-quarter-only
+
+- kind: ablate | category: scheduler | origin: proposer | status: KEPT at
+  iteration 57 as a follow-up on the merged-pick tree (judge gain 3, rank
+  5; not splittable per run; moves nothing under matching; its stock
+  claim is backwards; to be bundled with removing the residual unit flat
+  prior in posterior(), which is real and live, and the dead
+  total-at-or-below-zero fallback in sample_axis that would turn live
+  with it) | parent: per-cell-factored-axis-beta-selector-rarity-reward

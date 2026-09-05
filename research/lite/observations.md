@@ -4711,3 +4711,35 @@ seeds 1000 and 1001 at 1930 and 2068 runs per second; depth>=8 per
 chunk [7354, 7639] beside the previous merge's 7,567 and 7,504 on the
 same seeds; no violations. Ledger row appended: ratio 0.9915, cumulative
 0.914, measured 1999 runs per second.
+
+**Judged.** The coin share times the posterior probability of leading
+takes bit 256 at gain 7, cost 0. Both facts the proposals rested on hold
+exactly in the code, but the confound arithmetic they carried was wrong
+for every rule except the greedy one: own-quarter axes are picked
+independently, so a rival is still carried by the other share of the
+learner's own runs at the learned mix, and under matching the spurious
+ratio is about 1.02 with a stable flat-axis fixed point at 0.50 - which
+the last session's counters confirm (A pair 0.4985, B fresh 0.4955, C
+fresh 0.502), and which makes the coin-only-credit candidate's claim of
+0.03 to 0.05 offsets in the record false; that candidate is kept as a
+follow-up ablation on the merged-pick tree, bundled with the removal of
+the residual unit flat prior in posterior(), which the judge found real
+and live (it lifts a 51-observation stock direction by about 0.0125 on a
+0.019 base, the source of every rule's young-cell stock lift). The
+mature-cell share arithmetic reproduces for the three probability-based
+rules; what none of them saw is that on a flat axis the leading
+probability is uniform per cell under sampling noise, so "stays at the
+coin" holds only pooled, and on the reward-flat request axis of learners
+A and B the pooled hold falls to 0.42 to 0.48 under the pick chosen,
+0.20 to 0.40 under argmax Thompson. The judge's dynamic model over 100
+cells and four chunks puts depth 8 new-half over matching-half at 1.07
+to 1.24 for the pick chosen, 0.87 to 1.23 for Thompson, and depth 10 at
+about 1.05 on A, 0.89 on B (B's leader is the phase arm, 0.75 at depth
+10) and 1.17 on C. The half split is fair and conservative: the new
+half's observations pull the matching half two to three points toward
+the leaders, biasing the contrast toward one. Corrections to the frozen
+prediction: firing floor 60,000 per learner (the top-level counter
+mirrors learner A); band [1.06, 1.22] pooled new half against matching
+half; the flat-axis observable widened to [0.35, 0.65] as a confound
+signal rather than a refutation; a pooled A+B depth-10 read below 0.80
+on 120 or more events goes to a human before any merge. Implementing.
