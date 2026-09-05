@@ -4198,3 +4198,30 @@ coin third holds: A's stock/placed 0.799, fresh 1.658; B's stock/placed
 0.229, retarget 2.243. Both learners read their reward up on their own
 third (A 0.0404 against 0.0369, B 0.1034 against 0.0846). Two chunks
 more, then the regression case and the panel on the candidate binary.
+
+**Four chunks: the absorber reward passes, the overtaken reward is
+undecided.** Coin third 600,034 grid runs, probes out, pooled over seeds
+1000 to 1003. B (acted-absorber, bit 32), 601,227 treated: depth>=6 1.142
+[1.109, 1.177], depth>=8 1.111 [1.060, 1.165] on 8,830 against 7,930,
+depth>=9 1.076 [0.958, 1.209], depth>=10 1.26 [0.85, 1.87] on 136 against
+108, depth>=11 0.78 on 22 against 28; steps per run 1.009, wall per run
+1.007. The point is inside the admitted band [1.04, 1.13] with the lower
+edge above one at z 2.7: a pass by the rule fixed at admission. Its
+learner, at 217 cells per chunk with departures 0.98 and fallback 0.014,
+holds retarget on at 0.638, phase at 0.536, pair on at 0.547 and stock at
+0.065 against coins of 0.499, 0.457, 0.503 and 0.083, and reads its own
+reward at 0.1046 on its third against 0.0843 on the coin third. A
+(overtaken-ghost, bit 64), 602,839 treated: depth>=8 1.043 [0.994, 1.094]
+on 8,309 against 7,930, depth>=6 1.042 [1.011, 1.074], depth>=9 1.066,
+depth>=10 1.32 on 143 against 108; steps 1.002. The interval holds both
+1.00 and the band's edge: undecided, not refuted; its coin-third gate now
+reads stock/placed 0.788, inside its letter, and its firing floor of
+12,000 per chunk is missed at 6,750 on a base rate of 0.037. Its learner
+holds fresh-first on at 0.589 and retarget at 0.547 with stock at 0.091,
+and reads its reward 0.0407 against 0.0373. Pooled alignment on 724,416
+coin-third runs, unchanged from chunk 1: A stock/placed 0.788, phase 1.18,
+retarget 1.33, fresh 1.67, pair 1.01, hold 1.02, rush 0.91; B 0.234, 1.48,
+2.25, 0.99, 1.33, 1.02, 0.99; the signal 0.040, 1.19, 1.04, 1.00, 1.00,
+1.02, 0.95; the union 0.431, 1.35, 1.86, 1.13, 1.21, 1.02, 0.97. No
+violations on 2.32M candidate runs. The regression case and the panel on
+the candidate binary run next; then the decision.
