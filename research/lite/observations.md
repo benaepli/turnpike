@@ -4345,3 +4345,27 @@ The acted-absorber learner reads depth>=8 1.111 [1.060, 1.165] against
 the coin third; the overtaken-ghost learner 1.043, undecided and kept.
 Throughput 0.996, regression passed, panel flat. Next: sharper rewards
 for the same selector, aimed at the hold's depth-10 prize.
+
+## Iteration 56: rewards that read the hold
+
+Directive from the review: sharper rewards for the merged selector,
+conjunctions rather than unions, at least two reading the hold up on the
+coin third without reading rush up, since the hold's 4.3x at depth 10 is
+the largest prize on the table and neither merged reward sees it. Four
+proposals through the feedback lens, all rewards on a fresh bit with the
+runs cut into quarters (coin, the two merged learners, the new one), each
+with its seven signs fixed against the depth table and the four reward
+tables. Three share one added run-end fact - the step at which the first
+post-fault client request's record entered a server, taken from the
+record's causal operation id - and read the hold by construction: the
+absorber cycle closed before that entry (base 0.025 to 0.045, hold/stock
+predicted at or above 1.3); a fan-out window opened before it (base 0.12
+to 0.20, hold/stock about 2 from the hold half's 72 percent of first
+windows holding a ready request, the claim a depth-10 clause at or above
+1.6); and a restarted node that absorbed an acted ghost and heard a
+restarted peer's current incarnation before the first request-caused
+record reached it (base 0.05 to 0.10). The fourth is a mutual absorber
+cycle - two nodes each crashed as acted absorbers, restarted and heard
+each other - sharper than the merged absorber reward on its own axes
+(retarget predicted at or above 3.0, stock/placed at or below 0.15) at a
+base rate of 0.015 to 0.03. Judged next.
