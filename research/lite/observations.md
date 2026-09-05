@@ -4865,3 +4865,64 @@ from a mechanism, and it does so by letting the learners exploit what the
 coin quarter measures, which is what the three-way split was built for.
 The grader's advice line printed human on the split's co-bit shape and
 on its own band rule; the admitted read is what decided.
+
+## Direction review at iteration 57
+
+**Violations.** None in the round's 2.42M candidate runs or the panel.
+The target's rate on the tree stands at one violation in the 4.8M
+candidate runs of iterations 56 and 57 and none in the 5.6M baseline
+runs since the selector merged; every chunk from here reads it.
+
+**What is on the tree.** The per-cell selector with three learners on
+quarters, each learner quarter split into a matching half and a
+concentrating half, the coin quarter as the exploration and the control.
+The concentrating half reads depth>=8 1.228 against the coin quarter and
+depth>=10 1.76 [1.17, 2.65]; the whole campaign reads 1.093 depth-8
+events per second against the tree before it, throughput 1.038, the
+ledger at 0.949. The learners' shares on the concentrating half sit at
+0.78 to 0.86 on the axes their rewards separate and at the coin on the
+axes they do not.
+
+**What the three rounds on the selector measured.** The coins were
+leaving 1.6x at depth 8 on the table; the rewards decide which axes a
+cell collects (iteration 55, 56), and the pick decides how much of a
+separated axis it collects (57). The remaining gap to the table's all-on
+mix is now in three places: the coin quarter, a quarter of every run at
+the coin mix, whose only job is exploration; the matching halves, three
+eighths of the runs at a milder exploit, whose only job is to be the
+pick's control; and the axes no merged reward separates (fresh-first for
+B and C, the hold for A and B, the request axis flat everywhere but C).
+The first is a fixed exploration budget nobody derived, and it is spent
+equally on cells whose posteriors are decided and on cells that are not.
+
+**Steering audit, iterations 55 to 57.** Three directives, three merges,
+each on the read frozen before its session, each with the panel flat;
+one inapplicable candidate closed on its smoke; the finding. The panel's
+two recurring leans on the hold-reading learner (raft-stale-vote 0.41
+and forget-accepted 0.62 on the same seed twice) are being read at three
+times the wall on the merged tree now, alongside the fresh cache; the
+result goes in the log before the next merge is decided.
+
+**Verdict and the next directive.** Iteration 58 proposes the
+exploration budget as a per-cell quantity rather than a fixed quarter:
+the fraction of a cell's runs that draw the coins follows the cell's own
+uncertainty (one minus its mean leading probability across the axes, or
+an equivalent stated without a constant), so a decided cell spends
+almost nothing on exploration and an undecided cell explores fully; the
+non-coin runs split among the learners as today. Since the coin-drawn
+runs are then no longer a random sample of cells, the read is cross-
+binary depth>=8 per explore-second against the tree (the layout band is
+0.05 and the arithmetic says the change is worth more than that), with
+the per-cell coin share and the learners' shares as the observables; the
+matching half stays as the pick's control unless the judge finds it is
+now paid for. The follow-up ablation (coin-only credit, the residual
+unit prior) rides in the same build if the judge wants it, on its own
+observable.
+
+Digest for the user: iteration 57 merged the concentrating pick
+(46505e2): the learners' treated halves now take 0.8 to 0.86 of the axes
+their rewards separate, read 1.228 at depth 8 and 1.76 at depth 10
+against the coin quarter, and the whole campaign reads 1.093 depth-8
+events per second against the tree before it at throughput 1.038. Panel
+flat. Next: make the exploration share per cell adaptive instead of a
+fixed quarter.
