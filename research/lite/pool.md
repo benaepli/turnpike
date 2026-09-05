@@ -2114,8 +2114,36 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## post-fault-release-on-recovered-progress
 
 - kind: add | category: scheduler | origin: operator-agent | status:
-  KEPT at iteration 44 (judge gain 5, cost 0, rank 4; still gated behind its census) | parent:
+  ADMITTED at iteration 47 as the session primary (the census is folded in
+  arm-blind, so the gate is satisfied in the grading session) | previously
+  KEPT at iteration 44 (judge gain 5, cost 0, rank 4) | parent:
   post-fault-request-timing-axis (filed) and the 64-step deferral (merged)
+- Frozen prediction (admission, iteration 47): bit clientProgressRelease =
+  1 << 28 (268435456), recycled from the dead clientEventRelease row, set
+  only when CLIENT_FANOUT_RELEASE (1 << 18) is set, own salt, probes exempt
+  by inheritance; treated share about 0.25 of non-probe runs; matched
+  control is the other half of the hold runs (bit 18 set, bit 28 clear),
+  the 64-step hold unchanged. depth>=8 in [0.94, 1.06]. Decisive: depth>=10
+  progress/step at or above 1.20 with the interval's lower edge above 1.00
+  pooled over eight chunks; depth>=11 reported. Firing:
+  client_anchor.released.progress at or above 100,000 per chunk and
+  released.progress / held at or above 0.5 on the treated quarter (below
+  0.5 is the inapplicable branch of iteration 37 - the arm graded as a
+  128-step dose). Independent observable, the arm-blind census on every
+  arm: at each held request's release, the most recently restarted node's
+  acted entries since its restart and the step distance from its third
+  acted entry to the request's ready step; the share of holds whose third
+  acted entry lands before ready_step + 64 reported; released.progress
+  exactly 0 on mencius-opt1-2 (no restart, only the cap governs).
+  Falsifier: depth>=10 interval entirely below 0.90; or the applicability
+  floor missed; or the firing floor missed. Panel claim, signed:
+  paxos-fixed-recover-forget-accepted UP (>= 1.10) progress-clocked against
+  64-step within the hold half, because the hold reads 0.59 there and a
+  recovered acceptor reaches three acted entries within a few deliveries,
+  so the clock releases the request earlier in most runs; refuted only if
+  that cell reads DOWN. Cost: throughput >= 0.97; every counter is per
+  release or per handler entry on a branch that already runs, nothing per
+  step or per dispatch.
 - Updated at iteration 46 (a duplicate proposal was folded in here rather
   than opened as its own row). The release unit is acted handler entries at
   the most recently restarted node, and it is cheaper than this entry
@@ -2431,3 +2459,77 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 - Reopen only with a proposal that clears iteration 12's gate explicitly -
   a novelty channel whose throughput cost is bounded and whose per-run
   contrast is positive, not merely a new key field.
+
+
+## fresh-first-ablate-never-restarted-destination
+
+- kind: ablate | category: scheduler | origin: proposer | status:
+  ADMITTED at iteration 47 as the session's secondary under an independent
+  salt (judge gain 6, cost 0, rank 1 of four; read from the per-bit survey,
+  recorded as undecided and not extended if it does not resolve) | parent:
+  fresh-first-same-pair-dispatch-tiebreak (merged)
+- Mechanism: on a salted half of the freshFirstPair-treated runs, skip the
+  fresh-first swap when the destination has never restarted in the run -
+  state.incarnation(dest) == 0 and not currently crashed, the two integer
+  tests pair_order_dispatch already applies to the origin - and count it.
+  The other half runs the merged rule whole.
+- Why: the rule was argued for a destination that is itself recovering
+  (label 8); at a destination that never went down it fixes an order on a
+  dimension the chain does not constrain, which iteration 45 showed is a
+  diversity cost whichever way it points. The answerable range is [0.89,
+  1.00] because fresh-first earns 1.12 over the coin, not a factor of four.
+- Frozen prediction: bit freshFirstDestCut = 1 << 10 (1024), recycled from
+  the dead entryClock row, set only when FRESH_FIRST_PAIR (1 << 24) is set,
+  own salt, probes exempt by inheritance; share about 0.25; matched control
+  bit 24 set, bit 10 clear. Read: interval inside [0.95, 1.06] narrows the
+  merged rule to restarted-destination contests; upper edge below 0.95 keeps
+  the rule whole and records the share; an interval spanning 0.95 is
+  UNDECIDED, recorded, not extended. Firing: fresh_first.dest_cut.suppressed
+  >= 50,000 per chunk; suppressed / (suppressed + swaps) reported.
+  Independent observable: among ghost entries at never-restarted
+  destinations, overtaken share <= 0.80 on the cut half against >= 0.95 on
+  the full half (a split on the existing message-entry census, O(1)).
+  Falsifier: suppressed below the floor, or the never-restarted overtaken
+  share on the cut half above 0.90 (class mis-selected). Panel claim, sign
+  only: raft-stale-vote UP; refuted only if it reads DOWN; the suppressed
+  share on that member is reported before the cell is read. mencius is a
+  structural A/A. Cost: throughput >= 0.99.
+
+## delivery-class-order-stale-arm-over-drawn-quarter
+
+- kind: arm | category: scheduler | origin: proposer | status: KEPT at
+  iteration 47 (judge gain 6, cost 0, rank 2; every claim verified, the only
+  signed and resolvable panel claim of the round; not scheduled because the
+  VR half re-asks what iteration 39 closed, at 13 to 21 percent of a
+  session's depth-8 events, and stale-first-at-settled-receiver-only asks
+  the residual at a fifth of the price) | parent:
+  fresh-first-same-pair-dispatch-tiebreak
+- Mechanism: stale-first as a quarter arm drawn over the runs fresh-first
+  leaves clear, completing the delivery-class axis (FRESH 1/2, STALE 1/4,
+  STOCK 1/4); enables the half-dead want_fresh == false branch of
+  fresh_first::rival. Bit 1 << 22 recycled from staleFirstPair. Panel claim
+  raft-stale-vote UP >= 1.30 over six seeds.
+
+## fresh-first-ablate-contests-after-first-hearing
+
+- kind: ablate | category: scheduler | origin: proposer | status: KEPT at
+  iteration 47 (judge gain 5, cost 0, rank 3; not scheduled) | parent:
+  fresh-first-same-pair-dispatch-tiebreak
+- Note from the judge: fresh_first::note_entry runs only inside
+  `if message_entry && util_stats::enabled()`, so a cut keyed on
+  heard_from would make a scheduling decision depend on instrumentation;
+  the table must be maintained unconditionally before this can be built.
+  Its observable is tautological and its named panel member's parent cell
+  is 0.97, leaving nothing to restore.
+
+## absorber-spared-crash-target-arm
+
+- kind: arm | category: scheduler | origin: proposer | status: KEPT at
+  iteration 47 at the floor (judge gain 3, cost 0, rank 4; do not schedule
+  as written) | parent: ghost-absorber-crash-retarget
+- Falsified claim: the independent observable put the retarget half's
+  marked-victim share at or above 0.85; the baseline records 0.330
+  (victim_swap.census.treated.victim_had_absorbed 157,950 / 479,257), and
+  victim_swap.no_absorber is 321,307 of 479,257 releases, so on two thirds
+  of releases no node carries a mark and the inverse comparator degenerates
+  to a lowest-index rule. Reopen only with thresholds read from the census.

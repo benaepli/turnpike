@@ -2940,3 +2940,36 @@ panel at seed 1000 on the merged tree reproduces the pre-merge seed-1000
 cells to the digit - forget-accepted 1.24 [0.73, 2.12], accept-stale-ballot
 1.04, raft-stale-vote 1.99, mencius 0.84 - which is the check that matters
 for the trim: sampling the two censuses changed no scheduling decision.
+
+## Iteration 47: two candidates, one session
+
+**A correction to this log's own vocabulary first.** Several entries since
+iteration 39, and the direction review at 45, call fresh-first "a factor of
+four." That is the wrong number for what the rule earns. Iteration 39
+measured stale-first at 0.232 relative to fresh-first, and iteration 26
+merged fresh-first at 1.1205 [1.0612, 1.1832] over the drawn order. So the
+rule is worth 12 percent over the coin; the factor of four is what its
+inverse costs relative to it. The asymmetry is the finding - coin 1.00,
+fresh 1.12, stale 0.26 - and it bounds every ablation of fresh-first to an
+answerable range of [0.89, 1.00], where four chunks resolve plus or minus
+8 percent. The judge caught this; the log did not.
+
+Four proposals on fresh-first and one on crash targeting were judged. The
+absorber inverse was sunk on a falsified observable (it claimed the retarget
+half crashes a marked node at or above 0.85; the baseline records 0.330, and
+on two thirds of releases no node carries a mark at all). The stale quarter
+arm verified cleanly but re-asks the VR half of a question iteration 39
+closed, at 13 to 21 percent of the session's depth-8 events. The heard-cut
+would have made a scheduling decision depend on a census gate. The dest-cut
+ranked first: free on the epoch objective, keeps exactly the class label 8
+names, discriminating observable.
+
+**Composition, following the user's direction that measurement rides inside
+mechanism rounds and compatible candidates share a session.** The primary
+is the progress-clock release (pool rank 4 since iteration 44), the one
+candidate aimed at depth 10 and 11 where nothing has moved this epoch; it
+carries the depth-10 funnel census arm-blind. The dest-cut ablation rides
+under an independent salt and is read from the same session through the
+per-bit survey, which now matches controls the way the primary does. Eight
+chunks, for the depth-10 read; the ablation is recorded as undecided if it
+does not resolve, and not extended.
