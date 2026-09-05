@@ -50,7 +50,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 128, name: "partitioned" },
   { bit: 256, name: "linkSpeed" },
   { bit: 512, name: "crashPhase" },
-  { bit: 1024, name: "entryClock" },
+  { bit: 1024, name: "freshFirstDestCut" },
   { bit: 16384, name: "clientRushPriority" },
   { bit: 65536, name: "ghostPeerAnswer" },
   { bit: 524288, name: "ghostAbsorberRetarget" },
@@ -68,7 +68,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 1073741824, name: "restartAfterPeerSettle" },
   { bit: 134217728, name: "clientDeferralOnly" },
   { bit: 4194304, name: "staleFirstPair" },
-  { bit: 268435456, name: "clientEventRelease" },
+  { bit: 268435456, name: "clientProgressRelease" },
   { bit: 131072, name: "crashQuietBySecond" },
 ];
 

@@ -2973,3 +2973,21 @@ under an independent salt and is read from the same session through the
 per-bit survey, which now matches controls the way the primary does. Eight
 chunks, for the depth-10 read; the ablation is recorded as undecided if it
 does not resolve, and not extended.
+
+**Build and smoke, before grading (written so the record predates the
+data).** Both arms built in one worktree, 25 test binaries green, no config
+field, nothing in exec.rs, nothing per step or per dispatch. The smoke run
+(104,256 runs, 60 s) already speaks to the primary's applicability floor.
+On the progress-clocked quarter the clock released 13,528 holds against
+roughly 62,000 holds on that quarter - about 0.22, against the frozen floor
+of 0.5 - and the arm-blind census puts the restarted node's third acted
+entry before ready_step + 64 on only 0.202 of all holds. If the chunks
+confirm that, the primary lands in the inapplicable branch the prediction
+names: at N = 3 the clock is slower than the 64-step hold four times in
+five and the arm graded is mostly a 128-step dose. That is the census the
+entry was gated behind, answered on the first minute of running it: a
+recovering node acts three times within the hold's window far less often
+than the chain's labels 7 through 9 suggested. The session runs anyway,
+because the dest-cut secondary and the depth-10 funnel census need it, and
+because a 128-step read against 64 on depth>=10 is itself the length
+question iteration 37 left at 1.21 [1.00, 1.46].
