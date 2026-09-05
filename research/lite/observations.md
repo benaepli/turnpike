@@ -4023,3 +4023,32 @@ gave a per-direction depth table showing the coins leave about 1.6x at
 depth 8 and about 2x at depth 10 on VR. Iteration 55 runs the selector
 with signal-shaped rewards on two bits and reads their alignment on the
 coin half first.
+
+## Iteration 55: a reward that orders the arms as depth does
+
+Directive from the review: the per-cell selector stays as filed and the
+round is its reward. Four proposals through the message-delay lens, all
+rewards for the filed selector, each argued direction by direction
+against the coin table with the sign it must read on the coin third
+before a depth read is credited. An overtaken-ghost shape: a
+dead-incarnation record lands on a receiver that has itself restarted
+and already heard the sender's new incarnation, and the handler writes
+state - fresh-first reads up by construction (the fresh half overtakes
+every ghost at a restarted destination, the control 0.646), placed up,
+the rest flat; base rate about 0.12. An acted-absorber cycle: a crash
+lands on a node whose last fault-crossing delivery wrote state, that node
+recovers, and after its restart it takes a message from another restarted
+node's current incarnation - retarget reads up by construction (absorbed
+victims 0.37 against 0.23 per crash), placed up, the rest flat; base rate
+0.06 to 0.10, discount 0.998 asked for. The corpus's ghost signal itself,
+observed on fresh runs only because children inherit it through the
+replayed prefix; placed up, everything else flat; base rate 0.21 on
+fresh runs, the calibration table for the others. And the union of the
+two shapes on one bit. Two candidates from the record were argued
+against rather than proposed: crossing counts read rush up and hold down
+(traffic volume), and a count of post-recover contexts reads stock up
+(tail length), which is the rarity reward's error with its sign made
+explicit. The session shape is fixed: two rewards on two bits with
+disjoint treated thirds and the coin third as control, every reward's
+per-direction control array emitted whether or not a learner uses it.
+Judged next.
