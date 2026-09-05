@@ -4607,3 +4607,74 @@ line printed human on the co-bit blockers, which are the mechanism's
 output. The mutual absorber cycle closes as inapplicable (base 0.0032
 pooled) and stays a table; the exchange table reads hold 2.83 and rush
 0.27 at base 0.013, a second hold-reading reward on the shelf.
+
+## Direction review at iteration 56
+
+**Violations.** One: run 61138 on chunk 1 of the cycle-before-request
+session, classified as the target bug (a view-change vote forgotten
+across recovery, later honored; paper bug; nineteen of twenty oracle
+labels in order). The goal file's success condition has been met once
+under the general config on the nonce-fixed spec. "Reproducibly" is now
+the rate: one in 2.38M candidate runs on that session, zero on the
+merged tree's 3.4M baseline runs so far, and every chunk from here reads
+it. A run-for-run reproduction is not available under a wall budget
+(timed slices, stateful corpus and learners); a deterministic-slice
+reproduction is a user-facing deliverable if wanted, not a mechanism
+round.
+
+**What is on the tree.** The per-cell selector with three learners and a
+coin quarter: bit 32 (acted-absorber cycle) 1.106, bit 64 (overtaken
+ghost) 1.091, bit 128 (cycle before the first post-fault request) 1.077
+at depth 8 against the coin quarter on the last session, depth-10 leans
+of 1.36, 1.37 and 1.48 on about 110 events each against 80. The
+learners' shares: retarget 0.60 to 0.63, hold 0.63 on the new one,
+fresh-first 0.59 on bit 64, stock under the coin on two. The coin
+quarter's tables for seven rewards are the instrument that admits a
+reward now: sign per direction on chunk 1 before a depth read is
+credited.
+
+**The ceiling the pick imposes.** The pick is coin share times posterior
+mean, so a direction's share is the coin's times its reward ratio
+normalized: retarget at 2.1 to 2.3 lands at 0.60 to 0.64, the hold at
+3.2 lands at 0.63, and no ratio the tables show can carry a share past
+about 0.7. The coin table priced an all-on mix at about 1.6x per run at
+depth 8 and near 2x at depth 10; the learners collect 1.08 to 1.11 at 8.
+The exploration the matching rule was keeping is already supplied by
+the coin quarter, which every learner observes, so the treated quarters
+could exploit harder without losing it. That is the next mechanism: a
+pick that concentrates on the leader where the posteriors separate, and
+stays at the coin where they do not, with no constant - the textbook
+argmax over posterior samples, which the shrunk prior now makes safe
+(iteration 54's argmax failed on the flat prior, not on the rule). Read
+as a within-learner contrast: a salted half of every learner quarter
+picks by argmax and the other half by matching, so the contrast is
+between two pick rules on the same posteriors and the coin quarter stays
+the anchor. The prize is at depth 10 where the hold's per-direction rate
+is 3.8x and the learner holds it at 0.63; a share near 0.9 there is
+what moves the violation rate, and depth 10 is where the chunks can see
+it only as a lean, so the read is depth 8 for the decision and depth 10
+per run pooled over sessions for the claim.
+
+**Steering audit, iteration 56.** One directive (rewards that read the
+hold), one judged pick that was inapplicable on its smoke and one swap
+inside the build, decided and written before any chunk; one merge; the
+finding. About four hours. The panel: bit 128 leans down on
+raft-stale-vote (15 against 34) and up on mencius (1.22), neither
+separated; the next anchor reads both per cell at no cost.
+
+**Verdict and the next directive.** Iteration 57 proposes the pick that
+concentrates, as a within-learner contrast on a salted half of every
+learner quarter (bit 256 renamed), with the shares as the observable and
+depth 8 against the matching half and against the coin quarter as the
+reads; variants on how the argmax is taken are welcome, a temperature
+or exponent is not. The exchange-before-request reward stays on the
+shelf as the next hold-reader if a fourth learner is ever wanted.
+
+Digest for the user: iteration 56 found the target bug (run 61138, a
+paper bug, evidence and classification committed under
+research/lite/findings/vr-view-change-vote-forgotten-across-recovery)
+and merged a third selector learner that reads the hold (e2733f0): depth
+8 1.077 against the coin quarter, hold share 0.63, depth-10 lean 1.48.
+The tree now runs three learners and a coin quarter. Next: let the
+learners exploit harder where their posteriors separate, since the coin
+quarter already supplies the exploration.
