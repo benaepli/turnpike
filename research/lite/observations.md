@@ -4794,3 +4794,31 @@ every one with its lower edge above one. Against the coin quarter the
 new half reads 1.271 [1.187, 1.360] and the matching half 1.089 [1.015,
 1.167]. Chunk 2 (seed 1001) 610,920 runs at 2,035 per second, depth>=8
 7,957, no violation.
+
+**Four chunks: the concentrating pick passes on every read.** Coin
+quarter 468,935 grid runs, seeds 1000 to 1003; the new half 702,997
+against the matching half 702,314. Pooled, new against matching:
+depth>=8 1.133 [1.086, 1.181] on 11,187 against 9,868, inside the frozen
+band [1.06, 1.22] with the lower edge above one - a pass; steps per run
+1.008; depth>=10 1.17 [0.85, 1.60] on 206 against 176. Per learner, new
+against matching: A 1.122 [1.042, 1.209], B 1.198 [1.117, 1.286], C
+1.072 [0.995, 1.156]. Against the coin quarter the new half reads
+depth>=8 1.228 [1.170, 1.290] and depth>=10 1.76 [1.17, 2.65] on 206
+against 78, the first depth-10 read of the epoch with its lower edge
+above one; C's new half alone reads 2.11 [1.29, 3.43] there with the hold
+at 0.808. The matching half against the coin reads 1.084 [1.032, 1.140],
+two to three points under the previous session's 1.09 to 1.11, the pull
+the judge modelled. Shares on the new half against matching against
+coin: B retarget 0.860 / 0.648 / 0.501, phase 0.779 / 0.549 / 0.462,
+pair 0.760 / 0.568 / 0.502, stock 0.051 / 0.067 / 0.082; C hold 0.808 /
+0.669 / 0.499, retarget 0.785 / 0.638 / 0.501, rush 0.082 / 0.147 /
+0.249; A fresh-first 0.777 / 0.596 / 0.500, retarget 0.677 / 0.549 /
+0.501, phase 0.561, stock 0.111 / 0.092 / 0.082. The flat axes sit at A
+hold 0.456, B fresh 0.483, C fresh 0.529, inside the confound band; mean
+leader margins 0.65 to 0.87. A's stock lift on the new half (0.111
+against the coin's 0.082) persists at chunk scale and is the young-cell
+width effect the follow-up ablation addresses; A still reads 1.19
+against the coin. Firing 283k concentrated runs per learner; fallback
+0.018. The A+B pooled depth-10 read against matching is 124 against 103,
+nowhere near the human clause. No violations on 2,419,080 candidate
+runs. The regression case and the panel run next.
