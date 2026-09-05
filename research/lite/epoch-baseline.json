@@ -141,6 +141,23 @@
    "cacheFile": "research/lite/baselines/c54cbb7df9bf-30-f9daa01b-300-g870d4c11.json",
    "measuredAtIso": "2026-09-05T03:20:00Z",
    "note": "adds the opposite direction to the post-fault request-timing axis: a quarter of runs issue the post-crash client request at its ready step and give its records the top of the priority range, against a hold half and a stock quarter. VR did not decide it - matched RUSH against STOCK over four chunks read depth>=8 1.060 [0.976, 1.151], above the frozen band [0.90, 1.02] and unseparated, and the grader's own rule printed human. The merge rests on the pre-committed panel rule: paxos-fixed-recover-forget-accepted reads 1.27 [1.01, 1.60] up over six pooled seeds where the hold reads 0.59 [0.47, 0.75] down, and all four crash-carrying members read the two directions in opposite senses. Regression vr-nofault-clean passed. As first merged (spur 8bdde0c) the arm cost 4.6 percent of runs per second, four chunks [1956.9, 1993.7, 2007.1, 1968.2] against [2065.6, 2080.4, 2094.4, 2074.9] with no overlap and every rung falling in step; the cost was the two censuses, not the mechanism, and sampling them (one step in 64 for the dispatch split, one operation in 8 for the delivery distance) returned the reading to 0.973, inside the 5 percent layout band with the ranges overlapping. The sampled cache's spread is wide (1910.9 to 2146.8) and the median is recorded as measured, not smoothed. Events per chunk depth>=8 [7028, 6293, 7316, 6915], depth>=9 [1249, 1062, 1309, 1291], depth>=10 [101, 101, 122, 152], depth>=11 [27, 24, 31, 31]."
+  },
+  {
+   "name": "fresh-first-ablate-never-restarted-destination",
+   "commit": "cc2e4e3",
+   "spurCommit": "85ff891",
+   "ratio": 0.9476,
+   "cumulative": 0.925948548007415,
+   "measuredRps": 1916.2,
+   "measuredRpsChunks": [
+    1802.6,
+    1905.5,
+    2082.0,
+    1926.9
+   ],
+   "cacheFile": "research/lite/baselines/9a596cd8e076-30-f9daa01b-300-g870d4c11.json",
+   "measuredAtIso": "2026-09-05T07:05:00Z",
+   "note": "narrowing, not an addition: the fresh-first same-pair preference now swaps only at a destination whose incarnation is above zero, returning about 48 percent of its firing (162,042 swaps per chunk) to the draw. Read as the secondary of the progress-dest session under an independent salt, matched cut against full within the fresh-first half over eight chunks: depth>=8 1.024, z 2.7 [0.990, 1.059], inside the frozen confirming band [0.95, 1.06]; depth>=9 1.067 [0.986, 1.154]. Panel sign check over three seeds: raft-stale-vote 1.18 [0.70, 1.99], nothing down, mencius A/A 0.92. Regression vr-nofault-clean passed (1,800 runs, 0 violations). The session's primary, the progress-clocked release, was closed in the same round: inapplicable at N = 3 (0.180 of holds released by the clock against a floor of 0.5) and, as the 128-step hold it degenerates to, depth>=10 0.743 [0.573, 0.964] separated down. Four-chunk cache. The first two chunks read 1,802.6 and 1,905.5 (0.917) and were diagnosed before the ledger was written: steps per run ran 2,564 and 2,397 against a previous range of 2,112-2,489, and on this tree runs per second tracks run length; but within the graded session, on the same seeds, the cut quarter ran 2,245.0 steps per run against the full quarter's 2,249.8 (0.998), so the narrowing does not lengthen runs and the low chunks are seed-drawn run length. Events per chunk depth>=8 [6717, 6318, 7349, 6896], depth>=9 [1192, 1138, 1310, 1235], depth>=10 [113, 99, 117, 112], depth>=11 [27, 20, 26, 30]; per-run depth>=8 rate 1.027 of the previous cache's, consistent with the graded 1.024. The ledger ratio is cache to cache by convention and the selftest ties the cumulative to the measured cache; the narrowing's own throughput cost, read paired within the graded session as wall per run on the cut quarter against the full quarter, is 11,045 against 11,049 microseconds, 0.9996."
   }
  ]
 }
