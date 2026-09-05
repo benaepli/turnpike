@@ -4563,3 +4563,18 @@ data. The depth-10 leans are 1.4 to 1.5 on all three quarters against
 the coin's 80 events, not decidable at this size and all the same sign.
 One violation in 2,376,600 candidate runs, the target, on chunk 1. The
 regression case and the panel run next.
+
+**Finish.** The regression case passes (vr-nofault-clean, 1,800 runs,
+zero violations). The grader's primary for bit 128 prints 1.077 [1.020,
+1.138], band met, steps 1.002. Cost, cross-binary against the merged
+tree's baseline (seeds 1002 and 1003 measured inside the session):
+throughput 0.9915, depth>=8 per explore-second 0.997 against a null band
+of 0.009 - campaign-wide the objective does not move at depth 8, which is
+the arithmetic of the split: a quarter that reads 1.08 replaces a slice
+of a coin third on a tree whose other learners already read 1.09 and
+1.11, so the candidate's mix is about two percent above the merged
+tree's per run and the throughput takes it back. The epoch ledger would
+move from 0.922 to 0.914 against its 0.90 floor. The advice line prints
+human on the co-bit blockers (hold 0.629, retarget 0.600, rush 0.164 on
+the treated quarter), which are the mechanism's output. The panel runs
+next and the decision follows it.
