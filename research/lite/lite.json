@@ -12,7 +12,7 @@
   ],
   "budgets": {
     "chunkSec": 300,
-    "maxChunks": 4,
+    "maxChunks": 8,
     "minChunks": 2,
     "rayonThreads": 30,
     "maxBuildSeconds": 600
