@@ -3284,3 +3284,21 @@ the panel has run out of power for arms of this size - every readable cell
 this round was inside 1.30 with intervals spanning one - and the last two
 rounds spent about five hours to narrow one rule and close two arms, which
 is the wall time the user has said the loop cannot afford.
+
+## Iteration 49: the request-timing axis at the funnel's two hard steps
+
+Directive: 9 to 10 (0.090) and 12 to 13 (0.301) are both client-operation
+timing relative to recovery, and the request-timing axis is the family that
+acts there. Three proposals through the fault-injection lens, each carrying
+the lesson of iterations 47 and 48 as a rule: a pre-committed build
+condition that the smoke run must already show the applicability floor met,
+or the session is never graded and the row closes on the census. The three:
+a cap-free progress release nested in the hold half, keyed on the node whose
+crash opened the hold coming back and acting num_servers times, with the
+dry-queue rule as the only liveness (the object iterations 47 and 48 left on
+the table); a read-against-write class split of the hold, three cells,
+asking whether the hold's cross-protocol harm rides on the read class; and
+the inverse of the whole family - a second crash-phase table that withholds
+a placed crash until client work is outstanding (BUSY) or until none is
+(QUIET), with STOCK kept. The first and third are designed to share one
+session on disjoint actuators. Judged next.
