@@ -47,7 +47,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 16, name: "staleOrder" },
   { bit: 32, name: "armSelectorAxisB" },
   { bit: 64, name: "armSelectorAxis" },
-  { bit: 128, name: "partitioned" },
+  { bit: 128, name: "armSelectorAxisC" },
   { bit: 256, name: "linkSpeed" },
   { bit: 512, name: "crashPhase" },
   { bit: 1024, name: "freshFirstDestCut" },
