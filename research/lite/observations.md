@@ -4225,3 +4225,18 @@ retarget 1.33, fresh 1.67, pair 1.01, hold 1.02, rush 0.91; B 0.234, 1.48,
 1.02, 0.95; the union 0.431, 1.35, 1.86, 1.13, 1.21, 1.02, 0.97. No
 violations on 2.32M candidate runs. The regression case and the panel on
 the candidate binary run next; then the decision.
+
+**Finish.** The regression case passes (vr-nofault-clean, 1,800 runs,
+zero violations). Cost, cross-binary over the four paired seeds:
+throughput 0.996, depth>=8 per explore-second 1.065 against a null band
+of 0.009 (candidate per-chunk depth>=8 7,387, 7,255, 7,109, 7,141 against
+6,490, 6,790, 6,682, 7,150; runs per second 1,960, 2,068, 1,844, 1,862
+against 1,878, 1,955, 1,966, 1,967, the last two seeds down 5 percent for
+no reason the host records). The epoch ledger would move from 0.926 to
+0.922 against its 0.90 floor. The grader's advice line says merge; its
+one blocker is the co-bit imbalance on the declared bit (retarget 0.540
+and fresh-first 0.581 on the treated third against 0.499 and 0.501), which
+is the mechanism's output and not a fault, as written before the session.
+The grader's own survey contrast matched the coin third exactly (600,034
+control runs) and prints bit 32 at 1.111 and bit 64 at 1.043, the same as
+the operator's read. The panel on the candidate binary runs next.
