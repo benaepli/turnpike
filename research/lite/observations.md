@@ -4978,3 +4978,21 @@ the two panels on seed 1000 were one sample read twice. Independent
 samples need other seeds; the same two members run at seeds 1001 and
 1002 now, and the bit-128 and bit-256 cells are pooled over the three
 seeds before the next merge is decided.
+
+**The rare members over three seeds.** raft-stale-vote, 864,000 runs
+and 301 violations pooled over seeds 1000 to 1002 (rate 3.48e-4 against
+the calibration's 3.0e-4): bit 128 0.67 [0.39, 1.14] on 54 against 81,
+bit 256 0.87 [0.59, 1.27], bit 32 0.87, bit 64 0.98.
+paxos-fixed-recover-forget-accepted, 288,000 runs and 505 violations
+(1.75e-3 against 1.65e-3): bit 128 0.79 [0.53, 1.20] on 102 against 128,
+bit 256 0.84 [0.62, 1.13], bit 32 0.89, bit 64 1.10. Nothing separates
+at z 2.7, the members' rates are at their calibration, and the four
+cells of the hold-reading learner and the concentrating halves all lean
+the same way, fifteen to a third down. That is the shape the reviews
+expected of a reward drawn from one protocol's recovery: on a member
+whose bug wants client work early, a learner that holds requests and
+retargets crashes to absorbers costs some of the member's rate, and a
+per-protocol learner is supposed to learn that member's own mix - which
+these cells say it has not, at 217 cells over a member's 96k to 288k
+runs. It is the standing generality caveat on the selector, unresolved
+at the panel's resolution, and the next merge decision weighs it.
