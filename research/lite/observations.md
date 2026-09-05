@@ -4369,3 +4369,12 @@ cycle - two nodes each crashed as acted absorbers, restarted and heard
 each other - sharper than the merged absorber reward on its own axes
 (retarget predicted at or above 3.0, stock/placed at or below 0.15) at a
 base rate of 0.015 to 0.03. Judged next.
+
+**Fresh anchor on the merged tree.** Two baseline chunks on seeds 1000
+and 1001: 617,220 and 608,040 runs at 2,056 and 2,025 per second, depth>=8
+7,567 and 7,504 per chunk against 6,490 and 6,790 on the pre-merge cache
+for the same seeds (1.13x campaign-wide, the three thirds pooled),
+depth>=10 134 and 101 against 111 and 116, no violations. Ledger row
+appended: ratio 0.996, cumulative 0.922, measured 2,040 runs per second.
+Every later session's baseline chunks carry the coin third and both
+learner thirds, so the undecided bit-64 read accumulates from here.
