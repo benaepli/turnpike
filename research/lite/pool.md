@@ -3040,3 +3040,28 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   weights on single rewards. Its per-combination control arrays ride along
   in the factored selector's build and answer whether the reward orders
   the combinations as depth does before a learner is pointed at it.
+
+## state-fork-cut-at-last-planned-recover
+
+- kind: add | category: scheduler | origin: operator-agent | status: ADMITTED
+  at iteration 54 (judge gain 6, cost 2; cut rule rewritten at admission
+  to the recover of the signal's receiver; implementing) | parent:
+  state-fork-continuations-at-ghost-signal-cut
+- The state fork's cut moves from the step the ghost signal fires to the
+  step in which the signal's receiver - the node whose pending crash armed
+  the signal - applies its planned recover, so the continuation is the
+  post-restart delivery race the depth-8 event is drawn in, and the prefix
+  is everything before it. Parents that end before that recover take no
+  fork point (state_fork_no_cut_parents); their fork slots fall back to
+  tape. Everything else as the parent entry.
+- Frozen prediction (judge's rewrite): within-binary depth>=8 events per
+  child-wall-second, fork against tape-prefix cells, stratified, z 2.7,
+  overdispersion 1.3, sibling inflation 2.12, band [1.25, 3.0], refuted
+  below 1.10; per-run guard [0.95, 1.30]; wall ratio above 0.80 refutes on
+  cost; cross-binary throughput at or above 0.98; campaign-wide per second
+  reported only. Smoke gate, decisive on cost before any chunk: wall ratio
+  at or below 0.80, cut share at or above 0.25, fallback below 0.3, RSS in
+  bounds, fidelity test green. The judge's arithmetic from the placement
+  counters (mean hold 200 steps, crashes drawn below the median completed
+  length) predicts a cut share of 0.15 to 0.30 on the long arms and a wall
+  ratio that may fail the gate; the smoke answers it either way.
