@@ -19,8 +19,8 @@ BITS = {1:"crashPlaced",2:"runCapProbe",4:"timerSteerOff",8:"crashHoldDrawn",16:
 32:"restartLatency",64:"noveltyOn",128:"partitioned",256:"linkSpeed",512:"crashPhase",
 1024:"freshFirstDestCut",16384:"clientRushPriority",65536:"ghostPeerAnswer",524288:"ghostAbsorberRetarget",
 8388608:"crashPhaseOnLanding",1048576:"replaySlot",2097152:"replayPrefix",33554432:"ghostPendingTimerHold",
-67108864:"originAlternate",536870912:"pairOrderGhostOnly",16777216:"freshFirstPair",8192:"replayTierDeep",
-2048:"replayInheritBits",32768:"pairSendOrder",262144:"clientFanoutRelease",1073741824:"restartAfterPeerSettle",
+67108864:"originAlternate",536870912:"pairOrderGhostOnly",16777216:"freshFirstPair",8192:"replyBeforeNews",
+2048:"newsBeforeReply",32768:"pairSendOrder",262144:"clientFanoutRelease",1073741824:"restartAfterPeerSettle",
 134217728:"clientDeferralOnly",4194304:"staleFirstPair",268435456:"clientProgressRelease",131072:"crashQuietBySecond"}
 PROBES = 2 | 4
 Z = 2.7
