@@ -3240,3 +3240,23 @@ REPLY_FIRST against stock either way. And 80 percent of contests are at
 destinations that never restarted - which for this arm is the point rather
 than a defect, since the edge it names sits at the coordinator, which never
 goes down on the chain.
+
+**A violation in chunk 3, classified: the recovery-nonce reuse bug, fourth
+time.** Run 31859 of seed 1002 (arm grid-short, on the REPLY_FIRST quarter)
+is the known background class to the letter: node 2 crashes twice, restarts
+both times with nonce 1, and its second incarnation takes RecoveryResponses
+meant for the first, completing recovery on an empty log while write uid 1
+is committed; reads then return [1, 2] and later [2]. Node 1 never crashes,
+so the run is nowhere near the oracle chain. Archived with the finding file
+updated. One in about 2.4M candidate runs is the calibrated background rate,
+the grader's `human` on the violation is answered here, and the arm's
+decision stays on its frozen panel rule.
+
+Four chunks, REPLY_FIRST against stock (959,267 against 479,578): depth>=8
+1.015 [0.962, 1.070] inside the guard band, depth>=9 1.007, depth>=10 0.981
+[0.677, 1.421]; NEWS_FIRST against stock depth>=8 0.963 [0.930, 0.998] at
+z 1.96, the inverse leaning down as the axis pattern predicts. Firing:
+contests 1.49M per chunk, news_strict 0.987, swaps_reply about 0.70 of the
+treated half's contests, no balance faults, throughput 1.068 (baseline-side
+artifact; steps per run identical at 2,158 against 2,151). The VR read is
+the guard it was declared to be; the panel decides.

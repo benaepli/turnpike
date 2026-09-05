@@ -53,3 +53,16 @@ random nonce. Either restores the paper's uniqueness requirement.
   about crediting a single violation is correct.
 - Fixing the spec would clean the ground truth and remove a confound from
   every future violation reading.
+
+## Occurrence 4 (2026-09-05)
+
+Session lite-reply-news, seed 1002, run 31859, arm grid-short, config 5,
+variant bits crashPlaced + replyBeforeNews + clientRushPriority +
+pairSendOrder + replaySlot (REPLY_FIRST quarter, no hold, no fresh-first).
+Node 2 crashes at steps 2 and 9 and both incarnations announce nonce 1; the
+second accepts RecoveryResponses addressed to the first (trace 11 at step
+21, trace 20 at step 70) and reports "recovery complete, view 1, op_number
+0" at steps 39 and 70 while write uid 1 is committed. Reads 3 and 4 return
+[1, 2]; reads 5 and 6 return [2]. Signature 2dc07341a5527f4f. Archive
+research/logs/violations/lite-reply-news-sequential-1002-1788593648827.
+Background rate holds: one in about 2.4M candidate runs of the session.
