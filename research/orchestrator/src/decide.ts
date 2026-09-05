@@ -51,6 +51,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 256, name: "linkSpeed" },
   { bit: 512, name: "crashPhase" },
   { bit: 1024, name: "freshFirstDestCut" },
+  { bit: 4096, name: "clientOpenerProgress" },
   { bit: 16384, name: "clientRushPriority" },
   { bit: 65536, name: "ghostPeerAnswer" },
   { bit: 524288, name: "ghostAbsorberRetarget" },

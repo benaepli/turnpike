@@ -2650,3 +2650,73 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   therefore needs no cap or a far longer one - and a fixed longer hold is
   known to be worse - so the untested object is a cap-free, dry-queue-only
   progress release. Not seeded; recorded.
+
+
+## post-fault-release-on-hold-opener-progress-no-cap
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 49 behind a pre-committed smoke gate (judge gain 5, cost 2, rank
+  1 of three); graded only if the 60-second smoke passes all four clauses,
+  otherwise closed on the census without a chunk | parent:
+  post-fault-release-on-recovered-progress (closed), the 64-step hold
+- Mechanism: on a salted half of the hold-half runs (bit 4096
+  clientOpenerProgress, nested in bit 1<<18, own salt, probes exempt by
+  inheritance) the step cap is removed; the held requests are released,
+  once per run, when the node whose crash opened the hold (the landing node
+  recorded at the hold site) has restarted and taken num_servers acted
+  handler entries since that restart; the dry-queue release is the only
+  liveness rule. Matched control: bit 18 set, bit 4096 clear, the 64-step
+  hold unchanged.
+- What the judge found: VR.spur's receiver-side Recovery handler writes no
+  state, so rung 7 is not an acted entry and the latch's three acted entries
+  (two of the opener's own RecoveryResponses plus rung 8) open one rung
+  before DoViewChange -> w2; the alignment claim is false. N = num_servers is
+  the literal 3 on this config and on 9 of 11 panel members. About 79
+  percent of runs end on a cap with events outstanding and 9.0 percent of
+  executed crashes never see their recover, so a cap-free hold is expected
+  to fail held_at_exit or run length in the smoke.
+- SMOKE GATE (all four, on the 60-second smoke, before any chunk):
+  client_anchor.release.progress / held >= 0.50 on the treated quarter;
+  held_at_exit / held <= 0.01; within-binary steps per run on the treated
+  quarter <= 1.08x the control quarter's; release.dry / held <= 0.30.
+  Failing any clause closes the row on the census.
+- If graded: decisive depth>=10 treated/control >= 1.25 with lower edge
+  above 1.00 at z 2.7 over eight chunks; depth>=8 guard [0.94, 1.08];
+  firing release.progress >= 60,000 per chunk; panel paxos-accept-stale-
+  ballot UP >= 1.10 within the hold half over three seeds, refuted if DOWN;
+  mencius A/A; cost throughput >= 0.97 after the paired steps-per-run read.
+- Rides in the same binary, no bit: the class census - client_anchor.held,
+  released and post_fault_request split by ClientOpSpec class (Read against
+  Write/Rmw) on every arm, so the merged hold's read/write composition is
+  measured for the first time and next round's class split can be signed
+  on evidence.
+
+## post-fault-hold-class-split-read-write
+
+- kind: ablate | category: scheduler | origin: proposer | status: KEPT at
+  iteration 49 (judge gain 5, cost 0, rank 2; not built this round: its
+  panel sign rests on VR's 2:1 read majority, but every panel member runs
+  num_read_ops 1-3 against num_write_ops 3-5, a 3:1 WRITE majority, so the
+  WRITE_CLASS cell still holds most post-fault work there and cannot move
+  forget-accepted from 0.59 toward 1; the sign is probably backwards) |
+  parent: the 64-step hold (merged)
+- Mechanism: three cells inside the hold half - hold writes only (bit
+  65536), hold reads only (bit 4194304), hold both (the merged rule) - under
+  mutually exclusive salts; the rest byte-identical. Build next round with
+  the panel claim re-signed from the class census this round collects.
+
+## crash-release-anchored-on-outstanding-client-work
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 49 (judge gain 3, cost 2, rank 3; deferred) | parent:
+  crash-phase-on-landing-node (merged), crash-quiet-phase-arms (closed)
+- Why deferred: BUSY is structurally near-inert - the plan generator emits
+  crashes as roots with no mandatory client predecessor, every root client
+  request is invoked at step 0 before any crash, and plan completion is
+  about 0.21, so a client operation is outstanding at nearly every crash
+  already. The treated half would be about one third QUIET against the
+  fan-out table, and QUIET is the closed quiet-crash family's predicate one
+  level up (iteration 38 read 0.826, iteration 41 0.828 on the second crash
+  alone). The DAG has no response events, so "w1 is outstanding at
+  crash_nl" is not a DAG fact. The fan-out arms' window-expiry share is
+  0.159, not 0.18.
