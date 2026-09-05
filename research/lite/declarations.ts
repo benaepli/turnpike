@@ -64,11 +64,13 @@ export const RECORDED_DECLARATIONS: readonly RecordedDeclaration[] = [
   // Closed sessions whose control the record reads as unbalanced: children
   // inherit their parents' bits, so the treated population carries the
   // inheritance bit, crash placement and its phase at other rates than the
-  // untreated runs, and the arm mix moves with them.
+  // untreated runs, and the arm mix moves with them. A fault names a co-bit
+  // by its current roster name, whatever the record's mechanism called the
+  // same bit.
   {
     name: "replay-tier-answered-overtake-cut", bit: 8192, band: { min: 0.12, max: 1.2 },
-    source: "iteration 27, epoch 14, nested in the slot half; closed with the inheritance bit at 0.243 treated against 0.221 control",
-    unbalancedOn: ["replayInheritBits"],
+    source: "iteration 27, epoch 14, nested in the slot half; closed with the inheritance bit (2048) at 0.243 treated against 0.221 control",
+    unbalancedOn: ["newsBeforeReply"],
   },
   {
     name: "replay-prefix-inherit-parent-bits", bit: 2048, band: { min: 0.0, max: 0.35 },
