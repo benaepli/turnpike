@@ -4786,3 +4786,11 @@ against 20, pooled new against matching 1.23 on 58 against 47, A+B
 pooled new against matching 28 against 22, nowhere near the 0.80 line.
 Candidate 657,240 runs at 2,189 per second, depth>=8 9,204 in the chunk
 against the baseline's 7,354 on the same seed, no violation.
+
+**Two chunks pooled.** New half against matching half, pooled: depth>=8
+1.168 [1.101, 1.238] on 5,879 against 5,034, steps 1.009; per learner A
+1.154 [1.041, 1.280], B 1.232 [1.117, 1.359], C 1.112 [1.003, 1.234],
+every one with its lower edge above one. Against the coin quarter the
+new half reads 1.271 [1.187, 1.360] and the matching half 1.089 [1.015,
+1.167]. Chunk 2 (seed 1001) 610,920 runs at 2,035 per second, depth>=8
+7,957, no violation.
