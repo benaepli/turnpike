@@ -4578,3 +4578,32 @@ move from 0.922 to 0.914 against its 0.90 floor. The advice line prints
 human on the co-bit blockers (hold 0.629, retarget 0.600, rush 0.164 on
 the treated quarter), which are the mechanism's output. The panel runs
 next and the decision follows it.
+
+**Panel on the candidate binary, seed 1000, scale 3, bit-128 cells
+against the coin quarter.** paxos-accept-stale-ballot 3.57e-2 (previous
+3.63e-2, 3.53e-2): 1.03 [0.89, 1.20]. mencius-opt1-2 1.52e-2 (1.51e-2):
+1.22 [0.93, 1.61]. raft-stale-vote 3.8e-4 (4.3e-4): 0.44 [0.17, 1.14] on
+15 against 34. paxos-fixed-recover-stale-scout 2.9e-4 (4.1e-4): 1.33 on 8
+against 6. paxos-fixed-recover-forget-accepted 1.80e-3 (1.98e-3): 0.70
+[0.35, 1.41] on 33 against 47. Bits 32 and 64 read 0.67 to 1.50 on the
+same members, none separated. Every member's rate is flat against the
+previous two panels and no cell separates. The raft-stale-vote lean on
+bit 128 is the one to watch on the next anchor: a learner that moves the
+hold and the retarget up on a member whose bug lives in vote handling
+could plausibly cost it, and 15 against 34 cannot say.
+
+**Decision: merged, as graded (e2733f0, spur 38fcbcc).** The learner passes
+the read frozen before its session with the interval clear of one, the
+regression passes, throughput sits at 0.99 inside the layout band and
+above the cost clause, the panel vetoes nothing, and on the same session
+the two merged learners read 1.106 and 1.091 against the coin quarter -
+bit 64's undecided read from 55 separating above one, as the merge
+reasoned it would with more data. Campaign-wide the objective is flat at
+depth 8 per second on this merge, by the arithmetic of a quarter that
+reads 1.08 replacing a slice of the coin third; the merge's value is the
+hold's depth-10 prize, which reads 1.48 on 118 against 80 here and which
+every baseline chunk from now on keeps measuring on the tree. The advice
+line printed human on the co-bit blockers, which are the mechanism's
+output. The mutual absorber cycle closes as inapplicable (base 0.0032
+pooled) and stays a table; the exchange table reads hold 2.83 and rush
+0.27 at base 0.013, a second hold-reading reward on the shelf.

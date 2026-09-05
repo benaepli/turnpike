@@ -3077,9 +3077,9 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 - kind: add | category: feedback | origin: proposer | status: MERGED at
   iteration 55 undecided (7bb10ea, spur 0587e8c; bit 64 depth>=8 1.043
-  [0.994, 1.094] against the coin third on four chunks, sign right,
-  firing floor missed on a base rate of 0.037; merged with the graded
-  binary and measured on every baseline chunk since) | parent:
+  [0.994, 1.094] against the coin third on four chunks); at iteration 56
+  the same bit reads 1.091 [1.033, 1.153] against the coin quarter on
+  four chunks, separated above one | parent:
   per-cell-factored-axis-beta-selector-rarity-reward
 - Reward for the filed per-cell selector: r = 1 when a dead-incarnation
   record lands on a receiver that has itself restarted and already heard
@@ -3165,11 +3165,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 56 on bit 128 at quarters by operator decision after the
-  mutual cycle's smoke (judge gain 4, cost 0, rank 2; smoke table: base
-  0.019, hold/stock 2.52, rush/stock 0.20, retarget 2.05) | parent:
-  per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
+- kind: add | category: feedback | origin: proposer | status: MERGED at
+  iteration 56 (e2733f0, spur 38fcbcc; bit 128 depth>=8 1.077 [1.020,
+  1.138] against the coin quarter on four chunks, hold share 0.629,
+  depth>=10 lean 1.48, throughput 0.99, regression passed, panel flat) |
+  parent: per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
 - Frozen prediction (operator, before any chunk): depth>=8 per run, the
   bit-128 quarter against the coin quarter, z 2.7 with overdispersion
   1.3, band [1.05, 1.18], pass with the point inside and the lower edge
