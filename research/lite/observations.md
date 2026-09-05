@@ -3117,3 +3117,26 @@ it. The rule this adds to the two from iteration 46: read the paired
 within-session steps per run before believing a cross-cache throughput
 number, because run length varies by a fifth across seeds on this tree and
 a two-chunk cache cannot see past that.
+
+## Iteration 48: the segment after the second write
+
+The round opens on the directive written after iteration 47: every merge
+this epoch shapes events up to and including the post-fault write's issue,
+and nothing acts after it. Read from the oracle, the segment after w2 is the
+recovering node's two RecoveryResponses (from the peer that also restarted
+and from the peer that stayed up), then its PrepareOK for w2 reaching the
+old coordinator before that coordinator takes the other peer's StartView.
+The funnel on the current tree is recorded below from the four-chunk cache;
+the third response-order rung loses most runs and the coordinator race has
+never been won on any tree.
+
+Four proposals came back through the scheduling-theory lens, all axes with
+both directions drawn and the stock quarter kept: an admission gate on
+records addressed to the most recently restarted node (hold until a client
+operation has been invoked since its restart, or promote them); a PCT change
+point anchored on that node's first acted entry after such an invocation,
+re-drawing every other origin's queued priorities; a cross-origin dispatch
+preference between a restarted sender's current-incarnation record and a
+record from a sender whose state moved since the destination last heard from
+it; and the same preference scoped to a destination in its own post-restart
+window. The proposer paired the first and last for one session. Judged next.
