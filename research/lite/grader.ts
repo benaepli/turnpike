@@ -19,6 +19,9 @@
 //   freeze-epoch --epoch <n> [--base-template <path>] [--base-spur <dir>]
 //            [--layout-null-band <frac>] [--layout-source <text>] [--force]
 //   selftest
+//   panel    [--binary <path>] [--template <path>] [--members all|hard|<ids>]
+//            [--scale <n>] [--seed <n>]
+//   regression [--bin <path>] [--template <path>] [--label <text>]
 //
 // Stdout carries exactly one JSON object per invocation; every progress line
 // goes to stderr. Exit code 0 means the command completed (whatever the
@@ -70,7 +73,7 @@ interface LiteConfig {
   configTemplate: string;
   branch: string;
   relevantFiles: string[];
-  budgets: { chunkSec: number; maxChunks: number; minChunks: number; rayonThreads: number; maxBuildSeconds: number };
+  budgets: { chunkSec: number; maxChunks: number; minChunks: number; rayonThreads: number; maxBuildSeconds: number; epochThroughputFloor?: number };
   porcupineModel: string;
   violationPrior: RatePrior | null;
   allowBigLoopBaselineRecord: boolean;
@@ -78,6 +81,14 @@ interface LiteConfig {
 
 function liteConfig(): LiteConfig {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) as LiteConfig;
+}
+
+// The cumulative throughput a merge may not take the epoch below, as a
+// fraction of the frozen epoch baseline. lite.json may set it; the
+// orchestrator's constant is the fallback.
+function epochFloorOf(cfg: LiteConfig): number {
+  const f = cfg.budgets.epochThroughputFloor;
+  return typeof f === "number" && f > 0 && f <= 1 ? f : EPOCH_THROUGHPUT_FLOOR;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -243,14 +254,14 @@ function loadEpochBaseline(): EpochBaseline | null {
 /** What the ledger says the epoch's cumulative throughput stands at, and
  *  what merging this candidate would leave it at. A missing file leaves the
  *  budget inert rather than assuming one. */
-function epochReading(epoch: EpochBaseline | null, throughputRatio: number, candRps: number | null): {
+function epochReading(epoch: EpochBaseline | null, throughputRatio: number, candRps: number | null, floor: number): {
   frozenRps: number | null; cumulative: number | null; projected: number | null; measured: number | null; floor: number; drift: number | null;
 } {
   const cumulative = epoch === null ? null : epoch.merges.at(-1)?.cumulative ?? 1;
   const projected = cumulative === null ? null : cumulative * throughputRatio;
   const measured = epoch === null || epoch.runsPerSec <= 0 || candRps === null ? null : candRps / epoch.runsPerSec;
   const drift = measured === null || projected === null || projected <= 0 ? null : measured / projected - 1;
-  return { frozenRps: epoch?.runsPerSec ?? null, cumulative, projected, measured, floor: EPOCH_THROUGHPUT_FLOOR, drift };
+  return { frozenRps: epoch?.runsPerSec ?? null, cumulative, projected, measured, floor, drift };
 }
 
 function layoutFloorOf(epoch: EpochBaseline | null): number {
@@ -431,7 +442,7 @@ function gateReadingOf(
     ? (candCounts.runs / candCounts.exposureSec) / (baseCounts.runs / baseCounts.exposureSec)
     : 1;
   const epochFile = loadEpochBaseline();
-  const epoch = epochReading(epochFile, throughputRatio, candCounts.exposureSec > 0 ? candCounts.runs / candCounts.exposureSec : null);
+  const epoch = epochReading(epochFile, throughputRatio, candCounts.exposureSec > 0 ? candCounts.runs / candCounts.exposureSec : null, epochFloorOf(cfg));
   const t = treatmentOf(state);
   const inputs: FinalGateInputs = {
     hypothesis: { id: `lite-${state.name}`, kind: "add", prediction: null } as unknown as FinalGateInputs["hypothesis"],
@@ -1615,7 +1626,7 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
   }
 
   const binary = flags.get("binary") ?? path.join(ROOT, "spur", "target", "release", "spur");
-  const template = path.join(ROOT, "scheduler_configs", "loop", "general_vr.json");
+  const template = resolveRoot(flags.get("template") ?? cfg.configTemplate);
   for (const [what, f] of [["binary", binary], ["config template", template]] as const) {
     if (!fs.existsSync(f)) throw new Error(`${what} missing: ${f} (is the main tree on research/lite with the baseline built?)`);
   }
@@ -1741,7 +1752,7 @@ async function main(): Promise<void> {
     case "panel": await cmdPanel(flags); break;
     case "regression": await cmdRegression(flags); break;
     default:
-      throw new Error(`unknown command ${cmd || "(none)"}; use start|chunk|status|finish|baseline|freeze-epoch|selftest|panel`);
+      throw new Error(`unknown command ${cmd || "(none)"}; use start|chunk|status|finish|baseline|freeze-epoch|selftest|panel|regression`);
   }
 }
 

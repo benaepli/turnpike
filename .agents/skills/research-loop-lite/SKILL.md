@@ -1,306 +1,148 @@
 ---
 name: research-loop-lite
-description: Run agent-driven research iterations against the VR-bug goal - propose, judge, implement in an isolated worktree, grade with the chunked lite grader, then decide merge/close/human on branch research/lite. Only while the autonomous loop (spur-research-loop) is stopped.
+description: Run agent-driven research iterations against the VR-bug goal - propose, judge, implement in an isolated worktree, grade with the chunked lite grader, then decide merge/close/human on branch research/lite. Interactive by default; `autonomous` runs iterations without pause and decides everything itself. Only while the autonomous loop (spur-research-loop) is stopped.
 user-invocable: true
 ---
 
 # Research Loop Lite
 
 You are the loop. Each iteration you spawn a proposer, a judge, and an
-implementer as subagents, then drive the chunked grader yourself and make the
-merge decision yourself. (Subagent spawning and worktree isolation are
-Claude-specific tool mechanics; on other hosts, see
-`docs/agent/host-compatibility.md` for equivalents.) The grader (`research/lite/grader.ts`) is the only
-typed machinery: it measures and reports statistical validity; it never
-decides. Configuration lives in `research/lite/lite.json`; the goal is the
-file it names (`research/GOAL.md` by default). All paths below are relative
-to the project root; run every grader command from `research/orchestrator`.
+implementer as subagents, drive the chunked grader yourself, and decide
+yourself. The grader (`research/lite/grader.ts`) is the only typed
+machinery: it measures and reports, it never decides. Its output is
+described in `docs/agent/lite-grader-status.md`; the loop's files and
+record formats in `research/lite/README.md`; subagent prompts in
+`prompts/` beside this file. Configuration is `research/lite/lite.json`
+and the goal is the file it names. Paths are relative to the project root;
+run grader commands from `research/orchestrator`. On hosts without
+subagents or worktrees, see `docs/agent/host-compatibility.md`.
 
-Ground truth is never yours to edit: `porcupine/`, `research/oracle/`,
-`research/corpus/`, `traceanalyzer/`, `bin/spur/`. Also off limits:
-`research/orchestrator/`, `research/state.sqlite` (never even open it), and
-any `scheduler_configs/` outside `scheduler_configs/loop/`.
+**This skill is not yours to edit, in any mode.** Neither this file nor
+the `prompts/` files change during a loop session. If the loop's rules
+need changing, write the case into `research/lite/observations.md` and
+tell the user; the user changes the skill.
+
+Nothing else here is a veto. The grader prints its reading and its
+blockers; you weigh them with everything you know, decide, and write the
+reason down. Where this file gives a rule of thumb, your judgment on the
+case in front of you wins, provided the log says why. You are steerer,
+judge-prompter, and decider at once; do not answer that by inventing rules
+against your own bias. Rules turn into arguments about thresholds instead
+of thought about mechanisms. The written reason is the guard.
+
+Never edit: `porcupine/`, `research/oracle/`, `research/corpus/`,
+`traceanalyzer/`, `bin/spur/`, `research/orchestrator/`,
+`research/state.sqlite` (never even open it), and any `scheduler_configs/`
+outside `scheduler_configs/loop/`. Never push.
+
+## Modes
+
+**Interactive** (default). One iteration at a time, reporting between
+them. Split evidence is filed for the user; a user idea goes through the
+moderated lane; the tree stays where the user left it.
+
+**Autonomous** (invoked with the argument `autonomous`, or when the user
+says to run unattended). You keep running iterations until the user stops
+you or a hard stop below. Every decision a person would otherwise make is
+yours: what to steer toward, when to review direction, whether to merge on
+split evidence, whether to revert a merge the panel later argues against,
+how to resolve a dirty tree or a stale baseline, and whether a grader
+problem is worth fixing before the next round. Decide, log the reason,
+mark the decisions row `mode: autonomous`, and move on. Nothing is filed
+for the user: a case that would have been filed is decided, with its
+patches kept under `research/lite/patches/` when they may deserve a second
+look. Pool entries with `status: awaiting-approval` still wait; only the
+user approves those. Write a short digest into
+`research/lite/observations.md` after every direction review so the user
+can catch up from the log alone.
+
+Hard stops in either mode: `spur-research-loop` is active; the grader's
+selftest fails and the failure is not one you can fix without touching
+what you must not edit; the main tree is not on `research/lite`.
 
 ## Preflight (every launch)
 
-1. `systemctl --user is-active spur-research-loop` must print `inactive` or
-   `failed`. If it is active, stop here and tell the user: lite and the big
-   loop share the CPU mask, `tmp/loop/`, and the working tree.
-2. Read `research/lite/lite.json`, the goal file it names, and the tails of
+1. `systemctl --user is-active spur-research-loop` prints `inactive` or
+   `failed`. Lite and the big loop share the CPU mask, `tmp/loop/`, and the
+   working tree, and the big loop needs the tree on `research/auto-vr`;
+   switching branches is the user's call.
+2. Read `lite.json`, the goal file, and the tails of
    `research/observations/OBSERVATIONS.md`, `research/lite/observations.md`,
    and `research/lite/pool.md`.
-3. The main working tree must be on branch `research/lite` with the `spur`
-   submodule at its recorded gitlink (`git status` clean, or explain the
-   dirt to the user before proceeding). The lite loop's files, logs
-   included, are tracked on this branch and committed here; the
-   `research/auto-vr` branch ignores `research/lite/` and belongs to the
-   big loop, which must not be started while the tree is on `research/lite`.
-4. Ensure the baseline binary:
-   `cargo build --release --manifest-path spur/Cargo.toml --bin spur`.
-   The baseline side of every grade is `spur/target/release/spur` with
+3. The main tree is on `research/lite` with the `spur` gitlink at its
+   recorded commit and `git status` clean. Interactive: explain any dirt to
+   the user first. Autonomous: resolve it if its origin is clear from the
+   log and git, otherwise stop.
+4. Build the baseline: `cargo build --release --manifest-path spur/Cargo.toml --bin spur`.
+   The baseline side of every grade is that binary with
    `scheduler_configs/loop/general_vr.json`, both from the main tree.
-5. Once per session:
-   `cd research/orchestrator && npx tsx ../lite/grader.ts selftest`
-   must report zero failures.
+5. Once per session, `npx tsx ../lite/grader.ts selftest` reports zero
+   failures.
 
-## Iteration protocol
+## Iteration
 
-1. **Propose** - spawn a proposer subagent (prompt template below). Feed it
-   one lens, rotating through the `PROPOSAL_LENSES` array in
-   `research/orchestrator/src/agents.ts` across iterations, plus a focus
-   directive of your own (see Direction authority - steering toward
-   mechanism-level work is the default, not the exception).
-2. **Judge** - spawn a judge subagent on the proposals plus the current pool.
-   Update `research/lite/pool.md` with its scored keep-list. Pick the top
+1. **Propose.** Spawn the proposer with `prompts/proposer.md`, the goal
+   file, as much of both observation logs as this round needs, the current
+   `general_vr.json`, the existing pool ids, one lens rotating through
+   `PROPOSAL_LENSES` in `research/orchestrator/src/agents.ts`, the
+   `HYPOTHESIS_JSON_GUIDE` constant from the same file as output format,
+   and a focus directive when you have one.
+2. **Judge.** Spawn the judge as a read-capable subagent with
+   `prompts/judge.md`, the candidates stripped of origin marks and steering
+   text, the pool, and the recent tails of both observation logs. Write
+   its keep-list into `pool.md`; drop anything it scored 0. Pick the top
    candidate by expectedGain minus expectedCost.
-3. **Implement** - spawn an implementer subagent with worktree isolation
-   (Agent tool `isolation: "worktree"`). Template below. Its deliverable is
-   an export directory `tmp/loop/lite/<name>/`, because the worktree may not
-   outlive it.
-4. **Grade** - drive the grader chunk by chunk (below). You decide when to
-   stop buying chunks.
-5. **Decide** - merge, close, or file for the user (checklist below).
-6. **Log** - append to `research/lite/observations.md` and
-   `research/lite/decisions.jsonl`, update `pool.md`, clean
-   `tmp/loop/lite/<name>/` and any leftover implementer worktrees
-   (`git worktree prune`).
-7. Every 5 iterations, run a direction review: has a violation appeared
-   anywhere? Are you optimizing a proxy the goal file warns about? Run the
-   panel check (section below) and log its rates. Which
-   decided candidates were steered or seeded (`origin: operator-agent`), did
-   the steering narrow the search, and has it paid for itself? Have recent
-   iterations drifted into parameter tuning or config doses - and if so, do
-   the next directives pull back to mechanism level? Re-read the
-   goal file and prune the pool. Write the verdict into
-   `research/lite/observations.md`.
+3. **Implement.** Spawn the implementer with `isolation: "worktree"`,
+   `prompts/implementer.md`, the goal file, the hypothesis, and
+   `research/STYLE.md` in full. Its deliverable is `tmp/loop/lite/<name>/`.
+   Read `spur.patch` and `super.patch` yourself before grading: the diff
+   matches the hypothesis, stays in `spur/` and `scheduler_configs/loop/`,
+   leaves the `campaign` block alone, and draws the bit by run id.
+4. **Grade** (below).
+5. **Decide** (below).
+6. **Log.** Append to `observations.md` and `decisions.jsonl`, update
+   `pool.md`, commit the log files on `research/lite`, clean
+   `tmp/loop/lite/<name>/`, and `git worktree prune`.
 
-## Direction authority
+**Direction review.** Run one when something calls for it: after a merge,
+after a run of closes, when the pool has drifted into parameter tuning or
+config doses, when a violation has appeared anywhere, or when you are
+unsure what to steer toward. Ask whether you are optimizing a proxy the
+goal file warns about, whether your steering has narrowed the search and
+paid for itself, and whether the next directives pull back to mechanism
+level. Re-read the goal file, prune the pool, log the verdict.
 
-You set the project's direction, not only its verdicts, and you are
-expected to steer. The default direction is substantial: mechanism-level
-changes to how the explorer searches, not parameter tuning. Use the focus
-directive most rounds to hold the proposer there; an unsteered round is a
-deliberate choice to sample the lens cold, not the default. Three channels:
+## Direction
 
-- **Focus directive** - append one short steering paragraph to the proposer
-  prompt ("this round, focus on X because Y"). The lens still rotates and
-  the directive accompanies it, never replaces it, so steering cannot
-  permanently narrow the search.
-- **Elaboration** - hand the proposer a rough idea of your own to develop
-  into 2-4 concrete hypothesis variants, under the same constraints, output
-  format, and frozen-prediction requirement as any other proposal.
-- **Seeding** - write your own fully-formed hypothesis straight into
-  `pool.md`, marked `origin: operator-agent`.
+You set direction, not only verdicts. The default direction is substantial:
+mechanism-level changes to how the explorer searches, not parameter
+tuning. Left alone, the proposer converges on the cheapest shape that
+builds and grades - a priority or hold rule on some class of records - and
+it does not break out by itself. Push it, explicitly and every round,
+toward structurally different mechanisms: adaptive switching among the
+built strategy arms on a protocol-agnostic signal, branching the search
+from a checkpoint, new feedback loops. A round exists to test a mechanism;
+never spend one on a census, a calibration, or a measurement alone. If a
+mechanism needs a new observable, the implementer adds it in the same
+change and the grader reads it in the same session. Three channels: a **focus
+directive** appended to the proposer prompt beside the rotating lens; an
+**elaboration**, where the proposer develops a rough idea of yours into a
+few variants under the normal constraints; and **seeding**, a fully-formed
+hypothesis of yours written into `pool.md` as `origin: operator-agent`.
+Whatever the origin, the judge scores blind to it, the prediction freezes
+at admission, and the direction review audits the steering.
 
-Guardrails for these three channels, none waivable (the moderated lane
-below carries its own terms):
+**Moderated lane** (interactive only): a user idea that needs the user's
+sign-off before it is built. Naming the idea at launch is not approval.
+Elaborate it with the proposer, vet it with the judge (origin blindness
+waived here; the judge checks evidence, the user selects), have a
+read-only planning subagent write `research/lite/plans/<id>.md` per
+`prompts/planner.md`, add the pool entry as `origin: user`,
+`status: awaiting-approval`, summarize, and STOP. On explicit approval the
+prediction freezes, the implementer gets the plan file verbatim and reports
+any deviation, and the rest is the normal pipeline.
 
-- The judge is blind to origin: candidates reach it without origin marks or
-  the steering text that produced them, and every candidate - seeded ones
-  included - must pass the rubric before selection. No channel bypasses
-  judging or grading.
-- Predictions are frozen at admission whatever the origin.
-- The direction review (step 7) audits your steering, not only the search.
-
-A user idea that must not be built without the user's sign-off goes through
-the moderated lane below, not seeding.
-
-## Moderated lane (user idea, held for approval)
-
-For an idea the user hands over that needs their approval before anything
-is built. A launch instruction that names the idea ("run the loop with my
-idea: X") is NOT approval to build - the hold below still applies; only an
-explicit go-ahead on the presented plan resumes the lane. The lane replaces
-the proposal phase only; everything downstream of approval is the normal
-pipeline.
-
-1. **Elaborate** - spawn the proposer subagent with the user's idea as the
-   subject (the elaboration channel): 2-3 concrete variants, same output
-   format and constraints, draft predictions included. Feed it the
-   observations relevant to the idea, not just the standard tails.
-2. **Vet, not gate** - run the verifying judge on the variants. Here its
-   role is the evidence check for the user - which checkable claims hold,
-   what utilization and observations say, what prior attempts touched this
-   surface - not selection: the user is the gatekeeper. Origin blindness
-   is waived in this lane only; the judge still red-teams and scores.
-3. **Plan** - spawn a read-only planning subagent (no worktree, no edits)
-   on the strongest variant. Write its output to
-   `research/lite/plans/<id>.md`: the hypothesis JSON; files and
-   mechanisms to change; config surface if any; the firing counter and
-   what value means it fired; predicted observables; risk flags (does it
-   touch `spur-core/src/simulator/core/exec.rs`, `history.rs`, event
-   accounting, or the linearizability recording path); the grading plan
-   (rungs to watch, expected chunks).
-4. **Hold** - add the entry to `pool.md` with `origin: user`,
-   `status: awaiting-approval`. Give the user a concise summary - variants
-   considered, chosen plan, judge's evidence notes, risks - and STOP. No
-   implementer, no grading, no merge. The plan file and pool status make
-   the hold durable across sessions.
-5. **Resume on approval** - the prediction freezes at approval (approval
-   is this lane's admission). The implementer receives the approved plan
-   file verbatim and must report any deviation from it in its export
-   summary; drift between the approved plan and the built change is the
-   lane's main failure mode. Then grade and decide as normal - the
-   decision checklist applies unchanged.
-
-## Proposer subagent
-
-Give it: the goal file; the last ~200 lines of
-`research/observations/OBSERVATIONS.md`; all of
-`research/lite/observations.md`; the current
-`scheduler_configs/loop/general_vr.json`; the existing pool ids; one lens
-from `PROPOSAL_LENSES`; and the `HYPOTHESIS_JSON_GUIDE` constant from
-`research/orchestrator/src/agents.ts` as the output format. Constraints to
-state verbatim:
-
-- 2-4 hypotheses through the lens. Size is not a constraint - a substantial
-  mechanism is welcome - and config gating is not required: a change may
-  replace default behavior outright. The bar is that the idea plausibly
-  improves violation discovery per explore-second and generalizes to the
-  full protocol panel (nothing VR-specific; the generalityArgument field
-  carries this).
-- Prefer mechanism-level hypotheses: new scheduling behavior, new feedback
-  signals, new fault-timing structure - changes to HOW the explorer
-  searches. A parameter dose on an existing knob is worth proposing only as
-  a follow-up to a merged mechanism or to a recorded observation that names
-  that knob.
-- A nested dose or cell must have its own variant bit. Iteration 45's
-  quarter-strength cell was a pure function of the run id, so the grader
-  could not split its rungs and the dose question went unanswered.
-- Two overrides to the JSON guide: the description names the mechanism, and
-  mentions a gating config field only if the change has one; firingCounter
-  may name a counter the change itself adds, not only one the explorer
-  already emits.
-- Change only the subject: `spur/` or `scheduler_configs/loop/`. Never the
-  harness, the orchestrator, the grader, the evaluation protocol, or the
-  campaign arm set of `general_vr.json` (an arm change moves the unit of
-  comparison and the grader refuses it).
-- Every hypothesis carries a frozen prediction: the **declared variant
-  bit**, the rung, the **band on the per-run ratio** of treated to untreated
-  runs, the firing counter, and the falsifier. The prediction is graded,
-  never rewritten.
-- If the mechanism can be turned off for part of a session's runs, it
-  **must** be: turn it off for a randomized part of them and tag those runs
-  (`spur/spur-core/src/simulator/run_variant.rs`), declare the bit at
-  `start`, and register its name in `VARIANT_BITS`
-  (`research/orchestrator/src/decide.ts`) in the same commit. The untreated
-  remainder is the control the merge is decided on. A mechanism with no
-  internal control can only be graded on the cross-binary rung, where
-  nothing under 5% separates.
-
-**Frozen prediction template** (all fields required; graded, never
-rewritten):
-
-> - **Treatment bit**: `<name>` = `1 << k`, registered in `run_variant.rs`
->   and `VARIANT_BITS`. Treated share: `<f>` of runs, drawn by run id. If the
->   mechanism cannot be turned off per run, say so here and name the reason;
->   the candidate is then graded on the cross-binary rung, where nothing
->   under +5% separates.
-> - **Rung and band**: on the epoch's primary rung (`depth>=8` under epoch
->   14; `depth>=6` stays the cross-epoch comparison rung), the **per-run
->   ratio** of treated to untreated runs in the same session, probe-free and
->   matched on co-bits, will land in **[1.05, 1.25]**. (Not a per-second
->   figure: per-second mixes throughput with 4-5% of build-layout noise.)
-> - **Firing counter**: `<dotted.path>` in `utilization.json` at or above
->   `<floor>` per chunk.
-> - **Independent observable**: `<something the rung does not measure>`,
->   expected `<value>`.
-> - **Falsifier**: the prediction is refuted if the contrast's 2.7-sigma
->   interval lies entirely below 1.05, or if `<observable>` moves the wrong
->   way. State the sign explicitly; "no effect" is refutation only if the
->   band's lower edge is above 1.
-> - **Cost clause**: cross-binary throughput will stay at or above `<floor>`
->   of the paired baseline; a shared hot-path cost is invisible to the
->   contrast and must be read there.
-
-## Judge subagent
-
-Spawn it as a read-capable subagent, not a text-only prompt: it verifies
-claims in the repo before scoring. Give it: the candidates, the pool, the
-last ~200 lines of both observation logs, and where each kind of claim is
-checkable - `scheduler_configs/loop/general_vr.json` (current values),
-the observation logs (already-answered), `spur/spur-core` source (cited
-mechanisms and counters exist), the baseline cache under
-`research/lite/baselines/` (utilStats counter names). It returns the
-deduplicated keep-list with its own expectedGain/expectedCost. Strip origin
-marks and any steering text from what you hand it: the judge scores every
-candidate blind to whether you steered or seeded it. Reject anything the
-rubric scores 0 rather than carrying it into the pool. The rubric, to state
-verbatim:
-
-- expectedCost is 0 for every candidate, except a fixed 2 when the change
-  could invalidate correctness or measurement validity: it touches
-  `spur-core/src/simulator/core/exec.rs`, `history.rs`, event accounting,
-  or the linearizability recording path. Size, gating, and implementation
-  time are not costs. Candidates rank on expectedGain minus expectedCost.
-- expectedGain is an argument grade, not an effect forecast. Score how well
-  the causal story is argued and evidenced: a clear mechanism-to-observable
-  path whose checkable claims you verified is 7-9; a plausible story
-  resting on thin or unchecked evidence is 3-5; "more coverage or novelty in general"
-  is 1-2; no falsifiable content is 0. No named rung or percentage band is
-  required.
-- Verify what is checkable: a cited counter exists, a cited config value
-  is current, a cited mechanism or code path exists, the question is not
-  already answered in the observation logs. Verification covers the
-  supporting evidence, not the outcome - what a new mechanism will do is a
-  prediction, and grading predictions is the harness's job, not yours. A
-  checkable claim found false sinks the score and is named in the notes; a
-  claim that cannot be checked yet merely earns no evidence credit.
-- Red-team first: for each candidate, write the strongest case that it will
-  NOT improve violation discovery, then score.
-- Reject (score 0): already-set (the proposed config value equals the
-  current one); already-answered (the observation logs record the result);
-  out-of-bounds (harness, orchestrator, grader, evaluation protocol, or
-  the campaign arm block); protocol-specific (ask: what value would another
-  protocol need here, and how would anyone know?).
-- Dedupe against the pool; two proposals riding the same mechanism cannot
-  both score high.
-- Every candidate keeps a checkable frozen prediction: rewrite a sloppy one
-  before admission, never after.
-
-## Implementer subagent (worktree isolation)
-
-Spawn with `isolation: "worktree"`. Prompt must include the goal file, the
-hypothesis (title, description, rationale, prediction), `research/STYLE.md`
-in full, and these instructions:
-
-- The isolated worktree is usually cut from `main`, which predates the loop
-  branches: `scheduler_configs/loop/` may be absent and the `spur` gitlink
-  stale. First seed the subject from the lite branch and stage that base so
-  later diffs show only the hypothesis edit:
-  `git restore --source research/lite --staged --worktree -- scheduler_configs/loop spur`
-  then, if Rust work is needed, `git submodule update --init spur` (verify
-  `spur/Cargo.toml` exists afterwards).
-- Implement exactly this hypothesis, at whatever size it needs and no
-  bigger. Config gating is optional: changing default behavior is fine; add
-  a config field only when the hypothesis calls for one. Rust work lives in
-  `spur/spur-core`; config work in `scheduler_configs/loop/`. If the
-  mechanism must be enabled for evaluation, enable it in
-  `scheduler_configs/loop/general_vr.json` - but never touch its `campaign`
-  block.
-- Build: `cargo build --release --manifest-path spur/Cargo.toml --bin spur`;
-  run `cargo test -p spur-core` if spur-core logic changed.
-- At most ONE smoke run, under two minutes, writing to `tmp/loop/<name>`;
-  its numbers are discarded. No A/B studies, no seeds sweeps - measurement
-  is the grader's job.
-- No git commits, no gh, no network.
-- MANDATORY export before finishing (the worktree may be cleaned): create
-  `<project root>/tmp/loop/lite/<name>/` and copy into it the built binary as
-  `cand-spur`, `git -C spur diff > spur.patch` (plus any untracked spur files
-  under an `untracked/` mirror), `git diff > super.patch` for superproject
-  changes, and the edited `general_vr.json`. End with a summary: files
-  changed, the config field if any, the predicted effect.
-- Config-only hypothesis (no spur edit): skip the build and the smoke run;
-  export the baseline binary `spur/target/release/spur` (main tree) as
-  `cand-spur` and an empty `spur.patch`.
-
-After it finishes, read the patches yourself before grading: confirm the diff
-matches the hypothesis and stays inside the allowed lanes.
-
-## Grading (chunked; you are the stopping rule)
-
-All from `research/orchestrator`; each command prints one JSON object on
-stdout. The baseline side is the main tree (branch `research/lite`).
+## Grading
 
 ```
 npx tsx ../lite/grader.ts start --name <name> \
@@ -308,185 +150,79 @@ npx tsx ../lite/grader.ts start --name <name> \
   --cand-template ../../tmp/loop/lite/<name>/general_vr.json \
   --base-bin ../../spur/target/release/spur \
   --base-template ../../scheduler_configs/loop/general_vr.json \
-  --treatment-bit 512 --band-min 0.05 --band-max 0.25
-
-npx tsx ../lite/grader.ts chunk --name <name>    # one paired chunk
-npx tsx ../lite/grader.ts status --name <name>   # reprint, runs nothing
+  --treatment-bit <bit> --band-min <lo-1> --band-max <hi-1>
+npx tsx ../lite/grader.ts chunk --name <name>     # one paired chunk; run in the background
+npx tsx ../lite/grader.ts status --name <name>    # reprint, runs nothing
 npx tsx ../lite/grader.ts finish --name <name> [--regression]
+npx tsx ../lite/grader.ts panel --binary ../../tmp/loop/lite/<name>/cand-spur \
+  --template ../../tmp/loop/lite/<name>/general_vr.json
 ```
 
-`--treatment-bit` declares the run tag the mechanism is randomized by and
-`--band-min/--band-max` the frozen band on its per-run ratio; `start` refuses
-a bit that is not in `VARIANT_BITS` or that names an instrument, before a
-single chunk is bought. Omit them only when the mechanism cannot be turned
-off per run, which puts the session on the cross-binary fallback path.
+`--treatment-bit` is the run tag the mechanism is randomized by and the
+band is the frozen band on its per-run ratio, as fractions above 1. Omit
+them only when the mechanism cannot be turned off per run, which puts the
+session on the cross-binary fallback. A config-only candidate still needs
+real chunks.
 
-A `chunk` call costs ~6 minutes when the baseline seed is cached and ~12 when
-the baseline must be measured (`baseline.measuredThisCall` says which
-happened; run it in the background and read the JSON when it exits). A
-config-only candidate still needs real chunks - the binary is the same but
-the config is not.
+The grader enforces the chunk bounds from `lite.json` and prints after
+every chunk what `finish` would say now. Buy another chunk while it could
+change your decision. A violation on either side is a corpus finding
+worth logging whatever else happens (evidence under
+`research/logs/violations/`); the corpus has a background rate, so one
+violation belongs to the candidate only if the rate separates or the
+evidence ties it to the mechanism.
 
-How to read the status: every rung figure is on the epoch's primary rung
-(`depth>=8` under epoch 14, rule version `internal-primary-v3`; `depth>=6`
-stays the cross-epoch comparison rung and a per-run guard). `primary`
-carries the merge criterion - the randomized per-run contrast of treated to
-untreated runs on that rung, its interval, `meiAtCap` (the smallest effect
-still separable at the chunk cap), and its `bandReading` against the frozen
-band. `cost` carries the cross-binary per-second primary rung and
-throughput, which can only block: a ratio inside the 5% build-layout floor
-is a cost reading, not evidence of a gain. `stopper.rungs[*]` carries every
-reported rung from `depth>=4` through `depth>=13`: events on both sides, the
-events-per-explore-second ratio, its `nullBand`, `pGreater`, `pRegress`, and
-`mei`. On the cross-binary fallback path a separated `depth>=9` or
-`depth>=10` (the advance rungs) can carry a merge over a flat primary, never
-over one below its band; rungs 11-13 are recorded and never decided on.
-`verdict` is the sampler's reading; `resolvedIfStopped.rule` is the verdict
-`finish` would print on the chunks in hand.
+**Panel on the candidate.** When the chunks read like a possible merge,
+run the panel on the exported binary and template, before or alongside
+`finish --regression`. The goal's yardstick is the whole protocol panel,
+and the per-bit cells are the candidate's treated versus untreated
+contrast on every member. Compare against the previous panel entry in
+`observations.md` and log the rates every time. Members' overlays may
+override a config-only change; check the printed config before reading
+that result as evidence. No post-merge panel is owed; run one on the
+merged tree only for a fresh anchor.
 
-Stop calling `chunk` when any of:
-- `primary.verdict` separates in either direction, or `primary.bandReading`
-  reads `refuted`;
-- `verdict` is not `continue` (the rule itself stopped: separation, floor,
-  deep-rung regression, violations, or cap), and where that separation is
-  the cross-binary rung, its ratio is outside the 5% build-layout floor;
-- a violation appeared (`stopper.violations.candidate > 0`) - go straight to
-  evidence under `research/logs/violations/`. Calibrate before crediting the
-  candidate: the general corpus produces a background violation roughly once
-  per few million runs, so a single one in a ~350k-run chunk is what the
-  corpus does anyway (an A/A session has hit one). It is a finding about the
-  corpus worth logging either way; it belongs to the candidate only if the
-  rate separates or the evidence ties it to the candidate's mechanism;
-- `canStillAdvance` is false at or past `minChunks` - no remaining chunk can
-  separate an advance; the mechanism is dead for this sample;
-- the predicted rung has sat inside its null band for two consecutive chunks
-  with `pGreater` near 0.5 and the prediction band already excluded.
+## Decision
 
-Never stop before `minChunks` (2) on rate evidence alone. Run
-`finish --regression` only when the outcome could be a merge (the regression
-case costs ~10 minutes); plain `finish` when closing.
+`finish` prints `adviceVerdict` and `blockers`. Depart from the rule only
+with a written reason, in either direction. Beyond what it computes,
+check: the firing counter in the chunk records' `utilStats.counters`
+(the grader does not); `cost`, which can only block and sees the shared
+hot-path cost the internal contrast cannot; `cost.throughput.epoch`
+against the floor in `lite.json`; the diff, since with no size cap your
+review is the only check that the code does what the hypothesis says; and
+the panel.
 
-## Decision checklist
+Split evidence - the primary resolves neither way and no advance rung
+carries it, a balance fault or unresolved guard stands, the only
+improvement is a violation count, the diff touches
+`spur-core/src/simulator/core/exec.rs` or `history.rs`, the panel and
+the primary disagree - is filed for the user in interactive mode and
+decided by you in autonomous mode.
 
-`finish` prints `adviceVerdict` (the typed rule's reading) and `blockers`.
-You decide, but depart from the rule only with a written reason:
+## Merge
 
-- **Close** when: the internal contrast separates below 1.0, or its interval
-  excludes the frozen band; the cross-binary rung is separated below the
-  baseline by more than 5%; throughput is below the floor, or merging would
-  put cumulative throughput under 0.90 of the frozen epoch baseline
-  (`cost.throughput.epoch`); anything is in `regressed`; the regression
-  suite failed; or the mechanism never fired (check the hypothesis's
-  firingCounter in the chunk records' `utilStats.counters` - the grader does
-  not automate this, you do).
-- **File for the user** (log it, keep the patches, do not merge) when: the
-  internal primary applies and resolves neither way; `primary.balance.faults`
-  is non-empty; `unresolvedGuards` is non-empty; the only improvement is
-  `violations`; `stratumFault` is non-null; the diff touches
-  `spur-core/src/simulator/core/exec.rs` or `spur-core/src/simulator/history.rs`;
-  or nothing separated and no prediction was met.
-- **Merge** only when: the internal contrast separates above 1.0 at z 2.7
-  with an effect of at least 2%, no blocker above stands, the firing counter
-  shows occasions, and `finish --regression` passed. The same contrast on an
-  advance rung deeper than the primary (`primary.advance`, `depth>=9` then
-  `depth>=10`) carries the merge when the primary resolves neither way and
-  its band is not refuted, provided no advance rung separated down; an
-  advance rung separated down beside a flat primary is filed for the user. Read `spur.patch` and
-  `super.patch` before merging - with no size cap on changes, your review of
-  the diff is the only check that the code does what the hypothesis says,
-  and that the bit is drawn by run id rather than by which runs the
-  mechanism happened to help. An A/A control chunk cannot see build layout
-  (two builds of identical source read 0.951 on this rung); the internal
-  contrast is what carries a small effect, so run it instead.
+Main tree, branch `research/lite`, clean in both the superproject and
+`spur/`:
 
-`status` and `finish` also print `variantContrasts`, the survey over every
-tag bit. It is how a new bit is sanity-checked; the control there is every
-untreated run, while `primary` matches the control on the treated
-population's co-bits, so the two differ where a bit is nested. Two standing
-caveats on the contrast: it is blind to a cost paid by both halves of a
-session (a shared hot-path slowdown reads 1.0), which is why `cost` stays a
-blocker; and it measures the effect of treating one more run given the
-session's shared state, so where the mechanism feeds a session-global
-learner it is a marginal effect, not the whole one.
+1. `git -C spur apply --check tmp/loop/lite/<name>/spur.patch`, then
+   without `--check`; copy in untracked files; commit in `spur`.
+2. Apply `super.patch` the same way; `git add` the changed paths plus the
+   `spur` gitlink; commit as `lite: <hypothesis-id> - <title>` with the
+   grader summary, the panel rates, and the state file path
+   `research/lite/state/<name>.json` in the body, then the standard
+   trailers.
+3. Rebuild the baseline. The next `start` measures a fresh cache for the
+   moved spur tree; that is the designed cost of a merge.
+4. Append the merge's row to `research/lite/epoch-baseline.json` (shape in
+   the README), with `measuredRps` from the fresh cache. The ledger is what
+   keeps small throughput leaks from compounding unseen.
 
-## Panel check (occasional, never a gate)
+## Coexistence
 
-The goal file's yardstick is the whole protocol panel. Measure it on the
-MERGED lite tree - at every direction review (step 7) and after a merge
-lands - never on a candidate and never as a merge gate:
-
-```
-cd research/orchestrator && npx tsx ../lite/grader.ts panel
-```
-
-One explore + porcupine per member (default: the two members whose
-calibrated event rates resolve in a short wall, `paxos-accept-stale-ballot`
-and `mencius-opt1-2`; `--members all` runs the rest, `--scale N` lengthens
-the walls). Takes a few minutes. The output is per-member rates beside the
-manifest's calibration; reading them is your job:
-
-- The FIRST run establishes lite's own anchor - the manifest calibration
-  predates recent merges - so log it and compare later runs against the
-  previous panel entry in `research/lite/observations.md`.
-- Rates well below the anchor: suspect recent merges harmed cross-protocol
-  bug-finding; consider reverting or filing for the user.
-- Rates above the anchor: portfolio evidence - a general heuristic got
-  better at a different bug type. Log it with the mechanism that plausibly
-  caused it.
-- Single-digit violation counts resolve nothing in either direction.
-
-Log the rates to `observations.md` every time. Caveat: the panel's "clean
-controls" are known dirty (`research/observations/PANEL_RETIRED.md`); this
-check compares violation rates on the bug specs only and never attributes
-an individual violation to a specific defect.
-
-## Merge procedure
-
-Work in the main tree, on branch `research/lite`; verify it is clean first
-(`git status --short`, and the same in `spur/`).
-
-1. `git -C spur apply --check tmp/loop/lite/<name>/spur.patch` (absolute
-   path if relative resolution fails) then without `--check`; copy in any
-   untracked files; commit in `spur`.
-2. Apply `super.patch` in the main tree the same way; `git add` the changed
-   paths plus the `spur` gitlink; commit.
-3. Commit message: `lite: <hypothesis-id> - <title>`, body carrying the
-   grader summary (verdict, primary delta vs null band, chunks/runs/exposure,
-   throughput ratio, regression result) and the state file path
-   `research/lite/state/<name>.json`, then the standard Claude trailers.
-   Never push.
-4. Rebuild the baseline binary. The next `start` computes a new baseline
-   identity (the spur tree moved) and measures a fresh cache - that is the
-   designed cost of a merge, paid one seed at a time.
-5. Append the merge's row to `research/lite/epoch-baseline.json`: `name`,
-   `commit`, `ratio` (the session's throughput ratio), `cumulative` (the
-   running product), and `measuredRps` from the fresh cache at step 4. The
-   file is frozen once per epoch by `freeze-epoch` and never automatically:
-   the ledger is what keeps four-percent leaks from compounding unseen.
-
-Log files (`observations.md`, `decisions.jsonl`, `pool.md`, `plans/`,
-`state/`) are tracked on `research/lite`: commit them here at each
-iteration's log step - never to `research/auto-vr`, never to a `hyp/*`
-branch.
-decisions.jsonl line shape:
-`{"atIso", "name", "hypothesisId", "origin", "verdict", "reason",
-"primaryDelta", "primaryNullBand", "chunks", "runs", "throughputRatio",
-"regressionPassed", "stateFile", "commit", "ruleVersion", "primaryKind",
-"treatmentBit", "internalRatio", "internalLo", "internalHi",
-"epochCumulativeThroughput"}` (commit null unless merged; origin is
-"proposer", "operator-agent", or "user"; `ruleVersion` and `primaryKind`
-come from `finish`, and a row with neither predates the internal primary).
-
-## Coexistence and cleanup
-
-- If `spur-research-loop` becomes active mid-session, finish nothing: stop
-  grading immediately (just do not call `chunk` again) and tell the user.
-- The grader's corpora live under `tmp/loop/eval-lite-*` (auto-cleaned) and
-  lite artifacts under `tmp/loop/lite/<name>/` (you clean after the decision
-  is logged). Baseline caches under `research/lite/baselines/` are the
-  expensive shared asset - never delete them casually.
-- The main working tree is the lite loop's home (branch `research/lite`):
-  merges, log commits, and the baseline build happen here. Candidates still
-  live in implementer worktrees - never edit the subject directly in the
-  main tree. The big loop requires `research/auto-vr`; switching the tree
-  back is a user decision, not yours.
+If `spur-research-loop` becomes active mid-session, stop grading (do not
+call `chunk` again) and tell the user. Candidates live in implementer
+worktrees; never edit the subject in the main tree. Baseline caches under
+`research/lite/baselines/` are the expensive shared asset; never delete
+them casually. Log files are committed on `research/lite` only, never on
+`research/auto-vr` or a `hyp/*` branch.

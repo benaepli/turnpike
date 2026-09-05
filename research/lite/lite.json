@@ -15,7 +15,8 @@
     "maxChunks": 4,
     "minChunks": 2,
     "rayonThreads": 30,
-    "maxBuildSeconds": 600
+    "maxBuildSeconds": 600,
+    "epochThroughputFloor": 0.9
   },
   "porcupineModel": "kv",
   "violationPrior": null,
