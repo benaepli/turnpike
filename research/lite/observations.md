@@ -3062,3 +3062,20 @@ restarted-destination contests, subject to the panel sign check
 Fresh-first over the coin on this tree, eight chunks: 1.240 [1.209, 1.271]
 on depth>=8, 1.41 on 9, 1.48 on 10. Candidate throughput 0.974 of the
 paired baseline with both arms in it; the narrowing alone removes work.
+
+**Panel, three seeds, on the candidate binary.** The dest-cut's sign check
+passes: within the fresh half, cut against full, raft-stale-vote reads 1.18
+[0.70, 1.99], paxos-accept-stale-ballot 1.00 [0.92, 1.09],
+paxos-fixed-recover-forget-accepted 0.95 [0.66, 1.36], stale-scout 1.16
+count-thin, and mencius 0.92 [0.77, 1.09] as the structural A/A. Nothing
+reads down, so the frozen rule's last condition is met and fresh-first is
+narrowed to contests at destinations that have restarted in the run.
+
+The closed primary leaves one reading worth keeping. Progress-clocked against
+64-step within the hold half - in practice a 128-step hold against a 64-step
+one - paxos-accept-stale-ballot reads **1.15 [1.06, 1.26] up**, and
+raft-stale-vote 1.64 [0.97, 2.80]. The 64-step hold reads 0.87 down on
+accept-stale-ballot against stock, so a longer hold takes that member back
+toward stock while costing VR a quarter of depth 10 and half of depth 11.
+That is a third inverse on the request-timing axis, recorded and not acted
+on: the arm is closed on VR and no round is spent on a dose.
