@@ -4448,3 +4448,17 @@ build observable: the learner's hold share at or above 0.60 and its
 retarget share at or above 0.58 by chunk 2; depth>=10 reported as a lean
 with the hold share beside it; steps within 1.05; throughput at or above
 0.97. Four chunks.
+
+**Rebuilt with the bit-128 learner on the cycle-before-request reward;
+graded.** Same tree otherwise; 404 unit tests and every integration test
+green. The 60 s smoke, coin quarter of 22,659 runs: cycle-before-request
+base 0.0180 with stock/placed 0.78, phase/placed 1.33, retarget 2.45,
+fresh 1.15, pair 0.97, hold/stock 2.84, rush/stock 0.19; its learner
+moved the hold share to 0.563 and retarget to 0.591 against coins of
+0.501 and 0.500 within the minute, rush down to 0.206, at 11.5 percent
+fallback and 217 cells, and read its own reward at 0.0236 on its quarter
+against 0.0180 on the coin's. The mutual cycle's table at 58 events
+(base 0.0026) is noise; the exchange-before-request table reads hold
+2.55, rush 0.29 at base 0.0187. Session cycle-before-request started on
+bit 128 with band [1.05, 1.18], seeds 1002 and 1003 of the merged tree's
+baseline measured inside it; four chunks straight through.
