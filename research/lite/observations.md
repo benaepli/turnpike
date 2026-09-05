@@ -3302,3 +3302,36 @@ the inverse of the whole family - a second crash-phase table that withholds
 a placed crash until client work is outstanding (BUSY) or until none is
 (QUIET), with STOCK kept. The first and third are designed to share one
 session on disjoint actuators. Judged next.
+
+**Judged.** All three kept, none rejected; the cap-free release ranked first
+(gain 5, cost 2) and is built alone behind its gate, with the class census
+riding in the same binary at no cost. Three checkable claims failed, and
+each is a fact about the target or the panel that outlives the round:
+
+- VR.spur's receiver-side Recovery handler writes no role state - it reads
+  status, view and log and sends a RecoveryResponse - so rung 7 is a matched
+  handler entry but not an acted one. A progress clock counting acted
+  entries at node 1 sees two of its own RecoveryResponse deliveries and rung
+  8 before it sees rung 9, and N = 3 therefore opens one rung before the
+  DoViewChange -> w2 edge it was argued to align with. N = num_servers is
+  the literal 3 on this config and on nine of eleven panel members.
+- Every panel member runs num_read_ops 1-3 against num_write_ops 3-5, a 3:1
+  write majority - the inverse of the VR config's 2:1 read majority the
+  class-split proposal reasoned from. A hold narrowed to the mutating class
+  still holds most post-fault work on the panel, so the sign of its panel
+  claim is probably backwards; the class census this round collects is what
+  re-signs it.
+- The plan generator emits crashes as roots with no mandatory client
+  predecessor and every root client request is invoked at step 0, while
+  plan completion runs about 0.21, so a client operation is outstanding at
+  nearly every executed crash. A BUSY crash arm is inert by construction,
+  and a QUIET one is the closed quiet-crash family's predicate one level up.
+
+The gate, fixed before the build: on the 60-second smoke, on the treated
+quarter, release.progress / held >= 0.50, held_at_exit / held <= 0.01,
+steps per run <= 1.08x the 64-step quarter's, release.dry / held <= 0.30.
+The judge expects it to fail on held_at_exit or run length - 79 percent of
+runs already end on a cap with events outstanding and 9.0 percent of
+executed crashes never see their recover run - and if it does, the row
+closes on the census at the cost of one minute of running, which finishes
+the progress-clock family the way iteration 47 should have been finished.
