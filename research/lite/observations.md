@@ -3426,3 +3426,23 @@ that, with the judge's corrections from iteration 48 carried in: a restart
 step must be added to State, the LATE direction needs no client-invocation
 counter if it is drawn as the inverse of EARLY on the same class, and the
 gate is read on the smoke.
+
+## Iteration 50: recovery completion at the recovered node
+
+Directive from the review: the one untried family with a VR-decisive rung
+is recovery completion at the recovered node - 10 to 11 at 0.234, where
+both RecoveryResponses must land at node 2 before its PrepareOK can follow
+w2. Three proposals through the message-delay lens. An EARLY / LATE / STOCK
+priority axis on records addressed to a node that has restarted and taken
+fewer than 2*|role| handler entries since, stamped at the queue-entry site
+(which also covers the outage backlog re-pushed at restart) through the
+priority channel the rush arm already uses, decisive on depth>=11 with
+depth>=10 as the fallback under a merge rule fixed in advance. A headroom
+census riding free in the same binary - where the class's window is at
+queue entry and at dispatch - with pre-committed reads that close the whole
+family if the stock schedule already dispatches the class inside the window.
+And a nested ablation cutting the outage backlog out of EARLY, to be built
+after the axis clears its gate. The proposer corrected this log's power
+arithmetic: eight chunks give about 216 depth>=11 events in total, so a
+half against a quarter resolves 1.59, not 1.30; depth>=10 resolves 1.23.
+Judged next.
