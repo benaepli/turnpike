@@ -2207,7 +2207,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## receiver-ghosts-first-at-restart
 
-- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 39 (judge gain 3, cost 2, rank 3) | parent: iteration-39 delivery-axis round
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 39 (judge gain 3, cost 2, rank 3); bit unassigned - 65536 was reassigned to recoverWindowEarly at iteration 50, whose EARLY direction is the priority form of this entry's class | parent: iteration-39 delivery-axis round
 - Mechanism: New arm on the DELIVERY axis, the opposite side of receiver-ghost-hold-until-restart-settles and of today's interleaved drain. Mechanism: same dest_incarnation_at_send stamp on Record (shared with the settle-hold if both are built; otherwise added here). recover_crashed_node (scheduler.rs:1789) counts, once per recovery, the records addressed to the recovering node in the buffer it re-pushes plus those still in the network queue whose stamp is the dead incarnation, into SendLedger.receiver_ghosts_pending (decremented at the message-entry site when such a record is taken; the queue scan happens once per recovery, where crash_node already scans the queue). On the treated half (bit 1 << 16, receiverGhostsFirst, own salt BUFFIRST, probes exempt), is_ineligible masks a record addressed to node v whose stamp equals v's current incarnation (sent after the restart) while v.receiver_ghosts_pending > 0 and current_step < restart_step + 32; records whose origin role differs from v's role (client requests) are never masked, so the request-timing axis is untouched. Liveness lift as the sibling's. The held records stay in the network queue. This is the BUFFERED_FIRST arm of the kept entry restart-buffer-fresh-first-release, built in the Record-mask form the judge required (no side vector, all_queues_empty untouched). Counters (util_stats.rs block receiver_ghosts_first): episodes (recoveries with pending > 0), masked_offers, holds, released.{drained, cap, liveness}, hold_steps_sum, pending_at_restart histogram {1, 2, 3+}, and the same both-halves receiver-ghost entry/acted census as the sibling. Registration: run_variant.rs RECEIVER_GHOSTS_FIRST = 1 << 16; decide.ts VARIANT_BITS row 65536 renamed from ghostPeerAnswer (closed iteration 18, not in the tree). No config field.
 - Rationale: The settle-hold sibling makes the outage's messages land after the restart window; this arm makes them land before anything else, the burst-at-reconnect semantics of a queue that replays a backlog in order on reconnect. It is a frozen VR loss: at node 1 the buffered SVC 2->1 and DVC 2->1 drain into a node whose RecoveryResponses (sent after the restart) are held behind them, so they are consumed at status 2 and dropped (VR.spur:301, 385) and labels 8-9 are unreachable on the buffered route the violating run used; node 1's recovery is also delayed by the drain (a few steps, cap 32). The side it serves is the panel's forget class: paxos-fixed-forget-promise needs the superseded P2a, pending across the acceptor's crash, to be accepted before any new-ballot P1a raises the forgotten acceptor_ballot; raft-forget-vote needs a RequestVote buffered during the outage to be answered before the elected leader's AppendEntries names a leader. Both are 'the stale message acts at the instant of restart', which today happens by the tournament's coin and this arm makes certain. Depth cost: a hold on chain records (RR 0->1, RR 2->1, Recovery 2->1 at node 1) bounded by the buffer's drain, the same shape as iteration 32's Recover hold but on the other side of the coin; the loss is the price of carrying the side, and the keep decision is the panel's.
 - Generality: Rule: after a node restarts, the messages addressed to it during its outage are delivered before any message sent to it since it came back, up to 32 steps. Names nothing protocol-specific; every protocol with crash recovery has an outage backlog and the two natural semantics for it (replay first, or defer until settled) are the two arms, with the stock interleaving between them. A bug that needs the backlog to act on the fresh restart state reads up; a bug that needs the recovery handshake to finish first reads down; protocols without crashes are inert.
@@ -2729,3 +2729,87 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   alone). The DAG has no response events, so "w1 is outstanding at
   crash_nl" is not a DAG fact. The fan-out arms' window-expiry share is
   0.159, not 0.18.
+
+
+## recovering-receiver-inbound-priority-axis
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 50 behind a pre-committed smoke gate (judge gain 6, cost 0, rank
+  1 of three; two scope changes required at admission and taken) | parent:
+  recovering-receiver-inbound-admission-axis (kept at 48), the rush arm
+- Mechanism: a remote record entering the network queue whose destination
+  has incarnation > 0 and fewer than N = 2*|role| handler entries since its
+  restart takes the top of the priority range (client_anchor::RUSH_PRIORITY)
+  over the already-drawn value, at the Runnable::Record remote branch of
+  State::push_runnable - which also covers the outage backlog re-pushed at
+  restart and purgatory releases. EARLY on a salted half of the eligible
+  runs; STOCK the other half. Scope changes at admission: eligible = not a
+  probe AND NOT a rushed run (the rush arm stamps about 561 records per
+  rushed run at 1.0 against about 569 deliveries, so the channel is
+  saturated there; complementCoBits drops rushed runs from the control);
+  LATE not drawn this round (halves the populations; EARLY is the direction
+  with a case). No exec.rs, history.rs, path.rs, no Record field; a
+  role-count table added to State::new; a counter-only restart step in
+  note_incarnation_bump read by no predicate.
+- Frozen prediction (judge's rewrite): bit recoverWindowEarly = 1 << 16
+  (65536, recycled from ghostPeerAnswer; receiver-ghosts-first-at-restart's
+  bit reference is reassigned). PRIMARY depth>=10 EARLY/STOCK, lower edge
+  above 1.00 at z 2.7 with overdispersion 1.3 over eight chunks and ratio-1
+  >= 0.02; about 342 against 456 events, resolves 1.246. depth>=11 is
+  corroboration (about 74 against 98, resolves 1.606). MERGE RULE: depth>=10
+  separates up AND depth>=11 point estimate >= 1.15 the same way AND no
+  readable panel member reads DOWN (below 0.85). Guards depth>=8 [0.96,
+  1.12], throughput >= 0.97 after the within-binary steps-per-run read.
+  SMOKE GATE, all four on the 60-second smoke: runs_with_stamp / arm_runs
+  .early >= 0.50; stamped.early / arm_runs.early >= 1.0; the 1-in-64
+  sampled dispatch share on EARLY >= 2.0x STOCK's (a channel that steers
+  moves it 5x-9x under Tournament k=10; 1.15x would pass a dead one); steps
+  per run EARLY <= 1.08x STOCK. Independent observable: recovery settle
+  latency (restart to N-th entry) at least 10 percent below STOCK on EARLY;
+  flat closes the arm as inert. Panel: veto only - no readable member DOWN;
+  mencius offers exactly 0; paxos-accept-stale-ballot near-structural zero
+  (requiresRecovery false). Not extended on a favourable read.
+- Judge's caveats carried: the stamp is sticky (a record stamped in the
+  window keeps 1.0), which makes EARLY closer to "the backlog first" than
+  "inbound first while recovering" - the reason the cut rides along; the
+  window can close on timer firings (entries counts Timer triggers too), so
+  the histogram is split by trigger.
+
+## recovering-receiver-early-fresh-scope-ablation
+
+- kind: ablate | category: scheduler | origin: proposer | status: ADMITTED
+  at iteration 50, nested in EARLY from the start (judge gain 6, cost 0,
+  rank 2) | parent: recovering-receiver-inbound-priority-axis
+- Mechanism: on a salted quarter of EARLY (bit recoverWindowFreshOnly =
+  1 << 12, 4096, recycled from clientOpenerProgress) the stamp is applied
+  only to records that do not carry DeliveryBias::RECEIVER_RESTARTED - the
+  single-site flag recover_crashed_node sets on exactly the re-pushed
+  outage backlog. Control: the uncut three quarters of EARLY.
+- Frozen prediction (judge's rewrite): depth>=10 only, about 114 against
+  342 events, resolves 1.395 - reads a large attribution or nothing.
+  Confirming read: cut/full inside [0.95, 1.10] narrows EARLY to
+  post-restart sends. Falsifier: cut/full below 0.90 with the upper edge
+  under 1.00 (the backlog carries the value). Firing: cut_suppressed >=
+  100,000 per chunk; backlog_stamped / stamped.early on the uncut portion
+  inside [0.20, 0.90]. Observable: settle latency cut vs uncut - if equal,
+  the backlog contributes nothing to recovery completion. Prior on disk:
+  delivery_effects.receiver_restarted.acted_fraction 0.0036 against 0.2558
+  for all deliveries.
+
+## recovering-receiver-window-headroom-census
+
+- kind: census | category: scheduler | origin: proposer | status: ADMITTED
+  at iteration 50 as counters riding in the axis binary (judge gain 4, cost
+  0 in its rewritten form) | parent: recovering-receiver-inbound-priority-axis
+- Rewritten: dispatch-side and entry-side MARGINALS only (the per-record
+  entry/dispatch pair would need a Record field and cost 2). Entry histogram
+  of entries_since_restart(dest) {0,1,2,3-5,6-8,9-15,16+} split by
+  RECEIVER_RESTARTED and by the destination's last trigger, one push in
+  eight; the same at dispatch; wait steps for class vs non-class records at
+  the same destination; restart to k-th entry for k = |role| and 2*|role|.
+  Pre-committed reads against the prior on disk (acceptance_distance already
+  puts the backlog subclass's post-window share near 0.58): the informative
+  number is the POST-RESTART-SENDS subclass - at or below 0.10 closes the
+  axis and REFILES (not closes) the two sibling pool entries; 0.10-0.30
+  re-keys N; above 0.30 proceeds. If bucket 0 carries > 0.60 of entry mass
+  the cut is mandatory (it already is, on the acted-fraction prior).
