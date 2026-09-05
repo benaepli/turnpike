@@ -4240,3 +4240,35 @@ is the mechanism's output and not a fault, as written before the session.
 The grader's own survey contrast matched the coin third exactly (600,034
 control runs) and prints bit 32 at 1.111 and bit 64 at 1.043, the same as
 the operator's read. The panel on the candidate binary runs next.
+
+**Panel on the candidate binary, seed 1000, scale 3, with the per-bit
+cells read against the coin third.** paxos-accept-stale-ballot 3.63e-2
+on 95,993 runs (previous panel 3.53e-2): bit 32 1.02 [0.90, 1.16], bit 64
+0.95 [0.83, 1.08]. mencius-opt1-2 1.51e-2 (1.52e-2): 0.88 [0.69, 1.13],
+0.87 [0.68, 1.11]. raft-stale-vote 4.3e-4 (3.4e-4): 0.88 [0.44, 1.77],
+0.95 [0.48, 1.87]. paxos-fixed-recover-stale-scout 4.1e-4 (2.7e-4): 1.00
+on 15 against 15, 0.53 on 8 against 15. paxos-fixed-recover-forget-
+accepted 1.98e-3 (1.92e-3): 0.82 [0.47, 1.44], 0.91 [0.52, 1.57]. Every
+member's rate is flat against the previous panel and no cell separates.
+Eight of the ten cells sit below one, pooled over members about 0.98 for
+bit 32 and 0.93 for bit 64, inside the noise of the largest member alone;
+this is the thing to watch per cell on the next anchor, because a reward
+shaped by VR's recovery could be expected to pick a mix that is
+indifferent or slightly worse for a member whose bug lives elsewhere,
+and the panel's resolution cannot yet say whether it does.
+
+**Decision: merged, as graded, both learners (7bb10ea, spur 0587e8c).**
+The absorber learner passes the read fixed at admission with its
+interval clear of one; the regression case passes; throughput 0.996;
+the panel vetoes nothing. The overtaken learner is undecided and is
+merged with the binary rather than cut out, for two reasons written here:
+cutting it would change the split the session measured (the coin third's
+size feeds both learners), and on the merged tree every baseline chunk
+carries all three thirds, so its read against the coin third sharpens
+for free with every future session and can be decided then. The grader's
+advice line printed merge; its one blocker, the co-bit imbalance, is the
+mechanism's output. The epoch ledger takes its row once the fresh baseline
+cache on the merged tree is measured. This is the first merge of the
+switching mechanism the correction asked for: the arms are chosen per
+cell by a learner rewarded by a protocol-free recovery shape, and the
+merged tree carries its own control third.

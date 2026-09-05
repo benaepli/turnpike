@@ -3075,9 +3075,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 55 (judge gain 7, cost 0, rank 1; bit 64; implementing) |
-  parent: per-cell-factored-axis-beta-selector-rarity-reward
+- kind: add | category: feedback | origin: proposer | status: MERGED at
+  iteration 55 undecided (7bb10ea, spur 0587e8c; bit 64 depth>=8 1.043
+  [0.994, 1.094] against the coin third on four chunks, sign right,
+  firing floor missed on a base rate of 0.037; merged with the graded
+  binary and measured on every baseline chunk since) | parent:
+  per-cell-factored-axis-beta-selector-rarity-reward
 - Reward for the filed per-cell selector: r = 1 when a dead-incarnation
   record lands on a receiver that has itself restarted and already heard
   the sender's new incarnation, and the handler writes state. Fresh-first
@@ -3097,8 +3100,10 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 55 (judge gain 5, cost 0, rank 2; bit 32; implementing) |
+- kind: add | category: feedback | origin: proposer | status: MERGED at
+  iteration 55 (7bb10ea, spur 0587e8c; bit 32 depth>=8 1.111 [1.060,
+  1.165] against the coin third on four chunks, depth>=6 1.142, all four
+  alignment gates met, throughput 0.996, regression passed, panel flat) |
   parent: per-cell-factored-axis-beta-selector-rarity-reward
 - Reward: a crash lands on a node whose last fault-crossing delivery
   wrote state, the node recovers, and after its restart it takes a
