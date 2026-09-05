@@ -3590,3 +3590,34 @@ and load error bar wider than the gate, and pooled pairs are the read.
 Firing on the candidate smoke: 19.0 stamps per EARLY run, 0.876 of EARLY
 runs stamped, 76,849 backlog records declined. Eight chunks follow, straight
 through, primary depth>=10, as pre-committed at iteration 51.
+
+**Eight chunks, closed.** EARLY against STOCK on 1,397,400 against
+1,391,764 runs, matched with rushed runs out of the control, no balance
+faults, steps per run 2,267 against 2,266, throughput 1.016: depth>=8 0.971
+[0.937, 1.006], the guard met; depth>=9 0.982 [0.911, 1.059]; depth>=10
+0.978 [0.785, 1.219] on 388 against 395 - the primary is a null and its
+lower edge is nowhere near one. The deep rungs reversed: depth>=11 0.737 on
+74 against 100, depth>=12 0.651 on 49 against 75, depth>=13 0.392 on 13
+against 33. Pooled with iteration 51's four chunks the family reads 0.89,
+0.82 and 0.59 on 11, 12 and 13. The lean that paid for this re-test was
+noise on forty events, which is what the rule that stopped iteration 51 at
+four chunks exists to say, and the re-test was worth its price because the
+alternative was to carry an unresolved lean as a suspicion.
+
+The recovering-receiver family closes on a fair reading: promoting the
+outage backlog costs a quarter of depth 8 (iteration 50); promoting what
+was sent to a restarted node since it came back does nothing at depth 10
+and leans against the deepest rungs; the census on the first build cost 11
+percent per step and the stripped build cost nothing. The kept
+inbound-admission entry's LATE direction would be the mirror, but a mirror
+of 0.74 at depth 11 is 1.36, and eight chunks resolve 1.6 there, so it is
+not decidable at this power and is not scheduled.
+
+**What three rounds on one family measured about the loop itself.** The
+VR-decisive rungs are 8, 9 and 10. The obvious axes on 9 to 10 (request
+timing) and 10 to 11 (recovery completion) have now each had their both
+directions tried. Depths 11 to 13 carry about 100, 70 and 30 events per 2.3M
+runs; no arm of any plausible size can be decided there at eight chunks,
+and the panel decides nothing under 1.3x. The binding constraint on
+VR-decisive rounds is no longer ideas; it is the supply of deep-rung
+events per explore-second. That is the directive for iteration 53.

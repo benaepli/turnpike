@@ -2838,8 +2838,14 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 - kind: add | category: scheduler | origin: operator-agent (derived in-round
   from the cut's reading; the judge named this design in advance as "the
-  most informative single design") | status: RE-TEST GRADING at iteration
-  52 (session recover-fresh2, eight chunks straight through, primary
+  most informative single design") | status: CLOSED at iteration 52 on the
+  pre-committed eight-chunk re-test: depth>=10 0.978 [0.785, 1.219] on 388
+  against 395, guard 0.971 met, depth>=11 0.737, depth>=12 0.651, depth>=13
+  0.392 (74/100, 49/75, 13/33) - the iteration-51 deep lean reversed on 2.3x
+  the sample. Stripped binary cost nothing per step (0.9975 pooled). The
+  recovering-receiver family is closed both ways; the LATE mirror is not
+  decidable at this power and is not scheduled. Was: RE-TEST GRADING at
+  iteration 52 (session recover-fresh2, eight chunks straight through, primary
   depth>=10 lower edge > 1.00 at z 2.7, guard depth>=8 [0.96, 1.12], panel
   veto only, no extension; stripped binary's wall per step 0.985 on the
   designated pair and 0.9975 pooled over twelve, firing 19.0 stamps per
