@@ -2119,10 +2119,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   (floor 100,000) and 0.180 of the holds on its quarter (floor 0.5); the
   arm-blind census puts the restarted node's third acted entry inside the
   64-step window on 0.166 of all holds, mean acted count at release 3.32.
-  Graded as the 128-step dose it degenerates to, it read depth>=8 0.984
-  [0.930, 1.041], depth>=10 0.741 [0.519, 1.059], depth>=11 0.371 [0.209,
-  0.659] at z 1.96 - the longer hold is not better on the deep rungs, which
-  also revises iteration 37's 1.21 [1.00, 1.46] downward. Finding: acted
+  Graded as the 128-step dose it degenerates to, eight chunks read depth>=8
+  0.982 [0.943, 1.022], depth>=10 0.743 [0.573, 0.964] SEPARATED DOWN,
+  depth>=11 0.533 [0.312, 0.911] at z 2.7 - the longer hold costs a quarter
+  of depth 10 and half of depth 11, which reverses iteration 37's 1.21
+  [1.00, 1.46]. Finding: acted
   handler entries since restart is the right kind of clock but N = 3 is
   slower than the hold's window four times in five on this tree; any
   successor must pick N from the census (N = 1, "the restarted node has
@@ -2477,9 +2478,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## fresh-first-ablate-never-restarted-destination
 
 - kind: ablate | category: scheduler | origin: proposer | status:
-  ADMITTED at iteration 47 as the session's secondary under an independent
-  salt (judge gain 6, cost 0, rank 1 of four; read from the per-bit survey,
-  recorded as undecided and not extended if it does not resolve) | parent:
+  CONFIRMED on VR at iteration 47, eight chunks: depth>=8 1.024, z 2.7
+  [0.990, 1.059], inside the frozen confirming band; 162,042 suppressions
+  per chunk, 48 percent of fresh-first's firing. Narrowing pending only the
+  panel sign check (raft-stale-vote must not read DOWN over three seeds) |
+  previously ADMITTED at iteration 47 as the session's secondary under an
+  independent salt (judge gain 6, cost 0, rank 1 of four) | parent:
   fresh-first-same-pair-dispatch-tiebreak (merged)
 - Mechanism: on a salted half of the freshFirstPair-treated runs, skip the
   fresh-first swap when the destination has never restarted in the run -

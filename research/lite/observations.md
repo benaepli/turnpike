@@ -3036,3 +3036,29 @@ A note for the tools: the exported utilization is a flat map with dotted
 string keys, not a nested object. pool_cells.py does not read it, but any
 counter script must index `counters["client_anchor.held"]`, not
 `counters["client_anchor"]["held"]`.
+
+**Eight chunks, pooled.** The primary is closed twice over. Its
+applicability floor was missed (0.180 of holds released by the clock against
+0.5), and graded as the 128-step hold it degenerates to, it reads depth>=8
+0.982 [0.943, 1.022], depth>=9 0.926, **depth>=10 0.743 [0.573, 0.964]
+separated down**, depth>=11 0.533 [0.312, 0.911] at z 2.7, on 913,626
+against 912,084 runs. Iteration 37 read 128 against 64 at 1.21 [1.00,
+1.46] on a different tree; this read, matched within the hold half with the
+rush arm excluded, says a longer hold costs a quarter of depth 10 and half
+of depth 11. The 64-step hold sits near a sweet spot, and the hold itself
+reads 3.30x [2.42, 4.51] on depth>=10 and 2.55x on depth>=11 against pure
+stock on this tree.
+
+The secondary confirms at the loop's own z. The dest-cut reads depth>=8
+1.024, z 1.96 [0.999, 1.049], **z 2.7 [0.990, 1.059]** - inside the frozen
+confirming band [0.95, 1.06] with no letter gap left - on 913,141 against
+916,145 runs; depth>=9 1.067 [0.986, 1.154], depth>=10 1.013, depth>=11
+1.338 [0.673, 2.660]. The class of fresh-first contests at destinations
+that never restarted carries none of the rule's value and is 48 percent of
+its firing. Per the frozen rule the merged rule is narrowed to
+restarted-destination contests, subject to the panel sign check
+(raft-stale-vote must not read DOWN) now running.
+
+Fresh-first over the coin on this tree, eight chunks: 1.240 [1.209, 1.271]
+on depth>=8, 1.41 on 9, 1.48 on 10. Candidate throughput 0.974 of the
+paired baseline with both arms in it; the narrowing alone removes work.
