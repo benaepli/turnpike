@@ -1,0 +1,20 @@
+[
+  {
+    "run_id": 61138,
+    "arm": "grid-short",
+    "arm_index": 1,
+    "config_index": 50,
+    "steps_used": 714,
+    "wall_us": 5809,
+    "end_reason": "plan_complete",
+    "session_offset_ms": 32037,
+    "timers_fired": 40,
+    "timers_acted": 23,
+    "timers_inflight_fired": 40,
+    "timers_inflight_acted": 23,
+    "timers_idle_fired": 0,
+    "timers_idle_acted": 0,
+    "max_inert_streak": 4,
+    "variant": 3162153
+  }
+]

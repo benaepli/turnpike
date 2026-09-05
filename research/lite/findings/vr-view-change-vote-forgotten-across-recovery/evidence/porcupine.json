@@ -1,0 +1,18 @@
+{
+  "total_runs": 577680,
+  "ok": 577679,
+  "violations": 1,
+  "unknown": 0,
+  "skipped_ops": 0,
+  "violating_run_ids": [
+    61138
+  ],
+  "wall_ms": 34914,
+  "violation_signatures": [
+    {
+      "run_id": 61138,
+      "ordinal": 61139,
+      "signature": "ea076ff71851ec53"
+    }
+  ]
+}
