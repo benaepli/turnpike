@@ -2991,3 +2991,48 @@ than the chain's labels 7 through 9 suggested. The session runs anyway,
 because the dest-cut secondary and the depth-10 funnel census need it, and
 because a 128-step read against 64 on depth>=10 is itself the length
 question iteration 37 left at 1.21 [1.00, 1.46].
+
+
+**Four chunks, interim, written before chunks 5-8 and the panel.** The
+primary is confirmed inapplicable at N = 3: the clock released
+68039 holds per chunk against a floor of 100,000, and
+0.180 of the holds on its quarter against a floor of 0.5. The
+restarted node's third acted entry lands inside the 64-step window on
+0.166 of all holds; the mean acted count at release is 3.32.
+What was graded is therefore mostly a 128-step hold against a 64-step one,
+and on that footing it reads depth>=8 0.984 [0.930, 1.041], depth>=9 0.932,
+depth>=10 0.741 [0.519, 1.059], depth>=11 0.371 [0.209, 0.659] at z 1.96:
+the longer hold is not better on the deep rungs and is probably worse,
+against iteration 37's 1.21 [1.00, 1.46]. N = 3 is the wrong clock for this
+window; the census says why in one number.
+
+The secondary is the round's result. The dest-cut reads depth>=8 1.029
+[0.995, 1.064] at z 1.96, about [0.983, 1.077] at the loop's z 2.7, with
+162042 suppressions per chunk against a floor of 50,000 and
+177318 swaps still taken. The answerable range was [0.89, 1.00];
+a lower edge of 0.983 excludes both 0.89 and 0.95. The class of contests at
+never-restarted destinations carries none of fresh-first's value, and
+depth>=9 leans up (1.087 [1.004, 1.177] at z 1.96). The observable reads as
+predicted, by inference: on the fresh half, ghosts at restarted destinations
+are overtaken 1.000 of the time and ghosts at never-restarted
+destinations 0.832 pooled over the cut and full quarters, which puts
+the cut quarter near 0.7 against a full quarter near 1.0 (the export splits
+by destination, not by the cut bit, so the per-quarter figure is inferred).
+Chunks 5-8 are bought to honor the pre-committed sample, not to change the
+answer: stopping early on a favorable read is the mirror of extending until
+one appears. The frozen rule's letter has a gap here - lower edge clear of
+0.95 but upper edge above 1.06 - which is recorded rather than read as
+either confirmation or refusal; the intent, separating "carries none" from
+"carries most", is met.
+
+Two survey readings, now on matched controls, correct earlier numbers.
+Fresh-first over the coin reads 1.234 [1.203, 1.265] on depth>=8, 1.40 on
+9 and 1.48 on 10 on the current tree: its value has grown with the merges
+around it and grows with depth, so both "a factor of four" and "1.12" are
+stale. The hold against pure stock, with the rush arm correctly excluded
+from the control, reads 3.1x [2.3, 4.2] on depth>=10 and 2.3x on depth>=11.
+
+A note for the tools: the exported utilization is a flat map with dotted
+string keys, not a nested object. pool_cells.py does not read it, but any
+counter script must index `counters["client_anchor.held"]`, not
+`counters["client_anchor"]["held"]`.
