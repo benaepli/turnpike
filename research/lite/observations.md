@@ -4488,3 +4488,11 @@ sequential-1000-1788640468601 and is being classified while the chunks
 run; on the nonce-fixed spec the corpus has no known background rate, so
 the classification decides whether this is the target, a second spec
 bug, or something else.
+
+**Two chunks pooled.** Coin quarter 231,140 grid runs. C (cycle-before-
+request, bit 128): depth>=8 1.093 [1.010, 1.181] on 3,203 against 2,933,
+depth>=10 1.51 on 62 against 41, steps 1.003. B: depth>=8 1.109 [1.026,
+1.199], depth>=10 1.71 on 70 against 41. A: depth>=8 1.081 [0.999,
+1.169], depth>=10 1.42 on 58 against 41. All three learner quarters lean
+up at depth 10 against the coin quarter, on counts that decide nothing
+yet. Chunk 2 (seed 1001) 602,220 runs at 2,006 per second, no violation.
