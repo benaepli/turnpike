@@ -3137,3 +3137,53 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
 - The disjunction of the two shape rewards on one bit; the one-bit
   fallback if both components pass and a single learner is wanted.
+
+## per-cell-selector-mutual-absorber-cycle-reward
+
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 56 (judge gain 7, cost 0, rank 1; bit 128 armSelectorAxisC at
+  quarters; implementing) | parent:
+  per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
+- Reward: two nodes each crashed as an acted absorber, restarted, and
+  heard each other's current incarnation after restart. Sharper than the
+  merged absorber reward on its own axes: predicted retarget on/off at or
+  above 3.0, stock/placed at or below 0.15, phase/placed at or above 1.5,
+  fresh at or above 1.1, pair at or above 1.2; base rate 0.015 to 0.03,
+  inapplicable below 0.010. Needs three crashes, so rewards per cell are
+  thin.
+- Frozen prediction (judge's version): depth>=8 per run, the bit-128
+  quarter against the coin quarter, z 2.7 with overdispersion 1.3, band
+  [1.10, 1.25], pass with the point inside and the lower edge above 1.00;
+  chunk-1 gates on the coin quarter: base at or above 0.010, firing
+  reward_positive_control at or above 1,800 per chunk, chosen_runs at or
+  above 100,000, retarget at or above 2.25, stock/placed at or below 0.3,
+  phase/placed at or above 1.2, pair at or above 1.0, hold/stock and
+  rush/stock in [0.85, 1.15]; depth>=10 a reported lean; steps within
+  1.05; throughput at or above 0.97. Four chunks.
+
+## per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 56 as a coin-quarter table without a bit (judge gain 4, cost
+  0, rank 2; non-circular, the request-entry fact already carried by the
+  records; its depth-8 read would be the merged absorber reward's and its
+  depth-10 claim was overstated by the marginal arithmetic) | parent:
+  per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
+- Reward: the absorber cycle closed before the first post-fault client
+  request's record entered a server. The table read this session decides
+  whether it reads the hold up without rush up, at what base rate.
+
+## per-cell-selector-restarted-node-ghost-and-fresh-peer-before-request-caused-entry-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 56 as a coin-quarter table if cheap (judge gain 3, cost 0,
+  rank 3; same mechanism as the entry above, optimistic base rate) |
+  parent: per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
+
+## per-cell-selector-fanout-window-before-first-post-fault-request-entry-reward
+
+- kind: add | category: feedback | origin: proposer | status: REJECTED at
+  iteration 56 (judge gain 2: circular - fan-out windows open at the same
+  rate on both halves and the ordering clause is the hold's own action,
+  already told by the release counters; one false claim) | parent:
+  post-fault-request-timing-axis

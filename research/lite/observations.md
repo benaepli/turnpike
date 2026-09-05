@@ -4378,3 +4378,31 @@ depth>=10 134 and 101 against 111 and 116, no violations. Ledger row
 appended: ratio 0.996, cumulative 0.922, measured 2,040 runs per second.
 Every later session's baseline chunks carry the coin third and both
 learner thirds, so the undecided bit-64 read accumulates from here.
+
+**Judged.** The mutual absorber cycle leads at gain 7, cost 0, and is the
+session pick on bit 128 at quarters: every checkable claim held (the
+retarget moves every released planned crash to the last acted absorber,
+so under retarget both crashes land on absorbers; the origin's
+crashed_as_acted_absorber and fresh_peer_at_absorber are readable at the
+entry site; the merged absorber reward's table is quoted correctly), and
+its depth-8 arithmetic at its predicted shares gives about 1.19. Its
+thinness is named: the shape needs three crashes, impossible on the two
+thirds of runs with four or fewer fault events, so rewards per cell are
+7 to 15 per window against the merged reward's 42, and the base rate is
+bounded, not computed. The three hold-readers share one false claim: the
+depth-10 marginals (hold 4.3, rush 0.27) solve to per-direction rates of
+hold 3.82, rush 0.78, stock 1.00, so the predicted share moves yield 1.10
+to 1.22 at depth 10, not the 1.4 to 1.8 claimed, and the whole request
+axis caps at 1.62 there. At quarters, depth>=10 gives about 100 events per
+side over four chunks, and nothing below a point of 1.65 separates: every
+depth-10 clause is rewritten as a reported lean. The cycle-closed-before-
+request reward is non-circular (the cycle must close inside the window
+the hold opens, and the request-entry fact is already carried by the
+records' causal operation id, no exec.rs edit) and rides as a coin-quarter
+table without a bit, with the restarted-node exchange beside it if cheap;
+the fan-out-window reward is rejected as circular - windows open at the
+same rate on both halves and the ordering clause is the hold's own action.
+Quarters, not fifths: the hold-readers are not decidable on a bit this
+session and fifths would cost the merged learners 29 percent more error
+for no decision; bit 64 stays, since cutting it changes the measured
+split. Implementing.
