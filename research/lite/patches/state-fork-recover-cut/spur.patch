@@ -1,0 +1,2151 @@
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index bb3668a..f995d43 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -20,14 +20,18 @@ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::explorer::{
+     AosExplorer, CurriculumExplorer, CurriculumRnrExplorer, EXPLORER_CONFIG_KEYS, ExploreSummary,
+     ExplorerConfig, RunAttribution, SessionSummary, SingleRunConfig, StepCtx, StepReport, Strategy,
+-    check_top_level_keys, dispatch_feedback, run_single_simulation,
++    check_top_level_keys, dispatch_feedback, run_continuation, run_single_simulation,
+ };
+ use crate::simulator::feedback::{
+     CfgFeedback, CoverageConfig, Feedback, FeedbackMode, FullFeedback, NoFeedback, TimelineFeedback,
+ };
++use crate::simulator::hash_utils::NoHashing;
+ use crate::simulator::history::{HistoryWriter, LogBackend, create_writer};
++use crate::simulator::path::ForkPoint;
+ use crate::simulator::replay_corpus::{self, Corpus, Seed};
+-use crate::simulator::rng::{LiveRng, RecordRng, ReplayRng, SCHEDULE_SALT, WORKLOAD_SALT, derive_seed};
++use crate::simulator::rng::{
++    LiveRng, RecordRng, ReplayRng, SCHEDULE_SALT, StreamSet, WORKLOAD_SALT, derive_seed,
++};
+ use crate::simulator::run_variant;
+ use crate::simulator::util_stats;
+ use log::{error, info};
+@@ -374,9 +378,11 @@ impl<F: Feedback> Arm for StrategyArm<F> {
+ ///
+ /// Every fresh run records its scheduling draws. A fresh run that fires the
+ /// fault-crossing signal enters the arm's replay corpus with its draws cut
+-/// at the signal, and a run whose id is a replay slot becomes a child of the
+-/// next parent in turn when the corpus holds one. Only fresh runs advance
+-/// the grid cursor, so children do not thin the grid's coverage.
++/// at the signal and its state snapshotted at the planned recover of the
++/// node whose queued crash armed the signal, and a run whose id is a
++/// replay slot becomes a child of the next parent in turn when the corpus
++/// holds one. Only fresh runs advance the grid cursor, so children do not
++/// thin the grid's coverage.
+ pub(crate) struct GridArm<F: Feedback> {
+     config: ExplorerConfig,
+     configs: Vec<SingleRunConfig>,
+@@ -390,7 +396,17 @@ pub(crate) struct GridArm<F: Feedback> {
+ /// What one run of a grid-arm batch is.
+ enum GridRun {
+     Fresh { config_index: usize },
+-    Child { seed: Seed<SingleRunConfig>, prefix: bool },
++    Child { seed: Seed<SingleRunConfig>, kind: ChildKind },
++}
++
++/// How a child takes after its parent: replaying the parent's draws to the
++/// signal, taking only its plan, or continuing from the parent's snapshot
++/// at the signal.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum ChildKind {
++    Tape,
++    PlanOnly,
++    StateFork,
+ }
+ 
+ /// What a grid-arm run hands back: its score, and the corpus entry it earned
+@@ -427,7 +443,13 @@ impl<F: Feedback> GridArm<F> {
+         match self.corpus.next_child() {
+             Some(seed) => GridRun::Child {
+                 seed,
+-                prefix: replay_corpus::is_prefix(run_id),
++                kind: if replay_corpus::is_state_fork(run_id) {
++                    ChildKind::StateFork
++                } else if replay_corpus::is_prefix(run_id) {
++                    ChildKind::Tape
++                } else {
++                    ChildKind::PlanOnly
++                },
+             },
+             None => {
+                 util_stats::record_replay_slot_unfilled();
+@@ -454,6 +476,7 @@ impl<F: Feedback> GridArm<F> {
+                     workload_seed,
+                     schedule_seed,
+                     None,
++                    true,
+                     &ctx.attribution
+                         .with_config(config_index)
+                         .with_variant_bits(bits),
+@@ -462,6 +485,10 @@ impl<F: Feedback> GridArm<F> {
+                     Ok(r) => {
+                         let tape = r.recording.unwrap_or_default();
+                         util_stats::record_replay_tape_words(tape.len() as u64);
++                        let fork = r.fork;
++                        if fork.is_none() && r.cut.is_some_and(|c| c.tape_pos.is_some()) {
++                            util_stats::record_state_fork_no_cut_parent();
++                        }
+                         let admit = r.cut.and_then(|cut| {
+                             cut.tape_pos.map(|pos| Seed {
+                                 tape: tape[..pos.min(tape.len())].into(),
+@@ -469,6 +496,7 @@ impl<F: Feedback> GridArm<F> {
+                                 cfg: self.configs[config_index].clone(),
+                                 config_index,
+                                 cut_step: cut.step,
++                                fork,
+                             })
+                         });
+                         GridOutcome {
+@@ -485,12 +513,42 @@ impl<F: Feedback> GridArm<F> {
+                     }
+                 }
+             }
+-            GridRun::Child { seed, prefix } => {
++            GridRun::Child { seed, kind } => {
+                 let attribution = ctx
+                     .attribution
+                     .with_config(seed.config_index)
+                     .with_variant_bits(bits);
+-                let result = if *prefix {
++                // A state-fork slot whose parent took no snapshot runs the
++                // tape child in its place and is counted as a fallback.
++                let fork = match kind {
++                    ChildKind::StateFork => {
++                        util_stats::record_state_fork_slot();
++                        let point = seed.fork.as_deref().and_then(|f| {
++                            f.downcast_ref::<ForkPoint<NoHashing, F>>()
++                        });
++                        if point.is_none() {
++                            util_stats::record_state_fork_fallback_tape();
++                        }
++                        point
++                    }
++                    _ => None,
++                };
++                let prefix = *kind != ChildKind::PlanOnly;
++                let result = if let Some(point) = fork {
++                    run_continuation::<F>(
++                        ctx.program,
++                        ctx.writer,
++                        &self.global_state,
++                        run_id,
++                        point,
++                        &seed.cfg,
++                        weights,
++                        seed.workload_seed,
++                        schedule_seed,
++                        StreamSet::new(schedule_seed, seed.cfg.rng_stream_isolation),
++                        &attribution,
++                    )
++                } else if prefix {
+                     run_single_simulation::<F, ReplayRng>(
+                         ctx.program,
+                         ctx.writer,
+@@ -501,6 +559,7 @@ impl<F: Feedback> GridArm<F> {
+                         seed.workload_seed,
+                         schedule_seed,
+                         Some(seed.tape.clone()),
++                        false,
+                         &attribution,
+                     )
+                 } else {
+@@ -514,13 +573,17 @@ impl<F: Feedback> GridArm<F> {
+                         seed.workload_seed,
+                         schedule_seed,
+                         None,
++                        false,
+                         &attribution,
+                     )
+                 };
+                 match result {
+                     Ok(r) => {
+-                        let faithful = *prefix && r.cut.is_some_and(|c| c.step == seed.cut_step);
+-                        util_stats::record_replay_child(*prefix, r.cut.is_some(), faithful);
++                        if fork.is_none() {
++                            let faithful =
++                                prefix && r.cut.is_some_and(|c| c.step == seed.cut_step);
++                            util_stats::record_replay_child(prefix, r.cut.is_some(), faithful);
++                        }
+                         GridOutcome {
+                             score: Some(r.score),
+                             admit: None,
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index 430dec9..201d3f8 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -1146,6 +1146,11 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     ledger.in_flight > 0,
+                 );
+             }
++            // The recover the fork waits for follows the crash to the node
++            // it lands on.
++            if state.replay_cut_node == Some(node_id.index) {
++                state.replay_cut_node = Some(victim.index);
++            }
+             crash_node(state, victim);
+             Ok(ScheduleResult::Crash {
+                 node_id: victim,
+@@ -1362,6 +1367,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             step: entry_step,
+                             tape_pos: rng.position(),
+                         });
++                        state.replay_cut_node = Some(record_dest.index);
+                         util_stats::record_ghost_signal_run();
+                     }
+                     let probe = (util_stats::acted_fraction_enabled() && message_entry).then(|| {
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 96f4e9e..4e051ba 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -639,6 +639,12 @@ pub struct State<H: HashPolicy> {
+     /// number of scheduling draws taken by then when the run records its
+     /// draws. Observation only, excluded from `signature()`.
+     pub replay_cut: Option<ReplayCut>,
++    /// The node whose planned recover ends a fork child's prefix: the node
++    /// the signal's delivery entered, whose queued crash armed the signal,
++    /// moved to the node that crash lands on when the crash is retargeted.
++    /// Set when the signal fires. Fork bookkeeping, excluded from
++    /// `signature()`.
++    pub replay_cut_node: Option<usize>,
+     /// Remote records in the network queue whose origin has restarted since
+     /// sending them: the sum over nodes of `net_records - net_fresh`.
+     pub net_stale_records: u32,
+@@ -782,6 +788,7 @@ impl<H: HashPolicy> State<H> {
+             pair_order: pair_order::RunState::default(),
+             client_anchor: client_anchor::RunState::default(),
+             replay_cut: None,
++            replay_cut_node: None,
+             net_stale_records: 0,
+             net_requests: 0,
+         }
+diff --git a/spur-core/src/simulator/coverage.rs b/spur-core/src/simulator/coverage.rs
+index d9f1bc6..9d8e44a 100644
+--- a/spur-core/src/simulator/coverage.rs
++++ b/spur-core/src/simulator/coverage.rs
+@@ -137,6 +137,32 @@ impl LocalCoverage {
+         *count == 1
+     }
+ 
++    /// The counts this accumulator holds past `base`, the accumulator it
++    /// was cloned from. The novelty score is scaled by the same share, as
++    /// the transitions that earned it are not known individually.
++    pub fn since(&self, base: &LocalCoverage) -> LocalCoverage {
++        let mut out = LocalCoverage::new();
++        for (edge, count) in &self.edges {
++            let extra = count.saturating_sub(base.edges.get(edge).copied().unwrap_or(0));
++            if extra > 0 {
++                out.edges.insert(*edge, extra);
++            }
++        }
++        for (v, count) in &self.vertices {
++            let extra = count.saturating_sub(base.vertices.get(v).copied().unwrap_or(0));
++            if extra > 0 {
++                out.vertices.insert(*v, extra);
++            }
++        }
++        out.total = self.total.saturating_sub(base.total);
++        out.novelty_score = if self.total > 0 {
++            self.novelty_score * out.total as f64 / self.total as f64
++        } else {
++            0.0
++        };
++        out
++    }
++
+     /// Returns the total number of unique edges visited.
+     pub fn unique_edges(&self) -> usize {
+         self.edges.len()
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index b8a651b..531b43a 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -19,8 +19,11 @@ use crate::simulator::history::{
+ };
+ use crate::simulator::path::generator::{GeneratorConfig, generate_plan};
+ use crate::simulator::path::plan::ExecutionPlan;
+-pub use crate::simulator::path::RunOutcome;
+-use crate::simulator::path::{PathState, Topology, TopologyInfo, exec_plan};
++pub use crate::simulator::hash_utils::NoHashing;
++pub use crate::simulator::path::{ForkPoint, RunOutcome};
++use crate::simulator::path::{
++    ExecConfig, PathState, Topology, TopologyInfo, exec_plan, exec_resume,
++};
+ use crate::simulator::rng::{
+     LiveRng, RecRng, RecordRng, Recording, ReplayRng, RngSource, SCHEDULE_SALT, StreamRng,
+     StreamSet, WORKLOAD_SALT, derive_seed, mutate_tape,
+@@ -35,6 +38,7 @@ use rand::prelude::*;
+ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+ use rayon::prelude::ParallelBridge;
+ use serde::{Deserialize, Serialize};
++use std::any::Any;
+ use std::collections::HashMap;
+ use std::collections::HashSet;
+ use std::error::Error;
+@@ -893,14 +897,17 @@ fn init_topology<H: crate::simulator::hash_utils::HashPolicy, L: Logger, F: Feed
+ 
+ /// Outcome of a single run: the genetic fitness, the (optional) self-contained
+ /// schedule recording, the run's timeline-tuple set (for AOS credit), how the
+-/// run ended, and where the once-per-run fault-crossing signal fired, if it
+-/// did.
++/// run ended, where the once-per-run fault-crossing signal fired, if it did,
++/// and the run's snapshot at that point when the run was asked to take one.
++/// The snapshot is a `ForkPoint<NoHashing, F>` behind `Any`, so a result
++/// carries it without naming the feedback strategy.
+ pub struct RunResult {
+     pub score: f64,
+     pub recording: Option<Recording>,
+     pub tuples: HashSet<TimelineTuple>,
+     pub outcome: RunOutcome,
+     pub cut: Option<ReplayCut>,
++    pub fork: Option<Arc<dyn Any + Send + Sync>>,
+ }
+ 
+ /// Which strategy issued a run, for the `runs` table. A single-strategy
+@@ -962,6 +969,10 @@ fn session_elapsed_ms() -> i64 {
+         .as_millis() as i64
+ }
+ 
++/// The row of one run. `variant` is the whole tag: the mechanism bits of
++/// the id whose draws the run followed, whether a crash hold was drawn, and
++/// the bits the issuing strategy joins.
++#[allow(clippy::too_many_arguments)]
+ fn run_row(
+     run_id: i64,
+     attribution: &RunAttribution,
+@@ -971,7 +982,7 @@ fn run_row(
+     max_iterations: i32,
+     wall: std::time::Duration,
+     timers: crate::simulator::core::state::TimerRunStats,
+-    crash_hold_drawn: bool,
++    variant: i32,
+ ) -> crate::simulator::history::PersistableRun {
+     let (steps_used, end_reason) = match outcome {
+         RunOutcome::Completed { steps } => (*steps, "plan_complete"),
+@@ -997,15 +1008,18 @@ fn run_row(
+         timers_idle_fired: timers.idle_fired as i32,
+         timers_idle_acted: timers.idle_acted as i32,
+         max_inert_streak: timers.max_inert_streak as i32,
+-        variant: crate::simulator::run_variant::of(run_id, crash_hold_drawn)
+-            | attribution.variant_bits,
++        variant,
+     }
+ }
+ 
+ /// Runs a single simulation configuration. `S` selects the RNG strategy
+ /// (`LiveRng` for plain explore; `RecordRng`/`ReplayRng` for RnR). Workload and
+ /// schedule seeds are supplied by the caller (derived from `(session_seed,
+-/// run_id)`); `seed_tape` is the recording to replay, if any.
++/// run_id)`); `seed_tape` is the recording to replay, if any. With
++/// `fork_parent` the run snapshots itself at the planned recover of the node
++/// whose queued crash armed the once-per-run signal and hands the snapshot
++/// back for children to continue from.
++#[allow(clippy::too_many_arguments)]
+ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     program: &Program,
+     writer: &Arc<dyn HistoryWriter>,
+@@ -1016,6 +1030,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     workload_seed: u64,
+     schedule_seed: u64,
+     seed_tape: Option<Recording>,
++    fork_parent: bool,
+     attribution: &RunAttribution,
+ ) -> Result<RunResult, Box<dyn Error>> {
+     let started = std::time::Instant::now();
+@@ -1100,6 +1115,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &mut rec,
+     )?;
+ 
++    let mut fork: Option<ForkPoint<crate::simulator::hash_utils::NoHashing, F>> = None;
+     let outcome = exec_plan::<crate::simulator::hash_utils::NoHashing, F>(
+         &mut path_state,
+         program.clone(),
+@@ -1120,6 +1136,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         crate::simulator::fresh_first::is_treated(run_id),
+         crate::simulator::pair_order::is_treated(run_id),
+         crate::simulator::client_anchor::arm(run_id),
++        fork_parent.then_some(&mut fork),
+         &mut rec,
+     )?;
+ 
+@@ -1152,7 +1169,8 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         config.max_iterations,
+         started.elapsed(),
+         path_state.state.timer_stats,
+-        path_state.state.crash_hold_drawn,
++        crate::simulator::run_variant::of(run_id, path_state.state.crash_hold_drawn)
++            | attribution.variant_bits,
+     ));
+ 
+     Ok(RunResult {
+@@ -1161,6 +1179,125 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         tuples,
+         outcome,
+         cut: path_state.state.replay_cut,
++        fork: fork.map(|f| Arc::new(f) as Arc<dyn Any + Send + Sync>),
++    })
++}
++
++/// The mechanism bits a run continued from a fork point carries: those of
++/// the run it forked from, less the probe bits, since a child feeds no
++/// learner and reads the timer learner like a steered run.
++pub fn continuation_variant_bits(parent_run_id: i64) -> i32 {
++    crate::simulator::run_variant::from_run_id(parent_run_id)
++        & !(crate::simulator::run_variant::RUN_CAP_PROBE
++            | crate::simulator::run_variant::TIMER_STEER_OFF)
++}
++
++/// Continue a run from a fork point under the child's id. `streams` are
++/// the generators the child draws from; `schedule_seed` is recorded on the
++/// row as the seed they came from. The child's history is the parent's
++/// prefix followed by the continuation, written whole under `run_id`; its
++/// row carries the steps of both and the wall of the continuation alone.
++#[allow(clippy::too_many_arguments)]
++pub fn run_continuation<F: Feedback>(
++    program: &Program,
++    writer: &Arc<dyn HistoryWriter>,
++    global_state: &GlobalState<F>,
++    run_id: i64,
++    fork: &ForkPoint<crate::simulator::hash_utils::NoHashing, F>,
++    config: &SingleRunConfig,
++    weights: &CoverageConfig,
++    workload_seed: u64,
++    schedule_seed: u64,
++    mut streams: StreamSet,
++    attribution: &RunAttribution,
++) -> Result<RunResult, Box<dyn Error>> {
++    let started = std::time::Instant::now();
++    let snapshot = F::snapshot(&global_state.feedback);
++    let mut path_state = fork.path_state.clone();
++    let mut locals = fork.locals.clone();
++    let prefix_steps = locals.steps();
++    let mut tape = LiveRng::new_tape(None);
++    let mut rec = RecRng::<LiveRng> {
++        tape: &mut tape,
++        inner: &mut streams,
++    };
++    let exec_config = ExecConfig {
++        max_iterations: config.max_iterations,
++        topology: TopologyInfo {
++            topology: Topology::Full,
++            num_servers: config.num_servers,
++        },
++        policy: &config.schedule_policy,
++        strict_timers: false,
++        within_queue: &config.within_queue_selector,
++        terms: &config.steer_terms,
++        purgatory_config: &config.purgatory,
++        partial_fanout_crash_bias: config.partial_fanout_crash_bias,
++    };
++    let outcome = exec_resume::<crate::simulator::hash_utils::NoHashing, F>(
++        &mut path_state,
++        &mut locals,
++        program,
++        run_id,
++        &exec_config,
++        global_state,
++        &snapshot,
++        None,
++        &mut rec,
++    )?;
++
++    if let RunOutcome::Deadlock { step, pending_ops } = &outcome {
++        warn!(
++            "Run {} deadlocked at step {} ({} pending ops)",
++            run_id, step, pending_ops
++        );
++    }
++
++    let plan_score = F::plan_score(&path_state.feedback, &snapshot, weights);
++    let tuples = F::timeline_tuples(&path_state.feedback)
++        .cloned()
++        .unwrap_or_default();
++    F::merge_since(
++        &global_state.feedback,
++        &path_state.feedback,
++        &fork.path_state.feedback,
++    );
++
++    let serialized = serialize_history(&path_state.history);
++    let serialized_logs = serialize_logs(std::mem::take(&mut path_state.logs.entries));
++    let serialized_traces = serialize_traces(std::mem::take(&mut path_state.logs.traces));
++    writer.write(run_id, serialized, serialized_logs, serialized_traces);
++    let row = run_row(
++        run_id,
++        attribution,
++        workload_seed,
++        schedule_seed,
++        &outcome,
++        config.max_iterations,
++        started.elapsed(),
++        path_state.state.timer_stats,
++        continuation_variant_bits(fork.parent_run_id)
++            | if path_state.state.crash_hold_drawn {
++                crate::simulator::run_variant::CRASH_HOLD_DRAWN
++            } else {
++                0
++            }
++            | attribution.variant_bits,
++    );
++    let total_steps = row.steps_used.max(prefix_steps);
++    util_stats::record_state_fork_child(
++        prefix_steps.max(0) as u64,
++        (total_steps - prefix_steps).max(0) as u64,
++    );
++    writer.write_run(row);
++
++    Ok(RunResult {
++        score: plan_score,
++        recording: None,
++        tuples,
++        outcome,
++        cut: path_state.state.replay_cut,
++        fork: None,
+     })
+ }
+ 
+@@ -1295,6 +1432,7 @@ fn run_explorer_impl<F: Feedback>(
+                 derive_seed(config.session_seed, run_id, WORKLOAD_SALT),
+                 derive_seed(config.session_seed, run_id, SCHEDULE_SALT),
+                 None,
++                false,
+                 &attribution.with_config(config_index),
+             ) {
+                 Ok(_) => {
+@@ -1438,6 +1576,7 @@ fn run_single_plan<F: Feedback>(
+         false,
+         false,
+         crate::simulator::client_anchor::Arm::Stock,
++        None,
+         &mut rng,
+     )?;
+ 
+@@ -1464,7 +1603,8 @@ fn run_single_plan<F: Feedback>(
+         max_iterations,
+         started.elapsed(),
+         path_state.state.timer_stats,
+-        path_state.state.crash_hold_drawn,
++        crate::simulator::run_variant::of(run_id, path_state.state.crash_hold_drawn)
++            | attribution.variant_bits,
+     ));
+ 
+     Ok(plan_score)
+@@ -1653,6 +1793,7 @@ fn run_explorer_genetic_impl<F: Feedback>(
+                     derive_seed(config.session_seed, run_id, WORKLOAD_SALT),
+                     derive_seed(config.session_seed, run_id, SCHEDULE_SALT),
+                     None,
++                    false,
+                     &RunAttribution::mode("genetic"),
+                 );
+                 match result {
+@@ -1950,6 +2091,7 @@ fn run_recorded<F: Feedback>(
+         workload_seed,
+         derive_seed(session_seed, run_id, SCHEDULE_SALT),
+         None,
++        false,
+         attribution,
+     );
+     package_child(Operator::ConfigMutate, cfg, workload_seed, run_id, r)
+@@ -1984,6 +2126,7 @@ fn run_aos_child<F: Feedback>(
+                 parent.workload_seed,
+                 derive_seed(session, run_id, SCHEDULE_SALT),
+                 Some(mutated),
++                false,
+                 attribution,
+             );
+             package_child(op, parent.cfg.clone(), parent.workload_seed, run_id, r)
+@@ -2331,6 +2474,7 @@ impl<F: Feedback> Strategy<F> for CurriculumExplorer<F> {
+                     derive_seed(ctx.session_seed, *run_id, WORKLOAD_SALT),
+                     derive_seed(ctx.session_seed, *run_id, SCHEDULE_SALT),
+                     None,
++                    false,
+                     ctx.attribution,
+                 ) {
+                     Ok(r) => r.score,
+diff --git a/spur-core/src/simulator/feedback.rs b/spur-core/src/simulator/feedback.rs
+index aff94c7..d6928ca 100644
+--- a/spur-core/src/simulator/feedback.rs
++++ b/spur-core/src/simulator/feedback.rs
+@@ -261,6 +261,16 @@ impl LocalTimeline {
+         *self.generations.entry(node).or_default() += 1;
+     }
+ 
++    /// The tuples this accumulator holds that `base` does not.
++    pub fn since(&self, base: &LocalTimeline) -> LocalTimeline {
++        LocalTimeline {
++            tuples: self.tuples.difference(&base.tuples).copied().collect(),
++            per_dest_seen: HashMap::new(),
++            granularity: self.granularity,
++            generations: HashMap::new(),
++        }
++    }
++
+     /// Number of this run's tuples not present in the global snapshot.
+     pub fn novel_count(&self, snap: &TimelineSnap) -> usize {
+         self.tuples
+@@ -388,8 +398,10 @@ fn timeline_plan_score(local: &LocalTimeline, snap: &TimelineSnap, w: &CoverageC
+ /// `NoFeedback` strategy collapses to nothing and every call site is uniform
+ /// (no `if enabled` branches anywhere in the hot path).
+ pub trait Feedback: 'static + Send + Sync + std::fmt::Debug {
+-    /// Per-run accumulator, threaded as `&mut`.
+-    type Local: Default + std::fmt::Debug + Send;
++    /// Per-run accumulator, threaded as `&mut`. Clone and Sync so a run
++    /// can be continued from a snapshot of another run's accumulator that a
++    /// shared corpus holds.
++    type Local: Default + Clone + std::fmt::Debug + Send + Sync;
+     /// Shared store living on `GlobalState`.
+     type Global: Default + std::fmt::Debug + Send + Sync;
+     /// Read-only global view, taken once per run.
+@@ -402,6 +414,14 @@ pub trait Feedback: 'static + Send + Sync + std::fmt::Debug {
+     fn snapshot(global: &Self::Global) -> Self::Snapshot;
+     fn merge(global: &Self::Global, local: &Self::Local);
+ 
++    /// Merge only what `local` accumulated past `base`, the accumulator it
++    /// was cloned from, so a run continued from a snapshot does not count
++    /// the snapshot's share again.
++    fn merge_since(global: &Self::Global, local: &Self::Local, base: &Self::Local) {
++        let _ = base;
++        Self::merge(global, local);
++    }
++
+     /// Record a CFG transition `prev -> pc`.
+     #[inline]
+     fn record_transition(
+@@ -487,6 +507,9 @@ impl Feedback for CfgFeedback {
+     fn merge(global: &GlobalCoverage, local: &LocalCoverage) {
+         global.merge(local);
+     }
++    fn merge_since(global: &GlobalCoverage, local: &LocalCoverage, base: &LocalCoverage) {
++        global.merge(&local.since(base));
++    }
+ 
+     #[inline]
+     fn record_transition(local: &mut LocalCoverage, prev: Vertex, pc: Vertex, snap: &VertexMap) {
+@@ -537,6 +560,9 @@ impl<const STEER: bool> Feedback for TimelineFeedback<STEER> {
+     fn merge(global: &GlobalTimeline, local: &LocalTimeline) {
+         global.merge(local);
+     }
++    fn merge_since(global: &GlobalTimeline, local: &LocalTimeline, base: &LocalTimeline) {
++        global.merge(&local.since(base));
++    }
+ 
+     #[inline]
+     fn note_delivery(local: &mut LocalTimeline, dest: NodeId, handler: Vertex) {
+@@ -602,6 +628,10 @@ impl<const STEER: bool> Feedback for FullFeedback<STEER> {
+         global.0.merge(&local.0);
+         global.1.merge(&local.1);
+     }
++    fn merge_since(global: &Self::Global, local: &Self::Local, base: &Self::Local) {
++        global.0.merge(&local.0.since(&base.0));
++        global.1.merge(&local.1.since(&base.1));
++    }
+ 
+     #[inline]
+     fn record_transition(local: &mut Self::Local, prev: Vertex, pc: Vertex, snap: &Self::Snapshot) {
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index b10eefa..1a73ed5 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -2,10 +2,10 @@ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::{Program, Vertex};
+ use crate::simulator::core::steer_terms::ResolvedTerms;
+ use crate::simulator::core::{
+-    Continuation, Env, LogEntry, Logger, NodeId, OpKind, Operation, PurgatoryConfig,
+-    QueuePolicyConfig, Record, Reservation, Runnable, RunnableCategory,
+-    RuntimeError, SchedulePolicy, ScheduleResult, State, TraceEntry, Value, WithinQueueSelector,
+-    make_local_env, schedule_runnable,
++    AnySelector, Continuation, Env, LogEntry, Logger, NodeId, OpKind, Operation,
++    PurgatoryConfig, QueuePolicyConfig, Record, Reservation, Runnable, RunnableCategory,
++    RuntimeError, SchedulePolicy, ScheduleResult, State, TraceEntry, Value,
++    WithinQueueSelector, make_local_env, schedule_runnable,
+ };
+ use crate::simulator::client_anchor::{self, HoldQueue, Released};
+ use crate::simulator::crash_phase;
+@@ -17,7 +17,7 @@ use crate::simulator::path::plan::{
+ };
+ use crate::simulator::fault_timing;
+ use crate::simulator::pair_order as pair_order_split;
+-use crate::simulator::rng::StreamRng;
++use crate::simulator::rng::{StreamRng, StreamSet};
+ use crate::simulator::run_cap;
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats::{self, DeliveryBias, RunEnd, RunExtension, RunTermination};
+@@ -41,7 +41,7 @@ pub struct TopologyInfo {
+ }
+ 
+ /// Newtype wrapper for log and trace entries that implements Logger.
+-#[derive(Debug, Default)]
++#[derive(Clone, Debug, Default)]
+ pub struct Logs {
+     pub entries: Vec<LogEntry>,
+     pub traces: Vec<TraceEntry>,
+@@ -57,7 +57,7 @@ impl Logger for Logs {
+ }
+ 
+ /// A pool that dynamically creates client nodes on demand and recycles them.
+-#[derive(Debug)]
++#[derive(Clone, Debug)]
+ pub struct ClientPool {
+     free_clients: Vec<NodeId>,
+     client_role: NameId,
+@@ -99,6 +99,18 @@ pub struct PathState<H: HashPolicy, F: Feedback> {
+     pub client_pool: ClientPool,
+ }
+ 
++impl<H: HashPolicy, F: Feedback> Clone for PathState<H, F> {
++    fn clone(&self) -> Self {
++        Self {
++            state: self.state.clone(),
++            feedback: self.feedback.clone(),
++            logs: self.logs.clone(),
++            history: self.history.clone(),
++            client_pool: self.client_pool.clone(),
++        }
++    }
++}
++
+ impl<H: HashPolicy, F: Feedback> PathState<H, F> {
+     pub fn new(
+         role_node_counts: &[(NameId, usize)],
+@@ -337,7 +349,7 @@ pub enum RunOutcome {
+ /// queued work the scheduler released none of, and how many had nothing queued
+ /// at all. `tail_without_release` is the run of steps up to the current one
+ /// that released nothing.
+-#[derive(Default)]
++#[derive(Clone, Default)]
+ struct StepCensus {
+     released: u64,
+     blocked: u64,
+@@ -400,6 +412,235 @@ fn record_termination<H: HashPolicy>(
+     });
+ }
+ 
++/// The configuration one plan execution runs under. A run continued from a
++/// fork point runs under the values of the run it forked from.
++pub struct ExecConfig<'a> {
++    pub max_iterations: i32,
++    pub topology: TopologyInfo,
++    pub policy: &'a SchedulePolicy,
++    pub strict_timers: bool,
++    pub within_queue: &'a WithinQueueSelector,
++    pub terms: &'a ResolvedTerms,
++    pub purgatory_config: &'a PurgatoryConfig,
++    pub partial_fanout_crash_bias: f64,
++}
++
++/// The bookkeeping of one plan execution that outlives a scheduling step,
++/// so a fork point can carry it and another run can continue from the step
++/// after the snapshot.
++#[derive(Clone)]
++pub struct ExecLocals {
++    /// The id whose mechanism split every run-id-keyed draw follows. A run
++    /// continued from a fork point keeps the id of the run it forked from,
++    /// so its tag names the mechanisms that acted on every step it ran.
++    draw_run_id: i64,
++    anchored: bool,
++    /// Client requests that became ready after the run's first crash and
++    /// are waiting out their hold, and the last step at which a window
++    /// opened.
++    held: HoldQueue<(NodeIndex, ClientOpSpec)>,
++    last_window_step: Option<i32>,
++    backup: i32,
++    is_probe: bool,
++    effective_cap: i32,
++    timer_ctx_mode: timer_context::RunMode,
++    selector: AnySelector,
++    op_id_counter: i32,
++    in_progress: HashMap<i32, NodeIndex>,
++    /// Plan engine NodeIndex of the queued crash, and of the queued recover,
++    /// per node index. The plan serializes a node's pairs, so each node has
++    /// at most one of each outstanding; a retargeted crash leaves its
++    /// recover keyed on the node the crash landed on, which `victim_remap`
++    /// records from the plan's victim until that recover is issued.
++    pending_crash: HashMap<usize, NodeIndex>,
++    pending_recover: HashMap<usize, NodeIndex>,
++    victim_remap: HashMap<usize, NodeId>,
++    /// Map from (node_index, label) to the plan engine NodeIndex for pending
++    /// AllowTimer events.
++    pending_allow_timer: HashMap<(usize, String), NodeIndex>,
++    pending_partition: Option<NodeIndex>,
++    pending_heal: Option<NodeIndex>,
++    /// Every deliver event of the plan, and which of them are ready
++    /// (unlocked) or completed. `ready_delivers` is a BTreeSet so the
++    /// `.iter().find(...)` match at the deliver site is deterministic across
++    /// runs (required for replay).
++    all_delivers: HashMap<NodeIndex, DeliverSpec>,
++    ready_delivers: BTreeSet<NodeIndex>,
++    completed_delivers: HashSet<NodeIndex>,
++    engine: PlanEngine,
++    /// Nodes observed crashing, and the subset that later recovered.
++    crashed_nodes: HashSet<usize>,
++    recovered_nodes: HashSet<usize>,
++    census: StepCensus,
++    /// Consecutive steps that added nothing to the history.
++    no_progress_count: i32,
++    server_role: NameId,
++    /// The next step to run.
++    step: i32,
++}
++
++impl ExecLocals {
++    /// The steps run so far, which is the prefix a fork child takes from its
++    /// parent.
++    pub fn steps(&self) -> i32 {
++        self.step
++    }
++}
++
++/// A run's state at the step after the planned recover of the node whose
++/// queued crash armed the once-per-run signal, with the generators it would
++/// draw from next. A child continues from a clone of it; the run that took
++/// it continues unchanged.
++pub struct ForkPoint<H: HashPolicy, F: Feedback> {
++    pub path_state: PathState<H, F>,
++    pub locals: ExecLocals,
++    /// The parent's generators at the fork, when its source exposes them; a
++    /// child drawing from a copy of these walks in the parent's steps.
++    pub streams: Option<StreamSet>,
++    /// The id of the run that took the fork point.
++    pub parent_run_id: i64,
++    /// Estimated size of the snapshot: the shallow size of its vectors,
++    /// maps and text, not the heap owned by the values inside them.
++    pub snapshot_bytes: usize,
++}
++
++impl<H: HashPolicy, F: Feedback> ForkPoint<H, F> {
++    fn take(
++        path_state: &PathState<H, F>,
++        locals: &ExecLocals,
++        streams: Option<StreamSet>,
++        parent_run_id: i64,
++    ) -> Self {
++        let path_state = path_state.clone();
++        let mut locals = locals.clone();
++        // A child never feeds a learner: a probe parent's child keeps the
++        // parent's step cap but merges no length, and reads the timer
++        // learner like every steered run.
++        locals.is_probe = false;
++        locals.timer_ctx_mode = timer_context::RunMode::Steered;
++        let snapshot_bytes = snapshot_bytes(&path_state, &locals);
++        Self {
++            path_state,
++            locals,
++            streams,
++            parent_run_id,
++            snapshot_bytes,
++        }
++    }
++}
++
++fn snapshot_bytes<H: HashPolicy, F: Feedback>(
++    path_state: &PathState<H, F>,
++    locals: &ExecLocals,
++) -> usize {
++    use std::mem::size_of;
++    let st = &path_state.state;
++    let queued = st.network_queue.len()
++        + st.timer_queue.len()
++        + st.purgatory.len()
++        + st.local_queues.iter().map(Vec::len).sum::<usize>();
++    size_of::<PathState<H, F>>()
++        + size_of::<ExecLocals>()
++        + path_state.history.len() * size_of::<Operation<H>>()
++        + path_state.logs.entries.len() * size_of::<LogEntry>()
++        + path_state
++            .logs
++            .entries
++            .iter()
++            .map(|e| e.content.len())
++            .sum::<usize>()
++        + path_state.logs.traces.len() * size_of::<TraceEntry>()
++        + path_state
++            .logs
++            .traces
++            .iter()
++            .map(|t| t.payload.len())
++            .sum::<usize>()
++        + st.nodes.len() * size_of::<Env<H>>()
++        + st.nodes.iter().map(|n| n.slots.len()).sum::<usize>() * size_of::<Value<H>>()
++        + queued * size_of::<Runnable<H>>()
++        + locals.all_delivers.len() * size_of::<DeliverSpec>()
++}
++
++/// Build the bookkeeping of a plan execution and set the run's mechanism
++/// flags on the state. The run has taken no step yet.
++#[allow(clippy::too_many_arguments)]
++fn exec_start<H: HashPolicy, F: Feedback>(
++    path_state: &mut PathState<H, F>,
++    program: &Program,
++    plan: ExecutionPlan,
++    max_iterations: i32,
++    run_id: i64,
++    queue_policy: &QueuePolicyConfig,
++    retarget_crashes: bool,
++    fresh_first: bool,
++    pair_order: bool,
++    client_anchor: client_anchor::Arm,
++) -> Result<ExecLocals, RuntimeError> {
++    path_state.state.retarget.enabled = retarget_crashes;
++    path_state.state.fresh_first.enabled = fresh_first;
++    path_state.state.pair_order.enabled = pair_order;
++    path_state.state.client_anchor.arm = client_anchor;
++    let anchored = path_state.state.client_anchor.holds();
++    path_state.state.pair_order.census =
++        util_stats::enabled() && pair_order_split::is_census_run(run_id);
++    let backup = max_iterations;
++    let is_probe = run_cap::is_probe(run_id);
++    let effective_cap = if is_probe {
++        backup
++    } else {
++        run_cap::effective_cap(backup)
++    };
++
++    // Collect all deliver events from the plan DAG before PlanEngine::new
++    // consumes it.
++    let all_delivers: HashMap<NodeIndex, DeliverSpec> = plan
++        .node_indices()
++        .filter_map(|idx| match &plan[idx].action {
++            EventAction::Deliver(spec) => Some((idx, spec.clone())),
++            _ => None,
++        })
++        .collect();
++
++    let server_role = program
++        .roles
++        .iter()
++        .find(|(_, name)| name == "Node")
++        .map(|(id, _)| *id)
++        .ok_or_else(|| RuntimeError::RoleNotFound("Node".to_string()))?;
++
++    Ok(ExecLocals {
++        draw_run_id: run_id,
++        anchored,
++        held: HoldQueue::default(),
++        last_window_step: None,
++        backup,
++        is_probe,
++        effective_cap,
++        timer_ctx_mode: timer_context::run_mode(run_id),
++        selector: queue_policy.to_selector(),
++        op_id_counter: 0,
++        in_progress: HashMap::new(),
++        pending_crash: HashMap::new(),
++        pending_recover: HashMap::new(),
++        victim_remap: HashMap::new(),
++        pending_allow_timer: HashMap::new(),
++        pending_partition: None,
++        pending_heal: None,
++        all_delivers,
++        ready_delivers: BTreeSet::new(),
++        completed_delivers: HashSet::new(),
++        engine: PlanEngine::new(plan),
++        crashed_nodes: HashSet::new(),
++        recovered_nodes: HashSet::new(),
++        census: StepCensus::default(),
++        no_progress_count: 0,
++        server_role,
++        step: 0,
++    })
++}
++
++#[allow(clippy::too_many_arguments)]
+ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     path_state: &mut PathState<H, F>,
+     program: Program,
+@@ -420,47 +661,77 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     fresh_first: bool,
+     pair_order: bool,
+     client_anchor: client_anchor::Arm,
++    fork: Option<&mut Option<ForkPoint<H, F>>>,
++    rng: &mut impl StreamRng,
++) -> Result<RunOutcome, RuntimeError> {
++    let mut locals = exec_start(
++        path_state,
++        &program,
++        plan,
++        max_iterations,
++        run_id,
++        queue_policy,
++        retarget_crashes,
++        fresh_first,
++        pair_order,
++        client_anchor,
++    )?;
++    let config = ExecConfig {
++        max_iterations,
++        topology,
++        policy,
++        strict_timers,
++        within_queue,
++        terms,
++        purgatory_config,
++        partial_fanout_crash_bias,
++    };
++    exec_resume(
++        path_state,
++        &mut locals,
++        &program,
++        run_id,
++        &config,
++        global_state,
++        snapshot,
++        fork,
++        rng,
++    )
++}
++
++/// Run a plan execution from the step its bookkeeping stands on to its
++/// end. `run_id` names the run for its rows and messages; the draws keyed
++/// on a run id follow `locals` instead. When `fork` holds an empty slot,
++/// the slot receives a snapshot of the run at the end of the step in which
++/// the node whose queued crash armed the once-per-run signal applies its
++/// planned recover; a run that ends before that step takes no snapshot.
++#[allow(clippy::too_many_arguments)]
++pub fn exec_resume<H: HashPolicy, F: Feedback>(
++    path_state: &mut PathState<H, F>,
++    locals: &mut ExecLocals,
++    program: &Program,
++    run_id: i64,
++    config: &ExecConfig<'_>,
++    global_state: &GlobalState<F>,
++    snapshot: &F::Snapshot,
++    mut fork: Option<&mut Option<ForkPoint<H, F>>>,
+     rng: &mut impl StreamRng,
+ ) -> Result<RunOutcome, RuntimeError> {
+     util_stats::begin_run();
+-    path_state.state.retarget.enabled = retarget_crashes;
+-    path_state.state.fresh_first.enabled = fresh_first;
+-    path_state.state.pair_order.enabled = pair_order;
+-    path_state.state.client_anchor.arm = client_anchor;
+-    util_stats::record_client_anchor_arm_run(client_anchor);
+-    let anchored = path_state.state.client_anchor.holds();
+-    // Client requests that became ready after the run's first crash and are
+-    // waiting out their hold, and the last step at which a window opened.
+-    let mut held: HoldQueue<(NodeIndex, ClientOpSpec)> = HoldQueue::default();
+-    let mut last_window_step: Option<i32> = None;
+-    let census = util_stats::enabled() && pair_order_split::is_census_run(run_id);
+-    path_state.state.pair_order.census = census;
+-    if census {
+-        util_stats::record_pair_order_census_run(pair_order);
++    util_stats::record_client_anchor_arm_run(path_state.state.client_anchor.arm);
++    if path_state.state.pair_order.census {
++        util_stats::record_pair_order_census_run(path_state.state.pair_order.enabled);
+     }
+-    let backup = max_iterations;
+-    let is_probe = run_cap::is_probe(run_id);
+-    let effective_cap = if is_probe {
+-        backup
+-    } else {
+-        run_cap::effective_cap(backup)
+-    };
+-    let timer_ctx_mode = timer_context::run_mode(run_id);
+-    let mut selector = queue_policy.to_selector();
+-    let mut op_id_counter = 0i32;
+-    let mut in_progress: HashMap<i32, NodeIndex> = HashMap::new();
+-    // Plan engine NodeIndex of the queued crash, and of the queued recover,
+-    // per node index. The plan serializes a node's pairs, so each node has at
+-    // most one of each outstanding; a retargeted crash leaves its recover
+-    // keyed on the node the crash landed on, which `victim_remap` records
+-    // from the plan's victim until that recover is issued.
+-    let mut pending_crash: HashMap<usize, NodeIndex> = HashMap::new();
+-    let mut pending_recover: HashMap<usize, NodeIndex> = HashMap::new();
+-    let mut victim_remap: HashMap<usize, NodeId> = HashMap::new();
+-    // Map from (node_index, label) to the plan engine NodeIndex for pending AllowTimer events
+-    let mut pending_allow_timer: HashMap<(usize, String), NodeIndex> = HashMap::new();
+-    let mut pending_partition: Option<NodeIndex> = None;
+-    let mut pending_heal: Option<NodeIndex> = None;
++    let max_iterations = config.max_iterations;
++    let policy = config.policy;
++    let purgatory_config = config.purgatory_config;
++    let topology = &config.topology;
++    let server_role = locals.server_role;
++    let anchored = locals.anchored;
++    let is_probe = locals.is_probe;
++    let backup = locals.backup;
++    let effective_cap = locals.effective_cap;
++    const STARVATION_WARN_THRESHOLD: i32 = 500;
+ 
+     // Build name-to-entry-pc map for resolving deliver specs.
+     // Resolution happens once upfront, not per scheduler call.
+@@ -478,54 +749,22 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         .map(|(&name, &entry)| (entry, name))
+         .collect();
+ 
+-    // Collect all deliver events from the plan DAG before PlanEngine::new consumes it.
+-    let all_delivers: HashMap<NodeIndex, DeliverSpec> = plan
+-        .node_indices()
+-        .filter_map(|idx| match &plan[idx].action {
+-            EventAction::Deliver(spec) => Some((idx, spec.clone())),
+-            _ => None,
+-        })
+-        .collect();
+-
+-    // Track deliver states: ready (unlocked) vs completed. `ready_delivers` is a
+-    // BTreeSet so the `.iter().find(...)` match at the deliver site is
+-    // deterministic across runs (required for replay).
+-    let mut ready_delivers: BTreeSet<NodeIndex> = BTreeSet::new();
+-    let mut completed_delivers: HashSet<NodeIndex> = HashSet::new();
+-
+-    let mut engine = PlanEngine::new(plan);
+-
+-    // Nodes observed crashing, and the subset that later recovered.
+-    let mut crashed_nodes: HashSet<usize> = HashSet::new();
+-    let mut recovered_nodes: HashSet<usize> = HashSet::new();
+-
+-    let mut census = StepCensus::default();
+-
+-    // Starvation detection: track consecutive no-progress iterations
+-    let mut no_progress_count: i32 = 0;
+-    const STARVATION_WARN_THRESHOLD: i32 = 500;
+-
+-    // Look up role NameIds from the program
+-    let server_role = program
+-        .roles
+-        .iter()
+-        .find(|(_, name)| name == "Node")
+-        .map(|(id, _)| *id)
+-        .ok_or_else(|| RuntimeError::RoleNotFound("Node".to_string()))?;
+-
+-    for step in 0..effective_cap {
+-        if engine.is_complete() {
++    while locals.step < effective_cap {
++        let step = locals.step;
++        // Set when this step applies the planned recover the fork waits for.
++        let mut fork_now = false;
++        if locals.engine.is_complete() {
+             info!("Plan {} completed in {} steps", run_id, step);
+-            util_stats::record_client_anchor_run_end(anchored, true, held.pending());
++            util_stats::record_client_anchor_run_end(anchored, true, locals.held.pending());
+             record_termination(
+                 RunEnd::PlanComplete,
+                 run_id,
+                 &path_state.state,
+-                &engine,
++                &locals.engine,
+                 step,
+                 max_iterations,
+-                recovered_nodes.len(),
+-                &census,
++                locals.recovered_nodes.len(),
++                &locals.census,
+             );
+             if is_probe {
+                 run_cap::merge_probe(backup, run_cap::Outcome::Completed, step);
+@@ -541,7 +780,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         path_state.state.release_from_purgatory(step);
+ 
+         // Dispatch ready events
+-        let ready_events: Vec<(NodeIndex, PlannedEvent)> = engine
++        let ready_events: Vec<(NodeIndex, PlannedEvent)> = locals
++            .engine
+             .get_ready_events()
+             .into_iter()
+             .map(|(idx, e)| (idx, e.clone()))
+@@ -550,11 +790,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         // Requests whose wait ran past expiry. When nothing else in the run
+         // can move, the earliest held request is issued now instead, so a
+         // held request never leaves a run idle or reads as a deadlock.
+-        let mut due: Vec<Released<(NodeIndex, ClientOpSpec)>> = held.take_due(step);
++        let mut due: Vec<Released<(NodeIndex, ClientOpSpec)>> = locals.held.take_due(step);
+         if ready_events.is_empty()
+             && path_state.state.all_queues_empty()
+             && due.is_empty()
+-            && let Some(dry) = held.take_dry()
++            && let Some(dry) = locals.held.take_dry()
+         {
+             due.push(dry);
+         }
+@@ -562,22 +802,24 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         if ready_events.is_empty()
+             && path_state.state.all_queues_empty()
+             && due.is_empty()
+-            && !in_progress.is_empty()
++            && !locals.in_progress.is_empty()
+         {
+-            util_stats::record_client_anchor_run_end(anchored, false, held.pending());
++            util_stats::record_client_anchor_run_end(anchored, false, locals.held.pending());
+             warn!(
+                 "Plan {} deadlocked at step {}: {} client op(s) will never complete",
+-                run_id, step, in_progress.len()
++                run_id,
++                step,
++                locals.in_progress.len()
+             );
+             record_termination(
+                 RunEnd::Deadlock,
+                 run_id,
+                 &path_state.state,
+-                &engine,
++                &locals.engine,
+                 step,
+                 max_iterations,
+-                recovered_nodes.len(),
+-                &census,
++                locals.recovered_nodes.len(),
++                &locals.census,
+             );
+             if is_probe {
+                 run_cap::merge_probe(backup, run_cap::Outcome::Deadlocked, step);
+@@ -585,11 +827,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             }
+             return Ok(RunOutcome::Deadlock {
+                 step,
+-                pending_ops: in_progress.len(),
++                pending_ops: locals.in_progress.len(),
+             });
+         }
+ 
+-        let in_window = last_window_step == Some(step - 1);
++        let in_window = locals.last_window_step == Some(step - 1);
+         for released in due {
+             let (plan_node, op_spec) = released.item;
+             util_stats::record_client_anchor_release(
+@@ -599,7 +841,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             util_stats::record_client_anchor_post_fault_invocation(anchored, in_window);
+             invoke_client_request(
+                 path_state,
+-                &program,
++                program,
+                 snapshot,
+                 policy,
+                 purgatory_config,
+@@ -607,8 +849,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 plan_node,
+                 &op_spec,
+                 true,
+-                &mut in_progress,
+-                &mut op_id_counter,
++                &mut locals.in_progress,
++                &mut locals.op_id_counter,
+                 rng,
+             )?;
+         }
+@@ -620,12 +862,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     // is the population every direction of the axis acts on:
+                     // a holding run makes it wait, and the others issue it
+                     // now.
+-                    let post_fault = !crashed_nodes.is_empty();
++                    let post_fault = !locals.crashed_nodes.is_empty();
+                     if post_fault {
+                         util_stats::record_client_anchor_post_fault_request(anchored);
+                     }
+                     if post_fault && anchored {
+-                        held.hold((node_idx, op_spec.clone()), step);
++                        locals.held.hold((node_idx, op_spec.clone()), step);
+                         continue;
+                     }
+                     if post_fault {
+@@ -633,7 +875,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     }
+                     invoke_client_request(
+                         path_state,
+-                        &program,
++                        program,
+                         snapshot,
+                         policy,
+                         purgatory_config,
+@@ -641,8 +883,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         node_idx,
+                         op_spec,
+                         post_fault,
+-                        &mut in_progress,
+-                        &mut op_id_counter,
++                        &mut locals.in_progress,
++                        &mut locals.op_id_counter,
+                         rng,
+                     )?;
+                 }
+@@ -656,9 +898,13 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     // Placed-posture runs hold the crash until a step drawn
+                     // uniformly over the learned completed-run span; stock
+                     // runs draw nothing and behave exactly as before.
+-                    if let Some(target) =
+-                        fault_timing::draw_hold(run_id, backup, effective_cap, step, rng)
+-                    {
++                    if let Some(target) = fault_timing::draw_hold(
++                        locals.draw_run_id,
++                        backup,
++                        effective_cap,
++                        step,
++                        rng,
++                    ) {
+                         path_state.state.crash_hold_drawn = true;
+                         if let Some(hold) =
+                             path_state.state.crash_hold_until.get_mut(nid.index)
+@@ -668,29 +914,29 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         // On the anchored half of the placed runs the crash
+                         // waits further, for a drawn phase of the victim's
+                         // own fan-out, once that target step arrives.
+-                        if crash_phase::is_anchored(run_id) {
++                        if crash_phase::is_anchored(locals.draw_run_id) {
+                             path_state.state.crash_phase.arm_node(
+                                 nid.index,
+                                 fault_timing::cap_reserve(effective_cap),
+                             );
+                         }
+                     }
+-                    pending_crash.insert(nid.index, node_idx);
++                    locals.pending_crash.insert(nid.index, node_idx);
+                 }
+                 EventAction::RecoverNode(node_id) => {
+                     let nid =
+                         validate_node(&path_state.state, *node_id as usize, server_role)?;
+-                    let target = victim_remap.remove(&nid.index).unwrap_or(nid);
++                    let target = locals.victim_remap.remove(&nid.index).unwrap_or(nid);
+                     path_state.state.push_runnable(Runnable::Recover {
+                         node_id: target,
+                         priority: policy.sample(rng, RunnableCategory::Recover),
+                     });
+-                    pending_recover.insert(target.index, node_idx);
++                    locals.pending_recover.insert(target.index, node_idx);
+                 }
+                 EventAction::AllowTimer(node_id, label) => {
+                     let key = (*node_id as usize, label.clone());
+                     path_state.state.allowed_timers.insert(key.clone());
+-                    pending_allow_timer.insert(key, node_idx);
++                    locals.pending_allow_timer.insert(key, node_idx);
+                 }
+                 EventAction::Partition(spec) => {
+                     let partition_type = spec.to_partition_type(
+@@ -701,27 +947,30 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         partition_type,
+                         priority: policy.sample(rng, RunnableCategory::Partition),
+                     });
+-                    pending_partition = Some(node_idx);
++                    locals.pending_partition = Some(node_idx);
+                 }
+                 EventAction::Heal => {
+                     path_state.state.push_runnable(Runnable::Heal {
+                         priority: policy.sample(rng, RunnableCategory::Heal),
+                     });
+-                    pending_heal = Some(node_idx);
++                    locals.pending_heal = Some(node_idx);
+                 }
+                 EventAction::Deliver(_) => {
+                     // Deliver events are constraints, not actions.
+                     // When ready, lift the reservation so the scheduler can pick the match.
+-                    ready_delivers.insert(node_idx);
++                    locals.ready_delivers.insert(node_idx);
+                 }
+             }
+         }
+ 
+         // Build reservations from delivers that are NOT yet ready and NOT completed.
+         // These constrain the scheduler from picking their matching runnables early.
+-        let reservations: Vec<Reservation> = all_delivers
++        let reservations: Vec<Reservation> = locals
++            .all_delivers
+             .iter()
+-            .filter(|(idx, _)| !ready_delivers.contains(idx) && !completed_delivers.contains(idx))
++            .filter(|(idx, _)| {
++                !locals.ready_delivers.contains(idx) && !locals.completed_delivers.contains(idx)
++            })
+             .filter_map(|(_, spec)| {
+                 name_to_entry.get(spec.function.as_str()).map(|&entry_pc| Reservation {
+                     entry_pc,
+@@ -733,9 +982,9 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+ 
+         let history_start_len = path_state.history.len();
+ 
+-        if retarget_crashes {
++        if path_state.state.retarget.enabled {
+             let mut mask = 0u64;
+-            for &n in pending_crash.keys().chain(pending_recover.keys()) {
++            for &n in locals.pending_crash.keys().chain(locals.pending_recover.keys()) {
+                 if n < u64::BITS as usize {
+                     mask |= 1u64 << n;
+                 }
+@@ -744,33 +993,33 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         }
+ 
+         if path_state.state.all_queues_empty() {
+-            census.idle();
++            locals.census.idle();
+             util_stats::record_steer_reach(util_stats::SteerReach::NoScheduleAttempt);
+         } else {
+             let result = schedule_runnable::<H, _, _, F>(
+                 &mut path_state.state,
+                 &mut path_state.logs,
+-                &program,
++                program,
+                 snapshot,
+                 &mut path_state.feedback,
+-                &topology,
++                topology,
+                 global_state,
+                 policy,
+-                strict_timers,
+-                &mut selector,
+-                within_queue,
+-                terms,
++                config.strict_timers,
++                &mut locals.selector,
++                config.within_queue,
++                config.terms,
+                 purgatory_config,
+-                partial_fanout_crash_bias,
+-                timer_ctx_mode,
++                config.partial_fanout_crash_bias,
++                locals.timer_ctx_mode,
+                 &reservations,
+                 rng,
+             )?;
+ 
+             if matches!(result, ScheduleResult::None) {
+-                census.blocked();
++                locals.census.blocked();
+             } else {
+-                census.released();
++                locals.census.released();
+             }
+ 
+             match result {
+@@ -798,12 +1047,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: -1,
+                         step: path_state.state.crash_info.current_step,
+                     });
+-                    crashed_nodes.insert(node_id.index);
+-                    if let Some(plan_node) = pending_crash.remove(&planned.index) {
+-                        engine.mark_event_completed(plan_node);
++                    locals.crashed_nodes.insert(node_id.index);
++                    if let Some(plan_node) = locals.pending_crash.remove(&planned.index) {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                     if node_id != planned {
+-                        victim_remap.insert(planned.index, node_id);
++                        locals.victim_remap.insert(planned.index, node_id);
+                     }
+                 }
+                 ScheduleResult::Recover { node_id } => {
+@@ -815,11 +1064,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: -1,
+                         step: path_state.state.crash_info.current_step,
+                     });
+-                    if crashed_nodes.contains(&node_id.index) {
+-                        recovered_nodes.insert(node_id.index);
++                    if locals.crashed_nodes.contains(&node_id.index) {
++                        locals.recovered_nodes.insert(node_id.index);
+                     }
+-                    if let Some(plan_node) = pending_recover.remove(&node_id.index) {
+-                        engine.mark_event_completed(plan_node);
++                    if let Some(plan_node) = locals.pending_recover.remove(&node_id.index) {
++                        locals.engine.mark_event_completed(plan_node);
++                        fork_now = path_state.state.replay_cut_node == Some(node_id.index);
+                     }
+                 }
+                 ScheduleResult::TimerFired { node_id, label } => {
+@@ -843,8 +1093,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         step: path_state.state.crash_info.current_step,
+                     });
+                     let key = (node_id.index, label);
+-                    if let Some(plan_node) = pending_allow_timer.remove(&key) {
+-                        engine.mark_event_completed(plan_node);
++                    if let Some(plan_node) = locals.pending_allow_timer.remove(&key) {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                 }
+                 ScheduleResult::Partition { partition_type: _ } => {
+@@ -856,8 +1106,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: -1,
+                         step: path_state.state.crash_info.current_step,
+                     });
+-                    if let Some(plan_node) = pending_partition.take() {
+-                        engine.mark_event_completed(plan_node);
++                    if let Some(plan_node) = locals.pending_partition.take() {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                 }
+                 ScheduleResult::Heal => {
+@@ -869,8 +1119,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: -1,
+                         step: path_state.state.crash_info.current_step,
+                     });
+-                    if let Some(plan_node) = pending_heal.take() {
+-                        engine.mark_event_completed(plan_node);
++                    if let Some(plan_node) = locals.pending_heal.take() {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                 }
+                 ScheduleResult::RecordExecuted {
+@@ -880,10 +1130,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 } => {
+                     // Check if this record delivery matches any ready deliver event.
+                     if let Some(&func_name) = entry_to_name.get(&entry_pc) {
+-                        let matched = ready_delivers
++                        let matched = locals
++                            .ready_delivers
+                             .iter()
+                             .find(|idx| {
+-                                if let Some(spec) = all_delivers.get(idx) {
++                                if let Some(spec) = locals.all_delivers.get(idx) {
+                                     spec.function == func_name
+                                         && spec
+                                             .to
+@@ -898,9 +1149,9 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                             .copied();
+ 
+                         if let Some(idx) = matched {
+-                            ready_delivers.remove(&idx);
+-                            completed_delivers.insert(idx);
+-                            engine.mark_event_completed(idx);
++                            locals.ready_delivers.remove(&idx);
++                            locals.completed_delivers.insert(idx);
++                            locals.engine.mark_event_completed(idx);
+                         }
+                     }
+                 }
+@@ -917,9 +1168,9 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             step,
+         ) {
+             util_stats::record_client_anchor_window(anchored);
+-            last_window_step = Some(step);
++            locals.last_window_step = Some(step);
+             if anchored {
+-                let firing = held.fire();
++                let firing = locals.held.fire();
+                 if firing.first {
+                     util_stats::record_client_anchor_first_window(firing.held);
+                 }
+@@ -931,58 +1182,76 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             .iter()
+             .filter(|op| matches!(op.kind, OpKind::Response))
+             .filter_map(|op| {
+-                in_progress.get(&op.unique_id).map(|&node_idx| {
+-                    engine.mark_event_completed(node_idx);
++                locals.in_progress.get(&op.unique_id).map(|&node_idx| {
++                    locals.engine.mark_event_completed(node_idx);
+                     op.unique_id
+                 })
+             })
+             .collect();
+ 
+         for id in completed {
+-            in_progress.remove(&id);
++            locals.in_progress.remove(&id);
+         }
+ 
+         // Starvation detection: if nothing happened this iteration, increment counter.
+         // Helps catch typos in deliver function names.
+         if path_state.history.len() == history_start_len {
+-            no_progress_count += 1;
+-            if no_progress_count == STARVATION_WARN_THRESHOLD {
+-                let pending_deliver_names: Vec<&str> = ready_delivers
++            locals.no_progress_count += 1;
++            if locals.no_progress_count == STARVATION_WARN_THRESHOLD {
++                let pending_deliver_names: Vec<&str> = locals
++                    .ready_delivers
+                     .iter()
+-                    .filter_map(|idx| all_delivers.get(idx).map(|s| s.function.as_str()))
++                    .filter_map(|idx| locals.all_delivers.get(idx).map(|s| s.function.as_str()))
+                     .collect();
+-                let blocked_deliver_names: Vec<&str> = all_delivers
++                let blocked_deliver_names: Vec<&str> = locals
++                    .all_delivers
+                     .iter()
+                     .filter(|(idx, _)| {
+-                        !ready_delivers.contains(idx) && !completed_delivers.contains(idx)
++                        !locals.ready_delivers.contains(idx)
++                            && !locals.completed_delivers.contains(idx)
+                     })
+                     .map(|(_, s)| s.function.as_str())
+                     .collect();
+                 warn!(
+                     "Plan {} stalled for {} iterations. Ready delivers waiting: {:?}. Blocked delivers: {:?}",
+-                    run_id, no_progress_count, pending_deliver_names, blocked_deliver_names
++                    run_id, locals.no_progress_count, pending_deliver_names, blocked_deliver_names
+                 );
+             }
+         } else {
+-            no_progress_count = 0;
++            locals.no_progress_count = 0;
++        }
++
++        locals.step = step + 1;
++
++        // The snapshot is taken at the end of the step that applied the
++        // recover, so a child starts from the step after it and never takes
++        // a snapshot of its own.
++        if fork_now
++            && let Some(slot) = fork.as_deref_mut()
++            && slot.is_none()
++        {
++            let started = std::time::Instant::now();
++            let point = ForkPoint::take(path_state, locals, rng.fork_streams(), run_id);
++            util_stats::record_fork_point(point.snapshot_bytes as u64, started.elapsed());
++            *slot = Some(point);
+         }
+     }
+ 
+-    util_stats::record_client_anchor_run_end(anchored, false, held.pending());
++    util_stats::record_client_anchor_run_end(anchored, false, locals.held.pending());
+     if effective_cap < backup {
+         record_termination(
+             RunEnd::LearnedCapReached,
+             run_id,
+             &path_state.state,
+-            &engine,
++            &locals.engine,
+             effective_cap,
+             backup,
+-            recovered_nodes.len(),
+-            &census,
++            locals.recovered_nodes.len(),
++            &locals.census,
+         );
+         return Ok(RunOutcome::LearnedCapReached {
+             cap: effective_cap,
+-            outstanding_events: engine.outstanding_count(),
++            outstanding_events: locals.engine.outstanding_count(),
+         });
+     }
+     warn!(
+@@ -993,18 +1262,18 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         RunEnd::IterationsExhausted,
+         run_id,
+         &path_state.state,
+-        &engine,
++        &locals.engine,
+         max_iterations,
+         max_iterations,
+-        recovered_nodes.len(),
+-        &census,
++        locals.recovered_nodes.len(),
++        &locals.census,
+     );
+     if is_probe {
+         run_cap::merge_probe(backup, run_cap::Outcome::Exhausted, backup);
+         fault_timing::merge_stock_probe(run_id, backup, run_cap::Outcome::Exhausted, backup);
+     }
+     Ok(RunOutcome::IterationsExhausted {
+-        outstanding_events: engine.outstanding_count(),
++        outstanding_events: locals.engine.outstanding_count(),
+     })
+ }
+ 
+diff --git a/spur-core/src/simulator/replay_corpus.rs b/spur-core/src/simulator/replay_corpus.rs
+index 7f64781..aed90ec 100644
+--- a/spur-core/src/simulator/replay_corpus.rs
++++ b/spur-core/src/simulator/replay_corpus.rs
+@@ -9,8 +9,13 @@
+ //! child replays the parent's draws and then continues on its own seed; a
+ //! plan-only child takes the parent's workload and configuration but draws
+ //! its whole schedule fresh, which tells apart what the schedule prefix buys
+-//! from what the plan alone buys. Children are never admitted, so the corpus
+-//! does not feed on itself.
++//! from what the plan alone buys. A state-fork child, half of the prefix
++//! children, continues from a snapshot of the parent's state taken at the
++//! planned recover of the node whose queued crash armed the signal, instead
++//! of replaying the draws, so it pays only the continuation; the other half
++//! stays the matched control. A parent that ended before that recover
++//! carries no snapshot, and its state-fork children run as prefix children.
++//! Children are never admitted, so the corpus does not feed on itself.
+ //!
+ //! Slots are a pure function of the run id, so the treated and untreated
+ //! halves are a contrast by id and not by outcome: a slot whose corpus is
+@@ -22,12 +27,16 @@ use crate::simulator::rng::Recording;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_phase;
+ use crate::simulator::timer_context;
++use std::any::Any;
+ use std::collections::VecDeque;
++use std::sync::Arc;
+ 
+ /// Salt for the replay-slot half. Distinct from every other split of a session.
+ const REPLAY_SALT: u64 = 0x_5245_504C_4159_5354; // "REPLAYST"
+ /// Salt for the prefix half of the slots.
+ const PREFIX_SALT: u64 = 0x_5052_4546_4958_5450; // "PREFIXTP"
++/// Salt for the state-fork half of the prefix slots.
++const FORK_SALT: u64 = 0x_5354_4154_4546_4F52; // "STATEFOR"
+ 
+ /// Parents kept per corpus; the oldest is dropped to admit a new one.
+ pub const CAPACITY: usize = 64;
+@@ -48,10 +57,18 @@ pub fn is_prefix(run_id: i64) -> bool {
+     is_slot(run_id) && run_phase::salted_phase(run_id, PREFIX_SALT, 2) == 1
+ }
+ 
++/// Whether this prefix slot's child continues the parent's state from its
++/// snapshot rather than replaying the parent's draws. Implies `is_prefix`.
++pub fn is_state_fork(run_id: i64) -> bool {
++    is_prefix(run_id) && run_phase::salted_phase(run_id, FORK_SALT, 2) == 1
++}
++
+ /// What a child takes from its parent: the draws up to the signal, the
+ /// workload seed and configuration that make the plan, the parent's place in
+-/// the configuration grid, and the step the signal fired at, which is what a
+-/// faithful prefix child fires at too.
++/// the configuration grid, the step the signal fired at, which is what a
++/// faithful prefix child fires at too, and the parent's snapshot when it
++/// took one. The snapshot's type belongs to the arm that runs the children,
++/// so the corpus holds it behind `Any`.
+ #[derive(Clone, Debug)]
+ pub struct Seed<C> {
+     pub tape: Recording,
+@@ -59,6 +76,7 @@ pub struct Seed<C> {
+     pub cfg: C,
+     pub config_index: usize,
+     pub cut_step: i32,
++    pub fork: Option<Arc<dyn Any + Send + Sync>>,
+ }
+ 
+ struct Parent<C> {
+@@ -136,6 +154,7 @@ mod tests {
+             cfg: tag,
+             config_index: tag as usize,
+             cut_step: tag as i32,
++            fork: None,
+         }
+     }
+ 
+@@ -207,11 +226,14 @@ mod tests {
+         let n = 40_000i64;
+         let mut slots = 0;
+         let mut prefixes = 0;
++        let mut forks = 0;
+         for id in 0..n {
+             let slot = is_slot(id);
+             let prefix = is_prefix(id);
++            let fork = is_state_fork(id);
+             assert_eq!(slot, is_slot(id), "id {id}: the slot changed between reads");
+             assert!(!prefix || slot, "id {id}: a prefix child outside a slot");
++            assert!(!fork || prefix, "id {id}: a state-fork child outside a prefix slot");
+             if run_cap::is_probe(id)
+                 || timer_context::run_mode(id) == timer_context::RunMode::Probe
+             {
+@@ -219,9 +241,11 @@ mod tests {
+             }
+             slots += slot as i64;
+             prefixes += prefix as i64;
++            forks += fork as i64;
+         }
+         let slot_share = slots as f64 / n as f64;
+         let prefix_share = prefixes as f64 / slots.max(1) as f64;
++        let fork_share = forks as f64 / prefixes.max(1) as f64;
+         assert!(
+             (0.42..0.5).contains(&slot_share),
+             "slots take {slot_share} of the runs; half less the probes was expected"
+@@ -230,5 +254,9 @@ mod tests {
+             (0.47..0.53).contains(&prefix_share),
+             "prefix children take {prefix_share} of the slots"
+         );
++        assert!(
++            (0.47..0.53).contains(&fork_share),
++            "state-fork children take {fork_share} of the prefix slots"
++        );
+     }
+ }
+diff --git a/spur-core/src/simulator/rng.rs b/spur-core/src/simulator/rng.rs
+index f068c09..95bb94a 100644
+--- a/spur-core/src/simulator/rng.rs
++++ b/spur-core/src/simulator/rng.rs
+@@ -74,6 +74,7 @@ impl Stream {
+ /// ignored, which is the shared-stream draw order. With isolation on there is
+ /// one generator per `Stream`, each seeded from the run seed through a distinct
+ /// salt, and `use_stream` decides which one the next draw comes from.
++#[derive(Clone)]
+ pub struct StreamSet {
+     gens: Box<[SmallRng]>,
+     active: usize,
+@@ -138,6 +139,14 @@ pub trait StreamRng: RngCore {
+     fn position(&self) -> Option<usize> {
+         None
+     }
++
++    /// A copy of the generators behind this source at their current state,
++    /// so a run continued from a snapshot can draw exactly what this run
++    /// would have drawn next. `None` when the source has no such generators.
++    #[inline]
++    fn fork_streams(&self) -> Option<StreamSet> {
++        None
++    }
+ }
+ 
+ impl StreamRng for SmallRng {}
+@@ -187,6 +196,10 @@ impl<S: RngSource> StreamRng for RecRng<'_, S> {
+     fn position(&self) -> Option<usize> {
+         S::position(self.tape)
+     }
++    #[inline]
++    fn fork_streams(&self) -> Option<StreamSet> {
++        Some(self.inner.clone())
++    }
+ }
+ 
+ impl<S: RngSource> RngCore for RecRng<'_, S> {
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index c9562ba..94e8416 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -62,6 +62,10 @@ pub const REPLAY_SLOT: i32 = 1 << 20;
+ /// A replay slot whose child replays the parent's schedule prefix rather
+ /// than only its plan. Joined by the arm like `REPLAY_SLOT`.
+ pub const REPLAY_PREFIX: i32 = 1 << 21;
++/// A prefix slot whose child continues the parent's state from its
++/// snapshot rather than replaying the draws. Joined by the arm like
++/// `REPLAY_SLOT`.
++pub const REPLAY_STATE_FORK: i32 = 1 << 8;
+ /// At a network step whose draw fell on a record from a sender's dead
+ /// incarnation, the run takes instead an eligible record from that sender's
+ /// current incarnation to the same destination.
+@@ -116,6 +120,9 @@ pub fn grid_arm_bits(run_id: i64) -> i32 {
+     if replay_corpus::is_prefix(run_id) {
+         v |= REPLAY_PREFIX;
+     }
++    if replay_corpus::is_state_fork(run_id) {
++        v |= REPLAY_STATE_FORK;
++    }
+     v
+ }
+ 
+@@ -150,11 +157,20 @@ mod tests {
+             assert_eq!(v & CRASH_HOLD_DRAWN, 0, "the acted bit is not an id bit");
+             assert_eq!(of(id, true), v | CRASH_HOLD_DRAWN);
+             assert_eq!(of(id, false), v);
+-            assert_eq!(v & (REPLAY_SLOT | REPLAY_PREFIX), 0, "the slot bits are the arm's");
++            assert_eq!(
++                v & (REPLAY_SLOT | REPLAY_PREFIX | REPLAY_STATE_FORK),
++                0,
++                "the slot bits are the arm's"
++            );
+             let g = grid_arm_bits(id);
+             assert_eq!(g & REPLAY_SLOT != 0, replay_corpus::is_slot(id));
+             assert_eq!(g & REPLAY_PREFIX != 0, replay_corpus::is_prefix(id));
+-            assert_eq!(g & !(REPLAY_SLOT | REPLAY_PREFIX), 0, "the arm sets only its bits");
++            assert_eq!(g & REPLAY_STATE_FORK != 0, replay_corpus::is_state_fork(id));
++            assert_eq!(
++                g & !(REPLAY_SLOT | REPLAY_PREFIX | REPLAY_STATE_FORK),
++                0,
++                "the arm sets only its bits"
++            );
+         }
+     }
+ 
+@@ -165,6 +181,7 @@ mod tests {
+         let n = 64_000i64;
+         let mut slots = 0;
+         let mut prefixes = 0;
++        let mut forks = 0;
+         for id in 0..n {
+             let v = from_run_id(id) | grid_arm_bits(id);
+             if v & (RUN_CAP_PROBE | TIMER_STEER_OFF) != 0 {
+@@ -173,11 +190,16 @@ mod tests {
+             if v & REPLAY_PREFIX != 0 {
+                 assert_ne!(v & REPLAY_SLOT, 0, "run {id}: a prefix child outside a slot");
+             }
++            if v & REPLAY_STATE_FORK != 0 {
++                assert_ne!(v & REPLAY_PREFIX, 0, "run {id}: a fork child outside a prefix slot");
++            }
+             slots += (v & REPLAY_SLOT != 0) as i64;
+             prefixes += (v & REPLAY_PREFIX != 0) as i64;
++            forks += (v & REPLAY_STATE_FORK != 0) as i64;
+         }
+         assert!(slots > 0 && slots < n, "the slot split leaves no contrast");
+         assert!(prefixes > 0 && prefixes < slots, "the prefix split leaves no contrast");
++        assert!(forks > 0 && forks < prefixes, "the state-fork split leaves no contrast");
+     }
+ 
+     #[test]
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 3a1a6c0..78231ae 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -168,6 +168,15 @@ static RP_SLOTS_UNFILLED: AtomicU64 = AtomicU64::new(0);
+ static RP_PREFIX_FAITHFUL: AtomicU64 = AtomicU64::new(0);
+ static RP_TAPE_WORDS_SUM: AtomicU64 = AtomicU64::new(0);
+ static RP_CHILDREN_SIGNAL_FIRED: AtomicU64 = AtomicU64::new(0);
++static RP_STATE_FORK_SLOTS: AtomicU64 = AtomicU64::new(0);
++static RP_STATE_FORK_CHILDREN: AtomicU64 = AtomicU64::new(0);
++static RP_STATE_FORK_FALLBACK_TAPE: AtomicU64 = AtomicU64::new(0);
++static RP_STATE_FORK_NO_CUT_PARENTS: AtomicU64 = AtomicU64::new(0);
++static RP_STATE_FORK_PREFIX_STEPS_SUM: AtomicU64 = AtomicU64::new(0);
++static RP_STATE_FORK_CONTINUATION_STEPS_SUM: AtomicU64 = AtomicU64::new(0);
++static RP_STATE_FORK_SNAPSHOT_BYTES_SUM: AtomicU64 = AtomicU64::new(0);
++static RP_FORK_POINTS_TAKEN: AtomicU64 = AtomicU64::new(0);
++static RP_FORK_CLONE_WALL_US_SUM: AtomicU64 = AtomicU64::new(0);
+ 
+ /// The crash census split by retarget half: index 0 is the control half,
+ /// index 1 the treated half.
+@@ -2141,6 +2150,64 @@ pub fn record_replay_child(prefix: bool, signal_fired: bool, faithful: bool) {
+     }
+ }
+ 
++/// A replay slot whose child continues its parent's state from the fork
++/// point rather than replaying the parent's draws. Counted whether or not
++/// the parent carried a fork point.
++#[inline]
++pub fn record_state_fork_slot() {
++    if !enabled() {
++        return;
++    }
++    RP_STATE_FORK_SLOTS.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A state-fork slot ran a child from its parent's fork point. The child's
++/// run took `prefix_steps` from the parent and ran `continuation_steps` of
++/// its own.
++#[inline]
++pub fn record_state_fork_child(prefix_steps: u64, continuation_steps: u64) {
++    if !enabled() {
++        return;
++    }
++    RP_CHILDREN.fetch_add(1, Ordering::Relaxed);
++    RP_STATE_FORK_CHILDREN.fetch_add(1, Ordering::Relaxed);
++    RP_STATE_FORK_PREFIX_STEPS_SUM.fetch_add(prefix_steps, Ordering::Relaxed);
++    RP_STATE_FORK_CONTINUATION_STEPS_SUM.fetch_add(continuation_steps, Ordering::Relaxed);
++}
++
++/// A state-fork slot found its parent without a fork point and ran the
++/// tape child instead.
++#[inline]
++pub fn record_state_fork_fallback_tape() {
++    if !enabled() {
++        return;
++    }
++    RP_STATE_FORK_FALLBACK_TAPE.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A parent entered a corpus without a fork point: it fired the signal but
++/// ended before the node whose queued crash armed the signal applied its
++/// planned recover.
++#[inline]
++pub fn record_state_fork_no_cut_parent() {
++    if !enabled() {
++        return;
++    }
++    RP_STATE_FORK_NO_CUT_PARENTS.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A parent cloned its state into a fork point: `bytes` is the estimated
++/// size of the snapshot and `wall` the time the clone took.
++#[inline]
++pub fn record_fork_point(bytes: u64, wall: std::time::Duration) {
++    if !enabled() {
++        return;
++    }
++    RP_FORK_POINTS_TAKEN.fetch_add(1, Ordering::Relaxed);
++    RP_STATE_FORK_SNAPSHOT_BYTES_SUM.fetch_add(bytes, Ordering::Relaxed);
++    RP_FORK_CLONE_WALL_US_SUM.fetch_add(wall.as_micros() as u64, Ordering::Relaxed);
++}
++
+ /// Why a single plan execution stopped.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum RunEnd {
+@@ -4249,12 +4316,25 @@ impl ClientAnchorStats {
+ 
+ /// The replay corpus of the grid arms. `parents_admitted` counts fresh runs
+ /// whose prefix entered a corpus; `children` the slots that ran a child,
+-/// split into `children_prefix` and `children_plan_only`; `slots_unfilled`
+-/// the slots that found their corpus empty and ran fresh. The mechanism ran
+-/// as intended when `children_prefix` is positive and `prefix_faithful`, the
+-/// prefix children that reached the signal at their parent's step, is close
+-/// to it; `children_signal_fired` counts every child that reached the signal
+-/// at all. `tape_words_sum` is the recording cost every fresh grid run pays.
++/// split into `children_prefix`, `children_plan_only` and
++/// `state_fork_children`; `slots_unfilled` the slots that found their corpus
++/// empty and ran fresh. The mechanism ran as intended when `children_prefix`
++/// is positive and `prefix_faithful`, the prefix children that reached the
++/// signal at their parent's step, is close to it; `children_signal_fired`
++/// counts every tape or plan-only child that reached the signal at all.
++/// `tape_words_sum` is the recording cost every fresh grid run pays.
++///
++/// A state-fork child continues its parent's cloned state from the step
++/// after the planned recover of the node whose queued crash armed the
++/// signal, instead of replaying the draws. `state_fork_slots` counts the
++/// slots of that kind, `state_fork_children` the ones that ran from a fork
++/// point and `state_fork_fallback_tape` the ones whose parent carried none
++/// and ran the tape child; `state_fork_no_cut_parents` counts the admitted
++/// parents that ended before that recover and so carried none. The step
++/// sums split a fork child's run into the steps its parent took and the
++/// steps it ran itself. `fork_points_taken` counts the parents that cloned
++/// their state, `state_fork_snapshot_bytes_sum` the estimated size of those
++/// clones and `fork_clone_wall_us_sum` the time the parents spent cloning.
+ #[derive(Serialize, Debug)]
+ pub struct ReplayStats {
+     pub parents_admitted: u64,
+@@ -4265,6 +4345,15 @@ pub struct ReplayStats {
+     pub prefix_faithful: u64,
+     pub tape_words_sum: u64,
+     pub children_signal_fired: u64,
++    pub state_fork_slots: u64,
++    pub state_fork_children: u64,
++    pub state_fork_fallback_tape: u64,
++    pub state_fork_no_cut_parents: u64,
++    pub state_fork_prefix_steps_sum: u64,
++    pub state_fork_continuation_steps_sum: u64,
++    pub state_fork_snapshot_bytes_sum: u64,
++    pub fork_points_taken: u64,
++    pub fork_clone_wall_us_sum: u64,
+ }
+ 
+ impl ReplayStats {
+@@ -4278,6 +4367,17 @@ impl ReplayStats {
+             prefix_faithful: RP_PREFIX_FAITHFUL.load(Ordering::Relaxed),
+             tape_words_sum: RP_TAPE_WORDS_SUM.load(Ordering::Relaxed),
+             children_signal_fired: RP_CHILDREN_SIGNAL_FIRED.load(Ordering::Relaxed),
++            state_fork_slots: RP_STATE_FORK_SLOTS.load(Ordering::Relaxed),
++            state_fork_children: RP_STATE_FORK_CHILDREN.load(Ordering::Relaxed),
++            state_fork_fallback_tape: RP_STATE_FORK_FALLBACK_TAPE.load(Ordering::Relaxed),
++            state_fork_no_cut_parents: RP_STATE_FORK_NO_CUT_PARENTS.load(Ordering::Relaxed),
++            state_fork_prefix_steps_sum: RP_STATE_FORK_PREFIX_STEPS_SUM.load(Ordering::Relaxed),
++            state_fork_continuation_steps_sum: RP_STATE_FORK_CONTINUATION_STEPS_SUM
++                .load(Ordering::Relaxed),
++            state_fork_snapshot_bytes_sum: RP_STATE_FORK_SNAPSHOT_BYTES_SUM
++                .load(Ordering::Relaxed),
++            fork_points_taken: RP_FORK_POINTS_TAKEN.load(Ordering::Relaxed),
++            fork_clone_wall_us_sum: RP_FORK_CLONE_WALL_US_SUM.load(Ordering::Relaxed),
+         }
+     }
+ }
+diff --git a/spur-core/tests/client_anchor_release.rs b/spur-core/tests/client_anchor_release.rs
+index 7312f0d..a12fefb 100644
+--- a/spur-core/tests/client_anchor_release.rs
++++ b/spur-core/tests/client_anchor_release.rs
+@@ -132,6 +132,7 @@ fn session(
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            false,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/crash_census_landing.rs b/spur-core/tests/crash_census_landing.rs
+index 4a3521b..8fcf1e4 100644
+--- a/spur-core/tests/crash_census_landing.rs
++++ b/spur-core/tests/crash_census_landing.rs
+@@ -119,6 +119,7 @@ fn check() {
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            false,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/crash_phase_anchor.rs b/spur-core/tests/crash_phase_anchor.rs
+index ce077b7..51f1693 100644
+--- a/spur-core/tests/crash_phase_anchor.rs
++++ b/spur-core/tests/crash_phase_anchor.rs
+@@ -111,6 +111,7 @@ fn run_session(run_ids: &[i64], out: &Path) {
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            false,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/fresh_first_dispatch.rs b/spur-core/tests/fresh_first_dispatch.rs
+index 94b01c3..e235ace 100644
+--- a/spur-core/tests/fresh_first_dispatch.rs
++++ b/spur-core/tests/fresh_first_dispatch.rs
+@@ -132,6 +132,7 @@ fn session(
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            false,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/ghost_absorber_retarget.rs b/spur-core/tests/ghost_absorber_retarget.rs
+index bc126bf..30a6858 100644
+--- a/spur-core/tests/ghost_absorber_retarget.rs
++++ b/spur-core/tests/ghost_absorber_retarget.rs
+@@ -137,6 +137,7 @@ fn session(
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            false,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/pair_order_dispatch.rs b/spur-core/tests/pair_order_dispatch.rs
+index 6474c12..8823c18 100644
+--- a/spur-core/tests/pair_order_dispatch.rs
++++ b/spur-core/tests/pair_order_dispatch.rs
+@@ -140,6 +140,7 @@ fn session(
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            false,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/replay_prefix_fidelity.rs b/spur-core/tests/replay_prefix_fidelity.rs
+index 4353ce2..5fb5409 100644
+--- a/spur-core/tests/replay_prefix_fidelity.rs
++++ b/spur-core/tests/replay_prefix_fidelity.rs
+@@ -150,6 +150,7 @@ fn run<S: RngSource>(
+         workload,
+         schedule,
+         tape,
++        false,
+         &RunAttribution::mode("test"),
+     )
+     .expect("the run executes")
+diff --git a/spur-core/tests/run_cap_exit.rs b/spur-core/tests/run_cap_exit.rs
+index ce0e8b4..42b91a5 100644
+--- a/spur-core/tests/run_cap_exit.rs
++++ b/spur-core/tests/run_cap_exit.rs
+@@ -148,6 +148,7 @@ fn check() {
+         7,
+         11,
+         None,
++        false,
+         &RunAttribution::mode("test"),
+     )
+     .expect("the run executes");
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 143afea..70f0e3e 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -785,6 +785,15 @@ fn replay(m: &mut Marks) -> ReplayStats {
+         prefix_faithful: m.int(),
+         tape_words_sum: m.int(),
+         children_signal_fired: m.int(),
++        state_fork_slots: m.int(),
++        state_fork_children: m.int(),
++        state_fork_fallback_tape: m.int(),
++        state_fork_no_cut_parents: m.int(),
++        state_fork_prefix_steps_sum: m.int(),
++        state_fork_continuation_steps_sum: m.int(),
++        state_fork_snapshot_bytes_sum: m.int(),
++        fork_points_taken: m.int(),
++        fork_clone_wall_us_sum: m.int(),
+     }
+ }
+ 
+@@ -798,6 +807,15 @@ fn replay_leaves(prefix: &str, r: &ReplayStats) -> Vec<(String, Value)> {
+         prefix_faithful,
+         tape_words_sum,
+         children_signal_fired,
++        state_fork_slots,
++        state_fork_children,
++        state_fork_fallback_tape,
++        state_fork_no_cut_parents,
++        state_fork_prefix_steps_sum,
++        state_fork_continuation_steps_sum,
++        state_fork_snapshot_bytes_sum,
++        fork_points_taken,
++        fork_clone_wall_us_sum,
+     } = r;
+     vec![
+         leaf(prefix, "parents_admitted", *parents_admitted),
+@@ -808,6 +826,19 @@ fn replay_leaves(prefix: &str, r: &ReplayStats) -> Vec<(String, Value)> {
+         leaf(prefix, "prefix_faithful", *prefix_faithful),
+         leaf(prefix, "tape_words_sum", *tape_words_sum),
+         leaf(prefix, "children_signal_fired", *children_signal_fired),
++        leaf(prefix, "state_fork_slots", *state_fork_slots),
++        leaf(prefix, "state_fork_children", *state_fork_children),
++        leaf(prefix, "state_fork_fallback_tape", *state_fork_fallback_tape),
++        leaf(prefix, "state_fork_no_cut_parents", *state_fork_no_cut_parents),
++        leaf(prefix, "state_fork_prefix_steps_sum", *state_fork_prefix_steps_sum),
++        leaf(
++            prefix,
++            "state_fork_continuation_steps_sum",
++            *state_fork_continuation_steps_sum,
++        ),
++        leaf(prefix, "state_fork_snapshot_bytes_sum", *state_fork_snapshot_bytes_sum),
++        leaf(prefix, "fork_points_taken", *fork_points_taken),
++        leaf(prefix, "fork_clone_wall_us_sum", *fork_clone_wall_us_sum),
+     ]
+ }
+ 

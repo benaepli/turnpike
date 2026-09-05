@@ -3047,9 +3047,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## state-fork-cut-at-last-planned-recover
 
-- kind: add | category: scheduler | origin: operator-agent | status: ADMITTED
-  at iteration 54 (judge gain 6, cost 2; cut rule rewritten at admission
-  to the recover of the signal's receiver; implementing) | parent:
+- kind: add | category: scheduler | origin: operator-agent | status: CLOSED at
+  iteration 54 on its cost gate without chunks (receiver's recover at step
+  321 of 4,400 on the long arms, cut share 0.073; fork child wall 0.90 raw,
+  0.83 net, against 0.80; the plan is applied in the first few hundred
+  steps and the fork saves only the prefix; patch kept under
+  research/lite/patches/state-fork-recover-cut) | parent:
   state-fork-continuations-at-ghost-signal-cut
 - The state fork's cut moves from the step the ghost signal fires to the
   step in which the signal's receiver - the node whose pending crash armed

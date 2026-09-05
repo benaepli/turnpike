@@ -3915,3 +3915,33 @@ The per-direction control table is now the instrument for that question:
 any candidate reward can be read against depth on the coin half in one
 chunk before a learner is pointed at it, folded into the next selector
 build rather than measured on its own.
+
+**The deeper cut lands at step 321 of 4,400, and the fork family closes
+on cost.** The implementer moved the fork to the step in which the
+signal's receiver applies its planned recover (the tracked node follows a
+retargeted crash), added the no-cut counter, and kept every test green,
+the fidelity test now resuming from the deeper point. The smoke: 6,197
+parents, 5,640 fork points (557 parents ended before the receiver's
+recover, 9 percent, matching the 490 fallbacks), 4,934 fork children,
+111 KB per fork point, clone wall 0.5 percent, RSS 1.08 GB. Cut share
+0.100 overall: 0.073 to 0.075 on the three long arms, where the prefix is
+321 steps and the continuation 4,098, and 0.204 on grid-short. Wall ratio
+fork over tape 0.900 raw (0.902, 0.915, 0.919 on the long arms, 0.847 on
+grid-short), 0.828 net of the unfilled slots both cells carry - above the
+0.80 gate either way, as the judge's arithmetic from the placement
+counters said it would be (mean crash hold 200 steps, holds drawn below
+the median completed length). Steps per run 0.998. No chunk bought;
+patch kept under research/lite/patches/state-fork-recover-cut (it carries
+the first fork patch too).
+
+What the two fork builds measured together: every plan event of a run,
+through the last recover, is applied in its first few hundred steps, and
+the run then goes on for ten times that. A fork saves only the prefix, so
+as a cost lever it is empty on this tree; as a fidelity lever it is worth
+what iteration 28 measured, about 1.08 per run on a 9 percent share, at
+the price of a recording-path change. The corpus's own reads on the fresh
+baseline (fresh 0.0083, plan-only 0.0169, tape-prefix 0.0188 at depth 8
+per run) say the conditioning is in the parent's plan and signal, not in
+the schedule prefix, which is the reason a cheaper exact prefix buys so
+little. The fork machinery is sound and stays filed for a cut whose
+continuation is short or whose admission is rare.
