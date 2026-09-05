@@ -4112,3 +4112,25 @@ chunks reading it - each direction's prior is shrunk toward the cell's
 discounted running reward mean with the warmup count as its pseudo-count,
 so a direction with no data samples around the cell's rate and no new
 tunable enters. Rebuild, same smoke, then the session.
+
+**The shrunk prior is not enough, and the draw rule is changed before
+chunk 1.** With each direction's prior shrunk to the cell's discounted
+reward mean (pseudo-count 24, the warmup constant; a no-data direction
+now samples near the cell's rate, tested), the same smoke reads the same
+signs - overtaken-ghost 0.034 with fresh on/off 1.76 and stock/placed
+0.88, acted-absorber 0.061 with retarget on/off 2.23 and stock/placed
+0.27 - and the learners still hold stock above the coin, 0.114 and 0.101
+against 0.083, down from 0.136 and 0.119. The implementer also tried the
+prior with the unit pseudo-counts folded in (0.122 and 0.114, no better)
+and traced the residual to the draw itself: under proportional-to-draw
+selection a direction with a wider posterior wins extra share whatever
+its mean, and stock at 8 percent of runs has a quarter of the
+observations of either placed direction, so its posterior is wider by
+construction; in the limit each direction of an axis wins equally often
+whatever the coin. Decision, recorded before any chunk: the treated pick
+is coin share times posterior mean, no Thompson draw. The exploration a
+Thompson draw exists to supply is already supplied by the coin third,
+which both learners observe at the coin shares, so the treated thirds may
+exploit; this is the property of the three-way split that makes the
+deterministic rule sound here and not in a two-way design. Rebuild, same
+smoke, then the session.
