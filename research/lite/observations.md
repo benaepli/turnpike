@@ -3140,3 +3140,22 @@ preference between a restarted sender's current-incarnation record and a
 record from a sender whose state moved since the destination last heard from
 it; and the same preference scoped to a destination in its own post-restart
 window. The proposer paired the first and last for one session. Judged next.
+
+**The funnel past depth 8, current tree (spur 85ff891), four chunks,
+2,317,260 runs.**
+
+| rung | runs | per run | converts to next |
+| --- | --- | --- | --- |
+| depth>=8 | 27,280 | 1.18e-2 | 0.179 |
+| depth>=9 | 4,875 | 2.10e-3 | 0.090 |
+| depth>=10 | 441 | 1.90e-4 | 0.234 |
+| depth>=11 | 103 | 4.44e-5 | 0.709 |
+| depth>=12 | 73 | 3.15e-5 | 0.301 |
+| depth>=13 | 22 | 9.49e-6 | 0.000 |
+| depth>=14 | 0 | - | - |
+
+The two hardest transitions are 9 to 10 (the second write after the three
+ghost deliveries, 0.090) and 12 to 13 (the second RecoveryResponse landing
+last, 0.301); 13 to 14 - the recovered node's PrepareOK beating the
+StartView at the coordinator - has never occurred. Iteration 48's four
+proposals are aimed at the last three rows.
