@@ -2838,8 +2838,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 - kind: add | category: scheduler | origin: operator-agent (derived in-round
   from the cut's reading; the judge named this design in advance as "the
-  most informative single design") | status: FILED at iteration 51 after
-  four chunks - depth>=10 1.067 [0.766, 1.488], depth>=11 1.368, depth>=12
+  most informative single design") | status: RE-TEST GRADING at iteration
+  52 (session recover-fresh2, eight chunks straight through, primary
+  depth>=10 lower edge > 1.00 at z 2.7, guard depth>=8 [0.96, 1.12], panel
+  veto only, no extension; stripped binary's wall per step 0.985 on the
+  designated pair and 0.9975 pooled over twelve, firing 19.0 stamps per
+  EARLY run and 0.876 of EARLY runs stamped). Previously FILED at iteration
+  51 after four chunks - depth>=10 1.067 [0.766, 1.488], depth>=11 1.368, depth>=12
   1.341, depth>=13 1.659, guard 0.983 met, none separated; the binary's wall
   per step is 1.11x on every seed (census on the hot path), so the arm as
   built fails its cost clause. RE-TEST pre-committed as iteration 52: census
