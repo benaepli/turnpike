@@ -4496,3 +4496,50 @@ depth>=10 1.51 on 62 against 41, steps 1.003. B: depth>=8 1.109 [1.026,
 1.169], depth>=10 1.42 on 58 against 41. All three learner quarters lean
 up at depth 10 against the coin quarter, on counts that decide nothing
 yet. Chunk 2 (seed 1001) 602,220 runs at 2,006 per second, no violation.
+
+**Run 61138 is the target bug.** Classified from the archived timeline:
+node 2, primary of view 14, times out in view 13 and crashes two steps
+after its StartViewChange fan-out with both copies undelivered; it
+recovers once (nonce 1) into view 13, and the ghost SVC addressed to it
+is dropped while it is recovering. Node 0 takes the other ghost SVC at
+407, enters view change 14, sends its SVC and a DoViewChange(14, n=2) to
+node 2, and crashes at 413 with all three in flight; it recovers once
+into view 13 with n=3 (node 1's RecoveryResponse carries op 3, write uid
+1), sends PrepareOK for op 3, and the old primary commits it with quorum
+{1, 0} and acknowledges the client at 449. Node 0 has promised view 14
+with n=2 and committed op 3 in view 13, and remembers only the second.
+Node 2's new incarnation times out again, re-enters view change 14,
+accepts the ghost DoViewChange from node 0's dead incarnation at 466,
+rejects node 0's fresh DoViewChange (n=3, with uid 1) at 480 as a
+duplicate sender, and at 484 installs view 14 on {ghost, itself} with log
+ops 1-2: op 3 is truncated, the acknowledged write is lost, and the
+reads that follow return [10, 11] on node 2 and [1, 11, 12] on nodes 0
+and 1. Nineteen of the twenty oracle labels occur in an order the DAG
+admits, with NL = node 2, OL = node 1; the one departure is the ghost
+SVC to NL, dropped during its recovery and replaced by NL's own second
+timeout plus the fresh SVC from node 0's live incarnation. The nonce fix
+held (each node recovered once; every accepted RecoveryResponse was
+addressed to that incarnation). Paper bug: VR-Revisited 4.2 counts
+DoViewChange "from different replicas" by id with the vote held in
+memory, 4.3 names the hazard of forgetting a prepare but not of
+forgetting a DoViewChange, and 4.3's claim that a recovering would-be
+primary cannot complete the view change is false when the DoViewChange
+waits in the network and the new incarnation restarts the same view
+change on its own timer. The spec is faithful on the path. The finding,
+the classification report, the evidence and the candidate patch are
+committed under research/lite/findings/vr-view-change-vote-forgotten-
+across-recovery and research/lite/patches/cycle-before-request.
+
+What the schedule contributed: crash placement with a drawn hold put
+both crashes inside their victims' fan-outs with the sends undelivered,
+the holds let both recoveries finish in the old view before the ghosts
+landed, and the rush arm kept the old primary committing in the window
+before StartView(14). The run sat on the bit-32 learner's quarter as a
+replay-prefix child; the learner's mix (retarget, phase, pair up) buys
+the cells this happens in more often than the coins do, and the
+violation credits the mechanism only as the exposer of a paper bug that
+any schedule with this ordering reproduces. On reproducibility: the
+campaign is not run-for-run reproducible under a wall budget (slices are
+timed, the corpus and the learners are stateful), so the reproduction is
+the rate under the general config, read on every chunk from here; the
+rate on the first two chunks is one in 1.18M runs.
