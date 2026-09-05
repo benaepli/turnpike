@@ -3662,3 +3662,20 @@ template field - and a null closes the budget axis for good. If it passes,
 the merge is held for the user: a budget change re-bases the epoch
 (template hash, every cached baseline, the ledger identity) and the panel
 cannot vouch for it.
+
+**Smoke gate passed, all four clauses, and the smoke itself says most of
+it.** Same binary, same seed, the two templates side by side for sixty
+seconds: steps per run 2,796 on the baseline template against 1,600 on the
+dose, runs per second 1.71x, and plan completion 0.226 against 0.224 -
+unchanged. The 1,200 steps a run no longer spends bought no plan progress.
+The learned cap, reached on 29.4 percent of baseline runs, is reached on
+none at 2,000 (the learner disengages, as the judge said it would), and
+runs ending on the budget rise from 47.9 to 77.6 percent. The four changed
+arms each about doubled their run counts (grid 15,808 to 33,536) while
+grid-short held at 41,728 to 42,048, which is the invariance the rewrite
+requires. Eight cross-binary chunks follow on the fallback path with no
+treatment bit. The read that decides was fixed before the first chunk:
+depth>=8 events per explore-second on the four changed arms against the
+paired baseline in [1.30, 2.10], campaign-wide as the secondary in [1.20,
+1.80], grid-short inside [0.90, 1.10], and depths 10 to 13 per second
+reported. If it passes, the merge is held for the user.
