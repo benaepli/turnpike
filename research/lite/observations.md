@@ -4543,3 +4543,23 @@ campaign is not run-for-run reproducible under a wall budget (slices are
 timed, the corpus and the learners are stateful), so the reproduction is
 the rate under the general config, read on every chunk from here; the
 rate on the first two chunks is one in 1.18M runs.
+
+**Four chunks: the cycle-before-request learner passes, and every
+learner quarter now reads up.** Coin quarter 463,469 grid runs, probes
+out, seeds 1000 to 1003. C (bit 128), 463,290 treated: depth>=6 1.105
+[1.068, 1.144], depth>=8 1.077 [1.020, 1.138] on 6,410 against 5,952,
+depth>=9 1.076 [0.943, 1.228], depth>=10 1.48 [0.94, 2.30] on 118 against
+80, depth>=11 2.25 on 27 against 12; steps per run 1.002, wall 1.000. The
+point is inside the frozen band [1.05, 1.18] with the lower edge above
+one: a pass. Its learner holds the hold share at 0.629, retarget 0.600,
+pair 0.524, phase 0.495 and rush 0.164 against coins of 0.499, 0.501,
+0.503, 0.462 and 0.249; every gate held on the pooled coin quarter
+(base 0.0190 on 10,567 rewards, hold/stock 3.24, rush/stock 0.30,
+retarget 2.14, stock/placed 0.51). B (bit 32): depth>=8 1.106 [1.048,
+1.169], depth>=10 1.36. A (bit 64): depth>=8 1.091 [1.033, 1.153],
+depth>=10 1.37 - the read that was undecided at 55 separates above one
+on this session's quarters, as the merge reasoned it would with more
+data. The depth-10 leans are 1.4 to 1.5 on all three quarters against
+the coin's 80 events, not decidable at this size and all the same sign.
+One violation in 2,376,600 candidate runs, the target, on chunk 1. The
+regression case and the panel run next.
