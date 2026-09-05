@@ -4406,3 +4406,45 @@ Quarters, not fifths: the hold-readers are not decidable on a bit this
 session and fifths would cost the merged learners 29 percent more error
 for no decision; bit 64 stays, since cutting it changes the measured
 split. Implementing.
+
+**Built at quarters; the mutual cycle is inapplicable on its smoke, and
+the hold-readers read the target.** Quarters of about 24,600 runs each on
+the 60 s smoke, 404 unit tests and every integration test green, the new
+per-node facts on the send ledger and cleared with the ghost mark at the
+crash, the run-end facts on State outside the signature. The mutual
+absorber cycle fires on 62 of 24,629 coin-quarter runs, a base rate of
+0.0025 against the 0.010 floor fixed at admission; its signs are the
+sharpest of any reward measured (retarget on/off 4.17, phase/placed 2.05,
+stock/placed 0.28, fresh 1.46, pair 1.21, hold/stock 1.13, rush/stock
+0.86) but its learner, at 62 rewards over 217 cells, barely moved and
+sent stock the wrong way, which is the thinness the judge named.
+Inapplicable branch, no chunk bought for it; it stays as a coin-quarter
+table for its chunk-scale base rate. The two hold-readers, riding as
+tables, read exactly what the review asked for: the absorber cycle
+closed before the first post-fault request entry, base 0.0193, hold/stock
+2.52, rush/stock 0.20, retarget 2.05, phase 1.27, fresh 1.15, pair 1.25,
+stock/placed 0.82; the restarted-node exchange before the first
+request-caused entry, base 0.0163, hold/stock 2.57, rush/stock 0.13,
+retarget 1.06, stock/placed 1.30. The mean step of the first post-fault
+request entry per direction says why: hold 231, stock 173, rush 156.
+
+Decision, before any chunk: the bit-128 learner runs the cycle-before-
+request reward and the mutual cycle becomes a table. This promotes a
+pool entry the judge kept as table-only, and the judge's reason for
+holding it off a bit stands and is accepted: its depth-8 read is
+expected to be the merged absorber reward's again (retarget 2.05 against
+2.25; the hold is flat at depth 8) and its depth-10 read, where the hold's
+prize lives, is a lean at quarters and cannot be decided this session.
+What the session can decide is whether a reward that reads the hold up
+without reading rush up moves the hold share and holds the depth-8 gain,
+which is the precondition for the depth-10 read that accumulates on
+baseline chunks after a merge, as bit 64's does now. Frozen prediction:
+depth>=8 per run, the bit-128 quarter against the coin quarter, z 2.7
+with overdispersion 1.3, band [1.05, 1.18], pass with the point inside
+and the lower edge above 1.00; chunk-1 gates on the coin quarter:
+base at or above 0.010, hold/stock at or above 1.3, rush/stock at or
+below 0.85, retarget at or above 1.5, stock/placed at or below 1.0;
+build observable: the learner's hold share at or above 0.60 and its
+retarget share at or above 0.58 by chunk 2; depth>=10 reported as a lean
+with the hold share beside it; steps within 1.05; throughput at or above
+0.97. Four chunks.

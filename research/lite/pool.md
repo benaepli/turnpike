@@ -3140,9 +3140,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## per-cell-selector-mutual-absorber-cycle-reward
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 56 (judge gain 7, cost 0, rank 1; bit 128 armSelectorAxisC at
-  quarters; implementing) | parent:
+- kind: add | category: feedback | origin: proposer | status: INAPPLICABLE at
+  iteration 56 on its smoke gate (base rate 0.0025 against the 0.010
+  floor; signs the sharpest measured - retarget 4.17, phase 2.05,
+  stock/placed 0.28 - but 62 rewards over 217 cells move no learner);
+  kept as a coin-quarter table in the iteration-56 build | parent:
   per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
 - Reward: two nodes each crashed as an acted absorber, restarted, and
   heard each other's current incarnation after restart. Sharper than the
@@ -3163,12 +3165,20 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward
 
-- kind: add | category: feedback | origin: proposer | status: KEPT at
-  iteration 56 as a coin-quarter table without a bit (judge gain 4, cost
-  0, rank 2; non-circular, the request-entry fact already carried by the
-  records; its depth-8 read would be the merged absorber reward's and its
-  depth-10 claim was overstated by the marginal arithmetic) | parent:
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 56 on bit 128 at quarters by operator decision after the
+  mutual cycle's smoke (judge gain 4, cost 0, rank 2; smoke table: base
+  0.019, hold/stock 2.52, rush/stock 0.20, retarget 2.05) | parent:
   per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
+- Frozen prediction (operator, before any chunk): depth>=8 per run, the
+  bit-128 quarter against the coin quarter, z 2.7 with overdispersion
+  1.3, band [1.05, 1.18], pass with the point inside and the lower edge
+  above 1.00; chunk-1 gates on the coin quarter: base at or above 0.010,
+  hold/stock at or above 1.3, rush/stock at or below 0.85, retarget at or
+  above 1.5, stock/placed at or below 1.0; build observable: hold share
+  at or above 0.60 and retarget share at or above 0.58 by chunk 2;
+  depth>=10 reported as a lean; steps within 1.05; throughput at or above
+  0.97; four chunks.
 - Reward: the absorber cycle closed before the first post-fault client
   request's record entered a server. The table read this session decides
   whether it reads the hold up without rush up, at what base rate.
