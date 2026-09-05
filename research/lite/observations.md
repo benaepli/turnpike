@@ -4052,3 +4052,33 @@ explicit. The session shape is fixed: two rewards on two bits with
 disjoint treated thirds and the coin third as control, every reward's
 per-direction control array emitted whether or not a learner uses it.
 Judged next.
+
+**Judged.** Every quoted base rate recomputes from the seed-1000 cache
+(overtake share 1.000 on the fresh half against 0.646 on control, 1.53
+ghost entries at restarted destinations per run, acted fractions 0.115 to
+0.172, the phase arm's in-flight share 0.868 against stock's 0.740). The
+overtaken-ghost reward leads at gain 7: its fresh-first sign is by
+construction, its placed sign follows from where stock crashes land, and
+the fresh-first heard table it needs sits behind the stats gate that the
+grader always has on. The acted-absorber cycle is second at gain 5 with
+two corrections: its third clause is near-vacuous (any post-restart
+traffic from a previously restarted peer satisfies it) and its base rate
+is 0.04 to 0.07, not 0.06 to 0.10, because the 0.37 acted-absorber figure
+is the retarget's selection-biased pick and not the per-node rate; its
+firing floor drops to 5,000 to coincide with the inapplicable branch. The
+signal reward is the cleanest argument (retarget flat and fresh-first
+flat settled from the code: the signal is read before the crash applies,
+and first crashes are never retargeted) but its own effect, on the crash
+axis only, is below the four-chunk resolution, so its calibration table
+rides free and it takes no bit; children are excluded by the attribution's
+slot bit, not by the id, because unfilled slots run fresh. The union is
+deduped behind its components. Session: bit 64 overtaken-ghost, bit 32
+acted-absorber, discount 0.998 for both learners fixed before chunk 1,
+control for each bit the coin third only (rows carrying neither bit),
+since the grader's default control includes the other learner's third
+and a working sibling would read the bit as null. The judge's arithmetic
+on power: the per-bit half-width at four chunks is about 0.055, so a band
+edge at 1.03 or 1.04 is not where a null and a working mechanism separate;
+the pass rule is the point inside the band with the interval's lower edge
+above 1.00, and an interval holding both 1.00 and the band edge is
+undecided, not refuted. Implementing.

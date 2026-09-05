@@ -3072,3 +3072,63 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   counters (mean hold 200 steps, crashes drawn below the median completed
   length) predicts a cut share of 0.15 to 0.30 on the long arms and a wall
   ratio that may fail the gate; the smoke answers it either way.
+
+## per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
+
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 55 (judge gain 7, cost 0, rank 1; bit 64; implementing) |
+  parent: per-cell-factored-axis-beta-selector-rarity-reward
+- Reward for the filed per-cell selector: r = 1 when a dead-incarnation
+  record lands on a receiver that has itself restarted and already heard
+  the sender's new incarnation, and the handler writes state. Fresh-first
+  reads up by construction (overtake share 1.000 against 0.646), placed
+  up, the rest flat; base rate about 0.12 on the coin third. Discount
+  0.998, warmup 24, probability-matching coin prior as filed.
+- Frozen prediction (judge's version): depth>=8 per run, treated third
+  against the coin third only, z 2.7 with overdispersion 1.3, band
+  [1.04, 1.12], pass when the point is inside the band with the lower
+  edge above 1.00, undecided when the interval holds both 1.00 and 1.04;
+  chunk-1 gate on the coin third: stock/placed reward ratio at or below
+  0.6, fresh on/off at or above 1.3, rush/stock at or below 1.05,
+  hold/stock in [0.9, 1.1]; build fault if the treated fresh-first share
+  stays below 0.53 by chunk 2 with the coin ratio above 1.3; firing
+  reward_positive_control >= 12,000 and chosen_runs >= 150,000 per chunk;
+  steps within 1.05; throughput >= 0.97.
+
+## per-cell-selector-acted-absorber-crash-cycle-then-fresh-peer-reward
+
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 55 (judge gain 5, cost 0, rank 2; bit 32; implementing) |
+  parent: per-cell-factored-axis-beta-selector-rarity-reward
+- Reward: a crash lands on a node whose last fault-crossing delivery
+  wrote state, the node recovers, and after its restart it takes a
+  message from another restarted node's current incarnation. Retarget
+  reads up by construction (absorbed victims 0.37 against 0.23 per
+  crash), placed up, the rest flat. Judge corrections: the third clause
+  is near-vacuous; base rate 0.04 to 0.07; firing floor 5,000 to coincide
+  with the 0.03 inapplicable branch. Discount 0.998.
+- Frozen prediction (judge's version): depth>=8 per run against the coin
+  third, band [1.04, 1.13], same pass rule; chunk-1 gate: retarget on/off
+  at or above 1.4, stock/placed at or below 0.5, rush/stock at or below
+  1.05, fresh on/off in [0.9, 1.15]; inapplicable if the coin-third base
+  rate is below 0.03.
+
+## per-cell-selector-ghost-signal-fired-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 55 as calibration (judge gain 5, cost 0, rank 3; its
+  per-direction coin-third table is emitted in the iteration-55 build
+  without a learner; children excluded by the attribution's slot bit) |
+  parent: per-cell-factored-axis-beta-selector-rarity-reward
+- Reward: state.replay_cut is Some at run end, fresh runs only. Placed up,
+  everything else flat; base rate 0.21 on fresh runs. Effect on the crash
+  axis alone is below the four-chunk resolution.
+
+## per-cell-selector-either-recovery-shape-union-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 55 behind its components (judge gain 4, cost 0, rank 4; its
+  coin-third table is emitted in the same build) | parent:
+  per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
+- The disjunction of the two shape rewards on one bit; the one-bit
+  fallback if both components pass and a single learner is wanted.
