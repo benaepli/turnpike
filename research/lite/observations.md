@@ -4960,3 +4960,12 @@ per chunk [7143,8019] beside the previous merge's 7,354 and 7,639 on the same
 seeds; no violations. Ledger row appended: ratio 1.038, cumulative 0.949,
 measured 1924 runs per second. The longer-wall panel read on
 raft-stale-vote and forget-accepted runs next on this tree.
+The anchor itself is the softer read: pooled over its two seeds, depth>=8
+per chunk sits two percent above the previous cache (one seed down three
+percent, one up five), against the session's 1.093 per second on four
+paired seeds, and both anchor chunks ran while two subagents were
+reading the tree (runs per second 1,867 and 1,980 against 1,930 and
+2,068 on the previous anchor). The per-second gain of the pick merge is
+therefore carried by the session's paired read and not yet by the
+anchor; the next session's four paired seeds against this cache are the
+read that settles it, and the log says so before they run.
