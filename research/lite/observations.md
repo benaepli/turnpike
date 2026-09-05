@@ -3446,3 +3446,37 @@ after the axis clears its gate. The proposer corrected this log's power
 arithmetic: eight chunks give about 216 depth>=11 events in total, so a
 half against a quarter resolves 1.59, not 1.30; depth>=10 resolves 1.23.
 Judged next.
+
+**Smoke gate, and an override recorded in the open.** Three clauses pass
+with room: 0.907 of EARLY runs carry a stamp (floor 0.50), 17.1 records
+stamped per EARLY run (floor 1.0), steps per run 1.0016 (cap 1.08). Clause
+3 fails its letter: the sampled dispatch share on EARLY is 0.7248 against
+STOCK's 0.4666, a ratio of 1.55 against a required 2.0. The letter rests on
+a premise the smoke falsified. The judge set 2.0 by reasoning that a working
+channel moves the share five to nine times when the stock base is 0.02 to
+0.15; the measured base is 0.47, which caps the ratio at 2.14 and makes 2.0
+close to unattainable by arithmetic alone. Two further facts say the channel
+acts: the class leaves the queue faster on EARLY, so fewer sampled steps
+still hold one (10,244 against 15,106), which depresses this ratio by
+construction; and recovery settle latency reads 74.7 steps on EARLY against
+82.1 on STOCK, down 9.1 percent, clearing the falsifier's 5 percent and one
+point short of the 10 percent the observable predicted.
+
+The operator grades the arm. This is an override of a pre-committed clause
+and is recorded as such: the threshold's derivation is what the data
+refuted, not the outcome the threshold guards, which distinguishes it from
+the three panel rules held to their letter at iterations 46 and 48 where
+the premise stood. Rule for future gates, so this does not recur: a
+quantitative gate threshold is set against a measured base rate or as a
+ceiling-normalized quantity, never by argument about an unmeasured
+denominator. Eight chunks, primary depth>=10, as admitted.
+
+Census from the smoke, arm-blind: 39.8M offers, of which 1.7 percent on the
+EARLY half are in the window; of the stamps, 156,925 are outage backlog and
+512,994 are post-restart sends, so the fresh half is three quarters of the
+class - the reverse of what the backlog's per-run count suggested. The
+backlog always enters at zero entries with the trigger cleared by the crash
+(a single histogram cell); the fresh half enters overwhelmingly at 16 or
+more entries (4.3M of 4.5M sampled), which says the window of 6 is closed
+for most of what is sent to a restarted node, and the class the arm acts on
+is a thin early slice. The cut suppressed 52,142 stamps on its quarter.

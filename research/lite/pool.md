@@ -2733,9 +2733,15 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## recovering-receiver-inbound-priority-axis
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 50 behind a pre-committed smoke gate (judge gain 6, cost 0, rank
-  1 of three; two scope changes required at admission and taken) | parent:
+- kind: add | category: scheduler | origin: proposer | status: GRADING at
+  iteration 50 after the smoke gate: clauses 1, 2, 4 pass (0.907, 17.1,
+  1.0016); clause 3 reads 1.55 against 2.0 but the 2.0 assumed a stock base
+  of 0.02-0.15 where the measured base is 0.47 (ceiling 2.14), settle
+  latency is down 9.1 percent, and the class leaves the queue faster on
+  EARLY - graded on an operator override recorded in observations |
+  previously ADMITTED at iteration 50 behind a pre-committed smoke gate
+  (judge gain 6, cost 0, rank 1 of three; two scope changes required at
+  admission and taken) | parent:
   recovering-receiver-inbound-admission-axis (kept at 48), the rush arm
 - Mechanism: a remote record entering the network queue whose destination
   has incarnation > 0 and fewer than N = 2*|role| handler entries since its
