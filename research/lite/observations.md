@@ -4272,3 +4272,76 @@ cache on the merged tree is measured. This is the first merge of the
 switching mechanism the correction asked for: the arms are chosen per
 cell by a learner rewarded by a protocol-free recovery shape, and the
 merged tree carries its own control third.
+
+## Direction review at iteration 55
+
+**Violations.** None in the round: 2.32M candidate runs, 1,800 regression
+runs, the panel's five members at their calibrated rates.
+
+**What merged and what it means.** The per-cell selector is on the tree
+with two learners and a coin third. The learner that passed is rewarded
+by a recovery shape stated on incarnation counters and the ghost mark - a
+node that accepted a dead incarnation's state was crashed, came back, and
+heard from another node that had also come back - and it moved the
+treated third to retarget 0.64, phase 0.54 and pair 0.55 with stock at
+0.065, for depth>=8 1.111 [1.060, 1.165] against the coin third. The
+mechanism is what the correction asked for: strategies chosen per cell by
+a protocol-free signal, with the exploration built in as the coin third.
+The second learner, rewarded by an overtaken ghost accepted at a
+restarted receiver, moved fresh-first to 0.59 and reads 1.043, undecided;
+its base rate is a third of the estimate and it is measured on every
+chunk from here.
+
+**What the round measured beyond the merge.** The coin-third reward
+tables are the instrument the loop lacked: on 724k coin runs, four
+rewards' per-direction rates sit beside the per-direction depth table,
+and the signal reward's table (stock/placed 0.040, everything else
+within a few percent of one) calibrates the others. The gap between what
+the learners collected and what the table says is on offer is the next
+question. B raised retarget by 14 points and phase by 8; A raised
+fresh-first by 9. The all-on mix the review at 54 priced at 1.6x would
+need every productive axis moved most of the way, and the pick at coin
+share times posterior mean moves a share only as far as the reward
+ratio: retarget at 2.25 gives 0.64, fresh at 1.67 gives 0.59. Two ways
+to collect more, both mechanism-level: a reward whose ratio on the
+productive axes is larger (the union reads retarget 1.86 and fresh 1.13,
+smaller on each than its components; a conjunction would be rarer and
+sharper), or a pick that concentrates faster than the ratio (an
+exponent on the mean, or a two-step where the learner's leader takes a
+share and the rest is coin-weighted). The second adds a constant and the
+first does not; the first is the direction. There is also the question
+the panel raised: eight of ten cells below one, unresolved, and a
+reward shaped by one protocol's recovery is expected to be indifferent
+elsewhere; the next panel anchor on the merged tree reads it at no cost
+per cell.
+
+**Steering audit, iterations 54 and 55.** Four rounds of directives in
+two iterations: build the switching; build the fork; the reward is the
+round; then two operator changes inside the build (the shrunk prior and
+the mean pick), each with the smoke that forced it recorded before any
+chunk. One merge, three closures on smoke gates or two chunks, every
+chunk spent on a mechanism, the per-direction tables riding free. About
+eleven hours across the two iterations. The proxy warning in the goal
+file was the whole content of iteration 54's closure and it was answered
+by measuring the proxy against depth on the coin half before pointing a
+learner at it, which is now the standing practice for any reward.
+
+**Verdict and the next directives.** Iteration 56 proposes rewards for
+the merged selector that are sharper on the productive axes than the two
+merged ones - conjunctions rather than unions, argued direction by
+direction against the coin table and the four reward tables now in the
+record - with the learners' shares as the observable that says how far
+the pick moved, and a depth-10 clause, since the hold's 4.3x at depth 10
+is the largest prize the table shows and neither merged reward reads
+the hold at all (both 1.02 on hold/stock). A reward that reads the hold
+up on the coin third without reading rush up is the specific target. The
+undecided learner A stays on the tree and is read on the next session's
+baseline chunks. The fork stays filed.
+
+Digest for the user: iteration 55 merged the per-cell arm selector
+(7bb10ea): two learners on thirds of the runs, rewarded by protocol-free
+recovery shapes, with the coin third as built-in control and exploration.
+The acted-absorber learner reads depth>=8 1.111 [1.060, 1.165] against
+the coin third; the overtaken-ghost learner 1.043, undecided and kept.
+Throughput 0.996, regression passed, panel flat. Next: sharper rewards
+for the same selector, aimed at the hold's depth-10 prize.
