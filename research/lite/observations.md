@@ -5039,3 +5039,9 @@ seed re-measured with nothing else running; the numbers are in the
 ledger row's note. The judge's point stands as a standing rule: a
 baseline chunk measured beside a panel or a compile is not a baseline,
 and the cache's chunks carry their timestamps for that check.
+The re-measured anchor carries the pick merge after all: seed 1000 reads
+7,965 depth-8 events at 2,004 runs per second against 7,354 on the
+previous merge's cache, seed 1001 8,019 against 7,639, about seven
+percent per chunk pooled, beside the session's 1.093 per second on four
+paired seeds. The "softer anchor" note above was the contended chunk
+speaking, not the tree.
