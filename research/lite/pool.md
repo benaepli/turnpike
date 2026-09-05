@@ -2311,3 +2311,100 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   streak at a destination at most 0.80 of the control's (the closed arm
   read 1.567 the other way); falsifier: depth>=8 interval entirely below
   1.00, or the streak observable above 0.95; cost throughput >= 0.97.
+
+## post-fault-request-rush-arm
+
+- kind: add | category: scheduler | origin: proposer | status:
+  ADMITTED at iteration 46 (judge gain 8, cost 2, rank 1; top pick; the
+  independent observable was rewritten before admission) | parent:
+  post-fault-request-timing-axis (filed) and the merged 64-step hold
+- Mechanism: the inverse direction of the merged post-fault hold, added as
+  a third arm so the axis carries both directions and the coin. A second
+  salt in client_anchor.rs draws RUSH on half of the runs the hold does not
+  treat, giving HOLD 1/2, RUSH 1/4, STOCK 1/4. On a RUSH run a post-fault
+  client request is invoked at its ready step exactly as STOCK does, but the
+  record its invocation pushes takes the top of the priority range instead
+  of a drawn one (path.rs:199), and every record later built under that
+  op's ambient causal_operation_id (exec.rs:560) inherits the same top
+  priority. The drawn priority is still sampled and discarded so the run's
+  RNG stream keeps its shape. Priority is the channel the existing blend
+  already scores on at weight 0.75, so no new same-step override rule is
+  added.
+- Why: the hold is the loop's one anti-general merge - 0.86, 0.52 and 0.39
+  DOWN per cell on paxos-accept-stale-ballot,
+  paxos-fixed-recover-forget-accepted and raft-forget-vote, UP on nothing,
+  while worth about 4x at VR depth 10. That signature is a fixed direction
+  on a real axis. STOCK is not the hold's inverse: it issues the request at
+  plan-ready and then lets it lose every dispatch contest to the fan-out in
+  flight, which is a weak hold. RUSH is the first arm that puts the request
+  ahead of the fault-adjacent traffic.
+- Verified by the judge: the priority sample at path.rs:199, the
+  causal_operation_id ambient at exec.rs:560 threaded into the three
+  record-construction sites, the 0.75/0.25 blend weights (steer_terms.rs:80),
+  bit 16384 dead in run_variant.rs, mencius-opt1-2 at zero crashes so the
+  zero-harm check is structural.
+- Judge red team, carried into the build: fresh_first_dispatch and
+  pair_order_dispatch are eligibility layers AHEAD of the blended score, so
+  a top-priority record can still be displaced; the build must count
+  "rushed record was the pick" against "rushed record was eligible and
+  displaced", which is what separates a null from an inert arm.
+- Frozen prediction: bit clientRushPriority = 1 << 14 (16384, recycled from
+  the dead crashPhaseReaction row), 0.25 of non-probe runs under RUSH_SALT
+  among runs with bit 1<<18 clear, so the matched contrast is RUSH vs STOCK.
+  depth>=8 per-run ratio in [0.90, 1.02].
+  Firing: client_anchor.axis.rush.records_prioritized >= 200,000 per chunk
+  and client_anchor.axis.rush.ops >= 60,000 per chunk.
+  Independent observable (as rewritten at admission):
+  client_anchor.axis.rush.first_delivery_distance mean on RUSH at least 10
+  percent below STOCK's (RUSH <= 0.90 x STOCK), HOLD's the largest of the
+  three, and rush.ops exactly 0 on mencius-opt1-2.
+  Falsifier: refuted if the contrast's 2.7-sigma interval lies entirely
+  below 0.90; or if the RUSH first_delivery_distance mean is not at least
+  10 percent below STOCK's (sign explicit: it must be strictly smaller;
+  equal or larger means the priority override is not advancing the request
+  and the arm is inert); or if paxos-fixed-recover-forget-accepted reads
+  RUSH/STOCK below 1.00 pooled over three seeds.
+  Cost clause: cross-binary throughput at or above 0.97 of the paired
+  baseline.
+- Cross-reference: this is the narrow, arm-gated form of the pool's
+  causal-chain-priority-inheritance-with-demotion-points (scored 6/2, never
+  built).
+
+## post-fault-hold-clocked-by-restart-progress
+
+- kind: add | category: scheduler | origin: proposer | status:
+  MERGED INTO post-fault-release-on-recovered-progress at iteration 46
+  (judge gain 6, cost 0, rank 2; a duplicate of that kept entry, and its
+  claimed improvement - folding the census in arm-blind - is not one,
+  because the kept entry already mandates exactly that). Not a separate
+  row. Its contribution to the kept entry: the release unit is acted
+  handler entries at the most recently restarted node, computable from
+  SendLedger.entries and .entries_at_restart (state.rs:686) with the
+  env.writes != before test note_ghost_delivery already uses (state.rs:1092),
+  bit 1024 entryClock free to recycle, and the depth>=10 decisive clause
+  must be restored (>= 1.20 with the lower edge above 1.00) or the arm is
+  unfalsifiable on the only rung the hold was merged for | parent:
+  post-fault-release-on-recovered-progress
+
+## incarnation-race-coverage-key
+
+- kind: add | category: feedback | origin: proposer | status:
+  KEPT at iteration 46 at the floor (judge gain 2, cost 0, rank 3; do not
+  schedule) | parent: none
+- Mechanism: split the timeline coverage key by the SENDER's incarnation
+  class (TimelineTuple gains stale: bool) and let the within-run novelty
+  steer chase whichever class is currently rare, forcing key granularity to
+  Race on the treated half.
+- Why it is at the floor: its central evidential claim is TRUE and verified
+  - novelty_enabled is false in general_vr.json, key_granularity collapses
+  to Constant, timeline_steer_bias returns 1.0, so a quarter of the blend's
+  weight is genuinely dead - but the opportunity that implies is already
+  answered. Iteration 12 restored novelty at full strength (44.5M flips,
+  keys 5 to 8,954) and lost: throughput 0.796 and a randomized in-session
+  contrast of 0.9801 [0.967, 0.993] with the ablated eighth better per run.
+  The candidate does not clear that gate. Its panel claim is also
+  unsupported: paxos-accept-stale-ballot's shape is ballot supersession, not
+  incarnation staleness, and the sharpest prediction rests on equating them.
+- Reopen only with a proposal that clears iteration 12's gate explicitly -
+  a novelty channel whose throughput cost is bounded and whose per-run
+  contrast is positive, not merely a new key field.
