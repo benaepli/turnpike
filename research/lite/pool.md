@@ -2559,10 +2559,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## reply-before-news-at-destination
 
-- kind: add | category: scheduler | origin: proposer | status: KEPT at
-  iteration 48 (judge gain 5, cost 0, rank 1 of four; held for the
-  operator's direction decision, because its VR read is unresolvable by
-  construction and the merge would rest on the panel alone) | parent:
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 48 (judge gain 5, cost 0, rank 1 of four; the operator's
+  alternative was rejected on falsified claims, and both judgments name this
+  arm; the merge decision rests on the panel under the iteration-46 rule,
+  VR as guards only) | parent:
   fresh-first-same-pair-dispatch-tiebreak (merged, narrowed) and
   pair-send-order-ghost-class-only (merged)
 - Mechanism: a cross-origin same-step preference at one destination,
@@ -2620,3 +2621,27 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   DAG - the exact condition under which a preference and its inverse both
   lose. Its "strict subset of reply-before-news" claim is false (it admits
   ghosts).
+
+
+## post-fault-release-on-earliest-restarted-progress
+
+- kind: add | category: scheduler | origin: operator-agent | status:
+  REJECTED at iteration 48 (judge gain 2, cost 0; two load-bearing claims
+  false) | parent: post-fault-release-on-recovered-progress (closed)
+- What was wrong: counting acted entries from the hold rather than from the
+  restart is a strictly harder release condition, so the clock fires no
+  earlier and generally later than the one closed for firing rarely;
+  recover_nl and recover_2 are unordered in the DAG, so "node 1 is the
+  earliest-restarted node" does not follow from the crash order; and the
+  hold begins at the run's first executed crash, before any restart, so on
+  the modal hold every restarted-node selector returns None and the cap
+  governs - there the arm is byte-identical to the closed one. The 128-step
+  cap governed 82 percent of holds at iteration 47 and read depth>=10 0.743
+  separated down; re-running it would re-buy a measurement already owned.
+- The one durable fact: any release clock keyed on a restarted node's
+  progress must first wait for the crashed node to come back, and the it-47
+  census (third acted entry inside 64 steps on 0.165 of holds, 0.179 at 128)
+  says that latency exceeds the hold window on most holds. A progress clock
+  therefore needs no cap or a far longer one - and a fixed longer hold is
+  known to be worse - so the untested object is a cap-free, dry-queue-only
+  progress release. Not seeded; recorded.
