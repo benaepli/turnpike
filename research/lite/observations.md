@@ -4926,3 +4926,30 @@ against the coin quarter, and the whole campaign reads 1.093 depth-8
 events per second against the tree before it at throughput 1.038. Panel
 flat. Next: make the exploration share per cell adaptive instead of a
 fixed quarter.
+
+## Iteration 58: the exploration budget per cell
+
+Directive from the review: the coin quarter is a fixed exploration
+budget spent equally on decided and undecided cells; make the coin share
+a per-cell quantity that follows the cell's uncertainty, with no
+constant. Five proposals through the scheduling-theory lens. The
+proposer's arithmetic reshapes the directive: the literal rule, one
+minus the mean leading probability, is linear in the margin, and with
+the concentrating halves' best-axis margins at 0.78 to 0.86 the least
+decided learner would set a cell near 0.44 - more exploration than the
+quarter, campaign-wide about one percent, inside the layout band; a mean
+over axes is worse because reward-flat axes never decide. The proposals
+use instead the posterior mass still owed to the prior (the pseudo-count
+over the pseudo-count plus the direction's discounted count, maxed over
+directions, which floors at about 0.05 by the window), or the posterior
+odds against the leader on the most decided axis; one splits the
+exploration per learner third; one bundles the coin-only credit and the
+unit-prior removal; and one is a change-point form, every learner run
+taking the coin on one id-drawn axis and the concentrated pick on the
+other four. The second finding: the matching half decides readability -
+retiring it at a session-mean coin share of 0.12 reads about 1.20 per
+run against today's tree, keeping it 1.15, so every proposal retires it
+and keeps the coin-drawn runs as the reported, cell-confounded control.
+The third: with the coin residue small, own-run credit becomes a lock-in
+mechanism (the leader credited on the learned mix, the rival on a third
+of it), which is what the bundled ablation addresses. Judged next.
