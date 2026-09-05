@@ -2748,3 +2748,95 @@ paxos-accept-stale-ballot 3.53%, mencius-opt1-2 1.52%,
 paxos-fixed-recover-forget-accepted 1.92e-3, raft-stale-vote 3.37e-4,
 paxos-fixed-recover-stale-scout 2.71e-4 - all flat against the previous
 panel, the two rare members inside their count noise.
+
+## Direction review at iteration 45
+
+**Violations: none.** No candidate violation in any session since the last
+review, roughly 12.4M candidate runs. Depth 13 sits near 1e-5 per run and
+has not moved this epoch. The target has still never appeared under a
+general config.
+
+**The proxy question, answered for the first time with cross-protocol
+data.** The objective is depth>=8 on VR's oracle chain, and GOAL.md warns
+that depth has decoupled from violations once already. The per-cell panel
+read now says what eleven merges of hill-climbing on that rung actually
+produced. Of the six merged mechanisms whose bits the cells can resolve:
+
+- `crashPlaced` reads 1.79 [1.39, 2.30] UP on paxos-accept-stale-ballot and
+  flat elsewhere. One mechanism with positive cross-protocol evidence.
+- `clientFanoutRelease` (the 64-step post-fault request deferral) reads
+  0.86 [0.78, 0.96], 0.52 [0.32, 0.85] and 0.39 [0.17, 0.89] DOWN on
+  paxos-accept-stale-ballot, paxos-fixed-recover-forget-accepted and
+  raft-forget-vote, and up on nothing. The mechanism worth about 4x at VR
+  depth 10 is the one actively suppressing violations everywhere else.
+- `freshFirstPair`, `pairSendOrder`, `crashPhase` and
+  `ghostAbsorberRetarget` are flat on every member that can read them.
+  Fresh-first is worth a factor of four on VR and reads 0.97, 0.99, 0.79,
+  1.06, 1.20, 1.96, 0.91, 0.76 off it - nothing above noise anywhere.
+
+So the portfolio is one transferable mechanism, one harmful one, and four
+bets that pay on VR and cost nothing elsewhere. That is a real result about
+the search, not about VR.
+
+**Panel rates, 2026-09-04, both sets.** Quick: paxos-accept-stale-ballot
+3.49e-2, mencius-opt1-2 1.51e-2, paxos-fixed-recover-forget-accepted
+1.90e-3, raft-stale-vote 4.06e-4, paxos-fixed-recover-stale-scout 3.13e-4.
+Slow: raft-accept-stale-term-append 1.60e-4 (115/720k),
+paxos-fixed-forget-promise 8.1e-5 (39/479k), raft-forget-vote 2.7e-5
+(77/2.88M), raft-recover-stale-append-reply 0/1.44M, raft-commit-prev-term
+0/2.88M, paxos-fixed-host-control 0/480k. All flat against the previous
+panel; the clean control stays clean.
+
+**Throughput.** Ledger 1.004 of the epoch freeze after eleven merges;
+current cache 2,073 runs per second, the epoch's highest.
+
+**Steering audit.** Of the five decided candidates since the last review,
+four were operator-seeded or operator-steered (the fault-index arm table,
+both sender-preference directions, the send-order ablation) and one was a
+proposer candidate. Three closed, one filed, one merged as a narrowing that
+removed 64 percent of a merged rule's firing for free. The steering did not
+produce a merge that raised a rung, but it did produce the two standing
+methodological results below, and both closed families that would otherwise
+have absorbed more rounds. It has paid for itself in eliminations, not in
+gains.
+
+**Drift check.** Iterations 41-45 were all fault-timing or dispatch arms,
+none of them parameter doses, so the mechanism-level bar held. But all five
+were single fixed rules chosen for one dimension of VR's chain, which is
+the drift the rung cannot see.
+
+**Verdict: the object we merge is wrong, and the panel says so.**
+Iteration 45 established that a same-step preference and its exact inverse
+both lose to the drawn order, because a deterministic rule replaces the
+control's coin with one fixed order in every run and pays the diversity
+cost whichever order it picks. A fixed order wins only if it is a better
+bet than a coin against the bug - which is knowable only when the bug is
+already known. It is known for VR and unknown in the general case, which is
+the case the tool exists for. Fresh-first is not a counter-example: it is a
+lucky bet, worth 4x on the bug it was derived from and flat on all eight
+members that can read it.
+
+The general-case object is therefore not a rule but an **axis**: a
+dimension along which schedules differ enough to matter, with more than one
+direction reachable in every session. Discovering axes needs no oracle.
+Choosing a direction along one needs a bug, so in the general case the
+direction should be drawn, not fixed by us. Two consequences for the next
+rounds, held as working discipline and not yet written into the proposer
+constraints:
+
+- A candidate that picks one direction and removes the other fails the
+  test; a candidate that adds a direction to a draw passes it. The
+  deferral fails it and the panel shows who pays.
+- A step constant in a predicate (32, 64, 128) is the tell of a fitted bet.
+  Restate it as a protocol-progress count, which every recovery protocol
+  supplies, or it is a VR constant wearing general vocabulary.
+
+The weaker test this replaces - "the predicate is written in general
+vocabulary" - is close to vacuous, and the deferral is the proof: it names
+no VR concept, is expressible on every protocol, and is the single most
+anti-general thing the loop has merged.
+
+**Measurement ceiling to keep in view.** Only three of eleven panel members
+produce enough violations to resolve a cell at all. Generality is currently
+measurable on paxos-accept-stale-ballot, paxos-fixed-recover-forget-accepted
+and raft-forget-vote; the other eight can only veto on zero.
