@@ -39,7 +39,7 @@ import { buildStopperPayload, type StopperPayload } from "../orchestrator/src/st
 import {
   CROSS_BINARY_NULL_FLOOR, EPOCH_DRIFT_WARN, EPOCH_THROUGHPUT_FLOOR, INTERNAL_MIN_EFFECT, INTERNAL_OVERDISPERSION, INTERNAL_Z, MERGE_Z,
   NON_DECLARABLE_BITS, PRIMARY_RUNG, RATE_EXCLUDED_ARM_MODES, RULE_VERSION, VARIANT_BITS, addStratum,
-  chunkStratum, compareToBaseline, complementCoBits, figuresOf, internalAdvanceRungsFor, internalPrimary, invariantCoBits, mergeBlockers, objectiveCounts, primaryRungFor,
+  chunkStratum, compareToBaseline, complementCoBits, figuresOf, internalAdvanceRungsFor, internalPrimary, invariantCoBits, mergeBlockers, objectiveCounts, pooledVariantCells, primaryRungFor,
   probeFreeScope, projectedEpochThroughput, ruleVerdict, selfTestInternalPrimary, variantBitsMissingFromSource,
   variantContrasts,
   type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
@@ -1220,9 +1220,19 @@ async function cmdSelftest(): Promise<void> {
   else {
     if (nested.rung !== 6) failures.push(`crash-fanout-phase-anchored-release was decided on depth>=6, but its record resolves to depth>=${nested.rung}`);
     const matched = internalPrimary(nested.cand, [], 512, null, 4, nested.rung);
-    const unmatched = variantContrasts(nested.cand).find((c) => c.bit === 512)?.rungs.find((r) => r.rung === `depth>=${nested.rung}`)?.ratio ?? 0;
+    // The plain probe-free split, kept here only to show what matching is
+    // worth on this fixture.
+    const plainCells = probeFreeScope(pooledVariantCells(nested.cand), 512);
+    const rate = (cs: VariantMetrics[]): number => {
+      const runs = cs.reduce((a, c) => a + c.gradedRuns, 0);
+      const events = cs.reduce((a, c) => a + (c.depthAtLeast[nested.rung - 1] ?? 0), 0);
+      return runs > 0 ? events / runs : 0;
+    };
+    const unmatched = rate(plainCells.filter((c) => (c.variant & 512) !== 0)) / rate(plainCells.filter((c) => (c.variant & 512) === 0));
+    const survey = variantContrasts(nested.cand).find((c) => c.bit === 512)?.rungs.find((r) => r.rung === `depth>=${nested.rung}`)?.ratio ?? 0;
     if (Math.abs(matched.ratio - 1.1812) > 0.001) failures.push(`the matched contrast on bit 512 must read 1.1812, got ${matched.ratio.toFixed(4)}`);
-    if (Math.abs(unmatched - 1.3850) > 0.001) failures.push(`the unmatched survey contrast on bit 512 must read 1.3850, got ${unmatched.toFixed(4)}`);
+    if (Math.abs(unmatched - 1.3850) > 0.001) failures.push(`the plain split on bit 512 must read 1.3850, got ${unmatched.toFixed(4)}`);
+    if (Math.abs(survey - matched.ratio) > 0.001) failures.push(`the per-bit survey must read the matched contrast on bit 512 (${matched.ratio.toFixed(4)}), got ${survey.toFixed(4)}`);
     if (matched.matchedOnMask !== 1) failures.push(`bit 512 must match on crashPlaced, got mask ${matched.matchedOnMask}`);
   }
 

@@ -250,9 +250,15 @@ export function variantContrasts(evals: Evaluation[]): VariantContrast[] {
   const cells = pooledVariantCells(evals);
   const out: VariantContrast[] = [];
   for (const { bit, name } of VARIANT_BITS) {
+    // The same matched control the primary reads, so a bit graded from a
+    // session declared on another bit is a fair contrast and not a survey.
     const scope = probeFreeScope(cells, bit);
-    const t = variantSide(scope.filter((c) => (c.variant & bit) !== 0));
-    const u = variantSide(scope.filter((c) => (c.variant & bit) === 0));
+    const treatedCells = scope.filter((c) => (c.variant & bit) !== 0);
+    const inv = invariantCoBits(treatedCells, bit);
+    const shared = scope.filter((c) => (c.variant & bit) === 0 && (c.variant & inv) === inv);
+    const comp = complementCoBits(treatedCells, shared, bit);
+    const t = variantSide(treatedCells);
+    const u = variantSide(shared.filter((c) => (c.variant & comp) === 0));
     if (t.side.gradedRuns === 0 || u.side.gradedRuns === 0) continue;
     const width = Math.max(t.depth.length, u.depth.length);
     const rungs: VariantContrast["rungs"] = [];
