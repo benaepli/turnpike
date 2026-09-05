@@ -3736,3 +3736,73 @@ a run. The substantial mechanism the user described at the outset - many
 strategies in one explore, chosen adaptively per cell - has its arms built
 and its switching unbuilt. That, or a structural change to the search such
 as branching from a checkpoint, is where the next session should go.
+
+## Iteration 54: the switching gets built - a state fork and a per-cell arm selector
+
+Preflight on the tree after the operator correction. The spec moved at
+acca633 (the recovery nonce persists across incarnations), so every cached
+baseline matched nothing and the cache was re-measured on four seeds while
+the proposer and judge ran. The tree with the fixed spec reads: 564,060 and
+587,100 runs on seeds 1000 and 1001 at 1,878 and 1,955 runs per second,
+depth>=8 6,490 and 6,790 per chunk, depth>=10 111 and 116, depth>=11 29 and
+42, no violations; the same supply as before the fix, and the background
+nonce-reuse violation is gone by construction. Two untracked non-subject
+files in the tree (a plan document under docs/current-plans from Aug 31
+and a Python cache under research/lite/tools) are left where they are.
+
+Direction, from the correction: the built strategy arms are drawn by
+independent constant coins on the run id, and the switching is unbuilt;
+that, or branching the search from a checkpoint, is the round. The proposer
+was told so beside the fault-injection lens and returned four candidates:
+three per-cell selectors over the run-level arm combination (a joint
+Thompson over 72 combinations, a factored per-axis Beta over 12 directions,
+and Exp3 rewarded by a dead-incarnation delivery acted on at a restarted
+receiver) and a state fork that clones the simulator state at the corpus's
+ghost-signal cut and runs continuations without re-executing the prefix.
+The proposer also found that a selector whose chosen arms are written into
+the tag will fault the grader's co-bit balance by construction; the read
+for a selector is the survey contrast, treated against every untreated
+probe-free run, which is the coin mix and today's tree.
+
+Judged blind. The fork leads at gain 7, cost 2: every mechanism claim
+checked (replay_cut is set at the message-entry site, State derives Clone,
+the exec_plan locals are as listed, the corpus admits 66,641 parents and
+runs 111,774 prefix children per chunk on the fresh baseline), and the
+record's evidence is stronger than the candidate cited: tape fidelity is
+0.23 on the current tree, not 0.44, and iteration 28's inheritance read the
+fidelity gap as about 1.08 per run at depth 8. Its frozen read was wrong
+on the unit - at a 9 percent share the campaign-wide per-second gain is
+4 to 6 percent, inside the layout band - and was rewritten within-binary:
+depth>=8 events per child-wall-second, fork children against tape-prefix
+children, stratified on inherited arm bits, band [1.25, 2.5], refuted
+below 1.10; per-run guard [1.03, 1.35]; wall ratio at or below 0.85;
+cross-binary throughput at or above 0.98 as a no-loss guard. The factored
+selector is second at gain 5, cost 0: the one selector whose sample budget
+works (217 cells, 1,700 to 3,800 runs per grid cell per chunk, about 100
+effective observations per direction under the discount), with two named
+risks - the rarity reward is coverage-shaped and the record's coverage
+analogues read negative, and a uniform prior per axis starts the treated
+half at one third stock crashes against the coin's one tenth. The joint
+Thompson cannot learn at its constants (under three effective observations
+per combination) and the Exp3 is numerically unstable at eta 0.02 with
+importance weights up to 1,440, and its hazard-shaped reward has sign
+evidence against it in the record; both kept behind, deduped. Cited-figure
+corrections: the hold reads 2.52 at depth 10, not 3.3 (3.31 is the
+fresh-only cut); retarget and fresh-first do not exclude timer-context
+probes today.
+
+Decision: build both leaders in parallel worktrees and grade them in
+turn, the fork first. The selector is built with one operator change to its
+mechanism, taken from the judge's red team: the treated draw on each axis
+is posterior-weighted coin sampling (pick a direction with probability
+proportional to its coin share times a sampled posterior), so with flat
+posteriors the treated half's expected mix equals the coins and the
+selector departs from them only on evidence; the per-combination control
+arrays from the Exp3 candidate ride along at no cost, which tests the
+reward proxy in the open on the coin half. Reads fixed before the first
+chunk: the fork on the judge's within-binary read above, computed from the
+(arm, variant) rows of the chunk records; the selector on the survey
+contrast for bit 64 at z 2.7 with the 1.3 overdispersion, band [1.04,
+1.16], steps per run treated to control within 1.05 as the guard, with the
+prior-fault and proxy-fault outcomes the judge wrote kept distinct. Four
+chunks each, no extension without a written reason.

@@ -2962,3 +2962,79 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   recording path. Breaks the per-run unit by construction; only a
   cross-binary per-second read is honest. Schedule only after a budget
   candidate has read.
+
+## state-fork-continuations-at-ghost-signal-cut
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 54 (judge gain 7, cost 2, rank 1; implementing) | parent:
+  lite-postfault-state-fork
+- Clone the PathState and the exec_plan locals at the step where the
+  corpus's ghost-signal cut fires on a fresh grid-arm parent; a state-fork
+  slot (half of the prefix-replay slots, bit 256 replayStateFork, nested in
+  replayPrefix) resumes from the clone with a fresh schedule rng and pays
+  only the continuation. Continuation draws keyed on the parent's id so the
+  child's tag is the parent's mechanism bits. Counters in the replay
+  section: state_fork_slots, state_fork_children, state_fork_fallback_tape,
+  prefix and continuation step sums, snapshot bytes, fork_points_taken,
+  fork_clone_wall_us_sum.
+- Frozen prediction (judge's rewrite): within-binary, depth>=8 events per
+  child-wall-second, fork children against tape-prefix children stratified
+  on inherited arm bits, interval inflated by sqrt(1 + (m-1)/2) for m = 8
+  children per parent, band [1.25, 2.5], refuted below 1.10; per-run guard
+  [1.03, 1.35] with the lower edge not below 1.00; wall ratio fork over tape
+  at or below 0.85; cross-binary throughput at or above 0.98; campaign-wide
+  depth>=8 per second reported, not decided. Firing:
+  replay.state_fork_children >= 20,000 per chunk, fallback share below 0.2.
+  Smoke gate: fidelity test green, clone wall under 2 percent, RSS under
+  2 GB per arm, wall ratio at or below 0.85, child tag equals parent bits.
+
+## per-cell-factored-axis-beta-selector-rarity-reward
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 54 (judge gain 5, cost 0, rank 2; implementing with the
+  operator's prior change) | parent: none
+- Per-cell (arm_index, config_index) learner over the run-level arm axes:
+  crash {stock, placed, placed+phase}, retarget, fresh-first, pair order,
+  request {hold, rush, stock}; one discounted Beta per direction (g 0.995),
+  reward r = 1 when the run's mean rarity of post-recover delivery-context
+  keys beats the cell's EMA; both halves observe. Treated half (bit 64
+  armSelectorAxis, salted, non-probe) draws each axis by posterior-weighted
+  coin sampling (probability proportional to coin share times a sampled
+  posterior), so flat posteriors reproduce the coins; 24-observation
+  warmup on the coins. Untreated half keeps the coins and identical
+  streams. Chosen bits written into the tag.
+- Frozen prediction (judge's rewrite): survey contrast for bit 64, treated
+  against every untreated probe-free run, z 2.7 with overdispersion 1.3,
+  depth>=8 per run in [1.04, 1.16], refuted below 1.04; guard steps per run
+  treated to control within 1.05; build fault if axis_leader_agreements per
+  draw stays below 0.60; proxy fault if the reward-rate ratio is at or above
+  1.12 with depth>=8 at or below 1.0; prior fault if the treated placed
+  share is below 0.80 with depth>=8 below 1.0. Cost at or above 0.97.
+  Firing arm_selector_axis.chosen_runs >= 50,000 per chunk. Smoke gate:
+  coin_fallback share below 0.05, steps within 1.05, control reward base
+  rate in [0.3, 0.7].
+
+## per-cell-thompson-joint-arm-selector-rarity-reward
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 54 behind the factored selector (judge gain 3, cost 0, rank 3)
+  | parent: per-cell-factored-axis-beta-selector-rarity-reward
+- Joint Thompson over the 72 arm combinations per cell with the same
+  rarity reward. Not buildable as written: the 0.995 discount leaves under
+  three effective observations per combination and its own leader-agreement
+  criterion is unreachable. The follow-up if the factored selector reads
+  up and its cells show an interaction; needs a coin-mix prior and a
+  discount that covers twenty observations per combination.
+
+## per-cell-exp3-arm-selector-acted-stale-at-restarted-receiver-reward
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 54 at the back (judge gain 2, cost 0, rank 4) | parent:
+  per-cell-factored-axis-beta-selector-rarity-reward
+- Exp3 per cell over the joint combination rewarded by a dead-incarnation
+  delivery acted on at a restarted receiver. Hazard-shaped reward with
+  sign evidence against it in the record (four hazard-up depth-down
+  results); eta 0.02 against importance weights up to 1,440 blows up the
+  weights on single rewards. Its per-combination control arrays ride along
+  in the factored selector's build and answer whether the reward orders
+  the combinations as depth does before a learner is pointed at it.
