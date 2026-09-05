@@ -3200,3 +3200,26 @@ asserts by test. The restarted-versus-quiet origin preference is rejected:
 the sender-choice family is closed in both directions (0.738, 0.949) and the
 two labels it means are concurrent in the DAG, the exact condition under
 which both directions lose.
+
+**An operator seed, rejected, and what it leaves behind.** A re-keyed
+progress clock - release the held request when the earliest-restarted live
+node has acted three times since the request became ready - was judged and
+rejected on two false load-bearing claims: counting from the hold rather
+than from the restart is a strictly harder condition, so the clock fires no
+earlier than the one closed at iteration 47; and recover_nl and recover_2
+are unordered in the DAG, so "the earliest-restarted node is node 1" does
+not follow from the crash order. The finding that survives is about the
+hold itself: it begins at the run's FIRST EXECUTED CRASH, before any
+restart, so on the modal hold no node has an incarnation above zero and
+every restarted-node selector returns None - which is why the iteration-47
+clock fell to its cap on 82 percent of holds. The census then says the
+crash-to-restart-to-three-acts latency exceeds 128 steps on most holds,
+while a fixed 128-step hold is separated down on depth>=10. The object
+nobody has tested is therefore a progress release with no step cap at all
+(dry-queue release as the only liveness rule); it is recorded, not seeded.
+
+Iteration 48 builds reply-before-news-at-destination, admitted with the
+judge's rewritten prediction: VR rungs as guards, the panel deciding on the
+iteration-46 rule, and news_strict / contests reported so that a
+near-universal NEWS predicate is caught as "restarted-origin-first wearing
+another name" rather than merged under a new label.
