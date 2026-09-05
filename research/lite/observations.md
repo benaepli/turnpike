@@ -3945,3 +3945,81 @@ per run) say the conditioning is in the parent's plan and signal, not in
 the schedule prefix, which is the reason a cheaper exact prefix buys so
 little. The fork machinery is sound and stays filed for a cut whose
 continuation is short or whose admission is rare.
+
+## Direction review at iteration 54
+
+**Violations.** None on either side in the round's two chunks; the
+nonce-reuse background violation is gone with the spec fix, so the corpus
+has no known background rate on the current tree.
+
+**What the round built and what it measured.** Both shapes the correction
+asked for are now built, tested and filed: a state fork that resumes a
+cloned simulator state at a chosen cut, and a per-cell selector that
+replaces the run-level arm coins with a learned draw. Neither moved a rung
+and both taught something the log did not hold. The fork: every plan event
+of a run lands in its first few hundred steps and the run continues ten
+times longer, so a fork saves only the prefix and is empty as a cost lever
+here; the corpus's conditioning is in the parent's plan and signal, not
+the schedule prefix. The selector: the switch works (98 percent of treated
+draws departed from the coins at 0.8 percent fallback, 217 cells, no cost
+per step) and the rarity reward orders the arms against depth on four of
+five axes, read direction by direction on the coin half.
+
+**The table the round leaves behind.** The coin half of the selector
+session is a uniform experiment over the arm axes, and its (arm, variant)
+rows give each direction's depth rate per run on 515k grid runs, probes
+out (marginal over the other axes, which the coins draw independently):
+
+| axis | on | off | depth>=8 on/off | depth>=10 on/off |
+|---|---|---|---|---|
+| crash placed | 0.01407 | 0.00038 | 37 | (0 events off) |
+| crash phase | 0.01525 | 0.01098 | 1.39 | 0.75 |
+| retarget | 0.01517 | 0.01072 | 1.42 | 0.99 |
+| fresh-first | 0.01445 | 0.01144 | 1.26 | 1.38 |
+| pair order | 0.01284 | 0.01305 | 0.98 | 1.18 |
+| hold | 0.01307 | 0.01281 | 1.02 | 4.3 |
+| rush | 0.01321 | 0.01286 | 1.03 | 0.27 |
+
+Stock crashes reach depth 8 one run in 2,600; a placed crash one in 71.
+Against the coin mix, retarget on is worth 1.17, fresh-first on 1.12,
+phase on 1.18 and placed 1.09 at depth 8, and if the axes are near
+additive an all-on mix reads about 1.6x the coins per run at depth 8; at
+depth 10 the hold is worth 1.6x the mix, fresh-first 1.16, pair order 1.08
+and phase off 1.13, near 2x together. Every merged arm kept its coin at a
+half as the control and because the panel showed some direction hurting
+another member; the prize the coins leave on the table on VR is larger
+than any single reading this epoch, and it is exactly what a per-cell
+selector with a depth-aligned reward would collect on VR while collecting
+each member's own mix on the panel.
+
+**Steering audit, iteration 54.** Two directives (build the switching;
+build the fork), two builds, one graded and closed on two chunks, two
+held on their smoke gates with the reason on a measured base. No chunk
+was spent on a census; the per-direction table rode free in a mechanism
+round. About six hours. The proxy warning in the goal file applies to the
+selector's reward and nothing else: the round optimized rarity and got
+less depth, which is the warning's content.
+
+**Verdict and the next directive.** The next round is the selector with a
+reward that orders the directions as the table does. The reward must be
+protocol-free and readable at run end from what the explorer counts; the
+candidates the record offers are the corpus's signal (a dead-incarnation
+delivery entering a node with a crash pending), crossing deliveries, and
+a dead-incarnation delivery acted on at a restarted receiver, and the
+record's sign evidence against hazard-shaped rewards was about mechanisms
+that raise hazards, not about which arms produce them. Two rewards ride
+one binary on two bits with disjoint treated thirds, the coin third as
+the control, and every candidate reward's per-direction control array is
+emitted whether or not a learner uses it, so the alignment question is
+read on chunk 1 against the table above before the depth read is
+credited. The fork stays filed. Pool pruned: the joint Thompson and Exp3
+entries stay behind the factored selector; the fork entries are closed.
+
+Digest for the user: iteration 54 built both the per-cell arm selector and
+the state fork. The fork is filed (the cut is at 7 percent of the run and
+saves nothing; the machinery works). The selector closed at depth>=8
+0.905 because its rarity reward is anti-aligned with depth; the coin half
+gave a per-direction depth table showing the coins leave about 1.6x at
+depth 8 and about 2x at depth 10 on VR. Iteration 55 runs the selector
+with signal-shaped rewards on two bits and reads their alignment on the
+coin half first.
