@@ -3095,3 +3095,25 @@ Two mechanism merges in two sessions, both on cross-protocol evidence: one
 added a direction to a draw, one returned a class of contests to the draw.
 Neither moved VR's primary rung, and neither was expected to. Regression
 and a two-chunk cache follow; the ledger row waits for the cache.
+
+**A throughput scare, diagnosed from data already on disk.** The first two
+cache chunks on the narrowed tree read 1,802.6 and 1,905.5 runs per second
+against a previous median of 2,022.1 - 0.917 - for a change that removes
+work. The per-step cost is small (4.83 against 4.71-4.79 microseconds); the
+mover is steps per run, 2,564 and 2,397 against a previous range of
+2,112-2,489, and on this tree runs per second tracks run length almost
+exactly (the previous cache's own chunks run 1,906-2,147 as steps per run
+run 2,489-2,112). Two readings were possible: fewer fresh-first swaps let
+recoveries complete later and runs grow, or two seeds drew long runs. The
+graded session answers it without a new measurement: within the candidate
+binary, on the same seeds, the cut quarter ran 2,245.0 steps per run against
+the full quarter's 2,249.8 - ratio 0.998, wall per run 11,045 against 11,049
+microseconds, plan completion 0.180 against 0.178. The narrowing does not
+lengthen runs. The 0.917 is a two-chunk draw of long-run seeds, and the
+same seed does not reproduce run length across binaries because the
+schedule differs even where the random stream does not. The cache is
+extended to four chunks for a comparable median; the ledger row waits for
+it. The rule this adds to the two from iteration 46: read the paired
+within-session steps per run before believing a cross-cache throughput
+number, because run length varies by a fifth across seeds on this tree and
+a two-chunk cache cannot see past that.
