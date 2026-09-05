@@ -3480,3 +3480,30 @@ backlog always enters at zero entries with the trigger cleared by the crash
 more entries (4.3M of 4.5M sampled), which says the window of 6 is closed
 for most of what is sent to a restarted node, and the class the arm acts on
 is a thin early slice. The cut suppressed 52,142 stamps on its quarter.
+
+**One chunk decides the axis, and the cut inside it is the result.** EARLY
+against STOCK, matched with rushed runs out of the control: depth>=8 0.763
+[0.691, 0.842], the guard band refuted with the whole interval below 0.96;
+depth>=9 0.700 [0.555, 0.883] separated down; depth>=10 0.93 [0.49, 1.78]
+unresolved. Steps per run 2,383 against 2,374, throughput 1.058, no
+balance faults, 2.69M stamps per chunk on 0.934 of EARLY runs. The nested
+cut, fresh-only against the uncut EARLY: depth>=8 1.477 [1.336, 1.634],
+depth>=9 1.668 [1.316, 2.114], depth>=10 3.31 [1.83, 5.98] on about twenty
+events. Unmixing the quarter puts the uncut arm near 0.68 of stock on
+depth 8 and the fresh-only arm near 1.00, with depth 10 possibly well
+above stock on counts too thin to say more.
+
+So: promoting the outage backlog - the records that change the receiver's
+state 0.36 percent of the time - is not inert, it costs a quarter of depth 8
+and a third of depth 9, and it is the whole of the loss; promoting only what
+was sent to the node since it came back is at worst neutral on the primary
+and is the only reading this epoch to lean up at depth 10 from a mechanism
+other than the hold. The session is stopped after one chunk, because the
+axis as admitted is refuted on its own guard and three more chunks would
+only sharpen an attribution already decided at depths 8 and 9. The arm is
+rebuilt with fresh-only as the whole of EARLY, drawn over the same
+non-rushed population against the same stock control, the same gate, a
+fresh session. The census's second pre-committed read fired as written: the
+backlog is a quarter of the stamps by count and all of the harm, and the
+judge's arm-blind prior - acted fraction 0.0036 - called it before a chunk
+was bought.

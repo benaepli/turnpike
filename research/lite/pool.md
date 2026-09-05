@@ -2733,8 +2733,16 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## recovering-receiver-inbound-priority-axis
 
-- kind: add | category: scheduler | origin: proposer | status: GRADING at
-  iteration 50 after the smoke gate: clauses 1, 2, 4 pass (0.907, 17.1,
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 50 on its guard after one chunk (depth>=8 0.763 [0.691, 0.842]
+  entirely below 0.96; depth>=9 0.700 separated down): promoting the outage
+  backlog costs a quarter of depth 8. The nested fresh-only cut read 1.477
+  [1.336, 1.634] against the uncut arm on depth 8 and 3.31 [1.83, 5.98] on
+  depth 10 - the harm is the backlog, the fresh half is neutral to positive.
+  Superseded by recovering-receiver-fresh-early-axis (fresh-only as the
+  whole of EARLY, bit 65536 renamed recoverWindowFreshEarly). Session
+  stopped after chunk 1 | previously GRADING at iteration 50 after the smoke
+  gate: clauses 1, 2, 4 pass (0.907, 17.1,
   1.0016); clause 3 reads 1.55 against 2.0 but the 2.0 assumed a stock base
   of 0.02-0.15 where the measured base is 0.47 (ceiling 2.14), settle
   latency is down 9.1 percent, and the class leaves the queue faster on
@@ -2783,9 +2791,14 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## recovering-receiver-early-fresh-scope-ablation
 
-- kind: ablate | category: scheduler | origin: proposer | status: ADMITTED
-  at iteration 50, nested in EARLY from the start (judge gain 6, cost 0,
-  rank 2) | parent: recovering-receiver-inbound-priority-axis
+- kind: ablate | category: scheduler | origin: proposer | status: DECIDED
+  at iteration 50 on one chunk: cut/uncut depth>=8 1.477 [1.336, 1.634],
+  depth>=9 1.668 [1.316, 2.114], depth>=10 3.31 [1.83, 5.98] - the falsifier
+  (below 0.90) is not just missed, the backlog class carries a LOSS and the
+  fresh class is the arm; promoted to the axis's whole definition in
+  recovering-receiver-fresh-early-axis | previously ADMITTED at iteration
+  50, nested in EARLY from the start (judge gain 6, cost 0, rank 2) |
+  parent: recovering-receiver-inbound-priority-axis
 - Mechanism: on a salted quarter of EARLY (bit recoverWindowFreshOnly =
   1 << 12, 4096, recycled from clientOpenerProgress) the stamp is applied
   only to records that do not carry DeliveryBias::RECEIVER_RESTARTED - the
@@ -2819,3 +2832,25 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   axis and REFILES (not closes) the two sibling pool entries; 0.10-0.30
   re-keys N; above 0.30 proceeds. If bucket 0 carries > 0.60 of entry mass
   the cut is mandatory (it already is, on the acted-fraction prior).
+
+
+## recovering-receiver-fresh-early-axis
+
+- kind: add | category: scheduler | origin: operator-agent (derived in-round
+  from the cut's reading; the judge named this design in advance as "the
+  most informative single design") | status: ADMITTED at iteration 51 behind
+  the same smoke gate | parent: recovering-receiver-inbound-priority-axis
+  (closed), recovering-receiver-early-fresh-scope-ablation (decided)
+- Mechanism: identical to the closed axis except that EARLY stamps only
+  class records that do NOT carry DeliveryBias::RECEIVER_RESTARTED - records
+  sent to the restarted node since it came back - and never the outage
+  backlog. Same non-rushed non-probe population, EARLY half vs STOCK half,
+  bit 65536 (recoverWindowFreshEarly), no nested cut, same census.
+- Frozen prediction: the closed axis's, with the sign now set by data:
+  PRIMARY depth>=10 EARLY/STOCK lower edge above 1.00 at z 2.7 over eight
+  chunks (resolves about 1.25); depth>=11 corroboration >= 1.15 point;
+  guard depth>=8 [0.96, 1.12] (one chunk of the cut arithmetic says ~1.00);
+  merge rule and panel veto as before; smoke gate clauses 1, 2, 4 as before
+  and clause 3 restated ceiling-normalized: (EARLY share - STOCK share) /
+  (1 - STOCK share) >= 0.35 (chunk 1 read (0.666-0.396)/(1-0.396) = 0.45 on
+  the mixed arm). Cost throughput >= 0.97 after the paired steps read.

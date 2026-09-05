@@ -53,7 +53,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 1024, name: "freshFirstDestCut" },
   { bit: 4096, name: "recoverWindowFreshOnly" },
   { bit: 16384, name: "clientRushPriority" },
-  { bit: 65536, name: "recoverWindowEarly" },
+  { bit: 65536, name: "recoverWindowFreshEarly" },
   { bit: 524288, name: "ghostAbsorberRetarget" },
   { bit: 8388608, name: "crashPhaseOnLanding" },
   { bit: 1048576, name: "replaySlot" },
