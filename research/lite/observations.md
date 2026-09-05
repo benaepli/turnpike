@@ -3507,3 +3507,36 @@ fresh session. The census's second pre-committed read fired as written: the
 backlog is a quarter of the stamps by count and all of the harm, and the
 judge's arm-blind prior - acted fraction 0.0036 - called it before a chunk
 was bought.
+
+## Iteration 51: the fresh-only recovering-receiver axis
+
+Rebuilt in the same round from the cut's reading: EARLY now stamps only
+class records that were sent to the restarted node after it came back and
+never the outage backlog; same non-rushed population, same stock control,
+bit 65536 renamed recoverWindowFreshEarly, bit 4096 gone. All four gate
+clauses pass on the 60-second smoke: 0.907 of EARLY runs stamped, 12.4
+stamps per EARLY run, ceiling-normalized dispatch-share gain 0.428 against
+0.35, steps per run 0.999. Two readings recorded in the open.
+
+The dispatch-share observable was re-scoped by the implementer after it
+read 0.224 over the mixed population: the census's class test now excludes
+the backlog the rule deliberately leaves alone, and over the class the rule
+acts on it reads 0.428. Both numbers are kept. The re-scoped one is the
+right measurement - a gate's population has to be the rule's class - but it
+was chosen after the first number was seen, and the record says so.
+
+Settle latency reads 81.1 steps on EARLY against 84.5 on STOCK, 4.0 percent
+down, against a falsifier that closes the arm as inert below 5 percent. The
+mixed arm read 9.1 percent. The observable counts handler entries, and the
+outage backlog's deliveries are entries; the fresh-only rule leaves those at
+their drawn priority, so this observable under-reads for it by construction.
+The channel is visibly acting - class pick share 0.507 to 0.718, class
+records leaving the queue 42 percent faster - so the arm is graded, on an
+override recorded here, the second in two rounds. Both overrides are of
+quantitative thresholds set by argument for a different population than the
+one they ended up measuring; neither is of a depth reading. To keep the two
+from compounding, the read that decides is fixed now and will not be
+reinterpreted: depth>=10 EARLY/STOCK with the 2.7-sigma lower edge above
+1.00 over eight chunks, depth>=8 inside [0.96, 1.12] as the guard, four
+chunks bought first and four more only if the first four leave the lower
+edge within reach of one.
