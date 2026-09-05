@@ -4678,3 +4678,30 @@ and merged a third selector learner that reads the hold (e2733f0): depth
 The tree now runs three learners and a coin quarter. Next: let the
 learners exploit harder where their posteriors separate, since the coin
 quarter already supplies the exploration.
+
+## Iteration 57: a pick that concentrates
+
+Directive from the review: the coin-times-mean pick caps a direction's
+share near 0.7 at the tables' ratios while the coin quarter already
+supplies the exploration, so the treated quarters may exploit harder.
+Five proposals through the ablation lens, all on bit 256 as a salted
+half of every learner quarter picking by a new rule against the matching
+half on the same posteriors. Two facts about the merged learner shape
+them: credit discounts only the directions a run carried, so every
+direction's count tends to the 500-observation window whatever its coin
+and the width gap that sank iteration 54's argmax is a young-cell
+effect; and a learner credits its own quarter, whose reward rate runs
+1.09 to 1.31x the coin's, so a leader is observed at the learned mix and
+its rivals at the coin's, a confound that holds a noise leader on a flat
+axis near 0.6 under matching and would lock it under a greedy pick. The
+candidates: argmax over posterior samples (Thompson proper; shares to
+0.94 and above where separated, but a flat three-way axis tends to
+thirds and young cells lift stock); coin share times the posterior
+probability of leading, from the Beta-difference normal approximation
+with no draw and no constant (the coin exactly on flat axes, the leader
+where separated); a leader mixture by leading margin, the mean-leader
+taking the axis with probability 2P-1 and the coin the rest; the greedy
+posterior-mean leader as the exploitation ceiling, argued against as a
+merge; and crediting the posteriors from the coin quarter only, which
+removes the confound at no constant and is graded on shares since it
+cannot be split by run. Judged next.
