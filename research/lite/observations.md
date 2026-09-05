@@ -5032,3 +5032,10 @@ of the four chunk ratios' own dispersion and the binomial error at 1.3;
 refuted below 1.03; per second reported beside it with depth>=10; chunk-1
 gates on the coin-run count, the mean coin share and the learners'
 shares. Implementing.
+
+**Seed 1000 re-measured on an idle host.** The contended chunk (7,143
+depth-8 at 1,867 runs per second) is dropped from the cache and the
+seed re-measured with nothing else running; the numbers are in the
+ledger row's note. The judge's point stands as a standing rule: a
+baseline chunk measured beside a panel or a compile is not a baseline,
+and the cache's chunks carry their timestamps for that check.

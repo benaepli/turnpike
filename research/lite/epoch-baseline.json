@@ -195,14 +195,14 @@
    "spurCommit": "ebf6d4e",
    "ratio": 1.038,
    "cumulative": 0.949153,
-   "measuredRps": 1923.8274121185987,
+   "measuredRps": 1992.0779539817581,
    "measuredRpsChunks": [
-    1867.2899623425528,
-    1980.3648618946443
+    1980.3648618946443,
+    2003.791046068872
    ],
    "cacheFile": "research/lite/baselines/a13639a6047a-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-06T00:30:00Z",
-   "note": "measured by grader baseline --chunks 2 after the concentrating-pick merge; depth>=8 events per chunk [7143, 8019] against 7354/7639 on the previous merge's cache"
+   "note": "measured by grader baseline --chunks 2 after the concentrating-pick merge; depth>=8 events per chunk [7143, 8019] against 7354/7639 on the previous merge's cache; seed 1000 re-measured on an idle host after the first chunk read 0.78 per second under the panel's load: [8019, 7965]"
   }
  ]
 }
