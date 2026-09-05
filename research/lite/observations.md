@@ -4082,3 +4082,33 @@ edge at 1.03 or 1.04 is not where a null and a working mechanism separate;
 the pass rule is the point inside the band with the interval's lower edge
 above 1.00, and an interval holding both 1.00 and the band edge is
 undecided, not refuted. Implementing.
+
+**Built; the smoke reads the signs as predicted and a prior fault
+before it.** Two learners on disjoint thirds under a phase of 3, one
+DashMap each, discount 0.998, warmup 24, the rarity machinery gone, the
+coin third's tag identical to today's; 399 unit tests and every
+integration test green, two predicate tests on a constructed State. The
+60 s smoke, coin third of 32,923 runs, per reward the base rate and the
+per-direction reward-rate ratios (stock/placed, phase/placed, retarget
+on/off, fresh on/off, pair on/off, hold/stock, rush/stock):
+overtaken-ghost 0.036: 0.84, 1.17, 1.24, 1.65, 0.97, 0.95, 0.89;
+acted-absorber 0.057: 0.26, 1.36, 2.14, 0.99, 1.15, 1.00, 0.99;
+ghost-signal 0.143: 0.06, 1.16, 1.13, 0.96, 1.02, 1.00, 0.94;
+either-shape 0.087: 0.49, 1.25, 1.68, 1.16, 1.05, 0.97, 0.93. The
+absorber reward meets all four of its chunk-1 gates on the smoke; the
+overtaken reward meets three and reads stock/placed 0.84 on 84 events
+against 0.8, with a base rate of 0.036 under the proposer's 0.06 to 0.20
+and above the 0.03 floor. Both learners depart from the coins where
+their rewards point - fresh-first on 0.579 under A, retarget on 0.610
+under B - and both also raise the stock-crash share (0.136 and 0.119
+against 0.083). The implementer traced the second to the flat Beta(1,1)
+prior: at a reward rate of 0.04 to 0.06 the placed directions fall to
+their rate on about 225 observations per window while the stock
+direction, at 8 percent of runs, keeps the prior's mean of one half, so
+probability matching samples it high. That is the prior fault the judge
+named at iteration 54 as an outcome distinct from a reward fault, seen
+before any chunk. Decision: fix it before grading rather than spend four
+chunks reading it - each direction's prior is shrunk toward the cell's
+discounted running reward mean with the warmup count as its pseudo-count,
+so a direction with no data samples around the cell's rate and no new
+tunable enters. Rebuild, same smoke, then the session.
