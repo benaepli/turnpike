@@ -4743,3 +4743,24 @@ mirrors learner A); band [1.06, 1.22] pooled new half against matching
 half; the flat-axis observable widened to [0.35, 0.65] as a confound
 signal rather than a refutation; a pooled A+B depth-10 read below 0.80
 on 120 or more events goes to a human before any merge. Implementing.
+
+**Built; graded.** The pick on the bit-256 half of every learner quarter
+weights each direction by its coin share times the posterior probability
+of leading its axis, pairwise by the Beta-difference normal
+approximation and multiplied across rivals on the three-way axes, one
+categorical draw per axis as before; the matching half is bit-identical
+to the tree's pick. 410 unit tests and every integration test green,
+among them: identical posteriors reproduce the coin to three decimals on
+both halves, and a leader separated at 0.02 against 0.06 over 500
+observations takes 0.99 of its axis on the new half against 0.73 under
+matching. The 60 s smoke (446 observations per cell, a fifth of a chunk-1
+cell): new half against matching against coin, B retarget 0.707 / 0.574 /
+0.500, A fresh 0.681 / 0.562 / 0.504, C hold 0.613 / 0.546 / 0.501, C
+retarget 0.629 / 0.559 / 0.500, C rush 0.166 / 0.205 / 0.250; A hold
+0.390 against 0.464 on the flat request axis; stock on the new half
+0.128 on A and 0.133 on C against 0.098 and 0.105 under matching, the
+young-cell width effect at its youngest (about ten coin observations of
+stock per cell), below the 0.15 build-fault line and re-read on chunk 1.
+Session pick-lead started on bit 256 with band [1.06, 1.22]; four
+chunks, seeds 1002 and 1003 of the merged tree's baseline measured
+inside it.
