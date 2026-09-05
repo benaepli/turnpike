@@ -3621,3 +3621,23 @@ runs; no arm of any plausible size can be decided there at eight chunks,
 and the panel decides nothing under 1.3x. The binding constraint on
 VR-decisive rounds is no longer ideas; it is the supply of deep-rung
 events per explore-second. That is the directive for iteration 53.
+
+## Iteration 53: the supply of deep events
+
+Directive from the closure of the recovering-receiver family: the binding
+constraint on VR-decisive rounds is the supply of deep-rung events per
+explore-second, not ideas about ordering. Four proposals through the
+premise-check lens. The one that leads is a config dose with its evidence
+already in the caches: cut the base step budget from 6,000 to 2,000. The
+campaign's own grid and grid-short arms differ in exactly that field (6,000
+against 1,500), and the proposer reads them pooled over sixteen chunks from
+four sessions as 2.3x events per second at depth>=8, 2.7x at 11, 3.0x at 12
+- with per-run rates higher, not lower, at every rung - which contradicts
+the epoch-13 record that grid-short lowered per-run depth. Whether that
+recomputes from the cells, and what confounds the between-arm contrast
+carries (wall allocation, the learned cap binding before the budget), is the
+judge's central check. Behind it: a two-tier budget extended only for runs
+whose planned fault cycles have all completed; a state checkpoint at the last
+planned recover with several continuations, which breaks the per-run unit
+and says so; and a per-cell Thompson walk over the config grid rewarded by a
+protocol-free post-fault shape. Judged next.
