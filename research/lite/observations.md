@@ -3839,3 +3839,37 @@ where nothing has happened yet. The follow-up is seeded below with the cut
 moved to the last planned recover applied after the signal, which is where
 the depth-8 race is drawn, so the continuation is the race and the prefix
 is everything before it.
+
+**The selector builds, and its smoke reads the red team's second point
+already.** The plumbing is as designed: an ArmSet reproduces the six coins
+on 64k ids including each mechanism's own probe eligibility, the untreated
+half draws identical schedule streams (the selector's rng is derived from
+the schedule seed and the run id and never touches the run's stream), the
+chosen bits go into the tag, 397 unit tests and every integration test
+pass. On the 60 s smoke: 48,662 treated runs, 46,166 chosen, 2,496 on the
+coin fallback (0.051, warmup-limited at this length), 45,315 departures,
+217 cells, 63,980 live keys, treated placed share 0.852 against the coin's
+0.919. Two gate clauses miss on the smoke and both are read on chunk 1
+instead of stopping the session, for reasons recorded here before the
+chunk: the control reward base rate is 0.112 against the [0.3, 0.7] gate
+because the cell EMA (weight 0.01) lags the falling rarity scores for a
+cell's first several hundred runs - the per-arm rates confirm it, 0.03 on
+the 250-run cells up to 0.29 on the one aos cell with 15k runs - and a
+300 s chunk puts the grid cells at 0.3 to 0.45; and the judge's
+leader-agreement build criterion (0.60 to 0.70) assumed argmax draws, which
+the operator's probability-matching prior replaced, so under flat
+posteriors agreement sits at the coin share of the tie winner (0.42; the
+smoke reads 0.467) and the build is read on departures and on
+chosen_by_direction against control_runs_by_direction instead. One thing
+the implementer measured that the flat-posterior prior does not deliver
+exactly: with equal posteriors the treated shares are placed 0.889 and
+hold 0.457 against coins of 0.919 and 0.5 (Jensen on the smallest coin),
+so the treated half starts a few points off the coins on the crash axis.
+
+And the reward is doing what the judge said it would: on the control half
+the reward rate by direction is flat at 0.104 to 0.116 except stock
+crashes at 0.141, and the treated half's chosen stock-crash share is 0.148
+against the coin's 0.08 - rarity rewards the direction whose contexts are
+rare because the direction is rare. Graded as admitted: four chunks,
+survey contrast for bit 64, the prior-fault and proxy-fault outcomes kept
+distinct as written at admission.
