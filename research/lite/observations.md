@@ -4953,3 +4953,10 @@ and keeps the coin-drawn runs as the reported, cell-confounded control.
 The third: with the coin residue small, own-run credit becomes a lock-in
 mechanism (the leader credited on the learned mix, the rival on a third
 of it), which is what the bundled ablation addresses. Judged next.
+
+**Fresh anchor on the merged tree (concentrating pick).** Two baseline
+chunks on seeds 1000 and 1001 at 1867 and 1980 runs per second; depth>=8
+per chunk [7143,8019] beside the previous merge's 7,354 and 7,639 on the same
+seeds; no violations. Ledger row appended: ratio 1.038, cumulative 0.949,
+measured 1924 runs per second. The longer-wall panel read on
+raft-stale-vote and forget-accepted runs next on this tree.
