@@ -3583,3 +3583,15 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   learner form is inapplicable at 0.003 to 0.009; it measures the calm
   hole) | parent:
   per-cell-selector-cycle-before-request-and-post-fault-answer-before-restarted-news-reward
+
+## replay-prefix-checkpoint-after-acted-overtaken-ghost
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED for iteration 66 | gain: 7 | cost: 2 | rank: 1
+- Branch the replay corpus after an acted overtaken ghost, preserving the recovery ordering.
+- Frozen specification, prediction, observables, falsifiers and judge review: `research/lite/plans/iteration-66-admitted.json`, hypothesis `replay-prefix-checkpoint-after-acted-overtaken-ghost`.
+
+## selector-one-parent-conditional-direction-posteriors
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at iteration 66 | gain: 4 | cost: 0 | rank: 2
+- Choose later scheduling directions conditionally on the cell's most decided axis.
+- Frozen specification, prediction, observables, falsifiers and judge review: `research/lite/plans/iteration-66-admitted.json`, hypothesis `selector-one-parent-conditional-direction-posteriors`.

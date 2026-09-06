@@ -6552,3 +6552,26 @@ run cap moved, so it does not establish the benefit of carrying selector
 state. Cross-credit already failed. Seek structural alternatives with a
 causal observable and an honest randomized or cross-binary comparison;
 the prior decision to idle does not establish that the search is exhausted.
+
+## Iteration 66: checkpoint after an acted overtaken delivery - admission
+
+Proposer returned two structural mechanisms through the message-delay
+lens. Blind judge ranks the checkpoint 7-2=5 and conditional pair selector
+4-0=4; both remain in the pool, the checkpoint is selected. Frozen full
+predictions and implementation constraints are in
+research/lite/plans/iteration-66-admitted.json. Mode: autonomous.
+
+The current tape fidelity is 0.504-0.518, not the historical 0.23, and raw
+prefix/plan depth>=8 ratios are 1.043-1.063. The fork is admitted for
+conditioning past an acted dead-incarnation delivery to a restarted
+receiver that has heard the sender's newer incarnation, not for an assumed
+large saved prefix. Reuse replayPrefix (2097152), with the plan-only slot
+as control; require raw [1.50,3.00], improvement over baseline contrast
+>=1.25, cross-binary per-run >=1.08, throughput >=0.95, and net primary
+per-second gain. Supply, fallback, suffix diversity, full history fidelity,
+and unchanged inherited cap are binding. A conservative new-progress gate
+requires 75 distinct parents whose complete original run was below depth
+11 to produce a resumed child reaching depth 11 over four chunks. Parent
+clustering and sibling sensitivity accompany the unchanged grader result.
+No new oracle information enters explorer behavior. The independent pair
+selector stays behind with supported-pair evidence requirements.
