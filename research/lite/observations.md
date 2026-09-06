@@ -5112,3 +5112,25 @@ of 0.008; the epoch ledger would move from 0.949 to 0.962 against its
 0.90 floor. The grader's advice line prints merge with no blockers: on
 the cross-binary fallback its own rule reads the same separation the
 operator's four-chunk read does. The panel runs next.
+
+**Panel on the candidate binary, seed 1000, scale 3, learner runs
+against coin-drawn runs.** paxos-accept-stale-ballot 3.61e-2: 1.05
+[0.92, 1.18]. mencius-opt1-2 1.50e-2: 1.01 [0.83, 1.24]. raft-stale-vote
+3.2e-4: 0.67 [0.25, 1.81] on 75 against 11, the coin-drawn runs only
+8 percent of that member's runs. paxos-fixed-recover-stale-scout 2.6e-4:
+0.80 on 17 against 7. paxos-fixed-recover-forget-accepted 1.89e-3: 1.60
+[0.85, 2.99] on 142 against 29. Every member at its calibration and flat
+against the previous panels; no cell separates. The per-learner cells
+have no matched control on this tree, since coin-drawn runs carry no
+learner bit and are a state-dependent subset; the learner-runs-against-
+coin cell is what the panel can read, and on raft-stale-vote it reads
+the same lean as before on eleven control events, which is the standing
+caveat and nothing more at this resolution.
+
+**Decision: merged, as graded (4ef6d72, spur f545044).** The rule passes
+the read frozen before its session on every seed, the regression
+passes, the cost read is a gain, the grader's own advice is merge with
+no blockers, and the panel vetoes nothing. Three merges in three rounds
+on the selector: rewards, then the pick, then the exploration budget;
+the campaign now reads about 1.09 times 1.135 on depth-8 events per
+second against the tree the selector's rewards were merged on.
