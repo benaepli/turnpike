@@ -218,6 +218,21 @@
    "cacheFile": "research/lite/baselines/0e643ae99082-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-06T01:30:00Z",
    "note": "measured by grader baseline --chunks 2 after the exploration-share merge, the proposer reading the tree meanwhile; depth>=8 events per chunk [8813, 8610] against 7965/8019 on the previous merge's cache"
+  },
+  {
+   "name": "selector-cells-pooled-by-configuration-across-grid-arms",
+   "commit": "e42b271",
+   "spurCommit": "b86baad",
+   "ratio": 1.016,
+   "cumulative": 0.97784,
+   "measuredRps": 2014.0518567808017,
+   "measuredRpsChunks": [
+    2018.299138981561,
+    2009.804574580042
+   ],
+   "cacheFile": "research/lite/baselines/34b5ef40e3bf-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+   "measuredAtIso": "2026-09-06T06:00:00Z",
+   "note": "measured by grader baseline --chunks 2 after the pooled-cells merge, the proposer reading the tree meanwhile; depth>=8 events per chunk [9551, 9285] against 8813/8610 on the previous merge's cache"
   }
  ]
 }

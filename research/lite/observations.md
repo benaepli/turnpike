@@ -5850,3 +5850,10 @@ cells across the grid arms by configuration (e42b271): depth-8 per run
 the objective about 1.5x the coin tree, the target found once. Next:
 new arms for the transitions past depth 10, timed to the recovered
 nodes' exchange, which the selector will learn per cell.
+
+**Fresh anchor on the merged tree (pooled cells).** Two baseline chunks
+on seeds 1000 and 1001, depth>=8 per chunk against 8,813 and 8,610 on
+the previous merge's cache for the same seeds, numbers in the ledger
+row; no violations; ledger ratio 1.016, cumulative 0.978. Measured
+while the proposer read the tree; the next session's paired seeds are
+the read.
