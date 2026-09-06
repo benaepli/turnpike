@@ -6013,3 +6013,42 @@ exclusion on a record class keyed to the fault on the dimension the
 DAG constrains, not the sender-preference kind that lost both ways;
 whether it pays is exactly what the in-flight share decides, and that
 number has never been measured. Implementing.
+
+**Built; the smoke splits its gates; graded with the departure
+written.** The axis, the segment table, the mask in the draw's
+eligibility closure, the new liveness lift, the hooks at the
+operation's completion, 425 unit tests and every integration suite
+green, untreated runs stream-identical by test. The 60 s smoke,
+120,600 runs: probe-free coin-drawn shares 0.502, 0.243, 0.255; steps
+per run CLIENT_FIRST 1.020x stock and CONSEQUENCE 1.000x; plan
+completion 31.0, 30.9, 31.1 percent. CLIENT_FIRST opened a window on
+0.969 of post-fault invocations, masked 254,393 records in the minute
+(about 1.2M per chunk), lifted four times, read the masked network empty
+on 0.225 of window steps, fired timers at 1.055x the stock rate inside
+windows, and opened 0.668 of windows with at least one competitor
+queued (ghost from a dead incarnation 0.297, live from a restarted
+sender 0.119, live from a never-restarted sender 0.576; on first-op
+windows 0.638, 0.316, 0.052, 0.579) - the applicability observable the
+band is conditioned on, met. What fails is the window's close: 0.827 of
+windows closed on the 64-step cap and 0.172 on the operation's
+response, against letters of 0.30 and 0.70; the reason is structural
+and the record never held it - a post-fault operation's first delivery
+alone averages 28 steps after invocation and a write needs four more
+hops, so few complete inside 64 steps, and the window is in practice a
+64-step mask after each invocation that covers most but not all of the
+round trip. CONSEQUENCE is inapplicable on its own floor: 1,381 held
+records in the minute (about 6,400 per chunk against 40,000), 2,385
+flagged segments, two thirds of the holds released by the caps; a ghost
+at a restarted destination rarely acts, so the class is thin.
+
+Decision: buy the chunks for CLIENT_FIRST, with the two window-close
+letters departed from because they measured a completion time the
+record never held while the mechanism's applicability read and every
+cost gate pass; pre-committed now: the merge claim stays 1.75 at depth
+11 against stock, the guard depth 8 in [0.96, 1.03], and a null read
+is attributed to the cap closing the window before the round trip ends
+- which would license one rebuild with the window at the operation's
+life and the lift as its liveness guard - and not to the premise. The
+CONSEQUENCE quarter is closed on its smoke as inapplicable and its
+runs are read as a near-stock second control. Session causal-window
+started on bit 131072; four chunks.
