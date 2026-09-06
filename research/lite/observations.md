@@ -5786,3 +5786,67 @@ the grader's advice is merge with no blockers, and the mechanism is a
 keying change with no constant. Written as a departure from the rule's
 letter. The aos read stays unresolved and unattributed; the next
 session's paired seeds read it again on the merged tree's baseline.
+
+## Direction review at iteration 61
+
+**Violations.** None in the round's 2.39M candidate runs; one in 12.7M
+candidate runs since iteration 56.
+
+**What is on the tree.** The per-cell selector, five merges deep: three
+learners rewarded by recovery shapes, the concentrating pick, the
+per-cell exploration share, and now cells shared across the grid arms
+by configuration. Against the tree before the selector's rewards, the
+campaign reads about 1.09 times 1.135 times 1.07 depth-8 events per
+second, and that tree read 1.13 per chunk against the coins: the
+objective is about 1.5x the epoch's coin tree, at a ledger of 0.978,
+with every merge a mechanism and none a constant. Depth 10 per run on
+the last four sessions' learner runs leans 1.2 to 1.8 against the coin
+draws; the target's rate is one in about ten million runs.
+
+**Where the selector is now bounded.** The discount window caps what
+maturity can buy (the pooled cells sit near a mass of 430 against the
+window's 500), the coin share is 0.11 and the learners hold 0.8 to 0.9
+of the axes their rewards separate. What the selector cannot do is
+create a direction that does not exist: it chooses among the arms the
+tree has, and the chain from depth 10 to the violation runs through
+transitions the current arms were never built for - 10 to 11 at 0.23
+and 12 to 13 at 0.30 on the funnel, where the oracle's labels are the
+StartView's delivery to the old primary and the client reads after
+the view change. The request axis holds a fixed 64-step delay drawn at
+iteration 36 for depth 10; nothing on the tree times a request to the
+view change's completion, and the progress-clock family closed at 49
+because the node whose crash opened the hold mostly does not act again
+within the run. With the selector on the tree, a new arm is no longer a
+bet on a fixed share: it is drawn by the coin runs at a coin share and
+learned per cell where it pays, which is what the portfolio was built
+for.
+
+**Steering audit, iteration 61.** One directive, one build, four
+chunks, one merge on the arm reads with the rule's letter departed from
+and the reason written. The aos arm's 0.88 on an untouched cell is
+carried as unresolved. The judge's per-(arm, round) diagnostic on
+grid's deficit was not run: the runs table does not survive a chunk and
+the host has no DuckDB reader; it stays on the shelf for a session with
+a kept output directory.
+
+**Verdict and the next directive.** Iteration 62 proposes new ARMS for
+the transitions past depth 10: directions on the request axis or a new
+axis that time client work to the recovered nodes' post-restart
+exchange (a release keyed on a protocol-free event at the restarted
+nodes: the first acted post-restart delivery at each restarted node,
+the ghost class draining at a restarted receiver, the settle of the
+crossing class the stop family measured at a median of 64 steps),
+stated without a handler name, drawn by the coins as a new direction of
+an axis so the learners pick it per cell, with the per-direction coin
+table as the chunk-1 read and depth 11 to 13 per run on the coin runs
+by direction as the reads the round is for. The cross-learner credit
+stays kept as the selector's next maturity step; the fault-shape
+pooling stays at the bottom.
+
+Digest for the user: iteration 61 merged the pooling of the selector's
+cells across the grid arms by configuration (e42b271): depth-8 per run
+1.052 [1.028, 1.076] campaign-wide, the three long grid arms 1.10 to
+1.14, coin share 0.11, throughput 1.016. Five selector merges since 55,
+the objective about 1.5x the coin tree, the target found once. Next:
+new arms for the transitions past depth 10, timed to the recovered
+nodes' exchange, which the selector will learn per cell.
