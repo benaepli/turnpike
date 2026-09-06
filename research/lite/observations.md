@@ -6208,3 +6208,42 @@ without clearing a floor of their own. Two spec facts shaped the class
 tests: the responder to a restart's request writes only locals, and
 the causal id is inherited through a segment, so the acknowledgement
 carries a cause only on the request route. Judged next.
+
+**Judged.** The graded credit rides in learner C's slot on bit 128 with
+no new bit and no fourth learner, at gain 6, cost 0; the two order facts
+ride as its levels and as coin columns, the race count as a column. The
+class tests name label 11 before 12 with incarnation, cause and role
+facts only, on both orders at label 9 through the caused route and on
+the found run's recovery-path route through a reply test - which the
+tree cannot make today (no record field says what entered the sending
+segment), so the causal-window patch's per-origin segment table is
+ported state-side on every run, cost 0, where a record bool through
+exec.rs would be cost 2. Two holes the proposals under-priced are fixed
+at admission: the answer class as proposed admits a restarted primary's
+Prepare at a never-restarted backup - the hold's own shape with no
+label 11 - so the answer's operation must be one whose client-role
+request entered that node; and the calm run, where no news ever acts
+because fresh-first starves the stale dead pair, is measured by the
+race column and closed by level 3. The decisive fact for the round's
+shape: learner C already holds the hold at 0.91 and the retarget at
+0.90, the axes that carry depth 11 (87 against 20 and 68 against 30 per
+million), so the deeper levels can move C only on fresh-first, phase and
+pair and the reachable gain caps near 1.1 to 1.3x, which no budget
+decides (a 1.5x reads z 1.5 as a ratio of ratios on C's ten depth-11
+events per chunk). The rung is a lean; the primaries are the level
+columns' signs, the calm share and the count of cells whose leader the
+deeper levels changed. Fractional credit verified against the learner:
+every read stays in range, mean credit per direction lies between a
+third of the core's and the core's, so the rush can never overtake
+stock (the 59 failure is bounded), and the proposal's one false claim
+(that the Beta becomes over-confident) has the wrong sign in its own
+favour; thirds are a constant, the uniform one. The judge's plain word:
+as a depth-11 gain the round is not worth a session, as the mechanism
+the loop's boundary asks for it is worth one, with the merge resting on
+no harm, the level-2 alignment signs (hold/stock at or above 1.3,
+rush/stock at or below 0.85 pooled over two chunks) and legible
+non-inertness (at least five cells whose leader changed by chunk 2, or
+a per-axis sign the core lacks at z 2 over four chunks); a clean null
+files the rule with the columns merged. The follow-up either way is the
+second half of the bet: a delivery-side direction ordering 12 after 11
+re-run with this learner watching. Implementing.

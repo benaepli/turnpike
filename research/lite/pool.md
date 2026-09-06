@@ -3530,3 +3530,52 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 63 for this session (judge gain 2; halves the live
   directions' power and separates nothing on paxos-accept-stale-ballot;
   re-proposable after the axis reads) | parent: causal-window-client-first-defer
+
+## selector-graded-credit-by-chain-rung-for-learner-c
+
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 64 (judge gain 6, cost 0, rank 1; learner C's slot on bit
+  128, no new bit; implementing) | parent:
+  per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward
+- Learner C's credit becomes fractional by chain level: 0 below the
+  core, a third for cycle-before-request, two thirds when a target-gated
+  post-fault answer acted at a never-restarted node before any restarted
+  sender's news acted there since the request, one when such news then
+  acted at that node; the per-origin segment table ported state-side on
+  every run makes the reply route readable; a shadow boolean pair per
+  cell counts leaders changed.
+- Frozen prediction (judge's version): merge on no harm (C's hold and
+  retarget shares at or above 0.85, C's depth>=8 ratio of ratios upper
+  edge at or above 0.95, cross-binary depth>=8 at or above 0.98,
+  throughput at or above 0.97, steps at or below 1.02x), the level-2
+  column's alignment (hold/stock at or above 1.3, rush/stock at or below
+  0.85 pooled over two chunks), and legible non-inertness (cells with a
+  leader changed at or above 5 by chunk 2, or a per-axis sign the core
+  lacks at z 2 over four chunks); depth>=11 ratio of ratios against
+  1.165 a lean in [1.05, 1.5], refuted only if entirely below 1.0;
+  inapplicable if C's own-run level-2 rate is below 0.010 on the smoke;
+  a clean null files the rule and merges the columns.
+
+## per-cell-selector-cycle-before-request-and-post-fault-answer-before-restarted-news-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 64 as level 2 of the graded credit and a coin column (judge
+  gain 5, rank 2; the answer class rewritten to require the operation's
+  client-role request to have entered the node) | parent:
+  per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward
+
+## per-cell-selector-post-fault-answer-then-restarted-news-acted-at-never-restarted-node-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 64 as level 3 of the graded credit and a coin column; the
+  fourth learner and bit 4096 not built (judge gain 3, rank 4; a
+  re-drawn learner split would cut C to a quarter) | parent:
+  per-cell-selector-cycle-before-request-and-post-fault-answer-before-restarted-news-reward
+
+## per-cell-selector-restarted-competitor-queued-at-post-fault-answer-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 64 as a coin column and histogram (judge gain 4, rank 3; the
+  learner form is inapplicable at 0.003 to 0.009; it measures the calm
+  hole) | parent:
+  per-cell-selector-cycle-before-request-and-post-fault-answer-before-restarted-news-reward
