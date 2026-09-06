@@ -5754,3 +5754,11 @@ session, its configuration walk depends on feedback timing rather than
 the seed, so its paired read carries chunk-level dispersion the
 binomial interval does not, and it is recorded here as unresolved and
 not attributed. The regression case and the panel run next.
+
+**Finish.** The regression case passes (vr-nofault-clean, 1,800 runs,
+zero violations). Cost, cross-binary on the four paired seeds:
+throughput 1.016, the grader's depth>=8 per explore-second 1.096
+against a null band of 0.008 (the operator's geometric mean over the
+chunk ratios 1.068); the epoch ledger would move from 0.962 to 0.978
+against its 0.90 floor. The grader's advice line prints merge with no
+blockers. The panel runs next; the decision follows it.
