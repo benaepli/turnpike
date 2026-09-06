@@ -5104,3 +5104,11 @@ retarget 0.830, rush 0.063; A fresh-first 0.804, retarget 0.713, phase
 0.611, stock 0.090; the flat axes at the coin (A hold 0.504, B fresh
 0.466, C fresh 0.507). No violation on 2,408,880 candidate runs. The
 regression case and the panel run next.
+
+**Finish.** The regression case passes (vr-nofault-clean, 1,800 runs,
+zero violations). Cost, cross-binary on the four paired seeds:
+throughput 1.014, depth>=8 per explore-second 1.135 against a null band
+of 0.008; the epoch ledger would move from 0.949 to 0.962 against its
+0.90 floor. The grader's advice line prints merge with no blockers: on
+the cross-binary fallback its own rule reads the same separation the
+operator's four-chunk read does. The panel runs next.
