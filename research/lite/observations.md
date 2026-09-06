@@ -5207,3 +5207,27 @@ Ledger row appended: ratio 1.014, cumulative 0.962, measured 1,976
 runs per second. The anchor was measured while the proposer read the
 tree; the numbers carry that caveat and the next session's paired seeds
 are the read.
+
+## Iteration 59: a reward shaped by depth 10
+
+Directive from the review: a reward that reads the hold, fresh-first
+and pair up, rush down and the phase arm flat or down on the coin
+table, at a base rate a one-chunk cell can learn from. Four proposals
+through the fault-injection lens, all conjunctions on an acted overtaken
+ghost at a restarted receiver: with the receiver untouched by post-fault
+requests since its restart or a second acted record of the same dead
+incarnation (to replace learner A, base 0.012 to 0.018); the untouched-
+receiver half alone as a fourth learner (0.009 to 0.013); the acted
+overtaken ghost anywhere before the first post-fault request entry
+(0.010 to 0.016); and the ghost honoured after a timer-driven segment
+at the restarted receiver, the finding's own mechanism (0.007 to 0.012,
+likeliest inapplicable). Three findings behind them: the witness's
+prefix is a chain over direct predecessors, so the hold's 3.8x at depth
+10 is mechanical and not an artifact; on this tree the coin-drawn runs
+are a state-dependent subset weighted to grid cells, so the pooled coin
+base rates are half of last session's (overtaken-ghost 0.0215,
+cycle-before-request 0.0110), and every further conjunction on an acted
+ghost lands at 0.004 to 0.009; and pair up is the hard sign - only a
+second record of the same dead incarnation honoured in send order reads
+it by construction. Each prices its depth-8 cost at one to two percent
+campaign-wide for a depth-10 lean of eight to eleven. Judged next.
