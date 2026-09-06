@@ -5267,3 +5267,22 @@ at the coin, the hold is worth 4 to 5x at depth 10 on that axis, about
 ten percent campaign-wide at depth 10 for a depth-8 price of one to
 three percent, and a fourth learner would shrink every learner's
 already-young cells by a quarter. Implementing.
+
+**Built; graded.** Learner A's reward is the untouched-receiver clause,
+read before the request-entry note on the same entry; the old overtaken
+reward stays as a coin table; the timer-reopened clause rides as a table
+with its census under crash_recovery; 413 unit tests and every
+integration test green. The 60 s smoke: A's own-run reward rate 0.0259
+on 22,147 runs against the 0.015 gate, coin base 0.0139; coin table
+hold/stock 2.22, rush/stock 0.49, fresh 2.18, pair 1.02, retarget 1.48,
+phase/placed 1.12, stock/placed 1.35 on 47 events (above its letter of
+1.0, re-read on chunk 1). A's shares against the coin-drawn runs: hold
+0.63 / 0.50, rush 0.15 / 0.25, fresh-first 0.69 / 0.50, retarget 0.61,
+phase 0.39 / 0.46, crash stock 0.17 / 0.08 (the young-cell lift, watched
+against its 0.12 letter by chunk 2). The timer-reopened table fires on
+33 of 32,924 coin runs (base 0.0010, unreadable per direction); its
+census reads timer-woken acted segments since restart at 4.36 per hold
+run against 2.92 per stock run, the quiet-network sign. Session
+untouched-overtaken started cross-binary; four chunks; the admitted
+read is the within-binary A-against-B-plus-C ratio paired with the
+baseline, scripted from the chunk rows.
