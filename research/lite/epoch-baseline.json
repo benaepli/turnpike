@@ -203,6 +203,21 @@
    "cacheFile": "research/lite/baselines/a13639a6047a-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-06T00:30:00Z",
    "note": "measured by grader baseline --chunks 2 after the concentrating-pick merge; depth>=8 events per chunk [7143, 8019] against 7354/7639 on the previous merge's cache; seed 1000 re-measured on an idle host after the first chunk read 0.78 per second under the panel's load: [8019, 7965]"
+  },
+  {
+   "name": "selector-explore-share-posterior-odds-against-leader-most-decided-axis",
+   "commit": "df52d39",
+   "spurCommit": "f545044",
+   "ratio": 1.014,
+   "cumulative": 0.962441,
+   "measuredRps": 1975.6821114176673,
+   "measuredRpsChunks": [
+    1978.814589362007,
+    1972.5496334733275
+   ],
+   "cacheFile": "research/lite/baselines/0e643ae99082-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+   "measuredAtIso": "2026-09-06T01:30:00Z",
+   "note": "measured by grader baseline --chunks 2 after the exploration-share merge, the proposer reading the tree meanwhile; depth>=8 events per chunk [8813, 8610] against 7965/8019 on the previous merge's cache"
   }
  ]
 }
