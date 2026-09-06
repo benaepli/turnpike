@@ -3592,7 +3592,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## selector-one-parent-conditional-direction-posteriors
 
-- kind: add | category: feedback | origin: proposer | status: KEPT at iteration 66 | gain: 4 | cost: 0 | rank: 2
+- kind: add | category: feedback | origin: proposer | status: CLOSED at iteration 67 (two seeds: repeated AOS harm, failed interaction prediction; grid primary gain did not justify merge; patch retained) | gain: 4 | cost: 0 | rank: 2
 - Choose later scheduling directions conditionally on the cell's most decided axis.
 - Frozen specification, prediction, observables, falsifiers and judge review: `research/lite/plans/iteration-66-admitted.json`, hypothesis `selector-one-parent-conditional-direction-posteriors`.
 
@@ -3605,3 +3605,15 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 - origin: proposer | status: REJECTED at iteration 67 as specified: its own 4% lower-edge admission condition fails the recorded 5% layout floor. Underlying mechanism remains untested. Full review: research/lite/plans/iteration-67-admitted.json.
 
 Conditional selector selected for iteration 67, with its iteration-66 frozen prediction unchanged; full judge record in research/lite/plans/iteration-67-admitted.json.
+
+Iteration 68 direction pruning: current scores/dispositions in `research/lite/plans/iteration-68-admitted.json` supersede historical KEPT scores for next selection. Awaiting-approval entries remain unchanged.
+
+## selector-conditional-parent-by-policy-interaction-value
+
+- origin: proposer | status: KEPT at iteration 68 | gain: 4 | cost: 0 | rank: 1
+- Choose the conditioning axis by the value of adapting the other axes. Frozen prediction and review: `research/lite/plans/iteration-68-admitted.json`.
+
+## selector-successful-joint-arms-with-uncertain-axis-mutation
+
+- origin: proposer | status: KEPT at iteration 68 | gain: 3 | cost: 0 | rank: 2
+- Resample successful joint arm sets and mutate their uncertain axes. Frozen prediction and review: `research/lite/plans/iteration-68-admitted.json`.

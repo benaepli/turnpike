@@ -6696,3 +6696,108 @@ child diagnostics retained with the patch. No extra exploration was run.
 This reinforces the close; broad diverse suffixes are not by themselves
 evidence of progress on the rare deeper chain. Retained bulk traces are
 removed after the join; all violations were zero.
+
+Implementation reviewed: two simulator files plus the required exhaustive
+utilStats export test. Pair evidence updates ten carried pairs under the
+existing credit guard; only warmed pairs use the conditional posterior,
+otherwise their marginal posterior is retained. Decisions count support
+before observing that run's reward and compare final coin-weighted
+categorical leaders. Parent axis is the most decided marginal axis, ties
+by index. Existing marginal updates, three rewards, exposure and cell keys
+stay unchanged. No config changes or treatment bit.
+
+458 tests pass with the documented 32 MiB test stack; exact-source release
+build 19.89 seconds. One ten-second smoke confirms firing and internally
+consistent 57-pair/48-decision-row exports; its support rates are not graded.
+Exported spur.patch matches the worktree. super.patch contains only the
+uncommitted submodule's '-dirty' marker, not a superproject source change;
+that bookkeeping marker must not be applied if the subject later merges.
+Session conditional-pairs begins with one normal paired chunk at seed1000.
+
+**Split evidence after chunk 1.** 633,420 runs in 300.533 seconds, no
+simulator failures, no Porcupine violations. Conditional choices fired on
+525,757 runs. There are 110 cells with >=100 supported decisions and
+1,477,839 supported decisions total, but only 39,519 (2.674%) change the
+preferred categorical direction versus the marginal rule; A/B/C rates
+4.34%,1.72%,1.83%, all far below the frozen 15%. B's own reward ratio is
+0.9268 against >=0.95 (A0.9978,C1.0260). This refutes the frozen interaction
+explanation and misses a guard; do not label those predictions successful.
+
+The goal proxies nevertheless rise: matched cross-binary depth>=8 per
+second1.1128, throughput1.0443, implied matched per-run1.0656 (below the
+point prediction1.08, not yet a separated refutation). Grid d11 count31
+against18, no violations; the full panel is still unmeasured. Grader
+finish advises merge with regression unrun. Autonomous decision: buy the
+second normal paired chunk rather than close solely on the explanatory
+proxy. Conditional probabilities can change while their leading direction
+stays the same, so useful search could survive a failed argmax story.
+No hypothesis band or support/guard threshold is changed. Any later merge
+would require a written override, repeatable direct gain, panel and
+regression, with the failed prediction retained prominently.
+
+The first finish call had marked the session finished. Reopened only that
+session flag and appended an operator-resume history event, preserving all
+samples, seeds and prediction. This is bookkeeping to continue the same
+trial, not a new trial or a seed selection. An independent judge reviews
+the split while chunk2 runs.
+
+**Population correction and independent review.** The primary/sec ratio
+above is on the fixed four-grid-arm population; whole-campaign throughput
+cannot be used to infer its per-run ratio. Exact chunk1 grid per-run ratio
+is 1.0729 (baseline-arm-weighted 1.0745). Full-campaign per-run ratio is
+0.9782 and events/sec 1.0215, within the recorded layout floor. AOS alone
+falls to 0.546 of baseline depth8 per run (978/113940 vs 1654/105180).
+This broad loss is material even though AOS is excluded from the declared
+primary. Mean categorical TV is 0.03063 across 2118004 conditional axis
+decisions, not supported-only. Fresh non-slot d11 counts 28 vs18, rate
+ratio1.481, remain exploratory. Independent review recommends replication
+and would reject a selective grid gain with repeated material AOS harm;
+see retained split-review.md. Frozen gates and populations stay unchanged.
+
+**Iteration 67 decision: close, autonomous.** Seed1001 completed627000
+runs, no simulator failures or violations. Supported decisions1338432,
+changed leaders30693 (2.293%),110 qualifying cells; firing522553. Own
+A/B/C reward ratios0.9605/1.0096/1.0184. Grid d8 per-run1.0127, per-second
+1.0499; AOS per-run0.8082, per-second0.8487; whole-campaign per-run0.9855,
+per-second1.0230. Throughput1.0381. Baseline-arm-weighted grid/campaign
+ratios1.0141/0.9875 confirm the split is not merely changing arm shares.
+
+Across two paired chunks:1260420 candidate runs, zero violations. Grader
+advises merge on grid d8/sec1.08095, with regression unrun; whole throughput
+1.04118. Exact pooled grid per-run1.0424 and campaign0.9818 are below the
+frozen point band lower edge1.08. No claim of a separated per-run refutation
+from a naive independent-run interval: replay children and adaptive cells
+are correlated. The interaction explanation fails on both seeds despite
+abundant decision-time support. Pooled own rewards recover above0.95; the
+seed1000 B failure is not a persistent pooled reward failure.
+
+Autonomous override of merge advice: repeated material AOS harm and flat
+whole-campaign search utility outweigh selective grid improvement. No more
+chunks, panel or regression purchased because this binary is no longer a
+merge candidate. Preserve the patch and summaries for a possible revised
+mechanism. No code merged; baseline and epoch throughput ledger unchanged.
+Fresh non-slot d11 counts57 vs30 across two seeds are encouraging but
+exploratory; they neither satisfy a four-chunk prediction nor override harm.
+AOS runs shortened on both seeds and completed plans more often; seed1000
+A/B/C strata all lost depth yield. These endogenous strata describe where
+change occurred, not a randomized explanation of the loss.
+
+Artifacts: research/lite/patches/conditional-pairs/ (patches, exact-source
+build/tests, raw utilization summaries, paired arm/stratum summary and
+analysis script, independent review, final grader output). Final session:
+research/lite/state/conditional-pairs.json.
+
+**Direction review.** The goal remains reproducible violation discovery
+with general search. Checkpoint forks failed normal-horizon supply/cost;
+conditional learning supplied evidence but harmed AOS. Neither zero
+violations nor greater posterior certainty justifies a new oracle or dose.
+Test one further concrete conditioning-parent mechanism, with actual
+choice changes and full decision-time support frozen in advance; keep
+successful-vector population mutation as an alternate. Both are structural
+search-policy changes, but neither is evidence-backed proof that interactions
+caused the last result. The blind judge ranks them4 and3 at cost0.
+Historical higher-score keeps were reviewed explicitly; current dispositions
+are retained in iteration-68-admitted.json. Untested config-cell walks and
+early-only crashes need a fresh causal case; emitted reward columns, closed
+forks and quiescence variants do not outrank the next mechanism. Pending
+user-approval entries remain pending.

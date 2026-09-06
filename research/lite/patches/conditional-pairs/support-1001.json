@@ -1,0 +1,20 @@
+{
+  "chosen_runs": 522553,
+  "conditional_direction_draws": 5075819,
+  "fallback_direction_draws": 113537,
+  "pair_observations": 7101480,
+  "pair_positive_rewards": 543080,
+  "argmax_changes": 85885,
+  "total_variation_micro": 58423743975,
+  "supported_decisions": 1338432,
+  "supported_argmax_changes": 30693,
+  "parent_axis_choices": [
+    55188,
+    266789,
+    131484,
+    54014,
+    18866
+  ],
+  "qualified_cells": 110,
+  "supported_change_share": 0.022932057810930998
+}

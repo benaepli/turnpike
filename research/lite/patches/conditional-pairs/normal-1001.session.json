@@ -1,0 +1,9 @@
+{
+  "wall_ms": 300527,
+  "runs_completed": 627000,
+  "runs_failed": 0,
+  "runs_skipped": 0,
+  "wall_budget_sec": 300.0,
+  "budget_hit": true,
+  "writer_flush_ms": 16
+}

@@ -1,0 +1,283 @@
+{
+  "hypotheses": [
+    {
+      "id": "selector-conditional-parent-by-policy-interaction-value",
+      "parent": "selector-one-parent-conditional-direction-posteriors",
+      "kind": "enabling",
+      "title": "Choose the conditioning axis by the value of adapting the other axes",
+      "description": "Repair conditional arm selection in simulator/arm_selector.rs by choosing its conditioning axis from the action changes that its direction predicts, rather than from the axis's marginal leader certainty. Port the existing 57-pair conditional tables, support rules, empirical priors and unchanged exposure rules onto the main baseline. For each possible parent axis a, form its current coin-times-leading categorical probabilities p_a. For every other axis b and parent direction d, form the existing marginal child probabilities p_b, conditional child probabilities p_b_given_d, marginal means m_b and conditional means m_b_given_d. Score a by summing p_a[d] * (p_b_given_d[e] - p_b[e]) * (m_b_given_d[e] - m_b[e]) over all d, b and child directions e. Cold pair entries with fewer than 24 lifetime observations retain the exact original marginal posterior, making their mean-residual score term zero. This warmup fallback is distinct from the stronger diagnostic support gate; preserve the prototype conditional posterior and probability rules for every warmed pair. This score values a changed child policy when the conditional reward residual supports that change; it does not value certainty about the parent's own leader. Select the largest strictly positive score, ties by axis index, then draw the parent and children using the existing marginal/conditional categorical rules. If every score is nonpositive, use the independent marginal draw. Recompute the cached parent scores after every WARMUP_OBSERVATIONS credited runs in a cell, sharing the existing write guard; the conditional probabilities used for the actual draw use current counts. Keep the three rewards, exploration-share rule, configuration pooling, discount, arm directions, replay and probe policies unchanged. Add policy-comparison counters in util_stats.rs, including actual categorical departures from the marginal policy using the same uniform variate per child axis, parent changes relative to the strongest-margin rule, support and per-learner outcomes. Comparisons consume no schedule random numbers. No config field or campaign change.",
+      "category": "scheduler",
+      "buildsOn": [
+        "per-cell factored arm selector",
+        "conditional direction posteriors",
+        "existing three generic per-run rewards"
+      ],
+      "expectedGain": 4,
+      "expectedCost": 0,
+      "rationale": "The conditional prototype's first normal chunk had 110 supported cells and 1,477,839 supported child decisions, but only 39,519 preferred-direction changes, or 2.674 percent. Its parent-axis counts were [58113,269500,131870,47961,22057]. The implementation selects the most certain marginal axis; a direction selected almost always conveys little variation for adapting another choice, even with abundant pair observations. These counts establish infrequent changes of the preferred direction, not necessarily small probability shifts or harmful exploration. The first chunk's official primary events-per-second ratio is 1.1128 and throughput ratio 1.0443, with zero violations; grading is continuing. Neither useful probability shifts nor a benefit from the proposed parent-selection rule is established by the preferred-direction count alone. Weighting conditional policy value by the actual parent distribution tests whether a useful conditioning variable was being missed. The original broad reward signals and substantial sample supply are retained. The magnitude prediction remains demanding; small interaction residuals should close this mechanism.",
+      "generalityArgument": "The rule chooses among scheduler mechanisms from their observed effects on three protocol-independent fault/recovery shapes. It reads only arm choices and existing Boolean rewards, never protocol identifiers, message names, roles, oracle labels or depths. A parent axis is useful only when its direction changes the estimated value of another scheduling choice; the same criterion applies to every protocol panel member.",
+      "prediction": {
+        "firingCounter": "arm_selector_axis.interaction_parent.changed_child_choices",
+        "firingFloor": 50000,
+        "rung": "depth>=8",
+        "sizePct": {
+          "min": 0.08,
+          "max": 0.2
+        },
+        "mechanism": "Treatment: a session-global conditional policy and its resulting training distribution, with no new treatment bit. Existing learner and mechanism bits keep their existing meanings; they do not identify this model replacement. An untreated draw would still read posteriors changed by prior treated runs, so the present single-model implementation is graded cross-binary, not as a randomized within-session contrast. A separately isolated dual-model experiment is outside this candidate. Frozen primary prediction is paired candidate/baseline depth>=8 per-run ratio [1.08,1.20] on the epoch's unchanged primary population and matched arms. The alternative parent selection is a different mechanism from changing discount clocks or crash quantiles. Require primary events per explore-second >=1.05 and paired throughput >=0.97. Reset all state each session; no new config arm, bit registration or harness edit.",
+        "independentObservable": "Per normal 300-second chunk require at least 20 learner/configuration cells with at least 100 supported conditional child-axis decisions each. Support is evaluated from the state read before that run executes: for the same selected parent direction and candidate child axis, at least two distinct child directions must each have >=100 lifetime raw pair observations, >=5 lifetime positive rewards, discounted success+failure mass >=24, and discounted success mass >=2. Prior pseudo-counts do not count toward these masses. Among supported child-axis decisions, at least 15 percent must change the argmax of the FINAL normalized coin-times-leading categorical probabilities relative to the current marginal rule, and at least 5 percent must change the actually chosen child direction when both distributions use the same uniform variate and fixed direction order. A supported learner draw has a selected positive-score parent and at least one supported child-axis decision; at least 25 percent of these draws must choose a parent axis different from the strongest-marginal-margin rule evaluated on the same current state, ties by lowest axis index. Report all three denominators separately, and report independent-fallback runs so an almost-always-fallback policy cannot hide in a conditional denominator. The firing counter counts changed actual child choices across all conditional child-axis decisions and must reach 50000. Across four chunks, at least two of the three learners own-run reward rates must exceed corresponding baseline rates by 5 percent, with the remaining learner at or above 0.95. This outcome requirement is independent of oracle depth and cannot be met by fitted scores.",
+        "falsifier": "Refute if the primary contrast interval lies entirely below 1.08, or if the supported changed-leader share is below 15 percent, the actual changed-choice share below 5 percent, or the parent-departure share below 25 percent. Missed normal-horizon support or firing floors close before interpreting rates. Refute the useful-adaptation explanation if the frozen own-reward outcome clause fails, even if fitted scores look favorable. Throughput below 0.97, primary events-per-second below 1.05, or a protocol-panel regression closes the candidate. Do not reinterpret another small policy departure as insufficient observations or relax these gates after seeing a chunk. Judge clarification: the supported decision denominator and four evidence floors above are binding. Failure of the changed-parent gate cannot be excused by an argmax-versus-probability distinction; actual choice and categorical argmax are separately frozen. Report repeated material AOS harm as a generality failure even if the selective grid primary rises.",
+        "measurementClarification": "Primary means the same four grid arms in candidate and baseline. The per-run band and per-second guard use that population; overall throughput is separately reported. Also report AOS and whole-campaign per-run/per-second outcomes, with unchanged panel/regression guards. A selective grid gain with repeated material AOS or panel harm does not establish general search improvement. No seed selection or retrospective baseline substitution.",
+        "horizonClarification": "Normal chunks are independently reset 300-second sessions, up to the existing four-chunk cap. Per-chunk applicability/firing gates apply at that horizon. Own-run reward clauses apply to pooled completed paired seeds at the final decision, with four chunks required to claim confirmation of the specified four-chunk reward prediction. Early close is allowed for predeclared applicability, cost or harm gates; do not claim a four-chunk result from an early stop."
+      },
+      "createdAtIso": "2026-09-06T21:26:35Z",
+      "notes": "Judge reviewed blind. Rubric cost corrected from 2 to 0 because these changes do not alter execution, history, event accounting or linearizability recording. Evidence for the proposed gain is thin; score is an argument grade, not a numerical effect forecast.",
+      "netScore": 4,
+      "rank": 1,
+      "review": {
+        "redTeam": "The highest fitted interaction-value axis can be the noisiest axis: its conditional residuals and policy changes come from the same adaptive, confounded observations, with no held-out reward validation. The score may reward estimation error or reward variation unrelated to oracle progress. Pair direction-visit discounting can preserve stale minority evidence. The current strongest-margin rule already yielded a grid improvement alongside large AOS harm; its small argmax departure does not establish the cause. More policy movement could simply intensify this harm. Additional cached score work and pair updates under the cell guard can reduce throughput even with no extra locks.",
+        "verifiedEvidence": [
+          "Main baseline is b86baad3f94ce14dbdf20688b61fd92317a75cc2. Iteration 67 is still grading; conditional prototype evidence is not a merged baseline or a completed outcome. Build each candidate independently from main; conditional machinery is ported only where the selected mechanism requires it.",
+          "Freeze cross-binary fresh-session comparison with no new treatment bit, unchanged campaign and fixed four-grid-arm primary. Compute primary per-run rates from those same grid arms, not by dividing grid events/sec by whole-campaign throughput. Report baseline-arm-weighted rates descriptively, every arm including AOS, and full-campaign rates on every seed. Endogenous learner/coin tags and shared random comparison choices are diagnostic, not randomized treatment controls.",
+          "The baseline has 164617/172588/167628 learner own runs and 9593/30766/9078 positive rewards for A/B/C on seed1000. These counters establish broad outcomes, not the new mechanism support or reward alignment with deeper oracle events.",
+          "Preserve the existing coin/probe policy, learner assignment and coin-to-all/own-run-to-own exposure rule, marginal posterior updates, reset behavior, cell keys, replay behavior and caps. No scheduler config or campaign changes. Restrict implementation to selector, util_stats and required export tests; no execution, history, event-accounting or recording edits.",
+          "arm_selector.rs: CellLearner uses DISCOUNT=0.998 on carried directions and WARMUP_OBSERVATIONS=24, with 12 marginal directions across five independently sampled axes. The effective 500-observation window is per carried-direction visit, not a common cell clock.",
+          "run_variant.rs AXIS_START=[0,3,5,7,9,12] gives widths [3,2,2,2,3], 72 ArmSets, 57 cross-axis direction pairs and ten carried pairs per run.",
+          "conditional-pairs/spur.patch selects the largest marginal leader margin, ties by axis index; PairEvidence::supported checks raw>=100, raw positives>=5, discounted mass>=24, discounted positives>=2. conditional_posterior falls back below24 lifetime pair observations and otherwise uses mass24 centered on current marginal mean.",
+          "Iteration67 chunk1 has 110 supported cells and 1,477,839 supported child decisions but only 2.674% final categorical argmax changes. Mean categorical TV is 0.03063 over all 2,118,004 child decisions, not supported-only. Parent counts do not reveal entropy of its selected direction and cannot prove an uninformative parent.",
+          "Independent split-review computes exact grid per-run ratio1.0729, AOS0.546 and whole campaign0.9782. None identifies whether parent choice, reward mismatch, changed coverage or other adaptation caused this split.",
+          "Iteration65 and earlier selector changes already record AOS harm and confounded reward certainty. Stage A arm quality improves within some step bins but cannot isolate selector maturation from changing cap distributions."
+        ],
+        "dedupe": "This is a distinct conditioning-parent rule within the same joint-learning family as iteration67, not an independent replication or an answered mechanism. Retain as rank1 at modest gain4. Do not also score the old 72-cell Thompson or Exp3 variants highly. Population mutation remains a lower-ranked alternative, not a second independent vote for an interaction effect.",
+        "costReason": "Rubric cost0: selector/probability updates and statistics do not touch execution, histories, event accounting or linearizability recording.",
+        "requiredImplementationConstraints": [
+          "Normalize each categorical vector before computing the score. Use conditional posterior means matching the prototype posterior, and current marginal means; do not treat the fitted residual as a randomized causal interaction estimate. A cold pair residual is zero even though normalized categorical weights may change because competing warmed directions change.",
+          "Cache scores after every24 credited observations per cell and initialize all scores to zero. Scores use a single consistent cell snapshot. When every score is nonpositive, use the independent marginal sampler. Report positive-score selections, independent fallbacks and cache refreshes. The actual selected parent and child draws use current probabilities, even when parent scores are cached.",
+          "Draw comparisons reuse the actual selector uniform variate with the same direction order and consume no extra schedule random draws. They compare child distributions for the actually selected parent; they are not complete counterfactual runs under another parent.",
+          "Count full support at decision time, before credit. Preserve the pair visit clock and exact prototype empirical prior. Export support, changed-choice, final-argmax, parent-departure and fallback denominators per learner/cell, not only final-state pair counts.",
+          "The score formulation and cache cadence are frozen before implementation. A score that rarely becomes positive is an applicability failure, not permission to substitute entropy or a different parent heuristic in the same trial."
+        ],
+        "predictionRewritten": true
+      }
+    },
+    {
+      "id": "selector-successful-joint-arms-with-uncertain-axis-mutation",
+      "parent": "per-cell-thompson-joint-arm-selector-rarity-reward",
+      "kind": "enabling",
+      "title": "Resample successful joint arm sets and mutate their uncertain axes",
+      "description": "Replace independent arm-axis sampling on learner draws with a bounded population search in simulator/arm_selector.rs. Each existing learner/configuration cell retains a ring of its last WARMUP_OBSERVATIONS successful full ArmSet vectors, with their credited-observation indices. Admit vectors only from runs that the learner already observes under its existing coin-or-own-run exposure rule and that earn its unchanged Boolean reward. Retain at most 24 entries and expire entries older than ceil(1/(1-DISCOUNT))=500 credited observations. Repeated vectors from independent successful runs remain repeated population members; no execution tape, plan, workload or state is copied. When at least eight live successes spanning at least two distinct vectors are present, a learner draw samples one population member uniformly and mutates exactly one axis. Choose the mutation axis proportionally to the categorical entropy of that axis's current normalized posterior-leading probabilities, and draw a different direction from the existing coin shares renormalized over the alternatives. If all entropies vanish, choose the axis uniformly. Thus four coordinates preserve a successful joint setting while uncertain coordinates receive exploration. Cells below support retain the current independent marginal sampler. Keep the current adaptive coin share, marginal posteriors, three learner assignments and rewards, per-configuration pooling, cap and all scheduler mechanisms unchanged. Population admission and aging share the current credit write guard. A cell's ordinary coin runs remain fresh exploration, and replay behavior and ordinary reward credit semantics remain unchanged. At draw time aggregate this parent-and-mutation mixture into the exact categorical distribution over the 72 ArmSet values, then sample that distribution. For an observation-only comparison, use the same uniform variate and fixed ArmSet index order to sample the product of the current marginal axis distributions; identical distributions therefore produce no departure. Count the Hamming distance between the actual tuple and this comparison tuple. Record mutation-axis mass from the exact mixture, and add counters and bounded per-cell exports for live support, unique vectors, supported draws, joint total-variation distance and subsequent reward counts on population-sampled runs. Cache the population mixture after each credited update that changes the population, refreshing the entropy weights after every WARMUP_OBSERVATIONS credits. Comparison calculations consume no schedule random numbers. No config field, campaign arm or harness change.",
+      "category": "scheduler",
+      "buildsOn": [
+        "per-cell factored arm selector",
+        "existing three generic per-run rewards",
+        "whole ArmSet representation"
+      ],
+      "expectedGain": 3,
+      "expectedCost": 0,
+      "rationale": "The existing joint Thompson proposal was weak because 72 combinations divide a discounted window into too few observations to estimate all combination reward rates. Successful-vector resampling uses observed successful tuples directly and needs no estimate for every combination. It also avoids recombining five separately favorable directions into a tuple that was never successful together, a structural limitation left largely unchanged when conditional draws seldom depart from marginal choices. Broad existing reward supply makes the population support falsifiable at the normal horizon. The main risks are reinforcement of frequently sampled tuples, loss of useful multi-axis jumps, and reward/depth misalignment. Independent coin draws and entropy-directed mutation provide escape paths, but they do not prove these risks harmless.",
+      "generalityArgument": "Population members are complete settings of general scheduling mechanisms, and their fitness is one of the existing protocol-independent rewards. The same success-and-mutation rule works for any protocol's action effects without inspecting handler names, roles, message payloads, oracle traces or known violations. Configurations and workloads are still chosen by the existing campaign; only the mechanism settings of a new execution are adapted.",
+      "prediction": {
+        "firingCounter": "arm_selector_population.changed_joint_draws",
+        "firingFloor": 50000,
+        "rung": "depth>=8",
+        "sizePct": {
+          "min": 0.07,
+          "max": 0.18
+        },
+        "mechanism": "Treatment: the session-global arm population and learner search distribution, with no new treatment bit. No existing bit is redefined to denote a new population policy. Because both successful-vector supply and marginal posteriors depend on previous population-generated runs, an off draw sharing those tables is not an untreated experiment. Grade this single-model replacement on the cross-binary rung with fresh reset sessions, unchanged campaign arms and the epoch's matched primary population. Frozen paired candidate/baseline depth>=8 per-run ratio is [1.07,1.18]. Require primary events per explore-second >=1.04 and paired throughput >=0.97. This is not a revived 72-cell Thompson estimator or an increased checkpoint offspring budget.",
+        "independentObservable": "Per normal 300-second chunk require >=20 learner/configuration cells to make >=100 population draws after satisfying the eight-live-success/two-distinct-vector gate, and >=100000 supported population draws in total. At least 20 percent of these actual selected ArmSets must differ in two or more coordinates from the product-marginal categorical comparison using the same uniform variate and ArmSet index order. Joint total-variation distance from the product-marginal distribution must be >=0.10 on at least half of supported draws; unlike an independent random shadow, this test is zero when the distributions agree. At least two distinct axes must each receive >=10 percent of mutation probability mass across supported draws, and at least 80 percent of population draws must come from cells whose live population contains >=4 distinct successful vectors; report repeated-vector concentration explicitly. Across four chunks, at least two of the three existing per-learner own-run reward rates must be >=1.10 of their corresponding baseline rates, with the third >=0.95. Those baseline rates are already exported; new supported-draw outcome counters additionally report whether sampled vectors succeed when executed again. The fitted population success rate and inherited parent success never count as the new run's outcome. Judge clarification: all live support, unique-vector counts and probability comparisons are read at decision time before this run is observed. Expiration uses the same cell credited-observation clock, not wall time, axis visits or only positive updates. A stored success is live when current_observation_index - success_observation_index <=500; expire greater ages, retain at most the24 most recent remaining successes. Population-supported draws satisfy >=8 live entries and >=2 distinct tuples. Count supported draws separately from changed_joint_draws, which counts tuples different from the product-marginal comparator. The two-coordinate comparison is coupling/order dependent and descriptive; the exact TV gate is the distributional check. Define ArmSet order lexicographically by axis direction indices [crash,retarget,fresh_first,pair_order,request], last axis varying fastest. Mutation-mass fractions are sums of the exact mixture axis masses over supported draws, with supported draws as denominator.",
+        "falsifier": "Refute if the primary contrast interval lies entirely below 1.07, the two-coordinate departure share falls below 20 percent, the joint-distribution TV gate fails, or the actual subsequent reward-rate clause fails. Missing the normal-horizon support or firing floors closes the candidate; do not lower the eight-success gate, extend the 500-observation window or pool configurations after observing inadequate supply. Mutation concentrated below the two-axis floor or population diversity below the four-vector clause refutes the claimed exploration mechanism. Throughput below 0.97, primary events-per-second below 1.04 or a panel regression closes on cost or generality. A better broad reward with flat or worse oracle depth refutes transfer, rather than establishing progress. Judge clarification: report repeated material AOS harm as a generality failure even if the selective grid primary rises. A tuple inherited from a successful population member does not inherit its success or any execution evidence.",
+        "measurementClarification": "Primary means the same four grid arms in candidate and baseline. The per-run band and per-second guard use that population; overall throughput is separately reported. Also report AOS and whole-campaign per-run/per-second outcomes, with unchanged panel/regression guards. A selective grid gain with repeated material AOS or panel harm does not establish general search improvement. No seed selection or retrospective baseline substitution.",
+        "horizonClarification": "Normal chunks are independently reset 300-second sessions, up to the existing four-chunk cap. Per-chunk applicability/firing gates apply at that horizon. Own-run reward clauses apply to pooled completed paired seeds at the final decision, with four chunks required to claim confirmation of the specified four-chunk reward prediction. Early close is allowed for predeclared applicability, cost or harm gates; do not claim a four-chunk result from an early stop."
+      },
+      "createdAtIso": "2026-09-06T21:26:35Z",
+      "notes": "Judge reviewed blind. Rubric cost corrected from 2 to 0 because these changes do not alter execution, history, event accounting or linearizability recording. Evidence for the proposed gain is thin; score is an argument grade, not a numerical effect forecast.",
+      "netScore": 3,
+      "rank": 2,
+      "review": {
+        "redTeam": "A ring of successful tuples samples policy frequency times reward probability, not reward probability alone. Repeated popular successes can crowd out rare settings and reinforce whichever learner policy already dominates. Entropy-directed mutation may repeatedly break the one useful axis; preserving four settings can inhibit necessary multi-axis jumps. At low reward rates the500-credit age window can fail the eight-success gate, particularly in colder cells. A shared-uniform lexicographic comparison can have large Hamming distance for reasons of tuple ordering; that is not proof of useful diversity. Existing broad rewards have already improved while target depth and AOS declined. Exact72-tuple distribution maintenance adds hot-path work.",
+        "verifiedEvidence": [
+          "Main baseline is b86baad3f94ce14dbdf20688b61fd92317a75cc2. Iteration 67 is still grading; conditional prototype evidence is not a merged baseline or a completed outcome. Build each candidate independently from main; conditional machinery is ported only where the selected mechanism requires it.",
+          "Freeze cross-binary fresh-session comparison with no new treatment bit, unchanged campaign and fixed four-grid-arm primary. Compute primary per-run rates from those same grid arms, not by dividing grid events/sec by whole-campaign throughput. Report baseline-arm-weighted rates descriptively, every arm including AOS, and full-campaign rates on every seed. Endogenous learner/coin tags and shared random comparison choices are diagnostic, not randomized treatment controls.",
+          "The baseline has 164617/172588/167628 learner own runs and 9593/30766/9078 positive rewards for A/B/C on seed1000. These counters establish broad outcomes, not the new mechanism support or reward alignment with deeper oracle events.",
+          "Preserve the existing coin/probe policy, learner assignment and coin-to-all/own-run-to-own exposure rule, marginal posterior updates, reset behavior, cell keys, replay behavior and caps. No scheduler config or campaign changes. Restrict implementation to selector, util_stats and required export tests; no execution, history, event-accounting or recording edits.",
+          "run_variant.rs declares COMBINATIONS=72 and the five axis widths; the baseline retains marginal posterior counts, not a successful-tuple population. The proposed ring and all population diagnostics are new.",
+          "The current selector leading_probability computes pairwise-normal leading weights, then sample_axis_leading multiplies by ArmSet coin probabilities. Pure normalized leading weights for mutation entropy and final coin-weighted probabilities for product-marginal comparison are different quantities and must remain explicit.",
+          "DISCOUNT=0.998 and warmup24 are current. ceil(1/(1-DISCOUNT)) mathematically yields500; this proposed success-age window is a new cell-clock expiry rule, not identical to existing per-direction discounting.",
+          "The pool full72-combination Thompson alternative is kept but not buildable as written because its0.995 discount and per-combination leader requirement undersupply evidence. Successful-tuple resampling avoids fitting72 independent reward rates, but does not by itself solve adaptive selection bias.",
+          "The eight-live-success and diversity gates are not implied by aggregate baseline positives. A/B/C own-run rates are approximately5.83%,17.83%,5.42%; cells differ and coin rewards are lower. Population support remains a prediction to test at the normal horizon."
+        ],
+        "dedupe": "Alternative implementation of joint dependence in the same family as conditional pair learning and the held full-joint Thompson proposal. It is not exactly the already-kept Thompson mechanism because it has no72-cell posterior, but there is no new interaction evidence. Retain at gain3 behind interaction-parent, not a second high-scoring independent hypothesis.",
+        "costReason": "Rubric cost0: selector/probability updates and statistics do not touch execution, histories, event accounting or linearizability recording.",
+        "requiredImplementationConstraints": [
+          "Check and remove expired successes on every credited cell update, including unsuccessful runs. Adding a positive, evicting the oldest entry, expiry, or a24-credit entropy refresh invalidates the mixture cache. A draw reads one consistent live population/cache snapshot.",
+          "Define entropy from normalized posterior-leading weights, before coin weighting, as proposed. Alternative directions use the existing coin shares renormalized excluding the parent direction. Components change exactly one axis; aggregate exact mixture probabilities across repeated entries and coincident child tuples.",
+          "Sample the resulting72-tuple distribution directly with one selector random variate. The product-marginal comparator uses that same variate and fixed lexicographic order, consumes no additional schedule draws and is observation-only. When population support fails, retain the baseline independent sampler and count fallback.",
+          "No latent parent or executed mutation axis is uniquely determined by a tuple drawn from the aggregated mixture. Export expected mutation-axis probability mass; do not invent a realized parent lineage or offspring reward that the algorithm did not sample.",
+          "Update outcome counters from this run actual completed Boolean reward. Stored successes and replayed histories are not fresh confirmations of the sampled tuple. Existing credit rules remain unchanged; no cross-learner or extra replay credit.",
+          "Bound population entries at24 per learner/cell; report maximum repeated-vector share and unique-live counts. Do not deduplicate repeated successes, extend expiry, lower support, or change one-axis mutation after observing supply."
+        ],
+        "predictionRewritten": true
+      }
+    }
+  ],
+  "rejected": [],
+  "reviewSummary": "Keep interaction-parent at4-0=4, rank1; retain successful-population mutation at3-0=3 as a lower-ranked alternative in the same joint-learning family. Both have checkable mechanisms but thin evidence for useful interactions or deep transfer. All source/config claims needed for these mechanisms were verified; current conditional prototype remains an unmerged, unfinished trial. Frozen rewrites restore all four decision-time pair-support requirements, distinguish warmup from support, define comparison denominators and population expiry/order, and separate grid primary from whole-campaign/AOS results. No subject, protected, harness or log files edited; no compute experiments run. Historical higher-scored pool keeps were reviewed explicitly; see poolDirectionReview for current argument grades, unmet preconditions, answered calibration/mechanisms and untested re-proposals. No awaiting-approval item was changed.",
+  "reviewInputs": [
+    ".agents/skills/research-loop-lite/prompts/judge.md",
+    "research/GOAL.md",
+    "research/lite/pool.md",
+    "research/lite/observations.md",
+    "research/observations/OBSERVATIONS.md",
+    "scheduler_configs/loop/general_vr.json",
+    "spur/spur-core/src/simulator/arm_selector.rs",
+    "spur/spur-core/src/simulator/run_variant.rs",
+    "tmp/loop/lite/proposals-68.json",
+    "tmp/loop/lite/conditional-pairs/spur.patch",
+    "tmp/loop/lite/conditional-pairs/split-review.md",
+    "research/lite/baselines/34b5ef40e3bf-30-f9daa01b-300-g870d4c11-s3d907a50.json"
+  ],
+  "poolDirectionReview": {
+    "scope": "Read current pool and follow later observation outcomes. Historical KEPT is not treated as a live admission or as proof of current high gain. These are present judging dispositions for selection only; no pool status, awaiting-approval entry or frozen prior prediction was edited.",
+    "conclusion": "No fully specified, presently supported prior keep outranks the new top score4 on this review. Several prior mechanisms remain untested and deserve a fresh proposal; their historical score is not an automatic admission after the evidence and baseline changed.",
+    "alternatives": [
+      {
+        "ids": [
+          "lite-config-cell-deep-supply-walk",
+          "hazard-thompson-config-walk"
+        ],
+        "historicalGain": [
+          5,
+          4
+        ],
+        "currentGain": 3,
+        "cost": 0,
+        "disposition": "Untested, needs complete specification before admission. The new pool entry names an unspecified protocol-free post-fault shape but no actual reward, posterior update, support/firing definition or complete frozen prediction. The older hazard walk is deduped to the existing plan-only replay config-selection family and uses an earlier rung. One-crash cells cannot satisfy a second-crash rung, but that alone is not evidence that broad reward learning improves discovery; reward/depth reversals and AOS harm now weaken that inference. Do not call the mechanism empirically refuted."
+      },
+      {
+        "ids": [
+          "crash-phase-arm-ablation-early-only"
+        ],
+        "historicalGain": 5,
+        "currentGain": 3,
+        "cost": 0,
+        "disposition": "Technically live: source still samples Early/Mid/Stock, so this is not already-set. Its effect/observable pricing uses iteration23 fan-out counts and pre-landing-node phase evidence, and the original judge already found no direct causal handle on the claimed8-to9 conversion. The landing-node and later selector changes alter which victim and arm mixture those numbers price. Keep as a lower-ranked re-proposal, not an answered experiment; a current causal case could raise its score."
+      },
+      {
+        "ids": [
+          "delivery-class-order-stale-arm-over-drawn-quarter"
+        ],
+        "historicalGain": 6,
+        "currentGain": 3,
+        "cost": 0,
+        "disposition": "The VR portion repeats iteration39 stale-first harm (iteration47 log explicitly identifies this duplication). The signed raft-stale-vote panel hypothesis remains untested, so do not call the whole idea refuted. It requires a fresh portfolio case and current arm-share prediction after the selector replaced fixed independent arm shares; the old quarter-draw/dose prescription is not directly portable while preserving current learned direction semantics. Retain as a possible panel-focused re-proposal."
+      },
+      {
+        "ids": [
+          "fresh-first-ablate-contests-after-first-hearing",
+          "post-fault-hold-class-split-read-write"
+        ],
+        "historicalGain": [
+          5,
+          5
+        ],
+        "currentGain": 2,
+        "cost": 0,
+        "disposition": "Both original reviews identify a broken supporting case: heard-cut has a tautological observable and no named panel deficit to restore; class-split reasoned from a read majority while panel configurations have a write majority and the claimed sign is likely reversed. Required rewrites were not supplied. Do not build under stale frozen predictions or report the mechanisms experimentally refuted."
+      },
+      {
+        "ids": [
+          "per-cell-selector-ghost-signal-fired-reward"
+        ],
+        "historicalGain": 5,
+        "currentGain": 0,
+        "cost": 0,
+        "disposition": "Kept as calibration already emitted, not an unbuilt learner mechanism; the pool itself says its axis effect is below four-chunk resolution. A measurement-only repeat is not an actionable mechanism round."
+      },
+      {
+        "ids": [
+          "per-cell-selector-overtaken-ghost-honoured-twice-or-before-receiver-request-reward"
+        ],
+        "historicalGain": 5,
+        "currentGain": 2,
+        "cost": 0,
+        "disposition": "Conditional fallback was only for an untouched-clause own-run rate below.015. Iteration59 measured.0276 and closed on stock-crash reward bias instead. The fallback trigger did not occur, and its original pair clause is recorded as protocol-shaped. Re-proposal must address that bias and generality."
+      },
+      {
+        "ids": [
+          "crossing-quiet-learned-stop",
+          "response-quiet-settle-learned-stop",
+          "last-crossing-step-arm-quantile-stop"
+        ],
+        "historicalGain": [
+          5,
+          4,
+          2
+        ],
+        "currentGain": 2,
+        "cost": 0,
+        "disposition": "Iteration60 priced this family with four chunks and histograms: the crossing/response tail is long, response p99 is also about1024, savings missed the frozen band, and deeper rungs lean down. The aggressive re-arming variant additionally has a false no-live-reader bit claim. These predicates are not all experimentally identical, but no surviving distinct causal/supply argument justifies an old5 score. Require a new concrete mechanism rather than another quiescence dose."
+      },
+      {
+        "ids": [
+          "per-cell-selector-cycle-before-request-and-post-fault-answer-before-restarted-news-reward",
+          "per-cell-selector-post-fault-answer-then-restarted-news-acted-at-never-restarted-node-reward",
+          "per-cell-selector-restarted-competitor-queued-at-post-fault-answer-reward"
+        ],
+        "historicalGain": [
+          5,
+          3,
+          4
+        ],
+        "currentGain": 0,
+        "cost": 0,
+        "disposition": "Already tested as graded levels/columns at64; level2 own-run supply.001 misses.010 and competitor reward.003-.009 is explicitly inapplicable. No new learner admission without a different supply mechanism; columns alone do not outrank a mechanism."
+      },
+      {
+        "ids": [
+          "lite-postfault-state-fork",
+          "state-fork-cut-at-last-planned-recover"
+        ],
+        "historicalGain": 5,
+        "currentGain": 0,
+        "cost": 2,
+        "disposition": "Answered by iteration54 checkpoint cost gate and the later iteration66 more selective checkpoint trial. An unchanged last-recover fork is not a live new hypothesis."
+      },
+      {
+        "ids": [
+          "per-cell-thompson-joint-arm-selector-rarity-reward",
+          "per-cell-exp3-arm-selector-acted-stale-at-restarted-receiver-reward"
+        ],
+        "historicalGain": [
+          3,
+          2
+        ],
+        "currentGain": 2,
+        "cost": 0,
+        "disposition": "Already below top; full joint Thompson not buildable with its original per-combination supply requirement, Exp3 has unstable importance weights and reward-sign concerns. Dedupe to the new joint-learning alternatives rather than score them independently."
+      },
+      {
+        "ids": [
+          "post-fault-hold-then-rush-direction",
+          "selector-arm-cell-borrows-sibling-arms-evidence-to-discount-window",
+          "selector-pick-leader-mixture-by-leading-margin-within-learner-half",
+          "recovery-stranded-drain-phase-anchored-release"
+        ],
+        "historicalGain": 4,
+        "currentGain": 3,
+        "cost": 0,
+        "disposition": "None outranks4. Hold-then-rush was explicitly undecidable at its frozen deep-rung effect and horizon; sibling borrowing is a near-pooling fallback only if per-arm heterogeneity warrants it; leader-mixture duplicates merged binary-axis behavior and has a falsified three-way share claim; recovery drain places the peer consumption before recovery while its own target ordering wants the reverse. Preserve as conditional/re-proposal directions, not newly refuted trials."
+      },
+      {
+        "ids": [
+          "selector-one-parent-conditional-direction-posteriors"
+        ],
+        "historicalGain": 4,
+        "currentGain": 4,
+        "cost": 0,
+        "disposition": "Currently being graded at67, not an independent next candidate and not a merged baseline. Its full final result may affect the next selection. Current split evidence is retained without declaring closure."
+      }
+    ],
+    "awaitingApproval": "The iteration53 budget-dose decision and any other awaiting-approval entries remain untouched. This review neither approves nor substitutes an unapproved epoch/config change."
+  }
+}

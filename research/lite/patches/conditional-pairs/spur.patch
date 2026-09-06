@@ -1,0 +1,834 @@
+diff --git a/spur-core/src/simulator/arm_selector.rs b/spur-core/src/simulator/arm_selector.rs
+index c90b227..a9536be 100644
+--- a/spur-core/src/simulator/arm_selector.rs
++++ b/spur-core/src/simulator/arm_selector.rs
+@@ -13,10 +13,10 @@
+ //! further salt below that share makes the run coin-drawn. A coin-drawn
+ //! run takes the directions the run id's coins name and is the control
+ //! sample every learner observes. Any other run is a learner run: it picks
+-//! each axis independently, a direction with probability proportional to
+-//! the coin's share of that direction times the posterior probability that
+-//! the direction leads its axis, which is uniform when nothing separates
+-//! the directions and tends to one for a separated leader. Nothing is
++//! the most decided axis first, then conditions the other axes on that
++//! direction. Each draw weights a direction by its coin share times its
++//! posterior probability of leading the axis. A pair with fewer than the
++//! warmup observations uses the candidate's marginal posterior. Nothing is
+ //! drawn from the posteriors: the coin-drawn runs supply the exploration,
+ //! and their share falls as the cell's leader separates. The probability
+ //! of leading is computed in closed form, each pairwise term being the
+@@ -54,6 +54,7 @@ use rand::Rng;
+ use rand::SeedableRng;
+ use rand::rngs::SmallRng;
+ use std::sync::LazyLock;
++use std::sync::atomic::{AtomicU64, Ordering};
+ 
+ /// Salt for the assignment of a run to a learner. Distinct from every other
+ /// split of a session.
+@@ -78,6 +79,94 @@ pub const DISCOUNT: f64 = 0.998;
+ /// from the posteriors; below it every run of the cell is coin-drawn.
+ pub const WARMUP_OBSERVATIONS: u64 = 24;
+ 
++const PAIRS: usize = 57;
++
++const fn pair_directions() -> [[usize; 2]; PAIRS] {
++    let mut pairs = [[0; 2]; PAIRS];
++    let mut index = 0;
++    let mut a = 0;
++    while a < AXES {
++        let mut b = a + 1;
++        while b < AXES {
++            let mut d = AXIS_START[a];
++            while d < AXIS_START[a + 1] {
++                let mut e = AXIS_START[b];
++                while e < AXIS_START[b + 1] {
++                    pairs[index] = [d, e];
++                    index += 1;
++                    e += 1;
++                }
++                d += 1;
++            }
++            b += 1;
++        }
++        a += 1;
++    }
++    assert!(index == PAIRS);
++    pairs
++}
++
++const PAIR_DIRECTIONS: [[usize; 2]; PAIRS] = pair_directions();
++const PAIR_INDEX: [[usize; DIRECTIONS]; DIRECTIONS] = {
++    let mut indices = [[usize::MAX; DIRECTIONS]; DIRECTIONS];
++    let mut i = 0;
++    while i < PAIRS {
++        let [d, e] = PAIR_DIRECTIONS[i];
++        indices[d][e] = i;
++        indices[e][d] = i;
++        i += 1;
++    }
++    indices
++};
++
++#[derive(Clone, Copy, Default)]
++struct PairEvidence {
++    success: f64,
++    failure: f64,
++    observations: u64,
++    positives: u64,
++}
++
++impl PairEvidence {
++    fn supported(&self) -> bool {
++        self.observations >= 100
++            && self.positives >= 5
++            && self.success + self.failure >= 24.0
++            && self.success >= 2.0
++    }
++}
++
++#[derive(Default)]
++struct ConditionalDecision {
++    decisions: AtomicU64,
++    conditional_direction_draws: AtomicU64,
++    fallback_direction_draws: AtomicU64,
++    argmax_changes: AtomicU64,
++    total_variation_micro: AtomicU64,
++    supported_decisions: AtomicU64,
++    supported_argmax_changes: AtomicU64,
++}
++
++fn weight_leader(a: usize, weights: &[f64; 3]) -> usize {
++    let mut best = 0;
++    for slot in 1..AXIS_START[a + 1] - AXIS_START[a] {
++        if weights[slot] > weights[best] {
++            best = slot;
++        }
++    }
++    AXIS_START[a] + best
++}
++
++fn parent_axis(margins: &[f64; AXES]) -> usize {
++    let mut best = 0;
++    for a in 1..AXES {
++        if margins[a] > margins[best] {
++            best = a;
++        }
++    }
++    best
++}
++
+ /// A cell key: a campaign arm index and a configuration index. A run at a
+ /// configuration of the grid is keyed by the configuration alone, under
+ /// `POOLED_ARM`, so every campaign arm walking the grid (and standard mode,
+@@ -219,6 +308,10 @@ struct CellLearner {
+     mass: f64,
+     /// Runs observed in this cell.
+     observations: u64,
++    pairs: [PairEvidence; PAIRS],
++    conditional_chosen_runs: AtomicU64,
++    parent_axis_choices: [AtomicU64; AXES],
++    conditional_decisions: [ConditionalDecision; DIRECTIONS * AXES],
+ }
+ 
+ impl CellLearner {
+@@ -229,6 +322,10 @@ impl CellLearner {
+             reward_mass: 0.0,
+             mass: 0.0,
+             observations: 0,
++            pairs: [PairEvidence::default(); PAIRS],
++            conditional_chosen_runs: AtomicU64::new(0),
++            parent_axis_choices: std::array::from_fn(|_| AtomicU64::new(0)),
++            conditional_decisions: std::array::from_fn(|_| ConditionalDecision::default()),
+         }
+     }
+ 
+@@ -335,12 +432,100 @@ impl CellLearner {
+     /// exploration, so a learner run exploits what the cell has learned,
+     /// and the generator serves the categorical pick only.
+     fn sample_axis_leading(&self, a: usize, rng: &mut SmallRng) -> usize {
++        Self::pick(a, &self.marginal_weights(a), rng)
++    }
++
++    fn marginal_weights(&self, a: usize) -> [f64; 3] {
+         let range = AXIS_START[a]..AXIS_START[a + 1];
+         let mut weights = self.leading_probability(a);
+         for (slot, d) in range.enumerate() {
+             weights[slot] *= ArmSet::coin_probability(d);
+         }
+-        Self::pick(a, &weights, rng)
++        weights
++    }
++
++    /// The pair's prior has mass 24 centered on the current marginal mean.
++    /// It is shared evidence, not independent observations of the reward.
++    fn conditional_posterior(&self, parent: usize, d: usize) -> (f64, f64) {
++        let pair = &self.pairs[PAIR_INDEX[parent][d]];
++        if pair.observations < WARMUP_OBSERVATIONS {
++            return self.posterior(d);
++        }
++        let m = WARMUP_OBSERVATIONS as f64;
++        let mu = self.mean(d);
++        (m * mu + pair.success, m * (1.0 - mu) + pair.failure)
++    }
++
++    fn conditional_weights(&self, parent: usize, a: usize) -> ([f64; 3], usize, bool) {
++        let range = AXIS_START[a]..AXIS_START[a + 1];
++        let mut warmed = 0;
++        let mut supported = 0;
++        for d in range.clone() {
++            let pair = &self.pairs[PAIR_INDEX[parent][d]];
++            warmed += (pair.observations >= WARMUP_OBSERVATIONS) as usize;
++            supported += pair.supported() as usize;
++        }
++        if warmed == 0 {
++            return (self.marginal_weights(a), 0, false);
++        }
++        let mut moments = [(0.0, 0.0); 3];
++        for (slot, d) in range.clone().enumerate() {
++            let (alpha, beta) = self.conditional_posterior(parent, d);
++            let mass = alpha + beta;
++            moments[slot] = (alpha / mass, alpha * beta / (mass * mass * (mass + 1.0)));
++        }
++        let mut weights = [0.0; 3];
++        for (slot, d) in range.clone().enumerate() {
++            let (mean, variance) = moments[slot];
++            weights[slot] = (0..range.len())
++                .filter(|&other| other != slot)
++                .map(|other| {
++                    normal_cdf((mean - moments[other].0) / (variance + moments[other].1).sqrt())
++                })
++                .product::<f64>()
++                * ArmSet::coin_probability(d);
++        }
++        (weights, warmed, supported >= 2)
++    }
++
++    fn record_conditional_decision(
++        &self,
++        parent: usize,
++        a: usize,
++        weights: &[f64; 3],
++        warmed: usize,
++        supported: bool,
++    ) {
++        if !util_stats::enabled() {
++            return;
++        }
++        let row = &self.conditional_decisions[parent * AXES + a];
++        let marginal = self.marginal_weights(a);
++        let changed = weight_leader(a, weights) != weight_leader(a, &marginal);
++        let total: f64 = weights.iter().sum();
++        let marginal_total: f64 = marginal.iter().sum();
++        let variation = weights
++            .iter()
++            .zip(marginal)
++            .map(|(x, y)| (x / total - y / marginal_total).abs())
++            .sum::<f64>()
++            / 2.0;
++        row.decisions.fetch_add(1, Ordering::Relaxed);
++        row.conditional_direction_draws
++            .fetch_add(warmed as u64, Ordering::Relaxed);
++        row.fallback_direction_draws.fetch_add(
++            (AXIS_START[a + 1] - AXIS_START[a] - warmed) as u64,
++            Ordering::Relaxed,
++        );
++        row.argmax_changes
++            .fetch_add(changed as u64, Ordering::Relaxed);
++        row.total_variation_micro
++            .fetch_add((variation * 1_000_000.0).round() as u64, Ordering::Relaxed);
++        if supported {
++            row.supported_decisions.fetch_add(1, Ordering::Relaxed);
++            row.supported_argmax_changes
++                .fetch_add(changed as u64, Ordering::Relaxed);
++        }
+     }
+ 
+     /// One categorical draw over the directions of axis `a` with the given
+@@ -372,6 +557,16 @@ impl CellLearner {
+             self.alpha[d] = DISCOUNT * self.alpha[d] + r;
+             self.beta[d] = DISCOUNT * self.beta[d] + (1.0 - r);
+         }
++        let directions = arms.directions();
++        for a in 0..AXES {
++            for b in a + 1..AXES {
++                let pair = &mut self.pairs[PAIR_INDEX[directions[a]][directions[b]]];
++                pair.success = DISCOUNT * pair.success + r;
++                pair.failure = DISCOUNT * pair.failure + (1.0 - r);
++                pair.observations += 1;
++                pair.positives += reward as u64;
++            }
++        }
+     }
+ }
+ 
+@@ -381,6 +576,78 @@ static CELLS: [LazyLock<DashMap<Cell, CellLearner>>; 3] = [
+     LazyLock::new(DashMap::new),
+ ];
+ 
++pub(crate) fn conditional_pair_stats() -> util_stats::ArmSelectorConditionalPairStats {
++    let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
++    let mut out = util_stats::ArmSelectorConditionalPairStats {
++        parent_axis_choices: vec![0; AXES],
++        ..Default::default()
++    };
++    for (learner, cells) in CELLS.iter().enumerate() {
++        for entry in cells.iter() {
++            let mut cell = util_stats::ArmSelectorConditionalCellStats {
++                cell: [entry.key().0, entry.key().1],
++                learner,
++                chosen_runs: load(&entry.conditional_chosen_runs),
++                parent_axis_choices: entry.parent_axis_choices.iter().map(load).collect(),
++                pairs: Vec::with_capacity(PAIRS),
++                decisions: Vec::new(),
++                supported_decisions: 0,
++                supported_argmax_changes: 0,
++            };
++            out.chosen_runs += cell.chosen_runs;
++            for a in 0..AXES {
++                out.parent_axis_choices[a] += cell.parent_axis_choices[a];
++            }
++            for (index, pair) in entry.pairs.iter().enumerate() {
++                out.pair_observations += pair.observations;
++                out.pair_positive_rewards += pair.positives;
++                cell.pairs.push(util_stats::ArmSelectorPairEvidenceStats {
++                    directions: PAIR_DIRECTIONS[index],
++                    raw_observations: pair.observations,
++                    raw_positive_rewards: pair.positives,
++                    success_mass: pair.success,
++                    failure_mass: pair.failure,
++                });
++            }
++            for parent_axis in 0..AXES {
++                for parent_direction in AXIS_START[parent_axis]..AXIS_START[parent_axis + 1] {
++                    for candidate_axis in 0..AXES {
++                        if parent_axis == candidate_axis {
++                            continue;
++                        }
++                        let row =
++                            &entry.conditional_decisions[parent_direction * AXES + candidate_axis];
++                        let stats = util_stats::ArmSelectorConditionalDecisionStats {
++                            parent_axis,
++                            parent_direction,
++                            candidate_axis,
++                            decisions: load(&row.decisions),
++                            conditional_direction_draws: load(&row.conditional_direction_draws),
++                            fallback_direction_draws: load(&row.fallback_direction_draws),
++                            argmax_changes: load(&row.argmax_changes),
++                            total_variation_micro: load(&row.total_variation_micro),
++                            supported_decisions: load(&row.supported_decisions),
++                            supported_argmax_changes: load(&row.supported_argmax_changes),
++                        };
++                        out.conditional_direction_draws += stats.conditional_direction_draws;
++                        out.fallback_direction_draws += stats.fallback_direction_draws;
++                        out.argmax_changes += stats.argmax_changes;
++                        out.total_variation_micro += stats.total_variation_micro;
++                        out.supported_decisions += stats.supported_decisions;
++                        out.supported_argmax_changes += stats.supported_argmax_changes;
++                        cell.supported_decisions += stats.supported_decisions;
++                        cell.supported_argmax_changes += stats.supported_argmax_changes;
++                        cell.decisions.push(stats);
++                    }
++                }
++            }
++            out.cells.push(cell);
++        }
++    }
++    out.cells.sort_by_key(|cell| (cell.learner, cell.cell));
++    out
++}
++
+ /// The arm set a run takes and the learner that drew it. A probe takes its
+ /// coins. Any other run is assigned to a learner; the run is coin-drawn
+ /// when its unit draw under `EXPLORE_SALT` falls below that learner's
+@@ -412,11 +679,28 @@ pub fn choose(run_id: i64, schedule_seed: u64, arm_index: i32, cell: Cell) -> Ch
+     }
+     let mut rng = SmallRng::seed_from_u64(derive_seed(schedule_seed, run_id, DRAW_SALT));
+     let mut directions = [0usize; AXES];
++    let parent = parent_axis(&margins);
++    directions[parent] = state.sample_axis_leading(parent, &mut rng);
++    if util_stats::enabled() {
++        state.parent_axis_choices[parent].fetch_add(1, Ordering::Relaxed);
++    }
++    let parent_direction = directions[parent];
++    let mut conditional = false;
+     let mut agreements = 0u64;
+     for (a, d) in directions.iter_mut().enumerate() {
+-        *d = state.sample_axis_leading(a, &mut rng);
++        if a != parent {
++            let (weights, warmed, supported) = state.conditional_weights(parent_direction, a);
++            *d = CellLearner::pick(a, &weights, &mut rng);
++            state.record_conditional_decision(parent_direction, a, &weights, warmed, supported);
++            conditional |= warmed > 0;
++        }
+         agreements += (*d == state.leader(a)) as u64;
+     }
++    if conditional && util_stats::enabled() {
++        state
++            .conditional_chosen_runs
++            .fetch_add(1, Ordering::Relaxed);
++    }
+     let arms = ArmSet::from_directions(directions);
+     util_stats::record_arm_selector_learner_run(learner.reward(), &arms, &coins, agreements, &margins);
+     Choice {
+@@ -509,6 +793,169 @@ mod tests {
+     use rand::RngCore;
+     use rand_distr::{Beta, Distribution};
+ 
++    #[test]
++    fn pair_credit_is_symmetric_and_discounts_only_carried_pairs() {
++        let mut state = CellLearner::new();
++        for (i, [d, e]) in PAIR_DIRECTIONS.into_iter().enumerate() {
++            assert_eq!(PAIR_INDEX[d][e], i);
++            assert_eq!(PAIR_INDEX[e][d], i);
++        }
++        let first = ArmSet::from_index(0);
++        state.credit(&first, true);
++        assert_eq!(state.pairs.iter().map(|p| p.observations).sum::<u64>(), 10);
++        assert_eq!(state.pairs.iter().map(|p| p.positives).sum::<u64>(), 10);
++        let directions = first.directions();
++        let index = PAIR_INDEX[directions[0]][directions[1]];
++        state.credit(&ArmSet::from_index(COMBINATIONS - 1), false);
++        assert_eq!(state.pairs[index].success, 1.0);
++        assert_eq!(state.pairs[index].failure, 0.0);
++        state.credit(&first, false);
++        assert_eq!(state.pairs[index].success, DISCOUNT);
++        assert_eq!(state.pairs[index].failure, 1.0);
++        assert_eq!(state.pairs[index].observations, 2);
++        assert_eq!(state.pairs[index].positives, 1);
++        assert_eq!(state.pairs.iter().map(|p| p.observations).sum::<u64>(), 30);
++    }
++
++    #[test]
++    fn cold_pairs_use_exact_marginal_distributions_and_warm_pairs_use_current_prior() {
++        let mut state = CellLearner::new();
++        state.mass = 100.0;
++        state.reward_mass = 10.0;
++        state.alpha[3] = 3.0;
++        state.beta[3] = 90.0;
++        state.alpha[4] = 9.0;
++        state.beta[4] = 80.0;
++        let pair = &mut state.pairs[PAIR_INDEX[0][3]];
++        *pair = PairEvidence {
++            success: 20.0,
++            failure: 3.0,
++            observations: 23,
++            positives: 20,
++        };
++        assert_eq!(state.conditional_posterior(0, 3), state.posterior(3));
++        let (weights, warmed, supported) = state.conditional_weights(0, 1);
++        assert_eq!(weights, state.marginal_weights(1));
++        assert_eq!(warmed, 0);
++        assert!(!supported);
++        let mut marginal_rng = SmallRng::seed_from_u64(91);
++        let mut conditional_rng = marginal_rng.clone();
++        for _ in 0..100 {
++            assert_eq!(
++                state.sample_axis_leading(1, &mut marginal_rng),
++                CellLearner::pick(1, &weights, &mut conditional_rng)
++            );
++        }
++        state.pairs[PAIR_INDEX[0][3]].observations = 24;
++        let mu = state.mean(3);
++        assert_eq!(
++            state.conditional_posterior(0, 3),
++            (24.0 * mu + 20.0, 24.0 * (1.0 - mu) + 3.0)
++        );
++        state.reward_mass = 50.0;
++        let current_mu = state.mean(3);
++        assert_ne!(current_mu, mu);
++        assert_eq!(
++            state.conditional_posterior(0, 3).0,
++            24.0 * current_mu + 20.0
++        );
++        assert_eq!(state.conditional_weights(0, 1).1, 1);
++        assert_eq!(state.conditional_posterior(0, 4), state.posterior(4));
++    }
++
++    #[test]
++    fn support_is_counted_at_decision_with_current_mass_and_final_coin_weights() {
++        let _serial = config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        reset();
++        let mut state = CellLearner::new();
++        for d in [9, 10] {
++            state.pairs[PAIR_INDEX[0][d]] = PairEvidence {
++                success: 2.0,
++                failure: 22.0,
++                observations: 100,
++                positives: 5,
++            };
++        }
++        assert!(state.conditional_weights(0, 4).2);
++        let final_weights = [0.20, 0.15, 0.10];
++        assert_eq!(weight_leader(4, &final_weights), 9);
++        assert_eq!(weight_leader(4, &[0.40, 0.60, 0.40]), 10);
++        state.record_conditional_decision(0, 4, &final_weights, 2, true);
++        let row = &state.conditional_decisions[4];
++        assert_eq!(row.supported_decisions.load(Ordering::Relaxed), 1);
++        assert_eq!(row.supported_argmax_changes.load(Ordering::Relaxed), 0);
++        state.record_conditional_decision(0, 4, &[0.10, 0.30, 0.10], 2, true);
++        assert_eq!(row.supported_argmax_changes.load(Ordering::Relaxed), 1);
++        for (success, failure, observations, positives) in [
++            (1.99, 22.01, 100, 5),
++            (2.0, 21.99, 100, 5),
++            (2.0, 22.0, 99, 5),
++            (2.0, 22.0, 100, 4),
++        ] {
++            state.pairs[PAIR_INDEX[0][10]] = PairEvidence {
++                success,
++                failure,
++                observations,
++                positives,
++            };
++            let (_, warmed, supported) = state.conditional_weights(0, 4);
++            assert!(!supported);
++            state.record_conditional_decision(0, 4, &[0.10, 0.30, 0.10], warmed, supported);
++        }
++        assert_eq!(
++            state.conditional_decisions[4]
++                .supported_decisions
++                .load(Ordering::Relaxed),
++            2
++        );
++        CELLS[0].insert((POOLED_ARM, 5), state);
++        let stats = conditional_pair_stats();
++        assert_eq!(stats.supported_decisions, 2);
++        assert_eq!(stats.supported_argmax_changes, 1);
++        assert_eq!(stats.cells[0].pairs.len(), 57);
++        assert_eq!(stats.cells[0].decisions.len(), 48);
++        assert_eq!(stats.cells[0].supported_decisions, 2);
++        reset();
++        assert!(conditional_pair_stats().cells.is_empty());
++        assert_eq!(conditional_pair_stats().supported_decisions, 0);
++        util_stats::set_enabled(false);
++    }
++
++    #[test]
++    fn conditional_rewards_can_reverse_marginal_choice_in_either_orientation() {
++        let mut state = CellLearner::new();
++        state.mass = 500.0;
++        state.reward_mass = 50.0;
++        for d in [3, 4] {
++            state.alpha[d] = 10.0;
++            state.beta[d] = 190.0;
++        }
++        state.alpha[3] = 20.0;
++        state.pairs[PAIR_INDEX[9][3]] = PairEvidence {
++            success: 5.0,
++            failure: 495.0,
++            observations: 1000,
++            positives: 10,
++        };
++        state.pairs[PAIR_INDEX[9][4]] = PairEvidence {
++            success: 150.0,
++            failure: 350.0,
++            observations: 1000,
++            positives: 300,
++        };
++        assert_eq!(weight_leader(1, &state.marginal_weights(1)), 3);
++        let (weights, warmed, supported) = state.conditional_weights(9, 1);
++        assert_eq!(warmed, 2);
++        assert!(supported);
++        assert_eq!(weight_leader(1, &weights), 4);
++        let (alpha, beta) = state.conditional_posterior(4, 9);
++        assert_eq!(alpha, 24.0 * state.mean(9) + 150.0);
++        assert_eq!(beta, 24.0 * (1.0 - state.mean(9)) + 350.0);
++        assert_eq!(parent_axis(&[0.5, 0.9, 0.9, 0.7, 0.6]), 1);
++        assert_eq!(parent_axis(&[0.5; AXES]), 0);
++    }
++
+     /// Counts draws so a test can assert a path consumed none.
+     struct CountingRng {
+         inner: SmallRng,
+@@ -780,8 +1227,11 @@ mod tests {
+         reset();
+         let cell = (4, 4);
+         let arms = ArmSet::default();
+-        let observations =
+-            |l: Learner| CELLS[l.index()].get(&cell).map_or(0, |state| state.observations);
++        let observations = |l: Learner| {
++            CELLS[l.index()]
++                .get(&cell)
++                .map_or(0, |state| state.observations)
++        };
+         // A learner's runs reach its own cell and no other's.
+         for l in Learner::ALL {
+             let id = assigned_id(l);
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..3a5d06f 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -4823,6 +4823,58 @@ impl ArmSelectorPooledStats {
+     }
+ }
+ 
++#[derive(Serialize, Debug, Clone)]
++pub struct ArmSelectorPairEvidenceStats {
++    pub directions: [usize; 2],
++    pub raw_observations: u64,
++    pub raw_positive_rewards: u64,
++    pub success_mass: f64,
++    pub failure_mass: f64,
++}
++
++#[derive(Serialize, Debug, Clone)]
++pub struct ArmSelectorConditionalDecisionStats {
++    pub parent_axis: usize,
++    pub parent_direction: usize,
++    pub candidate_axis: usize,
++    pub decisions: u64,
++    pub conditional_direction_draws: u64,
++    pub fallback_direction_draws: u64,
++    pub argmax_changes: u64,
++    pub total_variation_micro: u64,
++    pub supported_decisions: u64,
++    pub supported_argmax_changes: u64,
++}
++
++#[derive(Serialize, Debug, Clone)]
++pub struct ArmSelectorConditionalCellStats {
++    pub cell: [i32; 2],
++    pub learner: usize,
++    pub chosen_runs: u64,
++    pub parent_axis_choices: Vec<u64>,
++    pub pairs: Vec<ArmSelectorPairEvidenceStats>,
++    pub decisions: Vec<ArmSelectorConditionalDecisionStats>,
++    pub supported_decisions: u64,
++    pub supported_argmax_changes: u64,
++}
++
++/// Support counts describe evidence at each decision, not at the snapshot.
++/// Pair observations share one reward across the ten pairs a run carries.
++#[derive(Serialize, Debug, Clone, Default)]
++pub struct ArmSelectorConditionalPairStats {
++    pub chosen_runs: u64,
++    pub conditional_direction_draws: u64,
++    pub fallback_direction_draws: u64,
++    pub pair_observations: u64,
++    pub pair_positive_rewards: u64,
++    pub argmax_changes: u64,
++    pub total_variation_micro: u64,
++    pub supported_decisions: u64,
++    pub supported_argmax_changes: u64,
++    pub parent_axis_choices: Vec<u64>,
++    pub cells: Vec<ArmSelectorConditionalCellStats>,
++}
++
+ /// The arm selector block. The top-level fields are the first learner's,
+ /// the one trained on the overtaken-ghost reward, and repeat under
+ /// `overtaken_ghost`; the second learner's are under `absorber_cycle` and
+@@ -4862,6 +4914,7 @@ pub struct ArmSelectorAxisStats {
+     pub control_reward_positive_by_combination: Vec<u64>,
+     pub explore: ArmSelectorExploreStats,
+     pub pooled: ArmSelectorPooledStats,
++    pub conditional_pair: ArmSelectorConditionalPairStats,
+     pub overtaken_ghost: ArmSelectorLearnerStats,
+     pub absorber_cycle: ArmSelectorLearnerStats,
+     pub cycle_before_request: ArmSelectorLearnerStats,
+@@ -4904,6 +4957,7 @@ impl ArmSelectorAxisStats {
+                 .clone(),
+             explore: ArmSelectorExploreStats::read(),
+             pooled: ArmSelectorPooledStats::read(),
++            conditional_pair: crate::simulator::arm_selector::conditional_pair_stats(),
+             overtaken_ghost: a,
+             absorber_cycle: ArmSelectorLearnerStats::read(Reward::AbsorberCycle),
+             cycle_before_request: ArmSelectorLearnerStats::read(Reward::CycleBeforeRequest),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..f30f9b7 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -857,6 +857,170 @@ fn arm_selector_pooled(m: &mut Marks) -> ArmSelectorPooledStats {
+     }
+ }
+ 
++fn arm_selector_pair_evidence(m: &mut Marks) -> util_stats::ArmSelectorPairEvidenceStats {
++    util_stats::ArmSelectorPairEvidenceStats {
++        directions: std::array::from_fn(|_| m.int() as _),
++        raw_observations: m.int(),
++        raw_positive_rewards: m.int(),
++        success_mass: m.frac(),
++        failure_mass: m.frac(),
++    }
++}
++
++fn arm_selector_pair_evidence_leaves(prefix: &str, value: &util_stats::ArmSelectorPairEvidenceStats) -> Vec<(String, Value)> {
++    let util_stats::ArmSelectorPairEvidenceStats {
++        directions,
++        raw_observations,
++        raw_positive_rewards,
++        success_mass,
++        failure_mass,
++    } = value;
++    let mut out = Vec::new();
++    for (i, value) in directions.iter().enumerate() {
++        out.push(leaf(&format!("{prefix}.directions"), &i.to_string(), *value));
++    }
++    out.push(leaf(prefix, "raw_observations", *raw_observations));
++    out.push(leaf(prefix, "raw_positive_rewards", *raw_positive_rewards));
++    out.push(leaf(prefix, "success_mass", *success_mass));
++    out.push(leaf(prefix, "failure_mass", *failure_mass));
++    out
++}
++
++fn arm_selector_conditional_decision(m: &mut Marks) -> util_stats::ArmSelectorConditionalDecisionStats {
++    util_stats::ArmSelectorConditionalDecisionStats {
++        parent_axis: m.int() as usize,
++        parent_direction: m.int() as usize,
++        candidate_axis: m.int() as usize,
++        decisions: m.int(),
++        conditional_direction_draws: m.int(),
++        fallback_direction_draws: m.int(),
++        argmax_changes: m.int(),
++        total_variation_micro: m.int(),
++        supported_decisions: m.int(),
++        supported_argmax_changes: m.int(),
++    }
++}
++
++fn arm_selector_conditional_decision_leaves(prefix: &str, value: &util_stats::ArmSelectorConditionalDecisionStats) -> Vec<(String, Value)> {
++    let util_stats::ArmSelectorConditionalDecisionStats {
++        parent_axis,
++        parent_direction,
++        candidate_axis,
++        decisions,
++        conditional_direction_draws,
++        fallback_direction_draws,
++        argmax_changes,
++        total_variation_micro,
++        supported_decisions,
++        supported_argmax_changes,
++    } = value;
++    let mut out = Vec::new();
++    out.push(leaf(prefix, "parent_axis", *parent_axis));
++    out.push(leaf(prefix, "parent_direction", *parent_direction));
++    out.push(leaf(prefix, "candidate_axis", *candidate_axis));
++    out.push(leaf(prefix, "decisions", *decisions));
++    out.push(leaf(prefix, "conditional_direction_draws", *conditional_direction_draws));
++    out.push(leaf(prefix, "fallback_direction_draws", *fallback_direction_draws));
++    out.push(leaf(prefix, "argmax_changes", *argmax_changes));
++    out.push(leaf(prefix, "total_variation_micro", *total_variation_micro));
++    out.push(leaf(prefix, "supported_decisions", *supported_decisions));
++    out.push(leaf(prefix, "supported_argmax_changes", *supported_argmax_changes));
++    out
++}
++
++fn arm_selector_conditional_cell(m: &mut Marks) -> util_stats::ArmSelectorConditionalCellStats {
++    util_stats::ArmSelectorConditionalCellStats {
++        cell: std::array::from_fn(|_| m.int() as _),
++        learner: m.int() as usize,
++        chosen_runs: m.int(),
++        parent_axis_choices: marks_vec(m, 2),
++        pairs: vec![arm_selector_pair_evidence(m), arm_selector_pair_evidence(m)],
++        decisions: vec![arm_selector_conditional_decision(m), arm_selector_conditional_decision(m)],
++        supported_decisions: m.int(),
++        supported_argmax_changes: m.int(),
++    }
++}
++
++fn arm_selector_conditional_cell_leaves(prefix: &str, value: &util_stats::ArmSelectorConditionalCellStats) -> Vec<(String, Value)> {
++    let util_stats::ArmSelectorConditionalCellStats {
++        cell,
++        learner,
++        chosen_runs,
++        parent_axis_choices,
++        pairs,
++        decisions,
++        supported_decisions,
++        supported_argmax_changes,
++    } = value;
++    let mut out = Vec::new();
++    for (i, value) in cell.iter().enumerate() {
++        out.push(leaf(&format!("{prefix}.cell"), &i.to_string(), *value));
++    }
++    out.push(leaf(prefix, "learner", *learner));
++    out.push(leaf(prefix, "chosen_runs", *chosen_runs));
++    for (i, value) in parent_axis_choices.iter().enumerate() {
++        out.push(leaf(&format!("{prefix}.parent_axis_choices"), &i.to_string(), *value));
++    }
++    for (i, value) in pairs.iter().enumerate() {
++        out.extend(arm_selector_pair_evidence_leaves(&format!("{prefix}.pairs.{i}"), value));
++    }
++    for (i, value) in decisions.iter().enumerate() {
++        out.extend(arm_selector_conditional_decision_leaves(&format!("{prefix}.decisions.{i}"), value));
++    }
++    out.push(leaf(prefix, "supported_decisions", *supported_decisions));
++    out.push(leaf(prefix, "supported_argmax_changes", *supported_argmax_changes));
++    out
++}
++
++fn arm_selector_conditional_pair(m: &mut Marks) -> util_stats::ArmSelectorConditionalPairStats {
++    util_stats::ArmSelectorConditionalPairStats {
++        chosen_runs: m.int(),
++        conditional_direction_draws: m.int(),
++        fallback_direction_draws: m.int(),
++        pair_observations: m.int(),
++        pair_positive_rewards: m.int(),
++        argmax_changes: m.int(),
++        total_variation_micro: m.int(),
++        supported_decisions: m.int(),
++        supported_argmax_changes: m.int(),
++        parent_axis_choices: marks_vec(m, 2),
++        cells: vec![arm_selector_conditional_cell(m), arm_selector_conditional_cell(m)],
++    }
++}
++
++fn arm_selector_conditional_pair_leaves(prefix: &str, value: &util_stats::ArmSelectorConditionalPairStats) -> Vec<(String, Value)> {
++    let util_stats::ArmSelectorConditionalPairStats {
++        chosen_runs,
++        conditional_direction_draws,
++        fallback_direction_draws,
++        pair_observations,
++        pair_positive_rewards,
++        argmax_changes,
++        total_variation_micro,
++        supported_decisions,
++        supported_argmax_changes,
++        parent_axis_choices,
++        cells,
++    } = value;
++    let mut out = Vec::new();
++    out.push(leaf(prefix, "chosen_runs", *chosen_runs));
++    out.push(leaf(prefix, "conditional_direction_draws", *conditional_direction_draws));
++    out.push(leaf(prefix, "fallback_direction_draws", *fallback_direction_draws));
++    out.push(leaf(prefix, "pair_observations", *pair_observations));
++    out.push(leaf(prefix, "pair_positive_rewards", *pair_positive_rewards));
++    out.push(leaf(prefix, "argmax_changes", *argmax_changes));
++    out.push(leaf(prefix, "total_variation_micro", *total_variation_micro));
++    out.push(leaf(prefix, "supported_decisions", *supported_decisions));
++    out.push(leaf(prefix, "supported_argmax_changes", *supported_argmax_changes));
++    for (i, value) in parent_axis_choices.iter().enumerate() {
++        out.push(leaf(&format!("{prefix}.parent_axis_choices"), &i.to_string(), *value));
++    }
++    for (i, value) in cells.iter().enumerate() {
++        out.extend(arm_selector_conditional_cell_leaves(&format!("{prefix}.cells.{i}"), value));
++    }
++    out
++}
++
+ fn arm_selector_axis(m: &mut Marks) -> ArmSelectorAxisStats {
+     ArmSelectorAxisStats {
+         chosen_runs: m.int(),
+@@ -883,6 +1047,7 @@ fn arm_selector_axis(m: &mut Marks) -> ArmSelectorAxisStats {
+         control_reward_positive_by_combination: marks_vec(m, 72),
+         explore: arm_selector_explore(m),
+         pooled: arm_selector_pooled(m),
++        conditional_pair: arm_selector_conditional_pair(m),
+         overtaken_ghost: arm_selector_learner(m),
+         absorber_cycle: arm_selector_learner(m),
+         cycle_before_request: arm_selector_learner(m),
+@@ -1066,6 +1231,7 @@ fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(Stri
+         control_reward_positive_by_combination,
+         explore,
+         pooled,
++        conditional_pair,
+         overtaken_ghost,
+         absorber_cycle,
+         mutual_absorber_cycle,
+@@ -1112,6 +1278,7 @@ fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(Stri
+     ));
+     out.extend(arm_selector_explore_leaves(&format!("{prefix}.explore"), explore));
+     out.extend(arm_selector_pooled_leaves(&format!("{prefix}.pooled"), pooled));
++    out.extend(arm_selector_conditional_pair_leaves(&format!("{prefix}.conditional_pair"), conditional_pair));
+     out.extend(arm_selector_learner_leaves(&format!("{prefix}.overtaken_ghost"), overtaken_ghost));
+     out.extend(arm_selector_learner_leaves(&format!("{prefix}.absorber_cycle"), absorber_cycle));
+     out.extend(arm_selector_learner_leaves(

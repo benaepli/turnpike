@@ -1,0 +1,38 @@
+{
+  "hypothesis": "selector-one-parent-conditional-direction-posteriors",
+  "worktree": "/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-conditional",
+  "base_super": "aa6b093",
+  "base_spur": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+  "source_files": [
+    "spur-core/src/simulator/arm_selector.rs",
+    "spur-core/src/simulator/util_stats.rs",
+    "spur-core/tests/util_stats_export_completeness.rs"
+  ],
+  "config_changes": false,
+  "new_bit": false,
+  "deviations": [],
+  "build": {
+    "command": "timeout 600s cargo build --release --manifest-path spur/Cargo.toml --bin spur",
+    "seconds": 19.89,
+    "success": true
+  },
+  "tests": {
+    "command": "RUST_MIN_STACK=33554432 cargo test --manifest-path spur/Cargo.toml -p spur-core",
+    "passed": 458,
+    "unit": 417,
+    "integration": 41,
+    "failed": 0,
+    "stack_note": "Larger stack is the accepted workaround for the known baseline held-request debug test stack overflow."
+  },
+  "smoke": {
+    "seconds": 10,
+    "purpose": "firing and exported schema confirmation only; discard performance/support rates",
+    "output": "/home/benaepli/Rust/turnpike/tmp/loop/conditional-pairs-smoke",
+    "success": true
+  },
+  "firing": "arm_selector_axis.conditional_pair.chosen_runs counts learner runs with at least one warmed conditional candidate; frozen floor 100000 applies to grading chunks.",
+  "support": "At decision time, actual parent direction and candidate axis need two compared pair directions each with raw observations>=100, raw positives>=5, discounted observation mass>=24 and success mass>=2. supported_argmax_changes compares final coin-weighted categorical argmax to marginal final argmax.",
+  "grading": "Per frozen prediction: at least20 cells each with100 supported decisions/chunk, aggregate supported argmax departures>=15%; cross-binary depth8 per-run1.08-1.20, events/sec>1.05, throughput>=0.97; own-learner rewards>=0.95. Fresh non-slot depth11>=1.5x exploratory. No treatment-bit comparison.",
+  "exports": "spur.patch contains all three changes; super.patch contains only the dirty spur gitlink marker. No untracked subject files. general_vr.json is byte-identical to input.",
+  "binary_sha256": "4dfc3eda923ecd325e6c615c053fcd527757c9c98ef77ab844b11d7f2432a0a7"
+}
