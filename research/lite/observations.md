@@ -5725,3 +5725,32 @@ depth-8 ranged 0.0124 to 0.0174 across the last session's four chunks,
 so a 0.80 on two seeds is inside what that arm's adaptive configuration
 walk does chunk to chunk; it is read on all four seeds before it means
 anything. Two chunks more.
+
+**Four chunks: the arms the change touches separate, the campaign
+read sits on the band's edge.** Cross-binary on seeds 1000 to 1003:
+depth>=8 per run 1.088, 1.044, 1.000, 1.078 by seed, pooled 1.052
+[1.028, 1.076] on the binomial interval and [0.990, 1.118] on the four
+ratios' own t-interval; per explore-second 1.063, 1.088, 1.067, 1.055,
+geometric mean 1.068 [1.046, 1.091]; runs per second 0.978, 1.042,
+1.067, 0.978 (1.016 pooled); depth>=10 per run 1.17 [0.99, 1.39] on 704
+against 593; no violation on 2.39M candidate runs. Per arm against the
+same arm on the baseline: grid 1.140 [1.073, 1.211], no-purgatory 1.105
+[1.050, 1.164], post-fault-2 1.136 [1.071, 1.205], grid-short 1.030
+[0.993, 1.069], aos 0.884 [0.832, 0.939]. The cells: 1.86M pooled draws
+over the four chunks, 216 pooled cells (54 per chunk) at about 3,500
+credits per learner per cell, campaign coin share 0.110 against 0.147,
+run-weighted grid share 0.128 against 0.175, by arm grid 0.172,
+grid-short 0.133, no-purgatory 0.106, post-fault-2 0.104, aos 0.020;
+mean top margin past warmup 0.922 against 0.888, by arm 0.87 on grid
+rising to 0.93 on post-fault-2 and 0.98 on aos; every chunk-1 gate and
+every four-chunk observable met. The three long grid arms, whose cells
+went from 750 to 3,500 observations, read 1.10 to 1.14 with their
+intervals clear of one; grid-short, whose cells already had twice the
+observations, reads 1.03; and the campaign-wide 1.052 is the run-
+weighted mix of those with the aos arm, which the change does not touch
+(its 386,378 draws are not among the pooled draws, to the run) and
+which reads 0.88 - its per-chunk rate ranged 0.0124 to 0.0174 last
+session, its configuration walk depends on feedback timing rather than
+the seed, so its paired read carries chunk-level dispersion the
+binomial interval does not, and it is recorded here as unresolved and
+not attributed. The regression case and the panel run next.
