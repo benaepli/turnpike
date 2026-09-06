@@ -5634,3 +5634,44 @@ purgatory is already off) yet no-purgatory reads 15 to 25 percent above
 grid per run on every chunk of every tree in the cache, which the
 round-robin's cold start on the first arm is the likeliest reading of.
 Judged next.
+
+**Judged.** The configuration-keyed shared cell rides alone at gain 7,
+cost 0: every figure in the proposals' fact block reproduces from the
+four explore-odds chunks and the cache, and the code anchors hold (the
+cell key at the choose and observe sites, panel members at arm -1 with
+one configuration so their cells are unchanged, the aos arm at its own
+cell, round-robin issuing the grid arm first in every round). The
+window bounds every form harder than the aos figures suggest: pooled
+grid cells land at a coin share of 0.10 to 0.12 by the mass arithmetic
+(z scaling with the square root of the time-averaged discounted mass,
+1.33x on the long arms and 1.12x on grid-short), the fault-shape form
+cannot reach its 0.05 letter and the cross-learner form's own scaling
+puts grid near 0.15, so both frozen falsifiers would have fired on a
+correct build and are rewritten; the hierarchical form confuses
+observation counts with discounted mass and inside a chunk is near
+full pooling on its treated half. The grid-against-no-purgatory gap is
+at most a third explained by the cold start on what the chunks can
+read (placed fraction and coin share account for three to five points
+of fifteen to twenty-five; the gap persists among placed runs and
+learner runs; the selector's cells are equally young on every arm's
+first slice; the run-cap and placement learners are budget-scoped and
+never decayed in a campaign, so grid pays their warmup, but the placed
+fraction says it is short), and a per-(arm, round) read from the runs
+table would settle it at no run cost - it rides as a chunk-1
+diagnostic, since if grid's later rounds equal no-purgatory the first
+slice of every chunk is paying heavily and state across chunks is worth
+more than any pooling. The primary moves from per second to per graded
+run: the mechanism changes no step count, per-second reads plus or
+minus 0.05 to 0.07 on this host and per-run 0.025. Grading: cross-
+binary depth>=8 per graded run on four paired seeds, band [1.05, 1.13],
+pass at a point at or above 1.05 with the lower edge above 1.00,
+refuted entirely below 1.03; per second and throughput (at or above
+0.98) as the cost clause; chunk-1 gates pooled draws at or above
+400,000, 54 pooled cells per learner, the coin share falling on every
+grid arm with the run-weighted grid share at or below 0.14, the margin
+at or above 0.90, and the per-arm coin table read for a differing
+leader; drag guard on grid-short's and post-fault-2's per-arm depth-8
+per run against the same arm on the baseline. The judge's standing
+red team: the two direct observations on cell maturity are both null
+per run and confounded, so a read near 1.03 to 1.05 is the likeliest
+outcome. Implementing.

@@ -3410,3 +3410,44 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 60 (judge gain 2; the absolute-step form inherits the crash
   placement span; priced from the last-crossing-step histogram the
   admitted build exports) | parent: learned-run-cap-probe-p99
+
+## selector-cells-pooled-by-configuration-across-grid-arms
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 61 (judge gain 7, cost 0, rank 1; no bit, cross-binary;
+  implementing) | parent:
+  selector-explore-share-posterior-odds-against-leader-most-decided-axis
+- One selector cell per configuration index shared by every grid arm;
+  the aos arm keeps its own cell; panel members unchanged by
+  construction. Adds a per-arm coin table and the margin by arm.
+- Frozen prediction (judge's version): cross-binary depth>=8 per graded
+  run on four paired seeds, band [1.05, 1.13], pass at a point at or
+  above 1.05 with the lower edge above 1.00, refuted entirely below
+  1.03; per second the co-read with throughput at or above 0.98; the
+  run-weighted grid coin share at or below 0.12 over four chunks (0.14
+  on chunk 1), campaign at or below 0.10, margin at or above 0.92;
+  pooled.draws at or above 400,000; drag guard on grid-short and
+  post-fault-2 per arm. Four chunks.
+
+## selector-arm-cell-borrows-sibling-arms-evidence-to-discount-window
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 61 (judge gain 4, rank 2; near full pooling inside a chunk on
+  its treated half; kept for the case where the shared cell's per-arm
+  tables show heterogeneity) | parent:
+  selector-cells-pooled-by-configuration-across-grid-arms
+
+## selector-every-learner-credits-every-run-with-its-own-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 61 (judge gain 4, rank 3; falsifier rewritten to the mass
+  arithmetic; composes with the pooling in a later session) | parent:
+  selector-explore-share-posterior-odds-against-leader-most-decided-axis
+
+## selector-cells-pooled-by-fault-shape-across-grid-arms
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 61 at the bottom (judge gain 3; the window caps its coin
+  share near 0.10, its panel claim misnamed the members; not to be built
+  while the configuration-keyed form is unread) | parent:
+  selector-cells-pooled-by-configuration-across-grid-arms
