@@ -5480,3 +5480,33 @@ this engagement, grid-short 0.926. Session settle-stop started on bit
 1024 with the per-run guard as the grader's band; four chunks; the
 primary is cross-binary depth>=8 per explore-second, read from the
 chunk records, band [1.10, 1.30].
+
+**Chunk 1: the stop fires, the settle is long, and the gate on treated
+steps misses.** Seed 1000, candidate 630,660 runs at 2,101 per second
+against the baseline's 594,240 at 1,979 (runs per second 1.062).
+Cross-binary depth>=8 per run 1.037 [0.991, 1.084], per explore-second
+1.100 - on the band's lower edge; depth>=10 per run 1.02 on 168 against
+155; no violation. Within the binary, probes out: treated 295,397
+against untreated 295,662 runs, steps per run 1,956 against 2,321
+(0.843 against the chunk-1 gate of 0.75; grid 0.798, no-purgatory 0.810,
+post-fault-2 0.787, aos 0.867, grid-short 0.954); depth>=8 per run 1.015
+[0.954, 1.081], inside the guard; depth>=9 0.955, depth>=10 1.00 on 84
+against 84, depth>=11 0.93 on 13 against 14, depth>=12 0.82 on 9 against
+11, depth>=13 0.80 on 4 against 5; per step the treated half reads 1.20
+at depth 8. The counters: 104,759 stops on 265,543 armed runs, 81,487
+no-key and 35,004 pending-event fallbacks, 111M steps saved (about 8
+percent of the chunk's steps), 9,881 keyed probes, 117 over-stop
+completions (1.2 percent), five scopes learned with settles from 1,025
+to 1,691 steps, mean sampled settle 103, mean last recover step 63,
+mean last crossing step 186. The settle's sample is heavy-tailed - a
+mean of 103 against a p99 near 700 to 1,100 - because fault-crossing
+deliveries from dead incarnations keep trickling in long after the
+recovery, so a 1.5 times p99 rule keys the stop at 1,100 to 1,750 steps
+past a recover that lands near step 63, and the stop removes a sixth of
+the treated half's steps rather than the forecast 40 percent. The gate
+on treated steps was set to read exactly this forecast and it reads it
+wrong by that much. The session continues to four chunks: the primary
+is decidable only pooled, the per-run guard holds, and the deep-rung
+reads at 11 to 13 - the family's real question, whether any stop keyed
+on the crossing class cuts the chain's tail - need every event they can
+get before the decision.
