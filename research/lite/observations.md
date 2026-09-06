@@ -6438,3 +6438,42 @@ decision: learner state across a session's chunks (a harness change;
 four times the observations per cell; the chunks stop being
 independent replicates). Everything is committed on research/lite; the
 tree is clean at e42b271.
+
+## Plan and reviews: selector learner state across a session's chunks (2026-09-06)
+
+Not an iteration. The user asked for a plan of the harness change named
+in the last digest, then a review of it, then a revision against the
+review and a second review. Four files under `research/lite/plans/`:
+`selector-state-across-chunks.md`, its `.review.md`, `.v2.md`, and
+`.v2.review.md`. Nothing was built, measured, or merged; the loop is
+idle.
+
+What the two reviews changed in the case for the change. The warm-up
+cost is 1,360 coin runs per chunk (55 cells x 24), not the 21,177 of
+iteration 58, which predates pooled cells. The gain is a lower coin
+share on the positions after the first, worth about +3 to +8% on
+depth>=8 per later position, none of it past depth 10: `DISCOUNT` 0.998
+caps a direction at 500 of its own observations, so carried state does
+nothing for the base-rate wall unless the discount moves with it. That
+is a separate hypothesis and needs its own binary; there is no config
+key for the constant.
+
+The plan is staged. Stage A is a 1,200 s pilot explore with no code
+change, binned by quarter. Stage B is the explorer's save and load,
+driven by `--set`, with a four-chunk trajectory run by hand against the
+cache. Stage C is the grader adoption. The second review recommends
+Stage B as the end state, with Stage C behind an explicit gate:
+adoption costs a second overdispersion regime the 1.3 was not
+calibrated on, and a standing shrinkage of the coin-only calibration
+tables that every later proposal is read on.
+
+The pilot's rule needs one fix before it can gate anything. Fresh rows
+remove the corpus but not the run cap, placement span, or timer
+context, which mature over the same quarters and are not carried by the
+change. The control is in the rows already: coin-drawn non-probe runs
+take their arms from the run id whatever the cells hold, so their depth
+rate per quarter moves only with the others. Gate on the ratio of
+ratios. Quarter 4 over quarter 1 is also the wrong proxy, since
+position k of the harness starts at quarter k+1's state; the pooled
+read is the mean of quarters 2 through 4 over quarter 1. Counting noise
+on that is about 2.4% with 1.3 charged, so one seed is a sign read.
