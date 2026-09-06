@@ -5197,3 +5197,13 @@ on every seed, at throughput 1.014. Four selector merges since 55, the
 objective up about 1.4x since the coin tree, the target found once.
 Next: a reward shaped by depth 10, where the phase arm the current
 rewards favour costs a quarter.
+
+**Fresh anchor on the merged tree (exploration share).** Two baseline
+chunks on seeds 1000 and 1001 at 1,979 and 1,973 runs per second,
+depth>=8 per chunk 8,813 and 8,610 against 7,965 and 8,019 on the
+previous merge's cache for the same seeds (about nine percent, beside
+the session's 1.135 per run), depth>=10 155 and 151, no violations.
+Ledger row appended: ratio 1.014, cumulative 0.962, measured 1,976
+runs per second. The anchor was measured while the proposer read the
+tree; the numbers carry that caveat and the next session's paired seeds
+are the read.
