@@ -5675,3 +5675,21 @@ per run against the same arm on the baseline. The judge's standing
 red team: the two direct observations on cell maturity are both null
 per run and confounded, so a read near 1.03 to 1.05 is the likeliest
 outcome. Implementing.
+
+**Built; graded.** One cell per configuration index shared by every
+grid arm and by standard mode, the aos arm keeping its own; 413 unit
+tests green; the per-arm coin table carried for all seven rewards. The
+60 s smoke, 99,300 runs: 77,820 pooled draws, 54 pooled cells per
+learner, 55 in total, about 715 observations per pooled cell per
+learner in the minute; coin share by arm grid 0.378, grid-short 0.239,
+no-purgatory 0.191, post-fault-2 0.183, aos 0.038 - the grid arm runs
+first in every round and pays the cold cells while the later arms
+already sit below the chunk-scale figures of the separate cells; mean
+top margin past warmup 0.854 overall, by arm 0.71 on grid rising to
+0.86 on post-fault-2 and 0.97 on aos. The per-arm coin tables read the
+same leaders on retarget and fresh-first on every grid arm for learner
+A, retarget and phase for B and retarget for C, with fresh-first
+flipping across arms on B and C on rows of 200 to 800 stock runs -
+directional only at this length. Session pooled-cells started
+cross-binary, no bit; four chunks; the primary is depth>=8 per graded
+run against the paired baseline, band [1.05, 1.13].
