@@ -6247,3 +6247,92 @@ a per-axis sign the core lacks at z 2 over four chunks); a clean null
 files the rule with the columns merged. The follow-up either way is the
 second half of the bet: a delivery-side direction ordering 12 after 11
 re-run with this learner watching. Implementing.
+
+**Built, and inapplicable on its smoke, as pre-registered.** Both
+builds green (423 and 420 unit tests, every integration suite), nothing
+in the execution or recording paths, the segment table ported state-
+side and consuming no draws. The 60 s smoke of the graded build, 96,900
+runs: learner C's own-run level-2 rate 0.0010 against the floor of
+0.010, level 3 0.0007, the level histogram 17,693 / 471 / 6 / 12 - the
+label-11 order is 6 percent of the core against the judge's 20 to 45,
+and the shortfall is base rate, not the cells' youth. The census the
+round bought: of 168 first answers at never-restarted nodes past the
+cycle and request gates, 94 came by the reply route alone and 58 by
+both routes (0.56 by reply, the found run's recovery-path route, which
+the segment table catches); 0.37 of answers landed with a competitor
+still queued (a ghost on 0.23, a live record from a restarted sender on
+0.23), so the level is not calm-dominated; news acted first at the
+never-restarted node in 662 of 830 cases, and the implementer's
+unverified reading is that dead-incarnation acknowledgements acting at
+the old primary are most of that news - faithful to the definition and
+the reason the order is rare. The reply share, the competitor share
+and the news-first share are the round's facts. Per the plan's own rule
+the exported build is the columns build; no chunk is bought for either;
+both patches and both smoke snapshots are kept under
+research/lite/patches/graded-credit. Closed.
+
+## Direction review at iteration 64
+
+**Violations.** None; one in 16.3M candidate runs since iteration 56.
+
+**Where the loop stands, plainly.** Since iteration 55 the selector has
+collected what three depth-8-shaped rewards can see: five merges, the
+objective about 1.5x the coin tree, the target found once. Four rounds
+since have each closed on the same boundary from a different side: a
+stop keyed on the recovery story's end cuts the deep tail (60); a
+direction acting past depth 10 is invisible to the rewards (63); the
+chain's mechanics past label 10 are races among specific in-flight
+records, now written down against the spec (62, 63); and a reward
+shaped by those races fires on one run in a thousand (64), below what
+a cell that lives 1,400 to 3,500 runs can learn from. The base-rate
+wall is the wall: the events that separate depth 10 from the violation
+are too rare per cell per chunk for any per-cell learner to see, and
+every reward that names them precisely lands at 0.001 to 0.003 of runs.
+
+**What would move it.** Two things, neither a mechanism round inside
+the loop's rules. Learner state carried across a session's chunks - a
+harness change, since each chunk is a fresh process - would give every
+cell four times its life and every rare reward four times its
+observations, at the price that the chunks stop being independent
+replicates and the grader's per-chunk pairing has to be rethought; that
+is the user's decision and the direction reviews at 56, 57 and 58 have
+carried it. Or rewards that trade precision for breadth - the level-2
+fact without its gates fires more often but reads the hold's own shape,
+which is the trade iteration 59 lost on. Inside the rules, what remains
+is modest: the cross-learner credit (kept at 61, a maturity step that
+composes with the pooling), a fresh-first-reading reward for learners B
+and C, the panel's rare-member caveat, the grid arm's cold start under
+round-robin. Each is worth a few percent at depth 8 and none touches
+the deep chain.
+
+**Steering audit, iterations 62 to 64.** Three rounds, one build graded
+and two closed on their smokes, no chunks bought at 62 and 64, two
+chunks at 63; the chain's account corrected twice against the spec and
+now stable; every close left machinery in a patch (the segment table,
+the mask, the lift, the census columns) that a future direction can
+use. About nine hours.
+
+**Verdict and the next directive.** The loop pauses its deep-chain
+directives here and files the harness question for the user with this
+digest; it continues on the in-bounds maturity step while that
+decision is open: iteration 65 implements the cross-learner credit as
+judged at 61 (each learner credits every non-probe run with its own
+reward; falsifier rewritten there to the mass arithmetic), the one kept
+candidate that composes with the pooled cells and needs no new
+observable, graded cross-binary on depth-8 per run with the coin share
+and the learners' shares as the observables.
+
+Digest for the user: iteration 64 built a reward that names the chain's
+order past depth 10 (the write's answer acting at the old primary before
+any restarted node's news) and it fires on one run in a thousand -
+below what a per-cell learner can use inside a chunk; closed on its
+smoke, no chunks bought, the census kept. The loop has hit the
+base-rate wall from four sides: the events past depth 10 are too rare
+per cell per chunk for any learner to see, and every precise reward for
+them lands at 0.1 to 0.3 percent of runs. The one lever that changes
+that is learner state carried across a session's chunks, which is a
+harness change and yours to decide (four times the observations per
+cell; the chunks stop being independent replicates). Until then the
+loop runs the modest in-bounds steps at depth 8. The tree stays at the
+iteration-61 merge, about 1.5x the coin tree on the objective, the
+target found once at iteration 56.

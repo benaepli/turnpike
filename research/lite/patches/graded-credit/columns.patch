@@ -1,0 +1,1417 @@
+diff --git a/spur-core/src/simulator/arm_selector.rs b/spur-core/src/simulator/arm_selector.rs
+index c90b227..293bc99 100644
+--- a/spur-core/src/simulator/arm_selector.rs
++++ b/spur-core/src/simulator/arm_selector.rs
+@@ -33,7 +33,9 @@
+ //! runs, credited to the five directions the run carried, and never another
+ //! learner's runs, so the three learners are read against one common
+ //! control. Further rewards are read on the coin-drawn runs for calibration
+-//! and steer nothing.
++//! and steer nothing; two of them are deeper facts on top of the third
++//! learner's reward, and the third learner's own runs are histogrammed by
++//! how deep they went.
+ //!
+ //! The selector's categorical draws come from a generator seeded from the
+ //! run's schedule seed under a salt of its own, so the run's schedule
+@@ -205,6 +207,32 @@ pub struct Rewards {
+     /// The step of the first message entry at a server caused by a
+     /// post-fault client operation, when the run had one.
+     pub first_post_fault_request_entry_step: Option<i32>,
++    /// At a node that never restarted, a post-fault operation's answer
++    /// from a restarted sender acted before any news from a restarted
++    /// sender acted there since the request.
++    pub answer_before_news: bool,
++    /// News then acted at that node.
++    pub answer_then_news: bool,
++    /// At least one such news record was queued to the node when the
++    /// answer acted.
++    pub competitor_at_answer: bool,
++    /// A post-fault operation was invoked after the news.
++    pub request_after_news: bool,
++}
++
++/// How deep a run went on the answer facts: none below the third learner's
++/// reward, one for it, two when the answer also came first, three when
++/// news then followed. Each level is a conjunction with the one before.
++pub fn credit_level(rewards: &Rewards) -> u8 {
++    if !rewards.cycle_before_request {
++        0
++    } else if !rewards.answer_before_news {
++        1
++    } else if !rewards.answer_then_news {
++        2
++    } else {
++        3
++    }
+ }
+ 
+ /// One cell's learner state.
+@@ -458,6 +486,10 @@ pub fn observe(arm_index: i32, cell: Cell, run_id: i64, choice: &Choice, rewards
+         Reward::EitherShape => Some(rewards.overtaken_ghost || rewards.absorber_cycle),
+         Reward::CycleBeforeRequest => Some(rewards.cycle_before_request),
+         Reward::ExchangeBeforeRequest => Some(rewards.exchange_before_request),
++        Reward::AnswerBeforeNews => Some(credit_level(rewards) >= 2),
++        Reward::AnswerThenNews => Some(credit_level(rewards) >= 3),
++        Reward::CompetitorAtAnswer => Some(credit_level(rewards) >= 2 && rewards.competitor_at_answer),
++        Reward::RequestAfterNews => Some(credit_level(rewards) >= 3 && rewards.request_after_news),
+     };
+     util_stats::record_arm_selector_run_observed(arm_index, rewards.overtaken_ghost);
+     match choice.learner {
+@@ -478,6 +510,9 @@ pub fn observe(arm_index: i32, cell: Cell, run_id: i64, choice: &Choice, rewards
+             let r = rewards_of(learner, rewards);
+             credit(learner, cell, arms, r);
+             util_stats::record_arm_selector_observation(learner.reward(), true, arm_index, arms, r);
++            if learner == Learner::CycleBeforeRequest {
++                util_stats::record_graded_credit(credit_level(rewards));
++            }
+         }
+     }
+ }
+@@ -951,6 +986,112 @@ mod tests {
+         reset();
+     }
+ 
++    /// A run's facts at a credit level: the core below one, the answer
++    /// first at two, the news after at three.
++    fn leveled(level: u8) -> Rewards {
++        Rewards {
++            cycle_before_request: level >= 1,
++            answer_before_news: level >= 2,
++            answer_then_news: level >= 3,
++            ghost_signal: Some(false),
++            ..Rewards::default()
++        }
++    }
++
++    #[test]
++    fn the_level_counts_the_facts_in_order_and_the_third_learner_is_rewarded_by_the_first() {
++        for level in 0..4u8 {
++            let r = leveled(level);
++            assert_eq!(credit_level(&r), level);
++            assert_eq!(rewards_of(Learner::CycleBeforeRequest, &r), level >= 1);
++            assert!(!rewards_of(Learner::OvertakenGhost, &r));
++            assert!(!rewards_of(Learner::AbsorberCycle, &r));
++        }
++        // A deeper fact without the one before it counts for nothing.
++        let r = Rewards {
++            answer_before_news: true,
++            answer_then_news: true,
++            ..Rewards::default()
++        };
++        assert_eq!(credit_level(&r), 0);
++        let r = Rewards {
++            cycle_before_request: true,
++            answer_then_news: true,
++            ..Rewards::default()
++        };
++        assert_eq!(credit_level(&r), 1);
++    }
++
++    #[test]
++    fn the_deeper_columns_are_read_on_the_coin_drawn_runs_as_conjunctions_with_the_core() {
++        let _serial = config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        reset();
++        let cell = (12, 12);
++        let arms = ArmSet::default();
++        let id = unprobed_id();
++        let before = util_stats::snapshot().arm_selector_axis;
++        observe(cell.0, cell, id, &coin(arms), &leveled(0));
++        observe(cell.0, cell, id, &coin(arms), &leveled(1));
++        observe(
++            cell.0,
++            cell,
++            id,
++            &coin(arms),
++            &Rewards {
++                competitor_at_answer: true,
++                ..leveled(2)
++            },
++        );
++        observe(
++            cell.0,
++            cell,
++            id,
++            &coin(arms),
++            &Rewards {
++                request_after_news: true,
++                ..leveled(3)
++            },
++        );
++        // The deeper facts without the core count for nothing.
++        observe(
++            cell.0,
++            cell,
++            id,
++            &coin(arms),
++            &Rewards {
++                cycle_before_request: false,
++                competitor_at_answer: true,
++                request_after_news: true,
++                ..leveled(3)
++            },
++        );
++        // The third learner's own runs are histogrammed by level; another
++        // learner's are not.
++        let c = Learner::CycleBeforeRequest;
++        for level in [0, 1, 1, 2, 3, 3, 3] {
++            observe(cell.0, cell, assigned_id(c), &learned(arms, c), &leveled(level));
++        }
++        observe(cell.0, cell, assigned_id(Learner::AbsorberCycle), &learned(arms, Learner::AbsorberCycle), &leveled(3));
++        let after = util_stats::snapshot().arm_selector_axis;
++        util_stats::set_enabled(false);
++        let positives = |r: &util_stats::ArmSelectorRewardStats, r0: &util_stats::ArmSelectorRewardStats| {
++            assert_eq!(r.reward_runs_control - r0.reward_runs_control, 5);
++            r.reward_positive_control - r0.reward_positive_control
++        };
++        assert_eq!(after.cycle_before_request.reward_positive_control - before.cycle_before_request.reward_positive_control, 3);
++        assert_eq!(positives(&after.answer_before_news, &before.answer_before_news), 2);
++        assert_eq!(positives(&after.answer_then_news, &before.answer_then_news), 1);
++        assert_eq!(positives(&after.competitor_at_answer, &before.competitor_at_answer), 1);
++        assert_eq!(positives(&after.request_after_news, &before.request_after_news), 1);
++        let thirds: Vec<u64> = (0..4)
++            .map(|i| after.graded.credit_thirds[i] - before.graded.credit_thirds[i])
++            .collect();
++        assert_eq!(thirds, vec![1, 2, 1, 3]);
++        assert_eq!(after.cycle_before_request.reward_positive_treated - before.cycle_before_request.reward_positive_treated, 6);
++        reset();
++    }
++
+     #[test]
+     fn the_normal_distribution_function_matches_tabled_values() {
+         assert!((normal_cdf(0.0) - 0.5).abs() < 1e-7);
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f858656..74725f8 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -7,7 +7,7 @@ use crate::simulator::core::queue_selector::{
+     QueueInfo, QueueSelection, QueueSelector, WithinQueueSelector,
+ };
+ use crate::simulator::core::state::{
+-    Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, Record, ReplayCut, Runnable,
++    AnswerEvent, Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, Record, ReplayCut, Runnable,
+     RunnableCategory, SchedulePolicy, ScheduleResult, State,
+ };
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+@@ -1320,7 +1320,37 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             record_origin.index,
+                             r.origin_incarnation,
+                         );
++                        if record_origin.role != record_dest.role
++                            && state.client_anchor.caused_post_fault(r.causal_operation_id)
++                        {
++                            state.note_post_fault_target(record_dest.index, r.causal_operation_id);
++                        }
+                     }
++                    // Whether the entry is an answer or news to the answer
++                    // facts, with the receiver's token before the handler
++                    // runs so its effect can be read after.
++                    let answer_probe = if message_entry {
++                        state
++                            .classify_same_role_entry(
++                                record_origin,
++                                r.origin_incarnation,
++                                r.send_ordinal,
++                                r.causal_operation_id,
++                                record_dest,
++                            )
++                            .map(|kind| (kind, state.node_state_token(record_dest)))
++                    } else {
++                        None
++                    };
++                    // The segment this record runs at the receiver: its
++                    // sends are attributed to the record that entered it,
++                    // a remote record's sender or the node itself.
++                    let segment_from = state.begin_segment(record_dest.index);
++                    let segment_source = if record_origin != record_dest {
++                        (record_origin.index, r.origin_incarnation)
++                    } else {
++                        (record_dest.index, state.incarnation(record_dest))
++                    };
+                     // Whether a message entry from a sender that has crashed
+                     // at least once has a sibling of its class - same sender,
+                     // same destination, same sending incarnation - already
+@@ -1438,6 +1468,27 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         purgatory_config,
+                         rng,
+                     )?;
++                    state.end_segment(record_dest.index, segment_from, segment_source);
++                    if let Some((kind, before)) = answer_probe
++                        && state.node_state_token(record_dest) != before
++                        && let Some(event) = state.note_answer_news_entry(record_dest, kind, entry_step)
++                    {
++                        match event {
++                            AnswerEvent::AnswerFirst { route, first_in_run } => {
++                                util_stats::record_answer_first(route.caused, route.reply);
++                                if first_in_run {
++                                    let competitors = state.competitors_at(record_dest);
++                                    state.competitors_at_answer = Some(competitors);
++                                    util_stats::record_competitors_at_answer(
++                                        competitors.ghost,
++                                        competitors.live_restarted,
++                                    );
++                                }
++                            }
++                            AnswerEvent::NewsFirst => util_stats::record_news_first(),
++                            AnswerEvent::NewsAfterAnswer => util_stats::record_news_after_answer(),
++                        }
++                    }
+                     if let Some(before) = ghost {
+                         state.note_ghost_delivery(record_dest.index, entry_step, before);
+                         // A dead-incarnation record is a ghost, so the
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index eb5de70..caeb605 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -673,6 +673,98 @@ pub struct State<H: HashPolicy> {
+     /// Remote records in the network queue whose origin has another role
+     /// than the receiver, which is how a client request looks to a server.
+     pub net_requests: u32,
++    /// Per node, the handler segments it ran that sent anything, in send
++    /// order, each with the record that entered it, so the sender of the
++    /// record that led to a send can be looked up by the send's ordinal.
++    /// Observation only, excluded from `signature()`.
++    pub segments: Vec<Vec<Segment>>,
++    /// Whether, at some node that never restarted, an answer to a
++    /// post-fault operation from a restarted sender wrote the node's state
++    /// after the absorber cycle closed and after the operation's request
++    /// reached the node, with no news from a restarted sender having
++    /// written the node's state since that request. Observation only,
++    /// excluded from `signature()`.
++    pub post_fault_answer_before_restarted_news: bool,
++    /// Whether, at a node where the answer wrote state first, news from a
++    /// restarted sender then wrote the node's state. Observation only,
++    /// excluded from `signature()`.
++    pub post_fault_answer_then_news: bool,
++    /// Bitmask over node indices of the never-restarted nodes where the
++    /// answer wrote state first. Nodes past the width of the mask are never
++    /// noted.
++    answer_first_nodes: u64,
++    /// The route the run's first answer-first entry took. Observation only.
++    pub answer_route: AnswerRoute,
++    /// The records from restarted senders still queued to the node at the
++    /// run's first answer-first entry, when the run had one. Observation
++    /// only.
++    pub competitors_at_answer: Option<Competitors>,
++    /// The earliest step at which news wrote state after the answer at a
++    /// node where the answer came first. Observation only.
++    pub news_after_answer_step: Option<i32>,
++    /// Whether a post-fault client operation was invoked after news had
++    /// followed an answer somewhere. Observation only, excluded from
++    /// `signature()`.
++    pub post_fault_request_after_news: bool,
++}
++
++/// The send-ordinal range `from..to` one handler segment issued at a node,
++/// and `source`, the node and incarnation the record that entered the
++/// segment was sent from: the sender of a remote record, the node itself
++/// at its current incarnation for a local or timer entry.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Segment {
++    pub from: u32,
++    pub to: u32,
++    pub source: (usize, u32),
++}
++
++/// How a record from a restarted sender was recognized as the answer to a
++/// post-fault operation at its receiver: `caused` when it carries the
++/// causal id of an operation whose request entered the receiver, `reply`
++/// when the segment that sent it was entered by a record from the
++/// receiver's current incarnation. Both can hold at once.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct AnswerRoute {
++    pub caused: bool,
++    pub reply: bool,
++}
++
++/// Records from restarted senders of the receiver's role that are not
++/// answers and are still queued to it, split by whether the sending
++/// incarnation is dead (`ghost`) or the sender's current one
++/// (`live_restarted`). Saturating counts.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct Competitors {
++    pub ghost: u8,
++    pub live_restarted: u8,
++}
++
++impl Competitors {
++    pub fn total(&self) -> u8 {
++        self.ghost.saturating_add(self.live_restarted)
++    }
++}
++
++/// What a message entry from a restarted sender of the receiver's own role
++/// is to the answer facts: an answer to a post-fault operation of the
++/// receiver, or news of the sender's restart.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum EntryKind {
++    Answer(AnswerRoute),
++    News,
++}
++
++/// What an acted entry did to the answer facts at its node.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum AnswerEvent {
++    /// The node's first acted answer landed with no news acted there
++    /// since the request; `first_in_run` says no other node had one yet.
++    AnswerFirst { route: AnswerRoute, first_in_run: bool },
++    /// The node's first acted answer landed after news had acted there.
++    NewsFirst,
++    /// News acted at a node where the answer had acted first.
++    NewsAfterAnswer,
+ }
+ 
+ /// What woke the handler a node ran last.
+@@ -718,6 +810,17 @@ pub struct ReplayCut {
+ /// entry from; `ghost_acted_since_restart` says whether a fault-crossing
+ /// delivery wrote the node's state; `request_entered_since_restart` whether
+ /// a message entry caused by a post-fault client operation has reached it.
++/// The answer facts also hold since the node's last restart:
++/// `first_post_fault_entry_step` is the step of that first request-caused
++/// entry, -1 when none; `post_fault_targets` is a bitmask, over the offset
++/// of an operation id from the run's first post-fault operation, of the
++/// post-fault operations whose record from a node of another role entered
++/// this node; `answer_acted_step` is the step at which an answer to one of
++/// them first wrote the node's state past the gates below;
++/// `news_acted_step_since_request` the step at which news from a restarted
++/// sender first wrote the node's state after the request entry; and
++/// `news_acted_after_answer_step` the step at which such news first wrote
++/// the node's state after the answer. Each step is -1 when none.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct SendLedger {
+     pub issued: u32,
+@@ -736,6 +839,11 @@ pub struct SendLedger {
+     pub absorber_peers_heard: u64,
+     pub ghost_acted_since_restart: bool,
+     pub request_entered_since_restart: bool,
++    pub first_post_fault_entry_step: i32,
++    pub post_fault_targets: u64,
++    pub answer_acted_step: i32,
++    pub news_acted_step_since_request: i32,
++    pub news_acted_after_answer_step: i32,
+ }
+ 
+ impl Default for SendLedger {
+@@ -757,6 +865,11 @@ impl Default for SendLedger {
+             absorber_peers_heard: 0,
+             ghost_acted_since_restart: false,
+             request_entered_since_restart: false,
++            first_post_fault_entry_step: -1,
++            post_fault_targets: 0,
++            answer_acted_step: -1,
++            news_acted_step_since_request: -1,
++            news_acted_after_answer_step: -1,
+         }
+     }
+ }
+@@ -835,6 +948,14 @@ impl<H: HashPolicy> State<H> {
+             exchange_before_request: false,
+             net_stale_records: 0,
+             net_requests: 0,
++            segments: vec![Vec::new(); num_nodes],
++            post_fault_answer_before_restarted_news: false,
++            post_fault_answer_then_news: false,
++            answer_first_nodes: 0,
++            answer_route: AnswerRoute::default(),
++            competitors_at_answer: None,
++            news_after_answer_step: None,
++            post_fault_request_after_news: false,
+         }
+     }
+ 
+@@ -942,6 +1063,7 @@ impl<H: HashPolicy> State<H> {
+         self.send_ledger.push(SendLedger::default());
+         self.crash_hold_until.push(0);
+         self.crash_phase.push_node();
++        self.segments.push(Vec::new());
+         node_id
+     }
+ 
+@@ -1187,6 +1309,11 @@ impl<H: HashPolicy> State<H> {
+             l.absorber_peers_heard = 0;
+             l.ghost_acted_since_restart = false;
+             l.request_entered_since_restart = false;
++            l.first_post_fault_entry_step = -1;
++            l.post_fault_targets = 0;
++            l.answer_acted_step = -1;
++            l.news_acted_step_since_request = -1;
++            l.news_acted_after_answer_step = -1;
+         }
+     }
+ 
+@@ -1279,6 +1406,9 @@ impl<H: HashPolicy> State<H> {
+         let Some(l) = self.send_ledger.get_mut(dest) else {
+             return;
+         };
++        if l.first_post_fault_entry_step < 0 {
++            l.first_post_fault_entry_step = step;
++        }
+         if l.request_entered_since_restart {
+             return;
+         }
+@@ -1305,6 +1435,190 @@ impl<H: HashPolicy> State<H> {
+         }
+     }
+ 
++    /// The node's send count now, where a segment that starts at `node`
++    /// begins.
++    pub fn begin_segment(&self, node: usize) -> u32 {
++        self.send_ledger.get(node).map_or(0, |l| l.issued)
++    }
++
++    /// The segment at `node` that began at send count `from` and was
++    /// entered by a record from `source` ended; it is kept when it sent
++    /// anything.
++    pub fn end_segment(&mut self, node: usize, from: u32, source: (usize, u32)) {
++        let to = self.begin_segment(node);
++        if to <= from {
++            return;
++        }
++        if let Some(segments) = self.segments.get_mut(node) {
++            segments.push(Segment { from, to, source });
++        }
++    }
++
++    /// The node and incarnation the record that entered the segment at
++    /// `node` that issued send `ordinal` was sent from, if a kept segment
++    /// issued it.
++    pub fn segment_source(&self, node: usize, ordinal: u32) -> Option<(usize, u32)> {
++        let segments = self.segments.get(node)?;
++        let i = segments.partition_point(|s| s.to <= ordinal);
++        let s = segments.get(i)?;
++        (s.from <= ordinal && ordinal < s.to).then_some(s.source)
++    }
++
++    /// The bit of `post_fault_targets` for a post-fault operation, or None
++    /// for an operation before the first post-fault one or too far past it.
++    fn post_fault_target_bit(&self, causal_operation_id: Option<i32>) -> Option<u64> {
++        let op = causal_operation_id?;
++        let first = self.client_anchor.first_post_fault_op?;
++        let offset = op.checked_sub(first)?;
++        (0..u64::BITS as i32).contains(&offset).then(|| 1u64 << offset)
++    }
++
++    /// A record from a node of another role, caused by the post-fault
++    /// operation `causal_operation_id`, entered `dest`: an answer for that
++    /// operation may now be recognized there.
++    pub fn note_post_fault_target(&mut self, dest: usize, causal_operation_id: Option<i32>) {
++        let Some(bit) = self.post_fault_target_bit(causal_operation_id) else {
++            return;
++        };
++        if let Some(l) = self.send_ledger.get_mut(dest) {
++            l.post_fault_targets |= bit;
++        }
++    }
++
++    /// What a message entry at `dest` is to the answer facts: None unless
++    /// the sender has the receiver's role and has restarted. An answer is a
++    /// record of the sender's current incarnation that either carries the
++    /// causal id of a post-fault operation whose request entered `dest`, or
++    /// was sent from a segment entered by a record from `dest`'s current
++    /// incarnation while some such request has entered `dest`. Anything
++    /// else from such a sender, at any incarnation, is news.
++    pub fn classify_same_role_entry(
++        &self,
++        origin: NodeId,
++        sent_at: u32,
++        send_ordinal: u32,
++        causal_operation_id: Option<i32>,
++        dest: NodeId,
++    ) -> Option<EntryKind> {
++        if origin == dest || origin.role != dest.role {
++            return None;
++        }
++        let current = self.incarnation(origin);
++        if current == 0 {
++            return None;
++        }
++        if sent_at == current {
++            let targets = self
++                .send_ledger
++                .get(dest.index)
++                .map_or(0, |l| l.post_fault_targets);
++            let caused = self
++                .post_fault_target_bit(causal_operation_id)
++                .is_some_and(|bit| targets & bit != 0);
++            let reply = targets != 0
++                && self.segment_source(origin.index, send_ordinal)
++                    == Some((dest.index, self.incarnation(dest)));
++            if caused || reply {
++                return Some(EntryKind::Answer(AnswerRoute { caused, reply }));
++            }
++        }
++        Some(EntryKind::News)
++    }
++
++    /// A message entry of `kind` wrote `dest`'s state at `step`. News
++    /// fixes the node's first news step since its request entry, and its
++    /// first news step after an answer that came first there. An answer is
++    /// noted at a node that never restarted, once, when the absorber cycle
++    /// closed and a request entered the node before it; it came first when
++    /// no news had acted at the node since that request.
++    pub fn note_answer_news_entry(
++        &mut self,
++        dest: NodeId,
++        kind: EntryKind,
++        step: i32,
++    ) -> Option<AnswerEvent> {
++        let never_restarted = self.incarnation(dest) == 0;
++        let noted = dest.index < u64::BITS as usize;
++        let answer_first_here = noted && self.answer_first_nodes & (1 << dest.index) != 0;
++        let cycle_closed_before = self.absorber_cycle_closed_step.is_some_and(|c| c < step);
++        let l = self.send_ledger.get_mut(dest.index)?;
++        let request_before = l.first_post_fault_entry_step >= 0 && l.first_post_fault_entry_step < step;
++        match kind {
++            EntryKind::News => {
++                if request_before && l.news_acted_step_since_request < 0 {
++                    l.news_acted_step_since_request = step;
++                }
++                if never_restarted
++                    && answer_first_here
++                    && l.answer_acted_step >= 0
++                    && l.answer_acted_step < step
++                    && l.news_acted_after_answer_step < 0
++                {
++                    l.news_acted_after_answer_step = step;
++                    self.post_fault_answer_then_news = true;
++                    self.news_after_answer_step =
++                        Some(self.news_after_answer_step.map_or(step, |s| s.min(step)));
++                    return Some(AnswerEvent::NewsAfterAnswer);
++                }
++                None
++            }
++            EntryKind::Answer(route) => {
++                if !never_restarted || !noted || l.answer_acted_step >= 0 {
++                    return None;
++                }
++                if !cycle_closed_before || !request_before {
++                    return None;
++                }
++                l.answer_acted_step = step;
++                if l.news_acted_step_since_request >= 0 {
++                    return Some(AnswerEvent::NewsFirst);
++                }
++                let first_in_run = !self.post_fault_answer_before_restarted_news;
++                self.post_fault_answer_before_restarted_news = true;
++                self.answer_first_nodes |= 1 << dest.index;
++                if first_in_run {
++                    self.answer_route = route;
++                }
++                Some(AnswerEvent::AnswerFirst { route, first_in_run })
++            }
++        }
++    }
++
++    /// The records addressed to `dest` in the network queue and the delay
++    /// hold that are news from restarted senders of its role, by the
++    /// sending incarnation's class.
++    pub fn competitors_at(&self, dest: NodeId) -> Competitors {
++        let mut out = Competitors::default();
++        let mut count = |r: &Runnable<H>| {
++            let Runnable::Record(s) = r else { return };
++            if s.node != dest {
++                return;
++            }
++            let kind = self.classify_same_role_entry(
++                s.origin_node,
++                s.origin_incarnation,
++                s.send_ordinal,
++                s.causal_operation_id,
++                dest,
++            );
++            if kind != Some(EntryKind::News) {
++                return;
++            }
++            if s.origin_incarnation == self.incarnation(s.origin_node) {
++                out.live_restarted = out.live_restarted.saturating_add(1);
++            } else {
++                out.ghost = out.ghost.saturating_add(1);
++            }
++        };
++        for r in &self.network_queue {
++            count(r);
++        }
++        for (_, r) in &self.purgatory {
++            count(r);
++        }
++        out
++    }
++
+     /// Which crash term a crash of `node` satisfies right now, if any.
+     pub fn crash_after_sends_term(&self, node: usize) -> Option<Term> {
+         let l = self.send_ledger.get(node)?;
+@@ -2072,4 +2386,205 @@ mod ledger_tests {
+         assert_eq!(st.send_ledger[0].recent, 1, "removing the early send leaves recent alone");
+         assert_exact(&st, "after removing the early send");
+     }
++
++    #[test]
++    fn a_segment_is_kept_when_it_sent_and_found_by_any_ordinal_it_issued() {
++        let mut st = state();
++        let a = node(SERVER, 0);
++        let b = node(SERVER, 1);
++        // A segment at b entered by a's record sends twice; an empty
++        // segment leaves no row; a timer segment sends once.
++        let from = st.begin_segment(1);
++        record(&mut st, b, a);
++        record(&mut st, b, a);
++        st.end_segment(1, from, (0, 0));
++        let from = st.begin_segment(1);
++        st.end_segment(1, from, (2, 1));
++        let from = st.begin_segment(1);
++        record(&mut st, b, a);
++        st.end_segment(1, from, (1, 0));
++        assert_eq!(st.segments[1].len(), 2, "the empty segment is not kept");
++        assert_eq!(st.segment_source(1, 0), Some((0, 0)));
++        assert_eq!(st.segment_source(1, 1), Some((0, 0)));
++        assert_eq!(st.segment_source(1, 2), Some((1, 0)));
++        assert_eq!(st.segment_source(1, 3), None, "a send no kept segment issued");
++        assert_eq!(st.segment_source(0, 0), None, "a node without segments");
++        assert_eq!(st.segment_source(9, 0), None, "a node past the table");
++    }
++
++    /// Three servers, a client, node 0 never restarted and nodes 1 and 2
++    /// restarted, the absorber cycle closed at step 30 and the post-fault
++    /// operation 7's request entered node 0 at step 40.
++    fn answer_scene() -> State<NoHashing> {
++        let mut st = state();
++        st.incarnations[1] = 1;
++        st.incarnations[2] = 1;
++        st.absorber_cycle_closed_step = Some(30);
++        st.client_anchor.first_post_fault_op = Some(7);
++        st.note_post_fault_request_entry(0, 40, 3);
++        st.note_post_fault_target(0, Some(7));
++        st
++    }
++
++    /// An answer carries the causal id of an operation whose request
++    /// entered the node and comes from the sender's current incarnation;
++    /// everything else from a restarted sender of the node's role is news.
++    #[test]
++    fn the_answer_is_told_from_news_by_incarnation_cause_and_role_alone() {
++        let st = answer_scene();
++        let n0 = node(SERVER, 0);
++        let n1 = node(SERVER, 1);
++        let n2 = node(SERVER, 2);
++        let client = node(CLIENT, 3);
++        let caused = AnswerRoute { caused: true, reply: false };
++        assert_eq!(
++            st.classify_same_role_entry(n2, 1, 0, Some(7), n0),
++            Some(EntryKind::Answer(caused)),
++            "the acknowledgement of the request that entered node 0"
++        );
++        assert_eq!(st.classify_same_role_entry(n2, 0, 0, Some(7), n0), Some(EntryKind::News), "a dead incarnation");
++        assert_eq!(st.classify_same_role_entry(n1, 0, 0, None, n0), Some(EntryKind::News), "a dead incarnation's view change");
++        assert_eq!(st.classify_same_role_entry(n1, 1, 0, None, n0), Some(EntryKind::News), "a restarted node's own view change");
++        assert_eq!(st.classify_same_role_entry(n2, 1, 0, Some(3), n0), Some(EntryKind::News), "caused by an operation before the fault");
++        assert_eq!(st.classify_same_role_entry(n1, 1, 0, Some(8), n0), Some(EntryKind::News), "a post-fault operation whose request never entered node 0");
++        assert_eq!(st.classify_same_role_entry(client, 0, 0, Some(7), n0), None, "another role");
++        assert_eq!(st.classify_same_role_entry(n2, 1, 0, Some(7), n1), Some(EntryKind::News), "node 1 was not the request's target");
++        assert_eq!(st.classify_same_role_entry(n0, 0, 0, Some(7), n2), None, "node 0 never restarted");
++    }
++
++    #[test]
++    fn the_answer_first_fact_needs_the_cycle_the_request_and_no_news_between() {
++        let mut st = answer_scene();
++        let n0 = node(SERVER, 0);
++        let caused = AnswerRoute { caused: true, reply: false };
++        let answer = EntryKind::Answer(caused);
++        // An acknowledgement acted at node 0 with no news since the
++        // request: the fact holds, and news then acting there is the
++        // second fact.
++        assert_eq!(
++            st.note_answer_news_entry(n0, answer, 50),
++            Some(AnswerEvent::AnswerFirst { route: caused, first_in_run: true })
++        );
++        assert!(st.post_fault_answer_before_restarted_news);
++        assert!(!st.post_fault_answer_then_news);
++        assert_eq!(st.answer_route, caused);
++        assert_eq!(st.send_ledger[0].answer_acted_step, 50);
++        assert_eq!(st.note_answer_news_entry(n0, answer, 55), None, "a second answer is not noted");
++        assert_eq!(st.note_answer_news_entry(n0, EntryKind::News, 60), Some(AnswerEvent::NewsAfterAnswer));
++        assert!(st.post_fault_answer_then_news);
++        assert_eq!(st.news_after_answer_step, Some(60));
++        assert_eq!(st.send_ledger[0].news_acted_after_answer_step, 60);
++        assert_eq!(st.note_answer_news_entry(n0, EntryKind::News, 70), None, "later news is not noted again");
++
++        // News acted at node 0 between the request and the answer: the
++        // answer is not first.
++        let mut st = answer_scene();
++        assert_eq!(st.note_answer_news_entry(n0, EntryKind::News, 45), None);
++        assert_eq!(st.send_ledger[0].news_acted_step_since_request, 45);
++        assert_eq!(st.note_answer_news_entry(n0, answer, 50), Some(AnswerEvent::NewsFirst));
++        assert!(!st.post_fault_answer_before_restarted_news);
++        assert_eq!(st.note_answer_news_entry(n0, EntryKind::News, 60), None, "no answer came first here");
++        assert!(!st.post_fault_answer_then_news);
++
++        // News before the request does not count against the answer.
++        let mut st = state();
++        st.incarnations[2] = 1;
++        st.absorber_cycle_closed_step = Some(30);
++        st.client_anchor.first_post_fault_op = Some(7);
++        assert_eq!(st.note_answer_news_entry(n0, EntryKind::News, 35), None);
++        assert_eq!(st.send_ledger[0].news_acted_step_since_request, -1);
++        st.note_post_fault_request_entry(0, 40, 3);
++        st.note_post_fault_target(0, Some(7));
++        assert_eq!(
++            st.note_answer_news_entry(n0, answer, 50),
++            Some(AnswerEvent::AnswerFirst { route: caused, first_in_run: true })
++        );
++
++        // The cycle closing after the answer, or the answer at a restarted
++        // node, is not the fact.
++        let mut st = answer_scene();
++        st.absorber_cycle_closed_step = Some(52);
++        assert_eq!(st.note_answer_news_entry(n0, answer, 50), None);
++        assert!(!st.post_fault_answer_before_restarted_news);
++        let mut st = answer_scene();
++        st.incarnations[0] = 1;
++        assert_eq!(st.note_answer_news_entry(n0, answer, 50), None);
++        assert!(!st.post_fault_answer_before_restarted_news);
++    }
++
++    /// A restarted node answers from the segment its recovery reply
++    /// entered, with no causal id: the segment table names the reply.
++    #[test]
++    fn the_recovery_path_answer_is_a_reply_read_from_the_segment_table() {
++        let mut st = answer_scene();
++        let n0 = node(SERVER, 0);
++        let n2 = node(SERVER, 2);
++        // Node 2's segment entered by node 0's recovery response sends the
++        // acknowledgement.
++        let from = st.begin_segment(2);
++        let ack = record(&mut st, n2, n0);
++        st.end_segment(2, from, (0, 0));
++        let reply = AnswerRoute { caused: false, reply: true };
++        assert_eq!(
++            st.classify_same_role_entry(n2, 1, ack.send_ordinal, None, n0),
++            Some(EntryKind::Answer(reply))
++        );
++        assert_eq!(
++            st.classify_same_role_entry(n2, 1, ack.send_ordinal, Some(7), n0),
++            Some(EntryKind::Answer(AnswerRoute { caused: true, reply: true })),
++            "both routes at once"
++        );
++        assert_eq!(
++            st.note_answer_news_entry(n0, EntryKind::Answer(reply), 50),
++            Some(AnswerEvent::AnswerFirst { route: reply, first_in_run: true })
++        );
++        assert_eq!(st.answer_route, reply);
++        // A send from a segment entered by a dead incarnation of node 0,
++        // or by another node, is not a reply to node 0.
++        let from = st.begin_segment(2);
++        let stale = record(&mut st, n2, n0);
++        st.end_segment(2, from, (0, 1));
++        let from = st.begin_segment(2);
++        let other = record(&mut st, n2, n0);
++        st.end_segment(2, from, (1, 1));
++        assert_eq!(st.classify_same_role_entry(n2, 1, stale.send_ordinal, None, n0), Some(EntryKind::News));
++        assert_eq!(st.classify_same_role_entry(n2, 1, other.send_ordinal, None, n0), Some(EntryKind::News));
++        // With no request entered at node 0 the reply route is closed.
++        let mut st = state();
++        st.incarnations[2] = 1;
++        let from = st.begin_segment(2);
++        let ack = record(&mut st, n2, n0);
++        st.end_segment(2, from, (0, 0));
++        assert_eq!(st.classify_same_role_entry(n2, 1, ack.send_ordinal, None, n0), Some(EntryKind::News));
++    }
++
++    #[test]
++    fn the_competitors_are_the_queued_news_to_the_node_by_incarnation_class() {
++        let mut st = answer_scene();
++        let n0 = node(SERVER, 0);
++        let n1 = node(SERVER, 1);
++        let n2 = node(SERVER, 2);
++        let client = node(CLIENT, 3);
++        // Dead-incarnation records from nodes 1 and 2, a live view change
++        // from node 1, the answer itself, a request, and a record to another
++        // node.
++        let mut dead_a = record(&mut st, n1, n0);
++        dead_a.origin_incarnation = 0;
++        let mut dead_b = record(&mut st, n2, n0);
++        dead_b.origin_incarnation = 0;
++        let live = record(&mut st, n1, n0);
++        let mut answer = record(&mut st, n2, n0);
++        answer.causal_operation_id = Some(7);
++        let request = record(&mut st, client, n0);
++        let elsewhere = record(&mut st, n1, n2);
++        st.push_runnable(Runnable::Record(dead_a));
++        st.push_runnable(Runnable::Record(live));
++        st.push_runnable(Runnable::Record(answer));
++        st.push_runnable(Runnable::Record(request));
++        st.push_runnable(Runnable::Record(elsewhere));
++        st.delay_runnable(90, Runnable::Record(dead_b));
++        assert_eq!(st.competitors_at(n0), Competitors { ghost: 2, live_restarted: 1 });
++        assert_eq!(st.competitors_at(n2), Competitors { ghost: 0, live_restarted: 1 });
++        assert_eq!(st.competitors_at(n0).total(), 3);
++    }
+ }
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index a471961..fda155e 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -1146,6 +1146,13 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+             first_post_fault_request_entry_step: path_state
+                 .state
+                 .first_post_fault_request_entry_step,
++            answer_before_news: path_state.state.post_fault_answer_before_restarted_news,
++            answer_then_news: path_state.state.post_fault_answer_then_news,
++            competitor_at_answer: path_state
++                .state
++                .competitors_at_answer
++                .is_some_and(|c| c.total() >= 1),
++            request_after_news: path_state.state.post_fault_request_after_news,
+         },
+     );
+ 
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index f051107..d0eb1b4 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -265,6 +265,12 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+             path_state.state.client_anchor.rushed_ops.insert(op_id);
+             util_stats::record_client_anchor_rush_op();
+         }
++        if !path_state.state.post_fault_request_after_news
++            && path_state.state.news_after_answer_step.is_some_and(|s| s < step)
++        {
++            path_state.state.post_fault_request_after_news = true;
++            util_stats::record_request_after_news();
++        }
+         if util_stats::enabled() && op_id % client_anchor::DISTANCE_STRIDE == 0 {
+             path_state
+                 .state
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..715f5ae 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -170,7 +170,10 @@ static CAN_FIRST_ENTRY_STEPS_SUM: [AtomicU64; run_variant::DIRECTIONS] =
+     [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
+ /// The per-run rewards the arm selector reads. `OvertakenGhost`,
+ /// `AbsorberCycle` and `CycleBeforeRequest` each train one learner; the
+-/// rest are read on the coin-drawn runs only.
++/// rest are read on the coin-drawn runs only. `AnswerBeforeNews` and
++/// `AnswerThenNews` are deeper facts on top of `CycleBeforeRequest`, each
++/// a conjunction with it; `CompetitorAtAnswer` and `RequestAfterNews`
++/// narrow those two further.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum Reward {
+     OvertakenGhost,
+@@ -180,10 +183,14 @@ pub enum Reward {
+     EitherShape,
+     CycleBeforeRequest,
+     ExchangeBeforeRequest,
++    AnswerBeforeNews,
++    AnswerThenNews,
++    CompetitorAtAnswer,
++    RequestAfterNews,
+ }
+ 
+ impl Reward {
+-    pub const ALL: [Reward; 7] = [
++    pub const ALL: [Reward; 11] = [
+         Reward::OvertakenGhost,
+         Reward::AbsorberCycle,
+         Reward::MutualAbsorberCycle,
+@@ -191,6 +198,10 @@ impl Reward {
+         Reward::EitherShape,
+         Reward::CycleBeforeRequest,
+         Reward::ExchangeBeforeRequest,
++        Reward::AnswerBeforeNews,
++        Reward::AnswerThenNews,
++        Reward::CompetitorAtAnswer,
++        Reward::RequestAfterNews,
+     ];
+ 
+     fn index(self) -> usize {
+@@ -202,6 +213,10 @@ impl Reward {
+             Reward::EitherShape => 4,
+             Reward::CycleBeforeRequest => 5,
+             Reward::ExchangeBeforeRequest => 6,
++            Reward::AnswerBeforeNews => 7,
++            Reward::AnswerThenNews => 8,
++            Reward::CompetitorAtAnswer => 9,
++            Reward::RequestAfterNews => 10,
+         }
+     }
+ }
+@@ -266,8 +281,31 @@ impl AxCounters {
+     }
+ }
+ 
+-static AX: [AxCounters; 7] = [const { AxCounters::new() }; 7];
++static AX: [AxCounters; 11] = [const { AxCounters::new() }; 11];
+ static AX_OBSERVATIONS: AtomicU64 = AtomicU64::new(0);
++/// The third learner's own runs by how deep they went on the answer facts:
++/// not at all, its reward, the answer first, the news after.
++const AX_CREDIT_LEVELS: usize = 4;
++static AX_GRADED_CREDIT: [AtomicU64; AX_CREDIT_LEVELS] = [const { AtomicU64::new(0) }; AX_CREDIT_LEVELS];
++/// The answer facts at nodes that never restarted: acted answers to
++/// post-fault operations from restarted senders, split by whether news
++/// from a restarted sender had acted there first, the route the answer
++/// was recognized by, news then acting after an answer that came first,
++/// runs with a post-fault request after that news, and the histogram of
++/// records from restarted senders queued to the node at the run's first
++/// answer-first entry, in all and by the sending incarnation's class.
++static ABN_ANSWERS_ACTED: AtomicU64 = AtomicU64::new(0);
++static ABN_ANSWERS_FIRST: AtomicU64 = AtomicU64::new(0);
++static ABN_NEWS_FIRST: AtomicU64 = AtomicU64::new(0);
++static ABN_ROUTE_CAUSED: AtomicU64 = AtomicU64::new(0);
++static ABN_ROUTE_REPLY: AtomicU64 = AtomicU64::new(0);
++static ABN_ROUTE_BOTH: AtomicU64 = AtomicU64::new(0);
++static ABN_NEWS_AFTER_ANSWER: AtomicU64 = AtomicU64::new(0);
++static ABN_REQUEST_AFTER_NEWS: AtomicU64 = AtomicU64::new(0);
++const ABN_BINS: usize = 4;
++static ABN_COMPETITORS: [AtomicU64; ABN_BINS] = [const { AtomicU64::new(0) }; ABN_BINS];
++static ABN_COMPETITORS_GHOST: [AtomicU64; ABN_BINS] = [const { AtomicU64::new(0) }; ABN_BINS];
++static ABN_COMPETITORS_LIVE: [AtomicU64; ABN_BINS] = [const { AtomicU64::new(0) }; ABN_BINS];
+ /// The first learner's reward per campaign arm over every observed run,
+ /// slot `arm_index + 1` so an unattributed run lands in slot zero; arms
+ /// past the width share the last slot.
+@@ -2389,6 +2427,73 @@ pub fn reset_arm_selector_gauges() {
+     }
+ }
+ 
++/// The third learner observed one of its own runs, which went `level`
++/// deep on the answer facts.
++pub fn record_graded_credit(level: u8) {
++    if !enabled() {
++        return;
++    }
++    let i = (level as usize).min(AX_CREDIT_LEVELS - 1);
++    AX_GRADED_CREDIT[i].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A node that never restarted took its first acted answer with no news
++/// acted there since the request, recognized by `caused`, `reply`, or
++/// both.
++pub fn record_answer_first(caused: bool, reply: bool) {
++    if !enabled() {
++        return;
++    }
++    ABN_ANSWERS_ACTED.fetch_add(1, Ordering::Relaxed);
++    ABN_ANSWERS_FIRST.fetch_add(1, Ordering::Relaxed);
++    match (caused, reply) {
++        (true, true) => ABN_ROUTE_BOTH.fetch_add(1, Ordering::Relaxed),
++        (true, false) => ABN_ROUTE_CAUSED.fetch_add(1, Ordering::Relaxed),
++        (false, true) => ABN_ROUTE_REPLY.fetch_add(1, Ordering::Relaxed),
++        (false, false) => 0,
++    };
++}
++
++/// A node that never restarted took its first acted answer after news
++/// had acted there since the request.
++pub fn record_news_first() {
++    if !enabled() {
++        return;
++    }
++    ABN_ANSWERS_ACTED.fetch_add(1, Ordering::Relaxed);
++    ABN_NEWS_FIRST.fetch_add(1, Ordering::Relaxed);
++}
++
++/// News acted at a node where the answer had acted first.
++pub fn record_news_after_answer() {
++    if !enabled() {
++        return;
++    }
++    ABN_NEWS_AFTER_ANSWER.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A run invoked a post-fault client operation after news had followed an
++/// answer; once per run.
++pub fn record_request_after_news() {
++    if !enabled() {
++        return;
++    }
++    ABN_REQUEST_AFTER_NEWS.fetch_add(1, Ordering::Relaxed);
++}
++
++/// The records from restarted senders queued to the node at the run's
++/// first answer-first entry: `ghost` from dead incarnations,
++/// `live_restarted` from current ones.
++pub fn record_competitors_at_answer(ghost: u8, live_restarted: u8) {
++    if !enabled() {
++        return;
++    }
++    let bin = |n: u8| (n as usize).min(ABN_BINS - 1);
++    ABN_COMPETITORS[bin(ghost.saturating_add(live_restarted))].fetch_add(1, Ordering::Relaxed);
++    ABN_COMPETITORS_GHOST[bin(ghost)].fetch_add(1, Ordering::Relaxed);
++    ABN_COMPETITORS_LIVE[bin(live_restarted)].fetch_add(1, Ordering::Relaxed);
++}
++
+ /// A post-crash client request was issued under the rush direction.
+ #[inline]
+ pub fn record_client_anchor_rush_op() {
+@@ -4823,12 +4928,122 @@ impl ArmSelectorPooledStats {
+     }
+ }
+ 
++/// The third learner's own runs by how deep they went on the answer
++/// facts: `credit_thirds` counts them at none, its reward, the answer
++/// first, and the news after.
++#[derive(Serialize, Debug, Clone)]
++pub struct GradedCreditStats {
++    pub credit_thirds: Vec<u64>,
++}
++
++impl GradedCreditStats {
++    fn read() -> Self {
++        Self {
++            credit_thirds: AX_GRADED_CREDIT.iter().map(|n| n.load(Ordering::Relaxed)).collect(),
++        }
++    }
++}
++
++/// The route the answer was recognized by: the causal id of an operation
++/// whose request entered the node, the segment table naming the node's
++/// own record as what entered the sending segment, or both.
++#[derive(Serialize, Debug, Clone)]
++pub struct AnswerRouteStats {
++    pub caused: u64,
++    pub reply: u64,
++    pub both: u64,
++}
++
++/// A histogram of queued records: none, one, two, three or more.
++#[derive(Serialize, Debug, Clone)]
++pub struct CompetitorHist {
++    pub zero: u64,
++    pub one: u64,
++    pub two: u64,
++    pub three_plus: u64,
++}
++
++impl CompetitorHist {
++    fn read(bins: &[AtomicU64; ABN_BINS]) -> Self {
++        Self {
++            zero: bins[0].load(Ordering::Relaxed),
++            one: bins[1].load(Ordering::Relaxed),
++            two: bins[2].load(Ordering::Relaxed),
++            three_plus: bins[3].load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// The records from restarted senders of the node's role, not answers,
++/// queued to the node at the run's first answer-first entry: the
++/// histogram over all of them at the top, and by the sending
++/// incarnation's class under `ghost` (dead) and `live_restarted`
++/// (current).
++#[derive(Serialize, Debug, Clone)]
++pub struct CompetitorsAtAnswerStats {
++    pub zero: u64,
++    pub one: u64,
++    pub two: u64,
++    pub three_plus: u64,
++    pub ghost: CompetitorHist,
++    pub live_restarted: CompetitorHist,
++}
++
++/// The answer facts at nodes that never restarted. `answers_acted` counts
++/// the first acted answer per node past the gates (the absorber cycle
++/// closed and the request entered before it), split into `answers_first`
++/// (no news from a restarted sender acted there since the request) and
++/// `news_first`; `answer_route` splits `answers_first` by route;
++/// `news_after_answer` counts news then acting at a node where the answer
++/// came first and `request_after_news` the runs that invoked a post-fault
++/// operation after that; `competitors_at_answer` is read at the run's
++/// first answer-first entry.
++#[derive(Serialize, Debug, Clone)]
++pub struct AnswerBeforeNewsStats {
++    pub answers_acted: u64,
++    pub answers_first: u64,
++    pub news_first: u64,
++    pub answer_route: AnswerRouteStats,
++    pub news_after_answer: u64,
++    pub request_after_news: u64,
++    pub competitors_at_answer: CompetitorsAtAnswerStats,
++}
++
++impl AnswerBeforeNewsStats {
++    fn read() -> Self {
++        let all = CompetitorHist::read(&ABN_COMPETITORS);
++        Self {
++            answers_acted: ABN_ANSWERS_ACTED.load(Ordering::Relaxed),
++            answers_first: ABN_ANSWERS_FIRST.load(Ordering::Relaxed),
++            news_first: ABN_NEWS_FIRST.load(Ordering::Relaxed),
++            answer_route: AnswerRouteStats {
++                caused: ABN_ROUTE_CAUSED.load(Ordering::Relaxed),
++                reply: ABN_ROUTE_REPLY.load(Ordering::Relaxed),
++                both: ABN_ROUTE_BOTH.load(Ordering::Relaxed),
++            },
++            news_after_answer: ABN_NEWS_AFTER_ANSWER.load(Ordering::Relaxed),
++            request_after_news: ABN_REQUEST_AFTER_NEWS.load(Ordering::Relaxed),
++            competitors_at_answer: CompetitorsAtAnswerStats {
++                zero: all.zero,
++                one: all.one,
++                two: all.two,
++                three_plus: all.three_plus,
++                ghost: CompetitorHist::read(&ABN_COMPETITORS_GHOST),
++                live_restarted: CompetitorHist::read(&ABN_COMPETITORS_LIVE),
++            },
++        }
++    }
++}
++
+ /// The arm selector block. The top-level fields are the first learner's,
+ /// the one trained on the overtaken-ghost reward, and repeat under
+ /// `overtaken_ghost`; the second learner's are under `absorber_cycle` and
+ /// the third's under `cycle_before_request`. `ghost_signal`,
+-/// `either_shape`, `mutual_absorber_cycle` and `exchange_before_request`
+-/// are read on the coin-drawn runs and train nothing. `explore` is the
++/// `either_shape`, `mutual_absorber_cycle`, `exchange_before_request`,
++/// `answer_before_news`, `answer_then_news`, `competitor_at_answer` and
++/// `request_after_news` are read on the coin-drawn runs and train
++/// nothing; `graded` histograms the third learner's own runs by how deep
++/// they went on the answer facts. `explore` is the
+ /// exploration draw that splits the assigned runs into coin-drawn runs and
+ /// learner runs. `observations` counts every run the selector observed,
+ /// coin-drawn or learner run; `reward_runs_by_arm` and
+@@ -4869,6 +5084,11 @@ pub struct ArmSelectorAxisStats {
+     pub either_shape: ArmSelectorRewardStats,
+     pub mutual_absorber_cycle: ArmSelectorRewardStats,
+     pub exchange_before_request: ArmSelectorRewardStats,
++    pub answer_before_news: ArmSelectorRewardStats,
++    pub answer_then_news: ArmSelectorRewardStats,
++    pub competitor_at_answer: ArmSelectorRewardStats,
++    pub request_after_news: ArmSelectorRewardStats,
++    pub graded: GradedCreditStats,
+ }
+ 
+ impl ArmSelectorAxisStats {
+@@ -4911,6 +5131,11 @@ impl ArmSelectorAxisStats {
+             either_shape: ArmSelectorRewardStats::read(Reward::EitherShape),
+             mutual_absorber_cycle: ArmSelectorRewardStats::read(Reward::MutualAbsorberCycle),
+             exchange_before_request: ArmSelectorRewardStats::read(Reward::ExchangeBeforeRequest),
++            answer_before_news: ArmSelectorRewardStats::read(Reward::AnswerBeforeNews),
++            answer_then_news: ArmSelectorRewardStats::read(Reward::AnswerThenNews),
++            competitor_at_answer: ArmSelectorRewardStats::read(Reward::CompetitorAtAnswer),
++            request_after_news: ArmSelectorRewardStats::read(Reward::RequestAfterNews),
++            graded: GradedCreditStats::read(),
+         }
+     }
+ }
+@@ -5015,6 +5240,7 @@ pub struct UtilizationSnapshot {
+     pub fresh_first: FreshFirstStats,
+     pub pair_order: PairOrderStats,
+     pub client_anchor: ClientAnchorStats,
++    pub answer_before_news: AnswerBeforeNewsStats,
+     pub arm_selector_axis: ArmSelectorAxisStats,
+     pub replay: ReplayStats,
+     pub timer_context: TimerContextStats,
+@@ -5213,6 +5439,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         fresh_first: FreshFirstStats::read(),
+         pair_order: PairOrderStats::read(),
+         client_anchor: ClientAnchorStats::read(),
++        answer_before_news: AnswerBeforeNewsStats::read(),
+         arm_selector_axis: ArmSelectorAxisStats::read(),
+         replay: ReplayStats::read(),
+         timer_context: TimerContextStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..442665b 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -13,15 +13,17 @@
+ 
+ use serde_json::{Map, Value};
+ use spur_core::simulator::util_stats::{
+-    self, AcceptanceDistanceBucket, AcceptanceDistanceStats, ArmSelectorAxisStats, ArmSelectorExploreStats,
++    self, AcceptanceDistanceBucket, AcceptanceDistanceStats, AnswerBeforeNewsStats, AnswerRouteStats,
++    ArmSelectorAxisStats, ArmSelectorExploreStats,
+     ArmSelectorLearnerStats, ArmSelectorPooledStats, ArmSelectorRewardStats, ClientAnchorArmRuns,
+     ClientAnchorAxisStats, ClientAnchorCensusStats, ClientAnchorDistance,
+     ClientAnchorFirstDelivery, ClientAnchorFirstEntry, ClientAnchorHalfStats,
+     ClientAnchorHeldHist,
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
++    CompetitorHist, CompetitorsAtAnswerStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, ReplayStats, RunCapStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, GradedCreditStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, ReplayStats, RunCapStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -857,6 +859,104 @@ fn arm_selector_pooled(m: &mut Marks) -> ArmSelectorPooledStats {
+     }
+ }
+ 
++fn graded_credit(m: &mut Marks) -> GradedCreditStats {
++    GradedCreditStats {
++        credit_thirds: marks_vec(m, 4),
++    }
++}
++
++fn graded_credit_leaves(prefix: &str, g: &GradedCreditStats) -> Vec<(String, Value)> {
++    let GradedCreditStats { credit_thirds } = g;
++    vec_leaves(prefix, "credit_thirds", credit_thirds)
++}
++
++fn competitor_hist(m: &mut Marks) -> CompetitorHist {
++    CompetitorHist {
++        zero: m.int(),
++        one: m.int(),
++        two: m.int(),
++        three_plus: m.int(),
++    }
++}
++
++fn competitor_hist_leaves(prefix: &str, h: &CompetitorHist) -> Vec<(String, Value)> {
++    let CompetitorHist {
++        zero,
++        one,
++        two,
++        three_plus,
++    } = h;
++    vec![
++        leaf(prefix, "zero", *zero),
++        leaf(prefix, "one", *one),
++        leaf(prefix, "two", *two),
++        leaf(prefix, "three_plus", *three_plus),
++    ]
++}
++
++fn answer_before_news(m: &mut Marks) -> AnswerBeforeNewsStats {
++    AnswerBeforeNewsStats {
++        answers_acted: m.int(),
++        answers_first: m.int(),
++        news_first: m.int(),
++        answer_route: AnswerRouteStats {
++            caused: m.int(),
++            reply: m.int(),
++            both: m.int(),
++        },
++        news_after_answer: m.int(),
++        request_after_news: m.int(),
++        competitors_at_answer: CompetitorsAtAnswerStats {
++            zero: m.int(),
++            one: m.int(),
++            two: m.int(),
++            three_plus: m.int(),
++            ghost: competitor_hist(m),
++            live_restarted: competitor_hist(m),
++        },
++    }
++}
++
++fn answer_before_news_leaves(prefix: &str, a: &AnswerBeforeNewsStats) -> Vec<(String, Value)> {
++    let AnswerBeforeNewsStats {
++        answers_acted,
++        answers_first,
++        news_first,
++        answer_route,
++        news_after_answer,
++        request_after_news,
++        competitors_at_answer,
++    } = a;
++    let AnswerRouteStats { caused, reply, both } = answer_route;
++    let CompetitorsAtAnswerStats {
++        zero,
++        one,
++        two,
++        three_plus,
++        ghost,
++        live_restarted,
++    } = competitors_at_answer;
++    let route = format!("{prefix}.answer_route");
++    let comp = format!("{prefix}.competitors_at_answer");
++    let mut out = vec![
++        leaf(prefix, "answers_acted", *answers_acted),
++        leaf(prefix, "answers_first", *answers_first),
++        leaf(prefix, "news_first", *news_first),
++        leaf(&route, "caused", *caused),
++        leaf(&route, "reply", *reply),
++        leaf(&route, "both", *both),
++        leaf(prefix, "news_after_answer", *news_after_answer),
++        leaf(prefix, "request_after_news", *request_after_news),
++        leaf(&comp, "zero", *zero),
++        leaf(&comp, "one", *one),
++        leaf(&comp, "two", *two),
++        leaf(&comp, "three_plus", *three_plus),
++    ];
++    out.extend(competitor_hist_leaves(&format!("{comp}.ghost"), ghost));
++    out.extend(competitor_hist_leaves(&format!("{comp}.live_restarted"), live_restarted));
++    out
++}
++
+ fn arm_selector_axis(m: &mut Marks) -> ArmSelectorAxisStats {
+     ArmSelectorAxisStats {
+         chosen_runs: m.int(),
+@@ -890,6 +990,11 @@ fn arm_selector_axis(m: &mut Marks) -> ArmSelectorAxisStats {
+         either_shape: arm_selector_reward(m),
+         mutual_absorber_cycle: arm_selector_reward(m),
+         exchange_before_request: arm_selector_reward(m),
++        answer_before_news: arm_selector_reward(m),
++        answer_then_news: arm_selector_reward(m),
++        competitor_at_answer: arm_selector_reward(m),
++        request_after_news: arm_selector_reward(m),
++        graded: graded_credit(m),
+     }
+ }
+ 
+@@ -1073,6 +1178,11 @@ fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(Stri
+         either_shape,
+         cycle_before_request,
+         exchange_before_request,
++        answer_before_news,
++        answer_then_news,
++        competitor_at_answer,
++        request_after_news,
++        graded,
+     } = a;
+     let mut out = vec![
+         leaf(prefix, "chosen_runs", *chosen_runs),
+@@ -1128,6 +1238,14 @@ fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(Stri
+         &format!("{prefix}.exchange_before_request"),
+         exchange_before_request,
+     ));
++    out.extend(arm_selector_reward_leaves(&format!("{prefix}.answer_before_news"), answer_before_news));
++    out.extend(arm_selector_reward_leaves(&format!("{prefix}.answer_then_news"), answer_then_news));
++    out.extend(arm_selector_reward_leaves(
++        &format!("{prefix}.competitor_at_answer"),
++        competitor_at_answer,
++    ));
++    out.extend(arm_selector_reward_leaves(&format!("{prefix}.request_after_news"), request_after_news));
++    out.extend(graded_credit_leaves(&format!("{prefix}.graded"), graded));
+     out
+ }
+ 
+@@ -1458,6 +1576,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         fresh_first: _,
+         pair_order: _,
+         client_anchor: _,
++        answer_before_news: _,
+         arm_selector_axis: _,
+         replay: _,
+         timer_context: _,
+@@ -1496,6 +1615,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "fresh_first",
+         "pair_order",
+         "client_anchor",
++        "answer_before_news",
+         "arm_selector_axis",
+         "replay",
+         "timer_context",
+@@ -1569,6 +1689,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.fresh_first = fresh_first(&mut m);
+     s.pair_order = pair_order(&mut m);
+     s.client_anchor = client_anchor(&mut m);
++    s.answer_before_news = answer_before_news(&mut m);
+     s.arm_selector_axis = arm_selector_axis(&mut m);
+     s.replay = replay(&mut m);
+     s.timer_context = timer_context(&mut m);
+@@ -1586,6 +1707,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(fresh_first_leaves("fresh_first", &s.fresh_first));
+     expected.extend(pair_order_leaves("pair_order", &s.pair_order));
+     expected.extend(client_anchor_leaves("client_anchor", &s.client_anchor));
++    expected.extend(answer_before_news_leaves("answer_before_news", &s.answer_before_news));
+     expected.extend(arm_selector_axis_leaves("arm_selector_axis", &s.arm_selector_axis));
+     expected.extend(replay_leaves("replay", &s.replay));
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
+@@ -1629,6 +1751,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "fresh_first",
+         "pair_order",
+         "client_anchor",
++        "answer_before_news",
+         "arm_selector_axis",
+         "replay",
+         "timer_context",

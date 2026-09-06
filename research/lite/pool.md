@@ -3533,9 +3533,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## selector-graded-credit-by-chain-rung-for-learner-c
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 64 (judge gain 6, cost 0, rank 1; learner C's slot on bit
-  128, no new bit; implementing) | parent:
+- kind: add | category: feedback | origin: proposer | status: CLOSED at
+  iteration 64 on its smoke as inapplicable (C's own-run level-2 rate
+  0.0010 against the 0.010 floor; the label-11 order is 6 percent of the
+  core; patches kept under research/lite/patches/graded-credit, the
+  columns build and the graded build, with the smoke census) | parent:
   per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward
 - Learner C's credit becomes fractional by chain level: 0 below the
   core, a third for cycle-before-request, two thirds when a target-gated
