@@ -3441,10 +3441,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## selector-every-learner-credits-every-run-with-its-own-reward
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 65 on the judge's iteration-61 verdict (gain 4, falsifier
-  rewritten to the mass arithmetic; composes with the pooled cells;
-  implementing) | parent:
+- kind: add | category: feedback | origin: proposer | status: CLOSED at
+  iteration 65 on one chunk (depth>=8 per run 0.970 [0.927, 1.016]
+  against refutation at 1.02; the coin share rose instead of falling;
+  throughput 0.90 from three learners writing every run's cell; patch
+  kept under research/lite/patches/cross-credit) | parent:
   selector-explore-share-posterior-odds-against-leader-most-decided-axis
 
 ## selector-cells-pooled-by-fault-shape-across-grid-arms

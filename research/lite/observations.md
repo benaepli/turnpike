@@ -6370,3 +6370,71 @@ read there. Session cross-credit started cross-binary; four chunks; the
 read is depth>=8 per graded run against the paired baseline, band
 [1.02, 1.08], with the coin share by arm and the learners' shares as the
 observables and the panel binding per member.
+
+**Chunk 1 refutes it on both letters; stopped.** Seed 1000: candidate
+545,640 runs against the baseline's 606,180 - runs per second 0.900,
+the cost of three learners writing every run's cell under thirty
+threads; depth>=8 per run 0.970 [0.927, 1.016] against a refutation
+edge of 1.02; per explore-second 0.874; depth>=10 per run 1.34 on 186
+against 154; no violation. The observables ran the wrong way: the
+campaign coin share rose to 0.122 against 0.110 and grid's to 0.179
+against 0.173, while the learners' decided-axis shares rose (B retarget
+0.946, C hold 0.930, A fresh-first 0.843) - every learner is now more
+certain on its own axis and less certain everywhere else, because the
+runs it is credited with follow other learners' leaders on the other
+axes, which is the bias the judge named at 61 and the record's
+robustness evidence did not cover. Per arm the grid arms read 1.00 to
+1.06 and the aos arm 0.72 - the third session in which a selector-
+structure change reads aos down on a cell the change does not key,
+which now looks like an interaction through the coverage feedback the
+aos explorer walks its configurations by, rather than noise; recorded
+as a standing question. Closed after one chunk; the patch is kept.
+
+## Direction review at iteration 65
+
+**Violations.** None; one in 16.9M candidate runs since iteration 56.
+
+**Where the loop stands.** The in-bounds maturity step is refuted, and
+the four rounds before it closed on the base-rate wall from four sides.
+The tree stays at the iteration-61 merge: five selector merges since
+55, the objective about 1.5x the epoch's coin tree, the target found
+once at 56 and not again in 17M runs. Every close since 59 left its
+machinery in a patch: the segment table, the mask and the lift, the
+stop learner and its histograms, the chain-order columns and their
+census, the graded credit.
+
+**What the record says the next productive work is, and whose.** The
+events past depth 10 are one run in a thousand on the learners' own
+runs and one in ten thousand at depth 11; a cell that lives one chunk
+cannot learn them, and every reward that names them precisely lands
+there. Learner state carried across a session's chunks is the one
+lever the loop has identified that changes that arithmetic, and it is
+a harness change: the grader runs one explorer process per chunk by
+design, the chunks are its independent replicates, and carrying state
+across them changes what a chunk is. That decision has been filed for
+the user at 56, 57, 58, 64 and here. The other standing questions are
+the aos arm's response to selector-structure changes and the grid
+arm's cold start under round-robin, both readable with a kept output
+directory and a per-slice read, neither a mechanism.
+
+**Verdict.** The autonomous loop idles here, with the reason written:
+the remaining in-bounds candidates are worth a few percent at depth 8
+and the deep chain is out of reach of any per-chunk learner, so
+another round would spend the user's compute on a wall the log has
+already measured four times. The next round starts on the user's
+decision about learner state across chunks, or on a directive that
+changes what the loop is for.
+
+Digest for the user: iteration 65 tried the last kept in-bounds step,
+crediting every learner with every run, and it refuted on one chunk -
+the coin share rose, depth 8 fell three percent and throughput fell
+ten percent from the shared-cell writes. The loop idles. Since you
+last checked in: iterations 56 to 65 merged the third learner, the
+concentrating pick, the per-cell exploration share and the cells
+shared across arms (the objective about 1.5x the coin tree), found the
+target once, corrected the chain's mechanics against the spec twice,
+and closed five rounds on the base-rate wall past depth 10. Your
+decision: learner state across a session's chunks (a harness change;
+four times the observations per cell; the chunks stop being
+independent replicates). Everything is committed on research/lite; the
+tree is clean at e42b271.
