@@ -5127,7 +5127,7 @@ coin cell is what the panel can read, and on raft-stale-vote it reads
 the same lean as before on eleven control events, which is the standing
 caveat and nothing more at this resolution.
 
-**Decision: merged, as graded (4ef6d72, spur f545044).** The rule passes
+**Decision: merged, as graded (df52d39, spur f545044).** The rule passes
 the read frozen before its session on every seed, the regression
 passes, the cost read is a gain, the grader's own advice is merge with
 no blockers, and the panel vetoes nothing. Three merges in three rounds

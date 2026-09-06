@@ -3262,7 +3262,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 ## selector-explore-share-posterior-odds-against-leader-most-decided-axis
 
 - kind: add | category: scheduler | origin: proposer | status: MERGED at
-  iteration 58 (4ef6d72, spur f545044; cross-binary depth>=8 per run 1.135
+  iteration 58 (df52d39, spur f545044; cross-binary depth>=8 per run 1.135
   [1.108, 1.162] on four paired seeds, per second 1.149, throughput
   1.014, coin share 0.151; regression passed; panel flat) | parent:
   selector-pick-coin-times-leading-probability-within-learner-half
