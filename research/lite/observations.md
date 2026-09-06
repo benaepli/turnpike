@@ -5610,3 +5610,27 @@ a sixth of the steps for a lean against the deep tail. The tree stays
 at the iteration-58 merge. Next: pool the learners' cells across the
 campaign arms by configuration so the grid cells mature fourfold within
 a chunk, which is what the one mature cell says the selector wants.
+
+## Iteration 61: pooling the learners' evidence across the arms
+
+Directive from the review: pool the selector's cells across the
+campaign arms by configuration so the grid cells mature within a chunk.
+Four proposals through the feedback lens: one cell per configuration
+index shared by every grid arm (the aos arm keeping its own), which
+cannot be turned off per run; a hierarchical form on a salted half,
+where an arm cell fills each direction's deficit to the discount window
+with its sibling arms' counts on the same configuration, so an arm
+whose best mix differs departs once its own evidence fills in; cells
+keyed on the configuration's fault shape only (six cells per learner at
+30,000 observations each, the aos cell's regime, at the price of the
+workload dimensions); and evidence shared across learners, each learner
+crediting every non-probe run with its own reward. Two facts the
+proposer priced in: the discount window of 500 observations bounds what
+pooling buys - observations per cell rise fourfold on the long arms but
+the time-averaged evidence rises 1.8x (1.25x on grid-short), so the
+bands sit at [1.05, 1.13] rather than at the aos cell's figures; and the
+grid and no-purgatory arms run the identical configuration (the base
+purgatory is already off) yet no-purgatory reads 15 to 25 percent above
+grid per run on every chunk of every tree in the cache, which the
+round-robin's cold start on the first arm is the likeliest reading of.
+Judged next.
