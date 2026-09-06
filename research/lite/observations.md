@@ -5064,3 +5064,17 @@ young-cell lift. Session explore-odds started on the cross-binary
 fallback with no bit; four chunks, seeds 1002 and 1003 of the tree's
 baseline measured inside it; the read that decides is depth>=8 per run
 against the paired baseline, band [1.05, 1.13].
+
+**Chunk 1: separated on its own, against the idle-host baseline.** Seed
+1000, candidate 603,540 runs against the re-measured baseline's 601,500:
+depth>=8 per run 1.125 [1.074, 1.179] on 8,993 against 7,965; runs per
+second 1.003; depth>=8 per explore-second 1.129; depth>=10 per run 1.18
+on 160 against 135; no violation. The rule's shape at chunk scale:
+565,610 draws, 83,394 coin-drawn (0.147, mean e 0.148), the histogram
+with 60 percent of draws in the lowest tenth and 5,289 at one (the
+warmup); per campaign arm grid 0.214, grid-short 0.153, no-purgatory
+0.180, post-fault-2 0.179, aos 0.013. The learners' shares on the axes
+their rewards separate: B retarget 0.903, phase 0.792, pair 0.764,
+stock 0.044; C hold 0.840, retarget 0.834, rush 0.064; A fresh-first
+0.808, retarget 0.719, phase 0.632; every chunk-1 gate met. Three
+chunks follow.
