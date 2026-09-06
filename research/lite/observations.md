@@ -5393,3 +5393,34 @@ One question for you: the learners live one chunk because each chunk is
 a fresh process; carrying their state across a session's chunks is a
 harness-side change that would mature every cell fourfold, and the
 chunks would stop being independent replicates.
+
+## Iteration 60: a learned stop when the recovery story is over
+
+Directive from the review: end a run past the cell's learned quantile of
+the step of its last acted fault-crossing delivery, with the run-cap
+learner's shape and no constant. Four proposals through the scheduling-
+theory lens, with two corrections to the directive's sketch: a per-cell
+learner cannot engage (probes are one run in 32 and a grid cell sees
+1,400 to 3,500 runs per chunk, 44 to 110 probes against a floor of 200),
+so the scope is (budget, campaign arm), which reduces to the cap
+learner's per-budget scope on a panel member; and the key class is the
+fault-crossing delivery itself (sender down or restarted since sending,
+the simulator's own class), not its acted subset, so a protocol without
+crossing traffic never reaches the floor and a run without a key falls
+back to the existing cap. The base candidate keys the stop on the run's
+last recover plus a settle learned on probes as 1.5 times the p99 of the
+last crossing delivery's step past that recover, armed only once every
+fault plan event has completed; the arithmetic on the fresh baseline
+(73 percent of long-arm runs end on the cap at about 3,600 steps, 74
+percent of all steps) puts the stop near 1,300 to 1,550 and the campaign
+near 1.58x depth-8 events per second at full deployment, 1.19 at a
+treated half. The siblings: a per-run window that re-arms on each
+crossing delivery (the aggressive form, whose depth 10 to 13 per-run
+read is expected to move); the settle conjoined with client-response
+quiescence learned the same way (the tail-safe form, since the chain's
+last labels are responses); and the directive's literal absolute-step
+quantile, shown by arithmetic to inherit the crash placement span and
+priceable from the base candidate's exported histogram. Each carries a
+treatment bit renamed from a retired roster entry and a treated half,
+so both the within-binary per-run guard and the cross-binary per-second
+gain are read. Judged next.
