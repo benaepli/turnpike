@@ -5693,3 +5693,22 @@ flipping across arms on B and C on rows of 200 to 800 stock runs -
 directional only at this length. Session pooled-cells started
 cross-binary, no bit; four chunks; the primary is depth>=8 per graded
 run against the paired baseline, band [1.05, 1.13].
+
+**Chunk 1: every gate met and the read is pass-shaped.** Seed 1000,
+candidate 580,920 runs against the baseline's 594,240 (runs per second
+0.978): depth>=8 per run 1.088 [1.039, 1.138] on 9,370 against 8,813;
+per explore-second 1.063; depth>=10 per run 1.09 on 165 against 155; no
+violation. The cells: 452,925 pooled draws, 54 pooled cells per learner
+at about 190,000 credits per learner (3,500 per cell), campaign coin
+share 0.113 against 0.147 on the tree, run-weighted grid share 0.132
+against 0.175, by arm grid 0.177 (0.207 on the baseline), grid-short
+0.135 (0.158), no-purgatory 0.110 (0.189), post-fault-2 0.109 (0.181),
+aos 0.017; mean top margin past warmup 0.919 against 0.888, by arm 0.87
+on grid rising to 0.92 on the later arms. Per arm against the same arm
+on the baseline: grid 1.141, grid-short 1.078, no-purgatory 1.177,
+post-fault-2 1.221 - the drag guard reads the other way, the arm whose
+mix could differ gains most - and aos 0.850 on its own unchanged cell
+(1,272 against 1,504 events on 98k runs), which the mechanism does not
+touch and which the next seeds read. Throughput 0.978 on this seed sits
+a hair under the cost clause's 0.98 and is read pooled. Three chunks
+follow.
