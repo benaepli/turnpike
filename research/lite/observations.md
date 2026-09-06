@@ -6528,3 +6528,27 @@ how that splits. The honest next step is Stage B in its minimal form:
 save and load the cells, run four chunks by hand, and read the
 difference directly. That is the only design that isolates what this
 change actually carries.
+
+## Autonomous launch before iteration 66 (2026-09-06)
+
+The user requested the lite loop in autonomous mode. The big loop is
+inactive, the main tree is research/lite, and the spur gitlink matches
+b86baad. The unrelated untracked docs/current-plans/paper-scout.md is the
+plan already documented at iteration 54; it is preserved and excluded
+only in .git/info/exclude so subject work starts clean.
+
+Baseline release build passes. The first selftest found two sessions
+still live despite logged close decisions (causal-window and settle-stop)
+and five rounded cumulative throughput entries. Ran grader finish on
+those two sessions without buying chunks or changing their decisions;
+recomputed ledger cumulative values as the product of the stored ratios,
+without changing ratios or the epoch. The selftest now has zero failures.
+Its baseline identity, layout-age and retired-tag warnings remain visible.
+No grader, oracle, protocol, campaign, or protected source changed.
+
+Direction: resume mechanism proposals under the fixed goal. The Stage A
+pilot shows improving selector arm quality, but coin share rose and the
+run cap moved, so it does not establish the benefit of carrying selector
+state. Cross-credit already failed. Seek structural alternatives with a
+causal observable and an honest randomized or cross-binary comparison;
+the prior decision to idle does not establish that the search is exhausted.

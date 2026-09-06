@@ -164,7 +164,7 @@
    "commit": "7bb10ea",
    "spurCommit": "0587e8c",
    "ratio": 0.996,
-   "cumulative": 0.922245,
+   "cumulative": 0.9222447538153853,
    "measuredRps": 2040.237818720942,
    "measuredRpsChunks": [
     2055.6869275603663,
@@ -179,7 +179,7 @@
    "commit": "e2733f0",
    "spurCommit": "38fcbcc",
    "ratio": 0.9915,
-   "cumulative": 0.914406,
+   "cumulative": 0.9144056734079545,
    "measuredRps": 1998.8510113636698,
    "measuredRpsChunks": [
     1929.804694785644,
@@ -194,7 +194,7 @@
    "commit": "46505e2",
    "spurCommit": "ebf6d4e",
    "ratio": 1.038,
-   "cumulative": 0.949153,
+   "cumulative": 0.9491530889974569,
    "measuredRps": 1992.0779539817581,
    "measuredRpsChunks": [
     1980.3648618946443,
@@ -209,7 +209,7 @@
    "commit": "df52d39",
    "spurCommit": "f545044",
    "ratio": 1.014,
-   "cumulative": 0.962441,
+   "cumulative": 0.9624412322434213,
    "measuredRps": 1975.6821114176673,
    "measuredRpsChunks": [
     1978.814589362007,
@@ -224,7 +224,7 @@
    "commit": "e42b271",
    "spurCommit": "b86baad",
    "ratio": 1.016,
-   "cumulative": 0.97784,
+   "cumulative": 0.977840291959316,
    "measuredRps": 2014.0518567808017,
    "measuredRpsChunks": [
     2018.299138981561,
