@@ -5231,3 +5231,39 @@ ghost lands at 0.004 to 0.009; and pair up is the hard sign - only a
 second record of the same dead incarnation honoured in send order reads
 it by construction. Each prices its depth-8 cost at one to two percent
 campaign-wide for a depth-10 lean of eight to eleven. Judged next.
+
+**Judged, with two of the directive's premises corrected on this tree.**
+The untouched-receiver clause takes learner A's slot at gain 6, cost 0:
+an acted overtaken ghost at a restarted receiver that no post-fault
+request had reached since its restart, one existing ledger flag, A's
+fresh-first core kept as a subset. Every quoted base rate and coin
+table reproduced from the four explore-odds chunks. What did not hold:
+first, the coin-drawn runs on this tree are not a control - they are
+the undecided cells (a cell whose reward never fires explores at one,
+and one-crash configurations cannot reach depth 8), so they read
+depth>=8 0.00585 per run against 0.017 to 0.019 on the learner runs and
+learner A already reads 3.05 [2.91, 3.20] against them; the directive's
+proposed read would have passed a learner that learned nothing, and
+the admitted read is rewritten as the within-binary ratio of A's depth-8
+rate to B and C's, paired against the same ratio on the baseline chunks
+(today 1.008; pooled over the last session 1.032 [0.976, 1.090]), pass at
+or above 0.96 with the lower edge above 0.93, and the cross-binary
+all-runs read at or above 0.98 as the guard. Second, the phase arm does
+not cost a quarter at depth 10 on this tree: on 577 events over the
+last session it reads 1.1 to 1.5 (1.32 on the coin runs), and the 0.75
+came from about a hundred events at iteration 54; the phase-down
+criterion is dropped and A's phase share is reported. The depth-10
+column re-derived on this tree's fair axes: hold/stock 4.27 on A's runs
+and 4.78 on B's, fresh 1.34 to 1.58, pair 1.21 to 1.40, retarget 1.74 on
+the coin runs; C's runs reach depth 10 at 1.6x A's and 2.0x B's. The
+coin floor is the wrong gate: learners credit their own runs at 2.6 to
+4.6x the coin base, so the inapplicable branch is an own-run rate below
+0.015. Against the finding's run 61138, every request clause is false
+by one step (a post-fault Prepare entered node 2 at 465, the ghost
+DoViewChange acted at 466) while the timer-reopened clause is true, so
+that reward rides as a coin table with its census and no learner.
+Replacing A rather than adding a fourth learner: A's request axis sits
+at the coin, the hold is worth 4 to 5x at depth 10 on that axis, about
+ten percent campaign-wide at depth 10 for a depth-8 price of one to
+three percent, and a fourth learner would shrink every learner's
+already-young cells by a quarter. Implementing.

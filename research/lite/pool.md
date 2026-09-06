@@ -3310,3 +3310,53 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 58 (judge: a fixed exploration rate of one axis in five in a
   change-point form, modelled +4.4 percent, inside the layout band) |
   parent: selector-pick-coin-times-leading-probability-within-learner-half
+
+## per-cell-selector-overtaken-ghost-acted-at-request-untouched-restarted-receiver-reward
+
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 59 in learner A's slot (judge gain 6, cost 0, rank 1;
+  implementing) | parent:
+  per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
+- Reward: an acted overtaken ghost at a restarted receiver that no
+  post-fault request had reached since its restart. Reads the hold up
+  by the window the hold opens, fresh-first asserted up, rush down;
+  own-run base about 0.02 to 0.03 on A's runs.
+- Frozen prediction (judge's version): primary the within-binary ratio
+  of A's depth>=8 per run to B and C's, as a ratio of ratios against the
+  paired baseline chunks (today 1.008), pass at or above 0.96 with the
+  lower edge above 0.93, refuted with the interval entirely below 0.94;
+  cross-binary all-runs depth>=8 per run at or above 0.98; depth>=10 the
+  same ratio of ratios (today 0.84), expected 1.15 to 1.5, reported, a
+  human below 0.85 on 120 or more A events. Chunk-1 gates on the coin
+  table: hold/stock at or above 1.5, rush/stock at or below 0.85, fresh
+  at or above 1.2, pair at or above 0.95, stock/placed at or below 1.0,
+  phase reported; A's own-run rate at or above 0.015 (inapplicable
+  below); A's shares by chunk 2: hold at or above 0.68, rush at or below
+  0.15, fresh-first at or above 0.68, stock at or below 0.12. Firing
+  reward_positive_treated at or above 2,500 and reward_positive_control
+  at or above 600 per chunk; steps within 1.05; throughput at or above
+  0.97. Four chunks.
+
+## per-cell-selector-overtaken-ghost-honoured-twice-or-before-receiver-request-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 59 as the fallback if the untouched clause's own-run rate
+  reads below 0.015 (judge gain 5, rank 2; the union dilutes the hold
+  ratio and its pair clause is protocol-shaped) | parent:
+  per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
+
+## per-cell-selector-overtaken-ghost-after-timer-acted-segment-at-restarted-receiver-reward
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at
+  iteration 59 as a coin table with a per-direction census in the same
+  build, no learner (judge gain 4, rank 3; the one clause the found
+  violation satisfies; its hold sign is a quiet-network story the census
+  tests) | parent:
+  per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
+
+## per-cell-selector-overtaken-ghost-acted-anywhere-before-first-post-fault-request-entry-reward
+
+- kind: add | category: feedback | origin: proposer | status: FILED at
+  iteration 59 (judge gain 3, rank 4; learner C's run-level clause on a
+  diluted fresh core) | parent:
+  per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward
