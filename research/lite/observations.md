@@ -5857,3 +5857,41 @@ the previous merge's cache for the same seeds, numbers in the ledger
 row; no violations; ledger ratio 1.016, cumulative 0.978. Measured
 while the proposer read the tree; the next session's paired seeds are
 the read.
+
+## Iteration 62: arms for the transitions past depth 10
+
+Directive from the review: new arms that time client work or the
+delivery of pre-crash messages to the recovered nodes' post-restart
+exchange, drawn by the coins as new directions so the learners pick
+them per cell. The proposer read the deep rungs by request direction on
+the pooled-cells chunks first: on the coin runs the request axis
+carries depths 10 to 13 of hold 12, 3, 3, 3, rush 6, 0, 0, 0 and stock
+1, 1, 1, 0 - nothing decidable there - and on the learner runs hold
+599, 110, 81, 29 (funnels 0.18, 0.74, 0.36), rush 33, 7, 3, 0 and stock
+48, 9, 4, 0; the 10-to-11 funnel is the same 0.18 to 0.21 on every
+direction, which says the loss there is not a request timing but a race
+the request axis cannot enter: at label 9 the restarted node honours
+the pre-crash vote and sends its reaction to every peer, and label 11
+needs the post-fault write's three-hop round trip to land before that
+one-hop reaction does, about one draw in four. Three proposals through
+the message-delay lens: a new delivery axis (stock, defer, expedite at
+a half and two quarters) on the records a restarted node sends in the
+handler segment that honoured a fault-crossing message - the defer
+direction holds them in purgatory until a post-fault client operation
+outstanding at their send is answered, the expedite direction gives
+them the rush's top priority, the natural inverse; a fourth request
+direction that keeps writes at the hold's 64 steps and releases reads
+at the first acted landing of such a reaction at a node that never
+restarted, aimed at the 12-to-13 transition; and the hold's release
+followed by the rush's priority for the released request's records, the
+cheap control that tells a priority effect from a deferral effect. The
+proposer argued against the directive's literal candidates: a release
+at every restarted node's first acted delivery fires one label before
+the vote and reads down at depth 10 (the held client-release-on-acted-
+ghost-entry read exactly that); the mutual fresh exchange fires late or
+never on the chain; a per-run settle either equals the constant or fires
+on the first quiet gap before the vote. At a quarter share a new
+direction draws about 500,000 learner runs over four chunks, about 44,
+32 and 12 events at depths 11 to 13 against the hold's matched sample: a
+2x separates at 11 and 12, 1.5x is a lean, depth 13 a lean under 3x.
+Judged next.
