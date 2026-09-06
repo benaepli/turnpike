@@ -6178,3 +6178,33 @@ iteration-61 merge. The loop is at a boundary: the selector's rewards
 see depth 8 and the chain past 10 is invisible to them. Next: a reward
 shaped past depth 10 on the absorber core. The harness-side question
 of learner state across chunks stays yours.
+
+## Iteration 64: a reward shaped past depth 10
+
+Directive from the review: rewards shaped past depth 10 on the acted-
+absorber core, so the learners can see the directions that act there.
+Four proposals through the feedback lens. The proposer read the
+per-learner deep counts first: learner C's 538k runs over four chunks
+carry 249, 40, 31 and 7 events at depths 10 to 13 - about ten depth-11
+events per chunk, not the 45 the directive assumed - and A and B's
+1.08M runs carry 69 at depth 11, so C against the others reads 1.17 at
+depth 11 and 0.93 at depth 8 on the tree, and the deep primary is a
+lean at four chunks whatever the reward. The candidates: C's reward
+conjoined with a post-fault answer acted on at a never-restarted node
+(a record from a restart-marked sender's current incarnation that is
+caused by post-fault work, or a reply to that node, which covers the
+found run's recovery-path route) after the cycle closed and the node's
+first post-fault entry, with no news from a restart-marked sender acted
+there since - the label-11 order, own-run base 0.014 to 0.026; the
+same with the news then acting at that node (label 12), a fourth
+learner at an own-run base of 0.009 to 0.021, straddling the floor and
+gated on the first's smoke; the race-shaped count of restarted-sender
+records queued at the never-restarted node when the answer lands,
+argued down to a coin-table column at 0.003 to 0.009; and the one
+mechanism, graded credit by chain rung - the cell learner takes a
+fractional reward of a third for the core, two thirds with the answer
+first and one with the news after - so the deeper clauses steer
+without clearing a floor of their own. Two spec facts shaped the class
+tests: the responder to a restart's request writes only locals, and
+the causal id is inherited through a segment, so the acknowledgement
+carries a cause only on the request route. Judged next.
