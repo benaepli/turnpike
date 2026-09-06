@@ -5930,3 +5930,32 @@ round's product, and iteration 63 proposes on them - a delivery-side
 lever at the receivers against the label-8 fan-out, or a second-hop key
 for the reads with the write's cap left at 64, stated as directions of
 the delivery axes the selector already learns where that is possible.
+
+## Iteration 63: delivery-side directions on the corrected chain
+
+Directive from the closure of 62: directions on the delivery axes that
+act at the receivers or the dispatch draw against the label-8 fan-out,
+or a second-hop key for the reads. Three proposals through the fault-
+injection lens on one new axis, the causal window, learned per cell
+like the others: CLIENT_FIRST, which while a post-fault client operation
+is outstanding skips at the network draw every same-role remote record
+with no post-fault cause (replies to the destination's current
+incarnation and restart sends exempt, a liveness lift when nothing else
+can move), so the write's round trip wins every hop against the
+in-flight control traffic; CONSEQUENCE, which holds from their send the
+records a restarted node's segment sends after acting on a fault-
+crossing delivery, propagated one hop through local records, until
+post-fault client work has reached their destination or been answered;
+and FANOUT_FIRST, the inverse, kept for the panel. The proposer disputes
+one of the judge's chain facts from 62: VR.spur's enter_view_change
+adds the node's own id to its StartViewChange senders, so on the DAG's
+path the new primary reaches its quorum at the label-8 segment and the
+StartView goes out from whichever DoViewChange entry comes second,
+typically before the write - the judge's sequence described the found
+run's timer path, not the DAG's. Argued against: the live-post-restart
+class at a restarted destination (the StartViewChange to node 2 and the
+write's Prepare are the same class), the backlog hold (the closed
+recovering-receiver family's mirror), the positive causal preference
+(the rush's own channel), and the second-hop read key (fires a label
+early in one of the two orders). Judged next, with the premise dispute
+the first thing to settle.
