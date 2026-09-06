@@ -5457,3 +5457,26 @@ treated steps per run at or below 0.75 of untreated, over-stop
 completions at or below 5 percent of keyed probes; the panel read per
 member on the bit-1024 violation contrast with raft-stale-vote read
 closely. Implementing.
+
+**Built; graded.** The stop as admitted: a run on the treated half (bit
+1024, run-cap and timer-context probes exempt) ends once every planned
+fault event has completed, it has applied a recover and taken a fault-
+crossing entry after it, and the step has passed the last recover plus
+the scope's settle, the settle learned on run-cap probes per (budget,
+campaign arm) with the cap learner's shape; the arm index now reaches
+exec_plan from the run's attribution; 418 unit tests and every
+integration suite green. The 60 s smoke, 102,300 runs: the learner
+engaged in all five scopes but late (first stops at run 19k on
+grid-short and 52k to 100k on the long arms, so 8 to 15 percent of the
+long arms' treated runs were armed); 5,701 stops on 16,986 armed runs,
+5,111 no-key and 3,321 pending-event fallbacks, 1,555 keyed probes, 11
+over-stop completions (0.7 percent), settles learned at 755 to 1,943
+steps against the proposal's 200 to 1,500 (a 1.5 times p99 over a
+heavy-tailed sample of 200 sits on the second-largest sample), mean
+last recover step 65, mean last crossing step 184, mean settle 95; a
+stop on the grid arm saved 3,050 steps and 48 percent of armed runs
+stopped. Treated over untreated steps per run on the long arms 0.973 at
+this engagement, grid-short 0.926. Session settle-stop started on bit
+1024 with the per-run guard as the grader's band; four chunks; the
+primary is cross-binary depth>=8 per explore-second, read from the
+chunk records, band [1.10, 1.30].
