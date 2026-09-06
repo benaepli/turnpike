@@ -5134,3 +5134,66 @@ no blockers, and the panel vetoes nothing. Three merges in three rounds
 on the selector: rewards, then the pick, then the exploration budget;
 the campaign now reads about 1.09 times 1.135 on depth-8 events per
 second against the tree the selector's rewards were merged on.
+
+## Direction review at iteration 58
+
+**Violations.** None in the round's 2.41M candidate runs or the panel.
+The target's rate on the tree stands at one in the 7.2M candidate runs
+of iterations 56 to 58 and none in the baseline runs since the selector
+merged. On the tree as it stands the campaign reads about 1.09 times
+1.135 depth-8 events per second against the tree the selector's rewards
+were merged on, and that tree read 1.13 per chunk against the coins;
+the objective has moved about 1.4x since the epoch's coin tree through
+four mechanism merges on one design.
+
+**What is on the tree.** Three learners over thirds, each rewarded by a
+protocol-free recovery shape, picking every axis by the leading
+probability, with the exploration share per cell following the
+learner's own uncertainty; probes untouched; the calibration tables on
+the coin-drawn runs. The learners' shares: B retarget 0.90, phase 0.79,
+pair 0.76; C hold 0.84, retarget 0.83; A fresh-first 0.80; coin share
+0.15 (aos 0.01). Every chunk is a fresh explorer, so a grid cell lives
+1,400 to 3,500 runs and every number above is a young-cell number.
+
+**Where the remaining prize is.** Depth 10 read 1.11 this session while
+depth 8 read 1.135, and the coin table says why: every merged reward
+reads the phase arm up (1.18 to 1.46 on the coin tables) and the
+learners hold it at 0.61 to 0.79, but phase reads 0.75 per direction at
+depth 10 while it reads 1.39 at depth 8; the hold, 3.8 per direction at
+depth 10, is collected by one learner of three; fresh-first, 1.38 at
+depth 10, by one. The rewards are shaped by depth 8 and the goal's
+violation lives past depth 10. The next mechanism is a reward aligned
+with depth 10: it must read the hold up, fresh-first up, pair up, rush
+down and the phase arm flat or down on the coin table, at a base rate a
+one-chunk cell can learn from (0.01 or above; the mutual cycle at 0.003
+could not), argued from what the chain does between the recovered
+node's Recovery and the ghost view-change deliveries that follow it,
+and stated without a handler name. It rides as a fourth learner or
+replaces learner A, whose reward reads the weakest and lifts stock.
+
+**Steering audit, iterations 55 to 58.** Four directives, four merges,
+each on its frozen read with the panel flat; one finding; one
+inapplicable candidate closed on its smoke; two contended baseline
+chunks caught and re-measured, one by the judge. The panel's standing
+caveat is unchanged: the hold-reading learner leans down on the two
+rare members over three seeds without separating, and a learner that
+learns each member's own mix is the design's answer, which the cells
+say it has not yet given at 96k to 288k runs per member.
+
+**Verdict and the next directive.** Iteration 59 proposes depth-10-
+aligned rewards for the selector, read on the coin-drawn runs' tables
+against the depth-10 column of the coin table before any depth read is
+credited, graded on depth>=8 per run against the coin-drawn runs with
+depth>=10 as the lean the round is for. The read that decides stays
+depth 8, since depth 10 cannot separate in four chunks; a reward that
+holds depth 8 and moves the phase share down while depth 10 leans up
+is the round's success.
+
+Digest for the user: iteration 58 merged the per-cell exploration share
+(df52d39): a cell explores in proportion to its own uncertainty, the
+fixed coin quarter is gone, and the campaign reads depth-8 per run
+1.135 [1.108, 1.162] and per second 1.149 against the tree before it,
+on every seed, at throughput 1.014. Four selector merges since 55, the
+objective up about 1.4x since the coin tree, the target found once.
+Next: a reward shaped by depth 10, where the phase arm the current
+rewards favour costs a quarter.
