@@ -5762,3 +5762,27 @@ against a null band of 0.008 (the operator's geometric mean over the
 chunk ratios 1.068); the epoch ledger would move from 0.962 to 0.978
 against its 0.90 floor. The grader's advice line prints merge with no
 blockers. The panel runs next; the decision follows it.
+
+**Panel on the candidate binary, seed 1000, scale 3.** paxos-accept-
+stale-ballot 3.58e-2, mencius-opt1-2 1.50e-2, raft-stale-vote 3.2e-4,
+paxos-fixed-recover-stale-scout 2.8e-4, paxos-fixed-recover-forget-
+accepted 1.75e-3: every member at its calibration, the learner-against-
+coin cells within a few percent of the previous panel's (raft-stale-vote
+0.68 on eleven control events, as before), no cell separates. The
+members run one arm, so the change is a formality there by
+construction, and the panel says so.
+
+**Decision: merged, as graded (e42b271, spur b86baad).** The frozen rule
+reads undecided by the letter of the wider interval: the four ratios'
+t-interval reaches 0.990 because seed 1002 read exactly 1.000 while the
+other three read 1.04 to 1.09, and the binomial interval is [1.028,
+1.076] with the point at 1.052. The merge is taken on what the arms
+say: the three long grid arms, whose cells went from 750 to 3,500
+observations, read 1.140, 1.105 and 1.136 with every interval clear of
+one, grid-short with twice the observations already reads 1.03, the
+campaign-wide figure is the run-weighted mix of those with an aos arm
+the change does not touch, throughput is 1.016, the regression passes,
+the grader's advice is merge with no blockers, and the mechanism is a
+keying change with no constant. Written as a departure from the rule's
+letter. The aos read stays unresolved and unattributed; the next
+session's paired seeds read it again on the merged tree's baseline.

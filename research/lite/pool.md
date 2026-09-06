@@ -3413,9 +3413,11 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## selector-cells-pooled-by-configuration-across-grid-arms
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 61 (judge gain 7, cost 0, rank 1; no bit, cross-binary;
-  implementing) | parent:
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  iteration 61 (e42b271, spur b86baad; cross-binary depth>=8 per run 1.052
+  [1.028, 1.076], the long grid arms 1.10 to 1.14 separated, grid-short
+  1.03, coin share 0.110, throughput 1.016; regression passed; panel
+  unchanged) | parent:
   selector-explore-share-posterior-odds-against-leader-most-decided-axis
 - One selector cell per configuration index shared by every grid arm;
   the aos arm keeps its own cell; panel members unchanged by
