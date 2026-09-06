@@ -3505,10 +3505,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## ghost-consequence-defer-from-send-with-client-work-release
 
-- kind: arm | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 63 as the axis's second quarter (judge gain 4, cost 0, rank
-  2; bit 134217728 consequenceDefer; admitted only with an absolute
-  192-step cap on its idle clock; implementing) | parent:
+- kind: arm | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 63 on its smoke as inapplicable (about 6,400 held records per
+  chunk against a floor of 40,000; a ghost at a restarted destination
+  rarely acts, so the flagged class is thin; two thirds of holds released
+  by the caps); its quarter rides the causal-window session as a
+  near-stock control | parent:
   ghost-consequence-sends-deferred-until-post-fault-client-response
 - Records sent by a segment at a restarted node that acted on a fault-
   crossing entry (one hop through local records) are skipped at the
