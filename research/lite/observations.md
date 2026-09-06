@@ -5320,3 +5320,76 @@ where the absorber core (learner C's reward) does - which is why C's
 stock/placed reads 0.53 with the same clause. The next hold-reader for
 A, if one is wanted, needs a clause that carries the placed crash by
 construction.
+
+## Direction review at iteration 59
+
+**Violations.** None in the round's 577,560 candidate runs. The target's
+rate on the tree stands at one in the 7.8M candidate runs since
+iteration 56.
+
+**What the round measured about rewards.** Four selector rounds have
+now read seven rewards direction by direction on the coin runs before
+any learner acted on them, and the pattern is legible: a clause that
+reads a productive axis up by construction is worth what its axis is
+worth, and a clause that reads the crash axis wrong loses everything,
+since placed against stock is 37x at depth 8. The absorber core carries
+the placed crash by construction and its "before the first request"
+variant reads the hold at 3.1 with stock at 0.5; the overtaken core does
+not carry it, and the same clause on it read stock at 1.6 and cost
+learner A a fifth. The depth-10 premise the round was built on was
+corrected by the judge on this tree's own events (phase 1.1 to 1.5, not
+0.75), which leaves the hold as the one axis worth chasing at depth 10,
+already collected by learner C at 0.84 and 1.6 to 2.0x the other
+learners' depth-10 rate per run.
+
+**Where the campaign spends its steps.** The other structural fact this
+loop has measured and not acted on: every plan event of a run, through
+the last recover, lands in the first few hundred steps, the depth chain
+completes well inside 1,500 steps (the 1,500-step arm reads no lower per
+run at any rung), and the runs go on to 2,300 to 4,400 steps because the
+learned cap is a quantile of completed-run lengths and 78 percent of
+runs never complete their plan. The budget dose at iteration 53 read
+1.55x depth-8 events per second on the changed arms from that fact and
+was declined as a knob. A mechanism that ends a run when its recovery
+story is over is the same lever with no constant: a per-cell learned
+stop keyed on the step of the run's last acted fault-crossing delivery
+(a delivery from a sender that was down or restarted since sending,
+whose handler wrote state - the delivery-effect probe's own class),
+with the stop set at the cell's learned upper quantile of that step
+under the run-cap learner's shape (a quantile with headroom, recomputed
+at doubling checkpoints, probes uncapped so the learner sees the whole
+run). It is protocol-free, it attacks the tail directly, and the
+learners' cells already exist to hold it per cell. Its risk is the
+chain's own tail: the reads after the view change (labels 11 to 13) may
+land after the last fault-crossing acted delivery, and a stop keyed on
+that delivery would cut them - so the read is per run at every rung
+with depth 11 to 13 reported, and the rule must carry a headroom that
+the probes calibrate rather than a constant.
+
+**Steering audit, iteration 59.** One directive on a premise the judge
+corrected, one build, one chunk, one close on its own gate, twenty
+minutes of chunks saved by stopping. The panel caveat is unchanged.
+
+**Verdict and the next directive.** Iteration 60 proposes the learned
+stop: a per-cell rule ending a run past the cell's learned quantile of
+the step of its last acted fault-crossing delivery, with the probes
+uncapped as the learner's sample, no constant beyond the cap learner's
+existing quantile shape, counted (stops taken, steps saved, the learned
+stop step per cell), graded cross-binary on depth>=8 per explore-second
+with depth>=8 per run at or above 0.97 as the guard and depths 10 to 13
+per run reported. Variants on what event keys the stop are welcome
+(the last acted fault-crossing delivery; the last recover applied plus
+the cell's learned settle; the last plan-released event), a constant is
+not. The state-across-chunks question stays with the user.
+
+Digest for the user: iteration 59 tried a depth-10-shaped reward for
+learner A and closed it on one chunk - the clause read early crashes up
+and A lost a fifth at depth 8; the tree stays at the iteration-58 merge.
+The judge corrected the premise: the phase arm does not cost depth 10 on
+this tree. Next: a learned per-cell stop that ends a run when its
+recovery story is over, since the runs spend nine tenths of their steps
+past the last plan event and the 1,500-step arm loses nothing per run.
+One question for you: the learners live one chunk because each chunk is
+a fresh process; carrying their state across a session's chunks is a
+harness-side change that would mature every cell fourfold, and the
+chunks would stop being independent replicates.
