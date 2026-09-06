@@ -5424,3 +5424,36 @@ priceable from the base candidate's exported histogram. Each carries a
 treatment bit renamed from a retired roster entry and a treated half,
 so both the within-binary per-run guard and the cross-binary per-second
 gain are read. Judged next.
+
+**Judged.** The settle stop rides alone at a half share on bit 1024 at
+gain 7, cost 0. Every baseline figure in the four proposals reproduces
+from the cache to the unit, and every code anchor holds: the cap
+learner's shape, the four fault-event completion sites, the recover and
+response sites, the ghost note independent of the stats switch, and the
+learner feeds that read probes only, so the cap and placement learners
+see identical samples under a stop. Two premises do not hold: nothing
+in the record bounds the settle (the recovery window measures restart
+to first message, and purgatory is off on the template), so the stop
+step is a forecast and the chunk-1 gate on treated steps per run reads
+it; and the long arms hold 1,118M steps, so capped runs average 3,100
+to 3,250 and not 3,600, which puts the half-share campaign gain at 1.12
+to 1.19 and lowers the band's edge to 1.10. Timer-context probes, not
+run-cap probes, would have been treated - the one learner feed the
+proposals left in the treated half - and are exempted. The arm index
+does not reach exec_plan today and must be plumbed for the (budget,
+arm) scope. On run 61138 the reads land 136 steps after the last
+recover and 79 after the last ghost with the plan complete at 300, so
+only a settle p99 under about 90 steps would have cut the finding's
+run. The three siblings stay in the pool (the re-arming window at 5,
+the response-quiescent conjunction at 4, the absolute-step quantile at
+2) and two are priced from this build's exported histograms without
+being built; the re-arming window's claim of no live reader of bit 2048
+was false (declarations.ts and the selftest name it). Grading: cross-
+binary depth>=8 per explore-second on four paired seeds, band [1.10,
+1.30], refuted below 1.08; the per-run guard on bit 1024 in [0.97,
+1.03]; pooled depth>=11 per run refuted if entirely below 0.80; chunk-1
+gates stops_taken at or above 50,000, scopes_learned at or above 4,
+treated steps per run at or below 0.75 of untreated, over-stop
+completions at or below 5 percent of keyed probes; the panel read per
+member on the bit-1024 violation contrast with raft-stale-vote read
+closely. Implementing.

@@ -3363,3 +3363,47 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   iteration 59 (judge gain 3, rank 4; learner C's run-level clause on a
   diluted fresh core) | parent:
   per-cell-selector-absorber-cycle-closed-before-first-post-fault-request-entry-reward
+
+## recover-settle-learned-stop
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 60 (judge gain 7, cost 0, rank 1; bit 1024 recoverSettleStop,
+  treated half, probes of both kinds exempt; implementing) | parent:
+  learned-run-cap-probe-p99
+- A run on the treated half ends once every fault plan event has
+  completed, it has applied a recover and taken a fault-crossing
+  delivery after it, and the step has passed the last recover plus the
+  scope's settle, learned on run-cap probes as 1.5 times the p99 of the
+  last crossing delivery's step past the last recover, per (budget,
+  campaign arm) scope with the cap learner's shape; no key falls back to
+  the cap; a scope under its floor is identity.
+- Frozen prediction (judge's version): cross-binary depth>=8 per
+  explore-second on four paired seeds in [1.10, 1.30], refuted below
+  1.08; within-binary per-run depth>=8 treated over untreated in [0.97,
+  1.03] as the guard; pooled depth>=11 per run refuted if entirely below
+  0.80, depths 9 to 13 reported; chunk-1 gates stops_taken at or above
+  50,000, scopes_learned at or above 4, treated steps per run at or
+  below 0.75 of untreated, probe_over_stop_completions at or below 5
+  percent of probes_keyed; runs per second at or above 1.15; the panel
+  per member on the bit-1024 violation contrast. Four chunks.
+
+## crossing-quiet-learned-stop
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 60 (judge gain 5; the aggressive re-arming form of the same
+  mechanism; its claim that bit 2048 has no live reader was false) |
+  parent: recover-settle-learned-stop
+
+## response-quiet-settle-learned-stop
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 60 (judge gain 4; the tail-safe conjunction, priced from the
+  response-gap histogram the admitted build exports) | parent:
+  recover-settle-learned-stop
+
+## last-crossing-step-arm-quantile-stop
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at
+  iteration 60 (judge gain 2; the absolute-step form inherits the crash
+  placement span; priced from the last-crossing-step histogram the
+  admitted build exports) | parent: learned-run-cap-probe-p99
