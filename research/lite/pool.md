@@ -3478,3 +3478,50 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   sends nothing on the chain, and the outstanding-at-send condition is
   false on every depth-10 run with one post-fault op) | parent:
   client-release-into-ghost-consumer-fanout-window
+
+## causal-window-client-first-defer
+
+- kind: arm | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 63 (judge gain 6, cost 0, rank 1; bit 131072 clientFirstWindow,
+  a quarter of the new causal-window axis; implementing) | parent:
+  ghost-consequence-sends-deferred-until-post-fault-client-response
+- While a post-fault client operation is outstanding (one window per
+  operation, 64 steps at most), the network draw skips same-role remote
+  records with no post-fault cause, except replies to the destination's
+  current incarnation and restart sends; a liveness lift when nothing
+  else can move.
+- Frozen prediction (judge's version): depth>=11 per run CLIENT_FIRST
+  against STOCK, probe-free and co-bit matched, four chunks; merge on a
+  lower edge above 1.0 (a point near 1.75), refute on an upper edge
+  below 1.25 with the observable met, else unresolved with eight chunks
+  pre-committed; the band applies only if the depth-10 competitors-at-
+  open share is at or above 0.5 (0.3 to 0.5 a lean, below 0.3 void);
+  depth>=8 in [0.96, 1.03]; depth>=10 refute below 0.90; smoke and
+  chunk-1 gates on masked_records (100,000), windows opened (0.9 of
+  post-fault invocations), closed on response (0.7), lifts (0.02),
+  empty-masked-network steps (0.25 of window steps), timer fires inside
+  windows (1.5x stock), steps per run (1.03x), plan completion (2
+  points), throughput (0.97), mencius windows exactly zero.
+
+## ghost-consequence-defer-from-send-with-client-work-release
+
+- kind: arm | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 63 as the axis's second quarter (judge gain 4, cost 0, rank
+  2; bit 134217728 consequenceDefer; admitted only with an absolute
+  192-step cap on its idle clock; implementing) | parent:
+  ghost-consequence-sends-deferred-until-post-fault-client-response
+- Records sent by a segment at a restarted node that acted on a fault-
+  crossing entry (one hop through local records) are skipped at the
+  draw from their send until an acted post-fault-caused same-role entry
+  at their destination, any post-fault response, 64 idle steps, or 192
+  steps. Frozen prediction: depth>=11 against STOCK as the sibling's,
+  the flagged-at-invocation share at or above 0.6 to apply the band;
+  depth>=8 in [0.97, 1.03], depth>=9 at or above 0.95; idle plus
+  absolute cap releases at or below 0.50 of held records.
+
+## causal-window-fanout-first-inverse
+
+- kind: arm | category: scheduler | origin: proposer | status: REJECTED at
+  iteration 63 for this session (judge gain 2; halves the live
+  directions' power and separates nothing on paxos-accept-stale-ballot;
+  re-proposable after the axis reads) | parent: causal-window-client-first-defer

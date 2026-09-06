@@ -5959,3 +5959,57 @@ recovering-receiver family's mirror), the positive causal preference
 (the rush's own channel), and the second-hop read key (fires a label
 early in one of the two orders). Judged next, with the premise dispute
 the first thing to settle.
+
+**Judged, and the chain re-derived.** The dispute goes to the proposer:
+VR.spur's enter_view_change adds the node's own id to its
+StartViewChange senders, so the first foreign StartViewChange completes
+the quorum and the DoViewChange goes out in the same segment (the found
+run shows it at steps 407 and 471), the new primary sends its
+DoViewChange to itself as a local record at label 8, and the StartView
+goes out from whichever DoViewChange entry completes the quorum - the
+label-9 ghost on the common order, the self-record on the other - in
+flight before the post-fault write. The write's three-hop round trip
+for label 11 then races up to six one-hop records that left at labels
+2, 5, 8 and 9 (two dead-incarnation StartViewChanges and the live
+StartViewChange and StartView to node 0; the live StartViewChange and
+StartView to node 2) plus node 2's own timer, which is why the funnel
+is 0.18 on every request direction and the rush, acting only on the
+write's records, reads 7 of 39. The found run is the other order at
+label 9 and took the recovery-path PrepareOK route at label 11 with the
+lost write invoked before the first crash, so it is not the DAG's write
+placement and no post-fault window would have opened for it. Of the
+facts written at 62, the own-vote count, the label-8 sends and the
+StartView's timing fall; the no-retransmission drop, the one-hop
+competitors, the free bits and the axis arithmetic stand; the power
+figure is revised down to 32.5 against 65 depth-11 events at the null
+over four chunks at a quarter, so a 2x separates, 1.75x is the edge
+and 1.5x is a lean even at eight. Verdict: the causal-window axis
+rides with both defer directions as the two treated quarters of one
+binary and stock at a half. CLIENT_FIRST (gain 6, cost 0) masks at the
+network draw, for the life of one post-fault client operation (opened
+at its invocation, closed at its completion or 64 steps, never
+re-opened), every same-role remote record with no post-fault cause
+except replies to the destination's current incarnation and restart
+sends, so the round trip is the only dispatchable same-role traffic at
+nodes 0 and 2 and the StartView is masked to the response; its band is
+conditional on the first direct measurement of what is in flight at
+the write's invocation on depth-10 runs (a competitors-at-open share at
+or above 0.5 applies the band, 0.3 to 0.5 files a lean, below 0.3 is
+void), the merge claim is 1.75 at depth 11 against stock, the guard
+depth 8 in [0.96, 1.03]. CONSEQUENCE (gain 4) holds from their send the
+records a restarted node's segment sent after acting on a fault-
+crossing entry, one hop through local records, until an acted post-
+fault-caused entry at their destination, a response, 64 idle steps, or
+an absolute 192 steps - the cap the judge added because the paused
+clock is otherwise unbounded when the client work it waits for cannot
+complete without the records it holds. FANOUT_FIRST is not built.
+Three implementation traps named: the tree has no liveness lift (a
+fully masked network today falls through the roll or burns the step),
+the restart segment is executed at the recover site outside the record
+branch, and the window and response hooks belong at the operation's
+completion in path.rs, not beside the history push. The judge's answer
+to the standing question: this is the hold's kind of rule, a timed
+exclusion on a record class keyed to the fault on the dimension the
+DAG constrains, not the sender-preference kind that lost both ways;
+whether it pays is exactly what the in-flight share decides, and that
+number has never been measured. Implementing.
