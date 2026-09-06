@@ -6354,3 +6354,19 @@ or above 0.82, A fresh-first at or above 0.78), the panel read per
 member binding since every member's cells change. No proposer or judge
 round: the candidate was judged blind at 61 and its prediction froze
 there. Implementing.
+
+**Built; graded.** Every learner is credited with its own reward on
+every non-probe run, the drawer's run counted as its steered run and
+the calibration tables still read on coin-drawn runs only; 413 unit
+tests and every integration suite green, no draw consumed. The 60 s
+smoke: 152,460 cross credits on 76,230 learner runs, 95,017 observations
+per learner (about 1,730 per cell against 715 on the pooled tree's
+smoke), coin share by arm grid 0.320, grid-short 0.228, no-purgatory
+0.169, post-fault-2 0.157, aos 0.074, campaign 0.198 against the tree's
+60 s smoke at 0.378, 0.239, 0.191, 0.183, 0.038; the learners' decided-
+axis shares B retarget 0.849, C hold 0.859 (placed with phase), A
+fresh-first 0.826 - the judge's floors are chunk-scale letters and are
+read there. Session cross-credit started cross-binary; four chunks; the
+read is depth>=8 per graded run against the paired baseline, band
+[1.02, 1.08], with the coin share by arm and the learners' shares as the
+observables and the panel binding per member.
