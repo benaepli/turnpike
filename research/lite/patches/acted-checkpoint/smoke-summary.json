@@ -1,0 +1,29 @@
+{
+  "replay": {
+    "acted_overtaken_checkpoint_children": 1846,
+    "checkpoint_clones": 2312,
+    "checkpoint_clone_worker_ns": 113047988,
+    "simulation_worker_ns": 431026563257,
+    "prefix_slots_unfilled": 4273,
+    "checkpoint_diagnostics_rows": 3712,
+    "checkpoint_diagnostics_dropped": 0,
+    "checkpoint_children_with_message": 1843,
+    "parents_admitted": 466,
+    "children": 3712,
+    "children_prefix": 1846,
+    "children_plan_only": 1866,
+    "slots_unfilled": 8779,
+    "prefix_faithful": 1846,
+    "tape_words_sum": 0,
+    "children_signal_fired": 64
+  },
+  "diagnostic_rows": 3712,
+  "distinct_served_parents": 464,
+  "distinct_prefix_parents": 463,
+  "prefix_fallback_fraction": 0.6983167184180422,
+  "continued_fraction": 0.9983748645720477,
+  "sibling_suffix_distinct_fraction": 0.985800109229929,
+  "clone_worker_fraction": 0.0002622761510236552,
+  "cap_valid": true,
+  "suffix_parent_families_with_multiple_children": 448
+}

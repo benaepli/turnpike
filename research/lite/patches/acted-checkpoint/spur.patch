@@ -1,0 +1,2297 @@
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index 597f3d5..4d6be5c 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -20,14 +20,17 @@ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::explorer::{
+     AosExplorer, CurriculumExplorer, CurriculumRnrExplorer, EXPLORER_CONFIG_KEYS, ExploreSummary,
+     ExplorerConfig, RunAttribution, SessionSummary, SingleRunConfig, StepCtx, StepReport, Strategy,
+-    check_top_level_keys, dispatch_feedback, run_single_simulation,
++    check_top_level_keys, dispatch_feedback, run_checkpoint_simulation, run_single_simulation_with_checkpoint,
+ };
+ use crate::simulator::feedback::{
+     CfgFeedback, CoverageConfig, Feedback, FeedbackMode, FullFeedback, NoFeedback, TimelineFeedback,
+ };
+ use crate::simulator::history::{HistoryWriter, LogBackend, create_writer};
+ use crate::simulator::replay_corpus::{self, Corpus, Seed};
+-use crate::simulator::rng::{LiveRng, RecordRng, ReplayRng, SCHEDULE_SALT, WORKLOAD_SALT, derive_seed};
++use crate::simulator::rng::{LiveRng, SCHEDULE_SALT, WORKLOAD_SALT, derive_seed};
++use crate::simulator::path::ForkPoint;
++use crate::simulator::hash_utils::NoHashing;
++use crate::simulator::{run_cap, timer_context};
+ use crate::simulator::run_variant;
+ use crate::simulator::util_stats;
+ use log::{error, info};
+@@ -369,14 +372,8 @@ impl<F: Feedback> Arm for StrategyArm<F> {
+     }
+ }
+ 
+-/// The exhaustive grid as an arm: configurations are visited in rounds and
+-/// the walk wraps when the grid is exhausted, so the arm never starves.
+-///
+-/// Every fresh run records its scheduling draws. A fresh run that fires the
+-/// fault-crossing signal enters the arm's replay corpus with its draws cut
+-/// at the signal, and a run whose id is a replay slot becomes a child of the
+-/// next parent in turn when the corpus holds one. Only fresh runs advance
+-/// the grid cursor, so children do not thin the grid's coverage.
++/// The grid walks fresh workloads and retains eligible execution checkpoints.
++/// Children take the same workload and arms; only prefix children resume state.
+ pub(crate) struct GridArm<F: Feedback> {
+     config: ExplorerConfig,
+     configs: Vec<SingleRunConfig>,
+@@ -430,6 +427,7 @@ impl<F: Feedback> GridArm<F> {
+                 prefix: replay_corpus::is_prefix(run_id),
+             },
+             None => {
++                util_stats::record_checkpoint_unfilled(replay_corpus::is_prefix(run_id));
+                 util_stats::record_replay_slot_unfilled();
+                 self.fresh()
+             }
+@@ -444,7 +442,7 @@ impl<F: Feedback> GridArm<F> {
+             GridRun::Fresh { config_index } => {
+                 let config_index = *config_index;
+                 let workload_seed = derive_seed(self.arm_seed, run_id, WORKLOAD_SALT);
+-                let result = run_single_simulation::<F, RecordRng>(
++                let result = run_single_simulation_with_checkpoint::<F, LiveRng>(
+                     ctx.program,
+                     ctx.writer,
+                     &self.global_state,
+@@ -457,19 +455,26 @@ impl<F: Feedback> GridArm<F> {
+                     &ctx.attribution
+                         .with_config(config_index)
+                         .with_variant_bits(bits),
++                    !run_cap::is_probe(run_id)
++                        && timer_context::run_mode(run_id) != timer_context::RunMode::Probe,
++                    None,
+                 );
+                 match result {
+                     Ok(r) => {
+-                        let tape = r.recording.unwrap_or_default();
+-                        util_stats::record_replay_tape_words(tape.len() as u64);
+-                        let admit = r.cut.and_then(|cut| {
+-                            cut.tape_pos.map(|pos| Seed {
+-                                tape: tape[..pos.min(tape.len())].into(),
++                        let admit = r.checkpoint.map(|checkpoint| {
++                            let cut_step = checkpoint
++                                .downcast_ref::<ForkPoint<NoHashing, F>>()
++                                .expect("the checkpoint belongs to this arm")
++                                .locals.steps();
++                            Seed {
++                                checkpoint,
+                                 workload_seed,
+                                 cfg: self.configs[config_index].clone(),
+                                 config_index,
+-                                cut_step: cut.step,
+-                            })
++                                cut_step,
++                                parent_run_id: run_id,
++                                arms: r.arms,
++                            }
+                         });
+                         GridOutcome {
+                             score: Some(r.score),
+@@ -490,36 +495,36 @@ impl<F: Feedback> GridArm<F> {
+                     .attribution
+                     .with_config(seed.config_index)
+                     .with_variant_bits(bits);
++                let checkpoint = seed.checkpoint.downcast_ref::<ForkPoint<NoHashing, F>>()
++                    .expect("the checkpoint belongs to this arm");
+                 let result = if *prefix {
+-                    run_single_simulation::<F, ReplayRng>(
+-                        ctx.program,
+-                        ctx.writer,
+-                        &self.global_state,
+-                        run_id,
+-                        &seed.cfg,
+-                        weights,
+-                        seed.workload_seed,
+-                        schedule_seed,
+-                        Some(seed.tape.clone()),
+-                        &attribution,
++                    run_checkpoint_simulation::<F>(
++                        ctx.program, ctx.writer, &self.global_state, run_id, checkpoint,
++                        &seed.cfg, weights, seed.workload_seed, schedule_seed, &attribution,
+                     )
+                 } else {
+-                    run_single_simulation::<F, LiveRng>(
+-                        ctx.program,
+-                        ctx.writer,
+-                        &self.global_state,
+-                        run_id,
+-                        &seed.cfg,
+-                        weights,
+-                        seed.workload_seed,
+-                        schedule_seed,
+-                        None,
+-                        &attribution,
++                    run_single_simulation_with_checkpoint::<F, LiveRng>(
++                        ctx.program, ctx.writer, &self.global_state, run_id,
++                        &seed.cfg, weights, seed.workload_seed, schedule_seed, None,
++                        &attribution, false, Some((seed.arms, checkpoint.locals.effective_cap())),
+                     )
+                 };
+                 match result {
+                     Ok(r) => {
+-                        let faithful = *prefix && r.cut.is_some_and(|c| c.step == seed.cut_step);
++                        let faithful = *prefix;
++                        if !prefix {
++                            util_stats::record_checkpoint_diagnostic(util_stats::CheckpointDiagnostic {
++                                run_id,
++                                parent_run_id: seed.parent_run_id,
++                                checkpoint_step: seed.cut_step,
++                                effective_cap: checkpoint.locals.effective_cap(),
++                                actual_arm_set: seed.arms.directions(),
++                                prefix: false,
++                                suffix_message_count: 0,
++                                suffix_digest: String::new(),
++                                clone_worker_ns: 0,
++                            });
++                        }
+                         util_stats::record_replay_child(*prefix, r.cut.is_some(), faithful);
+                         GridOutcome {
+                             score: Some(r.score),
+@@ -1013,6 +1018,7 @@ fn run_campaign_impl(
+     let block = &config.campaign;
+     let session_seed = config.envelope.session_seed;
+     let writer: Arc<dyn HistoryWriter> = Arc::from(create_writer(backend, output_path)?);
++    util_stats::start_checkpoint_diagnostics(output_path)?;
+     let run_counter = AtomicI64::new(0);
+ 
+     let mut arms: Vec<BuiltArm> = block
+@@ -1118,6 +1124,7 @@ fn run_campaign_impl(
+     let elapsed = session_start.elapsed();
+     let flush_start = Instant::now();
+     writer.shutdown();
++    util_stats::finish_checkpoint_diagnostics();
+     let writer_flush_ms = flush_start.elapsed().as_millis() as u64;
+ 
+     let mut vertex_coverage: Option<HashMap<usize, u64>> = None;
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f858656..775cd3c 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -783,6 +783,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     reservations: &[Reservation],
+     rng: &mut impl StreamRng,
+ ) -> Result<ScheduleResult<H>, RuntimeError> {
++    state.last_message_entry = None;
+     if state.all_queues_empty() {
+         util_stats::record_steer_reach(util_stats::SteerReach::NoScheduleAttempt);
+         return Ok(ScheduleResult::None);
+@@ -1267,6 +1268,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 Runnable::Record(r) => {
+                     let record_entry_pc = r.entry_pc;
+                     let record_origin = r.origin_node;
++                    let record_incarnation = r.origin_incarnation;
+                     let record_dest = r.node;
+                     // Bump the link's deliver counter so the next FIFO message
+                     // in this link becomes schedulable.
+@@ -1462,6 +1464,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         }
+                     }
+                     if message_entry {
++                        state.last_message_entry = Some((record_entry_pc, record_origin, record_dest, record_incarnation));
+                         util_stats::record_message_entry(record_dest.index, entry_step);
+                     }
+                     match result {
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index eb5de70..213b806 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -644,6 +644,7 @@ pub struct State<H: HashPolicy> {
+     /// already heard from the sender's current incarnation, and wrote the
+     /// destination's state. Observation only, excluded from `signature()`.
+     pub overtaken_ghost_acted: bool,
++    pub last_message_entry: Option<(Vertex, NodeId, NodeId, u32)>,
+     /// Whether some node in the run crashed while marked as having acted on
+     /// a fault-crossing delivery, recovered, and then took a message entry
+     /// from another restarted node's current incarnation. Observation only,
+@@ -828,6 +829,7 @@ impl<H: HashPolicy> State<H> {
+             client_anchor: client_anchor::RunState::default(),
+             replay_cut: None,
+             overtaken_ghost_acted: false,
++            last_message_entry: None,
+             absorber_cycle_fresh_peer: false,
+             absorber_cycle_closed_step: None,
+             mutual_absorber_cycle: false,
+diff --git a/spur-core/src/simulator/coverage.rs b/spur-core/src/simulator/coverage.rs
+index d9f1bc6..932dcaf 100644
+--- a/spur-core/src/simulator/coverage.rs
++++ b/spur-core/src/simulator/coverage.rs
+@@ -137,6 +137,27 @@ impl LocalCoverage {
+         *count == 1
+     }
+ 
++    /// The counts and accumulated novelty after the checkpoint are merged
++    /// without counting its prefix again.
++    pub fn since(&self, base: &LocalCoverage) -> LocalCoverage {
++        let mut out = LocalCoverage::new();
++        for (edge, count) in &self.edges {
++            let extra = count.saturating_sub(base.edges.get(edge).copied().unwrap_or(0));
++            if extra > 0 {
++                out.edges.insert(*edge, extra);
++            }
++        }
++        for (v, count) in &self.vertices {
++            let extra = count.saturating_sub(base.vertices.get(v).copied().unwrap_or(0));
++            if extra > 0 {
++                out.vertices.insert(*v, extra);
++            }
++        }
++        out.total = self.total.saturating_sub(base.total);
++        out.novelty_score = (self.novelty_score - base.novelty_score).max(0.0);
++        out
++    }
++
+     /// Returns the total number of unique edges visited.
+     pub fn unique_edges(&self) -> usize {
+         self.edges.len()
+@@ -360,4 +381,22 @@ mod tests {
+             common.plan_score()
+         );
+     }
++
++    #[test]
++    fn checkpoint_delta_excludes_prefix_counts_and_novelty() {
++        let mut prefix = LocalCoverage::new();
++        prefix.record_with_rarity(0, 1, 1.0);
++        let mut child = prefix.clone();
++        child.record_with_rarity(0, 1, 0.5);
++        child.record_with_rarity(1, 2, 0.25);
++        let delta = child.since(&prefix);
++        assert_eq!(delta.total, 2);
++        assert_eq!(delta.edges.get(&(0, 1)), Some(&1));
++        assert_eq!(delta.edges.get(&(1, 2)), Some(&1));
++        assert_eq!(delta.vertices.get(&1), Some(&1));
++        assert_eq!(delta.vertices.get(&2), Some(&1));
++        assert_eq!(delta.novelty_score(), 0.5_f64.powi(3) + 0.25_f64.powi(3));
++        assert_eq!(prefix.since(&prefix).total, 0);
++    }
++
+ }
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index a471961..0a6da3f 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -20,7 +20,7 @@ use crate::simulator::history::{
+ use crate::simulator::path::generator::{GeneratorConfig, generate_plan};
+ use crate::simulator::path::plan::ExecutionPlan;
+ pub use crate::simulator::path::RunOutcome;
+-use crate::simulator::path::{PathState, Topology, TopologyInfo, exec_plan};
++use crate::simulator::path::{ExecConfig, ForkPoint, PathState, Topology, TopologyInfo, exec_plan, exec_resume};
+ use crate::simulator::rng::{
+     LiveRng, RecRng, RecordRng, Recording, ReplayRng, RngSource, SCHEDULE_SALT, StreamRng,
+     StreamSet, WORKLOAD_SALT, derive_seed, mutate_tape,
+@@ -28,7 +28,7 @@ use crate::simulator::rng::{
+ use crate::simulator::arm_selector;
+ use crate::simulator::fault_timing;
+ use crate::simulator::run_cap;
+-use crate::simulator::run_variant::{self, ArmSet};
++use crate::simulator::run_variant::ArmSet;
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats;
+ use crossbeam::channel;
+@@ -903,6 +903,8 @@ pub struct RunResult {
+     pub tuples: HashSet<TimelineTuple>,
+     pub outcome: RunOutcome,
+     pub cut: Option<ReplayCut>,
++    pub checkpoint: Option<Arc<dyn std::any::Any + Send + Sync>>,
++    pub arms: ArmSet,
+ }
+ 
+ /// Which strategy issued a run, for the `runs` table. A single-strategy
+@@ -1021,6 +1023,26 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     schedule_seed: u64,
+     seed_tape: Option<Recording>,
+     attribution: &RunAttribution,
++) -> Result<RunResult, Box<dyn Error>> {
++    run_single_simulation_with_checkpoint::<F, S>(
++        program, writer, global_state, run_id, config, weights, workload_seed,
++        schedule_seed, seed_tape, attribution, false, None,
++    )
++}
++
++pub fn run_single_simulation_with_checkpoint<F: Feedback, S: RngSource>(
++    program: &Program,
++    writer: &Arc<dyn HistoryWriter>,
++    global_state: &GlobalState<F>,
++    run_id: i64,
++    config: &SingleRunConfig,
++    weights: &CoverageConfig,
++    workload_seed: u64,
++    schedule_seed: u64,
++    seed_tape: Option<Recording>,
++    attribution: &RunAttribution,
++    capture_checkpoint: bool,
++    inherited_arms: Option<(ArmSet, i32)>,
+ ) -> Result<RunResult, Box<dyn Error>> {
+     let started = std::time::Instant::now();
+     let snapshot = F::snapshot(&global_state.feedback);
+@@ -1107,7 +1129,11 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     // The arms are drawn before the plan runs and read nothing from the
+     // run's schedule stream.
+     let cell = arm_selector::cell(attribution.arm_index, attribution.config_index);
+-    let choice = arm_selector::choose(run_id, schedule_seed, attribution.arm_index, cell);
++    let choice = inherited_arms.map_or_else(
++        || arm_selector::choose(run_id, schedule_seed, attribution.arm_index, cell),
++        |(arms, _)| arm_selector::Choice { arms, learner: None },
++    );
++    let mut checkpoint = None;
+     let arms = choice.arms;
+     let outcome = exec_plan::<crate::simulator::hash_utils::NoHashing, F>(
+         &mut path_state,
+@@ -1126,11 +1152,11 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &config.purgatory,
+         config.partial_fanout_crash_bias,
+         &arms,
++        inherited_arms.map(|(_, cap)| cap),
++        capture_checkpoint.then_some(&mut checkpoint),
+         &mut rec,
+     )?;
+-    // A replay slot's prefix carries its parent's ghost signal, so the
+-    // signal is not read on it.
+-    let replay_slot = attribution.variant_bits & run_variant::REPLAY_SLOT != 0;
++    if inherited_arms.is_none() {
+     arm_selector::observe(
+         attribution.arm_index,
+         cell,
+@@ -1140,7 +1166,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+             overtaken_ghost: path_state.state.overtaken_ghost_acted,
+             absorber_cycle: path_state.state.absorber_cycle_fresh_peer,
+             mutual_absorber_cycle: path_state.state.mutual_absorber_cycle,
+-            ghost_signal: (!replay_slot).then_some(path_state.state.replay_cut.is_some()),
++            ghost_signal: Some(path_state.state.replay_cut.is_some()),
+             cycle_before_request: path_state.state.cycle_before_request(),
+             exchange_before_request: path_state.state.exchange_before_request,
+             first_post_fault_request_entry_step: path_state
+@@ -1148,6 +1174,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+                 .first_post_fault_request_entry_step,
+         },
+     );
++    }
+ 
+     if let RunOutcome::Deadlock { step, pending_ops } = &outcome {
+         warn!(
+@@ -1183,15 +1210,86 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         path_state.state.crash_hold_drawn,
+     ));
+ 
++    util_stats::record_checkpoint_worker(started.elapsed());
+     Ok(RunResult {
+         score: plan_score,
+         recording,
+         tuples,
+         outcome,
+         cut: path_state.state.replay_cut,
++        checkpoint: checkpoint.map(|p| Arc::new(p) as Arc<dyn std::any::Any + Send + Sync>),
++        arms,
+     })
+ }
+ 
++/// Resume a complete execution state with a fresh scheduling stream.
++pub fn run_checkpoint_simulation<F: Feedback>(
++    program: &Program,
++    writer: &Arc<dyn HistoryWriter>,
++    global_state: &GlobalState<F>,
++    run_id: i64,
++    fork: &ForkPoint<crate::simulator::hash_utils::NoHashing, F>,
++    config: &SingleRunConfig,
++    weights: &CoverageConfig,
++    workload_seed: u64,
++    schedule_seed: u64,
++    attribution: &RunAttribution,
++) -> Result<RunResult, Box<dyn Error>> {
++    let started = std::time::Instant::now();
++    let snapshot = &fork.snapshot;
++    let clone_started = std::time::Instant::now();
++    let mut path_state = fork.path_state.clone();
++    let mut locals = fork.locals.clone();
++    let clone_wall = clone_started.elapsed();
++    util_stats::record_checkpoint_clone(clone_wall);
++    locals.reset_suffix();
++    let arms = locals.arms();
++    let mut streams = StreamSet::new(schedule_seed, config.rng_stream_isolation);
++    let mut tape = LiveRng::new_tape(None);
++    let mut rec = RecRng::<LiveRng> { tape: &mut tape, inner: &mut streams };
++    let exec_config = ExecConfig {
++        topology: TopologyInfo { topology: Topology::Full, num_servers: config.num_servers },
++        policy: &config.schedule_policy,
++        strict_timers: false,
++        within_queue: &config.within_queue_selector,
++        terms: &config.steer_terms,
++        purgatory_config: &config.purgatory,
++        partial_fanout_crash_bias: config.partial_fanout_crash_bias,
++    };
++    let outcome = exec_resume(
++        &mut path_state, &mut locals, program, run_id, &exec_config,
++        global_state, snapshot, None, &mut rec,
++    )?;
++    let score = F::plan_score(&path_state.feedback, snapshot, weights);
++    let tuples = F::timeline_tuples(&path_state.feedback).cloned().unwrap_or_default();
++    F::merge_since(&global_state.feedback, &path_state.feedback, &fork.path_state.feedback);
++    writer.write(
++        run_id,
++        serialize_history(&path_state.history),
++        serialize_logs(std::mem::take(&mut path_state.logs.entries)),
++        serialize_traces(std::mem::take(&mut path_state.logs.traces)),
++    );
++    writer.write_run(run_row(
++        run_id, attribution, workload_seed, schedule_seed, &outcome,
++        config.max_iterations, started.elapsed(), path_state.state.timer_stats,
++        &arms, None, path_state.state.crash_hold_drawn,
++    ));
++    util_stats::record_checkpoint_diagnostic(util_stats::CheckpointDiagnostic {
++        run_id,
++        parent_run_id: fork.parent_run_id,
++        checkpoint_step: fork.locals.steps(),
++        effective_cap: locals.effective_cap(),
++        actual_arm_set: arms.directions(),
++        prefix: true,
++        suffix_message_count: locals.suffix_message_count(),
++        suffix_digest: format!("{:016x}", locals.suffix_digest()),
++        clone_worker_ns: clone_wall.as_nanos().min(u64::MAX as u128) as u64,
++    });
++    util_stats::record_checkpoint_worker(started.elapsed());
++    Ok(RunResult { score, recording: None, tuples, outcome,
++        cut: path_state.state.replay_cut, checkpoint: None, arms })
++}
++
+ /// Runs the standard exhaustive explorer.
+ pub fn run_explorer(
+     program: &Program,
+@@ -1465,6 +1563,8 @@ fn run_single_plan<F: Feedback>(
+         purgatory_config,
+         partial_fanout_crash_bias,
+         &arms,
++        None,
++        None,
+         &mut rng,
+     )?;
+ 
+diff --git a/spur-core/src/simulator/feedback.rs b/spur-core/src/simulator/feedback.rs
+index aff94c7..cad30a6 100644
+--- a/spur-core/src/simulator/feedback.rs
++++ b/spur-core/src/simulator/feedback.rs
+@@ -261,6 +261,16 @@ impl LocalTimeline {
+         *self.generations.entry(node).or_default() += 1;
+     }
+ 
++    /// The tuples this accumulator holds that `base` does not.
++    pub fn since(&self, base: &LocalTimeline) -> LocalTimeline {
++        LocalTimeline {
++            tuples: self.tuples.difference(&base.tuples).copied().collect(),
++            per_dest_seen: HashMap::new(),
++            granularity: self.granularity,
++            generations: HashMap::new(),
++        }
++    }
++
+     /// Number of this run's tuples not present in the global snapshot.
+     pub fn novel_count(&self, snap: &TimelineSnap) -> usize {
+         self.tuples
+@@ -388,12 +398,14 @@ fn timeline_plan_score(local: &LocalTimeline, snap: &TimelineSnap, w: &CoverageC
+ /// `NoFeedback` strategy collapses to nothing and every call site is uniform
+ /// (no `if enabled` branches anywhere in the hot path).
+ pub trait Feedback: 'static + Send + Sync + std::fmt::Debug {
+-    /// Per-run accumulator, threaded as `&mut`.
+-    type Local: Default + std::fmt::Debug + Send;
++    /// Per-run accumulator, threaded as `&mut`. Clone and Sync so a run
++    /// can be continued from a snapshot of another run's accumulator that a
++    /// shared corpus holds.
++    type Local: Default + Clone + std::fmt::Debug + Send + Sync;
+     /// Shared store living on `GlobalState`.
+     type Global: Default + std::fmt::Debug + Send + Sync;
+     /// Read-only global view, taken once per run.
+-    type Snapshot;
++    type Snapshot: Clone + Send + Sync;
+ 
+     /// Whether the first-entry delivery capture block runs. Const-folded out
+     /// for non-timeline strategies.
+@@ -402,6 +414,14 @@ pub trait Feedback: 'static + Send + Sync + std::fmt::Debug {
+     fn snapshot(global: &Self::Global) -> Self::Snapshot;
+     fn merge(global: &Self::Global, local: &Self::Local);
+ 
++    /// Merge only what `local` accumulated past `base`, the accumulator it
++    /// was cloned from, so a run continued from a snapshot does not count
++    /// the snapshot's share again.
++    fn merge_since(global: &Self::Global, local: &Self::Local, base: &Self::Local) {
++        let _ = base;
++        Self::merge(global, local);
++    }
++
+     /// Record a CFG transition `prev -> pc`.
+     #[inline]
+     fn record_transition(
+@@ -487,6 +507,9 @@ impl Feedback for CfgFeedback {
+     fn merge(global: &GlobalCoverage, local: &LocalCoverage) {
+         global.merge(local);
+     }
++    fn merge_since(global: &GlobalCoverage, local: &LocalCoverage, base: &LocalCoverage) {
++        global.merge(&local.since(base));
++    }
+ 
+     #[inline]
+     fn record_transition(local: &mut LocalCoverage, prev: Vertex, pc: Vertex, snap: &VertexMap) {
+@@ -537,6 +560,9 @@ impl<const STEER: bool> Feedback for TimelineFeedback<STEER> {
+     fn merge(global: &GlobalTimeline, local: &LocalTimeline) {
+         global.merge(local);
+     }
++    fn merge_since(global: &GlobalTimeline, local: &LocalTimeline, base: &LocalTimeline) {
++        global.merge(&local.since(base));
++    }
+ 
+     #[inline]
+     fn note_delivery(local: &mut LocalTimeline, dest: NodeId, handler: Vertex) {
+@@ -602,6 +628,10 @@ impl<const STEER: bool> Feedback for FullFeedback<STEER> {
+         global.0.merge(&local.0);
+         global.1.merge(&local.1);
+     }
++    fn merge_since(global: &Self::Global, local: &Self::Local, base: &Self::Local) {
++        global.0.merge(&local.0.since(&base.0));
++        global.1.merge(&local.1.since(&base.1));
++    }
+ 
+     #[inline]
+     fn record_transition(local: &mut Self::Local, prev: Vertex, pc: Vertex, snap: &Self::Snapshot) {
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index f051107..475b53b 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -1,22 +1,22 @@
+ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::{Program, Vertex};
++use crate::simulator::client_anchor::{self, HoldQueue, Released};
+ use crate::simulator::core::steer_terms::ResolvedTerms;
+ use crate::simulator::core::{
+-    Continuation, Env, LogEntry, Logger, NodeId, OpKind, Operation, PurgatoryConfig,
+-    QueuePolicyConfig, Record, Reservation, Runnable, RunnableCategory,
+-    RuntimeError, SchedulePolicy, ScheduleResult, State, TraceEntry, Value, WithinQueueSelector,
+-    make_local_env, schedule_runnable,
++    AnySelector, Continuation, Env, LogEntry, Logger, NodeId, OpKind, Operation, PurgatoryConfig,
++    QueuePolicyConfig, Record, Reservation, Runnable, RunnableCategory, RuntimeError,
++    SchedulePolicy, ScheduleResult, State, TraceEntry, Value, WithinQueueSelector, make_local_env,
++    schedule_runnable,
+ };
+-use crate::simulator::client_anchor::{self, HoldQueue, Released};
+ use crate::simulator::coverage::GlobalState;
++use crate::simulator::fault_timing;
+ use crate::simulator::feedback::Feedback;
+ use crate::simulator::hash_utils::HashPolicy;
++use crate::simulator::pair_order as pair_order_split;
+ use crate::simulator::path::plan::{
+     ClientOpSpec, DeliverSpec, EventAction, ExecutionPlan, PlanEngine, PlannedEvent,
+ };
+-use crate::simulator::fault_timing;
+-use crate::simulator::pair_order as pair_order_split;
+-use crate::simulator::rng::StreamRng;
++use crate::simulator::rng::{StreamRng, StreamSet};
+ use crate::simulator::run_cap;
+ use crate::simulator::run_variant::{ArmSet, CrashArm};
+ use crate::simulator::timer_context;
+@@ -41,7 +41,7 @@ pub struct TopologyInfo {
+ }
+ 
+ /// Newtype wrapper for log and trace entries that implements Logger.
+-#[derive(Debug, Default)]
++#[derive(Clone, Debug, Default)]
+ pub struct Logs {
+     pub entries: Vec<LogEntry>,
+     pub traces: Vec<TraceEntry>,
+@@ -57,7 +57,7 @@ impl Logger for Logs {
+ }
+ 
+ /// A pool that dynamically creates client nodes on demand and recycles them.
+-#[derive(Debug)]
++#[derive(Clone, Debug)]
+ pub struct ClientPool {
+     free_clients: Vec<NodeId>,
+     client_role: NameId,
+@@ -99,6 +99,18 @@ pub struct PathState<H: HashPolicy, F: Feedback> {
+     pub client_pool: ClientPool,
+ }
+ 
++impl<H: HashPolicy, F: Feedback> Clone for PathState<H, F> {
++    fn clone(&self) -> Self {
++        Self {
++            state: self.state.clone(),
++            feedback: self.feedback.clone(),
++            logs: self.logs.clone(),
++            history: self.history.clone(),
++            client_pool: self.client_pool.clone(),
++        }
++    }
++}
++
+ impl<H: HashPolicy, F: Feedback> PathState<H, F> {
+     pub fn new(
+         role_node_counts: &[(NameId, usize)],
+@@ -329,20 +341,30 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+ 
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum RunOutcome {
+-    Completed { steps: i32 },
+-    Deadlock { step: i32, pending_ops: usize },
++    Completed {
++        steps: i32,
++    },
++    Deadlock {
++        step: i32,
++        pending_ops: usize,
++    },
+     /// The step budget ran out with planned events still outstanding.
+-    IterationsExhausted { outstanding_events: usize },
++    IterationsExhausted {
++        outstanding_events: usize,
++    },
+     /// The run reached the learned step cap, short of the configured budget,
+     /// with planned events still outstanding.
+-    LearnedCapReached { cap: i32, outstanding_events: usize },
++    LearnedCapReached {
++        cap: i32,
++        outstanding_events: usize,
++    },
+ }
+ 
+ /// How a run spent its steps: how many released a runnable, how many offered
+ /// queued work the scheduler released none of, and how many had nothing queued
+ /// at all. `tail_without_release` is the run of steps up to the current one
+ /// that released nothing.
+-#[derive(Default)]
++#[derive(Clone, Default)]
+ struct StepCensus {
+     released: u64,
+     blocked: u64,
+@@ -405,6 +427,236 @@ fn record_termination<H: HashPolicy>(
+     });
+ }
+ 
++/// The configuration one plan execution runs under. A run continued from a
++/// fork point runs under the values of the run it forked from.
++pub struct ExecConfig<'a> {
++    pub topology: TopologyInfo,
++    pub policy: &'a SchedulePolicy,
++    pub strict_timers: bool,
++    pub within_queue: &'a WithinQueueSelector,
++    pub terms: &'a ResolvedTerms,
++    pub purgatory_config: &'a PurgatoryConfig,
++    pub partial_fanout_crash_bias: f64,
++}
++
++/// The bookkeeping of one plan execution that outlives a scheduling step,
++/// so a fork point can carry it and another run can continue from the step
++/// after the snapshot.
++#[derive(Clone)]
++pub struct ExecLocals {
++    arms: ArmSet,
++    suffix_tracking: bool,
++    suffix_message_count: u64,
++    suffix_digest: u64,
++    anchored: bool,
++    /// Client requests that became ready after the run's first crash and
++    /// are waiting out their hold, and the last step at which a window
++    /// opened.
++    held: HoldQueue<(NodeIndex, ClientOpSpec)>,
++    last_window_step: Option<i32>,
++    backup: i32,
++    is_probe: bool,
++    effective_cap: i32,
++    timer_ctx_mode: timer_context::RunMode,
++    selector: AnySelector,
++    op_id_counter: i32,
++    in_progress: HashMap<i32, NodeIndex>,
++    /// Plan engine NodeIndex of the queued crash, and of the queued recover,
++    /// per node index. The plan serializes a node's pairs, so each node has
++    /// at most one of each outstanding; a retargeted crash leaves its
++    /// recover keyed on the node the crash landed on, which `victim_remap`
++    /// records from the plan's victim until that recover is issued.
++    pending_crash: HashMap<usize, NodeIndex>,
++    pending_recover: HashMap<usize, NodeIndex>,
++    victim_remap: HashMap<usize, NodeId>,
++    /// Map from (node_index, label) to the plan engine NodeIndex for pending
++    /// AllowTimer events.
++    pending_allow_timer: HashMap<(usize, String), NodeIndex>,
++    pending_partition: Option<NodeIndex>,
++    pending_heal: Option<NodeIndex>,
++    /// Every deliver event of the plan, and which of them are ready
++    /// (unlocked) or completed. `ready_delivers` is a BTreeSet so the
++    /// `.iter().find(...)` match at the deliver site is deterministic across
++    /// runs (required for replay).
++    all_delivers: HashMap<NodeIndex, DeliverSpec>,
++    ready_delivers: BTreeSet<NodeIndex>,
++    completed_delivers: HashSet<NodeIndex>,
++    engine: PlanEngine,
++    /// Nodes observed crashing, and the subset that later recovered.
++    crashed_nodes: HashSet<usize>,
++    recovered_nodes: HashSet<usize>,
++    census: StepCensus,
++    /// Consecutive steps that added nothing to the history.
++    no_progress_count: i32,
++    server_role: NameId,
++    /// The next step to run.
++    step: i32,
++}
++
++impl ExecLocals {
++    /// The steps run so far, which is the prefix a fork child takes from its
++    /// parent.
++    pub fn steps(&self) -> i32 {
++        self.step
++    }
++
++    pub fn effective_cap(&self) -> i32 {
++        self.effective_cap
++    }
++
++    pub fn arms(&self) -> ArmSet {
++        self.arms
++    }
++
++    pub fn reset_suffix(&mut self) {
++        self.suffix_tracking = true;
++        self.suffix_message_count = 0;
++        self.suffix_digest = 0xcbf29ce484222325;
++    }
++
++    pub fn suffix_message_count(&self) -> u64 {
++        self.suffix_message_count
++    }
++
++    pub fn suffix_digest(&self) -> u64 {
++        self.suffix_digest
++    }
++
++    fn record_message_entry(&mut self, entry: Vertex, origin: NodeId, dest: NodeId, incarnation: u32) {
++        if !self.suffix_tracking {
++            return;
++        }
++        if self.suffix_message_count < 32 {
++            for word in [
++                entry as u64,
++                origin.role.0 as u64,
++                origin.index as u64,
++                dest.role.0 as u64,
++                dest.index as u64,
++                u64::from(incarnation),
++            ] {
++                for byte in word.to_le_bytes() {
++                    self.suffix_digest ^= u64::from(byte);
++                    self.suffix_digest = self.suffix_digest.wrapping_mul(0x100000001b3);
++                }
++            }
++        }
++        self.suffix_message_count += 1;
++    }
++}
++
++/// A child owns a clone of the complete prefix and resumes at the next step.
++pub struct ForkPoint<H: HashPolicy, F: Feedback> {
++    pub path_state: PathState<H, F>,
++    pub locals: ExecLocals,
++    pub snapshot: F::Snapshot,
++    /// The parent's generators at the fork, when its source exposes them; a
++    /// child drawing from a copy of these walks in the parent's steps.
++    pub streams: Option<StreamSet>,
++    /// The id of the run that took the fork point.
++    pub parent_run_id: i64,
++}
++
++impl<H: HashPolicy, F: Feedback> ForkPoint<H, F> {
++    fn take(
++        path_state: &PathState<H, F>,
++        locals: &ExecLocals,
++        snapshot: &F::Snapshot,
++        streams: Option<StreamSet>,
++        parent_run_id: i64,
++    ) -> Self {
++        let path_state = path_state.clone();
++        let mut locals = locals.clone();
++        locals.reset_suffix();
++        Self {
++            path_state,
++            locals,
++            snapshot: snapshot.clone(),
++            streams,
++            parent_run_id,
++        }
++    }
++}
++
++/// Build the bookkeeping of a plan execution and set the run's mechanism
++/// flags on the state. The run has taken no step yet.
++#[allow(clippy::too_many_arguments)]
++fn exec_start<H: HashPolicy, F: Feedback>(
++    path_state: &mut PathState<H, F>,
++    program: &Program,
++    plan: ExecutionPlan,
++    max_iterations: i32,
++    run_id: i64,
++    queue_policy: &QueuePolicyConfig,
++    arms: &ArmSet,
++) -> Result<ExecLocals, RuntimeError> {
++    path_state.state.retarget.enabled = arms.retarget;
++    path_state.state.fresh_first.enabled = arms.fresh_first;
++    path_state.state.pair_order.enabled = arms.pair_order;
++    path_state.state.client_anchor.arm = arms.request;
++    let anchored = path_state.state.client_anchor.holds();
++    path_state.state.pair_order.census =
++        util_stats::enabled() && pair_order_split::is_census_run(run_id);
++    let backup = max_iterations;
++    let is_probe = run_cap::is_probe(run_id);
++    let effective_cap = if is_probe {
++        backup
++    } else {
++        run_cap::effective_cap(backup)
++    };
++
++    // Collect all deliver events from the plan DAG before PlanEngine::new
++    // consumes it.
++    let all_delivers: HashMap<NodeIndex, DeliverSpec> = plan
++        .node_indices()
++        .filter_map(|idx| match &plan[idx].action {
++            EventAction::Deliver(spec) => Some((idx, spec.clone())),
++            _ => None,
++        })
++        .collect();
++
++    let server_role = program
++        .roles
++        .iter()
++        .find(|(_, name)| name == "Node")
++        .map(|(id, _)| *id)
++        .ok_or_else(|| RuntimeError::RoleNotFound("Node".to_string()))?;
++
++    Ok(ExecLocals {
++        arms: *arms,
++        suffix_tracking: false,
++        suffix_message_count: 0,
++        suffix_digest: 0xcbf29ce484222325,
++        anchored,
++        held: HoldQueue::default(),
++        last_window_step: None,
++        backup,
++        is_probe,
++        effective_cap,
++        timer_ctx_mode: timer_context::run_mode(run_id),
++        selector: queue_policy.to_selector(),
++        op_id_counter: 0,
++        in_progress: HashMap::new(),
++        pending_crash: HashMap::new(),
++        pending_recover: HashMap::new(),
++        victim_remap: HashMap::new(),
++        pending_allow_timer: HashMap::new(),
++        pending_partition: None,
++        pending_heal: None,
++        all_delivers,
++        ready_delivers: BTreeSet::new(),
++        completed_delivers: HashSet::new(),
++        engine: PlanEngine::new(plan),
++        crashed_nodes: HashSet::new(),
++        recovered_nodes: HashSet::new(),
++        census: StepCensus::default(),
++        no_progress_count: 0,
++        server_role,
++        step: 0,
++    })
++}
++
++#[allow(clippy::too_many_arguments)]
+ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     path_state: &mut PathState<H, F>,
+     program: Program,
+@@ -422,57 +674,82 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     purgatory_config: &PurgatoryConfig,
+     partial_fanout_crash_bias: f64,
+     arms: &ArmSet,
++    cap_override: Option<i32>,
++    fork: Option<&mut Option<ForkPoint<H, F>>>,
+     rng: &mut impl StreamRng,
+ ) -> Result<RunOutcome, RuntimeError> {
+-    util_stats::begin_run();
+-    path_state.state.retarget.enabled = arms.retarget;
+-    path_state.state.fresh_first.enabled = arms.fresh_first;
+-    path_state.state.pair_order.enabled = arms.pair_order;
+-    path_state.state.client_anchor.arm = arms.request;
+-    let pair_order = arms.pair_order;
+-    util_stats::record_client_anchor_arm_run(arms.request);
+-    let anchored = path_state.state.client_anchor.holds();
+-    // Client requests that became ready after the run's first crash and are
+-    // waiting out their hold, and the last step at which a window opened.
+-    let mut held: HoldQueue<(NodeIndex, ClientOpSpec)> = HoldQueue::default();
+-    let mut last_window_step: Option<i32> = None;
+-    let census = util_stats::enabled() && pair_order_split::is_census_run(run_id);
+-    path_state.state.pair_order.census = census;
+-    if census {
+-        util_stats::record_pair_order_census_run(pair_order);
++    let mut locals = exec_start(
++        path_state,
++        &program,
++        plan,
++        max_iterations,
++        run_id,
++        queue_policy,
++        arms,
++    )?;
++    if let Some(cap) = cap_override {
++        assert!(cap > 0);
++        locals.effective_cap = cap.min(locals.backup);
+     }
+-    let backup = max_iterations;
+-    let is_probe = run_cap::is_probe(run_id);
+-    let effective_cap = if is_probe {
+-        backup
+-    } else {
+-        run_cap::effective_cap(backup)
++    let config = ExecConfig {
++        topology,
++        policy,
++        strict_timers,
++        within_queue,
++        terms,
++        purgatory_config,
++        partial_fanout_crash_bias,
+     };
+-    let timer_ctx_mode = timer_context::run_mode(run_id);
+-    let mut selector = queue_policy.to_selector();
+-    let mut op_id_counter = 0i32;
+-    let mut in_progress: HashMap<i32, NodeIndex> = HashMap::new();
+-    // Plan engine NodeIndex of the queued crash, and of the queued recover,
+-    // per node index. The plan serializes a node's pairs, so each node has at
+-    // most one of each outstanding; a retargeted crash leaves its recover
+-    // keyed on the node the crash landed on, which `victim_remap` records
+-    // from the plan's victim until that recover is issued.
+-    let mut pending_crash: HashMap<usize, NodeIndex> = HashMap::new();
+-    let mut pending_recover: HashMap<usize, NodeIndex> = HashMap::new();
+-    let mut victim_remap: HashMap<usize, NodeId> = HashMap::new();
+-    // Map from (node_index, label) to the plan engine NodeIndex for pending AllowTimer events
+-    let mut pending_allow_timer: HashMap<(usize, String), NodeIndex> = HashMap::new();
+-    let mut pending_partition: Option<NodeIndex> = None;
+-    let mut pending_heal: Option<NodeIndex> = None;
++    exec_resume(
++        path_state,
++        &mut locals,
++        &program,
++        run_id,
++        &config,
++        global_state,
++        snapshot,
++        fork,
++        rng,
++    )
++}
++
++/// The checkpoint is taken after the full step, including client responses and
++/// plan completions. A continuation keeps the parent's cap and scheduling arms.
++#[allow(clippy::too_many_arguments)]
++pub fn exec_resume<H: HashPolicy, F: Feedback>(
++    path_state: &mut PathState<H, F>,
++    locals: &mut ExecLocals,
++    program: &Program,
++    run_id: i64,
++    config: &ExecConfig<'_>,
++    global_state: &GlobalState<F>,
++    snapshot: &F::Snapshot,
++    mut fork: Option<&mut Option<ForkPoint<H, F>>>,
++    rng: &mut impl StreamRng,
++) -> Result<RunOutcome, RuntimeError> {
++    util_stats::begin_run();
++    util_stats::record_client_anchor_arm_run(path_state.state.client_anchor.arm);
++    if path_state.state.pair_order.census {
++        util_stats::record_pair_order_census_run(path_state.state.pair_order.enabled);
++    }
++    let max_iterations = locals.backup;
++    let policy = config.policy;
++    let purgatory_config = config.purgatory_config;
++    let topology = &config.topology;
++    let server_role = locals.server_role;
++    let anchored = locals.anchored;
++    let is_probe = locals.is_probe;
++    let backup = locals.backup;
++    let effective_cap = locals.effective_cap;
++    let arms = locals.arms;
++    const STARVATION_WARN_THRESHOLD: i32 = 500;
+ 
+     // Build name-to-entry-pc map for resolving deliver specs.
+     // Resolution happens once upfront, not per scheduler call.
+     let name_to_entry: HashMap<&str, Vertex> = program
+         .func_name_to_id
+         .iter()
+-        .filter_map(|(name, name_id)| {
+-            program.rpc.get(name_id).map(|fi| (name.as_str(), fi.entry))
+-        })
++        .filter_map(|(name, name_id)| program.rpc.get(name_id).map(|fi| (name.as_str(), fi.entry)))
+         .collect();
+ 
+     // Reverse map for matching RecordExecuted results back to function names
+@@ -481,54 +758,20 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         .map(|(&name, &entry)| (entry, name))
+         .collect();
+ 
+-    // Collect all deliver events from the plan DAG before PlanEngine::new consumes it.
+-    let all_delivers: HashMap<NodeIndex, DeliverSpec> = plan
+-        .node_indices()
+-        .filter_map(|idx| match &plan[idx].action {
+-            EventAction::Deliver(spec) => Some((idx, spec.clone())),
+-            _ => None,
+-        })
+-        .collect();
+-
+-    // Track deliver states: ready (unlocked) vs completed. `ready_delivers` is a
+-    // BTreeSet so the `.iter().find(...)` match at the deliver site is
+-    // deterministic across runs (required for replay).
+-    let mut ready_delivers: BTreeSet<NodeIndex> = BTreeSet::new();
+-    let mut completed_delivers: HashSet<NodeIndex> = HashSet::new();
+-
+-    let mut engine = PlanEngine::new(plan);
+-
+-    // Nodes observed crashing, and the subset that later recovered.
+-    let mut crashed_nodes: HashSet<usize> = HashSet::new();
+-    let mut recovered_nodes: HashSet<usize> = HashSet::new();
+-
+-    let mut census = StepCensus::default();
+-
+-    // Starvation detection: track consecutive no-progress iterations
+-    let mut no_progress_count: i32 = 0;
+-    const STARVATION_WARN_THRESHOLD: i32 = 500;
+-
+-    // Look up role NameIds from the program
+-    let server_role = program
+-        .roles
+-        .iter()
+-        .find(|(_, name)| name == "Node")
+-        .map(|(id, _)| *id)
+-        .ok_or_else(|| RuntimeError::RoleNotFound("Node".to_string()))?;
+-
+-    for step in 0..effective_cap {
+-        if engine.is_complete() {
++    while locals.step < effective_cap {
++        let step = locals.step;
++        if locals.engine.is_complete() {
+             info!("Plan {} completed in {} steps", run_id, step);
+-            util_stats::record_client_anchor_run_end(anchored, true, held.pending());
++            util_stats::record_client_anchor_run_end(anchored, true, locals.held.pending());
+             record_termination(
+                 RunEnd::PlanComplete,
+                 run_id,
+                 &path_state.state,
+-                &engine,
++                &locals.engine,
+                 step,
+                 max_iterations,
+-                recovered_nodes.len(),
+-                &census,
++                locals.recovered_nodes.len(),
++                &locals.census,
+             );
+             if is_probe {
+                 run_cap::merge_probe(backup, run_cap::Outcome::Completed, step);
+@@ -544,7 +787,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         path_state.state.release_from_purgatory(step);
+ 
+         // Dispatch ready events
+-        let ready_events: Vec<(NodeIndex, PlannedEvent)> = engine
++        let ready_events: Vec<(NodeIndex, PlannedEvent)> = locals
++            .engine
+             .get_ready_events()
+             .into_iter()
+             .map(|(idx, e)| (idx, e.clone()))
+@@ -553,11 +797,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         // Requests whose wait ran past expiry. When nothing else in the run
+         // can move, the earliest held request is issued now instead, so a
+         // held request never leaves a run idle or reads as a deadlock.
+-        let mut due: Vec<Released<(NodeIndex, ClientOpSpec)>> = held.take_due(step);
++        let mut due: Vec<Released<(NodeIndex, ClientOpSpec)>> = locals.held.take_due(step);
+         if ready_events.is_empty()
+             && path_state.state.all_queues_empty()
+             && due.is_empty()
+-            && let Some(dry) = held.take_dry()
++            && let Some(dry) = locals.held.take_dry()
+         {
+             due.push(dry);
+         }
+@@ -565,22 +809,24 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         if ready_events.is_empty()
+             && path_state.state.all_queues_empty()
+             && due.is_empty()
+-            && !in_progress.is_empty()
++            && !locals.in_progress.is_empty()
+         {
+-            util_stats::record_client_anchor_run_end(anchored, false, held.pending());
++            util_stats::record_client_anchor_run_end(anchored, false, locals.held.pending());
+             warn!(
+                 "Plan {} deadlocked at step {}: {} client op(s) will never complete",
+-                run_id, step, in_progress.len()
++                run_id,
++                step,
++                locals.in_progress.len()
+             );
+             record_termination(
+                 RunEnd::Deadlock,
+                 run_id,
+                 &path_state.state,
+-                &engine,
++                &locals.engine,
+                 step,
+                 max_iterations,
+-                recovered_nodes.len(),
+-                &census,
++                locals.recovered_nodes.len(),
++                &locals.census,
+             );
+             if is_probe {
+                 run_cap::merge_probe(backup, run_cap::Outcome::Deadlocked, step);
+@@ -588,11 +834,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             }
+             return Ok(RunOutcome::Deadlock {
+                 step,
+-                pending_ops: in_progress.len(),
++                pending_ops: locals.in_progress.len(),
+             });
+         }
+ 
+-        let in_window = last_window_step == Some(step - 1);
++        let in_window = locals.last_window_step == Some(step - 1);
+         for released in due {
+             let (plan_node, op_spec) = released.item;
+             util_stats::record_client_anchor_release(
+@@ -602,7 +848,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             util_stats::record_client_anchor_post_fault_invocation(anchored, in_window);
+             invoke_client_request(
+                 path_state,
+-                &program,
++                program,
+                 snapshot,
+                 policy,
+                 purgatory_config,
+@@ -610,8 +856,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 plan_node,
+                 &op_spec,
+                 true,
+-                &mut in_progress,
+-                &mut op_id_counter,
++                &mut locals.in_progress,
++                &mut locals.op_id_counter,
+                 rng,
+             )?;
+         }
+@@ -623,12 +869,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     // is the population every direction of the axis acts on:
+                     // a holding run makes it wait, and the others issue it
+                     // now.
+-                    let post_fault = !crashed_nodes.is_empty();
++                    let post_fault = !locals.crashed_nodes.is_empty();
+                     if post_fault {
+                         util_stats::record_client_anchor_post_fault_request(anchored);
+                     }
+                     if post_fault && anchored {
+-                        held.hold((node_idx, op_spec.clone()), step);
++                        locals.held.hold((node_idx, op_spec.clone()), step);
+                         continue;
+                     }
+                     if post_fault {
+@@ -636,7 +882,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     }
+                     invoke_client_request(
+                         path_state,
+-                        &program,
++                        program,
+                         snapshot,
+                         policy,
+                         purgatory_config,
+@@ -644,14 +890,13 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         node_idx,
+                         op_spec,
+                         post_fault,
+-                        &mut in_progress,
+-                        &mut op_id_counter,
++                        &mut locals.in_progress,
++                        &mut locals.op_id_counter,
+                         rng,
+                     )?;
+                 }
+                 EventAction::CrashNode(node_id) => {
+-                    let nid =
+-                        validate_node(&path_state.state, *node_id as usize, server_role)?;
++                    let nid = validate_node(&path_state.state, *node_id as usize, server_role)?;
+                     path_state.state.push_runnable(Runnable::Crash {
+                         node_id: nid,
+                         priority: policy.sample(rng, RunnableCategory::Crash),
+@@ -663,74 +908,73 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         fault_timing::draw_hold(arms.placed(), backup, effective_cap, step, rng)
+                     {
+                         path_state.state.crash_hold_drawn = true;
+-                        if let Some(hold) =
+-                            path_state.state.crash_hold_until.get_mut(nid.index)
+-                        {
++                        if let Some(hold) = path_state.state.crash_hold_until.get_mut(nid.index) {
+                             *hold = target;
+                         }
+                         // On the phase arm the crash waits further, for a
+                         // drawn phase of the victim's own fan-out, once that
+                         // target step arrives.
+                         if arms.crash == CrashArm::PlacedPhase {
+-                            path_state.state.crash_phase.arm_node(
+-                                nid.index,
+-                                fault_timing::cap_reserve(effective_cap),
+-                            );
++                            path_state
++                                .state
++                                .crash_phase
++                                .arm_node(nid.index, fault_timing::cap_reserve(effective_cap));
+                         }
+                     }
+-                    pending_crash.insert(nid.index, node_idx);
++                    locals.pending_crash.insert(nid.index, node_idx);
+                 }
+                 EventAction::RecoverNode(node_id) => {
+-                    let nid =
+-                        validate_node(&path_state.state, *node_id as usize, server_role)?;
+-                    let target = victim_remap.remove(&nid.index).unwrap_or(nid);
++                    let nid = validate_node(&path_state.state, *node_id as usize, server_role)?;
++                    let target = locals.victim_remap.remove(&nid.index).unwrap_or(nid);
+                     path_state.state.push_runnable(Runnable::Recover {
+                         node_id: target,
+                         priority: policy.sample(rng, RunnableCategory::Recover),
+                     });
+-                    pending_recover.insert(target.index, node_idx);
++                    locals.pending_recover.insert(target.index, node_idx);
+                 }
+                 EventAction::AllowTimer(node_id, label) => {
+                     let key = (*node_id as usize, label.clone());
+                     path_state.state.allowed_timers.insert(key.clone());
+-                    pending_allow_timer.insert(key, node_idx);
++                    locals.pending_allow_timer.insert(key, node_idx);
+                 }
+                 EventAction::Partition(spec) => {
+-                    let partition_type = spec.to_partition_type(
+-                        server_role,
+-                        topology.num_servers,
+-                    );
++                    let partition_type = spec.to_partition_type(server_role, topology.num_servers);
+                     path_state.state.push_runnable(Runnable::Partition {
+                         partition_type,
+                         priority: policy.sample(rng, RunnableCategory::Partition),
+                     });
+-                    pending_partition = Some(node_idx);
++                    locals.pending_partition = Some(node_idx);
+                 }
+                 EventAction::Heal => {
+                     path_state.state.push_runnable(Runnable::Heal {
+                         priority: policy.sample(rng, RunnableCategory::Heal),
+                     });
+-                    pending_heal = Some(node_idx);
++                    locals.pending_heal = Some(node_idx);
+                 }
+                 EventAction::Deliver(_) => {
+                     // Deliver events are constraints, not actions.
+                     // When ready, lift the reservation so the scheduler can pick the match.
+-                    ready_delivers.insert(node_idx);
++                    locals.ready_delivers.insert(node_idx);
+                 }
+             }
+         }
+ 
+         // Build reservations from delivers that are NOT yet ready and NOT completed.
+         // These constrain the scheduler from picking their matching runnables early.
+-        let reservations: Vec<Reservation> = all_delivers
++        let reservations: Vec<Reservation> = locals
++            .all_delivers
+             .iter()
+-            .filter(|(idx, _)| !ready_delivers.contains(idx) && !completed_delivers.contains(idx))
++            .filter(|(idx, _)| {
++                !locals.ready_delivers.contains(idx) && !locals.completed_delivers.contains(idx)
++            })
+             .filter_map(|(_, spec)| {
+-                name_to_entry.get(spec.function.as_str()).map(|&entry_pc| Reservation {
+-                    entry_pc,
+-                    from: spec.from.map(|f| f as usize),
+-                    to: spec.to.map(|t| t as usize),
+-                })
++                name_to_entry
++                    .get(spec.function.as_str())
++                    .map(|&entry_pc| Reservation {
++                        entry_pc,
++                        from: spec.from.map(|f| f as usize),
++                        to: spec.to.map(|t| t as usize),
++                    })
+             })
+             .collect();
+ 
+@@ -738,7 +982,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+ 
+         if arms.retarget {
+             let mut mask = 0u64;
+-            for &n in pending_crash.keys().chain(pending_recover.keys()) {
++            for &n in locals
++                .pending_crash
++                .keys()
++                .chain(locals.pending_recover.keys())
++            {
+                 if n < u64::BITS as usize {
+                     mask |= 1u64 << n;
+                 }
+@@ -747,33 +995,36 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         }
+ 
+         if path_state.state.all_queues_empty() {
+-            census.idle();
++            locals.census.idle();
+             util_stats::record_steer_reach(util_stats::SteerReach::NoScheduleAttempt);
+         } else {
+             let result = schedule_runnable::<H, _, _, F>(
+                 &mut path_state.state,
+                 &mut path_state.logs,
+-                &program,
++                program,
+                 snapshot,
+                 &mut path_state.feedback,
+-                &topology,
++                topology,
+                 global_state,
+                 policy,
+-                strict_timers,
+-                &mut selector,
+-                within_queue,
+-                terms,
++                config.strict_timers,
++                &mut locals.selector,
++                config.within_queue,
++                config.terms,
+                 purgatory_config,
+-                partial_fanout_crash_bias,
+-                timer_ctx_mode,
++                config.partial_fanout_crash_bias,
++                locals.timer_ctx_mode,
+                 &reservations,
+                 rng,
+             )?;
+ 
++            if let Some((entry, origin, dest, incarnation)) = path_state.state.last_message_entry {
++                locals.record_message_entry(entry, origin, dest, incarnation);
++            }
+             if matches!(result, ScheduleResult::None) {
+-                census.blocked();
++                locals.census.blocked();
+             } else {
+-                census.released();
++                locals.census.released();
+             }
+ 
+             match result {
+@@ -801,12 +1052,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: -1,
+                         step: path_state.state.crash_info.current_step,
+                     });
+-                    crashed_nodes.insert(node_id.index);
+-                    if let Some(plan_node) = pending_crash.remove(&planned.index) {
+-                        engine.mark_event_completed(plan_node);
++                    locals.crashed_nodes.insert(node_id.index);
++                    if let Some(plan_node) = locals.pending_crash.remove(&planned.index) {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                     if node_id != planned {
+-                        victim_remap.insert(planned.index, node_id);
++                        locals.victim_remap.insert(planned.index, node_id);
+                     }
+                 }
+                 ScheduleResult::Recover { node_id } => {
+@@ -818,11 +1069,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: -1,
+                         step: path_state.state.crash_info.current_step,
+                     });
+-                    if crashed_nodes.contains(&node_id.index) {
+-                        recovered_nodes.insert(node_id.index);
++                    if locals.crashed_nodes.contains(&node_id.index) {
++                        locals.recovered_nodes.insert(node_id.index);
+                     }
+-                    if let Some(plan_node) = pending_recover.remove(&node_id.index) {
+-                        engine.mark_event_completed(plan_node);
++                    if let Some(plan_node) = locals.pending_recover.remove(&node_id.index) {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                 }
+                 ScheduleResult::TimerFired { node_id, label } => {
+@@ -846,8 +1097,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         step: path_state.state.crash_info.current_step,
+                     });
+                     let key = (node_id.index, label);
+-                    if let Some(plan_node) = pending_allow_timer.remove(&key) {
+-                        engine.mark_event_completed(plan_node);
++                    if let Some(plan_node) = locals.pending_allow_timer.remove(&key) {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                 }
+                 ScheduleResult::Partition { partition_type: _ } => {
+@@ -859,8 +1110,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: -1,
+                         step: path_state.state.crash_info.current_step,
+                     });
+-                    if let Some(plan_node) = pending_partition.take() {
+-                        engine.mark_event_completed(plan_node);
++                    if let Some(plan_node) = locals.pending_partition.take() {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                 }
+                 ScheduleResult::Heal => {
+@@ -872,8 +1123,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: -1,
+                         step: path_state.state.crash_info.current_step,
+                     });
+-                    if let Some(plan_node) = pending_heal.take() {
+-                        engine.mark_event_completed(plan_node);
++                    if let Some(plan_node) = locals.pending_heal.take() {
++                        locals.engine.mark_event_completed(plan_node);
+                     }
+                 }
+                 ScheduleResult::RecordExecuted {
+@@ -883,17 +1134,14 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 } => {
+                     // Check if this record delivery matches any ready deliver event.
+                     if let Some(&func_name) = entry_to_name.get(&entry_pc) {
+-                        let matched = ready_delivers
++                        let matched = locals
++                            .ready_delivers
+                             .iter()
+                             .find(|idx| {
+-                                if let Some(spec) = all_delivers.get(idx) {
++                                if let Some(spec) = locals.all_delivers.get(idx) {
+                                     spec.function == func_name
+-                                        && spec
+-                                            .to
+-                                            .is_none_or(|t| dest_node.index == t as usize)
+-                                        && spec
+-                                            .from
+-                                            .is_none_or(|f| origin_node.index == f as usize)
++                                        && spec.to.is_none_or(|t| dest_node.index == t as usize)
++                                        && spec.from.is_none_or(|f| origin_node.index == f as usize)
+                                 } else {
+                                     false
+                                 }
+@@ -901,9 +1149,9 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                             .copied();
+ 
+                         if let Some(idx) = matched {
+-                            ready_delivers.remove(&idx);
+-                            completed_delivers.insert(idx);
+-                            engine.mark_event_completed(idx);
++                            locals.ready_delivers.remove(&idx);
++                            locals.completed_delivers.insert(idx);
++                            locals.engine.mark_event_completed(idx);
+                         }
+                     }
+                 }
+@@ -920,9 +1168,9 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             step,
+         ) {
+             util_stats::record_client_anchor_window(anchored);
+-            last_window_step = Some(step);
++            locals.last_window_step = Some(step);
+             if anchored {
+-                let firing = held.fire();
++                let firing = locals.held.fire();
+                 if firing.first {
+                     util_stats::record_client_anchor_first_window(firing.held);
+                 }
+@@ -934,58 +1182,77 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             .iter()
+             .filter(|op| matches!(op.kind, OpKind::Response))
+             .filter_map(|op| {
+-                in_progress.get(&op.unique_id).map(|&node_idx| {
+-                    engine.mark_event_completed(node_idx);
++                locals.in_progress.get(&op.unique_id).map(|&node_idx| {
++                    locals.engine.mark_event_completed(node_idx);
+                     op.unique_id
+                 })
+             })
+             .collect();
+ 
+         for id in completed {
+-            in_progress.remove(&id);
++            locals.in_progress.remove(&id);
+         }
+ 
+         // Starvation detection: if nothing happened this iteration, increment counter.
+         // Helps catch typos in deliver function names.
+         if path_state.history.len() == history_start_len {
+-            no_progress_count += 1;
+-            if no_progress_count == STARVATION_WARN_THRESHOLD {
+-                let pending_deliver_names: Vec<&str> = ready_delivers
++            locals.no_progress_count += 1;
++            if locals.no_progress_count == STARVATION_WARN_THRESHOLD {
++                let pending_deliver_names: Vec<&str> = locals
++                    .ready_delivers
+                     .iter()
+-                    .filter_map(|idx| all_delivers.get(idx).map(|s| s.function.as_str()))
++                    .filter_map(|idx| locals.all_delivers.get(idx).map(|s| s.function.as_str()))
+                     .collect();
+-                let blocked_deliver_names: Vec<&str> = all_delivers
++                let blocked_deliver_names: Vec<&str> = locals
++                    .all_delivers
+                     .iter()
+                     .filter(|(idx, _)| {
+-                        !ready_delivers.contains(idx) && !completed_delivers.contains(idx)
++                        !locals.ready_delivers.contains(idx)
++                            && !locals.completed_delivers.contains(idx)
+                     })
+                     .map(|(_, s)| s.function.as_str())
+                     .collect();
+                 warn!(
+                     "Plan {} stalled for {} iterations. Ready delivers waiting: {:?}. Blocked delivers: {:?}",
+-                    run_id, no_progress_count, pending_deliver_names, blocked_deliver_names
++                    run_id, locals.no_progress_count, pending_deliver_names, blocked_deliver_names
+                 );
+             }
+         } else {
+-            no_progress_count = 0;
++            locals.no_progress_count = 0;
++        }
++
++        locals.step = step + 1;
++
++        if path_state.state.overtaken_ghost_acted
++            && !locals.is_probe
++            && locals.timer_ctx_mode != timer_context::RunMode::Probe
++            && locals.step < effective_cap
++            && !locals.engine.is_complete()
++            && let Some(slot) = fork.as_deref_mut()
++            && slot.is_none()
++        {
++            let started = std::time::Instant::now();
++            let point = ForkPoint::take(path_state, locals, snapshot, rng.fork_streams(), run_id);
++            util_stats::record_checkpoint_clone(started.elapsed());
++            *slot = Some(point);
+         }
+     }
+ 
+-    util_stats::record_client_anchor_run_end(anchored, false, held.pending());
++    util_stats::record_client_anchor_run_end(anchored, false, locals.held.pending());
+     if effective_cap < backup {
+         record_termination(
+             RunEnd::LearnedCapReached,
+             run_id,
+             &path_state.state,
+-            &engine,
++            &locals.engine,
+             effective_cap,
+             backup,
+-            recovered_nodes.len(),
+-            &census,
++            locals.recovered_nodes.len(),
++            &locals.census,
+         );
+         return Ok(RunOutcome::LearnedCapReached {
+             cap: effective_cap,
+-            outstanding_events: engine.outstanding_count(),
++            outstanding_events: locals.engine.outstanding_count(),
+         });
+     }
+     warn!(
+@@ -996,18 +1263,18 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         RunEnd::IterationsExhausted,
+         run_id,
+         &path_state.state,
+-        &engine,
++        &locals.engine,
+         max_iterations,
+         max_iterations,
+-        recovered_nodes.len(),
+-        &census,
++        locals.recovered_nodes.len(),
++        &locals.census,
+     );
+     if is_probe {
+         run_cap::merge_probe(backup, run_cap::Outcome::Exhausted, backup);
+         fault_timing::merge_stock_probe(run_id, backup, run_cap::Outcome::Exhausted, backup);
+     }
+     Ok(RunOutcome::IterationsExhausted {
+-        outstanding_events: engine.outstanding_count(),
++        outstanding_events: locals.engine.outstanding_count(),
+     })
+ }
+ 
+@@ -1063,9 +1330,18 @@ mod tests {
+ 
+         path_state.state.crash_info.current_step = 5;
+         assert!(held.take_due(5).is_empty());
+-        assert_eq!(held.fire(), client_anchor::Firing { first: true, held: 1 });
++        assert_eq!(
++            held.fire(),
++            client_anchor::Firing {
++                first: true,
++                held: 1
++            }
++        );
+         assert!(held.take_due(6).is_empty(), "a window sets nothing aside");
+-        assert!(path_state.history.is_empty(), "the window itself writes no row");
++        assert!(
++            path_state.history.is_empty(),
++            "the window itself writes no row"
++        );
+ 
+         let issue_step = 3 + client_anchor::EXPIRY_STEPS + 1;
+         assert!(held.take_due(issue_step - 1).is_empty());
+@@ -1094,7 +1370,10 @@ mod tests {
+         }
+         assert_eq!(path_state.history.len(), 1);
+         let row = &path_state.history[0];
+-        assert_eq!(row.step, issue_step, "the invocation row carries the issue step");
++        assert_eq!(
++            row.step, issue_step,
++            "the invocation row carries the issue step"
++        );
+         assert!(matches!(row.kind, OpKind::Invocation));
+         assert_eq!(row.op_action, "ClientInterface.Write");
+         assert_eq!(row.unique_id, 1);
+@@ -1107,3 +1386,283 @@ mod tests {
+         assert!(held.is_empty());
+     }
+ }
++
++#[cfg(test)]
++mod checkpoint_tests {
++    use super::*;
++    use crate::simulator::feedback::NoFeedback;
++    use crate::simulator::hash_utils::NoHashing;
++    use std::collections::HashSet;
++
++    const SPEC: &str = r#"
++role Node {
++    async fn Write(key: string, uid: int): int { return uid; }
++    async fn Read(key: string): int { return 0; }
++}
++ClientInterface {
++    async fn Write(dest: Node, key: string, uid: int): int {
++        return <-dest->Write(key, uid);
++    }
++    async fn Read(dest: Node, key: string): int { return <-dest->Read(key); }
++}
++"#;
++
++    type TestPath = PathState<NoHashing, NoFeedback>;
++
++    fn fixture() -> (Program, TestPath, ExecutionPlan) {
++        let program = crate::compiler::compile(SPEC, "checkpoint.spur")
++            .into_program()
++            .unwrap();
++        let role = |name| {
++            program
++                .roles
++                .iter()
++                .find(|(_, n)| n.as_str() == name)
++                .unwrap()
++                .0
++        };
++        let path = TestPath::new(
++            &[(role("Node"), 2)],
++            program.max_node_slots as usize,
++            role("ClientInterface"),
++        );
++        let mut plan = ExecutionPlan::new();
++        for i in 0..8 {
++            plan.add_node(PlannedEvent {
++                action: EventAction::ClientRequest(ClientOpSpec::Write(i % 2, "key".into())),
++            });
++        }
++        (program, path, plan)
++    }
++
++    fn config<'a>(
++        terms: &'a ResolvedTerms,
++        purgatory: &'a PurgatoryConfig,
++        within: &'a WithinQueueSelector,
++    ) -> ExecConfig<'a> {
++        ExecConfig {
++            topology: TopologyInfo {
++                topology: Topology::Full,
++                num_servers: 2,
++            },
++            policy: &SchedulePolicy::Fixed,
++            strict_timers: false,
++            within_queue: within,
++            terms,
++            purgatory_config: purgatory,
++            partial_fanout_crash_bias: 0.0,
++        }
++    }
++
++    fn run_id(probe: bool) -> i64 {
++        (0..1000)
++            .find(|&id| run_cap::is_probe(id) == probe
++                && (probe || timer_context::run_mode(id) != timer_context::RunMode::Probe))
++            .unwrap()
++    }
++
++    #[test]
++    fn checkpoint_keeps_pending_calls_and_reproduces_the_complete_continuation() {
++        let _session = crate::simulator::config_override::exclusive_session();
++        run_cap::reset();
++        let (program, mut parent, plan) = fixture();
++        parent.state.overtaken_ghost_acted = true;
++        let terms = ResolvedTerms::default();
++        let purgatory = PurgatoryConfig::default();
++        let within = WithinQueueSelector::default();
++        let config = config(&terms, &purgatory, &within);
++        let arms = ArmSet {
++            pair_order: true,
++            fresh_first: true,
++            ..ArmSet::default()
++        };
++        let mut locals = exec_start(
++            &mut parent,
++            &program,
++            plan,
++            300,
++            run_id(false),
++            &QueuePolicyConfig::Preemptive {
++                p_timer: 0.0,
++                preempt_interval: 3,
++            },
++            &arms,
++        )
++        .unwrap();
++        let global = GlobalState::<NoFeedback>::new();
++        let mut rng = StreamSet::new(1123, true);
++        let mut checkpoint = None;
++        let parent_outcome = exec_resume(
++            &mut parent,
++            &mut locals,
++            &program,
++            run_id(false),
++            &config,
++            &global,
++            &(),
++            Some(&mut checkpoint),
++            &mut rng,
++        )
++        .unwrap();
++        let checkpoint = checkpoint.expect("acted prefix with pending work is captured");
++        assert_eq!(checkpoint.locals.steps(), 1);
++        assert_eq!(checkpoint.path_state.state.crash_info.current_step, 0);
++        assert_eq!(checkpoint.locals.arms(), arms);
++        assert_eq!(checkpoint.locals.in_progress.len(), 8);
++        assert_eq!(checkpoint.path_state.history.len(), 8);
++        assert_eq!(checkpoint.locals.suffix_message_count(), 0);
++        assert!(
++            checkpoint
++                .path_state
++                .history
++                .iter()
++                .all(|op| matches!(op.kind, OpKind::Invocation) && op.step == 0)
++        );
++        let mut child = checkpoint.path_state.clone();
++        let mut child_locals = checkpoint.locals.clone();
++        let mut exact_rng = checkpoint.streams.as_ref().unwrap().clone();
++        let child_outcome = exec_resume(
++            &mut child,
++            &mut child_locals,
++            &program,
++            500,
++            &config,
++            &global,
++            &(),
++            None,
++            &mut exact_rng,
++        )
++        .unwrap();
++        assert_eq!(parent_outcome, child_outcome);
++        assert_eq!(
++            format!("{:?}", parent.history),
++            format!("{:?}", child.history)
++        );
++        assert_eq!(format!("{:?}", parent.logs), format!("{:?}", child.logs));
++        assert_eq!(child_locals.in_progress.len(), 0);
++        assert_eq!(child_locals.steps(), locals.steps());
++        assert_eq!(
++            child_locals.effective_cap(),
++            checkpoint.locals.effective_cap()
++        );
++        assert!(child_locals.suffix_message_count() > 0);
++        assert!(matches!(child_outcome, RunOutcome::Completed { .. }));
++
++        let mut digests = HashSet::new();
++        for seed in 0..8 {
++            let mut sibling = checkpoint.path_state.clone();
++            let mut sibling_locals = checkpoint.locals.clone();
++            exec_resume(
++                &mut sibling,
++                &mut sibling_locals,
++                &program,
++                600 + seed,
++                &config,
++                &global,
++                &(),
++                None,
++                &mut StreamSet::new(seed as u64, true),
++            )
++            .unwrap();
++            assert!(sibling_locals.suffix_message_count() > 0);
++            digests.insert(sibling_locals.suffix_digest());
++            assert_eq!(
++                format!("{:?}", &sibling.history[..8]),
++                format!("{:?}", checkpoint.path_state.history)
++            );
++        }
++        assert!(
++            digests.len() >= 6,
++            "independent suffix streams must diversify schedules"
++        );
++    }
++
++    #[test]
++    fn checkpoint_cannot_extend_its_cap_or_admit_a_probe_or_completed_plan() {
++        let _session = crate::simulator::config_override::exclusive_session();
++        run_cap::reset();
++        let terms = ResolvedTerms::default();
++        let purgatory = PurgatoryConfig::default();
++        let within = WithinQueueSelector::default();
++        let config = config(&terms, &purgatory, &within);
++        let global = GlobalState::<NoFeedback>::new();
++        for (probe, cap, complete, acted, timer_probe) in [
++            (false, 1, false, true, false),
++            (true, 300, false, true, false),
++            (false, 300, true, true, false),
++            (false, 300, false, false, false),
++            (false, 300, false, true, true),
++        ] {
++            let (program, mut path, mut plan) = fixture();
++            if complete {
++                plan.clear();
++            }
++            path.state.overtaken_ghost_acted = acted;
++            let mut locals = exec_start(
++                &mut path,
++                &program,
++                plan,
++                cap,
++                run_id(probe),
++                &QueuePolicyConfig::default(),
++                &ArmSet::default(),
++            )
++            .unwrap();
++            if timer_probe {
++                locals.timer_ctx_mode = timer_context::RunMode::Probe;
++            }
++            let mut checkpoint = None;
++            exec_resume(
++                &mut path,
++                &mut locals,
++                &program,
++                run_id(probe),
++                &config,
++                &global,
++                &(),
++                Some(&mut checkpoint),
++                &mut StreamSet::new(4, true),
++            )
++            .unwrap();
++            assert!(checkpoint.is_none());
++            assert!(locals.steps() <= cap);
++        }
++        run_cap::reset();
++        let (program, mut path, plan) = fixture();
++        path.state.overtaken_ghost_acted = true;
++        let mut checkpoint = None;
++        let parent_outcome = exec_plan(
++            &mut path, program.clone(), plan, 300, config.topology.clone(), &global,
++            &(), run_id(false), config.policy, false, &QueuePolicyConfig::default(),
++            &within, &terms, &purgatory, 0.0, &ArmSet::default(), Some(2),
++            Some(&mut checkpoint), &mut StreamSet::new(4, true),
++        ).unwrap();
++        assert!(matches!(parent_outcome, RunOutcome::LearnedCapReached { cap: 2, .. }));
++        let checkpoint = checkpoint.unwrap();
++        let mut child = checkpoint.path_state.clone();
++        let mut child_locals = checkpoint.locals.clone();
++        let outcome = exec_resume(
++            &mut child,
++            &mut child_locals,
++            &program,
++            500,
++            &config,
++            &global,
++            &(),
++            None,
++            &mut StreamSet::new(5, true),
++        )
++        .unwrap();
++        assert_eq!(child_locals.effective_cap(), 2);
++        assert_eq!(child_locals.steps(), 2);
++        assert!(matches!(outcome, RunOutcome::LearnedCapReached { cap: 2, .. }));
++        assert_eq!(
++            child
++                .history
++                .iter()
++                .filter(|op| matches!(op.kind, OpKind::Invocation))
++                .count(),
++            8
++        );
++    }
++}
+diff --git a/spur-core/src/simulator/replay_corpus.rs b/spur-core/src/simulator/replay_corpus.rs
+index 7f64781..b6875a7 100644
+--- a/spur-core/src/simulator/replay_corpus.rs
++++ b/spur-core/src/simulator/replay_corpus.rs
+@@ -1,24 +1,6 @@
+-//! A corpus of run prefixes that reached the fault-crossing signal, replayed
+-//! by later runs of the same arm so more of the arm's runs are spent past
+-//! the point where a crash is queued on a node that has taken a delivery
+-//! from a dead incarnation.
+-//!
+-//! A fresh run that fires the signal is admitted as a parent: its scheduling
+-//! draws up to the signal, its workload seed and its configuration. A later
+-//! run in a replay slot becomes a child of the next parent in turn. A prefix
+-//! child replays the parent's draws and then continues on its own seed; a
+-//! plan-only child takes the parent's workload and configuration but draws
+-//! its whole schedule fresh, which tells apart what the schedule prefix buys
+-//! from what the plan alone buys. Children are never admitted, so the corpus
+-//! does not feed on itself.
+-//!
+-//! Slots are a pure function of the run id, so the treated and untreated
+-//! halves are a contrast by id and not by outcome: a slot whose corpus is
+-//! empty runs fresh and stays on the treated half. Run-cap probes and
+-//! steer-off timer probes are never slots; their runs feed learners that
+-//! must not carry a replay imprint.
+-
+-use crate::simulator::rng::Recording;
++use crate::simulator::run_variant::ArmSet;
++use std::any::Any;
++use std::sync::Arc;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_phase;
+ use crate::simulator::timer_context;
+@@ -48,17 +30,16 @@ pub fn is_prefix(run_id: i64) -> bool {
+     is_slot(run_id) && run_phase::salted_phase(run_id, PREFIX_SALT, 2) == 1
+ }
+ 
+-/// What a child takes from its parent: the draws up to the signal, the
+-/// workload seed and configuration that make the plan, the parent's place in
+-/// the configuration grid, and the step the signal fired at, which is what a
+-/// faithful prefix child fires at too.
+-#[derive(Clone, Debug)]
++/// A checkpoint and the workload and arms shared by both child cells.
++#[derive(Clone)]
+ pub struct Seed<C> {
+-    pub tape: Recording,
++    pub checkpoint: Arc<dyn Any + Send + Sync>,
+     pub workload_seed: u64,
+     pub cfg: C,
+     pub config_index: usize,
+     pub cut_step: i32,
++    pub parent_run_id: i64,
++    pub arms: ArmSet,
+ }
+ 
+ struct Parent<C> {
+@@ -131,7 +112,9 @@ mod tests {
+ 
+     fn seed(tag: u64) -> Seed<u64> {
+         Seed {
+-            tape: vec![tag; 3].into(),
++            checkpoint: Arc::new(vec![tag; 3]),
++            parent_run_id: tag as i64,
++            arms: ArmSet::from_index(tag as usize % 72),
+             workload_seed: tag,
+             cfg: tag,
+             config_index: tag as usize,
+@@ -170,7 +153,9 @@ mod tests {
+         let mut c = Corpus::new();
+         c.admit(seed(7));
+         let s = c.next_child().expect("one parent");
+-        assert_eq!(&*s.tape, &[7, 7, 7]);
++        assert_eq!(s.checkpoint.downcast_ref::<Vec<u64>>().unwrap(), &[7, 7, 7]);
++        assert_eq!(s.parent_run_id, 7);
++        assert_eq!(s.arms, ArmSet::from_index(7));
+         assert_eq!(s.workload_seed, 7);
+         assert_eq!(s.cfg, 7);
+         assert_eq!(s.config_index, 7);
+diff --git a/spur-core/src/simulator/rng.rs b/spur-core/src/simulator/rng.rs
+index f068c09..c17c445 100644
+--- a/spur-core/src/simulator/rng.rs
++++ b/spur-core/src/simulator/rng.rs
+@@ -74,6 +74,7 @@ impl Stream {
+ /// ignored, which is the shared-stream draw order. With isolation on there is
+ /// one generator per `Stream`, each seeded from the run seed through a distinct
+ /// salt, and `use_stream` decides which one the next draw comes from.
++#[derive(Clone)]
+ pub struct StreamSet {
+     gens: Box<[SmallRng]>,
+     active: usize,
+@@ -138,6 +139,14 @@ pub trait StreamRng: RngCore {
+     fn position(&self) -> Option<usize> {
+         None
+     }
++
++    /// A copy of the generators behind this source at their current state,
++    /// so a run continued from a snapshot can draw exactly what this run
++    /// would have drawn next. `None` when the source has no such generators.
++    #[inline]
++    fn fork_streams(&self) -> Option<StreamSet> {
++        None
++    }
+ }
+ 
+ impl StreamRng for SmallRng {}
+@@ -147,6 +156,9 @@ impl StreamRng for StreamSet {
+     fn use_stream(&mut self, stream: Stream) {
+         self.select(stream);
+     }
++    fn fork_streams(&self) -> Option<StreamSet> {
++        Some(self.clone())
++    }
+ }
+ 
+ /// Compile-time RNG strategy. Default `into_recording` returns `None` so that
+@@ -187,6 +199,10 @@ impl<S: RngSource> StreamRng for RecRng<'_, S> {
+     fn position(&self) -> Option<usize> {
+         S::position(self.tape)
+     }
++    #[inline]
++    fn fork_streams(&self) -> Option<StreamSet> {
++        Some(self.inner.clone())
++    }
+ }
+ 
+ impl<S: RngSource> RngCore for RecRng<'_, S> {
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 4c8d485..7ea8358 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -69,7 +69,7 @@ pub const GHOST_ABSORBER_RETARGET: i32 = 1 << 19;
+ /// slots, so the arm joins this bit through the run's attribution rather
+ /// than `from_run_id`; the bit is still a pure function of the run id.
+ pub const REPLAY_SLOT: i32 = 1 << 20;
+-/// A replay slot whose child replays the parent's schedule prefix rather
++/// A replay slot whose child takes the parent's saved execution prefix rather
+ /// than only its plan. Joined by the arm like `REPLAY_SLOT`.
+ pub const REPLAY_PREFIX: i32 = 1 << 21;
+ /// At a network step whose draw fell on a record from a sender's dead
+@@ -78,7 +78,7 @@ pub const REPLAY_PREFIX: i32 = 1 << 21;
+ pub const FRESH_FIRST_PAIR: i32 = 1 << 24;
+ /// The run's arm set was drawn by the arm selector's first learner rather
+ /// than by the run id's coins. The mechanism bits then name the chosen
+-/// arms. Never set on a coin-drawn run or a probe.
++/// arms. Never set on a coin-drawn run, inherited arm set, or probe.
+ pub const ARM_SELECTOR_AXIS: i32 = 1 << 6;
+ /// As `ARM_SELECTOR_AXIS`, for the selector's second learner. A run carries
+ /// at most one of the three learner bits.
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..4e8f851 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -344,6 +344,94 @@ static RP_PREFIX_FAITHFUL: AtomicU64 = AtomicU64::new(0);
+ static RP_TAPE_WORDS_SUM: AtomicU64 = AtomicU64::new(0);
+ static RP_CHILDREN_SIGNAL_FIRED: AtomicU64 = AtomicU64::new(0);
+ 
++static RP_ACTED_OVERTAKEN_CHECKPOINT_CHILDREN: AtomicU64 = AtomicU64::new(0);
++static RP_CHECKPOINT_CLONES: AtomicU64 = AtomicU64::new(0);
++static RP_CHECKPOINT_CLONE_WORKER_NS: AtomicU64 = AtomicU64::new(0);
++static RP_SIMULATION_WORKER_NS: AtomicU64 = AtomicU64::new(0);
++static RP_PREFIX_SLOTS_UNFILLED: AtomicU64 = AtomicU64::new(0);
++static RP_CHECKPOINT_DIAGNOSTICS_ROWS: AtomicU64 = AtomicU64::new(0);
++static RP_CHECKPOINT_DIAGNOSTICS_DROPPED: AtomicU64 = AtomicU64::new(0);
++static RP_CHECKPOINT_CHILDREN_WITH_MESSAGE: AtomicU64 = AtomicU64::new(0);
++
++const CHECKPOINT_DIAGNOSTIC_LIMIT: u64 = 2_000_000;
++static CHECKPOINT_DIAGNOSTICS: std::sync::Mutex<Option<std::io::BufWriter<std::fs::File>>> =
++    std::sync::Mutex::new(None);
++
++#[derive(Serialize)]
++pub struct CheckpointDiagnostic {
++    pub run_id: i64,
++    pub parent_run_id: i64,
++    pub checkpoint_step: i32,
++    pub effective_cap: i32,
++    pub actual_arm_set: [usize; 5],
++    pub prefix: bool,
++    pub suffix_message_count: u64,
++    pub suffix_digest: String,
++    pub clone_worker_ns: u64,
++}
++
++pub fn start_checkpoint_diagnostics(output_path: &str) -> std::io::Result<()> {
++    if enabled() {
++        let path = std::path::Path::new(output_path).join("checkpoint-diagnostics.jsonl");
++        let file = std::fs::File::create(path)?;
++        *CHECKPOINT_DIAGNOSTICS.lock().unwrap_or_else(|p| p.into_inner()) =
++            Some(std::io::BufWriter::with_capacity(1024 * 1024, file));
++    }
++    Ok(())
++}
++
++pub fn finish_checkpoint_diagnostics() {
++    use std::io::Write;
++    if let Some(mut writer) = CHECKPOINT_DIAGNOSTICS.lock().unwrap_or_else(|p| p.into_inner()).take()
++        && writer.flush().is_err()
++    {
++        RP_CHECKPOINT_DIAGNOSTICS_DROPPED.fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++pub fn record_checkpoint_diagnostic(row: CheckpointDiagnostic) {
++    use std::io::Write;
++    if !enabled() { return; }
++    if row.prefix {
++        RP_ACTED_OVERTAKEN_CHECKPOINT_CHILDREN.fetch_add(1, Ordering::Relaxed);
++        if row.suffix_message_count > 0 {
++            RP_CHECKPOINT_CHILDREN_WITH_MESSAGE.fetch_add(1, Ordering::Relaxed);
++        }
++    }
++    let index = RP_CHECKPOINT_DIAGNOSTICS_ROWS.fetch_add(1, Ordering::Relaxed);
++    if index >= CHECKPOINT_DIAGNOSTIC_LIMIT {
++        RP_CHECKPOINT_DIAGNOSTICS_DROPPED.fetch_add(1, Ordering::Relaxed);
++        return;
++    }
++    let mut lock = CHECKPOINT_DIAGNOSTICS.lock().unwrap_or_else(|p| p.into_inner());
++    let result = lock.as_mut().map(|writer| {
++        serde_json::to_writer(&mut *writer, &row).map_err(std::io::Error::other)?;
++        writer.write_all(b"\n")
++    });
++    if !matches!(result, Some(Ok(()))) {
++        RP_CHECKPOINT_DIAGNOSTICS_DROPPED.fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++pub fn record_checkpoint_clone(wall: std::time::Duration) {
++    if enabled() {
++        RP_CHECKPOINT_CLONES.fetch_add(1, Ordering::Relaxed);
++        RP_CHECKPOINT_CLONE_WORKER_NS.fetch_add(wall.as_nanos().min(u64::MAX as u128) as u64, Ordering::Relaxed);
++    }
++}
++
++pub fn record_checkpoint_worker(wall: std::time::Duration) {
++    if enabled() {
++        RP_SIMULATION_WORKER_NS.fetch_add(wall.as_nanos().min(u64::MAX as u128) as u64, Ordering::Relaxed);
++    }
++}
++
++pub fn record_checkpoint_unfilled(prefix: bool) {
++    if enabled() && prefix {
++        RP_PREFIX_SLOTS_UNFILLED.fetch_add(1, Ordering::Relaxed);
++    }
++}
++
+ /// The crash census split by retarget half: index 0 is the control half,
+ /// index 1 the treated half.
+ const VS_HALVES: usize = 2;
+@@ -601,8 +689,26 @@ const TIMELINE_MAX_BUCKETS: usize = 512;
+ /// Enable or disable recording for this explorer session. Enabling resets all
+ /// counters so repeated sessions in one process don't bleed into each other.
+ pub fn set_enabled(on: bool) {
++    finish_checkpoint_diagnostics();
+     if on {
+         for c in [
++            &RP_PARENTS_ADMITTED,
++            &RP_CHILDREN,
++            &RP_CHILDREN_PREFIX,
++            &RP_CHILDREN_PLAN_ONLY,
++            &RP_SLOTS_UNFILLED,
++            &RP_PREFIX_FAITHFUL,
++            &RP_TAPE_WORDS_SUM,
++            &RP_CHILDREN_SIGNAL_FIRED,
++            &RP_ACTED_OVERTAKEN_CHECKPOINT_CHILDREN,
++            &RP_CHECKPOINT_CLONES,
++            &RP_CHECKPOINT_CLONE_WORKER_NS,
++            &RP_SIMULATION_WORKER_NS,
++            &RP_PREFIX_SLOTS_UNFILLED,
++            &RP_CHECKPOINT_DIAGNOSTICS_ROWS,
++            &RP_CHECKPOINT_DIAGNOSTICS_DROPPED,
++            &RP_CHECKPOINT_CHILDREN_WITH_MESSAGE,
++
+             &STEER_EVALUATIONS,
+             &STEER_DIVERGENT_PICKS,
+             &SA_STEPS,
+@@ -4915,16 +5021,20 @@ impl ArmSelectorAxisStats {
+     }
+ }
+ 
+-/// The replay corpus of the grid arms. `parents_admitted` counts fresh runs
+-/// whose prefix entered a corpus; `children` the slots that ran a child,
+-/// split into `children_prefix` and `children_plan_only`; `slots_unfilled`
+-/// the slots that found their corpus empty and ran fresh. The mechanism ran
+-/// as intended when `children_prefix` is positive and `prefix_faithful`, the
+-/// prefix children that reached the signal at their parent's step, is close
+-/// to it; `children_signal_fired` counts every child that reached the signal
+-/// at all. `tape_words_sum` is the recording cost every fresh grid run pays.
++/// Checkpoint supply, child execution and diagnostic completeness. A resumed
++/// checkpoint fires `acted_overtaken_checkpoint_children`; a child with another
++/// message entry also fires `checkpoint_children_with_message`.
+ #[derive(Serialize, Debug)]
+ pub struct ReplayStats {
++    pub acted_overtaken_checkpoint_children: u64,
++    pub checkpoint_clones: u64,
++    pub checkpoint_clone_worker_ns: u64,
++    pub simulation_worker_ns: u64,
++    pub prefix_slots_unfilled: u64,
++    pub checkpoint_diagnostics_rows: u64,
++    pub checkpoint_diagnostics_dropped: u64,
++    pub checkpoint_children_with_message: u64,
++
+     pub parents_admitted: u64,
+     pub children: u64,
+     pub children_prefix: u64,
+@@ -4938,6 +5048,15 @@ pub struct ReplayStats {
+ impl ReplayStats {
+     fn read() -> Self {
+         Self {
++            acted_overtaken_checkpoint_children: RP_ACTED_OVERTAKEN_CHECKPOINT_CHILDREN.load(Ordering::Relaxed),
++            checkpoint_clones: RP_CHECKPOINT_CLONES.load(Ordering::Relaxed),
++            checkpoint_clone_worker_ns: RP_CHECKPOINT_CLONE_WORKER_NS.load(Ordering::Relaxed),
++            simulation_worker_ns: RP_SIMULATION_WORKER_NS.load(Ordering::Relaxed),
++            prefix_slots_unfilled: RP_PREFIX_SLOTS_UNFILLED.load(Ordering::Relaxed),
++            checkpoint_diagnostics_rows: RP_CHECKPOINT_DIAGNOSTICS_ROWS.load(Ordering::Relaxed),
++            checkpoint_diagnostics_dropped: RP_CHECKPOINT_DIAGNOSTICS_DROPPED.load(Ordering::Relaxed),
++            checkpoint_children_with_message: RP_CHECKPOINT_CHILDREN_WITH_MESSAGE.load(Ordering::Relaxed),
++
+             parents_admitted: RP_PARENTS_ADMITTED.load(Ordering::Relaxed),
+             children: RP_CHILDREN.load(Ordering::Relaxed),
+             children_prefix: RP_CHILDREN_PREFIX.load(Ordering::Relaxed),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..4c1823b 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -779,6 +779,15 @@ fn ghost_signal_leaves(prefix: &str, g: &GhostSignalStats) -> Vec<(String, Value
+ 
+ fn replay(m: &mut Marks) -> ReplayStats {
+     ReplayStats {
++        acted_overtaken_checkpoint_children: m.int(),
++        checkpoint_clones: m.int(),
++        checkpoint_clone_worker_ns: m.int(),
++        simulation_worker_ns: m.int(),
++        prefix_slots_unfilled: m.int(),
++        checkpoint_diagnostics_rows: m.int(),
++        checkpoint_diagnostics_dropped: m.int(),
++        checkpoint_children_with_message: m.int(),
++
+         parents_admitted: m.int(),
+         children: m.int(),
+         children_prefix: m.int(),
+@@ -1133,6 +1142,15 @@ fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(Stri
+ 
+ fn replay_leaves(prefix: &str, r: &ReplayStats) -> Vec<(String, Value)> {
+     let ReplayStats {
++        acted_overtaken_checkpoint_children,
++        checkpoint_clones,
++        checkpoint_clone_worker_ns,
++        simulation_worker_ns,
++        prefix_slots_unfilled,
++        checkpoint_diagnostics_rows,
++        checkpoint_diagnostics_dropped,
++        checkpoint_children_with_message,
++
+         parents_admitted,
+         children,
+         children_prefix,
+@@ -1143,6 +1161,15 @@ fn replay_leaves(prefix: &str, r: &ReplayStats) -> Vec<(String, Value)> {
+         children_signal_fired,
+     } = r;
+     vec![
++        leaf(prefix, "acted_overtaken_checkpoint_children", *acted_overtaken_checkpoint_children),
++        leaf(prefix, "checkpoint_clones", *checkpoint_clones),
++        leaf(prefix, "checkpoint_clone_worker_ns", *checkpoint_clone_worker_ns),
++        leaf(prefix, "simulation_worker_ns", *simulation_worker_ns),
++        leaf(prefix, "prefix_slots_unfilled", *prefix_slots_unfilled),
++        leaf(prefix, "checkpoint_diagnostics_rows", *checkpoint_diagnostics_rows),
++        leaf(prefix, "checkpoint_diagnostics_dropped", *checkpoint_diagnostics_dropped),
++        leaf(prefix, "checkpoint_children_with_message", *checkpoint_children_with_message),
++
+         leaf(prefix, "parents_admitted", *parents_admitted),
+         leaf(prefix, "children", *children),
+         leaf(prefix, "children_prefix", *children_prefix),

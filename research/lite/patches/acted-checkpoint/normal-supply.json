@@ -1,0 +1,10 @@
+{
+  "parents_admitted": 11915,
+  "prefix_children": 47871,
+  "prefix_fallback_fraction": 0.5706944793198694,
+  "distinct_suffix_share": 0.9844164525495602,
+  "continued_share": 0.9989346368364981,
+  "diagnostic_drops": 0,
+  "clone_worker_fraction": 0.001077291589165699,
+  "all_caps_valid": true
+}

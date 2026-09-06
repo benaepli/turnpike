@@ -3586,7 +3586,7 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## replay-prefix-checkpoint-after-acted-overtaken-ghost
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED for iteration 66 | gain: 7 | cost: 2 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at iteration 66 (normal-chunk fallback 57.1% against <30%; throughput 0.941 and primary/sec 0.922; patch kept under research/lite/patches/acted-checkpoint) | gain: 7 | cost: 2 | rank: 1
 - Branch the replay corpus after an acted overtaken ghost, preserving the recovery ordering.
 - Frozen specification, prediction, observables, falsifiers and judge review: `research/lite/plans/iteration-66-admitted.json`, hypothesis `replay-prefix-checkpoint-after-acted-overtaken-ghost`.
 

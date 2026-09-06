@@ -6584,3 +6584,78 @@ utilization. The CLI writes that summary after its writer drains. After
 the official chunk, the unchanged traceanalyzer can re-read retained
 traces and join depths to the subject's checkpoint-diagnostics.jsonl.
 No evaluation code, oracle, chunk population or measurement changes.
+
+Implementation review: 12 spur-core files, 1,184 insertions and 297
+removals; super.patch empty and general_vr unchanged. The start/resume
+refactor carries pending calls, plan cursor, held operations, scheduler
+state, logs, histories and inherited cap. Both child cells use the parent's
+actual ArmSet and cap; resumed children retain its feedback snapshot and
+merge suffix feedback only. Fixed the suffix hash to include sender
+incarnation during review. Full test suite passes with RUST_MIN_STACK
+33554432 (457 tests); the existing held-request test also stack-overflows
+on the baseline at the default stack. Release builds in 21.25 seconds.
+
+Smoke, 20 seconds with two-second slices: 466 parents, 1,846 resumed and
+1,866 plan-only children, 4,273 prefix fallbacks (69.83%). Each parent
+served almost exactly eight children, so filling the ring is not the
+problem. Continued-message share 99.84%, sibling diversity 98.58%,
+diagnostic drops zero, clone worker fraction 0.0262%. No smoke depth read.
+
+Buy one normal chunk to resolve cold start, then enforce the frozen gates.
+The independent judge confirms smoke coin share 39.3% versus baseline
+11.1%, and A's own reward 2.32% versus 5.83%; those are younger cells,
+although replay composition also differs. The simple supply balance with
+half the slots assigned and eight children per parent requires about 6.7%
+of eligible fresh runs to qualify to fill 70% of slots. The smoke's grid
+rate is 2.19%; the mature baseline's 4.80% is still not enough by itself.
+No further chunk is justified if the normal horizon misses fallback<30%.
+
+Grader session acted-checkpoint declares existing replayPrefix bit
+2097152. The admitted band [1.50,3.00] is the raw prefix/plan contrast,
+whereas this existing-bit grader reports difference-in-differences. Its
+optional machine band is omitted to avoid applying the wrong band to
+that statistic; the frozen raw band, DID>=1.25 and other manual gates
+remain unchanged. This is a documented operator interpretation, not a
+prediction rewrite or a grader modification.
+
+**Close on the normal horizon.** Seed 1000: 570,180 runs in 300.216 seconds,
+no simulator failures and no Porcupine violations. 11,915 parents,
+47,871 resumed children, 47,382 plan children and 63,637 prefix fallbacks:
+57.1% fallback against the frozen <30%. Parent consumption is again
+almost exactly eight. Cold start explains part of the smoke but not the
+supply shortage at the measured horizon. Continued message share 99.89%,
+within-parent distinct suffix share 98.44%, no diagnostic drops, all caps
+valid, clone worker fraction 0.108%, sampled total peak RSS 1,079,332 KiB.
+
+The randomized slot comparison reads up: raw prefix/plan depth>=8 1.536,
+existing-bit difference-in-differences 1.444 [1.277,1.634], balance clean.
+But cross-binary primary per-second is 0.922 and throughput 0.941; both
+miss the frozen cost/discovery requirements. Grader finish advises close.
+No second chunk, panel or regression is justified for an inapplicable
+candidate. The min-two-chunk convention is overridden for the predeclared
+supply gate, not to select a favorable noisy depth result. Patch and compact
+artifacts are retained in research/lite/patches/acted-checkpoint.
+
+The grid depth>=11 count is 44 against baseline 18, and depth>=13 14
+against 4, but inherited prefixes and shared parents make those counts
+insufficient evidence of discovery. A read-only pass over the retained
+trace is joining complete parent depths to descendants; it cannot change
+this close decision. The baseline and epoch stay unchanged.
+
+## Direction review after iteration 66
+
+The exact checkpoint machinery preserves histories and produces different
+continuations; later structural conditioning is operationally possible.
+Its admission class is too thin for the fixed slot and child budgets, and
+replacing the ordinary replay workload/credit mixture costs more than the
+within-slot comparison buys. Do not optimize inherited depth or relabel
+this as a success because the deepest counts rose. New proposals should
+return to mechanisms with broad observations and measurable policy change,
+not increase the number of copies per rare parent.
+
+Digest: one substantive checkpoint experiment, one normal chunk, zero
+violations, no subject merge. Closed on supply and cost with reusable patch.
+The independent next judge selects the kept conditional pair selector;
+new common-clock aging and crash-quantile proposals fail their own stated
+4%-versus-layout-floor admission condition. That is a defect in those
+specific predictions, not evidence that their mechanisms cannot work.
