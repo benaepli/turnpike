@@ -1,0 +1,79 @@
+{
+  "diagnostic_rows": 95253,
+  "parents_with_children": 11908,
+  "resumed_children": 47871,
+  "suffix_distinct_share": 0.9844164525495602,
+  "additional_message_share": 0.9989346368364981,
+  "new_depth11_parent_count": 1,
+  "new_depth11_parent_ids": [
+    522944
+  ],
+  "resumed_depth11_count": 13,
+  "descriptive_filled_slot_contrasts": {
+    "8": {
+      "treated_runs": 47871,
+      "control_runs": 47382,
+      "treated_events": 2256,
+      "control_events": 1205,
+      "parent_cluster": {
+        "ratio": 1.8530747441841235,
+        "lo": 1.5647419408553433,
+        "hi": 2.19453822887624
+      },
+      "sibling_sensitivity": {
+        "ratio": 1.8530747441841235,
+        "lo": 1.4270215345691706,
+        "hi": 2.406330895749077
+      }
+    },
+    "9": {
+      "treated_runs": 47871,
+      "control_runs": 47382,
+      "treated_events": 502,
+      "control_events": 173,
+      "parent_cluster": {
+        "ratio": 2.8720930274679675,
+        "lo": 1.9025653104030948,
+        "hi": 4.335682098966907
+      },
+      "sibling_sensitivity": {
+        "ratio": 2.8720930274679675,
+        "lo": 1.4923975156027196,
+        "hi": 5.527293011539695
+      }
+    },
+    "10": {
+      "treated_runs": 47871,
+      "control_runs": 47382,
+      "treated_events": 78,
+      "control_events": 14,
+      "parent_cluster": {
+        "ratio": 5.514516692181667,
+        "lo": 1.802757405122643,
+        "hi": 16.868544964474257
+      },
+      "sibling_sensitivity": {
+        "ratio": 5.514516692181667,
+        "lo": 0.6355386916522423,
+        "hi": 47.84900549373648
+      }
+    },
+    "11": {
+      "treated_runs": 47871,
+      "control_runs": 47382,
+      "treated_events": 13,
+      "control_events": 3,
+      "parent_cluster": {
+        "ratio": 4.289068538363518,
+        "lo": 0.5617522212590936,
+        "hi": 32.74772796722959
+      },
+      "sibling_sensitivity": {
+        "ratio": 4.289068538363518,
+        "lo": 0.0364127173727422,
+        "hi": 505.2110980475933
+      }
+    }
+  },
+  "limitation": "Filled slots only; not the intention-to-treat, co-bit-matched grader primary."
+}

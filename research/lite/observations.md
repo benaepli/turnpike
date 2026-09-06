@@ -6679,3 +6679,20 @@ pair-support and changed-policy observables. The model learns 57 pair
 entries and uses marginal fallback, keeping the three rewards and exposure
 rules. Full admitted record: research/lite/plans/iteration-67-admitted.json.
 Mode autonomous. No retained learner tag is claimed as a new treatment bit.
+
+**Parent lineage, descriptive follow-up.** Re-read the same completed
+trace with the unchanged analyzer and joined all 95,253 diagnostics to
+complete run depths. Of 47,871 resumed children, 13 reached depth 11.
+Only one distinct parent (522944) whose COMPLETE original run was below
+11 produced a child at or above 11. This conservative evidence of new
+progress is far below the frozen four-chunk target of 75 families; it does
+not prove every other child inherited depth 11 at its checkpoint, since a
+parent can deepen after its cut. The whole-grid depth-11 count also
+includes fresh and plan-only runs, so its increase is not all due to
+resumed children. Filled-slot parent-cluster depth>=8 ratio 1.853
+[1.565,2.195] and depth>=11 ratio 4.289 [0.562,32.748]; these exclude
+fallbacks and are not the intention-to-treat primary. Summary and deep
+child diagnostics retained with the patch. No extra exploration was run.
+This reinforces the close; broad diverse suffixes are not by themselves
+evidence of progress on the rare deeper chain. Retained bulk traces are
+removed after the join; all violations were zero.

@@ -1,0 +1,249 @@
+[
+  {
+    "run_id": 29376,
+    "parent_run_id": 29281,
+    "checkpoint_step": 440,
+    "effective_cap": 1500,
+    "actual_arm_set": [
+      1,
+      4,
+      5,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 283,
+    "suffix_digest": "e2f5128a4b76b47f",
+    "clone_worker_ns": 206351,
+    "parent_depth": 13,
+    "child_depth": 13
+  },
+  {
+    "run_id": 29364,
+    "parent_run_id": 29281,
+    "checkpoint_step": 440,
+    "effective_cap": 1500,
+    "actual_arm_set": [
+      1,
+      4,
+      5,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 289,
+    "suffix_digest": "50f7484a9e4000e9",
+    "clone_worker_ns": 184839,
+    "parent_depth": 13,
+    "child_depth": 13
+  },
+  {
+    "run_id": 29356,
+    "parent_run_id": 29281,
+    "checkpoint_step": 440,
+    "effective_cap": 1500,
+    "actual_arm_set": [
+      1,
+      4,
+      5,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 432,
+    "suffix_digest": "7d2b9df45be4940c",
+    "clone_worker_ns": 176224,
+    "parent_depth": 13,
+    "child_depth": 13
+  },
+  {
+    "run_id": 29387,
+    "parent_run_id": 29281,
+    "checkpoint_step": 440,
+    "effective_cap": 1500,
+    "actual_arm_set": [
+      1,
+      4,
+      5,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 324,
+    "suffix_digest": "8f25ef5a12c6cc68",
+    "clone_worker_ns": 87866,
+    "parent_depth": 13,
+    "child_depth": 13
+  },
+  {
+    "run_id": 246963,
+    "parent_run_id": 246940,
+    "checkpoint_step": 325,
+    "effective_cap": 1500,
+    "actual_arm_set": [
+      2,
+      4,
+      6,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 459,
+    "suffix_digest": "92b6bf48a96a270f",
+    "clone_worker_ns": 115238,
+    "parent_depth": 12,
+    "child_depth": 12
+  },
+  {
+    "run_id": 246987,
+    "parent_run_id": 246940,
+    "checkpoint_step": 325,
+    "effective_cap": 1500,
+    "actual_arm_set": [
+      2,
+      4,
+      6,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 527,
+    "suffix_digest": "71033fab7038f105",
+    "clone_worker_ns": 239854,
+    "parent_depth": 12,
+    "child_depth": 12
+  },
+  {
+    "run_id": 246976,
+    "parent_run_id": 246940,
+    "checkpoint_step": 325,
+    "effective_cap": 1500,
+    "actual_arm_set": [
+      2,
+      4,
+      6,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 533,
+    "suffix_digest": "a5f0d468c81ce267",
+    "clone_worker_ns": 102354,
+    "parent_depth": 12,
+    "child_depth": 12
+  },
+  {
+    "run_id": 412809,
+    "parent_run_id": 412761,
+    "checkpoint_step": 471,
+    "effective_cap": 3995,
+    "actual_arm_set": [
+      1,
+      4,
+      6,
+      7,
+      10
+    ],
+    "prefix": true,
+    "suffix_message_count": 216,
+    "suffix_digest": "d0194fa499b105c5",
+    "clone_worker_ns": 165794,
+    "parent_depth": 11,
+    "child_depth": 11
+  },
+  {
+    "run_id": 412827,
+    "parent_run_id": 412761,
+    "checkpoint_step": 471,
+    "effective_cap": 3995,
+    "actual_arm_set": [
+      1,
+      4,
+      6,
+      7,
+      10
+    ],
+    "prefix": true,
+    "suffix_message_count": 540,
+    "suffix_digest": "22611ad048fca84b",
+    "clone_worker_ns": 100159,
+    "parent_depth": 11,
+    "child_depth": 13
+  },
+  {
+    "run_id": 450302,
+    "parent_run_id": 450277,
+    "checkpoint_step": 520,
+    "effective_cap": 1500,
+    "actual_arm_set": [
+      2,
+      4,
+      5,
+      7,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 126,
+    "suffix_digest": "8cf8d56d332bbda2",
+    "clone_worker_ns": 99338,
+    "parent_depth": 12,
+    "child_depth": 12
+  },
+  {
+    "run_id": 497086,
+    "parent_run_id": 497007,
+    "checkpoint_step": 856,
+    "effective_cap": 3995,
+    "actual_arm_set": [
+      2,
+      4,
+      6,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 234,
+    "suffix_digest": "9f83ad3e0536d09c",
+    "clone_worker_ns": 440934,
+    "parent_depth": 11,
+    "child_depth": 13
+  },
+  {
+    "run_id": 497046,
+    "parent_run_id": 497007,
+    "checkpoint_step": 856,
+    "effective_cap": 3995,
+    "actual_arm_set": [
+      2,
+      4,
+      6,
+      8,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 256,
+    "suffix_digest": "671c3c65338d802c",
+    "clone_worker_ns": 150935,
+    "parent_depth": 11,
+    "child_depth": 13
+  },
+  {
+    "run_id": 522962,
+    "parent_run_id": 522944,
+    "checkpoint_step": 427,
+    "effective_cap": 3995,
+    "actual_arm_set": [
+      2,
+      4,
+      6,
+      7,
+      9
+    ],
+    "prefix": true,
+    "suffix_message_count": 230,
+    "suffix_digest": "be3c68826672d5d3",
+    "clone_worker_ns": 142640,
+    "parent_depth": 4,
+    "child_depth": 12
+  }
+]
