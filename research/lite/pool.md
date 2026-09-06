@@ -3441,9 +3441,10 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## selector-every-learner-credits-every-run-with-its-own-reward
 
-- kind: add | category: feedback | origin: proposer | status: KEPT at
-  iteration 61 (judge gain 4, rank 3; falsifier rewritten to the mass
-  arithmetic; composes with the pooling in a later session) | parent:
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 65 on the judge's iteration-61 verdict (gain 4, falsifier
+  rewritten to the mass arithmetic; composes with the pooled cells;
+  implementing) | parent:
   selector-explore-share-posterior-odds-against-leader-most-decided-axis
 
 ## selector-cells-pooled-by-fault-shape-across-grid-arms

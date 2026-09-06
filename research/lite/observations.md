@@ -6336,3 +6336,21 @@ cell; the chunks stop being independent replicates). Until then the
 loop runs the modest in-bounds steps at depth 8. The tree stays at the
 iteration-61 merge, about 1.5x the coin tree on the objective, the
 target found once at iteration 56.
+
+## Iteration 65: the cross-learner credit
+
+Admitted from the pool on the judge's iteration-61 verdict (gain 4,
+cost 0): each learner credits every non-probe run with its own reward,
+whichever learner drew it, so a learner's cells see every run of the
+cell rather than the coin-drawn runs and its own; the calibration
+tables stay coin-only. On the pooled-cells tree this takes a
+configuration's cell from about 3,500 to about 7,400 observations per
+learner per chunk. The judge's rewritten prediction: cross-binary
+depth>=8 per graded run in [1.02, 1.08] on four paired seeds, the coin
+share falling on every grid arm (grid at or below 0.16, the others at
+or below 0.13, campaign at or below 0.12), no learner's decided-axis
+share falling by more than 0.05 (B retarget at or above 0.88, C hold at
+or above 0.82, A fresh-first at or above 0.78), the panel read per
+member binding since every member's cells change. No proposer or judge
+round: the candidate was judged blind at 61 and its prediction froze
+there. Implementing.
