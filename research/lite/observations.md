@@ -5895,3 +5895,38 @@ direction draws about 500,000 learner runs over four chunks, about 44,
 32 and 12 events at depths 11 to 13 against the hold's matched sample: a
 2x separates at 11 and 12, 1.5x is a lean, depth 13 a lean under 3x.
 Judged next.
+
+**Judged: the race premise is wrong against the spec, and the round
+closes without a build.** Every count reproduced and all four named
+bits are free. What did not hold is the mechanism story: in VR.spur's
+enter_view_change the node's own StartViewChange is not counted and a
+sender fills one slot, so at label 8 the new primary has one of the two
+senders it needs, sends only its two StartViewChanges, and label 9's
+ghost DoViewChange tallies and sends nothing; the new primary's own
+DoViewChange and the StartView come only after node 0's reply, which
+the DAG places after label 11. So the post-fault write's competitors
+between labels 10 and 11 are the two StartViewChanges in flight since
+label 8, one hop each and two dispatches ahead of the write - which is
+why the 10-to-11 funnel is 0.18 on every request direction, the rush
+included (7 of 33) - and the reaction records the deferral axis would
+hold are empty at the segment that matters; the landing key's first
+acted landing at node 0 is the label-12 leaf itself and reads released
+there are invoked before the StartView lands. On the finding's run
+node 2's ghost-honouring segment at step 466 dispatched nothing; the
+StartView went out at 484 from the self-DoViewChange segment. The
+deferral axis and the landing direction are kept in the pool at 2 and
+3 as inert where they meant to act; the hold-then-rush composition
+survives verification (the release loop and the rush's priority path
+exist and take: first delivery 7.7 steps under the rush against 16.6
+under the hold), but it is a within-run priority rule on a class of
+records with a 1.5x lean at depth 11 as its best outcome, undecidable
+under four chunks and a lean at eight. Power at a quarter share over
+four chunks: about 44 against 66 events at depth 11 (a 2x separates, a
+1.5x is a lean) and 12 against 17 at depth 13, where no primary under
+2x can be decided at any budget the rule buys. The judge's own note:
+skipping the build and re-proposing on the corrected chain facts is
+defensible. That is the decision: no build, the corrected facts are the
+round's product, and iteration 63 proposes on them - a delivery-side
+lever at the receivers against the label-8 fan-out, or a second-hop key
+for the reads with the write's cap left at 64, stated as directions of
+the delivery axes the selector already learns where that is possible.

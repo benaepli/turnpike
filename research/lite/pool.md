@@ -3453,3 +3453,28 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
   share near 0.10, its panel claim misnamed the members; not to be built
   while the configuration-keyed form is unread) | parent:
   selector-cells-pooled-by-configuration-across-grid-arms
+
+## post-fault-hold-then-rush-direction
+
+- kind: arm | category: scheduler | origin: proposer | status: KEPT at
+  iteration 62, not built (judge gain 4, cost 0, rank 1 of the round; the
+  only mechanism that survived verification, but a within-run priority
+  rule whose best outcome is a 1.5x lean at depth 11 undecidable under
+  four chunks; the 10-to-11 funnel reads 0.18 on the rush already) |
+  parent: post-fault-request-rush-arm
+
+## post-fault-hold-reads-released-at-ghost-consequence-landing
+
+- kind: arm | category: scheduler | origin: proposer | status: REJECTED at
+  iteration 62 (judge gain 3, cost 2: the first acted landing at the
+  never-restarted node is the label-12 leaf itself, so reads released
+  there are invoked before the StartView lands; a record field would
+  need exec.rs) | parent: post-fault-hold-class-split-read-write
+
+## ghost-consequence-sends-deferred-until-post-fault-client-response
+
+- kind: arm | category: scheduler | origin: proposer | status: REJECTED at
+  iteration 62 (judge gain 2, cost 2: the segment that honours the ghost
+  sends nothing on the chain, and the outstanding-at-send condition is
+  false on every depth-10 run with one post-fault op) | parent:
+  client-release-into-ghost-consumer-fanout-window
