@@ -1,0 +1,12 @@
+{
+  "input": "tmp/loop/lite/pilot-1200/out",
+  "model": "kv",
+  "total_runs": 2369580,
+  "ok": 2369580,
+  "violations": 0,
+  "unknown": 0,
+  "skipped_ops": 0,
+  "violating_run_ids": [],
+  "unknown_run_ids": [],
+  "wall_ms": 144389
+}

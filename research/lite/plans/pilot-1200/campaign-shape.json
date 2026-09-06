@@ -1,0 +1,1 @@
+{"arms":[{"id":"grid","mode":"grid"},{"id":"grid-short","mode":"grid"},{"id":"grid-no-purgatory","mode":"grid"},{"id":"grid-post-fault-2","mode":"grid"},{"id":"aos","mode":"aos"}],"slices":20,"unit":{"seconds":60.0}}

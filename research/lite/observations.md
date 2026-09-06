@@ -6477,3 +6477,54 @@ ratios. Quarter 4 over quarter 1 is also the wrong proxy, since
 position k of the harness starts at quarter k+1's state; the pooled
 read is the mean of quarters 2 through 4 over quarter 1. Counting noise
 on that is about 2.4% with 1.3 charged, so one seed is a sign read.
+
+## Stage A pilot: one 1,200 s session, binned by quarter (2026-09-06)
+
+The user said to run the experiment. One campaign explore, seed 1000,
+`wall_budget_sec` 1200, no code change, on the merged binary at
+`b86baad`. 2,369,580 runs at 1,975 per second, in line with the cached
+300 s chunks. Porcupine: zero violations. Every run graded. Reader:
+`research/lite/tools/quarter_bins.py`, kept. Derived outputs under
+`research/lite/plans/pilot-1200/`; the 40 GB corpus is deleted.
+
+Depth>=8 per graded run, selector-eligible rows, probes out, by quarter:
+0.01611, 0.01823, 0.01842, 0.01884. The mean of quarters 2 through 4
+over quarter 1 is 1.148 with a 1.4% standard error. That clears the
+gate's 1.03 easily, but the shape matters more than the size: quarter 2
+over quarter 1 is 1.132 and quarter 4 over quarter 2 is only 1.033.
+Almost the whole gain is the first transition, and it plateaus.
+
+The plan's stated mechanism is wrong in sign. The coin share does not
+fall as the selector matures. Pooled it runs 0.106, 0.098, 0.119,
+0.131, rising after the first quarter; every grid arm rises from
+quarter 2 onward. The one cold-start spike the plan predicted is real
+but confined to the grid arm's first quarter, 0.228 falling to 0.104.
+Carrying state forward would land a later chunk at a share no lower
+than a cold one, so "fewer runs wasted on coins" is not what a warm
+selector buys.
+
+The coin population does not work as the control the second review
+proposed. Its depth rate collapses over the session, 0.00177 to 0.00030
+on fresh rows, while its mean run length falls from 1,968 steps to
+1,548 and the learner rows' length rises from 2,242 to 2,586. The run
+cap moves the dominant length bin from 2,500-3,000 to 3,000-4,000, so
+quarter 1 and quarter 4 barely overlap in run length and the ratio of
+ratios (5.2) is meaningless.
+
+What survives the length control is the selector's own arm quality.
+Within the well-populated overlapping bins, learner rows' depth>=8 rate
+rises by 24% in the 1,500-2,000 band, 49% in 500-1,000 and 68% in
+0-500. Arm choices genuinely get better. But the cap learner, which the
+plan deliberately does not carry, moves the length distribution almost
+out of its own starting range, and this design cannot split the two.
+
+Reading against the plan's gate. The raw ratio passes and the coin-share
+condition fails outright. The upper bound on the harness change, if
+carried state reproduced the quarter progression exactly, is +11%
+pooled over four chunks, better than the plan's +2 to +6% estimate. The
+change carries only the selector's cells, so it collects the arm-quality
+part and none of the cap, span or corpus part, and the pilot cannot say
+how that splits. The honest next step is Stage B in its minimal form:
+save and load the cells, run four chunks by hand, and read the
+difference directly. That is the only design that isolates what this
+change actually carries.
