@@ -1,0 +1,13 @@
+diff --git a/research/orchestrator/src/decide.ts b/research/orchestrator/src/decide.ts
+index 9916d22..b51b33f 100644
+--- a/research/orchestrator/src/decide.ts
++++ b/research/orchestrator/src/decide.ts
+@@ -50,7 +50,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+   { bit: 128, name: "armSelectorAxisC" },
+   { bit: 256, name: "armSelectorConcentrated" },
+   { bit: 512, name: "crashPhase" },
+-  { bit: 1024, name: "freshFirstDestCut" },
++  { bit: 1024, name: "recoverSettleStop" },
+   { bit: 4096, name: "recoverWindowFreshOnly" },
+   { bit: 16384, name: "clientRushPriority" },
+   { bit: 65536, name: "recoverWindowFreshEarly" },

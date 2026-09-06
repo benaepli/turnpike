@@ -1,0 +1,1128 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index f7fa8db..a4900a1 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -20,6 +20,7 @@ pub mod replay_corpus;
+ pub mod rng;
+ pub mod run_cap;
+ pub mod run_phase;
++pub mod run_stop;
+ pub mod run_variant;
+ pub mod timer_context;
+ pub mod util_stats;
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index eb5de70..96c7164 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -639,6 +639,10 @@ pub struct State<H: HashPolicy> {
+     /// number of scheduling draws taken by then when the run records its
+     /// draws. Observation only, excluded from `signature()`.
+     pub replay_cut: Option<ReplayCut>,
++    /// The step of the run's last message entry whose sender was down, or
++    /// had restarted since sending. Set on every such entry whether or not
++    /// the session records statistics; excluded from `signature()`.
++    pub last_fault_crossing_step: Option<i32>,
+     /// Whether some message entry in the run came from a dead incarnation
+     /// of a restarted sender, landed on a restarted destination that had
+     /// already heard from the sender's current incarnation, and wrote the
+@@ -827,6 +831,7 @@ impl<H: HashPolicy> State<H> {
+             pair_order: pair_order::RunState::default(),
+             client_anchor: client_anchor::RunState::default(),
+             replay_cut: None,
++            last_fault_crossing_step: None,
+             overtaken_ghost_acted: false,
+             absorber_cycle_fresh_peer: false,
+             absorber_cycle_closed_step: None,
+@@ -1167,6 +1172,7 @@ impl<H: HashPolicy> State<H> {
+     /// node's state token from just before the handler ran, so the mark
+     /// records whether the delivery wrote anything.
+     pub fn note_ghost_delivery(&mut self, node: usize, step: i32, before: u64) {
++        self.last_fault_crossing_step = Some(step);
+         let acted = self.nodes.get(node).is_some_and(|env| env.writes != before);
+         let restarted = self.incarnation_at(node) > 0;
+         if let Some(l) = self.send_ledger.get_mut(node) {
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index a590744..d366f34 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -28,6 +28,7 @@ use crate::simulator::rng::{
+ use crate::simulator::arm_selector;
+ use crate::simulator::fault_timing;
+ use crate::simulator::run_cap;
++use crate::simulator::run_stop;
+ use crate::simulator::run_variant::{self, ArmSet};
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats;
+@@ -982,6 +983,7 @@ fn run_row(
+         RunOutcome::Deadlock { step, .. } => (*step, "deadlock"),
+         RunOutcome::IterationsExhausted { .. } => (max_iterations, "iterations_exhausted"),
+         RunOutcome::LearnedCapReached { cap, .. } => (*cap, "learned_cap_reached"),
++        RunOutcome::LearnedStopReached { stop, .. } => (*stop, "learned_stop_reached"),
+     };
+     crate::simulator::history::PersistableRun {
+         run_id,
+@@ -1126,6 +1128,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &config.purgatory,
+         config.partial_fanout_crash_bias,
+         &arms,
++        attribution.arm_index,
+         &mut rec,
+     )?;
+     // A replay slot's prefix carries its parent's ghost signal, so the
+@@ -1217,6 +1220,7 @@ pub fn run_explorer(
+     info!("session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
+     run_cap::reset();
++    run_stop::reset();
+     arm_selector::reset();
+     fault_timing::reset();
+     timer_context::reset();
+@@ -1464,6 +1468,7 @@ fn run_single_plan<F: Feedback>(
+         purgatory_config,
+         partial_fanout_crash_bias,
+         &arms,
++        attribution.arm_index,
+         &mut rng,
+     )?;
+ 
+@@ -1619,6 +1624,7 @@ pub fn run_explorer_genetic(
+     info!("session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
+     run_cap::reset();
++    run_stop::reset();
+     arm_selector::reset();
+     fault_timing::reset();
+     timer_context::reset();
+@@ -2061,6 +2067,7 @@ pub fn run_explorer_aos(
+     info!("AOS session_seed = {}", config.session_seed);
+     util_stats::set_enabled(config.stats);
+     run_cap::reset();
++    run_stop::reset();
+     arm_selector::reset();
+     fault_timing::reset();
+     timer_context::reset();
+@@ -2391,6 +2398,7 @@ impl<F: Feedback> Strategy<F> for CurriculumExplorer<F> {
+         if self.decay_factor < 1.0 {
+             F::decay(&self.global_state.feedback, self.decay_factor);
+             run_cap::decay(self.decay_factor);
++            run_stop::decay(self.decay_factor);
+             fault_timing::decay(self.decay_factor);
+             timer_context::decay(self.decay_factor);
+         }
+@@ -2716,6 +2724,7 @@ pub fn run_explorer_continuous(
+     info!("Continuous session_seed = {}", config.envelope.session_seed);
+     util_stats::set_enabled(config.envelope.stats);
+     run_cap::reset();
++    run_stop::reset();
+     arm_selector::reset();
+     fault_timing::reset();
+     timer_context::reset();
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index f051107..e1a84e3 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -18,6 +18,7 @@ use crate::simulator::fault_timing;
+ use crate::simulator::pair_order as pair_order_split;
+ use crate::simulator::rng::StreamRng;
+ use crate::simulator::run_cap;
++use crate::simulator::run_stop;
+ use crate::simulator::run_variant::{ArmSet, CrashArm};
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats::{self, DeliveryBias, RunEnd, RunExtension, RunTermination};
+@@ -336,6 +337,10 @@ pub enum RunOutcome {
+     /// The run reached the learned step cap, short of the configured budget,
+     /// with planned events still outstanding.
+     LearnedCapReached { cap: i32, outstanding_events: usize },
++    /// The run had applied every planned fault event and stood the learned
++    /// settle past its last recover, so it ended at `stop`, short of its
++    /// cap, with client operations possibly still outstanding.
++    LearnedStopReached { stop: i32, outstanding_events: usize },
+ }
+ 
+ /// How a run spent its steps: how many released a runnable, how many offered
+@@ -422,6 +427,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     purgatory_config: &PurgatoryConfig,
+     partial_fanout_crash_bias: f64,
+     arms: &ArmSet,
++    arm_index: i32,
+     rng: &mut impl StreamRng,
+ ) -> Result<RunOutcome, RuntimeError> {
+     util_stats::begin_run();
+@@ -449,6 +455,22 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         run_cap::effective_cap(backup)
+     };
+     let timer_ctx_mode = timer_context::run_mode(run_id);
++    // The settle is read once so the stop is a bound frozen for the whole
++    // run, as the cap is. The scope is the budget and the campaign arm that
++    // issued the run, -1 outside a campaign.
++    let stop_treated = run_stop::is_treated(run_id);
++    let settle = if stop_treated {
++        run_stop::settle(backup, arm_index)
++    } else {
++        None
++    };
++    if stop_treated {
++        util_stats::record_run_stop_treated_run(settle.is_some(), effective_cap < backup);
++    }
++    let mut last_recover_step: Option<i32> = None;
++    // Steps of the run's client responses, kept on probes only: the
++    // response-gap sample is read from them at the end of the run.
++    let mut probe_response_steps: Vec<i32> = Vec::new();
+     let mut selector = queue_policy.to_selector();
+     let mut op_id_counter = 0i32;
+     let mut in_progress: HashMap<i32, NodeIndex> = HashMap::new();
+@@ -496,6 +518,22 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     let mut ready_delivers: BTreeSet<NodeIndex> = BTreeSet::new();
+     let mut completed_delivers: HashSet<NodeIndex> = HashSet::new();
+ 
++    // The planned fault events, counted before the engine consumes the
++    // plan; the learned stop waits until every one of them is completed.
++    let fault_events_total = plan
++        .node_indices()
++        .filter(|&idx| {
++            matches!(
++                plan[idx].action,
++                EventAction::CrashNode(_)
++                    | EventAction::RecoverNode(_)
++                    | EventAction::Partition(_)
++                    | EventAction::Heal
++            )
++        })
++        .count();
++    let mut fault_events_done: usize = 0;
++
+     let mut engine = PlanEngine::new(plan);
+ 
+     // Nodes observed crashing, and the subset that later recovered.
+@@ -533,10 +571,47 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             if is_probe {
+                 run_cap::merge_probe(backup, run_cap::Outcome::Completed, step);
+                 fault_timing::merge_stock_probe(run_id, backup, run_cap::Outcome::Completed, step);
++                run_stop::merge_probe(
++                    backup,
++                    arm_index,
++                    &run_stop::ProbeRun {
++                        last_recover_step,
++                        last_crossing_step: path_state.state.last_fault_crossing_step,
++                        completed_at: Some(step),
++                        response_steps: &probe_response_steps,
++                    },
++                );
+             }
+             return Ok(RunOutcome::Completed { steps: step });
+         }
+ 
++        if fault_events_done == fault_events_total
++            && let Some(stop_at) = run_stop::stop_step(
++                settle,
++                last_recover_step,
++                path_state.state.last_fault_crossing_step,
++            )
++            && step >= stop_at
++        {
++            info!("Plan {} stopped at step {} on the learned settle", run_id, step);
++            util_stats::record_client_anchor_run_end(anchored, false, held.pending());
++            util_stats::record_run_stop_taken((effective_cap - step).max(0) as u64);
++            record_termination(
++                RunEnd::LearnedStopReached,
++                run_id,
++                &path_state.state,
++                &engine,
++                step,
++                max_iterations,
++                recovered_nodes.len(),
++                &census,
++            );
++            return Ok(RunOutcome::LearnedStopReached {
++                stop: step,
++                outstanding_events: engine.outstanding_count(),
++            });
++        }
++
+         path_state.state.crash_info.current_step = step;
+         util_stats::record_steer_step_total();
+ 
+@@ -585,6 +660,16 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             if is_probe {
+                 run_cap::merge_probe(backup, run_cap::Outcome::Deadlocked, step);
+                 fault_timing::merge_stock_probe(run_id, backup, run_cap::Outcome::Deadlocked, step);
++                run_stop::merge_probe(
++                    backup,
++                    arm_index,
++                    &run_stop::ProbeRun {
++                        last_recover_step,
++                        last_crossing_step: path_state.state.last_fault_crossing_step,
++                        completed_at: None,
++                        response_steps: &probe_response_steps,
++                    },
++                );
+             }
+             return Ok(RunOutcome::Deadlock {
+                 step,
+@@ -791,6 +876,9 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         unique_id: result.unique_id,
+                         step: path_state.state.crash_info.current_step,
+                     });
++                    if is_probe {
++                        probe_response_steps.push(step);
++                    }
+                 }
+                 ScheduleResult::Crash { node_id, planned } => {
+                     path_state.history.push(Operation {
+@@ -804,6 +892,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     crashed_nodes.insert(node_id.index);
+                     if let Some(plan_node) = pending_crash.remove(&planned.index) {
+                         engine.mark_event_completed(plan_node);
++                        fault_events_done += 1;
+                     }
+                     if node_id != planned {
+                         victim_remap.insert(planned.index, node_id);
+@@ -821,8 +910,10 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     if crashed_nodes.contains(&node_id.index) {
+                         recovered_nodes.insert(node_id.index);
+                     }
++                    last_recover_step = Some(step);
+                     if let Some(plan_node) = pending_recover.remove(&node_id.index) {
+                         engine.mark_event_completed(plan_node);
++                        fault_events_done += 1;
+                     }
+                 }
+                 ScheduleResult::TimerFired { node_id, label } => {
+@@ -861,6 +952,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     });
+                     if let Some(plan_node) = pending_partition.take() {
+                         engine.mark_event_completed(plan_node);
++                        fault_events_done += 1;
+                     }
+                 }
+                 ScheduleResult::Heal => {
+@@ -874,6 +966,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     });
+                     if let Some(plan_node) = pending_heal.take() {
+                         engine.mark_event_completed(plan_node);
++                        fault_events_done += 1;
+                     }
+                 }
+                 ScheduleResult::RecordExecuted {
+@@ -972,6 +1065,15 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     }
+ 
+     util_stats::record_client_anchor_run_end(anchored, false, held.pending());
++    if settle.is_some() {
++        let keyed = run_stop::stop_step(
++            settle,
++            last_recover_step,
++            path_state.state.last_fault_crossing_step,
++        )
++        .is_some();
++        util_stats::record_run_stop_fallback(keyed);
++    }
+     if effective_cap < backup {
+         record_termination(
+             RunEnd::LearnedCapReached,
+@@ -1005,6 +1107,16 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     if is_probe {
+         run_cap::merge_probe(backup, run_cap::Outcome::Exhausted, backup);
+         fault_timing::merge_stock_probe(run_id, backup, run_cap::Outcome::Exhausted, backup);
++        run_stop::merge_probe(
++            backup,
++            arm_index,
++            &run_stop::ProbeRun {
++                last_recover_step,
++                last_crossing_step: path_state.state.last_fault_crossing_step,
++                completed_at: None,
++                response_steps: &probe_response_steps,
++            },
++        );
+     }
+     Ok(RunOutcome::IterationsExhausted {
+         outstanding_events: engine.outstanding_count(),
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 4c8d485..eb09234 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -31,6 +31,7 @@ use crate::simulator::ghost_absorber;
+ use crate::simulator::pair_order;
+ use crate::simulator::replay_corpus;
+ use crate::simulator::run_cap;
++use crate::simulator::run_stop;
+ use crate::simulator::timer_context;
+ 
+ /// The run draws crash holds over the learned completed-run span.
+@@ -48,6 +49,11 @@ pub const CRASH_HOLD_DRAWN: i32 = 1 << 3;
+ /// The run's placed crashes wait for a drawn phase of the victim's own
+ /// fan-out once their step hold expires, instead of competing at once.
+ pub const CRASH_PHASE: i32 = 1 << 9;
++/// The run ends once every planned fault event is applied, it has taken a
++/// fault-crossing delivery after its last recover, and it stands the
++/// scope's learned settle past that recover. Never set on a probe of either
++/// kind; a scope under its floor leaves the selected run on its cap.
++pub const RECOVER_SETTLE_STOP: i32 = 1 << 10;
+ /// At a network step whose pick is a record from a sender that has crashed
+ /// at least once, the run takes instead the eligible record from that
+ /// sender to the same destination, sent by the same incarnation, with the
+@@ -311,11 +317,21 @@ pub fn of(
+     crash_hold_drawn: bool,
+ ) -> i32 {
+     probe_bits(run_id)
++        | stop_bits(run_id)
+         | selector_bits(learner)
+         | of_arms(arms)
+         | if crash_hold_drawn { CRASH_HOLD_DRAWN } else { 0 }
+ }
+ 
++/// The learned-stop treatment bit, a pure function of the run id.
++pub fn stop_bits(run_id: i64) -> i32 {
++    if run_stop::is_treated(run_id) {
++        RECOVER_SETTLE_STOP
++    } else {
++        0
++    }
++}
++
+ /// The bits the run id's coins alone would name, read straight from each
+ /// mechanism's own coin. A coin-drawn run carries exactly these bits.
+ pub fn from_run_id(run_id: i64) -> i32 {
+@@ -347,6 +363,9 @@ pub fn from_run_id(run_id: i64) -> i32 {
+     if client_anchor::is_rushed(run_id) {
+         v |= CLIENT_RUSH_PRIORITY;
+     }
++    if run_stop::is_treated(run_id) {
++        v |= RECOVER_SETTLE_STOP;
++    }
+     v
+ }
+ 
+@@ -387,6 +406,7 @@ mod tests {
+             assert_eq!(v & PAIR_SEND_ORDER != 0, pair_order::is_treated(id));
+             assert_eq!(v & CLIENT_FANOUT_RELEASE != 0, client_anchor::is_treated(id));
+             assert_eq!(v & CLIENT_RUSH_PRIORITY != 0, client_anchor::is_rushed(id));
++            assert_eq!(v & RECOVER_SETTLE_STOP != 0, run_stop::is_treated(id));
+             assert_ne!(
+                 v & (CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY),
+                 CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY,
+@@ -632,6 +652,20 @@ mod tests {
+         );
+         assert_eq!(rush_probes, 0, "a probe must never rush client requests");
+         assert_eq!(rush_and_hold, 0, "the two directions must never meet on a run");
++        let stop_runs = (0..64_000i64)
++            .filter(|&id| from_run_id(id) & RECOVER_SETTLE_STOP != 0)
++            .count();
++        let stop_probes = (0..64_000i64)
++            .filter(|&id| {
++                let v = from_run_id(id);
++                v & RECOVER_SETTLE_STOP != 0 && v & (RUN_CAP_PROBE | TIMER_STEER_OFF) != 0
++            })
++            .count();
++        assert!(
++            stop_runs > 0 && stop_runs < 64_000,
++            "the learned-stop split leaves no contrast"
++        );
++        assert_eq!(stop_probes, 0, "a probe must never end on the learned stop");
+         assert!(ordinary_stock > 0, "no stock run that is not a probe, so there is no control");
+     }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 45e7ea2..dac7f96 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -522,6 +522,40 @@ static RUN_CAP_CAP_RECOMPUTES: AtomicU64 = AtomicU64::new(0);
+ static RUN_CAP_SCOPES_LEARNED: AtomicU64 = AtomicU64::new(0);
+ static RUN_CAP_CURRENT_CAP_MAX_SCOPE: AtomicU64 = AtomicU64::new(0);
+ 
++static RUN_STOP_STOPS_TAKEN: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_STEPS_SAVED_SUM: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_TREATED_RUNS: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_ARMED_RUNS: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_ARMED_RUNS_CAPPED: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_NO_KEY_FALLBACKS: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_PENDING_EVENT_FALLBACKS: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_PROBES_WITHOUT_RECOVER: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_PROBES_KEYED: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_PROBES_WITHOUT_KEY: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_PROBE_OVER_STOP_COMPLETIONS: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_SETTLE_RECOMPUTES: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_SCOPES_LEARNED: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_SETTLE_MAX_SCOPE: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_SETTLE_LEARNED_MIN: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_SETTLE_LEARNED_MAX: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_LAST_RECOVER_STEP_SUM: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_LAST_RECOVER_STEP_COUNT: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_LAST_CROSSING_STEP_SUM: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_LAST_CROSSING_STEP_COUNT: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_SETTLE_SUM: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_SETTLE_COUNT: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_RESPONSE_GAP_SUM: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_RESPONSE_GAP_COUNT: AtomicU64 = AtomicU64::new(0);
++static RUN_STOP_PROBES_WITH_RESPONSE_AFTER_RECOVER: AtomicU64 = AtomicU64::new(0);
++/// Log2 step histograms (`hist_bucket`) of the probe settle, the absolute
++/// step of a probe's last fault-crossing entry, and the gaps between client
++/// responses after a probe's last recover.
++static RUN_STOP_SETTLE_HIST: [AtomicU64; HIST_BUCKETS] = [const { AtomicU64::new(0) }; HIST_BUCKETS];
++static RUN_STOP_LAST_CROSSING_STEP_HIST: [AtomicU64; HIST_BUCKETS] =
++    [const { AtomicU64::new(0) }; HIST_BUCKETS];
++static RUN_STOP_RESPONSE_GAP_HIST: [AtomicU64; HIST_BUCKETS] =
++    [const { AtomicU64::new(0) }; HIST_BUCKETS];
++
+ static CRASH_PLACE_DRAWS: AtomicU64 = AtomicU64::new(0);
+ static CRASH_PLACE_CAPPED_DRAWS: AtomicU64 = AtomicU64::new(0);
+ static CRASH_PLACE_HOLDS: AtomicU64 = AtomicU64::new(0);
+@@ -748,6 +782,31 @@ pub fn set_enabled(on: bool) {
+             &RUN_CAP_CAP_RECOMPUTES,
+             &RUN_CAP_SCOPES_LEARNED,
+             &RUN_CAP_CURRENT_CAP_MAX_SCOPE,
++            &RUN_STOP_STOPS_TAKEN,
++            &RUN_STOP_STEPS_SAVED_SUM,
++            &RUN_STOP_TREATED_RUNS,
++            &RUN_STOP_ARMED_RUNS,
++            &RUN_STOP_ARMED_RUNS_CAPPED,
++            &RUN_STOP_NO_KEY_FALLBACKS,
++            &RUN_STOP_PENDING_EVENT_FALLBACKS,
++            &RUN_STOP_PROBES_WITHOUT_RECOVER,
++            &RUN_STOP_PROBES_KEYED,
++            &RUN_STOP_PROBES_WITHOUT_KEY,
++            &RUN_STOP_PROBE_OVER_STOP_COMPLETIONS,
++            &RUN_STOP_SETTLE_RECOMPUTES,
++            &RUN_STOP_SCOPES_LEARNED,
++            &RUN_STOP_SETTLE_MAX_SCOPE,
++            &RUN_STOP_SETTLE_LEARNED_MIN,
++            &RUN_STOP_SETTLE_LEARNED_MAX,
++            &RUN_STOP_LAST_RECOVER_STEP_SUM,
++            &RUN_STOP_LAST_RECOVER_STEP_COUNT,
++            &RUN_STOP_LAST_CROSSING_STEP_SUM,
++            &RUN_STOP_LAST_CROSSING_STEP_COUNT,
++            &RUN_STOP_SETTLE_SUM,
++            &RUN_STOP_SETTLE_COUNT,
++            &RUN_STOP_RESPONSE_GAP_SUM,
++            &RUN_STOP_RESPONSE_GAP_COUNT,
++            &RUN_STOP_PROBES_WITH_RESPONSE_AFTER_RECOVER,
+             &CRASH_PLACE_DRAWS,
+             &CRASH_PLACE_CAPPED_DRAWS,
+             &CRASH_PLACE_HOLDS,
+@@ -762,7 +821,13 @@ pub fn set_enabled(on: bool) {
+         ] {
+             c.store(0, Ordering::Relaxed);
+         }
+-        for c in TIMER_STREAK_FIRED.iter().chain(TIMER_STREAK_ACTED.iter()) {
++        for c in TIMER_STREAK_FIRED
++            .iter()
++            .chain(TIMER_STREAK_ACTED.iter())
++            .chain(RUN_STOP_SETTLE_HIST.iter())
++            .chain(RUN_STOP_LAST_CROSSING_STEP_HIST.iter())
++            .chain(RUN_STOP_RESPONSE_GAP_HIST.iter())
++        {
+             c.store(0, Ordering::Relaxed);
+         }
+         for c in CP_RUNS
+@@ -2456,6 +2521,10 @@ pub enum RunEnd {
+     /// The learned step cap, short of the configured budget, ended the run
+     /// while planned events were outstanding.
+     LearnedCapReached,
++    /// The run had applied every planned fault event and stood the learned
++    /// settle past its last recover, so it ended short of its cap with
++    /// client operations possibly outstanding.
++    LearnedStopReached,
+ }
+ 
+ /// Termination counts and running sums over one bucket of runs. `steps_used`
+@@ -2471,6 +2540,7 @@ pub struct TerminationTally {
+     pub iterations_exhausted: u64,
+     pub deadlock: u64,
+     pub learned_cap_reached: u64,
++    pub learned_stop_reached: u64,
+     pub steps_used_sum: u64,
+     pub step_budget_sum: u64,
+     pub pending_work_at_exit_sum: u64,
+@@ -2486,6 +2556,7 @@ impl TerminationTally {
+             iterations_exhausted: 0,
+             deadlock: 0,
+             learned_cap_reached: 0,
++            learned_stop_reached: 0,
+             steps_used_sum: 0,
+             step_budget_sum: 0,
+             pending_work_at_exit_sum: 0,
+@@ -2505,6 +2576,7 @@ impl TerminationTally {
+             RunEnd::IterationsExhausted => self.iterations_exhausted += 1,
+             RunEnd::Deadlock => self.deadlock += 1,
+             RunEnd::LearnedCapReached => self.learned_cap_reached += 1,
++            RunEnd::LearnedStopReached => self.learned_stop_reached += 1,
+         }
+         self.steps_used_sum += s.steps_used;
+         self.step_budget_sum += s.step_budget;
+@@ -2612,7 +2684,7 @@ impl RunExtension {
+             RunEnd::Deadlock => PrefixStop::Deadlock,
+             RunEnd::PlanComplete if self.pending_at_exit == 0 => PrefixStop::PlanCompleteQuiescent,
+             RunEnd::PlanComplete => PrefixStop::PlanCompletePending,
+-            RunEnd::IterationsExhausted | RunEnd::LearnedCapReached => {
++            RunEnd::IterationsExhausted | RunEnd::LearnedCapReached | RunEnd::LearnedStopReached => {
+                 if self.pending_at_exit == 0 {
+                     PrefixStop::BudgetIdle
+                 } else if self.tail_without_release >= STALLED_TAIL_STEPS {
+@@ -2731,7 +2803,7 @@ pub struct QuietStretchRun {
+ struct QuietStretchState {
+     /// Longest-stretch histograms indexed by how the run ended, in the order
+     /// `RunEnd` is declared.
+-    by_end: [[u64; HIST_BUCKETS]; 4],
++    by_end: [[u64; HIST_BUCKETS]; 5],
+     per_run: Vec<QuietStretchRun>,
+     dropped: u64,
+ }
+@@ -2739,7 +2811,7 @@ struct QuietStretchState {
+ impl QuietStretchState {
+     const fn new() -> Self {
+         Self {
+-            by_end: [[0; HIST_BUCKETS]; 4],
++            by_end: [[0; HIST_BUCKETS]; 5],
+             per_run: Vec::new(),
+             dropped: 0,
+         }
+@@ -2759,6 +2831,7 @@ pub struct QuietStretchStats {
+     pub iterations_exhausted: Vec<u64>,
+     pub deadlock: Vec<u64>,
+     pub learned_cap_reached: Vec<u64>,
++    pub learned_stop_reached: Vec<u64>,
+     pub per_run: Vec<QuietStretchRun>,
+     pub per_run_dropped: u64,
+ }
+@@ -2774,6 +2847,7 @@ impl QuietStretchStats {
+             iterations_exhausted: q.by_end[1].to_vec(),
+             deadlock: q.by_end[2].to_vec(),
+             learned_cap_reached: q.by_end[3].to_vec(),
++            learned_stop_reached: q.by_end[4].to_vec(),
+             per_run: q.per_run.clone(),
+             per_run_dropped: q.dropped,
+         }
+@@ -2795,6 +2869,7 @@ pub fn record_quiet_stretch(run_id: i64, end: RunEnd) {
+         RunEnd::IterationsExhausted => 1,
+         RunEnd::Deadlock => 2,
+         RunEnd::LearnedCapReached => 3,
++        RunEnd::LearnedStopReached => 4,
+     };
+     if let Ok(mut q) = QUIET_STRETCH.lock() {
+         q.by_end[row][hist_bucket(longest as usize)] += 1;
+@@ -2847,6 +2922,131 @@ pub fn set_run_cap_learned(scopes: u64, cap_max_scope: u64) {
+     RUN_CAP_CURRENT_CAP_MAX_SCOPE.store(cap_max_scope, Ordering::Relaxed);
+ }
+ 
++/// One run on the treated half of the learned stop started; `armed` marks
++/// the runs whose scope held a settle, so the rule could fire, and
++/// `capped` those whose frozen step cap sat below the budget.
++pub fn record_run_stop_treated_run(armed: bool, capped: bool) {
++    if !enabled() {
++        return;
++    }
++    RUN_STOP_TREATED_RUNS.fetch_add(1, Ordering::Relaxed);
++    if armed {
++        RUN_STOP_ARMED_RUNS.fetch_add(1, Ordering::Relaxed);
++        if capped {
++            RUN_STOP_ARMED_RUNS_CAPPED.fetch_add(1, Ordering::Relaxed);
++        }
++    }
++}
++
++/// The learned stop ended one run `steps_saved` steps short of its cap.
++pub fn record_run_stop_taken(steps_saved: u64) {
++    if !enabled() {
++        return;
++    }
++    RUN_STOP_STOPS_TAKEN.fetch_add(1, Ordering::Relaxed);
++    RUN_STOP_STEPS_SAVED_SUM.fetch_add(steps_saved, Ordering::Relaxed);
++}
++
++/// An armed run reached its cap without the stop firing: `keyed` says it
++/// had a recover and a crossing entry after it but a planned fault event
++/// was still outstanding; otherwise it never had a key.
++pub fn record_run_stop_fallback(keyed: bool) {
++    if !enabled() {
++        return;
++    }
++    if keyed {
++        RUN_STOP_PENDING_EVENT_FALLBACKS.fetch_add(1, Ordering::Relaxed);
++    } else {
++        RUN_STOP_NO_KEY_FALLBACKS.fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// One run-cap probe ended without applying a recover; it feeds nothing.
++pub fn record_run_stop_probe_without_recover() {
++    if !enabled() {
++        return;
++    }
++    RUN_STOP_PROBES_WITHOUT_RECOVER.fetch_add(1, Ordering::Relaxed);
++}
++
++/// One run-cap probe ended with a recover at `last_recover_step` and no
++/// fault-crossing entry after it; it feeds nothing.
++pub fn record_run_stop_probe_without_key(last_recover_step: u64) {
++    if !enabled() {
++        return;
++    }
++    RUN_STOP_PROBES_WITHOUT_KEY.fetch_add(1, Ordering::Relaxed);
++    RUN_STOP_LAST_RECOVER_STEP_SUM.fetch_add(last_recover_step, Ordering::Relaxed);
++    RUN_STOP_LAST_RECOVER_STEP_COUNT.fetch_add(1, Ordering::Relaxed);
++}
++
++/// One run-cap probe ended keyed: its last recover at `last_recover_step`
++/// and its last fault-crossing entry after that at `last_crossing_step`.
++pub fn record_run_stop_probe_keyed(last_recover_step: u64, last_crossing_step: u64) {
++    if !enabled() {
++        return;
++    }
++    let settled = last_crossing_step.saturating_sub(last_recover_step);
++    RUN_STOP_PROBES_KEYED.fetch_add(1, Ordering::Relaxed);
++    RUN_STOP_LAST_RECOVER_STEP_SUM.fetch_add(last_recover_step, Ordering::Relaxed);
++    RUN_STOP_LAST_RECOVER_STEP_COUNT.fetch_add(1, Ordering::Relaxed);
++    RUN_STOP_LAST_CROSSING_STEP_SUM.fetch_add(last_crossing_step, Ordering::Relaxed);
++    RUN_STOP_LAST_CROSSING_STEP_COUNT.fetch_add(1, Ordering::Relaxed);
++    RUN_STOP_SETTLE_SUM.fetch_add(settled, Ordering::Relaxed);
++    RUN_STOP_SETTLE_COUNT.fetch_add(1, Ordering::Relaxed);
++    RUN_STOP_SETTLE_HIST[hist_bucket(settled as usize)].fetch_add(1, Ordering::Relaxed);
++    RUN_STOP_LAST_CROSSING_STEP_HIST[hist_bucket(last_crossing_step as usize)]
++        .fetch_add(1, Ordering::Relaxed);
++}
++
++/// One keyed probe's plan completed later than its last recover plus the
++/// settle in effect when it merged, so a treated run in its place would
++/// have been cut before completing.
++pub fn record_run_stop_probe_over_stop_completion() {
++    if !enabled() {
++        return;
++    }
++    RUN_STOP_PROBE_OVER_STOP_COMPLETIONS.fetch_add(1, Ordering::Relaxed);
++}
++
++/// The settle for one scope was recomputed at a keyed-count checkpoint.
++pub fn record_run_stop_recompute() {
++    if !enabled() {
++        return;
++    }
++    RUN_STOP_SETTLE_RECOMPUTES.fetch_add(1, Ordering::Relaxed);
++}
++
++/// One gap between successive client responses after a probe's last
++/// recover, the first measured from the recover itself.
++pub fn record_run_stop_response_gap(gap: u64) {
++    if !enabled() {
++        return;
++    }
++    RUN_STOP_RESPONSE_GAP_SUM.fetch_add(gap, Ordering::Relaxed);
++    RUN_STOP_RESPONSE_GAP_COUNT.fetch_add(1, Ordering::Relaxed);
++    RUN_STOP_RESPONSE_GAP_HIST[hist_bucket(gap as usize)].fetch_add(1, Ordering::Relaxed);
++}
++
++/// One probe with a recover saw at least one client response after it.
++pub fn record_run_stop_probe_with_response() {
++    if !enabled() {
++        return;
++    }
++    RUN_STOP_PROBES_WITH_RESPONSE_AFTER_RECOVER.fetch_add(1, Ordering::Relaxed);
++}
++
++/// Gauges, not counters: the stop learner's current view. `settle_max_scope`
++/// is the settle at the scope with the largest key; the min and max range
++/// over every scope past its floor. Ungated so it is visible with stats
++/// off.
++pub fn set_run_stop_learned(scopes: u64, settle_max_scope: u64, settle_min: u64, settle_max: u64) {
++    RUN_STOP_SCOPES_LEARNED.store(scopes, Ordering::Relaxed);
++    RUN_STOP_SETTLE_MAX_SCOPE.store(settle_max_scope, Ordering::Relaxed);
++    RUN_STOP_SETTLE_LEARNED_MIN.store(settle_min, Ordering::Relaxed);
++    RUN_STOP_SETTLE_LEARNED_MAX.store(settle_max, Ordering::Relaxed);
++}
++
+ /// One placed-posture run drew a crash hold `held_steps` past the crash's
+ /// readiness; `capped` marks the draws whose span bound came from the step
+ /// cap's recovery reserve rather than the learned median.
+@@ -3925,6 +4125,126 @@ impl RunCapStats {
+     }
+ }
+ 
++/// A log2 histogram of step counts (`hist_bucket`) with one named field per
++/// bucket, so its cells survive the per-arm counter difference that keeps
++/// integer leaves only. `le_n` holds the counts in the range up to `n` that
++/// the bucket below does not cover.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
++pub struct StepHist {
++    pub le_0: u64,
++    pub le_1: u64,
++    pub le_2: u64,
++    pub le_4: u64,
++    pub le_8: u64,
++    pub le_16: u64,
++    pub le_32: u64,
++    pub le_64: u64,
++    pub le_128: u64,
++    pub le_256: u64,
++    pub le_512: u64,
++    pub le_1024: u64,
++    pub le_2048: u64,
++    pub le_4096: u64,
++    pub le_8192: u64,
++    pub over_8192: u64,
++}
++
++impl StepHist {
++    fn read(h: &[AtomicU64; HIST_BUCKETS]) -> Self {
++        let at = |i: usize| h[i].load(Ordering::Relaxed);
++        Self {
++            le_0: at(0),
++            le_1: at(1),
++            le_2: at(2),
++            le_4: at(3),
++            le_8: at(4),
++            le_16: at(5),
++            le_32: at(6),
++            le_64: at(7),
++            le_128: at(8),
++            le_256: at(9),
++            le_512: at(10),
++            le_1024: at(11),
++            le_2048: at(12),
++            le_4096: at(13),
++            le_8192: at(14),
++            over_8192: at(15),
++        }
++    }
++}
++
++/// The learned-stop block: what the treated runs did, what the probes
++/// showed, the learner's gauges, and the probe sample moments and
++/// histograms the stop is priced from.
++#[derive(Serialize)]
++pub struct RunStopStats {
++    pub stops_taken: u64,
++    pub steps_saved_sum: u64,
++    pub treated_runs: u64,
++    pub armed_runs: u64,
++    pub armed_runs_capped: u64,
++    pub no_key_fallbacks: u64,
++    pub pending_event_fallbacks: u64,
++    pub probes_without_recover: u64,
++    pub probes_keyed: u64,
++    pub probes_without_key: u64,
++    pub probe_over_stop_completions: u64,
++    pub settle_recomputes: u64,
++    pub scopes_learned: u64,
++    pub settle_max_scope: u64,
++    pub settle_learned_min: u64,
++    pub settle_learned_max: u64,
++    pub last_recover_step_sum: u64,
++    pub last_recover_step_count: u64,
++    pub last_crossing_step_sum: u64,
++    pub last_crossing_step_count: u64,
++    pub settle_sum: u64,
++    pub settle_count: u64,
++    pub response_gap_sum: u64,
++    pub response_gap_count: u64,
++    pub probes_with_response_after_recover: u64,
++    pub settle_hist: StepHist,
++    pub last_crossing_step_hist: StepHist,
++    pub response_gap_hist: StepHist,
++}
++
++impl RunStopStats {
++    fn read() -> Self {
++        Self {
++            stops_taken: RUN_STOP_STOPS_TAKEN.load(Ordering::Relaxed),
++            steps_saved_sum: RUN_STOP_STEPS_SAVED_SUM.load(Ordering::Relaxed),
++            treated_runs: RUN_STOP_TREATED_RUNS.load(Ordering::Relaxed),
++            armed_runs: RUN_STOP_ARMED_RUNS.load(Ordering::Relaxed),
++            armed_runs_capped: RUN_STOP_ARMED_RUNS_CAPPED.load(Ordering::Relaxed),
++            no_key_fallbacks: RUN_STOP_NO_KEY_FALLBACKS.load(Ordering::Relaxed),
++            pending_event_fallbacks: RUN_STOP_PENDING_EVENT_FALLBACKS.load(Ordering::Relaxed),
++            probes_without_recover: RUN_STOP_PROBES_WITHOUT_RECOVER.load(Ordering::Relaxed),
++            probes_keyed: RUN_STOP_PROBES_KEYED.load(Ordering::Relaxed),
++            probes_without_key: RUN_STOP_PROBES_WITHOUT_KEY.load(Ordering::Relaxed),
++            probe_over_stop_completions: RUN_STOP_PROBE_OVER_STOP_COMPLETIONS
++                .load(Ordering::Relaxed),
++            settle_recomputes: RUN_STOP_SETTLE_RECOMPUTES.load(Ordering::Relaxed),
++            scopes_learned: RUN_STOP_SCOPES_LEARNED.load(Ordering::Relaxed),
++            settle_max_scope: RUN_STOP_SETTLE_MAX_SCOPE.load(Ordering::Relaxed),
++            settle_learned_min: RUN_STOP_SETTLE_LEARNED_MIN.load(Ordering::Relaxed),
++            settle_learned_max: RUN_STOP_SETTLE_LEARNED_MAX.load(Ordering::Relaxed),
++            last_recover_step_sum: RUN_STOP_LAST_RECOVER_STEP_SUM.load(Ordering::Relaxed),
++            last_recover_step_count: RUN_STOP_LAST_RECOVER_STEP_COUNT.load(Ordering::Relaxed),
++            last_crossing_step_sum: RUN_STOP_LAST_CROSSING_STEP_SUM.load(Ordering::Relaxed),
++            last_crossing_step_count: RUN_STOP_LAST_CROSSING_STEP_COUNT.load(Ordering::Relaxed),
++            settle_sum: RUN_STOP_SETTLE_SUM.load(Ordering::Relaxed),
++            settle_count: RUN_STOP_SETTLE_COUNT.load(Ordering::Relaxed),
++            response_gap_sum: RUN_STOP_RESPONSE_GAP_SUM.load(Ordering::Relaxed),
++            response_gap_count: RUN_STOP_RESPONSE_GAP_COUNT.load(Ordering::Relaxed),
++            probes_with_response_after_recover: RUN_STOP_PROBES_WITH_RESPONSE_AFTER_RECOVER
++                .load(Ordering::Relaxed),
++            settle_hist: StepHist::read(&RUN_STOP_SETTLE_HIST),
++            last_crossing_step_hist: StepHist::read(&RUN_STOP_LAST_CROSSING_STEP_HIST),
++            response_gap_hist: StepHist::read(&RUN_STOP_RESPONSE_GAP_HIST),
++        }
++    }
++}
++
+ /// The crash-placement block: holds drawn by placed-posture runs, the
+ /// subset whose span bound came from the step cap's recovery reserve, the
+ /// per-step offers an active hold excluded, and the summed displacement of
+@@ -4888,6 +5208,7 @@ pub struct UtilizationSnapshot {
+     pub prefix_extension: PrefixExtensionStats,
+     pub quiet_stretch: QuietStretchStats,
+     pub run_cap: RunCapStats,
++    pub run_stop: RunStopStats,
+     pub crash_place: CrashPlaceStats,
+     pub crash_phase: CrashPhaseStats,
+     pub victim_swap: VictimSwapStats,
+@@ -5086,6 +5407,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+             .unwrap_or_else(|p| *p.into_inner()),
+         quiet_stretch: QuietStretchStats::read(),
+         run_cap: RunCapStats::read(),
++        run_stop: RunStopStats::read(),
+         crash_place: CrashPlaceStats::read(),
+         crash_phase: CrashPhaseStats::read(),
+         victim_swap: VictimSwapStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 7c3e077..dd0ed04 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, ReplayStats, RunCapStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, ReplayStats, RunCapStats, RunStopStats, SteerAuthorityStats, StepHist, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -116,6 +116,7 @@ fn termination_tally(m: &mut Marks) -> TerminationTally {
+         iterations_exhausted: m.int(),
+         deadlock: m.int(),
+         learned_cap_reached: m.int(),
++        learned_stop_reached: m.int(),
+         steps_used_sum: m.int(),
+         step_budget_sum: m.int(),
+         pending_work_at_exit_sum: m.int(),
+@@ -131,6 +132,7 @@ fn termination_tally_leaves(prefix: &str, t: &TerminationTally) -> Vec<(String,
+         iterations_exhausted,
+         deadlock,
+         learned_cap_reached,
++        learned_stop_reached,
+         steps_used_sum,
+         step_budget_sum,
+         pending_work_at_exit_sum,
+@@ -147,6 +149,7 @@ fn termination_tally_leaves(prefix: &str, t: &TerminationTally) -> Vec<(String,
+         leaf(prefix, "iterations_exhausted", *iterations_exhausted),
+         leaf(prefix, "deadlock", *deadlock),
+         leaf(prefix, "learned_cap_reached", *learned_cap_reached),
++        leaf(prefix, "learned_stop_reached", *learned_stop_reached),
+         leaf(prefix, "steps_used_sum", *steps_used_sum),
+         leaf(prefix, "step_budget_sum", *step_budget_sum),
+         leaf(prefix, "pending_work_at_exit_sum", *pending_work_at_exit_sum),
+@@ -410,6 +413,173 @@ fn run_cap_leaves(prefix: &str, r: &RunCapStats) -> Vec<(String, Value)> {
+     ]
+ }
+ 
++fn step_hist(m: &mut Marks) -> StepHist {
++    StepHist {
++        le_0: m.int(),
++        le_1: m.int(),
++        le_2: m.int(),
++        le_4: m.int(),
++        le_8: m.int(),
++        le_16: m.int(),
++        le_32: m.int(),
++        le_64: m.int(),
++        le_128: m.int(),
++        le_256: m.int(),
++        le_512: m.int(),
++        le_1024: m.int(),
++        le_2048: m.int(),
++        le_4096: m.int(),
++        le_8192: m.int(),
++        over_8192: m.int(),
++    }
++}
++
++fn step_hist_leaves(prefix: &str, h: &StepHist) -> Vec<(String, Value)> {
++    let StepHist {
++        le_0,
++        le_1,
++        le_2,
++        le_4,
++        le_8,
++        le_16,
++        le_32,
++        le_64,
++        le_128,
++        le_256,
++        le_512,
++        le_1024,
++        le_2048,
++        le_4096,
++        le_8192,
++        over_8192,
++    } = h;
++    vec![
++        leaf(prefix, "le_0", *le_0),
++        leaf(prefix, "le_1", *le_1),
++        leaf(prefix, "le_2", *le_2),
++        leaf(prefix, "le_4", *le_4),
++        leaf(prefix, "le_8", *le_8),
++        leaf(prefix, "le_16", *le_16),
++        leaf(prefix, "le_32", *le_32),
++        leaf(prefix, "le_64", *le_64),
++        leaf(prefix, "le_128", *le_128),
++        leaf(prefix, "le_256", *le_256),
++        leaf(prefix, "le_512", *le_512),
++        leaf(prefix, "le_1024", *le_1024),
++        leaf(prefix, "le_2048", *le_2048),
++        leaf(prefix, "le_4096", *le_4096),
++        leaf(prefix, "le_8192", *le_8192),
++        leaf(prefix, "over_8192", *over_8192),
++    ]
++}
++
++fn run_stop(m: &mut Marks) -> RunStopStats {
++    RunStopStats {
++        stops_taken: m.int(),
++        steps_saved_sum: m.int(),
++        treated_runs: m.int(),
++        armed_runs: m.int(),
++        armed_runs_capped: m.int(),
++        no_key_fallbacks: m.int(),
++        pending_event_fallbacks: m.int(),
++        probes_without_recover: m.int(),
++        probes_keyed: m.int(),
++        probes_without_key: m.int(),
++        probe_over_stop_completions: m.int(),
++        settle_recomputes: m.int(),
++        scopes_learned: m.int(),
++        settle_max_scope: m.int(),
++        settle_learned_min: m.int(),
++        settle_learned_max: m.int(),
++        last_recover_step_sum: m.int(),
++        last_recover_step_count: m.int(),
++        last_crossing_step_sum: m.int(),
++        last_crossing_step_count: m.int(),
++        settle_sum: m.int(),
++        settle_count: m.int(),
++        response_gap_sum: m.int(),
++        response_gap_count: m.int(),
++        probes_with_response_after_recover: m.int(),
++        settle_hist: step_hist(m),
++        last_crossing_step_hist: step_hist(m),
++        response_gap_hist: step_hist(m),
++    }
++}
++
++fn run_stop_leaves(prefix: &str, r: &RunStopStats) -> Vec<(String, Value)> {
++    let RunStopStats {
++        stops_taken,
++        steps_saved_sum,
++        treated_runs,
++        armed_runs,
++        armed_runs_capped,
++        no_key_fallbacks,
++        pending_event_fallbacks,
++        probes_without_recover,
++        probes_keyed,
++        probes_without_key,
++        probe_over_stop_completions,
++        settle_recomputes,
++        scopes_learned,
++        settle_max_scope,
++        settle_learned_min,
++        settle_learned_max,
++        last_recover_step_sum,
++        last_recover_step_count,
++        last_crossing_step_sum,
++        last_crossing_step_count,
++        settle_sum,
++        settle_count,
++        response_gap_sum,
++        response_gap_count,
++        probes_with_response_after_recover,
++        settle_hist,
++        last_crossing_step_hist,
++        response_gap_hist,
++    } = r;
++    let mut out = vec![
++        leaf(prefix, "stops_taken", *stops_taken),
++        leaf(prefix, "steps_saved_sum", *steps_saved_sum),
++        leaf(prefix, "treated_runs", *treated_runs),
++        leaf(prefix, "armed_runs", *armed_runs),
++        leaf(prefix, "armed_runs_capped", *armed_runs_capped),
++        leaf(prefix, "no_key_fallbacks", *no_key_fallbacks),
++        leaf(prefix, "pending_event_fallbacks", *pending_event_fallbacks),
++        leaf(prefix, "probes_without_recover", *probes_without_recover),
++        leaf(prefix, "probes_keyed", *probes_keyed),
++        leaf(prefix, "probes_without_key", *probes_without_key),
++        leaf(prefix, "probe_over_stop_completions", *probe_over_stop_completions),
++        leaf(prefix, "settle_recomputes", *settle_recomputes),
++        leaf(prefix, "scopes_learned", *scopes_learned),
++        leaf(prefix, "settle_max_scope", *settle_max_scope),
++        leaf(prefix, "settle_learned_min", *settle_learned_min),
++        leaf(prefix, "settle_learned_max", *settle_learned_max),
++        leaf(prefix, "last_recover_step_sum", *last_recover_step_sum),
++        leaf(prefix, "last_recover_step_count", *last_recover_step_count),
++        leaf(prefix, "last_crossing_step_sum", *last_crossing_step_sum),
++        leaf(prefix, "last_crossing_step_count", *last_crossing_step_count),
++        leaf(prefix, "settle_sum", *settle_sum),
++        leaf(prefix, "settle_count", *settle_count),
++        leaf(prefix, "response_gap_sum", *response_gap_sum),
++        leaf(prefix, "response_gap_count", *response_gap_count),
++        leaf(
++            prefix,
++            "probes_with_response_after_recover",
++            *probes_with_response_after_recover,
++        ),
++    ];
++    out.extend(step_hist_leaves(&format!("{prefix}.settle_hist"), settle_hist));
++    out.extend(step_hist_leaves(
++        &format!("{prefix}.last_crossing_step_hist"),
++        last_crossing_step_hist,
++    ));
++    out.extend(step_hist_leaves(
++        &format!("{prefix}.response_gap_hist"),
++        response_gap_hist,
++    ));
++    out
++}
++
+ fn crash_place(m: &mut Marks) -> CrashPlaceStats {
+     CrashPlaceStats {
+         draws: m.int(),
+@@ -1393,6 +1563,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         prefix_extension: _,
+         quiet_stretch: _,
+         run_cap: _,
++        run_stop: _,
+         crash_place: _,
+         crash_phase: _,
+         victim_swap: _,
+@@ -1431,6 +1602,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "prefix_extension",
+         "quiet_stretch",
+         "run_cap",
++        "run_stop",
+         "crash_place",
+         "crash_phase",
+         "victim_swap",
+@@ -1504,6 +1676,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.termination = termination(&mut m);
+     s.delivery_effects = delivery_effects(&mut m);
+     s.run_cap = run_cap(&mut m);
++    s.run_stop = run_stop(&mut m);
+     s.crash_place = crash_place(&mut m);
+     s.crash_phase = crash_phase(&mut m);
+     s.victim_swap = victim_swap(&mut m);
+@@ -1521,6 +1694,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+         &s.delivery_effects,
+     ));
+     expected.extend(run_cap_leaves("run_cap", &s.run_cap));
++    expected.extend(run_stop_leaves("run_stop", &s.run_stop));
+     expected.extend(crash_place_leaves("crash_place", &s.crash_place));
+     expected.extend(crash_phase_leaves("crash_phase", &s.crash_phase));
+     expected.extend(victim_swap_leaves("victim_swap", &s.victim_swap));
+@@ -1564,6 +1738,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "termination",
+         "delivery_effects",
+         "run_cap",
++        "run_stop",
+         "crash_place",
+         "crash_phase",
+         "victim_swap",

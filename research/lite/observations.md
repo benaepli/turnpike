@@ -5521,3 +5521,92 @@ against 173; depth>=11 1.15 on 31 against 27, depth>=12 1.00 on 23
 against 23, depth>=13 1.11 on 10 against 9 - the tail is not cut on
 what the counts can say. The per-second read sits between the
 refutation edge and the band. Two chunks more.
+
+**Four chunks: refuted on the primary, closed.** Cross-binary on seeds
+1000 to 1003: depth>=8 per run 1.037, 1.002, 0.935, 1.040 (pooled 1.003
+[0.981, 1.026]); per explore-second 1.100, 1.071, 1.027, 1.065,
+geometric mean 1.065 [1.018, 1.115] - below the band's edge of 1.10 and
+below the refutation edge of 1.08; runs per second 1.06 to 1.10;
+depth>=10 per run 1.03 on 647 against 593; no violation on 2.5M
+candidate runs. Within the binary, probes out, 1,172,632 treated
+against 1,173,869: steps per run 0.836 (grid 0.795, no-purgatory 0.776,
+post-fault-2 0.777, aos 0.894, grid-short 0.954), against the gate of
+0.75 on every chunk; depth>=8 per run 0.984 [0.953, 1.016] inside the
+guard, per step 1.18; depth>=9 0.973; depth>=10 0.959 on 316 against
+330; depth>=11 0.80 [0.46, 1.39] on 55 against 69; depth>=12 0.68 [0.35,
+1.32] on 36 against 53; depth>=13 0.72 on 15 against 21. The counters:
+399,442 stops on 1,049,988 armed runs, 318,787 no-key and 153,721
+pending-event fallbacks, 461M steps saved (a sixth of the treated
+half's), 38,571 keyed probes, 451 over-stop completions (1.2 percent),
+settles learned at 935 to 2,411 steps across the chunks. The exported
+histograms price the family: the settle's p50 is under 64 steps, its p90
+under 256 and its p99 under 1,024 (mean 100), so a quantile with
+headroom keys the stop at a thousand steps past a recover that lands
+near step 63; the response gap's p50 is under 32 and its p99 under
+1,024 as well, so the response-quiescent sibling would key at the same
+distance from the last response and save about as little; and the
+absolute last-crossing-step histogram did not export (its keys are
+empty in the record; the implementer's naming differs from the reader's,
+noted, not chased). The mechanism fired exactly as built and it is not
+worth merging: the saving is a sixth of the steps because the tail of
+fault-crossing deliveries is long, the per-second gain of about six
+percent at a half share sits inside what the layout band can carry,
+and the deep rungs lean down a fifth to a third on the treated half on
+counts that cannot separate, which is the risk the round was told to
+price and the one this loop cannot afford at depth 13. Closed; patch
+kept under research/lite/patches/settle-stop. The family's lesson: the
+run's tail is not quiet - dead incarnations' messages and client
+responses keep arriving a thousand steps past the recovery - so no
+quiescence key finds a clean cut without a constant, and the fixed
+1,500-step arm's per-run depth is not evidence that a run's story is
+over at a learnable point, only that the chain fits inside 1,500 steps
+of the run's start.
+
+## Direction review at iteration 60
+
+**Violations.** None in the round's 2.5M candidate runs; one in 10.3M
+candidate runs since iteration 56.
+
+**What the two closes measured.** Iteration 59: a hold-reading clause on
+the overtaken core reads early crashes up and costs a fifth at depth 8;
+a clause must carry the placed crash by construction, as the absorber
+core does. Iteration 60: a learned stop keyed on the settling of fault-
+crossing traffic saves a sixth of the steps and leans against the deep
+tail; the run's tail churns, so quiescence is not learnable without a
+constant. The steps lever stays with the user's declined dose.
+
+**Where the selector still leaves the prize.** The learners live one
+chunk and their cells are young: a grid cell sees 1,400 to 3,500 runs,
+the aos cell 87,000, and the one mature cell is the one whose coin
+share is 0.014 against 0.16 to 0.22 on the grid cells and whose picks
+are sharpest. The four grid arms walk the same 54 configurations with
+overlays that change the budget, purgatory and the post-fault op count,
+not the protocol or the arms' meaning, and each arm's learner keeps its
+own cell for the same configuration. Pooling the learners' cells across
+the campaign arms by configuration - one cell per configuration index
+shared by the arms, or an arm cell shrunk toward the configuration-wide
+posterior with the warmup pseudo-count, no constant - matures every
+grid cell about fourfold inside the chunk, which the aos cell says is
+worth a lower coin share and sharper picks; on a panel member (arm -1)
+nothing changes. That is the next mechanism, and it is the in-explorer
+form of the state-across-chunks question, which stays with the user.
+
+**Steering audit, iterations 59 and 60.** Two directives, two builds,
+two closes, five chunks bought in total, one stopped early on its gate.
+The panel caveat is unchanged.
+
+**Verdict and the next directive.** Iteration 61 proposes the pooling of
+the selector's cells across campaign arms by configuration index, with
+the maturity of the pooled cells (observations per cell, leader
+margins, the coin share by arm) as the observables, graded cross-binary
+on depth>=8 per explore-second with the per-run read as the guard, and
+the arm-specific effects (the 1,500-step arm learns under a different
+budget) as the risk to price. Variants on how the pooling shrinks are
+welcome; a constant is not.
+
+Digest for the user: iterations 59 and 60 both closed - the depth-10
+reward for learner A cost a fifth at depth 8, and the learned stop saved
+a sixth of the steps for a lean against the deep tail. The tree stays
+at the iteration-58 merge. Next: pool the learners' cells across the
+campaign arms by configuration so the grid cells mature fourfold within
+a chunk, which is what the one mature cell says the selector wants.

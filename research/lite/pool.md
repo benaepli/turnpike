@@ -3366,9 +3366,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## recover-settle-learned-stop
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 60 (judge gain 7, cost 0, rank 1; bit 1024 recoverSettleStop,
-  treated half, probes of both kinds exempt; implementing) | parent:
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 60 on four chunks (cross-binary depth>=8 per second 1.065
+  [1.018, 1.115] against refutation at 1.08; treated steps 0.836 against
+  the 0.75 gate, the settle's heavy tail keying the stop at 935 to 2,411
+  steps; the deep tail leans down on the treated half, depth>=12 0.68 on
+  36 vs 53; patch kept under research/lite/patches/settle-stop) | parent:
   learned-run-cap-probe-p99
 - A run on the treated half ends once every fault plan event has
   completed, it has applied a recover and taken a fault-crossing
