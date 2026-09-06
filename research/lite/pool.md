@@ -3481,9 +3481,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## causal-window-client-first-defer
 
-- kind: arm | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 63 (judge gain 6, cost 0, rank 1; bit 131072 clientFirstWindow,
-  a quarter of the new causal-window axis; implementing) | parent:
+- kind: arm | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 63 on two chunks (cross-binary flat at every rung; the deep
+  tail on CLIENT_FIRST runs leans down, depth>=11 6 vs 19, depth>=12 3 vs
+  15; the merged rewards read the window flat so the learners hold it at
+  the coin; patch kept under research/lite/patches/causal-window for the
+  segment table, the mask, the lift and the competitors census) | parent:
   ghost-consequence-sends-deferred-until-post-fault-client-response
 - While a post-fault client operation is outstanding (one window per
   operation, 64 steps at most), the network draw skips same-role remote

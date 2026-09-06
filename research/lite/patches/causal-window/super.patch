@@ -1,0 +1,30 @@
+diff --git a/research/lite/tools/pool_cells.py b/research/lite/tools/pool_cells.py
+index b08c150..4e52c68 100755
+--- a/research/lite/tools/pool_cells.py
++++ b/research/lite/tools/pool_cells.py
+@@ -21,7 +21,7 @@ BITS = {1:"crashPlaced",2:"runCapProbe",4:"timerSteerOff",8:"crashHoldDrawn",16:
+ 8388608:"crashPhaseOnLanding",1048576:"replaySlot",2097152:"replayPrefix",33554432:"ghostPendingTimerHold",
+ 67108864:"originAlternate",536870912:"pairOrderGhostOnly",16777216:"freshFirstPair",8192:"replyBeforeNews",
+ 2048:"newsBeforeReply",32768:"pairSendOrder",262144:"clientFanoutRelease",1073741824:"restartAfterPeerSettle",
+-134217728:"clientDeferralOnly",4194304:"staleFirstPair",268435456:"clientProgressRelease",131072:"crashQuietBySecond"}
++134217728:"consequenceDefer",4194304:"staleFirstPair",268435456:"clientProgressRelease",131072:"clientFirstWindow"}
+ PROBES = 2 | 4
+ Z = 2.7
+ OD = 1.3
+diff --git a/research/orchestrator/src/decide.ts b/research/orchestrator/src/decide.ts
+index 9916d22..40753a7 100644
+--- a/research/orchestrator/src/decide.ts
++++ b/research/orchestrator/src/decide.ts
+@@ -67,10 +67,10 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+   { bit: 32768, name: "pairSendOrder" },
+   { bit: 262144, name: "clientFanoutRelease" },
+   { bit: 1073741824, name: "restartAfterPeerSettle" },
+-  { bit: 134217728, name: "clientDeferralOnly" },
++  { bit: 134217728, name: "consequenceDefer" },
+   { bit: 4194304, name: "staleFirstPair" },
+   { bit: 268435456, name: "clientProgressRelease" },
+-  { bit: 131072, name: "crashQuietBySecond" },
++  { bit: 131072, name: "clientFirstWindow" },
+ ];
+ 
+ // The tag that marks a run-cap probe. Probes are about 3% of runs, are

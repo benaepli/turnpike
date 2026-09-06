@@ -6091,3 +6091,90 @@ never by the coin-drawn contrast. The session runs its four chunks for
 the depth-10 and depth-11 counts; the decision at the end weighs the
 cross-binary deep rungs and the matched depth-10 read, with no merge
 claimed below the pre-committed 1.75 at depth 11.
+
+**Two chunks, stopped, closed.** Seed 1001 added: runs 619,020 against
+603,480, depth>=8 9,539 against 9,285, depth>=11 32 against 27, no
+violation. Pooled cross-binary per run: depth>=8 1.008 [0.977, 1.041],
+depth>=10 1.04 on 331 against 314, depth>=11 1.02 on 56 against 54,
+depth>=12 1.01 on 41 against 40, depth>=13 20 against 10 - flat at every
+rung the counts can read. Within the binary, CLIENT_FIRST against stock
+on learner and coin runs (the learners' selection in it, co-bits
+matched by the grader): depth>=8 1.038 [0.976, 1.104], depth>=10 1.13
+[0.69, 1.85] on 62 against 102, depth>=11 0.585 [0.14, 2.47] on 6
+against 19, depth>=12 0.37 on 3 against 15, depth>=13 0 against 5,
+steps per run 0.995. The letter is not refuted (an upper edge of 2.47
+against 1.25) and the direction of every deep count is down; two more
+chunks cannot turn 6 against 19 into the pre-committed 1.75, so the
+session stops here. Closed; the patch is kept for its machinery - the
+per-origin segment table, the mask in the eligibility closure, the
+liveness lift and the competitors-at-open census are reusable by any
+delivery-side direction. What the round measured: the window covered
+about 64 of the round trip's 85 or more steps and the campaign did not
+move; the deep tail on the masked runs leans down, consistent with the
+StartView's delivery being pushed past the window rather than ordered
+behind the write; and the standing fact that a direction acting past
+depth 10 is invisible to rewards shaped by depth 8.
+
+## Direction review at iteration 63
+
+**Violations.** None in the round's 1.23M candidate runs; one in 16.3M
+candidate runs since iteration 56.
+
+**What the last four rounds established.** Iteration 60: the run's tail
+churns, so no quiescence stop finds a clean cut without a constant.
+Iteration 61: pooling the selector's cells across arms matures them and
+pays about five percent, merged. Iteration 62: the 10-to-11 loss is a
+race against control traffic in flight since label 8, verified against
+the spec after two rounds of premises fell to it. Iteration 63: a
+delivery-side window that masks that traffic for the life of a client
+operation, built and fired, did not move the campaign and leaned
+against the deep tail; and the loop found the boundary it now sits
+at - on this tree a direction is worth its coin share unless a reward
+sees it, the merged rewards are shaped by depth 8, and the randomized
+contrast that graded every arm before the selector now lives only in
+the undecided cells.
+
+**The boundary, stated.** The selector is the tree's search: it
+chooses per cell among the arms by three rewards, and it has collected
+what those rewards can see. Past depth 10 the rewards see nothing, the
+chain's events are races among specific in-flight records, and the
+counts at depth 11 to 13 (about 30, 20 and 5 per chunk campaign-wide)
+decide only a 2x at four chunks. Three ways forward exist and each is a
+different kind of work. A reward shaped past depth 10, built as a
+conjunction on the absorber core that carries the placed crash (learner
+C's, own-run rate 0.05) with the write-before-view-change order the
+chain requires, at an own-run base of 0.01 or above - the one move that
+stays inside the loop's rules and would let the learners see the
+directions past 10, the hold and the window included; a learner state
+carried across a session's chunks, which is harness-side and the
+user's; and the exploration floor, which is a constant. The first is
+the next directive.
+
+**Steering audit, iterations 60 to 63.** Four directives, four builds,
+one merge, three closes, two rounds of premises corrected against the
+spec, the chain between labels 8 and 13 now written down step by step
+with the spec's line numbers. About fourteen hours. Every close left a
+patch with reusable machinery.
+
+**Verdict and the next directive.** Iteration 64 proposes rewards
+shaped past depth 10 for learner C's slot or a fourth learner: a
+conjunction on the acted-absorber cycle (which carries the placed
+crash) with the post-fault write's acknowledgement landing at a node
+that never restarted before that node takes a fault-crossing delivery
+from a restarted sender - the label-11-before-12 order stated without a
+handler name - or with the reads after that; own-run base rate at or
+above 0.01; the sign it must read on the coin table for the hold, the
+window and the retarget; read on the coin tables first and on depth 11
+per run against the coin third as the lean. The causal-window patch's
+segment table is the vocabulary such a reward needs and is on the
+shelf.
+
+Digest for the user: iterations 62 and 63 corrected the chain's
+mechanics against the spec (the 10-to-11 loss is a race against control
+traffic sent at label 8) and tried a delivery-side window against it;
+it fired, cost nothing, and did not move the campaign, with the deep
+tail leaning down; closed after two chunks. The tree stays at the
+iteration-61 merge. The loop is at a boundary: the selector's rewards
+see depth 8 and the chain past 10 is invisible to them. Next: a reward
+shaped past depth 10 on the absorber core. The harness-side question
+of learner state across chunks stays yours.

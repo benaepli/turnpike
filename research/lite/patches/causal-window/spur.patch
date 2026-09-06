@@ -1,0 +1,1976 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index f7fa8db..6c26e05 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -1,6 +1,7 @@
+ pub mod arm_selector;
+ pub mod config_override;
+ mod core;
++pub mod causal_window;
+ pub mod client_anchor;
+ pub mod crash_phase;
+ mod coverage;
+diff --git a/spur-core/src/simulator/arm_selector.rs b/spur-core/src/simulator/arm_selector.rs
+index c90b227..b84dc19 100644
+--- a/spur-core/src/simulator/arm_selector.rs
++++ b/spur-core/src/simulator/arm_selector.rs
+@@ -1161,8 +1161,8 @@ mod tests {
+         assert!(learner_runs > 250, "only {learner_runs} learner runs at share {share}");
+         assert_eq!(d(after.chosen_runs, before.chosen_runs), learner_runs);
+         let sum = |v: &[u64], w: &[u64]| v.iter().zip(w).map(|(x, y)| x - y).sum::<u64>();
+-        assert_eq!(sum(&after.chosen_by_direction, &before.chosen_by_direction), 5 * learner_runs);
+-        assert_eq!(d(after.axis_draws, before.axis_draws), 5 * learner_runs);
++        assert_eq!(sum(&after.chosen_by_direction, &before.chosen_by_direction), AXES as u64 * learner_runs);
++        assert_eq!(d(after.axis_draws, before.axis_draws), AXES as u64 * learner_runs);
+         for a in 0..AXES {
+             let micro = after.leader_margin_micro[a] - before.leader_margin_micro[a];
+             assert!(
+@@ -1308,7 +1308,7 @@ mod tests {
+                 2
+             );
+             // The per-arm table: the cell's arm is 2, row 3 of eight,
+-            // twelve directions per row; every other row is untouched.
++            // `DIRECTIONS` directions per row; every other row is untouched.
+             let row = 3 * DIRECTIONS + d;
+             let other = d;
+             assert_eq!(
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f858656..83dc75c 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -12,6 +12,7 @@ use crate::simulator::core::state::{
+ };
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+ use crate::simulator::core::values::{Env, Value};
++use crate::simulator::causal_window::{self, RecordKey, RecordView};
+ use crate::simulator::crash_phase;
+ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+@@ -28,6 +29,8 @@ use crate::simulator::util_stats::DeliveryBias;
+ use imbl::OrdSet;
+ use log::warn;
+ use rand::Rng;
++use std::cell::Cell;
++use std::collections::HashSet;
+ 
+ /// A resolved deliver reservation. Runnables matching this are excluded from scheduling
+ /// until the deliver's DAG dependencies are met.
+@@ -829,6 +832,11 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     } else {
+         Vec::new()
+     };
++    // The records the causal window skips at this step, read once on a
++    // run with a window open or a flag unreleased and never on any other
++    // run. The skip is lifted for the step when it leaves nothing eligible.
++    let skipped = causal_window_skipped(state);
++    let skip_on = Cell::new(skipped.is_some());
+     let is_ineligible = |r: &Runnable<H>| {
+         if crash_block_mask != 0
+             && let Runnable::Crash { node_id, .. } = r
+@@ -844,6 +852,13 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             util_stats::record_victim_crashed_hold();
+             return true;
+         }
++        if skip_on.get()
++            && let Some(keys) = &skipped
++            && let Runnable::Record(rec) = r
++            && keys.contains(&(rec.origin_node.index, rec.send_ordinal))
++        {
++            return true;
++        }
+         reservations.iter().any(|res| res.matches(r)) || is_fifo_blocked(r, &link_deliver_seq)
+     };
+ 
+@@ -904,37 +919,46 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     // Build QueueInfo, accounting for strict_timers eligibility AND reservations.
+     // Subtract reserved items so the QueueSelector doesn't route to queues
+     // where all items are reserved (wastes iterations in fully-constrained plans).
+-    let timer_queue_size = if strict_timers {
+-        state
+-            .timer_queue
+-            .iter()
+-            .filter(|r| {
+-                if is_ineligible(r) {
+-                    return false;
+-                }
+-                if let Runnable::Timer(t) = r {
+-                    t.label.as_ref().is_none_or(|l| {
+-                        state.allowed_timers.contains(&(t.node.index, l.clone()))
+-                    })
+-                } else {
+-                    true
+-                }
+-            })
+-            .count()
+-    } else {
+-        state.timer_queue.iter().filter(|r| !is_ineligible(r)).count()
+-    };
+-
+-    let info = QueueInfo {
+-        local_queue_sizes: state
+-            .local_queues
+-            .iter()
+-            .map(|q| q.iter().filter(|r| !is_ineligible(r)).count())
+-            .collect(),
+-        network_queue_size: state.network_queue.iter().filter(|r| !is_ineligible(r)).count(),
+-        timer_queue_size,
+-        step: state.crash_info.current_step,
++    let compute_info = || {
++        let timer_queue_size = if strict_timers {
++            state
++                .timer_queue
++                .iter()
++                .filter(|r| {
++                    if is_ineligible(r) {
++                        return false;
++                    }
++                    if let Runnable::Timer(t) = r {
++                        t.label.as_ref().is_none_or(|l| {
++                            state.allowed_timers.contains(&(t.node.index, l.clone()))
++                        })
++                    } else {
++                        true
++                    }
++                })
++                .count()
++        } else {
++            state.timer_queue.iter().filter(|r| !is_ineligible(r)).count()
++        };
++        QueueInfo {
++            local_queue_sizes: state
++                .local_queues
++                .iter()
++                .map(|q| q.iter().filter(|r| !is_ineligible(r)).count())
++                .collect(),
++            network_queue_size: state.network_queue.iter().filter(|r| !is_ineligible(r)).count(),
++            timer_queue_size,
++            step: state.crash_info.current_step,
++        }
+     };
++    let mut info = compute_info();
++    if skipped.is_some()
++        && state.causal_window.window().is_some()
++        && info.network_queue_size == 0
++        && !state.network_queue.is_empty()
++    {
++        util_stats::record_causal_window_empty_masked_step(state.causal_window.arm);
++    }
+ 
+     let record_unscheduled = |audit: &Option<SteerPreference>| {
+         if let Some(a) = audit {
+@@ -944,58 +968,37 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+ 
+     let routed = route_by_terms(state, &info, terms, rng);
+     rng.use_stream(Stream::QueueChoice);
++    let mut lifted = false;
+     let selection = match routed {
+         Some(s) => s,
+         None => {
+-            // Steer-off probe runs and steps with no eligible timer take the
+-            // stock roll. The learned multiplier is read for the context of
+-            // the first eligible timer in queue order; the features are
+-            // copied into owned locals because the selector call below must
+-            // not overlap a borrow of `state`.
+-            let bias: Option<f64> = if timer_ctx_mode == timer_context::RunMode::Steered
+-                && info.timer_queue_size > 0
++            let mut picked = pick_queue(
++                state,
++                &info,
++                &is_ineligible,
++                strict_timers,
++                timer_ctx_mode,
++                selector,
++                rng,
++            );
++            if picked.is_none()
++                && skip_on.get()
++                && skipped.as_ref().is_some_and(|keys| !keys.is_empty())
+             {
+-                let head_timer_node = state.timer_queue.iter().find_map(|r| {
+-                    if is_ineligible(r) {
+-                        return None;
+-                    }
+-                    if let Runnable::Timer(t) = r {
+-                        if strict_timers
+-                            && let Some(l) = &t.label
+-                            && !state.allowed_timers.contains(&(t.node.index, l.clone()))
+-                        {
+-                            return None;
+-                        }
+-                        Some(t.node)
+-                    } else {
+-                        None
+-                    }
+-                });
+-                head_timer_node.and_then(|node| {
+-                    let ledger = state.send_ledger.get(node.index).copied().unwrap_or_default();
+-                    let cell = timer_context::cell_key(
+-                        state.pending_deliveries_to(node),
+-                        ledger.in_flight,
+-                        state.max_timer_inert_streak(node.index),
+-                        state.incarnation(node) > 0
+-                            && state.entries_since_restart(node.index) < 8,
+-                    );
+-                    timer_context::multiplier(cell)
+-                })
+-            } else {
+-                None
+-            };
+-            let picked = match bias {
+-                Some(m) if selector.supports_timer_bias() => {
+-                    util_stats::record_timer_context_bias(m);
+-                    selector.select_timer_biased(&info, m, rng)
+-                }
+-                Some(_) => {
+-                    util_stats::record_timer_context_excluded();
+-                    selector.select(&info, rng)
+-                }
+-                None => selector.select(&info, rng),
+-            };
++                skip_on.set(false);
++                lifted = true;
++                util_stats::record_causal_window_lift(state.causal_window.arm);
++                info = compute_info();
++                picked = pick_queue(
++                    state,
++                    &info,
++                    &is_ineligible,
++                    strict_timers,
++                    timer_ctx_mode,
++                    selector,
++                    rng,
++                );
++            }
+             match picked {
+                 Some(s) => s,
+                 None => {
+@@ -1180,6 +1183,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             if state.crash_info.currently_crashed.contains(&timer.node) {
+                 return Ok(ScheduleResult::None);
+             }
++            util_stats::record_causal_window_timer_fire(
++                state.causal_window.arm,
++                state.causal_window.window().is_some(),
++            );
+ 
+             if let Some(chan) = state.channels.get_mut(&timer.channel) {
+                 match chan.pop_waiting_reader() {
+@@ -1422,6 +1429,61 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         );
+                         (r.pc, key, inflight, cell, state.node_state_token(record_dest))
+                     });
++                    // The segment this entry begins, on the runs that keep
++                    // the table: what it was entered by is read off the
++                    // ledger before the entry overwrites it, and its send
++                    // range and effect are closed after the handler ran.
++                    let segment = state.causal_window.enabled().then(|| {
++                        let key = (record_origin.index, r.send_ordinal);
++                        let entry = if message_entry {
++                            causal_window::Entry::Remote {
++                                origin: record_origin.index,
++                                incarnation: r.origin_incarnation,
++                            }
++                        } else if timer_entry {
++                            causal_window::Entry::Timer
++                        } else if record_origin == record_dest && r.pc == record_entry_pc {
++                            causal_window::Entry::LocalFirst
++                        } else {
++                            causal_window::Entry::Continuation
++                        };
++                        let ledger = state
++                            .send_ledger
++                            .get(record_dest.index)
++                            .copied()
++                            .unwrap_or_default();
++                        let release = state.causal_window.note_dispatch(
++                            key,
++                            record_dest.index,
++                            lifted,
++                        );
++                        if let Some(release) = release {
++                            util_stats::record_causal_window_release(
++                                state.causal_window.arm,
++                                release,
++                            );
++                        }
++                        let flaggable = message_entry
++                            && state.causal_window.arm == causal_window::Arm::Consequence
++                            && state.incarnation(record_dest) > 0
++                            && state.fault_crossing(record_origin, r.origin_incarnation);
++                        let caused_peer = message_entry
++                            && state.causal_window.arm == causal_window::Arm::Consequence
++                            && record_origin.role == record_dest.role
++                            && state.client_anchor.caused_post_fault(r.causal_operation_id);
++                        (
++                            state.causal_window.begin_segment(
++                                record_dest.index,
++                                key,
++                                entry,
++                                ledger.issued,
++                                ledger.trigger,
++                            ),
++                            state.node_state_token(record_dest),
++                            flaggable,
++                            caused_peer,
++                        )
++                    });
+                     if message_entry {
+                         state.note_handler_entry(record_dest.index, HandlerTrigger::Delivery);
+                     } else if timer_entry {
+@@ -1438,6 +1500,20 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         purgatory_config,
+                         rng,
+                     )?;
++                    if let Some((open, before, flaggable, caused_peer)) = segment {
++                        let acted = state.node_state_token(record_dest) != before;
++                        let issued = state
++                            .send_ledger
++                            .get(record_dest.index)
++                            .map(|l| l.issued)
++                            .unwrap_or(open.from);
++                        let flag_step = (flaggable && acted).then_some(entry_step);
++                        let closed = state.causal_window.end_segment(open, issued, acted, flag_step);
++                        util_stats::record_causal_window_flagged(state.causal_window.arm, closed);
++                        if caused_peer && acted {
++                            state.causal_window.note_post_fault_entry(record_dest.index, entry_step);
++                        }
++                    }
+                     if let Some(before) = ghost {
+                         state.note_ghost_delivery(record_dest.index, entry_step, before);
+                         // A dead-incarnation record is a ghost, so the
+@@ -1558,6 +1634,212 @@ fn absorber_decision<H: HashPolicy>(
+     )
+ }
+ 
++/// The queue a step draws from when no term routes it: the stock roll, or
++/// the timer-biased roll on a steered run with an eligible timer, whose
++/// learned multiplier is read for the context of the first eligible timer
++/// in queue order. The features are copied into owned locals because the
++/// selector call must not overlap a borrow of `state`.
++fn pick_queue<H: HashPolicy, Q: QueueSelector, R: StreamRng>(
++    state: &State<H>,
++    info: &QueueInfo,
++    is_ineligible: &impl Fn(&Runnable<H>) -> bool,
++    strict_timers: bool,
++    timer_ctx_mode: timer_context::RunMode,
++    selector: &mut Q,
++    rng: &mut R,
++) -> Option<QueueSelection> {
++    let bias: Option<f64> = if timer_ctx_mode == timer_context::RunMode::Steered
++        && info.timer_queue_size > 0
++    {
++        let head_timer_node = state.timer_queue.iter().find_map(|r| {
++            if is_ineligible(r) {
++                return None;
++            }
++            if let Runnable::Timer(t) = r {
++                if strict_timers
++                    && let Some(l) = &t.label
++                    && !state.allowed_timers.contains(&(t.node.index, l.clone()))
++                {
++                    return None;
++                }
++                Some(t.node)
++            } else {
++                None
++            }
++        });
++        head_timer_node.and_then(|node| {
++            let ledger = state.send_ledger.get(node.index).copied().unwrap_or_default();
++            let cell = timer_context::cell_key(
++                state.pending_deliveries_to(node),
++                ledger.in_flight,
++                state.max_timer_inert_streak(node.index),
++                state.incarnation(node) > 0 && state.entries_since_restart(node.index) < 8,
++            );
++            timer_context::multiplier(cell)
++        })
++    } else {
++        None
++    };
++    match bias {
++        Some(m) if selector.supports_timer_bias() => {
++            util_stats::record_timer_context_bias(m);
++            selector.select_timer_biased(info, m, rng)
++        }
++        Some(_) => {
++            util_stats::record_timer_context_excluded();
++            selector.select(info, rng)
++        }
++        None => selector.select(info, rng),
++    }
++}
++
++/// How a queued remote record looks to the causal window's skip tests.
++fn causal_window_view<H: HashPolicy>(state: &State<H>, rec: &Record<H>) -> RecordView {
++    RecordView {
++        key: (rec.origin_node.index, rec.send_ordinal),
++        dest: rec.node.index,
++        same_role: rec.origin_node.role == rec.node.role,
++        caused_post_fault: state.client_anchor.caused_post_fault(rec.causal_operation_id),
++        dest_incarnation: state.incarnation(rec.node),
++    }
++}
++
++/// The keys of the network-queue records the causal window skips at this
++/// step, or `None` on a run with nothing open, which reads the queue not
++/// at all. Each record skipped for the first time is counted.
++fn causal_window_skipped<H: HashPolicy>(state: &mut State<H>) -> Option<HashSet<RecordKey>> {
++    if !state.causal_window.active() {
++        return None;
++    }
++    let arm = state.causal_window.arm;
++    let mut keys = HashSet::new();
++    let mut skips = Vec::new();
++    for r in &state.network_queue {
++        let Runnable::Record(rec) = r else { continue };
++        if rec.origin_node == rec.node {
++            continue;
++        }
++        let view = causal_window_view(state, rec);
++        let skip = state.causal_window.skip(&view);
++        if skip != causal_window::Skip::None {
++            keys.insert(view.key);
++            skips.push(skip);
++        }
++    }
++    for skip in skips {
++        util_stats::record_causal_window_skip(arm, skip);
++    }
++    Some(keys)
++}
++
++/// Which senders' records the open window skips at this moment among the
++/// records queued to the first `servers` nodes, by the class of their
++/// sender.
++fn causal_window_competitors<H: HashPolicy>(state: &State<H>, servers: usize) -> util_stats::Competitors {
++    let mut out = util_stats::Competitors::default();
++    for r in &state.network_queue {
++        let Runnable::Record(rec) = r else { continue };
++        if rec.origin_node == rec.node || rec.node.index >= servers {
++            continue;
++        }
++        if !state.causal_window.masks(&causal_window_view(state, rec)) {
++            continue;
++        }
++        if state.fault_crossing(rec.origin_node, rec.origin_incarnation) {
++            out.ghost = true;
++        } else if state.incarnation(rec.origin_node) > 0 {
++            out.live_restarted = true;
++        } else {
++            out.live_never_restarted = true;
++        }
++    }
++    out
++}
++
++/// The network-queue records the flag rule holds at this moment.
++fn causal_window_held<H: HashPolicy>(state: &State<H>) -> usize {
++    state
++        .network_queue
++        .iter()
++        .filter(|r| match r {
++            Runnable::Record(rec) => {
++                rec.origin_node != rec.node
++                    && state.causal_window.holds(&causal_window_view(state, rec))
++            }
++            _ => false,
++        })
++        .count()
++}
++
++/// A window opened for `op_id` at `step`: read what it found queued.
++fn causal_window_opened<H: HashPolicy>(state: &State<H>, op_id: i32, servers: usize) {
++    let first_op = state.client_anchor.first_post_fault_op == Some(op_id);
++    util_stats::record_causal_window_opened(
++        state.causal_window.arm,
++        causal_window_competitors(state, servers),
++        first_op,
++    );
++}
++
++/// A post-fault client operation `op_id` was invoked at `step`; `first`
++/// says it is the run's first. Opens its window on the window direction and
++/// reads the flagged records still held on the flag direction.
++pub fn causal_window_invoked<H: HashPolicy>(
++    state: &mut State<H>,
++    op_id: i32,
++    step: i32,
++    first: bool,
++    servers: usize,
++) {
++    let arm = state.causal_window.arm;
++    util_stats::record_causal_window_post_fault_invocation(arm);
++    if arm == causal_window::Arm::Consequence && first && util_stats::enabled() {
++        util_stats::record_causal_window_first_invocation(arm, causal_window_held(state));
++    }
++    if state.causal_window.invoked(op_id, step) {
++        causal_window_opened(state, op_id, servers);
++    }
++}
++
++/// A step begins at `step` on a run that keeps the table; `idle` says no
++/// post-fault operation is held or outstanding and `outstanding` lists the
++/// ones in flight in id order.
++pub fn causal_window_tick<H: HashPolicy>(
++    state: &mut State<H>,
++    step: i32,
++    idle: bool,
++    outstanding: &[i32],
++    servers: usize,
++) {
++    let tick = state.causal_window.tick(step, idle, outstanding);
++    let arm = state.causal_window.arm;
++    if let Some(close) = tick.closed {
++        util_stats::record_causal_window_closed(arm, close);
++    }
++    if let Some(op) = tick.opened {
++        causal_window_opened(state, op, servers);
++    }
++}
++
++/// The client operation `op_id` completed at `step`.
++pub fn causal_window_completed<H: HashPolicy>(
++    state: &mut State<H>,
++    op_id: i32,
++    step: i32,
++    outstanding: &[i32],
++    servers: usize,
++) {
++    let post_fault = state.client_anchor.caused_post_fault(Some(op_id));
++    let done = state.causal_window.completed(op_id, step, post_fault, outstanding);
++    let arm = state.causal_window.arm;
++    if let Some(close) = done.closed {
++        util_stats::record_causal_window_closed(arm, close);
++    }
++    if let Some(op) = done.opened {
++        causal_window_opened(state, op, servers);
++    }
++}
++
+ /// The network-queue index a step takes once the within-queue draw has
+ /// settled on `drawn`. This is `drawn` itself on a run that does not prefer
+ /// fresh records, and at any step where the drawn item is not a remote
+@@ -1865,6 +2147,22 @@ fn recover_crashed_node<H: HashPolicy, L: Logger, F: Feedback>(
+     );
+     F::note_recovery(feedback, node_id);
+ 
++    // The restart's sends form a segment of their own, keyed by the first
++    // ordinal the restart issues, which is the recovery record's.
++    let restart = state.causal_window.enabled().then(|| {
++        let issued = state
++            .send_ledger
++            .get(node_id.index)
++            .map(|l| l.issued)
++            .unwrap_or(0);
++        state.causal_window.begin_segment(
++            node_id.index,
++            (node_id.index, issued),
++            causal_window::Entry::Restart,
++            issued,
++            HandlerTrigger::None,
++        )
++    });
+     state.nodes[node_id.index] = Env::<H>::default();
+     reinit_node::<H, L, F>(
+         topology,
+@@ -1879,6 +2177,14 @@ fn recover_crashed_node<H: HashPolicy, L: Logger, F: Feedback>(
+         purgatory_config,
+         rng,
+     )?;
++    if let Some(open) = restart {
++        let issued = state
++            .send_ledger
++            .get(node_id.index)
++            .map(|l| l.issued)
++            .unwrap_or(open.from);
++        state.causal_window.end_segment(open, issued, true, None);
++    }
+ 
+     let queued = std::mem::take(&mut state.crash_info.queued_messages);
+     for (dest, record) in queued {
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index eb5de70..5bdaa89 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -5,6 +5,7 @@ use crate::simulator::core::eval::store;
+ use crate::simulator::core::partition::{PartitionInfo, PartitionType};
+ use crate::simulator::core::steer_terms::Term;
+ use crate::simulator::core::values::{ChannelId, Env, LinkId, Value};
++use crate::simulator::causal_window;
+ use crate::simulator::crash_phase;
+ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+@@ -635,6 +636,10 @@ pub struct State<H: HashPolicy> {
+     /// with the client operations it is following. Scheduling bookkeeping,
+     /// excluded from `signature()`.
+     pub client_anchor: client_anchor::RunState,
++    /// The direction this run takes on the causal-window axis, with the
++    /// segment table and the windows and flags it reads. Scheduling
++    /// bookkeeping, excluded from `signature()`.
++    pub causal_window: causal_window::RunState,
+     /// Where the once-per-run signal fired, when it did: the step, and the
+     /// number of scheduling draws taken by then when the run records its
+     /// draws. Observation only, excluded from `signature()`.
+@@ -826,6 +831,7 @@ impl<H: HashPolicy> State<H> {
+             fresh_first: fresh_first::RunState::default(),
+             pair_order: pair_order::RunState::default(),
+             client_anchor: client_anchor::RunState::default(),
++            causal_window: causal_window::RunState::default(),
+             replay_cut: None,
+             overtaken_ghost_acted: false,
+             absorber_cycle_fresh_peer: false,
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index f051107..00887e0 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -5,8 +5,10 @@ use crate::simulator::core::{
+     Continuation, Env, LogEntry, Logger, NodeId, OpKind, Operation, PurgatoryConfig,
+     QueuePolicyConfig, Record, Reservation, Runnable, RunnableCategory,
+     RuntimeError, SchedulePolicy, ScheduleResult, State, TraceEntry, Value, WithinQueueSelector,
+-    make_local_env, schedule_runnable,
++    causal_window_completed, causal_window_invoked, causal_window_tick, make_local_env,
++    schedule_runnable,
+ };
++use crate::simulator::causal_window;
+ use crate::simulator::client_anchor::{self, HoldQueue, Released};
+ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::feedback::Feedback;
+@@ -242,6 +244,7 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     policy: &SchedulePolicy,
+     purgatory_config: &PurgatoryConfig,
+     server_role: NameId,
++    servers: usize,
+     plan_node: NodeIndex,
+     op_spec: &ClientOpSpec,
+     post_fault: bool,
+@@ -256,11 +259,13 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     if post_fault {
+         let op_id = *op_id_counter;
+         let step = path_state.state.crash_info.current_step;
++        let first = path_state.state.client_anchor.first_post_fault_op.is_none();
+         path_state
+             .state
+             .client_anchor
+             .first_post_fault_op
+             .get_or_insert(op_id);
++        causal_window_invoked(&mut path_state.state, op_id, step, first, servers);
+         if path_state.state.client_anchor.arm == client_anchor::Arm::Rush {
+             path_state.state.client_anchor.rushed_ops.insert(op_id);
+             util_stats::record_client_anchor_rush_op();
+@@ -327,6 +332,21 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     )
+ }
+ 
++/// The operations in flight that were invoked after the run's first
++/// crash, in id order.
++fn post_fault_outstanding<H: HashPolicy>(
++    state: &State<H>,
++    in_progress: &HashMap<i32, NodeIndex>,
++) -> Vec<i32> {
++    let mut ops: Vec<i32> = in_progress
++        .keys()
++        .copied()
++        .filter(|&id| state.client_anchor.caused_post_fault(Some(id)))
++        .collect();
++    ops.sort_unstable();
++    ops
++}
++
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum RunOutcome {
+     Completed { steps: i32 },
+@@ -429,8 +449,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     path_state.state.fresh_first.enabled = arms.fresh_first;
+     path_state.state.pair_order.enabled = arms.pair_order;
+     path_state.state.client_anchor.arm = arms.request;
++    path_state.state.causal_window.arm = arms.window;
+     let pair_order = arms.pair_order;
+     util_stats::record_client_anchor_arm_run(arms.request);
++    util_stats::record_causal_window_run(arms.window);
++    let servers = topology.num_servers.max(0) as usize;
+     let anchored = path_state.state.client_anchor.holds();
+     // Client requests that became ready after the run's first crash and are
+     // waiting out their hold, and the last step at which a window opened.
+@@ -520,6 +543,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         if engine.is_complete() {
+             info!("Plan {} completed in {} steps", run_id, step);
+             util_stats::record_client_anchor_run_end(anchored, true, held.pending());
++            util_stats::record_causal_window_run_completed(arms.window);
+             record_termination(
+                 RunEnd::PlanComplete,
+                 run_id,
+@@ -543,6 +567,19 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         // Release delayed messages whose time has come
+         path_state.state.release_from_purgatory(step);
+ 
++        // The causal window ages its flags and closes a window past its
++        // cap before the step schedules; a run is idle for the flags when
++        // no post-fault operation is held or in flight.
++        if arms.window != causal_window::Arm::Stock {
++            let outstanding = post_fault_outstanding(&path_state.state, &in_progress);
++            let idle = held.pending() == 0 && outstanding.is_empty();
++            causal_window_tick(&mut path_state.state, step, idle, &outstanding, servers);
++        }
++        util_stats::record_causal_window_step(
++            arms.window,
++            path_state.state.causal_window.window().is_some(),
++        );
++
+         // Dispatch ready events
+         let ready_events: Vec<(NodeIndex, PlannedEvent)> = engine
+             .get_ready_events()
+@@ -607,6 +644,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 policy,
+                 purgatory_config,
+                 server_role,
++                servers,
+                 plan_node,
+                 &op_spec,
+                 true,
+@@ -641,6 +679,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         policy,
+                         purgatory_config,
+                         server_role,
++                        servers,
+                         node_idx,
+                         op_spec,
+                         post_fault,
+@@ -943,6 +982,10 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+ 
+         for id in completed {
+             in_progress.remove(&id);
++            if arms.window != causal_window::Arm::Stock {
++                let outstanding = post_fault_outstanding(&path_state.state, &in_progress);
++                causal_window_completed(&mut path_state.state, id, step, &outstanding, servers);
++            }
+         }
+ 
+         // Starvation detection: if nothing happened this iteration, increment counter.
+@@ -1083,6 +1126,7 @@ mod tests {
+                 &policy,
+                 &purgatory,
+                 server_role,
++                3,
+                 plan_node,
+                 &spec,
+                 true,
+@@ -1106,4 +1150,258 @@ mod tests {
+         );
+         assert!(held.is_empty());
+     }
++
++    use crate::simulator::core::{QueuePolicyConfig, WithinQueueSelector};
++    use rand::rngs::SmallRng;
++    use rand::{RngCore, SeedableRng};
++
++    /// Counts draws so a test can assert a path consumed none.
++    struct CountingRng {
++        inner: SmallRng,
++        draws: u64,
++    }
++
++    impl CountingRng {
++        fn new(seed: u64) -> Self {
++            Self {
++                inner: SmallRng::seed_from_u64(seed),
++                draws: 0,
++            }
++        }
++    }
++
++    impl RngCore for CountingRng {
++        fn next_u32(&mut self) -> u32 {
++            self.draws += 1;
++            self.inner.next_u32()
++        }
++        fn next_u64(&mut self) -> u64 {
++            self.draws += 1;
++            self.inner.next_u64()
++        }
++        fn fill_bytes(&mut self, dst: &mut [u8]) {
++            self.draws += 1;
++            self.inner.fill_bytes(dst)
++        }
++    }
++
++    impl StreamRng for CountingRng {}
++
++    /// Three servers of the fixture with an empty run.
++    fn fixture() -> (Program, State<NoHashing>, NameId) {
++        let program = crate::compiler::compile(SPEC, "canchor.spur")
++            .into_program()
++            .expect("the fixture compiles");
++        let server_role = role(&program, "Node");
++        let state = State::<NoHashing>::new(&[(server_role, 3)], program.max_node_slots as usize);
++        (program, state, server_role)
++    }
++
++    /// A `Note(n)` record from `origin` to `dest` queued on the network,
++    /// numbered by the origin's ledger and caused by `op` if any.
++    fn note_record(
++        state: &mut State<NoHashing>,
++        program: &Program,
++        role: NameId,
++        origin: usize,
++        dest: usize,
++        n: i64,
++        op: Option<i32>,
++    ) {
++        let func = program.get_func_by_name("Node.Note").expect("the fixture has Note");
++        let origin_id = NodeId { role, index: origin };
++        let dest_id = NodeId { role, index: dest };
++        let env = make_local_env(
++            func,
++            vec![Value::<NoHashing>::int(n)],
++            &Env::default(),
++            &state.nodes[dest],
++            &program.id_to_name,
++        );
++        let rec = Record {
++            pc: func.entry,
++            node: dest_id,
++            origin_node: origin_id,
++            continuation: Continuation::Recover,
++            entry_pc: func.entry,
++            initial_env: env.clone(),
++            env,
++            priority: 0.5,
++            causal_operation_id: op,
++            trace_id: None,
++            link_seq: None,
++            origin_incarnation: state.incarnation(origin_id),
++            bias: DeliveryBias::NONE,
++            timer_entry: None,
++            send_ordinal: state.next_send_ordinal(origin_id),
++            receiver_token_at_send: state.node_state_token(dest_id),
++        };
++        state.push_runnable(Runnable::Record(rec));
++    }
++
++    /// One scheduling step of the run under the stock configuration.
++    fn step(
++        program: &Program,
++        state: &mut State<NoHashing>,
++        rng: &mut CountingRng,
++    ) -> ScheduleResult<NoHashing> {
++        let topology = TopologyInfo {
++            topology: Topology::Full,
++            num_servers: 3,
++        };
++        let global = GlobalState::<NoFeedback>::new();
++        let policy = SchedulePolicy::default();
++        let purgatory = PurgatoryConfig::default();
++        let mut selector = QueuePolicyConfig::default().to_selector();
++        let mut logs = Logs::default();
++        state.crash_info.current_step += 1;
++        schedule_runnable::<NoHashing, _, _, NoFeedback>(
++            state,
++            &mut logs,
++            program,
++            &(),
++            &mut (),
++            &topology,
++            &global,
++            &policy,
++            false,
++            &mut selector,
++            &WithinQueueSelector::Tournament { k: 3 },
++            &ResolvedTerms::default(),
++            &purgatory,
++            0.0,
++            timer_context::RunMode::Probe,
++            &[],
++            rng,
++        )
++        .expect("the step schedules")
++    }
++
++    fn executed(result: &ScheduleResult<NoHashing>) -> (usize, usize) {
++        match result {
++            ScheduleResult::RecordExecuted {
++                origin_node,
++                dest_node,
++                ..
++            } => (origin_node.index, dest_node.index),
++            other => panic!("the step ran nothing: {other:?}"),
++        }
++    }
++
++    /// The skip test takes no draw of its own: a stock run, a treated run
++    /// with no window open, and a treated run whose open window finds
++    /// nothing to skip all read the same random sequence and run the same
++    /// record.
++    #[test]
++    fn a_run_on_which_nothing_is_skipped_reads_the_same_sequence_as_stock() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut outcomes = Vec::new();
++        for case in 0..4 {
++            let (program, mut st, role) = fixture();
++            st.causal_window.arm = match case {
++                0 => causal_window::Arm::Stock,
++                1 | 2 => causal_window::Arm::ClientFirst,
++                _ => causal_window::Arm::Consequence,
++            };
++            // The window direction with every queued record caused, and
++            // the flag direction with no flag raised, skip nothing.
++            let op = (case == 2).then_some(1);
++            st.client_anchor.first_post_fault_op = Some(1);
++            note_record(&mut st, &program, role, 0, 1, 5, op);
++            note_record(&mut st, &program, role, 2, 1, 6, op);
++            note_record(&mut st, &program, role, 0, 2, 7, op);
++            if case == 2 {
++                assert!(st.causal_window.invoked(1, 1));
++            }
++            let mut rng = CountingRng::new(11);
++            let first = executed(&step(&program, &mut st, &mut rng));
++            let second = executed(&step(&program, &mut st, &mut rng));
++            outcomes.push((first, second, rng.draws, rng.next_u64()));
++        }
++        assert!(
++            outcomes.windows(2).all(|w| w[0] == w[1]),
++            "the runs diverged: {outcomes:?}"
++        );
++    }
++
++    /// With a window open the uncaused records wait behind the caused one
++    /// whatever the draw; once only skipped records remain the skip is
++    /// lifted for the step, counted, and one of them runs.
++    #[test]
++    fn a_window_skips_the_uncaused_records_and_lifts_when_nothing_else_can_run() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let (program, mut st, role) = fixture();
++        st.causal_window.arm = causal_window::Arm::ClientFirst;
++        st.client_anchor.first_post_fault_op = Some(1);
++        note_record(&mut st, &program, role, 0, 1, 5, None);
++        note_record(&mut st, &program, role, 2, 1, 6, None);
++        // Caused, and inert at its destination so it sends nothing.
++        note_record(&mut st, &program, role, 0, 2, 0, Some(1));
++        assert!(st.causal_window.invoked(1, 1));
++        for seed in 0..4u64 {
++            let mut trial = st.clone();
++            let mut rng = CountingRng::new(seed);
++            assert_eq!(executed(&step(&program, &mut trial, &mut rng)), (0, 2), "seed {seed}");
++        }
++        let before = util_stats::snapshot().causal_window.client_first;
++        let mut rng = CountingRng::new(3);
++        assert_eq!(executed(&step(&program, &mut st, &mut rng)), (0, 2));
++        let mid = util_stats::snapshot().causal_window.client_first;
++        assert_eq!(mid.lifts - before.lifts, 0);
++        assert_eq!(mid.masked_records - before.masked_records, 2);
++        let (origin, dest) = executed(&step(&program, &mut st, &mut rng));
++        assert_eq!(dest, 1, "only the skipped records were left");
++        assert!(origin == 0 || origin == 2);
++        let after = util_stats::snapshot().causal_window.client_first;
++        util_stats::set_enabled(false);
++        assert_eq!(after.lifts - mid.lifts, 1, "the lift is counted once");
++        assert_eq!(after.masked_records - mid.masked_records, 0, "a record is counted once");
++        assert!(after.window_steps_empty_masked - before.window_steps_empty_masked >= 1);
++    }
++
++    /// On the flag direction a record in a flagged range waits behind an
++    /// unflagged one and runs, without a lift, once post-fault client work
++    /// has entered its destination.
++    #[test]
++    fn a_flagged_record_waits_for_post_fault_work_at_its_destination() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let (program, mut st, role) = fixture();
++        st.causal_window.arm = causal_window::Arm::Consequence;
++        // Node 1 restarted and took a ghost from node 2 that acted: its
++        // next send falls in the flagged range.
++        st.incarnations[1] = 1;
++        let issued = st.send_ledger[1].issued;
++        let open = st.causal_window.begin_segment(
++            1,
++            (2, 0),
++            causal_window::Entry::Remote {
++                origin: 2,
++                incarnation: 0,
++            },
++            issued,
++            crate::simulator::core::HandlerTrigger::Delivery,
++        );
++        note_record(&mut st, &program, role, 1, 0, 5, None);
++        let issued = st.send_ledger[1].issued;
++        let closed = st.causal_window.end_segment(open, issued, true, Some(1));
++        assert!(closed.flagged);
++        note_record(&mut st, &program, role, 2, 0, 0, None);
++        for seed in 0..4u64 {
++            let mut trial = st.clone();
++            let mut rng = CountingRng::new(seed);
++            assert_eq!(executed(&step(&program, &mut trial, &mut rng)), (2, 0), "seed {seed}");
++        }
++        let before = util_stats::snapshot().causal_window.consequence;
++        let mut rng = CountingRng::new(5);
++        assert_eq!(executed(&step(&program, &mut st, &mut rng)), (2, 0));
++        st.causal_window.note_post_fault_entry(0, 2);
++        assert_eq!(executed(&step(&program, &mut st, &mut rng)), (1, 0));
++        let after = util_stats::snapshot().causal_window.consequence;
++        util_stats::set_enabled(false);
++        assert_eq!(after.held_records - before.held_records, 1);
++        assert_eq!(after.lifts - before.lifts, 0, "the release needed no lift");
++        assert_eq!(after.released.peer_entry - before.released.peer_entry, 1);
++    }
+ }
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 4c8d485..4724f5b 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -23,6 +23,7 @@
+ //! those bits come from the selector's choice, not from the id.
+ 
+ use crate::simulator::arm_selector;
++use crate::simulator::causal_window;
+ use crate::simulator::client_anchor;
+ use crate::simulator::crash_phase;
+ use crate::simulator::fault_timing;
+@@ -64,6 +65,16 @@ pub const CLIENT_RUSH_PRIORITY: i32 = 1 << 14;
+ /// The run's planned crashes move to the live node that last took a
+ /// delivery whose sender was down or had restarted since sending.
+ pub const GHOST_ABSORBER_RETARGET: i32 = 1 << 19;
++/// While a client operation invoked after the run's first crash is in
++/// flight, the run skips at the network draw every record between nodes of
++/// one role that has no post-fault cause, other than replies to the
++/// destination's current incarnation and restart sends.
++pub const CLIENT_FIRST_WINDOW: i32 = 1 << 17;
++/// The run skips at the network draw, from their send, the records a
++/// restarted node's segment issued after changing state on a delivery from
++/// a sender that was down or had restarted, until post-fault client work
++/// reaches their destination or is answered, or the flag ages out.
++pub const CONSEQUENCE_DEFER: i32 = 1 << 27;
+ /// The run is a replay slot of a grid arm: it ran as a child of a corpus
+ /// parent when the arm held one, and fresh otherwise. Only a grid arm runs
+ /// slots, so the arm joins this bit through the run's attribution rather
+@@ -125,16 +136,16 @@ impl CrashArm {
+ }
+ 
+ /// Number of axes an arm set spans.
+-pub const AXES: usize = 5;
++pub const AXES: usize = 6;
+ /// Number of directions over all axes.
+-pub const DIRECTIONS: usize = 12;
++pub const DIRECTIONS: usize = 15;
+ /// Number of distinct arm sets.
+-pub const COMBINATIONS: usize = 72;
++pub const COMBINATIONS: usize = 216;
+ /// Axis `a` owns the direction indices `AXIS_START[a]..AXIS_START[a + 1]`:
+-/// crash, retarget, fresh-first, pair-order, request timing.
+-pub const AXIS_START: [usize; AXES + 1] = [0, 3, 5, 7, 9, 12];
++/// crash, retarget, fresh-first, pair-order, request timing, causal window.
++pub const AXIS_START: [usize; AXES + 1] = [0, 3, 5, 7, 9, 12, 15];
+ 
+-/// The direction a run takes on each of the five mechanism axes. The
++/// The direction a run takes on each of the six mechanism axes. The
+ /// mechanisms read their direction from here and never from the run id, so
+ /// the set in effect is the only truth about what a run ran under.
+ #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+@@ -144,6 +155,7 @@ pub struct ArmSet {
+     pub fresh_first: bool,
+     pub pair_order: bool,
+     pub request: client_anchor::Arm,
++    pub window: causal_window::Arm,
+ }
+ 
+ impl ArmSet {
+@@ -164,6 +176,7 @@ impl ArmSet {
+             fresh_first: fresh_first::is_treated(run_id),
+             pair_order: pair_order::is_treated(run_id),
+             request: client_anchor::arm(run_id),
++            window: causal_window::arm(run_id),
+         }
+     }
+ 
+@@ -190,6 +203,7 @@ impl ArmSet {
+             AXIS_START[2] + self.fresh_first as usize,
+             AXIS_START[3] + self.pair_order as usize,
+             AXIS_START[4] + self.request.index(),
++            AXIS_START[5] + self.window.index(),
+         ]
+     }
+ 
+@@ -203,6 +217,7 @@ impl ArmSet {
+             fresh_first: on(2) == 1,
+             pair_order: on(3) == 1,
+             request: request_from_index(on(4)),
++            window: causal_window::Arm::from_index(on(5)),
+         }
+     }
+ 
+@@ -238,6 +253,8 @@ impl ArmSet {
+             1 | 2 => placed / 2.0,
+             3..=8 => 0.5,
+             9 => 0.5,
++            10 | 11 => 0.25,
++            12 => 0.5,
+             _ => 0.25,
+         }
+     }
+@@ -274,6 +291,11 @@ pub fn of_arms(arms: &ArmSet) -> i32 {
+         client_anchor::Arm::Rush => v |= CLIENT_RUSH_PRIORITY,
+         client_anchor::Arm::Stock => {}
+     }
++    match arms.window {
++        causal_window::Arm::ClientFirst => v |= CLIENT_FIRST_WINDOW,
++        causal_window::Arm::Consequence => v |= CONSEQUENCE_DEFER,
++        causal_window::Arm::Stock => {}
++    }
+     v
+ }
+ 
+@@ -347,6 +369,12 @@ pub fn from_run_id(run_id: i64) -> i32 {
+     if client_anchor::is_rushed(run_id) {
+         v |= CLIENT_RUSH_PRIORITY;
+     }
++    if causal_window::is_client_first(run_id) {
++        v |= CLIENT_FIRST_WINDOW;
++    }
++    if causal_window::is_consequence(run_id) {
++        v |= CONSEQUENCE_DEFER;
++    }
+     v
+ }
+ 
+@@ -387,6 +415,13 @@ mod tests {
+             assert_eq!(v & PAIR_SEND_ORDER != 0, pair_order::is_treated(id));
+             assert_eq!(v & CLIENT_FANOUT_RELEASE != 0, client_anchor::is_treated(id));
+             assert_eq!(v & CLIENT_RUSH_PRIORITY != 0, client_anchor::is_rushed(id));
++            assert_eq!(v & CLIENT_FIRST_WINDOW != 0, causal_window::is_client_first(id));
++            assert_eq!(v & CONSEQUENCE_DEFER != 0, causal_window::is_consequence(id));
++            assert_ne!(
++                v & (CLIENT_FIRST_WINDOW | CONSEQUENCE_DEFER),
++                CLIENT_FIRST_WINDOW | CONSEQUENCE_DEFER,
++                "a run took both directions of the causal-window axis"
++            );
+             assert_ne!(
+                 v & (CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY),
+                 CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY,
+@@ -426,6 +461,7 @@ mod tests {
+             assert_eq!(coins.fresh_first, fresh_first::is_treated(id), "run {id}: fresh first");
+             assert_eq!(coins.pair_order, pair_order::is_treated(id), "run {id}: pair order");
+             assert_eq!(coins.request, client_anchor::arm(id), "run {id}: request");
++            assert_eq!(coins.window, causal_window::arm(id), "run {id}: window");
+             // A coin-drawn run carries the id's bits and no selector bit; a
+             // learner run adds exactly its learner's bit and the pick bit.
+             let tag = of(id, &coins, None, false);
+@@ -632,6 +668,31 @@ mod tests {
+         );
+         assert_eq!(rush_probes, 0, "a probe must never rush client requests");
+         assert_eq!(rush_and_hold, 0, "the two directions must never meet on a run");
++        let window_runs = (0..64_000i64)
++            .filter(|&id| from_run_id(id) & CLIENT_FIRST_WINDOW != 0)
++            .count();
++        let defer_runs = (0..64_000i64)
++            .filter(|&id| from_run_id(id) & CONSEQUENCE_DEFER != 0)
++            .count();
++        let window_probes = (0..64_000i64)
++            .filter(|&id| {
++                let v = from_run_id(id);
++                v & (CLIENT_FIRST_WINDOW | CONSEQUENCE_DEFER) != 0
++                    && v & (RUN_CAP_PROBE | TIMER_STEER_OFF) != 0
++            })
++            .count();
++        let window_and_defer = (0..64_000i64)
++            .filter(|&id| {
++                from_run_id(id) & (CLIENT_FIRST_WINDOW | CONSEQUENCE_DEFER)
++                    == CLIENT_FIRST_WINDOW | CONSEQUENCE_DEFER
++            })
++            .count();
++        assert!(
++            window_runs > 0 && window_runs < 64_000 && defer_runs > 0 && defer_runs < 64_000,
++            "the causal-window split leaves no contrast"
++        );
++        assert_eq!(window_probes, 0, "a probe must never skip records at the draw");
++        assert_eq!(window_and_defer, 0, "the two window directions must never meet on a run");
+         assert!(ordinary_stock > 0, "no stock run that is not a probe, so there is no control");
+     }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..ef74b91 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -6,6 +6,7 @@
+ //! probe is a single relaxed atomic load.
+ 
+ use crate::simulator::core::steer_terms::{Term, TERMS};
++use crate::simulator::causal_window;
+ use crate::simulator::client_anchor;
+ use crate::simulator::run_variant;
+ use crate::simulator::fresh_first;
+@@ -168,6 +169,47 @@ static CAN_FIRST_ENTRY_RUNS: [AtomicU64; run_variant::DIRECTIONS] =
+     [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
+ static CAN_FIRST_ENTRY_STEPS_SUM: [AtomicU64; run_variant::DIRECTIONS] =
+     [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
++/// One slot per direction of the causal-window axis, in the order
++/// `causal_window::Arm::index` gives.
++const CW_ARMS: usize = 3;
++type CwSlots = [AtomicU64; CW_ARMS];
++const CW_ZERO: CwSlots = [const { AtomicU64::new(0) }; CW_ARMS];
++static CW_RUNS: CwSlots = CW_ZERO;
++static CW_COMPLETED_RUNS: CwSlots = CW_ZERO;
++static CW_STEPS: CwSlots = CW_ZERO;
++static CW_TIMER_FIRES: CwSlots = CW_ZERO;
++static CW_POST_FAULT_INVOCATIONS: CwSlots = CW_ZERO;
++static CW_WINDOWS_OPENED: CwSlots = CW_ZERO;
++static CW_WINDOWS_CLOSED_RESPONSE: CwSlots = CW_ZERO;
++static CW_WINDOWS_CLOSED_CAP: CwSlots = CW_ZERO;
++static CW_WINDOW_STEPS: CwSlots = CW_ZERO;
++static CW_WINDOW_STEPS_EMPTY_MASKED: CwSlots = CW_ZERO;
++static CW_TIMER_FIRES_IN_WINDOWS: CwSlots = CW_ZERO;
++static CW_MASKED_RECORDS: CwSlots = CW_ZERO;
++static CW_HELD_RECORDS: CwSlots = CW_ZERO;
++static CW_RELEASED_PEER_ENTRY: CwSlots = CW_ZERO;
++static CW_RELEASED_RESPONSE: CwSlots = CW_ZERO;
++static CW_RELEASED_IDLE_CAP: CwSlots = CW_ZERO;
++static CW_RELEASED_ABS_CAP: CwSlots = CW_ZERO;
++static CW_RELEASED_LIFT: CwSlots = CW_ZERO;
++static CW_LIFTS: CwSlots = CW_ZERO;
++static CW_FLAGGED_SEGMENTS: CwSlots = CW_ZERO;
++static CW_FLAGGED_SEGMENTS_VIA_LOCAL: CwSlots = CW_ZERO;
++/// Windows at whose opening at least one record the window skips was
++/// queued to a server, by the class of that record's sender: index 0 is
++/// any class, 1 a dead incarnation, 2 the current incarnation of a node
++/// that has restarted, 3 a node that never restarted. The second table
++/// is the same over the windows of each run's first post-fault operation.
++const CW_CLASSES: usize = 4;
++static CW_COMPETITORS: [[AtomicU64; CW_CLASSES]; CW_ARMS] =
++    [const { [const { AtomicU64::new(0) }; CW_CLASSES] }; CW_ARMS];
++static CW_FIRST_OP_WINDOWS: CwSlots = CW_ZERO;
++static CW_FIRST_OP_COMPETITORS: [[AtomicU64; CW_CLASSES]; CW_ARMS] =
++    [const { [const { AtomicU64::new(0) }; CW_CLASSES] }; CW_ARMS];
++/// Runs by the number of flagged records still held when the run's first
++/// post-fault operation was invoked: none, one, two, three or more.
++static CW_FLAGGED_AT_FIRST_INVOCATION: [[AtomicU64; 4]; CW_ARMS] =
++    [const { [const { AtomicU64::new(0) }; 4] }; CW_ARMS];
+ /// The per-run rewards the arm selector reads. `OvertakenGhost`,
+ /// `AbsorberCycle` and `CycleBeforeRequest` each train one learner; the
+ /// rest are read on the coin-drawn runs only.
+@@ -2449,6 +2491,200 @@ pub fn record_client_anchor_first_post_fault_entry(arms: &run_variant::ArmSet, s
+     }
+ }
+ 
++/// A run took `arm` on the causal-window axis. One call per run.
++#[inline]
++pub fn record_causal_window_run(arm: causal_window::Arm) {
++    if !enabled() {
++        return;
++    }
++    CW_RUNS[arm.index()].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A run on `arm` ended with its plan complete.
++#[inline]
++pub fn record_causal_window_run_completed(arm: causal_window::Arm) {
++    if !enabled() {
++        return;
++    }
++    CW_COMPLETED_RUNS[arm.index()].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A run on `arm` began a step; `window_open` says a window was open at it.
++#[inline]
++pub fn record_causal_window_step(arm: causal_window::Arm, window_open: bool) {
++    if !enabled() {
++        return;
++    }
++    let i = arm.index();
++    CW_STEPS[i].fetch_add(1, Ordering::Relaxed);
++    if window_open {
++        CW_WINDOW_STEPS[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// A step with a window open read no eligible network record while the
++/// network queue held at least one.
++#[inline]
++pub fn record_causal_window_empty_masked_step(arm: causal_window::Arm) {
++    if !enabled() {
++        return;
++    }
++    CW_WINDOW_STEPS_EMPTY_MASKED[arm.index()].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A timer fired at a live node on a run on `arm`; `window_open` says a
++/// window was open at that step.
++#[inline]
++pub fn record_causal_window_timer_fire(arm: causal_window::Arm, window_open: bool) {
++    if !enabled() {
++        return;
++    }
++    let i = arm.index();
++    CW_TIMER_FIRES[i].fetch_add(1, Ordering::Relaxed);
++    if window_open {
++        CW_TIMER_FIRES_IN_WINDOWS[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// A post-fault client operation was invoked on a run on `arm`.
++#[inline]
++pub fn record_causal_window_post_fault_invocation(arm: causal_window::Arm) {
++    if !enabled() {
++        return;
++    }
++    CW_POST_FAULT_INVOCATIONS[arm.index()].fetch_add(1, Ordering::Relaxed);
++}
++
++/// Which senders' records a window found queued to a server at its
++/// opening.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct Competitors {
++    pub ghost: bool,
++    pub live_restarted: bool,
++    pub live_never_restarted: bool,
++}
++
++impl Competitors {
++    pub fn any(&self) -> bool {
++        self.ghost || self.live_restarted || self.live_never_restarted
++    }
++}
++
++/// A window opened on a run on `arm` with `competitors` queued;
++/// `first_op` says the operation is the run's first post-fault one.
++#[inline]
++pub fn record_causal_window_opened(arm: causal_window::Arm, competitors: Competitors, first_op: bool) {
++    if !enabled() {
++        return;
++    }
++    let i = arm.index();
++    CW_WINDOWS_OPENED[i].fetch_add(1, Ordering::Relaxed);
++    let tally = |table: &[AtomicU64; CW_CLASSES]| {
++        for (k, present) in [
++            competitors.any(),
++            competitors.ghost,
++            competitors.live_restarted,
++            competitors.live_never_restarted,
++        ]
++        .into_iter()
++        .enumerate()
++        {
++            if present {
++                table[k].fetch_add(1, Ordering::Relaxed);
++            }
++        }
++    };
++    tally(&CW_COMPETITORS[i]);
++    if first_op {
++        CW_FIRST_OP_WINDOWS[i].fetch_add(1, Ordering::Relaxed);
++        tally(&CW_FIRST_OP_COMPETITORS[i]);
++    }
++}
++
++/// A window closed on a run on `arm`.
++#[inline]
++pub fn record_causal_window_closed(arm: causal_window::Arm, close: causal_window::Close) {
++    if !enabled() {
++        return;
++    }
++    let i = arm.index();
++    match close {
++        causal_window::Close::Response => CW_WINDOWS_CLOSED_RESPONSE[i].fetch_add(1, Ordering::Relaxed),
++        causal_window::Close::Cap => CW_WINDOWS_CLOSED_CAP[i].fetch_add(1, Ordering::Relaxed),
++    };
++}
++
++/// A record was skipped at the draw for the first time on a run on `arm`.
++#[inline]
++pub fn record_causal_window_skip(arm: causal_window::Arm, skip: causal_window::Skip) {
++    if !enabled() {
++        return;
++    }
++    let i = arm.index();
++    match skip {
++        causal_window::Skip::Masked { first: true } => {
++            CW_MASKED_RECORDS[i].fetch_add(1, Ordering::Relaxed);
++        }
++        causal_window::Skip::Held { first: true } => {
++            CW_HELD_RECORDS[i].fetch_add(1, Ordering::Relaxed);
++        }
++        _ => {}
++    }
++}
++
++/// A record that had been held was dispatched on a run on `arm`.
++#[inline]
++pub fn record_causal_window_release(arm: causal_window::Arm, release: causal_window::HeldRelease) {
++    if !enabled() {
++        return;
++    }
++    let i = arm.index();
++    let slot = match release {
++        causal_window::HeldRelease::PeerEntry => &CW_RELEASED_PEER_ENTRY,
++        causal_window::HeldRelease::Response => &CW_RELEASED_RESPONSE,
++        causal_window::HeldRelease::IdleCap => &CW_RELEASED_IDLE_CAP,
++        causal_window::HeldRelease::AbsCap => &CW_RELEASED_ABS_CAP,
++        causal_window::HeldRelease::Lift => &CW_RELEASED_LIFT,
++    };
++    slot[i].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A step on a run on `arm` found nothing eligible under the skip and was
++/// reselected without it.
++#[inline]
++pub fn record_causal_window_lift(arm: causal_window::Arm) {
++    if !enabled() {
++        return;
++    }
++    CW_LIFTS[arm.index()].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A segment on a run on `arm` was flagged: directly, or through the local
++/// record that entered it.
++#[inline]
++pub fn record_causal_window_flagged(arm: causal_window::Arm, closed: causal_window::Closed) {
++    if !enabled() {
++        return;
++    }
++    let i = arm.index();
++    if closed.flagged {
++        CW_FLAGGED_SEGMENTS[i].fetch_add(1, Ordering::Relaxed);
++    }
++    if closed.flagged_via_local {
++        CW_FLAGGED_SEGMENTS_VIA_LOCAL[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// A run on `arm` invoked its first post-fault operation with `held`
++/// flagged records still held in the network queue.
++#[inline]
++pub fn record_causal_window_first_invocation(arm: causal_window::Arm, held: usize) {
++    if !enabled() {
++        return;
++    }
++    CW_FLAGGED_AT_FIRST_INVOCATION[arm.index()][held.min(3)].fetch_add(1, Ordering::Relaxed);
++}
++
+ /// A fresh grid-arm run that fired the signal entered its arm's replay corpus.
+ #[inline]
+ pub fn record_replay_parent_admitted() {
+@@ -4627,14 +4863,164 @@ impl ClientAnchorStats {
+     }
+ }
+ 
++/// Why windows closed on one direction.
++#[derive(Serialize, Debug)]
++pub struct CausalWindowClosed {
++    pub response: u64,
++    pub cap: u64,
++}
++
++/// What let held records dispatch on one direction.
++#[derive(Serialize, Debug)]
++pub struct CausalWindowReleased {
++    pub peer_entry: u64,
++    pub response: u64,
++    pub idle_cap: u64,
++    pub abs_cap: u64,
++    pub lift: u64,
++}
++
++/// Windows with at least one skipped record queued to a server at their
++/// opening, by the class of the record's sender; `windows` is the number
++/// of windows the table is read over.
++#[derive(Serialize, Debug)]
++pub struct CausalWindowCompetitors {
++    pub windows: u64,
++    pub any: u64,
++    pub ghost: u64,
++    pub live_restarted: u64,
++    pub live_never_restarted: u64,
++}
++
++impl CausalWindowCompetitors {
++    fn read(windows: u64, table: &[AtomicU64; CW_CLASSES]) -> Self {
++        let at = |k: usize| table[k].load(Ordering::Relaxed);
++        Self {
++            windows,
++            any: at(0),
++            ghost: at(1),
++            live_restarted: at(2),
++            live_never_restarted: at(3),
++        }
++    }
++}
++
++/// Runs by the flagged records still held at the first post-fault
++/// invocation.
++#[derive(Serialize, Debug)]
++pub struct CausalWindowHeldHist {
++    pub zero: u64,
++    pub one: u64,
++    pub two: u64,
++    pub three_plus: u64,
++}
++
++/// One direction of the causal-window axis. `runs`, `completed_runs`,
++/// `steps`, `timer_fires` and `post_fault_invocations` are counted on every
++/// direction so the treated ones read against stock; the rest count what
++/// the direction did. `window_steps` are the steps with a window open and
++/// `window_steps_empty_masked` those among them at which the network queue
++/// held a record but none was eligible; `masked_records` and
++/// `held_records` are distinct records skipped at least once by the window
++/// rule and by the flag rule.
++#[derive(Serialize, Debug)]
++pub struct CausalWindowDirectionStats {
++    pub runs: u64,
++    pub completed_runs: u64,
++    pub steps: u64,
++    pub timer_fires: u64,
++    pub post_fault_invocations: u64,
++    pub windows_opened: u64,
++    pub windows_closed: CausalWindowClosed,
++    pub window_steps: u64,
++    pub window_steps_empty_masked: u64,
++    pub timer_fires_in_windows: u64,
++    pub masked_records: u64,
++    pub held_records: u64,
++    pub released: CausalWindowReleased,
++    pub lifts: u64,
++    pub competitors_at_open: CausalWindowCompetitors,
++    pub first_op_competitors_at_open: CausalWindowCompetitors,
++    pub flagged_segments: u64,
++    pub flagged_segments_via_local: u64,
++    pub flagged_at_first_post_fault_invocation: CausalWindowHeldHist,
++}
++
++impl CausalWindowDirectionStats {
++    fn read(arm: causal_window::Arm) -> Self {
++        let i = arm.index();
++        let at = |slots: &CwSlots| slots[i].load(Ordering::Relaxed);
++        let hist = |k: usize| CW_FLAGGED_AT_FIRST_INVOCATION[i][k].load(Ordering::Relaxed);
++        Self {
++            runs: at(&CW_RUNS),
++            completed_runs: at(&CW_COMPLETED_RUNS),
++            steps: at(&CW_STEPS),
++            timer_fires: at(&CW_TIMER_FIRES),
++            post_fault_invocations: at(&CW_POST_FAULT_INVOCATIONS),
++            windows_opened: at(&CW_WINDOWS_OPENED),
++            windows_closed: CausalWindowClosed {
++                response: at(&CW_WINDOWS_CLOSED_RESPONSE),
++                cap: at(&CW_WINDOWS_CLOSED_CAP),
++            },
++            window_steps: at(&CW_WINDOW_STEPS),
++            window_steps_empty_masked: at(&CW_WINDOW_STEPS_EMPTY_MASKED),
++            timer_fires_in_windows: at(&CW_TIMER_FIRES_IN_WINDOWS),
++            masked_records: at(&CW_MASKED_RECORDS),
++            held_records: at(&CW_HELD_RECORDS),
++            released: CausalWindowReleased {
++                peer_entry: at(&CW_RELEASED_PEER_ENTRY),
++                response: at(&CW_RELEASED_RESPONSE),
++                idle_cap: at(&CW_RELEASED_IDLE_CAP),
++                abs_cap: at(&CW_RELEASED_ABS_CAP),
++                lift: at(&CW_RELEASED_LIFT),
++            },
++            lifts: at(&CW_LIFTS),
++            competitors_at_open: CausalWindowCompetitors::read(
++                at(&CW_WINDOWS_OPENED),
++                &CW_COMPETITORS[i],
++            ),
++            first_op_competitors_at_open: CausalWindowCompetitors::read(
++                at(&CW_FIRST_OP_WINDOWS),
++                &CW_FIRST_OP_COMPETITORS[i],
++            ),
++            flagged_segments: at(&CW_FLAGGED_SEGMENTS),
++            flagged_segments_via_local: at(&CW_FLAGGED_SEGMENTS_VIA_LOCAL),
++            flagged_at_first_post_fault_invocation: CausalWindowHeldHist {
++                zero: hist(0),
++                one: hist(1),
++                two: hist(2),
++                three_plus: hist(3),
++            },
++        }
++    }
++}
++
++/// The causal-window axis, one block per direction.
++#[derive(Serialize, Debug)]
++pub struct CausalWindowStats {
++    pub stock: CausalWindowDirectionStats,
++    pub client_first: CausalWindowDirectionStats,
++    pub consequence: CausalWindowDirectionStats,
++}
++
++impl CausalWindowStats {
++    fn read() -> Self {
++        Self {
++            stock: CausalWindowDirectionStats::read(causal_window::Arm::Stock),
++            client_first: CausalWindowDirectionStats::read(causal_window::Arm::ClientFirst),
++            consequence: CausalWindowDirectionStats::read(causal_window::Arm::Consequence),
++        }
++    }
++}
++
+ /// One reward read on the arm selector's coin-drawn runs.
+ /// `reward_runs_control` and `reward_positive_control` are the coin-drawn
+ /// runs and rewards; the per-direction and per-combination arrays follow
+ /// `run_variant::AXIS_START` and `ArmSet::index` and say what each coin
+ /// direction earned. The `by_arm_direction` arrays split the per-direction
+-/// pair by campaign arm: row `arm_index + 1` of eight, twelve directions
+-/// per row, flattened row-major, so entry `(arm_index + 1) * 12 + d` is
+-/// direction `d` on that arm.
++/// pair by campaign arm: row `arm_index + 1` of eight,
++/// `run_variant::DIRECTIONS` directions per row, flattened row-major, so
++/// entry `(arm_index + 1) * DIRECTIONS + d` is direction `d` on that arm.
+ #[derive(Serialize, Debug, Clone)]
+ pub struct ArmSelectorRewardStats {
+     pub reward_runs_control: u64,
+@@ -5015,6 +5401,7 @@ pub struct UtilizationSnapshot {
+     pub fresh_first: FreshFirstStats,
+     pub pair_order: PairOrderStats,
+     pub client_anchor: ClientAnchorStats,
++    pub causal_window: CausalWindowStats,
+     pub arm_selector_axis: ArmSelectorAxisStats,
+     pub replay: ReplayStats,
+     pub timer_context: TimerContextStats,
+@@ -5213,6 +5600,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         fresh_first: FreshFirstStats::read(),
+         pair_order: PairOrderStats::read(),
+         client_anchor: ClientAnchorStats::read(),
++        causal_window: CausalWindowStats::read(),
+         arm_selector_axis: ArmSelectorAxisStats::read(),
+         replay: ReplayStats::read(),
+         timer_context: TimerContextStats::read(),
+@@ -5226,6 +5614,118 @@ mod tests {
+     use super::*;
+     use crate::simulator::config_override;
+ 
++    /// Every counter of the block lands in its direction's slot and every
++    /// leaf named by the block reaches the exported JSON.
++    #[test]
++    fn causal_window_counters_land_on_their_direction_and_are_all_exported() {
++        let _serial = config_override::exclusive_session();
++        set_enabled(true);
++        let before = snapshot_value();
++        let cf = causal_window::Arm::ClientFirst;
++        let cq = causal_window::Arm::Consequence;
++        record_causal_window_run(cf);
++        record_causal_window_run_completed(cf);
++        record_causal_window_step(cf, true);
++        record_causal_window_step(cf, false);
++        record_causal_window_step(causal_window::Arm::Stock, false);
++        record_causal_window_empty_masked_step(cf);
++        record_causal_window_timer_fire(cf, true);
++        record_causal_window_timer_fire(cf, false);
++        record_causal_window_post_fault_invocation(cf);
++        record_causal_window_opened(
++            cf,
++            Competitors {
++                ghost: true,
++                live_restarted: false,
++                live_never_restarted: true,
++            },
++            true,
++        );
++        record_causal_window_opened(cf, Competitors::default(), false);
++        record_causal_window_closed(cf, causal_window::Close::Response);
++        record_causal_window_closed(cf, causal_window::Close::Cap);
++        record_causal_window_skip(cf, causal_window::Skip::Masked { first: true });
++        record_causal_window_skip(cf, causal_window::Skip::Masked { first: false });
++        record_causal_window_skip(cq, causal_window::Skip::Held { first: true });
++        record_causal_window_skip(cq, causal_window::Skip::None);
++        for r in [
++            causal_window::HeldRelease::PeerEntry,
++            causal_window::HeldRelease::Response,
++            causal_window::HeldRelease::IdleCap,
++            causal_window::HeldRelease::AbsCap,
++            causal_window::HeldRelease::Lift,
++        ] {
++            record_causal_window_release(cq, r);
++        }
++        record_causal_window_lift(cq);
++        record_causal_window_flagged(
++            cq,
++            causal_window::Closed {
++                flagged: true,
++                flagged_via_local: false,
++            },
++        );
++        record_causal_window_flagged(
++            cq,
++            causal_window::Closed {
++                flagged: false,
++                flagged_via_local: true,
++            },
++        );
++        record_causal_window_first_invocation(cq, 2);
++        record_causal_window_first_invocation(cq, 7);
++        let d = delta(&before, &snapshot_value());
++        set_enabled(false);
++        let block = &d["causal_window"];
++        let want = serde_json::json!({
++            "stock": {"steps": 1},
++            "client_first": {
++                "runs": 1, "completed_runs": 1, "steps": 2, "timer_fires": 2,
++                "post_fault_invocations": 1, "windows_opened": 2,
++                "windows_closed": {"response": 1, "cap": 1},
++                "window_steps": 1, "window_steps_empty_masked": 1,
++                "timer_fires_in_windows": 1, "masked_records": 1,
++                "competitors_at_open": {
++                    "windows": 2, "any": 1, "ghost": 1, "live_restarted": 0,
++                    "live_never_restarted": 1
++                },
++                "first_op_competitors_at_open": {
++                    "windows": 1, "any": 1, "ghost": 1, "live_restarted": 0,
++                    "live_never_restarted": 1
++                }
++            },
++            "consequence": {
++                "held_records": 1,
++                "released": {
++                    "peer_entry": 1, "response": 1, "idle_cap": 1, "abs_cap": 1, "lift": 1
++                },
++                "lifts": 1, "flagged_segments": 1, "flagged_segments_via_local": 1,
++                "flagged_at_first_post_fault_invocation": {"two": 1, "three_plus": 1}
++            }
++        });
++        fn check(path: &str, want: &serde_json::Value, got: &serde_json::Value) {
++            match want {
++                serde_json::Value::Object(m) => {
++                    for (k, v) in m {
++                        check(&format!("{path}.{k}"), v, &got[k]);
++                    }
++                }
++                _ => assert_eq!(got, want, "at {path}"),
++            }
++        }
++        check("causal_window", &want, block);
++        // Every leaf of the block is a number in the export, none missing.
++        let full = snapshot_value();
++        fn leaves(v: &serde_json::Value) -> usize {
++            match v {
++                serde_json::Value::Object(m) => m.values().map(leaves).sum(),
++                serde_json::Value::Number(_) => 1,
++                other => panic!("a non-numeric leaf in the block: {other}"),
++            }
++        }
++        assert_eq!(leaves(&full["causal_window"]), 3 * 35, "the block's leaf count");
++    }
++
+     #[test]
+     fn pair_order_counters_land_on_their_half() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..182adf1 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -14,7 +14,9 @@
+ use serde_json::{Map, Value};
+ use spur_core::simulator::util_stats::{
+     self, AcceptanceDistanceBucket, AcceptanceDistanceStats, ArmSelectorAxisStats, ArmSelectorExploreStats,
+-    ArmSelectorLearnerStats, ArmSelectorPooledStats, ArmSelectorRewardStats, ClientAnchorArmRuns,
++    ArmSelectorLearnerStats, ArmSelectorPooledStats, ArmSelectorRewardStats, CausalWindowClosed,
++    CausalWindowCompetitors, CausalWindowDirectionStats, CausalWindowHeldHist,
++    CausalWindowReleased, CausalWindowStats, ClientAnchorArmRuns,
+     ClientAnchorAxisStats, ClientAnchorCensusStats, ClientAnchorDistance,
+     ClientAnchorFirstDelivery, ClientAnchorFirstEntry, ClientAnchorHalfStats,
+     ClientAnchorHeldHist,
+@@ -1425,6 +1427,168 @@ fn client_anchor_leaves(prefix: &str, c: &ClientAnchorStats) -> Vec<(String, Val
+     out
+ }
+ 
++fn causal_window_competitors(m: &mut Marks) -> CausalWindowCompetitors {
++    CausalWindowCompetitors {
++        windows: m.int(),
++        any: m.int(),
++        ghost: m.int(),
++        live_restarted: m.int(),
++        live_never_restarted: m.int(),
++    }
++}
++
++fn causal_window_competitors_leaves(prefix: &str, c: &CausalWindowCompetitors) -> Vec<(String, Value)> {
++    let CausalWindowCompetitors {
++        windows,
++        any,
++        ghost,
++        live_restarted,
++        live_never_restarted,
++    } = c;
++    vec![
++        leaf(prefix, "windows", *windows),
++        leaf(prefix, "any", *any),
++        leaf(prefix, "ghost", *ghost),
++        leaf(prefix, "live_restarted", *live_restarted),
++        leaf(prefix, "live_never_restarted", *live_never_restarted),
++    ]
++}
++
++fn causal_window_direction(m: &mut Marks) -> CausalWindowDirectionStats {
++    CausalWindowDirectionStats {
++        runs: m.int(),
++        completed_runs: m.int(),
++        steps: m.int(),
++        timer_fires: m.int(),
++        post_fault_invocations: m.int(),
++        windows_opened: m.int(),
++        windows_closed: CausalWindowClosed {
++            response: m.int(),
++            cap: m.int(),
++        },
++        window_steps: m.int(),
++        window_steps_empty_masked: m.int(),
++        timer_fires_in_windows: m.int(),
++        masked_records: m.int(),
++        held_records: m.int(),
++        released: CausalWindowReleased {
++            peer_entry: m.int(),
++            response: m.int(),
++            idle_cap: m.int(),
++            abs_cap: m.int(),
++            lift: m.int(),
++        },
++        lifts: m.int(),
++        competitors_at_open: causal_window_competitors(m),
++        first_op_competitors_at_open: causal_window_competitors(m),
++        flagged_segments: m.int(),
++        flagged_segments_via_local: m.int(),
++        flagged_at_first_post_fault_invocation: CausalWindowHeldHist {
++            zero: m.int(),
++            one: m.int(),
++            two: m.int(),
++            three_plus: m.int(),
++        },
++    }
++}
++
++fn causal_window_direction_leaves(prefix: &str, d: &CausalWindowDirectionStats) -> Vec<(String, Value)> {
++    let CausalWindowDirectionStats {
++        runs,
++        completed_runs,
++        steps,
++        timer_fires,
++        post_fault_invocations,
++        windows_opened,
++        windows_closed,
++        window_steps,
++        window_steps_empty_masked,
++        timer_fires_in_windows,
++        masked_records,
++        held_records,
++        released,
++        lifts,
++        competitors_at_open,
++        first_op_competitors_at_open,
++        flagged_segments,
++        flagged_segments_via_local,
++        flagged_at_first_post_fault_invocation,
++    } = d;
++    let CausalWindowClosed { response, cap } = windows_closed;
++    let CausalWindowReleased {
++        peer_entry,
++        response: released_response,
++        idle_cap,
++        abs_cap,
++        lift,
++    } = released;
++    let CausalWindowHeldHist {
++        zero,
++        one,
++        two,
++        three_plus,
++    } = flagged_at_first_post_fault_invocation;
++    let c = format!("{prefix}.windows_closed");
++    let r = format!("{prefix}.released");
++    let h = format!("{prefix}.flagged_at_first_post_fault_invocation");
++    let mut out = vec![
++        leaf(prefix, "runs", *runs),
++        leaf(prefix, "completed_runs", *completed_runs),
++        leaf(prefix, "steps", *steps),
++        leaf(prefix, "timer_fires", *timer_fires),
++        leaf(prefix, "post_fault_invocations", *post_fault_invocations),
++        leaf(prefix, "windows_opened", *windows_opened),
++        leaf(&c, "response", *response),
++        leaf(&c, "cap", *cap),
++        leaf(prefix, "window_steps", *window_steps),
++        leaf(prefix, "window_steps_empty_masked", *window_steps_empty_masked),
++        leaf(prefix, "timer_fires_in_windows", *timer_fires_in_windows),
++        leaf(prefix, "masked_records", *masked_records),
++        leaf(prefix, "held_records", *held_records),
++        leaf(&r, "peer_entry", *peer_entry),
++        leaf(&r, "response", *released_response),
++        leaf(&r, "idle_cap", *idle_cap),
++        leaf(&r, "abs_cap", *abs_cap),
++        leaf(&r, "lift", *lift),
++        leaf(prefix, "lifts", *lifts),
++        leaf(prefix, "flagged_segments", *flagged_segments),
++        leaf(prefix, "flagged_segments_via_local", *flagged_segments_via_local),
++        leaf(&h, "zero", *zero),
++        leaf(&h, "one", *one),
++        leaf(&h, "two", *two),
++        leaf(&h, "three_plus", *three_plus),
++    ];
++    out.extend(causal_window_competitors_leaves(
++        &format!("{prefix}.competitors_at_open"),
++        competitors_at_open,
++    ));
++    out.extend(causal_window_competitors_leaves(
++        &format!("{prefix}.first_op_competitors_at_open"),
++        first_op_competitors_at_open,
++    ));
++    out
++}
++
++fn causal_window(m: &mut Marks) -> CausalWindowStats {
++    CausalWindowStats {
++        stock: causal_window_direction(m),
++        client_first: causal_window_direction(m),
++        consequence: causal_window_direction(m),
++    }
++}
++
++fn causal_window_leaves(prefix: &str, c: &CausalWindowStats) -> Vec<(String, Value)> {
++    let CausalWindowStats {
++        stock,
++        client_first,
++        consequence,
++    } = c;
++    let mut out = causal_window_direction_leaves(&format!("{prefix}.stock"), stock);
++    out.extend(causal_window_direction_leaves(&format!("{prefix}.client_first"), client_first));
++    out.extend(causal_window_direction_leaves(&format!("{prefix}.consequence"), consequence));
++    out
++}
++
+ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+     let UtilizationSnapshot {
+         rng_streams: _,
+@@ -1458,6 +1622,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         fresh_first: _,
+         pair_order: _,
+         client_anchor: _,
++        causal_window: _,
+         arm_selector_axis: _,
+         replay: _,
+         timer_context: _,
+@@ -1496,6 +1661,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "fresh_first",
+         "pair_order",
+         "client_anchor",
++        "causal_window",
+         "arm_selector_axis",
+         "replay",
+         "timer_context",
+@@ -1569,6 +1735,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.fresh_first = fresh_first(&mut m);
+     s.pair_order = pair_order(&mut m);
+     s.client_anchor = client_anchor(&mut m);
++    s.causal_window = causal_window(&mut m);
+     s.arm_selector_axis = arm_selector_axis(&mut m);
+     s.replay = replay(&mut m);
+     s.timer_context = timer_context(&mut m);
+@@ -1586,6 +1753,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(fresh_first_leaves("fresh_first", &s.fresh_first));
+     expected.extend(pair_order_leaves("pair_order", &s.pair_order));
+     expected.extend(client_anchor_leaves("client_anchor", &s.client_anchor));
++    expected.extend(causal_window_leaves("causal_window", &s.causal_window));
+     expected.extend(arm_selector_axis_leaves("arm_selector_axis", &s.arm_selector_axis));
+     expected.extend(replay_leaves("replay", &s.replay));
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
+@@ -1629,6 +1797,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "fresh_first",
+         "pair_order",
+         "client_anchor",
++        "causal_window",
+         "arm_selector_axis",
+         "replay",
+         "timer_context",
