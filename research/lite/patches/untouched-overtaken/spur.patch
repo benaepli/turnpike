@@ -1,0 +1,726 @@
+diff --git a/spur-core/src/simulator/arm_selector.rs b/spur-core/src/simulator/arm_selector.rs
+index 5e7950e..fdbd7ef 100644
+--- a/spur-core/src/simulator/arm_selector.rs
++++ b/spur-core/src/simulator/arm_selector.rs
+@@ -85,8 +85,9 @@ pub type Cell = (i32, i32);
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum Learner {
+     /// Rewarded when a message from a dead incarnation of a restarted sender
+-    /// lands on a restarted receiver behind the sender's newer traffic and
+-    /// the handler writes state.
++    /// lands on a restarted receiver behind the sender's newer traffic, the
++    /// handler writes state, and no message entry caused by a post-fault
++    /// client operation had reached the receiver since its restart.
+     OvertakenGhost,
+     /// Rewarded when a node crashes while marked as having acted on a
+     /// fault-crossing delivery, recovers, and then takes a message from
+@@ -117,7 +118,7 @@ impl Learner {
+     /// The reward this learner is trained on.
+     pub fn reward(self) -> Reward {
+         match self {
+-            Learner::OvertakenGhost => Reward::OvertakenGhost,
++            Learner::OvertakenGhost => Reward::UntouchedOvertaken,
+             Learner::AbsorberCycle => Reward::AbsorberCycle,
+             Learner::CycleBeforeRequest => Reward::CycleBeforeRequest,
+         }
+@@ -171,6 +172,14 @@ fn normal_cdf(z: f64) -> f64 {
+ #[derive(Clone, Copy, Debug, Default)]
+ pub struct Rewards {
+     pub overtaken_ghost: bool,
++    /// `overtaken_ghost`, with no request-caused entry at the receiver
++    /// since its restart before the ghost.
++    pub untouched_overtaken: bool,
++    /// `overtaken_ghost`, with the receiver's last state-writing segment
++    /// since its restart timer-woken before the ghost.
++    pub timer_reopened_overtaken: bool,
++    /// Timer-woken segments at restarted nodes that wrote state.
++    pub timer_acted_segments_since_restart: u32,
+     pub absorber_cycle: bool,
+     pub mutual_absorber_cycle: bool,
+     /// Whether the run's ghost signal fired, or None on a run whose prefix
+@@ -412,7 +421,8 @@ fn credit(learner: Learner, cell: Cell, arms: &ArmSet, reward: bool) {
+ /// Fold one finished run into the learners that may see it: a coin-drawn
+ /// run into every learner, a learner run into its learner only, a probe
+ /// into none. The coin-drawn runs are also where every reward's rate per
+-/// direction, and the step of the first request-caused entry, are read.
++/// direction, the step of the first request-caused entry, and the
++/// timer-woken acted segments at restarted nodes are read.
+ pub fn observe(cell: Cell, run_id: i64, choice: &Choice, rewards: &Rewards) {
+     if learner(run_id).is_none() {
+         return;
+@@ -420,6 +430,8 @@ pub fn observe(cell: Cell, run_id: i64, choice: &Choice, rewards: &Rewards) {
+     let arms = &choice.arms;
+     let value = |reward: Reward| match reward {
+         Reward::OvertakenGhost => Some(rewards.overtaken_ghost),
++        Reward::UntouchedOvertaken => Some(rewards.untouched_overtaken),
++        Reward::TimerReopenedOvertaken => Some(rewards.timer_reopened_overtaken),
+         Reward::AbsorberCycle => Some(rewards.absorber_cycle),
+         Reward::MutualAbsorberCycle => Some(rewards.mutual_absorber_cycle),
+         Reward::GhostSignal => rewards.ghost_signal,
+@@ -427,7 +439,7 @@ pub fn observe(cell: Cell, run_id: i64, choice: &Choice, rewards: &Rewards) {
+         Reward::CycleBeforeRequest => Some(rewards.cycle_before_request),
+         Reward::ExchangeBeforeRequest => Some(rewards.exchange_before_request),
+     };
+-    util_stats::record_arm_selector_run_observed(cell.0, rewards.overtaken_ghost);
++    util_stats::record_arm_selector_run_observed(cell.0, rewards.untouched_overtaken);
+     match choice.learner {
+         None => {
+             for learner in Learner::ALL {
+@@ -441,6 +453,10 @@ pub fn observe(cell: Cell, run_id: i64, choice: &Choice, rewards: &Rewards) {
+             if let Some(step) = rewards.first_post_fault_request_entry_step {
+                 util_stats::record_client_anchor_first_post_fault_entry(arms, step);
+             }
++            util_stats::record_timer_acted_segments_since_restart(
++                arms,
++                u64::from(rewards.timer_acted_segments_since_restart),
++            );
+         }
+         Some(learner) => {
+             let r = rewards_of(learner, rewards);
+@@ -452,7 +468,7 @@ pub fn observe(cell: Cell, run_id: i64, choice: &Choice, rewards: &Rewards) {
+ 
+ fn rewards_of(learner: Learner, rewards: &Rewards) -> bool {
+     match learner {
+-        Learner::OvertakenGhost => rewards.overtaken_ghost,
++        Learner::OvertakenGhost => rewards.untouched_overtaken,
+         Learner::AbsorberCycle => rewards.absorber_cycle,
+         Learner::CycleBeforeRequest => rewards.cycle_before_request,
+     }
+@@ -526,9 +542,12 @@ mod tests {
+         }
+     }
+ 
++    /// An overtaken ghost that is also request-untouched, so the first
++    /// learner's reward follows `overtaken_ghost`.
+     fn rewarded(overtaken_ghost: bool, absorber_cycle: bool) -> Rewards {
+         Rewards {
+             overtaken_ghost,
++            untouched_overtaken: overtaken_ghost,
+             absorber_cycle,
+             ghost_signal: Some(false),
+             ..Rewards::default()
+@@ -1052,7 +1071,7 @@ mod tests {
+         }
+         assert!(after.leader_margin_micro[1] - before.leader_margin_micro[1] > learner_runs * 900_000);
+         // The other learners' sections are untouched, as is the mirror.
+-        assert_eq!(after.overtaken_ghost.chosen_runs, after.chosen_runs);
++        assert_eq!(after.untouched_overtaken.chosen_runs, after.chosen_runs);
+         assert_eq!(after.absorber_cycle.chosen_runs, before.absorber_cycle.chosen_runs);
+         reset();
+     }
+@@ -1069,7 +1088,18 @@ mod tests {
+         let b = Learner::AbsorberCycle;
+         let c = Learner::CycleBeforeRequest;
+         let coin_run = coin(arms);
+-        observe(cell, assigned_id(a), &coin_run, &rewarded(true, false));
++        observe(
++            cell,
++            assigned_id(a),
++            &coin_run,
++            &Rewards {
++                timer_reopened_overtaken: true,
++                timer_acted_segments_since_restart: 3,
++                ..rewarded(true, false)
++            },
++        );
++        // An overtaken ghost that a request entry preceded pays the coin
++        // table and not the first learner.
+         observe(
+             cell,
+             assigned_id(b),
+@@ -1079,7 +1109,9 @@ mod tests {
+                 mutual_absorber_cycle: true,
+                 cycle_before_request: true,
+                 first_post_fault_request_entry_step: Some(40),
+-                ..rewarded(false, true)
++                untouched_overtaken: false,
++                timer_acted_segments_since_restart: 2,
++                ..rewarded(true, true)
+             },
+         );
+         // A replay child is not read for the ghost signal.
+@@ -1097,7 +1129,8 @@ mod tests {
+         observe(cell, assigned_id(a), &learned(arms, a), &rewarded(true, true));
+         observe(cell, assigned_id(b), &learned(arms, b), &rewarded(true, true));
+         observe(cell, assigned_id(b), &learned(arms, b), &rewarded(false, false));
+-        // A learner run's request entry step is not read.
++        // A learner run's request entry step and acted segments are not
++        // read.
+         observe(
+             cell,
+             assigned_id(c),
+@@ -1106,6 +1139,7 @@ mod tests {
+                 mutual_absorber_cycle: true,
+                 cycle_before_request: true,
+                 first_post_fault_request_entry_step: Some(99),
++                timer_acted_segments_since_restart: 50,
+                 ..rewarded(true, true)
+             },
+         );
+@@ -1115,10 +1149,13 @@ mod tests {
+         let after = snapshot.arm_selector_axis;
+         let entry = &snapshot.client_anchor.first_post_fault_entry;
+         let entry0 = &before.client_anchor.first_post_fault_entry;
++        let segments = &snapshot.crash_recovery.timer_acted_segments_since_restart;
++        let segments0 = &before.crash_recovery.timer_acted_segments_since_restart;
+         let before = before.arm_selector_axis;
+         for d in arms.directions() {
+             assert_eq!(entry.runs[d] - entry0.runs[d], 2);
+             assert_eq!(entry.steps_sum[d] - entry0.steps_sum[d], 50);
++            assert_eq!(segments[d] - segments0[d], 5, "the coin runs' segments by direction");
+         }
+         let cr = &after.cycle_before_request;
+         let cr0 = &before.cycle_before_request;
+@@ -1141,12 +1178,30 @@ mod tests {
+         assert_eq!(after.reward_positive_control - before.reward_positive_control, 1);
+         assert_eq!(after.reward_runs_treated - before.reward_runs_treated, 1);
+         assert_eq!(after.reward_positive_treated - before.reward_positive_treated, 1);
++        let uo = &after.untouched_overtaken;
++        let uo0 = &before.untouched_overtaken;
++        assert_eq!(uo.reward_runs_control - uo0.reward_runs_control, 3);
++        assert_eq!(uo.reward_positive_control - uo0.reward_positive_control, 1);
++        assert_eq!(uo.reward_runs_treated - uo0.reward_runs_treated, 1);
++        assert_eq!(uo.reward_positive_treated - uo0.reward_positive_treated, 1);
++        assert_eq!(uo.cells, 1);
++        // The overtaken ghost without the request clause is a coin table
++        // that also counts the run a request entry preceded.
+         let og = &after.overtaken_ghost;
+         let og0 = &before.overtaken_ghost;
+         assert_eq!(og.reward_runs_control - og0.reward_runs_control, 3);
+-        assert_eq!(og.reward_positive_control - og0.reward_positive_control, 1);
+-        assert_eq!(og.reward_runs_treated - og0.reward_runs_treated, 1);
+-        assert_eq!(og.reward_positive_treated - og0.reward_positive_treated, 1);
++        assert_eq!(og.reward_positive_control - og0.reward_positive_control, 2);
++        let tr = &after.timer_reopened_overtaken;
++        let tr0 = &before.timer_reopened_overtaken;
++        assert_eq!(tr.reward_runs_control - tr0.reward_runs_control, 3);
++        assert_eq!(tr.reward_positive_control - tr0.reward_positive_control, 1);
++        for d in arms.directions() {
++            assert_eq!(
++                tr.control_reward_positive_by_direction[d]
++                    - tr0.control_reward_positive_by_direction[d],
++                1
++            );
++        }
+         let ac = &after.absorber_cycle;
+         let ac0 = &before.absorber_cycle;
+         assert_eq!(ac.reward_runs_control - ac0.reward_runs_control, 3);
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f858656..fc564a2 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -1282,8 +1282,13 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     // heard from the sender's current incarnation, read off
+                     // the per-destination table before this entry is added.
+                     // The table is kept on every run: the overtaken-ghost
+-                    // reward reads it.
++                    // rewards read it. The request-untouched and
++                    // timer-reopened forms are read here too, before this
++                    // entry is noted as a request entry and before its own
++                    // segment runs.
+                     let mut overtaken_at_restarted = false;
++                    let mut untouched_at_restarted = false;
++                    let mut timer_reopened_at_restarted = false;
+                     if message_entry {
+                         let current = state.incarnation(record_origin);
+                         if r.origin_incarnation != current {
+@@ -1297,6 +1302,18 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                                 r.origin_incarnation,
+                                 record_dest,
+                             );
++                            untouched_at_restarted = state
++                                .untouched_overtaken_ghost_at_restarted(
++                                    record_origin,
++                                    r.origin_incarnation,
++                                    record_dest,
++                                );
++                            timer_reopened_at_restarted = state
++                                .timer_reopened_overtaken_ghost_at_restarted(
++                                    record_origin,
++                                    r.origin_incarnation,
++                                    record_dest,
++                                );
+                             util_stats::record_fresh_first_ghost_entry(
+                                 state.fresh_first.enabled,
+                                 overtaken,
+@@ -1422,10 +1439,18 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         );
+                         (r.pc, key, inflight, cell, state.node_state_token(record_dest))
+                     });
+-                    if message_entry {
+-                        state.note_handler_entry(record_dest.index, HandlerTrigger::Delivery);
++                    // Every message or timer entry reads the token once, so
++                    // the ledger can say what woke the last segment that
++                    // wrote state.
++                    let segment = if message_entry {
++                        Some((HandlerTrigger::Delivery, state.node_state_token(record_dest)))
+                     } else if timer_entry {
+-                        state.note_handler_entry(record_dest.index, HandlerTrigger::Timer);
++                        Some((HandlerTrigger::Timer, state.node_state_token(record_dest)))
++                    } else {
++                        None
++                    };
++                    if let Some((trigger, _)) = segment {
++                        state.note_handler_entry(record_dest.index, trigger);
+                     }
+                     let result = exec::<H, L, F>(
+                         state,
+@@ -1441,11 +1466,22 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     if let Some(before) = ghost {
+                         state.note_ghost_delivery(record_dest.index, entry_step, before);
+                         // A dead-incarnation record is a ghost, so the
+-                        // token taken for the mark serves the reward too.
++                        // token taken for the mark serves the rewards too.
+                         if overtaken_at_restarted && state.node_state_token(record_dest) != before {
+                             state.overtaken_ghost_acted = true;
++                            if untouched_at_restarted {
++                                state.overtaken_ghost_acted_untouched = true;
++                            }
++                            if timer_reopened_at_restarted {
++                                state.overtaken_ghost_after_timer_acted = true;
++                            }
+                         }
+                     }
++                    if let Some((trigger, before)) = segment
++                        && state.node_state_token(record_dest) != before
++                    {
++                        state.note_acted_segment(record_dest.index, trigger);
++                    }
+                     if let Some((bias, before, distance)) = probe {
+                         let acted = state.node_state_token(record_dest) != before;
+                         util_stats::record_delivery(bias, acted, distance);
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index eb5de70..cd98b89 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -644,6 +644,19 @@ pub struct State<H: HashPolicy> {
+     /// already heard from the sender's current incarnation, and wrote the
+     /// destination's state. Observation only, excluded from `signature()`.
+     pub overtaken_ghost_acted: bool,
++    /// Whether some entry that set `overtaken_ghost_acted` landed while no
++    /// message entry caused by a post-fault client operation had reached the
++    /// destination since its restart. Observation only, excluded from
++    /// `signature()`.
++    pub overtaken_ghost_acted_untouched: bool,
++    /// Whether some entry that set `overtaken_ghost_acted` landed while the
++    /// destination's last state-writing handler segment since its restart
++    /// had been woken by a timer. Observation only, excluded from
++    /// `signature()`.
++    pub overtaken_ghost_after_timer_acted: bool,
++    /// Timer-woken handler segments at restarted nodes that wrote the
++    /// node's state. Observation only, excluded from `signature()`.
++    pub timer_acted_segments_since_restart: u32,
+     /// Whether some node in the run crashed while marked as having acted on
+     /// a fault-crossing delivery, recovered, and then took a message entry
+     /// from another restarted node's current incarnation. Observation only,
+@@ -711,13 +724,16 @@ pub struct ReplayCut {
+ /// `last_ghost_acted` says whether that delivery wrote the node's state.
+ /// `crashed_as_acted_absorber` says whether a crash of this node ever
+ /// landed while that mark said the delivery wrote state; it is never
+-/// cleared within a run. The last three fields hold since the node's last
++/// cleared within a run. The last four fields hold since the node's last
+ /// restart and are cleared when it crashes: `absorber_peers_heard` is a
+ /// bitmask over node indices of the peers that also crashed as acted
+ /// absorbers and whose current incarnation this node has taken a message
+ /// entry from; `ghost_acted_since_restart` says whether a fault-crossing
+ /// delivery wrote the node's state; `request_entered_since_restart` whether
+-/// a message entry caused by a post-fault client operation has reached it.
++/// a message entry caused by a post-fault client operation has reached it;
++/// `last_acted_trigger` is what woke the last message or timer handler
++/// segment that wrote the node's state, `None` when none has since the
++/// restart.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct SendLedger {
+     pub issued: u32,
+@@ -736,6 +752,7 @@ pub struct SendLedger {
+     pub absorber_peers_heard: u64,
+     pub ghost_acted_since_restart: bool,
+     pub request_entered_since_restart: bool,
++    pub last_acted_trigger: HandlerTrigger,
+ }
+ 
+ impl Default for SendLedger {
+@@ -757,6 +774,7 @@ impl Default for SendLedger {
+             absorber_peers_heard: 0,
+             ghost_acted_since_restart: false,
+             request_entered_since_restart: false,
++            last_acted_trigger: HandlerTrigger::None,
+         }
+     }
+ }
+@@ -828,6 +846,9 @@ impl<H: HashPolicy> State<H> {
+             client_anchor: client_anchor::RunState::default(),
+             replay_cut: None,
+             overtaken_ghost_acted: false,
++            overtaken_ghost_acted_untouched: false,
++            overtaken_ghost_after_timer_acted: false,
++            timer_acted_segments_since_restart: 0,
+             absorber_cycle_fresh_peer: false,
+             absorber_cycle_closed_step: None,
+             mutual_absorber_cycle: false,
+@@ -1187,6 +1208,20 @@ impl<H: HashPolicy> State<H> {
+             l.absorber_peers_heard = 0;
+             l.ghost_acted_since_restart = false;
+             l.request_entered_since_restart = false;
++            l.last_acted_trigger = HandlerTrigger::None;
++        }
++    }
++
++    /// A message or timer handler segment at `node` woken by `trigger`
++    /// wrote the node's state. A timer-woken segment at a node that has
++    /// restarted also counts toward `timer_acted_segments_since_restart`.
++    pub fn note_acted_segment(&mut self, node: usize, trigger: HandlerTrigger) {
++        if let Some(l) = self.send_ledger.get_mut(node) {
++            l.last_acted_trigger = trigger;
++        }
++        if trigger == HandlerTrigger::Timer && self.incarnation_at(node) > 0 {
++            self.timer_acted_segments_since_restart =
++                self.timer_acted_segments_since_restart.saturating_add(1);
+         }
+     }
+ 
+@@ -1213,6 +1248,39 @@ impl<H: HashPolicy> State<H> {
+             && self.fresh_first.heard_from(dest.index, origin.index, current)
+     }
+ 
++    /// `overtaken_ghost_at_restarted`, and no message entry caused by a
++    /// post-fault client operation has reached `dest` since its restart.
++    /// Read before the entry is noted as a request entry, since a
++    /// request-caused ghost would otherwise count itself.
++    pub fn untouched_overtaken_ghost_at_restarted(
++        &self,
++        origin: NodeId,
++        sent_at: u32,
++        dest: NodeId,
++    ) -> bool {
++        self.overtaken_ghost_at_restarted(origin, sent_at, dest)
++            && self
++                .send_ledger
++                .get(dest.index)
++                .is_some_and(|l| !l.request_entered_since_restart)
++    }
++
++    /// `overtaken_ghost_at_restarted`, and the last message or timer handler
++    /// segment that wrote `dest`'s state since its restart was woken by a
++    /// timer. Read before the entry's own segment runs.
++    pub fn timer_reopened_overtaken_ghost_at_restarted(
++        &self,
++        origin: NodeId,
++        sent_at: u32,
++        dest: NodeId,
++    ) -> bool {
++        self.overtaken_ghost_at_restarted(origin, sent_at, dest)
++            && self
++                .send_ledger
++                .get(dest.index)
++                .is_some_and(|l| l.last_acted_trigger == HandlerTrigger::Timer)
++    }
++
+     /// Whether a message entry at `dest` sent by `origin` at incarnation
+     /// `sent_at` closes an absorber cycle: a crash of `dest` once landed
+     /// while it was marked as having acted on a fault-crossing delivery,
+@@ -1761,6 +1829,85 @@ mod ledger_tests {
+         assert!(!st.overtaken_ghost_at_restarted(b, 0, a), "the roles do not commute");
+     }
+ 
++    /// The request-untouched form needs the overtaken ghost and a receiver
++    /// that no post-fault request entry has reached since its restart; the
++    /// flag is cleared by the receiver's next crash.
++    #[test]
++    fn an_untouched_overtaken_ghost_needs_a_receiver_no_request_has_reached() {
++        let mut st = state();
++        let a = node(SERVER, 0);
++        let b = node(SERVER, 1);
++        st.incarnations[0] = 1;
++        st.fresh_first.note_entry(1, 0, 1);
++        assert!(
++            !st.untouched_overtaken_ghost_at_restarted(a, 0, b),
++            "the receiver never restarted"
++        );
++        st.incarnations[1] = 1;
++        assert!(st.overtaken_ghost_at_restarted(a, 0, b));
++        assert!(
++            st.untouched_overtaken_ghost_at_restarted(a, 0, b),
++            "no request entry has reached the restarted receiver"
++        );
++        st.note_post_fault_request_entry(1, 40, 3);
++        assert!(st.overtaken_ghost_at_restarted(a, 0, b), "the ghost is still overtaken");
++        assert!(
++            !st.untouched_overtaken_ghost_at_restarted(a, 0, b),
++            "a request-caused entry reached the receiver before the ghost"
++        );
++        st.clear_ghost_mark(1);
++        st.incarnations[1] = 2;
++        st.fresh_first.note_entry(1, 0, 1);
++        assert!(
++            st.untouched_overtaken_ghost_at_restarted(a, 0, b),
++            "the receiver's next restart clears the flag"
++        );
++    }
++
++    /// The timer-reopened form needs the overtaken ghost and a receiver
++    /// whose last state-writing segment since its restart was timer-woken;
++    /// an inert segment leaves the mark alone, a delivery-woken writing
++    /// segment replaces it, and the receiver's crash clears it.
++    #[test]
++    fn a_timer_reopened_overtaken_ghost_follows_the_last_acted_segment() {
++        let mut st = state();
++        let a = node(SERVER, 0);
++        let b = node(SERVER, 1);
++        st.incarnations[0] = 1;
++        st.incarnations[1] = 1;
++        st.fresh_first.note_entry(1, 0, 1);
++        assert!(st.overtaken_ghost_at_restarted(a, 0, b));
++        assert!(
++            !st.timer_reopened_overtaken_ghost_at_restarted(a, 0, b),
++            "no segment has written state since the restart"
++        );
++        assert_eq!(st.timer_acted_segments_since_restart, 0);
++        st.note_acted_segment(1, HandlerTrigger::Timer);
++        assert!(st.timer_reopened_overtaken_ghost_at_restarted(a, 0, b));
++        assert_eq!(st.timer_acted_segments_since_restart, 1);
++        st.note_acted_segment(1, HandlerTrigger::Delivery);
++        assert!(
++            !st.timer_reopened_overtaken_ghost_at_restarted(a, 0, b),
++            "a delivery-woken segment wrote state last"
++        );
++        st.note_acted_segment(1, HandlerTrigger::Timer);
++        assert!(st.timer_reopened_overtaken_ghost_at_restarted(a, 0, b));
++        assert_eq!(st.timer_acted_segments_since_restart, 2);
++        st.note_acted_segment(2, HandlerTrigger::Timer);
++        assert_eq!(
++            st.timer_acted_segments_since_restart, 2,
++            "a node that never restarted is not in the census"
++        );
++        st.clear_ghost_mark(1);
++        assert_eq!(st.send_ledger[1].last_acted_trigger, HandlerTrigger::None);
++        st.incarnations[1] = 2;
++        st.fresh_first.note_entry(1, 0, 1);
++        assert!(
++            !st.timer_reopened_overtaken_ghost_at_restarted(a, 0, b),
++            "the crash cleared the mark"
++        );
++    }
++
+     /// A crash landing while the ghost mark says the delivery wrote state
+     /// is remembered past the mark's clearing, and the absorber-cycle
+     /// predicate then needs the receiver restarted and a restarted sender's
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index a590744..469c911 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -1137,6 +1137,11 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &choice,
+         &arm_selector::Rewards {
+             overtaken_ghost: path_state.state.overtaken_ghost_acted,
++            untouched_overtaken: path_state.state.overtaken_ghost_acted_untouched,
++            timer_reopened_overtaken: path_state.state.overtaken_ghost_after_timer_acted,
++            timer_acted_segments_since_restart: path_state
++                .state
++                .timer_acted_segments_since_restart,
+             absorber_cycle: path_state.state.absorber_cycle_fresh_peer,
+             mutual_absorber_cycle: path_state.state.mutual_absorber_cycle,
+             ghost_signal: (!replay_slot).then_some(path_state.state.replay_cut.is_some()),
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 45e7ea2..f65542a 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -168,7 +168,11 @@ static CAN_FIRST_ENTRY_RUNS: [AtomicU64; run_variant::DIRECTIONS] =
+     [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
+ static CAN_FIRST_ENTRY_STEPS_SUM: [AtomicU64; run_variant::DIRECTIONS] =
+     [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
+-/// The per-run rewards the arm selector reads. `OvertakenGhost`,
++/// Timer-woken handler segments at restarted nodes that wrote state, per
++/// direction the run carried, over the arm selector's coin-drawn runs.
++static CR_TIMER_ACTED_SEGMENTS: [AtomicU64; run_variant::DIRECTIONS] =
++    [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
++/// The per-run rewards the arm selector reads. `UntouchedOvertaken`,
+ /// `AbsorberCycle` and `CycleBeforeRequest` each train one learner; the
+ /// rest are read on the coin-drawn runs only.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+@@ -180,10 +184,12 @@ pub enum Reward {
+     EitherShape,
+     CycleBeforeRequest,
+     ExchangeBeforeRequest,
++    UntouchedOvertaken,
++    TimerReopenedOvertaken,
+ }
+ 
+ impl Reward {
+-    pub const ALL: [Reward; 7] = [
++    pub const ALL: [Reward; 9] = [
+         Reward::OvertakenGhost,
+         Reward::AbsorberCycle,
+         Reward::MutualAbsorberCycle,
+@@ -191,6 +197,8 @@ impl Reward {
+         Reward::EitherShape,
+         Reward::CycleBeforeRequest,
+         Reward::ExchangeBeforeRequest,
++        Reward::UntouchedOvertaken,
++        Reward::TimerReopenedOvertaken,
+     ];
+ 
+     fn index(self) -> usize {
+@@ -202,6 +210,8 @@ impl Reward {
+             Reward::EitherShape => 4,
+             Reward::CycleBeforeRequest => 5,
+             Reward::ExchangeBeforeRequest => 6,
++            Reward::UntouchedOvertaken => 7,
++            Reward::TimerReopenedOvertaken => 8,
+         }
+     }
+ }
+@@ -255,7 +265,7 @@ impl AxCounters {
+     }
+ }
+ 
+-static AX: [AxCounters; 7] = [const { AxCounters::new() }; 7];
++static AX: [AxCounters; 9] = [const { AxCounters::new() }; 9];
+ static AX_OBSERVATIONS: AtomicU64 = AtomicU64::new(0);
+ /// The first learner's reward per campaign arm over every observed run,
+ /// slot `arm_index + 1` so an unattributed run lands in slot zero; arms
+@@ -711,6 +721,7 @@ pub fn set_enabled(on: bool) {
+             .chain(CAN_ARM_RUNS.iter())
+             .chain(CAN_FIRST_DELIVERY_SUM.iter())
+             .chain(CAN_FIRST_DELIVERY_COUNT.iter())
++            .chain(CR_TIMER_ACTED_SEGMENTS.iter())
+             .chain(ACCEPT_DIST.iter().flatten())
+             .chain(ACCEPT_DIST_ACTED.iter().flatten())
+         {
+@@ -2394,6 +2405,19 @@ pub fn record_client_anchor_first_post_fault_entry(arms: &run_variant::ArmSet, s
+     }
+ }
+ 
++/// A coin-drawn run ended with `segments` timer-woken handler segments at
++/// restarted nodes that wrote state, credited to the directions the run
++/// carried.
++#[inline]
++pub fn record_timer_acted_segments_since_restart(arms: &run_variant::ArmSet, segments: u64) {
++    if !enabled() {
++        return;
++    }
++    for d in arms.directions() {
++        CR_TIMER_ACTED_SEGMENTS[d].fetch_add(segments, Ordering::Relaxed);
++    }
++}
++
+ /// A fresh grid-arm run that fired the signal entered its arm's replay corpus.
+ #[inline]
+ pub fn record_replay_parent_admitted() {
+@@ -3374,6 +3398,12 @@ pub struct CrashRecoveryStats {
+     /// handled by a different incarnation than the one they were sent to.
+     pub crossing_deliveries: u64,
+     pub runs_with_crossing: u64,
++    /// Timer-woken handler segments at restarted nodes that wrote the
++    /// node's state, summed over the arm selector's coin-drawn runs and
++    /// credited to each direction the run carried, in
++    /// `run_variant::AXIS_START` order. The runs behind each slot are the
++    /// coin tables' `control_runs_by_direction`.
++    pub timer_acted_segments_since_restart: Vec<u64>,
+ }
+ 
+ /// Record one timer firing that woke a waiting record and whether the woken
+@@ -4713,9 +4743,10 @@ impl ArmSelectorExploreStats {
+ }
+ 
+ /// The arm selector block. The top-level fields are the first learner's,
+-/// the one trained on the overtaken-ghost reward, and repeat under
+-/// `overtaken_ghost`; the second learner's are under `absorber_cycle` and
+-/// the third's under `cycle_before_request`. `ghost_signal`,
++/// the one trained on the request-untouched overtaken-ghost reward, and
++/// repeat under `untouched_overtaken`; the second learner's are under
++/// `absorber_cycle` and the third's under `cycle_before_request`.
++/// `overtaken_ghost`, `timer_reopened_overtaken`, `ghost_signal`,
+ /// `either_shape`, `mutual_absorber_cycle` and `exchange_before_request`
+ /// are read on the coin-drawn runs and train nothing. `explore` is the
+ /// exploration draw that splits the assigned runs into coin-drawn runs and
+@@ -4747,9 +4778,11 @@ pub struct ArmSelectorAxisStats {
+     pub control_runs_by_combination: Vec<u64>,
+     pub control_reward_positive_by_combination: Vec<u64>,
+     pub explore: ArmSelectorExploreStats,
+-    pub overtaken_ghost: ArmSelectorLearnerStats,
++    pub untouched_overtaken: ArmSelectorLearnerStats,
+     pub absorber_cycle: ArmSelectorLearnerStats,
+     pub cycle_before_request: ArmSelectorLearnerStats,
++    pub overtaken_ghost: ArmSelectorRewardStats,
++    pub timer_reopened_overtaken: ArmSelectorRewardStats,
+     pub ghost_signal: ArmSelectorRewardStats,
+     pub either_shape: ArmSelectorRewardStats,
+     pub mutual_absorber_cycle: ArmSelectorRewardStats,
+@@ -4759,7 +4792,7 @@ pub struct ArmSelectorAxisStats {
+ impl ArmSelectorAxisStats {
+     fn read() -> Self {
+         let load = |a: &[AtomicU64]| a.iter().map(|n| n.load(Ordering::Relaxed)).collect();
+-        let a = ArmSelectorLearnerStats::read(Reward::OvertakenGhost);
++        let a = ArmSelectorLearnerStats::read(Reward::UntouchedOvertaken);
+         Self {
+             chosen_runs: a.chosen_runs,
+             departures: a.departures,
+@@ -4784,9 +4817,11 @@ impl ArmSelectorAxisStats {
+                 .control_reward_positive_by_combination
+                 .clone(),
+             explore: ArmSelectorExploreStats::read(),
+-            overtaken_ghost: a,
++            untouched_overtaken: a,
+             absorber_cycle: ArmSelectorLearnerStats::read(Reward::AbsorberCycle),
+             cycle_before_request: ArmSelectorLearnerStats::read(Reward::CycleBeforeRequest),
++            overtaken_ghost: ArmSelectorRewardStats::read(Reward::OvertakenGhost),
++            timer_reopened_overtaken: ArmSelectorRewardStats::read(Reward::TimerReopenedOvertaken),
+             ghost_signal: ArmSelectorRewardStats::read(Reward::GhostSignal),
+             either_shape: ArmSelectorRewardStats::read(Reward::EitherShape),
+             mutual_absorber_cycle: ArmSelectorRewardStats::read(Reward::MutualAbsorberCycle),
+@@ -5042,6 +5077,10 @@ pub fn snapshot() -> UtilizationSnapshot {
+             messages_dropped_at_crash: CR_DROPPED_AT_CRASH.load(Ordering::Relaxed),
+             crossing_deliveries: CR_CROSSING_DELIVERIES.load(Ordering::Relaxed),
+             runs_with_crossing: CR_RUNS_WITH_CROSSING.load(Ordering::Relaxed),
++            timer_acted_segments_since_restart: CR_TIMER_ACTED_SEGMENTS
++                .iter()
++                .map(|n| n.load(Ordering::Relaxed))
++                .collect(),
+         },
+         recovery_window: RecoveryWindowStats::read(),
+         ordered_h3: OrderedH3Stats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 7c3e077..1aad0dd 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -866,9 +866,11 @@ fn arm_selector_axis(m: &mut Marks) -> ArmSelectorAxisStats {
+         control_runs_by_combination: marks_vec(m, 72),
+         control_reward_positive_by_combination: marks_vec(m, 72),
+         explore: arm_selector_explore(m),
+-        overtaken_ghost: arm_selector_learner(m),
++        untouched_overtaken: arm_selector_learner(m),
+         absorber_cycle: arm_selector_learner(m),
+         cycle_before_request: arm_selector_learner(m),
++        overtaken_ghost: arm_selector_reward(m),
++        timer_reopened_overtaken: arm_selector_reward(m),
+         ghost_signal: arm_selector_reward(m),
+         either_shape: arm_selector_reward(m),
+         mutual_absorber_cycle: arm_selector_reward(m),
+@@ -1015,7 +1017,9 @@ fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(Stri
+         control_runs_by_combination,
+         control_reward_positive_by_combination,
+         explore,
++        untouched_overtaken,
+         overtaken_ghost,
++        timer_reopened_overtaken,
+         absorber_cycle,
+         mutual_absorber_cycle,
+         ghost_signal,
+@@ -1054,7 +1058,15 @@ fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(Stri
+         control_reward_positive_by_combination,
+     ));
+     out.extend(arm_selector_explore_leaves(&format!("{prefix}.explore"), explore));
+-    out.extend(arm_selector_learner_leaves(&format!("{prefix}.overtaken_ghost"), overtaken_ghost));
++    out.extend(arm_selector_learner_leaves(
++        &format!("{prefix}.untouched_overtaken"),
++        untouched_overtaken,
++    ));
++    out.extend(arm_selector_reward_leaves(&format!("{prefix}.overtaken_ghost"), overtaken_ghost));
++    out.extend(arm_selector_reward_leaves(
++        &format!("{prefix}.timer_reopened_overtaken"),
++        timer_reopened_overtaken,
++    ));
+     out.extend(arm_selector_learner_leaves(&format!("{prefix}.absorber_cycle"), absorber_cycle));
+     out.extend(arm_selector_learner_leaves(
+         &format!("{prefix}.cycle_before_request"),

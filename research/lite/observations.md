@@ -5286,3 +5286,37 @@ run against 2.92 per stock run, the quiet-network sign. Session
 untouched-overtaken started cross-binary; four chunks; the admitted
 read is the within-binary A-against-B-plus-C ratio paired with the
 baseline, scripted from the chunk rows.
+
+**Chunk 1 refutes it, and the session stops there.** Seed 1000, candidate
+577,560 runs. The admitted primary, A's depth-8 rate over B and C's on
+the candidate against the same on the baseline: 0.814 over 1.016 =
+0.801 [0.720, 0.891] against a pass at 0.96, refuted with the whole
+interval under 0.94. Cross-binary all-runs depth>=8 0.999 [0.954, 1.047];
+depth>=10 ratio of ratios 1.23 [0.53, 2.87] on 37 A events against 36,
+a lean the round was for and cannot keep. The coin table names the
+cause: the new reward reads hold/stock 1.93, rush/stock 0.36 and fresh
+1.93 as argued, and stock/placed 1.62 against its letter of 1.0 - a
+receiver that no post-fault request has reached is most often the
+receiver of an early crash, and stock crashes land at their ready step
+before the post-fault requests exist. Learner A followed the reward:
+hold 0.758, rush 0.094, fresh-first 0.738, and crash stock 0.190 against
+the coin's 0.081, on an axis worth 37x at depth 8. The gate on that
+letter was written at admission and the smoke read it at 1.35 on 47
+events; chunk 1 reads it at 1.62 on 734, and the depth read that the
+gate guards says what the gate predicted. Own-run rate 0.0276, above
+the floor; the clause fired as built. The timer-reopened table fires on
+147 of 91,000 coin runs (0.0016) with the census reading timer-woken
+acted segments at 3.13 per hold run against 2.22 per stock run and
+1.74 per rush run - the quiet-network sign holds, the shape is too rare
+for a learner. Stopped after one chunk: three more would only sharpen
+an attribution already decided at depth 8 and the letter. Closed; patch
+kept for the table and the census; the tree stays as merged at 58, with
+A's original reward.
+
+What the round measured: a hold-reading clause must not read early
+crashes up, and "before the first post-fault request" does on the
+overtaken core because that core does not require a placed crash,
+where the absorber core (learner C's reward) does - which is why C's
+stock/placed reads 0.53 with the same clause. The next hold-reader for
+A, if one is wanted, needs a clause that carries the placed crash by
+construction.

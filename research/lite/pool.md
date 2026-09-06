@@ -3313,9 +3313,12 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 
 ## per-cell-selector-overtaken-ghost-acted-at-request-untouched-restarted-receiver-reward
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 59 in learner A's slot (judge gain 6, cost 0, rank 1;
-  implementing) | parent:
+- kind: add | category: feedback | origin: proposer | status: CLOSED at
+  iteration 59 on one chunk (coin table stock/placed 1.62 against its
+  letter of 1.0; A/(B+C) at depth>=8 as a ratio of ratios 0.801 [0.720,
+  0.891] against a pass at 0.96; A's stock share 0.19; the clause reads
+  early crashes up; patch kept under research/lite/patches/
+  untouched-overtaken for the timer-reopened table and census) | parent:
   per-cell-selector-overtaken-ghost-acted-at-restarted-receiver-reward
 - Reward: an acted overtaken ghost at a restarted receiver that no
   post-fault request had reached since its restart. Reads the hold up
