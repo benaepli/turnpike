@@ -1,0 +1,184 @@
+{
+  "hypotheses": [
+    {
+      "id": "selector-one-parent-conditional-direction-posteriors",
+      "parent": "per-cell-thompson-joint-arm-selector-rarity-reward",
+      "kind": "add",
+      "title": "Choose later scheduling directions conditionally on the cell's most decided axis",
+      "description": "Replace independent axis sampling in arm_selector.rs with a hierarchical conditional draw. Keep the current three rewards, cell keys, exposure policy, marginal Beta tables, exploration-share rule and first-axis pick. On each learner draw, choose the first axis by largest current leader margin, tie by axis index. Draw its direction using the current coin-times-leading rule. For each remaining axis, draw from conditional Beta tables indexed by that first axis's chosen direction and the candidate direction, with an empirical prior centered on the candidate direction's existing marginal posterior mean. Use WARMUP_OBSERVATIONS as the prior mass; conditional counts replace their prior continuously as evidence arrives. Only pairs of different axes are stored: 57 unordered direction pairs for the current widths [3,2,2,2,3], each with success/failure mass. Each credited run updates its ten observed pairs in the same existing cell write guard, under the current DISCOUNT and the learner's unchanged bool reward. Pair posteriors are read in either orientation. A conditional candidate needs at least WARMUP_OBSERVATIONS raw pair observations before it can differ from the marginal; otherwise it uses the existing marginal distribution exactly. All other axes condition on the first draw only, not the growing tuple, avoiding the 72-combination sample problem. Add counters for conditional draws, fallback draws, pair observations and positive rewards, direction departures versus the marginal draw probabilities, and active parent-axis choices. Keep probe and coin-drawn schedules unchanged. No new config key and no campaign arm change; files arm_selector.rs and util_stats.rs only, plus meaningful unit tests.",
+      "category": "feedback",
+      "buildsOn": [
+        "per-cell factored arm selector",
+        "pooled configuration cells",
+        "coin-times-leading exploitation"
+      ],
+      "expectedGain": 4,
+      "expectedCost": 0,
+      "rationale": "The selector currently attributes the same reward independently to all five carried directions and then samples their marginal posteriors independently. Recovery reordering plausibly depends on combinations: a fresh-first direction can interact with pair send order and client deferral, while the strongest fault direction supplies the prerequisite. The existing implementation already concentrates B on retarget and C on hold, but leaves other axes weakly decided; conditioning those remaining choices on a reliably selected prerequisite can expose interactions concealed in the marginal mixture. This is a structural model change, not another scarce deep reward. It avoids the rejected 72-arm rarity learner in three ways: only two-way cells are learned, each run supplies ten pair observations, and conditional cells back off to today's proven marginal learner. It keeps iteration 65's forbidden cross-credit out: no learner receives another learner's runs and there are no extra shared-map lock acquisitions.",
+      "generalityArgument": "The rule uses only the explorer's existing generic strategy axes and their existing protocol-agnostic rewards. It makes no axis pair privileged in source and names no protocol message or role. The most decided axis is selected independently per cell and learner, so protocol panels can choose different prerequisites.",
+      "prediction": {
+        "firingCounter": "arm_selector_axis.conditional_pair.chosen_runs",
+        "firingFloor": 100000,
+        "rung": "depth>=8",
+        "sizePct": {
+          "min": 0.08,
+          "max": 0.2
+        },
+        "mechanism": "Cross-binary rung, not a claimed randomized within-session contrast. This proposal replaces the session-global cell model and its subsequent training distribution for all learner draws; turning off one run's conditional pick does not turn off the conditional model's influence on the shared marginal and pair evidence read by later controls. No existing bit distinguishes this model replacement, and no retired bit is relabeled. A genuinely isolated dual-model trial would be a different implementation with different sample economics. Frozen primary: paired candidate/baseline depth>=8 per graded run in [1.08, 1.20] over the unchanged four-seed evaluation. Require paired depth>=8 events per explore-second above 1.05 as well. Throughput floor 0.97 of baseline. Existing learner tags retain their meanings and are descriptive, not a treatment/control claim.",
+        "independentObservable": "At least 20 configuration/learner cells per chunk each make at least 100 supported conditional axis decisions: their actual chosen parent direction and candidate axis have at least two compared candidate directions with >=100 raw pair observations and >=5 raw positive rewards apiece. Each of those two compared pairs must also retain discounted observation mass >=24 and discounted positive mass >=2 at the actual decision; lifetime counts alone do not qualify a draw. Report current discounted success/failure mass alongside these raw counts. At least 15% of supported decisions change the most likely final categorical direction relative to marginal coin-times-leading weights; count only decisions meeting the support gate. Export per-cell support and comparison counters in subject utilStats. Existing A/B/C own-run reward rates each stay >=0.95 of baseline, read by actual learner tag. Replace the unavailable distinct-parent-count claim with fresh non-replay-slot runs reaching depth>=11: their count across four paired chunks is predicted >=1.5x baseline, reported together with their exposure-normalized rate. This last claim is exploratory and cannot override primary harm; it does not count existing correlated replay children as new parents.",
+        "falsifier": "Refute if the cross-binary depth>=8 per-run interval lies entirely below 1.08, throughput falls below 0.97, or primary events-per-second fail 1.05. Close for insufficient mechanism support if the 20-cell pair evidence floor is missed; raw total pair updates alone do not count as learning. Refute the interaction explanation if supported choices change their marginal leader on less than 15% of draws or any existing learner reward falls below 0.95 of baseline. Report failure of the depth>=11 count prediction even if the primary improves. Do not relabel a thin conditional table as successful adaptive switching. Judge rewrite: interpret the 15% condition using final coin-weighted direction probabilities and the supported-axis-decision denominator. Use fresh non-slot depth>=11 count/rate for the exploratory deep check; no parent-id instrumentation outside the proposed file scope is required. Shared-model adaptation means no learner bit supplies a randomized treatment comparison. Existing intervals are descriptive of the fixed evaluation; do not claim independence of ten pair updates from one run."
+      },
+      "createdAtIso": "2026-09-06T00:00:00Z",
+      "notes": "Evidence: arm_selector.rs currently has 12 marginal directions, 500-observation discounted windows and independent sample_axis_leading calls; ArmSet widths verified in run_variant.rs. Number of unordered cross-axis direction pairs is ((12*12)-(3*3+2*2+2*2+2*2+3*3))/2 = 57. Ten pairs per observed five-axis arm set. This does not assert interaction evidence already exists: it is a falsifiable mechanism hypothesis. Pair update hot-path cost and rare rewards are major red-team risks; five positive rewards per supported pair is deliberately binding. Pilot proves arm quality can improve but does not prove this mechanism or remove cap maturation. Do not carry state between grader chunks. No orchestrator edit, no new registration, no measurement-only iteration.",
+      "netScore": 4,
+      "rank": 1,
+      "review": {
+        "redTeam": "There is no verified evidence that the remaining directions interact in a way these existing rewards can use. Strong marginal axes may already explain almost all reward variation; conditioning on their leader merely fragments data and double-counts marginal evidence in the empirical prior. The first axis is selected for certainty, not for predictive interaction. Pair observations arise under an adaptive policy and are not randomized causal interaction estimates. A 500-visit discounted window and sparse minority directions may leave few supported positive pairs. Extra arithmetic inside the shared cell guard can recreate part of iteration 65 throughput loss even without extra locks; choosing directions conditionally can also reduce coverage or alter AOS through shared feedback.",
+        "verifiedEvidence": [
+          "run_variant.rs:128-135 widths are [3,2,2,2,3], 12 directions and 72 full combinations; there are exactly 57 unordered cross-axis direction pairs and 10 pair observations per five-axis run.",
+          "arm_selector.rs:75,79,242-250,337-377,394-417 confirms discount 0.998, warmup 24, empirical prior, independent categorical coin-times-leading picks and an existing cell guard. Discount currently applies on each carried direction visit, not uniformly to every direction on every cell run. Pair discount semantics must follow that same visit-clock convention.",
+          "arm_selector.rs:450-499 credits coin-drawn runs to all three learners and learner-drawn runs only to their own learner. Preserving this policy is compatible with the proposal; no extra cross-learner credit is authorized.",
+          "Current baseline seed1000 has 164617/172588/167628 learner chosen runs and 9593/30766/9078 own-run positive rewards for A/B/C. The proposed pair counters and support cells do not exist; positive-pair supply is an unverified prediction, not established by aggregate reward counts.",
+          "Pool joint Thompson is held with weak evidence and unbuildable original sample economics; pair backoff is a distinct conditional factorization but belongs to the same joint-learning family, so only this form ranks here.",
+          "Iterations 59 and 64 show scarce reward failures; iteration 65 cross-credit lost throughput and changed evidence mixtures. Stage A shows arm quality improving but cannot isolate selector maturation from cap changes, and its rising coin share contradicts a simple fewer-coins story."
+        ],
+        "dedupe": "Keep as the sole conditional/joint selector alternative. The retained full 72-combination Thompson and Exp3 variants cannot also score high: they ride the same interaction-learning family and have already documented deficient sample economics.",
+        "costReason": "Rubric cost 0: arm_selector.rs and util_stats.rs changes do not alter event execution, history or linearizability recording.",
+        "requiredImplementationConstraints": [
+          "Keep coin/probe policy, rewards, existing marginal updates and cell keys unchanged. Pair tables update in the existing credited learner guard; ten pair increments are correlated observations of one reward, not ten independent reward samples.",
+          "Use marginal coin-times-leading probability vectors for fallback and parent-axis choice. Define disagreement against the argmax of the final categorical weight vector, including coin weights, not just highest posterior mean.",
+          "Export support diagnostics per cell/learner and parent-axis/candidate-axis pair, distinguishing lifetime raw exposures, current discounted success/failure mass and raw positive rewards. Total pair updates alone cannot satisfy the gate. Support at a decision additionally requires discounted observation mass >=24 and discounted positive mass >=2 for each of two compared pair directions; lifetime positive counts cannot substitute for present evidence.",
+          "Pair prior stays centered on the current marginal posterior mean with mass 24; observed counts dominate continuously. Do not describe correlated empirical-prior mass as independent evidence. Reset all added state with the session."
+        ],
+        "iteration67Recheck": {
+          "source": "Current clean spur HEAD b86baad3f94ce14dbdf20688b61fd92317a75cc2; no iteration-66 subject merged.",
+          "predictionUnchanged": true,
+          "redTeam": "The strongest case against this is still unsupported interactions: first-axis certainty is not interaction relevance. Correlated empirical priors and adaptive exposure can make conditional cells appear decisive without improving independent search. Minority pairs may miss the discounted-positive gate; ten pair updates and diagnostics under shared guards can lose throughput. The checkpoint failure adds no favorable evidence for this selector.",
+          "verifiedEvidence": [
+            "arm_selector.rs credit discounts only the five carried directions at DISCOUNT=0.998; WARMUP_OBSERVATIONS=24, current cell prior, configuration pooling and own-learner/common-coin exposure remain as admitted.",
+            "run_variant.rs AXIS_START=[0,3,5,7,9,12] gives 57 unordered cross-axis direction pairs and ten pairs per credited run; choose currently draws axes independently.",
+            "Current baseline 34b5ef40e3bf seed1000 has 54 pooled cells per learner; pooled observations A/B/C=194250/200696/196363, chosen runs=164617/172588/167628; these establish aggregate exposure only, not supported pair supplies.",
+            "The proposed conditional counters do not exist yet. Existing utilStats has chosen_runs, reward_runs_treated, reward_positive_treated, control-direction rewards, explore and pooled counters. Per-cell pair support and policy departures must be added and measured.",
+            "Stage A observed cap and arm-distribution changes without isolating interactions. Iteration65 cross-credit lost throughput and primary rate. Iteration66 checkpoint normal-horizon fallback 57.1%, primary events/sec 0.922 and throughput 0.941 are parent-supplied current results, not proof for or against conditional learning."
+          ],
+          "scoreReason": "Plausible distinct factorization with verified implementation route and falsifiable support/departure gates, but no measured beneficial interaction: argument grade 4, cost 0. Its frozen 8% lower edge exceeds the recorded 5% layout band."
+        }
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "id": "selector-direction-evidence-on-common-cell-clock",
+      "parent": "selector-explore-share-posterior-odds-against-leader-most-decided-axis",
+      "kind": "add",
+      "title": "Age all direction evidence on the same cell clock",
+      "description": "In simulator/arm_selector.rs, change CellLearner::credit so every direction's alpha and beta are multiplied by the existing DISCOUNT once for each run credited to that learner cell, then add the run's reward/non-reward only to its five carried directions. The cell reward_mass and mass keep their current update. Keep DISCOUNT=0.998, warmup=24, the empirical prior, three rewards, per-configuration pooling, learner assignment, coin-share calculation, leading-probability draw, replay policy, and learner-specific exposure policy unchanged. This replaces visit-clock retention with one common recency window: a direction that stops being sampled loses its old confidence and returns toward the current cell prior. Twelve directions make direct aging preferable to timestamps and pow calls. Add bounded diagnostics and a visit-clock shadow posterior updated from exactly the same credited runs, used only to compare prequential prediction on coin runs. Snapshot predictions before a run executes; do not score with its updated posterior. Reset both models at every explorer session. Files: arm_selector.rs and util_stats.rs, plus meaningful unit tests. No config key, no harness change, no new bit.",
+      "category": "feedback",
+      "buildsOn": [
+        "per-configuration pooled selector cells",
+        "coin-times-leading selector",
+        "posterior-odds exploration share"
+      ],
+      "expectedGain": 0,
+      "expectedCost": 0,
+      "rationale": "The current code demonstrably discounts only the five selected directions but updates the cell base rate on every credited run. Its nominal 500-observation direction window is therefore about 500/p cell observations for a direction selected with probability p, while the empirical prior tracks about 500 cell observations. The learner can compare current leader evidence with minority-direction evidence from a materially different search regime. Stage A directly observed moving run caps and changing within-length-bin arm quality; iteration 65 showed that more evidence and sharper decided axes do not automatically improve the policy. This proposal tests a concrete retention mismatch, rather than adding evidence or another reward. No evidence yet establishes that the retained observations are harmful; the prediction deliberately requires predictive and search improvement.",
+      "generalityArgument": "The update depends only on an adaptive categorical learner's credited observations. It uses no protocol handlers, node roles, oracle labels or new protocol-specific event classes. Every panel member keeps its existing rewards and policy surface.",
+      "prediction": {
+        "firingCounter": "arm_selector_clock.aged_unselected_directions",
+        "firingFloor": 500000,
+        "rung": "depth>=8",
+        "sizePct": {
+          "min": 0.04,
+          "max": 0.12
+        },
+        "mechanism": "Treatment: session-global posterior retention change, with no treatment bit. Existing armSelectorAxis/A/B/C origin tags retain their current meaning and cannot identify a retention treatment. Grade on the cross-binary rung, with fresh independent sessions and the existing paired seeds; never persist state across chunks. Frozen primary depth>=8 per-run candidate/baseline ratio is [1.04,1.12], using the epoch's unchanged primary population and arm matching. This includes 1.0 nowhere. The 4% lower edge must exceed the current measured cross-binary layout floor; if the floor is larger, reject before implementation rather than widen the band. Require net depth>=8 per explore-second improvement and paired throughput >=0.97. No per-run control or inverse is claimed for the shared learner.",
+        "independentObservable": "Before execution, retain the candidate and visit-clock shadow marginal reward probabilities for the five directions carried by a coin run. Score each learner only when that coin run would receive ordinary credit. On observations whose carried direction had at least 24 lifetime visits and candidate discounted exposure <= half the shadow exposure at draw time, require >=5000 direction observations and >=200 positive-reward observations per normal 300-second chunk, with at least 10 pooled configuration cells represented. The summed Bernoulli Brier loss across this frozen eligibility subset must be <=0.98 of the shadow loss over four chunks. Report the prediction-loss comparison clustered by run, since five directions share one reward. Require learner-run directional total-variation distance versus the shadow draw probabilities >=0.03 on at least 10% of warmed draws; count this without consuming additional schedule random numbers. The shadow never steers. Coin share is reported but is not predicted to fall.",
+        "falsifier": "Refute if the paired primary contrast interval lies entirely below 1.04, if the predictive-loss ratio exceeds 0.98 over four chunks, or if the policy-departure gate is missed. If the fixed age-gap observation or reward supply floors are missed at the normal horizon, close for lack of evidence rather than relax them. A larger coin share alone is not refutation; it is a possible price of discarding stale confidence. Throughput below 0.97, absent net primary events-per-second gain, or a panel regression closes the candidate. Extra shadow arithmetic belongs in the cost measurement."
+      },
+      "createdAtIso": "2026-09-06T00:00:00Z",
+      "notes": "Verified code: arm_selector.rs CellLearner::credit discounts only arms.directions(); posterior uses current mu; DISCOUNT remains 0.998. Novel against all ids in research/lite/pool.md. Distinct from cross-credit (changes exposure population), broader pooling (changes cell identity), and the kept conditional pair selector (changes factorization). Biggest risk: long minority memory is useful precision rather than stale bias, so common-clock aging increases uncertainty and loses useful exploitation. The shadow comparison can refute that story affordably, without a new census-only iteration.",
+      "netScore": 0,
+      "rank": null,
+      "review": {
+        "redTeam": "Long-lived minority evidence may be useful precision rather than harmful stale bias. Common-clock discounting reduces effective data precisely on rare directions, increases uncertainty and coin share, and may discard rare useful positives. The changing cell reward prior already adapts to some nonstationarity. A shadow trained under treatment exposure does not reproduce the baseline policy trajectory; even better Brier loss on a selected age-gap subset need not improve depth. Shadow snapshot work may cost throughput.",
+        "verifiedEvidence": [
+          "arm_selector.rs CellLearner::credit updates cell reward_mass/mass on every credited run and discounts alpha/beta only for arms.directions(); DISCOUNT=0.998 and warmup 24 are current.",
+          "The nominal exponential window is 500 visits per direction; at stationary visit fraction p this corresponds to about 500/p credited cell runs. The mismatch is real; harmful staleness is not established.",
+          "Current choose uses independent leading probabilities times coin probabilities; observe credits coin runs to all three learners and learner runs only to the chooser. reset clears all cells.",
+          "Stage A in observations.md reports changing cap/length distributions and within-bin arm quality, while iteration65 shows that extra credit and more decisive axes can lose primary performance.",
+          "Current baseline has 54 pooled cells per learner and 63267 coin runs in seed1000. arm_selector_clock.aged_unselected_directions, age-gap supply, shadow losses and policy-TV counters are proposed diagnostics, not existing evidence.",
+          "scheduler_configs/loop/general_vr.json remains 300 seconds, 54 grid configurations, three servers, 1-3 crashes, original campaign arms, rng_stream_isolation=true; no already-set config edit is proposed.",
+          "research/lite/epoch-baseline.json:19 records layoutNullBand=0.05. Observations iteration15 documents identical-source builds differing 4-5% on the per-second rung. The recorded 0.9634 was throughput; the documented per-second ratio was 0.9510. No newer floor was found."
+        ],
+        "argumentGradeBeforeAdmissionGate": 5,
+        "admissionFailure": "The frozen prediction explicitly makes its 4% lower edge usable only if it clears the established cross-binary layout floor. The current recorded floor is 5%, so the stated prerequisite fails. Preserve the prediction and reject before implementation; do not widen its band, buy a new control, or alter the harness to rescue it. This is enforcement of the proposal's own gate, not a claim that a 5% throughput/layout band mathematically equals a 5% per-run probability error.",
+        "dedupe": "Distinct retention mechanism from pooling, cross-credit and conditional factorization; not rejected as duplicate or already answered.",
+        "costReason": "Rubric cost 0: proposed scheduler/selector/utilStats changes do not alter exec.rs, histories, event accounting or linearizability recording.",
+        "predictionUnchanged": true
+      }
+    },
+    {
+      "id": "selector-learned-first-crash-relative-quantile",
+      "parent": "crash-placement-completion-span-draw",
+      "kind": "add",
+      "title": "Learn where inside the legal crash window to place the first crash",
+      "description": "Extend the existing selector with an eight-bin posterior over the normalized position of the first successfully drawn placed-crash hold in a fresh run. fault_timing::draw_hold currently chooses uniformly inside [t_ready, min(learned_median, cap_reserve)); retain that exact interval, all cap reserves and phase gates. A run snapshots a quantile policy from its assigned learner cell when choosing its ArmSet. On a learner-drawn, non-probe, non-replay run, sample a bin with probability proportional to its legal integer width times its posterior probability of having the highest existing learner reward rate, then sample a target uniformly among that bin's integer steps. Draws after the first successful placed hold retain today's uniform rule; unsuccessful empty-span calls consume no target or policy draw. Coin-drawn fresh runs use the original uniform draw and supply unbiased quantile exploration. Add eight Beta counts to each existing CellLearner; credit exactly one first-target bin with the same learner reward and exactly the existing credit exposure rules. Use existing DISCOUNT and warmup mass, with a prior centered on the cell reward mean. All eight bins need >=24 raw observations and >=2 discounted positive observations in at least two bins before policy departs from uniform. Integer-width weighting handles spans shorter than eight without inventing inaccessible steps. No extra learner locks: quantile credit shares the existing cell update. Replay children keep their existing scheduling and do not train these new target tables, because inherited prefixes can choose or constrain the first crash. Marginal arm training remains unchanged. Subject files: arm_selector.rs, fault_timing.rs, path.rs or its run-start context, and util_stats.rs. No new config key, arm or bit.",
+      "category": "feedback",
+      "buildsOn": [
+        "completion-span crash placement",
+        "three existing selector rewards",
+        "per-configuration pooled selector cells",
+        "run-level ArmSet"
+      ],
+      "expectedGain": 0,
+      "expectedCost": 0,
+      "rationale": "The merged selector optimizes five categorical scheduling axes but ignores a live numeric search coordinate: fault_timing.rs still draws every crash target uniformly inside a learned legal span. Stage A's shifting cap distribution shows that a raw absolute target is nonstationary; a normalized position lets the learner search the relative timing coordinate while preserving the span learner and budget. The existing rewards have thousands of positives per chunk, unlike the 0.001-level deep clauses that failed at iterations 59/64. Reward-directed timing can concentrate an existing fault-window search without narrowing to a new rare record class. There is no measured reward gradient across these quantiles yet, so bounded support, prospective predictive quality, and actual draw departure are admission gates, not assumed facts.",
+      "generalityArgument": "The rule uses only a generic planned crash, its legal scheduling interval, and the explorer's existing structural recovery rewards. It does not name any protocol handler, timer label, role or oracle event. The first successful placed hold is a scheduler boundary common to fault-bearing specifications, not a protocol-specific crash target.",
+      "prediction": {
+        "firingCounter": "crash_place.quantile_guided_first_targets",
+        "firingFloor": 10000,
+        "rung": "depth>=8",
+        "sizePct": {
+          "min": 0.04,
+          "max": 0.15
+        },
+        "mechanism": "Treatment: session-global crash-target learner, no new treatment bit. crashPlaced retains its existing meaning and is not relabeled as a quantile-policy bit. The internal coin/learner exposure split is endogenous and is not offered as a randomized treatment contrast. Use honest paired cross-binary primary depth>=8 per-run ratio [1.04,1.15] under the unchanged campaign and primary population. The band is fixed before implementation and is usable only if its 4% lower edge clears the established cross-binary layout floor. The mechanism must raise net primary events per explore-second with throughput >=0.97 of baseline. Both binaries reset all learner state each chunk. The existing independent coin targets remain uniform exploration inside the policy, not a new untagged dose cell.",
+        "independentObservable": "Per normal 300-second chunk, at least 20 learner/configuration cells must meet the full eight-bin observation gate and two-positive-bin gate, with >=10000 actually guided first targets and >=20% of supported policies having total-variation distance from legal-width-uniform >=0.10. Snapshot each learner's bin prediction and its constant cell reward prediction before a coin run's first target is drawn. On coin runs in supported cells, require >=1000 scored first targets and >=100 existing reward positives; over four chunks the bin-conditioned Bernoulli Brier loss must be <=0.98 of the constant predictor's loss. Aggregate loss by learner and configuration using fixed observed counts, and report whether the sign is shared by at least two learners. Snapshot semantics prohibit using the completed run to predict itself. No new depth parser or oracle instrumentation is needed.",
+        "falsifier": "Refute if the paired primary interval lies entirely below 1.04, if bin predictions fail to improve the frozen prospective loss ratio, or if fewer than two learners show the improving sign. Close before rates if normal-horizon support or firing floors fail; do not reduce bin support or substitute aggregate reward supply. Close if the guided-target distribution is effectively uniform by the TV gate, if throughput falls below 0.97, if net primary events-per-second does not increase, or if the protocol panel regresses. A higher reward rate with no depth improvement refutes reward-to-depth transfer, as in earlier hazard-up/depth-down failures. Any target outside the existing interval or any changed cap is an implementation defect."
+      },
+      "createdAtIso": "2026-09-06T00:00:00Z",
+      "notes": "Distinct from the existing categorical arm selector, uniform completion-span placement, phase-arm timing, and activity-clock reparameterization. This is learning a proposal distribution from completed outcomes, not a parameter dose or another hold predicate. The first-target restriction bounds credit ambiguity and is frozen; later-crash adaptation is not a hidden cell. Major risks: no within-span gradient; marginal reward confounding by the existing ArmSet; maturity too slow across eight bins; first-target timing may be dominated by phase waiting. Preserve phase behavior and report selected-target versus actual-crash-step displacement so phase overrides cannot masquerade as a fired treatment. Do not claim the existing rewards are fresh independent evidence on replay children.",
+      "netScore": 0,
+      "rank": null,
+      "review": {
+        "redTeam": "No measured reward gradient across normalized first targets exists. Arms and phase waits can dominate the chosen target, while completed-run credit includes later faults and events. Eight bins fragment data; aggregate positives include replay children and unsupported cells, so they cannot establish the fresh first-target support floor. A normalized coordinate across different readiness steps and caps can remain heterogeneous. Better reward prediction may still harm the rare target interleaving.",
+        "verifiedEvidence": [
+          "fault_timing.rs draw_hold returns None without RNG draws when not placed, median absent or t_ready>=upper; otherwise target=t_ready+(next_u64()%span) on FaultPriority and upper=min(median,3*effective_cap/4). Uniform is the intended modulo draw, with negligible modulo bias.",
+          "path.rs calls draw_hold on CrashNode, records crash_hold_until, then arms additional fan-out phase waiting for PlacedPhase. First-target-only state and quantile snapshots are new plumbing.",
+          "Baseline seed1000 crash_place.draws=1094019 and capped_draws=0; these count all target draws, not distinct fresh first targets. Existing learner rewards are available but do not establish eight-bin support or positive gradients.",
+          "Iteration15 entry-clock placement did not change placement quantiles; the observation log explicitly says that does not answer whether quantiles matter. This learned proposal distribution is distinct from clock reparameterization and fixed placement.",
+          "crash_place.quantile_guided_first_targets and per-bin prospective-loss/support diagnostics are new counters. Replay exclusions must apply to every replay child rather than treating inherited histories as new independent quantile evidence.",
+          "scheduler_configs/loop/general_vr.json remains 300 seconds, 54 grid configurations, three servers, 1-3 crashes, original campaign arms, rng_stream_isolation=true; no already-set config edit is proposed.",
+          "research/lite/epoch-baseline.json:19 records layoutNullBand=0.05. Observations iteration15 documents identical-source builds differing 4-5% on the per-second rung. The recorded 0.9634 was throughput; the documented per-second ratio was 0.9510. No newer floor was found."
+        ],
+        "argumentGradeBeforeAdmissionGate": 4,
+        "admissionFailure": "The frozen prediction explicitly makes its 4% lower edge usable only if it clears the established cross-binary layout floor. The current recorded floor is 5%, so the stated prerequisite fails. Preserve the prediction and reject before implementation; do not widen its band, buy a new control, or alter the harness to rescue it. This is enforcement of the proposal's own gate, not a claim that a 5% throughput/layout band mathematically equals a 5% per-run probability error.",
+        "dedupe": "Distinct learned within-window target distribution from merged uniform completion-span placement, phase waits and closed activity-clock changes; not rejected as duplicate or already answered.",
+        "costReason": "Rubric cost 0: proposed scheduler/selector/utilStats changes do not alter exec.rs, histories, event accounting or linearizability recording.",
+        "predictionUnchanged": true
+      }
+    }
+  ],
+  "reviewSummary": "Retain conditional-direction selector at 4-0=4, rank 1, with every iteration66 frozen prediction unchanged. Both new proposals are rejected as presently specified at admission: their explicit 4% lower-edge prerequisite fails the current 5% recorded layout floor. Their distinct mechanisms remain untested; rejection is not empirical falsification. No subject/protected edits or compute experiments were performed.",
+  "reviewInputs": [
+    ".agents/skills/research-loop-lite/prompts/judge.md",
+    "research/GOAL.md",
+    "scheduler_configs/loop/general_vr.json",
+    "tmp/loop/lite/proposals-67-blind.json",
+    "research/lite/plans/iteration-66-admitted.json",
+    "research/lite/pool.md",
+    "research/lite/observations.md",
+    "research/lite/epoch-baseline.json",
+    "research/lite/baselines/34b5ef40e3bf-30-f9daa01b-300-g870d4c11-s3d907a50.json"
+  ]
+}

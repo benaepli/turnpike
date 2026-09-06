@@ -3595,3 +3595,13 @@ status (proposed | awaiting-approval | implemented | closed | merged | human).
 - kind: add | category: feedback | origin: proposer | status: KEPT at iteration 66 | gain: 4 | cost: 0 | rank: 2
 - Choose later scheduling directions conditionally on the cell's most decided axis.
 - Frozen specification, prediction, observables, falsifiers and judge review: `research/lite/plans/iteration-66-admitted.json`, hypothesis `selector-one-parent-conditional-direction-posteriors`.
+
+## selector-direction-evidence-on-common-cell-clock
+
+- origin: proposer | status: REJECTED at iteration 67 as specified: its own 4% lower-edge admission condition fails the recorded 5% layout floor. Underlying mechanism remains untested. Full review: research/lite/plans/iteration-67-admitted.json.
+
+## selector-learned-first-crash-relative-quantile
+
+- origin: proposer | status: REJECTED at iteration 67 as specified: its own 4% lower-edge admission condition fails the recorded 5% layout floor. Underlying mechanism remains untested. Full review: research/lite/plans/iteration-67-admitted.json.
+
+Conditional selector selected for iteration 67, with its iteration-66 frozen prediction unchanged; full judge record in research/lite/plans/iteration-67-admitted.json.

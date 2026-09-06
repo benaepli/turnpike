@@ -6659,3 +6659,23 @@ The independent next judge selects the kept conditional pair selector;
 new common-clock aging and crash-quantile proposals fail their own stated
 4%-versus-layout-floor admission condition. That is a defect in those
 specific predictions, not evidence that their mechanisms cannot work.
+
+## Iteration 67: conditional direction learning - admission
+
+Feedback lens produced common-cell-clock direction aging and a learned
+first-crash quantile distribution. The blind judge verified their source
+stories, then rejected both as presently specified: each explicitly says
+to reject if its 4% minimum does not exceed the existing layout floor,
+which is 5%. The floor is historically per-second build noise, not proof
+of 5% per-run error; preserve that distinction and do not cite these
+rejections as experimental nulls. Judge ranking notes accidentally present
+in the proposer notes were removed before final judging; the judge was
+instructed to ignore them.
+
+Selected the kept conditional pair selector, score 4 minus cost 0. Its
+prediction is unchanged from iteration 66: cross-binary depth>=8 per run
+[1.08,1.20], primary per second above 1.05, throughput >=0.97, and strict
+pair-support and changed-policy observables. The model learns 57 pair
+entries and uses marginal fallback, keeping the three rewards and exposure
+rules. Full admitted record: research/lite/plans/iteration-67-admitted.json.
+Mode autonomous. No retained learner tag is claimed as a new treatment bit.
