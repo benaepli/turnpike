@@ -5078,3 +5078,9 @@ their rewards separate: B retarget 0.903, phase 0.792, pair 0.764,
 stock 0.044; C hold 0.840, retarget 0.834, rush 0.064; A fresh-first
 0.808, retarget 0.719, phase 0.632; every chunk-1 gate met. Three
 chunks follow.
+
+**Two chunks pooled.** Seed 1001: depth>=8 per run 1.164, runs per
+second 1.042, per explore-second 1.212, depth>=10 1.08, no violation.
+Pooled: depth>=8 per run 1.145 [1.108, 1.183] on 18,713 against 15,984
+(t-interval over the two chunk ratios [1.085, 1.207]); per explore-
+second 1.170; depth>=10 1.13 on 319 against 276. Two chunks more.
