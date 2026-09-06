@@ -5084,3 +5084,23 @@ second 1.042, per explore-second 1.212, depth>=10 1.08, no violation.
 Pooled: depth>=8 per run 1.145 [1.108, 1.183] on 18,713 against 15,984
 (t-interval over the two chunk ratios [1.085, 1.207]); per explore-
 second 1.170; depth>=10 1.13 on 319 against 276. Two chunks more.
+
+**Four chunks: the exploration share passes on every seed.** Cross-
+binary against the paired baseline (seed 1000 the idle-host chunk, 1001
+from the anchor, 1002 and 1003 measured inside the session): depth>=8
+per run 1.125, 1.164, 1.097, 1.150 by seed, pooled 1.135 [1.108, 1.162]
+on 36,495 against 31,725, the four ratios' own t-interval [1.088,
+1.181]; per explore-second 1.129, 1.212, 1.115, 1.143, geometric mean
+1.149 [1.084, 1.219]; runs per second 1.003, 1.042, 1.017, 0.994; steps
+per run 0.989; depth>=10 per run 1.11 [0.93, 1.33] on 625 against 554.
+The point sits a hair above the frozen band's upper edge with the lower
+edge well above one on both intervals: a pass. The rule's shape over
+2,257,500 draws: 341,466 coin-drawn (0.151, mean e 0.152), the histogram
+with 59 percent of draws in the lowest tenth and 21,177 in warmup at
+one; per campaign arm grid 0.220, grid-short 0.158, no-purgatory 0.185,
+post-fault-2 0.182, aos 0.014. Learner runs against coin-drawn runs: B
+retarget 0.896, phase 0.793, pair 0.764, stock 0.042; C hold 0.844,
+retarget 0.830, rush 0.063; A fresh-first 0.804, retarget 0.713, phase
+0.611, stock 0.090; the flat axes at the coin (A hold 0.504, B fresh
+0.466, C fresh 0.507). No violation on 2,408,880 candidate runs. The
+regression case and the panel run next.
