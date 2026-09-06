@@ -5510,3 +5510,14 @@ is decidable only pooled, the per-run guard holds, and the deep-rung
 reads at 11 to 13 - the family's real question, whether any stop keyed
 on the crossing class cuts the chain's tail - need every event they can
 get before the decision.
+
+**Two chunks pooled.** Seed 1001: depth>=8 per run 1.002, runs per
+second 1.068, per explore-second 1.071, no violation. Pooled cross-
+binary: depth>=8 per run 1.020 [0.987, 1.053], per explore-second 1.085
+(t-interval over the two chunks [1.039, 1.134]), depth>=10 per run 1.02
+on 331 against 306. Within the binary: steps per run 0.836; depth>=8
+per run 0.978 [0.935, 1.023], inside the guard; depth>=10 0.91 on 158
+against 173; depth>=11 1.15 on 31 against 27, depth>=12 1.00 on 23
+against 23, depth>=13 1.11 on 10 against 9 - the tail is not cut on
+what the counts can say. The per-second read sits between the
+refutation edge and the band. Two chunks more.
