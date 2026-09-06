@@ -6575,3 +6575,12 @@ requires 75 distinct parents whose complete original run was below depth
 clustering and sibling sensitivity accompany the unchanged grader result.
 No new oracle information enters explorer behavior. The independent pair
 selector stays behind with supported-pair evidence requirements.
+
+Diagnostic retention for the admitted fork: evaluate emits per-run depths
+in memory and removes outputs after aggregation. A read-only operator
+helper, tools/preserve_completed_output.py, hardlinks completed parquet
+outputs after the sibling session summary appears and preserves raw
+utilization. The CLI writes that summary after its writer drains. After
+the official chunk, the unchanged traceanalyzer can re-read retained
+traces and join depths to the subject's checkpoint-diagnostics.jsonl.
+No evaluation code, oracle, chunk population or measurement changes.
