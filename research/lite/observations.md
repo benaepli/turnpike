@@ -6052,3 +6052,42 @@ life and the lift as its liveness guard - and not to the premise. The
 CONSEQUENCE quarter is closed on its smoke as inapplicable and its
 runs are read as a near-stock second control. Session causal-window
 started on bit 131072; four chunks.
+
+**Chunk 1, and a structural fact about grading a new axis on this
+tree.** Seed 1000, candidate 606,360 runs at the baseline's speed (runs
+per second 1.000). Cross-binary per run: depth>=8 1.016 [0.972, 1.061],
+depth>=9 0.989, depth>=10 1.10 on 170 against 154, depth>=11 0.89 on 24
+against 27, depth>=12 0.82 on 18 against 22, depth>=13 5 against 6; no
+violation. The mechanism fired as built: 386,839 windows on 0.97 of
+post-fault invocations, 1.22M masked records, six lifts, 0.81 of
+windows closed on the cap, timers inside windows 1.05x the stock rate,
+0.58 of windows opened with a competitor queued (0.23 a ghost, 0.11 a
+live record from a restarted sender, 0.51 from a never-restarted
+sender). What the reads show first is where the randomization went: on
+this tree the coin-drawn runs, the only runs whose window direction is
+a coin, are 15 percent of the grid runs and they are the undecided
+cells, reading depth>=8 at 0.0037 per run (56 events on 14,857
+CLIENT_FIRST runs, 101 on 30,144 stock) - no contrast at depth 11 can
+be read there at any budget. On the learner runs the direction is the
+learners' pick, and the pick is a selection: CONSEQUENCE, which the
+smoke showed to be nearly inert, reads 1.255 [1.16, 1.36] against stock
+at depth 8 on those runs because the learners draw it more in the
+productive cells, not because it does anything. The grader's matched
+contrast on bit 131072 (co-bits: the learner bits, the request axis)
+reads depth>=8 0.968 [0.885, 1.058], depth>=9 0.963, depth>=10 1.66
+[0.84, 3.30] on 38 against 43, depth>=11 4 against 5 - inside the guard
+and a lean at 10, confounded by cell and thin. The rewards' own tables
+on the coin runs read the window nearly flat: overtaken-ghost 0.0125 on
+stock against 0.0125 on CLIENT_FIRST, absorber 0.0206 against 0.0185,
+cycle-before-request 0.0063 against 0.0050 - the merged rewards are
+depth-8-shaped and the window acts past depth 10, so the learners have
+no signal to pick it up and hold it near the coin (shares 0.24 to 0.35).
+Two consequences for the loop, written before the remaining chunks: a
+direction that acts past depth 10 cannot be learned by rewards shaped
+by depth 8, so on this tree it is worth exactly its coin share until a
+deeper reward exists; and a new axis is graded by the cross-binary
+campaign read and the matched contrast on learner runs read as a lean,
+never by the coin-drawn contrast. The session runs its four chunks for
+the depth-10 and depth-11 counts; the decision at the end weighs the
+cross-binary deep rungs and the matched depth-10 read, with no merge
+claimed below the pre-committed 1.75 at depth 11.
