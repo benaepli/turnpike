@@ -5712,3 +5712,16 @@ mix could differ gains most - and aos 0.850 on its own unchanged cell
 touch and which the next seeds read. Throughput 0.978 on this seed sits
 a hair under the cost clause's 0.98 and is read pooled. Three chunks
 follow.
+
+**Two chunks pooled.** Seed 1001: depth>=8 per run 1.044, runs per
+second 1.042, per explore-second 1.088, depth>=10 1.35, no violation.
+Pooled cross-binary: depth>=8 per run 1.065 [1.031, 1.100] on 18,739
+against 17,423 (t-interval over the two chunks [0.998, 1.137]); per
+explore-second 1.076; runs per second 1.010; depth>=10 per run 1.22
+[0.97, 1.55] on 378 against 306. Per arm: grid 1.134, grid-short 1.075,
+no-purgatory 1.147, post-fault-2 1.163, aos 0.796 on 2,294 against
+2,830. The aos arm's cell is untouched by the change and its per-run
+depth-8 ranged 0.0124 to 0.0174 across the last session's four chunks,
+so a 0.80 on two seeds is inside what that arm's adaptive configuration
+walk does chunk to chunk; it is read on all four seeds before it means
+anything. Two chunks more.
