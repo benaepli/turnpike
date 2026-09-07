@@ -6957,3 +6957,29 @@ work and promises no per-run search improvement; it is under independent
 review against the kept mechanism alternatives. The fixed depth ladder,
 protocol panel, full histories and violation goal stay unchanged. No
 protocol bug has been found in these trials.
+
+
+**Iteration70 admission.** Blind source review selects
+`eval-transient-scalars-and-borrowed-operands` at7-2=5, ahead of causal-chain
+demotion5-2=3 and successful-vector mutation3-0=3. The profile is historical
+bench data, not current campaign attribution. The source still constructs
+and clones owned Values at recursive pure-expression boundaries.
+
+I accept the judge's explicit exception to the skill's default per-run
+switch rule. An old/new evaluator switch is technically possible, but a
+same-process depth-per-run contrast cannot identify this proposed CPU-work
+saving; retaining both engines changes the implementation being timed.
+This is a process-wide performance experiment with cross-binary throughput,
+not a claim of improved per-run search. Persistent binary layout effects
+remain a limitation across seeds. No skill or grader change is made.
+
+Full frozen proposal and independent review are
+research/lite/plans/iteration-70-admitted.json. Throughput band[1.06,1.12],
+grid and campaign depth8/sec>1.05, every arm throughput>=0.97, firing10M
+per normal chunk, exact execution parity and>=25% fewer evaluator Value
+constructions/clones stay fixed. The equal-work corpus uses three protocol
+specs, three seeds, both hash policies and reference-tape replays, plus
+60k generated expressions and explicit edge cases in debug/release.
+Operation counts are pooled only over the fixed standard protocol corpus;
+fixture and generated-case counts cannot pad its gate. Freeze the test
+corpus before its first comparative execution. No timing outside grader.
