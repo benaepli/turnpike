@@ -1,0 +1,32 @@
+{
+  "positive_score_selections": 494139,
+  "independent_fallback_runs": 2368,
+  "cache_refreshes": 28320,
+  "supported_learner_draws": 353385,
+  "supported_parent_departures": 307567,
+  "own_runs": 496507,
+  "own_positive_rewards": 50014,
+  "child_decisions": 1976556,
+  "changed_child_choices": 114241,
+  "supported_changed_child_choices": 51899,
+  "chosen_runs": 493637,
+  "conditional_direction_draws": 4624355,
+  "fallback_direction_draws": 89861,
+  "pair_observations": 6817090,
+  "pair_positive_rewards": 525180,
+  "argmax_changes": 130105,
+  "total_variation_micro": 107746236314,
+  "supported_decisions": 916983,
+  "supported_argmax_changes": 50871,
+  "parent_axis_choices": [
+    98396,
+    95316,
+    80997,
+    90652,
+    128778
+  ],
+  "qualified_cells": 106,
+  "supported_argmax_share": 0.055476491930602854,
+  "supported_actual_share": 0.05659755960579422,
+  "supported_parent_departure_share": 0.8703453740254963
+}

@@ -1,0 +1,401 @@
+{
+  "hypotheses": [
+    {
+      "id": "replay-prefix-dependent-choice-frontier",
+      "parent": "ghost-prefix-replay-corpus",
+      "kind": "add",
+      "title": "Replay to distinct dependent dispatch choices and enumerate their alternatives",
+      "category": "scheduler",
+      "buildsOn": [
+        "ghost-prefix-replay-corpus",
+        "RNG stream isolation",
+        "existing eligibility masks"
+      ],
+      "expectedGain": 7,
+      "expectedCost": 2,
+      "description": "Replace blind suffix rerandomization in the existing prefix-replay children with a bounded dependency-frontier search. Keep the current fresh-parent admission predicate, corpus capacity, child budget, round-robin parent serving, fresh grid cursor, campaign arms and plan-only child behavior. In core/scheduler.rs, after a fresh run has fired its existing ghost-with-pending-crash signal, collect up to eight distinct branch offers over the rest of that run by reservoir sampling with a private deterministic hash of schedule seed, step and candidate identities. An offer is the pre-choice tape position plus a compact identity of the stock selected event and one already eligible alternative whose effects cannot safely be assumed to commute: two entering records to the same receiver, or a crash/recover and a local/entering record for that same node. Do not use handler names, values, state writes, client keys, or oracle events to rank offers. Exclude an alternative that a reservation, FIFO link, crash hold, strict timer rule, or merged fresh-first/pair-order transformation would reject. The branch identity includes event kind, node, origin node/incarnation, send ordinal, program counter and link sequence where applicable; no vector index survives a queue mutation. Deduplicate by the event pair, recording both the captured eligible alternatives and the finally selected runnable. Extend each admitted Seed with the offers and the parent's full recording, which is already produced before the existing prefix truncation. Retain at most the tape through the latest kept offer. Assign successive prefix children distinct offers before repeating; assignment is a corpus child index, not a new treatment cell. A child replays the tape through the offered pre-choice position, consumes exactly the stock queue and within-queue draws, and substitutes the saved alternative only if both saved event identities are present and legal at that decision. Then discard the rest of the tape and run an ordinary independently seeded suffix. If the target position or identities do not match, consume only the requested tape prefix and continue ordinary exploration; do not synthesize state or remove events. A parent with no offer uses the existing signal-cut replay. The proposed search enumerates conflict choices rather than replaying a scarce later checkpoint. Add consumed replay-position support to rng.rs, per-run branch request state in explorer.rs/path.rs, offer capture/dispatch validation in core/scheduler.rs, bounded offer storage in replay_corpus.rs/campaign.rs, and utilization exports/tests. The run's own selected arms, probes, caps, rewards, histories and log semantics remain in effect; this deliberately makes no claim that raw tape replay reconstructs the parent state. No configuration field or full-state clone.",
+      "rationale": "The early corpus has abundant parents, whereas the acted-ghost checkpoint closed on scarce applicability and cost. Independent suffix seeds often revisit the same local choice order; enumerating distinct already-enabled dependent choices spends the eight-child budget on explicit schedule differences. Same-receiver events and node fault/entry races are conservative dependencies; choosing their alternative order explores different outcomes rather than claiming all different-receiver events commute. This is a partial-order-inspired search heuristic, not a sound reduction or exhaustive DPOR implementation. Later branch points risk inheriting too much state and cutting away useful suffix variation, so the prediction requires actual post-branch state divergence, available suffix, and broad utility rather than a rise in replay fidelity alone. Keeping first-signal admission avoids assuming that late depth or a rare second ghost can supply a corpus.",
+      "generalityArgument": "Dependency is stated only in simulator terms: events touching the same node and legal alternatives at one dispatch. Every child executes ordinary events, respects all eligibility constraints and carries a complete independent client history. No handler, protocol role beyond the existing simulator node identity, oracle depth, or paper-specific edge enters search. All panel bugs must remain discoverable; a VR-only primary improvement with repeated material AOS or whole-campaign loss is insufficient.",
+      "prediction": {
+        "treatmentBit": {
+          "name": "replayPrefix",
+          "value": 2097152,
+          "share": "The existing salted half of replay slots, approximately one quarter of non-probe grid runs; unchanged assignment and empty-slot behavior.",
+          "control": "The existing replay-slot runs without replayPrefix, which reuse a parent's configuration and workload and run a fresh schedule. Non-slot runs and AOS receive no new policy.",
+          "identity": "The bit continues to mean schedule-prefix replay from a corpus parent. No new bit, nested run-id dose, campaign arm, or protected registration edit. This is a replacement of the prefix-replay search mechanism, not a reinterpretation of a selector or fault bit.",
+          "contrast": "Intention to treat on all prefix-tagged slots, including unfilled and failed branch attempts, probe-free and matched on existing co-bits. Also compute the candidate prefix/plan-only ratio divided by the paired baseline prefix/plan-only ratio. A filled-only ratio is descriptive, never the treatment estimate.",
+          "inverse": "No additional inverse cell: alternatives and initial chain orders are sampled symmetrically, and neither search procedure has a single protocol-independent signed inverse. They are stochastic policies inside the one existing prefix-replay mechanism, not hidden run-id treatment doses."
+        },
+        "rung": "depth>=8",
+        "sizePct": {
+          "min": 0.25,
+          "max": 0.7
+        },
+        "firingCounter": "replay_frontier.applied_runs",
+        "firingFloor": 20000,
+        "mechanism": "Across all prefix-tagged slots the matched per-run prefix/plan-only ratio will be1.25-1.70. The ratio of that contrast to the paired baseline contrast will be1.20-1.60; both are frozen and distinct. Fixed four-grid-arm primary events/sec will exceed baseline by at least6%, whole-campaign events/sec will exceed baseline by at least3%, and AOS depth8 per run will remain at least0.95 of paired baseline. The present pooled unadjusted baseline prefix/plan-only ratios1.0633 and1.0434 are context, not a substituted matched estimate.",
+        "independentObservable": "Per ordinary300-second chunk, replay_frontier.parents_with_offer>=20000; replay_frontier.applied_runs>=20000; at least60% of filled prefix children assigned an offer actually apply it; at least75% of applied branches have >=32 steps of original frozen cap left and subsequently execute >=8 scheduling steps. At least25% of applied branches differ from the parent's next-eight-step receiver-state-token-delta vector on their first common touched node. Compare deltas from the branch, not absolute token values, and count missing/censored descendants separately. The same-parent fraction of repeated branch event pairs among successfully applied siblings is <=0.20. Emit per-arm counts, baseline signal-cut supply, proposed/invalidated/applied/censored counts, remaining-cap histogram and bounded per-parent branch diagnostics. Token divergence is an observable of different execution, not evidence of a bug or useful depth. Clarification: the25% numerator is complete eight-step comparisons with unequal write-counter delta vectors on the frozen common node; denominator is ALL applied branches, so censoring cannot improve the fraction. It measures write-pattern divergence, not distinct protocol state. Export cumulative steps/deltas, complete-window and no-common-node counts separately.",
+        "falsifier": "Refuted if the co-bit-matched contrast interval lies wholly below1.25, the paired contrast-of-contrasts interval lies wholly below1.20, or actual branch supply misses its floor. It also fails if branch application is below60%, available/executed suffix below the stated75% rate, divergent outcomes below25%, or repeated branch pairs exceed20%. Increased branch counts with no positive primary gain is not success. Close a merge candidate with repeated AOS per-run ratio below0.95 or whole-campaign utility loss even if the declared grid primary rises. No per-run independent confidence claim from correlated replay siblings: report parent-cluster sensitivity where diagnostics permit.",
+        "costClause": "Cross-binary whole-campaign throughput>=0.95 of paired baseline; cumulative retained tape words at parent admission<=1.50x the cumulative original signal-cut tape words for those SAME admitted candidate parents; also export peak live retained words and peak live original-cut reference words; each parent has at most eight offers and still at most eight children. No extra simulated steps, continuation-only histories, modified termination rule or changed campaign. The primary>=1.06 and whole-campaign>=1.03 utility clauses are required in addition to throughput. Stop after one normal chunk if supply/cost fails before buying panel or further chunks. Additional retained offer metadata is bounded by eight offers per parent, each at most512+192*N bytes of owned backing storage, where N is the number of instantiated nodes in that parent (including client nodes); each fresh run has at most eight such in-progress offers. Include allocated vector capacities, node identities, write-delta arrays and event identities in this count. No full-state clone or unbounded per-step/per-parent table is allowed. Bounded diagnostic export retains at most4096 parent rows per process and reports dropped rows; aggregate applicability counters cover every run. Export maximum offers/parent, owned metadata bytes/parent, in-progress bytes/run, retained diagnostic rows, actual live tape words and same-parent original-cut tape reference. Peak process RSS may be reported descriptively but has no paired ratio gate.",
+        "measurementClarification": "The retained-tape guard uses a newly instrumented simultaneous same-parent reference because the baseline exported tape_words_sum is full recording production, not corpus storage. Cross-binary throughput keeps its stated guard; memory uses the bounded owned-storage clauses below, not a paired RSS ratio. Compute raw matched ratio and paired ratio-of-ratios manually if needed with existing exported variants; never encode the raw1.25-1.70 band as though it were the grader baseline-adjusted band. All floors apply per ordinary300-second chunk. Diagnostic metadata truncation must be reported; it cannot silently remove failures from denominators.",
+        "memoryMeasurementClarification": "Pre-admission memory correction: the current same-identity baseline cache contains no RSS/resident/peak-memory fields and no matching baseline peak is available in retained observations. A valid paired peak would require additional baseline acquisition, not reinterpretation of a cached metric. No new baseline run, calibration-only round, identity change or cache mutation is authorized by this proposal. The unsupported peak-RSS ratio is therefore removed before admission and replaced by directly checkable bounds on additional mechanism-owned storage. These bounds constrain bookkeeping/corpus growth; they are NOT a claim that total process RSS is unchanged or below the original1.25x/1.15x thresholds. Actual process peak, if collected during the ordinary candidate chunk, is descriptive only."
+      },
+      "sourceVerification": "Source verified: campaign.rs GridArm admits fresh parents at state.replay_cut, serves CAPACITY=64 and CHILDREN_PER_PARENT=8 round-robin, and distinguishes prefix children from plan-only children. No children are admitted. rng.rs Recording is an Arc<[u64]> and RecRng exposes recording position; replay currently has no public consumed-tape-length/finished-prefix query. core/scheduler.rs computes eligibility with reservations, FIFO, crash holds, and down-victim guards before queue/within-queue choice. Existing replay fidelity is only equality of the child's first signal step with seed.cut_step, not state equality. Baseline seed1000 records 72959 parents,108506 filled prefix children,107830 plan-only children,18454 unfilled slots and56198 same-step signal returns. These are ordinary 300-second supply observations, not proof that the proposed narrower action predicate will fire. Existing source draws new priorities at sends and roots; continuation resumption retains a Record priority. No protected files need editing.",
+      "createdAtIso": "2026-09-07T00:32:28.267337+00:00",
+      "notes": "Blind judge rank1, gain7-cost2=5. Verified branch actuator, eligibility and existing early supply support a clear mechanism-to-observable path; the gain magnitude and new narrow supply remain untested. Pre-experiment clarifications are part of the frozen specification and supersede ambiguous wording above. Before admission, unavailable paired-RSS gates were replaced with bounded additional owned-storage checks; this does not establish total process memory non-regression.",
+      "netScore": 5,
+      "rank": 1,
+      "review": {
+        "redTeam": "The roughly52% same-step signal return is not evidence that a much later raw tape position recreates the same eligible identities. Different child arms and learning snapshots can miss most frontier requests. Same-node dependence vastly overapproximates useful noncommutativity: many entries are inert and changed write counts do not imply distinct states. Sampling offers across the whole suffix can choose near-cap points with little useful continuation. Eight total children give fewer than eight prefix trials; corpus eviction and repeated sibling outcomes further shrink independent coverage. Scanning queues, storing longer tapes and eight-step diagnostics can lose throughput/RSS before a depth gain appears. Baseline prefix replay already yields correlated deep paths, so a raw prefix/plan ratio alone can flatter an ineffective replacement.",
+        "verifiedEvidence": [
+          "Main Spur is b86baad3f94ce14dbdf20688b61fd92317a75cc2. Conditional67 is CLOSED after repeated AOS harm; interaction-parent68 is ACTIVE and ungraded for this review. Neither prototype is the baseline.",
+          "campaign.rs:424-523 records fresh grid runs, truncates admitted parents at replay_cut.tape_pos, serves prefix children with ReplayRng and plan-only with LiveRng, and compares only signal steps for prefix_faithful. replay_corpus.rs specifies capacity64, eight total children per parent, salted slot/prefix assignment excluding run-cap and timer probes, round-robin service and no child admission.",
+          "Baseline cache seed1000 verifies72959 parents,108506 prefix children,107830 plan-only children,18454 unfilled slots,56198 same-step signal returns; seed1001 has71910,108175,107615,17996,54542. These establish early replay supply only, not branch legality, state fidelity, suffix depth, or chain activation.",
+          "rng.rs ReplayRng.position returns total output words, not consumed source words; source pos stops growing at source exhaustion, while out continues. A replay-exhaustion query is new. RecRng.next_u32 consumes one recorded u64 and fill_bytes consumes ceil(bytes/8) words. Positions must be recorded-word positions, not high-level draw counts or scheduling steps. Stream isolation still records one interleaved raw tape; changing arms, learned snapshots, caps or readiness can break replay fidelity.",
+          "core/scheduler.rs applies crash hold/defer masks, reservations, FIFO and down-victim guards before queue selection; strict timers add an eligibility condition. Queue selection applies timer_context separately. Tournament samples with replacement up to min(k,eligible.len()), default k10; singleton decisions take no within-queue draws. Network selections then pass fresh_first_dispatch and pair_order_dispatch.",
+          "fresh_first_dispatch mutates displacement bookkeeping and records counters; pair_order_dispatch also emits counters. Calling either as a shadow/eligibility preview would double count or mutate real state unless selection is factored into a pure preview and a single real commit.",
+          "run-specific arms, learner/probe assignment, credit guard, caps, workload/history and feedback merge remain stock. Replay children do not earn extra learner reward by inheriting a parent. Add no new tag or campaign/config field, and do not change any protected harness, recording, spec or checker file.",
+          "The existing bit remains prefix-replay versus plan-only on all assigned slots. Empty/failed/inert slots remain in intention-to-treat. New policies are one replacement search algorithm per binary with no hidden dose. Raw matched candidate prefix/plan-only contrast and its paired baseline-adjusted contrast are distinct. Neither is an isolated causal estimate of the new algorithm if shared runtime/learner feedback shifts the control. Report both and cross-binary rates.",
+          "Fixed grid primary and its per-run denominator must use the same four grid arms; never divide grid events/sec by whole-campaign throughput. Report each arm including AOS, the whole campaign and the panel. Apply unchanged sequential bounds and baseline; sibling outcomes are correlated. New diagnostic counters must be exported and checked at the ordinary300-second horizon, not inferred from a short smoke.",
+          "core/state.rs Record exposes node, origin_node/incarnation, send_ordinal, pc, entry_pc and link_seq. These permit structural matching but do not guarantee uniqueness across all continuations, reset/re-delivery and repeated fault entries; ambiguous matches must be rejected, not resolved by a transient vector index.",
+          "core/scheduler.rs sets replay_cut at the first ghost-with-pending-crash signal before executing that ghost segment. Fresh full recording is available at campaign admission before truncation. Additional post-signal offer and per-parent outcome capture is therefore feasible, but not existing telemetry.",
+          "node_state_token is Env.writes, a write counter. Unequal token deltas demonstrate different write patterns; equal deltas do not establish equal states and unequal deltas do not establish different final values. No state hash or state clone is needed for the proposed limited observable.",
+          "replay.tape_words_sum records complete generated fresh tapes before truncation, not live stored corpus words. Its seed1000 value3111043936 cannot verify a retained-storage ratio.",
+          "Baseline peak RSS is unavailable for this cached comparison. No peak-RSS ratio has been verified or retained as a gate; see the frozen memoryMeasurementClarification and directly instrumented owned-storage bounds."
+        ],
+        "dedupe": "Distinct from the closed late full-state checkpoint: it keeps early parent admission and executes a complete ordinary prefix before a bounded legal branch. It reuses the already-merged replay population rather than proposing a new replay admission census. Do not count old checkpoint or partial-order restart proposals as independent high-ranked keeps. Chain demotion below shares the population but changes a different actuator.",
+        "costReason": "Fixed rubric cost2 because dispatch extraction/commit and parent/child diagnostic event attribution are correctness and measurement-sensitive. No size or implementation-time surcharge.",
+        "requiredImplementationConstraints": [
+          "Capture the pre-choice tape position at one precise scheduler boundary after crash masks/eligibility are computed and before queue/within-queue draws. A child receives only that requested tape prefix. Its stock selection consumes exactly its ordinary queue and within-queue draws from then-current RNG state; do not silently extend replay through the parent choice, burn unused tape words, or reseed/advance stream generators to force identity.",
+          "Apply only at that exact pre-choice raw-word boundary. If passed inside an earlier operation, absent, ambiguous, or not encountered before termination, classify separately and continue ordinary execution. A request is tried at most once; no searching for a later similar state. A parent without an offer keeps original signal-cut replay.",
+          "Both saved event identities must be uniquely present and legal. Also compare the child actual final stock winner: if it already equals the requested alternative, count an already-chosen no-op, not applied. The child stock winner need not equal the parent stock identity; export this mismatch separately, since that case is not replay of the identical decision.",
+          "An entering record means a remote Record at entry_pc. Local continuations may participate only in the declared same-node fault race. Exclude ChannelSend and timers from frontier alternatives in this specification. Include full NodeId role/index, origin incarnation, send ordinal, pc/entry_pc and link tag for records. Fault keys include kind, planned node and current incarnation; reject nonunique keys. Never persist a queue vector index.",
+          "For a crash race, use the actual would-be crash victim from a pure current retarget preview, not merely the planned node; require it to equal the record receiver. Revalidate that preview at application and let stock retarget_crash execute once. No retarget state or fault plan edits.",
+          "Enumerate only alternatives that remain themselves after a pure preview of the complete merged network preferences on the existing eligible set. At actual commit apply real preference bookkeeping, first-delivery accounting, queue take and execution exactly once for the chosen event. A cross-queue alternative is a deliberate change of dispatch; still consume the original stock selection draws once and report original/final queue classes.",
+          "Keep at most eight distinct unordered structural event-pair offers with deterministic hash reservoir sampling independent of simulator RNG; at each decision choose one legal dependent alternative by that private hash. Dedupe before reservoir retention. Keep a separate prefix-service cursor so plan-only siblings consume the shared eight-child budget but do not skip frontier offers. Assign distinct retained offers to successive prefix children before repeating.",
+          "Add explicit bounded parent reference capture: for each retained offer retain the vector of cumulative receiver write-token deltas at the next eight scheduling steps, relative to tokens immediately before its branch decision, with node identities and touched flags. An offer added late gets only its observed suffix; eviction discards its reference. No unbounded per-step trace or full-state copy. Child captures the same vector over its next eight steps. Freeze the first common touched node as the earliest parent-touched node in that window that child also touches, ties by NodeId.",
+          "Export finite per-parent request/applied pair identities and parent run ids for repeat and clustering diagnostics, with documented bounded truncation/drop counts. Count missing node overlap or incomplete windows as censored, not divergent. Keep ordinary complete histories for checker and baseline analyzer; this instrumentation cannot manufacture oracle depth.",
+          "All applicability fractions use all assigned/applied requests as specified, not only successful diagnostic rows. Preserve original effective frozen cap for remaining-step measures; no new continuation or history termination rule.",
+          "Memory counters must include backing allocation capacity, not just logical lengths, for new dynamic storage. Do not allocate a parent/node trace table and omit it from the declared memory accounting. Validate fixed layout/ownership bounds without a new baseline performance experiment. Diagnostic truncation cannot change aggregate firing or applicability denominators."
+        ],
+        "predictionRewritten": true
+      }
+    },
+    {
+      "id": "replay-prefix-causal-chain-demotion-search",
+      "parent": "causal-chain-priority-inheritance-with-demotion-points",
+      "kind": "add",
+      "title": "Keep causal-chain scheduling priorities through replay suffixes and demote chains at sampled change points",
+      "category": "scheduler",
+      "buildsOn": [
+        "ghost-prefix-replay-corpus",
+        "RNG stream isolation",
+        "existing queue-class and within-queue selectors"
+      ],
+      "expectedGain": 5,
+      "expectedCost": 2,
+      "description": "Use the existing prefix-replay treatment population to test a PCT-style causal-chain scheduler after the existing signal-cut tape is exhausted. Parent admission, tape cut, capacity, eight-child limit and plan-only control remain exactly as in the baseline. Add run-local chain identifiers for executable records and ChannelSend continuations. Before activation maintain identity propagation but leave effective priorities unchanged. A client request, timer firing, initialization/recovery root or otherwise parentless event starts a chain; RPC calls, asynchronous sends, spawned receiver records and their continuations inherit their creator's chain. A channel wakeup preserves the waiting reader's chain; it does not merge unrelated chains. Pending pre-cut records whose ancestry was not tracked receive separate root identifiers at activation. After tape exhaustion, activate only once the child's own existing ghost-with-pending-crash signal has fired. Draw two distinct future change points uniformly without replacement over the remaining frozen cap; if fewer than three steps remain, stay inert. Use a private deterministic hash stream seeded from the child schedule seed, with no reads from simulator RNG streams. Give chains a deterministic random total order keyed by that seed and chain id. At each change point demote the chain of the last executed executable record below all chains not yet demoted; retain this relative order for the rest of the suffix. A second demotion of the same chain is counted and changes no other order. Do not globally pick events by this order: run the stock queue-class draw, including timer-context bias and its empty-queue fallbacks. In the existing within-queue selector, use the chain key as a lexicographic ranking above the original score only among the exact candidates that the tournament already sampled; equal-chain candidates use the original score and index tie behavior. For the non-tournament selector, use the ordinary selected event unchanged and count that exclusion, so the mechanism does not silently redefine proportional selection. Preserve ordinary priority draws at creation even when chain keys govern ranking. Existing reservations, FIFO, crash holds, fresh-first, pair-order and client request release still run, and instrumentation compares the final legal pick with the stock sampled pick without drawing more randomness. Non-executable faults and timers keep their original scoring; their created executable descendants acquire or inherit chains. Add chain propagation in core/state.rs, core/exec.rs, core/scheduler.rs and path.rs, activation information in explorer.rs/rng.rs, and utilization exports/tests. Do not alter hashes, trace ids, causal_operation_id, protocol state or logging. No config field, nested dose, new treatment bit, state checkpoint or shared learner.",
+      "rationale": "The unattempted causal-chain idea has a verified missing object: records retain priority through local continuations, but newly sent records draw independently at every hop. PCT demotions need a persistent chain to move as a unit. The existing tournament offers real authority once candidates are sampled; comparing chain order directly over that same candidate set avoids assuming that multiplying a narrow score band can change eligibility or queue choice. Restricting the policy to supplied early replay suffixes places coherent execution and subsequent interleaving changes near an observed fault race while preserving the original path to it. This is not a hold on an origin or recovery class and does not claim that long queue-free stretches were absent before. Two change points are the structural depth-three PCT search choice, not an empirical dose sweep. PCT probability bounds for fixed threads do not transfer to dynamically spawned chains; the claim here is empirical search utility. Ordinary signal-cut parents and existing same-step return counts suggest applicability, but the new child activation, sampled multi-chain contests and surviving suffix must be measured.",
+      "generalityArgument": "The persistent unit is causality in the simulator's execution graph, independent of message names, contents, protocol roles or oracle labels. Any protocol with asynchronous sends can exhibit chains whose relative interleaving matters. Queue selection, timer admission, legal event sets and fault semantics remain the same. The protocol panel must verify both clean behavior and known-bug discovery; throughput or selective VR depth alone cannot establish general value.",
+      "prediction": {
+        "treatmentBit": {
+          "name": "replayPrefix",
+          "value": 2097152,
+          "share": "The existing salted half of replay slots, approximately one quarter of non-probe grid runs; unchanged assignment and empty-slot behavior.",
+          "control": "The existing replay-slot runs without replayPrefix, which reuse a parent's configuration and workload and run a fresh schedule. Non-slot runs and AOS receive no new policy.",
+          "identity": "The bit continues to mean schedule-prefix replay from a corpus parent. No new bit, nested run-id dose, campaign arm, or protected registration edit. This is a replacement of the prefix-replay search mechanism, not a reinterpretation of a selector or fault bit.",
+          "contrast": "Intention to treat on all prefix-tagged slots, including unfilled and failed branch attempts, probe-free and matched on existing co-bits. Also compute the candidate prefix/plan-only ratio divided by the paired baseline prefix/plan-only ratio. A filled-only ratio is descriptive, never the treatment estimate.",
+          "inverse": "No additional inverse cell: alternatives and initial chain orders are sampled symmetrically, and neither search procedure has a single protocol-independent signed inverse. They are stochastic policies inside the one existing prefix-replay mechanism, not hidden run-id treatment doses."
+        },
+        "rung": "depth>=8",
+        "sizePct": {
+          "min": 0.2,
+          "max": 0.6
+        },
+        "firingCounter": "replay_chain_pct.active_runs",
+        "firingFloor": 40000,
+        "mechanism": "The probe-free, co-bit-matched prefix/plan-only per-run ratio will be1.20-1.60; its ratio to the paired baseline contrast will be1.15-1.50. Fixed four-grid-arm primary events/sec>=1.06 baseline, whole-campaign events/sec>=1.03 baseline, and AOS depth8 per run>=0.95 baseline. These are separate predictions, not estimates inferred by dividing grid utility by whole-campaign throughput.",
+        "independentObservable": "Per300-second chunk, >=40000 prefix children activate before their own cap, >=25000 active children execute >=8 subsequent steps, and >=15000 active children reach at least one change point. At least20% of eligible suffix tournament decisions have >=2 distinct chains in the candidates actually sampled. On those multi-chain sampled contests the final legal winner differs from the shadow stock winner at least15% of the time; fresh-first/pair-order overwrites and same-chain ties are separate counts. Among active children with at least eight suffix dispatches, median consecutive executable dispatches sharing one chain rises at least25% over plan-only children measured after their own first signal, while realized timer dispatch share stays within10% relative of that control. The latter comparison is descriptive and reports readiness/arm strata; the randomized all-slot contrast decides utility. Emit activation delay from tape exhaustion, frozen remaining-cap bins, excluded selector type, change points reached, distinct chains sampled, inherited cross-node sends, same-chain ties, shadow-choice changes before and after merged preferences, and per-arm chain-run-length histograms. Existing counters cannot currently report these quantities; all are added with the mechanism.",
+        "falsifier": "Refuted if the matched treatment contrast interval lies wholly below1.20 or its paired baseline-adjusted contrast lies wholly below1.15. Supply below40000 active runs, below15000 reached change points, multi-chain contest share below20%, final dispatch authority below15%, or chain persistence growth below25% refutes the claimed mechanism. A timer-share change above10% requires closing this specification because preserving timer admission in code did not preserve the claimed exposure. Primary<=baseline with more coherent chains is not success. Repeated AOS ratio below0.95 or whole-campaign utility loss prevents merge despite a grid gain. Report replay-family sensitivity rather than treating sibling runs as independent evidence.",
+        "costClause": "Cross-binary whole-campaign throughput>=0.97 of paired baseline. The original cap, completed-plan termination and number of histories are unchanged. Do not skip baseline priority samples to claim a speedup: byte-consumption parity is part of the mechanism. All trace and client-history semantics remain ordinary. If supply or dispatch authority fails in the first normal chunk, close before additional chunks/panel. Additional ancestry storage is at most one u64 chain id per executable or buffered executable object, with measured Rust layout growth at most16 bytes per affected Record/ChannelSend/partition-buffered message representation. Run-local chain control and observation storage is at most1024 bytes, excluding existing state and the one chain id per object; use fixed-size counters/histograms. Retain at most two demoted chain ids and derive other chain priorities directly from seed/id, with no dynamically growing per-chain map, ancestry graph or per-step log. Export the relevant size_of layout measurements, maximum run-local allocated bytes, maximum retained demotion entries and count of root allocations; verify fixed bounds against the ordinary trial. Peak process RSS may be reported descriptively but has no paired ratio gate.",
+        "measurementClarification": "The20% multi-chain sampled contest share uses all eligible suffix tournament decisions. The15% final choice-change fraction is restricted to multi-chain samples with an executable stock winner, as frozen by the mixed-fault rule; report both denominators and exclusions. New chain metadata and all control histograms must be explicitly implemented. This is a prefix-replay-plus-causal-chain replacement policy contrast versus plan-only, not a randomized estimate of chain ranking alone. Raw1.20-1.60 and paired baseline-adjusted1.15-1.50 remain separate bands; use the existing grader without registration or protocol changes.",
+        "memoryMeasurementClarification": "Pre-admission memory correction: the current same-identity baseline cache contains no RSS/resident/peak-memory fields and no matching baseline peak is available in retained observations. A valid paired peak would require additional baseline acquisition, not reinterpretation of a cached metric. No new baseline run, calibration-only round, identity change or cache mutation is authorized by this proposal. The unsupported peak-RSS ratio is therefore removed before admission and replaced by directly checkable bounds on additional mechanism-owned storage. These bounds constrain bookkeeping/corpus growth; they are NOT a claim that total process RSS is unchanged or below the original1.25x/1.15x thresholds. Actual process peak, if collected during the ordinary candidate chunk, is descriptive only."
+      },
+      "sourceVerification": "Source verified: campaign.rs GridArm admits fresh parents at state.replay_cut, serves CAPACITY=64 and CHILDREN_PER_PARENT=8 round-robin, and distinguishes prefix children from plan-only children. No children are admitted. rng.rs Recording is an Arc<[u64]> and RecRng exposes recording position; replay currently has no public consumed-tape-length/finished-prefix query. core/scheduler.rs computes eligibility with reservations, FIFO, crash holds, and down-victim guards before queue/within-queue choice. Existing replay fidelity is only equality of the child's first signal step with seed.cut_step, not state equality. Baseline seed1000 records 72959 parents,108506 filled prefix children,107830 plan-only children,18454 unfilled slots and56198 same-step signal returns. These are ordinary 300-second supply observations, not proof that the proposed narrower action predicate will fire. Existing source draws new priorities at sends and roots; continuation resumption retains a Record priority. No protected files need editing. Additional verified details: WithinQueueSelector defaults to Tournament{k:10}; select_within_queue samples eligible candidates using Stream::WithinQueue. Queue-class selection separately applies timer_context before within-queue selection. Record has send_ordinal, origin_incarnation, entry_pc and causal_operation_id but no generic chain id. ChannelSend currently has no causal-operation or chain field, so cross-channel propagation must be designed explicitly rather than inferred from client-operation ids.",
+      "createdAtIso": "2026-09-07T00:32:28.267337+00:00",
+      "notes": "Blind judge gain5-cost2=3, retained as a substantive but less evidenced scheduling alternative. Frozen clarifications resolve mixed executable/fault ordering, timer-root ancestry, partition propagation and authority denominators before any implementation or experiment. No claim of sound DPOR or transferred PCT guarantee. Before admission, unavailable paired-RSS gates were replaced with bounded additional owned-storage checks; this does not establish total process memory non-regression.",
+      "netScore": 3,
+      "rank": 2,
+      "review": {
+        "redTeam": "PCT fixed-thread guarantees do not apply here: chains spawn dynamically, queues are selected separately, only sampled candidates can compete, and merged preferences can overwrite chain order. Most contests may be singleton/same-chain, or the stock winner may be a fault, leaving little authority. A chain can also fan out widely and dominate scheduling until a late cap-relative demotion, suppressing the very mixed-origin order sought. Two cap-uniform change points often occur after plan completion. Preserving timer admission code does not preserve realized timer exposure. Cross-channel ancestry can be lost in buffering/recovery, or parentless roots can collapse into one chain. Carrying metadata on every record may cost more than sparse prefix-child authority can repay.",
+        "verifiedEvidence": [
+          "Main Spur is b86baad3f94ce14dbdf20688b61fd92317a75cc2. Conditional67 is CLOSED after repeated AOS harm; interaction-parent68 is ACTIVE and ungraded for this review. Neither prototype is the baseline.",
+          "campaign.rs:424-523 records fresh grid runs, truncates admitted parents at replay_cut.tape_pos, serves prefix children with ReplayRng and plan-only with LiveRng, and compares only signal steps for prefix_faithful. replay_corpus.rs specifies capacity64, eight total children per parent, salted slot/prefix assignment excluding run-cap and timer probes, round-robin service and no child admission.",
+          "Baseline cache seed1000 verifies72959 parents,108506 prefix children,107830 plan-only children,18454 unfilled slots,56198 same-step signal returns; seed1001 has71910,108175,107615,17996,54542. These establish early replay supply only, not branch legality, state fidelity, suffix depth, or chain activation.",
+          "rng.rs ReplayRng.position returns total output words, not consumed source words; source pos stops growing at source exhaustion, while out continues. A replay-exhaustion query is new. RecRng.next_u32 consumes one recorded u64 and fill_bytes consumes ceil(bytes/8) words. Positions must be recorded-word positions, not high-level draw counts or scheduling steps. Stream isolation still records one interleaved raw tape; changing arms, learned snapshots, caps or readiness can break replay fidelity.",
+          "core/scheduler.rs applies crash hold/defer masks, reservations, FIFO and down-victim guards before queue selection; strict timers add an eligibility condition. Queue selection applies timer_context separately. Tournament samples with replacement up to min(k,eligible.len()), default k10; singleton decisions take no within-queue draws. Network selections then pass fresh_first_dispatch and pair_order_dispatch.",
+          "fresh_first_dispatch mutates displacement bookkeeping and records counters; pair_order_dispatch also emits counters. Calling either as a shadow/eligibility preview would double count or mutate real state unless selection is factored into a pure preview and a single real commit.",
+          "run-specific arms, learner/probe assignment, credit guard, caps, workload/history and feedback merge remain stock. Replay children do not earn extra learner reward by inheriting a parent. Add no new tag or campaign/config field, and do not change any protected harness, recording, spec or checker file.",
+          "The existing bit remains prefix-replay versus plan-only on all assigned slots. Empty/failed/inert slots remain in intention-to-treat. New policies are one replacement search algorithm per binary with no hidden dose. Raw matched candidate prefix/plan-only contrast and its paired baseline-adjusted contrast are distinct. Neither is an isolated causal estimate of the new algorithm if shared runtime/learner feedback shifts the control. Report both and cross-binary rates.",
+          "Fixed grid primary and its per-run denominator must use the same four grid arms; never divide grid events/sec by whole-campaign throughput. Report each arm including AOS, the whole campaign and the panel. Apply unchanged sequential bounds and baseline; sibling outcomes are correlated. New diagnostic counters must be exported and checked at the ordinary300-second horizon, not inferred from a short smoke.",
+          "core/exec.rs draws a new priority for Async-created Record and remote ChannelSend; path.rs draws for client roots; core/scheduler.rs draws for recovery roots. Existing local continuations and ordinary channel wakeups retain their Record. Thus hop-wise priorities are not persistent; priority within one resumed Record already is.",
+          "Record has no chain id. Runnable::ChannelSend and partition::QueuedMessage::ChannelSend currently carry no chain id. The partition buffering/heal path reconstructs ChannelSend fields and must explicitly preserve new metadata; it cannot be covered by only changing the initial constructor.",
+          "Timer dispatch resumes a waiting Record and marks timer_entry. Ordinary channel wakeup also resumes a waiting Record. The proposal must distinguish its declared timer-root rule from its declared ordinary-channel preservation rule.",
+          "Mixed local tournaments can contain executable records and faults. A lexicographic chain key assigned to only records has no meaningful comparison with unkeyed faults until a rule is specified. Merely saying faults retain scores does not preserve their winning opportunities.",
+          "Baseline peak RSS is unavailable for this cached comparison. No peak-RSS ratio has been verified or retained as a gate; see the frozen memoryMeasurementClarification and directly instrumented owned-storage bounds."
+        ],
+        "dedupe": "A concrete revised descendant of the unbuilt causal-chain-priority-inheritance-with-demotion-points; that historical parent is not a second independent keep. Unlike the old proposal it preserves priority draws and queue-class selection, so neither old claims of free speedup nor old scoring-placebo nulls decide this algorithm. Same replay-family utility/supply concerns as frontier, but persistent causal ordering is a different actuator; score5 reflects unmeasured authority.",
+        "costReason": "Fixed rubric cost2: explicitly edits core/exec.rs and propagates metadata through record/continuation lifecycles. No cost for code size.",
+        "requiredImplementationConstraints": [
+          "Keep the original parent tapes, cuts, corpus service, slot assignment and plan-only scheduling. Activate once in an actually filled prefix child, only after source tape exhaustion and its own signal. Raw source exhaustion and output position are separate; an unfilled prefix-tagged fresh run is inert. No run-id subdose or additional algorithm switch.",
+          "For a tournament, draw the exact same candidate sequence and compute its stock winner first. If the stock winner is non-executable, preserve it unchanged. Otherwise choose the highest ordered chain among only executable candidates in that SAME sample, breaking same-chain ties by ordinary score and original first-sampled tie behavior. This freezes the previously ambiguous mixed-fault comparison without giving records blanket precedence. Count stock-non-executable exclusion separately.",
+          "Apply ordinary fresh-first/pair-order after the proposed within-queue pick, with pure shadow preview and one actual bookkeeping/commit path. Preserve proportional and singleton selection and all priority samples. Never use the chain id in state hashes, trace ids, client operation ids or eligibility.",
+          "Initialization, recovery, client invocation and timer-resumed record each start a distinct deterministic run-local root chain. Async-created records inherit the current executable chain; synchronous calls remain within it. Ordinary channel wakeups preserve the waiting reader chain, not the sender chain. Timer wakeup is the explicitly declared new-root exception. Preserve chain metadata on continuations, crash reset/re-delivery, delayed queues, partition buffering/healing and channel-send completion; add core/partition.rs plumbing if needed within subject bounds.",
+          "Track pre-activation identities for the diagnostics on plan-only and fresh runs as well as prefix children, but do not apply chain ranking there. Missing ancestry receives distinct roots rather than one shared sentinel. Report missing-ancestry allocation count. No additional state transition, RNG sample or learner credit is justified by instrumentation.",
+          "Draw two distinct future absolute scheduling-step change points from the remaining cap with a private hash sampler; they are fixed at activation. Demote the last actually executed executable chain at each reached point; if none has executed, count a no-chain point and remain unchanged. Previously demoted chains stay below all never-demoted chains, first demotion below the latter, second new-chain demotion below the first; repeat demotion of the same chain is a counted no-op.",
+          "Chain-run-length histograms use consecutive executed Record or ChannelSend dispatches after the comparison cut; any intervening fault, timer, blocked/no-execution dispatch or another chain ends a run. Median comparison includes censored final stretches explicitly and reports readiness/arm strata. The control cut is its own first signal, not the parent tape cut. It remains a descriptive selected-subpopulation comparison.",
+          "Multi-chain authority denominator consists of active-suffix tournament decisions with at least two distinct executable chains actually sampled and an executable stock winner. Report the unconditional multi-chain sampled share over all eligible active-suffix tournament decisions separately. Final legal winner15% criterion uses the authority denominator. Counter-only shadow choices consume no RNG or mutable preference side effects.",
+          "Memory counters must include backing allocation capacity, not just logical lengths, for new dynamic storage. Do not allocate a parent/node trace table and omit it from the declared memory accounting. Validate fixed layout/ownership bounds without a new baseline performance experiment. Diagnostic truncation cannot change aggregate firing or applicability denominators."
+        ],
+        "predictionRewritten": true
+      }
+    },
+    {
+      "id": "selector-successful-joint-arms-with-uncertain-axis-mutation",
+      "parent": "per-cell-thompson-joint-arm-selector-rarity-reward",
+      "kind": "enabling",
+      "title": "Resample successful joint arm sets and mutate their uncertain axes",
+      "description": "Replace independent arm-axis sampling on learner draws with a bounded population search in simulator/arm_selector.rs. Each existing learner/configuration cell retains a ring of its last WARMUP_OBSERVATIONS successful full ArmSet vectors, with their credited-observation indices. Admit vectors only from runs that the learner already observes under its existing coin-or-own-run exposure rule and that earn its unchanged Boolean reward. Retain at most 24 entries and expire entries older than ceil(1/(1-DISCOUNT))=500 credited observations. Repeated vectors from independent successful runs remain repeated population members; no execution tape, plan, workload or state is copied. When at least eight live successes spanning at least two distinct vectors are present, a learner draw samples one population member uniformly and mutates exactly one axis. Choose the mutation axis proportionally to the categorical entropy of that axis's current normalized posterior-leading probabilities, and draw a different direction from the existing coin shares renormalized over the alternatives. If all entropies vanish, choose the axis uniformly. Thus four coordinates preserve a successful joint setting while uncertain coordinates receive exploration. Cells below support retain the current independent marginal sampler. Keep the current adaptive coin share, marginal posteriors, three learner assignments and rewards, per-configuration pooling, cap and all scheduler mechanisms unchanged. Population admission and aging share the current credit write guard. A cell's ordinary coin runs remain fresh exploration, and replay behavior and ordinary reward credit semantics remain unchanged. At draw time aggregate this parent-and-mutation mixture into the exact categorical distribution over the 72 ArmSet values, then sample that distribution. For an observation-only comparison, use the same uniform variate and fixed ArmSet index order to sample the product of the current marginal axis distributions; identical distributions therefore produce no departure. Count the Hamming distance between the actual tuple and this comparison tuple. Record mutation-axis mass from the exact mixture, and add counters and bounded per-cell exports for live support, unique vectors, supported draws, joint total-variation distance and subsequent reward counts on population-sampled runs. Cache the population mixture after each credited update that changes the population, refreshing the entropy weights after every WARMUP_OBSERVATIONS credits. Comparison calculations consume no schedule random numbers. No config field, campaign arm or harness change.",
+      "category": "scheduler",
+      "buildsOn": [
+        "per-cell factored arm selector",
+        "existing three generic per-run rewards",
+        "whole ArmSet representation"
+      ],
+      "expectedGain": 3,
+      "expectedCost": 0,
+      "rationale": "The existing joint Thompson proposal was weak because 72 combinations divide a discounted window into too few observations to estimate all combination reward rates. Successful-vector resampling uses observed successful tuples directly and needs no estimate for every combination. It also avoids recombining five separately favorable directions into a tuple that was never successful together, a structural limitation left largely unchanged when conditional draws seldom depart from marginal choices. Broad existing reward supply makes the population support falsifiable at the normal horizon. The main risks are reinforcement of frequently sampled tuples, loss of useful multi-axis jumps, and reward/depth misalignment. Independent coin draws and entropy-directed mutation provide escape paths, but they do not prove these risks harmless.",
+      "generalityArgument": "Population members are complete settings of general scheduling mechanisms, and their fitness is one of the existing protocol-independent rewards. The same success-and-mutation rule works for any protocol's action effects without inspecting handler names, roles, message payloads, oracle traces or known violations. Configurations and workloads are still chosen by the existing campaign; only the mechanism settings of a new execution are adapted.",
+      "prediction": {
+        "firingCounter": "arm_selector_population.changed_joint_draws",
+        "firingFloor": 50000,
+        "rung": "depth>=8",
+        "sizePct": {
+          "min": 0.07,
+          "max": 0.18
+        },
+        "mechanism": "Treatment: the session-global arm population and learner search distribution, with no new treatment bit. No existing bit is redefined to denote a new population policy. Because both successful-vector supply and marginal posteriors depend on previous population-generated runs, an off draw sharing those tables is not an untreated experiment. Grade this single-model replacement on the cross-binary rung with fresh reset sessions, unchanged campaign arms and the epoch's matched primary population. Frozen paired candidate/baseline depth>=8 per-run ratio is [1.07,1.18]. Require primary events per explore-second >=1.04 and paired throughput >=0.97. This is not a revived 72-cell Thompson estimator or an increased checkpoint offspring budget.",
+        "independentObservable": "Per normal 300-second chunk require >=20 learner/configuration cells to make >=100 population draws after satisfying the eight-live-success/two-distinct-vector gate, and >=100000 supported population draws in total. At least 20 percent of these actual selected ArmSets must differ in two or more coordinates from the product-marginal categorical comparison using the same uniform variate and ArmSet index order. Joint total-variation distance from the product-marginal distribution must be >=0.10 on at least half of supported draws; unlike an independent random shadow, this test is zero when the distributions agree. At least two distinct axes must each receive >=10 percent of mutation probability mass across supported draws, and at least 80 percent of population draws must come from cells whose live population contains >=4 distinct successful vectors; report repeated-vector concentration explicitly. Across four chunks, at least two of the three existing per-learner own-run reward rates must be >=1.10 of their corresponding baseline rates, with the third >=0.95. Those baseline rates are already exported; new supported-draw outcome counters additionally report whether sampled vectors succeed when executed again. The fitted population success rate and inherited parent success never count as the new run's outcome. Judge clarification: all live support, unique-vector counts and probability comparisons are read at decision time before this run is observed. Expiration uses the same cell credited-observation clock, not wall time, axis visits or only positive updates. A stored success is live when current_observation_index - success_observation_index <=500; expire greater ages, retain at most the24 most recent remaining successes. Population-supported draws satisfy >=8 live entries and >=2 distinct tuples. Count supported draws separately from changed_joint_draws, which counts tuples different from the product-marginal comparator. The two-coordinate comparison is coupling/order dependent and descriptive; the exact TV gate is the distributional check. Define ArmSet order lexicographically by axis direction indices [crash,retarget,fresh_first,pair_order,request], last axis varying fastest. Mutation-mass fractions are sums of the exact mixture axis masses over supported draws, with supported draws as denominator.",
+        "falsifier": "Refute if the primary contrast interval lies entirely below 1.07, the two-coordinate departure share falls below 20 percent, the joint-distribution TV gate fails, or the actual subsequent reward-rate clause fails. Missing the normal-horizon support or firing floors closes the candidate; do not lower the eight-success gate, extend the 500-observation window or pool configurations after observing inadequate supply. Mutation concentrated below the two-axis floor or population diversity below the four-vector clause refutes the claimed exploration mechanism. Throughput below 0.97, primary events-per-second below 1.04 or a panel regression closes on cost or generality. A better broad reward with flat or worse oracle depth refutes transfer, rather than establishing progress. Judge clarification: report repeated material AOS harm as a generality failure even if the selective grid primary rises. A tuple inherited from a successful population member does not inherit its success or any execution evidence.",
+        "measurementClarification": "Primary means the same four grid arms in candidate and baseline. The per-run band and per-second guard use that population; overall throughput is separately reported. Also report AOS and whole-campaign per-run/per-second outcomes, with unchanged panel/regression guards. A selective grid gain with repeated material AOS or panel harm does not establish general search improvement. No seed selection or retrospective baseline substitution.",
+        "horizonClarification": "Normal chunks are independently reset 300-second sessions, up to the existing four-chunk cap. Per-chunk applicability/firing gates apply at that horizon. Own-run reward clauses apply to pooled completed paired seeds at the final decision, with four chunks required to claim confirmation of the specified four-chunk reward prediction. Early close is allowed for predeclared applicability, cost or harm gates; do not claim a four-chunk result from an early stop."
+      },
+      "createdAtIso": "2026-09-06T21:26:35Z",
+      "notes": "Judge reviewed blind. Rubric cost corrected from 2 to 0 because these changes do not alter execution, history, event accounting or linearizability recording. Evidence for the proposed gain is thin; score is an argument grade, not a numerical effect forecast. Iteration69 retains this complete frozen hypothesis at gain3-cost0=3. Tie-break favors the newly specified independent scheduling actuator over another joint learner after67 repeated AOS harm;68 remains unknown, so the population mechanism is not empirically refuted.",
+      "netScore": 3,
+      "rank": 3,
+      "review": {
+        "redTeam": "A ring of successful tuples samples policy frequency times reward probability, not reward probability alone. Repeated popular successes can crowd out rare settings and reinforce whichever learner policy already dominates. Entropy-directed mutation may repeatedly break the one useful axis; preserving four settings can inhibit necessary multi-axis jumps. At low reward rates the500-credit age window can fail the eight-success gate, particularly in colder cells. A shared-uniform lexicographic comparison can have large Hamming distance for reasons of tuple ordering; that is not proof of useful diversity. Existing broad rewards have already improved while target depth and AOS declined. Exact72-tuple distribution maintenance adds hot-path work.",
+        "verifiedEvidence": [
+          "Main baseline is b86baad3f94ce14dbdf20688b61fd92317a75cc2. Iteration 67 is still grading; conditional prototype evidence is not a merged baseline or a completed outcome. Build each candidate independently from main; conditional machinery is ported only where the selected mechanism requires it.",
+          "Freeze cross-binary fresh-session comparison with no new treatment bit, unchanged campaign and fixed four-grid-arm primary. Compute primary per-run rates from those same grid arms, not by dividing grid events/sec by whole-campaign throughput. Report baseline-arm-weighted rates descriptively, every arm including AOS, and full-campaign rates on every seed. Endogenous learner/coin tags and shared random comparison choices are diagnostic, not randomized treatment controls.",
+          "The baseline has 164617/172588/167628 learner own runs and 9593/30766/9078 positive rewards for A/B/C on seed1000. These counters establish broad outcomes, not the new mechanism support or reward alignment with deeper oracle events.",
+          "Preserve the existing coin/probe policy, learner assignment and coin-to-all/own-run-to-own exposure rule, marginal posterior updates, reset behavior, cell keys, replay behavior and caps. No scheduler config or campaign changes. Restrict implementation to selector, util_stats and required export tests; no execution, history, event-accounting or recording edits.",
+          "run_variant.rs declares COMBINATIONS=72 and the five axis widths; the baseline retains marginal posterior counts, not a successful-tuple population. The proposed ring and all population diagnostics are new.",
+          "The current selector leading_probability computes pairwise-normal leading weights, then sample_axis_leading multiplies by ArmSet coin probabilities. Pure normalized leading weights for mutation entropy and final coin-weighted probabilities for product-marginal comparison are different quantities and must remain explicit.",
+          "DISCOUNT=0.998 and warmup24 are current. ceil(1/(1-DISCOUNT)) mathematically yields500; this proposed success-age window is a new cell-clock expiry rule, not identical to existing per-direction discounting.",
+          "The pool full72-combination Thompson alternative is kept but not buildable as written because its0.995 discount and per-combination leader requirement undersupply evidence. Successful-tuple resampling avoids fitting72 independent reward rates, but does not by itself solve adaptive selection bias.",
+          "The eight-live-success and diversity gates are not implied by aggregate baseline positives. A/B/C own-run rates are approximately5.83%,17.83%,5.42%; cells differ and coin rewards are lower. Population support remains a prediction to test at the normal horizon."
+        ],
+        "dedupe": "Alternative implementation of joint dependence in the same family as conditional pair learning and the held full-joint Thompson proposal. It is not exactly the already-kept Thompson mechanism because it has no72-cell posterior, but there is no new interaction evidence. Retain at gain3 behind interaction-parent, not a second high-scoring independent hypothesis.",
+        "costReason": "Rubric cost0: selector/probability updates and statistics do not touch execution, histories, event accounting or linearizability recording.",
+        "requiredImplementationConstraints": [
+          "Check and remove expired successes on every credited cell update, including unsuccessful runs. Adding a positive, evicting the oldest entry, expiry, or a24-credit entropy refresh invalidates the mixture cache. A draw reads one consistent live population/cache snapshot.",
+          "Define entropy from normalized posterior-leading weights, before coin weighting, as proposed. Alternative directions use the existing coin shares renormalized excluding the parent direction. Components change exactly one axis; aggregate exact mixture probabilities across repeated entries and coincident child tuples.",
+          "Sample the resulting72-tuple distribution directly with one selector random variate. The product-marginal comparator uses that same variate and fixed lexicographic order, consumes no additional schedule draws and is observation-only. When population support fails, retain the baseline independent sampler and count fallback.",
+          "No latent parent or executed mutation axis is uniquely determined by a tuple drawn from the aggregated mixture. Export expected mutation-axis probability mass; do not invent a realized parent lineage or offspring reward that the algorithm did not sample.",
+          "Update outcome counters from this run actual completed Boolean reward. Stored successes and replayed histories are not fresh confirmations of the sampled tuple. Existing credit rules remain unchanged; no cross-learner or extra replay credit.",
+          "Bound population entries at24 per learner/cell; report maximum repeated-vector share and unique-live counts. Do not deduplicate repeated successes, extend expiry, lower support, or change one-axis mutation after observing supply."
+        ],
+        "predictionRewritten": true
+      }
+    }
+  ],
+  "rejected": [],
+  "reviewSummary": "Keep frontier rank1 at7-2=5, chain demotion rank2 at5-2=3, and retained successful-population mutation rank3 at3-0=3. Source/counter claims verified; new supply and utility remain predictions. Frontier storage reference and token-divergence meanings are corrected before admission. Chain mixed-fault ranking and metadata lifecycle are frozen before admission. No protected changes, experiment, or subject/log edit performed. Iteration68 is active with unknown outcome; re-evaluate ranking only when its actual evidence arrives, without rewriting these predictions. Pre-admission addendum: baseline peak RSS is absent, so both paired-RSS clauses are replaced by implementable mechanism-owned-storage bounds, with the distinction from total process memory made explicit. No baseline acquisition or experiments run.",
+  "reviewInputs": [
+    ".agents/skills/research-loop-lite/prompts/judge.md",
+    ".agents/skills/research-loop-lite/SKILL.md",
+    "research/GOAL.md",
+    "research/lite/pool.md",
+    "research/lite/observations.md",
+    "research/observations/OBSERVATIONS.md",
+    "research/lite/plans/iteration-68-admitted.json",
+    "tmp/loop/lite/proposals-69.json",
+    "scheduler_configs/loop/general_vr.json",
+    "research/lite/baselines/34b5ef40e3bf-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+    "spur/spur-core/src/simulator/replay_corpus.rs",
+    "spur/spur-core/src/simulator/campaign.rs",
+    "spur/spur-core/src/simulator/rng.rs",
+    "spur/spur-core/src/simulator/explorer.rs",
+    "spur/spur-core/src/simulator/path.rs",
+    "spur/spur-core/src/simulator/core/scheduler.rs",
+    "spur/spur-core/src/simulator/core/state.rs",
+    "spur/spur-core/src/simulator/core/exec.rs",
+    "spur/spur-core/src/simulator/core/partition.rs",
+    "spur/spur-core/src/simulator/core/queue_selector.rs"
+  ],
+  "poolDirectionReview": {
+    "scope": "Carry forward the explicit iteration68 review of historical pool candidates, refreshed for current67 closure and68 active trial. Those mechanisms have no new source/effect evidence that outranks the newly verified frontier actuator; current source still supports the retained causal-chain ancestry gap. Awaiting-approval entries remain untouched.",
+    "conclusion": "Highest actionable keep is frontier net5. The old causal-chain entry is deduped into its revised child here, not counted separately. Population mutation stays complete and untested at net3. No outcome is inferred for active interaction-parent68.",
+    "alternatives": [
+      {
+        "ids": [
+          "lite-config-cell-deep-supply-walk",
+          "hazard-thompson-config-walk"
+        ],
+        "historicalGain": [
+          5,
+          4
+        ],
+        "currentGain": 3,
+        "cost": 0,
+        "disposition": "Untested, needs complete specification before admission. The new pool entry names an unspecified protocol-free post-fault shape but no actual reward, posterior update, support/firing definition or complete frozen prediction. The older hazard walk is deduped to the existing plan-only replay config-selection family and uses an earlier rung. One-crash cells cannot satisfy a second-crash rung, but that alone is not evidence that broad reward learning improves discovery; reward/depth reversals and AOS harm now weaken that inference. Do not call the mechanism empirically refuted."
+      },
+      {
+        "ids": [
+          "crash-phase-arm-ablation-early-only"
+        ],
+        "historicalGain": 5,
+        "currentGain": 3,
+        "cost": 0,
+        "disposition": "Technically live: source still samples Early/Mid/Stock, so this is not already-set. Its effect/observable pricing uses iteration23 fan-out counts and pre-landing-node phase evidence, and the original judge already found no direct causal handle on the claimed8-to9 conversion. The landing-node and later selector changes alter which victim and arm mixture those numbers price. Keep as a lower-ranked re-proposal, not an answered experiment; a current causal case could raise its score."
+      },
+      {
+        "ids": [
+          "delivery-class-order-stale-arm-over-drawn-quarter"
+        ],
+        "historicalGain": 6,
+        "currentGain": 3,
+        "cost": 0,
+        "disposition": "The VR portion repeats iteration39 stale-first harm (iteration47 log explicitly identifies this duplication). The signed raft-stale-vote panel hypothesis remains untested, so do not call the whole idea refuted. It requires a fresh portfolio case and current arm-share prediction after the selector replaced fixed independent arm shares; the old quarter-draw/dose prescription is not directly portable while preserving current learned direction semantics. Retain as a possible panel-focused re-proposal."
+      },
+      {
+        "ids": [
+          "fresh-first-ablate-contests-after-first-hearing",
+          "post-fault-hold-class-split-read-write"
+        ],
+        "historicalGain": [
+          5,
+          5
+        ],
+        "currentGain": 2,
+        "cost": 0,
+        "disposition": "Both original reviews identify a broken supporting case: heard-cut has a tautological observable and no named panel deficit to restore; class-split reasoned from a read majority while panel configurations have a write majority and the claimed sign is likely reversed. Required rewrites were not supplied. Do not build under stale frozen predictions or report the mechanisms experimentally refuted."
+      },
+      {
+        "ids": [
+          "per-cell-selector-ghost-signal-fired-reward"
+        ],
+        "historicalGain": 5,
+        "currentGain": 0,
+        "cost": 0,
+        "disposition": "Kept as calibration already emitted, not an unbuilt learner mechanism; the pool itself says its axis effect is below four-chunk resolution. A measurement-only repeat is not an actionable mechanism round."
+      },
+      {
+        "ids": [
+          "per-cell-selector-overtaken-ghost-honoured-twice-or-before-receiver-request-reward"
+        ],
+        "historicalGain": 5,
+        "currentGain": 2,
+        "cost": 0,
+        "disposition": "Conditional fallback was only for an untouched-clause own-run rate below.015. Iteration59 measured.0276 and closed on stock-crash reward bias instead. The fallback trigger did not occur, and its original pair clause is recorded as protocol-shaped. Re-proposal must address that bias and generality."
+      },
+      {
+        "ids": [
+          "crossing-quiet-learned-stop",
+          "response-quiet-settle-learned-stop",
+          "last-crossing-step-arm-quantile-stop"
+        ],
+        "historicalGain": [
+          5,
+          4,
+          2
+        ],
+        "currentGain": 2,
+        "cost": 0,
+        "disposition": "Iteration60 priced this family with four chunks and histograms: the crossing/response tail is long, response p99 is also about1024, savings missed the frozen band, and deeper rungs lean down. The aggressive re-arming variant additionally has a false no-live-reader bit claim. These predicates are not all experimentally identical, but no surviving distinct causal/supply argument justifies an old5 score. Require a new concrete mechanism rather than another quiescence dose."
+      },
+      {
+        "ids": [
+          "per-cell-selector-cycle-before-request-and-post-fault-answer-before-restarted-news-reward",
+          "per-cell-selector-post-fault-answer-then-restarted-news-acted-at-never-restarted-node-reward",
+          "per-cell-selector-restarted-competitor-queued-at-post-fault-answer-reward"
+        ],
+        "historicalGain": [
+          5,
+          3,
+          4
+        ],
+        "currentGain": 0,
+        "cost": 0,
+        "disposition": "Already tested as graded levels/columns at64; level2 own-run supply.001 misses.010 and competitor reward.003-.009 is explicitly inapplicable. No new learner admission without a different supply mechanism; columns alone do not outrank a mechanism."
+      },
+      {
+        "ids": [
+          "lite-postfault-state-fork",
+          "state-fork-cut-at-last-planned-recover"
+        ],
+        "historicalGain": 5,
+        "currentGain": 0,
+        "cost": 2,
+        "disposition": "Answered by iteration54 checkpoint cost gate and the later iteration66 more selective checkpoint trial. An unchanged last-recover fork is not a live new hypothesis."
+      },
+      {
+        "ids": [
+          "per-cell-thompson-joint-arm-selector-rarity-reward",
+          "per-cell-exp3-arm-selector-acted-stale-at-restarted-receiver-reward"
+        ],
+        "historicalGain": [
+          3,
+          2
+        ],
+        "currentGain": 2,
+        "cost": 0,
+        "disposition": "Already below top; full joint Thompson not buildable with its original per-combination supply requirement, Exp3 has unstable importance weights and reward-sign concerns. Dedupe to the new joint-learning alternatives rather than score them independently."
+      },
+      {
+        "ids": [
+          "post-fault-hold-then-rush-direction",
+          "selector-arm-cell-borrows-sibling-arms-evidence-to-discount-window",
+          "selector-pick-leader-mixture-by-leading-margin-within-learner-half",
+          "recovery-stranded-drain-phase-anchored-release"
+        ],
+        "historicalGain": 4,
+        "currentGain": 3,
+        "cost": 0,
+        "disposition": "None outranks4. Hold-then-rush was explicitly undecidable at its frozen deep-rung effect and horizon; sibling borrowing is a near-pooling fallback only if per-arm heterogeneity warrants it; leader-mixture duplicates merged binary-axis behavior and has a falsified three-way share claim; recovery drain places the peer consumption before recovery while its own target ordering wants the reverse. Preserve as conditional/re-proposal directions, not newly refuted trials."
+      },
+      {
+        "ids": [
+          "selector-one-parent-conditional-direction-posteriors"
+        ],
+        "historicalGain": 4,
+        "currentGain": 0,
+        "cost": 0,
+        "disposition": "CLOSED at67 after two seeds: repeated material AOS harm and failed interaction prediction despite fixed-grid primary improvement. It is not a next candidate or merged baseline. The alternate interaction-parent68 is currently active, not yet an answered mechanism."
+      },
+      {
+        "ids": [
+          "causal-chain-priority-inheritance-with-demotion-points"
+        ],
+        "historicalGain": 6,
+        "currentGain": 5,
+        "cost": 2,
+        "disposition": "Deduped into the full revised causal-chain demotion proposal in this keep-list. Priority inheritance across sends remains a verified missing object; no independent duplicate admission."
+      }
+    ],
+    "awaitingApproval": "The iteration53 budget-dose decision and any other awaiting-approval entries remain untouched. This review neither approves nor substitutes an unapproved epoch/config change."
+  },
+  "admissionContext": "Iteration68 is now closed after one chunk: grid depth8/sec0.99046, per-run0.98778, campaign/sec0.96397; ample supported actual choices and parent departures but argmax5.55% missed15%. This does not answer the proposed replay mechanisms. Frontier remains rank1; no frozen prediction changed in response to the result. Root removed one stale RSS sentence to match the judge pre-admission correction."
+}

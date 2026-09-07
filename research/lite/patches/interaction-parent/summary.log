@@ -1,0 +1,118 @@
+{
+  "seed": 1000,
+  "populations": {
+    "grid": {
+      "base": {
+        "runs": 501000,
+        "d8": 7897,
+        "d11": 18,
+        "mean_steps": null,
+        "us_per_step": null,
+        "complete_share": null
+      },
+      "candidate": {
+        "runs": 502380,
+        "d8": 7822,
+        "d11": 23,
+        "mean_steps": null,
+        "us_per_step": null,
+        "complete_share": null
+      },
+      "per_run_ratio": 0.9877818862195687,
+      "per_second_ratio": 0.9904614945519294,
+      "baseline_weighted_per_run_ratio": 0.9859040691308668
+    },
+    "campaign": {
+      "base": {
+        "runs": 606180,
+        "d8": 9551,
+        "d11": 27,
+        "mean_steps": null,
+        "us_per_step": null,
+        "complete_share": null
+      },
+      "candidate": {
+        "runs": 595620,
+        "d8": 9218,
+        "d11": 33,
+        "mean_steps": null,
+        "us_per_step": null,
+        "complete_share": null
+      },
+      "per_run_ratio": 0.9822458211512991,
+      "per_second_ratio": 0.9639694660172404,
+      "baseline_weighted_per_run_ratio": 0.9800493651652715
+    }
+  },
+  "rewards": {
+    "A": {
+      "base": [
+        9593,
+        164617
+      ],
+      "candidate": [
+        9690,
+        160573
+      ],
+      "ratio": 1.035551003748603
+    },
+    "B": {
+      "base": [
+        30766,
+        172588
+      ],
+      "candidate": [
+        30345,
+        169198
+      ],
+      "ratio": 1.0060775937851207
+    },
+    "C": {
+      "base": [
+        9078,
+        167628
+      ],
+      "candidate": [
+        9979,
+        166736
+      ],
+      "ratio": 1.1051316809510614
+    }
+  },
+  "support": {
+    "positive_score_selections": 494139,
+    "independent_fallback_runs": 2368,
+    "cache_refreshes": 28320,
+    "supported_learner_draws": 353385,
+    "supported_parent_departures": 307567,
+    "own_runs": 496507,
+    "own_positive_rewards": 50014,
+    "child_decisions": 1976556,
+    "changed_child_choices": 114241,
+    "supported_changed_child_choices": 51899,
+    "chosen_runs": 493637,
+    "conditional_direction_draws": 4624355,
+    "fallback_direction_draws": 89861,
+    "pair_observations": 6817090,
+    "pair_positive_rewards": 525180,
+    "argmax_changes": 130105,
+    "total_variation_micro": 107746236314,
+    "supported_decisions": 916983,
+    "supported_argmax_changes": 50871,
+    "parent_axis_choices": [
+      98396,
+      95316,
+      80997,
+      90652,
+      128778
+    ],
+    "qualified_cells": 106,
+    "supported_change_share": 0.055476491930602854,
+    "mean_tv": 0.05451210909986866,
+    "supported_actual_change_share": 0.05659755960579422,
+    "supported_parent_departure_share": 0.8703453740254963
+  },
+  "runs": 595620,
+  "violations": 0,
+  "throughput": 0.9813932981535755
+}

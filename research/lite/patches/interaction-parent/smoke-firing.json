@@ -1,0 +1,29 @@
+{
+  "positive_score_selections": 5943,
+  "independent_fallback_runs": 2431,
+  "cache_refreshes": 1056,
+  "supported_learner_draws": 265,
+  "supported_parent_departures": 265,
+  "own_runs": 8374,
+  "own_positive_rewards": 252,
+  "child_decisions": 23772,
+  "changed_child_choices": 2926,
+  "supported_changed_child_choices": 9,
+  "chosen_runs": 5546,
+  "conditional_direction_draws": 37287,
+  "fallback_direction_draws": 21454,
+  "pair_observations": 272890,
+  "pair_positive_rewards": 6570,
+  "argmax_changes": 3592,
+  "total_variation_micro": 2593948350,
+  "supported_decisions": 265,
+  "supported_argmax_changes": 13,
+  "parent_axis_choices": [
+    448,
+    1657,
+    2321,
+    1276,
+    241
+  ],
+  "purpose": "Firing and schema confirmation only; smoke rates are discarded."
+}

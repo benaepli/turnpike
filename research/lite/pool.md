@@ -3610,10 +3610,22 @@ Iteration 68 direction pruning: current scores/dispositions in `research/lite/pl
 
 ## selector-conditional-parent-by-policy-interaction-value
 
-- origin: proposer | status: KEPT at iteration 68 | gain: 4 | cost: 0 | rank: 1
+- origin: proposer | status: CLOSED at iteration 68 (adequate parent/choice changes, failed argmax gate; primary/sec0.990 and campaign/sec0.964; one chunk, patch retained) | gain: 4 | cost: 0 | rank: 1
 - Choose the conditioning axis by the value of adapting the other axes. Frozen prediction and review: `research/lite/plans/iteration-68-admitted.json`.
 
 ## selector-successful-joint-arms-with-uncertain-axis-mutation
 
 - origin: proposer | status: KEPT at iteration 68 | gain: 3 | cost: 0 | rank: 2
 - Resample successful joint arm sets and mutate their uncertain axes. Frozen prediction and review: `research/lite/plans/iteration-68-admitted.json`.
+
+## replay-prefix-dependent-choice-frontier
+
+- origin: proposer | status: KEPT at iteration 69 | gain: 7 | cost: 2 | rank: 1
+- Replay to distinct dependent dispatch choices and enumerate their alternatives. Full frozen implementation, prediction and source review: `research/lite/plans/iteration-69-admitted.json`.
+
+## replay-prefix-causal-chain-demotion-search
+
+- origin: proposer | status: KEPT at iteration 69 | gain: 5 | cost: 2 | rank: 2
+- Keep causal-chain scheduling priorities through replay suffixes and demote chains at sampled change points. Full frozen implementation, prediction and source review: `research/lite/plans/iteration-69-admitted.json`.
+
+Iteration69 selects dependency frontier at net5; causal-chain demotion and retained successful-vector population mutation each net3. Previous conditional-parent closure does not empirically answer these mechanisms.

@@ -1,0 +1,50 @@
+{
+  "hypothesis": "selector-conditional-parent-by-policy-interaction-value",
+  "worktree": "/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-interaction-parent",
+  "base_super": "c597814",
+  "base_spur": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+  "source_files": [
+    "spur-core/src/simulator/arm_selector.rs",
+    "spur-core/src/simulator/util_stats.rs",
+    "spur-core/tests/util_stats_export_completeness.rs"
+  ],
+  "config_changes": false,
+  "new_bit": false,
+  "deviations": [],
+  "build": {
+    "command": "cargo build --release --manifest-path spur/Cargo.toml --bin spur",
+    "seconds": 21.15,
+    "success": true
+  },
+  "notes": [
+    "Commands run from superproject root. A first command from nested Spur encountered unavailable mold; no source/config change was needed.",
+    "Repository-wide cargo fmt --check reports substantial existing format drift. No broad formatting edits were applied."
+  ],
+  "tests": {
+    "command": "RUST_MIN_STACK=33554432 cargo test --manifest-path spur/Cargo.toml -p spur-core",
+    "passed": 462,
+    "unit": 421,
+    "integration": 41,
+    "failed": 0,
+    "coverage": [
+      "normalized interaction score with partially cold evidence",
+      "24-credit cache cadence and positive-score/tie selection",
+      "shared-uniform categorical comparison without extra draws",
+      "pre-credit support and final-weight argmax",
+      "supported-parent and fallback denominators",
+      "aggregate counters equal per-cell and per-decision sums",
+      "own-run rewards and reset",
+      "export completeness"
+    ]
+  },
+  "smoke": {
+    "seconds": 10,
+    "success": true,
+    "purpose": "mechanism firing and schema only; no comparative experiment",
+    "output": "/home/benaepli/Rust/turnpike/tmp/loop/interaction-parent-smoke"
+  },
+  "export": "Complete Spur patch includes ported pair machinery plus interaction parent selection. Empty genuine super.patch omits dirty-submodule display marker. General config byte-identical. No untracked subject files.",
+  "counters": "arm_selector_axis.interaction_parent includes actual changed_child_choices (all conditional child decisions), supported_decisions, supported_argmax_changes, supported_changed_child_choices, supported_learner_draws, supported_parent_departures, positive_score_selections, independent_fallback_runs, cache_refreshes and own outcomes. Cells retain learner/configuration keys and decision rows; all support is captured before credit.",
+  "prediction": "Cross-binary grid depth8 per-run ratio1.08-1.20, primary events/sec>=1.05 and throughput>=.97. Per normal chunk: changed choices>=50000;20 cells with100 supported decisions; supported argmax changes>=15%, actual changes>=5%, parent departures>=25%. Four chunks needed to confirm frozen own-reward clause. AOS and panel harm gates remain binding.",
+  "binary_sha256": "07d8af43c203971b8e4a7cbd00266ab4148bb1d99466a97a6699b74ddd3c6eb9"
+}

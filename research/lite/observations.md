@@ -6801,3 +6801,89 @@ are retained in iteration-68-admitted.json. Untested config-cell walks and
 early-only crashes need a fresh causal case; emitted reward columns, closed
 forks and quiescence variants do not outrank the next mechanism. Pending
 user-approval entries remain pending.
+
+**Iteration 68 implementation.** interaction-parent built in an isolated
+worktree from unchanged Spur b86baad. Root reviewed the complete patch: the
+57-pair machinery supplies normalized conditional distributions; a cached
+score weights child-policy changes by conditional reward residual and the
+actual marginal parent distribution. Scores refresh every24 cell credits
+under the existing guard; nonpositive maximum uses independent marginals.
+Pair warmup and stronger decision-time support retain their frozen meanings.
+Actual child comparisons share the sampled uniform without schedule draws.
+Separate supported child, supported learner, parent departure, fallback and
+own-outcome counters expose all frozen denominators. No config, campaign,
+bit, execution or history change. Genuine super.patch is empty.
+
+462 tests pass with the documented32MiB test stack; exact-source release
+build21.15sec. A ten-second smoke checks firing/schema only, discarded as
+effect evidence. Candidate SHA256
+07d8af43c203971b8e4a7cbd00266ab4148bb1d99466a97a6699b74ddd3c6eb9.
+Start the normal paired trial with seed1000, fixed grid per-run band
+[1.08,1.20], events/sec>=1.05 and throughput>=0.97. All support/choice/reward
+gates remain as admitted; broad AOS and campaign outcomes reported separately.
+
+**Iteration68 first-chunk mechanism read, depth pending.**595620 completed
+runs, no simulator failures, wall300.705sec. Positive-parent selections
+494139, independent fallbacks2368;106 cells with at least100 supported
+child decisions. Among916983 supported child decisions,50871 (5.548%)
+change the final categorical argmax, below the frozen15%;51899 (5.660%)
+change the actual sampled direction, above5%. The firing count over all
+conditional choices is114241, above50000. Among353385 supported learner
+draws,307567 (87.035%) depart from the strongest-margin parent, above25%.
+The mechanism therefore changed parents and actual draws with adequate
+support; the much larger preferred-direction prediction failed. These are
+decision-time facts, not inferred from final fitted scores. Own reward
+ratios A1.0356/B1.0061/C1.1051; only one learner exceeds1.05 so far, not
+a four-chunk outcome. Await direct depth/AOS outcomes before deciding.
+
+**Iteration68 decision: close, autonomous.** Seed1000 grades595620 runs
+with zero Porcupine violations. Grid d8 counts7822 vs7897; per-run0.9878,
+per-second0.99046 (baseline-arm-weighted per-run0.9859). Whole-campaign
+d8 counts9218 vs9551; per-run0.9822, per-second0.96397. AOS per-run0.9521,
+per-second0.8446. Throughput0.98139 passes the frozen0.97 floor, but the
+required primary>=1.05 is missed and neither selective nor broad utility
+supports continuing. AOS runs lengthened to mean3098 vs2427 steps, with
+plan completion0.173 vs0.301; the new parent rule produced a different
+search pattern from iteration67 without improving depth yield.
+
+Grader advises human because the grid result lies inside its5% layout
+floor and no prediction separated; autonomous decision is close after one
+normal chunk. The supported argmax gate failed despite sufficient supply,
+and actual changes/parent changes passed without a direct search gain.
+No second chunk, panel or regression purchased. Do not claim a definitive
+negative population effect from a near-null single-seed grid estimate;
+this specification failed its own explanation and utility requirements.
+Fresh non-slot d11 counts22 vs18 are sparse exploratory evidence, not a
+four-chunk reward or discovery result. Patches, exact-source tests/build,
+raw support exports and paired arm/stratum diagnostics retained under
+research/lite/patches/interaction-parent/. State is finished at
+research/lite/state/interaction-parent.json. Baseline and ledger unchanged.
+
+**Direction digest.** Changing the conditioning axis substantially altered
+choice policy with adequate support, but did not improve search. Pause
+this conditional-parent family rather than adjusting its15% gate or score
+weights. The independent next review ranks a legal dependent-choice replay
+frontier highest: it tests explicit schedule alternatives using the abundant
+early replay corpus, with ordinary full histories and no full-state fork.
+Causal-chain demotion and successful-vector mutation remain alternatives.
+This direction keeps the goal, oracle and campaign fixed.
+
+**Iteration69 admission.** Blind judge source review ranks dependency
+frontier7-2=5, chain demotion5-2=3, retained successful-vector population
+mutation3-0=3. Select frontier. Full frozen definitions and reviewed
+constraints are research/lite/plans/iteration-69-admitted.json. It retains
+early parent admission, complete ordinary execution/history and the
+existing prefix-replay/plan-only assignment. Raw matched prefix/plan band
+[1.25,1.70] and baseline-adjusted band[1.20,1.60] are distinct; do not pass
+the raw band into a grader field that reads the adjusted contrast.
+
+Pre-admission corrections: exact raw-tape dispatch boundary; unique legal
+structural identities; pure network/retarget previews with one real commit;
+bounded eight-step parent write-counter references. Token deltas measure
+write patterns, not distinct protocol state. Baseline caches contain no
+matching RSS peak, so the unsupported paired-RSS guard was replaced before
+admission by explicit owned-storage/tape bounds; candidate RSS is at most
+descriptive. A stale sentence retaining the RSS ratio was removed to make
+that correction consistent. No baseline acquisition or cache change.
+One read-only judge call was rejected by a tool safety filter; a narrower
+simulator-only retry completed normally without changing task scope.
