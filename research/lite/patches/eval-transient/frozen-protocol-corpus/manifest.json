@@ -1,0 +1,45 @@
+{
+  "source_hashes": {
+    "spur/spur-core/src/simulator/core/eval_protocol_parity.rs": "9ec02ee4d807138d2b5bbe8ffdade46af89e92cd67a12949a8667c477ff37831",
+    "spur/spur-core/src/simulator/core/eval_parity.rs": "6e1bb3e1584171f3d001639ebb6136630eda1228c2b2dc8ae7bdf46e0949853d",
+    "spur/spur-core/src/simulator/core/eval_reference.rs": "df8f778afa82ad2b11a48137d09bb8169227320b9522d395b0d70d6b165cbfd1",
+    "scheduler_configs/loop/bench.json": "0b3e26dbeff3c87cdc136d0e43af799d462790dba588efd9f57b813272a71ab1",
+    "bin/spur/VR.spur": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+    "bin/spur/Paxos.spur": "1ab067121e10dd664b28c6a8a682ad78fc2cf409665c2a60eb70fc58503eb6f2",
+    "bin/spur/Raft.spur": "86e6909d3c07e670ba6157e3b133f99f9a366285ea5ef26758667e3cb77d0598",
+    "spur/spur-core/tests/fixtures/timer.spur": "70fe522ada9724cdc157433db21a74be16fee9386dbf18f24aadd32d01564d6a",
+    "spur/spur-core/tests/fixtures/relay.spur": "ac03a1c885e3af9a76bc7d58afd0453fd36f541045c88d8ed524fccc0eec1b1c",
+    "spur/spur-core/tests/fixtures/kv.spur": "580739d2b3f0b8ad9eafa255a51eacf64ad872ced5f4f9fd253155756a3aa5f1",
+    "spur/spur-core/tests/fixtures/mapiter.spur": "dec5730dd88be80a2457ac6167f6daa5a06b1a2e34115d4f49ba2c30e16d5180",
+    "spur/spur-core/tests/fixtures/fanout.spur": "b6c453d4976bb9c31d758a5382b64aa5b785df5ec807bd580763d388b5323584",
+    "spur/spur-core/tests/fixtures/ghost.spur": "31d599948dd78ed8bc21b8105644f9eba389eb62625f9b80e849d5b13073f0aa",
+    "spur/spur-core/src/simulator/core/values.rs": "6f9469ac20e45ada86d0d5e964130c2f99463c5f6f2fce213755477d378b79f9"
+  },
+  "protocols": [
+    "VR",
+    "Paxos",
+    "Raft"
+  ],
+  "seeds": [
+    1000,
+    1001,
+    1002
+  ],
+  "hash_policies": [
+    "NoHashing",
+    "WithHashing"
+  ],
+  "standard_runs": 64,
+  "max_iterations": 1500,
+  "stats": true,
+  "workers": 1,
+  "run_ids": "1..=64 from standard grid_order",
+  "modes": [
+    "reference standard recorded",
+    "candidate standard recorded",
+    "reference full replay",
+    "candidate full replay"
+  ],
+  "accounting": "Dynamic evaluator scopes only; all Value new/with_sig/manual Clone recursively counted. Standard protocol sum only determines 25% reduction.",
+  "identity": "Every ordered serialized execution/log/trace event field and run row field except wall_us/session_offset_ms (container timing metadata); full RNG tape; outcome; all surviving node/local/initial/channel/crashed-record env kinds/signatures/writes; entire raw utilStats excluding only eval_transient. Fresh child process per session. No wall fields in utilStats. Also compare every ordered Env::set call including disposed local env: slot, exact kind/value and signature, pre-env signature and write counter; persisted_data captured by sorted node key."
+}

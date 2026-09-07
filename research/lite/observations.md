@@ -6983,3 +6983,21 @@ specs, three seeds, both hash policies and reference-tape replays, plus
 Operation counts are pooled only over the fixed standard protocol corpus;
 fixture and generated-case counts cannot pad its gate. Freeze the test
 corpus before its first comparative execution. No timing outside grader.
+
+
+Iteration70 pre-comparison corpus frozen under
+research/lite/patches/eval-transient/frozen-protocol-corpus/. Reference and
+initial expression source were committed at9cf207a. Before any comparisons,
+compile-only review fixed Option::Some name collisions and root found a
+Coalesce(Some(child),default) generator branch could exceed the admitted
+AST depth6. The corrected generator preserves seeds/counts/typed-half mix
+and asserts actual depth. This is a pre-result requirement correction,
+not selection by observed savings. Final protocol corpus remains exactly
+64 runs x3 protocols x3 seeds x2 hash policies, each reference/candidate
+standard plus full reference-tape replays. Fresh subprocesses reset
+adaptive globals. Test-only generic runner and Env::set observer capture
+ordered values/signatures/write counts, including discarded local frames.
+Only host timing metadata wall_us and session_offset_ms are excluded from
+run-row equality; no protocol/event field or preexisting utilStats excluded.
+Root also required a production statistics guard around full runs to count
+initialization and flush failed last-worker runs without session bleed.
