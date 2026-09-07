@@ -1,0 +1,140 @@
+{
+  "seed": 1000,
+  "populations": {
+    "grid": {
+      "base": {
+        "runs": 501000,
+        "d8": 7897,
+        "d11": 18,
+        "mean_steps": null,
+        "us_per_step": null,
+        "complete_share": null
+      },
+      "candidate": {
+        "runs": 436020,
+        "d8": 7115,
+        "d11": 18,
+        "mean_steps": null,
+        "us_per_step": null,
+        "complete_share": null
+      },
+      "per_run_ratio": 1.0352472408668654,
+      "per_second_ratio": 0.90118136823371,
+      "baseline_weighted_per_run_ratio": 1.035235651329174
+    },
+    "campaign": {
+      "base": {
+        "runs": 606180,
+        "d8": 9551,
+        "d11": 27,
+        "mean_steps": null,
+        "us_per_step": null,
+        "complete_share": null
+      },
+      "candidate": {
+        "runs": 532260,
+        "d8": 8224,
+        "d11": 24,
+        "mean_steps": null,
+        "us_per_step": null,
+        "complete_share": null
+      },
+      "per_run_ratio": 0.980645478666692,
+      "per_second_ratio": 0.8554534362670655,
+      "baseline_weighted_per_run_ratio": 0.9828577131553751
+    }
+  },
+  "rewards": {
+    "A": {
+      "base": [
+        9593,
+        164617
+      ],
+      "candidate": [
+        8379,
+        145398
+      ],
+      "ratio": 0.9889036868685745
+    },
+    "B": {
+      "base": [
+        30766,
+        172588
+      ],
+      "candidate": [
+        24773,
+        151664
+      ],
+      "ratio": 0.9162957180527165
+    },
+    "C": {
+      "base": [
+        9078,
+        167628
+      ],
+      "candidate": [
+        7525,
+        147079
+      ],
+      "ratio": 0.9447398198989571
+    }
+  },
+  "support": {
+    "parents": 61163,
+    "signal_cut_parents": 61163,
+    "parents_with_offer": 60964,
+    "filled_prefix_children": 93156,
+    "assigned_requests": 92826,
+    "proposed": 21456713,
+    "duplicates": 799,
+    "evicted": 1518039,
+    "applied_runs": 29036,
+    "applied_pair_repeats": 52,
+    "passed_boundary": 45635,
+    "missing": 13924,
+    "ambiguous": 0,
+    "ineligible": 170,
+    "already_chosen": 3670,
+    "unencountered": 391,
+    "stock_mismatch": 79446,
+    "complete_windows": 29033,
+    "no_common_node": 0,
+    "censored_runs": 3,
+    "divergent_runs": 10212,
+    "usable_suffix_runs": 29033,
+    "child_steps_sum": 232273,
+    "parent_steps_sum": 232282,
+    "cumulative_retained_words": 559249256,
+    "cumulative_original_cut_words": 117248320,
+    "max_offers_per_parent": 8,
+    "max_metadata_bytes_per_parent": 18816,
+    "max_offer_owned_bytes": 2312,
+    "max_parent_nodes": 13,
+    "max_in_progress_bytes_per_run": 19104,
+    "peak_live_retained_words": 2868110,
+    "peak_live_original_cut_words": 540770,
+    "actual_live_retained_words": 2421377,
+    "actual_live_original_cut_words": 506577,
+    "remaining_cap_hist": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      29035
+    ],
+    "retained_parent_rows": 4096,
+    "dropped_parent_rows": 57067,
+    "dropped_child_rows": 85246,
+    "diagnostic_applied_children": 1911,
+    "diagnostic_repeated_applied_pairs": 20,
+    "applied_share": 0.31280029302135176,
+    "usable_suffix_share": 0.9998966799834688,
+    "divergent_share": 0.3517013362722138,
+    "repeated_applied_pair_share": 0.0017908802865408459,
+    "retained_tape_ratio": 4.769784812268526
+  },
+  "runs": 532260,
+  "violations": 0,
+  "throughput": 0.8723371033435647
+}

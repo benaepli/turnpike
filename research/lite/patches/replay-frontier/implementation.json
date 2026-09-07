@@ -1,0 +1,74 @@
+{
+  "name": "replay-frontier",
+  "hypothesis": "replay-prefix-dependent-choice-frontier",
+  "base_superproject": "a467d8e",
+  "base_spur": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+  "files_changed": [
+    "spur-core/src/simulator.rs",
+    "spur-core/src/simulator/campaign.rs",
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/replay_corpus.rs",
+    "spur-core/src/simulator/replay_frontier.rs",
+    "spur-core/src/simulator/rng.rs",
+    "spur-core/src/simulator/util_stats.rs",
+    "spur-core/tests/util_stats_export_completeness.rs"
+  ],
+  "config_field": null,
+  "config_unchanged": true,
+  "new_treatment_bits": false,
+  "protected_paths_edited": false,
+  "tests": {
+    "command": "RUST_MIN_STACK=33554432 cargo test --manifest-path spur/Cargo.toml -p spur-core",
+    "unit_passed": 437,
+    "integration_passed": 41,
+    "failures": 0
+  },
+  "build": {
+    "command": "cargo build --release --manifest-path spur/Cargo.toml --bin spur",
+    "passed": true,
+    "seconds": 20.54
+  },
+  "smoke": {
+    "budget_seconds": 10,
+    "purpose": "firing only; no prediction estimate or policy tuning",
+    "completed": 15480,
+    "failed": 0,
+    "applied_requests": 135,
+    "binary_sha256": "858e6f92a02afbfc1940deab7e475c1f36287b3689c8c7572f75febf7c708fb0",
+    "final_binary_delta": "After the firing smoke, reporting added conservative fixed metadata-header charges and exact shared-parent repeated-offer counts. Scheduling and offer selection were unchanged. The smoke was not repeated."
+  },
+  "predicted_effect": {
+    "raw_prefix_plan_matched_ratio": [
+      1.25,
+      1.7
+    ],
+    "paired_contrast_ratio": [
+      1.2,
+      1.6
+    ],
+    "primary_events_sec_min": 1.06,
+    "campaign_events_sec_min": 1.03,
+    "aos_depth8_per_run_min": 0.95,
+    "throughput_min": 0.95
+  },
+  "conventions": [
+    "Offer retention uses stable bottom-eight priorities keyed by schedule seed and unordered structural event pair; a separate step-dependent private hash chooses one alternative at each eligible decision. This gives exact bounded retention without an unbounded seen-pair table.",
+    "The request is tried at the first encountered matching raw prechoice position; repeated zero-draw positions do not allow later retry. Total effective position and consumed source position are both checked. Parent reconstruction is never forced.",
+    "Write windows include the branch scheduling step and seven following scheduling calls. Deltas are exact signed i128 differences from prebranch Env.writes, preserving environment-reset decreases. They describe write-counter patterns, not state equality.",
+    "Nodes first instantiated within a window have zero preexistence baseline. Full role IDs are the roles resolved for the ordinary single-run topology, with global node indices, including dynamically allocated client nodes.",
+    "The common receiver is the earliest parent-touched node also touched by the child, with NodeId ordering for ties. Incomplete or absent-common comparisons remain censored and never add to divergence.",
+    "Retarget preview reads the pure absorber choice. Removing the planned crash changes only its own pending count, which cannot change absorber choice because the planned victim is handled before the pending-pair predicate.",
+    "Live tape gauges cover corpus-owned retained source tapes and a simultaneous same-parent original-signal-cut reference. Full produced recordings and temporary child tapes are ordinary runtime allocations outside this retained-corpus guard.",
+    "Parent diagnostics retain at most4096 process rows with at most8 child diagnostics each; dropped parent/child counts are exported. Repeat-pair diagnostics are descriptive on retained rows, not an independent-observation estimate.",
+    "No checker, history semantics, trace recording, configuration, campaign, treatment registration, or reward/credit rule changed.",
+    "Owned-memory totals charge Offer values, allocated vector capacities, fixed per-run bookkeeping, added parent/cursor fields and the shared applied-offer mask allocation. Parent headers are conservatively charged before corpus shrinking, so spare offer capacity is not hidden.",
+    "Exact aggregate applied_pair_repeats uses a shared atomic eight-bit mask per parent, indexed by the immutable retained-offer slot. It remains exact after diagnostic truncation; the diagnostic-only repeated-pair count remains available separately. Mask updates cannot affect execution or assignment."
+  ],
+  "deviations": [],
+  "binary_sha256": "973601bd2109d44a18946deab895bb148bee95c494fff09d76d22efeadf72651",
+  "patch_sha256": "a93974e26d87a09463b95586528f78fd03caa68d02cbd64887c4e75e4054454c",
+  "export_complete": true
+}

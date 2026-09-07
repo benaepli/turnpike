@@ -6887,3 +6887,73 @@ descriptive. A stale sentence retaining the RSS ratio was removed to make
 that correction consistent. No baseline acquisition or cache change.
 One read-only judge call was rejected by a tool safety filter; a narrower
 simulator-only retry completed normally without changing task scope.
+
+**Iteration69 implementation review.** replay-frontier is built in an
+isolated worktree from baseline b86baad. Root reviewed dispatch, corpus,
+RNG, window and diagnostic/export changes; an independent read-only judge
+found no correctness or frozen-definition blocker. Root caught and fixed
+a moved diagnostic mask (must be read before queue/ledger removal) and
+removed duplicate eligibility/preview work on unaffected paths before
+export. Exact-source478 tests pass (437 unit,41 integration); final release
+build20.54sec. One10-second firing smoke completed15480 runs with no
+simulator failures and135 applied requests; no effect inference is made.
+After smoke, only conservative storage charges and exact aggregate sibling
+repeat counters changed; final tests/build were refreshed, smoke not rerun.
+
+Stable bottom-eight pair hash ranks keep offers bounded without a seen-pair
+table. A request is tried once at its exact first raw-word boundary, not
+at a later matching state. Pure preference previews precede one normal
+commit. Write windows include branch dispatch and seven following calls,
+with signed reset-preserving deltas and zero preexistence baseline for
+later-created nodes. Comparisons stay censored when incomplete or without
+a common touched node. Repeat counts use an immutable per-parent offer
+index bitset even after diagnostic truncation. No history, cap, credit,
+config, campaign or bit change.
+
+Candidate SHA256
+973601bd2109d44a18946deab895bb148bee95c494fff09d76d22efeadf72651.
+Begin one normal paired chunk, seed1000. Grader band[1.20,1.60] is the
+explicit frozen baseline-adjusted contrast; raw matched prefix/plan band
+[1.25,1.70] is checked separately. Supply/storage/throughput gates are
+normal-horizon conditions, unchanged from admission.
+
+
+**Iteration69 result - CLOSED, autonomous.** One normal seed1000 completed
+532260 runs with zero simulator failures or linearizability violations.
+60964 parents offered alternatives; 29036 branches applied. Assigned
+request applicability0.31280 missed0.60. Retained tape559249256 words over
+117248320 original-cut words for the same candidate parents is4.76978,
+missing1.50. Throughput0.87234 missed0.95 and would take cumulative epoch
+throughput to0.8530 below0.90. These frozen supply/cost failures decide the
+trial after one chunk; no second chunk, panel or regression purchased.
+
+The other mechanism gates passed: usable suffix29033/29036=0.99990,
+divergent10212/29036=0.35170, exact repeated pairs52/29036=0.00179.
+Maximum eight offers,2312 owned bytes per offer at13 total nodes fits the
+512+192*N bound. Diagnostic4096 parent rows saturated,57067 dropped;
+those rows are a bounded early sample, not an all-parent diversity census.
+Exact repeat fractions use the aggregate bitset count, not that sample.
+Most failed requests passed the exact raw-word boundary45635 or lacked a
+saved event13924; no boundary retry was permitted. Stock mismatch79446 is
+diagnostic, not a separately counted failure reason.
+
+Fixed grid depth8 counts7115 vs7897: per-run1.03525, per-second0.90118.
+Whole campaign8224 vs9551: per-run0.98065, per-second0.85545.
+AOS depth8 per-run0.73278 and per-second0.67051 miss its0.95 guard.
+Raw matched prefix/plan1.13002 missed the frozen1.25 lower point estimate;
+baseline-adjusted1.06279 [0.94084,1.20056] remains unresolved. Matching is
+on replaySlot, with other bit balance exported. Neither contrast rescues
+supply/cost. Grader finish adviceclose agrees. Grid d11 counts18 vs18,
+campaign24 vs27 are descriptive only. Baseline and ledger unchanged.
+Patches, exact-source tests/build, independent review, compact arm/stratum
+summary and compressed complete utilization export are retained under
+research/lite/patches/replay-frontier/. State is finished.
+
+**Direction digest.** Full-state late checkpoints and exact dependent
+choice replay both paid too much for too few usable branches. Pause this
+frontier family rather than loosening its applicability or tape limits.
+The current source-level performance proposal attacks repeated evaluator
+work and promises no per-run search improvement; it is under independent
+review against the kept mechanism alternatives. The fixed depth ladder,
+protocol panel, full histories and violation goal stay unchanged. No
+protocol bug has been found in these trials.

@@ -3620,7 +3620,7 @@ Iteration 68 direction pruning: current scores/dispositions in `research/lite/pl
 
 ## replay-prefix-dependent-choice-frontier
 
-- origin: proposer | status: KEPT at iteration 69 | gain: 7 | cost: 2 | rank: 1
+- origin: proposer | status: CLOSED at iteration 69 (applicability31.3% below60%, tape4.77x above1.50, throughput0.872; one chunk, patch retained) | gain: 7 | cost: 2 | rank: 1
 - Replay to distinct dependent dispatch choices and enumerate their alternatives. Full frozen implementation, prediction and source review: `research/lite/plans/iteration-69-admitted.json`.
 
 ## replay-prefix-causal-chain-demotion-search

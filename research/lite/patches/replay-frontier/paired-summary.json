@@ -1,0 +1,479 @@
+[
+  {
+    "seed": 1000,
+    "arms": [
+      {
+        "arm": "grid",
+        "base": {
+          "runs": 89820,
+          "d8": 1339,
+          "d11": 6,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "candidate": {
+          "runs": 75360,
+          "d8": 1146,
+          "d11": 1,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "per_run_ratio": 1.020084624422637,
+        "per_second_ratio": 0.855976581232005
+      },
+      {
+        "arm": "grid-short",
+        "base": {
+          "runs": 199860,
+          "d8": 3327,
+          "d11": 4,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "candidate": {
+          "runs": 188040,
+          "d8": 3218,
+          "d11": 4,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "per_run_ratio": 1.0280373168496852,
+        "per_second_ratio": 0.9674472605469928
+      },
+      {
+        "arm": "grid-no-purgatory",
+        "base": {
+          "runs": 103260,
+          "d8": 1795,
+          "d11": 4,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "candidate": {
+          "runs": 80340,
+          "d8": 1467,
+          "d11": 4,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "per_run_ratio": 1.0504271886266099,
+        "per_second_ratio": 0.8173246207045431
+      },
+      {
+        "arm": "grid-post-fault-2",
+        "base": {
+          "runs": 108060,
+          "d8": 1436,
+          "d11": 4,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "candidate": {
+          "runs": 92280,
+          "d8": 1284,
+          "d11": 9,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "per_run_ratio": 1.0470513020201326,
+        "per_second_ratio": 0.8945971877434357
+      },
+      {
+        "arm": "aos",
+        "base": {
+          "runs": 105180,
+          "d8": 1654,
+          "d11": 9,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "candidate": {
+          "runs": 96240,
+          "d8": 1109,
+          "d11": 6,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "per_run_ratio": 0.7327799756955856,
+        "per_second_ratio": 0.6705069280707046
+      }
+    ],
+    "populations": {
+      "grid": {
+        "base": {
+          "runs": 501000,
+          "d8": 7897,
+          "d11": 18,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "candidate": {
+          "runs": 436020,
+          "d8": 7115,
+          "d11": 18,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "per_run_ratio": 1.0352472408668654,
+        "per_second_ratio": 0.90118136823371,
+        "baseline_weighted_per_run_ratio": 1.035235651329174
+      },
+      "campaign": {
+        "base": {
+          "runs": 606180,
+          "d8": 9551,
+          "d11": 27,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "candidate": {
+          "runs": 532260,
+          "d8": 8224,
+          "d11": 24,
+          "mean_steps": null,
+          "us_per_step": null,
+          "complete_share": null
+        },
+        "per_run_ratio": 0.980645478666692,
+        "per_second_ratio": 0.8554534362670655,
+        "baseline_weighted_per_run_ratio": 0.9828577131553751
+      }
+    },
+    "strata": {
+      "fresh_non_slot": {
+        "base": {
+          "all": {
+            "runs": 371390,
+            "d8": 4307,
+            "d11": 18,
+            "mean_steps": 2201.7764371684752,
+            "us_per_step": 4.973655634876881,
+            "complete_share": 0.2758851880772234
+          },
+          "aos": {
+            "runs": 105180,
+            "d8": 1654,
+            "d11": 9,
+            "mean_steps": 2427.421800722571,
+            "us_per_step": 4.85476130629771,
+            "complete_share": 0.30100779615896556
+          }
+        },
+        "candidate": {
+          "all": {
+            "runs": 328008,
+            "d8": 3447,
+            "d11": 14,
+            "mean_steps": 2351.074309163191,
+            "us_per_step": 5.395147972477011,
+            "complete_share": 0.2846820809248555
+          },
+          "aos": {
+            "runs": 96240,
+            "d8": 1109,
+            "d11": 6,
+            "mean_steps": 2484.4041874480467,
+            "us_per_step": 5.243968325278938,
+            "complete_share": 0.33392560266001664
+          }
+        }
+      },
+      "replay_slot": {
+        "base": {
+          "all": {
+            "runs": 234790,
+            "d8": 5244,
+            "d11": 9,
+            "mean_steps": 2396.1486519868818,
+            "us_per_step": 4.629953274358584,
+            "complete_share": 0.05894629243153456
+          },
+          "aos": {
+            "runs": 0,
+            "d8": 0,
+            "d11": 0,
+            "mean_steps": null,
+            "us_per_step": null,
+            "complete_share": null
+          }
+        },
+        "candidate": {
+          "all": {
+            "runs": 204252,
+            "d8": 4777,
+            "d11": 10,
+            "mean_steps": 2650.7857205804594,
+            "us_per_step": 4.988991770165831,
+            "complete_share": 0.06051837925699626
+          },
+          "aos": {
+            "runs": 0,
+            "d8": 0,
+            "d11": 0,
+            "mean_steps": null,
+            "us_per_step": null,
+            "complete_share": null
+          }
+        }
+      },
+      "probe": {
+        "base": {
+          "all": {
+            "runs": 19134,
+            "d8": 6,
+            "d11": 0,
+            "mean_steps": 3384.1569980140066,
+            "us_per_step": 4.168661623048761,
+            "complete_share": 0.2791888784362914
+          },
+          "aos": {
+            "runs": 3332,
+            "d8": 2,
+            "d11": 0,
+            "mean_steps": 4353.566326530612,
+            "us_per_step": 3.9991284346022287,
+            "complete_share": 0.30012004801920766
+          }
+        },
+        "candidate": {
+          "all": {
+            "runs": 16734,
+            "d8": 2,
+            "d11": 0,
+            "mean_steps": 3363.064479502809,
+            "us_per_step": 4.625094076194294,
+            "complete_share": 0.2722600693199474
+          },
+          "aos": {
+            "runs": 3060,
+            "d8": 0,
+            "d11": 0,
+            "mean_steps": 4450.899019607843,
+            "us_per_step": 4.334067487724262,
+            "complete_share": 0.28431372549019607
+          }
+        }
+      },
+      "learner_a": {
+        "base": {
+          "all": {
+            "runs": 164617,
+            "d8": 3106,
+            "d11": 8,
+            "mean_steps": 2282.4693318430054,
+            "us_per_step": 4.807808826524575,
+            "complete_share": 0.1604573039236531
+          },
+          "aos": {
+            "runs": 31236,
+            "d8": 567,
+            "d11": 4,
+            "mean_steps": 2352.798693814829,
+            "us_per_step": 4.935618261683377,
+            "complete_share": 0.3070815725444999
+          }
+        },
+        "candidate": {
+          "all": {
+            "runs": 145398,
+            "d8": 2734,
+            "d11": 6,
+            "mean_steps": 2488.18597229673,
+            "us_per_step": 5.1986001060586275,
+            "complete_share": 0.1672994126466664
+          },
+          "aos": {
+            "runs": 29402,
+            "d8": 468,
+            "d11": 1,
+            "mean_steps": 2429.573566424053,
+            "us_per_step": 5.308747215379184,
+            "complete_share": 0.33507924630977487
+          }
+        }
+      },
+      "learner_b": {
+        "base": {
+          "all": {
+            "runs": 172588,
+            "d8": 3059,
+            "d11": 7,
+            "mean_steps": 2307.844473543931,
+            "us_per_step": 4.7896766232613235,
+            "complete_share": 0.14313857278605696
+          },
+          "aos": {
+            "runs": 32761,
+            "d8": 468,
+            "d11": 1,
+            "mean_steps": 2411.127346540093,
+            "us_per_step": 4.842168816746497,
+            "complete_share": 0.28054699185006565
+          }
+        },
+        "candidate": {
+          "all": {
+            "runs": 151664,
+            "d8": 2764,
+            "d11": 10,
+            "mean_steps": 2513.90376753877,
+            "us_per_step": 5.193992265313171,
+            "complete_share": 0.15157848929211942
+          },
+          "aos": {
+            "runs": 29980,
+            "d8": 338,
+            "d11": 2,
+            "mean_steps": 2467.034823215477,
+            "us_per_step": 5.249576902663033,
+            "complete_share": 0.3171781187458306
+          }
+        }
+      },
+      "learner_c": {
+        "base": {
+          "all": {
+            "runs": 167628,
+            "d8": 3013,
+            "d11": 11,
+            "mean_steps": 2288.847710406376,
+            "us_per_step": 4.819042177586547,
+            "complete_share": 0.15486076311833344
+          },
+          "aos": {
+            "runs": 32134,
+            "d8": 568,
+            "d11": 4,
+            "mean_steps": 2364.9844712765293,
+            "us_per_step": 4.933218622653114,
+            "complete_share": 0.305128524304475
+          }
+        },
+        "candidate": {
+          "all": {
+            "runs": 147079,
+            "d8": 2444,
+            "d11": 8,
+            "mean_steps": 2483.369780866065,
+            "us_per_step": 5.218362959199427,
+            "complete_share": 0.16753581408630736
+          },
+          "aos": {
+            "runs": 29545,
+            "d8": 273,
+            "d11": 3,
+            "mean_steps": 2393.8756811643257,
+            "us_per_step": 5.353941561572398,
+            "complete_share": 0.3477068877982738
+          }
+        }
+      }
+    },
+    "rewards": {
+      "A": {
+        "base": [
+          9593,
+          164617
+        ],
+        "candidate": [
+          8379,
+          145398
+        ],
+        "ratio": 0.9889036868685745
+      },
+      "B": {
+        "base": [
+          30766,
+          172588
+        ],
+        "candidate": [
+          24773,
+          151664
+        ],
+        "ratio": 0.9162957180527165
+      },
+      "C": {
+        "base": [
+          9078,
+          167628
+        ],
+        "candidate": [
+          7525,
+          147079
+        ],
+        "ratio": 0.9447398198989571
+      }
+    },
+    "support": {
+      "parents": 61163,
+      "signal_cut_parents": 61163,
+      "parents_with_offer": 60964,
+      "filled_prefix_children": 93156,
+      "assigned_requests": 92826,
+      "proposed": 21456713,
+      "duplicates": 799,
+      "evicted": 1518039,
+      "applied_runs": 29036,
+      "applied_pair_repeats": 52,
+      "passed_boundary": 45635,
+      "missing": 13924,
+      "ambiguous": 0,
+      "ineligible": 170,
+      "already_chosen": 3670,
+      "unencountered": 391,
+      "stock_mismatch": 79446,
+      "complete_windows": 29033,
+      "no_common_node": 0,
+      "censored_runs": 3,
+      "divergent_runs": 10212,
+      "usable_suffix_runs": 29033,
+      "child_steps_sum": 232273,
+      "parent_steps_sum": 232282,
+      "cumulative_retained_words": 559249256,
+      "cumulative_original_cut_words": 117248320,
+      "max_offers_per_parent": 8,
+      "max_metadata_bytes_per_parent": 18816,
+      "max_offer_owned_bytes": 2312,
+      "max_parent_nodes": 13,
+      "max_in_progress_bytes_per_run": 19104,
+      "peak_live_retained_words": 2868110,
+      "peak_live_original_cut_words": 540770,
+      "actual_live_retained_words": 2421377,
+      "actual_live_original_cut_words": 506577,
+      "remaining_cap_hist": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        29035
+      ],
+      "retained_parent_rows": 4096,
+      "dropped_parent_rows": 57067,
+      "dropped_child_rows": 85246,
+      "diagnostic_applied_children": 1911,
+      "diagnostic_repeated_applied_pairs": 20,
+      "applied_share": 0.31280029302135176,
+      "usable_suffix_share": 0.9998966799834688,
+      "divergent_share": 0.3517013362722138,
+      "repeated_applied_pair_share": 0.0017908802865408459,
+      "retained_tape_ratio": 4.769784812268526
+    },
+    "runs": 532260,
+    "violations": 0,
+    "throughput": 0.8723371033435647
+  }
+]

@@ -1,0 +1,3351 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index f7fa8db..6c42c8f 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -17,6 +17,7 @@ pub mod history;
+ mod path;
+ pub mod plan_config;
+ pub mod replay_corpus;
++pub mod replay_frontier;
+ pub mod rng;
+ pub mod run_cap;
+ pub mod run_phase;
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index 597f3d5..e907a1a 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -420,11 +420,14 @@ impl<F: Feedback> GridArm<F> {
+         GridRun::Fresh { config_index }
+     }
+ 
+-    fn assign(&mut self, run_id: i64) -> GridRun {
++    fn assign(&mut self, run_id: i64, arm_index: i32) -> GridRun {
+         if !replay_corpus::is_slot(run_id) {
+             return self.fresh();
+         }
+-        match self.corpus.next_child() {
++        let child = self.corpus.next_child(replay_corpus::is_prefix(run_id));
++        let (retained, original) = self.corpus.live_words();
++        util_stats::record_frontier_live(arm_index, retained, original);
++        match child {
+             Some(seed) => GridRun::Child {
+                 seed,
+                 prefix: replay_corpus::is_prefix(run_id),
+@@ -444,6 +447,8 @@ impl<F: Feedback> GridArm<F> {
+             GridRun::Fresh { config_index } => {
+                 let config_index = *config_index;
+                 let workload_seed = derive_seed(self.arm_seed, run_id, WORKLOAD_SALT);
++                let mut attribution = ctx.attribution.with_config(config_index).with_variant_bits(bits);
++                attribution.frontier_capture = true;
+                 let result = run_single_simulation::<F, RecordRng>(
+                     ctx.program,
+                     ctx.writer,
+@@ -454,21 +459,50 @@ impl<F: Feedback> GridArm<F> {
+                     workload_seed,
+                     schedule_seed,
+                     None,
+-                    &ctx.attribution
+-                        .with_config(config_index)
+-                        .with_variant_bits(bits),
++                    &attribution,
+                 );
+                 match result {
+                     Ok(r) => {
+                         let tape = r.recording.unwrap_or_default();
+                         util_stats::record_replay_tape_words(tape.len() as u64);
+                         let admit = r.cut.and_then(|cut| {
+-                            cut.tape_pos.map(|pos| Seed {
+-                                tape: tape[..pos.min(tape.len())].into(),
+-                                workload_seed,
+-                                cfg: self.configs[config_index].clone(),
+-                                config_index,
+-                                cut_step: cut.step,
++                            cut.tape_pos.map(|pos| {
++                                let retained = r
++                                    .frontier_offers
++                                    .iter()
++                                    .map(|o| o.tape_pos)
++                                    .max()
++                                    .unwrap_or(pos)
++                                    .max(pos)
++                                    .min(tape.len());
++                                util_stats::record_frontier_parent(
++                                    run_id,
++                                    ctx.attribution.arm_index,
++                                    &r.frontier_offers,
++                                    pos.min(tape.len()),
++                                    retained,
++                                    crate::simulator::replay_frontier::parent_header_bytes()
++                                        + r.frontier_offers.capacity()
++                                            * std::mem::size_of::<crate::simulator::replay_frontier::Offer>()
++                                        + r.frontier_offers
++                                            .iter()
++                                            .map(|o| o.reference.owned_bytes())
++                                            .sum::<usize>(),
++                                );
++                                Seed {
++                                    tape: tape[..retained].into(),
++                                    workload_seed,
++                                    cfg: self.configs[config_index].clone(),
++                                    config_index,
++                                    cut_step: cut.step,
++                                    parent_run_id: run_id,
++                                    original_cut_words: pos.min(tape.len()),
++                                    offers: r.frontier_offers,
++                                    request: None,
++                                    child_index: 0,
++                                    offer_index: 0,
++                                    applied_pairs: Default::default(),
++                                }
+                             })
+                         });
+                         GridOutcome {
+@@ -486,10 +520,15 @@ impl<F: Feedback> GridArm<F> {
+                 }
+             }
+             GridRun::Child { seed, prefix } => {
+-                let attribution = ctx
++                let mut attribution = ctx
+                     .attribution
+                     .with_config(seed.config_index)
+                     .with_variant_bits(bits);
++                attribution.frontier_prefix = *prefix;
++                attribution.frontier_request = seed.request.clone().map(|offer| crate::simulator::replay_frontier::Request {
++                    parent_run_id: seed.parent_run_id, child_index: seed.child_index, offer,
++                    offer_index: seed.offer_index, applied_pairs: seed.applied_pairs.clone(),
++                });
+                 let result = if *prefix {
+                     run_single_simulation::<F, ReplayRng>(
+                         ctx.program,
+@@ -552,7 +591,7 @@ impl<F: Feedback> Arm for GridArm<F> {
+         let batch: Vec<(i64, GridRun)> = (0..count)
+             .map(|_| {
+                 let run_id = ctx.run_counter.fetch_add(1, Ordering::Relaxed);
+-                (run_id, self.assign(run_id))
++                (run_id, self.assign(run_id, ctx.attribution.arm_index))
+             })
+             .collect();
+         let outcomes: Vec<GridOutcome> = batch
+@@ -568,9 +607,13 @@ impl<F: Feedback> Arm for GridArm<F> {
+             }
+             if let Some(seed) = outcome.admit {
+                 self.corpus.admit(seed);
++                let (retained, original) = self.corpus.live_words();
++                util_stats::record_frontier_live(ctx.attribution.arm_index, retained, original);
+                 util_stats::record_replay_parent_admitted();
+             }
+         }
++        let (retained, original) = self.corpus.live_words();
++        util_stats::record_frontier_live(ctx.attribution.arm_index, retained, original);
+         StepReport {
+             runs: count as u64,
+             failed,
+@@ -629,6 +672,9 @@ fn build_arm(
+             arm_index: index as i32,
+             config_index: -1,
+             variant_bits: 0,
++            frontier_capture: false,
++            frontier_prefix: false,
++            frontier_request: None,
+         },
+         arm,
+     }
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f858656..db8bbd4 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -764,6 +764,273 @@ fn phase_read_node<H: HashPolicy>(state: &State<H>, n: usize, servers: usize) ->
+     }
+ }
+ 
++fn retarget_preview<H: HashPolicy>(state: &State<H>, planned: NodeId, servers: usize) -> NodeId {
++    if state.retarget.enabled
++        && let ghost_absorber::Choice::Retarget { node, .. } =
++            absorber_decision(state, planned, servers).choice
++    {
++        NodeId {
++            role: planned.role,
++            index: node,
++        }
++    } else {
++        planned
++    }
++}
++
++fn touch_node<H: HashPolicy>(state: &State<H>, r: &Runnable<H>, servers: usize) -> Option<NodeId> {
++    match r {
++        Runnable::Crash { node_id, .. } => Some(retarget_preview(state, *node_id, servers)),
++        _ => r.node(),
++    }
++}
++
++fn event_key<H: HashPolicy>(
++    state: &State<H>,
++    r: &Runnable<H>,
++    servers: usize,
++) -> Option<crate::simulator::replay_frontier::EventKey> {
++    use crate::simulator::replay_frontier::EventKey;
++    match r {
++        Runnable::Record(r) => Some(EventKey {
++            kind: if r.origin_node != r.node && r.pc == r.entry_pc {
++                0
++            } else {
++                1
++            },
++            node: r.node,
++            origin: r.origin_node,
++            incarnation: r.origin_incarnation,
++            ordinal: r.send_ordinal,
++            pc: r.pc,
++            entry_pc: r.entry_pc,
++            link: r.link_seq.map(|(link, seq)| (link.0, seq)),
++        }),
++        Runnable::Crash { node_id, .. } | Runnable::Recover { node_id, .. } => {
++            let victim = if matches!(r, Runnable::Crash { .. }) {
++                retarget_preview(state, *node_id, servers)
++            } else {
++                *node_id
++            };
++            Some(EventKey {
++                kind: if matches!(r, Runnable::Crash { .. }) {
++                    2
++                } else {
++                    3
++                },
++                node: *node_id,
++                origin: victim,
++                incarnation: state.incarnation(*node_id),
++                ordinal: state.incarnation(victim),
++                pc: 0,
++                entry_pc: 0,
++                link: None,
++            })
++        }
++        _ => None,
++    }
++}
++
++fn dependent(
++    a: crate::simulator::replay_frontier::EventKey,
++    b: crate::simulator::replay_frontier::EventKey,
++) -> bool {
++    (a.kind == 0 && b.kind == 0 && a.node == b.node)
++        || (a.kind >= 2 && b.kind <= 1 && a.origin == b.node)
++        || (b.kind >= 2 && a.kind <= 1 && b.origin == a.node)
++}
++
++fn slot_runnable<H: HashPolicy>(state: &State<H>, slot: QueueSlot) -> &Runnable<H> {
++    match slot {
++        QueueSlot::Local(n, i) => &state.local_queues[n][i],
++        QueueSlot::Network(i) => &state.network_queue[i],
++        QueueSlot::Timer(i) => &state.timer_queue[i],
++    }
++}
++
++fn frontier_slots<H: HashPolicy>(state: &State<H>) -> impl Iterator<Item = QueueSlot> + '_ {
++    state
++        .local_queues
++        .iter()
++        .enumerate()
++        .flat_map(|(n, q)| (0..q.len()).map(move |i| QueueSlot::Local(n, i)))
++        .chain((0..state.network_queue.len()).map(QueueSlot::Network))
++}
++
++fn queue_class(slot: QueueSlot) -> u8 {
++    match slot {
++        QueueSlot::Local(..) => 0,
++        QueueSlot::Network(..) => 1,
++        QueueSlot::Timer(..) => 2,
++    }
++}
++
++fn write_window<H: HashPolicy>(state: &State<H>) -> crate::simulator::replay_frontier::WriteWindow {
++    crate::simulator::replay_frontier::WriteWindow::new(state, |i| state.replay_frontier.node_id(i))
++}
++
++fn frontier_choice<H: HashPolicy>(
++    state: &mut State<H>,
++    servers: usize,
++    is_ineligible: &impl Fn(&Runnable<H>) -> bool,
++    network_eligible: &[usize],
++    stock: QueueSlot,
++    position: Option<usize>,
++    replay_position: Option<(usize, usize)>,
++) -> QueueSlot {
++    use crate::simulator::replay_frontier::{Offer, RequestOutcome, ordered_pair, private_hash};
++    let legal = |slot: QueueSlot| {
++        !is_ineligible(slot_runnable(state, slot))
++            && match slot {
++                QueueSlot::Network(i) => network_preview(state, network_eligible, i) == i,
++                QueueSlot::Local(..) => true,
++                QueueSlot::Timer(..) => false,
++            }
++    };
++    let stock_key = event_key(state, slot_runnable(state, stock), servers);
++    if let Some(request) = state.replay_frontier.request.as_ref()
++        && !state.replay_frontier.attempted
++    {
++        let target = request.offer.tape_pos;
++        if position.is_some_and(|p| p >= target) {
++            let selected = request.offer.selected;
++            let alternative = request.offer.alternative;
++            let (outcome, alternative_slot) =
++                if position != Some(target) || replay_position != Some((target, target)) {
++                    (RequestOutcome::PassedBoundary, None)
++                } else {
++                    let mut counts = [0usize; 2];
++                    let mut slots = [None; 2];
++                    for slot in frontier_slots(state) {
++                        if let Some(key) = event_key(state, slot_runnable(state, slot), servers) {
++                            for (i, saved) in [selected, alternative].iter().enumerate() {
++                                if key == *saved {
++                                    counts[i] += 1;
++                                    slots[i] = Some(slot);
++                                }
++                            }
++                        }
++                    }
++                    if counts.contains(&0) {
++                        (RequestOutcome::Missing, None)
++                    } else if counts.iter().any(|n| *n != 1) {
++                        (RequestOutcome::Ambiguous, None)
++                    } else if !slots.iter().all(|s| legal(s.unwrap()))
++                        || !dependent(selected, alternative)
++                    {
++                        (RequestOutcome::Ineligible, None)
++                    } else if stock_key == Some(alternative) {
++                        (RequestOutcome::AlreadyChosen, None)
++                    } else {
++                        (RequestOutcome::Applied, slots[1])
++                    }
++                };
++            let window = (outcome == RequestOutcome::Applied).then(|| write_window(state));
++            let remaining = state.replay_frontier.effective_cap - state.crash_info.current_step;
++            let frontier = &mut state.replay_frontier;
++            frontier.attempted = true;
++            frontier.outcome = outcome;
++            frontier.stock_mismatch = stock_key != Some(selected);
++            frontier.stock_event = stock_key;
++            frontier.final_event = if alternative_slot.is_some() {
++                Some(alternative)
++            } else {
++                stock_key
++            };
++            frontier.stock_queue = queue_class(stock);
++            frontier.final_queue = queue_class(alternative_slot.unwrap_or(stock));
++            frontier.remaining_cap = remaining;
++            frontier.child_window = window;
++            return alternative_slot.unwrap_or(stock);
++        }
++    }
++    if !state.replay_frontier.capture || state.replay_cut.is_none() {
++        return stock;
++    }
++    let Some(position) = position else {
++        return stock;
++    };
++    let Some(selected) = stock_key else {
++        return stock;
++    };
++    if !legal(stock) {
++        return stock;
++    }
++    let count_key = |key| {
++        frontier_slots(state)
++            .filter(|s| event_key(state, slot_runnable(state, *s), servers) == Some(key))
++            .count()
++    };
++    if count_key(selected) != 1 {
++        return stock;
++    }
++    let mut best = None;
++    for slot in frontier_slots(state) {
++        let Some(key) = event_key(state, slot_runnable(state, slot), servers) else {
++            continue;
++        };
++        if key == selected || !dependent(selected, key) || !legal(slot) || count_key(key) != 1 {
++            continue;
++        }
++        let rank = private_hash(
++            state.replay_frontier.seed,
++            &(state.crash_info.current_step, ordered_pair(selected, key)),
++        );
++        if best.is_none_or(|(r, k)| (rank, key) < (r, k)) {
++            best = Some((rank, key));
++        }
++    }
++    if let Some((_, alternative)) = best {
++        let pair = ordered_pair(selected, alternative);
++        let rank = private_hash(state.replay_frontier.seed, &pair);
++        // Stable pair priorities prevent an evicted pair from returning to the bounded reservoir.
++        let wanted = !state
++            .replay_frontier
++            .offers
++            .iter()
++            .any(|o| o.pair() == pair)
++            && (state.replay_frontier.offers.len() < crate::simulator::replay_frontier::MAX_OFFERS
++                || state
++                    .replay_frontier
++                    .offers
++                    .iter()
++                    .any(|o| (rank, pair) < (o.rank, o.pair())));
++        if wanted {
++            if state.replay_frontier.offers.len() == crate::simulator::replay_frontier::MAX_OFFERS {
++                let idx = state
++                    .replay_frontier
++                    .offers
++                    .iter()
++                    .enumerate()
++                    .max_by_key(|(_, o)| (o.rank, o.pair()))
++                    .unwrap()
++                    .0;
++                state.replay_frontier.offers.remove(idx);
++                state.replay_frontier.evicted += 1;
++            }
++            let reference = write_window(state);
++            state.replay_frontier.retain(Offer {
++                tape_pos: position,
++                step: state.crash_info.current_step,
++                selected,
++                alternative,
++                rank,
++                reference,
++            });
++        } else {
++            state.replay_frontier.proposed += 1;
++            state.replay_frontier.duplicates += u64::from(
++                state
++                    .replay_frontier
++                    .offers
++                    .iter()
++                    .any(|o| o.pair() == pair),
++            );
++        }
++    }
++    stock
++}
++
+ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+@@ -783,6 +1050,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     reservations: &[Reservation],
+     rng: &mut impl StreamRng,
+ ) -> Result<ScheduleResult<H>, RuntimeError> {
++    state.replay_frontier.touched = None;
+     if state.all_queues_empty() {
+         util_stats::record_steer_reach(util_stats::SteerReach::NoScheduleAttempt);
+         return Ok(ScheduleResult::None);
+@@ -800,7 +1068,12 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+ 
+     let crash_defer_mask: u64 = if partial_fanout_crash_bias > 0.0 {
+         let mut mask = 0u64;
+-        for (n, ledger) in state.send_ledger.iter().enumerate().take(u64::BITS as usize) {
++        for (n, ledger) in state
++            .send_ledger
++            .iter()
++            .enumerate()
++            .take(u64::BITS as usize)
++        {
+             if ledger.crash_pending == 0 || ledger.in_flight == 1 {
+                 continue;
+             }
+@@ -829,7 +1102,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     } else {
+         Vec::new()
+     };
+-    let is_ineligible = |r: &Runnable<H>| {
++    let frontier_ineligible = |r: &Runnable<H>| {
+         if crash_block_mask != 0
+             && let Runnable::Crash { node_id, .. } = r
+             && node_id.index < u64::BITS as usize
+@@ -841,11 +1114,20 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             && let Runnable::Crash { node_id, .. } = r
+             && crashed_victims.contains(node_id)
+         {
+-            util_stats::record_victim_crashed_hold();
+             return true;
+         }
+         reservations.iter().any(|res| res.matches(r)) || is_fifo_blocked(r, &link_deliver_seq)
+     };
++    let is_ineligible = |r: &Runnable<H>| {
++        if let Runnable::Crash { node_id, .. } = r
++            && !(node_id.index < u64::BITS as usize
++                && crash_block_mask & (1u64 << node_id.index) != 0)
++            && crashed_victims.contains(node_id)
++        {
++            util_stats::record_victim_crashed_hold();
++        }
++        frontier_ineligible(r)
++    };
+ 
+     // Observation-only crash-anchor probe: is there a schedulable crash for a
+     // node whose own message is still in flight, and does the step take it?
+@@ -913,16 +1195,20 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     return false;
+                 }
+                 if let Runnable::Timer(t) = r {
+-                    t.label.as_ref().is_none_or(|l| {
+-                        state.allowed_timers.contains(&(t.node.index, l.clone()))
+-                    })
++                    t.label
++                        .as_ref()
++                        .is_none_or(|l| state.allowed_timers.contains(&(t.node.index, l.clone())))
+                 } else {
+                     true
+                 }
+             })
+             .count()
+     } else {
+-        state.timer_queue.iter().filter(|r| !is_ineligible(r)).count()
++        state
++            .timer_queue
++            .iter()
++            .filter(|r| !is_ineligible(r))
++            .count()
+     };
+ 
+     let info = QueueInfo {
+@@ -931,7 +1217,11 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             .iter()
+             .map(|q| q.iter().filter(|r| !is_ineligible(r)).count())
+             .collect(),
+-        network_queue_size: state.network_queue.iter().filter(|r| !is_ineligible(r)).count(),
++        network_queue_size: state
++            .network_queue
++            .iter()
++            .filter(|r| !is_ineligible(r))
++            .count(),
+         timer_queue_size,
+         step: state.crash_info.current_step,
+     };
+@@ -942,6 +1232,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+     };
+ 
++    let prechoice_position = rng.position();
++    let replay_position = rng.replay_position();
+     let routed = route_by_terms(state, &info, terms, rng);
+     rng.use_stream(Stream::QueueChoice);
+     let selection = match routed {
+@@ -972,13 +1264,16 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     }
+                 });
+                 head_timer_node.and_then(|node| {
+-                    let ledger = state.send_ledger.get(node.index).copied().unwrap_or_default();
++                    let ledger = state
++                        .send_ledger
++                        .get(node.index)
++                        .copied()
++                        .unwrap_or_default();
+                     let cell = timer_context::cell_key(
+                         state.pending_deliveries_to(node),
+                         ledger.in_flight,
+                         state.max_timer_inert_streak(node.index),
+-                        state.incarnation(node) > 0
+-                            && state.entries_since_restart(node.index) < 8,
++                        state.incarnation(node) > 0 && state.entries_since_restart(node.index) < 8,
+                     );
+                     timer_context::multiplier(cell)
+                 })
+@@ -1006,7 +1301,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+     };
+ 
+-    let (runnable, chosen_slot, chosen_mask) = match selection {
++    let mut network_eligible = Vec::new();
++    let (drawn_slot, drawn_mask) = match selection {
+         QueueSelection::Local(node_idx) => {
+             let queue = &state.local_queues[node_idx];
+             let eligible: Vec<usize> = (0..queue.len())
+@@ -1026,11 +1322,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            (
+-                state.take_local(node_idx, idx),
+-                QueueSlot::Local(node_idx, idx),
+-                mask,
+-            )
++            (QueueSlot::Local(node_idx, idx), mask)
+         }
+         QueueSelection::Network => {
+             let queue = &state.network_queue;
+@@ -1051,19 +1343,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            let idx = fresh_first_dispatch(state, &eligible, drawn);
+-            let idx = pair_order_dispatch(state, &eligible, idx);
+-            observe_rush_dispatch(state, &eligible, idx);
+-            let delivered_op = state.network_queue[idx].causal_operation_id();
+-            note_first_delivery(state, delivered_op);
+-            // The mask names the predicates true of the record the step
+-            // runs, under the same condition the selection computed it.
+-            let mask = if idx != drawn && util_stats::enabled() && terms.any_predicate() {
+-                state.term_mask(&state.network_queue[idx])
+-            } else {
+-                drawn_mask
+-            };
+-            (state.take_network(idx), QueueSlot::Network(idx), mask)
++            network_eligible = eligible;
++            (QueueSlot::Network(drawn), drawn_mask)
+         }
+         QueueSelection::Timer => {
+             let queue = &state.timer_queue;
+@@ -1101,10 +1382,80 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            (state.timer_queue.remove(idx), QueueSlot::Timer(idx), mask)
++            (QueueSlot::Timer(idx), mask)
+         }
+     };
+ 
++    let frontier_active = (state.replay_frontier.request.is_some()
++        && !state.replay_frontier.attempted)
++        || (state.replay_frontier.capture && state.replay_cut.is_some());
++    if !matches!(drawn_slot, QueueSlot::Network(_)) && frontier_active {
++        network_eligible = state
++            .network_queue
++            .iter()
++            .enumerate()
++            .filter_map(|(i, r)| (!frontier_ineligible(r)).then_some(i))
++            .collect();
++    }
++    let stock_slot = match drawn_slot {
++        QueueSlot::Network(i) if frontier_active => {
++            QueueSlot::Network(network_preview(state, &network_eligible, i))
++        }
++        other => other,
++    };
++    let chosen = if frontier_active {
++        frontier_choice(
++            state,
++            topology.num_servers.max(0) as usize,
++            &frontier_ineligible,
++            &network_eligible,
++            stock_slot,
++            prechoice_position,
++            replay_position,
++        )
++    } else {
++        stock_slot
++    };
++    let commit_slot = if chosen == stock_slot {
++        drawn_slot
++    } else {
++        chosen
++    };
++    let mask_for = |state: &State<H>, slot| {
++        if slot != drawn_slot && util_stats::enabled() && terms.any_predicate() {
++            state.term_mask(slot_runnable(state, slot))
++        } else {
++            drawn_mask
++        }
++    };
++    let (runnable, chosen_slot, chosen_mask) = match commit_slot {
++        QueueSlot::Local(n, i) => {
++            let mask = mask_for(state, commit_slot);
++            (state.take_local(n, i), commit_slot, mask)
++        }
++        QueueSlot::Timer(i) => {
++            let mask = mask_for(state, commit_slot);
++            (state.timer_queue.remove(i), commit_slot, mask)
++        }
++        QueueSlot::Network(i) => {
++            let idx = fresh_first_dispatch(state, &network_eligible, i);
++            let idx = pair_order_dispatch(state, &network_eligible, idx);
++            observe_rush_dispatch(state, &network_eligible, idx);
++            let op = state.network_queue[idx].causal_operation_id();
++            note_first_delivery(state, op);
++            let slot = QueueSlot::Network(idx);
++            let mask = mask_for(state, slot);
++            (state.take_network(idx), slot, mask)
++        }
++    };
++    if frontier_active
++        || !state.replay_frontier.offers.is_empty()
++        || state.replay_frontier.child_window.is_some()
++    {
++        state.replay_frontier.touched =
++            touch_node(state, &runnable, topology.num_servers.max(0) as usize);
++    }
++
+     if let Some(a) = &audit {
+         util_stats::record_steer_authority(a.expressed, a.outcome(Some(chosen_slot)));
+     }
+@@ -1123,7 +1474,11 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             // the phase arm is keyed on the planned node, the node the hold
+             // was armed on.
+             let victim = retarget_crash(state, node_id, topology.num_servers.max(0) as usize);
+-            let ledger = state.send_ledger.get(victim.index).copied().unwrap_or_default();
++            let ledger = state
++                .send_ledger
++                .get(victim.index)
++                .copied()
++                .unwrap_or_default();
+             if util_stats::enabled() {
+                 util_stats::record_crash_anchor_apply(ledger.in_flight > 0);
+                 util_stats::record_term_acted(chosen_mask, ledger.recent > 0);
+@@ -1137,7 +1492,9 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     ledger.in_flight,
+                     victim.index != node_id.index,
+                 );
+-                state.crash_phase.landing_applied(node_id.index, victim.index);
++                state
++                    .crash_phase
++                    .landing_applied(node_id.index, victim.index);
+             }
+             if util_stats::enabled() {
+                 util_stats::record_victim_swap_census(
+@@ -1226,11 +1583,12 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+ 
+             if state.crash_info.currently_crashed.contains(&dest_node) {
+                 if let Runnable::Record(r) = other
+-                    && src_node != dest_node {
+-                        let mut r = r;
+-                        r.reset();
+-                        state.crash_info.queued_messages.push_back((dest_node, r));
+-                    }
++                    && src_node != dest_node
++                {
++                    let mut r = r;
++                    r.reset();
++                    state.crash_info.queued_messages.push_back((dest_node, r));
++                }
+                 return Ok(ScheduleResult::None);
+             }
+ 
+@@ -1313,7 +1671,11 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         if record_dest.index < servers
+                             && state.client_anchor.caused_post_fault(r.causal_operation_id)
+                         {
+-                            state.note_post_fault_request_entry(record_dest.index, entry_step, servers);
++                            state.note_post_fault_request_entry(
++                                record_dest.index,
++                                entry_step,
++                                servers,
++                            );
+                         }
+                         state.fresh_first.note_entry(
+                             record_dest.index,
+@@ -1343,7 +1705,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             .send_ledger
+                             .get(record_origin.index)
+                             .is_some_and(|l| l.net_records > 0);
+-                        let scanned: &[Runnable<H>] = if queued { &state.network_queue } else { &[] };
++                        let scanned: &[Runnable<H>] =
++                            if queued { &state.network_queue } else { &[] };
+                         let siblings = scanned.iter().filter_map(|q| match q {
+                             Runnable::Record(s)
+                                 if s.origin_node == record_origin
+@@ -1384,44 +1747,52 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         });
+                         util_stats::record_ghost_signal_run();
+                     }
+-                    let probe = (util_stats::acted_fraction_enabled() && message_entry).then(|| {
+-                        let mut bias = r.bias;
+-                        if r.origin_incarnation != state.incarnation(record_origin) {
+-                            bias.insert(DeliveryBias::SENDER_RESTARTED);
+-                        }
+-                        (
+-                            bias,
+-                            state.node_state_token(record_dest),
+-                            state.entries_since_restart(record_dest.index),
+-                        )
+-                    });
++                    let probe =
++                        (util_stats::acted_fraction_enabled() && message_entry).then(|| {
++                            let mut bias = r.bias;
++                            if r.origin_incarnation != state.incarnation(record_origin) {
++                                bias.insert(DeliveryBias::SENDER_RESTARTED);
++                            }
++                            (
++                                bias,
++                                state.node_state_token(record_dest),
++                                state.entries_since_restart(record_dest.index),
++                            )
++                        });
+                     // The segment a timer firing woke, measured the same way
+                     // as a delivery: the token counts state writes, so a
+                     // segment that only sends reads as inert.
+                     let timer_entry = r.timer_entry == Some(r.pc);
+-                    let timer_probe = (util_stats::acted_fraction_enabled() && timer_entry).then(|| {
+-                        let pending = state.pending_deliveries_to(record_dest);
+-                        let inflight = pending > 0;
+-                        let key = util_stats::TimerKey::new(
+-                            r.pc,
+-                            inflight,
+-                            state.incarnation(record_dest),
+-                            state.timer_inert_streak(record_dest.index, r.pc),
+-                        );
+-                        let ledger = state
+-                            .send_ledger
+-                            .get(record_dest.index)
+-                            .copied()
+-                            .unwrap_or_default();
+-                        let cell = timer_context::cell_key(
+-                            pending,
+-                            ledger.in_flight,
+-                            state.max_timer_inert_streak(record_dest.index),
+-                            state.incarnation(record_dest) > 0
+-                                && state.entries_since_restart(record_dest.index) < 8,
+-                        );
+-                        (r.pc, key, inflight, cell, state.node_state_token(record_dest))
+-                    });
++                    let timer_probe =
++                        (util_stats::acted_fraction_enabled() && timer_entry).then(|| {
++                            let pending = state.pending_deliveries_to(record_dest);
++                            let inflight = pending > 0;
++                            let key = util_stats::TimerKey::new(
++                                r.pc,
++                                inflight,
++                                state.incarnation(record_dest),
++                                state.timer_inert_streak(record_dest.index, r.pc),
++                            );
++                            let ledger = state
++                                .send_ledger
++                                .get(record_dest.index)
++                                .copied()
++                                .unwrap_or_default();
++                            let cell = timer_context::cell_key(
++                                pending,
++                                ledger.in_flight,
++                                state.max_timer_inert_streak(record_dest.index),
++                                state.incarnation(record_dest) > 0
++                                    && state.entries_since_restart(record_dest.index) < 8,
++                            );
++                            (
++                                r.pc,
++                                key,
++                                inflight,
++                                cell,
++                                state.node_state_token(record_dest),
++                            )
++                        });
+                     if message_entry {
+                         state.note_handler_entry(record_dest.index, HandlerTrigger::Delivery);
+                     } else if timer_entry {
+@@ -1571,73 +1942,99 @@ fn absorber_decision<H: HashPolicy>(
+ /// queue and stays eligible. A destination that has never restarted in the
+ /// run keeps the drawn ghost. No random draw is taken here, so a treated
+ /// step reads the same random sequence as an untreated one.
++#[derive(Default)]
++struct FreshDecision {
++    chosen: usize,
++    contest: Option<(bool, bool)>,
++    skipped: bool,
++    displaced: Option<(usize, u32)>,
++}
++
++fn fresh_first_preview<H: HashPolicy>(
++    state: &State<H>,
++    eligible: &[usize],
++    drawn: usize,
++) -> FreshDecision {
++    let mut decision = FreshDecision {
++        chosen: drawn,
++        ..Default::default()
++    };
++    if !state.fresh_first.enabled && !util_stats::enabled() {
++        return decision;
++    }
++    let Some(Runnable::Record(rec)) = state.network_queue.get(drawn) else {
++        return decision;
++    };
++    if rec.origin_node == rec.node {
++        return decision;
++    }
++    let Some(ledger) = state.send_ledger.get(rec.origin_node.index) else {
++        return decision;
++    };
++    if ledger.net_fresh == 0 || ledger.net_records <= ledger.net_fresh {
++        return decision;
++    }
++    let current = state.incarnation(rec.origin_node);
++    let stale = rec.origin_incarnation != current;
++    let candidates = eligible.iter().map(|&i| {
++        let item = match &state.network_queue[i] {
++            Runnable::Record(r)
++                if r.origin_node == rec.origin_node
++                    && r.node == rec.node
++                    && r.origin_node != r.node =>
++            {
++                Some((r.origin_incarnation, r.priority))
++            }
++            _ => None,
++        };
++        (i, item)
++    });
++    let (contested, fresh) = fresh_first::rival(candidates, drawn, stale, current);
++    if !contested {
++        return decision;
++    }
++    let down = state.crash_info.currently_crashed.contains(&rec.node);
++    decision.contest = Some((stale, down));
++    if !state.fresh_first.enabled || !stale || down {
++        return decision;
++    }
++    if state.incarnation(rec.node) == 0 {
++        decision.skipped = true;
++        return decision;
++    }
++    if let Some(fresh) = fresh {
++        decision.chosen = fresh;
++        decision.displaced = Some((rec.origin_node.index, rec.send_ordinal));
++    }
++    decision
++}
++
+ fn fresh_first_dispatch<H: HashPolicy>(
+     state: &mut State<H>,
+     eligible: &[usize],
+     drawn: usize,
+ ) -> usize {
+-    let stats = util_stats::enabled();
+-    let treated = state.fresh_first.enabled;
+-    if !treated && !stats {
+-        return drawn;
++    let decision = fresh_first_preview(state, eligible, drawn);
++    if let Some((stale, down)) = decision.contest {
++        util_stats::record_fresh_first_contest(state.fresh_first.enabled, stale, down);
+     }
+-    let queue = &state.network_queue;
+-    let chosen = 'pick: {
+-        let Some(Runnable::Record(rec)) = queue.get(drawn) else {
+-            break 'pick drawn;
+-        };
+-        if rec.origin_node == rec.node {
+-            break 'pick drawn;
+-        }
+-        let origin = rec.origin_node;
+-        let dest = rec.node;
+-        let Some(ledger) = state.send_ledger.get(origin.index) else {
+-            break 'pick drawn;
+-        };
+-        if ledger.net_fresh == 0 || ledger.net_records <= ledger.net_fresh {
+-            break 'pick drawn;
+-        }
+-        let current = state.incarnation(origin);
+-        let stale_drawn = rec.origin_incarnation != current;
+-        let candidates = eligible.iter().map(|&i| {
+-            let item = match &queue[i] {
+-                Runnable::Record(r)
+-                    if r.origin_node == origin && r.node == dest && r.origin_node != r.node =>
+-                {
+-                    Some((r.origin_incarnation, r.priority))
+-                }
+-                _ => None,
+-            };
+-            (i, item)
+-        });
+-        let (contested, best_fresh) = fresh_first::rival(candidates, drawn, stale_drawn, current);
+-        if !contested {
+-            break 'pick drawn;
+-        }
+-        let down = state.crash_info.currently_crashed.contains(&dest);
+-        util_stats::record_fresh_first_contest(treated, stale_drawn, down);
+-        if !treated || !stale_drawn || down {
+-            break 'pick drawn;
+-        }
+-        if state.incarnation(dest) == 0 {
+-            util_stats::record_fresh_first_skipped_never_restarted_dest();
+-            break 'pick drawn;
+-        }
+-        let Some(fresh) = best_fresh else {
+-            break 'pick drawn;
+-        };
+-        let times = state.fresh_first.displace((origin.index, rec.send_ordinal));
++    if decision.skipped {
++        util_stats::record_fresh_first_skipped_never_restarted_dest();
++    }
++    if let Some(key) = decision.displaced {
++        let times = state.fresh_first.displace(key);
+         util_stats::record_fresh_first_swap(times > 1);
+-        fresh
+-    };
+-    if treated
+-        && let Some(Runnable::Record(r)) = queue.get(chosen)
++    }
++    if state.fresh_first.enabled
++        && let Some(Runnable::Record(r)) = state.network_queue.get(decision.chosen)
+         && r.origin_node != r.node
+-        && let Some(count) = state.fresh_first.take((r.origin_node.index, r.send_ordinal))
++        && let Some(count) = state
++            .fresh_first
++            .take((r.origin_node.index, r.send_ordinal))
+     {
+         util_stats::record_fresh_first_taken(count);
+     }
+-    chosen
++    decision.chosen
+ }
+ 
+ /// Steps between two reads of the rushed-dispatch split.
+@@ -1698,7 +2095,12 @@ fn note_first_delivery<H: HashPolicy>(state: &mut State<H>, op: Option<i32>) {
+ /// ordinal: on every treated run, where the scan happens anyway, and on
+ /// census runs of the control half; any other untreated run returns without
+ /// reading the queue. No random draw is taken.
+-fn pair_order_dispatch<H: HashPolicy>(state: &State<H>, eligible: &[usize], pick: usize) -> usize {
++fn pair_order_choice<H: HashPolicy>(
++    state: &State<H>,
++    eligible: &[usize],
++    pick: usize,
++    emit: bool,
++) -> usize {
+     let treated = state.pair_order.enabled;
+     if !treated && !state.pair_order.census {
+         return pick;
+@@ -1737,25 +2139,46 @@ fn pair_order_dispatch<H: HashPolicy>(state: &State<H>, eligible: &[usize], pick
+     if !contest.rivals {
+         return pick;
+     }
+-    util_stats::record_pair_order_contest(treated, contest.earliest.is_none());
++    if emit {
++        util_stats::record_pair_order_contest(treated, contest.earliest.is_none());
++    }
+     if !treated {
+         return pick;
+     }
+     let ghost = state.fault_crossing(origin, rec.origin_incarnation);
+-    util_stats::record_pair_order_contest_class(ghost);
++    if emit {
++        util_stats::record_pair_order_contest_class(ghost);
++    }
+     match contest.earliest {
+         Some(earliest) if ghost => {
+-            util_stats::record_pair_order_correction(ghost);
++            if emit {
++                util_stats::record_pair_order_correction(ghost);
++            }
+             earliest
+         }
+         Some(_) => {
+-            util_stats::record_pair_order_fresh_suppressed();
++            if emit {
++                util_stats::record_pair_order_fresh_suppressed();
++            }
+             pick
+         }
+         None => pick,
+     }
+ }
+ 
++fn pair_order_dispatch<H: HashPolicy>(state: &State<H>, eligible: &[usize], pick: usize) -> usize {
++    pair_order_choice(state, eligible, pick, true)
++}
++
++fn network_preview<H: HashPolicy>(state: &State<H>, eligible: &[usize], drawn: usize) -> usize {
++    pair_order_choice(
++        state,
++        eligible,
++        fresh_first_preview(state, eligible, drawn).chosen,
++        false,
++    )
++}
++
+ fn crash_node<H: HashPolicy>(state: &mut State<H>, node_id: NodeId) {
+     if state.crash_info.currently_crashed.contains(&node_id) {
+         warn!("Node {} is already crashed", node_id);
+@@ -3034,4 +3457,264 @@ mod tests {
+             assert_eq!(idx, 0);
+         }
+     }
++    fn branch_state() -> State<NoHashing> {
++        let mut state = State::new(&[(ROLE, 3)], 1);
++        queue_record(&mut state, 0, 1, 0, 0.5);
++        queue_record(&mut state, 2, 1, 0, 0.5);
++        state.replay_frontier.server_nodes = 3;
++        state.replay_frontier.server_role = Some(ROLE);
++        state.replay_frontier.client_role = Some(crate::analysis::resolver::NameId(1));
++        state.replay_frontier.effective_cap = 100;
++        state
++    }
++
++    fn request_branch(state: &mut State<NoHashing>) {
++        use crate::simulator::replay_frontier::{Offer, Request};
++        let selected = event_key(state, &state.network_queue[0], 3).unwrap();
++        let alternative = event_key(state, &state.network_queue[1], 3).unwrap();
++        state.replay_frontier.request = Some(Request {
++            offer_index: 0, applied_pairs: Default::default(),
++            parent_run_id: 10,
++            child_index: 1,
++            offer: Offer {
++                tape_pos: 12,
++                step: 3,
++                selected,
++                alternative,
++                rank: 1,
++                reference: write_window(state),
++            },
++        });
++    }
++
++    #[test]
++    fn a_frontier_request_applies_once_and_keeps_both_queued_events() {
++        use crate::simulator::replay_frontier::RequestOutcome;
++        let mut state = branch_state();
++        request_branch(&mut state);
++        let choice = frontier_choice(
++            &mut state,
++            3,
++            &|_| false,
++            &[0, 1],
++            QueueSlot::Network(0),
++            Some(12),
++            Some((12, 12)),
++        );
++        assert!(choice == QueueSlot::Network(1));
++        assert_eq!(state.replay_frontier.outcome, RequestOutcome::Applied);
++        assert_eq!(state.network_queue.len(), 2);
++        let again = frontier_choice(
++            &mut state,
++            3,
++            &|_| false,
++            &[0, 1],
++            QueueSlot::Network(0),
++            Some(12),
++            Some((12, 12)),
++        );
++        assert!(again == QueueSlot::Network(0));
++    }
++
++    #[test]
++    fn failed_requests_are_one_shot_even_at_repeated_raw_positions() {
++        use crate::simulator::replay_frontier::RequestOutcome;
++        for expected in [
++            RequestOutcome::Missing,
++            RequestOutcome::Ambiguous,
++            RequestOutcome::Ineligible,
++            RequestOutcome::AlreadyChosen,
++            RequestOutcome::PassedBoundary,
++        ] {
++            let mut state = branch_state();
++            request_branch(&mut state);
++            if expected == RequestOutcome::Missing {
++                state.network_queue.pop();
++            }
++            if expected == RequestOutcome::Ambiguous {
++                state.network_queue.push(state.network_queue[1].clone());
++            }
++            let indices: Vec<_> = (0..state.network_queue.len()).collect();
++            let chosen = if expected == RequestOutcome::AlreadyChosen {
++                QueueSlot::Network(1)
++            } else {
++                QueueSlot::Network(0)
++            };
++            let position = if expected == RequestOutcome::PassedBoundary {
++                13
++            } else {
++                12
++            };
++            let got = frontier_choice(
++                &mut state,
++                3,
++                &|_| expected == RequestOutcome::Ineligible,
++                &indices,
++                chosen,
++                Some(position),
++                Some((12, 12)),
++            );
++            assert!(got == chosen);
++            assert_eq!(state.replay_frontier.outcome, expected);
++            assert!(state.replay_frontier.attempted);
++        }
++    }
++
++    #[test]
++    fn branch_matches_use_structural_identities_after_queue_mutation() {
++        let mut state = branch_state();
++        request_branch(&mut state);
++        state.network_queue.swap(0, 1);
++        let got = frontier_choice(
++            &mut state,
++            3,
++            &|_| false,
++            &[0, 1],
++            QueueSlot::Network(1),
++            Some(12),
++            Some((12, 12)),
++        );
++        assert!(got == QueueSlot::Network(0));
++    }
++
++    #[test]
++    fn a_saved_pair_can_apply_when_the_stock_winner_is_a_third_record() {
++        let mut state = branch_state();
++        request_branch(&mut state);
++        queue_record(&mut state, 0, 2, 0, 0.5);
++        let got = frontier_choice(
++            &mut state,
++            3,
++            &|_| false,
++            &[0, 1, 2],
++            QueueSlot::Network(2),
++            Some(12),
++            Some((12, 12)),
++        );
++        assert!(got == QueueSlot::Network(1));
++        assert!(state.replay_frontier.stock_mismatch);
++    }
++
++    #[test]
++    fn dependency_requires_two_entries_or_a_same_node_fault_race() {
++        let mut state = branch_state();
++        let a = event_key(&state, &state.network_queue[0], 3).unwrap();
++        let b = event_key(&state, &state.network_queue[1], 3).unwrap();
++        assert!(dependent(a, b));
++        let mut local = b;
++        local.kind = 1;
++        assert!(!dependent(a, local));
++        state.retarget.enabled = true;
++        state.send_ledger[1].last_ghost_step = 8;
++        let fault = Runnable::Crash {
++            node_id: node(0),
++            priority: 0.5,
++        };
++        let f = event_key(&state, &fault, 3).unwrap();
++        assert_eq!(f.origin, node(1));
++        assert!(dependent(f, local));
++        state.send_ledger[2].last_ghost_step = 9;
++        assert!(!dependent(event_key(&state, &fault, 3).unwrap(), local));
++        assert!(event_key(&state, &heal(0.5), 3).is_none());
++    }
++
++    #[test]
++    fn preview_is_pure_and_matches_the_single_committed_preference_chain() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        for fresh in [false, true] {
++            for pair in [false, true] {
++                let (mut state, _) = contested_state();
++                state.fresh_first.enabled = fresh;
++                state.pair_order.enabled = pair;
++                let eligible: Vec<_> = (0..state.network_queue.len()).collect();
++                for drawn in 0..eligible.len() {
++                    let before = serde_json::to_value((
++                        util_stats::snapshot().fresh_first,
++                        util_stats::snapshot().pair_order,
++                    ))
++                    .unwrap();
++                    let displaced = state.fresh_first.displaced_len();
++                    let expected = network_preview(&state, &eligible, drawn);
++                    assert_eq!(state.fresh_first.displaced_len(), displaced);
++                    let after = serde_json::to_value((
++                        util_stats::snapshot().fresh_first,
++                        util_stats::snapshot().pair_order,
++                    ))
++                    .unwrap();
++                    assert_eq!(before, after);
++                    let picked = fresh_first_dispatch(&mut state, &eligible, drawn);
++                    assert_eq!(pair_order_dispatch(&state, &eligible, picked), expected);
++                }
++            }
++        }
++        util_stats::set_enabled(false);
++    }
++
++    #[test]
++    fn removing_a_planned_crash_preserves_its_retarget_preview() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut state = branch_state();
++        state.retarget.enabled = true;
++        state.send_ledger[1].last_ghost_step = 8;
++        state.push_runnable(Runnable::Crash {
++            node_id: node(0),
++            priority: 0.5,
++        });
++        let preview = retarget_preview(&state, node(0), 3);
++        let pending = state.send_ledger[0].crash_pending;
++        state.take_local(0, 0);
++        assert_eq!(state.send_ledger[0].crash_pending, pending - 1);
++        assert_eq!(preview, retarget_crash(&state, node(0), 3));
++    }
++
++    #[test]
++    fn offers_exclude_network_preferences_and_never_repeat_a_retained_pair() {
++        let (mut state, _) = contested_state();
++        state.replay_frontier.capture = true;
++        state.replay_frontier.server_nodes = 3;
++        state.replay_frontier.server_role = Some(ROLE);
++        state.replay_frontier.client_role = Some(ROLE);
++        state.replay_cut = Some(ReplayCut {
++            step: 0,
++            tape_pos: Some(0),
++        });
++        state.fresh_first.enabled = true;
++        state.pair_order.enabled = true;
++        let eligible: Vec<_> = (0..state.network_queue.len()).collect();
++        for step in 0..100 {
++            state.crash_info.current_step = step;
++            let stock = network_preview(&state, &eligible, 0);
++            frontier_choice(
++                &mut state,
++                3,
++                &|_| false,
++                &eligible,
++                QueueSlot::Network(stock),
++                Some(step as usize),
++                None,
++            );
++        }
++        assert!(!state.replay_frontier.offers.is_empty());
++        for offer in &state.replay_frontier.offers {
++            let slot = frontier_slots(&state)
++                .find(|s| {
++                    event_key(&state, slot_runnable(&state, *s), 3) == Some(offer.alternative)
++                })
++                .unwrap();
++            if let QueueSlot::Network(i) = slot {
++                assert_eq!(network_preview(&state, &eligible, i), i);
++            }
++            assert_eq!(
++                state
++                    .replay_frontier
++                    .offers
++                    .iter()
++                    .filter(|o| o.pair() == offer.pair())
++                    .count(),
++                1
++            );
++        }
++    }
++
+ }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index eb5de70..9efe930 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -639,6 +639,7 @@ pub struct State<H: HashPolicy> {
+     /// number of scheduling draws taken by then when the run records its
+     /// draws. Observation only, excluded from `signature()`.
+     pub replay_cut: Option<ReplayCut>,
++    pub replay_frontier: crate::simulator::replay_frontier::RunState,
+     /// Whether some message entry in the run came from a dead incarnation
+     /// of a restarted sender, landed on a restarted destination that had
+     /// already heard from the sender's current incarnation, and wrote the
+@@ -827,6 +828,7 @@ impl<H: HashPolicy> State<H> {
+             pair_order: pair_order::RunState::default(),
+             client_anchor: client_anchor::RunState::default(),
+             replay_cut: None,
++            replay_frontier: Default::default(),
+             overtaken_ghost_acted: false,
+             absorber_cycle_fresh_peer: false,
+             absorber_cycle_closed_step: None,
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index a471961..0f6049a 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -903,6 +903,7 @@ pub struct RunResult {
+     pub tuples: HashSet<TimelineTuple>,
+     pub outcome: RunOutcome,
+     pub cut: Option<ReplayCut>,
++    pub frontier_offers: Vec<crate::simulator::replay_frontier::Offer>,
+ }
+ 
+ /// Which strategy issued a run, for the `runs` table. A single-strategy
+@@ -915,6 +916,9 @@ pub struct RunAttribution {
+     pub arm_index: i32,
+     pub config_index: i32,
+     pub variant_bits: i32,
++    pub frontier_capture: bool,
++    pub frontier_prefix: bool,
++    pub frontier_request: Option<crate::simulator::replay_frontier::Request>,
+ }
+ 
+ impl RunAttribution {
+@@ -924,6 +928,9 @@ impl RunAttribution {
+             arm_index: -1,
+             config_index: -1,
+             variant_bits: 0,
++            frontier_capture: false,
++            frontier_prefix: false,
++            frontier_request: None,
+         }
+     }
+ 
+@@ -1006,6 +1013,28 @@ fn run_row(
+     }
+ }
+ 
++struct FrontierReportGuard<'a> {
++    run_id: i64,
++    attribution: &'a RunAttribution,
++    reported: std::cell::Cell<bool>,
++}
++
++impl Drop for FrontierReportGuard<'_> {
++    fn drop(&mut self) {
++        if !self.reported.get()
++            && (self.attribution.frontier_capture || self.attribution.frontier_prefix)
++        {
++            let state = crate::simulator::replay_frontier::RunState {
++                capture: self.attribution.frontier_capture,
++                filled_prefix: self.attribution.frontier_prefix,
++                request: self.attribution.frontier_request.clone(),
++                ..Default::default()
++            };
++            util_stats::record_frontier_run(self.run_id, self.attribution.arm_index, &state);
++        }
++    }
++}
++
+ /// Runs a single simulation configuration. `S` selects the RNG strategy
+ /// (`LiveRng` for plain explore; `RecordRng`/`ReplayRng` for RnR). Workload and
+ /// schedule seeds are supplied by the caller (derived from `(session_seed,
+@@ -1022,6 +1051,11 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     seed_tape: Option<Recording>,
+     attribution: &RunAttribution,
+ ) -> Result<RunResult, Box<dyn Error>> {
++    let frontier_report = FrontierReportGuard {
++        run_id,
++        attribution,
++        reported: std::cell::Cell::new(false),
++    };
+     let started = std::time::Instant::now();
+     let snapshot = F::snapshot(&global_state.feedback);
+     let gen_config = GeneratorConfig {
+@@ -1104,6 +1138,17 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &mut rec,
+     )?;
+ 
++    path_state.state.replay_frontier = crate::simulator::replay_frontier::RunState {
++        capture: attribution.frontier_capture,
++        filled_prefix: attribution.frontier_prefix,
++        request: attribution.frontier_request.clone(),
++        seed: schedule_seed,
++        server_nodes: num_servers,
++        server_role: Some(server_role),
++        client_role: Some(client_role),
++        ..Default::default()
++    };
++
+     // The arms are drawn before the plan runs and read nothing from the
+     // run's schedule stream.
+     let cell = arm_selector::cell(attribution.arm_index, attribution.config_index);
+@@ -1127,7 +1172,18 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         config.partial_fanout_crash_bias,
+         &arms,
+         &mut rec,
+-    )?;
++    )
++    .map_err(|error| {
++        if attribution.frontier_capture || attribution.frontier_prefix {
++            util_stats::record_frontier_run(
++                run_id,
++                attribution.arm_index,
++                &path_state.state.replay_frontier,
++            );
++            frontier_report.reported.set(true);
++        }
++        error
++    })?;
+     // A replay slot's prefix carries its parent's ghost signal, so the
+     // signal is not read on it.
+     let replay_slot = attribution.variant_bits & run_variant::REPLAY_SLOT != 0;
+@@ -1183,12 +1239,32 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         path_state.state.crash_hold_drawn,
+     ));
+ 
++    if !path_state.state.replay_frontier.attempted
++        && let Some(request) = path_state.state.replay_frontier.request.as_ref()
++        && recording
++            .as_ref()
++            .is_some_and(|t| t.len() > request.offer.tape_pos)
++    {
++        path_state.state.replay_frontier.attempted = true;
++        path_state.state.replay_frontier.outcome =
++            crate::simulator::replay_frontier::RequestOutcome::PassedBoundary;
++    }
++    if attribution.frontier_capture || attribution.frontier_prefix {
++        util_stats::record_frontier_run(
++            run_id,
++            attribution.arm_index,
++            &path_state.state.replay_frontier,
++        );
++    }
++    frontier_report.reported.set(true);
++    let frontier_offers = std::mem::take(&mut path_state.state.replay_frontier.offers);
+     Ok(RunResult {
+         score: plan_score,
+         recording,
+         tuples,
+         outcome,
+         cut: path_state.state.replay_cut,
++        frontier_offers,
+     })
+ }
+ 
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index f051107..c17d08d 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -448,6 +448,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     } else {
+         run_cap::effective_cap(backup)
+     };
++    path_state.state.replay_frontier.effective_cap = effective_cap;
+     let timer_ctx_mode = timer_context::run_mode(run_id);
+     let mut selector = queue_policy.to_selector();
+     let mut op_id_counter = 0i32;
+@@ -770,6 +771,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 rng,
+             )?;
+ 
++            if !path_state.state.replay_frontier.offers.is_empty() || path_state.state.replay_frontier.child_window.is_some() {
++                let mut frontier = std::mem::take(&mut path_state.state.replay_frontier);
++                frontier.observe(&path_state.state);
++                path_state.state.replay_frontier = frontier;
++            }
++
+             if matches!(result, ScheduleResult::None) {
+                 census.blocked();
+             } else {
+diff --git a/spur-core/src/simulator/replay_corpus.rs b/spur-core/src/simulator/replay_corpus.rs
+index 7f64781..5b4c212 100644
+--- a/spur-core/src/simulator/replay_corpus.rs
++++ b/spur-core/src/simulator/replay_corpus.rs
+@@ -4,8 +4,8 @@
+ //! from a dead incarnation.
+ //!
+ //! A fresh run that fires the signal is admitted as a parent: its scheduling
+-//! draws up to the signal, its workload seed and its configuration. A later
+-//! run in a replay slot becomes a child of the next parent in turn. A prefix
++//! draws through a retained branch offer, its workload seed and configuration.
++//! A run in a replay slot becomes a child of the next parent in turn. A prefix
+ //! child replays the parent's draws and then continues on its own seed; a
+ //! plan-only child takes the parent's workload and configuration but draws
+ //! its whole schedule fresh, which tells apart what the schedule prefix buys
+@@ -18,6 +18,7 @@
+ //! steer-off timer probes are never slots; their runs feed learners that
+ //! must not carry a replay imprint.
+ 
++use crate::simulator::replay_frontier::{MAX_OFFERS, Offer};
+ use crate::simulator::rng::Recording;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_phase;
+@@ -48,10 +49,8 @@ pub fn is_prefix(run_id: i64) -> bool {
+     is_slot(run_id) && run_phase::salted_phase(run_id, PREFIX_SALT, 2) == 1
+ }
+ 
+-/// What a child takes from its parent: the draws up to the signal, the
+-/// workload seed and configuration that make the plan, the parent's place in
+-/// the configuration grid, and the step the signal fired at, which is what a
+-/// faithful prefix child fires at too.
++/// The parent tape and plan, or a child's selected replay prefix and branch.
++/// The signal step remains a separate prefix-fidelity observation.
+ #[derive(Clone, Debug)]
+ pub struct Seed<C> {
+     pub tape: Recording,
+@@ -59,11 +58,19 @@ pub struct Seed<C> {
+     pub cfg: C,
+     pub config_index: usize,
+     pub cut_step: i32,
++    pub parent_run_id: i64,
++    pub original_cut_words: usize,
++    pub offers: Vec<Offer>,
++    pub request: Option<Offer>,
++    pub child_index: u32,
++    pub offer_index: u8,
++    pub applied_pairs: std::sync::Arc<std::sync::atomic::AtomicU8>,
+ }
+ 
+ struct Parent<C> {
+     seed: Seed<C>,
+     children: u32,
++    prefix_children: u32,
+ }
+ 
+ /// The ring of parents of one arm. Parents are served round-robin; one that
+@@ -95,26 +102,93 @@ impl<C: Clone> Corpus<C> {
+         self.parents.is_empty()
+     }
+ 
++    /// Tape storage and the signal-cut reference for the same live parents.
++    pub fn live_words(&self) -> (usize, usize) {
++        self.parents
++            .iter()
++            .fold((0, 0), |(retained, original), parent| {
++                (
++                    retained + parent.seed.tape.len(),
++                    original + parent.seed.original_cut_words,
++                )
++            })
++    }
++
+     /// Admit a parent, dropping the oldest when the ring is full. The
+     /// round-robin cursor keeps pointing at the parent it was on.
+-    pub fn admit(&mut self, seed: Seed<C>) {
++    pub fn admit(&mut self, mut seed: Seed<C>) {
++        seed.original_cut_words = seed.original_cut_words.min(seed.tape.len());
++        seed.offers.truncate(MAX_OFFERS);
++        seed.offers
++            .retain(|offer| offer.tape_pos <= seed.tape.len());
++        seed.offers.shrink_to_fit();
++        let retained_words = seed
++            .offers
++            .iter()
++            .map(|offer| offer.tape_pos)
++            .max()
++            .unwrap_or(seed.original_cut_words)
++            .max(seed.original_cut_words);
++        if retained_words < seed.tape.len() {
++            seed.tape = seed.tape[..retained_words].into();
++        }
++        seed.request = None;
++        seed.child_index = 0;
+         if self.parents.len() == CAPACITY {
+             self.parents.pop_front();
+             self.cursor = self.cursor.saturating_sub(1);
+         }
+-        self.parents.push_back(Parent { seed, children: 0 });
++        self.parents.push_back(Parent {
++            seed,
++            children: 0,
++            prefix_children: 0,
++        });
+     }
+ 
+     /// The seed for the next child, from the next parent in turn; `None`
+     /// when the ring is empty.
+-    pub fn next_child(&mut self) -> Option<Seed<C>> {
++    pub fn next_child(&mut self, prefix: bool) -> Option<Seed<C>> {
+         if self.parents.is_empty() {
+             return None;
+         }
+         let idx = self.cursor % self.parents.len();
+         let parent = &mut self.parents[idx];
++        let request = if prefix && !parent.seed.offers.is_empty() {
++            Some(
++                parent.seed.offers[parent.prefix_children as usize % parent.seed.offers.len()]
++                    .clone(),
++            )
++        } else {
++            None
++        };
++        let tape = if prefix {
++            let words = request
++                .as_ref()
++                .map_or(parent.seed.original_cut_words, |offer| offer.tape_pos);
++            if words == parent.seed.tape.len() {
++                parent.seed.tape.clone()
++            } else {
++                parent.seed.tape[..words].into()
++            }
++        } else {
++            Recording::default()
++        };
++        let seed = Seed {
++            tape,
++            workload_seed: parent.seed.workload_seed,
++            cfg: parent.seed.cfg.clone(),
++            config_index: parent.seed.config_index,
++            cut_step: parent.seed.cut_step,
++            parent_run_id: parent.seed.parent_run_id,
++            original_cut_words: parent.seed.original_cut_words,
++            offers: Vec::new(),
++            request,
++            child_index: parent.children,
++            offer_index: (parent.prefix_children as usize % parent.seed.offers.len().max(1)) as u8,
++            applied_pairs: parent.seed.applied_pairs.clone(),
++        };
+         parent.children += 1;
+-        let seed = parent.seed.clone();
++        parent.prefix_children += u32::from(prefix);
+         if parent.children >= CHILDREN_PER_PARENT {
+             self.parents.remove(idx);
+             self.cursor = idx;
+@@ -136,6 +210,13 @@ mod tests {
+             cfg: tag,
+             config_index: tag as usize,
+             cut_step: tag as i32,
++            parent_run_id: tag as i64,
++            original_cut_words: 3,
++            offers: Vec::new(),
++            request: None,
++            child_index: 0,
++            offer_index: 0,
++            applied_pairs: Default::default(),
+         }
+     }
+ 
+@@ -143,7 +224,7 @@ mod tests {
+     fn an_empty_corpus_seeds_no_child() {
+         let mut c = Corpus::<u64>::new();
+         assert!(c.is_empty());
+-        assert!(c.next_child().is_none());
++        assert!(c.next_child(true).is_none());
+     }
+ 
+     #[test]
+@@ -152,7 +233,7 @@ mod tests {
+         c.admit(seed(1));
+         c.admit(seed(2));
+         let mut served = Vec::new();
+-        while let Some(s) = c.next_child() {
++        while let Some(s) = c.next_child(true) {
+             served.push(s.cfg);
+             assert!(served.len() <= 100, "parents never leave the ring");
+         }
+@@ -169,7 +250,7 @@ mod tests {
+     fn a_child_carries_its_parent_whole() {
+         let mut c = Corpus::new();
+         c.admit(seed(7));
+-        let s = c.next_child().expect("one parent");
++        let s = c.next_child(true).expect("one parent");
+         assert_eq!(&*s.tape, &[7, 7, 7]);
+         assert_eq!(s.workload_seed, 7);
+         assert_eq!(s.cfg, 7);
+@@ -178,6 +259,129 @@ mod tests {
+         assert_eq!(c.len(), 1, "one child does not use a parent up");
+     }
+ 
++    fn offer(tape_pos: usize) -> Offer {
++        use crate::analysis::resolver::NameId;
++        use crate::simulator::core::state::NodeId;
++        use crate::simulator::replay_frontier::{EventKey, WriteWindow};
++        let node = NodeId {
++            role: NameId(0),
++            index: 0,
++        };
++        let selected = EventKey {
++            kind: 0,
++            node,
++            origin: node,
++            incarnation: 0,
++            ordinal: tape_pos as u32,
++            pc: 0,
++            entry_pc: 0,
++            link: None,
++        };
++        Offer {
++            tape_pos,
++            step: tape_pos as i32,
++            selected,
++            alternative: EventKey { pc: 1, ..selected },
++            rank: tape_pos as u64,
++            reference: WriteWindow::default(),
++        }
++    }
++
++    #[test]
++    fn prefix_children_visit_distinct_offers_before_repeating() {
++        let mut parent = seed(5);
++        parent.tape = (0..20).collect::<Vec<u64>>().into();
++        parent.offers = vec![offer(4), offer(7), offer(11)];
++        let mut corpus = Corpus::new();
++        corpus.admit(parent);
++        assert_eq!(corpus.live_words(), (11, 3));
++        let choices = [
++            Some(4),
++            None,
++            Some(7),
++            None,
++            Some(11),
++            Some(4),
++            None,
++            Some(7),
++        ];
++        for (index, requested) in choices.into_iter().enumerate() {
++            let child = corpus.next_child(requested.is_some()).unwrap();
++            assert_eq!(child.child_index, index as u32);
++            assert_eq!(child.request.as_ref().map(|r| r.tape_pos), requested);
++            assert!(child.offers.is_empty());
++            assert_eq!(child.tape.len(), requested.unwrap_or(0));
++            assert_eq!(
++                &*child.tape,
++                &(0..requested.unwrap_or(0) as u64).collect::<Vec<_>>()
++            );
++        }
++        assert!(corpus.next_child(true).is_none());
++    }
++
++    #[test]
++    fn bounded_parent_storage_uses_only_retained_valid_offers() {
++        let mut parent = seed(3);
++        parent.tape = vec![3; 100].into();
++        parent.offers = (4..4 + MAX_OFFERS).map(offer).collect();
++        parent.offers.push(offer(99));
++        let mut corpus = Corpus::new();
++        corpus.admit(parent);
++        assert_eq!(corpus.live_words(), (MAX_OFFERS + 3, 3));
++        for position in 4..4 + MAX_OFFERS {
++            let child = corpus.next_child(true).unwrap();
++            assert_eq!(child.request.unwrap().tape_pos, position);
++        }
++        let mut invalid = seed(4);
++        invalid.offers = vec![offer(100)];
++        corpus.admit(invalid);
++        assert_eq!(corpus.live_words(), (3, 3));
++        let child = corpus.next_child(true).unwrap();
++        assert!(child.request.is_none());
++        assert_eq!(child.tape.len(), 3);
++    }
++
++    #[test]
++    fn no_offer_replays_only_the_original_cut() {
++        let mut parent = seed(4);
++        parent.tape = vec![4; 12].into();
++        let mut corpus = Corpus::new();
++        corpus.admit(parent);
++        assert_eq!(corpus.live_words(), (3, 3));
++        let child = corpus.next_child(true).unwrap();
++        assert_eq!(&*child.tape, &[4, 4, 4]);
++        assert!(child.request.is_none());
++        assert!(child.offers.is_empty());
++        assert_eq!(child.parent_run_id, 4);
++        assert_eq!(child.child_index, 0);
++    }
++
++    #[test]
++    fn plan_children_share_the_budget_without_retaining_a_tape() {
++        let mut corpus = Corpus::new();
++        corpus.admit(seed(9));
++        for index in 0..CHILDREN_PER_PARENT {
++            let prefix = index % 2 == 1;
++            let child = corpus.next_child(prefix).unwrap();
++            assert_eq!(child.child_index, index);
++            assert_eq!(child.tape.len(), if prefix { 3 } else { 0 });
++            assert!(child.request.is_none());
++        }
++        assert!(corpus.next_child(true).is_none());
++        assert_eq!(corpus.live_words(), (0, 0));
++    }
++
++    #[test]
++    fn live_words_excludes_evicted_parents() {
++        let mut corpus = Corpus::new();
++        for index in 0..CAPACITY + 1 {
++            let mut parent = seed(index as u64);
++            parent.original_cut_words = if index == 0 { 1 } else { 3 };
++            corpus.admit(parent);
++        }
++        assert_eq!(corpus.live_words(), (CAPACITY * 3, CAPACITY * 3));
++    }
++
+     #[test]
+     fn the_ring_drops_its_oldest_parent_at_capacity() {
+         let mut c = Corpus::new();
+@@ -185,7 +389,7 @@ mod tests {
+             c.admit(seed(i));
+         }
+         assert_eq!(c.len(), CAPACITY);
+-        let first = c.next_child().expect("a full ring");
++        let first = c.next_child(true).expect("a full ring");
+         assert_eq!(first.cfg, 3, "the three oldest parents were dropped");
+     }
+ 
+@@ -196,10 +400,16 @@ mod tests {
+         c.admit(seed(2));
+         c.admit(seed(3));
+         for _ in 0..(3 * (CHILDREN_PER_PARENT - 1)) {
+-            c.next_child();
++            c.next_child(true);
+         }
+-        let tail: Vec<u64> = std::iter::from_fn(|| c.next_child()).map(|s| s.cfg).collect();
+-        assert_eq!(tail, vec![1, 2, 3], "each parent seeds exactly one more child");
++        let tail: Vec<u64> = std::iter::from_fn(|| c.next_child(true))
++            .map(|s| s.cfg)
++            .collect();
++        assert_eq!(
++            tail,
++            vec![1, 2, 3],
++            "each parent seeds exactly one more child"
++        );
+     }
+ 
+     #[test]
+@@ -212,8 +422,7 @@ mod tests {
+             let prefix = is_prefix(id);
+             assert_eq!(slot, is_slot(id), "id {id}: the slot changed between reads");
+             assert!(!prefix || slot, "id {id}: a prefix child outside a slot");
+-            if run_cap::is_probe(id)
+-                || timer_context::run_mode(id) == timer_context::RunMode::Probe
++            if run_cap::is_probe(id) || timer_context::run_mode(id) == timer_context::RunMode::Probe
+             {
+                 assert!(!slot, "id {id}: a probe is a slot");
+             }
+diff --git a/spur-core/src/simulator/replay_frontier.rs b/spur-core/src/simulator/replay_frontier.rs
+new file mode 100644
+index 0000000..03e325c
+--- /dev/null
++++ b/spur-core/src/simulator/replay_frontier.rs
+@@ -0,0 +1,474 @@
++use crate::simulator::core::state::{NodeId, State};
++use crate::simulator::hash_utils::HashPolicy;
++use crate::simulator::rng::splitmix;
++use serde::Serialize;
++use std::hash::{Hash, Hasher};
++
++pub const MAX_OFFERS: usize = 8;
++pub const WINDOW: usize = 8;
++pub const MAX_DIAGNOSTICS: usize = 4096;
++
++pub fn parent_header_bytes() -> usize {
++    std::mem::size_of::<(
++        i64,
++        usize,
++        Vec<Offer>,
++        Option<Offer>,
++        u32,
++        u32,
++        u8,
++        std::sync::Arc<std::sync::atomic::AtomicU8>,
++    )>() + 3 * std::mem::size_of::<usize>()
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
++pub struct EventKey {
++    pub kind: u8,
++    pub node: NodeId,
++    pub origin: NodeId,
++    pub incarnation: u32,
++    pub ordinal: u32,
++    pub pc: usize,
++    pub entry_pc: usize,
++    pub link: Option<(usize, u32)>,
++}
++
++#[derive(Clone, Debug, Serialize)]
++pub struct NodeWindow {
++    pub node: NodeId,
++    pub before: u64,
++    pub deltas: [i128; WINDOW],
++    pub first_touch: u8,
++}
++
++#[derive(Clone, Debug, Default, Serialize)]
++pub struct WriteWindow {
++    pub nodes: Vec<NodeWindow>,
++    pub steps: u8,
++}
++
++impl WriteWindow {
++    pub fn new<H: HashPolicy>(state: &State<H>, node_id: impl Fn(usize) -> NodeId) -> Self {
++        Self {
++            nodes: state
++                .nodes
++                .iter()
++                .enumerate()
++                .map(|(i, env)| NodeWindow {
++                    node: node_id(i),
++                    before: env.writes,
++                    deltas: [0; WINDOW],
++                    first_touch: u8::MAX,
++                })
++                .collect(),
++            steps: 0,
++        }
++    }
++
++    pub fn observe<H: HashPolicy>(&mut self, state: &State<H>, touched: Option<NodeId>) {
++        if usize::from(self.steps) >= WINDOW {
++            return;
++        }
++        for n in &mut self.nodes {
++            if touched == Some(n.node) && n.first_touch == u8::MAX {
++                n.first_touch = self.steps;
++            }
++            n.deltas[usize::from(self.steps)] =
++                i128::from(state.node_state_token(n.node)) - i128::from(n.before);
++        }
++        self.steps += 1;
++    }
++
++    pub fn owned_bytes(&self) -> usize {
++        self.nodes.capacity() * std::mem::size_of::<NodeWindow>()
++    }
++}
++
++#[derive(Clone, Debug, Serialize)]
++pub struct Offer {
++    pub tape_pos: usize,
++    pub step: i32,
++    pub selected: EventKey,
++    pub alternative: EventKey,
++    pub rank: u64,
++    pub reference: WriteWindow,
++}
++
++impl Offer {
++    pub fn pair(&self) -> [EventKey; 2] {
++        ordered_pair(self.selected, self.alternative)
++    }
++    pub fn owned_bytes(&self) -> usize {
++        std::mem::size_of::<Self>() + self.reference.owned_bytes()
++    }
++}
++
++pub fn ordered_pair(a: EventKey, b: EventKey) -> [EventKey; 2] {
++    if a < b { [a, b] } else { [b, a] }
++}
++
++pub fn private_hash<T: Hash>(seed: u64, value: &T) -> u64 {
++    let mut h = rustc_hash::FxHasher::default();
++    value.hash(&mut h);
++    splitmix(seed ^ h.finish())
++}
++
++#[derive(Clone, Copy, Debug, Default, Serialize, PartialEq, Eq)]
++#[serde(rename_all = "snake_case")]
++pub enum RequestOutcome {
++    #[default]
++    Unencountered,
++    PassedBoundary,
++    Missing,
++    Ambiguous,
++    Ineligible,
++    AlreadyChosen,
++    Applied,
++}
++
++#[derive(Clone, Debug)]
++pub struct Request {
++    pub offer_index: u8,
++    pub applied_pairs: std::sync::Arc<std::sync::atomic::AtomicU8>,
++    pub parent_run_id: i64,
++    pub child_index: u32,
++    pub offer: Offer,
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct RunState {
++    pub capture: bool,
++    pub filled_prefix: bool,
++    pub server_nodes: usize,
++    pub server_role: Option<crate::analysis::resolver::NameId>,
++    pub client_role: Option<crate::analysis::resolver::NameId>,
++    pub seed: u64,
++    pub offers: Vec<Offer>,
++    pub request: Option<Request>,
++    pub attempted: bool,
++    pub outcome: RequestOutcome,
++    pub child_window: Option<WriteWindow>,
++    pub effective_cap: i32,
++    pub remaining_cap: i32,
++    pub stock_mismatch: bool,
++    pub stock_event: Option<EventKey>,
++    pub final_event: Option<EventKey>,
++    pub stock_queue: u8,
++    pub final_queue: u8,
++    pub touched: Option<NodeId>,
++    pub proposed: u64,
++    pub duplicates: u64,
++    pub evicted: u64,
++    pub metadata_peak: usize,
++}
++
++impl RunState {
++    pub fn node_id(&self, index: usize) -> NodeId {
++        NodeId {
++            role: if index < self.server_nodes {
++                self.server_role
++            } else {
++                self.client_role
++            }
++            .expect("frontier role identity"),
++            index,
++        }
++    }
++    pub fn observe<H: HashPolicy>(&mut self, state: &State<H>) {
++        let servers = self.server_nodes;
++        let server_role = self.server_role;
++        let client_role = self.client_role;
++        let node_id = |index| NodeId {
++            role: if index < servers {
++                server_role
++            } else {
++                client_role
++            }
++            .expect("frontier role identity"),
++            index,
++        };
++        for window in self
++            .offers
++            .iter_mut()
++            .map(|o| &mut o.reference)
++            .chain(self.child_window.iter_mut())
++        {
++            if window.steps < WINDOW as u8 {
++                if state.nodes.len() > window.nodes.len() {
++                    window
++                        .nodes
++                        .reserve_exact(state.nodes.len() - window.nodes.len());
++                    for i in window.nodes.len()..state.nodes.len() {
++                        window.nodes.push(NodeWindow {
++                            node: node_id(i),
++                            before: 0,
++                            deltas: [0; WINDOW],
++                            first_touch: u8::MAX,
++                        });
++                    }
++                }
++                window.observe(state, self.touched);
++            }
++        }
++        self.metadata_peak = self.metadata_peak.max(self.owned_bytes());
++    }
++
++    pub fn wants_capture(&self) -> bool {
++        self.capture
++    }
++    pub fn retain(&mut self, offer: Offer) {
++        self.proposed += 1;
++        if self.offers.iter().any(|o| o.pair() == offer.pair()) {
++            self.duplicates += 1;
++            return;
++        }
++        if self.offers.capacity() == 0 {
++            self.offers = Vec::with_capacity(MAX_OFFERS);
++        }
++        if self.offers.len() < MAX_OFFERS {
++            self.offers.push(offer);
++        } else {
++            let (idx, worst) = self
++                .offers
++                .iter()
++                .enumerate()
++                .max_by_key(|(_, o)| (o.rank, o.pair()))
++                .unwrap();
++            if (offer.rank, offer.pair()) < (worst.rank, worst.pair()) {
++                self.offers[idx] = offer;
++                self.evicted += 1;
++            }
++        }
++        self.metadata_peak = self.metadata_peak.max(self.owned_bytes());
++    }
++    pub fn owned_bytes(&self) -> usize {
++        std::mem::size_of::<Self>()
++            + self.offers.capacity() * std::mem::size_of::<Offer>()
++            + self
++                .offers
++                .iter()
++                .map(|o| o.reference.owned_bytes())
++                .sum::<usize>()
++            + self
++                .request
++                .as_ref()
++                .map_or(0, |r| r.offer.reference.owned_bytes())
++            + self
++                .child_window
++                .as_ref()
++                .map_or(0, WriteWindow::owned_bytes)
++    }
++}
++
++#[derive(Clone, Debug, Serialize)]
++pub struct ChildDiagnostic {
++    pub run_id: i64,
++    pub child_index: u32,
++    pub pair: [EventKey; 2],
++    pub requested_position: usize,
++    pub parent_selected: EventKey,
++    pub requested_alternative: EventKey,
++    pub outcome: RequestOutcome,
++    pub stock_mismatch: bool,
++    pub stock_event: Option<EventKey>,
++    pub final_event: Option<EventKey>,
++    pub stock_queue: u8,
++    pub final_queue: u8,
++    pub remaining_cap: i32,
++    pub parent_steps: u8,
++    pub child_steps: u8,
++    pub common_node: Option<NodeId>,
++    pub parent_deltas: Option<[i128; WINDOW]>,
++    pub child_deltas: Option<[i128; WINDOW]>,
++    pub divergent: bool,
++}
++
++pub fn diagnostic(run_id: i64, state: &RunState) -> Option<ChildDiagnostic> {
++    let r = state.request.as_ref()?;
++    let parent = &r.offer.reference;
++    let child = state.child_window.as_ref();
++    let common = child.and_then(|child| {
++        parent
++            .nodes
++            .iter()
++            .filter(|p| p.first_touch != u8::MAX)
++            .filter_map(|p| {
++                child
++                    .nodes
++                    .iter()
++                    .find(|c| c.node == p.node && c.first_touch != u8::MAX)
++                    .map(|c| (p, c))
++            })
++            .min_by_key(|(p, _)| (p.first_touch, p.node))
++    });
++    let complete = parent.steps == WINDOW as u8 && child.is_some_and(|c| c.steps == WINDOW as u8);
++    Some(ChildDiagnostic {
++        run_id,
++        child_index: r.child_index,
++        pair: r.offer.pair(),
++        requested_position: r.offer.tape_pos,
++        parent_selected: r.offer.selected,
++        requested_alternative: r.offer.alternative,
++        stock_event: state.stock_event,
++        final_event: state.final_event,
++        outcome: state.outcome,
++        stock_mismatch: state.stock_mismatch,
++        stock_queue: state.stock_queue,
++        final_queue: state.final_queue,
++        remaining_cap: state.remaining_cap,
++        parent_steps: parent.steps,
++        child_steps: child.map_or(0, |c| c.steps),
++        common_node: common.map(|(p, _)| p.node),
++        parent_deltas: common.map(|(p, _)| p.deltas),
++        child_deltas: common.map(|(_, c)| c.deltas),
++        divergent: complete && common.is_some_and(|(p, c)| p.deltas != c.deltas),
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn metadata_has_a_bounded_node_cost() {
++        assert!(std::mem::size_of::<Offer>() <= 512);
++        assert!(std::mem::size_of::<NodeWindow>() <= 192);
++    }
++    fn key(ordinal: u32) -> EventKey {
++        let node = NodeId {
++            role: crate::analysis::resolver::NameId(3),
++            index: 0,
++        };
++        EventKey {
++            kind: 0,
++            node,
++            origin: node,
++            incarnation: 0,
++            ordinal,
++            pc: 0,
++            entry_pc: 0,
++            link: None,
++        }
++    }
++
++    #[test]
++    fn write_windows_preserve_resets_and_new_node_role_identity() {
++        use crate::simulator::hash_utils::NoHashing;
++        let server = crate::analysis::resolver::NameId(3);
++        let client = crate::analysis::resolver::NameId(7);
++        let mut state = State::<NoHashing>::new(&[(server, 1)], 1);
++        state.nodes[0].writes = 20;
++        let mut run = RunState {
++            server_nodes: 1,
++            server_role: Some(server),
++            client_role: Some(client),
++            ..Default::default()
++        };
++        run.child_window = Some(WriteWindow::new(&state, |i| run.node_id(i)));
++        state.nodes[0].writes = 24;
++        run.touched = Some(run.node_id(0));
++        run.observe(&state);
++        state.nodes[0].writes = 2;
++        state
++            .nodes
++            .push(crate::simulator::core::values::Env::with_slots(1));
++        state.nodes[1].writes = 3;
++        run.touched = Some(run.node_id(1));
++        run.observe(&state);
++        let window = run.child_window.unwrap();
++        assert_eq!(&window.nodes[0].deltas[..2], &[4, -18]);
++        assert_eq!(window.nodes[1].node.role, client);
++        assert_eq!(&window.nodes[1].deltas[..2], &[0, 3]);
++        assert_eq!(window.nodes[1].first_touch, 1);
++        assert!(window.owned_bytes() <= 192 * state.nodes.len());
++    }
++
++    #[test]
++    fn comparison_uses_parent_touch_order_and_censors_short_windows() {
++        let a = key(0).node;
++        let b = NodeId { index: 1, ..a };
++        let node_window = |node, first_touch, delta| NodeWindow {
++            node,
++            before: 100,
++            deltas: [delta; WINDOW],
++            first_touch,
++        };
++        let parent = WriteWindow {
++            nodes: vec![node_window(b, 2, 7), node_window(a, 0, 4)],
++            steps: 8,
++        };
++        let child = WriteWindow {
++            nodes: vec![node_window(b, 0, 7), node_window(a, 4, 5)],
++            steps: 8,
++        };
++        let mut run = RunState {
++            outcome: RequestOutcome::Applied,
++            child_window: Some(child),
++            request: Some(Request {
++                offer_index: 0,
++                applied_pairs: Default::default(),
++                parent_run_id: 1,
++                child_index: 1,
++                offer: Offer {
++                    tape_pos: 1,
++                    step: 0,
++                    selected: key(0),
++                    alternative: key(1),
++                    rank: 0,
++                    reference: parent,
++                },
++            }),
++            ..Default::default()
++        };
++        let d = diagnostic(2, &run).unwrap();
++        assert_eq!(d.common_node, Some(a));
++        assert!(d.divergent);
++        run.child_window.as_mut().unwrap().steps = 7;
++        assert!(!diagnostic(2, &run).unwrap().divergent);
++        run.child_window
++            .as_mut()
++            .unwrap()
++            .nodes
++            .iter_mut()
++            .for_each(|n| n.first_touch = u8::MAX);
++        assert!(diagnostic(2, &run).unwrap().common_node.is_none());
++    }
++
++    #[test]
++    fn stable_pair_priorities_keep_distinct_offers_without_a_seen_table() {
++        let mut run = RunState::default();
++        for ordinal in (1..50).chain(1..50) {
++            let selected = key(0);
++            let alternative = key(ordinal);
++            let rank = private_hash(9, &ordered_pair(selected, alternative));
++            run.retain(Offer {
++                tape_pos: ordinal as usize,
++                step: 0,
++                selected,
++                alternative,
++                rank,
++                reference: WriteWindow::default(),
++            });
++        }
++        assert_eq!(run.offers.len(), MAX_OFFERS);
++        let mut expected: Vec<_> = (1..50)
++            .map(|i| (private_hash(9, &ordered_pair(key(0), key(i))), i))
++            .collect();
++        expected.sort_unstable();
++        for offer in &run.offers {
++            assert!(
++                expected[..MAX_OFFERS]
++                    .iter()
++                    .any(|(rank, i)| *rank == offer.rank && *i == offer.alternative.ordinal)
++            );
++        }
++        for offer in &run.offers {
++            assert_eq!(
++                run.offers
++                    .iter()
++                    .filter(|o| o.pair() == offer.pair())
++                    .count(),
++                1
++            );
++        }
++    }
++}
+diff --git a/spur-core/src/simulator/rng.rs b/spur-core/src/simulator/rng.rs
+index f068c09..bbf05c3 100644
+--- a/spur-core/src/simulator/rng.rs
++++ b/spur-core/src/simulator/rng.rs
+@@ -138,6 +138,13 @@ pub trait StreamRng: RngCore {
+     fn position(&self) -> Option<usize> {
+         None
+     }
++
++    /// Consumed source words and source length. At exhaustion, `position`
++    /// distinguishes the exact boundary from later fallback draws.
++    #[inline]
++    fn replay_position(&self) -> Option<(usize, usize)> {
++        None
++    }
+ }
+ 
+ impl StreamRng for SmallRng {}
+@@ -169,6 +176,10 @@ pub trait RngSource: 'static + Send {
+     fn position(_tape: &Self::Tape) -> Option<usize> {
+         None
+     }
++    /// Consumed replay source words and source length, excluding fallback.
++    fn replay_position(_tape: &Self::Tape) -> Option<(usize, usize)> {
++        None
++    }
+ }
+ 
+ /// A `RngCore` newtype over an `RngSource`, so every threaded `&mut impl Rng`
+@@ -187,6 +198,10 @@ impl<S: RngSource> StreamRng for RecRng<'_, S> {
+     fn position(&self) -> Option<usize> {
+         S::position(self.tape)
+     }
++    #[inline]
++    fn replay_position(&self) -> Option<(usize, usize)> {
++        S::replay_position(self.tape)
++    }
+ }
+ 
+ impl<S: RngSource> RngCore for RecRng<'_, S> {
+@@ -293,6 +308,10 @@ impl RngSource for ReplayRng {
+     fn position(tape: &ReplayTape) -> Option<usize> {
+         Some(tape.out.len())
+     }
++    #[inline]
++    fn replay_position(tape: &ReplayTape) -> Option<(usize, usize)> {
++        Some((tape.pos, tape.src.len()))
++    }
+ }
+ 
+ /// Controlled deviation: clone the recording and replace `k` random
+@@ -407,7 +426,11 @@ mod tests {
+             inner: &mut inner,
+         };
+         live.next_u64();
+-        assert_eq!(live.position(), None, "a live source records nothing to cut");
++        assert_eq!(
++            live.position(),
++            None,
++            "a live source records nothing to cut"
++        );
+         assert_eq!(SmallRng::seed_from_u64(1).position(), None);
+ 
+         let mut inner = StreamSet::new(5, true);
+@@ -421,7 +444,11 @@ mod tests {
+         rec.use_stream(Stream::SendDelay);
+         rec.next_u32();
+         rec.fill_bytes(&mut [0u8; 12]);
+-        assert_eq!(rec.position(), Some(4), "one u64, one u32 and two words of bytes");
++        assert_eq!(
++            rec.position(),
++            Some(4),
++            "one u64, one u32 and two words of bytes"
++        );
+         let cut = rec.position().unwrap();
+         assert_eq!(RecordRng::into_recording(tape).unwrap().len(), cut);
+ 
+@@ -435,7 +462,58 @@ mod tests {
+         for _ in 0..5 {
+             rep.next_u64();
+         }
+-        assert_eq!(rep.position(), Some(5), "replayed and fallback draws both count");
++        assert_eq!(
++            rep.position(),
++            Some(5),
++            "replayed and fallback draws both count"
++        );
++    }
++
++    #[test]
++    fn replay_position_separates_source_consumption_from_effective_draws() {
++        let mut inner = StreamSet::new(5, true);
++        let mut tape = ReplayRng::new_tape(Some(vec![11, 22, 33, 44].into()));
++        let mut rng = RecRng::<ReplayRng> {
++            tape: &mut tape,
++            inner: &mut inner,
++        };
++        assert_eq!(rng.replay_position(), Some((0, 4)));
++        assert_eq!(rng.next_u32(), 11);
++        rng.use_stream(Stream::WithinQueue);
++        assert_eq!(rng.next_u64(), 22);
++        let mut bytes = [0; 9];
++        rng.fill_bytes(&mut bytes);
++        assert_eq!(&bytes[..8], &33u64.to_le_bytes());
++        assert_eq!(bytes[8], 44);
++        assert_eq!(rng.position(), Some(4));
++        assert_eq!(rng.replay_position(), Some((4, 4)));
++        rng.use_stream(Stream::SendDelay);
++        rng.next_u32();
++        assert_eq!(rng.position(), Some(5));
++        assert_eq!(rng.replay_position(), Some((4, 4)));
++        rng.fill_bytes(&mut []);
++        assert_eq!(rng.position(), Some(5));
++        rng.fill_bytes(&mut [0; 9]);
++        assert_eq!(rng.position(), Some(7));
++        assert_eq!(rng.replay_position(), Some((4, 4)));
++    }
++
++    #[test]
++    fn replay_position_handles_empty_sources_and_non_replay_sources() {
++        let mut inner = StreamSet::new(5, false);
++        let mut tape = ReplayRng::new_tape(None);
++        let mut rng = RecRng::<ReplayRng> {
++            tape: &mut tape,
++            inner: &mut inner,
++        };
++        assert_eq!(rng.position(), Some(0));
++        assert_eq!(rng.replay_position(), Some((0, 0)));
++        rng.next_u64();
++        assert_eq!(rng.position(), Some(1));
++        assert_eq!(rng.replay_position(), Some((0, 0)));
++        assert_eq!(LiveRng::replay_position(&()), None);
++        assert_eq!(RecordRng::replay_position(&vec![1, 2]), None);
++        assert_eq!(SmallRng::seed_from_u64(1).replay_position(), None);
+     }
+ 
+     #[test]
+@@ -521,6 +599,9 @@ mod tests {
+         let w = derive_seed(0, 5, WORKLOAD_SALT);
+         let s = derive_seed(0, 5, SCHEDULE_SALT);
+         assert_ne!(w, s, "workload and schedule seeds must differ");
+-        assert_ne!(derive_seed(0, 5, SCHEDULE_SALT), derive_seed(0, 6, SCHEDULE_SALT));
++        assert_ne!(
++            derive_seed(0, 5, SCHEDULE_SALT),
++            derive_seed(0, 6, SCHEDULE_SALT)
++        );
+     }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..d2c1331 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -602,6 +602,7 @@ const TIMELINE_MAX_BUCKETS: usize = 512;
+ /// counters so repeated sessions in one process don't bleed into each other.
+ pub fn set_enabled(on: bool) {
+     if on {
++        *REPLAY_FRONTIER.lock().unwrap_or_else(|p| p.into_inner()) = FrontierState::default();
+         for c in [
+             &STEER_EVALUATIONS,
+             &STEER_DIVERGENT_PICKS,
+@@ -4950,6 +4951,321 @@ impl ReplayStats {
+     }
+ }
+ 
++
++#[derive(Clone, Debug, Default, Serialize)]
++pub struct FrontierCounters {
++    pub parents: u64,
++    pub signal_cut_parents: u64,
++    pub parents_with_offer: u64,
++    pub filled_prefix_children: u64,
++    pub assigned_requests: u64,
++    pub proposed: u64,
++    pub duplicates: u64,
++    pub evicted: u64,
++    pub applied_runs: u64,
++    pub applied_pair_repeats: u64,
++    pub passed_boundary: u64,
++    pub missing: u64,
++    pub ambiguous: u64,
++    pub ineligible: u64,
++    pub already_chosen: u64,
++    pub unencountered: u64,
++    pub stock_mismatch: u64,
++    pub complete_windows: u64,
++    pub no_common_node: u64,
++    pub censored_runs: u64,
++    pub divergent_runs: u64,
++    pub usable_suffix_runs: u64,
++    pub child_steps_sum: u64,
++    pub parent_steps_sum: u64,
++    pub cumulative_retained_words: u64,
++    pub cumulative_original_cut_words: u64,
++    pub max_offers_per_parent: u64,
++    pub max_metadata_bytes_per_parent: u64,
++    pub max_offer_owned_bytes: u64,
++    pub max_parent_nodes: u64,
++    pub max_in_progress_bytes_per_run: u64,
++    pub peak_live_retained_words: u64,
++    pub peak_live_original_cut_words: u64,
++    pub actual_live_retained_words: u64,
++    pub actual_live_original_cut_words: u64,
++    pub remaining_cap_hist: [u64; 6],
++}
++
++#[derive(Clone, Debug, Serialize)]
++pub struct FrontierArmStats {
++    pub arm_index: i32,
++    #[serde(flatten)]
++    pub counters: FrontierCounters,
++}
++
++#[derive(Clone, Debug, Serialize)]
++pub struct FrontierParentDiagnostic {
++    pub parent_run_id: i64,
++    pub arm_index: i32,
++    pub offer_count: usize,
++    pub original_words: usize,
++    pub retained_words: usize,
++    pub metadata_bytes: usize,
++    pub max_nodes: usize,
++    pub max_offer_owned_bytes: usize,
++    pub children: Vec<crate::simulator::replay_frontier::ChildDiagnostic>,
++}
++
++#[derive(Clone, Debug, Default, Serialize)]
++pub struct FrontierStats {
++    #[serde(flatten)]
++    pub totals: FrontierCounters,
++    pub by_arm: Vec<FrontierArmStats>,
++    pub parent_diagnostics: Vec<FrontierParentDiagnostic>,
++    pub retained_parent_rows: u64,
++    pub dropped_parent_rows: u64,
++    pub dropped_child_rows: u64,
++    pub diagnostic_applied_children: u64,
++    pub diagnostic_repeated_applied_pairs: u64,
++}
++
++#[derive(Default)]
++struct FrontierState {
++    totals: FrontierCounters,
++    by_arm: std::collections::BTreeMap<i32, FrontierCounters>,
++    parents: std::collections::BTreeMap<(i32, i64), FrontierParentDiagnostic>,
++    dropped_parent_rows: u64,
++    dropped_child_rows: u64,
++    diagnostic_applied_children: u64,
++    diagnostic_repeated_applied_pairs: u64,
++}
++
++impl FrontierState {
++    fn update(&mut self, arm: i32, f: impl Fn(&mut FrontierCounters)) {
++        f(&mut self.totals);
++        f(self.by_arm.entry(arm).or_default());
++    }
++
++    fn snapshot(&self) -> FrontierStats {
++        FrontierStats {
++            totals: self.totals.clone(),
++            by_arm: self
++                .by_arm
++                .iter()
++                .map(|(&arm_index, counters)| FrontierArmStats {
++                    arm_index,
++                    counters: counters.clone(),
++                })
++                .collect(),
++            parent_diagnostics: self.parents.values().cloned().collect(),
++            retained_parent_rows: self.parents.len() as u64,
++            dropped_parent_rows: self.dropped_parent_rows,
++            dropped_child_rows: self.dropped_child_rows,
++            diagnostic_applied_children: self.diagnostic_applied_children,
++            diagnostic_repeated_applied_pairs: self.diagnostic_repeated_applied_pairs,
++        }
++    }
++
++    fn record_run(
++        &mut self,
++        run_id: i64,
++        arm: i32,
++        state: &crate::simulator::replay_frontier::RunState,
++    ) {
++        use crate::simulator::replay_frontier::{self, RequestOutcome, WINDOW};
++        let diagnostic = replay_frontier::diagnostic(run_id, state);
++        let repeated = state.outcome == RequestOutcome::Applied
++            && state.request.as_ref().is_some_and(|request| {
++                let bit = 1u8 << request.offer_index;
++                request.applied_pairs.fetch_or(bit, Ordering::Relaxed) & bit != 0
++            });
++        self.update(arm, |c| {
++            c.filled_prefix_children += u64::from(state.filled_prefix);
++            c.applied_pair_repeats += u64::from(repeated);
++            c.proposed += state.proposed;
++            c.duplicates += state.duplicates;
++            c.evicted += state.evicted;
++            c.max_in_progress_bytes_per_run = c
++                .max_in_progress_bytes_per_run
++                .max(state.metadata_peak.max(state.owned_bytes()) as u64);
++            if let Some(d) = diagnostic.as_ref() {
++                c.assigned_requests += 1;
++                c.stock_mismatch += u64::from(d.stock_mismatch);
++                match d.outcome {
++                    RequestOutcome::Applied => c.applied_runs += 1,
++                    RequestOutcome::PassedBoundary => c.passed_boundary += 1,
++                    RequestOutcome::Missing => c.missing += 1,
++                    RequestOutcome::Ambiguous => c.ambiguous += 1,
++                    RequestOutcome::Ineligible => c.ineligible += 1,
++                    RequestOutcome::AlreadyChosen => c.already_chosen += 1,
++                    RequestOutcome::Unencountered => c.unencountered += 1,
++                }
++                if d.outcome == RequestOutcome::Applied {
++                    let complete = usize::from(d.parent_steps) == WINDOW
++                        && usize::from(d.child_steps) == WINDOW;
++                    c.complete_windows += u64::from(complete);
++                    c.no_common_node += u64::from(d.common_node.is_none());
++                    c.censored_runs += u64::from(!complete || d.common_node.is_none());
++                    c.divergent_runs += u64::from(d.divergent);
++                    c.usable_suffix_runs +=
++                        u64::from(d.remaining_cap >= 32 && usize::from(d.child_steps) >= WINDOW);
++                    c.child_steps_sum += u64::from(d.child_steps);
++                    c.parent_steps_sum += u64::from(d.parent_steps);
++                    let bin = match d.remaining_cap {
++                        ..=-1 => 0,
++                        0..=7 => 1,
++                        8..=31 => 2,
++                        32..=63 => 3,
++                        64..=127 => 4,
++                        _ => 5,
++                    };
++                    c.remaining_cap_hist[bin] += 1;
++                }
++            }
++        });
++        if let (Some(request), Some(diagnostic)) = (state.request.as_ref(), diagnostic) {
++            let Some(parent) = self.parents.get_mut(&(arm, request.parent_run_id)) else {
++                self.dropped_child_rows += 1;
++                return;
++            };
++            if parent.children.len()
++                >= crate::simulator::replay_corpus::CHILDREN_PER_PARENT as usize
++            {
++                self.dropped_child_rows += 1;
++                return;
++            }
++            if diagnostic.outcome == RequestOutcome::Applied {
++                self.diagnostic_applied_children += 1;
++                self.diagnostic_repeated_applied_pairs +=
++                    u64::from(parent.children.iter().any(|d| {
++                        d.outcome == RequestOutcome::Applied && d.pair == diagnostic.pair
++                    }));
++            }
++            parent.children.push(diagnostic);
++        }
++    }
++
++    fn record_parent(
++        &mut self,
++        run_id: i64,
++        arm: i32,
++        offers: &[crate::simulator::replay_frontier::Offer],
++        original: usize,
++        retained: usize,
++        metadata_bytes: usize,
++    ) {
++        let max_offer_bytes = offers.iter().map(|o| o.owned_bytes()).max().unwrap_or(0);
++        let max_nodes = offers
++            .iter()
++            .map(|o| o.reference.nodes.len())
++            .max()
++            .unwrap_or(0);
++        self.update(arm, |c| {
++            c.parents += 1;
++            c.signal_cut_parents += 1;
++            c.parents_with_offer += u64::from(!offers.is_empty());
++            c.cumulative_retained_words += retained as u64;
++            c.cumulative_original_cut_words += original as u64;
++            c.max_offers_per_parent = c.max_offers_per_parent.max(offers.len() as u64);
++            c.max_metadata_bytes_per_parent =
++                c.max_metadata_bytes_per_parent.max(metadata_bytes as u64);
++            c.max_offer_owned_bytes = c.max_offer_owned_bytes.max(max_offer_bytes as u64);
++            c.max_parent_nodes = c.max_parent_nodes.max(max_nodes as u64);
++        });
++        if self.parents.len() < crate::simulator::replay_frontier::MAX_DIAGNOSTICS {
++            self.parents.insert(
++                (arm, run_id),
++                FrontierParentDiagnostic {
++                    parent_run_id: run_id,
++                    arm_index: arm,
++                    offer_count: offers.len(),
++                    original_words: original,
++                    retained_words: retained,
++                    metadata_bytes,
++                    max_nodes,
++                    max_offer_owned_bytes: max_offer_bytes,
++                    children: Vec::new(),
++                },
++            );
++        } else {
++            self.dropped_parent_rows += 1;
++        }
++    }
++
++    fn record_live(&mut self, arm: i32, retained: usize, original: usize) {
++        let c = self.by_arm.entry(arm).or_default();
++        c.actual_live_retained_words = retained as u64;
++        c.actual_live_original_cut_words = original as u64;
++        c.peak_live_retained_words = c.peak_live_retained_words.max(retained as u64);
++        c.peak_live_original_cut_words = c.peak_live_original_cut_words.max(original as u64);
++        self.totals.actual_live_retained_words = self
++            .by_arm
++            .values()
++            .map(|c| c.actual_live_retained_words)
++            .sum();
++        self.totals.actual_live_original_cut_words = self
++            .by_arm
++            .values()
++            .map(|c| c.actual_live_original_cut_words)
++            .sum();
++        self.totals.peak_live_retained_words = self
++            .totals
++            .peak_live_retained_words
++            .max(self.totals.actual_live_retained_words);
++        self.totals.peak_live_original_cut_words = self
++            .totals
++            .peak_live_original_cut_words
++            .max(self.totals.actual_live_original_cut_words);
++    }
++}
++
++static REPLAY_FRONTIER: LazyLock<Mutex<FrontierState>> =
++    LazyLock::new(|| Mutex::new(FrontierState::default()));
++
++pub fn record_frontier_run(
++    run_id: i64,
++    arm_index: i32,
++    state: &crate::simulator::replay_frontier::RunState,
++) {
++    if !enabled() {
++        return;
++    }
++    REPLAY_FRONTIER
++        .lock()
++        .unwrap_or_else(|p| p.into_inner())
++        .record_run(run_id, arm_index, state);
++}
++
++pub fn record_frontier_parent(
++    run_id: i64,
++    arm_index: i32,
++    offers: &[crate::simulator::replay_frontier::Offer],
++    original_words: usize,
++    retained_words: usize,
++    metadata_bytes: usize,
++) {
++    if !enabled() {
++        return;
++    }
++    REPLAY_FRONTIER
++        .lock()
++        .unwrap_or_else(|p| p.into_inner())
++        .record_parent(
++            run_id,
++            arm_index,
++            offers,
++            original_words,
++            retained_words,
++            metadata_bytes,
++        );
++}
++
++pub fn record_frontier_live(arm_index: i32, retained: usize, original: usize) {
++    if !enabled() {
++        return;
++    }
++    REPLAY_FRONTIER
++        .lock()
++        .unwrap_or_else(|p| p.into_inner())
++        .record_live(arm_index, retained, original);
++}
++
+ /// The timer-context block: the learner's probe traffic, the steered rolls
+ /// that applied a learned multiplier, the rolls an unsupported selector
+ /// excluded, and a gauge of the cells currently engaged. `cells_engaged` is
+@@ -5017,6 +5333,7 @@ pub struct UtilizationSnapshot {
+     pub client_anchor: ClientAnchorStats,
+     pub arm_selector_axis: ArmSelectorAxisStats,
+     pub replay: ReplayStats,
++    pub replay_frontier: FrontierStats,
+     pub timer_context: TimerContextStats,
+     pub timeline_keys: TimelineKeyStats,
+     pub steer_terms: SteerTermStats,
+@@ -5215,6 +5532,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         client_anchor: ClientAnchorStats::read(),
+         arm_selector_axis: ArmSelectorAxisStats::read(),
+         replay: ReplayStats::read(),
++        replay_frontier: REPLAY_FRONTIER.lock().unwrap_or_else(|p| p.into_inner()).snapshot(),
+         timer_context: TimerContextStats::read(),
+         timeline_keys: TimelineKeyStats::read(),
+         steer_terms: SteerTermStats::read(),
+@@ -5226,6 +5544,189 @@ mod tests {
+     use super::*;
+     use crate::simulator::config_override;
+ 
++    fn frontier_run_fixture() -> crate::simulator::replay_frontier::RunState {
++        use crate::analysis::resolver::NameId;
++        use crate::simulator::core::state::NodeId;
++        use crate::simulator::replay_frontier::{
++            EventKey, NodeWindow, Offer, Request, RequestOutcome, RunState, WriteWindow,
++        };
++        let node = NodeId {
++            role: NameId(0),
++            index: 0,
++        };
++        let selected = EventKey {
++            kind: 0,
++            node,
++            origin: node,
++            incarnation: 1,
++            ordinal: 2,
++            pc: 3,
++            entry_pc: 4,
++            link: None,
++        };
++        let reference = WriteWindow {
++            nodes: vec![NodeWindow {
++                node,
++                before: 5,
++                deltas: [1; 8],
++                first_touch: 0,
++            }],
++            steps: 8,
++        };
++        let offer = Offer {
++            tape_pos: 20,
++            step: 10,
++            selected,
++            alternative: EventKey { pc: 5, ..selected },
++            rank: 6,
++            reference,
++        };
++        RunState {
++            filled_prefix: true,
++            request: Some(Request {
++                parent_run_id: 1,
++                child_index: 0,
++                offer_index: 0,
++                applied_pairs: Default::default(),
++                offer,
++            }),
++            outcome: RequestOutcome::Applied,
++            remaining_cap: 32,
++            child_window: Some(WriteWindow {
++                nodes: vec![NodeWindow {
++                    node,
++                    before: 100,
++                    deltas: [2; 8],
++                    first_touch: 0,
++                }],
++                steps: 8,
++            }),
++            ..RunState::default()
++        }
++    }
++
++    #[test]
++    fn frontier_censoring_and_missing_diagnostics_do_not_remove_applied_runs() {
++        let mut stats = FrontierState::default();
++        let mut run = frontier_run_fixture();
++        stats.record_parent(
++            1,
++            0,
++            &[run.request.as_ref().unwrap().offer.clone()],
++            10,
++            20,
++            700,
++        );
++        stats.record_run(2, 0, &run);
++        run.child_window.as_mut().unwrap().steps = 3;
++        stats.record_run(3, 0, &run);
++        run.request.as_mut().unwrap().parent_run_id = 999;
++        stats.record_run(4, 0, &run);
++        let c = &stats.totals;
++        assert_eq!(c.applied_runs, 3);
++        assert_eq!(c.filled_prefix_children, 3);
++        assert_eq!(c.assigned_requests, 3);
++        assert_eq!(c.complete_windows, 1);
++        assert_eq!(c.censored_runs, 2);
++        assert_eq!(c.divergent_runs, 1);
++        assert_eq!(c.usable_suffix_runs, 1);
++        assert_eq!(c.remaining_cap_hist, [0, 0, 0, 3, 0, 0]);
++        assert_eq!(stats.dropped_child_rows, 1);
++        assert_eq!(stats.diagnostic_applied_children, 2);
++        assert_eq!(stats.diagnostic_repeated_applied_pairs, 1);
++        assert_eq!(stats.by_arm[&0].applied_runs, 3);
++        run.request = None;
++        stats.record_run(5, 0, &run);
++        assert_eq!(stats.totals.filled_prefix_children, 4);
++        assert_eq!(stats.totals.assigned_requests, 3);
++        assert_eq!(stats.totals.applied_runs, 3);
++    }
++
++    #[test]
++    fn frontier_complete_windows_without_a_common_node_are_censored() {
++        let mut stats = FrontierState::default();
++        let mut run = frontier_run_fixture();
++        run.child_window.as_mut().unwrap().nodes[0].first_touch = u8::MAX;
++        stats.record_parent(
++            1,
++            0,
++            &[run.request.as_ref().unwrap().offer.clone()],
++            10,
++            20,
++            700,
++        );
++        stats.record_run(2, 0, &run);
++        assert_eq!(stats.totals.applied_runs, 1);
++        assert_eq!(stats.totals.complete_windows, 1);
++        assert_eq!(stats.totals.no_common_node, 1);
++        assert_eq!(stats.totals.censored_runs, 1);
++        assert_eq!(stats.totals.divergent_runs, 0);
++        assert_eq!(stats.totals.max_metadata_bytes_per_parent, 700);
++        assert_eq!(stats.parents[&(0, 1)].metadata_bytes, 700);
++        assert_eq!(stats.parents[&(0, 1)].max_nodes, 1);
++    }
++
++    #[test]
++    fn frontier_diagnostic_bounds_leave_aggregate_counts_complete() {
++        use crate::simulator::replay_frontier::MAX_DIAGNOSTICS;
++        let mut stats = FrontierState::default();
++        for id in 0..MAX_DIAGNOSTICS + 2 {
++            stats.record_parent(id as i64, 0, &[], 10, 12, 0);
++        }
++        assert_eq!(stats.parents.len(), MAX_DIAGNOSTICS);
++        assert_eq!(stats.dropped_parent_rows, 2);
++        assert_eq!(stats.totals.parents, (MAX_DIAGNOSTICS + 2) as u64);
++        let run = frontier_run_fixture();
++        for id in 0..10 {
++            stats.record_run(id, 0, &run);
++        }
++        assert_eq!(stats.parents[&(0, 1)].children.len(), 8);
++        assert_eq!(stats.dropped_child_rows, 2);
++        assert_eq!(stats.totals.applied_runs, 10);
++        assert_eq!(stats.diagnostic_applied_children, 8);
++        assert_eq!(stats.diagnostic_repeated_applied_pairs, 7);
++    }
++
++    #[test]
++    fn frontier_repeated_pairs_count_siblings_without_retained_diagnostics() {
++        use crate::simulator::replay_frontier::MAX_DIAGNOSTICS;
++        let mut stats = FrontierState::default();
++        for id in 0..MAX_DIAGNOSTICS {
++            stats.record_parent(id as i64, 0, &[], 10, 12, 0);
++        }
++        let mut first = frontier_run_fixture();
++        first.request.as_mut().unwrap().parent_run_id = MAX_DIAGNOSTICS as i64;
++        let mut sibling = frontier_run_fixture();
++        sibling.request = first.request.clone();
++        sibling.request.as_mut().unwrap().child_index = 1;
++        stats.record_parent(MAX_DIAGNOSTICS as i64, 0, &[], 10, 12, 0);
++        stats.record_run(100_000, 0, &first);
++        assert_eq!(stats.totals.applied_runs, 1);
++        assert_eq!(stats.totals.applied_pair_repeats, 0);
++        stats.record_run(100_001, 0, &sibling);
++        assert_eq!(stats.totals.applied_runs, 2);
++        assert_eq!(stats.totals.applied_pair_repeats, 1);
++        assert_eq!(stats.by_arm[&0].applied_pair_repeats, 1);
++        assert_eq!(stats.diagnostic_applied_children, 0);
++        assert_eq!(stats.diagnostic_repeated_applied_pairs, 0);
++        assert_eq!(stats.dropped_child_rows, 2);
++    }
++
++    #[test]
++    fn frontier_live_peak_is_the_simultaneous_sum_across_arms() {
++        let mut stats = FrontierState::default();
++        stats.record_live(0, 30, 10);
++        stats.record_live(1, 40, 20);
++        stats.record_live(0, 0, 0);
++        stats.record_live(1, 5, 4);
++        assert_eq!(stats.totals.peak_live_retained_words, 70);
++        assert_eq!(stats.totals.peak_live_original_cut_words, 30);
++        assert_eq!(stats.totals.actual_live_retained_words, 5);
++        assert_eq!(stats.totals.actual_live_original_cut_words, 4);
++        assert_eq!(stats.by_arm[&0].peak_live_retained_words, 30);
++        assert_eq!(stats.by_arm[&1].peak_live_retained_words, 40);
++    }
++
+     #[test]
+     fn pair_order_counters_land_on_their_half() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..2f4b500 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -13,6 +13,7 @@
+ 
+ use serde_json::{Map, Value};
+ use spur_core::simulator::util_stats::{
++    FrontierCounters, FrontierStats, FrontierArmStats, FrontierParentDiagnostic,
+     self, AcceptanceDistanceBucket, AcceptanceDistanceStats, ArmSelectorAxisStats, ArmSelectorExploreStats,
+     ArmSelectorLearnerStats, ArmSelectorPooledStats, ArmSelectorRewardStats, ClientAnchorArmRuns,
+     ClientAnchorAxisStats, ClientAnchorCensusStats, ClientAnchorDistance,
+@@ -1425,6 +1426,262 @@ fn client_anchor_leaves(prefix: &str, c: &ClientAnchorStats) -> Vec<(String, Val
+     out
+ }
+ 
++
++fn frontier_counters(m: &mut Marks) -> FrontierCounters {
++    FrontierCounters {
++        parents: m.int(),
++        signal_cut_parents: m.int(),
++        parents_with_offer: m.int(),
++        filled_prefix_children: m.int(),
++        assigned_requests: m.int(),
++        proposed: m.int(),
++        duplicates: m.int(),
++        evicted: m.int(),
++        applied_runs: m.int(),
++        applied_pair_repeats: m.int(),
++        passed_boundary: m.int(),
++        missing: m.int(),
++        ambiguous: m.int(),
++        ineligible: m.int(),
++        already_chosen: m.int(),
++        unencountered: m.int(),
++        stock_mismatch: m.int(),
++        complete_windows: m.int(),
++        no_common_node: m.int(),
++        censored_runs: m.int(),
++        divergent_runs: m.int(),
++        usable_suffix_runs: m.int(),
++        child_steps_sum: m.int(),
++        parent_steps_sum: m.int(),
++        cumulative_retained_words: m.int(),
++        cumulative_original_cut_words: m.int(),
++        max_offers_per_parent: m.int(),
++        max_metadata_bytes_per_parent: m.int(),
++        max_offer_owned_bytes: m.int(),
++        max_parent_nodes: m.int(),
++        max_in_progress_bytes_per_run: m.int(),
++        peak_live_retained_words: m.int(),
++        peak_live_original_cut_words: m.int(),
++        actual_live_retained_words: m.int(),
++        actual_live_original_cut_words: m.int(),
++        remaining_cap_hist: std::array::from_fn(|_| m.int()),
++    }
++}
++
++fn frontier_counter_leaves(prefix: &str, counters: &FrontierCounters) -> Vec<(String, Value)> {
++    let FrontierCounters {
++        parents,
++        signal_cut_parents,
++        parents_with_offer,
++        filled_prefix_children,
++        assigned_requests,
++        proposed,
++        duplicates,
++        evicted,
++        applied_runs,
++        applied_pair_repeats,
++        passed_boundary,
++        missing,
++        ambiguous,
++        ineligible,
++        already_chosen,
++        unencountered,
++        stock_mismatch,
++        complete_windows,
++        no_common_node,
++        censored_runs,
++        divergent_runs,
++        usable_suffix_runs,
++        child_steps_sum,
++        parent_steps_sum,
++        cumulative_retained_words,
++        cumulative_original_cut_words,
++        max_offers_per_parent,
++        max_metadata_bytes_per_parent,
++        max_offer_owned_bytes,
++        max_parent_nodes,
++        max_in_progress_bytes_per_run,
++        peak_live_retained_words,
++        peak_live_original_cut_words,
++        actual_live_retained_words,
++        actual_live_original_cut_words,
++        remaining_cap_hist,
++    } = counters;
++    let mut out = vec![
++        leaf(prefix, "parents", *parents),
++        leaf(prefix, "signal_cut_parents", *signal_cut_parents),
++        leaf(prefix, "parents_with_offer", *parents_with_offer),
++        leaf(prefix, "filled_prefix_children", *filled_prefix_children),
++        leaf(prefix, "assigned_requests", *assigned_requests),
++        leaf(prefix, "proposed", *proposed),
++        leaf(prefix, "duplicates", *duplicates),
++        leaf(prefix, "evicted", *evicted),
++        leaf(prefix, "applied_runs", *applied_runs),
++        leaf(prefix, "applied_pair_repeats", *applied_pair_repeats),
++        leaf(prefix, "passed_boundary", *passed_boundary),
++        leaf(prefix, "missing", *missing),
++        leaf(prefix, "ambiguous", *ambiguous),
++        leaf(prefix, "ineligible", *ineligible),
++        leaf(prefix, "already_chosen", *already_chosen),
++        leaf(prefix, "unencountered", *unencountered),
++        leaf(prefix, "stock_mismatch", *stock_mismatch),
++        leaf(prefix, "complete_windows", *complete_windows),
++        leaf(prefix, "no_common_node", *no_common_node),
++        leaf(prefix, "censored_runs", *censored_runs),
++        leaf(prefix, "divergent_runs", *divergent_runs),
++        leaf(prefix, "usable_suffix_runs", *usable_suffix_runs),
++        leaf(prefix, "child_steps_sum", *child_steps_sum),
++        leaf(prefix, "parent_steps_sum", *parent_steps_sum),
++        leaf(
++            prefix,
++            "cumulative_retained_words",
++            *cumulative_retained_words,
++        ),
++        leaf(
++            prefix,
++            "cumulative_original_cut_words",
++            *cumulative_original_cut_words,
++        ),
++        leaf(prefix, "max_offers_per_parent", *max_offers_per_parent),
++        leaf(
++            prefix,
++            "max_metadata_bytes_per_parent",
++            *max_metadata_bytes_per_parent,
++        ),
++        leaf(
++            prefix,
++            "max_in_progress_bytes_per_run",
++            *max_in_progress_bytes_per_run,
++        ),
++        leaf(
++            prefix,
++            "peak_live_retained_words",
++            *peak_live_retained_words,
++        ),
++        leaf(
++            prefix,
++            "peak_live_original_cut_words",
++            *peak_live_original_cut_words,
++        ),
++        leaf(
++            prefix,
++            "actual_live_retained_words",
++            *actual_live_retained_words,
++        ),
++        leaf(
++            prefix,
++            "actual_live_original_cut_words",
++            *actual_live_original_cut_words,
++        ),
++    ];
++    out.extend([
++        leaf(prefix, "max_offer_owned_bytes", *max_offer_owned_bytes),
++        leaf(prefix, "max_parent_nodes", *max_parent_nodes),
++    ]);
++    for (index, value) in remaining_cap_hist.iter().enumerate() {
++        out.push(leaf(
++            &format!("{prefix}.remaining_cap_hist"),
++            &index.to_string(),
++            *value,
++        ));
++    }
++    out
++}
++
++fn replay_frontier(m: &mut Marks) -> FrontierStats {
++    FrontierStats {
++        totals: frontier_counters(m),
++        by_arm: vec![FrontierArmStats {
++            arm_index: 2,
++            counters: frontier_counters(m),
++        }],
++        parent_diagnostics: vec![FrontierParentDiagnostic {
++            parent_run_id: 47,
++            arm_index: 2,
++            offer_count: 3,
++            original_words: 111,
++            retained_words: 122,
++            metadata_bytes: 333,
++            max_nodes: 444,
++            max_offer_owned_bytes: 555,
++            children: Vec::new(),
++        }],
++        retained_parent_rows: m.int(),
++        dropped_parent_rows: m.int(),
++        dropped_child_rows: m.int(),
++        diagnostic_applied_children: m.int(),
++        diagnostic_repeated_applied_pairs: m.int(),
++    }
++}
++
++fn replay_frontier_leaves(prefix: &str, stats: &FrontierStats) -> Vec<(String, Value)> {
++    let FrontierStats {
++        totals,
++        by_arm,
++        parent_diagnostics,
++        retained_parent_rows,
++        dropped_parent_rows,
++        dropped_child_rows,
++        diagnostic_applied_children,
++        diagnostic_repeated_applied_pairs,
++    } = stats;
++    let mut out = frontier_counter_leaves(prefix, totals);
++    out.extend([
++        leaf(prefix, "retained_parent_rows", *retained_parent_rows),
++        leaf(prefix, "dropped_parent_rows", *dropped_parent_rows),
++        leaf(prefix, "dropped_child_rows", *dropped_child_rows),
++        leaf(
++            prefix,
++            "diagnostic_applied_children",
++            *diagnostic_applied_children,
++        ),
++        leaf(
++            prefix,
++            "diagnostic_repeated_applied_pairs",
++            *diagnostic_repeated_applied_pairs,
++        ),
++    ]);
++    for (index, arm) in by_arm.iter().enumerate() {
++        let FrontierArmStats {
++            arm_index,
++            counters,
++        } = arm;
++        let path = format!("{prefix}.by_arm.{index}");
++        out.push(leaf(&path, "arm_index", *arm_index));
++        out.extend(frontier_counter_leaves(&path, counters));
++    }
++    for (index, parent) in parent_diagnostics.iter().enumerate() {
++        let FrontierParentDiagnostic {
++            parent_run_id,
++            arm_index,
++            offer_count,
++            original_words,
++            retained_words,
++            metadata_bytes,
++            max_nodes,
++            max_offer_owned_bytes,
++            children,
++        } = parent;
++        let path = format!("{prefix}.parent_diagnostics.{index}");
++        out.extend([
++            leaf(&path, "parent_run_id", *parent_run_id),
++            leaf(&path, "arm_index", *arm_index),
++            leaf(&path, "offer_count", *offer_count as u64),
++            leaf(&path, "original_words", *original_words as u64),
++            leaf(&path, "retained_words", *retained_words as u64),
++            leaf(&path, "metadata_bytes", *metadata_bytes as u64),
++            leaf(&path, "max_nodes", *max_nodes as u64),
++            leaf(
++                &path,
++                "max_offer_owned_bytes",
++                *max_offer_owned_bytes as u64,
++            ),
++        ]);
++        assert!(children.is_empty());
++    }
++    out
++}
++
+ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+     let UtilizationSnapshot {
+         rng_streams: _,
+@@ -1460,6 +1717,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         client_anchor: _,
+         arm_selector_axis: _,
+         replay: _,
++        replay_frontier: _,
+         timer_context: _,
+         timeline_keys: _,
+         steer_terms: _,
+@@ -1498,6 +1756,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "client_anchor",
+         "arm_selector_axis",
+         "replay",
++        "replay_frontier",
+         "timer_context",
+         "timeline_keys",
+         "steer_terms",
+@@ -1571,6 +1830,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.client_anchor = client_anchor(&mut m);
+     s.arm_selector_axis = arm_selector_axis(&mut m);
+     s.replay = replay(&mut m);
++    s.replay_frontier = replay_frontier(&mut m);
+     s.timer_context = timer_context(&mut m);
+     let mut expected = steer_authority_leaves("steer_authority", &s.steer_authority);
+     expected.extend(termination_leaves("termination", &s.termination));
+@@ -1588,6 +1848,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(client_anchor_leaves("client_anchor", &s.client_anchor));
+     expected.extend(arm_selector_axis_leaves("arm_selector_axis", &s.arm_selector_axis));
+     expected.extend(replay_leaves("replay", &s.replay));
++    expected.extend(replay_frontier_leaves("replay_frontier", &s.replay_frontier));
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
+     (s, expected)
+ }
+@@ -1631,6 +1892,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "client_anchor",
+         "arm_selector_axis",
+         "replay",
++        "replay_frontier",
+         "timer_context",
+     ] {
+         let mut actual = BTreeMap::new();
