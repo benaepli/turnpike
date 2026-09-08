@@ -1,0 +1,306 @@
+{
+  "seed": 1000,
+  "counts": {
+    "grid_runs": 522780,
+    "fresh_roots": 295584,
+    "unfilled_slots": 17746,
+    "unfilled_prefix_slots": 8805,
+    "filled_children": 227196,
+    "filled_plan": 113215,
+    "filled_prefix": 113981
+  },
+  "validation_issues": {},
+  "grid": {
+    "runs": 522780,
+    "families": 295584,
+    "family_size_histogram": {
+      "1": 218921,
+      "2": 161,
+      "3": 14803,
+      "4": 51292,
+      "5": 9771,
+      "6": 191,
+      "7": 13,
+      "8": 20,
+      "9": 412
+    },
+    "served_children_histogram": {
+      "1": 161,
+      "2": 14803,
+      "3": 51292,
+      "4": 9771,
+      "5": 191,
+      "6": 13,
+      "7": 20,
+      "8": 412
+    },
+    "families_with_children": 76663,
+    "families_with_both_child_types": 55010,
+    "max_family_size": 9,
+    "equal_variance_perfect_correlation_design_effect": 2.792578139944145
+  },
+  "arms": {
+    "grid": {
+      "runs": 96060,
+      "families": 59048,
+      "family_size_histogram": {
+        "1": 46610,
+        "2": 33,
+        "3": 2730,
+        "4": 7966,
+        "5": 1473,
+        "6": 53,
+        "9": 183
+      },
+      "served_children_histogram": {
+        "1": 33,
+        "2": 2730,
+        "3": 7966,
+        "4": 1473,
+        "5": 53,
+        "8": 183
+      },
+      "families_with_children": 12438,
+      "families_with_both_child_types": 8812,
+      "max_family_size": 9,
+      "equal_variance_perfect_correlation_design_effect": 2.626733291692692
+    },
+    "grid-short": {
+      "runs": 201840,
+      "families": 115962,
+      "family_size_histogram": {
+        "1": 87422,
+        "2": 39,
+        "3": 4915,
+        "4": 19239,
+        "5": 4076,
+        "6": 52,
+        "7": 8,
+        "8": 8,
+        "9": 203
+      },
+      "served_children_histogram": {
+        "1": 39,
+        "2": 4915,
+        "3": 19239,
+        "4": 4076,
+        "5": 52,
+        "6": 8,
+        "7": 8,
+        "8": 203
+      },
+      "families_with_children": 28540,
+      "families_with_both_child_types": 20750,
+      "max_family_size": 9,
+      "equal_variance_perfect_correlation_design_effect": 2.7782203725723345
+    },
+    "grid-no-purgatory": {
+      "runs": 109920,
+      "families": 59412,
+      "family_size_histogram": {
+        "1": 42235,
+        "2": 53,
+        "3": 3337,
+        "4": 11567,
+        "5": 2126,
+        "6": 52,
+        "7": 4,
+        "8": 12,
+        "9": 26
+      },
+      "served_children_histogram": {
+        "1": 53,
+        "2": 3337,
+        "3": 11567,
+        "4": 2126,
+        "5": 52,
+        "6": 4,
+        "7": 12,
+        "8": 26
+      },
+      "families_with_children": 17177,
+      "families_with_both_child_types": 12213,
+      "max_family_size": 9,
+      "equal_variance_perfect_correlation_design_effect": 2.8715793304221253
+    },
+    "grid-post-fault-2": {
+      "runs": 114960,
+      "families": 61162,
+      "family_size_histogram": {
+        "1": 42654,
+        "2": 36,
+        "3": 3821,
+        "4": 12520,
+        "5": 2096,
+        "6": 34,
+        "7": 1
+      },
+      "served_children_histogram": {
+        "1": 36,
+        "2": 3821,
+        "3": 12520,
+        "4": 2096,
+        "5": 34,
+        "6": 1
+      },
+      "families_with_children": 18508,
+      "families_with_both_child_types": 13235,
+      "max_family_size": 7,
+      "equal_variance_perfect_correlation_design_effect": 2.8808281141266527
+    }
+  },
+  "hypothetical_sensitivity": {
+    "grid": [
+      {
+        "rho": 0,
+        "assumed_design_effect": 1,
+        "per_run_ratio": 1.111973173604767,
+        "per_run_interval": [
+          1.0792771401807693,
+          1.1456597131387007
+        ],
+        "per_second_ratio": 1.1606280660527293,
+        "per_second_interval": [
+          1.126219223500592,
+          1.1960881856751493
+        ]
+      },
+      {
+        "rho": 0.1,
+        "assumed_design_effect": 1.8,
+        "per_run_ratio": 1.111973173604767,
+        "per_run_interval": [
+          1.0683286100020624,
+          1.15740075407535
+        ],
+        "per_second_ratio": 1.1606280660527293,
+        "per_second_interval": [
+          1.1146990879459722,
+          1.2084494571458628
+        ]
+      },
+      {
+        "rho": 0.25,
+        "assumed_design_effect": 3.0,
+        "per_run_ratio": 1.111973173604767,
+        "per_run_interval": [
+          1.0559530898335705,
+          1.1709652168464613
+        ],
+        "per_second_ratio": 1.1606280660527293,
+        "per_second_interval": [
+          1.101678655229314,
+          1.2227317841870222
+        ]
+      },
+      {
+        "rho": 0.5,
+        "assumed_design_effect": 5.0,
+        "per_run_ratio": 1.111973173604767,
+        "per_run_interval": [
+          1.0401881255489243,
+          1.1887122227665736
+        ],
+        "per_second_ratio": 1.1606280660527293,
+        "per_second_interval": [
+          1.0850940049875548,
+          1.2414200995652431
+        ]
+      },
+      {
+        "rho": 1,
+        "assumed_design_effect": 9,
+        "per_run_ratio": 1.111973173604767,
+        "per_run_interval": [
+          1.016740950177548,
+          1.2161252466527852
+        ],
+        "per_second_ratio": 1.1606280660527293,
+        "per_second_interval": [
+          1.060431625838965,
+          1.2702917141343917
+        ]
+      }
+    ],
+    "campaign": [
+      {
+        "rho": 0,
+        "assumed_design_effect": 1,
+        "per_run_ratio": 1.0535100037861056,
+        "per_run_interval": [
+          1.024989630380107,
+          1.0828239576100018
+        ],
+        "per_second_ratio": 1.1072389677014172,
+        "per_second_interval": [
+          1.077022317216923,
+          1.1383033684617472
+        ]
+      },
+      {
+        "rho": 0.1,
+        "assumed_design_effect": 1.8,
+        "per_run_ratio": 1.0535100037861056,
+        "per_run_interval": [
+          1.0154239196400223,
+          1.0930246044143461
+        ],
+        "per_second_ratio": 1.1072389677014172,
+        "per_second_interval": [
+          1.0668892067485707,
+          1.14911475703533
+        ]
+      },
+      {
+        "rho": 0.25,
+        "assumed_design_effect": 3.0,
+        "per_run_ratio": 1.0535100037861056,
+        "per_run_interval": [
+          1.004601951597141,
+          1.1047990961125254
+        ],
+        "per_second_ratio": 1.1072389677014172,
+        "per_second_interval": [
+          1.055426264274907,
+          1.1615952464843808
+        ]
+      },
+      {
+        "rho": 0.5,
+        "assumed_design_effect": 5.0,
+        "per_run_ratio": 1.0535100037861056,
+        "per_run_interval": [
+          0.9908012367606669,
+          1.12018766923027
+        ],
+        "per_second_ratio": 1.1072389677014172,
+        "per_second_interval": [
+          1.0408096131205267,
+          1.1779081554798538
+        ]
+      },
+      {
+        "rho": 1,
+        "assumed_design_effect": 9,
+        "per_run_ratio": 1.0535100037861056,
+        "per_run_interval": [
+          0.97024427193653,
+          1.1439215465422556
+        ],
+        "per_second_ratio": 1.1072389677014172,
+        "per_second_interval": [
+          1.0190403577131217,
+          1.203071225115929
+        ]
+      }
+    ]
+  },
+  "sensitivity_assumptions": [
+    "These are not empirical family-clustered confidence intervals.",
+    "Each side uses a maximum size-nine replay family and common within-family correlation rho; all families are independent.",
+    "Per-run intervals use a binomial log-rate-ratio approximation; per-second intervals use Poisson event counts with fixed exposure.",
+    "Equal marginal variance and common correlation are stylized assumptions; adaptivity and shared learner dependence are not covered.",
+    "The candidate size-weighted design effect is descriptive and cannot determine the outcome covariance.",
+    "Baseline metadata and per-run outcome arrays were not retained here; no exact paired family covariance can be computed."
+  ]
+}

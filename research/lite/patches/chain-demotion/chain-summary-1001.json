@@ -1,0 +1,337 @@
+{
+  "counters": {
+    "active_eight_steps": 94701,
+    "active_runs": 94702,
+    "authority_decisions": 50461163,
+    "change_points_reached": 182883,
+    "choice_changed_after_preferences": 30565555,
+    "choice_changed_before_preferences": 30608239,
+    "eligible_tournaments": 83921655,
+    "fresh_first_overwrites": 30767,
+    "inert_short_cap": 0,
+    "inherited_cross_node_sends": 390909408,
+    "max_retained_demotion_entries": 2,
+    "max_run_owned_bytes": 688,
+    "missing_ancestry_roots": 0,
+    "multi_chain_samples": 50463324,
+    "no_chain_points": 0,
+    "pair_order_overwrites": 154567,
+    "partition_message_bytes": 264,
+    "proportional_excluded": 0,
+    "record_bytes": 248,
+    "repeat_demotions": 18172,
+    "root_allocations": 157855608,
+    "run_dynamic_capacity_bytes": 0,
+    "run_storage_bytes": 688,
+    "runnable_bytes": 248,
+    "runs_reaching_change_point": 92097,
+    "same_chain_ties": 49569365,
+    "singleton_excluded": 135194912,
+    "source_exhausted_runs": 105319,
+    "stock_non_executable": 15995100,
+    "timer_resumed_roots": 145109475,
+    "timer_unclaimed_roots": 0,
+    "multi_chain_share": 0.601314690469343,
+    "final_authority_share": 0.6057243468605747
+  },
+  "persistence": {
+    "grid": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 100673992,
+          "overflow_stretches": 187724
+        },
+        "dispatches": 219116561,
+        "timers": 19011288,
+        "timer_share": 0.08676335514411437,
+        "censored_stretches": 87191,
+        "qualified_runs": 94701
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 81656218,
+          "overflow_stretches": 152450
+        },
+        "dispatches": 176732038,
+        "timers": 14861289,
+        "timer_share": 0.08408938847861869,
+        "censored_stretches": 70441,
+        "qualified_runs": 76222
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": 1.0317990975303095
+    },
+    "arm_0": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 20235266,
+          "overflow_stretches": 41358
+        },
+        "dispatches": 44484809,
+        "timers": 3948851,
+        "timer_share": 0.08876852770122043,
+        "censored_stretches": 13828,
+        "qualified_runs": 14997
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 15503812,
+          "overflow_stretches": 32764
+        },
+        "dispatches": 34337321,
+        "timers": 2861924,
+        "timer_share": 0.08334732928058074,
+        "censored_stretches": 10916,
+        "qualified_runs": 11811
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": 1.0650434569101759
+    },
+    "arm_1": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 21943334,
+          "overflow_stretches": 46191
+        },
+        "dispatches": 48709566,
+        "timers": 4630569,
+        "timer_share": 0.09506487904244518,
+        "censored_stretches": 35587,
+        "qualified_runs": 38838
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 18080876,
+          "overflow_stretches": 38037
+        },
+        "dispatches": 39828010,
+        "timers": 3634851,
+        "timer_share": 0.0912636860340248,
+        "censored_stretches": 28934,
+        "qualified_runs": 31395
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": 1.0416506627510447
+    },
+    "arm_2": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 27289245,
+          "overflow_stretches": 57049
+        },
+        "dispatches": 60367010,
+        "timers": 5150860,
+        "timer_share": 0.08532574331576137,
+        "censored_stretches": 17899,
+        "qualified_runs": 19408
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 22309197,
+          "overflow_stretches": 47988
+        },
+        "dispatches": 49233626,
+        "timers": 3984929,
+        "timer_share": 0.08093917356401903,
+        "censored_stretches": 14574,
+        "qualified_runs": 15745
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": 1.054195880172569
+    },
+    "arm_3": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 31206147,
+          "overflow_stretches": 43126
+        },
+        "dispatches": 65555176,
+        "timers": 5281008,
+        "timer_share": 0.08055821557095659,
+        "censored_stretches": 19877,
+        "qualified_runs": 21458
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 25762333,
+          "overflow_stretches": 33661
+        },
+        "dispatches": 53333081,
+        "timers": 4379585,
+        "timer_share": 0.08211760726892939,
+        "censored_stretches": 16017,
+        "qualified_runs": 17271
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": 0.9810102638175282
+    },
+    "readiness_0": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 2982134,
+          "overflow_stretches": 0
+        },
+        "dispatches": 2985149,
+        "timers": 0,
+        "timer_share": 0.0,
+        "censored_stretches": 1341,
+        "qualified_runs": null
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 2126162,
+          "overflow_stretches": 0
+        },
+        "dispatches": 2128902,
+        "timers": 0,
+        "timer_share": 0.0,
+        "censored_stretches": 1004,
+        "qualified_runs": null
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": null
+    },
+    "readiness_1": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 23328492,
+          "overflow_stretches": 113978
+        },
+        "dispatches": 67061347,
+        "timers": 16262584,
+        "timer_share": 0.24250309198233075,
+        "censored_stretches": 21228,
+        "qualified_runs": null
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 19485504,
+          "overflow_stretches": 92455
+        },
+        "dispatches": 54933442,
+        "timers": 12710663,
+        "timer_share": 0.23138297068659924,
+        "censored_stretches": 17129,
+        "qualified_runs": null
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": 1.048059376464629
+    },
+    "readiness_2": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 104029,
+          "overflow_stretches": 0
+        },
+        "dispatches": 117418,
+        "timers": 0,
+        "timer_share": 0.0,
+        "censored_stretches": 15,
+        "qualified_runs": null
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 68884,
+          "overflow_stretches": 0
+        },
+        "dispatches": 77045,
+        "timers": 0,
+        "timer_share": 0.0,
+        "censored_stretches": 16,
+        "qualified_runs": null
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": null
+    },
+    "readiness_3": {
+      "prefix": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 74259337,
+          "overflow_stretches": 73746
+        },
+        "dispatches": 148952647,
+        "timers": 2748704,
+        "timer_share": 0.01845354248723086,
+        "censored_stretches": 64607,
+        "qualified_runs": null
+      },
+      "plan_only": {
+        "median": {
+          "lower": 1.0,
+          "upper": 1.0,
+          "stretches": 59975668,
+          "overflow_stretches": 59995
+        },
+        "dispatches": 119592649,
+        "timers": 2150626,
+        "timer_share": 0.017982928030969528,
+        "censored_stretches": 52292,
+        "qualified_runs": null
+      },
+      "median_ratio_bounds": {
+        "lower": 1.0,
+        "upper": 1.0
+      },
+      "timer_share_ratio": 1.0261700683810144
+    }
+  },
+  "note": "Selected qualified populations; descriptive, not an isolated randomized effect. Length32 is >=32. Censored stretches already included once. Readiness-specific qualified_runs is unavailable and left null."
+}

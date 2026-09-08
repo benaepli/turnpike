@@ -3625,7 +3625,7 @@ Iteration 68 direction pruning: current scores/dispositions in `research/lite/pl
 
 ## replay-prefix-causal-chain-demotion-search
 
-- origin: proposer | status: KEPT at iteration 69 | gain: 5 | cost: 2 | rank: 2
+- origin: proposer | status: CLOSED at iteration 71 (two chunks; repeated AOS harm and failed persistence; positive grid proxy, patch retained) | gain: 5 | cost: 2 | rank: 2
 - Keep causal-chain scheduling priorities through replay suffixes and demote chains at sampled change points. Full frozen implementation, prediction and source review: `research/lite/plans/iteration-69-admitted.json`.
 
 Iteration69 selects dependency frontier at net5; causal-chain demotion and retained successful-vector population mutation each net3. Previous conditional-parent closure does not empirically answer these mechanisms.
@@ -3645,3 +3645,11 @@ Iteration70 selects transient evaluator net5. Causal-chain demotion remains net3
 - Condition direction evidence on actual fresh, reused-plan, prefix-replay or mutated-tape search context with shared shrinkage. Full frozen prediction and explicit full-system comparison exception: `research/lite/plans/iteration-71-admitted.json`.
 
 Iteration71 selects causal-chain demotion net3/rank1 on the incumbent tie; its iteration69 prediction remains unchanged. Successful-vector mutation net3/rank3. Eval70 is closed before grading. Current context in iteration71 review supersedes stale active-iteration text quoted in older reviews.
+
+
+## parent-plan-optional-cover-edge-reversal
+
+- origin: proposer | status: KEPT at iteration 72 | gain: 2 | cost: 0 | rank: 3
+- Reverse one legal optional cover edge in a reused plan while preserving mandatory graph edges and actions. Full frozen review: `research/lite/plans/iteration-72-admitted.json`.
+
+Iteration 72 selects provenance specialization net 3/rank 1; successful-vector mutation remains net 3/rank 2. Chain demotion is closed. Current ranks in the admitted record supersede historical keep-list ranks. Awaiting-approval entries remain unchanged.

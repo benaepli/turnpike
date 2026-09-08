@@ -1,0 +1,2410 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index f7fa8db..9c51fae 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -17,6 +17,7 @@ pub mod history;
+ mod path;
+ pub mod plan_config;
+ pub mod replay_corpus;
++pub mod replay_chain;
+ pub mod rng;
+ pub mod run_cap;
+ pub mod run_phase;
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index 597f3d5..bde7912 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -486,10 +486,11 @@ impl<F: Feedback> GridArm<F> {
+                 }
+             }
+             GridRun::Child { seed, prefix } => {
+-                let attribution = ctx
++                let mut attribution = ctx
+                     .attribution
+                     .with_config(seed.config_index)
+                     .with_variant_bits(bits);
++                attribution.replay_child = true;
+                 let result = if *prefix {
+                     run_single_simulation::<F, ReplayRng>(
+                         ctx.program,
+@@ -625,6 +626,7 @@ fn build_arm(
+         spec: spec.clone(),
+         weights,
+         attribution: RunAttribution {
++            replay_child: false,
+             arm: Arc::from(spec.id.as_str()),
+             arm_index: index as i32,
+             config_index: -1,
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index 7646a8a..3989845 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -85,6 +85,7 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+     rng: &mut impl StreamRng,
+ ) -> Result<Value<H>, RuntimeError> {
+     let mut node_env = state.nodes[node_id.index].clone();
++    let chain_id = state.chains.root();
+     let result = exec_sync_inner::<H, L, F>(
+         state,
+         logger,
+@@ -98,6 +99,7 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+         policy,
+         purgatory_config,
+         None, // top-level sync calls have no causal client op
++        chain_id,
+         rng,
+     );
+     state.nodes[node_id.index] = node_env;
+@@ -155,6 +157,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+     policy: &SchedulePolicy,
+     purgatory_config: &PurgatoryConfig,
+     causal_operation_id: Option<i32>,
++    chain_id: u64,
+     pending_trace_id: &mut Option<i64>,
+     rng: &mut impl StreamRng,
+ ) -> Result<Option<StepOutcome<H>>, RuntimeError> {
+@@ -205,6 +208,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                     policy,
+                     purgatory_config,
+                     causal_operation_id,
++                    chain_id,
+                     rng,
+                 )?;
+ 
+@@ -252,9 +256,13 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                     (lid, next)
+                 });
+ 
++                if target_node != node_id {
++                    state.chains.inherited_send();
++                }
+                 let send_ordinal = state.next_send_ordinal(node_id);
+                 let drawn_priority = policy.sample(rng, RunnableCategory::Record);
+                 let mut new_record = Record {
++                    chain_id,
+                     pc: func_info.entry,
+                     node: target_node,
+                     origin_node: node_id,
+@@ -503,6 +511,7 @@ fn exec_sync_inner<H: HashPolicy, L: Logger, F: Feedback>(
+     policy: &SchedulePolicy,
+     purgatory_config: &PurgatoryConfig,
+     causal_operation_id: Option<i32>,
++    chain_id: u64,
+     rng: &mut impl StreamRng,
+ ) -> Result<Value<H>, RuntimeError> {
+     let mut pc = start_pc;
+@@ -528,6 +537,7 @@ fn exec_sync_inner<H: HashPolicy, L: Logger, F: Feedback>(
+             policy,
+             purgatory_config,
+             causal_operation_id,
++            chain_id,
+             &mut pending_trace_id,
+             rng,
+         )? {
+@@ -559,6 +569,8 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+     rng: &mut impl StreamRng,
+ ) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
+     let causal_operation_id = record.causal_operation_id;
++    let chain_id = record.chain_id;
++    state.chains.executed(chain_id);
+     let mut pending_trace_id = record.trace_id;
+     let mut local_env = record.env;
+     let mut node_env = state.nodes[record.node.index].clone();
+@@ -602,6 +614,7 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+             policy,
+             purgatory_config,
+             causal_operation_id,
++            chain_id,
+             &mut pending_trace_id,
+             rng,
+         )? {
+@@ -625,7 +638,9 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+                     eval(&local_env, &node_env, chan_expr, &program.id_to_name)?.as_channel()?;
+                 let val = eval(&local_env, &node_env, val_expr, &program.id_to_name)?;
+                 if cid.node != record.node {
++                    state.chains.inherited_send();
+                     let cs = Runnable::ChannelSend {
++                        chain_id,
+                         target: cid.node,
+                         channel: cid,
+                         message: val,
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 7d721eb..d712c4c 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -131,6 +131,7 @@ fn make_record_with_cont(
+     };
+     let env = Env::<WithHashing>::with_slots(local_slots);
+     Record {
++        chain_id: 0,
+         pc,
+         node: nid,
+         origin_node: nid,
+diff --git a/spur-core/src/simulator/core/partition.rs b/spur-core/src/simulator/core/partition.rs
+index 6881ff3..ed1b352 100644
+--- a/spur-core/src/simulator/core/partition.rs
++++ b/spur-core/src/simulator/core/partition.rs
+@@ -122,6 +122,7 @@ pub enum QueuedMessage<H: HashPolicy> {
+         record: Record<H>,
+     },
+     ChannelSend {
++        chain_id: u64,
+         dest: NodeId,
+         channel: ChannelId,
+         message: Value<H>,
+@@ -207,9 +208,11 @@ impl<H: HashPolicy> PartitionInfo<H> {
+         origin_node: NodeId,
+         pc: Vertex,
+         priority: f64,
++        chain_id: u64,
+     ) {
+         self.queued_messages
+             .push_back(QueuedMessage::ChannelSend {
++                chain_id,
+                 dest,
+                 channel,
+                 message,
+@@ -251,6 +254,7 @@ pub fn activate_partition<H: HashPolicy>(
+                 message,
+                 pc,
+                 priority,
++                chain_id,
+             } if state.partition_info.is_blocked(*origin_node, *target) => {
+                 state.flight_leave(&task);
+                 state.partition_info.buffer_channel_send(
+@@ -260,6 +264,7 @@ pub fn activate_partition<H: HashPolicy>(
+                     *origin_node,
+                     *pc,
+                     *priority,
++                    *chain_id,
+                 );
+             }
+             _ => state.network_queue.push(task),
+@@ -293,9 +298,11 @@ pub fn heal_partition<H: HashPolicy>(state: &mut crate::simulator::core::state::
+                 origin_node,
+                 pc,
+                 priority,
++                chain_id,
+             } => {
+                 if !state.crash_info.currently_crashed.contains(&dest) {
+                     state.push_runnable(Runnable::ChannelSend {
++                        chain_id,
+                         target: dest,
+                         channel,
+                         message,
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f858656..d4c97cf 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -14,6 +14,7 @@ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+ use crate::simulator::core::values::{Env, Value};
+ use crate::simulator::crash_phase;
+ use crate::simulator::fresh_first;
++use crate::simulator::replay_chain;
+ use crate::simulator::ghost_absorber;
+ use crate::simulator::pair_order;
+ use crate::simulator::coverage::GlobalState;
+@@ -472,6 +473,15 @@ fn audit_steer_preference<H: HashPolicy, F: Feedback>(
+ /// (near-greedy for typical k). `Proportional` uses Efraimidis-Spirakis weighted
+ /// reservoir sampling with weight `score^exponent`, giving exact proportional
+ /// selection in a single O(eligible) pass.
++#[derive(Clone, Copy, Debug)]
++struct WithinPick {
++    index: usize,
++    mask: u8,
++    stock: usize,
++    authority: bool,
++}
++
++#[cfg(test)]
+ fn select_within_queue<H: HashPolicy, F: Feedback>(
+     queue: &[Runnable<H>],
+     eligible: &[usize],
+@@ -482,6 +492,22 @@ fn select_within_queue<H: HashPolicy, F: Feedback>(
+     selector: &WithinQueueSelector,
+     rng: &mut impl StreamRng,
+ ) -> (usize, u8) {
++    let pick = select_within_queue_pick::<H, F>(
++        queue, eligible, feedback, snapshot, state, terms, selector, rng,
++    );
++    (pick.index, pick.mask)
++}
++
++fn select_within_queue_pick<H: HashPolicy, F: Feedback>(
++    queue: &[Runnable<H>],
++    eligible: &[usize],
++    feedback: &F::Local,
++    snapshot: &F::Snapshot,
++    state: &State<H>,
++    terms: &ResolvedTerms,
++    selector: &WithinQueueSelector,
++    rng: &mut impl StreamRng,
++) -> WithinPick {
+     let stats = util_stats::enabled();
+     util_stats::record_preference_consultation(terms.any_predicate());
+     if util_stats::multiplier_audit_enabled() {
+@@ -500,13 +526,21 @@ fn select_within_queue<H: HashPolicy, F: Feedback>(
+     }
+     // The predicates true of any eligible candidate, for the counters only.
+     let present = if count_terms {
+-        eligible.iter().fold(0u8, |m, &i| m | state.term_mask(&queue[i]))
++        eligible
++            .iter()
++            .fold(0u8, |m, &i| m | state.term_mask(&queue[i]))
+     } else {
+         0
+     };
+     if eligible.len() <= 1 {
+-        let (_, mask) =
+-            score_with_terms::<H, F>(&queue[eligible[0]], feedback, snapshot, state, terms, count_terms);
++        let (_, mask) = score_with_terms::<H, F>(
++            &queue[eligible[0]],
++            feedback,
++            snapshot,
++            state,
++            terms,
++            count_terms,
++        );
+         if count_terms {
+             let mut evaluated = [0u64; TERMS];
+             for t in Term::ALL {
+@@ -514,7 +548,15 @@ fn select_within_queue<H: HashPolicy, F: Feedback>(
+             }
+             util_stats::record_term_decision(eligible.len(), present, &evaluated, mask, false);
+         }
+-        return (eligible[0], mask);
++        if state.chains.active {
++            replay_chain::count(13);
++        }
++        return WithinPick {
++            index: eligible[0],
++            mask,
++            stock: eligible[0],
++            authority: false,
++        };
+     }
+     rng.use_stream(Stream::WithinQueue);
+ 
+@@ -553,6 +595,8 @@ fn select_within_queue<H: HashPolicy, F: Feedback>(
+             }
+         }
+     };
++    let stock;
++    let mut authority = false;
+     let (best_idx, best_mask, flipped) = match selector {
+         WithinQueueSelector::Tournament { k } => {
+             let k = (*k).max(1);
+@@ -563,9 +607,23 @@ fn select_within_queue<H: HashPolicy, F: Feedback>(
+                 ..*terms
+             };
+             let mut best_idx = eligible[rng.random_range(0..eligible.len())];
+-            let (mut best_score, mut best_mask) =
+-                score_with_terms::<H, F>(&queue[best_idx], feedback, snapshot, state, terms, count_terms);
++            let (mut best_score, mut best_mask) = score_with_terms::<H, F>(
++                &queue[best_idx],
++                feedback,
++                snapshot,
++                state,
++                terms,
++                count_terms,
++            );
+             count_mask(best_mask);
++            let mut first_chain = state
++                .chains
++                .active
++                .then(|| queue[best_idx].chain_id())
++                .flatten();
++            let mut chain_best =
++                first_chain.map(|id| (state.chains.key(id), best_score, best_idx, best_mask));
++            let mut multiple_chains = false;
+             let mut plain_idx = best_idx;
+             let mut plain_score = if terms.any_predicate() {
+                 score_runnable::<H, F>(&queue[best_idx], feedback, snapshot, state, &unweighted)
+@@ -574,25 +632,75 @@ fn select_within_queue<H: HashPolicy, F: Feedback>(
+             };
+             for _ in 1..k.min(eligible.len()) {
+                 let i = eligible[rng.random_range(0..eligible.len())];
+-                let (s, mask) =
+-                    score_with_terms::<H, F>(&queue[i], feedback, snapshot, state, terms, count_terms);
++                let (s, mask) = score_with_terms::<H, F>(
++                    &queue[i],
++                    feedback,
++                    snapshot,
++                    state,
++                    terms,
++                    count_terms,
++                );
+                 count_mask(mask);
++                if state.chains.active
++                    && let Some(id) = queue[i].chain_id()
++                {
++                    multiple_chains |= first_chain.is_some_and(|first| first != id);
++                    first_chain.get_or_insert(id);
++                    let key = state.chains.key(id);
++                    if chain_best.as_ref().is_some_and(|best| best.0 == key) {
++                        replay_chain::count(15);
++                    }
++                    if chain_best
++                        .as_ref()
++                        .is_none_or(|best| key > best.0 || (key == best.0 && s > best.1))
++                    {
++                        chain_best = Some((key, s, i, mask));
++                    }
++                }
+                 if s > best_score {
+                     best_idx = i;
+                     best_score = s;
+                     best_mask = mask;
+                 }
+                 if terms.any_predicate() {
+-                    let s0 = score_runnable::<H, F>(&queue[i], feedback, snapshot, state, &unweighted);
++                    let s0 =
++                        score_runnable::<H, F>(&queue[i], feedback, snapshot, state, &unweighted);
+                     if s0 > plain_score {
+                         plain_idx = i;
+                         plain_score = s0;
+                     }
+                 }
+             }
+-            (best_idx, best_mask, terms.any_predicate() && plain_idx != best_idx)
++            stock = best_idx;
++            let flipped = terms.any_predicate() && plain_idx != best_idx;
++            if state.chains.active {
++                replay_chain::count(9);
++                replay_chain::record_sample_chains(first_chain.is_some(), multiple_chains);
++                if multiple_chains {
++                    replay_chain::count(10);
++                }
++                if queue[stock].chain_id().is_none() {
++                    replay_chain::count(12);
++                } else {
++                    authority = multiple_chains;
++                    if authority {
++                        replay_chain::count(11);
++                    }
++                    if let Some((_, _, index, mask)) = chain_best {
++                        best_idx = index;
++                        best_mask = mask;
++                    }
++                    if authority && best_idx != stock {
++                        replay_chain::count(16);
++                    }
++                }
++            }
++            (best_idx, best_mask, flipped)
+         }
+         WithinQueueSelector::Proportional { exponent } => {
++            if state.chains.active {
++                replay_chain::count(14);
++            }
+             // Efraimidis-Spirakis: argmax of (ln(u_i) / w_i) is exact weighted
+             // sampling proportional to w_i. Both ln(u) (u in (0,1)) and w are
+             // negative/positive respectively, so the largest key wins.
+@@ -604,8 +712,14 @@ fn select_within_queue<H: HashPolicy, F: Feedback>(
+             let mut best_mask = 0u8;
+             let mut best_key = f64::NEG_INFINITY;
+             for &i in eligible {
+-                let (s, mask) =
+-                    score_with_terms::<H, F>(&queue[i], feedback, snapshot, state, terms, count_terms);
++                let (s, mask) = score_with_terms::<H, F>(
++                    &queue[i],
++                    feedback,
++                    snapshot,
++                    state,
++                    terms,
++                    count_terms,
++                );
+                 count_mask(mask);
+                 let weight = s.powf(*exponent).max(1e-9);
+                 let u: f64 = rng.random();
+@@ -618,13 +732,19 @@ fn select_within_queue<H: HashPolicy, F: Feedback>(
+                     best_mask = mask;
+                 }
+             }
++            stock = best_idx;
+             (best_idx, best_mask, false)
+         }
+     };
+     if count_terms {
+         util_stats::record_term_decision(eligible.len(), present, &evaluated, best_mask, flipped);
+     }
+-    (best_idx, best_mask)
++    WithinPick {
++        index: best_idx,
++        mask: best_mask,
++        stock,
++        authority,
++    }
+ }
+ 
+ /// Where a predicated candidate would send the step. With a predicate
+@@ -1016,7 +1136,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+             }
+-            let (idx, mask) = select_within_queue::<H, F>(
++            let pick = select_within_queue_pick::<H, F>(
+                 queue,
+                 &eligible,
+                 feedback,
+@@ -1026,6 +1146,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
++            let (idx, mask) = (pick.index, pick.mask);
++            if pick.authority && idx != pick.stock { replay_chain::count(17); }
+             (
+                 state.take_local(node_idx, idx),
+                 QueueSlot::Local(node_idx, idx),
+@@ -1041,7 +1163,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+             }
+-            let (drawn, drawn_mask) = select_within_queue::<H, F>(
++            let pick = select_within_queue_pick::<H, F>(
+                 queue,
+                 &eligible,
+                 feedback,
+@@ -1051,8 +1173,18 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            let idx = fresh_first_dispatch(state, &eligible, drawn);
+-            let idx = pair_order_dispatch(state, &eligible, idx);
++            let (drawn, drawn_mask) = (pick.index, pick.mask);
++            let shadow = pick.authority.then(|| {
++                let fresh = fresh_first_preview(state, &eligible, pick.stock).chosen;
++                pair_order_choice(state, &eligible, fresh, false)
++            });
++            let fresh = fresh_first_dispatch(state, &eligible, drawn);
++            let idx = pair_order_dispatch(state, &eligible, fresh);
++            if pick.authority {
++                if fresh != drawn { replay_chain::count(18); }
++                if idx != fresh { replay_chain::count(19); }
++                if Some(idx) != shadow { replay_chain::count(17); }
++            }
+             observe_rush_dispatch(state, &eligible, idx);
+             let delivered_op = state.network_queue[idx].causal_operation_id();
+             note_first_delivery(state, delivered_op);
+@@ -1091,7 +1223,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+             }
+-            let (idx, mask) = select_within_queue::<H, F>(
++            let pick = select_within_queue_pick::<H, F>(
+                 queue,
+                 &eligible,
+                 feedback,
+@@ -1101,6 +1233,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
++            let (idx, mask) = (pick.index, pick.mask);
++            if pick.authority && idx != pick.stock { replay_chain::count(17); }
+             (state.timer_queue.remove(idx), QueueSlot::Timer(idx), mask)
+         }
+     };
+@@ -1116,6 +1250,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         util_stats::record_timer_admission(matches!(chosen_slot, QueueSlot::Timer(_)));
+     }
+ 
++    let readiness = usize::from(info.timer_queue_size > 0) | (usize::from(info.network_queue_size > 0) << 1);
++    if runnable.chain_id().is_none() {
++        state.chains.dispatch(None, matches!(&runnable, Runnable::Timer(_)), readiness);
++    }
+     match runnable {
+         Runnable::Crash { node_id, .. } => {
+             // Every census of what a crash lands on reads the node the crash
+@@ -1181,9 +1319,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 return Ok(ScheduleResult::None);
+             }
+ 
++            let timer_chain = state.chains.root();
+             if let Some(chan) = state.channels.get_mut(&timer.channel) {
+                 match chan.pop_waiting_reader() {
+-                    None => chan.buffer.push_back(Value::<H>::unit()),
++                    None => { replay_chain::count(23); chan.buffer.push_back(Value::<H>::unit()); },
+                     Some((mut reader, lhs)) => {
+                         let node_index = reader.node.index;
+                         let mut r_node_env = state.nodes[node_index].clone();
+@@ -1196,6 +1335,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             log::warn!("Store failed in timer completion: {}", e);
+                         }
+                         state.nodes[node_index] = r_node_env;
++                        replay_chain::count(22);
++                        reader.chain_id = timer_chain;
+                         reader.timer_entry = Some(reader.pc);
+                         state.push_to_local(node_index, Runnable::Record(reader));
+                     }
+@@ -1225,6 +1366,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             };
+ 
+             if state.crash_info.currently_crashed.contains(&dest_node) {
++                state.chains.dispatch(None, false, readiness);
+                 if let Runnable::Record(r) = other
+                     && src_node != dest_node {
+                         let mut r = r;
+@@ -1235,6 +1377,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             }
+ 
+             if state.partition_info.is_blocked(src_node, dest_node) {
++                state.chains.dispatch(None, false, readiness);
+                 match other {
+                     Runnable::Record(r) => {
+                         let mut r = r;
+@@ -1247,6 +1390,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         origin_node,
+                         pc,
+                         priority,
++                        chain_id,
+                         ..
+                     } => {
+                         state.partition_info.buffer_channel_send(
+@@ -1256,6 +1400,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             origin_node,
+                             pc,
+                             priority,
++                            chain_id,
+                         );
+                     }
+                     _ => unreachable!(),
+@@ -1265,6 +1410,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+ 
+             match other {
+                 Runnable::Record(r) => {
++                    state.chains.dispatch(Some(r.chain_id), false, readiness);
+                     let record_entry_pc = r.entry_pc;
+                     let record_origin = r.origin_node;
+                     let record_dest = r.node;
+@@ -1474,8 +1620,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     }
+                 }
+                 Runnable::ChannelSend {
+-                    channel, message, ..
++                    channel, message, chain_id, ..
+                 } => {
++                    let executed = state.channels.contains_key(&channel).then_some(chain_id);
++                    state.chains.dispatch(executed, false, readiness);
+                     if let Some(chan) = state.channels.get_mut(&channel) {
+                         match chan.pop_waiting_reader() {
+                             None => chan.buffer.push_back(message),
+@@ -1571,73 +1719,104 @@ fn absorber_decision<H: HashPolicy>(
+ /// queue and stays eligible. A destination that has never restarted in the
+ /// run keeps the drawn ghost. No random draw is taken here, so a treated
+ /// step reads the same random sequence as an untreated one.
++#[derive(Debug)]
++struct FreshPreview {
++    chosen: usize,
++    contest: Option<(bool, bool)>,
++    skipped: bool,
++    displaced: Option<(usize, u32)>,
++}
++
++fn fresh_first_preview<H: HashPolicy>(
++    state: &State<H>,
++    eligible: &[usize],
++    drawn: usize,
++) -> FreshPreview {
++    let mut out = FreshPreview {
++        chosen: drawn,
++        contest: None,
++        skipped: false,
++        displaced: None,
++    };
++    let treated = state.fresh_first.enabled;
++    if !treated && !util_stats::enabled() {
++        return out;
++    }
++    let queue = &state.network_queue;
++    let Some(Runnable::Record(rec)) = queue.get(drawn) else {
++        return out;
++    };
++    if rec.origin_node == rec.node {
++        return out;
++    }
++    let origin = rec.origin_node;
++    let dest = rec.node;
++    let Some(ledger) = state.send_ledger.get(origin.index) else {
++        return out;
++    };
++    if ledger.net_fresh == 0 || ledger.net_records <= ledger.net_fresh {
++        return out;
++    }
++    let current = state.incarnation(origin);
++    let stale_drawn = rec.origin_incarnation != current;
++    let candidates = eligible.iter().map(|&i| {
++        let item = match &queue[i] {
++            Runnable::Record(r)
++                if r.origin_node == origin && r.node == dest && r.origin_node != r.node =>
++            {
++                Some((r.origin_incarnation, r.priority))
++            }
++            _ => None,
++        };
++        (i, item)
++    });
++    let (contested, best_fresh) = fresh_first::rival(candidates, drawn, stale_drawn, current);
++    if !contested {
++        return out;
++    }
++    let down = state.crash_info.currently_crashed.contains(&dest);
++    out.contest = Some((stale_drawn, down));
++    if !treated || !stale_drawn || down {
++        return out;
++    }
++    if state.incarnation(dest) == 0 {
++        out.skipped = true;
++        return out;
++    }
++    if let Some(fresh) = best_fresh {
++        out.chosen = fresh;
++        out.displaced = Some((origin.index, rec.send_ordinal));
++    }
++    out
++}
++
+ fn fresh_first_dispatch<H: HashPolicy>(
+     state: &mut State<H>,
+     eligible: &[usize],
+     drawn: usize,
+ ) -> usize {
+-    let stats = util_stats::enabled();
++    let out = fresh_first_preview(state, eligible, drawn);
+     let treated = state.fresh_first.enabled;
+-    if !treated && !stats {
+-        return drawn;
++    if let Some((stale, down)) = out.contest {
++        util_stats::record_fresh_first_contest(treated, stale, down);
+     }
+-    let queue = &state.network_queue;
+-    let chosen = 'pick: {
+-        let Some(Runnable::Record(rec)) = queue.get(drawn) else {
+-            break 'pick drawn;
+-        };
+-        if rec.origin_node == rec.node {
+-            break 'pick drawn;
+-        }
+-        let origin = rec.origin_node;
+-        let dest = rec.node;
+-        let Some(ledger) = state.send_ledger.get(origin.index) else {
+-            break 'pick drawn;
+-        };
+-        if ledger.net_fresh == 0 || ledger.net_records <= ledger.net_fresh {
+-            break 'pick drawn;
+-        }
+-        let current = state.incarnation(origin);
+-        let stale_drawn = rec.origin_incarnation != current;
+-        let candidates = eligible.iter().map(|&i| {
+-            let item = match &queue[i] {
+-                Runnable::Record(r)
+-                    if r.origin_node == origin && r.node == dest && r.origin_node != r.node =>
+-                {
+-                    Some((r.origin_incarnation, r.priority))
+-                }
+-                _ => None,
+-            };
+-            (i, item)
+-        });
+-        let (contested, best_fresh) = fresh_first::rival(candidates, drawn, stale_drawn, current);
+-        if !contested {
+-            break 'pick drawn;
+-        }
+-        let down = state.crash_info.currently_crashed.contains(&dest);
+-        util_stats::record_fresh_first_contest(treated, stale_drawn, down);
+-        if !treated || !stale_drawn || down {
+-            break 'pick drawn;
+-        }
+-        if state.incarnation(dest) == 0 {
+-            util_stats::record_fresh_first_skipped_never_restarted_dest();
+-            break 'pick drawn;
+-        }
+-        let Some(fresh) = best_fresh else {
+-            break 'pick drawn;
+-        };
+-        let times = state.fresh_first.displace((origin.index, rec.send_ordinal));
++    if out.skipped {
++        util_stats::record_fresh_first_skipped_never_restarted_dest();
++    }
++    if let Some(key) = out.displaced {
++        let times = state.fresh_first.displace(key);
+         util_stats::record_fresh_first_swap(times > 1);
+-        fresh
+-    };
++    }
+     if treated
+-        && let Some(Runnable::Record(r)) = queue.get(chosen)
++        && let Some(Runnable::Record(r)) = state.network_queue.get(out.chosen)
+         && r.origin_node != r.node
+-        && let Some(count) = state.fresh_first.take((r.origin_node.index, r.send_ordinal))
++        && let Some(count) = state
++            .fresh_first
++            .take((r.origin_node.index, r.send_ordinal))
+     {
+         util_stats::record_fresh_first_taken(count);
+     }
+-    chosen
++    out.chosen
+ }
+ 
+ /// Steps between two reads of the rushed-dispatch split.
+@@ -1699,6 +1878,10 @@ fn note_first_delivery<H: HashPolicy>(state: &mut State<H>, op: Option<i32>) {
+ /// census runs of the control half; any other untreated run returns without
+ /// reading the queue. No random draw is taken.
+ fn pair_order_dispatch<H: HashPolicy>(state: &State<H>, eligible: &[usize], pick: usize) -> usize {
++    pair_order_choice(state, eligible, pick, true)
++}
++
++fn pair_order_choice<H: HashPolicy>(state: &State<H>, eligible: &[usize], pick: usize, observe: bool) -> usize {
+     let treated = state.pair_order.enabled;
+     if !treated && !state.pair_order.census {
+         return pick;
+@@ -1737,19 +1920,19 @@ fn pair_order_dispatch<H: HashPolicy>(state: &State<H>, eligible: &[usize], pick
+     if !contest.rivals {
+         return pick;
+     }
+-    util_stats::record_pair_order_contest(treated, contest.earliest.is_none());
++    if observe { util_stats::record_pair_order_contest(treated, contest.earliest.is_none()); }
+     if !treated {
+         return pick;
+     }
+     let ghost = state.fault_crossing(origin, rec.origin_incarnation);
+-    util_stats::record_pair_order_contest_class(ghost);
++    if observe { util_stats::record_pair_order_contest_class(ghost); }
+     match contest.earliest {
+         Some(earliest) if ghost => {
+-            util_stats::record_pair_order_correction(ghost);
++            if observe { util_stats::record_pair_order_correction(ghost); }
+             earliest
+         }
+         Some(_) => {
+-            util_stats::record_pair_order_fresh_suppressed();
++            if observe { util_stats::record_pair_order_fresh_suppressed(); }
+             pick
+         }
+         None => pick,
+@@ -1997,6 +2180,7 @@ fn recover_node<H: HashPolicy, L: Logger, F: Feedback>(
+     );
+ 
+     let record = Record {
++        chain_id: state.chains.root(),
+         pc: recover_fn.entry,
+         node: node_id,
+         origin_node: node_id,
+@@ -2687,6 +2871,7 @@ mod tests {
+     ) -> usize {
+         let env = Env::<NoHashing>::with_slots(1);
+         let rec = Record {
++            chain_id: state.chains.root(),
+             pc: 0,
+             node: node(dest),
+             origin_node: node(origin),
+@@ -2710,6 +2895,7 @@ mod tests {
+ 
+     fn queue_channel_send(state: &mut State<NoHashing>, origin: usize, dest: usize) -> usize {
+         state.push_runnable(Runnable::ChannelSend {
++            chain_id: 0,
+             target: node(dest),
+             channel: crate::simulator::core::values::ChannelId {
+                 node: node(dest),
+@@ -3034,4 +3220,159 @@ mod tests {
+             assert_eq!(idx, 0);
+         }
+     }
++    #[test]
++    fn chain_tournament_reuses_stock_samples_and_draws() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(false);
++        let (mut state, _) = contested_state();
++        state.network_queue.push(heal(0.99));
++        let queue = state.network_queue.clone();
++        let eligible: Vec<_> = (0..queue.len()).collect();
++        let terms = ResolvedTerms::default();
++        let selector = WithinQueueSelector::Tournament { k: 10 };
++        let mut changed = 0;
++        let mut faults = 0;
++        for seed in 0..256 {
++            let mut stock_rng = StdRng::seed_from_u64(seed);
++            let mut chain_rng = stock_rng.clone();
++            let mut sample_rng = stock_rng.clone();
++            state.chains.active = false;
++            let stock = select_within_queue_pick::<NoHashing, NoFeedback>(
++                &queue,
++                &eligible,
++                &(),
++                &(),
++                &state,
++                &terms,
++                &selector,
++                &mut stock_rng,
++            );
++            state.chains.configure(73, 100, true, false, 0);
++            state.chains.active = true;
++            let choice = select_within_queue_pick::<NoHashing, NoFeedback>(
++                &queue,
++                &eligible,
++                &(),
++                &(),
++                &state,
++                &terms,
++                &selector,
++                &mut chain_rng,
++            );
++            assert_eq!(choice.stock, stock.index);
++            assert_eq!(chain_rng.next_u64(), stock_rng.next_u64());
++            let samples: Vec<usize> = (0..eligible.len())
++                .map(|_| sample_rng.random_range(0..eligible.len()))
++                .collect();
++            assert!(samples.contains(&choice.index));
++            if queue[stock.index].chain_id().is_none() {
++                faults += 1;
++                assert_eq!(choice.index, stock.index);
++                assert!(!choice.authority);
++            } else {
++                let expected = samples
++                    .iter()
++                    .copied()
++                    .filter(|&i| queue[i].chain_id().is_some())
++                    .reduce(|best, i| {
++                        let a = state.chains.key(queue[i].chain_id().unwrap());
++                        let b = state.chains.key(queue[best].chain_id().unwrap());
++                        let score = |j| {
++                            score_runnable::<NoHashing, NoFeedback>(&queue[j], &(), &(), &state, &terms)
++                        };
++                        if a > b || (a == b && score(i) > score(best)) {
++                            i
++                        } else {
++                            best
++                        }
++                    })
++                    .unwrap();
++                assert_eq!(choice.index, expected);
++                changed += usize::from(choice.index != stock.index);
++            }
++        }
++        assert!(changed > 0 && faults > 0);
++    }
++
++    #[test]
++    fn chain_same_id_proportional_and_singleton_keep_stock_choice() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(false);
++        let (mut state, _) = contested_state();
++        let mut queue = state.network_queue.clone();
++        for runnable in &mut queue {
++            match runnable {
++                Runnable::Record(r) => r.chain_id = 1,
++                Runnable::ChannelSend { chain_id, .. } => *chain_id = 1,
++                _ => unreachable!(),
++            }
++        }
++        for selector in [
++            WithinQueueSelector::Tournament { k: 10 },
++            WithinQueueSelector::Proportional { exponent: 2.0 },
++        ] {
++            for eligible in [vec![0], (0..queue.len()).collect()] {
++                for seed in 0..32 {
++                    let mut a = StdRng::seed_from_u64(seed);
++                    let mut b = a.clone();
++                    state.chains.active = false;
++                    let stock = select_within_queue_pick::<NoHashing, NoFeedback>(
++                        &queue,
++                        &eligible,
++                        &(),
++                        &(),
++                        &state,
++                        &ResolvedTerms::default(),
++                        &selector,
++                        &mut a,
++                    );
++                    state.chains.active = true;
++                    let chain = select_within_queue_pick::<NoHashing, NoFeedback>(
++                        &queue,
++                        &eligible,
++                        &(),
++                        &(),
++                        &state,
++                        &ResolvedTerms::default(),
++                        &selector,
++                        &mut b,
++                    );
++                    assert_eq!(chain.index, stock.index);
++                    assert_eq!(a.next_u64(), b.next_u64());
++                    assert!(!chain.authority);
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn chain_shadow_preferences_are_pure_and_commit_once() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(false);
++        let (mut state, slots) = contested_state();
++        state.fresh_first.enabled = true;
++        state.pair_order.enabled = true;
++        let eligible: Vec<_> = (0..state.network_queue.len()).collect();
++        let before = format!("{:?} {:?}", state.fresh_first, state.pair_order);
++        let shadow = fresh_first_preview(&state, &eligible, slots[0]);
++        let _ = pair_order_choice(&state, &eligible, shadow.chosen, false);
++        assert_eq!(
++            before,
++            format!("{:?} {:?}", state.fresh_first, state.pair_order)
++        );
++        let actual = fresh_first_dispatch(&mut state, &eligible, slots[0]);
++        assert_eq!(actual, shadow.chosen);
++        let Runnable::Record(ghost) = &state.network_queue[slots[0]] else {
++            unreachable!()
++        };
++        assert_eq!(
++            state
++                .fresh_first
++                .take((ghost.origin_node.index, ghost.send_ordinal)),
++            Some(fresh_first::DisplacedCount::Once)
++        );
++    }
++
++    include!("scheduler/chain_lifecycle_tests.rs");
++
+ }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index eb5de70..d014215 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -256,6 +256,8 @@ pub trait Logger {
+ 
+ #[derive(Debug, Clone, PartialEq)]
+ pub struct Record<H: HashPolicy> {
++    /// Scheduling metadata excluded from protocol state hashes.
++    pub chain_id: u64,
+     pub pc: Vertex,
+     pub node: NodeId,
+     pub origin_node: NodeId,
+@@ -416,6 +418,7 @@ pub enum Runnable<H: HashPolicy> {
+     Timer(Timer),
+     Record(Record<H>),
+     ChannelSend {
++        chain_id: u64,
+         target: NodeId,
+         channel: ChannelId,
+         message: Value<H>,
+@@ -486,6 +489,14 @@ impl<H: HashPolicy> Hash for Runnable<H> {
+ }
+ 
+ impl<H: HashPolicy> Runnable<H> {
++    pub fn chain_id(&self) -> Option<u64> {
++        match self {
++            Runnable::Record(record) => Some(record.chain_id),
++            Runnable::ChannelSend { chain_id, .. } => Some(*chain_id),
++            _ => None,
++        }
++    }
++
+     /// Get the node this runnable belongs to, if applicable.
+     #[allow(dead_code)]
+     pub fn node(&self) -> Option<NodeId> {
+@@ -562,6 +573,7 @@ pub enum ScheduleResult<H: HashPolicy> {
+ 
+ #[derive(Debug, Clone)]
+ pub struct State<H: HashPolicy> {
++    pub chains: crate::simulator::replay_chain::ChainState,
+     // `nodes` and the three run queues are owned exclusively by the run that
+     // created them; a `State` is never cloned or snapshotted, so plain `Vec`s
+     // are the right representation.
+@@ -795,6 +807,7 @@ impl<H: HashPolicy> State<H> {
+         }
+         let num_nodes = nodes.len();
+         Self {
++            chains: crate::simulator::replay_chain::ChainState::default(),
+             nodes,
+             incarnations: vec![0; num_nodes],
+             local_queues: (0..num_nodes).map(|_| Vec::new()).collect(),
+@@ -980,11 +993,24 @@ impl<H: HashPolicy> State<H> {
+         id
+     }
+ 
++    fn assign_missing_chain(&mut self, runnable: &mut Runnable<H>) {
++        match runnable {
++            Runnable::Record(record) if record.chain_id == 0 => {
++                record.chain_id = self.chains.missing_root();
++            }
++            Runnable::ChannelSend { chain_id, .. } if *chain_id == 0 => {
++                *chain_id = self.chains.missing_root();
++            }
++            _ => {}
++        }
++    }
++
+     /// Auto-route a runnable to the correct queue.
+     /// Records use origin_node == node to decide local vs network.
+     /// Use `push_to_local()` for continuations/wakeups where the record
+     /// is already delivered and being re-enqueued.
+-    pub fn push_runnable(&mut self, runnable: Runnable<H>) {
++    pub fn push_runnable(&mut self, mut runnable: Runnable<H>) {
++        self.assign_missing_chain(&mut runnable);
+         match &runnable {
+             Runnable::Timer(_) => self.timer_queue.push(runnable),
+             Runnable::ChannelSend { .. } => {
+@@ -1356,7 +1382,8 @@ impl<H: HashPolicy> State<H> {
+     }
+ 
+     /// Force a runnable into a specific node's local queue.
+-    pub fn push_to_local(&mut self, node_index: usize, runnable: Runnable<H>) {
++    pub fn push_to_local(&mut self, node_index: usize, mut runnable: Runnable<H>) {
++        self.assign_missing_chain(&mut runnable);
+         self.local_queues[node_index].push(runnable);
+     }
+ 
+@@ -1369,7 +1396,8 @@ impl<H: HashPolicy> State<H> {
+     }
+ 
+     /// Move a runnable into purgatory, delaying it until `release_step`.
+-    pub fn delay_runnable(&mut self, release_step: i32, runnable: Runnable<H>) {
++    pub fn delay_runnable(&mut self, release_step: i32, mut runnable: Runnable<H>) {
++        self.assign_missing_chain(&mut runnable);
+         self.flight_enter(&runnable);
+         self.purgatory.push((release_step, runnable));
+     }
+@@ -1629,6 +1657,7 @@ mod ledger_tests {
+     fn record(state: &mut State<NoHashing>, origin: NodeId, dest: NodeId) -> Record<NoHashing> {
+         let env = Env::<NoHashing>::with_slots(1);
+         Record {
++            chain_id: state.chains.root(),
+             pc: 0,
+             node: dest,
+             origin_node: origin,
+@@ -1648,6 +1677,98 @@ mod ledger_tests {
+         }
+     }
+ 
++    #[test]
++    fn chain_identity_survives_holds_partitions_and_crash_reset() {
++        use crate::simulator::core::partition::{activate_partition, heal_partition};
++        let mut st = state();
++        let a = node(SERVER, 0);
++        let b = node(SERVER, 1);
++        let mut rec = record(&mut st, a, b);
++        let chain = rec.chain_id;
++        let original_hash = compute_hash(&rec);
++        rec.chain_id += 100;
++        assert_eq!(compute_hash(&rec), original_hash);
++        rec.chain_id = chain;
++        rec.pc = 12;
++        rec.reset();
++        assert_eq!(rec.chain_id, chain);
++        st.delay_runnable(4, Runnable::Record(rec));
++        st.release_from_purgatory(4);
++        let send = Runnable::ChannelSend {
++            chain_id: chain,
++            target: b,
++            channel: ChannelId { node: b, id: 0 },
++            message: Value::unit(),
++            origin_node: a,
++            pc: 0,
++            priority: 0.5,
++        };
++        st.push_runnable(send);
++        activate_partition(&mut st, PartitionType::IsolateOne(a));
++        assert!(st.network_queue.is_empty());
++        assert_eq!(st.partition_info.queued_messages.len(), 2);
++        let partition_hash = compute_hash(&st.partition_info);
++        for msg in &mut st.partition_info.queued_messages {
++            match msg {
++                crate::simulator::core::partition::QueuedMessage::Record { record, .. } => {
++                    assert_eq!(record.chain_id, chain);
++                    record.chain_id += 1;
++                }
++                crate::simulator::core::partition::QueuedMessage::ChannelSend { chain_id, .. } => {
++                    assert_eq!(*chain_id, chain);
++                    *chain_id += 1;
++                }
++            }
++        }
++        assert_eq!(compute_hash(&st.partition_info), partition_hash);
++        heal_partition(&mut st);
++        assert_eq!(st.network_queue.len(), 2);
++        for task in &st.network_queue {
++            match task {
++                Runnable::Record(rec) => assert_eq!(rec.chain_id, chain + 1),
++                Runnable::ChannelSend { chain_id, .. } => assert_eq!(*chain_id, chain + 1),
++                _ => panic!("only executable messages are queued"),
++            }
++        }
++    }
++
++    #[test]
++    fn missing_parentless_records_receive_distinct_roots() {
++        let mut st = state();
++        let a = node(SERVER, 0);
++        let b = node(SERVER, 1);
++        let mut rec = record(&mut st, a, b);
++        rec.chain_id = 0;
++        st.push_runnable(Runnable::Record(rec.clone()));
++        st.push_runnable(Runnable::Record(rec));
++        let chains: Vec<u64> = st.network_queue.iter().map(|r| match r {
++            Runnable::Record(rec) => rec.chain_id,
++            _ => unreachable!(),
++        }).collect();
++        assert!(chains.iter().all(|id| *id != 0));
++        assert_ne!(chains[0], chains[1]);
++    }
++
++    #[test]
++    fn ordinary_channel_wakeup_keeps_the_waiting_chain() {
++        use crate::compiler::cfg::VarSlot;
++        let mut st = state();
++        let a = node(SERVER, 0);
++        let reader = record(&mut st, a, a);
++        let waiting_chain = reader.chain_id;
++        let unrelated_chain = st.chains.root();
++        assert_ne!(waiting_chain, unrelated_chain);
++        let channel = ChannelId { node: a, id: st.alloc_channel_id() };
++        let mut chan = ChannelState::new();
++        chan.push_waiting_reader(reader, Lhs::Var(VarSlot::Local(0, NameId(0))));
++        st.channels.insert(channel, chan);
++        Continuation::Async { chan_id: channel }.call(&mut st, Value::int(9));
++        let Runnable::Record(reader) = &st.local_queues[0][0] else {
++            panic!("the waiting reader resumes");
++        };
++        assert_eq!(reader.chain_id, waiting_chain);
++    }
++
+     /// The ledger recomputed from the queues, the oracle the hooks are held to.
+     fn recount(state: &State<NoHashing>) -> (Vec<SendLedger>, u32, u32) {
+         let mut ledgers: Vec<SendLedger> = state
+@@ -2012,6 +2133,7 @@ mod ledger_tests {
+         let delayed = record(&mut st, b, c);
+         st.delay_runnable(5, Runnable::Record(delayed));
+         st.push_runnable(Runnable::ChannelSend {
++            chain_id: 1,
+             target: c,
+             channel: ChannelId { node: c, id: 0 },
+             message: Value::<NoHashing>::unit(),
+@@ -2073,3 +2195,92 @@ mod ledger_tests {
+         assert_exact(&st, "after removing the early send");
+     }
+ }
++
++
++#[cfg(test)]
++#[allow(dead_code)]
++mod chain_layout_tests {
++    use super::*;
++    use crate::simulator::core::partition::QueuedMessage;
++    use crate::simulator::hash_utils::{NoHashing, WithHashing};
++
++    struct UntaggedRecord<H: HashPolicy> {
++        pc: Vertex,
++        node: NodeId,
++        origin_node: NodeId,
++        continuation: Continuation<H>,
++        env: Env<H>,
++        entry_pc: Vertex,
++        initial_env: Env<H>,
++        priority: f64,
++        causal_operation_id: Option<i32>,
++        trace_id: Option<i64>,
++        link_seq: Option<(LinkId, u32)>,
++        origin_incarnation: u32,
++        bias: DeliveryBias,
++        timer_entry: Option<Vertex>,
++        send_ordinal: u32,
++        receiver_token_at_send: u64,
++    }
++
++    enum UntaggedRunnable<H: HashPolicy> {
++        Timer(Timer),
++        Record(UntaggedRecord<H>),
++        ChannelSend {
++            target: NodeId,
++            channel: ChannelId,
++            message: Value<H>,
++            origin_node: NodeId,
++            pc: Vertex,
++            priority: f64,
++        },
++        Crash {
++            node_id: NodeId,
++            priority: f64,
++        },
++        Recover {
++            node_id: NodeId,
++            priority: f64,
++        },
++        Partition {
++            partition_type: PartitionType,
++            priority: f64,
++        },
++        Heal {
++            priority: f64,
++        },
++    }
++
++    enum UntaggedQueuedMessage<H: HashPolicy> {
++        Record {
++            dest: NodeId,
++            record: UntaggedRecord<H>,
++        },
++        ChannelSend {
++            dest: NodeId,
++            channel: ChannelId,
++            message: Value<H>,
++            origin_node: NodeId,
++            pc: Vertex,
++            priority: f64,
++        },
++    }
++
++    fn check<H: HashPolicy>() {
++        let pairs = [
++            ("Record", std::mem::size_of::<UntaggedRecord<H>>(), std::mem::size_of::<Record<H>>()),
++            ("Runnable", std::mem::size_of::<UntaggedRunnable<H>>(), std::mem::size_of::<Runnable<H>>()),
++            ("QueuedMessage", std::mem::size_of::<UntaggedQueuedMessage<H>>(), std::mem::size_of::<QueuedMessage<H>>()),
++        ];
++        for (name, untagged, tagged) in pairs {
++            eprintln!("{} {name}: untagged={untagged} tagged={tagged}", std::any::type_name::<H>());
++            assert!(tagged <= untagged + 16, "{name} chain metadata exceeds the layout bound");
++        }
++    }
++
++    #[test]
++    fn chain_tags_fit_the_layout_bound() {
++        check::<NoHashing>();
++        check::<WithHashing>();
++    }
++}
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index a471961..f54c106 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -915,6 +915,7 @@ pub struct RunAttribution {
+     pub arm_index: i32,
+     pub config_index: i32,
+     pub variant_bits: i32,
++    pub replay_child: bool,
+ }
+ 
+ impl RunAttribution {
+@@ -924,6 +925,7 @@ impl RunAttribution {
+             arm_index: -1,
+             config_index: -1,
+             variant_bits: 0,
++            replay_child: false,
+         }
+     }
+ 
+@@ -1071,6 +1073,9 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     // resulting stream per the chosen strategy (zero-cost for `LiveRng`).
+     util_stats::record_rng_isolation(config.rng_stream_isolation);
+     let mut inner = StreamSet::new(schedule_seed, config.rng_stream_isolation);
++    let actual_prefix = attribution.replay_child
++        && attribution.variant_bits & run_variant::REPLAY_PREFIX != 0
++        && seed_tape.is_some();
+     let mut tape = S::new_tape(seed_tape);
+     let mut rec = RecRng::<S> {
+         tape: &mut tape,
+@@ -1088,6 +1093,14 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &mut rec,
+     )?;
+ 
++    path_state.state.chains.configure(
++        schedule_seed,
++        config.max_iterations,
++        actual_prefix,
++        attribution.replay_child && !actual_prefix,
++        attribution.arm_index,
++    );
++
+     let topology_info = TopologyInfo {
+         topology: Topology::Full,
+         num_servers: config.num_servers,
+@@ -1128,6 +1141,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &arms,
+         &mut rec,
+     )?;
++    path_state.state.chains.finish();
+     // A replay slot's prefix carries its parent's ghost signal, so the
+     // signal is not read on it.
+     let replay_slot = attribution.variant_bits & run_variant::REPLAY_SLOT != 0;
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index f051107..60391c8 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -185,7 +185,9 @@ fn schedule_client_op<H: HashPolicy>(
+     let send_ordinal = state.next_send_ordinal(client_node_id);
+     let receiver_token_at_send = state.node_state_token(client_node_id);
+     let drawn_priority = policy.sample(rng, RunnableCategory::Record);
++    let chain_id = state.chains.root();
+     state.push_runnable(Runnable::Record(Record {
++        chain_id,
+         pc: op_func.entry,
+         node: client_node_id,
+         origin_node: client_node_id,
+@@ -448,6 +450,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     } else {
+         run_cap::effective_cap(backup)
+     };
++    path_state.state.chains.set_cap(effective_cap);
+     let timer_ctx_mode = timer_context::run_mode(run_id);
+     let mut selector = queue_policy.to_selector();
+     let mut op_id_counter = 0i32;
+@@ -538,6 +541,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         }
+ 
+         path_state.state.crash_info.current_step = step;
++        path_state.state.chains.before_step(
++            step,
++            rng.source_exhausted(),
++            path_state.state.replay_cut.is_some(),
++        );
+         util_stats::record_steer_step_total();
+ 
+         // Release delayed messages whose time has come
+@@ -910,6 +918,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             }
+         }
+ 
++        path_state.state.chains.note_exhaustion(step, rng.source_exhausted());
++
+         // A window opens when this step's dispatch left a server that took an
+         // acted fault-crossing delivery with its full fan-out still in the
+         // air. It is counted on both halves and issues nothing; a treated run
+@@ -1105,5 +1115,29 @@ mod tests {
+             "the client record is queued when the request is issued"
+         );
+         assert!(held.is_empty());
++        let client_index = path_state.state.local_queues.iter().position(|q| !q.is_empty()).unwrap();
++        let Runnable::Record(client) = path_state.state.take_local(client_index, 0) else {
++            panic!("the issued operation is an executable record");
++        };
++        let chain_id = client.chain_id;
++        assert_ne!(chain_id, 0);
++        crate::simulator::core::exec::<NoHashing, _, NoFeedback>(
++            &mut path_state.state,
++            &mut path_state.logs,
++            &program,
++            client,
++            &(),
++            &mut path_state.feedback,
++            &policy,
++            &purgatory,
++            &mut rng,
++        ).expect("the client dispatches its asynchronous call");
++        assert!(!path_state.state.network_queue.is_empty());
++        for runnable in &path_state.state.network_queue {
++            let Runnable::Record(child) = runnable else {
++                panic!("the client sends an asynchronous call");
++            };
++            assert_eq!(child.chain_id, chain_id);
++        }
+     }
+ }
+diff --git a/spur-core/src/simulator/rng.rs b/spur-core/src/simulator/rng.rs
+index f068c09..cf22376 100644
+--- a/spur-core/src/simulator/rng.rs
++++ b/spur-core/src/simulator/rng.rs
+@@ -138,6 +138,8 @@ pub trait StreamRng: RngCore {
+     fn position(&self) -> Option<usize> {
+         None
+     }
++
++    fn source_exhausted(&self) -> bool { false }
+ }
+ 
+ impl StreamRng for SmallRng {}
+@@ -165,6 +167,8 @@ pub trait RngSource: 'static + Send {
+     fn into_recording(_tape: Self::Tape) -> Option<Recording> {
+         None
+     }
++    fn source_exhausted(_tape: &Self::Tape) -> bool { false }
++
+     /// Draws captured so far, when this strategy records.
+     fn position(_tape: &Self::Tape) -> Option<usize> {
+         None
+@@ -187,6 +191,8 @@ impl<S: RngSource> StreamRng for RecRng<'_, S> {
+     fn position(&self) -> Option<usize> {
+         S::position(self.tape)
+     }
++
++    fn source_exhausted(&self) -> bool { S::source_exhausted(self.tape) }
+ }
+ 
+ impl<S: RngSource> RngCore for RecRng<'_, S> {
+@@ -289,6 +295,9 @@ impl RngSource for ReplayRng {
+     fn into_recording(tape: ReplayTape) -> Option<Recording> {
+         Some(tape.out.into())
+     }
++    #[inline]
++    fn source_exhausted(tape: &ReplayTape) -> bool { tape.pos == tape.src.len() }
++
+     #[inline]
+     fn position(tape: &ReplayTape) -> Option<usize> {
+         Some(tape.out.len())
+@@ -438,6 +447,23 @@ mod tests {
+         assert_eq!(rep.position(), Some(5), "replayed and fallback draws both count");
+     }
+ 
++    #[test]
++    fn source_exhaustion_is_separate_from_output_and_stream_draws() {
++        let mut inner = StreamSet::new(42, true);
++        let mut tape = ReplayRng::new_tape(Some(vec![1, 2, 3].into()));
++        let mut rng = RecRng::<ReplayRng> { tape: &mut tape, inner: &mut inner };
++        assert!(!rng.source_exhausted());
++        rng.next_u32(); assert!(!rng.source_exhausted());
++        rng.use_stream(Stream::QueueChoice);
++        rng.fill_bytes(&mut [0; 9]);
++        assert!(rng.source_exhausted()); assert_eq!(rng.position(), Some(3));
++        rng.next_u64(); assert!(rng.source_exhausted()); assert_eq!(rng.position(), Some(4));
++        assert!(!SmallRng::seed_from_u64(0).source_exhausted());
++        let empty = ReplayRng::new_tape(Some(vec![].into()));
++        assert!(ReplayRng::source_exhausted(&empty));
++        assert!(!RecordRng::source_exhausted(&vec![1, 2]));
++    }
++
+     #[test]
+     fn mutate_tape_changes_k_positions() {
+         let r: Recording = (0..20u64).collect::<Vec<_>>().into();
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..e98d7cc 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -602,6 +602,7 @@ const TIMELINE_MAX_BUCKETS: usize = 512;
+ /// counters so repeated sessions in one process don't bleed into each other.
+ pub fn set_enabled(on: bool) {
+     if on {
++        crate::simulator::replay_chain::reset();
+         for c in [
+             &STEER_EVALUATIONS,
+             &STEER_DIVERGENT_PICKS,
+@@ -5017,6 +5018,7 @@ pub struct UtilizationSnapshot {
+     pub client_anchor: ClientAnchorStats,
+     pub arm_selector_axis: ArmSelectorAxisStats,
+     pub replay: ReplayStats,
++    pub replay_chain_pct: serde_json::Value,
+     pub timer_context: TimerContextStats,
+     pub timeline_keys: TimelineKeyStats,
+     pub steer_terms: SteerTermStats,
+@@ -5215,6 +5217,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         client_anchor: ClientAnchorStats::read(),
+         arm_selector_axis: ArmSelectorAxisStats::read(),
+         replay: ReplayStats::read(),
++        replay_chain_pct: crate::simulator::replay_chain::snapshot(),
+         timer_context: TimerContextStats::read(),
+         timeline_keys: TimelineKeyStats::read(),
+         steer_terms: SteerTermStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..0f28f32 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -1460,6 +1460,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         client_anchor: _,
+         arm_selector_axis: _,
+         replay: _,
++        replay_chain_pct: _,
+         timer_context: _,
+         timeline_keys: _,
+         steer_terms: _,
+@@ -1498,6 +1499,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "client_anchor",
+         "arm_selector_axis",
+         "replay",
++        "replay_chain_pct",
+         "timer_context",
+         "timeline_keys",
+         "steer_terms",
+@@ -1685,3 +1687,33 @@ fn every_integer_counter_survives_the_difference_and_accumulate_path() {
+         "the accumulated arm counters are not total: missing {missing:?}, mismatched {wrong:?}"
+     );
+ }
++
++#[test]
++fn chain_histogram_integer_leaves_survive_render_delta_and_accumulation() {
++    fn mark(value: &mut Value, prefix: &str, expected: &mut BTreeMap<String, Value>, marks: &mut Marks) {
++        match value {
++            Value::Object(fields) => {
++                for (name, child) in fields { mark(child, &join(prefix, name), expected, marks); }
++            }
++            Value::Number(n) => {
++                let increment = marks.int();
++                *value = (n.as_u64().expect("chain counters are unsigned") + increment).into();
++                expected.insert(prefix.to_owned(), increment.into());
++            }
++            _ => panic!("chain counters must use object keys and integer leaves"),
++        }
++    }
++    let before = util_stats::snapshot_value();
++    let mut snapshot = util_stats::snapshot();
++    let mut expected = BTreeMap::new();
++    mark(&mut snapshot.replay_chain_pct, "", &mut expected, &mut Marks(0));
++    let parsed: Value = serde_json::from_str(&util_stats::render_snapshot(&snapshot).unwrap()).unwrap();
++    assert_eq!(parsed["replay_chain_pct"], snapshot.replay_chain_pct);
++    let mut acc = Value::Object(Map::new());
++    util_stats::add(&mut acc, &util_stats::delta(&before, &parsed));
++    let mut actual = BTreeMap::new();
++    leaves(&acc["replay_chain_pct"], "", &mut actual);
++    assert_eq!(actual, expected);
++    assert!(actual.contains_key("prefix.0.3.lengths_including_censored.32"));
++    assert!(actual.contains_key("plan_only.0.3.censored.32"));
++}
+diff --git a/spur-core/src/simulator/core/scheduler/chain_lifecycle_tests.rs b/spur-core/src/simulator/core/scheduler/chain_lifecycle_tests.rs
+new file mode 100644
+index 0000000..b015897
+--- /dev/null
++++ b/spur-core/src/simulator/core/scheduler/chain_lifecycle_tests.rs
+@@ -0,0 +1,297 @@
++mod chain_lifecycle_tests {
++    use super::*;
++    use crate::analysis::resolver::NameId;
++    use crate::compiler::cfg::{Cfg, Lhs, VarSlot};
++    use crate::simulator::core::state::{ChannelState, Timer};
++    use crate::simulator::core::values::ChannelId;
++    use crate::simulator::path::Logs;
++    use std::collections::HashMap;
++
++    struct ForcedQueue(QueueSelection);
++
++    impl QueueSelector for ForcedQueue {
++        fn select(&mut self, _: &QueueInfo, _: &mut impl Rng) -> Option<QueueSelection> {
++            Some(self.0)
++        }
++    }
++
++    fn program_without_execution() -> Program {
++        Program {
++            cfg: Cfg { graph: vec![] },
++            rpc: HashMap::new(),
++            func_name_to_id: HashMap::new(),
++            id_to_name: HashMap::new(),
++            next_name_id: 0,
++            vertex_to_span: HashMap::new(),
++            max_node_slots: 1,
++            roles: vec![],
++            type_ids: HashMap::new(),
++        }
++    }
++
++    fn dispatch(
++        state: &mut State<NoHashing>,
++        program: &Program,
++        queue: QueueSelection,
++    ) -> ScheduleResult<NoHashing> {
++        let servers = state.nodes.len() as i32;
++        schedule_runnable::<NoHashing, _, _, NoFeedback>(
++            state,
++            &mut Logs::default(),
++            program,
++            &(),
++            &mut (),
++            &TopologyInfo {
++                topology: Topology::Full,
++                num_servers: servers,
++            },
++            &GlobalState::new(),
++            &SchedulePolicy::Fixed,
++            false,
++            &mut ForcedQueue(queue),
++            &WithinQueueSelector::Tournament { k: 2 },
++            &ResolvedTerms::default(),
++            &PurgatoryConfig::default(),
++            0.0,
++            timer_context::RunMode::Probe,
++            &[],
++            &mut StdRng::seed_from_u64(37),
++        )
++        .expect("the forced dispatch succeeds")
++    }
++
++    fn waiting_reader(state: &mut State<NoHashing>) -> (ChannelId, u64) {
++        let index = queue_record(state, 0, 1, 0, 0.5);
++        let Runnable::Record(mut reader) = state.take_network(index) else {
++            unreachable!();
++        };
++        reader.pc = 17;
++        let chain = reader.chain_id;
++        let channel = ChannelId {
++            node: node(1),
++            id: state.alloc_channel_id(),
++        };
++        let mut chan = ChannelState::new();
++        chan.push_waiting_reader(reader, Lhs::Var(VarSlot::Local(0, NameId(0))));
++        state.channels.insert(channel, chan);
++        (channel, chain)
++    }
++
++    #[test]
++    fn timer_wakeup_starts_a_fresh_chain() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut state = State::new(&[(ROLE, 2)], 1);
++        let (channel, waiting_chain) = waiting_reader(&mut state);
++        state.push_runnable(Runnable::Timer(Timer {
++            pc: 0,
++            node: node(1),
++            channel,
++            priority: 0.25,
++            label: Some("wake".into()),
++        }));
++        let result = dispatch(
++            &mut state,
++            &program_without_execution(),
++            QueueSelection::Timer,
++        );
++        assert!(matches!(result, ScheduleResult::TimerFired { .. }));
++        let Runnable::Record(reader) = &state.local_queues[1][0] else {
++            panic!("the timer wakes the blocked reader");
++        };
++        assert_ne!(reader.chain_id, 0);
++        assert_ne!(reader.chain_id, waiting_chain);
++        assert_eq!(reader.pc, 17);
++        assert_eq!(reader.timer_entry, Some(17));
++    }
++
++    #[test]
++    fn remote_channel_wakeup_preserves_the_waiting_chain() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut state = State::new(&[(ROLE, 2)], 1);
++        let (channel, waiting_chain) = waiting_reader(&mut state);
++        let sending_chain = state.chains.root();
++        state.push_runnable(Runnable::ChannelSend {
++            chain_id: sending_chain,
++            target: node(1),
++            channel,
++            message: Value::int(42),
++            origin_node: node(0),
++            pc: 0,
++            priority: 0.5,
++        });
++        dispatch(
++            &mut state,
++            &program_without_execution(),
++            QueueSelection::Network,
++        );
++        let Runnable::Record(reader) = &state.local_queues[1][0] else {
++            panic!("the channel send wakes the blocked reader");
++        };
++        assert_eq!(reader.chain_id, waiting_chain);
++        assert_ne!(reader.chain_id, sending_chain);
++        assert_eq!(reader.pc, 17);
++        assert_eq!(reader.timer_entry, None);
++    }
++
++    #[test]
++    fn crash_and_recovery_keep_message_identity_and_root_recovery_work() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let program = crate::compiler::compile(
++            "role Node { async fn RecoverInit(me: int, peers: list<Node>) { <-set_timer(\"recover\"); } }",
++            "chain_recovery.spur",
++        ).into_program().expect("the recovery fixture compiles");
++        let role = program
++            .roles
++            .iter()
++            .find(|(_, name)| name == "Node")
++            .unwrap()
++            .0;
++        let mut state = State::new(&[(role, 2)], program.max_node_slots as usize);
++        let index = queue_record(&mut state, 0, 1, 0, 0.5);
++        let Runnable::Record(record) = &mut state.network_queue[index] else {
++            unreachable!()
++        };
++        record.node.role = role;
++        record.origin_node.role = role;
++        record.pc = 9;
++        let chain = record.chain_id;
++        let victim = NodeId { role, index: 1 };
++        state.push_runnable(Runnable::Crash {
++            node_id: victim,
++            priority: 1.0,
++        });
++        assert!(matches!(
++            dispatch(&mut state, &program, QueueSelection::Local(1)),
++            ScheduleResult::Crash { .. }
++        ));
++        assert_eq!(state.crash_info.queued_messages.len(), 1);
++        let (_, buffered) = &state.crash_info.queued_messages[0];
++        assert_eq!(buffered.chain_id, chain);
++        assert_eq!(buffered.pc, buffered.entry_pc);
++        state.push_runnable(Runnable::Recover {
++            node_id: victim,
++            priority: 1.0,
++        });
++        assert!(matches!(
++            dispatch(&mut state, &program, QueueSelection::Local(1)),
++            ScheduleResult::Recover { .. }
++        ));
++        assert!(state.crash_info.queued_messages.is_empty());
++        let Runnable::Record(released) = &state.network_queue[0] else {
++            unreachable!()
++        };
++        assert_eq!(released.chain_id, chain);
++        assert!(released.bias.contains(DeliveryBias::RECEIVER_RESTARTED));
++        let readers: Vec<_> = state
++            .channels
++            .values()
++            .flat_map(|c| c.waiting_readers.iter())
++            .collect();
++        assert_eq!(readers.len(), 1);
++        assert_ne!(readers[0].0.chain_id, 0);
++        assert_ne!(readers[0].0.chain_id, chain);
++        let recovery_chain = readers[0].0.chain_id;
++        state.chains.configure(1, 3, true, false, 0);
++        state.chains.before_step(0, true, true);
++        state.chains.before_step(1, true, true);
++        assert!(state.chains.key(recovery_chain) < state.chains.key(chain));
++    }
++    #[test]
++    fn chain_ranking_preserves_queue_class_draws_and_empty_fallbacks() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(false);
++        #[derive(Clone)]
++        struct Capture {
++            inner: crate::simulator::core::queue_selector::ProbabilisticSelector,
++            selected: Option<QueueSelection>,
++        }
++        impl QueueSelector for Capture {
++            fn select(&mut self, info: &QueueInfo, rng: &mut impl Rng) -> Option<QueueSelection> {
++                self.selected = self.inner.select(info, rng);
++                self.selected
++            }
++            fn supports_timer_bias(&self) -> bool {
++                true
++            }
++            fn select_timer_biased(
++                &mut self,
++                info: &QueueInfo,
++                bias: f64,
++                rng: &mut impl Rng,
++            ) -> Option<QueueSelection> {
++                self.selected = self.inner.select_timer_biased(info, bias, rng);
++                self.selected
++            }
++        }
++        let program = program_without_execution();
++        for queues in 1..8 {
++            let mut initial = State::new(&[(ROLE, 2)], 1);
++            if queues & 1 != 0 {
++                initial.push_runnable(Runnable::Crash {
++                    node_id: node(0),
++                    priority: 0.5,
++                });
++            }
++            if queues & 2 != 0 {
++                queue_channel_send(&mut initial, 0, 1);
++                queue_channel_send(&mut initial, 0, 1);
++            }
++            if queues & 4 != 0 {
++                initial.push_runnable(Runnable::Timer(Timer {
++                    pc: 0,
++                    node: node(1),
++                    channel: ChannelId {
++                        node: node(1),
++                        id: 0,
++                    },
++                    priority: 0.5,
++                    label: Some("wake".into()),
++                }));
++            }
++            for seed in 0..32 {
++                let mut a = initial.clone();
++                let mut b = initial.clone();
++                b.chains.active = true;
++                let mut ra = StdRng::seed_from_u64(seed);
++                let mut rb = ra.clone();
++                let mut qa = Capture {
++                    inner: crate::simulator::core::queue_selector::ProbabilisticSelector {
++                        p_local: 0.3,
++                        p_timer: 0.3,
++                    },
++                    selected: None,
++                };
++                let mut qb = qa.clone();
++                for (state, rng, selector) in
++                    [(&mut a, &mut ra, &mut qa), (&mut b, &mut rb, &mut qb)]
++                {
++                    schedule_runnable::<NoHashing, _, _, NoFeedback>(
++                        state,
++                        &mut Logs::default(),
++                        &program,
++                        &(),
++                        &mut (),
++                        &TopologyInfo {
++                            topology: Topology::Full,
++                            num_servers: 2,
++                        },
++                        &GlobalState::new(),
++                        &SchedulePolicy::Fixed,
++                        false,
++                        selector,
++                        &WithinQueueSelector::Tournament { k: 10 },
++                        &ResolvedTerms::default(),
++                        &PurgatoryConfig::default(),
++                        0.0,
++                        timer_context::RunMode::Steered,
++                        &[],
++                        rng,
++                    )
++                    .unwrap();
++                }
++                assert_eq!(format!("{:?}", qa.selected), format!("{:?}", qb.selected));
++                assert_eq!(ra.next_u64(), rb.next_u64());
++            }
++        }
++    }
++}
+diff --git a/spur-core/src/simulator/replay_chain.rs b/spur-core/src/simulator/replay_chain.rs
+new file mode 100644
+index 0000000..2ef77cf
+--- /dev/null
++++ b/spur-core/src/simulator/replay_chain.rs
+@@ -0,0 +1,554 @@
++use crate::simulator::util_stats;
++use serde_json::{Map, Value};
++use std::sync::atomic::{AtomicU64, Ordering};
++
++const NAMES: [&str; 24] = [
++    "active_runs",
++    "active_eight_steps",
++    "runs_reaching_change_point",
++    "change_points_reached",
++    "no_chain_points",
++    "repeat_demotions",
++    "root_allocations",
++    "missing_ancestry_roots",
++    "inherited_cross_node_sends",
++    "eligible_tournaments",
++    "multi_chain_samples",
++    "authority_decisions",
++    "stock_non_executable",
++    "singleton_excluded",
++    "proportional_excluded",
++    "same_chain_ties",
++    "choice_changed_before_preferences",
++    "choice_changed_after_preferences",
++    "fresh_first_overwrites",
++    "pair_order_overwrites",
++    "inert_short_cap",
++    "source_exhausted_runs",
++    "timer_resumed_roots",
++    "timer_unclaimed_roots",
++];
++static COUNTERS: [AtomicU64; 24] = [const { AtomicU64::new(0) }; 24];
++static SAMPLE_CHAIN_COUNTS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
++static DELAYS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
++static REMAINING: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
++const ARMS: usize = 6;
++// Population, arm, readiness, length. The final bucket includes longer stretches.
++static LENGTHS: [AtomicU64; 2 * ARMS * 4 * 32] = [const { AtomicU64::new(0) }; 2 * ARMS * 4 * 32];
++static CENSORED: [AtomicU64; 2 * ARMS * 4 * 32] = [const { AtomicU64::new(0) }; 2 * ARMS * 4 * 32];
++static EXPOSURE: [AtomicU64; 2 * ARMS * 4 * 2] = [const { AtomicU64::new(0) }; 2 * ARMS * 4 * 2];
++static QUALIFIED: [AtomicU64; 2 * ARMS] = [const { AtomicU64::new(0) }; 2 * ARMS];
++static MAX_DEMOTED: AtomicU64 = AtomicU64::new(0);
++static MAX_RUN_BYTES: AtomicU64 = AtomicU64::new(0);
++
++pub(crate) fn count(index: usize) {
++    if util_stats::enabled() {
++        COUNTERS[index].fetch_add(1, Ordering::Relaxed);
++    }
++}
++pub(crate) fn record_sample_chains(any: bool, multiple: bool) {
++    if util_stats::enabled() {
++        let bin = if multiple { 2 } else { usize::from(any) };
++        SAMPLE_CHAIN_COUNTS[bin].fetch_add(1, Ordering::Relaxed);
++    }
++}
++fn add(index: usize, n: u64) {
++    if util_stats::enabled() {
++        COUNTERS[index].fetch_add(n, Ordering::Relaxed);
++    }
++}
++fn bucket(n: u32) -> usize {
++    if n == 0 {
++        0
++    } else {
++        (32 - n.leading_zeros()).min(15) as usize
++    }
++}
++fn mix(mut x: u64) -> u64 {
++    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
++    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
++    x ^ (x >> 31)
++}
++fn below(seed: &mut u64, n: u64) -> u64 {
++    let threshold = n.wrapping_neg() % n;
++    loop {
++        *seed = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
++        let value = mix(*seed);
++        if value >= threshold {
++            return value % n;
++        }
++    }
++}
++
++#[derive(Debug, Clone)]
++pub struct ChainState {
++    next_root: u64,
++    missing: u64,
++    sends: u64,
++    seed: u64,
++    cap: i32,
++    exhausted: Option<i32>,
++    active_step: Option<i32>,
++    pub active: bool,
++    prefix_child: bool,
++    plan_child: bool,
++    observing: bool,
++    observed_step: bool,
++    arm: usize,
++    points: [i32; 2],
++    point_cursor: usize,
++    demoted: [u64; 2],
++    demoted_len: usize,
++    last_executed: u64,
++    stretch_chain: u64,
++    stretch_len: u32,
++    stretch_ready: usize,
++    suffix_steps: u32,
++    lengths: [u32; 128],
++    dispatches: [u32; 4],
++    timers: [u32; 4],
++}
++impl Default for ChainState {
++    fn default() -> Self {
++        Self {
++            next_root: 0,
++            missing: 0,
++            sends: 0,
++            seed: 0,
++            cap: 0,
++            exhausted: None,
++            active_step: None,
++            active: false,
++            prefix_child: false,
++            plan_child: false,
++            observing: false,
++            observed_step: false,
++            arm: 0,
++            points: [0; 2],
++            point_cursor: 0,
++            demoted: [0; 2],
++            demoted_len: 0,
++            last_executed: 0,
++            stretch_chain: 0,
++            stretch_len: 0,
++            stretch_ready: 0,
++            suffix_steps: 0,
++            lengths: [0; 128],
++            dispatches: [0; 4],
++            timers: [0; 4],
++        }
++    }
++}
++impl ChainState {
++    pub fn configure(
++        &mut self,
++        seed: u64,
++        cap: i32,
++        prefix_child: bool,
++        plan_child: bool,
++        arm: i32,
++    ) {
++        self.seed = seed;
++        self.cap = cap;
++        self.prefix_child = prefix_child;
++        self.plan_child = plan_child;
++        self.arm = if (0..5).contains(&arm) {
++            arm as usize
++        } else {
++            5
++        };
++    }
++    pub fn set_cap(&mut self, cap: i32) {
++        self.cap = cap;
++    }
++    pub fn root(&mut self) -> u64 {
++        self.next_root += 1;
++        self.next_root
++    }
++    pub fn missing_root(&mut self) -> u64 {
++        self.missing += 1;
++        self.root()
++    }
++    pub fn inherited_send(&mut self) {
++        self.sends += 1;
++    }
++    pub fn note_exhaustion(&mut self, step: i32, exhausted: bool) {
++        if self.prefix_child && exhausted && self.exhausted.is_none() {
++            self.exhausted = Some(step);
++            count(21);
++        }
++    }
++    pub fn before_step(&mut self, step: i32, exhausted: bool, signal: bool) {
++        if self.observing && !self.observed_step {
++            self.end_stretch();
++        }
++        self.observed_step = false;
++        self.note_exhaustion(step, exhausted);
++        if self.prefix_child && !self.active && exhausted && signal && self.active_step.is_none() {
++            self.active_step = Some(step);
++            let remaining = self.cap.saturating_sub(step);
++            if remaining < 3 {
++                count(20);
++                return;
++            }
++            self.active = true;
++            self.observing = true;
++            count(0);
++            if util_stats::enabled() {
++                DELAYS[bucket((step - self.exhausted.unwrap()).max(0) as u32)]
++                    .fetch_add(1, Ordering::Relaxed);
++                REMAINING[bucket(remaining as u32)].fetch_add(1, Ordering::Relaxed);
++            }
++            let mut private = self.seed ^ 0x4638_039e_12f0_abc7;
++            let future = remaining - 1;
++            let a = below(&mut private, future as u64) as i32;
++            let b0 = below(&mut private, (future - 1) as u64) as i32;
++            let b = b0 + i32::from(b0 >= a);
++            self.points = [step + 1 + a.min(b), step + 1 + a.max(b)];
++        }
++        if self.plan_child && signal {
++            self.observing = true;
++        }
++        if self.observing {
++            self.suffix_steps += 1;
++        }
++        if self.active && self.point_cursor < 2 && step >= self.points[self.point_cursor] {
++            self.point_cursor += 1;
++            count(3);
++            if self.point_cursor == 1 {
++                count(2);
++            }
++            if self.last_executed == 0 {
++                count(4);
++            } else if self.demoted[..self.demoted_len].contains(&self.last_executed) {
++                count(5);
++            } else {
++                self.demoted[self.demoted_len] = self.last_executed;
++                self.demoted_len += 1;
++            }
++        }
++    }
++    pub fn key(&self, chain: u64) -> (u8, u64, u64) {
++        let tier = match self.demoted[..self.demoted_len]
++            .iter()
++            .position(|&id| id == chain)
++        {
++            Some(i) => 1 - i as u8,
++            None => 2,
++        };
++        (tier, mix(self.seed ^ mix(chain)), chain)
++    }
++    fn end_stretch(&mut self) {
++        if self.stretch_len > 0 {
++            let idx = self.stretch_ready * 32 + self.stretch_len.min(32) as usize - 1;
++            self.lengths[idx] += 1;
++        }
++        self.stretch_len = 0;
++        self.stretch_chain = 0;
++    }
++    pub fn executed(&mut self, chain: u64) {
++        self.last_executed = chain;
++    }
++    pub fn dispatch(&mut self, chain: Option<u64>, timer: bool, ready: usize) {
++        if let Some(id) = chain {
++            self.executed(id);
++        }
++        if !self.observing {
++            return;
++        }
++        self.observed_step = true;
++        self.dispatches[ready] += 1;
++        self.timers[ready] += u32::from(timer);
++        if let Some(id) = chain {
++            if self.stretch_chain != id {
++                self.end_stretch();
++                self.stretch_chain = id;
++                self.stretch_ready = ready;
++            }
++            self.stretch_len += 1;
++        } else {
++            self.end_stretch();
++        }
++    }
++    pub fn finish(&mut self) {
++        add(6, self.next_root);
++        add(7, self.missing);
++        add(8, self.sends);
++        if self.active && self.suffix_steps >= 8 {
++            count(1);
++        }
++        if !util_stats::enabled() {
++            return;
++        }
++        MAX_DEMOTED.fetch_max(self.demoted_len as u64, Ordering::Relaxed);
++        MAX_RUN_BYTES.fetch_max(std::mem::size_of::<Self>() as u64, Ordering::Relaxed);
++        if !self.observing || self.dispatches.iter().sum::<u32>() < 8 {
++            return;
++        }
++        let population = usize::from(!self.active);
++        let cell = population * ARMS + self.arm;
++        QUALIFIED[cell].fetch_add(1, Ordering::Relaxed);
++        if !self.observed_step {
++            self.end_stretch();
++        }
++        if self.stretch_len > 0 {
++            let idx = self.stretch_ready * 32 + self.stretch_len.min(32) as usize - 1;
++            CENSORED[cell * 128 + idx].fetch_add(1, Ordering::Relaxed);
++        }
++        self.end_stretch();
++        for (i, &n) in self.lengths.iter().enumerate() {
++            LENGTHS[cell * 128 + i].fetch_add(n as u64, Ordering::Relaxed);
++        }
++        for ready in 0..4 {
++            EXPOSURE[cell * 8 + ready * 2]
++                .fetch_add(self.dispatches[ready] as u64, Ordering::Relaxed);
++            EXPOSURE[cell * 8 + ready * 2 + 1]
++                .fetch_add(self.timers[ready] as u64, Ordering::Relaxed);
++        }
++    }
++}
++
++pub(crate) fn reset() {
++    for counters in [
++        &COUNTERS[..],
++        &SAMPLE_CHAIN_COUNTS,
++        &DELAYS,
++        &REMAINING,
++        &LENGTHS,
++        &CENSORED,
++        &EXPOSURE,
++        &QUALIFIED,
++    ] {
++        for counter in counters {
++            counter.store(0, Ordering::Relaxed);
++        }
++    }
++    MAX_DEMOTED.store(0, Ordering::Relaxed);
++    MAX_RUN_BYTES.store(0, Ordering::Relaxed);
++}
++
++pub(crate) fn snapshot() -> Value {
++    let mut out = Map::new();
++    for (name, counter) in NAMES.iter().zip(&COUNTERS) {
++        out.insert((*name).into(), counter.load(Ordering::Relaxed).into());
++    }
++    use crate::simulator::core::{Record, Runnable, partition::QueuedMessage};
++    use crate::simulator::hash_utils::NoHashing;
++    out.insert(
++        "record_bytes".into(),
++        std::mem::size_of::<Record<NoHashing>>().into(),
++    );
++    out.insert(
++        "runnable_bytes".into(),
++        std::mem::size_of::<Runnable<NoHashing>>().into(),
++    );
++    out.insert(
++        "partition_message_bytes".into(),
++        std::mem::size_of::<QueuedMessage<NoHashing>>().into(),
++    );
++    out.insert(
++        "sampled_executable_chain_count".into(),
++        Value::Object(
++            ["zero", "one", "two_or_more"]
++                .iter()
++                .zip(&SAMPLE_CHAIN_COUNTS)
++                .map(|(name, count)| ((*name).into(), count.load(Ordering::Relaxed).into()))
++                .collect(),
++        ),
++    );
++    out.insert(
++        "run_storage_bytes".into(),
++        (std::mem::size_of::<ChainState>() as u64).into(),
++    );
++    out.insert("run_dynamic_capacity_bytes".into(), 0.into());
++    out.insert(
++        "max_run_owned_bytes".into(),
++        MAX_RUN_BYTES.load(Ordering::Relaxed).into(),
++    );
++    out.insert(
++        "max_retained_demotion_entries".into(),
++        MAX_DEMOTED.load(Ordering::Relaxed).into(),
++    );
++    for (name, bins) in [
++        ("activation_delay_log2", &DELAYS),
++        ("remaining_cap_log2", &REMAINING),
++    ] {
++        let map: Map<String, Value> = bins
++            .iter()
++            .enumerate()
++            .map(|(i, n)| (i.to_string(), n.load(Ordering::Relaxed).into()))
++            .collect();
++        out.insert(name.into(), Value::Object(map));
++    }
++    for (p, name) in ["prefix", "plan_only"].iter().enumerate() {
++        let mut arms = Map::new();
++        for arm in 0..ARMS {
++            let cell = p * ARMS + arm;
++            let mut strata = Map::new();
++            strata.insert(
++                "qualified_runs".into(),
++                QUALIFIED[cell].load(Ordering::Relaxed).into(),
++            );
++            for ready in 0..4 {
++                let mut item = Map::new();
++                item.insert(
++                    "dispatches".into(),
++                    EXPOSURE[cell * 8 + ready * 2]
++                        .load(Ordering::Relaxed)
++                        .into(),
++                );
++                item.insert(
++                    "timers".into(),
++                    EXPOSURE[cell * 8 + ready * 2 + 1]
++                        .load(Ordering::Relaxed)
++                        .into(),
++                );
++                for (label, histogram) in [
++                    ("lengths_including_censored", &LENGTHS),
++                    ("censored", &CENSORED),
++                ] {
++                    let bins: Map<String, Value> = (0..32)
++                        .map(|i| {
++                            (
++                                (i + 1).to_string(),
++                                histogram[cell * 128 + ready * 32 + i]
++                                    .load(Ordering::Relaxed)
++                                    .into(),
++                            )
++                        })
++                        .collect();
++                    item.insert(label.into(), Value::Object(bins));
++                }
++                strata.insert(ready.to_string(), Value::Object(item));
++            }
++            arms.insert(arm.to_string(), Value::Object(strata));
++        }
++        out.insert((*name).into(), Value::Object(arms));
++    }
++    Value::Object(out)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn activation_roots_and_fixed_future_points() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut c = ChainState::default();
++        c.configure(42, 100, true, false, 0);
++        assert_ne!(c.root(), c.root());
++        c.before_step(10, false, true);
++        assert!(!c.active);
++        c.before_step(12, true, false);
++        assert!(!c.active);
++        c.before_step(15, true, true);
++        assert!(c.active);
++        assert!(15 < c.points[0] && c.points[0] < c.points[1] && c.points[1] < 100);
++        let original = c.points;
++        c.before_step(16, true, true);
++        assert_eq!(original, c.points);
++        for prefix in [false, true] {
++            let mut short = ChainState::default();
++            short.configure(0, 12, prefix, !prefix, 0);
++            short.before_step(10, true, true);
++            assert!(!short.active);
++        }
++        assert!(std::mem::size_of::<ChainState>() <= 1024);
++        println!(
++            "ChainState={} dynamic=0 demotion_capacity=2",
++            std::mem::size_of::<ChainState>()
++        );
++    }
++    #[test]
++    fn demotions_and_intervening_dispatches() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut c = ChainState::default();
++        c.configure(9, 100, true, false, 0);
++        c.before_step(0, true, true);
++        c.dispatch(Some(1), false, 0);
++        c.before_step(c.points[0], true, true);
++        assert!(c.key(1) < c.key(2));
++        c.dispatch(Some(2), false, 0);
++        c.dispatch(None, true, 1);
++        c.before_step(c.points[1], true, true);
++        assert!(c.key(2) < c.key(1));
++        assert!(c.key(1) < c.key(3));
++        assert_eq!(c.demoted_len, 2);
++        assert_eq!(c.stretch_len, 0);
++    }
++    #[test]
++    fn minimum_cap_repeat_demotions_and_empty_points() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut c = ChainState::default();
++        c.configure(4, 13, true, false, 0);
++        c.before_step(10, true, true);
++        assert!(c.active);
++        assert_eq!(c.points, [11, 12]);
++        c.before_step(11, true, true);
++        assert_eq!(c.demoted_len, 0);
++        c.dispatch(Some(7), false, 0);
++        c.before_step(12, true, true);
++        assert_eq!(c.demoted_len, 1);
++        let mut repeat = ChainState::default();
++        repeat.configure(9, 100, true, false, 0);
++        repeat.before_step(0, true, true);
++        repeat.dispatch(Some(7), false, 0);
++        repeat.before_step(repeat.points[0], true, true);
++        let order = [repeat.key(7), repeat.key(8)];
++        repeat.before_step(repeat.points[1], true, true);
++        assert_eq!(repeat.demoted_len, 1);
++        assert_eq!(order, [repeat.key(7), repeat.key(8)]);
++    }
++
++    #[test]
++    fn exports_exclude_short_dispatch_runs_include_censored_and_reset() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        record_sample_chains(false, false);
++        record_sample_chains(true, false);
++        record_sample_chains(true, true);
++        assert_eq!(
++            snapshot()["sampled_executable_chain_count"],
++            serde_json::json!({"zero": 1, "one": 1, "two_or_more": 1})
++        );
++        let mut short = ChainState::default();
++        short.configure(4, 100, true, false, 0);
++        for step in 0..20 {
++            short.before_step(step, true, true);
++        }
++        short.dispatch(Some(1), false, 0);
++        short.finish();
++        assert_eq!(snapshot()["prefix"]["0"]["qualified_runs"], 0);
++        let mut c = ChainState::default();
++        c.configure(9, 100, false, true, 0);
++        for step in 0..8 {
++            c.before_step(step, false, true);
++            c.dispatch(Some(1), false, 3);
++        }
++        c.finish();
++        let s = snapshot();
++        assert_eq!(s["plan_only"]["0"]["qualified_runs"], 1);
++        assert_eq!(
++            s["plan_only"]["0"]["3"]["lengths_including_censored"]["8"],
++            1
++        );
++        assert_eq!(s["plan_only"]["0"]["3"]["censored"]["8"], 1);
++        assert_eq!(s["plan_only"]["0"]["3"]["dispatches"], 8);
++        let rendered = util_stats::render_snapshot(&util_stats::snapshot()).unwrap();
++        assert_eq!(
++            serde_json::from_str::<Value>(&rendered).unwrap()["replay_chain_pct"],
++            s
++        );
++        util_stats::set_enabled(false);
++        util_stats::set_enabled(true);
++        let reset = snapshot();
++        assert_eq!(reset["active_runs"], 0);
++        assert_eq!(reset["sampled_executable_chain_count"]["two_or_more"], 0);
++        assert_eq!(reset["plan_only"]["0"]["qualified_runs"], 0);
++        assert_eq!(
++            reset["plan_only"]["0"]["3"]["lengths_including_censored"]["8"],
++            0
++        );
++        util_stats::set_enabled(false);
++    }
++}

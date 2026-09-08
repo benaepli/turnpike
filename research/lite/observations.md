@@ -7072,3 +7072,113 @@ possible; neither existing endogenous learner tags nor replay tags measure
 assignment to that context policy. Its source plumbing is verified, but
 context-direction usefulness is unmeasured. Do not treat improved reward
 calibration alone as a violation-discovery result.
+
+
+**Iteration71 implementation review.** Chain demotion exported from the
+isolated baseline worktree. Root reviewed propagation, execution, source
+exhaustion, activation/cap, scheduler and diagnostics; independent review
+found no blocking semantic/definition issue. Exact source471 tests pass
+across25 suites; final release build passes. One one-second smoke checked
+firing only. Afterwards only the exact zero/one/two-or-more sampled-chain
+histogram was added; full tests/build refreshed, smoke not repeated.
+
+Root corrected draft histogram qualification to>=8 actual dispatches,
+separate from the eight-step counter, and the three-total-remaining-step
+boundary permits two future points. Timer-resumed readers receive roots;
+a buffered timer value later consumed without a resume does not transfer
+ancestry. Inline recovery records update last-executed chain but the fault
+still breaks dispatch streaks. Run state688bytes, no backing allocation,
+two demotion slots; measured object growth8bytes under both hash policies.
+Mirrored original layouts verified against baseline source, not stale cache.
+Exact lengths1..31 and >=32 overflow are explicit; use median bounds when
+needed, never an invented exact overflow median. Censored last stretches
+are included once. Existing slot tags, tapes, histories and config unchanged.
+
+Binary SHA256
+baedab39fff2e243b54cece399ac7c3c9fe8ea9744d44cc9a30abf75526efb0c.
+Normal seed1000 starts2026-09-08T21:20:32Z. Grader band1.15-1.50 is the
+frozen baseline-adjusted contrast; raw1.20-1.60 checked separately. Initial
+grader start hit sandbox IPC denial; rerun with required permission passed.
+No measurement or harness change. Baseline cache still has seeds1000/1001.
+
+
+**Iteration71 first normal chunk and continuation judgment.** Seed1000
+completed636900 runs with zero simulator failures or linearizability
+violations. Four-grid depth8 per-second ratio1.16063, per-run1.11197;
+whole-campaign per-second1.10724, per-run1.05351; throughput1.05100.
+Raw prefix/plan1.20534; baseline-adjusted1.13363 [1.01074,1.27146], below
+the frozen1.15 point prediction. The grader matches replaySlot only;
+other tag balance is reported, not claimed exactly matched.
+
+Active102876, eight-step102868, reached-change100361; multi-chain share
+0.59843 and final legal choice-change0.60761 pass. Storage bounds pass.
+Qualified dispatch-streak medians are exactly1 for both groups: the frozen
+25% coherence prediction is refuted. Timer-share ratio1.05717 passes.
+AOS depth8 per-run0.78514 and per-second0.85260 miss the0.95 guard.
+
+Autonomous judgment: buy one unchanged second normal chunk. The skill
+permits a written departure, and positive grid/campaign utility merits
+replication despite the failed descriptive coherence prediction. This
+does not erase that failure or redefine the median. Repeated AOS harm
+will prevent merge under the frozen specification. No supply/authority
+early-stop gate failed. The grader would currently see an internal gain
+with regression checks pending; it does not decide these mechanism gates.
+Baseline and source remain unchanged. An unrelated untracked
+.claude/settings.local.json appeared; preserve it without reading or staging.
+
+
+**Iteration 71 closed, autonomous.** Two normal chunks completed 1,221,240
+candidate runs with zero simulator failures and zero linearizability
+violations. Seed 1001 grid depth8 per-run ratio 1.03694, per-second 1.01155;
+campaign per-second 0.98665; throughput 0.96829. AOS depth8 per-run 0.87635
+and per-second 0.81862 repeat the first chunk's loss. Active children 94,702,
+reached-change 92,097, multi-chain share 0.60131 and final authority 0.60572
+pass. The qualified median remains exactly 1 in both populations; timer
+share ratio 1.03180 passes. Memory bounds and missing-ancestry checks pass.
+
+Pooled fixed-grid depth8: 17,344/1,009,500 candidate versus 15,984/999,900
+baseline, per-run ratio 1.07477 and per-second 1.08519. Whole campaign:
+19,733/1,221,240 versus 18,836/1,209,660, per-run 1.03769 and arm-exposure
+per-second 1.04787. Pooled AOS per-run 0.82982 and per-second 0.83831.
+Grader throughput ratio 1.00973; epoch ledger unchanged at 0.97784.
+Raw prefix/plan ratios are 1.20534 and 1.13112. The pooled baseline-adjusted
+contrast is 1.11055 [1.02350,1.20501], positive but below the frozen 1.15
+point forecast. Neither advance rung separates. These are proxy findings,
+not success at the VR violation goal.
+
+Decision: close despite grader adviceVerdict=merge (regression pending).
+Repeated AOS harm expressly prevents merge in the frozen specification;
+the intended persistence growth also failed twice. The first chunk's
+larger gain justified one replication, not erasing either falsifier.
+No third chunk, panel or regression is needed for this closed candidate.
+Preserve the implementation under research/lite/patches/chain-demotion;
+state/chain-demotion.json is finished. Main Spur remains b86baad.
+
+Family sensitivity: exact candidate metadata reconstruction for seed 1000
+finds 76,663 served roots and 227,196 direct children, matching exported
+counts, with at most eight children per root. Missing per-run depth outcomes
+and baseline family metadata prevent empirical clustered intervals. The
+retained report's variance-inflation scenarios are illustrative only and
+cannot correct the DID or shared-learner dependence. A closure on repeated
+harm does not justify another heavy grading pass solely for precision.
+
+**Direction review after iteration 71.** Causal-chain ranking had ample
+supply and changed real choices, unlike earlier low-authority mechanisms,
+but its claimed persistence did not materialize and general utility split
+again. Do not respond with a chain dose, queue bias or selective AOS
+exemption. The fixed depth ladder remains a steering proxy; no violations
+means the goal remains open. Keep the judged next mechanisms distinct:
+search-provenance evidence, successful joint-vector mutation, and optional
+plan-cover reversal. Each changes search behavior and must earn its own
+normal-horizon evidence. No protected measurement or oracle change.
+
+**Iteration 72 admission.** Select selector-composes-directions-by-search-
+provenance at gain 3 minus cost 0, rank 1 from the independent judged list;
+successful-vector mutation remains net 3/rank 2 and optional-cover reversal
+net 2/rank 3. Full record: research/lite/plans/iteration-72-admitted.json.
+The retained provenance description and prediction remain unchanged from
+iteration 71. Explicitly accept the judged full-system cross-binary
+exception: a per-run switch is technically possible, but would test a
+partially exposed adaptive system. No existing endogenous tag is relabeled.
+Four reset normal chunks are required for confirmation, with frozen early
+supply, cost and harm exits. Build only from the accepted b86baad baseline.

@@ -1,0 +1,52 @@
+   Compiling spur-core v0.1.0 (/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-chain-demotion/spur/spur-core)
+warning: variable does not need to be mutable
+   --> spur-core/src/simulator/core/steer_terms.rs:225:9
+    |
+225 |     let mut draw = |rng: &mut StdRng| 0.5 + 0.15 * (2.0 * band.sample(rng) - 1.0);
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `novelty_score` is never used
+   --> spur-core/src/simulator/coverage.rs:122:12
+    |
+ 95 | impl LocalCoverage {
+    | ------------------ method in this implementation
+...
+122 |     pub fn novelty_score(&self) -> f64 {
+    |            ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `spur-core` (lib test) generated 2 warnings (run `cargo fix --lib -p spur-core --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.74s
+     Running unittests src/lib.rs (spur/target/debug/deps/spur_core-9af36a882a6b8e09)
+
+running 15 tests
+spur_core::simulator::hash_utils::NoHashing Record: untagged=240 tagged=248
+spur_core::simulator::hash_utils::NoHashing Runnable: untagged=240 tagged=248
+spur_core::simulator::hash_utils::NoHashing QueuedMessage: untagged=256 tagged=264
+spur_core::simulator::hash_utils::WithHashing Record: untagged=240 tagged=248
+spur_core::simulator::hash_utils::WithHashing Runnable: untagged=240 tagged=248
+spur_core::simulator::hash_utils::WithHashing QueuedMessage: untagged=256 tagged=264
+test compiler::cfg::test::test_compile_complex_binop_chain ... ok
+test compiler::cfg::test::test_compile_elseif_chain ... ok
+test simulator::core::state::chain_layout_tests::chain_tags_fit_the_layout_bound ... ok
+test simulator::core::scheduler::tests::chain_lifecycle_tests::remote_channel_wakeup_preserves_the_waiting_chain ... ok
+test simulator::core::scheduler::tests::chain_lifecycle_tests::timer_wakeup_starts_a_fresh_chain ... ok
+test simulator::core::state::ledger_tests::chain_identity_survives_holds_partitions_and_crash_reset ... ok
+test simulator::core::state::ledger_tests::ordinary_channel_wakeup_keeps_the_waiting_chain ... ok
+test simulator::core::scheduler::tests::chain_lifecycle_tests::crash_and_recovery_keep_message_identity_and_root_recovery_work ... ok
+test simulator::core::scheduler::tests::chain_same_id_proportional_and_singleton_keep_stock_choice ... ok
+test simulator::core::scheduler::tests::chain_shadow_preferences_are_pure_and_commit_once ... ok
+ChainState=688 dynamic=0 demotion_capacity=2
+test simulator::core::scheduler::tests::chain_tournament_reuses_stock_samples_and_draws ... ok
+test simulator::replay_chain::tests::minimum_cap_repeat_demotions_and_empty_points ... ok
+test simulator::replay_chain::tests::activation_roots_and_fixed_future_points ... ok
+test simulator::replay_chain::tests::demotions_and_intervening_dispatches ... ok
+test simulator::replay_chain::tests::exports_exclude_short_dispatch_runs_include_censored_and_reset ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 413 filtered out; finished in 0.03s
+

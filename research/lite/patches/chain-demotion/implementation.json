@@ -1,0 +1,146 @@
+{
+  "name": "chain-demotion",
+  "hypothesisId": "replay-prefix-causal-chain-demotion-search",
+  "baselineSuperCommit": "f4e243563f8d422eda13648a52117bc238d73843",
+  "baselineSpurCommit": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+  "sourceTreeSha256": "b6f15bedd9fdd59aef99ec70c6c181ab126b767fbc04b04748d87063193738f3",
+  "sourceTreeHashMethod": "sorted nested git tracked plus untracked source file paths; hash path UTF-8, NUL, then SHA256 file bytes for each existing file; final SHA256",
+  "patchSha256": "93f9548fbfd3b86fcf21c51ceacc86048a7e6111743df56147d6843cf2d0d351",
+  "binarySha256": "baedab39fff2e243b54cece399ac7c3c9fe8ea9744d44cc9a30abf75526efb0c",
+  "binaryBytes": 266921536,
+  "configSha256": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "superPatchBytes": 0,
+  "changedFiles": [
+    "spur-core/src/simulator.rs",
+    "spur-core/src/simulator/campaign.rs",
+    "spur-core/src/simulator/core/exec.rs",
+    "spur-core/src/simulator/core/exec/test.rs",
+    "spur-core/src/simulator/core/partition.rs",
+    "spur-core/src/simulator/core/scheduler.rs",
+    "spur-core/src/simulator/core/state.rs",
+    "spur-core/src/simulator/explorer.rs",
+    "spur-core/src/simulator/path.rs",
+    "spur-core/src/simulator/rng.rs",
+    "spur-core/src/simulator/util_stats.rs",
+    "spur-core/tests/util_stats_export_completeness.rs",
+    "spur-core/src/simulator/core/scheduler/chain_lifecycle_tests.rs",
+    "spur-core/src/simulator/replay_chain.rs"
+  ],
+  "newFilesIncludedInPatch": [
+    "spur-core/src/simulator/core/scheduler/chain_lifecycle_tests.rs",
+    "spur-core/src/simulator/replay_chain.rs"
+  ],
+  "configChanges": null,
+  "treatmentBit": {
+    "name": "replayPrefix",
+    "value": 2097152,
+    "assignment": "unchanged"
+  },
+  "frozenPrediction": {
+    "treatmentBit": {
+      "name": "replayPrefix",
+      "value": 2097152,
+      "share": "The existing salted half of replay slots, approximately one quarter of non-probe grid runs; unchanged assignment and empty-slot behavior.",
+      "control": "The existing replay-slot runs without replayPrefix, which reuse a parent's configuration and workload and run a fresh schedule. Non-slot runs and AOS receive no new policy.",
+      "identity": "The bit continues to mean schedule-prefix replay from a corpus parent. No new bit, nested run-id dose, campaign arm, or protected registration edit. This is a replacement of the prefix-replay search mechanism, not a reinterpretation of a selector or fault bit.",
+      "contrast": "Intention to treat on all prefix-tagged slots, including unfilled and failed branch attempts, probe-free and matched on existing co-bits. Also compute the candidate prefix/plan-only ratio divided by the paired baseline prefix/plan-only ratio. A filled-only ratio is descriptive, never the treatment estimate.",
+      "inverse": "No additional inverse cell: alternatives and initial chain orders are sampled symmetrically, and neither search procedure has a single protocol-independent signed inverse. They are stochastic policies inside the one existing prefix-replay mechanism, not hidden run-id treatment doses."
+    },
+    "rung": "depth>=8",
+    "sizePct": {
+      "min": 0.2,
+      "max": 0.6
+    },
+    "firingCounter": "replay_chain_pct.active_runs",
+    "firingFloor": 40000,
+    "mechanism": "The probe-free, co-bit-matched prefix/plan-only per-run ratio will be1.20-1.60; its ratio to the paired baseline contrast will be1.15-1.50. Fixed four-grid-arm primary events/sec>=1.06 baseline, whole-campaign events/sec>=1.03 baseline, and AOS depth8 per run>=0.95 baseline. These are separate predictions, not estimates inferred by dividing grid utility by whole-campaign throughput.",
+    "independentObservable": "Per300-second chunk, >=40000 prefix children activate before their own cap, >=25000 active children execute >=8 subsequent steps, and >=15000 active children reach at least one change point. At least20% of eligible suffix tournament decisions have >=2 distinct chains in the candidates actually sampled. On those multi-chain sampled contests the final legal winner differs from the shadow stock winner at least15% of the time; fresh-first/pair-order overwrites and same-chain ties are separate counts. Among active children with at least eight suffix dispatches, median consecutive executable dispatches sharing one chain rises at least25% over plan-only children measured after their own first signal, while realized timer dispatch share stays within10% relative of that control. The latter comparison is descriptive and reports readiness/arm strata; the randomized all-slot contrast decides utility. Emit activation delay from tape exhaustion, frozen remaining-cap bins, excluded selector type, change points reached, distinct chains sampled, inherited cross-node sends, same-chain ties, shadow-choice changes before and after merged preferences, and per-arm chain-run-length histograms. Existing counters cannot currently report these quantities; all are added with the mechanism.",
+    "falsifier": "Refuted if the matched treatment contrast interval lies wholly below1.20 or its paired baseline-adjusted contrast lies wholly below1.15. Supply below40000 active runs, below15000 reached change points, multi-chain contest share below20%, final dispatch authority below15%, or chain persistence growth below25% refutes the claimed mechanism. A timer-share change above10% requires closing this specification because preserving timer admission in code did not preserve the claimed exposure. Primary<=baseline with more coherent chains is not success. Repeated AOS ratio below0.95 or whole-campaign utility loss prevents merge despite a grid gain. Report replay-family sensitivity rather than treating sibling runs as independent evidence.",
+    "costClause": "Cross-binary whole-campaign throughput>=0.97 of paired baseline. The original cap, completed-plan termination and number of histories are unchanged. Do not skip baseline priority samples to claim a speedup: byte-consumption parity is part of the mechanism. All trace and client-history semantics remain ordinary. If supply or dispatch authority fails in the first normal chunk, close before additional chunks/panel. Additional ancestry storage is at most one u64 chain id per executable or buffered executable object, with measured Rust layout growth at most16 bytes per affected Record/ChannelSend/partition-buffered message representation. Run-local chain control and observation storage is at most1024 bytes, excluding existing state and the one chain id per object; use fixed-size counters/histograms. Retain at most two demoted chain ids and derive other chain priorities directly from seed/id, with no dynamically growing per-chain map, ancestry graph or per-step log. Export the relevant size_of layout measurements, maximum run-local allocated bytes, maximum retained demotion entries and count of root allocations; verify fixed bounds against the ordinary trial. Peak process RSS may be reported descriptively but has no paired ratio gate.",
+    "measurementClarification": "The20% multi-chain sampled contest share uses all eligible suffix tournament decisions. The15% final choice-change fraction is restricted to multi-chain samples with an executable stock winner, as frozen by the mixed-fault rule; report both denominators and exclusions. New chain metadata and all control histograms must be explicitly implemented. This is a prefix-replay-plus-causal-chain replacement policy contrast versus plan-only, not a randomized estimate of chain ranking alone. Raw1.20-1.60 and paired baseline-adjusted1.15-1.50 remain separate bands; use the existing grader without registration or protocol changes.",
+    "memoryMeasurementClarification": "Pre-admission memory correction: the current same-identity baseline cache contains no RSS/resident/peak-memory fields and no matching baseline peak is available in retained observations. A valid paired peak would require additional baseline acquisition, not reinterpretation of a cached metric. No new baseline run, calibration-only round, identity change or cache mutation is authorized by this proposal. The unsupported peak-RSS ratio is therefore removed before admission and replaced by directly checkable bounds on additional mechanism-owned storage. These bounds constrain bookkeeping/corpus growth; they are NOT a claim that total process RSS is unchanged or below the original1.25x/1.15x thresholds. Actual process peak, if collected during the ordinary candidate chunk, is descriptive only."
+  },
+  "validation": {
+    "requiredCommand": "RUST_MIN_STACK=33554432 cargo test --manifest-path spur/Cargo.toml -p spur-core",
+    "passed": 471,
+    "failed": 0,
+    "suiteCount": 25,
+    "releaseBuild": "cargo build --release --manifest-path spur/Cargo.toml --bin spur",
+    "testsLog": "tests.log",
+    "buildLog": "build.log",
+    "patchApplyChecks": [
+      "nested candidate reverse --check passed",
+      "main baseline apply --check passed"
+    ]
+  },
+  "smoke": {
+    "count": 1,
+    "purpose": "firing only; no performance, supply, utility or linearizability inference",
+    "command": "spur/target/release/spur explore -e campaign --config scheduler_configs/loop/general_vr.json --set campaign.wall_budget_sec=1 --output-dir MAIN/tmp/loop/lite/chain-demotion/smoke -y bin/spur/VR.spur",
+    "fired": true,
+    "activeRuns": 36,
+    "choiceChangesBeforePreferences": 19444,
+    "choiceChangesAfterPreferences": 19444,
+    "changePointsReached": 72,
+    "binarySha256": "3ae0a3f90b4861b09df25c82ca63e5a04f186a284c6c8f3f26c5d7612d0c89f6",
+    "sourcePatchSha256": "058afe2a5ba5a5509b8157b1a4e1e38044562bbf1b8e672f735338b83175f41f",
+    "finalDiagnosticAddition": "After this single smoke, added only the explicit zero/one/two_or_more sampled-chain count histogram. No scheduling change. Final full tests and release build include it; no second smoke."
+  },
+  "ownedStorage": {
+    "runStateBytes": 688,
+    "dynamicCapacityBytes": 0,
+    "maxRunOwnedBytesObserved": 688,
+    "demotionCapacity": 2,
+    "maxRetainedDemotionEntriesObserved": 2,
+    "missingAncestryRootsObserved": 0,
+    "layouts": {
+      "Record": {
+        "baseline": 240,
+        "candidate": 248
+      },
+      "Runnable": {
+        "baseline": 240,
+        "candidate": 248
+      },
+      "QueuedMessage": {
+        "baseline": 256,
+        "candidate": 264
+      }
+    },
+    "hashPoliciesMeasured": [
+      "NoHashing",
+      "WithHashing"
+    ],
+    "layoutMethod": "compiled tests with exact untagged baseline field and variant mirrors; no baseline performance run",
+    "report": "ownership-layout.md",
+    "fixedSelectorScratchSizes": {
+      "WithinPick": 24,
+      "FreshPreview": 40,
+      "optionalRankedCandidate": 56,
+      "optionalFirstChain": 16,
+      "optionalShadowIndex": 16
+    }
+  },
+  "interpretations": [
+    "Freeze actual effective_cap from path.rs; >=3 remaining total steps permits two future points in current+1..cap-1.",
+    "Activate at the first step boundary after source exhaustion and own signal; source exhaustion step is noted at the end of the consuming step.",
+    "Timer firing creates a root assigned to an actually resumed reader. Buffered timer unit consumed later by an already running record does not transfer ancestry.",
+    "Inline executed recovery Record sets last executed chain for demotion; the enclosing fault still breaks the dispatch histogram stretch.",
+    "Histograms qualify runs using >=8 selected suffix dispatches; active_eight_steps remains a separate scheduling-step counter.",
+    "Exact run lengths1..31; bucket32 is >=32. Censored final stretches are included once and also exported separately.",
+    "Readiness stratum is bit0 timer eligible, bit1 network eligible; streak stratum is read at its first dispatch.",
+    "Export super.patch with --ignore-submodules=dirty because all subject edits are in the nested Spur worktree."
+  ],
+  "deviations": [],
+  "untrackedMirror": "untracked/ (files also included in complete spur.patch)",
+  "diagnostics": {
+    "sampledDistinctChains": "exact bins zero,one,two_or_more; the frozen >=2 denominator is not approximated",
+    "histogramLengths": "1..31 exact,32 is >=32",
+    "readinessBits": {
+      "0": "timer eligible",
+      "1": "network eligible"
+    },
+    "planOnlyCut": "first child-owned signal, observed at following step boundary",
+    "prefixCut": "activation boundary after exhausted source and own signal"
+  }
+}
