@@ -7001,3 +7001,48 @@ Only host timing metadata wall_us and session_offset_ms are excluded from
 run-row equality; no protocol/event field or preexisting utilStats excluded.
 Root also required a production statistics guard around full runs to count
 initialization and flush failed last-worker runs without session bleed.
+
+
+**Iteration70 result - CLOSED, autonomous, before grading.** The frozen
+standard protocol corpus produced69292212 reference evaluator Value
+constructions/clones and54735250 candidate operations, a21.00808% reduction
+against>=25%. VR19.77839%, Paxos16.65075%, Raft23.21915%. This misses the
+frozen independent work prediction; no normal chunk, speed claim, depth
+claim, panel or regression grade is purchased. No grader session created.
+
+All18 release protocol/seed/hash-policy cells passed exact original versus
+candidate standard execution and both full reference-tape replays:4608
+protocol executions, with rows, RNG tapes, outcomes, final environments,
+ordered writes and all preexisting utilization counters equal. All12
+fixture/hash cells also passed four-mode equality. Debug and release
+expression tests cover30000 generated plus1939 explicit cases per hashing
+policy. Existing compiler, map iteration, replay fidelity, diagnostics and
+export checks pass. Release build passed; exact exported binary SHA256
+94653ddfa34eff2bc9bbd45aa918c68657ef21e0174039d6e7f456aaece58412.
+Root verified complete diff matches export, config unchanged, genuine empty
+super.patch, and retained patch applies to baseline b86baad.
+
+The first debug protocol attempt failed because the test observer compared
+process-local compiler TypeIds; even original-versus-original replay
+mismatched. The observer now resolves structural types while retaining raw
+IDs in audit metadata. Inputs/count boundaries stayed frozen. One-worker
+Rayon serialization was made explicit in the test subprocess. These are
+observer corrections, not protocol or evaluator findings. Resumed full
+debug validation was stopped after421 passing library tests once the full
+release work gate decisively failed; the full debug protocol/core suite is
+explicitly incomplete. All18 release identity cells passed before the
+work-count assertion caused the expected test exit101. Do not describe that
+exit as a semantic regression or claim a complete debug pass.
+
+Patches, frozen source manifests, complete work counts by cell, compact
+identity reports and validation logs retained in
+research/lite/patches/eval-transient/. Main simulator, baseline cache and
+epoch ledger remain unchanged. This was evaluator validation, not a
+Porcupine bug-discovery trial. No new protocol finding.
+
+**Direction digest.** Removing intermediate Values saved real operations,
+but less than the admitted minimum; do not tune the corpus or silently
+substitute throughput as a rescue. The next independent review compares
+a context-aware composition proposal with the kept causal-chain demotion
+and successful-vector alternatives. Existing fixed campaign, oracle depth
+ladder and full histories remain the yardstick.

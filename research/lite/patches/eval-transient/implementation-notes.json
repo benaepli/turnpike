@@ -1,0 +1,45 @@
+{
+  "mechanism": "Internal Borrowed(&Value), Int(i64), Bool(bool), Owned(Value) expression results; canonical materialization at public eval/storage boundaries; conservative owned constructor/mutation/safe-operation fallbacks.",
+  "config_field": null,
+  "treatment_bit": null,
+  "stats": {
+    "unmaterialized_results": "Borrowed/Int/Bool results consumed by a parent without canonical conversion only; excludes public top-level results and owned fallbacks.",
+    "materializations": "Borrowed clones or native scalar constructions when converted to canonical Value.",
+    "flush": "Thread-local counters, full-run RAII including initialization/error/panic exits, begin/end folding, session epoch reset; no atomic update per expression node."
+  },
+  "test_only_hooks": [
+    "Independent baseline recursive evaluator selected only under cfg(test).",
+    "Dynamic evaluator scope counts Value::new, Value::with_sig and every Value::clone including recursive collection-member clones; production derive Clone and representation unchanged.",
+    "Generic hash-policy copy of standard runner, matching production internals and config startup.",
+    "Protocol-only ordered Env::set capture, final queued/node/channel/crashed/durable state observation."
+  ],
+  "frozen_corpus_commit": "45aedbe",
+  "identity_exclusions": [
+    "PersistableRun.wall_us",
+    "PersistableRun.session_offset_ms",
+    "new eval_transient diagnostic counters"
+  ],
+  "protected_changes": false,
+  "performance_experiments": false,
+  "prediction": "Unchanged admitted6-12% campaign throughput increase; per-run schedule/search probabilities unchanged. Frozen protocol operation gate >=25% pooled reduction. Only ordinary grader establishes throughput/primary/panel results.",
+  "validation_status": "Complete release semantic corpus passed; frozen work gate failed at21.008078%, so root closes before grading. Full debug suite deliberately interrupted and incomplete after release gate failure.",
+  "harness_repairs": [
+    {
+      "issue": "Frozen expression source did not compile because Expr::Some shadowed Option::Some; scalar generator Coalesce(Some(child),fallback) exceeded depth6.",
+      "resolution": "Qualified Option::Some; used bounded Coalesce(Nil,fallback) and exhaustive actual AST-depth assertion before first comparison; root refroze at45aedbe."
+    },
+    {
+      "issue": "Existing exhaustive utilization export test required the new counter block.",
+      "resolution": "Added distinct-marker exhaustive JSON and delta/accumulation checks for every new diagnostic field."
+    },
+    {
+      "issue": "Reference standard versus reference replay persisted-data dump compared process-local TypeId numbers assigned by randomized compiler HashMap iteration.",
+      "resolution": "Compare structural Type via program.type_ids, retain raw IDs in audit metadata; original failed outputs retained. No subject/compiler change."
+    },
+    {
+      "issue": "Ordered serialization uses Rayon even when simulation loop is serial.",
+      "resolution": "Set RAYON_NUM_THREADS=1 in each fresh worker subprocess, enforcing frozen one-worker setup."
+    }
+  ],
+  "final_report": "validation-report.json"
+}

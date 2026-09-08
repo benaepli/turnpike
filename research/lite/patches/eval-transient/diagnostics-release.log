@@ -1,0 +1,56 @@
+    Blocking waiting for file lock on package cache
+warning: variable does not need to be mutable
+   --> spur-core/src/simulator/core/steer_terms.rs:225:9
+    |
+225 |     let mut draw = |rng: &mut StdRng| 0.5 + 0.15 * (2.0 * band.sample(rng) - 1.0);
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `load` is never used
+  --> spur-core/src/simulator/core/eval.rs:15:8
+   |
+15 | pub fn load<H: HashPolicy>(slot: VarSlot, local_env: &Env<H>, node_env: &Env<H>) -> Value<H> {
+   |        ^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `store_slot` is never used
+  --> spur-core/src/simulator/core/eval_reference.rs:23:8
+   |
+23 | pub fn store_slot<H: HashPolicy>(
+   |        ^^^^^^^^^^
+
+warning: function `store` is never used
+  --> spur-core/src/simulator/core/eval_reference.rs:35:8
+   |
+35 | pub fn store<H: HashPolicy>(
+   |        ^^^^^
+
+warning: function `make_local_env` is never used
+  --> spur-core/src/simulator/core/eval_reference.rs:50:8
+   |
+50 | pub fn make_local_env<H: HashPolicy>(
+   |        ^^^^^^^^^^^^^^
+
+warning: method `novelty_score` is never used
+   --> spur-core/src/simulator/coverage.rs:122:12
+    |
+ 95 | impl LocalCoverage {
+    | ------------------ method in this implementation
+...
+122 |     pub fn novelty_score(&self) -> f64 {
+    |            ^^^^^^^^^^^^^
+
+warning: `spur-core` (lib test) generated 6 warnings (run `cargo fix --lib -p spur-core --tests` to apply 1 suggestion)
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (spur/target/release/deps/spur_core-a4639799863c576a)
+
+running 2 tests
+test simulator::util_stats::tests::eval_counts_flush_failed_runs_and_reset_reused_workers ... ok
+test simulator::util_stats::tests::eval_counts_only_consumed_transients ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 420 filtered out; finished in 0.00s
+

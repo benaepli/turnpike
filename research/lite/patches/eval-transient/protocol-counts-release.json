@@ -1,0 +1,349 @@
+{
+  "candidate_total": 54735250,
+  "cells": [
+    {
+      "candidate": {
+        "clones": 713311,
+        "constructions": 1605838
+      },
+      "candidate_replay": {
+        "clones": 713311,
+        "constructions": 1605838
+      },
+      "cell": "VR-1000-NoHashing",
+      "reference": {
+        "clones": 1112023,
+        "constructions": 1731768
+      },
+      "reference_replay": {
+        "clones": 1112023,
+        "constructions": 1731768
+      }
+    },
+    {
+      "candidate": {
+        "clones": 713311,
+        "constructions": 1605838
+      },
+      "candidate_replay": {
+        "clones": 713311,
+        "constructions": 1605838
+      },
+      "cell": "VR-1000-WithHashing",
+      "reference": {
+        "clones": 1112023,
+        "constructions": 1731768
+      },
+      "reference_replay": {
+        "clones": 1112023,
+        "constructions": 1731768
+      }
+    },
+    {
+      "candidate": {
+        "clones": 763219,
+        "constructions": 1732217
+      },
+      "candidate_replay": {
+        "clones": 763219,
+        "constructions": 1732217
+      },
+      "cell": "VR-1001-NoHashing",
+      "reference": {
+        "clones": 1257655,
+        "constructions": 1875134
+      },
+      "reference_replay": {
+        "clones": 1257655,
+        "constructions": 1875134
+      }
+    },
+    {
+      "candidate": {
+        "clones": 763219,
+        "constructions": 1732217
+      },
+      "candidate_replay": {
+        "clones": 763219,
+        "constructions": 1732217
+      },
+      "cell": "VR-1001-WithHashing",
+      "reference": {
+        "clones": 1257655,
+        "constructions": 1875134
+      },
+      "reference_replay": {
+        "clones": 1257655,
+        "constructions": 1875134
+      }
+    },
+    {
+      "candidate": {
+        "clones": 851714,
+        "constructions": 1962827
+      },
+      "candidate_replay": {
+        "clones": 851714,
+        "constructions": 1962827
+      },
+      "cell": "VR-1002-NoHashing",
+      "reference": {
+        "clones": 1411759,
+        "constructions": 2121725
+      },
+      "reference_replay": {
+        "clones": 1411759,
+        "constructions": 2121725
+      }
+    },
+    {
+      "candidate": {
+        "clones": 851714,
+        "constructions": 1962827
+      },
+      "candidate_replay": {
+        "clones": 851714,
+        "constructions": 1962827
+      },
+      "cell": "VR-1002-WithHashing",
+      "reference": {
+        "clones": 1411759,
+        "constructions": 2121725
+      },
+      "reference_replay": {
+        "clones": 1411759,
+        "constructions": 2121725
+      }
+    },
+    {
+      "candidate": {
+        "clones": 853542,
+        "constructions": 984162
+      },
+      "candidate_replay": {
+        "clones": 853542,
+        "constructions": 984162
+      },
+      "cell": "Paxos-1000-NoHashing",
+      "reference": {
+        "clones": 1191948,
+        "constructions": 1015049
+      },
+      "reference_replay": {
+        "clones": 1191948,
+        "constructions": 1015049
+      }
+    },
+    {
+      "candidate": {
+        "clones": 853542,
+        "constructions": 984162
+      },
+      "candidate_replay": {
+        "clones": 853542,
+        "constructions": 984162
+      },
+      "cell": "Paxos-1000-WithHashing",
+      "reference": {
+        "clones": 1191948,
+        "constructions": 1015049
+      },
+      "reference_replay": {
+        "clones": 1191948,
+        "constructions": 1015049
+      }
+    },
+    {
+      "candidate": {
+        "clones": 906891,
+        "constructions": 1015152
+      },
+      "candidate_replay": {
+        "clones": 906891,
+        "constructions": 1015152
+      },
+      "cell": "Paxos-1001-NoHashing",
+      "reference": {
+        "clones": 1253547,
+        "constructions": 1046939
+      },
+      "reference_replay": {
+        "clones": 1253547,
+        "constructions": 1046939
+      }
+    },
+    {
+      "candidate": {
+        "clones": 906891,
+        "constructions": 1015152
+      },
+      "candidate_replay": {
+        "clones": 906891,
+        "constructions": 1015152
+      },
+      "cell": "Paxos-1001-WithHashing",
+      "reference": {
+        "clones": 1253547,
+        "constructions": 1046939
+      },
+      "reference_replay": {
+        "clones": 1253547,
+        "constructions": 1046939
+      }
+    },
+    {
+      "candidate": {
+        "clones": 838495,
+        "constructions": 970289
+      },
+      "candidate_replay": {
+        "clones": 838495,
+        "constructions": 970289
+      },
+      "cell": "Paxos-1002-NoHashing",
+      "reference": {
+        "clones": 1172401,
+        "constructions": 1001077
+      },
+      "reference_replay": {
+        "clones": 1172401,
+        "constructions": 1001077
+      }
+    },
+    {
+      "candidate": {
+        "clones": 838495,
+        "constructions": 970289
+      },
+      "candidate_replay": {
+        "clones": 838495,
+        "constructions": 970289
+      },
+      "cell": "Paxos-1002-WithHashing",
+      "reference": {
+        "clones": 1172401,
+        "constructions": 1001077
+      },
+      "reference_replay": {
+        "clones": 1172401,
+        "constructions": 1001077
+      }
+    },
+    {
+      "candidate": {
+        "clones": 1087230,
+        "constructions": 2574887
+      },
+      "candidate_replay": {
+        "clones": 1087230,
+        "constructions": 2574887
+      },
+      "cell": "Raft-1000-NoHashing",
+      "reference": {
+        "clones": 1933811,
+        "constructions": 2845004
+      },
+      "reference_replay": {
+        "clones": 1933811,
+        "constructions": 2845004
+      }
+    },
+    {
+      "candidate": {
+        "clones": 1087230,
+        "constructions": 2574887
+      },
+      "candidate_replay": {
+        "clones": 1087230,
+        "constructions": 2574887
+      },
+      "cell": "Raft-1000-WithHashing",
+      "reference": {
+        "clones": 1933811,
+        "constructions": 2845004
+      },
+      "reference_replay": {
+        "clones": 1933811,
+        "constructions": 2845004
+      }
+    },
+    {
+      "candidate": {
+        "clones": 1304292,
+        "constructions": 3087846
+      },
+      "candidate_replay": {
+        "clones": 1304292,
+        "constructions": 3087846
+      },
+      "cell": "Raft-1001-NoHashing",
+      "reference": {
+        "clones": 2320301,
+        "constructions": 3408264
+      },
+      "reference_replay": {
+        "clones": 2320301,
+        "constructions": 3408264
+      }
+    },
+    {
+      "candidate": {
+        "clones": 1304292,
+        "constructions": 3087846
+      },
+      "candidate_replay": {
+        "clones": 1304292,
+        "constructions": 3087846
+      },
+      "cell": "Raft-1001-WithHashing",
+      "reference": {
+        "clones": 2320301,
+        "constructions": 3408264
+      },
+      "reference_replay": {
+        "clones": 2320301,
+        "constructions": 3408264
+      }
+    },
+    {
+      "candidate": {
+        "clones": 1812410,
+        "constructions": 4303303
+      },
+      "candidate_replay": {
+        "clones": 1812410,
+        "constructions": 4303303
+      },
+      "cell": "Raft-1002-NoHashing",
+      "reference": {
+        "clones": 3213397,
+        "constructions": 4734304
+      },
+      "reference_replay": {
+        "clones": 3213397,
+        "constructions": 4734304
+      }
+    },
+    {
+      "candidate": {
+        "clones": 1812410,
+        "constructions": 4303303
+      },
+      "candidate_replay": {
+        "clones": 1812410,
+        "constructions": 4303303
+      },
+      "cell": "Raft-1002-WithHashing",
+      "reference": {
+        "clones": 3213397,
+        "constructions": 4734304
+      },
+      "reference_replay": {
+        "clones": 3213397,
+        "constructions": 4734304
+      }
+    }
+  ],
+  "reduction": 0.21008078079539438,
+  "reference_total": 69292212
+}

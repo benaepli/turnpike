@@ -1,0 +1,46 @@
+   Compiling spur-liquid v0.1.0 (/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-eval-transient/spur/spur-liquid)
+    Checking spur-ast v0.1.0 (/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-eval-transient/spur/spur-ast)
+    Checking spur-core v0.1.0 (/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-eval-transient/spur/spur-core)
+warning: function `load` is never used
+  --> spur-core/src/simulator/core/eval.rs:15:8
+   |
+15 | pub fn load<H: HashPolicy>(slot: VarSlot, local_env: &Env<H>, node_env: &Env<H>) -> Value<H> {
+   |        ^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `get` is never used
+  --> spur-core/src/simulator/coverage.rs:38:12
+   |
+22 | impl VertexMap {
+   | -------------- method in this implementation
+...
+38 |     pub fn get(&self, vertex: &Vertex) -> Option<u64> {
+   |            ^^^
+
+warning: methods `novelty_score` and `unique_edges` are never used
+   --> spur-core/src/simulator/coverage.rs:122:12
+    |
+ 95 | impl LocalCoverage {
+    | ------------------ methods in this implementation
+...
+122 |     pub fn novelty_score(&self) -> f64 {
+    |            ^^^^^^^^^^^^^
+...
+141 |     pub fn unique_edges(&self) -> usize {
+    |            ^^^^^^^^^^^^
+
+warning: methods `total` and `novelty_score` are never used
+   --> spur-core/src/simulator/coverage.rs:199:12
+    |
+169 | impl GlobalCoverage {
+    | ------------------- methods in this implementation
+...
+199 |     pub fn total(&self) -> u64 {
+    |            ^^^^^
+...
+221 |     pub fn novelty_score(&self, vertex: Vertex) -> f64 {
+    |            ^^^^^^^^^^^^^
+
+warning: `spur-core` (lib) generated 4 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.18s

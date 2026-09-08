@@ -3633,7 +3633,7 @@ Iteration69 selects dependency frontier at net5; causal-chain demotion and retai
 
 ## eval-transient-scalars-and-borrowed-operands
 
-- origin: proposer | status: KEPT at iteration 70 | gain: 7 | cost: 2 | rank: 1
+- origin: proposer | status: CLOSED at iteration 70 (fixed evaluator-work reduction21.008% below25%; no performance grade, patch retained) | gain: 7 | cost: 2 | rank: 1
 - Carry borrowed/scalar intermediates inside pure evaluation until a canonical value escapes. Explicit perf-specific cross-binary exception; full frozen prediction, correctness corpus and review: `research/lite/plans/iteration-70-admitted.json`.
 
 Iteration70 selects transient evaluator net5. Causal-chain demotion remains net3/rank2; successful-vector population remains net3/rank3. Frontier69 is closed. Awaiting-approval entries remain unchanged.

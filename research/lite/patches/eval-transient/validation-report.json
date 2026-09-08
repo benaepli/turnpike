@@ -1,0 +1,66 @@
+{
+  "decision_evidence": "Frozen >=25% standard-protocol evaluator-work reduction gate failed; no semantic discrepancy observed in the complete release corpus.",
+  "work_gate": {
+    "required_reduction": 0.25,
+    "reference_total": 69292212,
+    "candidate_total": 54735250,
+    "reduction": 0.21008078079539438,
+    "passed": false,
+    "by_protocol": {
+      "VR": {
+        "reference": 19020128,
+        "candidate": 15258252,
+        "reduction": 0.1977839476159151
+      },
+      "Paxos": {
+        "reference": 13361922,
+        "candidate": 11137062,
+        "reduction": 0.16650748298036766
+      },
+      "Raft": {
+        "reference": 36910162,
+        "candidate": 28339936,
+        "reduction": 0.23219150325051408
+      }
+    },
+    "denominator": "Canonical constructions plus recursive clone calls during evaluator calls in standard protocol runs only. Replay and expression counts excluded."
+  },
+  "release_protocol_validation": {
+    "command": "RUST_MIN_STACK=33554432 cargo test --release --manifest-path spur/Cargo.toml -p spur-core eval_protocol_parity -- --nocapture",
+    "exit_code": 101,
+    "semantic_identity": "all 18 cells passed all standard/replay comparisons under both hash policies",
+    "fixtures": "all 12 fixture/hash cells passed all four engine/mode combinations",
+    "failure": "Only frozen_protocol_corpus >=25% operation-count assertion failed.",
+    "log": "protocols-release-final.log"
+  },
+  "debug_full_suite": {
+    "command": "RUST_MIN_STACK=33554432 cargo test --manifest-path spur/Cargo.toml -p spur-core",
+    "exit_code": 130,
+    "status": "incomplete; interrupted after definitive complete release work-gate failure, as directed by root",
+    "completed_library_tests": 421,
+    "expression_parity": "passed both hash policies, 30000 generated and 1939 explicit cases per policy",
+    "fixture_evaluator_parity": "passed",
+    "protocol_corpus": "incomplete; no full debug protocol or full spur-core pass claimed",
+    "integration_tests": "not reached by this invocation; separately completed required existing fixture suites retained in fixtures-debug.log",
+    "log": "debug-final.log"
+  },
+  "existing_completed_validation": {
+    "release_expression_parity": "expressions-release.log",
+    "release_diagnostics": "diagnostics-release.log",
+    "debug_util_stats_export": "export-debug.log",
+    "release_util_stats_export": "export-release.log",
+    "required_existing_debug_fixtures": "fixtures-debug.log",
+    "required_existing_release_fixtures": "fixtures-release.log"
+  },
+  "build": {
+    "status": "passed",
+    "log": "build-final.log"
+  },
+  "source_changes_in_resumed_validation": false,
+  "config_changes": false,
+  "performance_experiments": false,
+  "grader_run": false,
+  "raw_artifacts_exported": false,
+  "raw_artifacts_retained": "/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-eval-transient/tmp/loop/eval-parity",
+  "binary_manifest": "binary.json"
+}

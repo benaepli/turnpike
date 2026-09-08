@@ -1,0 +1,139 @@
+   Compiling spur-core v0.1.0 (/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-eval-transient/spur/spur-core)
+warning: variable does not need to be mutable
+   --> spur-core/src/simulator/core/steer_terms.rs:225:9
+    |
+225 |     let mut draw = |rng: &mut StdRng| 0.5 + 0.15 * (2.0 * band.sample(rng) - 1.0);
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `load` is never used
+  --> spur-core/src/simulator/core/eval.rs:15:8
+   |
+15 | pub fn load<H: HashPolicy>(slot: VarSlot, local_env: &Env<H>, node_env: &Env<H>) -> Value<H> {
+   |        ^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `store_slot` is never used
+  --> spur-core/src/simulator/core/eval_reference.rs:23:8
+   |
+23 | pub fn store_slot<H: HashPolicy>(
+   |        ^^^^^^^^^^
+
+warning: function `store` is never used
+  --> spur-core/src/simulator/core/eval_reference.rs:35:8
+   |
+35 | pub fn store<H: HashPolicy>(
+   |        ^^^^^
+
+warning: function `make_local_env` is never used
+  --> spur-core/src/simulator/core/eval_reference.rs:50:8
+   |
+50 | pub fn make_local_env<H: HashPolicy>(
+   |        ^^^^^^^^^^^^^^
+
+warning: method `novelty_score` is never used
+   --> spur-core/src/simulator/coverage.rs:122:12
+    |
+ 95 | impl LocalCoverage {
+    | ------------------ method in this implementation
+...
+122 |     pub fn novelty_score(&self) -> f64 {
+    |            ^^^^^^^^^^^^^
+
+warning: `spur-core` (lib test) generated 6 warnings (run `cargo fix --lib -p spur-core --tests` to apply 1 suggestion)
+warning: method `get` is never used
+  --> spur-core/src/simulator/coverage.rs:38:12
+   |
+22 | impl VertexMap {
+   | -------------- method in this implementation
+...
+38 |     pub fn get(&self, vertex: &Vertex) -> Option<u64> {
+   |            ^^^
+
+warning: methods `novelty_score` and `unique_edges` are never used
+   --> spur-core/src/simulator/coverage.rs:122:12
+    |
+ 95 | impl LocalCoverage {
+    | ------------------ methods in this implementation
+...
+122 |     pub fn novelty_score(&self) -> f64 {
+    |            ^^^^^^^^^^^^^
+...
+141 |     pub fn unique_edges(&self) -> usize {
+    |            ^^^^^^^^^^^^
+
+warning: methods `total` and `novelty_score` are never used
+   --> spur-core/src/simulator/coverage.rs:199:12
+    |
+169 | impl GlobalCoverage {
+    | ------------------- methods in this implementation
+...
+199 |     pub fn total(&self) -> u64 {
+    |            ^^^^^
+...
+221 |     pub fn novelty_score(&self, vertex: Vertex) -> f64 {
+    |            ^^^^^^^^^^^^^
+
+warning: `spur-core` (lib) generated 4 warnings (1 duplicate)
+warning: unused import: `Array`
+  --> spur-core/tests/wall_budget.rs:54:24
+   |
+54 |     use arrow::array::{Array, AsArray};
+   |                        ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Array`
+   --> spur-core/tests/campaign_allocation.rs:129:24
+    |
+129 |     use arrow::array::{Array, AsArray};
+    |                        ^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `spur-core` (test "wall_budget") generated 1 warning
+warning: `spur-core` (test "campaign_allocation") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 48.03s
+     Running unittests src/lib.rs (spur/target/release/deps/spur_core-a4639799863c576a)
+
+running 3 tests
+test simulator::core::eval_protocol_parity::protocol_worker ... ok
+test simulator::core::eval_protocol_parity::fixture_program_evaluator_parity ... ok
+{"candidate":{"clones":713311,"constructions":1605838},"candidate_replay":{"clones":713311,"constructions":1605838},"cell":"VR-1000-NoHashing","reference":{"clones":1112023,"constructions":1731768},"reference_replay":{"clones":1112023,"constructions":1731768}}
+{"candidate":{"clones":713311,"constructions":1605838},"candidate_replay":{"clones":713311,"constructions":1605838},"cell":"VR-1000-WithHashing","reference":{"clones":1112023,"constructions":1731768},"reference_replay":{"clones":1112023,"constructions":1731768}}
+{"candidate":{"clones":763219,"constructions":1732217},"candidate_replay":{"clones":763219,"constructions":1732217},"cell":"VR-1001-NoHashing","reference":{"clones":1257655,"constructions":1875134},"reference_replay":{"clones":1257655,"constructions":1875134}}
+test simulator::core::eval_protocol_parity::frozen_protocol_corpus has been running for over 60 seconds
+{"candidate":{"clones":763219,"constructions":1732217},"candidate_replay":{"clones":763219,"constructions":1732217},"cell":"VR-1001-WithHashing","reference":{"clones":1257655,"constructions":1875134},"reference_replay":{"clones":1257655,"constructions":1875134}}
+{"candidate":{"clones":851714,"constructions":1962827},"candidate_replay":{"clones":851714,"constructions":1962827},"cell":"VR-1002-NoHashing","reference":{"clones":1411759,"constructions":2121725},"reference_replay":{"clones":1411759,"constructions":2121725}}
+{"candidate":{"clones":851714,"constructions":1962827},"candidate_replay":{"clones":851714,"constructions":1962827},"cell":"VR-1002-WithHashing","reference":{"clones":1411759,"constructions":2121725},"reference_replay":{"clones":1411759,"constructions":2121725}}
+{"candidate":{"clones":853542,"constructions":984162},"candidate_replay":{"clones":853542,"constructions":984162},"cell":"Paxos-1000-NoHashing","reference":{"clones":1191948,"constructions":1015049},"reference_replay":{"clones":1191948,"constructions":1015049}}
+{"candidate":{"clones":853542,"constructions":984162},"candidate_replay":{"clones":853542,"constructions":984162},"cell":"Paxos-1000-WithHashing","reference":{"clones":1191948,"constructions":1015049},"reference_replay":{"clones":1191948,"constructions":1015049}}
+{"candidate":{"clones":906891,"constructions":1015152},"candidate_replay":{"clones":906891,"constructions":1015152},"cell":"Paxos-1001-NoHashing","reference":{"clones":1253547,"constructions":1046939},"reference_replay":{"clones":1253547,"constructions":1046939}}
+{"candidate":{"clones":906891,"constructions":1015152},"candidate_replay":{"clones":906891,"constructions":1015152},"cell":"Paxos-1001-WithHashing","reference":{"clones":1253547,"constructions":1046939},"reference_replay":{"clones":1253547,"constructions":1046939}}
+{"candidate":{"clones":838495,"constructions":970289},"candidate_replay":{"clones":838495,"constructions":970289},"cell":"Paxos-1002-NoHashing","reference":{"clones":1172401,"constructions":1001077},"reference_replay":{"clones":1172401,"constructions":1001077}}
+{"candidate":{"clones":838495,"constructions":970289},"candidate_replay":{"clones":838495,"constructions":970289},"cell":"Paxos-1002-WithHashing","reference":{"clones":1172401,"constructions":1001077},"reference_replay":{"clones":1172401,"constructions":1001077}}
+{"candidate":{"clones":1087230,"constructions":2574887},"candidate_replay":{"clones":1087230,"constructions":2574887},"cell":"Raft-1000-NoHashing","reference":{"clones":1933811,"constructions":2845004},"reference_replay":{"clones":1933811,"constructions":2845004}}
+{"candidate":{"clones":1087230,"constructions":2574887},"candidate_replay":{"clones":1087230,"constructions":2574887},"cell":"Raft-1000-WithHashing","reference":{"clones":1933811,"constructions":2845004},"reference_replay":{"clones":1933811,"constructions":2845004}}
+{"candidate":{"clones":1304292,"constructions":3087846},"candidate_replay":{"clones":1304292,"constructions":3087846},"cell":"Raft-1001-NoHashing","reference":{"clones":2320301,"constructions":3408264},"reference_replay":{"clones":2320301,"constructions":3408264}}
+{"candidate":{"clones":1304292,"constructions":3087846},"candidate_replay":{"clones":1304292,"constructions":3087846},"cell":"Raft-1001-WithHashing","reference":{"clones":2320301,"constructions":3408264},"reference_replay":{"clones":2320301,"constructions":3408264}}
+{"candidate":{"clones":1812410,"constructions":4303303},"candidate_replay":{"clones":1812410,"constructions":4303303},"cell":"Raft-1002-NoHashing","reference":{"clones":3213397,"constructions":4734304},"reference_replay":{"clones":3213397,"constructions":4734304}}
+{"candidate":{"clones":1812410,"constructions":4303303},"candidate_replay":{"clones":1812410,"constructions":4303303},"cell":"Raft-1002-WithHashing","reference":{"clones":3213397,"constructions":4734304},"reference_replay":{"clones":3213397,"constructions":4734304}}
+protocol reference=69292212 candidate=54735250
+
+thread 'simulator::core::eval_protocol_parity::frozen_protocol_corpus' (1162) panicked at spur-core/src/simulator/core/eval_protocol_parity.rs:221:5:
+construction plus clone reduction is below 25%: {"candidate_total":54735250,"cells":[{"candidate":{"clones":713311,"constructions":1605838},"candidate_replay":{"clones":713311,"constructions":1605838},"cell":"VR-1000-NoHashing","reference":{"clones":1112023,"constructions":1731768},"reference_replay":{"clones":1112023,"constructions":1731768}},{"candidate":{"clones":713311,"constructions":1605838},"candidate_replay":{"clones":713311,"constructions":1605838},"cell":"VR-1000-WithHashing","reference":{"clones":1112023,"constructions":1731768},"reference_replay":{"clones":1112023,"constructions":1731768}},{"candidate":{"clones":763219,"constructions":1732217},"candidate_replay":{"clones":763219,"constructions":1732217},"cell":"VR-1001-NoHashing","reference":{"clones":1257655,"constructions":1875134},"reference_replay":{"clones":1257655,"constructions":1875134}},{"candidate":{"clones":763219,"constructions":1732217},"candidate_replay":{"clones":763219,"constructions":1732217},"cell":"VR-1001-WithHashing","reference":{"clones":1257655,"constructions":1875134},"reference_replay":{"clones":1257655,"constructions":1875134}},{"candidate":{"clones":851714,"constructions":1962827},"candidate_replay":{"clones":851714,"constructions":1962827},"cell":"VR-1002-NoHashing","reference":{"clones":1411759,"constructions":2121725},"reference_replay":{"clones":1411759,"constructions":2121725}},{"candidate":{"clones":851714,"constructions":1962827},"candidate_replay":{"clones":851714,"constructions":1962827},"cell":"VR-1002-WithHashing","reference":{"clones":1411759,"constructions":2121725},"reference_replay":{"clones":1411759,"constructions":2121725}},{"candidate":{"clones":853542,"constructions":984162},"candidate_replay":{"clones":853542,"constructions":984162},"cell":"Paxos-1000-NoHashing","reference":{"clones":1191948,"constructions":1015049},"reference_replay":{"clones":1191948,"constructions":1015049}},{"candidate":{"clones":853542,"constructions":984162},"candidate_replay":{"clones":853542,"constructions":984162},"cell":"Paxos-1000-WithHashing","reference":{"clones":1191948,"constructions":1015049},"reference_replay":{"clones":1191948,"constructions":1015049}},{"candidate":{"clones":906891,"constructions":1015152},"candidate_replay":{"clones":906891,"constructions":1015152},"cell":"Paxos-1001-NoHashing","reference":{"clones":1253547,"constructions":1046939},"reference_replay":{"clones":1253547,"constructions":1046939}},{"candidate":{"clones":906891,"constructions":1015152},"candidate_replay":{"clones":906891,"constructions":1015152},"cell":"Paxos-1001-WithHashing","reference":{"clones":1253547,"constructions":1046939},"reference_replay":{"clones":1253547,"constructions":1046939}},{"candidate":{"clones":838495,"constructions":970289},"candidate_replay":{"clones":838495,"constructions":970289},"cell":"Paxos-1002-NoHashing","reference":{"clones":1172401,"constructions":1001077},"reference_replay":{"clones":1172401,"constructions":1001077}},{"candidate":{"clones":838495,"constructions":970289},"candidate_replay":{"clones":838495,"constructions":970289},"cell":"Paxos-1002-WithHashing","reference":{"clones":1172401,"constructions":1001077},"reference_replay":{"clones":1172401,"constructions":1001077}},{"candidate":{"clones":1087230,"constructions":2574887},"candidate_replay":{"clones":1087230,"constructions":2574887},"cell":"Raft-1000-NoHashing","reference":{"clones":1933811,"constructions":2845004},"reference_replay":{"clones":1933811,"constructions":2845004}},{"candidate":{"clones":1087230,"constructions":2574887},"candidate_replay":{"clones":1087230,"constructions":2574887},"cell":"Raft-1000-WithHashing","reference":{"clones":1933811,"constructions":2845004},"reference_replay":{"clones":1933811,"constructions":2845004}},{"candidate":{"clones":1304292,"constructions":3087846},"candidate_replay":{"clones":1304292,"constructions":3087846},"cell":"Raft-1001-NoHashing","reference":{"clones":2320301,"constructions":3408264},"reference_replay":{"clones":2320301,"constructions":3408264}},{"candidate":{"clones":1304292,"constructions":3087846},"candidate_replay":{"clones":1304292,"constructions":3087846},"cell":"Raft-1001-WithHashing","reference":{"clones":2320301,"constructions":3408264},"reference_replay":{"clones":2320301,"constructions":3408264}},{"candidate":{"clones":1812410,"constructions":4303303},"candidate_replay":{"clones":1812410,"constructions":4303303},"cell":"Raft-1002-NoHashing","reference":{"clones":3213397,"constructions":4734304},"reference_replay":{"clones":3213397,"constructions":4734304}},{"candidate":{"clones":1812410,"constructions":4303303},"candidate_replay":{"clones":1812410,"constructions":4303303},"cell":"Raft-1002-WithHashing","reference":{"clones":3213397,"constructions":4734304},"reference_replay":{"clones":3213397,"constructions":4734304}}],"reduction":0.21008078079539438,"reference_total":69292212}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test simulator::core::eval_protocol_parity::frozen_protocol_corpus ... FAILED
+
+failures:
+
+failures:
+    simulator::core::eval_protocol_parity::frozen_protocol_corpus
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 419 filtered out; finished in 373.44s
+
+error: test failed, to rerun pass `-p spur-core --lib`

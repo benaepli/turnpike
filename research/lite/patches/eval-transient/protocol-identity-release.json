@@ -1,0 +1,132 @@
+{
+  "profile": "release",
+  "status": "passed",
+  "protocol_cells": 18,
+  "runs_per_cell_per_mode": 64,
+  "total_runs_all_four_modes": 4608,
+  "comparisons_per_cell": [
+    "reference_standard_vs_candidate_standard",
+    "reference_standard_vs_reference_replay",
+    "reference_standard_vs_candidate_replay"
+  ],
+  "fields": [
+    "rows",
+    "tapes",
+    "outcomes",
+    "environments",
+    "writes",
+    "stats"
+  ],
+  "cells": [
+    {
+      "cell": "VR-1000-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "VR-1000-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "VR-1001-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "VR-1001-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "VR-1002-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "VR-1002-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Paxos-1000-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Paxos-1000-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Paxos-1001-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Paxos-1001-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Paxos-1002-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Paxos-1002-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Raft-1000-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Raft-1000-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Raft-1001-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Raft-1001-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Raft-1002-NoHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    },
+    {
+      "cell": "Raft-1002-WithHashing",
+      "comparisons": "all passed",
+      "reference_replay_counts_match_standard": true,
+      "candidate_replay_counts_match_standard": true
+    }
+  ],
+  "evidence": "protocols-release-final.log emits each cell only after every identity assertion returns; counts.json is written only after all eighteen cells complete.",
+  "raw_artifacts": "/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-eval-transient/tmp/loop/eval-parity/release"
+}

@@ -1,0 +1,2203 @@
+diff --git a/spur-core/src/simulator/core.rs b/spur-core/src/simulator/core.rs
+index b1ce794..a104776 100644
+--- a/spur-core/src/simulator/core.rs
++++ b/spur-core/src/simulator/core.rs
+@@ -15,3 +15,10 @@ pub use eval::*;
+ pub use exec::*;
+ pub use scheduler::*;
+ pub use queue_selector::*;
++
++#[cfg(test)]
++mod eval_reference;
++#[cfg(test)]
++mod eval_parity;
++#[cfg(test)]
++pub(crate) mod eval_protocol_parity;
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index a8e1e89..7544e17 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -6,8 +6,8 @@ use crate::simulator::core::values::{
+ };
+ use crate::simulator::hash_utils::HashPolicy;
+ use ecow::EcoString;
+-use std::collections::HashMap;
+ use rustc_hash::FxHasher;
++use std::collections::HashMap;
+ use std::hash::{Hash, Hasher};
+ use std::sync::Arc;
+ 
+@@ -131,71 +131,331 @@ fn update_collection<H: HashPolicy>(
+     }
+ }
+ 
++enum EvalValue<'a, H: HashPolicy> {
++    Borrowed(&'a Value<H>),
++    Int(i64),
++    Bool(bool),
++    Owned(Value<H>),
++}
++
++impl<'a, H: HashPolicy> EvalValue<'a, H> {
++    fn consumed(&self) {
++        match self {
++            Self::Borrowed(_) => crate::simulator::util_stats::record_eval_transient(0),
++            Self::Int(_) | Self::Bool(_) => crate::simulator::util_stats::record_eval_transient(1),
++            Self::Owned(_) => {}
++        }
++    }
++
++    fn materialize(self) -> Value<H> {
++        if !matches!(self, Self::Owned(_)) {
++            crate::simulator::util_stats::record_eval_transient(2);
++        }
++        match self {
++            Self::Borrowed(v) => v.clone(),
++            Self::Int(i) => Value::int(i),
++            Self::Bool(b) => Value::bool(b),
++            Self::Owned(v) => v,
++        }
++    }
++
++    fn type_name(&self) -> &'static str {
++        match self {
++            Self::Int(_) => "int",
++            Self::Bool(_) => "bool",
++            Self::Borrowed(v) => v.type_name(),
++            Self::Owned(v) => v.type_name(),
++        }
++    }
++
++    fn int(&self) -> Result<i64, RuntimeError> {
++        self.consumed();
++        match self {
++            Self::Int(i) => Ok(*i),
++            Self::Borrowed(v) => v.as_int(),
++            Self::Owned(v) => v.as_int(),
++            Self::Bool(_) => Err(RuntimeError::TypeError {
++                expected: "int",
++                got: "bool",
++            }),
++        }
++    }
++
++    fn bool(&self) -> Result<bool, RuntimeError> {
++        self.consumed();
++        match self {
++            Self::Bool(b) => Ok(*b),
++            Self::Borrowed(v) => v.as_bool(),
++            Self::Owned(v) => v.as_bool(),
++            Self::Int(_) => Err(RuntimeError::TypeError {
++                expected: "bool",
++                got: "int",
++            }),
++        }
++    }
++
++    fn kind(&self) -> Option<&ValueKind<H>> {
++        match self {
++            Self::Borrowed(v) => Some(&v.kind),
++            Self::Owned(v) => Some(&v.kind),
++            _ => None,
++        }
++    }
++
++    fn native_int(&self) -> Option<i64> {
++        match self {
++            Self::Int(i) => Some(*i),
++            _ => match self.kind() {
++                Some(ValueKind::Int(i)) => Some(*i),
++                _ => None,
++            },
++        }
++    }
++
++    fn native_bool(&self) -> Option<bool> {
++        match self {
++            Self::Bool(b) => Some(*b),
++            _ => match self.kind() {
++                Some(ValueKind::Bool(b)) => Some(*b),
++                _ => None,
++            },
++        }
++    }
++
++    fn equals(self, rhs: Self) -> bool {
++        if let (Some(a), Some(b)) = (self.native_int(), rhs.native_int()) {
++            self.consumed();
++            rhs.consumed();
++            return a == b;
++        }
++        if let (Some(a), Some(b)) = (self.native_bool(), rhs.native_bool()) {
++            self.consumed();
++            rhs.consumed();
++            return a == b;
++        }
++        self.with_value(|a| rhs.with_value(|b| a == b))
++    }
++
++    fn compare(self, rhs: Self) -> std::cmp::Ordering {
++        if let (Some(a), Some(b)) = (self.native_int(), rhs.native_int()) {
++            self.consumed();
++            rhs.consumed();
++            return a.cmp(&b);
++        }
++        if let (Some(a), Some(b)) = (self.native_bool(), rhs.native_bool()) {
++            self.consumed();
++            rhs.consumed();
++            return a.cmp(&b);
++        }
++        self.with_value(|a| rhs.with_value(|b| a.cmp(b)))
++    }
++
++    fn with_value<T>(self, f: impl FnOnce(&Value<H>) -> T) -> T {
++        match self {
++            Self::Borrowed(v) => {
++                crate::simulator::util_stats::record_eval_transient(0);
++                f(v)
++            }
++            Self::Owned(v) => f(&v),
++            scalar => f(&scalar.materialize()),
++        }
++    }
++
++    fn project(
++        self,
++        f: impl FnOnce(&Value<H>) -> Result<&Value<H>, RuntimeError>,
++    ) -> Result<Self, RuntimeError> {
++        match self {
++            Self::Borrowed(v) => {
++                crate::simulator::util_stats::record_eval_transient(0);
++                Ok(Self::Borrowed(f(v)?))
++            }
++            Self::Owned(v) => Ok(Self::Owned(f(&v)?.clone())),
++            scalar => {
++                let v = scalar.materialize();
++                Ok(Self::Owned(f(&v)?.clone()))
++            }
++        }
++    }
++}
++
+ pub fn eval<H: HashPolicy>(
+     local_env: &Env<H>,
+     node_env: &Env<H>,
+     expr: &Expr,
+     role_names: &HashMap<NameId, String>,
+ ) -> Result<Value<H>, RuntimeError> {
++    #[cfg(test)]
++    let _scope = super::values::eval_accounting::Scope::enter();
++    #[cfg(test)]
++    if super::eval_parity::use_reference() {
++        return super::eval_reference::eval(local_env, node_env, expr, role_names);
++    }
++    eval_transient(local_env, node_env, expr, role_names).map(EvalValue::materialize)
++}
++
++fn eval_transient<'a, H: HashPolicy>(
++    local_env: &'a Env<H>,
++    node_env: &'a Env<H>,
++    expr: &Expr,
++    role_names: &HashMap<NameId, String>,
++) -> Result<EvalValue<'a, H>, RuntimeError> {
++    use EvalValue::{Bool, Borrowed, Int, Owned};
++    let child = |e: &Expr| eval_transient(local_env, node_env, e, role_names);
+     match expr {
+-        Expr::Int(i) => Ok(Value::<H>::int(*i)),
+-        Expr::Bool(b) => Ok(Value::<H>::bool(*b)),
+-        Expr::String(s) => Ok(Value::<H>::string(s.clone())),
+-        Expr::Unit => Ok(Value::<H>::unit()),
+-        Expr::Nil => Ok(Value::<H>::option_none()),
+-        Expr::Var(s) => Ok(load(*s, local_env, node_env)),
+-        Expr::Plus(e1, e2) => {
+-            let v1 = eval(local_env, node_env, e1, role_names)?;
+-            let v2 = eval(local_env, node_env, e2, role_names)?;
+-
+-            match (&v1.kind, &v2.kind) {
+-                (ValueKind::Int(i1), ValueKind::Int(i2)) => Ok(Value::<H>::int(i1 + i2)),
+-                (ValueKind::String(s1), ValueKind::String(s2)) => {
+-                    let mut result = EcoString::with_capacity(s1.len() + s2.len());
+-                    result.push_str(s1.as_str());
+-                    result.push_str(s2.as_str());
+-                    Ok(Value::<H>::string(result))
+-                }
+-                _ => Err(RuntimeError::TypeError {
++        Expr::Int(i) => Ok(Int(*i)),
++        Expr::Bool(b) => Ok(Bool(*b)),
++        Expr::Var(s) => Ok(Borrowed(match s {
++            VarSlot::Local(i, _) => local_env.get(*i),
++            VarSlot::Node(i, _) => node_env.get(*i),
++        })),
++        Expr::Plus(a, b) => {
++            let a = child(a)?;
++            let b = child(b)?;
++            if let (Some(a_int), Some(b_int)) = (a.native_int(), b.native_int()) {
++                a.consumed();
++                b.consumed();
++                Ok(Int(a_int + b_int))
++            } else if let (Some(ValueKind::String(a_str)), Some(ValueKind::String(b_str))) =
++                (a.kind(), b.kind())
++            {
++                a.consumed();
++                b.consumed();
++                let mut result = EcoString::with_capacity(a_str.len() + b_str.len());
++                result.push_str(a_str.as_str());
++                result.push_str(b_str.as_str());
++                Ok(Owned(Value::string(result)))
++            } else {
++                a.consumed();
++                b.consumed();
++                Err(RuntimeError::TypeError {
+                     expected: "int or string",
+-                    got: v1.type_name(),
++                    got: a.type_name(),
++                })
++            }
++        }
++        Expr::Minus(a, b) => Ok(Int(child(a)?.int()? - child(b)?.int()?)),
++        Expr::Times(a, b) => Ok(Int(child(a)?.int()? * child(b)?.int()?)),
++        Expr::Div(a, b) => Ok(Int(child(a)?.int()? / child(b)?.int()?)),
++        Expr::Mod(a, b) => Ok(Int(child(a)?.int()? % child(b)?.int()?)),
++        Expr::Min(a, b) => Ok(Int(child(a)?.int()?.min(child(b)?.int()?))),
++        Expr::Not(e) => Ok(Bool(!child(e)?.bool()?)),
++        Expr::And(a, b) => Ok(Bool(child(a)?.bool()? && child(b)?.bool()?)),
++        Expr::Or(a, b) => Ok(Bool(child(a)?.bool()? || child(b)?.bool()?)),
++        Expr::EqualsEquals(a, b) => Ok(Bool(child(a)?.equals(child(b)?))),
++        Expr::LessThan(a, b) => Ok(Bool(child(a)?.compare(child(b)?).is_lt())),
++        Expr::LessThanEquals(a, b) => Ok(Bool(child(a)?.compare(child(b)?).is_le())),
++        Expr::GreaterThan(a, b) => Ok(Bool(child(a)?.compare(child(b)?).is_gt())),
++        Expr::GreaterThanEquals(a, b) => Ok(Bool(child(a)?.compare(child(b)?).is_ge())),
++        Expr::ListLen(e) => {
++            let value = child(e)?;
++            value.consumed();
++            match value.kind() {
++                Some(ValueKind::List(l)) => Ok(Int(l.len() as i64)),
++                Some(ValueKind::Map(m)) => Ok(Int(m.len() as i64)),
++                _ => Err(RuntimeError::NotACollection {
++                    got: value.type_name(),
+                 }),
+             }
+         }
+-        Expr::Minus(e1, e2) => Ok(Value::<H>::int(
+-            eval(local_env, node_env, e1, role_names)?.as_int()?
+-                - eval(local_env, node_env, e2, role_names)?.as_int()?,
+-        )),
+-        Expr::Times(e1, e2) => Ok(Value::<H>::int(
+-            eval(local_env, node_env, e1, role_names)?.as_int()?
+-                * eval(local_env, node_env, e2, role_names)?.as_int()?,
+-        )),
+-        Expr::Div(e1, e2) => Ok(Value::<H>::int(
+-            eval(local_env, node_env, e1, role_names)?.as_int()?
+-                / eval(local_env, node_env, e2, role_names)?.as_int()?,
+-        )),
+-        Expr::Mod(e1, e2) => Ok(Value::<H>::int(
+-            eval(local_env, node_env, e1, role_names)?.as_int()?
+-                % eval(local_env, node_env, e2, role_names)?.as_int()?,
+-        )),
+-        Expr::LessThan(e1, e2) => Ok(Value::<H>::bool(
+-            eval(local_env, node_env, e1, role_names)? < eval(local_env, node_env, e2, role_names)?,
+-        )),
+-        Expr::EqualsEquals(e1, e2) => Ok(Value::<H>::bool(
+-            eval(local_env, node_env, e1, role_names)?
+-                == eval(local_env, node_env, e2, role_names)?,
+-        )),
+-        Expr::Not(e) => Ok(Value::<H>::bool(
+-            !eval(local_env, node_env, e, role_names)?.as_bool()?,
+-        )),
+-        Expr::And(e1, e2) => Ok(Value::<H>::bool(
+-            eval(local_env, node_env, e1, role_names)?.as_bool()?
+-                && eval(local_env, node_env, e2, role_names)?.as_bool()?,
+-        )),
+-        Expr::Or(e1, e2) => Ok(Value::<H>::bool(
+-            eval(local_env, node_env, e1, role_names)?.as_bool()?
+-                || eval(local_env, node_env, e2, role_names)?.as_bool()?,
+-        )),
++        Expr::ListAccess(e, i) => child(e)?.project(|v| {
++            let l = v.as_list()?;
++            l.get(*i).ok_or(RuntimeError::IndexOutOfBounds {
++                index: *i,
++                len: l.len(),
++            })
++        }),
++        Expr::TupleAccess(e, i) => child(e)?.project(|v| {
++            if let ValueKind::Tuple(l) = &v.kind {
++                l.get(*i).ok_or(RuntimeError::IndexOutOfBounds {
++                    index: *i,
++                    len: l.len(),
++                })
++            } else {
++                Err(RuntimeError::TypeError {
++                    expected: "tuple",
++                    got: v.type_name(),
++                })
++            }
++        }),
++        Expr::Find(e, key) => child(e)?.project(|v| match &v.kind {
++            ValueKind::Map(m) => {
++                let key = child(key)?.materialize();
++                m.get(&key).ok_or(RuntimeError::KeyNotFound)
++            }
++            ValueKind::List(l) => {
++                let index = child(key)?.int()? as usize;
++                l.get(index).ok_or(RuntimeError::IndexOutOfBounds {
++                    index,
++                    len: l.len(),
++                })
++            }
++            _ => Err(RuntimeError::NotACollection { got: v.type_name() }),
++        }),
++        Expr::Unwrap(e) => child(e)?.project(|v| match &v.kind {
++            ValueKind::Option(Some(inner)) => Ok(inner.as_ref()),
++            ValueKind::Option(None) => Err(RuntimeError::UnwrapNone),
++            _ => Err(RuntimeError::TypeError {
++                expected: "option",
++                got: v.type_name(),
++            }),
++        }),
++        Expr::Coalesce(e, default) => {
++            let v = child(e)?;
++            match v.kind() {
++                Some(ValueKind::Option(Some(_))) => v.project(|v| match &v.kind {
++                    ValueKind::Option(Some(inner)) => Ok(inner.as_ref()),
++                    _ => unreachable!(),
++                }),
++                Some(ValueKind::Option(None)) => {
++                    v.consumed();
++                    child(default)
++                }
++                _ => {
++                    v.consumed();
++                    Err(RuntimeError::CoalesceNonOption { got: v.type_name() })
++                }
++            }
++        }
++        Expr::IsVariant(e, name) => {
++            let v = child(e)?;
++            v.consumed();
++            Ok(Bool(
++                matches!(v.kind(), Some(ValueKind::Variant(_, n, _)) if n == name),
++            ))
++        }
++        Expr::VariantPayload(e) => child(e)?.project(|v| match &v.kind {
++            ValueKind::Variant(_, _, Some(p)) => Ok(p.as_ref()),
++            ValueKind::Variant(_, _, None) => Err(RuntimeError::VariantHasNoPayload),
++            _ => Err(RuntimeError::TypeError {
++                expected: "variant",
++                got: v.type_name(),
++            }),
++        }),
++        Expr::KeyExists(key, map) => {
++            let key = child(key)?.materialize();
++            child(map)?.with_value(|v| Ok(Bool(v.as_map()?.contains_key(&key))))
++        }
++        Expr::IntToString(e) => Ok(Owned(Value::string(EcoString::from(
++            Decimal::of_i64(child(e)?.int()?).as_str(),
++        )))),
++        Expr::BoolToString(e) => Ok(Owned(Value::string(EcoString::from(
++            child(e)?.bool()?.to_string(),
++        )))),
++        _ => eval_owned(local_env, node_env, expr, role_names).map(Owned),
++    }
++}
++
++fn eval_owned<H: HashPolicy>(
++    local_env: &Env<H>,
++    node_env: &Env<H>,
++    expr: &Expr,
++    role_names: &HashMap<NameId, String>,
++) -> Result<Value<H>, RuntimeError> {
++    match expr {
++        Expr::String(s) => Ok(Value::<H>::string(s.clone())),
++        Expr::Unit => Ok(Value::<H>::unit()),
++        Expr::Nil => Ok(Value::<H>::option_none()),
+         Expr::Some(e) => Ok(Value::<H>::option_some(eval(
+             local_env, node_env, e, role_names,
+         )?)),
+@@ -223,25 +483,6 @@ pub fn eval<H: HashPolicy>(
+             }
+             Ok(Value::<H>::map(m))
+         }
+-        Expr::Find(col, key) => {
+-            let col_val = eval(local_env, node_env, col, role_names)?;
+-            match &col_val.kind {
+-                ValueKind::Map(m) => {
+-                    let k = eval(local_env, node_env, key, role_names)?;
+-                    m.get(&k).cloned().ok_or(RuntimeError::KeyNotFound)
+-                }
+-                ValueKind::List(l) => {
+-                    let idx = eval(local_env, node_env, key, role_names)?.as_int()? as usize;
+-                    l.get(idx).cloned().ok_or(RuntimeError::IndexOutOfBounds {
+-                        index: idx,
+-                        len: l.len(),
+-                    })
+-                }
+-                _ => Err(RuntimeError::NotACollection {
+-                    got: col_val.type_name(),
+-                }),
+-            }
+-        }
+         Expr::ListPrepend(head, tail) => {
+             let h = eval(local_env, node_env, head, role_names)?;
+             let tail_val = eval(local_env, node_env, tail, role_names)?;
+@@ -272,22 +513,6 @@ pub fn eval<H: HashPolicy>(
+             }
+             Ok(Value::<H>::list(ValueSeq::<H>::from(&vec[s..e])))
+         }
+-        Expr::LessThanEquals(e1, e2) => Ok(Value::<H>::bool(
+-            eval(local_env, node_env, e1, role_names)?
+-                <= eval(local_env, node_env, e2, role_names)?,
+-        )),
+-        Expr::GreaterThan(e1, e2) => Ok(Value::<H>::bool(
+-            eval(local_env, node_env, e1, role_names)? > eval(local_env, node_env, e2, role_names)?,
+-        )),
+-        Expr::GreaterThanEquals(e1, e2) => Ok(Value::<H>::bool(
+-            eval(local_env, node_env, e1, role_names)?
+-                >= eval(local_env, node_env, e2, role_names)?,
+-        )),
+-        Expr::KeyExists(key, map) => {
+-            let k = eval(local_env, node_env, key, role_names)?;
+-            let m = eval(local_env, node_env, map, role_names)?;
+-            Ok(Value::<H>::bool(m.as_map()?.contains_key(&k)))
+-        }
+         Expr::MapErase(key, map) => {
+             let k = eval(local_env, node_env, key, role_names)?;
+             let m = eval(local_env, node_env, map, role_names)?
+@@ -295,80 +520,6 @@ pub fn eval<H: HashPolicy>(
+                 .clone();
+             Ok(Value::<H>::map(m.without(&k)))
+         }
+-        Expr::ListLen(list) => {
+-            let list_val = eval(local_env, node_env, list, role_names)?;
+-            match &list_val.kind {
+-                ValueKind::List(l) => Ok(Value::<H>::int(l.len() as i64)),
+-                ValueKind::Map(m) => Ok(Value::<H>::int(m.len() as i64)),
+-                _ => Err(RuntimeError::NotACollection {
+-                    got: list_val.type_name(),
+-                }),
+-            }
+-        }
+-        Expr::ListAccess(list, idx) => {
+-            let l = eval(local_env, node_env, list, role_names)?;
+-            let vec = l.as_list()?;
+-            let i = *idx;
+-            if i >= vec.len() {
+-                return Err(RuntimeError::IndexOutOfBounds {
+-                    index: i,
+-                    len: vec.len(),
+-                });
+-            }
+-            Ok(vec[i].clone())
+-        }
+-        Expr::Min(e1, e2) => {
+-            let v1 = eval(local_env, node_env, e1, role_names)?.as_int()?;
+-            let v2 = eval(local_env, node_env, e2, role_names)?.as_int()?;
+-            Ok(Value::<H>::int(v1.min(v2)))
+-        }
+-        Expr::TupleAccess(tuple, idx) => {
+-            let t = eval(local_env, node_env, tuple, role_names)?;
+-            if let ValueKind::Tuple(vec) = &t.kind {
+-                if *idx >= vec.len() {
+-                    return Err(RuntimeError::IndexOutOfBounds {
+-                        index: *idx,
+-                        len: vec.len(),
+-                    });
+-                }
+-                Ok(vec[*idx].clone())
+-            } else {
+-                Err(RuntimeError::TypeError {
+-                    expected: "tuple",
+-                    got: t.type_name(),
+-                })
+-            }
+-        }
+-        Expr::Unwrap(e) => {
+-            let val = eval(local_env, node_env, e, role_names)?;
+-            match &val.kind {
+-                ValueKind::Option(Some(v)) => Ok(Arc::unwrap_or_clone(v.clone())),
+-                ValueKind::Option(None) => Err(RuntimeError::UnwrapNone),
+-                _ => Err(RuntimeError::TypeError {
+-                    expected: "option",
+-                    got: val.type_name(),
+-                }),
+-            }
+-        }
+-        Expr::Coalesce(opt, default) => {
+-            let val = eval(local_env, node_env, opt, role_names)?;
+-            match &val.kind {
+-                ValueKind::Option(Some(v)) => Ok(Arc::unwrap_or_clone(v.clone())),
+-                ValueKind::Option(None) => eval(local_env, node_env, default, role_names),
+-                _ => Err(RuntimeError::CoalesceNonOption {
+-                    got: val.type_name(),
+-                }),
+-            }
+-        }
+-        Expr::IntToString(e) => {
+-            let n = eval(local_env, node_env, e, role_names)?.as_int()?;
+-            Ok(Value::<H>::string(EcoString::from(Decimal::of_i64(n).as_str())))
+-        }
+-        Expr::BoolToString(e) => Ok(Value::<H>::string(EcoString::from(
+-            eval(local_env, node_env, e, role_names)?
+-                .as_bool()?
+-                .to_string(),
+-        ))),
+         Expr::NodeToString(e) => {
+             let node_id = eval(local_env, node_env, e, role_names)?.as_node()?;
+             let role_name = role_names
+@@ -393,26 +544,6 @@ pub fn eval<H: HashPolicy>(
+                 .map(Arc::new);
+             Ok(Value::<H>::variant(*enum_id, name.clone(), payload_val))
+         }
+-        Expr::IsVariant(expr, name) => {
+-            let val = eval(local_env, node_env, expr, role_names)?;
+-            match &val.kind {
+-                ValueKind::Variant(_, variant_name, _) => {
+-                    Ok(Value::<H>::bool(variant_name == name))
+-                }
+-                _ => Ok(Value::<H>::bool(false)),
+-            }
+-        }
+-        Expr::VariantPayload(expr) => {
+-            let val = eval(local_env, node_env, expr, role_names)?;
+-            match &val.kind {
+-                ValueKind::Variant(_, _, Some(payload)) => Ok((**payload).clone()),
+-                ValueKind::Variant(_, _, None) => Err(RuntimeError::VariantHasNoPayload),
+-                _ => Err(RuntimeError::TypeError {
+-                    expected: "variant",
+-                    got: val.type_name(),
+-                }),
+-            }
+-        }
+         Expr::SafeFind(col, key) => {
+             let col_val = eval(local_env, node_env, col, role_names)?;
+             match &col_val.kind {
+@@ -422,15 +553,17 @@ pub fn eval<H: HashPolicy>(
+                     let key_val = eval(local_env, node_env, key, role_names)?;
+                     match &inner_val.kind {
+                         ValueKind::Map(m) => {
+-                            let result = m.get(&key_val).cloned().ok_or(RuntimeError::KeyNotFound)?;
++                            let result =
++                                m.get(&key_val).cloned().ok_or(RuntimeError::KeyNotFound)?;
+                             Ok(Value::<H>::option_some(result))
+                         }
+                         ValueKind::List(l) => {
+                             let idx = key_val.as_int()? as usize;
+-                            let result = l.get(idx).cloned().ok_or(RuntimeError::IndexOutOfBounds {
+-                                index: idx,
+-                                len: l.len(),
+-                            })?;
++                            let result =
++                                l.get(idx).cloned().ok_or(RuntimeError::IndexOutOfBounds {
++                                    index: idx,
++                                    len: l.len(),
++                                })?;
+                             Ok(Value::<H>::option_some(result))
+                         }
+                         _ => Err(RuntimeError::NotACollection {
+@@ -471,6 +604,7 @@ pub fn eval<H: HashPolicy>(
+                 }),
+             }
+         }
++        _ => unreachable!("transient expression reached owned fallback"),
+     }
+ }
+ 
+diff --git a/spur-core/src/simulator/core/eval_parity.rs b/spur-core/src/simulator/core/eval_parity.rs
+new file mode 100644
+index 0000000..bd658c7
+--- /dev/null
++++ b/spur-core/src/simulator/core/eval_parity.rs
+@@ -0,0 +1,249 @@
++use super::eval;
++use super::values::{Env, Value, ValueMap, eval_accounting};
++use crate::analysis::resolver::NameId;
++use crate::compiler::cfg::{Expr, VarSlot};
++use crate::simulator::core::state::NodeId;
++use crate::simulator::hash_utils::{HashPolicy, NoHashing, WithHashing};
++use std::cell::Cell;
++use std::collections::HashMap;
++use std::panic::{AssertUnwindSafe, catch_unwind};
++
++thread_local! { static REFERENCE: Cell<bool> = const { Cell::new(false) }; }
++pub(crate) fn use_reference() -> bool { REFERENCE.get() }
++pub(crate) fn select(reference: bool) { REFERENCE.set(reference); }
++
++fn binding(index: u32, node: bool) -> Expr {
++    Expr::Var(if node { VarSlot::Node(index, NameId(0)) } else { VarSlot::Local(index, NameId(0)) })
++}
++
++fn environments<H: HashPolicy>() -> (Env<H>, Env<H>) {
++    let mut map = ValueMap::new();
++    map.insert(Value::int(1), Value::list(vec![Value::int(4), Value::option_none()].into()));
++    let values = vec![
++        Value::int(7), Value::bool(true), Value::string("hello".into()),
++        Value::list(vec![Value::int(2), Value::list(vec![].into())].into()),
++        Value::tuple(vec![Value::int(3), Value::map(map.clone())].into()),
++        Value::map(map), Value::option_some(Value::list(vec![Value::int(9)].into())),
++        Value::variant(3, "Payload".into(), Some(std::sync::Arc::new(Value::int(13)))),
++        Value::node(NodeId { role: NameId(8), index: 2 }), Value::option_none(),
++        Value::unit(), Value::list(vec![].into()),
++    ];
++    let mut local = Env::with_slots(values.len());
++    let mut node = Env::with_slots(values.len());
++    for (i, value) in values.into_iter().enumerate() {
++        local.set(i as u32, value.clone());
++        node.set(i as u32, value);
++    }
++    (local, node)
++}
++
++fn explicit_cases() -> Vec<Expr> {
++    use Expr::*;
++    let b = Box::new;
++    let panic = || Div(b(Int(1)), b(Int(0)));
++    let fail = || Unwrap(b(Nil));
++    let mut cases = vec![
++        Int(i64::MIN), Int(i64::MAX), Int(0), Bool(true), Bool(false), Unit, Nil,
++        String("\u{e9}\n\"".into()), List(vec![]), Tuple(vec![]), Map(vec![]),
++        List(vec![List(vec![]), Tuple(vec![]), Map(vec![])]),
++        Plus(b(Int(i64::MAX)), b(Int(1))), Minus(b(Int(i64::MIN)), b(Int(1))),
++        Times(b(Int(i64::MAX)), b(Int(2))), Div(b(Int(i64::MIN)), b(Int(-1))),
++        Mod(b(Int(i64::MIN)), b(Int(-1))), panic(), Mod(b(Int(1)), b(Int(0))),
++        Plus(b(String("a".into())), b(String("b".into()))),
++        And(b(Bool(false)), b(panic())), Or(b(Bool(true)), b(panic())),
++        Coalesce(b(Some(b(Int(2)))), b(panic())), Coalesce(b(Nil), b(Int(5))),
++        SafeFind(b(Nil), b(panic())), SafeTupleAccess(b(Nil), usize::MAX),
++        Variant(4, "Empty".into(), None), Variant(4, "Payload".into(), std::option::Option::Some(b(Int(3)))),
++        VariantPayload(b(Variant(4, "Empty".into(), None))),
++        SafeFind(b(Some(b(binding(5, false)))), b(Int(1))),
++        SafeTupleAccess(b(Some(b(binding(4, true)))), 1),
++        SafeFind(b(Some(b(Int(3)))), b(panic())),
++        Find(b(Int(3)), b(panic())),
++        ListSubsequence(b(Int(3)), b(panic()), b(Int(2))),
++        Store(b(Int(3)), b(panic()), b(Int(2))),
++    ];
++    for node in [false, true] {
++        for index in 0..12 { cases.push(binding(index, node)); }
++        for index in [-1, 0, 1, 2, i64::MAX] {
++            cases.push(Find(b(binding(3, node)), b(Int(index))));
++            cases.push(Find(b(binding(5, node)), b(Int(index))));
++            cases.push(ListSubsequence(b(binding(3, node)), b(Int(index)), b(Int(1))));
++        }
++    }
++    type Binary = fn(Box<Expr>, Box<Expr>) -> Expr;
++    let binary: &[Binary] = &[
++        Plus, Minus, Times, Div, Mod, Min, LessThan, LessThanEquals, GreaterThan,
++        GreaterThanEquals, EqualsEquals, And, Or, Find, KeyExists, MapErase,
++        ListAppend, ListPrepend, Coalesce, SafeFind,
++    ];
++    let operands = vec![Int(1), Bool(true), String("x".into()), Nil, Unit,
++        binding(3, false), binding(5, true), Some(b(Int(2)))];
++    for &op in binary {
++        for a in &operands {
++            for c in &operands { cases.push(op(b(a.clone()), b(c.clone()))); }
++            cases.push(op(b(a.clone()), b(panic())));
++            cases.push(op(b(a.clone()), b(fail())));
++        }
++    }
++    type Unary = fn(Box<Expr>) -> Expr;
++    for op in [Not as Unary, Some, Unwrap, ListLen, IntToString, BoolToString, NodeToString, VariantPayload] {
++        for a in &operands { cases.push(op(b(a.clone()))); }
++        for index in 0..12 { cases.push(op(b(binding(index, false)))); }
++    }
++    for a in &operands {
++        for index in [0, 1, usize::MAX] {
++            cases.push(ListAccess(b(a.clone()), index));
++            cases.push(TupleAccess(b(a.clone()), index));
++            cases.push(SafeTupleAccess(b(a.clone()), index));
++        }
++        cases.push(IsVariant(b(a.clone()), "Payload".into()));
++        cases.push(Store(b(a.clone()), b(Int(1)), b(Int(6))));
++    }
++    cases.push(Store(b(binding(3, false)), b(Int(0)), b(Int(6))));
++    cases.push(Store(b(binding(5, true)), b(Int(1)), b(Int(6))));
++    cases
++}
++
++struct Generator(u64);
++impl Generator {
++    fn draw(&mut self, n: u64) -> u64 {
++        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
++        (self.0 >> 32) % n
++    }
++    fn scalar(&mut self, depth: usize) -> Expr {
++        use Expr::*;
++        if depth == 0 { return Int(self.draw(11) as i64 - 5); }
++        let a = Box::new(self.scalar(depth - 1));
++        let c = Box::new(self.scalar(depth - 1));
++        match self.draw(5) { 0 => Plus(a,c), 1 => Minus(a,c), 2 => Times(a,c), 3 => Min(a,c), _ => Coalesce(Box::new(Nil), c) }
++    }
++    fn expression(&mut self, depth: usize) -> Expr {
++        use Expr::*;
++        if depth == 0 {
++            return match self.draw(8) {
++                0 => Int([i64::MIN, i64::MAX, -1, 0, 1, 2][self.draw(6) as usize]),
++                1 => Bool(self.draw(2) == 0), 2 => String("str".into()), 3 => Nil,
++                4 => Unit, 5 => List(vec![]), _ => binding(self.draw(12) as u32, self.draw(2) == 0),
++            };
++        }
++        let op = self.draw(44);
++        let a = Box::new(self.expression(depth - 1));
++        let c = Box::new(self.expression(depth - 1));
++        match op {
++            0 => Find(a,c), 1 => Not(a), 2 => And(a,c), 3 => Or(a,c), 4 => EqualsEquals(a,c),
++            5 => Map(vec![(*a,*c)]), 6 => List(vec![*a,*c]), 7 => ListPrepend(a,c),
++            8 => ListAppend(a,c), 9 => ListSubsequence(a,c,Box::new(self.expression(depth-1))),
++            10 => LessThan(a,c), 11 => LessThanEquals(a,c), 12 => GreaterThan(a,c),
++            13 => GreaterThanEquals(a,c), 14 => KeyExists(a,c), 15 => MapErase(a,c),
++            16 => Store(a,c,Box::new(self.expression(depth-1))), 17 => ListLen(a),
++            18 => ListAccess(a,self.draw(4) as usize), 19 => Plus(a,c), 20 => Minus(a,c),
++            21 => Times(a,c), 22 => Div(a,c), 23 => Mod(a,c), 24 => Min(a,c),
++            25 => Tuple(vec![*a,*c]), 26 => TupleAccess(a,self.draw(4) as usize),
++            27 => Unwrap(a), 28 => Coalesce(a,c), 29 => Some(a), 30 => IntToString(a),
++            31 => BoolToString(a), 32 => NodeToString(a),
++            33 => Variant(3,"Payload".into(),std::option::Option::Some(a)), 34 => IsVariant(a,"Payload".into()),
++            35 => VariantPayload(a), 36 => SafeFind(a,c), 37 => SafeTupleAccess(a,self.draw(4) as usize),
++            _ => self.expression(0),
++        }
++    }
++}
++
++fn expression_depth(expr: &Expr) -> usize {
++    use Expr::*;
++    match expr {
++        Var(_) | Int(_) | Bool(_) | String(_) | Unit | Nil => 0,
++        Not(a) | ListLen(a) | ListAccess(a,_) | TupleAccess(a,_) | Unwrap(a)
++        | Some(a) | IntToString(a) | BoolToString(a) | NodeToString(a)
++        | IsVariant(a,_) | VariantPayload(a) | SafeTupleAccess(a,_) => 1 + expression_depth(a),
++        Find(a,b) | And(a,b) | Or(a,b) | EqualsEquals(a,b) | ListPrepend(a,b)
++        | ListAppend(a,b) | LessThan(a,b) | LessThanEquals(a,b) | GreaterThan(a,b)
++        | GreaterThanEquals(a,b) | KeyExists(a,b) | MapErase(a,b) | Plus(a,b)
++        | Minus(a,b) | Times(a,b) | Div(a,b) | Mod(a,b) | Min(a,b) | Coalesce(a,b)
++        | SafeFind(a,b) => 1 + expression_depth(a).max(expression_depth(b)),
++        ListSubsequence(a,b,c) | Store(a,b,c) => 1 + expression_depth(a).max(expression_depth(b)).max(expression_depth(c)),
++        List(items) | Tuple(items) => items.iter().map(expression_depth).max().map(|depth| 1 + depth).unwrap_or(0),
++        Map(items) => items.iter().map(|(a,b)| expression_depth(a).max(expression_depth(b))).max().map(|depth| 1 + depth).unwrap_or(0),
++        Variant(_,_,payload) => payload.as_ref().map(|p| 1 + expression_depth(p)).unwrap_or(0),
++    }
++}
++
++fn outcome<H: HashPolicy>(reference: bool, local: &Env<H>, node: &Env<H>, expr: &Expr) -> (String, eval_accounting::Counts) {
++    select(reference);
++    eval_accounting::reset();
++    let roles = HashMap::from([(NameId(8), "Node".to_owned())]);
++    let result = catch_unwind(AssertUnwindSafe(|| eval::eval(local,node,expr,&roles)));
++    let count = eval_accounting::snapshot();
++    let text = match result {
++        Ok(Ok(value)) => format!("ok:{:?}:{}", value.kind, value.sig),
++        Ok(Err(error)) => format!("error:{error:?}"),
++        Err(payload) => format!("panic:{}", payload.downcast_ref::<String>().map(String::as_str)
++            .or_else(|| payload.downcast_ref::<&str>().copied()).unwrap_or("non-string")),
++    };
++    (text,count)
++}
++
++fn check_expressions<H: HashPolicy>() {
++    let (local,node) = environments::<H>();
++    let mut baseline = 0;
++    let mut candidate = 0;
++    let mut check = |expr: &Expr| {
++        let (a,ac) = outcome(true,&local,&node,expr);
++        let (b,bc) = outcome(false,&local,&node,expr);
++        assert_eq!(a,b,"expression {expr:?}");
++        baseline += ac.total(); candidate += bc.total();
++    };
++    for expr in explicit_cases() { check(&expr); }
++    for seed in 1000..=1002 {
++        let mut generator = Generator(seed);
++        for i in 0..10000 {
++            let expr = if i % 2 == 0 { generator.scalar(6) } else { generator.expression(6) };
++            assert!(expression_depth(&expr) <= 6, "generator depth exceeds six");
++            check(&expr);
++        }
++    }
++    eprintln!("expression counts hashing={} reference={baseline} candidate={candidate}", H::EAGER);
++    let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
++    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../tmp/loop/eval-parity/{profile}"));
++    std::fs::create_dir_all(&directory).unwrap();
++    std::fs::write(directory.join(format!("expressions-hashing-{}.json",H::EAGER)),
++        serde_json::to_vec_pretty(&serde_json::json!({"reference":baseline,"candidate":candidate,"generated_cases":30000,"explicit_cases":explicit_cases().len()})).unwrap()).unwrap();
++    select(false);
++}
++
++#[test]
++fn expression_corpus_no_hashing() { check_expressions::<NoHashing>(); }
++#[test]
++fn expression_corpus_with_hashing() { check_expressions::<WithHashing>(); }
++
++#[test]
++fn accounting_excludes_setup_and_counts_recursive_clones() {
++    eval_accounting::reset();
++    let value = Value::<WithHashing>::int(3);
++    let _ = value.clone();
++    assert_eq!(eval_accounting::snapshot().total(), 0);
++    {
++        let _scope = eval_accounting::Scope::enter();
++        let _ = Value::<WithHashing>::with_sig(super::values::ValueKind::Int(2), 0);
++        let _ = value.clone();
++        let _ = Value::<WithHashing>::int(4);
++    }
++    assert_eq!(eval_accounting::snapshot(), eval_accounting::Counts { constructions: 2, clones: 1 });
++    let _ = value.clone();
++    assert_eq!(eval_accounting::snapshot().total(), 3);
++}
++
++#[test]
++fn accounting_counts_collection_member_clones() {
++    use super::values::ValueKind;
++    let list = Value::<WithHashing>::list(vec![Value::int(1),Value::int(2),Value::int(3)].into());
++    let tuple = Value::<WithHashing>::tuple(vec![Value::int(4),Value::int(5)].into());
++    eval_accounting::reset();
++    {
++        let _scope = eval_accounting::Scope::enter();
++        let mut copied_list = list.clone();
++        if let ValueKind::List(items) = &mut copied_list.kind { items.make_mut(); }
++        let mut copied_tuple = tuple.clone();
++        if let ValueKind::Tuple(items) = &mut copied_tuple.kind { items.make_mut(); }
++    }
++    assert_eq!(eval_accounting::snapshot(),eval_accounting::Counts { constructions:0,clones:7 });
++}
+diff --git a/spur-core/src/simulator/core/eval_protocol_parity.rs b/spur-core/src/simulator/core/eval_protocol_parity.rs
+new file mode 100644
+index 0000000..c5498a7
+--- /dev/null
++++ b/spur-core/src/simulator/core/eval_protocol_parity.rs
+@@ -0,0 +1,242 @@
++use super::eval_parity;
++use super::state::{Runnable, State};
++use super::values::eval_accounting;
++use crate::compiler;
++use crate::simulator::explorer::{ExplorerConfig, GlobalState, NoFeedback, RunAttribution, run_single_simulation_with_hash};
++use crate::simulator::hash_utils::{HashPolicy, NoHashing, WithHashing};
++use crate::simulator::history::{HistoryWriter, PersistableLog, PersistableOp, PersistableRun, PersistableTrace};
++use crate::simulator::rng::{RecordRng, Recording, ReplayRng, RngSource, SCHEDULE_SALT, WORKLOAD_SALT, derive_seed};
++use crate::simulator::{arm_selector, fault_timing, run_cap, timer_context, util_stats};
++use serde_json::{Value as Json, json};
++use std::cell::{Cell, RefCell};
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::process::Command;
++use std::sync::{Arc, Mutex};
++
++const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
++thread_local! {
++    static ENVIRONMENTS: RefCell<Vec<Json>> = const { RefCell::new(Vec::new()) };
++    static CAPTURE_WRITES: Cell<bool> = const { Cell::new(false) };
++    static WRITES: RefCell<Vec<Json>> = const { RefCell::new(Vec::new()) };
++    static TYPE_IDS: RefCell<Vec<Json>> = const { RefCell::new(Vec::new()) };
++}
++
++pub(crate) fn capture_write<H: HashPolicy>(slot: u32, value: &super::values::Value<H>, env: &super::values::Env<H>) {
++    if CAPTURE_WRITES.get() {
++        WRITES.with_borrow_mut(|rows| rows.push(json!([slot,format!("{:?}",value.kind),value.sig,env.sig,env.writes])));
++    }
++}
++
++pub(crate) fn capture_state<H: HashPolicy>(run_id: i64, state: &State<H>, program: &crate::compiler::cfg::Program) {
++    let mut records = Vec::new();
++    let mut capture = |location: String, runnable: &Runnable<H>| {
++        if let Runnable::Record(record) = runnable {
++            records.push(json!([location, format!("{:?}", record)]));
++        }
++    };
++    for (node, queue) in state.local_queues.iter().enumerate() {
++        for (index, runnable) in queue.iter().enumerate() { capture(format!("local:{node}:{index}"), runnable); }
++    }
++    for (index, runnable) in state.network_queue.iter().enumerate() { capture(format!("network:{index}"), runnable); }
++    for (index, runnable) in state.timer_queue.iter().enumerate() { capture(format!("timer:{index}"), runnable); }
++    for (index, (_, runnable)) in state.purgatory.iter().enumerate() { capture(format!("purgatory:{index}"), runnable); }
++    let mut channels: Vec<_> = state.channels.iter().collect();
++    channels.sort_by_key(|(id, _)| **id);
++    let channels: Vec<_> = channels.into_iter().map(|(id, channel)| json!([format!("{id:?}"),format!("{channel:?}")])).collect();
++    let mut persisted: Vec<_> = state.persisted_data.iter().collect();
++    persisted.sort_by_key(|(node, _)| **node);
++    let persisted: Vec<_> = persisted.into_iter().map(|(node, (type_id,value))| {
++        let ty = program.type_ids.iter().find(|(_,id)| *id == type_id).map(|(ty,_)| ty).unwrap();
++        TYPE_IDS.with_borrow_mut(|rows| rows.push(json!([run_id,node,type_id.0,format!("{ty:?}")])));
++        json!([node,format!("{ty:?}"),format!("{value:?}")])
++    }).collect();
++    ENVIRONMENTS.with_borrow_mut(|rows| rows.push(json!({
++        "run": run_id,
++        "nodes": format!("{:?}",state.nodes),
++        "records": records,
++        "channels": channels,
++        "persisted": persisted,
++        "crashed_records": format!("{:?}",state.crash_info.queued_messages),
++    })));
++}
++
++#[derive(Default)]
++struct Writer(Mutex<Vec<Json>>);
++impl HistoryWriter for Writer {
++    fn write(&self, run_id: i64, history: Vec<PersistableOp>, logs: Vec<PersistableLog>, traces: Vec<PersistableTrace>) {
++        let ops: Vec<_> = history.into_iter().enumerate().map(|(seq, r)| json!([
++            run_id,seq,r.unique_id,r.client_id,r.kind,r.action,r.payload_json,r.step
++        ])).collect();
++        let logs: Vec<_> = logs.into_iter().enumerate().map(|(seq,r)| json!([
++            run_id,seq,r.node_id,r.content,r.step
++        ])).collect();
++        let traces: Vec<_> = traces.into_iter().enumerate().map(|(seq,r)| json!([
++            run_id,seq,r.node_id,r.step,r.function_name.as_ref(),r.trace_kind,r.payload,
++            r.schedulable_count,r.trace_id,r.causal_operation_id
++        ])).collect();
++        self.0.lock().unwrap().push(json!({"executions":ops,"logs":logs,"traces":traces}));
++    }
++    fn write_run(&self, r: PersistableRun) {
++        self.0.lock().unwrap().push(json!({"run":[
++            r.run_id,r.arm,r.arm_index,r.config_index,r.workload_seed,r.schedule_seed,
++            r.steps_used,r.end_reason,r.timers_fired,r.timers_acted,r.timers_inflight_fired,
++            r.timers_inflight_acted,r.timers_idle_fired,r.timers_idle_acted,r.max_inert_streak,r.variant
++        ]}));
++    }
++    fn shutdown(&self) {}
++}
++
++fn worker<H: HashPolicy, S: RngSource>() {
++    let input = PathBuf::from(std::env::var("SPUR_PARITY_INPUT").unwrap());
++    let output = PathBuf::from(std::env::var("SPUR_PARITY_OUTPUT").unwrap());
++    let reference = std::env::var("SPUR_PARITY_ENGINE").unwrap() == "reference";
++    let descriptor: Json = serde_json::from_slice(&fs::read(input).unwrap()).unwrap();
++    let config: ExplorerConfig = serde_json::from_value(descriptor["config"].clone()).unwrap();
++    let source = fs::read_to_string(descriptor["spec"].as_str().unwrap()).unwrap();
++    let program = compiler::compile(&source,descriptor["spec"].as_str().unwrap()).into_program().unwrap();
++    let run_config = config.expand_grid();
++    assert_eq!(run_config.len(),1);
++    let tapes: Option<Json> = std::env::var("SPUR_PARITY_REPLAY").ok().map(|path| serde_json::from_slice(&fs::read(path).unwrap()).unwrap());
++    run_cap::reset(); arm_selector::reset(); fault_timing::reset(); timer_context::reset();
++    fault_timing::set_fraction(config.faults.crash_placement_fraction);
++    util_stats::set_enabled(config.stats);
++    util_stats::set_acted_fraction_enabled(config.emit_acted_fraction);
++    util_stats::set_acceptance_distance_enabled(config.emit_acceptance_distance);
++    util_stats::set_crash_census_enabled(config.emit_crash_census);
++    util_stats::set_quiet_stretch_enabled(config.quiet_stretch_telemetry);
++    util_stats::set_prefix_extension_enabled(config.emit_prefix_extension);
++    util_stats::set_steer_audit_enabled(config.feedback.steer_audit);
++    util_stats::set_steer_audit_always(config.feedback.steer_audit_always);
++    util_stats::set_multiplier_audit_enabled(config.emit_multiplier_authority);
++    util_stats::set_recovery_weight_placebo(config.faults.recovery_weight_placebo);
++    let writer = Arc::new(Writer::default());
++    let sink: Arc<dyn HistoryWriter> = writer.clone();
++    let global = GlobalState::<NoFeedback>::new();
++    let mut recordings = Vec::new();
++    let mut outcomes = Vec::new();
++    CAPTURE_WRITES.set(true);
++    eval_parity::select(reference);
++    eval_accounting::reset();
++    for (run_id, config_index) in crate::simulator::explorer::grid_order(1,config.num_runs_per_config,false) {
++        let tape: Option<Recording> = tapes.as_ref().map(|data| {
++            data["tapes"][(run_id - 1) as usize].as_array().unwrap().iter()
++                .map(|word| word.as_u64().unwrap()).collect::<Vec<_>>().into()
++        });
++        let result = run_single_simulation_with_hash::<H,NoFeedback,S>(
++            &program,&sink,&global,run_id,&run_config[0],&config.feedback.weights,
++            derive_seed(config.session_seed,run_id,WORKLOAD_SALT),
++            derive_seed(config.session_seed,run_id,SCHEDULE_SALT),tape,
++            &RunAttribution::mode("standard").with_config(config_index),
++        ).unwrap();
++        recordings.push(result.recording.unwrap().to_vec());
++        outcomes.push(format!("{:?}",result.outcome));
++    }
++    CAPTURE_WRITES.set(false);
++    let counts = eval_accounting::snapshot();
++    let mut stats = util_stats::snapshot_value();
++    stats.as_object_mut().unwrap().remove("eval_transient");
++    let result = json!({
++        "rows": *writer.0.lock().unwrap(), "tapes": recordings, "outcomes": outcomes,
++        "environments": ENVIRONMENTS.with_borrow(Clone::clone), "writes": WRITES.with_borrow(Clone::clone), "stats":stats, "counts":counts, "type_id_metadata":TYPE_IDS.with_borrow(Clone::clone),
++    });
++    fs::write(output,serde_json::to_vec(&result).unwrap()).unwrap();
++}
++
++#[test]
++fn protocol_worker() {
++    if std::env::var_os("SPUR_PARITY_INPUT").is_none() { return; }
++    std::thread::Builder::new().stack_size(64 * 1024 * 1024).spawn(|| {
++        match (std::env::var("SPUR_PARITY_HASH").unwrap().as_str(),std::env::var_os("SPUR_PARITY_REPLAY").is_some()) {
++            ("NoHashing",false) => worker::<NoHashing,RecordRng>(),
++            ("NoHashing",true) => worker::<NoHashing,ReplayRng>(),
++            ("WithHashing",false) => worker::<WithHashing,RecordRng>(),
++            ("WithHashing",true) => worker::<WithHashing,ReplayRng>(),
++            _ => panic!("invalid hashing policy"),
++        }
++    }).unwrap().join().unwrap();
++}
++
++fn run_worker(input: &Path, output: &Path, hash: &str, reference: bool, replay: Option<&Path>) -> Json {
++    let mut command = Command::new(std::env::current_exe().unwrap());
++    command.args(["--exact","simulator::core::eval_protocol_parity::protocol_worker","--test-threads=1"])
++        .env("RAYON_NUM_THREADS","1")
++        .env("SPUR_PARITY_INPUT",input).env("SPUR_PARITY_OUTPUT",output)
++        .env("SPUR_PARITY_HASH",hash).env("SPUR_PARITY_ENGINE",if reference {"reference"} else {"candidate"});
++    if let Some(replay) = replay { command.env("SPUR_PARITY_REPLAY",replay); }
++    let result = command.output().unwrap();
++    assert!(result.status.success(),"worker failed: {} {}",String::from_utf8_lossy(&result.stdout),String::from_utf8_lossy(&result.stderr));
++    serde_json::from_slice(&fs::read(output).unwrap()).unwrap()
++}
++
++fn assert_identity(reference: &Json, candidate: &Json, name: &str) {
++    for field in ["rows","tapes","outcomes","environments","writes","stats"] {
++        assert!(reference[field] == candidate[field],"{name}: {field} mismatch");
++    }
++}
++
++fn compare_cell(directory: &Path, name: &str, spec: &Path, config: Json, hash: &str) -> Json {
++    let descriptor = directory.join(format!("{name}.input.json"));
++    fs::write(&descriptor,serde_json::to_vec(&json!({"spec":spec,"config":config})).unwrap()).unwrap();
++    let reference_file = directory.join(format!("{name}.reference.json"));
++    let reference = run_worker(&descriptor,&reference_file,hash,true,None);
++    let candidate = run_worker(&descriptor,&directory.join(format!("{name}.candidate.json")),hash,false,None);
++    assert_identity(&reference,&candidate,name);
++    let reference_replay = run_worker(&descriptor,&directory.join(format!("{name}.reference-replay.json")),hash,true,Some(&reference_file));
++    let candidate_replay = run_worker(&descriptor,&directory.join(format!("{name}.candidate-replay.json")),hash,false,Some(&reference_file));
++    assert_identity(&reference,&reference_replay,&format!("{name} reference replay"));
++    assert_identity(&reference,&candidate_replay,&format!("{name} candidate replay"));
++    json!({"cell":name,"reference":reference["counts"],"candidate":candidate["counts"],
++        "reference_replay":reference_replay["counts"],"candidate_replay":candidate_replay["counts"]})
++}
++
++#[test]
++fn frozen_protocol_corpus() {
++    let root = Path::new(ROOT);
++    let profile = if cfg!(debug_assertions) {"debug"} else {"release"};
++    let directory = root.join(format!("tmp/loop/eval-parity/{profile}"));
++    fs::create_dir_all(&directory).unwrap();
++    let bench: Json = serde_json::from_slice(&fs::read(root.join("scheduler_configs/loop/bench.json")).unwrap()).unwrap();
++    let mut cells = Vec::new();
++    for protocol in ["VR","Paxos","Raft"] {
++        for seed in 1000..=1002 {
++            for hash in ["NoHashing","WithHashing"] {
++                let mut config = bench.clone();
++                config["num_runs_per_config"] = json!(64);
++                config["max_iterations"] = json!(1500);
++                config["stats"] = json!(true);
++                config["session_seed"] = json!(seed);
++                let name = format!("{protocol}-{seed}-{hash}");
++                let cell = compare_cell(&directory,&name,&root.join(format!("bin/spur/{protocol}.spur")),config,hash);
++                eprintln!("{cell}"); cells.push(cell);
++            }
++        }
++    }
++    let total = |engine: &str| cells.iter().map(|cell| cell[engine]["constructions"].as_u64().unwrap() + cell[engine]["clones"].as_u64().unwrap()).sum::<u64>();
++    let reference = total("reference");
++    let candidate = total("candidate");
++    let report = json!({"cells":cells,"reference_total":reference,"candidate_total":candidate,"reduction":1.0-candidate as f64/reference as f64});
++    fs::write(directory.join("counts.json"),serde_json::to_vec_pretty(&report).unwrap()).unwrap();
++    eprintln!("protocol reference={reference} candidate={candidate}");
++    assert!(candidate * 4 <= reference * 3,"construction plus clone reduction is below 25%: {report}");
++}
++
++#[test]
++fn fixture_program_evaluator_parity() {
++    let root = Path::new(ROOT);
++    let profile = if cfg!(debug_assertions) {"debug"} else {"release"};
++    let directory = root.join(format!("tmp/loop/eval-parity/{profile}/fixtures"));
++    fs::create_dir_all(&directory).unwrap();
++    let config = json!({
++        "num_servers":{"min":3,"max":3,"step":1},"num_write_ops":{"min":3,"max":3,"step":1},
++        "num_read_ops":{"min":2,"max":2,"step":1},"num_keys":{"min":1,"max":1,"step":1},
++        "num_crashes":{"min":2,"max":2,"step":1},"dependency_density":[0.0],
++        "num_runs_per_config":6,"max_iterations":600,"session_seed":1000,"stats":true
++    });
++    for fixture in ["timer","relay","kv","mapiter","fanout","ghost"] {
++        for hash in ["NoHashing","WithHashing"] {
++            let name = format!("{fixture}-{hash}");
++            compare_cell(&directory,&name,&root.join(format!("spur/spur-core/tests/fixtures/{fixture}.spur")),config.clone(),hash);
++        }
++    }
++}
+diff --git a/spur-core/src/simulator/core/eval_reference.rs b/spur-core/src/simulator/core/eval_reference.rs
+new file mode 100644
+index 0000000..8e03631
+--- /dev/null
++++ b/spur-core/src/simulator/core/eval_reference.rs
+@@ -0,0 +1,475 @@
++use crate::analysis::resolver::NameId;
++use crate::compiler::cfg::{Expr, FunctionInfo, Lhs, VarSlot};
++use crate::simulator::core::error::RuntimeError;
++use crate::simulator::core::values::{
++    Decimal, Env, Value, ValueKind, ValueMap, ValueSeq, hash_map_entry,
++};
++use crate::simulator::hash_utils::HashPolicy;
++use ecow::EcoString;
++use std::collections::HashMap;
++use rustc_hash::FxHasher;
++use std::hash::{Hash, Hasher};
++use std::sync::Arc;
++
++#[inline(always)]
++pub fn load<H: HashPolicy>(slot: VarSlot, local_env: &Env<H>, node_env: &Env<H>) -> Value<H> {
++    match slot {
++        VarSlot::Local(idx, _) => local_env.get(idx).clone(),
++        VarSlot::Node(idx, _) => node_env.get(idx).clone(),
++    }
++}
++
++#[inline(always)]
++pub fn store_slot<H: HashPolicy>(
++    slot: VarSlot,
++    val: Value<H>,
++    local_env: &mut Env<H>,
++    node_env: &mut Env<H>,
++) {
++    match slot {
++        VarSlot::Local(idx, _) => local_env.set(idx, val),
++        VarSlot::Node(idx, _) => node_env.set(idx, val),
++    }
++}
++
++pub fn store<H: HashPolicy>(
++    lhs: &Lhs,
++    val: Value<H>,
++    local_env: &mut Env<H>,
++    node_env: &mut Env<H>,
++) -> Result<(), RuntimeError> {
++    match lhs {
++        Lhs::Var(slot) => {
++            store_slot(*slot, val, local_env, node_env);
++            Ok(())
++        }
++    }
++}
++
++/// Create a fresh local environment for calling a function
++pub fn make_local_env<H: HashPolicy>(
++    func: &FunctionInfo,
++    args: Vec<Value<H>>,
++    local_env: &Env<H>,
++    node_env: &Env<H>,
++    role_names: &HashMap<NameId, String>,
++) -> Env<H> {
++    let mut env = Env::<H>::with_slots(func.local_slot_count as usize);
++
++    // Set arguments in parameter slots
++    for (i, arg) in args.into_iter().enumerate() {
++        env.set(i as u32, arg);
++    }
++
++    // Initialize other locals to their defaults
++    for (i, default_expr) in func.local_defaults.iter().enumerate() {
++        let slot = func.param_count + i as u32;
++        if let Ok(val) = eval(local_env, node_env, default_expr, role_names) {
++            env.set(slot, val);
++        }
++    }
++
++    env
++}
++
++fn update_collection<H: HashPolicy>(
++    col: Value<H>,
++    key: Value<H>,
++    val: Value<H>,
++) -> Result<Value<H>, RuntimeError> {
++    use ValueKind::*;
++    match col.kind {
++        Map(m) => {
++            let new_sig = if H::EAGER {
++                let mut s = col.sig;
++
++                // Remove the old entry's contribution (if it exists)
++                if let Some(old_val) = m.get(&key) {
++                    let old_entry_hash = hash_map_entry(key.sig, old_val.sig);
++                    s ^= old_entry_hash; // XOR removes it
++                // length stays the same when replacing, so no change needed
++                } else {
++                    // Key doesn't exist, length will increase by 1
++                    // Remove old length hash, add new length hash
++                    let mut h = FxHasher::default();
++                    9u8.hash(&mut h);
++                    m.len().hash(&mut h);
++                    s ^= h.finish();
++
++                    let mut h = FxHasher::default();
++                    9u8.hash(&mut h);
++                    (m.len() + 1).hash(&mut h);
++                    s ^= h.finish();
++                }
++
++                // Add the new entry's contribution
++                let new_entry_hash = hash_map_entry(key.sig, val.sig);
++                s ^= new_entry_hash;
++                s
++            } else {
++                0
++            };
++
++            let new_map = m.update(key, val);
++
++            Ok(Value::<H>::with_sig(ValueKind::Map(new_map), new_sig))
++        }
++        List(mut l) => {
++            let idx = key.as_int()? as usize;
++            if idx >= l.len() {
++                return Err(RuntimeError::IndexOutOfBounds {
++                    index: idx,
++                    len: l.len(),
++                });
++            }
++            l.make_mut()[idx] = val;
++            Ok(Value::<H>::list(l))
++        }
++        _ => Err(RuntimeError::NotACollection {
++            got: col.type_name(),
++        }),
++    }
++}
++
++pub fn eval<H: HashPolicy>(
++    local_env: &Env<H>,
++    node_env: &Env<H>,
++    expr: &Expr,
++    role_names: &HashMap<NameId, String>,
++) -> Result<Value<H>, RuntimeError> {
++    match expr {
++        Expr::Int(i) => Ok(Value::<H>::int(*i)),
++        Expr::Bool(b) => Ok(Value::<H>::bool(*b)),
++        Expr::String(s) => Ok(Value::<H>::string(s.clone())),
++        Expr::Unit => Ok(Value::<H>::unit()),
++        Expr::Nil => Ok(Value::<H>::option_none()),
++        Expr::Var(s) => Ok(load(*s, local_env, node_env)),
++        Expr::Plus(e1, e2) => {
++            let v1 = eval(local_env, node_env, e1, role_names)?;
++            let v2 = eval(local_env, node_env, e2, role_names)?;
++
++            match (&v1.kind, &v2.kind) {
++                (ValueKind::Int(i1), ValueKind::Int(i2)) => Ok(Value::<H>::int(i1 + i2)),
++                (ValueKind::String(s1), ValueKind::String(s2)) => {
++                    let mut result = EcoString::with_capacity(s1.len() + s2.len());
++                    result.push_str(s1.as_str());
++                    result.push_str(s2.as_str());
++                    Ok(Value::<H>::string(result))
++                }
++                _ => Err(RuntimeError::TypeError {
++                    expected: "int or string",
++                    got: v1.type_name(),
++                }),
++            }
++        }
++        Expr::Minus(e1, e2) => Ok(Value::<H>::int(
++            eval(local_env, node_env, e1, role_names)?.as_int()?
++                - eval(local_env, node_env, e2, role_names)?.as_int()?,
++        )),
++        Expr::Times(e1, e2) => Ok(Value::<H>::int(
++            eval(local_env, node_env, e1, role_names)?.as_int()?
++                * eval(local_env, node_env, e2, role_names)?.as_int()?,
++        )),
++        Expr::Div(e1, e2) => Ok(Value::<H>::int(
++            eval(local_env, node_env, e1, role_names)?.as_int()?
++                / eval(local_env, node_env, e2, role_names)?.as_int()?,
++        )),
++        Expr::Mod(e1, e2) => Ok(Value::<H>::int(
++            eval(local_env, node_env, e1, role_names)?.as_int()?
++                % eval(local_env, node_env, e2, role_names)?.as_int()?,
++        )),
++        Expr::LessThan(e1, e2) => Ok(Value::<H>::bool(
++            eval(local_env, node_env, e1, role_names)? < eval(local_env, node_env, e2, role_names)?,
++        )),
++        Expr::EqualsEquals(e1, e2) => Ok(Value::<H>::bool(
++            eval(local_env, node_env, e1, role_names)?
++                == eval(local_env, node_env, e2, role_names)?,
++        )),
++        Expr::Not(e) => Ok(Value::<H>::bool(
++            !eval(local_env, node_env, e, role_names)?.as_bool()?,
++        )),
++        Expr::And(e1, e2) => Ok(Value::<H>::bool(
++            eval(local_env, node_env, e1, role_names)?.as_bool()?
++                && eval(local_env, node_env, e2, role_names)?.as_bool()?,
++        )),
++        Expr::Or(e1, e2) => Ok(Value::<H>::bool(
++            eval(local_env, node_env, e1, role_names)?.as_bool()?
++                || eval(local_env, node_env, e2, role_names)?.as_bool()?,
++        )),
++        Expr::Some(e) => Ok(Value::<H>::option_some(eval(
++            local_env, node_env, e, role_names,
++        )?)),
++        Expr::Tuple(es) => {
++            let vals: Result<ValueSeq<H>, _> = es
++                .iter()
++                .map(|e| eval(local_env, node_env, e, role_names))
++                .collect();
++            Ok(Value::<H>::tuple(vals?))
++        }
++        Expr::List(es) => {
++            let vals: Result<ValueSeq<H>, _> = es
++                .iter()
++                .map(|e| eval(local_env, node_env, e, role_names))
++                .collect();
++            Ok(Value::<H>::list(vals?))
++        }
++        Expr::Map(kv) => {
++            let mut m = ValueMap::<H>::new();
++            for (k, v) in kv {
++                m.insert(
++                    eval(local_env, node_env, k, role_names)?,
++                    eval(local_env, node_env, v, role_names)?,
++                );
++            }
++            Ok(Value::<H>::map(m))
++        }
++        Expr::Find(col, key) => {
++            let col_val = eval(local_env, node_env, col, role_names)?;
++            match &col_val.kind {
++                ValueKind::Map(m) => {
++                    let k = eval(local_env, node_env, key, role_names)?;
++                    m.get(&k).cloned().ok_or(RuntimeError::KeyNotFound)
++                }
++                ValueKind::List(l) => {
++                    let idx = eval(local_env, node_env, key, role_names)?.as_int()? as usize;
++                    l.get(idx).cloned().ok_or(RuntimeError::IndexOutOfBounds {
++                        index: idx,
++                        len: l.len(),
++                    })
++                }
++                _ => Err(RuntimeError::NotACollection {
++                    got: col_val.type_name(),
++                }),
++            }
++        }
++        Expr::ListPrepend(head, tail) => {
++            let h = eval(local_env, node_env, head, role_names)?;
++            let tail_val = eval(local_env, node_env, tail, role_names)?;
++            let t = tail_val.as_list()?;
++            let mut new_list = ValueSeq::<H>::with_capacity(t.len() + 1);
++            new_list.push(h);
++            new_list.extend_from_slice(t);
++            Ok(Value::<H>::list(new_list))
++        }
++        Expr::ListAppend(list, item) => {
++            let list_val = eval(local_env, node_env, list, role_names)?;
++            let mut l = list_val.as_list()?.clone();
++            let i = eval(local_env, node_env, item, role_names)?;
++            l.push(i);
++            Ok(Value::<H>::list(l))
++        }
++        Expr::ListSubsequence(list, start, end) => {
++            let l = eval(local_env, node_env, list, role_names)?;
++            let s = eval(local_env, node_env, start, role_names)?.as_int()? as usize;
++            let e = eval(local_env, node_env, end, role_names)?.as_int()? as usize;
++            let vec = l.as_list()?;
++            if s > vec.len() || e > vec.len() || s > e {
++                return Err(RuntimeError::SubsequenceOutOfBounds {
++                    start: s,
++                    end: e,
++                    len: vec.len(),
++                });
++            }
++            Ok(Value::<H>::list(ValueSeq::<H>::from(&vec[s..e])))
++        }
++        Expr::LessThanEquals(e1, e2) => Ok(Value::<H>::bool(
++            eval(local_env, node_env, e1, role_names)?
++                <= eval(local_env, node_env, e2, role_names)?,
++        )),
++        Expr::GreaterThan(e1, e2) => Ok(Value::<H>::bool(
++            eval(local_env, node_env, e1, role_names)? > eval(local_env, node_env, e2, role_names)?,
++        )),
++        Expr::GreaterThanEquals(e1, e2) => Ok(Value::<H>::bool(
++            eval(local_env, node_env, e1, role_names)?
++                >= eval(local_env, node_env, e2, role_names)?,
++        )),
++        Expr::KeyExists(key, map) => {
++            let k = eval(local_env, node_env, key, role_names)?;
++            let m = eval(local_env, node_env, map, role_names)?;
++            Ok(Value::<H>::bool(m.as_map()?.contains_key(&k)))
++        }
++        Expr::MapErase(key, map) => {
++            let k = eval(local_env, node_env, key, role_names)?;
++            let m = eval(local_env, node_env, map, role_names)?
++                .as_map()?
++                .clone();
++            Ok(Value::<H>::map(m.without(&k)))
++        }
++        Expr::ListLen(list) => {
++            let list_val = eval(local_env, node_env, list, role_names)?;
++            match &list_val.kind {
++                ValueKind::List(l) => Ok(Value::<H>::int(l.len() as i64)),
++                ValueKind::Map(m) => Ok(Value::<H>::int(m.len() as i64)),
++                _ => Err(RuntimeError::NotACollection {
++                    got: list_val.type_name(),
++                }),
++            }
++        }
++        Expr::ListAccess(list, idx) => {
++            let l = eval(local_env, node_env, list, role_names)?;
++            let vec = l.as_list()?;
++            let i = *idx;
++            if i >= vec.len() {
++                return Err(RuntimeError::IndexOutOfBounds {
++                    index: i,
++                    len: vec.len(),
++                });
++            }
++            Ok(vec[i].clone())
++        }
++        Expr::Min(e1, e2) => {
++            let v1 = eval(local_env, node_env, e1, role_names)?.as_int()?;
++            let v2 = eval(local_env, node_env, e2, role_names)?.as_int()?;
++            Ok(Value::<H>::int(v1.min(v2)))
++        }
++        Expr::TupleAccess(tuple, idx) => {
++            let t = eval(local_env, node_env, tuple, role_names)?;
++            if let ValueKind::Tuple(vec) = &t.kind {
++                if *idx >= vec.len() {
++                    return Err(RuntimeError::IndexOutOfBounds {
++                        index: *idx,
++                        len: vec.len(),
++                    });
++                }
++                Ok(vec[*idx].clone())
++            } else {
++                Err(RuntimeError::TypeError {
++                    expected: "tuple",
++                    got: t.type_name(),
++                })
++            }
++        }
++        Expr::Unwrap(e) => {
++            let val = eval(local_env, node_env, e, role_names)?;
++            match &val.kind {
++                ValueKind::Option(Some(v)) => Ok(Arc::unwrap_or_clone(v.clone())),
++                ValueKind::Option(None) => Err(RuntimeError::UnwrapNone),
++                _ => Err(RuntimeError::TypeError {
++                    expected: "option",
++                    got: val.type_name(),
++                }),
++            }
++        }
++        Expr::Coalesce(opt, default) => {
++            let val = eval(local_env, node_env, opt, role_names)?;
++            match &val.kind {
++                ValueKind::Option(Some(v)) => Ok(Arc::unwrap_or_clone(v.clone())),
++                ValueKind::Option(None) => eval(local_env, node_env, default, role_names),
++                _ => Err(RuntimeError::CoalesceNonOption {
++                    got: val.type_name(),
++                }),
++            }
++        }
++        Expr::IntToString(e) => {
++            let n = eval(local_env, node_env, e, role_names)?.as_int()?;
++            Ok(Value::<H>::string(EcoString::from(Decimal::of_i64(n).as_str())))
++        }
++        Expr::BoolToString(e) => Ok(Value::<H>::string(EcoString::from(
++            eval(local_env, node_env, e, role_names)?
++                .as_bool()?
++                .to_string(),
++        ))),
++        Expr::NodeToString(e) => {
++            let node_id = eval(local_env, node_env, e, role_names)?.as_node()?;
++            let role_name = role_names
++                .get(&node_id.role)
++                .map(|s| s.as_str())
++                .unwrap_or("Unknown");
++            Ok(Value::<H>::string(EcoString::from(format!(
++                "{}[{}]",
++                role_name, node_id.index
++            ))))
++        }
++        Expr::Store(col, key, val) => update_collection(
++            eval(local_env, node_env, col, role_names)?,
++            eval(local_env, node_env, key, role_names)?,
++            eval(local_env, node_env, val, role_names)?,
++        ),
++        Expr::Variant(enum_id, name, payload) => {
++            let payload_val = payload
++                .as_ref()
++                .map(|p| eval(local_env, node_env, p, role_names))
++                .transpose()?
++                .map(Arc::new);
++            Ok(Value::<H>::variant(*enum_id, name.clone(), payload_val))
++        }
++        Expr::IsVariant(expr, name) => {
++            let val = eval(local_env, node_env, expr, role_names)?;
++            match &val.kind {
++                ValueKind::Variant(_, variant_name, _) => {
++                    Ok(Value::<H>::bool(variant_name == name))
++                }
++                _ => Ok(Value::<H>::bool(false)),
++            }
++        }
++        Expr::VariantPayload(expr) => {
++            let val = eval(local_env, node_env, expr, role_names)?;
++            match &val.kind {
++                ValueKind::Variant(_, _, Some(payload)) => Ok((**payload).clone()),
++                ValueKind::Variant(_, _, None) => Err(RuntimeError::VariantHasNoPayload),
++                _ => Err(RuntimeError::TypeError {
++                    expected: "variant",
++                    got: val.type_name(),
++                }),
++            }
++        }
++        Expr::SafeFind(col, key) => {
++            let col_val = eval(local_env, node_env, col, role_names)?;
++            match &col_val.kind {
++                ValueKind::Option(None) => Ok(Value::<H>::option_none()),
++                ValueKind::Option(Some(inner)) => {
++                    let inner_val = Arc::unwrap_or_clone(inner.clone());
++                    let key_val = eval(local_env, node_env, key, role_names)?;
++                    match &inner_val.kind {
++                        ValueKind::Map(m) => {
++                            let result = m.get(&key_val).cloned().ok_or(RuntimeError::KeyNotFound)?;
++                            Ok(Value::<H>::option_some(result))
++                        }
++                        ValueKind::List(l) => {
++                            let idx = key_val.as_int()? as usize;
++                            let result = l.get(idx).cloned().ok_or(RuntimeError::IndexOutOfBounds {
++                                index: idx,
++                                len: l.len(),
++                            })?;
++                            Ok(Value::<H>::option_some(result))
++                        }
++                        _ => Err(RuntimeError::NotACollection {
++                            got: inner_val.type_name(),
++                        }),
++                    }
++                }
++                _ => Err(RuntimeError::TypeError {
++                    expected: "option",
++                    got: col_val.type_name(),
++                }),
++            }
++        }
++        Expr::SafeTupleAccess(tuple, idx) => {
++            let t = eval(local_env, node_env, tuple, role_names)?;
++            match &t.kind {
++                ValueKind::Option(None) => Ok(Value::<H>::option_none()),
++                ValueKind::Option(Some(inner)) => {
++                    let inner_val = Arc::unwrap_or_clone(inner.clone());
++                    if let ValueKind::Tuple(vec) = &inner_val.kind {
++                        if *idx >= vec.len() {
++                            return Err(RuntimeError::IndexOutOfBounds {
++                                index: *idx,
++                                len: vec.len(),
++                            });
++                        }
++                        Ok(Value::<H>::option_some(vec[*idx].clone()))
++                    } else {
++                        Err(RuntimeError::TypeError {
++                            expected: "tuple",
++                            got: inner_val.type_name(),
++                        })
++                    }
++                }
++                _ => Err(RuntimeError::TypeError {
++                    expected: "option",
++                    got: t.type_name(),
++                }),
++            }
++        }
++    }
++}
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index 863f47f..865b21f 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -55,7 +55,8 @@ pub enum ValueKind<H: HashPolicy> {
+     Variant(u32, EcoString, Option<Arc<Value<H>>>), // (enum_id, variant_name, payload)
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Debug)]
++#[cfg_attr(not(test), derive(Clone))]
+ pub struct Value<H: HashPolicy> {
+     pub kind: ValueKind<H>,
+     pub sig: u64,
+@@ -73,6 +74,8 @@ pub fn hash_map_entry(k_sig: u64, v_sig: u64) -> u64 {
+ impl<H: HashPolicy> Value<H> {
+     /// Create a new Value with computed signature.
+     pub fn new(kind: ValueKind<H>) -> Self {
++        #[cfg(test)]
++        eval_accounting::construction();
+         let sig = if H::EAGER {
+             Self::compute_sig(&kind)
+         } else {
+@@ -274,6 +277,8 @@ impl<H: HashPolicy> Value<H> {
+     /// Create a Value with a pre-computed signature (for incremental updates)
+     #[inline]
+     pub fn with_sig(kind: ValueKind<H>, sig: u64) -> Self {
++        #[cfg(test)]
++        eval_accounting::construction();
+         Self {
+             kind,
+             sig,
+@@ -681,6 +686,8 @@ impl<H: HashPolicy> Env<H> {
+ 
+     #[inline(always)]
+     pub fn set(&mut self, slot: u32, value: Value<H>) {
++        #[cfg(test)]
++        super::eval_protocol_parity::capture_write(slot, &value, self);
+         self.writes = self.writes.wrapping_add(1);
+         let idx = slot as usize;
+         if idx >= self.slots.len() {
+@@ -1086,3 +1093,40 @@ mod acted_token_tests {
+         assert_eq!(env.writes, after_first + 1);
+     }
+ }
++
++#[cfg(test)]
++impl<H: HashPolicy> Clone for Value<H> {
++    fn clone(&self) -> Self {
++        eval_accounting::clone_call();
++        Self { kind: self.kind.clone(), sig: self.sig, _marker: PhantomData }
++    }
++}
++
++#[cfg(test)]
++pub(crate) mod eval_accounting {
++    use std::cell::Cell;
++    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
++    pub struct Counts { pub constructions: u64, pub clones: u64 }
++    impl Counts {
++        pub fn total(self) -> u64 { self.constructions + self.clones }
++    }
++    thread_local! {
++        static DEPTH: Cell<usize> = const { Cell::new(0) };
++        static COUNTS: Cell<Counts> = const { Cell::new(Counts { constructions: 0, clones: 0 }) };
++    }
++    pub struct Scope;
++    impl Scope {
++        pub fn enter() -> Self { DEPTH.set(DEPTH.get() + 1); Self }
++    }
++    impl Drop for Scope {
++        fn drop(&mut self) { DEPTH.set(DEPTH.get() - 1); }
++    }
++    pub fn reset() { assert_eq!(DEPTH.get(), 0); COUNTS.set(Counts::default()); }
++    pub fn snapshot() -> Counts { COUNTS.get() }
++    pub fn construction() {
++        if DEPTH.get() != 0 { let mut c = COUNTS.get(); c.constructions += 1; COUNTS.set(c); }
++    }
++    pub fn clone_call() {
++        if DEPTH.get() != 0 { let mut c = COUNTS.get(); c.clones += 1; COUNTS.set(c); }
++    }
++}
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index a471961..669c6c1 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -1022,6 +1022,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     seed_tape: Option<Recording>,
+     attribution: &RunAttribution,
+ ) -> Result<RunResult, Box<dyn Error>> {
++    let _eval_stats = util_stats::EvalRunGuard::enter();
+     let started = std::time::Instant::now();
+     let snapshot = F::snapshot(&global_state.feedback);
+     let gen_config = GeneratorConfig {
+@@ -1192,6 +1193,190 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     })
+ }
+ 
++#[cfg(test)]
++pub(crate) fn run_single_simulation_with_hash<H: crate::simulator::hash_utils::HashPolicy, F: Feedback, S: RngSource>(
++    program: &Program,
++    writer: &Arc<dyn HistoryWriter>,
++    global_state: &GlobalState<F>,
++    run_id: i64,
++    config: &SingleRunConfig,
++    weights: &CoverageConfig,
++    workload_seed: u64,
++    schedule_seed: u64,
++    seed_tape: Option<Recording>,
++    attribution: &RunAttribution,
++) -> Result<RunResult, Box<dyn Error>> {
++    let _eval_stats = util_stats::EvalRunGuard::enter();
++    let started = std::time::Instant::now();
++    let snapshot = F::snapshot(&global_state.feedback);
++    let gen_config = GeneratorConfig {
++        num_servers: config.num_servers,
++        num_write_ops: config.num_write_ops,
++        num_read_ops: config.num_read_ops,
++        num_rmw_ops: config.num_rmw_ops,
++        num_keys: config.num_keys,
++        num_crashes: config.num_crashes,
++        num_partitions: config.num_partitions,
++        dependency_density: config.dependency_density,
++        max_concurrent_writes: config.max_concurrent_writes,
++        post_fault_client_ops: config.post_fault_client_ops,
++    };
++    // Workload RNG: seeded separately from the scheduling RNG so the plan is
++    // reproducible from its own seed and uncorrelated with schedule draws.
++    let mut workload_rng = SmallRng::seed_from_u64(workload_seed);
++    let plan = generate_plan(gen_config, &mut workload_rng);
++
++    let num_servers = config.num_servers as usize;
++
++    let server_role = program
++        .roles
++        .iter()
++        .find(|(_, name)| name == "Node")
++        .map(|(id, _)| *id)
++        .ok_or_else(|| RuntimeError::RoleNotFound("Node".to_string()))?;
++    let client_role = program
++        .roles
++        .iter()
++        .find(|(_, name)| name == "ClientInterface")
++        .map(|(id, _)| *id)
++        .ok_or_else(|| RuntimeError::RoleNotFound("ClientInterface".to_string()))?;
++
++    let role_node_counts = vec![(server_role, num_servers)];
++    let mut path_state = PathState::<H, F>::new(
++        &role_node_counts,
++        program.max_node_slots as usize,
++        client_role,
++    );
++    F::set_key_granularity(&mut path_state.feedback, config.timeline_key_granularity);
++
++    // One scheduling RNG per run, threaded through init + execution. Its draws
++    // come from a single generator, or from one generator per decision kind
++    // when `rng_stream_isolation` is set. `RecRng<S>` records or replays the
++    // resulting stream per the chosen strategy (zero-cost for `LiveRng`).
++    util_stats::record_rng_isolation(config.rng_stream_isolation);
++    let mut inner = StreamSet::new(schedule_seed, config.rng_stream_isolation);
++    let mut tape = S::new_tape(seed_tape);
++    let mut rec = RecRng::<S> {
++        tape: &mut tape,
++        inner: &mut inner,
++    };
++
++    // Initialize state
++    path_state.state = initialize_state::<H, _, F>(
++        program,
++        &mut path_state.logs,
++        num_servers,
++        &snapshot,
++        &mut path_state.feedback,
++        &config.purgatory,
++        &mut rec,
++    )?;
++
++    let topology_info = TopologyInfo {
++        topology: Topology::Full,
++        num_servers: config.num_servers,
++    };
++
++    init_topology::<H, _, F>(
++        &mut path_state.state,
++        &mut path_state.logs,
++        program,
++        num_servers,
++        &snapshot,
++        &mut path_state.feedback,
++        &config.purgatory,
++        &mut rec,
++    )?;
++
++    // The arms are drawn before the plan runs and read nothing from the
++    // run's schedule stream.
++    let cell = arm_selector::cell(attribution.arm_index, attribution.config_index);
++    let choice = arm_selector::choose(run_id, schedule_seed, attribution.arm_index, cell);
++    let arms = choice.arms;
++    let outcome = exec_plan::<H, F>(
++        &mut path_state,
++        program.clone(),
++        plan,
++        config.max_iterations,
++        topology_info,
++        global_state,
++        &snapshot,
++        run_id,
++        &config.schedule_policy,
++        false,
++        &config.queue_policy,
++        &config.within_queue_selector,
++        &config.steer_terms,
++        &config.purgatory,
++        config.partial_fanout_crash_bias,
++        &arms,
++        &mut rec,
++    )?;
++    // A replay slot's prefix carries its parent's ghost signal, so the
++    // signal is not read on it.
++    let replay_slot = attribution.variant_bits & run_variant::REPLAY_SLOT != 0;
++    arm_selector::observe(
++        attribution.arm_index,
++        cell,
++        run_id,
++        &choice,
++        &arm_selector::Rewards {
++            overtaken_ghost: path_state.state.overtaken_ghost_acted,
++            absorber_cycle: path_state.state.absorber_cycle_fresh_peer,
++            mutual_absorber_cycle: path_state.state.mutual_absorber_cycle,
++            ghost_signal: (!replay_slot).then_some(path_state.state.replay_cut.is_some()),
++            cycle_before_request: path_state.state.cycle_before_request(),
++            exchange_before_request: path_state.state.exchange_before_request,
++            first_post_fault_request_entry_step: path_state
++                .state
++                .first_post_fault_request_entry_step,
++        },
++    );
++
++    if let RunOutcome::Deadlock { step, pending_ops } = &outcome {
++        warn!(
++            "Run {} deadlocked at step {} ({} pending ops)",
++            run_id, step, pending_ops
++        );
++    }
++
++    let plan_score = F::plan_score(&path_state.feedback, &snapshot, weights);
++    let tuples = F::timeline_tuples(&path_state.feedback)
++        .cloned()
++        .unwrap_or_default();
++
++    let recording = S::into_recording(tape);
++
++    F::merge(&global_state.feedback, &path_state.feedback);
++
++    crate::simulator::core::eval_protocol_parity::capture_state(run_id, &path_state.state, program);
++    let serialized = serialize_history(&path_state.history);
++    let serialized_logs = serialize_logs(std::mem::take(&mut path_state.logs.entries));
++    let serialized_traces = serialize_traces(std::mem::take(&mut path_state.logs.traces));
++    writer.write(run_id, serialized, serialized_logs, serialized_traces);
++    writer.write_run(run_row(
++        run_id,
++        attribution,
++        workload_seed,
++        schedule_seed,
++        &outcome,
++        config.max_iterations,
++        started.elapsed(),
++        path_state.state.timer_stats,
++        &arms,
++        choice.learner,
++        path_state.state.crash_hold_drawn,
++    ));
++
++    Ok(RunResult {
++        score: plan_score,
++        recording,
++        tuples,
++        outcome,
++        cut: path_state.state.replay_cut,
++    })
++}
++
+ /// Runs the standard exhaustive explorer.
+ pub fn run_explorer(
+     program: &Program,
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..73a5f6a 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -2,8 +2,8 @@
+ //!
+ //! Enabled per explorer session via `ExplorerConfig::stats` and dumped by the
+ //! CLI to `<output_dir>/utilization.json`. Counters are observation-only: they
+-//! never affect scheduling, scoring, or RNG consumption. When disabled, every
+-//! probe is a single relaxed atomic load.
++//! never affect scheduling, scoring, or RNG consumption. Most probes check a
++//! relaxed atomic flag; evaluator probes use thread-local run state.
+ 
+ use crate::simulator::core::steer_terms::{Term, TERMS};
+ use crate::simulator::client_anchor;
+@@ -15,6 +15,97 @@ use std::collections::{HashMap, HashSet};
+ use std::sync::{LazyLock, Mutex};
+ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+ 
++static EVAL_EPOCH: AtomicU64 = AtomicU64::new(0);
++static EVAL_COUNTS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
++
++#[derive(Default)]
++struct EvalThreadCounts {
++    epoch: u64,
++    enabled: bool,
++    counts: [u64; 3],
++}
++
++impl EvalThreadCounts {
++    fn flush(&mut self) {
++        if self.epoch == EVAL_EPOCH.load(Ordering::Relaxed) {
++            for (total, count) in EVAL_COUNTS.iter().zip(self.counts) {
++                total.fetch_add(count, Ordering::Relaxed);
++            }
++        }
++        self.counts = [0; 3];
++    }
++}
++
++impl Drop for EvalThreadCounts {
++    fn drop(&mut self) {
++        self.flush();
++    }
++}
++
++thread_local! {
++    static EVAL_THREAD_COUNTS: RefCell<EvalThreadCounts> = RefCell::new(EvalThreadCounts::default());
++}
++
++// Expression probes use only thread-local state; run boundaries publish totals.
++#[inline]
++pub(crate) fn record_eval_transient(kind: usize) {
++    EVAL_THREAD_COUNTS.with(|state| {
++        let mut state = state.borrow_mut();
++        if state.enabled {
++            state.counts[kind] += 1;
++        }
++    });
++}
++
++pub(crate) struct EvalRunGuard;
++
++impl EvalRunGuard {
++    pub(crate) fn enter() -> Self {
++        EVAL_THREAD_COUNTS.with(|state| {
++            let mut state = state.borrow_mut();
++            state.flush();
++            state.enabled = enabled();
++            state.epoch = EVAL_EPOCH.load(Ordering::Relaxed);
++        });
++        Self
++    }
++}
++
++impl Drop for EvalRunGuard {
++    fn drop(&mut self) {
++        EVAL_THREAD_COUNTS.with(|state| {
++            let mut state = state.borrow_mut();
++            state.flush();
++            state.enabled = false;
++        });
++    }
++}
++
++fn flush_eval_transient() {
++    EVAL_THREAD_COUNTS.with(|state| state.borrow_mut().flush());
++}
++
++#[derive(Serialize, Debug)]
++pub struct EvalTransientStats {
++    pub borrowed_operands: u64,
++    pub scalar_intermediates: u64,
++    pub materializations: u64,
++    pub unmaterialized_results: u64,
++}
++
++impl EvalTransientStats {
++    fn read() -> Self {
++        let borrowed_operands = EVAL_COUNTS[0].load(Ordering::Relaxed);
++        let scalar_intermediates = EVAL_COUNTS[1].load(Ordering::Relaxed);
++        Self {
++            borrowed_operands,
++            scalar_intermediates,
++            materializations: EVAL_COUNTS[2].load(Ordering::Relaxed),
++            unmaterialized_results: borrowed_operands + scalar_intermediates,
++        }
++    }
++}
++
+ static ENABLED: AtomicBool = AtomicBool::new(false);
+ static ACTED_ENABLED: AtomicBool = AtomicBool::new(true);
+ static CRASH_CENSUS_ENABLED: AtomicBool = AtomicBool::new(false);
+@@ -601,6 +692,18 @@ const TIMELINE_MAX_BUCKETS: usize = 512;
+ /// Enable or disable recording for this explorer session. Enabling resets all
+ /// counters so repeated sessions in one process don't bleed into each other.
+ pub fn set_enabled(on: bool) {
++    EVAL_EPOCH.fetch_add(1, Ordering::Relaxed);
++    EVAL_THREAD_COUNTS.with(|state| {
++        let mut state = state.borrow_mut();
++        state.enabled = on;
++        state.epoch = EVAL_EPOCH.load(Ordering::Relaxed);
++        state.counts = [0; 3];
++    });
++    if on {
++        for count in &EVAL_COUNTS {
++            count.store(0, Ordering::Relaxed);
++        }
++    }
+     if on {
+         for c in [
+             &STEER_EVALUATIONS,
+@@ -1623,6 +1726,7 @@ thread_local! {
+ /// can be called both from the normal end-of-run hook and from the start of the
+ /// next run for runs that ended without reaching it.
+ fn finish_run() {
++    flush_eval_transient();
+     let Some((unclosed, h3, ordered, bucket, post_recover_ops)) = RUN_CROSSING.with(|c| {
+         let mut c = c.borrow_mut();
+         if c.finalized {
+@@ -1666,7 +1770,14 @@ fn finish_run() {
+ /// per-run, so anything left over from a run that ended while a node was still
+ /// down is discarded here rather than leaking into the next run.
+ pub fn begin_run() {
+-    if !enabled() {
++    let on = enabled();
++    EVAL_THREAD_COUNTS.with(|state| {
++        let mut state = state.borrow_mut();
++        state.flush();
++        state.enabled = on;
++        state.epoch = EVAL_EPOCH.load(Ordering::Relaxed);
++    });
++    if !on {
+         return;
+     }
+     finish_run();
+@@ -4984,6 +5095,7 @@ impl TimerContextStats {
+ /// A point-in-time copy of all counters, serializable to `utilization.json`.
+ #[derive(Serialize)]
+ pub struct UtilizationSnapshot {
++    pub eval_transient: EvalTransientStats,
+     pub rng_streams: RngStreamStats,
+     pub steer: SteerStats,
+     pub steer_empty_slice: EmptySliceStats,
+@@ -5089,7 +5201,9 @@ pub fn add(acc: &mut serde_json::Value, delta: &serde_json::Value) {
+ }
+ 
+ pub fn snapshot() -> UtilizationSnapshot {
++    flush_eval_transient();
+     UtilizationSnapshot {
++        eval_transient: EvalTransientStats::read(),
+         rng_streams: RngStreamStats {
+             isolated_runs: RNG_ISOLATED_RUNS.load(Ordering::Relaxed),
+             shared_runs: RNG_SHARED_RUNS.load(Ordering::Relaxed),
+@@ -5226,6 +5340,77 @@ mod tests {
+     use super::*;
+     use crate::simulator::config_override;
+ 
++    #[test]
++    fn eval_counts_flush_failed_runs_and_reset_reused_workers() {
++        let _serial = config_override::exclusive_session();
++        let (commands, incoming) = std::sync::mpsc::channel();
++        let (done, completed) = std::sync::mpsc::channel();
++        let worker = std::thread::spawn(move || {
++            while let Ok(command) = incoming.recv() {
++                if command == 0 { break; }
++                let _ = std::panic::catch_unwind(|| {
++                    let _guard = EvalRunGuard::enter();
++                    record_eval_transient(0);
++                    begin_run();
++                    record_eval_transient(1);
++                    record_eval_transient(2);
++                    if command == 2 { panic!("evaluation failed"); }
++                    finish_run();
++                });
++                done.send(()).unwrap();
++            }
++        });
++        for command in [1, 2] {
++            set_enabled(true);
++            commands.send(command).unwrap();
++            completed.recv().unwrap();
++            let counts = snapshot().eval_transient;
++            assert_eq!(counts.borrowed_operands, 1);
++            assert_eq!(counts.scalar_intermediates, 1);
++            assert_eq!(counts.materializations, 1);
++            assert_eq!(counts.unmaterialized_results, 2);
++            assert_eq!(snapshot().eval_transient.unmaterialized_results, 2);
++            set_enabled(false);
++            commands.send(1).unwrap();
++            completed.recv().unwrap();
++            assert_eq!(snapshot().eval_transient.unmaterialized_results, 2);
++        }
++        set_enabled(true);
++        assert_eq!(snapshot().eval_transient.unmaterialized_results, 0);
++        commands.send(0).unwrap();
++        worker.join().unwrap();
++        assert_eq!(snapshot().eval_transient.unmaterialized_results, 0);
++        set_enabled(false);
++    }
++
++    #[test]
++    fn eval_counts_only_consumed_transients() {
++        use crate::compiler::cfg::{Expr, VarSlot};
++        use crate::analysis::resolver::NameId;
++        use crate::simulator::core::{eval, Env, Value};
++        use crate::simulator::hash_utils::NoHashing;
++        let _serial = config_override::exclusive_session();
++        let mut env = Env::<NoHashing>::with_slots(1);
++        env.set(0, Value::int(4));
++        let roles = HashMap::new();
++        set_enabled(true);
++        let _guard = EvalRunGuard::enter();
++        eval(&env, &env, &Expr::Int(3), &roles).unwrap();
++        assert_eq!(snapshot().eval_transient.unmaterialized_results, 0);
++        assert_eq!(snapshot().eval_transient.materializations, 1);
++        let expression = Expr::Plus(
++            Box::new(Expr::Var(VarSlot::Local(0, NameId(0)))),
++            Box::new(Expr::Int(2)),
++        );
++        eval(&env, &env, &expression, &roles).unwrap();
++        let counts = snapshot().eval_transient;
++        assert_eq!(counts.borrowed_operands, 1);
++        assert_eq!(counts.scalar_intermediates, 1);
++        assert_eq!(counts.unmaterialized_results, 2);
++        assert_eq!(counts.materializations, 2);
++        set_enabled(false);
++    }
++
+     #[test]
+     fn pair_order_counters_land_on_their_half() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..a7a96dd 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -23,7 +23,7 @@ use spur_core::simulator::util_stats::{
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+     FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, ReplayStats, RunCapStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+-    VictimSwapStats,
++    VictimSwapStats, EvalTransientStats,
+ };
+ use std::collections::BTreeMap;
+ 
+@@ -1425,8 +1425,33 @@ fn client_anchor_leaves(prefix: &str, c: &ClientAnchorStats) -> Vec<(String, Val
+     out
+ }
+ 
++fn eval_transient(m: &mut Marks) -> EvalTransientStats {
++    EvalTransientStats {
++        borrowed_operands: m.int(),
++        scalar_intermediates: m.int(),
++        materializations: m.int(),
++        unmaterialized_results: m.int(),
++    }
++}
++
++fn eval_transient_leaves(prefix: &str, b: &EvalTransientStats) -> Vec<(String, Value)> {
++    let EvalTransientStats {
++        borrowed_operands,
++        scalar_intermediates,
++        materializations,
++        unmaterialized_results,
++    } = b;
++    vec![
++        leaf(prefix, "borrowed_operands", *borrowed_operands),
++        leaf(prefix, "scalar_intermediates", *scalar_intermediates),
++        leaf(prefix, "materializations", *materializations),
++        leaf(prefix, "unmaterialized_results", *unmaterialized_results),
++    ]
++}
++
+ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+     let UtilizationSnapshot {
++        eval_transient: _,
+         rng_streams: _,
+         steer: _,
+         steer_empty_slice: _,
+@@ -1465,6 +1490,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         steer_terms: _,
+     } = s;
+     vec![
++        "eval_transient",
+         "rng_streams",
+         "steer",
+         "steer_empty_slice",
+@@ -1558,6 +1584,7 @@ fn assert_leaves(expected: &[(String, Value)], actual: &BTreeMap<String, Value>,
+ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     let mut m = Marks(0);
+     let mut s = util_stats::snapshot();
++    s.eval_transient = eval_transient(&mut m);
+     s.steer_authority = steer_authority(&mut m);
+     s.termination = termination(&mut m);
+     s.delivery_effects = delivery_effects(&mut m);
+@@ -1578,6 +1605,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+         "delivery_effects",
+         &s.delivery_effects,
+     ));
++    expected.extend(eval_transient_leaves("eval_transient", &s.eval_transient));
+     expected.extend(run_cap_leaves("run_cap", &s.run_cap));
+     expected.extend(crash_place_leaves("crash_place", &s.crash_place));
+     expected.extend(crash_phase_leaves("crash_phase", &s.crash_phase));
+@@ -1618,6 +1646,7 @@ fn every_counter_field_reaches_the_written_json() {
+     );
+ 
+     for block in [
++        "eval_transient",
+         "steer_authority",
+         "termination",
+         "delivery_effects",

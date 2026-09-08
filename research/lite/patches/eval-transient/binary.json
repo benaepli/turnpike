@@ -1,0 +1,21 @@
+{
+  "sha256": "94653ddfa34eff2bc9bbd45aa918c68657ef21e0174039d6e7f456aaece58412",
+  "source_sha256": {
+    "spur/spur-core/src/simulator/core.rs": "8c38695fc8e07d4925d7c7d54d3cedb9bbbf9d9a25c15b8d7058ac6a55a9a369",
+    "spur/spur-core/src/simulator/core/eval.rs": "c08d52baac5296b364a07fb9b6366dd1b9aab30f1dc7a805d4578511b4d0fdbb",
+    "spur/spur-core/src/simulator/core/eval_parity.rs": "6e1bb3e1584171f3d001639ebb6136630eda1228c2b2dc8ae7bdf46e0949853d",
+    "spur/spur-core/src/simulator/core/eval_protocol_parity.rs": "c1f6a7a339ea3bfea52ac8f9f747941d95ddb4ddfc02ca4a591e823b58cc0d1b",
+    "spur/spur-core/src/simulator/core/eval_reference.rs": "df8f778afa82ad2b11a48137d09bb8169227320b9522d395b0d70d6b165cbfd1",
+    "spur/spur-core/src/simulator/core/values.rs": "6f9469ac20e45ada86d0d5e964130c2f99463c5f6f2fce213755477d378b79f9",
+    "spur/spur-core/src/simulator/explorer.rs": "d9eb3aa9d2fe225bed47b282059b314ece6747cfafa217c73c28b47c6c6187c9",
+    "spur/spur-core/src/simulator/util_stats.rs": "0a50765e3aa46614048e57ce502b437f8a8b249ae7a74a7cffecb8d239602402",
+    "spur/spur-core/tests/util_stats_export_completeness.rs": "f42b2dc21fd34d06e8d57ae461319dca5b7bdf281919352973aed8a47102328c",
+    "scheduler_configs/loop/general_vr.json": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f"
+  },
+  "spur_patch_sha256": "a9db10a9eac4bc4f3cc59679fe26ae47eb22893f48cbde8c6a12fba7d693ea44",
+  "spur_base_commit": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+  "config_unchanged_from_main": true,
+  "super_patch_bytes": 0,
+  "build_log": "build-final.log",
+  "worktree": "/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-eval-transient"
+}
