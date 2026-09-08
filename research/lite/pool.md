@@ -3637,3 +3637,11 @@ Iteration69 selects dependency frontier at net5; causal-chain demotion and retai
 - Carry borrowed/scalar intermediates inside pure evaluation until a canonical value escapes. Explicit perf-specific cross-binary exception; full frozen prediction, correctness corpus and review: `research/lite/plans/iteration-70-admitted.json`.
 
 Iteration70 selects transient evaluator net5. Causal-chain demotion remains net3/rank2; successful-vector population remains net3/rank3. Frontier69 is closed. Awaiting-approval entries remain unchanged.
+
+
+## selector-composes-directions-by-search-provenance
+
+- origin: proposer | status: KEPT at iteration 71 | gain: 3 | cost: 0 | rank: 2
+- Condition direction evidence on actual fresh, reused-plan, prefix-replay or mutated-tape search context with shared shrinkage. Full frozen prediction and explicit full-system comparison exception: `research/lite/plans/iteration-71-admitted.json`.
+
+Iteration71 selects causal-chain demotion net3/rank1 on the incumbent tie; its iteration69 prediction remains unchanged. Successful-vector mutation net3/rank3. Eval70 is closed before grading. Current context in iteration71 review supersedes stale active-iteration text quoted in older reviews.

@@ -7046,3 +7046,29 @@ substitute throughput as a rescue. The next independent review compares
 a context-aware composition proposal with the kept causal-chain demotion
 and successful-vector alternatives. Existing fixed campaign, oracle depth
 ladder and full histories remain the yardstick.
+
+
+**Iteration71 admission.** Independent blind judge ranks causal-chain
+demotion5-2=3 first on the incumbent tie; new provenance specialization3-0=3
+second, successful-vector mutation3-0=3 third. Select chain demotion.
+Complete hypotheses and review: research/lite/plans/iteration-71-admitted.json.
+Root verified selected description and prediction are byte-for-byte equal
+to their parsed iteration69 versions. No post-observation threshold change.
+
+The existing prefix-replay assignment, early cut and plan-only control stay
+fixed. Shared causal identity propagates through executable descendants;
+after actual tape exhaustion and the child's own signal, chain order ranks
+only the candidates already sampled by the stock tournament. A stock fault
+winner stays unchanged; ordinary merged preferences still apply. Two
+private-seed future change points demote executed chains without consuming
+scheduler RNG. Raw prefix/plan band1.20-1.60 and baseline-adjusted1.15-1.50
+are distinct. Frozen active-child40k, reached-change15k, multi-chain20%,
+final authority15%, throughput0.97 and bounded ownership gates decide
+whether the normal trial has enough useful action to continue.
+
+The new provenance proposal is retained with a written full-system
+cross-binary exception, not selected now. Actual per-run switching remains
+possible; neither existing endogenous learner tags nor replay tags measure
+assignment to that context policy. Its source plumbing is verified, but
+context-direction usefulness is unmeasured. Do not treat improved reward
+calibration alone as a violation-discovery result.
