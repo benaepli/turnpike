@@ -7182,3 +7182,71 @@ exception: a per-run switch is technically possible, but would test a
 partially exposed adaptive system. No existing endogenous tag is relabeled.
 Four reset normal chunks are required for confirmation, with frozen early
 supply, cost and harm exits. Build only from the accepted b86baad baseline.
+
+
+**Iteration 72 implementation review.** Provenance specialization exported
+from the isolated b86baad baseline. Root reviewed the full subject diff and
+independent review passed the corrected source. Review fixed empty-slot
+counts incorrectly attributed to learner=None; actual assignment is now
+retained and tested. An asymmetric independent formula/private-draw test
+checks contextual variances, selected actions, reward means, TV and argmax.
+All 462 tests pass across 25 suites; release build passes. The one initial
+firing smoke precedes the diagnostic-only correction; no repeat experiment.
+
+Four inline context blocks add 800 bytes per learner/cell; measured context
+block/cell/Choice/attribution sizes are 200/1016/96/32 bytes. Shared selector
+credit, warmup and coin choice remain unchanged. Context comes from the
+actual issuing branch; immutable predictions are scored before own credit.
+Frozen supply and diagnostic gates use direct session scope totals because
+campaign deltas omit floating sums. Byte gauges and maxima are not summed.
+
+Final binary SHA256
+020acbb8a23c769adaeba56f1bdec8b6ccde58c59cc8867f025d8957d50998cd.
+Start a normal cross-binary session with the explicitly admitted full-system
+exception and unchanged campaign/baseline. Per-run grid band 1.12-1.30 is
+checked separately; it cannot be passed as a treatment-bit band to the
+unchanged grader. Four normal reset chunks are required for confirmation,
+with early frozen applicability/cost/harm exits.
+
+
+**Iteration 72 closed, autonomous.** Seed 1000 completed 547,620 runs in
+300.306 seconds, with zero simulator failures and zero linearizability
+violations. Throughput ratio 0.90350 misses the frozen 0.97 guard; projected
+epoch throughput 0.88348 misses 0.90. Every arm throughput misses 0.95.
+The accepted epoch ledger remains unchanged at 0.97784.
+
+Fixed-grid depth8 counts are 6,894/455,100 candidate versus 7,897/501,000
+baseline: per-run ratio 0.96104, per-second 0.87306. Grid depth6 per-run
+0.94707 also misses its 0.98 guard. Whole-campaign depth8 per-run 0.97203,
+arm-exposure per-second 0.87826. AOS per-run 1.02618 but per-second 0.90302:
+the small per-run gain cannot compensate for reduced completed-run rate.
+These ratios use their own fixed populations, not a throughput-derived
+per-run estimate. No independent-run confidence claim is added.
+
+All per-chunk applicability gates pass: 452,993 specialized draws, shares
+0.99308 grid and 0.99950 AOS, grid context counts 181,121/92,818/92,975
+for Fresh/PlanReuse/PrefixReplay, AOS 77,518/8,561 for Fresh/TapeMutation.
+Scored diagnostic samples 22,918 grid and 5,334 AOS. Global TV 0.13101 and
+changed-argmax share 0.50147 pass. Issued/completed/draw/sample identities
+and corrected empty-slot learner attribution check out. All 1,600 new
+numeric leaves reach the normal grader utilization record.
+
+Grid contextual/shared loss ratio 0.99715 and AOS 0.99731 are descriptive
+single-chunk results, not confirmation or a four-chunk falsification.
+Support and policy movement were real; they did not deliver search utility
+at acceptable cost. The hypothesis closes on the explicit early cost/harm
+clauses, agreeing with grader adviceVerdict=close. No extra chunk, panel or
+regression is needed. Source, hashes, 462 passing tests, review, summaries
+and raw utilization are retained under research/lite/patches/provenance.
+The finished session is research/lite/state/provenance.json; main Spur
+remains b86baad and no subject change was merged.
+
+**Direction review and requested stop boundary.** Context specialization
+changed scheduling distributions with ample data but reduced depth yield.
+A small improvement in broad-reward calibration is not violation discovery.
+The fixed goal and measurements remain unchanged. Next-candidate proposal,
+blind ranking and read-only preparation were completed while this trial
+ran; successful-vector mutation leads the queued ranking. Those artifacts
+remain in tmp/loop/lite. Iteration 73 is not admitted or implemented.
+At the user's request, finish this iteration's archive/commit/cleanup and
+stop here before the next iteration. No grading process remains active.

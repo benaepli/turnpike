@@ -1,0 +1,1262 @@
+diff --git a/spur-core/src/simulator/arm_selector.rs b/spur-core/src/simulator/arm_selector.rs
+index c90b227..fa6ebc0 100644
+--- a/spur-core/src/simulator/arm_selector.rs
++++ b/spur-core/src/simulator/arm_selector.rs
+@@ -164,11 +164,49 @@ pub fn learner(run_id: i64) -> Option<Learner> {
+     })
+ }
+ 
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub enum SearchContext {
++    #[default]
++    Fresh,
++    PlanReuse,
++    PrefixReplay,
++    TapeMutation,
++}
++
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub enum SearchScope {
++    Grid,
++    Aos,
++    #[default]
++    Other,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub struct Diagnostic {
++    pub context_means: [f64; AXES],
++    pub shared_means: [f64; AXES],
++}
++
++impl Diagnostic {
++    fn losses(&self, reward: bool) -> (f64, f64) {
++        let loss = |means: &[f64; AXES]| {
++            means.iter().map(|m| {
++                let p = m.clamp(1e-12, 1.0 - 1e-12);
++                if reward { -p.ln() } else { -(1.0 - p).ln() }
++            }).sum::<f64>() / AXES as f64
++        };
++        (loss(&self.context_means), loss(&self.shared_means))
++    }
++}
++
+ /// What the selector decided for a run: the arm set it runs under and, on
+ /// a learner run, the learner whose pick it took. A coin-drawn run and a
+ /// probe carry no learner.
+-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[derive(Clone, Copy, Debug, PartialEq)]
+ pub struct Choice {
++    pub context: SearchContext,
++    pub scope: SearchScope,
++    pub diagnostic: Option<Diagnostic>,
+     pub arms: ArmSet,
+     pub learner: Option<Learner>,
+ }
+@@ -207,8 +245,53 @@ pub struct Rewards {
+     pub first_post_fault_request_entry_step: Option<i32>,
+ }
+ 
++#[derive(Default)]
++struct ContextEvidence {
++    alpha: [f64; DIRECTIONS],
++    beta: [f64; DIRECTIONS],
++    observations: u64,
++}
++
++impl ContextEvidence {
++    fn credit(&mut self, arms: &ArmSet, reward: bool) {
++        self.observations += 1;
++        let r = reward as u8 as f64;
++        for d in arms.directions() {
++            self.alpha[d] = DISCOUNT * self.alpha[d] + r;
++            self.beta[d] = DISCOUNT * self.beta[d] + (1.0 - r);
++        }
++    }
++}
++
++pub fn context_layout() -> (usize, usize, usize) {
++    (std::mem::size_of::<ContextEvidence>(), std::mem::size_of::<CellLearner>(), std::mem::size_of::<Choice>())
++}
++
++fn probabilities(a: usize, means: &[f64; DIRECTIONS], variances: &[f64; DIRECTIONS]) -> ([f64; 3], [f64; 3]) {
++    let range = AXIS_START[a]..AXIS_START[a + 1];
++    let mut weights = [0.0; 3];
++    for (i, d) in range.clone().enumerate() {
++        weights[i] = range.clone().filter(|&j| j != d).map(|j| {
++            normal_cdf((means[d] - means[j]) / (variances[d] + variances[j]).sqrt())
++        }).product::<f64>() * ArmSet::coin_probability(d);
++    }
++    assert!(weights.iter().all(|w| w.is_finite()), "nonfinite context weights");
++    let total = weights.iter().sum::<f64>();
++    let mut q = [0.0; 3];
++    if total <= 0.0 { q[0] = 1.0; }
++    else { for i in 0..range.len() { q[i] = weights[i] / total; } }
++    (weights, q)
++}
++
++fn argmax(q: &[f64; 3], width: usize) -> usize {
++    let mut best = 0;
++    for i in 1..width { if q[i] > q[best] { best = i; } }
++    best
++}
++
+ /// One cell's learner state.
+ struct CellLearner {
++    contexts: [ContextEvidence; 4],
+     /// Discounted reward and non-reward mass per direction.
+     alpha: [f64; DIRECTIONS],
+     beta: [f64; DIRECTIONS],
+@@ -224,6 +307,7 @@ struct CellLearner {
+ impl CellLearner {
+     fn new() -> Self {
+         Self {
++            contexts: std::array::from_fn(|_| ContextEvidence::default()),
+             alpha: [0.0; DIRECTIONS],
+             beta: [0.0; DIRECTIONS],
+             reward_mass: 0.0,
+@@ -389,54 +473,89 @@ static CELLS: [LazyLock<DashMap<Cell, CellLearner>>; 3] = [
+ /// run's schedule stream. `arm_index` is the campaign arm the run ran
+ /// under, for the per-arm counters; `cell` is where its learner state
+ /// lives, which several arms may share.
+-pub fn choose(run_id: i64, schedule_seed: u64, arm_index: i32, cell: Cell) -> Choice {
++pub fn choose_with_context(run_id: i64, schedule_seed: u64, arm_index: i32, cell: Cell, context: SearchContext, scope: SearchScope) -> Choice {
+     let coins = ArmSet::coins(run_id);
++    let mut choice = Choice { arms: coins, learner: None, context, scope, diagnostic: None };
+     let Some(learner) = learner(run_id) else {
+-        return Choice { arms: coins, learner: None };
++        util_stats::selector_context::draw(&choice, None, false, 0.0, false);
++        return choice;
+     };
+     let slot = learner.index();
+     let pooled = is_pooled(cell);
+-    let warmed = CELLS[slot]
+-        .get(&cell)
+-        .filter(|state| state.observations >= WARMUP_OBSERVATIONS);
++    let warmed = CELLS[slot].get(&cell).filter(|state| state.observations >= WARMUP_OBSERVATIONS);
+     let Some(state) = warmed else {
+         util_stats::record_arm_selector_draw(slot, arm_index, pooled, 1.0, None, true);
+-        return Choice { arms: coins, learner: None };
++        util_stats::selector_context::draw(&choice, Some(learner), false, 0.0, false);
++        return choice;
+     };
+     let (share, margins) = state.explore_share();
+     let coin = run_phase::salted_unit(run_id, EXPLORE_SALT) < share;
+     let top_margin = margins.iter().copied().fold(0.0, f64::max);
+     util_stats::record_arm_selector_draw(slot, arm_index, pooled, share, Some(top_margin), coin);
+     if coin {
+-        return Choice { arms: coins, learner: None };
++        util_stats::selector_context::draw(&choice, Some(learner), false, 0.0, false);
++        return choice;
+     }
+     let mut rng = SmallRng::seed_from_u64(derive_seed(schedule_seed, run_id, DRAW_SALT));
+     let mut directions = [0usize; AXES];
+     let mut agreements = 0u64;
+-    for (a, d) in directions.iter_mut().enumerate() {
+-        *d = state.sample_axis_leading(a, &mut rng);
+-        agreements += (*d == state.leader(a)) as u64;
+-    }
+-    let arms = ArmSet::from_directions(directions);
+-    util_stats::record_arm_selector_learner_run(learner.reward(), &arms, &coins, agreements, &margins);
+-    Choice {
+-        arms,
+-        learner: Some(learner),
++    let local = &state.contexts[context as usize];
++    let specialized = local.observations >= WARMUP_OBSERVATIONS;
++    let mut tv = 0.0;
++    let mut changed = false;
++    if specialized {
++        let shared_means = std::array::from_fn(|d| state.mean(d));
++        let shared_variances = std::array::from_fn(|d| state.variance(d));
++        let parameters: [(f64, f64); DIRECTIONS] = std::array::from_fn(|d| {
++            (1.0 + WARMUP_OBSERVATIONS as f64 * shared_means[d] + local.alpha[d],
++             1.0 + WARMUP_OBSERVATIONS as f64 * (1.0 - shared_means[d]) + local.beta[d])
++        });
++        let means = std::array::from_fn(|d| { let (a,b) = parameters[d]; a / (a + b) });
++        let variances = std::array::from_fn(|d| { let (a,b) = parameters[d]; a * b / ((a+b) * (a+b) * (a+b+1.0)) });
++        for (a, d) in directions.iter_mut().enumerate() {
++            let (_, shared_q) = probabilities(a, &shared_means, &shared_variances);
++            let (weights, q) = probabilities(a, &means, &variances);
++            *d = CellLearner::pick(a, &weights, &mut rng);
++            tv += q.iter().zip(shared_q).map(|(x,y)| (x-y).abs()).sum::<f64>() / (2.0 * AXES as f64);
++            let width = AXIS_START[a+1] - AXIS_START[a];
++            changed |= argmax(&q, width) != argmax(&shared_q, width);
++            agreements += (*d == state.leader(a)) as u64;
++        }
++        if run_phase::salted_phase(run_id, 0x4354584c4f535331, 16) == 0 {
++            choice.diagnostic = Some(Diagnostic {
++                context_means: directions.map(|d| means[d]),
++                shared_means: directions.map(|d| shared_means[d]),
++            });
++        }
++    } else {
++        for (a, d) in directions.iter_mut().enumerate() {
++            *d = state.sample_axis_leading(a, &mut rng);
++            agreements += (*d == state.leader(a)) as u64;
++        }
+     }
++    choice.arms = ArmSet::from_directions(directions);
++    choice.learner = Some(learner);
++    util_stats::record_arm_selector_learner_run(learner.reward(), &choice.arms, &coins, agreements, &margins);
++    util_stats::selector_context::draw(&choice, Some(learner), specialized, tv, changed);
++    choice
++}
++
++#[cfg(test)]
++fn choose(run_id: i64, schedule_seed: u64, arm_index: i32, cell: Cell) -> Choice {
++    choose_with_context(run_id, schedule_seed, arm_index, cell, SearchContext::Fresh, SearchScope::Other)
+ }
+ 
+-fn credit(learner: Learner, cell: Cell, arms: &ArmSet, reward: bool) {
++fn credit(learner: Learner, cell: Cell, choice: &Choice, reward: bool) {
+     let pooled = is_pooled(cell);
+-    CELLS[learner.index()]
+-        .entry(cell)
+-        .or_insert_with(|| {
+-            util_stats::record_arm_selector_cell_created(learner.reward(), pooled);
+-            CellLearner::new()
+-        })
+-        .credit(arms, reward);
+-    if pooled {
+-        util_stats::record_arm_selector_pooled_credit(learner.index());
+-    }
++    let mut state = CELLS[learner.index()].entry(cell).or_insert_with(|| {
++        util_stats::record_arm_selector_cell_created(learner.reward(), pooled);
++        CellLearner::new()
++    });
++    state.credit(&choice.arms, reward);
++    let local = &mut state.contexts[choice.context as usize];
++    local.credit(&choice.arms, reward);
++    util_stats::selector_context::credit(choice, learner, local.observations, pooled);
++    if pooled { util_stats::record_arm_selector_pooled_credit(learner.index()); }
+ }
+ 
+ /// Fold one finished run into the learners that may see it: a coin-drawn
+@@ -449,6 +568,11 @@ pub fn observe(arm_index: i32, cell: Cell, run_id: i64, choice: &Choice, rewards
+     if learner(run_id).is_none() {
+         return;
+     }
++    if let (Some(diagnostic), Some(l)) = (choice.diagnostic, choice.learner) {
++        let (context_loss, shared_loss) = diagnostic.losses(rewards_of(l, rewards));
++        util_stats::selector_context::scored(choice, context_loss, shared_loss);
++    }
++    util_stats::selector_context::observed(choice, learner(run_id));
+     let arms = &choice.arms;
+     let value = |reward: Reward| match reward {
+         Reward::OvertakenGhost => Some(rewards.overtaken_ghost),
+@@ -463,7 +587,7 @@ pub fn observe(arm_index: i32, cell: Cell, run_id: i64, choice: &Choice, rewards
+     match choice.learner {
+         None => {
+             for learner in Learner::ALL {
+-                credit(learner, cell, arms, rewards_of(learner, rewards));
++                credit(learner, cell, choice, rewards_of(learner, rewards));
+             }
+             for reward in Reward::ALL {
+                 if let Some(r) = value(reward) {
+@@ -476,7 +600,7 @@ pub fn observe(arm_index: i32, cell: Cell, run_id: i64, choice: &Choice, rewards
+         }
+         Some(learner) => {
+             let r = rewards_of(learner, rewards);
+-            credit(learner, cell, arms, r);
++            credit(learner, cell, choice, r);
+             util_stats::record_arm_selector_observation(learner.reward(), true, arm_index, arms, r);
+         }
+     }
+@@ -493,6 +617,7 @@ fn rewards_of(learner: Learner, rewards: &Rewards) -> bool {
+ /// Clear every cell so explorer sessions in one process do not share
+ /// learners.
+ pub fn reset() {
++    util_stats::selector_context::reset();
+     for cells in &CELLS {
+         cells.clear();
+     }
+@@ -546,6 +671,9 @@ mod tests {
+ 
+     fn coin(arms: ArmSet) -> Choice {
+         Choice {
++            context: SearchContext::Fresh,
++            scope: SearchScope::Other,
++            diagnostic: None,
+             arms,
+             learner: None,
+         }
+@@ -553,6 +681,9 @@ mod tests {
+ 
+     fn learned(arms: ArmSet, l: Learner) -> Choice {
+         Choice {
++            context: SearchContext::Fresh,
++            scope: SearchScope::Other,
++            diagnostic: None,
+             arms,
+             learner: Some(l),
+         }
+@@ -1344,4 +1475,239 @@ mod tests {
+         assert_eq!(util_stats::snapshot().arm_selector_axis.absorber_cycle.cells, 0);
+         assert_eq!(util_stats::snapshot().arm_selector_axis.cycle_before_request.cells, 0);
+     }
++    #[test]
++    fn context_credit_preserves_shared_equations_and_isolates_local_visits() {
++        let _serial = config_override::exclusive_session();
++        reset();
++        let cell = (77, 11);
++        let id = unprobed_id();
++        let arms = ArmSet::default();
++        let mut choice = coin(arms);
++        choice.context = SearchContext::PlanReuse;
++        let mut reference = CellLearner::new();
++        for r in [true, false, true] {
++            reference.credit(&arms, r);
++            observe(0, cell, id, &choice, &rewarded(r, !r));
++        }
++        for l in Learner::ALL {
++            let state = CELLS[l.index()].get(&cell).unwrap();
++            assert_eq!(state.observations, 3);
++            assert_eq!(state.contexts[SearchContext::PlanReuse as usize].observations, 3);
++            for c in [SearchContext::Fresh, SearchContext::PrefixReplay, SearchContext::TapeMutation] {
++                assert_eq!(state.contexts[c as usize].observations, 0);
++                assert_eq!(state.contexts[c as usize].alpha, [0.0; DIRECTIONS]);
++            }
++            if l == Learner::OvertakenGhost {
++                assert_eq!(state.alpha, reference.alpha);
++                assert_eq!(state.beta, reference.beta);
++                assert_eq!(state.mass, reference.mass);
++                assert_eq!(state.reward_mass, reference.reward_mass);
++                assert_eq!(state.contexts[1].alpha, reference.alpha);
++            }
++        }
++        choice.learner = Some(Learner::AbsorberCycle);
++        observe(0, cell, id, &choice, &rewarded(false, true));
++        assert_eq!(CELLS[0].get(&cell).unwrap().observations, 3);
++        assert_eq!(CELLS[1].get(&cell).unwrap().observations, 4);
++        let probe = id_where(|r| learner(r).is_none());
++        observe(0, cell, probe, &choice, &rewarded(true, true));
++        assert_eq!(CELLS[1].get(&cell).unwrap().observations, 4);
++        reset();
++        assert!(CELLS.iter().all(|c| c.is_empty()));
++    }
++
++    #[test]
++    fn cold_context_preserves_shared_sampler_and_warm_context_cannot_bypass_coins() {
++        let _serial = config_override::exclusive_session();
++        reset();
++        let cell = (77, 12);
++        separate_retarget(cell);
++        let id = id_where(|r| learner(r).is_some() && choose(r, 81, 0, cell).learner.is_some());
++        let l = learner(id).unwrap();
++        let state = CELLS[l.index()].get(&cell).unwrap();
++        let mut rng = SmallRng::seed_from_u64(derive_seed(81, id, DRAW_SALT));
++        let expected = ArmSet::from_directions(std::array::from_fn(|a| state.sample_axis_leading(a, &mut rng)));
++        drop(state);
++        let c = choose_with_context(id, 81, 0, cell, SearchContext::TapeMutation, SearchScope::Aos);
++        assert_eq!(c.arms, expected);
++        assert_eq!(c.diagnostic, None);
++        let mut young = CellLearner::new();
++        young.contexts[0].observations = 100;
++        CELLS[l.index()].insert((77,13), young);
++        assert!(choose_with_context(id, 81, 0, (77,13), SearchContext::Fresh, SearchScope::Grid).learner.is_none());
++        let coin_id = id_where(|r| learner(r).is_some() && choose(r, 81, 0, cell).learner.is_none());
++        let cl = learner(coin_id).unwrap();
++        CELLS[cl.index()].get_mut(&cell).unwrap().contexts[0].observations = 100;
++        assert!(choose(coin_id,81,0,cell).learner.is_none());
++    }
++
++    #[test]
++    fn context_snapshot_uses_selected_reward_means_and_survives_later_credit() {
++        let _serial = config_override::exclusive_session();
++        reset();
++        util_stats::set_enabled(true);
++        let cell = (77, 14);
++        separate_retarget(cell);
++        for l in Learner::ALL {
++            let mut state = CELLS[l.index()].get_mut(&cell).unwrap();
++            state.contexts[2].observations = 24;
++            state.contexts[2].alpha = [7.0; DIRECTIONS];
++            state.contexts[2].beta = [31.0; DIRECTIONS];
++        }
++        let id = id_where(|r| run_phase::salted_phase(r,0x4354584c4f535331,16)==0 && learner(r).is_some()
++            && choose_with_context(r, 991, 0, cell, SearchContext::PrefixReplay, SearchScope::Grid).learner.is_some());
++        let choice = choose_with_context(id, 991, 0, cell, SearchContext::PrefixReplay, SearchScope::Grid);
++        let saved = choice.diagnostic.unwrap();
++        let l = choice.learner.unwrap();
++        let state = CELLS[l.index()].get(&cell).unwrap();
++        for (a,d) in choice.arms.directions().into_iter().enumerate() {
++            let shared = state.mean(d);
++            let expected = (1.0 + 24.0 * shared + 7.0) / 64.0;
++            assert_eq!(saved.shared_means[a], shared);
++            assert!((saved.context_means[a] - expected).abs() < 1e-14);
++        }
++        drop(state);
++        let other = learned(ArmSet::default(),l);
++        observe(0,cell,id,&other,&rewarded(true,true));
++        assert_eq!(choice.diagnostic.unwrap(), saved);
++        let reward = rewards_of(l,&rewarded(true,true));
++        let (a,b) = saved.losses(reward);
++        let before = util_stats::selector_context::Stats::read();
++        observe(0,cell,id,&choice,&rewarded(true,true));
++        let after = util_stats::selector_context::Stats::read();
++        assert_eq!(after.counts.scored_runs - before.counts.scored_runs,1);
++        assert!((after.counts.context_loss_sum-before.counts.context_loss_sum-a).abs()<1e-12);
++        assert!((after.counts.shared_loss_sum-before.counts.shared_loss_sum-b).abs()<1e-12);
++        assert_eq!(context_layout().0,200);
++        eprintln!("context layout {:?}", context_layout());
++        reset();
++        assert_eq!(util_stats::selector_context::Stats::read().counts.scored_runs,0);
++        util_stats::set_enabled(false);
++    }
++
++    #[test]
++    fn categorical_diagnostics_use_coin_weighted_probabilities_and_lowest_ties() {
++        let means = [0.5; DIRECTIONS];
++        let variances = [0.01; DIRECTIONS];
++        for a in 0..AXES {
++            let (_,q) = probabilities(a,&means,&variances);
++            for (i,d) in (AXIS_START[a]..AXIS_START[a+1]).enumerate() {
++                assert!((q[i]-ArmSet::coin_probability(d)).abs()<1e-14);
++            }
++            assert!((q.iter().sum::<f64>()-1.0).abs()<1e-14);
++        }
++        assert_eq!(argmax(&[0.4,0.4,0.2],3),0);
++        let d = Diagnostic { context_means:[0.25;AXES],shared_means:[0.5;AXES] };
++        assert!((d.losses(true).0 + 0.25f64.ln()).abs()<1e-14);
++        assert!((d.losses(false).0 + 0.75f64.ln()).abs()<1e-14);
++    }
++
++    #[test]
++    fn asymmetric_context_matches_reference_posteriors_and_five_private_draws() {
++        let _serial = config_override::exclusive_session();
++        reset();
++        util_stats::set_enabled(true);
++        let cell = (77, 15);
++        let alpha = [2.0, 80.0, 500.0, 7.0, 300.0, 6.0, 240.0, 4.0, 180.0, 3.0, 70.0, 400.0];
++        let beta = [700.0, 20.0, 10.0, 600.0, 8.0, 510.0, 12.0, 480.0, 15.0, 660.0, 25.0, 9.0];
++        let local_alpha = [29.0, 9.0, 4.0, 26.0, 3.0, 27.0, 7.0, 25.0, 5.0, 28.0, 11.0, 6.0];
++        let local_beta = [4.0, 24.0, 27.0, 8.0, 28.0, 5.0, 25.0, 6.0, 31.0, 7.0, 22.0, 29.0];
++        for l in Learner::ALL {
++            let mut state = CellLearner::new();
++            state.alpha = alpha;
++            state.beta = beta;
++            state.reward_mass = 13.0;
++            state.mass = 100.0;
++            state.observations = 1000;
++            state.contexts[3].alpha = local_alpha;
++            state.contexts[3].beta = local_beta;
++            state.contexts[3].observations = 80;
++            CELLS[l.index()].insert(cell, state);
++        }
++        let mut shared_mean = [0.0; DIRECTIONS];
++        let mut shared_variance = [0.0; DIRECTIONS];
++        let mut local_mean = [0.0; DIRECTIONS];
++        let mut local_variance = [0.0; DIRECTIONS];
++        for d in 0..DIRECTIONS {
++            let shared_a = 1.0 + 24.0 * 0.13 + alpha[d];
++            let shared_b = 1.0 + 24.0 * 0.87 + beta[d];
++            shared_mean[d] = shared_a / (shared_a + shared_b);
++            shared_variance[d] = shared_a * shared_b
++                / ((shared_a + shared_b).powi(2) * (shared_a + shared_b + 1.0));
++            let local_a = 1.0 + 24.0 * shared_mean[d] + local_alpha[d];
++            let local_b = 1.0 + 24.0 * (1.0 - shared_mean[d]) + local_beta[d];
++            local_mean[d] = local_a / (local_a + local_b);
++            local_variance[d] = local_a * local_b
++                / ((local_a + local_b).powi(2) * (local_a + local_b + 1.0));
++        }
++        let reference_q = |a: usize, means: &[f64; DIRECTIONS], variances: &[f64; DIRECTIONS]| {
++            let mut q = [0.0; 3];
++            let start = AXIS_START[a];
++            let end = AXIS_START[a + 1];
++            for d in start..end {
++                let mut w = ArmSet::coin_probability(d);
++                for j in start..end {
++                    if j != d {
++                        let z = (means[d] - means[j]) / (variances[d] + variances[j]).sqrt();
++                        w *= normal_cdf(z);
++                    }
++                }
++                q[d - start] = w;
++            }
++            let sum = q.iter().sum::<f64>();
++            assert!(sum > 0.0);
++            q.map(|w| w / sum)
++        };
++        let mut local_q = [[0.0; 3]; AXES];
++        let mut expected_tv = 0.0;
++        let mut expected_changed = false;
++        for a in 0..AXES {
++            let shared_q = reference_q(a, &shared_mean, &shared_variance);
++            local_q[a] = reference_q(a, &local_mean, &local_variance);
++            let width = AXIS_START[a + 1] - AXIS_START[a];
++            let mut shared_best = 0;
++            let mut local_best = 0;
++            for i in 0..width {
++                expected_tv += (shared_q[i] - local_q[a][i]).abs() / 10.0;
++                if shared_q[i] > shared_q[shared_best] { shared_best = i; }
++                if local_q[a][i] > local_q[a][local_best] { local_best = i; }
++            }
++            expected_changed |= local_best != shared_best;
++        }
++        let run_id = id_where(|id| learner(id).is_some()
++            && run_phase::salted_phase(id, 0x4354584c4f535331, 16) == 0);
++        for seed in [3, 17, 991, 90210] {
++            let mut reference_rng = SmallRng::seed_from_u64(derive_seed(seed, run_id, DRAW_SALT));
++            let mut directions = [0; AXES];
++            for a in 0..AXES {
++                let u = reference_rng.random::<f64>();
++                let width = AXIS_START[a + 1] - AXIS_START[a];
++                let mut cumulative = 0.0;
++                directions[a] = AXIS_START[a + 1] - 1;
++                for i in 0..width {
++                    cumulative += local_q[a][i];
++                    if u < cumulative {
++                        directions[a] = AXIS_START[a] + i;
++                        break;
++                    }
++                }
++            }
++            let before = util_stats::selector_context::Stats::read();
++            let choice = choose_with_context(run_id, seed, 0, cell, SearchContext::TapeMutation, SearchScope::Aos);
++            let after = util_stats::selector_context::Stats::read();
++            assert!(choice.learner.is_some());
++            assert_eq!(choice.arms, ArmSet::from_directions(directions));
++            let diagnostic = choice.diagnostic.unwrap();
++            for (a, d) in directions.into_iter().enumerate() {
++                assert!((diagnostic.shared_means[a] - shared_mean[d]).abs() < 1e-14);
++                assert!((diagnostic.context_means[a] - local_mean[d]).abs() < 1e-14);
++            }
++            assert_eq!(after.counts.specialized_learner_draws - before.counts.specialized_learner_draws, 1);
++            assert_eq!(after.counts.changed_argmax_runs - before.counts.changed_argmax_runs, expected_changed as u64);
++            assert!((after.counts.tv_sum - before.counts.tv_sum - expected_tv).abs() < 1e-13);
++        }
++        util_stats::set_enabled(false);
++        reset();
++    }
++
+ }
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index 597f3d5..a90a4fc 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -393,6 +393,17 @@ enum GridRun {
+     Child { seed: Seed<SingleRunConfig>, prefix: bool },
+ }
+ 
++impl GridRun {
++    fn search_context(&self) -> crate::simulator::arm_selector::SearchContext {
++        use crate::simulator::arm_selector::SearchContext;
++        match self {
++            Self::Fresh { .. } => SearchContext::Fresh,
++            Self::Child { prefix: false, .. } => SearchContext::PlanReuse,
++            Self::Child { prefix: true, .. } => SearchContext::PrefixReplay,
++        }
++    }
++}
++
+ /// What a grid-arm run hands back: its score, and the corpus entry it earned
+ /// when it was a fresh run that fired the signal.
+ struct GridOutcome {
+@@ -431,6 +442,9 @@ impl<F: Feedback> GridArm<F> {
+             },
+             None => {
+                 util_stats::record_replay_slot_unfilled();
++                util_stats::selector_context::unfilled(
++                    crate::simulator::arm_selector::learner(run_id),
++                );
+                 self.fresh()
+             }
+         }
+@@ -456,6 +470,7 @@ impl<F: Feedback> GridArm<F> {
+                     None,
+                     &ctx.attribution
+                         .with_config(config_index)
++                        .with_search_context(run.search_context())
+                         .with_variant_bits(bits),
+                 );
+                 match result {
+@@ -489,6 +504,7 @@ impl<F: Feedback> GridArm<F> {
+                 let attribution = ctx
+                     .attribution
+                     .with_config(seed.config_index)
++                    .with_search_context(run.search_context())
+                     .with_variant_bits(bits);
+                 let result = if *prefix {
+                     run_single_simulation::<F, ReplayRng>(
+@@ -625,6 +641,12 @@ fn build_arm(
+         spec: spec.clone(),
+         weights,
+         attribution: RunAttribution {
++            search_context: crate::simulator::arm_selector::SearchContext::Fresh,
++            search_scope: match spec.mode {
++                ArmMode::Grid => crate::simulator::arm_selector::SearchScope::Grid,
++                ArmMode::Aos => crate::simulator::arm_selector::SearchScope::Aos,
++                _ => crate::simulator::arm_selector::SearchScope::Other,
++            },
+             arm: Arc::from(spec.id.as_str()),
+             arm_index: index as i32,
+             config_index: -1,
+@@ -1351,4 +1373,32 @@ mod tests {
+         assert_eq!(Reward::Runs.read(&delta), 9.0);
+         assert_eq!(Reward::HazardCrossing.read(&delta), 0.0);
+     }
++    #[test]
++    fn actual_grid_branch_sets_context_even_for_unfilled_prefix_slots() {
++        use crate::simulator::arm_selector::SearchContext;
++        use crate::simulator::feedback::NoFeedback;
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let config: CampaignConfig = serde_json::from_str(MINIMAL).unwrap();
++        let mut arm = GridArm::<NoFeedback>::new(config.envelope, 1, 5);
++        let id = (0..1000).find(|&id| replay_corpus::is_prefix(id)).unwrap();
++        let fresh = arm.assign(id);
++        assert!(matches!(fresh, GridRun::Fresh { .. }));
++        assert_eq!(fresh.search_context(), SearchContext::Fresh);
++        let assigned = crate::simulator::arm_selector::learner(id).unwrap();
++        let stats = util_stats::selector_context::Stats::read();
++        let rows = &stats.scopes["grid"].contexts["fresh"].learners;
++        for (index, name) in ["a", "b", "c"].into_iter().enumerate() {
++            assert_eq!(rows[name].unfilled_slot_fresh, (index == assigned.index()) as u64);
++        }
++        assert_eq!(rows["none"].unfilled_slot_fresh, 0);
++        assert_eq!(stats.counts.unfilled_slot_fresh, 1);
++        util_stats::set_enabled(false);
++        let seed = Seed { tape: Vec::new().into(), workload_seed: 7, cfg: arm.configs[0].clone(), config_index: 0, cut_step: 12 };
++        arm.corpus.admit(seed.clone());
++        let prefix = arm.assign(id);
++        assert_eq!(prefix.search_context(), SearchContext::PrefixReplay);
++        assert_eq!(GridRun::Child { seed, prefix:false }.search_context(), SearchContext::PlanReuse);
++    }
++
+ }
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index a471961..36708a0 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -911,6 +911,8 @@ pub struct RunResult {
+ /// the issuing strategy can know, joined to the bits the run id fixes.
+ #[derive(Clone, Debug)]
+ pub struct RunAttribution {
++    pub search_context: arm_selector::SearchContext,
++    pub search_scope: arm_selector::SearchScope,
+     pub arm: Arc<str>,
+     pub arm_index: i32,
+     pub config_index: i32,
+@@ -918,9 +920,19 @@ pub struct RunAttribution {
+ }
+ 
+ impl RunAttribution {
++    pub fn with_search_context(&self, search_context: arm_selector::SearchContext) -> Self {
++        Self { search_context, ..self.clone() }
++    }
++
++    pub fn with_search_scope(&self, search_scope: arm_selector::SearchScope) -> Self {
++        Self { search_scope, ..self.clone() }
++    }
++
+     pub fn mode(name: &str) -> Self {
+         Self {
+             arm: Arc::from(name),
++            search_context: arm_selector::SearchContext::Fresh,
++            search_scope: arm_selector::SearchScope::Other,
+             arm_index: -1,
+             config_index: -1,
+             variant_bits: 0,
+@@ -930,6 +942,7 @@ impl RunAttribution {
+     pub fn with_config(&self, config_index: usize) -> Self {
+         Self {
+             config_index: config_index as i32,
++            search_scope: arm_selector::SearchScope::Grid,
+             ..self.clone()
+         }
+     }
+@@ -942,6 +955,27 @@ impl RunAttribution {
+     }
+ }
+ 
++struct ContextRun {
++    scope: arm_selector::SearchScope,
++    context: arm_selector::SearchContext,
++    learner: Option<arm_selector::Learner>,
++    sampled: bool,
++    completed: bool,
++}
++impl ContextRun {
++    fn new(attribution: &RunAttribution, run_id: i64) -> Self {
++        let run = Self { scope: attribution.search_scope, context: attribution.search_context,
++            learner: arm_selector::learner(run_id), sampled: false, completed: false };
++        util_stats::selector_context::issued(run.scope, run.context, run.learner);
++        run
++    }
++}
++impl Drop for ContextRun {
++    fn drop(&mut self) {
++        util_stats::selector_context::finished(self.scope, self.context, self.learner, self.completed, self.sampled);
++    }
++}
++
+ /// The origin of `session_offset_ms` in the `runs` table. A session sets it
+ /// when it starts, before any run; a run row written outside a session
+ /// measures from the first row instead.
+@@ -1022,6 +1056,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     seed_tape: Option<Recording>,
+     attribution: &RunAttribution,
+ ) -> Result<RunResult, Box<dyn Error>> {
++    let mut context_run = ContextRun::new(attribution, run_id);
+     let started = std::time::Instant::now();
+     let snapshot = F::snapshot(&global_state.feedback);
+     let gen_config = GeneratorConfig {
+@@ -1107,7 +1142,9 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     // The arms are drawn before the plan runs and read nothing from the
+     // run's schedule stream.
+     let cell = arm_selector::cell(attribution.arm_index, attribution.config_index);
+-    let choice = arm_selector::choose(run_id, schedule_seed, attribution.arm_index, cell);
++    let choice = arm_selector::choose_with_context(run_id, schedule_seed, attribution.arm_index, cell,
++        attribution.search_context, attribution.search_scope);
++    context_run.sampled = choice.diagnostic.is_some();
+     let arms = choice.arms;
+     let outcome = exec_plan::<crate::simulator::hash_utils::NoHashing, F>(
+         &mut path_state,
+@@ -1183,6 +1220,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         path_state.state.crash_hold_drawn,
+     ));
+ 
++    context_run.completed = true;
+     Ok(RunResult {
+         score: plan_score,
+         recording,
+@@ -1754,6 +1792,15 @@ enum Operator {
+     ConfigMutate = 1,
+ }
+ 
++impl Operator {
++    fn search_context(self) -> arm_selector::SearchContext {
++        match self {
++            Self::TapeMutate => arm_selector::SearchContext::TapeMutation,
++            Self::ConfigMutate => arm_selector::SearchContext::Fresh,
++        }
++    }
++}
++
+ /// Two-armed adaptive-pursuit bandit. `q` tracks windowed reward per
+ /// operator; `p` is the selection distribution, pursued toward the
+ /// current-best arm with a `p_min` floor on both.
+@@ -1980,7 +2027,7 @@ fn run_recorded<F: Feedback>(
+         workload_seed,
+         derive_seed(session_seed, run_id, SCHEDULE_SALT),
+         None,
+-        attribution,
++        &attribution.with_search_context(Operator::ConfigMutate.search_context()),
+     );
+     package_child(Operator::ConfigMutate, cfg, workload_seed, run_id, r)
+ }
+@@ -2014,7 +2061,7 @@ fn run_aos_child<F: Feedback>(
+                 parent.workload_seed,
+                 derive_seed(session, run_id, SCHEDULE_SALT),
+                 Some(mutated),
+-                attribution,
++                &attribution.with_search_context(op.search_context()),
+             );
+             package_child(op, parent.cfg.clone(), parent.workload_seed, run_id, r)
+         }
+@@ -2123,7 +2170,7 @@ fn run_explorer_aos_impl<F: Feedback>(
+     let num_batches = config.num_generations.max(1);
+     let mut aos = AosExplorer::<F>::new(config, batch_size, weights, session_seed);
+ 
+-    let attribution = RunAttribution::mode("aos");
++    let attribution = RunAttribution::mode("aos").with_search_scope(arm_selector::SearchScope::Aos);
+     let ctx = StepCtx {
+         program,
+         writer: &writer,
+@@ -2753,7 +2800,8 @@ fn run_explorer_continuous_impl<F: Feedback>(
+             modes.insert(slice.mode, build_mode::<F>(slice.mode, &config));
+             attributions.insert(
+                 slice.mode,
+-                RunAttribution::mode(&format!("continuous:{:?}", slice.mode).to_lowercase()),
++                RunAttribution::mode(&format!("continuous:{:?}", slice.mode).to_lowercase())
++                    .with_search_scope(if matches!(slice.mode, ModeId::Aos) { arm_selector::SearchScope::Aos } else { arm_selector::SearchScope::Other }),
+             );
+         }
+     }
+@@ -2947,3 +2995,56 @@ mod strict_config_keys_tests {
+         assert!(strict.strict_config_keys);
+     }
+ }
++
++#[cfg(test)]
++mod search_context_tests {
++    use super::*;
++
++    #[test]
++    fn operator_context_overrides_inherited_context_and_preserves_attribution() {
++        use arm_selector::{SearchContext, SearchScope};
++        let a = RunAttribution::mode("custom-label").with_search_scope(SearchScope::Aos)
++            .with_search_context(SearchContext::PrefixReplay).with_variant_bits(123);
++        let fresh = a.with_search_context(Operator::ConfigMutate.search_context());
++        let tape = a.with_search_context(Operator::TapeMutate.search_context());
++        assert_eq!(fresh.search_context, SearchContext::Fresh);
++        assert_eq!(tape.search_context, SearchContext::TapeMutation);
++        assert_eq!(tape.search_scope, SearchScope::Aos);
++        assert_eq!(tape.variant_bits, 123);
++        assert_eq!(tape.arm.as_ref(), "custom-label");
++        assert_eq!(a.search_context, SearchContext::PrefixReplay);
++        let grid = tape.with_config(9);
++        assert_eq!(grid.search_context, SearchContext::TapeMutation);
++        assert_eq!(grid.search_scope, SearchScope::Grid);
++        assert_eq!(grid.config_index, 9);
++    }
++
++    #[test]
++    fn failed_sample_is_unscored_and_successful_run_is_completed_once() {
++        let _serial = config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        arm_selector::reset();
++        let a = RunAttribution::mode("diagnostic").with_search_scope(arm_selector::SearchScope::Aos)
++            .with_search_context(arm_selector::SearchContext::TapeMutation);
++        {
++            let mut run = ContextRun::new(&a, 7);
++            run.sampled = true;
++        }
++        {
++            let mut run = ContextRun::new(&a, 8);
++            run.completed = true;
++        }
++        let stats = util_stats::selector_context::Stats::read();
++        assert_eq!(stats.counts.issued_runs,2);
++        assert_eq!(stats.counts.failed_runs,1);
++        assert_eq!(stats.counts.sampled_unscored_runs,1);
++        assert_eq!(stats.counts.scored_runs,0);
++        assert_eq!(stats.counts.completed_runs,1);
++        assert_eq!(stats.scopes["aos"].contexts["tape_mutation"].counts.issued_runs,2);
++        assert_eq!(stats.scopes["grid"].counts.issued_runs,0);
++        eprintln!("attribution bytes {}", std::mem::size_of::<RunAttribution>());
++        util_stats::set_enabled(true);
++        assert_eq!(util_stats::selector_context::Stats::read().counts.issued_runs,0);
++        util_stats::set_enabled(false);
++    }
++}
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..2b89b94 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -5,6 +5,8 @@
+ //! never affect scheduling, scoring, or RNG consumption. When disabled, every
+ //! probe is a single relaxed atomic load.
+ 
++pub mod selector_context;
++
+ use crate::simulator::core::steer_terms::{Term, TERMS};
+ use crate::simulator::client_anchor;
+ use crate::simulator::run_variant;
+@@ -602,6 +604,7 @@ const TIMELINE_MAX_BUCKETS: usize = 512;
+ /// counters so repeated sessions in one process don't bleed into each other.
+ pub fn set_enabled(on: bool) {
+     if on {
++        selector_context::reset();
+         for c in [
+             &STEER_EVALUATIONS,
+             &STEER_DIVERGENT_PICKS,
+@@ -4984,6 +4987,7 @@ impl TimerContextStats {
+ /// A point-in-time copy of all counters, serializable to `utilization.json`.
+ #[derive(Serialize)]
+ pub struct UtilizationSnapshot {
++    pub selector_context: selector_context::Stats,
+     pub rng_streams: RngStreamStats,
+     pub steer: SteerStats,
+     pub steer_empty_slice: EmptySliceStats,
+@@ -5090,6 +5094,7 @@ pub fn add(acc: &mut serde_json::Value, delta: &serde_json::Value) {
+ 
+ pub fn snapshot() -> UtilizationSnapshot {
+     UtilizationSnapshot {
++        selector_context: selector_context::Stats::read(),
+         rng_streams: RngStreamStats {
+             isolated_runs: RNG_ISOLATED_RUNS.load(Ordering::Relaxed),
+             shared_runs: RNG_SHARED_RUNS.load(Ordering::Relaxed),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..0b36882 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -1427,6 +1427,7 @@ fn client_anchor_leaves(prefix: &str, c: &ClientAnchorStats) -> Vec<(String, Val
+ 
+ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+     let UtilizationSnapshot {
++        selector_context: _,
+         rng_streams: _,
+         steer: _,
+         steer_empty_slice: _,
+@@ -1465,6 +1466,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         steer_terms: _,
+     } = s;
+     vec![
++        "selector_context",
+         "rng_streams",
+         "steer",
+         "steer_empty_slice",
+@@ -1555,6 +1557,75 @@ fn assert_leaves(expected: &[(String, Value)], actual: &BTreeMap<String, Value>,
+ /// A snapshot whose three most-read blocks carry a distinct value in every
+ /// field. The rest of the snapshot is whatever the process counters hold,
+ /// which for a test binary that has recorded nothing is zero.
++fn mark_context_counts(m: &mut Marks, prefix: &str, c: &mut util_stats::selector_context::Counts, out: &mut Vec<(String, Value)>) {
++    let util_stats::selector_context::Counts {
++        issued_runs,
++        completed_runs,
++        failed_runs,
++        unfilled_slot_fresh,
++        probe_draws,
++        coin_draws,
++        specialized_learner_draws,
++        shared_fallback_learner_draws,
++        sampled_runs,
++        scored_runs,
++        sampled_unscored_runs,
++        credited_runs,
++        learner_credits,
++        context_blocks_created,
++        pooled_context_blocks_created,
++        raw_observations_max,
++        pooled_raw_observations_max,
++        changed_argmax_runs,
++        tv_sum,
++        context_loss_sum,
++        shared_loss_sum,
++    } = c;
++    *issued_runs = m.int(); out.push(leaf(prefix, "issued_runs", *issued_runs));
++    *completed_runs = m.int(); out.push(leaf(prefix, "completed_runs", *completed_runs));
++    *failed_runs = m.int(); out.push(leaf(prefix, "failed_runs", *failed_runs));
++    *unfilled_slot_fresh = m.int(); out.push(leaf(prefix, "unfilled_slot_fresh", *unfilled_slot_fresh));
++    *probe_draws = m.int(); out.push(leaf(prefix, "probe_draws", *probe_draws));
++    *coin_draws = m.int(); out.push(leaf(prefix, "coin_draws", *coin_draws));
++    *specialized_learner_draws = m.int(); out.push(leaf(prefix, "specialized_learner_draws", *specialized_learner_draws));
++    *shared_fallback_learner_draws = m.int(); out.push(leaf(prefix, "shared_fallback_learner_draws", *shared_fallback_learner_draws));
++    *sampled_runs = m.int(); out.push(leaf(prefix, "sampled_runs", *sampled_runs));
++    *scored_runs = m.int(); out.push(leaf(prefix, "scored_runs", *scored_runs));
++    *sampled_unscored_runs = m.int(); out.push(leaf(prefix, "sampled_unscored_runs", *sampled_unscored_runs));
++    *credited_runs = m.int(); out.push(leaf(prefix, "credited_runs", *credited_runs));
++    *learner_credits = m.int(); out.push(leaf(prefix, "learner_credits", *learner_credits));
++    *context_blocks_created = m.int(); out.push(leaf(prefix, "context_blocks_created", *context_blocks_created));
++    *pooled_context_blocks_created = m.int(); out.push(leaf(prefix, "pooled_context_blocks_created", *pooled_context_blocks_created));
++    *raw_observations_max = m.int(); out.push(leaf(prefix, "raw_observations_max", *raw_observations_max));
++    *pooled_raw_observations_max = m.int(); out.push(leaf(prefix, "pooled_raw_observations_max", *pooled_raw_observations_max));
++    *changed_argmax_runs = m.int(); out.push(leaf(prefix, "changed_argmax_runs", *changed_argmax_runs));
++    *tv_sum = m.frac(); out.push(leaf(prefix, "tv_sum", *tv_sum));
++    *context_loss_sum = m.frac(); out.push(leaf(prefix, "context_loss_sum", *context_loss_sum));
++    *shared_loss_sum = m.frac(); out.push(leaf(prefix, "shared_loss_sum", *shared_loss_sum));
++}
++fn mark_context(m: &mut Marks, stats: &mut util_stats::selector_context::Stats) -> Vec<(String, Value)> {
++    let util_stats::selector_context::Stats { counts, scopes, context_block_bytes, cell_learner_bytes, choice_bytes, attribution_bytes } = stats;
++    let mut out = Vec::new();
++    mark_context_counts(m, "selector_context", counts, &mut out);
++    for (name, value) in [("context_block_bytes", context_block_bytes), ("cell_learner_bytes", cell_learner_bytes), ("choice_bytes", choice_bytes), ("attribution_bytes", attribution_bytes)] {
++        *value = m.int() as usize;
++        out.push(leaf("selector_context", name, *value as u64));
++    }
++    for (scope, stats) in scopes {
++        let prefix = format!("selector_context.scopes.{scope}");
++        let util_stats::selector_context::ScopeStats { counts, contexts, learners } = stats;
++        mark_context_counts(m, &prefix, counts, &mut out);
++        for (l, c) in learners { mark_context_counts(m, &format!("{prefix}.learners.{l}"), c, &mut out); }
++        for (context, b) in contexts {
++            let prefix = format!("{prefix}.contexts.{context}");
++            let util_stats::selector_context::Breakdown { counts, learners } = b;
++            mark_context_counts(m, &prefix, counts, &mut out);
++            for (l, c) in learners { mark_context_counts(m, &format!("{prefix}.learners.{l}"), c, &mut out); }
++        }
++    }
++    out
++}
++
+ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     let mut m = Marks(0);
+     let mut s = util_stats::snapshot();
+@@ -1589,6 +1660,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(arm_selector_axis_leaves("arm_selector_axis", &s.arm_selector_axis));
+     expected.extend(replay_leaves("replay", &s.replay));
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
++    expected.extend(mark_context(&mut m, &mut s.selector_context));
+     (s, expected)
+ }
+ 
+@@ -1618,6 +1690,7 @@ fn every_counter_field_reaches_the_written_json() {
+     );
+ 
+     for block in [
++        "selector_context",
+         "steer_authority",
+         "termination",
+         "delivery_effects",
+@@ -1664,7 +1737,8 @@ fn every_integer_counter_survives_the_difference_and_accumulate_path() {
+     let want: Vec<(String, Value)> = expected
+         .iter()
+         .filter(|(path, value)| {
+-            value.is_u64() && !path.split('.').any(|s| s.parse::<usize>().is_ok())
++            // Layout sizes are fixed gauges, not accumulated counts.
++            value.is_u64() && !path.ends_with("_bytes") && !path.split('.').any(|s| s.parse::<usize>().is_ok())
+         })
+         .cloned()
+         .collect();
+diff --git a/spur-core/src/simulator/util_stats/selector_context.rs b/spur-core/src/simulator/util_stats/selector_context.rs
+new file mode 100644
+index 0000000..ca2b518
+--- /dev/null
++++ b/spur-core/src/simulator/util_stats/selector_context.rs
+@@ -0,0 +1,265 @@
++use super::{add_f64, enabled};
++use crate::simulator::arm_selector::{Choice, Learner, SearchContext, SearchScope};
++use serde::Serialize;
++use std::collections::BTreeMap;
++use std::sync::atomic::{AtomicU64, Ordering};
++
++const ROWS: usize = 3 * 4 * 4;
++
++struct Counters {
++    issued_runs: AtomicU64,
++    completed_runs: AtomicU64,
++    failed_runs: AtomicU64,
++    unfilled_slot_fresh: AtomicU64,
++    probe_draws: AtomicU64,
++    coin_draws: AtomicU64,
++    specialized_learner_draws: AtomicU64,
++    shared_fallback_learner_draws: AtomicU64,
++    sampled_runs: AtomicU64,
++    scored_runs: AtomicU64,
++    sampled_unscored_runs: AtomicU64,
++    credited_runs: AtomicU64,
++    learner_credits: AtomicU64,
++    context_blocks_created: AtomicU64,
++    pooled_context_blocks_created: AtomicU64,
++    raw_observations_max: AtomicU64,
++    pooled_raw_observations_max: AtomicU64,
++    changed_argmax_runs: AtomicU64,
++    tv_sum: AtomicU64,
++    context_loss_sum: AtomicU64,
++    shared_loss_sum: AtomicU64,
++ }
++impl Counters {
++    const fn new() -> Self {
++        Self {
++            issued_runs: AtomicU64::new(0),
++            completed_runs: AtomicU64::new(0),
++            failed_runs: AtomicU64::new(0),
++            unfilled_slot_fresh: AtomicU64::new(0),
++            probe_draws: AtomicU64::new(0),
++            coin_draws: AtomicU64::new(0),
++            specialized_learner_draws: AtomicU64::new(0),
++            shared_fallback_learner_draws: AtomicU64::new(0),
++            sampled_runs: AtomicU64::new(0),
++            scored_runs: AtomicU64::new(0),
++            sampled_unscored_runs: AtomicU64::new(0),
++            credited_runs: AtomicU64::new(0),
++            learner_credits: AtomicU64::new(0),
++            context_blocks_created: AtomicU64::new(0),
++            pooled_context_blocks_created: AtomicU64::new(0),
++            raw_observations_max: AtomicU64::new(0),
++            pooled_raw_observations_max: AtomicU64::new(0),
++            changed_argmax_runs: AtomicU64::new(0),
++            tv_sum: AtomicU64::new(0),
++            context_loss_sum: AtomicU64::new(0),
++            shared_loss_sum: AtomicU64::new(0),
++        }
++    }
++}
++static ROW: [Counters; ROWS] = [const { Counters::new() }; ROWS];
++
++fn row(scope: SearchScope, context: SearchContext, learner: Option<Learner>) -> &'static Counters {
++    &ROW[(scope as usize * 4 + context as usize) * 4 + learner.map_or(3, Learner::index)]
++}
++
++pub fn reset() {
++    for r in &ROW {
++        r.issued_runs.store(0, Ordering::Relaxed);
++        r.completed_runs.store(0, Ordering::Relaxed);
++        r.failed_runs.store(0, Ordering::Relaxed);
++        r.unfilled_slot_fresh.store(0, Ordering::Relaxed);
++        r.probe_draws.store(0, Ordering::Relaxed);
++        r.coin_draws.store(0, Ordering::Relaxed);
++        r.specialized_learner_draws.store(0, Ordering::Relaxed);
++        r.shared_fallback_learner_draws.store(0, Ordering::Relaxed);
++        r.sampled_runs.store(0, Ordering::Relaxed);
++        r.scored_runs.store(0, Ordering::Relaxed);
++        r.sampled_unscored_runs.store(0, Ordering::Relaxed);
++        r.credited_runs.store(0, Ordering::Relaxed);
++        r.learner_credits.store(0, Ordering::Relaxed);
++        r.context_blocks_created.store(0, Ordering::Relaxed);
++        r.pooled_context_blocks_created.store(0, Ordering::Relaxed);
++        r.raw_observations_max.store(0, Ordering::Relaxed);
++        r.pooled_raw_observations_max.store(0, Ordering::Relaxed);
++        r.changed_argmax_runs.store(0, Ordering::Relaxed);
++        r.tv_sum.store(0, Ordering::Relaxed);
++        r.context_loss_sum.store(0, Ordering::Relaxed);
++        r.shared_loss_sum.store(0, Ordering::Relaxed);
++    }
++}
++
++pub fn issued(scope: SearchScope, context: SearchContext, learner: Option<Learner>) {
++    if enabled() { row(scope, context, learner).issued_runs.fetch_add(1, Ordering::Relaxed); }
++}
++pub fn finished(scope: SearchScope, context: SearchContext, learner: Option<Learner>, ok: bool, sampled: bool) {
++    if !enabled() { return; }
++    let r = row(scope, context, learner);
++    if ok { r.completed_runs.fetch_add(1, Ordering::Relaxed); }
++    else {
++        r.failed_runs.fetch_add(1, Ordering::Relaxed);
++        if sampled { r.sampled_unscored_runs.fetch_add(1, Ordering::Relaxed); }
++    }
++}
++pub fn unfilled(learner: Option<Learner>) {
++    if enabled() {
++        row(SearchScope::Grid, SearchContext::Fresh, learner)
++            .unfilled_slot_fresh.fetch_add(1, Ordering::Relaxed);
++    }
++}
++pub fn draw(choice: &Choice, assigned: Option<Learner>, specialized: bool, tv: f64, changed: bool) {
++    if !enabled() { return; }
++    let r = row(choice.scope, choice.context, assigned);
++    if assigned.is_none() { r.probe_draws.fetch_add(1, Ordering::Relaxed); }
++    else if choice.learner.is_none() { r.coin_draws.fetch_add(1, Ordering::Relaxed); }
++    else if specialized {
++        r.specialized_learner_draws.fetch_add(1, Ordering::Relaxed);
++        add_f64(&r.tv_sum, tv);
++        r.changed_argmax_runs.fetch_add(changed as u64, Ordering::Relaxed);
++        if choice.diagnostic.is_some() { r.sampled_runs.fetch_add(1, Ordering::Relaxed); }
++    } else { r.shared_fallback_learner_draws.fetch_add(1, Ordering::Relaxed); }
++}
++pub fn scored(choice: &Choice, context_loss: f64, shared_loss: f64) {
++    if !enabled() { return; }
++    let r = row(choice.scope, choice.context, choice.learner);
++    r.scored_runs.fetch_add(1, Ordering::Relaxed);
++    add_f64(&r.context_loss_sum, context_loss);
++    add_f64(&r.shared_loss_sum, shared_loss);
++}
++pub fn observed(choice: &Choice, assigned: Option<Learner>) {
++    if enabled() { row(choice.scope, choice.context, assigned).credited_runs.fetch_add(1, Ordering::Relaxed); }
++}
++pub fn credit(choice: &Choice, learner: Learner, observations: u64, pooled: bool) {
++    if !enabled() { return; }
++    let r = row(choice.scope, choice.context, Some(learner));
++    r.learner_credits.fetch_add(1, Ordering::Relaxed);
++    r.raw_observations_max.fetch_max(observations, Ordering::Relaxed);
++    if observations == 1 { r.context_blocks_created.fetch_add(1, Ordering::Relaxed); }
++    if pooled {
++        r.pooled_raw_observations_max.fetch_max(observations, Ordering::Relaxed);
++        if observations == 1 { r.pooled_context_blocks_created.fetch_add(1, Ordering::Relaxed); }
++    }
++}
++
++#[derive(Default, Clone, Serialize)]
++pub struct Counts {
++    pub issued_runs: u64,
++    pub completed_runs: u64,
++    pub failed_runs: u64,
++    pub unfilled_slot_fresh: u64,
++    pub probe_draws: u64,
++    pub coin_draws: u64,
++    pub specialized_learner_draws: u64,
++    pub shared_fallback_learner_draws: u64,
++    pub sampled_runs: u64,
++    pub scored_runs: u64,
++    pub sampled_unscored_runs: u64,
++    pub credited_runs: u64,
++    pub learner_credits: u64,
++    pub context_blocks_created: u64,
++    pub pooled_context_blocks_created: u64,
++    pub raw_observations_max: u64,
++    pub pooled_raw_observations_max: u64,
++    pub changed_argmax_runs: u64,
++    pub tv_sum: f64,
++    pub context_loss_sum: f64,
++    pub shared_loss_sum: f64,
++ }
++impl Counts {
++    fn read(r: &Counters) -> Self {
++        Self {
++            issued_runs: r.issued_runs.load(Ordering::Relaxed),
++            completed_runs: r.completed_runs.load(Ordering::Relaxed),
++            failed_runs: r.failed_runs.load(Ordering::Relaxed),
++            unfilled_slot_fresh: r.unfilled_slot_fresh.load(Ordering::Relaxed),
++            probe_draws: r.probe_draws.load(Ordering::Relaxed),
++            coin_draws: r.coin_draws.load(Ordering::Relaxed),
++            specialized_learner_draws: r.specialized_learner_draws.load(Ordering::Relaxed),
++            shared_fallback_learner_draws: r.shared_fallback_learner_draws.load(Ordering::Relaxed),
++            sampled_runs: r.sampled_runs.load(Ordering::Relaxed),
++            scored_runs: r.scored_runs.load(Ordering::Relaxed),
++            sampled_unscored_runs: r.sampled_unscored_runs.load(Ordering::Relaxed),
++            credited_runs: r.credited_runs.load(Ordering::Relaxed),
++            learner_credits: r.learner_credits.load(Ordering::Relaxed),
++            context_blocks_created: r.context_blocks_created.load(Ordering::Relaxed),
++            pooled_context_blocks_created: r.pooled_context_blocks_created.load(Ordering::Relaxed),
++            raw_observations_max: r.raw_observations_max.load(Ordering::Relaxed),
++            pooled_raw_observations_max: r.pooled_raw_observations_max.load(Ordering::Relaxed),
++            changed_argmax_runs: r.changed_argmax_runs.load(Ordering::Relaxed),
++            tv_sum: f64::from_bits(r.tv_sum.load(Ordering::Relaxed)),
++            context_loss_sum: f64::from_bits(r.context_loss_sum.load(Ordering::Relaxed)),
++            shared_loss_sum: f64::from_bits(r.shared_loss_sum.load(Ordering::Relaxed)),
++        }
++    }
++    fn add(&mut self, other: &Self) {
++        self.issued_runs += other.issued_runs;
++        self.completed_runs += other.completed_runs;
++        self.failed_runs += other.failed_runs;
++        self.unfilled_slot_fresh += other.unfilled_slot_fresh;
++        self.probe_draws += other.probe_draws;
++        self.coin_draws += other.coin_draws;
++        self.specialized_learner_draws += other.specialized_learner_draws;
++        self.shared_fallback_learner_draws += other.shared_fallback_learner_draws;
++        self.sampled_runs += other.sampled_runs;
++        self.scored_runs += other.scored_runs;
++        self.sampled_unscored_runs += other.sampled_unscored_runs;
++        self.credited_runs += other.credited_runs;
++        self.learner_credits += other.learner_credits;
++        self.context_blocks_created += other.context_blocks_created;
++        self.pooled_context_blocks_created += other.pooled_context_blocks_created;
++        self.raw_observations_max = self.raw_observations_max.max(other.raw_observations_max);
++        self.pooled_raw_observations_max = self.pooled_raw_observations_max.max(other.pooled_raw_observations_max);
++        self.changed_argmax_runs += other.changed_argmax_runs;
++        self.tv_sum += other.tv_sum;
++        self.context_loss_sum += other.context_loss_sum;
++        self.shared_loss_sum += other.shared_loss_sum;
++    }
++}
++
++#[derive(Default, Serialize)]
++pub struct Breakdown {
++    #[serde(flatten)]
++    pub counts: Counts,
++    pub learners: BTreeMap<&'static str, Counts>,
++}
++#[derive(Default, Serialize)]
++pub struct ScopeStats {
++    #[serde(flatten)]
++    pub counts: Counts,
++    pub contexts: BTreeMap<&'static str, Breakdown>,
++    pub learners: BTreeMap<&'static str, Counts>,
++}
++#[derive(Serialize)]
++pub struct Stats {
++    #[serde(flatten)]
++    pub counts: Counts,
++    pub scopes: BTreeMap<&'static str, ScopeStats>,
++    pub context_block_bytes: usize,
++    pub cell_learner_bytes: usize,
++    pub choice_bytes: usize,
++    pub attribution_bytes: usize,
++}
++impl Stats {
++    pub fn read() -> Self {
++        let mut counts = Counts::default();
++        let mut scopes = BTreeMap::new();
++        for (si, scope) in ["grid", "aos", "other"].into_iter().enumerate() {
++            let mut stats = ScopeStats::default();
++            for (ci, context) in ["fresh", "plan_reuse", "prefix_replay", "tape_mutation"].into_iter().enumerate() {
++                let mut breakdown = Breakdown::default();
++                for (li, learner) in ["a", "b", "c", "none"].into_iter().enumerate() {
++                    let c = Counts::read(&ROW[(si * 4 + ci) * 4 + li]);
++                    breakdown.counts.add(&c);
++                    stats.learners.entry(learner).or_default().add(&c);
++                    breakdown.learners.insert(learner, c);
++                }
++                stats.counts.add(&breakdown.counts);
++                stats.contexts.insert(context, breakdown);
++            }
++            counts.add(&stats.counts);
++            scopes.insert(scope, stats);
++        }
++        let (context_block_bytes, cell_learner_bytes, choice_bytes) = crate::simulator::arm_selector::context_layout();
++        Self { counts, scopes, context_block_bytes, cell_learner_bytes, choice_bytes,
++            attribution_bytes: std::mem::size_of::<crate::simulator::explorer::RunAttribution>() }
++    }
++}

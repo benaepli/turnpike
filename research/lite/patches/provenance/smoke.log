@@ -1,0 +1,9 @@
+Explorer finished in 2.26s. Results saved to /home/benaepli/Rust/turnpike/tmp/loop/lite/provenance/smoke
+  - Coverage heatmap: skipped (no CFG feedback)
+  - CFG: /home/benaepli/Rust/turnpike/tmp/loop/lite/provenance/smoke/cfg.svg
+  - Utilization counters: /home/benaepli/Rust/turnpike/tmp/loop/lite/provenance/smoke/utilization.json
+  - Utilization counters: /home/benaepli/Rust/turnpike/tmp/loop/lite/provenance/smoke.utilization.json
+  - Session summary: /home/benaepli/Rust/turnpike/tmp/loop/lite/provenance/smoke/session.json
+  - Session summary: /home/benaepli/Rust/turnpike/tmp/loop/lite/provenance/smoke.session.json
+  - Campaign report: /home/benaepli/Rust/turnpike/tmp/loop/lite/provenance/smoke/campaign.json
+  - Campaign report: /home/benaepli/Rust/turnpike/tmp/loop/lite/provenance/smoke.campaign.json

@@ -1,0 +1,11 @@
+# Root implementation review
+
+Reviewed the complete runtime diff in arm_selector.rs, campaign.rs and explorer.rs, the complete new selector_context telemetry module, and the util_stats/export-test changes against accepted Spur b86baad. Full exported patch applies cleanly to the unchanged main baseline. The configuration and campaign remain identical; protected files are untouched.
+
+The shared selector equations, original exploration decision, coin/probe credit and cell keys remain in place. Contextual posterior construction, own-context discount, pairwise-normal categorical probabilities and immutable pre-execution loss snapshots match the admitted formulas. Actual GridRun and AOS issuing branches determine context. An empty replay slot remains Fresh, and fidelity/outcomes cannot relabel a supplied prefix. No new field enters execution state, history rows, event identity or schedule RNG. Choice owns its bounded diagnostic across execution and scores it before this outcome's credit.
+
+The added scope follows actual mode/configuration and only supports diagnostics. In the fixed normal campaign, Grid is exactly the four existing grid arms and Aos is its existing AOS arm. Normal session scalar leaves retain floating loss/TV sums; campaign deltas do not, so arithmetic must use the direct scope totals. All frozen supply denominators can be obtained from the session block, without inferring learner runs from assignment tags. Loss and TV sums are additive across chunks; byte gauges and maxima are not.
+
+Independent review identified the empty-slot counter's false learner=None attribution. Fix this before grading and verify its assigned bucket. Batch the missing asymmetric formula/private-stream/TV test with that correction. The initial export is not the final graded binary; final hashes, test results and independent disposition must be recorded after correction. No performance/supply inference is made from the retained smoke.
+
+Final disposition: PASS. Corrected assigned-learner empty-slot attribution and the asymmetric probability/RNG/TV reference test were read. Final hashes independently verified against all exports; full suite462 passed across25 result rows and release build passed. No new smoke after the diagnostic correction. Final binary SHA256020acbb8a23c769adaeba56f1bdec8b6ccde58c59cc8867f025d8957d50998cd.

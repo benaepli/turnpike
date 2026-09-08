@@ -1,0 +1,115 @@
+{
+  "num_servers": {
+    "min": 3,
+    "max": 3,
+    "step": 1
+  },
+  "num_write_ops": {
+    "min": 2,
+    "max": 4,
+    "step": 1
+  },
+  "num_read_ops": {
+    "min": 4,
+    "max": 8,
+    "step": 2
+  },
+  "num_keys": {
+    "min": 1,
+    "max": 1,
+    "step": 1
+  },
+  "num_crashes": {
+    "min": 1,
+    "max": 3,
+    "step": 1
+  },
+  "max_concurrent_writes": {
+    "min": 2,
+    "max": 2,
+    "step": 1
+  },
+  "dependency_density": [
+    0.0,
+    0.3
+  ],
+  "post_fault_client_ops": 1,
+  "purgatory": {
+    "delay_probability": 0.0,
+    "delay_duration_range": [
+      5,
+      300
+    ],
+    "hold_down_receivers": false
+  },
+  "partial_fanout_crash_bias": 0.5,
+  "faults": {
+    "recovery_weight_placebo": true
+  },
+  "feedback": {
+    "mode": "timeline",
+    "steer": true,
+    "timeline_key_granularity": "fine",
+    "steer_audit": true,
+    "novelty_enabled": false
+  },
+  "steer_terms": {
+    "crash_after_timer_sends": 0,
+    "crash_after_delivery_sends": 0,
+    "stale_late": 0,
+    "request_before_stale": 0
+  },
+  "stats": true,
+  "emit_acted_fraction": true,
+  "emit_acceptance_distance": true,
+  "emit_crash_census": true,
+  "emit_prefix_extension": true,
+  "emit_multiplier_authority": true,
+  "num_runs_per_config": 100,
+  "max_iterations": 6000,
+  "strict_config_keys": true,
+  "rng_stream_isolation": true,
+  "campaign": {
+    "wall_budget_sec": 2,
+    "allocation": {
+      "kind": "round_robin",
+      "min_slice_sec": 20
+    },
+    "reward": {
+      "kind": "termination_completed"
+    },
+    "arms": [
+      {
+        "id": "grid",
+        "mode": "grid",
+        "overlay": {}
+      },
+      {
+        "id": "grid-short",
+        "mode": "grid",
+        "overlay": {
+          "max_iterations": 1500
+        }
+      },
+      {
+        "id": "grid-no-purgatory",
+        "mode": "grid",
+        "overlay": {
+          "purgatory.delay_probability": 0.0
+        }
+      },
+      {
+        "id": "grid-post-fault-2",
+        "mode": "grid",
+        "overlay": {
+          "post_fault_client_ops": 2
+        }
+      },
+      {
+        "id": "aos",
+        "mode": "aos",
+        "overlay": {}
+      }
+    ]
+  }
+}

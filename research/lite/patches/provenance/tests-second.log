@@ -1,0 +1,725 @@
+   Compiling spur-core v0.1.0 (/home/benaepli/Rust/turnpike/tmp/loop/wt-lite-provenance/spur/spur-core)
+warning: method `get` is never used
+  --> spur-core/src/simulator/coverage.rs:38:12
+   |
+22 | impl VertexMap {
+   | -------------- method in this implementation
+...
+38 |     pub fn get(&self, vertex: &Vertex) -> Option<u64> {
+   |            ^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `novelty_score` and `unique_edges` are never used
+   --> spur-core/src/simulator/coverage.rs:122:12
+    |
+ 95 | impl LocalCoverage {
+    | ------------------ methods in this implementation
+...
+122 |     pub fn novelty_score(&self) -> f64 {
+    |            ^^^^^^^^^^^^^
+...
+141 |     pub fn unique_edges(&self) -> usize {
+    |            ^^^^^^^^^^^^
+
+warning: methods `total` and `novelty_score` are never used
+   --> spur-core/src/simulator/coverage.rs:199:12
+    |
+169 | impl GlobalCoverage {
+    | ------------------- methods in this implementation
+...
+199 |     pub fn total(&self) -> u64 {
+    |            ^^^^^
+...
+221 |     pub fn novelty_score(&self, vertex: Vertex) -> f64 {
+    |            ^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> spur-core/src/simulator/core/steer_terms.rs:225:9
+    |
+225 |     let mut draw = |rng: &mut StdRng| 0.5 + 0.15 * (2.0 * band.sample(rng) - 1.0);
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `novelty_score` is never used
+   --> spur-core/src/simulator/coverage.rs:122:12
+    |
+ 95 | impl LocalCoverage {
+    | ------------------ method in this implementation
+...
+122 |     pub fn novelty_score(&self) -> f64 {
+    |            ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `spur-core` (lib) generated 3 warnings
+warning: unused import: `Array`
+   --> spur-core/tests/campaign_allocation.rs:129:24
+    |
+129 |     use arrow::array::{Array, AsArray};
+    |                        ^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Array`
+  --> spur-core/tests/wall_budget.rs:54:24
+   |
+54 |     use arrow::array::{Array, AsArray};
+   |                        ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `spur-core` (test "wall_budget") generated 1 warning
+warning: `spur-core` (test "campaign_allocation") generated 1 warning
+warning: `spur-core` (lib test) generated 2 warnings (run `cargo fix --lib -p spur-core --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.76s
+     Running unittests src/lib.rs (spur/target/debug/deps/spur_core-9af36a882a6b8e09)
+
+running 417 tests
+test analysis::checker::test::test_assignment_empty_map_coercion ... ok
+test analysis::checker::test::test_assignment_nil_coercion_to_optional ... ok
+test analysis::checker::test::test_assignment_type_check ... ok
+test analysis::checker::test::test_assignment_empty_list_coercion ... ok
+test analysis::checker::test::test_binop_logic_valid ... ok
+test analysis::checker::test::test_binop_type_mismatch ... ok
+test analysis::checker::test::test_check_variant_lit_no_payload ... ok
+test analysis::checker::test::test_binop_arithmetic_valid ... ok
+test analysis::checker::test::test_check_variant_lit_payload_mismatch ... ok
+test analysis::checker::test::test_check_match_expression_valid ... ok
+test analysis::checker::test::test_empty_list_inference ... ok
+test analysis::checker::test::test_check_variant_lit_with_payload_valid ... ok
+test analysis::checker::test::test_infer_literals ... ok
+test analysis::checker::test::test_function_return_validation ... ok
+test analysis::checker::test::test_list_inference_heterogeneous_fail ... ok
+test analysis::checker::test::test_map_inference_valid ... ok
+test analysis::checker::test::test_list_inference_homogeneous ... ok
+test analysis::checker::test::test_persist_non_trivially_copyable_fails ... ok
+test analysis::checker::test::test_retrieve_non_trivially_copyable_fails ... ok
+test analysis::checker::test::test_undefined_variable ... ok
+test analysis::checker::test::test_variable_scope_resolution ... ok
+test analysis::resolver::test::test_list_literal_resolution ... ok
+test analysis::resolver::test::test_map_literal_resolution ... ok
+test analysis::resolver::test::test_nested_scope_variable_isolation ... ok
+test analysis::resolver::test::test_prepopulated_types ... ok
+test analysis::resolver::test::test_resolve_ambiguous_error_field_access_with_payload ... ok
+test analysis::resolver::test::test_resolve_ambiguous_error_unknown_base ... ok
+test analysis::resolver::test::test_resolve_ambiguous_field_access ... ok
+test analysis::resolver::test::test_resolve_ambiguous_variant_literal ... ok
+test analysis::resolver::test::test_resolve_binop ... ok
+test analysis::resolver::test::test_resolve_block_scope ... ok
+test analysis::resolver::test::test_resolve_builtin_function_call ... ok
+test analysis::resolver::test::test_resolve_duplicate_variable_same_scope ... ok
+test analysis::resolver::test::test_resolve_literals ... ok
+test analysis::resolver::test::test_resolve_shadowing ... ok
+test analysis::resolver::test::test_resolve_match_expression ... ok
+test analysis::resolver::test::test_resolve_undefined_variable ... ok
+test analysis::resolver::test::test_resolve_variant_literal ... ok
+test analysis::resolver::test::test_resolve_function_call ... ok
+test analysis::resolver::test::test_undefined_function ... ok
+test analysis::resolver::test::test_resolve_tuple_destructuring ... ok
+test analysis::resolver::test::test_undefined_type ... ok
+test analysis::resolver::test::test_resolve_variable_scope ... ok
+test analysis::resolver::test::test_variable_used_before_declaration_in_same_expression ... ok
+test analysis::trivially_copyable::test::test_list_of_chan_is_non_trivial ... ok
+test analysis::trivially_copyable::test::test_chan_is_not_trivially_copyable ... ok
+test analysis::trivially_copyable::test::test_map_with_chan_value_is_non_trivial ... ok
+test analysis::trivially_copyable::test::test_optional_chan_is_non_trivial ... ok
+test analysis::trivially_copyable::test::test_enum_with_chan_payload_is_non_trivial ... ok
+test analysis::trivially_copyable::test::test_fifo_link_is_trivially_copyable ... ok
+test analysis::trivially_copyable::test::test_role_is_trivially_copyable ... ok
+test analysis::trivially_copyable::test::test_enum_without_chan_is_trivial ... ok
+test analysis::trivially_copyable::test::test_struct_all_primitives_is_trivial ... ok
+test analysis::trivially_copyable::test::test_primitives_are_trivially_copyable ... ok
+test analysis::type_id::test::test_compound_types_register_components ... ok
+test analysis::trivially_copyable::test::test_struct_containing_non_trivial_struct_is_non_trivial ... ok
+test analysis::type_id::test::test_empty_program_produces_empty_map ... ok
+test analysis::type_id::test::test_different_types_get_different_ids ... ok
+test analysis::trivially_copyable::test::test_struct_with_chan_field_is_non_trivial ... ok
+test analysis::type_id::test::test_enum_payloads_registered ... ok
+test analysis::type_id::test::test_equal_types_get_same_id ... ok
+test analysis::type_id::test::test_optional_registers_inner ... ok
+test analysis::type_id::test::test_primitives_get_distinct_ids ... ok
+test analysis::type_id::test::test_tuple_registers_element_types ... ok
+test compiler::anf::test::test_atomic_int ... ok
+test compiler::anf::test::test_atomic_var ... ok
+test compiler::anf::test::test_nested_binop_flattening ... ok
+test compiler::anf::test::test_nested_func_call_flattening ... ok
+test compiler::anf::test::test_conditional_tail_atomicity ... ok
+test compiler::cfg::test::test_compile_binop_add ... ok
+test compiler::cfg::test::test_compile_assignment ... ok
+test compiler::cfg::test::test_compile_break_in_loop ... ok
+test compiler::cfg::test::test_compile_complex_binop_chain ... ok
+test compiler::cfg::test::test_compile_continue_in_loop ... ok
+test compiler::cfg::test::test_compile_elseif_chain ... ok
+test compiler::cfg::test::test_compile_empty_list ... ok
+test compiler::cfg::test::test_compile_empty_loop_body ... ok
+test compiler::cfg::test::test_compile_empty_map ... ok
+test compiler::cfg::test::test_compile_if_statement ... ok
+test compiler::cfg::test::test_compile_loop ... ok
+test compiler::cfg::test::test_compile_nested_if_statements ... ok
+test compiler::cfg::test::test_compile_for_loop_continue_targets_increment ... ok
+test compiler::cfg::test::test_compile_return_statement ... ok
+test compiler::cfg::test::test_compile_simple_literals ... ok
+test compiler::lowered::test::test_lower_for_loop_no_init ... ok
+test compiler::cfg::test::test_compile_sync_function_call ... ok
+test compiler::lowered::test::test_lower_for_loop_with_init ... ok
+test compiler::lowered::test::test_lower_int_literal ... ok
+test compiler::lowered::test::test_lower_regular_binop ... ok
+test compiler::lowered::test::test_lower_match_variant ... ok
+test compiler::lowered::test::test_lower_short_circuit_and ... ok
+test compiler::lowered::test::test_lower_short_circuit_or ... ok
+test compiler::pure::print::test::prints_let_with_binop_and_return ... ok
+test compiler::pure::print::test::prints_collision_keeps_ids ... ok
+test compiler::pure::print::test::prints_conditional_in_let ... ok
+test compiler::pure::print::test::prints_role_with_async_and_loop_funcs ... ok
+test compiler::pure::print::test::prints_struct_and_enum_defs_sorted ... ok
+test compiler::pure::print::test::prints_struct_and_enum_defs_with_names ... ok
+test compiler::pure::print::test::prints_trivial_passthrough ... ok
+test compiler::pure::test::test_async_func_kind ... ok
+test compiler::pure::test::test_cond_one_arm_mutates_synthesizes_else ... ok
+test compiler::pure::test::test_cond_stmt_joins_mutated_var ... ok
+test compiler::pure::test::test_cond_value_with_join ... ok
+test compiler::pure::test::test_loop_continue_tail_calls_self ... ok
+test compiler::pure::test::test_loop_return_wraps_and_main_extracts ... ok
+test compiler::pure::test::test_loop_exit_payload_threads_live_out ... ok
+test compiler::pure::test::test_global_ssa_invariant_unique_letatom_ids ... ok
+test compiler::pure::test::test_loop_with_break_lifts_to_free_func ... ok
+test compiler::pure::test::test_post_cond_uses_joined_var ... ok
+test compiler::pure::test::test_nested_loops_inner_return_propagates ... ok
+test compiler::pure::test::test_nested_loops_inner_break_stays_local ... ok
+test compiler::pure::test::test_var_assign_eliminates_to_env_update ... ok
+test compiler::threaded::test::test_func_signature_resign ... ok
+test compiler::threaded::test::test_async_call_no_tuple_unpack ... ok
+test compiler::pure::test::test_trivial_passthrough ... ok
+test compiler::threaded::test::test_role_state_extraction ... ok
+test compiler::threaded::test::test_async_statement_call_prepends_s_only ... ok
+test compiler::threaded::test::test_sync_statement_call_threads_state ... ok
+test compiler::threaded::test::test_send_state_injection ... ok
+test lexer::tests::test_greater_minus_with_space ... ok
+test lexer::tests::test_f_strings ... ok
+test compiler::threaded::test::test_explicit_return_uses_declared_return_type ... ok
+test lexer::tests::test_identifiers_and_numbers ... ok
+test lexer::tests::test_keywords ... ok
+test lexer::tests::test_comments ... ok
+test lexer::tests::test_strings ... ok
+test lexer::tests::test_send_arrow ... ok
+test compiler::threaded::test::test_return_tuple_wrapping ... ok
+test lexer::tests::test_raw_strings ... ok
+test compiler::threaded::test::test_free_func_passthrough ... ok
+test lexer::tests::test_operators ... ok
+test parser::tests::test_enum_definition ... ok
+test parser::tests::test_infix_send ... ok
+test parser::tests::test_for_loop_increment_validation ... ok
+test parser::tests::test_with_index_key ... ok
+test compiler::threaded::test::test_role_var_assign_rewrite ... ok
+test parser::tests::test_with_multiple_fields ... ok
+test simulator::arm_selector::tests::categorical_diagnostics_use_coin_weighted_probabilities_and_lowest_ties ... ok
+test simulator::arm_selector::tests::a_run_with_a_configuration_is_keyed_by_it_and_a_run_without_one_by_its_arm ... ok
+test parser::tests::test_infix_send_precedence ... ok
+test parser::tests::test_with_struct_field ... ok
+test simulator::campaign::tests::luby_sequence ... ok
+test simulator::campaign::tests::campaign_key_is_rejected_outside_campaign_mode ... ok
+test parser::tests::test_with_trailing_comma ... ok
+test simulator::arm_selector::tests::the_normal_distribution_function_matches_tabled_values ... ok
+test simulator::arm_selector::tests::the_exploration_share_is_one_on_a_flat_cell_and_the_odds_on_the_most_decided_axis ... ok
+test compiler::threaded::test::test_role_method_call_threading ... ok
+test simulator::client_anchor::tests::a_client_ledger_and_a_lone_server_never_open_a_window ... ok
+test simulator::client_anchor::tests::a_dry_queue_hands_out_the_earliest_request_at_once ... ok
+test simulator::client_anchor::tests::a_partial_fanout_or_an_inert_ghost_opens_nothing ... ok
+test simulator::campaign::tests::reward_reads_integer_leaves_of_a_delta ... ok
+test simulator::client_anchor::tests::a_run_state_rushes_only_the_operations_it_was_given ... ok
+test simulator::client_anchor::tests::a_request_expires_after_the_fixed_wait_in_ready_order ... ok
+test simulator::client_anchor::tests::an_acted_ghost_with_a_full_fanout_in_flight_opens_a_window ... ok
+test simulator::client_anchor::tests::an_operation_at_or_above_the_first_post_fault_id_was_caused_post_fault ... ok
+test simulator::client_anchor::tests::a_window_counts_what_is_held_and_releases_nothing ... ok
+test parser::tests::test_variant_literals ... ok
+test parser::tests::test_match_expression ... ok
+test simulator::config_override::tests::a_misspelled_override_survives_application_and_is_caught_after_parsing ... ok
+test simulator::config_override::tests::accepts_paths_the_config_has ... ok
+test simulator::config_override::tests::rejects_a_path_that_descends_past_a_leaf ... ok
+test simulator::config_override::tests::json_values_keep_their_type ... ok
+test simulator::config_override::tests::env_splitting_ignores_blanks ... ok
+test simulator::config_override::tests::rejects_a_misspelled_nested_path ... ok
+test simulator::config_override::tests::later_assignment_wins ... ok
+test simulator::config_override::tests::rejects_descent_through_a_scalar ... ok
+test simulator::config_override::tests::rejects_a_misspelled_top_level_path ... ok
+test simulator::config_override::tests::rejects_malformed_assignment ... ok
+test simulator::config_override::tests::sets_existing_scalar ... ok
+test simulator::config_override::tests::sets_nested_and_creates_missing_parents ... ok
+test simulator::config_override::tests::unquoted_value_is_a_string ... ok
+test simulator::core::eval::tests::test_eval_arithmetic ... ok
+test simulator::core::eval::tests::test_eval_comparison ... ok
+test simulator::core::eval::tests::test_eval_collections ... ok
+test simulator::core::eval::tests::test_eval_misc ... ok
+test simulator::core::eval::tests::test_eval_options ... ok
+test simulator::core::eval::tests::test_eval_store_update ... ok
+test simulator::core::eval::tests::test_eval_vars ... ok
+test simulator::core::eval::tests::test_eval_literals ... ok
+test simulator::core::eval::tests::test_eval_logical ... ok
+test simulator::core::eval::tests::test_eval_errors ... ok
+test simulator::core::eval::tests::test_make_local_env ... ok
+test simulator::core::eval::tests::test_eval_string_concat ... ok
+test simulator::core::eval::tests::test_store ... ok
+test simulator::core::eval::tests::test_role_to_string ... ok
+test simulator::core::exec::test::json_string_array_matches_serde_vec_of_strings ... ok
+test simulator::arm_selector::tests::the_thirds_partition_the_unprobed_ids_and_spare_every_probe ... ok
+test simulator::core::exec::test::test_arithmetic_assignment ... ok
+test simulator::core::exec::test::test_assign_then_cond_false ... ok
+test simulator::core::exec::test::test_assign_then_cond_true ... ok
+test simulator::core::exec::test::test_for_loop_in_list ... ok
+test simulator::core::exec::test::test_multiple_assigns ... ok
+test simulator::core::exec::test::test_for_loop_map_destructuring ... ok
+test simulator::core::exec::test::test_runtime_type_error ... ok
+test simulator::core::exec::test::test_coverage_records_transitions ... ok
+test simulator::core::exec::test::test_copy_instruction ... ok
+test simulator::core::exec::test::test_node_slot_assignment ... ok
+test simulator::core::exec::test::test_channel_send_recv ... ok
+test simulator::core::exec::test::test_print_instruction ... ok
+test simulator::core::exec::test::trace_payload_formats_values_and_errors ... ok
+test simulator::core::exec::test::test_recv_blocks_on_empty ... ok
+test simulator::core::exec::test::test_tuple_assignment ... ok
+test simulator::core::exec::test::test_pause_yields ... ok
+test simulator::core::scheduler::tests::a_crash_clears_the_node_s_ghost_mark_and_only_treated_runs_retarget ... ok
+test simulator::campaign::tests::deterministic_plan_is_a_pure_function_of_config ... ok
+test simulator::campaign::tests::slice_unit_shrinks_for_short_campaigns ... ok
+test simulator::campaign::tests::halving_rounds_and_survivors ... ok
+test simulator::campaign::tests::block_validation_rejects_bad_shapes ... ok
+test simulator::core::scheduler::tests::a_treated_step_takes_the_best_fresh_rival_in_place_of_a_drawn_ghost ... ok
+test simulator::core::scheduler::tests::identity_multiplier_makes_the_quick_fire_branch_a_no_op ... ok
+test simulator::core::scheduler::tests::default_terms_reproduce_blend_score_bitwise ... ok
+test simulator::core::scheduler::tests::quick_fire_score_is_bounded_by_the_priority_draw ... ok
+test simulator::core::scheduler::tests::the_ledger_gate_is_consulted_before_the_queue_is_read ... ok
+test simulator::campaign::tests::overlays_are_checked_like_overrides ... ok
+test simulator::core::scheduler::tests::the_phase_is_read_where_the_retarget_would_land_and_falls_back_to_the_victim ... ok
+test simulator::core::scheduler::tests::authority_routes_with_the_configured_share ... ok
+test simulator::core::queue_selector::tests::draw_count_parity_holds_for_a_non_identity_bias ... ok
+test simulator::core::queue_selector::tests::identity_bias_matches_the_stock_roll_and_draw_counts_agree ... ok
+test simulator::core::scheduler::tests::zero_weights_consume_no_queue_choice_draw ... ok
+test simulator::core::state::layout_tests::channel_entry_is_too_wide_for_a_trie_node ... ok
+test simulator::core::state::layout_tests::waiting_reader_stays_narrow ... ok
+test simulator::core::state::ledger_tests::a_fault_crossing_delivery_marks_its_receiver_with_what_it_did ... ok
+test simulator::core::state::ledger_tests::a_mutual_absorber_cycle_needs_both_hearings ... ok
+test simulator::core::state::ledger_tests::a_repeated_one_way_hearing_is_not_a_mutual_absorber_cycle ... ok
+test simulator::core::state::ledger_tests::an_absorber_cycle_closes_on_a_fresh_entry_after_the_acted_crash ... ok
+test simulator::core::state::ledger_tests::an_overtaken_ghost_at_a_restarted_receiver_needs_all_three_facts ... ok
+test simulator::core::state::ledger_tests::crash_after_sends_keys_on_last_trigger ... ok
+test simulator::core::state::ledger_tests::request_before_stale_reads_the_global_count ... ok
+test simulator::core::state::ledger_tests::send_ordinals_count_from_the_handler_floor ... ok
+test simulator::core::state::ledger_tests::stale_accounting_is_exact_under_events ... ok
+test simulator::core::state::ledger_tests::stale_late_needs_both_conjuncts ... ok
+test simulator::core::state::ledger_tests::term_mask_names_each_predicate_bit ... ok
+test simulator::core::state::ledger_tests::the_exchange_is_read_at_the_first_request_entry_since_restart ... ok
+test simulator::core::steer_terms::tests::a_config_without_the_block_parses_to_the_defaults ... ok
+test simulator::core::steer_terms::tests::defaults_reproduce_the_legacy_blend_weights ... ok
+test simulator::core::steer_terms::tests::the_terms_block_supersedes_the_legacy_key ... ok
+test simulator::core::steer_terms::tests::weights_are_validated ... ok
+test simulator::arm_selector::tests::the_pairwise_leading_probability_matches_a_monte_carlo_of_the_betas ... ok
+test simulator::core::values::acted_token_tests::same_value_rewrite_still_counts ... ok
+test simulator::core::values::acted_token_tests::write_counter_catches_what_a_slots_pointer_misses ... ok
+test simulator::core::values::acted_token_tests::write_counter_moves_only_on_write ... ok
+test simulator::core::values::layout_tests::value_stays_narrow ... ok
+test simulator::core::values::tests::decimal_matches_std_formatting ... ok
+test simulator::core::queue_selector::tests::effective_timer_probability_is_capped_by_the_non_local_mass ... ok
+test simulator::core::values::tests::test_env_hashing_consistency ... ok
+test simulator::core::values::tests::test_value_hashing_consistency ... ok
+test simulator::core::values::tests::test_value_structural_equality ... ok
+test simulator::core::queue_selector::tests::bias_scales_the_timer_share_of_the_roll ... ok
+test simulator::core::values::tests::write_to_matches_reference_on_enumerated_values ... ok
+test simulator::coverage::tests::global_coverage_decay_keeps_total_consistent ... ok
+test simulator::coverage::tests::test_plan_score_empty_coverage ... ok
+test simulator::coverage::tests::test_plan_score_higher_for_rarer_transitions ... ok
+test simulator::coverage::tests::test_plan_score_independent_of_length ... ok
+test simulator::coverage::tests::test_plan_score_normalized_range ... ok
+test simulator::coverage::tests::vertex_map_decay_scales_drops_zeros_and_stays_in_range ... ok
+test simulator::crash_phase::tests::a_stock_arm_waits_for_nothing ... ok
+test simulator::core::values::tests::write_to_matches_reference_on_arbitrary_values ... ok
+test simulator::crash_phase::tests::a_wait_ends_at_the_phase_it_named ... ok
+test simulator::crash_phase::tests::a_wait_ends_at_the_window_and_at_the_reserve ... ok
+test simulator::crash_phase::tests::an_unanchored_node_holds_nothing_and_draws_nothing ... ok
+test simulator::core::values::tests::test_env_hashing_different ... ok
+test simulator::arm_selector::tests::a_separated_leader_takes_its_axis_on_the_learner_runs_and_sets_the_coin_share ... ok
+test simulator::crash_phase::tests::the_early_predicate_reads_the_whole_segment_undelivered ... ok
+test simulator::arm_selector::tests::arms_at_one_configuration_share_a_cell_and_an_arm_without_one_keeps_its_own ... ok
+test simulator::crash_phase::tests::the_mid_predicate_reads_a_segment_part_delivered ... ok
+test simulator::arm_selector::tests::each_learner_sees_the_coin_drawn_runs_and_its_own_runs_only ... ok
+test simulator::curriculum::tests::curriculum_scale_trends_upward_over_session ... ok
+test simulator::curriculum::tests::knob_value_stays_in_unit_interval ... ok
+test simulator::curriculum::tests::knobs_are_desynchronized ... ok
+test simulator::curriculum::tests::lerp_range_hits_endpoints_and_snaps_to_step ... ok
+test simulator::curriculum::tests::lower_caps_writes_and_emits_shaped_policy ... ok
+test simulator::curriculum::tests::lower_low_knobs_are_small_and_loose ... ok
+test simulator::curriculum::tests::lower_write_cap_holds_when_config_min_exceeds_cap ... ok
+test simulator::explorer::strict_config_keys_tests::expand_grid_nests_density_innermost ... ok
+test simulator::explorer::strict_config_keys_tests::grid_order_blocked_and_interleaved ... ok
+test simulator::explorer::strict_config_keys_tests::strict_config_keys_accepts_known_keys ... ok
+test simulator::explorer::strict_config_keys_tests::strict_config_keys_defaults_off ... ok
+test simulator::explorer::strict_config_keys_tests::strict_config_keys_rejects_unknown_key ... ok
+test simulator::explorer::strict_config_keys_tests::wall_budget_is_validated ... ok
+test simulator::arm_selector::tests::every_run_of_a_cell_below_warmup_is_coin_drawn ... ok
+test simulator::core::steer_terms::tests::within_queue_win_table_reproduces ... ok
+test simulator::arm_selector::tests::flat_posteriors_leave_every_run_to_the_coins_and_evidence_steers_the_learner_runs ... ok
+test simulator::arm_selector::tests::cold_context_preserves_shared_sampler_and_warm_context_cannot_bypass_coins ... ok
+test simulator::arm_selector::tests::context_snapshot_uses_selected_reward_means_and_survives_later_credit ... ok
+test simulator::arm_selector::tests::a_direction_without_data_draws_around_the_cells_reward_rate ... ok
+test simulator::arm_selector::tests::the_rewards_are_counted_on_the_runs_they_came_from ... ok
+test simulator::arm_selector::tests::context_credit_preserves_shared_equations_and_isolates_local_visits ... ok
+test simulator::arm_selector::tests::the_draws_are_counted ... ok
+test simulator::feedback::tests::constant_keys_ignore_every_field ... ok
+test simulator::feedback::tests::disabling_novelty_collapses_every_run_to_one_key ... ok
+test simulator::arm_selector::tests::no_run_touches_the_schedule_stream_and_the_choice_is_reproducible ... ok
+test simulator::feedback::tests::distinct_prior_pairing_equals_all_pairs ... ok
+test simulator::feedback::tests::full_plan_score_in_range_and_blends ... ok
+test simulator::feedback::tests::fine_granularity_separates_orderings_across_a_restart ... ok
+test simulator::feedback::tests::granularity_changes_key_resolution ... ok
+test simulator::feedback::tests::novelty_enabled_defaults_on_and_selects_the_configured_granularity ... ok
+test simulator::feedback::tests::granularity_parses_from_config_json ... ok
+test simulator::feedback::tests::steer_bias_prefers_novel_orderings ... ok
+test simulator::feedback::tests::timeline_merge_and_snapshot ... ok
+test simulator::fresh_first::tests::a_ghost_counts_its_displacements_until_it_is_taken ... ok
+test simulator::fresh_first::tests::the_heard_table_answers_per_pair_and_forgets_an_origin_at_its_restart ... ok
+test simulator::feedback::tests::timeline_decay_scales_counts_and_drops_zeros ... ok
+test simulator::fresh_first::tests::the_rival_search_takes_the_highest_priority_fresh_record_and_the_lowest_index_among_equals ... ok
+test simulator::client_anchor::tests::the_three_directions_partition_the_eligible_runs ... ok
+test simulator::ghost_absorber::tests::a_node_that_is_down_and_a_client_ledger_are_never_chosen ... ok
+test simulator::ghost_absorber::tests::a_node_with_an_outstanding_pair_is_passed_over_and_counted ... ok
+test simulator::ghost_absorber::tests::an_acted_mark_beats_a_later_mark_that_did_not_act ... ok
+test simulator::ghost_absorber::tests::no_mark_anywhere_keeps_the_victim ... ok
+test simulator::client_anchor::tests::the_treated_half_is_about_half_and_never_a_probe ... ok
+test simulator::config_override::tests::a_scoped_assignment_lasts_exactly_as_long_as_its_guard ... ok
+test simulator::ghost_absorber::tests::the_victim_at_the_top_of_the_ranking_stays_the_victim ... ok
+test simulator::pair_order::tests::the_census_names_pair_entries_and_inversions ... ok
+test simulator::config_override::tests::loads_a_file_and_applies_overrides_into_a_usable_config ... ok
+test simulator::pair_order::tests::the_entry_table_answers_per_class ... ok
+test simulator::pair_order::tests::the_lowest_ordinal_of_the_pick_s_class_wins_and_other_classes_never_compete ... ok
+test simulator::pair_order::tests::the_census_sample_is_a_sixteenth_of_each_half ... ok
+test simulator::core::scheduler::tests::a_treated_step_prices_the_replacement_it_declines_to_make ... ok
+test simulator::path::generator::tests::every_restart_gets_a_client_request_ordered_after_it ... ok
+test simulator::path::generator::tests::zero_reserves_no_client_work_after_a_restart ... ok
+test simulator::core::scheduler::tests::a_retargeting_run_waits_on_the_absorber_s_fanout_and_draws_like_its_twin ... ok
+test simulator::core::scheduler::tests::a_treated_step_takes_the_earliest_send_of_a_dead_incarnation_s_class ... ok
+test simulator::replay_corpus::tests::a_child_carries_its_parent_whole ... ok
+test simulator::replay_corpus::tests::an_empty_corpus_seeds_no_child ... ok
+test simulator::replay_corpus::tests::a_parent_leaving_mid_ring_does_not_skip_its_successor ... ok
+test simulator::replay_corpus::tests::parents_are_served_in_turn_and_leave_after_their_last_child ... ok
+test simulator::replay_corpus::tests::the_ring_drops_its_oldest_parent_at_capacity ... ok
+test simulator::rng::tests::derive_seed_is_distinct_per_salt_and_run ... ok
+test simulator::rng::tests::distinct_streams_do_not_share_values ... ok
+test simulator::rng::tests::isolated_streams_are_immune_to_draws_elsewhere ... ok
+test simulator::rng::tests::isolation_off_ignores_stream_selection ... ok
+test simulator::rng::tests::mutate_tape_changes_k_positions ... ok
+test simulator::rng::tests::position_counts_recorded_draws_and_is_absent_when_nothing_is_recorded ... ok
+test simulator::core::scheduler::tests::an_anchored_crash_keeps_waiting_past_its_target_step ... ok
+test simulator::rng::tests::record_then_replay_reproduces_stream ... ok
+test simulator::rng::tests::replay_records_fallback_tail ... ok
+test simulator::rng::tests::shared_stream_is_perturbed_by_draws_elsewhere ... ok
+test simulator::replay_corpus::tests::slots_are_a_pure_function_of_the_id_and_spare_the_probes ... ok
+test simulator::path::tests::a_held_request_is_recorded_at_the_step_it_is_issued ... ok
+test simulator::history::parquet_writer_tests::each_run_lands_in_one_file_with_contiguous_seq_nums ... ok
+test simulator::core::scheduler::tests::proportional_selection_matches_expected_distribution ... ok
+test simulator::core::scheduler::tests::proportional_with_zero_exponent_is_uniform ... ok
+test simulator::core::scheduler::tests::select_within_queue_handles_singleton ... ok
+test simulator::core::scheduler::tests::the_pair_order_step_reads_the_same_random_sequence_on_both_halves ... ok
+test simulator::core::scheduler::tests::the_recovery_placebo_walk_cannot_change_a_selection ... ok
+test simulator::core::scheduler::tests::the_treated_step_reads_the_same_random_sequence_as_the_untreated_one ... ok
+test simulator::run_phase::tests::a_phase_is_in_range_and_is_a_function_of_the_id ... ok
+test simulator::run_phase::tests::a_salt_gives_an_even_split_independent_of_the_unsalted_one ... ok
+test simulator::run_phase::tests::a_salted_unit_is_uniform_and_independent_of_a_phase_under_another_salt ... ok
+test simulator::run_phase::tests::each_phase_gets_close_to_its_share ... ok
+test simulator::run_phase::tests::nested_periods_keep_their_relationship ... ok
+test simulator::core::scheduler::tests::tournament_default_preserves_existing_behavior ... ok
+test simulator::crash_phase::tests::a_stock_draw_releases_at_once_and_a_waiting_one_does_not ... ok
+test simulator::crash_phase::tests::reading_another_node_draws_nothing_the_victim_read_does_not ... ok
+test simulator::crash_phase::tests::the_anchored_half_is_half_the_placed_runs_and_no_other_posture ... ok
+test simulator::crash_phase::tests::the_landing_counters_count_each_crash_once ... ok
+test simulator::timer_context::tests::cell_key_packs_every_bucket_distinctly ... ok
+test simulator::crash_phase::tests::the_three_arms_are_drawn_at_equal_mass_and_cost_one_draw_each ... ok
+test simulator::fault_timing::tests::a_placed_run_draws_inside_the_span_and_not_past_it ... ok
+test simulator::fault_timing::tests::a_stock_run_draws_no_hold_and_consumes_no_randomness ... ok
+test simulator::fault_timing::tests::decay_delays_the_next_checkpoint_and_reset_empties ... ok
+test simulator::fault_timing::tests::median_is_the_upper_cell_edge_and_constant_between_checkpoints ... ok
+test simulator::fault_timing::tests::no_run_cap_probe_is_ever_placed_at_any_fraction ... ok
+test simulator::fault_timing::tests::only_stock_posture_completed_probes_feed_the_learner ... ok
+test simulator::util_stats::tests::a_learned_cap_exit_classifies_as_a_budget_stop ... ok
+test simulator::util_stats::tests::a_learned_cap_exit_counts_only_its_own_tally_field ... ok
+test simulator::fault_timing::tests::the_cap_reserve_bounds_the_span_and_counts_as_capped ... ok
+test simulator::util_stats::tests::a_timer_streak_counts_inert_firings_and_resets_on_an_effect ... ok
+test simulator::fault_timing::tests::the_default_places_its_share_and_leaves_ordinary_runs_stock ... ok
+test simulator::fault_timing::tests::the_fraction_grows_the_placed_set_downward_and_never_takes_phase_zero ... ok
+test simulator::fresh_first::tests::the_split_is_independent_of_the_other_salted_splits ... ok
+test simulator::fresh_first::tests::the_treated_half_is_about_half_pure_and_never_a_probe ... ok
+test simulator::ghost_absorber::tests::the_treated_half_is_about_half_pure_and_never_a_probe ... ok
+test simulator::util_stats::tests::hist_buckets_are_log2_with_small_counts_exact ... ok
+test simulator::core::scheduler::tests::a_crash_hold_withholds_a_pending_crash_until_its_target_step ... ok
+test simulator::pair_order::tests::the_split_is_independent_of_the_other_salted_splits ... ok
+test simulator::pair_order::tests::the_treated_half_is_about_half_pure_and_never_a_probe ... ok
+test simulator::run_cap::tests::a_completion_longer_than_the_engaged_cap_counts_and_still_folds_in ... ok
+test simulator::run_cap::tests::cap_is_constant_between_checkpoints ... ok
+test simulator::run_cap::tests::cap_is_the_quantile_upper_edge_with_headroom_and_scopes_are_separate ... ok
+test simulator::run_cap::tests::decay_delays_the_next_checkpoint_and_reset_empties ... ok
+test simulator::run_cap::tests::disengaged_scope_recomputes_at_backup ... ok
+test simulator::run_cap::tests::exhausted_and_deadlocked_probes_feed_neither_histogram_nor_floor ... ok
+test simulator::run_cap::tests::identity_below_the_sample_floor ... ok
+test simulator::run_cap::tests::probes_are_one_run_in_the_period_and_spread_over_every_grid_width ... ok
+test visualization::coverage::tests::test_byte_coverage_conversion ... ok
+test visualization::coverage::tests::test_hits_to_color ... ok
+test simulator::run_phase::tests::a_phase_does_not_align_with_a_grid_width ... ok
+test simulator::run_cap::tests::recompute_fires_once_per_checkpoint ... ok
+test simulator::run_variant::tests::every_combination_index_round_trips_and_coins_sum_to_one_per_axis ... ok
+test simulator::run_variant::tests::the_coin_arm_set_reproduces_every_mechanism_coin_over_64k_ids ... ok
+test simulator::run_variant::tests::the_id_bits_agree_with_the_mechanisms_that_own_them ... ok
+test simulator::run_variant::tests::the_populations_overlap_so_a_single_label_could_not_name_them ... ok
+test simulator::run_variant::tests::the_slot_bits_spare_every_probe_and_leave_a_contrast ... ok
+test simulator::timer_context::tests::decay_disengages_and_reset_empties ... ok
+test simulator::timer_context::tests::engaged_cells_gauge_counts_cells_over_the_floor ... ok
+test simulator::timer_context::tests::multiplier_engages_at_the_sample_floor ... ok
+test simulator::timer_context::tests::probe_phase_is_disjoint_from_run_cap_probes ... ok
+test simulator::timer_context::tests::ratio_is_clamped_and_the_global_rate_is_the_unit ... ok
+test simulator::timer_context::tests::zero_global_acted_yields_no_multiplier ... ok
+test simulator::util_stats::tests::a_crash_inside_an_open_recovery_window_is_an_overlap ... ok
+test simulator::util_stats::tests::a_learned_cap_exit_lands_in_its_own_quiet_stretch_row ... ok
+test simulator::util_stats::tests::acceptance_distance_splits_by_receiver_progress ... ok
+test simulator::util_stats::tests::crash_census_needs_its_own_switch ... ok
+test simulator::util_stats::tests::delivery_effects_split_by_bias ... ok
+test simulator::util_stats::tests::fault_tallies_ride_along_with_the_delivery_effects ... ok
+test simulator::util_stats::tests::fresh_first_counters_land_on_their_half_and_in_their_bucket ... ok
+test simulator::util_stats::tests::pair_order_counters_land_on_their_half ... ok
+test simulator::util_stats::tests::preference_consultations_split_into_sourced_and_sourceless_reads ... ok
+test simulator::util_stats::tests::quiet_stretch_measures_the_longest_run_of_deliveries_without_an_effect ... ok
+test simulator::util_stats::tests::recovery_windows_close_on_the_first_message_to_the_restarted_node ... ok
+test simulator::util_stats::tests::runs_are_split_by_what_stopped_them_from_scheduling_further_work ... ok
+test simulator::util_stats::tests::steer_authority_outcomes_partition_the_audited_steps ... ok
+test simulator::util_stats::tests::steer_authority_records_nothing_when_the_audit_is_off ... ok
+test simulator::util_stats::tests::term_counters_reset_and_snapshot ... ok
+test simulator::util_stats::tests::timeline_key_growth_accumulates_into_one_curve_point ... ok
+test simulator::util_stats::tests::timer_admission_splits_contested_steps ... ok
+test simulator::util_stats::tests::timer_effects_split_by_context_and_reset_the_streak_when_acted ... ok
+
+test result: ok. 417 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.65s
+
+     Running tests/campaign_allocation.rs (spur/target/debug/deps/campaign_allocation-70b962263207857a)
+
+running 4 tests
+test session_offsets_start_at_the_session ... ok
+test a_cancelled_campaign_stops_promptly ... ok
+test run_ids_are_unique_across_arm_kinds ... ok
+test the_reward_decides_which_arm_halving_keeps ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.46s
+
+     Running tests/client_anchor_release.rs (spur/target/debug/deps/client_anchor_release-0a966977ea693295)
+
+running 2 tests
+test untreated_runs_are_unchanged_and_hold_nothing ... ok
+test treated_runs_hold_post_crash_requests_and_issue_them_at_windows ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/compiler_integration.rs (spur/target/debug/deps/compiler_integration-7681a66586dcc063)
+
+running 1 test
+test test_all_spec_files_compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/config_override_effect.rs (spur/target/debug/deps/config_override_effect-0c074256bc9264fb)
+
+running 1 test
+test an_override_changes_what_the_simulator_does ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/crash_census_landing.rs (spur/target/debug/deps/crash_census_landing-f89420895a45e309)
+
+running 1 test
+test the_crash_censuses_agree_on_the_node_the_crash_landed_on ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/crash_phase_anchor.rs (spur/target/debug/deps/crash_phase_anchor-5e744325a5154bbc)
+
+running 2 tests
+test a_retargeting_session_counts_its_landing_reads_and_a_plain_one_none ... ok
+test a_session_of_anchored_runs_arms_both_waiting_arms_and_censuses_them ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/fresh_first_dispatch.rs (spur/target/debug/deps/fresh_first_dispatch-ea23cd0d3a439333)
+
+running 2 tests
+test untreated_runs_are_unchanged_and_never_swap ... ok
+test treated_runs_take_the_fresh_record_at_every_live_contest_and_ghosts_arrive_late ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/ghost_absorber_retarget.rs (spur/target/debug/deps/ghost_absorber_retarget-7ac8643b10b0718c)
+
+running 2 tests
+test untreated_runs_are_unchanged_and_never_reach_the_retarget ... ok
+test treated_runs_retarget_crashes_and_keep_every_pair_whole ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/map_iteration_identity.rs (spur/target/debug/deps/map_iteration_identity-fab470e89408d651)
+
+running 1 test
+test map_iteration_is_a_function_of_the_map ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/message_order_probe.rs (spur/target/debug/deps/message_order_probe-09b9043c99fa910f)
+
+running 1 test
+test report_out_of_order_delivery_between_node_pairs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pair_order_dispatch.rs (spur/target/debug/deps/pair_order_dispatch-dcf64536cb1348cb)
+
+running 3 tests
+test untreated_runs_are_unchanged_and_never_replace_a_pick ... ok
+test untreated_runs_outside_the_census_sample_count_nothing ... ok
+test treated_runs_take_the_earliest_send_at_every_contest_and_never_invert_a_pair ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/refinement_diagnostics.rs (spur/target/debug/deps/refinement_diagnostics-817ed8993f92fdd3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/refinement_types.rs (spur/target/debug/deps/refinement_types-da920988b5b0996d)
+
+running 9 tests
+[31mError:[0m unexpected character
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0mtest:2:28[38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m2 │[0m [38;5;249mt[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m [0m[38;5;249mP[0m[38;5;249mo[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m|[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m>[0m[38;5;249m [0m[38;5;249m0[0m[38;5;249m [0m[31m&[0m[38;5;249m&[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m<[0m[38;5;249m [0m[38;5;249m1[0m[38;5;249m0[0m[38;5;249m0[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                            [31m┬[0m  
+ [38;5;240m  │[0m                            [31m╰[0m[31m─[0m[31m─[0m this character is not valid here
+[38;5;246m───╯[0m
+[31mError:[0m unexpected character
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0mtest:2:29[38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m2 │[0m [38;5;249mt[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m [0m[38;5;249mP[0m[38;5;249mo[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m|[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m>[0m[38;5;249m [0m[38;5;249m0[0m[38;5;249m [0m[38;5;249m&[0m[31m&[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m<[0m[38;5;249m [0m[38;5;249m1[0m[38;5;249m0[0m[38;5;249m0[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m;[0m
+ [38;5;240m  │[0m  [31mError:[0m type mismatch: expected `bool`, found `int`
+         [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0mtest:2:22[38;5;246m][0m
+   [38;5;246m│[0m
+    [38;5;246m2 │[0m   [38;5;249mt[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m [0m[38;5;249mP[0m[38;5;249mo[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m|[0m[38;5;249m [0m[31mx[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m;[0m
+  [38;5;240m  │[0m                               [31m┬[0m    
+   [38;5;240m  │[0m       [31m┬[0m     
+   [38;5;240m  │[0m                                         [31m╰[0m[31m─[0m[test test_refined_return_type ... 31okm
+─[0m this character is not valid here[31m╰[0m[31m─[0mtest test_refined_function_param ... [ok31
+m─[0m expected `bool`, found `int`
+
+ [38;5;240m  │[0m 
+ [38;5;240m  │[0m [38;5;115mNote[0m: help: consider converting the value to type `bool`
+[38;5;246m───╯[0m
+[38;5;246m───╯[0m
+test test_refinement_compatibility_with_inner ... ok
+[test test_parse_refined_int ... 31okm
+Error:[0m type mismatch: expected `bool`, found `int`
+ test test_refined_struct_field ...  ok 
+[38;5;246m╭[0m[test test_refinement_nested_type ... 38ok;5;
+246m─[0m[test test_refinement_with_builtin_call ... 38ok;5;
+246m[[0mtest:2:22[38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m2 │[0m [38;5;249mt[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m [0m[38;5;249mP[0m[38;5;249mo[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m|[0m[38;5;249m [0m[31mx[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                      [31m┬[0m  
+ [38;5;240m  │[0m                      [31m╰[0m[31m─[0m[31m─[0m expected `bool`, found `int`
+ [38;5;240m  │[0m 
+ [38;5;240m  │[0m [38;5;115mNote[0m: help: consider converting the value to type `bool`
+[38;5;246m───╯[0m
+test test_refined_non_bool_body_rejected ... ok
+[31mError:[0m found 'x' expected ':=', '[', '.', '!', '?.', '?', '->', 'with', '*', '/', '%', '+', '-', 'and', 'or', '??', '>-', or '}'
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0mtest:2:31[38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m2 │[0m [38;5;249mt[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m [0m[38;5;249mP[0m[38;5;249mo[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m|[0m[38;5;249m [0m[38;5;249mx[0m[38;5;249m [0m[38;5;249m>[0m[38;5;249m [0m[38;5;249m0[0m[38;5;249m [0m[38;5;249m&[0m[38;5;249m&[0m[38;5;249m [0m[31mx[0m[38;5;249m [0m[38;5;249m<[0m[38;5;249m [0m[38;5;249m1[0m[38;5;249m0[0m[38;5;249m0[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                               [31m┬[0m  
+ [38;5;240m  │[0m                               [31m╰[0m[31m─[0m[31m─[0m found 'x' expected ':=', '[', '.', '!', '?.', '?', '->', 'with', '*', '/', '%', '+', '-', 'and', 'or', '??', '>-', or '}'
+[38;5;246m───╯[0m
+test test_refinement_complex_body ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/replay_prefix_fidelity.rs (spur/target/debug/deps/replay_prefix_fidelity-a851efc09f1a8ca9)
+
+running 2 tests
+test recording_the_draws_does_not_change_them ... ok
+test a_prefix_child_walks_in_its_parents_steps_up_to_the_cut ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/run_cap_exit.rs (spur/target/debug/deps/run_cap_exit-90b2025766e9a4b0)
+
+running 1 test
+test a_capped_run_exits_through_the_learned_cap_and_flushes_its_rows ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/stats_export_parity.rs (spur/target/debug/deps/stats_export_parity-2ac3c55b59b1b46e)
+
+running 1 test
+test every_steer_authority_field_reaches_the_emitted_json ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/steer_authority_wiring.rs (spur/target/debug/deps/steer_authority_wiring-b5eaef0c7537a8dd)
+
+running 1 test
+test a_session_that_used_steps_reports_them ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/steer_decision_site_reachability.rs (spur/target/debug/deps/steer_decision_site_reachability-6ffcfb5a3a6d9812)
+
+running 1 test
+test the_ranking_runs_only_when_a_predicate_carries_weight ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+     Running tests/steer_terms_fire.rs (spur/target/debug/deps/steer_terms_fire-6d0415c7e7603eda)
+
+running 1 test
+test every_predicate_is_seen_and_weights_change_the_schedule ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/steer_terms_identity.rs (spur/target/debug/deps/steer_terms_identity-236f77dbd6e15352)
+
+running 1 test
+test default_terms_leave_every_run_unchanged ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/timer_effects.rs (spur/target/debug/deps/timer_effects-730b25933cc6747d)
+
+running 1 test
+test timer_firings_are_counted_once_per_run_and_split_by_effect ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/util_stats_export_completeness.rs (spur/target/debug/deps/util_stats_export_completeness-517d4cb8def6ce11)
+
+running 2 tests
+test every_integer_counter_survives_the_difference_and_accumulate_path ... FAILED
+test every_counter_field_reaches_the_written_json ... ok
+
+failures:
+
+---- every_integer_counter_survives_the_difference_and_accumulate_path stdout ----
+
+thread 'every_integer_counter_survives_the_difference_and_accumulate_path' (3763) panicked at spur-core/tests/util_stats_export_completeness.rs:1756:5:
+the accumulated arm counters are not total: missing [], mismatched ["selector_context.context_block_bytes: wanted 3696, got 3496", "selector_context.cell_learner_bytes: wanted 3697, got 2681", "selector_context.choice_bytes: wanted 3698, got 3602", "selector_context.attribution_bytes: wanted 3699, got 3667"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    every_integer_counter_survives_the_difference_and_accumulate_path
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p spur-core --test util_stats_export_completeness`

@@ -1,0 +1,8 @@
+{
+  "cand-spur": "020acbb8a23c769adaeba56f1bdec8b6ccde58c59cc8867f025d8957d50998cd",
+  "general_vr.json": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "spur.patch": "87f1fb7f378a9fcd51826b99e5f397549cf8983d6eb2ed8787ac14936e25f19f",
+  "spur-full.patch": "7cf2668323910ac8af0eacd615a5c4ff38ff7558df584106ab08a820c0f27f75",
+  "super.patch": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "hypothesis.json": "2225c0fc534c99c8f3403f60a564aae74c5551df83a01de246b6143215c98136"
+}
