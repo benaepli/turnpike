@@ -3653,3 +3653,15 @@ Iteration71 selects causal-chain demotion net3/rank1 on the incumbent tie; its i
 - Reverse one legal optional cover edge in a reused plan while preserving mandatory graph edges and actions. Full frozen review: `research/lite/plans/iteration-72-admitted.json`.
 
 Iteration 72 selects provenance specialization net 3/rank 1; successful-vector mutation remains net 3/rank 2. Chain demotion is closed. Current ranks in the admitted record supersede historical keep-list ranks. Awaiting-approval entries remain unchanged.
+
+
+## selector-successful-joint-arms-with-uncertain-axis-mutation
+
+- kind: enabling | category: scheduler | origin: proposer | status: ADMITTED
+  at iteration 73 (rank 1 net 3, incumbent tie winner; cross-binary
+  full-system exception per judge; normal horizon) | gain: 3 | cost: 0 | rank: 1
+- Resample successful joint arm sets and mutate their uncertain axes.
+- Frozen specification, prediction, observables, falsifiers, entropy
+  interpretation and judge review: `research/lite/plans/iteration-73-admitted.json`,
+  hypothesis `selector-successful-joint-arms-with-uncertain-axis-mutation`;
+  source map `tmp/loop/lite/successful-vector-implementation-map.md`.

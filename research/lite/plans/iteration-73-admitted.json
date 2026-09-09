@@ -1,0 +1,73 @@
+{
+ "iteration": 73,
+ "admittedAtIso": "2026-09-08T00:00:00Z",
+ "mode": "autonomous",
+ "acceptedBaselineCommit": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+ "admittedFrom": "tmp/loop/lite/judged-73.json (judged 2026-09-08 session, rank 1 net 3)",
+ "hypothesis": {
+  "id": "selector-successful-joint-arms-with-uncertain-axis-mutation",
+  "parent": "per-cell-thompson-joint-arm-selector-rarity-reward",
+  "kind": "enabling",
+  "title": "Resample successful joint arm sets and mutate their uncertain axes",
+  "description": "Replace independent arm-axis sampling on learner draws with a bounded population search in simulator/arm_selector.rs. Each existing learner/configuration cell retains a ring of its last WARMUP_OBSERVATIONS successful full ArmSet vectors, with their credited-observation indices. Admit vectors only from runs that the learner already observes under its existing coin-or-own-run exposure rule and that earn its unchanged Boolean reward. Retain at most 24 entries and expire entries older than ceil(1/(1-DISCOUNT))=500 credited observations. Repeated vectors from independent successful runs remain repeated population members; no execution tape, plan, workload or state is copied. When at least eight live successes spanning at least two distinct vectors are present, a learner draw samples one population member uniformly and mutates exactly one axis. Choose the mutation axis proportionally to the categorical entropy of that axis's current normalized posterior-leading probabilities, and draw a different direction from the existing coin shares renormalized over the alternatives. If all entropies vanish, choose the axis uniformly. Thus four coordinates preserve a successful joint setting while uncertain coordinates receive exploration. Cells below support retain the current independent marginal sampler. Keep the current adaptive coin share, marginal posteriors, three learner assignments and rewards, per-configuration pooling, cap and all scheduler mechanisms unchanged. Population admission and aging share the current credit write guard. A cell's ordinary coin runs remain fresh exploration, and replay behavior and ordinary reward credit semantics remain unchanged. At draw time aggregate this parent-and-mutation mixture into the exact categorical distribution over the 72 ArmSet values, then sample that distribution. For an observation-only comparison, use the same uniform variate and fixed ArmSet index order to sample the product of the current marginal axis distributions; identical distributions therefore produce no departure. Count the Hamming distance between the actual tuple and this comparison tuple. Record mutation-axis mass from the exact mixture, and add counters and bounded per-cell exports for live support, unique vectors, supported draws, joint total-variation distance and subsequent reward counts on population-sampled runs. Cache the population mixture after each credited update that changes the population, refreshing the entropy weights after every WARMUP_OBSERVATIONS credits. Comparison calculations consume no schedule random numbers. No config field, campaign arm or harness change.",
+  "category": "scheduler",
+  "buildsOn": [
+   "per-cell factored arm selector",
+   "existing three generic per-run rewards",
+   "whole ArmSet representation"
+  ],
+  "expectedGain": 3,
+  "expectedCost": 0,
+  "rationale": "The existing joint Thompson proposal was weak because 72 combinations divide a discounted window into too few observations to estimate all combination reward rates. Successful-vector resampling uses observed successful tuples directly and needs no estimate for every combination. It also avoids recombining five separately favorable directions into a tuple that was never successful together, a structural limitation left largely unchanged when conditional draws seldom depart from marginal choices. Broad existing reward supply makes the population support falsifiable at the normal horizon. The main risks are reinforcement of frequently sampled tuples, loss of useful multi-axis jumps, and reward/depth misalignment. Independent coin draws and entropy-directed mutation provide escape paths, but they do not prove these risks harmless.",
+  "generalityArgument": "Population members are complete settings of general scheduling mechanisms, and their fitness is one of the existing protocol-independent rewards. The same success-and-mutation rule works for any protocol's action effects without inspecting handler names, roles, message payloads, oracle traces or known violations. Configurations and workloads are still chosen by the existing campaign; only the mechanism settings of a new execution are adapted.",
+  "prediction": {
+   "firingCounter": "arm_selector_population.changed_joint_draws",
+   "firingFloor": 50000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.07,
+    "max": 0.18
+   },
+   "mechanism": "Treatment: the session-global arm population and learner search distribution, with no new treatment bit. No existing bit is redefined to denote a new population policy. Because both successful-vector supply and marginal posteriors depend on previous population-generated runs, an off draw sharing those tables is not an untreated experiment. Grade this single-model replacement on the cross-binary rung with fresh reset sessions, unchanged campaign arms and the epoch's matched primary population. Frozen paired candidate/baseline depth>=8 per-run ratio is [1.07,1.18]. Require primary events per explore-second >=1.04 and paired throughput >=0.97. This is not a revived 72-cell Thompson estimator or an increased checkpoint offspring budget.",
+   "independentObservable": "Per normal 300-second chunk require >=20 learner/configuration cells to make >=100 population draws after satisfying the eight-live-success/two-distinct-vector gate, and >=100000 supported population draws in total. At least 20 percent of these actual selected ArmSets must differ in two or more coordinates from the product-marginal categorical comparison using the same uniform variate and ArmSet index order. Joint total-variation distance from the product-marginal distribution must be >=0.10 on at least half of supported draws; unlike an independent random shadow, this test is zero when the distributions agree. At least two distinct axes must each receive >=10 percent of mutation probability mass across supported draws, and at least 80 percent of population draws must come from cells whose live population contains >=4 distinct successful vectors; report repeated-vector concentration explicitly. Across four chunks, at least two of the three existing per-learner own-run reward rates must be >=1.10 of their corresponding baseline rates, with the third >=0.95. Those baseline rates are already exported; new supported-draw outcome counters additionally report whether sampled vectors succeed when executed again. The fitted population success rate and inherited parent success never count as the new run's outcome. Judge clarification: all live support, unique-vector counts and probability comparisons are read at decision time before this run is observed. Expiration uses the same cell credited-observation clock, not wall time, axis visits or only positive updates. A stored success is live when current_observation_index - success_observation_index <=500; expire greater ages, retain at most the24 most recent remaining successes. Population-supported draws satisfy >=8 live entries and >=2 distinct tuples. Count supported draws separately from changed_joint_draws, which counts tuples different from the product-marginal comparator. The two-coordinate comparison is coupling/order dependent and descriptive; the exact TV gate is the distributional check. Define ArmSet order lexicographically by axis direction indices [crash,retarget,fresh_first,pair_order,request], last axis varying fastest. Mutation-mass fractions are sums of the exact mixture axis masses over supported draws, with supported draws as denominator.",
+   "falsifier": "Refute if the primary contrast interval lies entirely below 1.07, the two-coordinate departure share falls below 20 percent, the joint-distribution TV gate fails, or the actual subsequent reward-rate clause fails. Missing the normal-horizon support or firing floors closes the candidate; do not lower the eight-success gate, extend the 500-observation window or pool configurations after observing inadequate supply. Mutation concentrated below the two-axis floor or population diversity below the four-vector clause refutes the claimed exploration mechanism. Throughput below 0.97, primary events-per-second below 1.04 or a panel regression closes on cost or generality. A better broad reward with flat or worse oracle depth refutes transfer, rather than establishing progress. Judge clarification: report repeated material AOS harm as a generality failure even if the selective grid primary rises. A tuple inherited from a successful population member does not inherit its success or any execution evidence.",
+   "measurementClarification": "Primary means the same four grid arms in candidate and baseline. The per-run band and per-second guard use that population; overall throughput is separately reported. Also report AOS and whole-campaign per-run/per-second outcomes, with unchanged panel/regression guards. A selective grid gain with repeated material AOS or panel harm does not establish general search improvement. No seed selection or retrospective baseline substitution.",
+   "horizonClarification": "Normal chunks are independently reset 300-second sessions, up to the existing four-chunk cap. Per-chunk applicability/firing gates apply at that horizon. Own-run reward clauses apply to pooled completed paired seeds at the final decision, with four chunks required to claim confirmation of the specified four-chunk reward prediction. Early close is allowed for predeclared applicability, cost or harm gates; do not claim a four-chunk result from an early stop."
+  },
+  "judgeReview": {
+   "redTeam": "Sampling successes weights vectors by both their frequency and reward probability. It can reproduce a common policy rather than discover an interaction. One-axis mutation loses multi-axis jumps; a 500-credit horizon and eight-success gate may leave rare-reward cells unsupported. Entropy from marginal posteriors may choose the wrong escape axis. Even improved generic rewards need not improve witness-complete depth or AOS.",
+   "scoreReason": "Verified existing twelve direction masses, five axes, DISCOUNT0.998/WARMUP24, unchanged coin-to-all/own-run-to-own credit, and three Boolean learner rewards. Baseline own-run reward counters exist. Success-population support and useful joint action interactions are not in current counters. Gain3/cost0 retained, no forecast credited as evidence. Incumbent wins net3 tie.",
+   "disposition": "keep",
+   "crossBinaryException": "Accept full-system replacement exception: switching per run is possible, but shared adaptation tests partial exposure and disjoint states change normal finite-horizon support. Requires the retained reset paired-session estimand and safeguards, without new protected bit registration."
+  },
+  "status": "kept",
+  "selectable": true
+ },
+ "rankedQueue": [
+  {
+   "id": "selector-successful-joint-arms-with-uncertain-axis-mutation",
+   "net": 3,
+   "rank": 1,
+   "disposition": "admitted"
+  },
+  {
+   "id": "contextual-single-pivot-crash-phase-learning",
+   "net": 3,
+   "rank": 2,
+   "disposition": "kept"
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "net": 2,
+   "rank": 3,
+   "disposition": "kept"
+  }
+ ],
+ "admissionDecisions": {
+  "tieBreak": "successful-vector wins the net-3 tie as the incumbent from the retained ranked queue; provenance (net 3) closed at iteration 72 and is nonselectable.",
+  "entropyInterpretation": "Normalize CellLearner::leading_probability(a) itself before multiplying by coin shares; compute Shannon entropy per axis and normalize the five entropy values into mutation-axis probabilities. Zero terms contribute zero; all-zero axis entropy retains uniform axis selection. No entropy floor or axis-width correction.",
+  "crossBinaryException": "Accepted per judgeReview.crossBinaryException: full-system replacement, no per-run treatment bit; cross-binary rung with fresh reset paired sessions.",
+  "implementationMap": "tmp/loop/lite/successful-vector-implementation-map.md, validated against accepted source b86baad (unchanged since it was written).",
+  "predictionFrozen": "Byte-for-byte the judged-73.json parsed object; unchanged from admission."
+ }
+}
