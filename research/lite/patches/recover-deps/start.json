@@ -1,0 +1,38 @@
+{
+ "name": "recover-deps",
+ "phase": "started",
+ "chunk": 0,
+ "maxChunks": 4,
+ "minChunks": 2,
+ "verdict": "continue",
+ "reason": "no paired chunks folded yet",
+ "resolvedIfStopped": null,
+ "canStillAdvance": true,
+ "stopper": null,
+ "advice": [],
+ "baseline": {
+  "source": "measured",
+  "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/34b5ef40e3bf-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+  "chunksCached": 2,
+  "measuredThisCall": false
+ },
+ "timing": {
+  "lastChunkWallSec": null,
+  "candRps": null,
+  "baseMedianRps": 2014.0518567808017,
+  "slowConfirmed": false,
+  "anomalies": 0,
+  "failures": 0
+ },
+ "primary": null,
+ "cost": null,
+ "variantContrasts": null,
+ "files": {
+  "state": "/home/benaepli/Rust/turnpike/research/lite/state/recover-deps.json",
+  "chunkDir": "/home/benaepli/Rust/turnpike/research/lite/state/recover-deps"
+ },
+ "budget": {
+  "freeDiskGb": 697.2,
+  "estSecPerChunk": 420
+ }
+}

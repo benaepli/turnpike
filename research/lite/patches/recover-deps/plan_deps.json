@@ -1,0 +1,67 @@
+{
+ "plan_deps": {
+  "recover_edges_dropped": 16038,
+  "recover_edges_forced": 19970,
+  "stock": {
+   "density_zero": {
+    "runs": 11338,
+    "crashes": 23225,
+    "unrecovered_crashes": 0,
+    "zero_recovery_runs": 0,
+    "plan_complete": 2974,
+    "steps_used_sum": 33795757
+   },
+   "density_positive": {
+    "runs": 11353,
+    "crashes": 18892,
+    "unrecovered_crashes": 5762,
+    "zero_recovery_runs": 2919,
+    "plan_complete": 2739,
+    "steps_used_sum": 35883555
+   }
+  },
+  "exempt": {
+   "density_zero": {
+    "runs": 5876,
+    "crashes": 12119,
+    "unrecovered_crashes": 0,
+    "zero_recovery_runs": 0,
+    "plan_complete": 1564,
+    "steps_used_sum": 17646632
+   },
+   "density_positive": {
+    "runs": 5790,
+    "crashes": 10631,
+    "unrecovered_crashes": 0,
+    "zero_recovery_runs": 11,
+    "plan_complete": 2055,
+    "steps_used_sum": 15896144
+   }
+  },
+  "forced": {
+   "density_zero": {
+    "runs": 5590,
+    "crashes": 9323,
+    "unrecovered_crashes": 8633,
+    "zero_recovery_runs": 4970,
+    "plan_complete": 360,
+    "steps_used_sum": 18826755
+   },
+   "density_positive": {
+    "runs": 5749,
+    "crashes": 8642,
+    "unrecovered_crashes": 5510,
+    "zero_recovery_runs": 3386,
+    "plan_complete": 705,
+    "steps_used_sum": 20216296
+   }
+  }
+ },
+ "crash_recovery": {
+  "runs": 45696,
+  "crashes": 82832,
+  "recovers": 62927
+ },
+ "termination_by_recovered_nodes_0_runs": 11286,
+ "termination_all_runs": 45696
+}

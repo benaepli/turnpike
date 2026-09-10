@@ -7596,3 +7596,108 @@ per chunk, counters split by density with the unrecovered-crash share on
 density-0.3 runs required at <= 0.75x stock on the exempt cell and >=
 1.15x on the forced cell, equality on density-0.0 runs as a leak check,
 throughput >= 1.00. Full record: research/lite/plans/iteration-75-admitted.json.
+
+
+**Iteration 75 implementation review.** Recover-dependency exemption
+implemented on b86baad in an isolated worktree. GeneratorConfig gains a
+three-valued recover_deps mode drawn per workload seed under a new salt
+(phase 0 exempt, 1 forced, 2-3 stock); run_single_simulation sets it before
+generate_plan and ORs the cell's bit into the run tag where the seed is at
+hand. Exempt is add-then-remove: probabilistic edges into a RecoverNode are
+added during the pass, so the cycle guard and every random draw match the
+stock plan exactly, and are removed afterwards; the exempt plan is the
+stock plan minus exactly those edges (proven against fingerprints of the
+unmodified generator over 64 seeds). Forced adds one cycle-safe client-to-
+recover edge per recover, drawn after every stock draw. Bits 1<<13 and
+1<<11 tagged; the retired rows replyBeforeNews and newsBeforeReply renamed.
+Counter block plan_deps: session totals of edges dropped and forced, and
+per cell per density (six cells) runs, crashes, unrecovered crashes, zero-
+recovery runs, plan completions and steps, reconciled exactly against the
+existing crash_recovery and termination counters. Probes are not exempt
+(the cell is a plan property). Two integration fixtures moved their run
+ids off the forced cell because their plans cannot complete there; no
+assertion changed. Tests 463 passed, 0 failed; release build passes;
+general_vr.json untouched. exec.rs and history.rs untouched.
+
+**Iteration 75 first chunk.** Seed 1000: 575,940 candidate runs against
+606,180 baseline, zero failures, zero violations either side. Firing:
+recover_edges_dropped 177,612 (floor 60,000), recover_edges_forced 276,401
+(floor 30,000). Cells 287,156 stock / 146,025 exempt / 142,759 forced,
+about 43% of each at positive density.
+
+The diagnosis is confirmed outright. On density-0.3 runs the unrecovered-
+crash share is 0.2378 on stock and 0.0000 on exempt (17,000 of 71,000
+planned crashes on stock never recover in-run, none on exempt); the
+zero-recovery run share is 0.1391 against 0.0020; plan completion 0.2019
+against 0.2749; steps per run 0.935x. On density-0 runs both cells read
+0.0 unrecovered, no leak (completion 0.192 against 0.183 is a small
+difference the plan identity test says cannot come from the plan; noted,
+not resolved). The forced cell stalls 48% of its density-0.3 crashes and
+61% of its density-0 crashes, halves plan completion and lengthens runs.
+Every crash on the baseline that never recovers is therefore a plan-
+dependency stall: a client request ordered before a restart, blocked on
+the outage that the restart would end.
+
+Internal primary (exempt against co-bit-matched untreated, forced excluded
+by the match): depth8 per-run 1.0561 [0.9732, 1.1461], z 1.80, treated rate
+0.01871 against 0.01771, band [1.02, 1.12] met by the point but the
+interval resolves neither way; depth6 1.0731 [1.038, 1.109] and depth4
+1.048 separated up; depth9 0.887 [0.72, 1.09] neither. Treated runs are
+shorter (steps ratio 0.981) and complete more (0.184 against 0.156); no
+balance fault. The forced cell reads depth8 0.301 [0.276, 0.328] against
+untreated, far below its predicted [0.85, 0.98]: the sign is as predicted
+and the magnitude is about six times larger, because a forced client-
+before-restart edge stalls most runs outright.
+
+Cross-binary, the whole candidate reads depth8 per second 0.8637 (z 2.7,
+-13.6%), throughput 0.9503, four-grid per-run 0.897, AOS 0.630; the
+grader's rule would close on that regression. The regression is the
+forced quarter: its depth8 rate is 0.30 of untreated and its runs are the
+longest, so a campaign carrying it at one quarter loses about 15% of
+depth8 events per second whatever the exempt cell does. The candidate as
+built cannot merge; the mechanism the hypothesis is about can only be
+read on the internal contrast, where it is positive and unresolved.
+
+Autonomous judgment: buy the second chunk to resolve the exempt contrast
+on seed 1001. Whatever it reads, the forced inverse has done its job (the
+sign is established beyond doubt) and is not a shape to ship; if the
+exempt contrast separates up, a merge form without the forced cell is
+built and graded as its own session before any merge is considered. The
+frozen prediction is not rewritten: the exempt band and the density-split
+clauses are read as frozen, the forced band is recorded as missed on
+magnitude with the sign as predicted.
+
+**Iteration 75 second chunk (as-built form).** Seed 1001: 664,740
+candidate runs against 603,480 baseline, zero failures, zero violations.
+Firing 205,665 dropped and 322,044 forced edges. The density-0.3 reads
+replicate: unrecovered-crash share stock 0.2328, exempt 0.0000, forced
+0.4647; zero-recovery share 0.1263 / 0.0004 / 0.3118; plan completion
+0.2001 / 0.2592 / 0.1503; exempt steps per run 0.9475x stock. Density-0
+completion reads 0.1923 exempt against 0.1946 stock, so the seed 1000
+difference was noise and there is no leak. Every frozen density clause
+holds on both seeds.
+
+Internal primary pooled 1.0512 [0.9930, 1.1129], z 2.37, per chunk 1.0561
+and 1.0465, treated rate 0.01819 against 0.01731 over 240,989 treated and
+479,570 control runs, no balance fault; the band [1.02, 1.12] is met by the
+point and the interval falls 0.007 short of separating up. Depth6 1.0613
+[1.037, 1.086] separated up on both seeds; depth9 0.960 and depth10 1.211
+resolve neither way. The all-untreated survey on the same bit reads
+depth8 1.0512 [1.0138, 1.0901]. The forced cell reads 0.2873 [0.270,
+0.305] on seed 1001. Cross-binary the as-built candidate reads 0.8783 per
+second pooled (the forced quarter), throughput 1.0258 pooled with seed
+1001 at 664,740 runs against 603,480, projected epoch 1.003.
+
+Decision on the as-built form: it cannot merge, because the form carries
+a forced quarter whose depth8 rate is 0.29 of untreated and whose runs are
+the longest; that quarter is an inverse control that has established its
+sign beyond doubt on both seeds and has no place in a shipped explorer.
+The exempt mechanism itself reads positive, unresolved by 0.007 on the
+interval after two chunks, with its causal chain confirmed at every
+observable. A merge form is built: forced cell removed, exempt on half
+the workload seeds and stock on the other half (the split every merged
+mechanism keeps so the panel reads per cell), bit 1<<13 kept, the 1<<11
+row restored to its retired name. It is graded as its own session
+(recover-deps-merge) under the same frozen band, with a panel and the
+regression suite before any merge. The as-built session is finished and
+its evidence retained under research/lite/patches/recover-deps.

@@ -1,0 +1,21 @@
+diff --git a/research/orchestrator/src/decide.ts b/research/orchestrator/src/decide.ts
+index 9916d22..9140f74 100644
+--- a/research/orchestrator/src/decide.ts
++++ b/research/orchestrator/src/decide.ts
+@@ -62,8 +62,8 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+   { bit: 67108864, name: "originAlternate" },
+   { bit: 536870912, name: "pairOrderGhostOnly" },
+   { bit: 16777216, name: "freshFirstPair" },
+-  { bit: 8192, name: "replyBeforeNews" },
+-  { bit: 2048, name: "newsBeforeReply" },
++  { bit: 8192, name: "recoverDepsExempt" },
++  { bit: 2048, name: "recoverDepsForced" },
+   { bit: 32768, name: "pairSendOrder" },
+   { bit: 262144, name: "clientFanoutRelease" },
+   { bit: 1073741824, name: "restartAfterPeerSettle" },
+diff --git a/spur b/spur
+--- a/spur
++++ b/spur
+@@ -1 +1 @@
+-Subproject commit b86baad3f94ce14dbdf20688b61fd92317a75cc2
++Subproject commit b86baad3f94ce14dbdf20688b61fd92317a75cc2-dirty
