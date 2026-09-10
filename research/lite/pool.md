@@ -3708,3 +3708,39 @@ Iteration 74 re-judged the two carried entries: parent-plan-optional-cover-
 edge-reversal gain 2 rank 3; contextual-single-pivot-crash-phase-learning
 gain 2 rank 4, parked under the retired-family finding and its own
 full-system exception clause. Awaiting-approval entries remain unchanged.
+
+
+## recover-events-exempt-from-client-dependencies
+
+- kind: enabling | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 75 (rank 1 net 6; bits recoverDepsExempt 1<<13 and
+  recoverDepsForced 1<<11 on retired rows; split by workload seed; internal
+  contrast) | gain: 6 | cost: 0 | rank: 1
+- A planned restart never waits on client work: drop probabilistic plan
+  edges into RecoverNode events; the inverse cell forces one such edge.
+- Frozen (judge-rewritten) prediction, observables, falsifiers and review:
+  `research/lite/plans/iteration-75-admitted.json`.
+
+## replay-parent-served-by-child-arm-set
+
+- kind: enabling | category: scheduler | origin: proposer | status: KEPT at iteration 75 | gain: 5 | cost: 0 | rank: 2
+- Serve a prefix-replay slot the corpus parent whose arm set matches the
+  slot's own draw; inverse serves the least-agreeing parent. Judged an
+  enabling fix of the recorded replay-fidelity miswiring, not a ranking
+  rule; the cited fidelity base 0.39 was false (0.50-0.52 on the named
+  baseline), band lowered to [1.03,1.12]. Bits 1<<12 / 1<<10 claimed; if
+  built after the PCT candidate, take other retired rows. Review:
+  `research/lite/plans/iteration-75-admitted.json`.
+
+## run-local-utilization-counters-folded-at-run-end
+
+- kind: perf | category: performance | origin: proposer | status: KEPT at iteration 75 | gain: 6 | cost: 2 | rank: 3
+- Fold the per-step global atomic counters into a run-local block written
+  once per run; cross-binary per-second rung only, per-run identically 1.0,
+  counter-identity falsifier (allowing no_schedule_attempt). Hotspot
+  unprofiled. Review: `research/lite/plans/iteration-75-admitted.json`.
+
+Iteration 75 re-judged the carried entries: PCT fault-anchor change points
+gain 3 rank 4; optional-cover reversal gain 2 rank 5 (no bit; its
+cross-binary band sits inside the recorded session swing). Single-pivot
+crash-phase learning stays parked. Awaiting-approval entries unchanged.

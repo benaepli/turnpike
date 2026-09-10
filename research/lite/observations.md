@@ -7542,3 +7542,57 @@ inverse cell as predicted; throughput flat); the AOS arm's cross-binary
 harm read is flagged as moving on its own across five unrelated candidates
 and two cached seeds; the AOS tape-mutation path is verified dead on the
 baseline counters and is the salvage target for iteration 75.
+
+
+**Iteration 75 proposals and admission.** Three proposals through the
+ablation-and-salvage lens under the AOS-dead-path directive: serve each
+prefix-replay slot the corpus parent whose arm set matches the slot's own
+draw (an enabling fix of the recorded replay-fidelity defect, with a
+least-agreeing inverse); exempt planned restarts from the probabilistic
+client-dependency pass in the plan generator, split by workload seed with
+a forced-dependency inverse; and fold the per-step global atomic counters
+into a run-local block (perf, cross-binary only). The proposer verified
+the directive and added to it: with novelty disabled every AOS individual
+of a workload shares one timeline hash, so every tape-mutation child is
+dedup-rejected and, once the population fills, every config-mutation
+child is rejected by the score tie too, freezing the population at its
+first max_size seeds; an AOS tape child draws its own arm set by run id,
+so a mutated tape is not a local perturbation; a random-cut tape mutation
+is structurally a prefix replay the grid corpus already does at a
+signal-anchored cut; and the grader excludes the AOS arm from the primary
+rate stratum and the per-bit contrasts (RATE_EXCLUDED_ARM_MODES), so an
+AOS-internal change is in bounds but not gradable on the primary, which
+is why no AOS salvage was proposed. Further dead or inert paths it found:
+steer_terms all zero and the steer never evaluates, so feedback.steer,
+steer_audit and the fine timeline granularity are dead config;
+quick_fire_multiplier 5.0 is inert; recovery_weight_placebo is still
+walking every selection; purgatory delay_probability 0 makes the
+grid-no-purgatory arm an exact duplicate of grid (campaign block, reported
+only, not proposed); client_anchor holds release 777,824 times by expiry
+against 88 by dry queue. These are recorded for the operator; none is a
+loop edit.
+
+Blind judge, with the two live carried entries alongside: recover-
+dependency exemption 6-0, replay parent by arm set 5-0, run-local counters
+6-2, PCT fault-anchor change points 3-0, optional-cover reversal 2-0; none
+rejected. False claims: all three new proposals quoted counter values from
+the iteration 72 candidate session rather than the named baseline (same
+shape on the real cache), and the replay proposal's fidelity base of 0.39
+is 0.50-0.52 on the baseline, halving its projected effect. The admitted
+mechanism was verified line by line: the generator's second pass adds a
+prev-to-current edge for any pair at the dependency density with only a
+cycle guard, so a RecoverNode routinely depends on a ClientRequest; a
+planned request completes only at its response, deliveries to a down node
+are held, and the panel's client loops block on one RPC, so a recover
+ordered after a request to the down node cannot fire. On the baseline 9.1%
+of planned crashes never recover in-run and 5.6% of runs end with zero
+recoveries and zero plan completion. Admitted at rank 1 with the judge's
+rewritten prediction frozen: bits recoverDepsExempt 1<<13 and
+recoverDepsForced 1<<11 drawn per workload seed (children inherit their
+parent's cell, so no run consumes another cell's plan or tape), pooled
+band [1.02, 1.12] on the exempt quarter, forced quarter [0.85, 0.98],
+firing recover_edges_dropped >= 60,000 and recover_edges_forced >= 30,000
+per chunk, counters split by density with the unrecovered-crash share on
+density-0.3 runs required at <= 0.75x stock on the exempt cell and >=
+1.15x on the forced cell, equality on density-0.0 runs as a leak check,
+throughput >= 1.00. Full record: research/lite/plans/iteration-75-admitted.json.

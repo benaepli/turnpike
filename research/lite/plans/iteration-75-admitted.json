@@ -1,0 +1,209 @@
+{
+ "iteration": 75,
+ "admittedAtIso": "2026-09-10T20:44:53.204463+00:00",
+ "mode": "autonomous",
+ "acceptedBaselineCommit": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+ "lens": "ablation and salvage",
+ "focusDirective": "AOS tape path verified dead; make dead or miswired paths live with protocol-agnostic identity, or retire them; state tape interaction; no arm-selector or replay-prefix ranking variants",
+ "admittedFrom": "tmp/loop/lite/judged-75.json (blind judge, rank 1 net 6)",
+ "hypothesis": {
+  "id": "recover-events-exempt-from-client-dependencies",
+  "parent": null,
+  "kind": "enabling",
+  "title": "A planned restart never waits on client work: drop probabilistic plan edges into RecoverNode events, with a forced-dependency inverse cell",
+  "description": "Fixes a liveness miswiring in the plan generator (spur/spur-core/src/simulator/path/generator.rs, second pass). With dependency_density 0.3 (half the grid), the shuffled probabilistic pass adds edges prev -> current with only a cycle guard, so a RecoverNode event routinely depends on a ClientRequest. A client request whose destination is the crashed node cannot complete until that node recovers (deliveries to a crashed node are buffered until recovery), and the recovery cannot be released until the request completes: the run stalls to the learned cap with the node down. The baseline chunk shows the signature: crash_recovery.crashes 1,157,487 against recovers 1,046,438 (9.6% of crashes never recover in-run), termination.by_recovered_nodes[0] is 33,822 runs with plan_complete 0, and planned_events_outstanding_sum is 3.16M (5.8 per run). Those runs cannot reach depth 8, which needs the restart. Mechanism: GeneratorConfig gains `recover_deps: RecoverDeps { Stock, Exempt, Forced }`. Exempt: in the probabilistic pass, skip any candidate edge whose target is a RecoverNode (mandatory crash -> recover, recover-serialization and the post-fault recover -> client edges are untouched). Forced (inverse): after the pass, give every RecoverNode one extra edge from a random ClientRequest not already ordered relative to it (cycle-guarded). The cell is drawn from the workload seed, not the run id: run_phase::salted_phase(workload_seed, DEPS_SALT, 4): 0 exempt, 1 forced, 2-3 stock; run_single_simulation sets recover_deps from workload_seed before generate_plan and ORs the cell's bit into the run tag beside run_variant::of. Bits: recoverDepsExempt = 1 << 13 (renaming retired row 8192 replyBeforeNews) and recoverDepsForced = 1 << 11 (renaming row 2048 newsBeforeReply). Counters: plan_deps.{recover_edges_dropped, recover_edges_forced, runs_by_cell, unrecovered_crashes_by_cell, crashes_by_cell, zero_recovery_runs_by_cell, plan_complete_by_cell}. No config field.",
+  "category": "scheduler",
+  "buildsOn": [
+   "plan generator dependency pass",
+   "run_variant tags",
+   "termination and crash_recovery counters"
+  ],
+  "rationale": "6.2% of all runs end with zero recoveries and none of them completes; 9.6% of planned crashes never recover. Every such run is a cap-length run (the longest and most expensive class) that contributes nothing at depth 8, which needs the initiating node's restart and its post-restart delivery. If even half of the zero-recovery runs and a share of the multi-crash runs whose second cycle stalls (by_recovered_nodes[2+]: 337,264 runs, 6% plan complete) are dependency stalls, releasing them buys 4-10% more depth-8-capable runs and shortens the most expensive runs at the same time. The forced cell tests the causal story in the other direction on the same session.",
+  "generalityArgument": "The rule is about plan-graph liveness, not the protocol: a planned restart must not be ordered after client work that the outage itself can block. It names no handler, message, role or timer label and holds for every spec on the panel, since buffering to crashed nodes is a simulator semantic. It introduces no constant on the treated cell; the forced cell's single extra edge is the smallest dose that exercises the stall. Another protocol needs no value; plan_deps.unrecovered_crashes_by_cell tells anyone whether the stall existed for that protocol.",
+  "prediction": {
+   "firingCounter": "plan_deps.recover_edges_dropped",
+   "firingFloor": 60000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.02,
+    "max": 0.12
+   },
+   "mechanism": "Cell drawn per workload seed via run_phase::salted_phase(workload_seed as i64, DEPS_SALT, 4): exempt quarter tagged recoverDepsExempt = 1<<13, forced quarter tagged recoverDepsForced = 1<<11, stock half; the bit is ORed into the run tag beside run_variant::of so the grader reads it per run. Per-run depth>=8 ratio of the exempt quarter to the stock half, probe-free and matched on co-bits, in [1.02, 1.12] pooled over both densities (the exempt rule is inert at density 0.0, so the density-0.3 effect is diluted by half); the forced quarter in [0.85, 0.98] (it fires at both densities). Tape interaction: a replay child inherits its parent's workload seed and therefore its cell and bit; no run consumes a tape or plan produced under another cell. Expected balance fault: within the replaySlot co-bit the cell shares follow per-cell parent admission rates; rates per cell are unaffected. Firing: plan_deps.recover_edges_dropped >= 60,000 per chunk; plan_deps.recover_edges_forced >= 30,000 per chunk.",
+   "independentObservable": "Counters plan_deps.{runs, crashes, unrecovered_crashes, zero_recovery_runs, plan_complete} are kept by cell and split by whether the run's dependency_density is positive. On density-0.3 runs: unrecovered-crash share (unrecovered_crashes / crashes) exempt <= 0.75x stock, forced >= 1.15x stock; zero-recovery run share exempt <= 0.70x stock. On density-0.0 runs: exempt equals stock within noise (the rule is inert there; a difference is a bug), forced above stock. Exempt-cell steps per run below the stock cell's; grid plan_complete share not below baseline. Named baseline pooled references: unrecovered share 0.091-0.093, zero-recovery share 0.055-0.056.",
+   "falsifier": "Refuted if the exempt-cell depth>=8 per-run interval lies entirely below 1.02, or if on density-0.3 runs the exempt cell's unrecovered-crash share is not below 0.75x the stock cell's with the firing floor met (dependencies are not what stalls the recoveries; the diagnosis was wrong, file the per-density stall shares as a finding), or if the forced cell's unrecovered-crash share is not above the stock cell's (the sign is wrong), or if the exempt and stock cells differ on density-0.0 runs (the mechanism leaked).",
+   "costClause": "Cross-binary throughput >= 1.00 of the paired baseline (the change removes cap-length stalled runs and adds no per-step work); exempt-cell steps per run <= 1.00x the stock cell; grid plan_complete share not below the baseline."
+  },
+  "createdAtIso": "2026-09-10T20:31:17Z",
+  "notes": "The observation log recorded the zero-recovery stratum long ago as 'pure timeouts that still contribute depth samples' without a cause; the cause proposed here is checkable per cell from the new counters on chunk 1.",
+  "expectedGain": 6,
+  "expectedCost": 0,
+  "redTeam": "Strongest case against: the diagnosis is inferred, not measured, and there is an alternative cause the proposal cannot see. Zero-recovery runs must also exist at density 0.0, where the probabilistic pass adds no edge at all, so at least part of the 33,856-run stratum is caused by something else: about 85 percent of runs are crash-placed and draw crash holds over the learned completed-run span (PlacedPhase then waits for a fan-out phase), so a crash that lands late leaves no room for its recover before the cap, and a Recover runnable can lose priority contests until the cap without any dependency. The proposal's per-cell counters pool both densities, so an exempt-vs-stock difference diluted by the density-0 half is what it will read unless the counters are split by density (rewritten below). Effect bound: zero-recovery runs are 5.6 percent of runs, half at density 0.3, and only the dependency-stalled share is releasable; even releasing every one of them adds at most about 3 percent more restart-capable runs pooled, which then reach depth 8 at the base rate, so the pooled band floor of 1.04 is above what the arithmetic supports unless the multi-crash stalls (374,882 runs at by_recovered_nodes 2 with 6 percent plan completion) convert too. The post-fault-client-work family closed as a null on every dose including zero, which bounds the value of reordering client work around recovers beyond liveness. Finally, releasing a recover earlier relative to client work changes restart timing, and the depth-8 label is a recovery-timing condition; the sign is not guaranteed.",
+  "scoreReason": "The mechanism is verified line by line: path/generator.rs second pass adds prev -> current for any pair at probability dependency_density with only a has_path_connecting cycle guard, so a RecoverNode routinely gains an edge from a ClientRequest; general_vr.json has dependency_density [0.0, 0.3] and post_fault_client_ops 1 (mandatory recover -> client edges, untouched); a planned client request completes only at its response (path.rs in_progress removal), deliveries to a down node are held (crash_recovery.messages_held_at_crash 3.5M), and the panel's client loops (bin/spur/VR.spur ClientInterface, lines 636-664) block on a single RPC with no timer, so the stall is real whenever the request's destination or redirect target is down. The counters cited exist with the claimed shape on the named baseline (crashes 1,277,928 / recovers 1,162,149 = 9.1 percent unrecovered; by_recovered_nodes.0 runs 33,856 with plan_complete 0; outstanding 3.36M); the cited values are from another cache but the shape is the same. The split by workload seed is readable: fresh grid runs derive their workload seed from the run id (derive_seed(arm_seed, run_id, WORKLOAD_SALT)) and children inherit the parent's, so the cell is a run-level tag and the grader's per-run co-bit-matched contrast reads it; expected balance fault: within the replaySlot co-bit the cell shares follow parent admission rates per cell (exempt parents recover more and so fire the signal more), which moves shares, not per-cell rates. The question is not in the observation logs (the zero-recovery stratum was recorded as pure timeouts without a cause) and not in the pool. Held at 6 rather than higher because the causal share is unverified and the depth-8 band is optimistic; the inverse cell and the high-powered unrecovered-share observable make it self-diagnosing on chunk 1. Cost 0: generator.rs, explorer.rs, util_stats.rs, run_variant.rs.",
+  "verifiedClaims": [
+   "the probabilistic dependency pass adds prev -> current edges with only a cycle guard and RecoverNode can be a target -> verified (path/generator.rs, second pass over shuffled nodes, has_path_connecting guard only)",
+   "dependency_density 0.3 on half the grid -> verified (general_vr.json dependency_density [0.0, 0.3])",
+   "post-fault recover -> client edges are mandatory and separate -> verified (post_fault_client_ops 1; generator post-fault pass)",
+   "deliveries to a crashed node are buffered until recovery -> verified (docs/agent/language.md; crash_recovery.messages_held_at_crash 3,565,108 on the baseline)",
+   "a client request to a down node cannot complete before recovery -> verified for the target spec (VR.spur ClientInterface loops on one RPC, no timer) and the plan marks a ClientRequest complete only on its response (path.rs)",
+   "crash_recovery.crashes 1,157,487 / recovers 1,046,438, by_recovered_nodes[0] 33,822, outstanding 3.16M on the baseline chunk -> values not in the named baseline (it reads 1,277,928 / 1,162,149, 33,856, 3,361,713); same shape (9.1 percent unrecovered, 5.6 percent zero-recovery runs, plan_complete 0)",
+   "by_recovered_nodes[2+] runs 337,264 with 6 percent plan complete -> shape verified (374,882 runs, 22,418 complete = 6.0 percent)",
+   "bits 1<<13 and 1<<11 are free -> verified (untagged in run_variant.rs; VARIANT_BITS rows 8192 replyBeforeNews and 2048 newsBeforeReply are retired)",
+   "GeneratorConfig is built in run_single_simulation before generate_plan -> verified (explorer.rs lines 1027-1042)",
+   "fresh grid runs derive workload_seed from the run id; children and AOS children inherit -> verified (campaign.rs derive_seed(arm_seed, run_id, WORKLOAD_SALT); seed.workload_seed for children; explorer.rs 1972 and package_child for AOS)",
+   "the observation log recorded the zero-recovery stratum as pure timeouts without a cause -> verified (research/observations/OBSERVATIONS.md line 264)",
+   "the share of zero-recovery runs caused by dependency stalls -> uncheckable until the new counters run"
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "plan_deps.recover_edges_dropped",
+   "firingFloor": 60000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.04,
+    "max": 0.15
+   },
+   "mechanism": "Cell drawn per workload seed: exempt quarter tagged recoverDepsExempt = 1 << 13, forced quarter tagged recoverDepsForced = 1 << 11, stock half. Per-run depth>=8 ratio of the exempt quarter to the stock half, probe-free and matched on co-bits, in [1.04, 1.15]; the forced quarter in [0.80, 0.96]. Half the runs are at density 0.0 where the exempt rule changes nothing, so the pooled band is the density-0.3 effect diluted by half. Tape interaction: the split is at the level that owns the plan and the tape. A replay child inherits its parent's workload seed, so it regenerates the parent's exact plan under the parent's cell and carries the parent's bit; AOS children likewise inherit the workload seed. No run consumes a tape or plan produced under another cell, and the replay corpus serves parents regardless of cell, so treated and untreated children are drawn from the same ring. Firing: plan_deps.recover_edges_dropped >= 60,000 per chunk (about 150,000 exempt-cell runs, half at density 0.3, about two recovers each with about 0.3 x prior events candidate edges); plan_deps.recover_edges_forced >= 30,000.",
+   "independentObservable": "Unrecovered-crash share per cell (plan_deps.unrecovered_crashes_by_cell / crashes_by_cell): stock about 0.096 (baseline), exempt <= 0.065, forced >= 0.13; zero-recovery run share (zero_recovery_runs_by_cell / runs_by_cell): stock about 0.062, exempt <= 0.040. Exempt-cell steps per run below the stock cell (stalled runs are cap-length).",
+   "falsifier": "Refuted if the exempt-cell depth>=8 per-run interval lies entirely below 1.04, or if the exempt cell's unrecovered-crash share is not below the stock cell's by at least 25% with the firing floor met (dependencies are not what stalls the recoveries; the mechanism fires but the diagnosis was wrong), or if the forced cell's unrecovered-crash share is not above the stock cell's (the sign is wrong).",
+   "costClause": "Cross-binary throughput >= 1.00 of the paired baseline (the change removes cap-length stalled runs and adds no per-step work); exempt-cell steps per run <= 1.00x the stock cell; grid plan_complete share not below the baseline."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "rankedQueue": [
+  {
+   "id": "recover-events-exempt-from-client-dependencies",
+   "net": 6,
+   "rank": 1
+  },
+  {
+   "id": "replay-parent-served-by-child-arm-set",
+   "net": 5,
+   "rank": 2
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "net": 4,
+   "rank": 3
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "net": 3,
+   "rank": 4
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "net": 2,
+   "rank": 5
+  }
+ ],
+ "rejected": [],
+ "reviewSummary": "Five candidates, none rejected. Ranking: recover-events-exempt-from-client-dependencies net 6 (mechanism verified in generator.rs: the probabilistic pass orders RecoverNode after ClientRequest with only a cycle guard; VR's client loop blocks on one RPC with no timer; counters exist with the claimed shape; band lowered to [1.02, 1.12] and the observables split by density because the exempt rule is inert on the density-0 half). replay-parent-served-by-child-arm-set net 5 (an enabling serving fix of the iteration 27-28 miswiring, not a retired ranking rule; its fidelity base of 0.39 is false on the named baseline, which reads 0.50-0.52, so the band is lowered to [1.03, 1.12]). run-local-utilization-counters net 4 (gain 6, cost 2: the per-step atomics are verified, 32 cores and 7 us per step verified, but the hotspot is unprofiled and the 'baseline chunk' values were actually the iteration-72 candidate session's; graded on the per-second rung only with a counter-identity falsifier rewritten to allow for no_schedule_attempt). pct-change-points net 3 (all code claims verify, the saturation gate and implementer clause stand, iteration 74's inverse-cell sign is weak support). parent-plan-optional-cover-edge-reversal net 2 (all source claims verify; no bit, cross-binary band inside recorded session spread; kept as before). Checkable claims found false: candidate 1's cited counter values are not the baseline's (they occur only in research/lite/state/provenance/chunk-1000.cand.json); candidate 2's 61 percent unfaithful / 0.39 fidelity (named baseline 0.518 and 0.504); candidate 3's cited crash, recover, run and outstanding counts are from another cache (same shape on the named baseline, not sinking). Bit collision: candidates 2 and 5 both claim 1<<10 and 1<<12; the second built takes 1<<16/1<<17 or 1<<22/1<<23 and renames those rows. Candidate 3's split by workload seed is readable by the per-run co-bit-matched contrast (fresh runs derive the seed from the run id, children inherit); expect unequal cell shares inside the replaySlot co-bit, not biased per-cell rates.",
+ "otherCandidates": [
+  {
+   "id": "replay-parent-served-by-child-arm-set",
+   "expectedGain": 5,
+   "expectedCost": 0,
+   "scoreReason": "Classified as an enabling fix of a verified miswiring, not a member of the retired replay-prefix ranking family: it changes which parent a slot receives and nothing about how a tape is consumed or ranked, and the defect it targets was measured directly at iterations 27-28 (own-id children 0.31-0.32 faithful, bits-equal children 0.987, inherited 1.03-1.06), which is the strongest evidence any candidate in this round carries. The plumbing claims all verify: choose() records draws (record_arm_selector_draw, record_arm_selector_learner_run) so a side-effect-free peek is needed; the cell is keyed by the parent's config_index through attribution.with_config(seed.config_index); parents are admitted only from GridRun::Fresh; faithful means the child's cut step equals the parent's; bits 1<<12 and 1<<10 are untagged in run_variant.rs and rows 4096/1024 are retired in VARIANT_BITS. One checkable claim is false (the 0.39 fidelity base), which halves the projected effect and lowers the band; the story survives. Cost 0: replay_corpus.rs, campaign.rs, arm_selector.rs, explorer.rs only. Bit collision: the PCT candidate names the same two bits; whichever is built second takes another retired pair (1<<16/1<<17, freed by the closed restart-window candidate, or 1<<22/1<<23) and renames those rows.",
+   "redTeam": "Strongest case against: the headroom is half what the proposal says. On the named baseline replay.prefix_faithful / children_prefix is 56,198/108,506 = 0.518 (chunk 0) and 54,542/108,175 = 0.504 (chunk 1), not 0.39; the cited 38,161/98,033 comes from an earlier binary's cache (the g870d4c11 files without the s3d907a50 suffix). With prefix over plan-only at 1.12 per run at 0.51 fidelity, lifting a quarter of prefix children to about 0.8 is worth roughly 5-7 percent on that quarter if the relation is linear, not the 8-11 percent projected from a 0.39 base, and the iteration-28 read of 1.080 at fidelity 1.0 was over 32 strata with wide intervals. Second, the child's arms are not 'its own' independent of the parent: arm_selector::cell() is (POOLED_ARM, config_index) keyed by the parent's config_index, so on learner-pick runs the would-be Choice differs per parent and the matcher selects (parent, choice) pairs jointly, tilting the matched cell's arm mix toward whatever arm sets signal-firing parents carry, the same composition drift that sank the inherit-bits sibling on cost; the grader's co-bit matching absorbs it as a balance fault, but the steps-per-child clause is doing real work. Third, the direction review retired replay-prefix rules after three closes; this is a serving fix rather than a ranking rule, but it spends a round on the same vehicle whose prefix half carries only a 1.12 edge over plan re-sampling. The 21x oversupply figure does not follow from the counters (72,959 parents admitted against about 27,000 consumed per chunk is 2.7x; the ring of 64 turns over continuously), though walking the ring is harmless either way.",
+   "predictionRewrite": {
+    "firingCounter": "replay.arm_match.exact",
+    "firingFloor": 12000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.03,
+     "max": 0.12
+    },
+    "mechanism": "Treatment bit replayArmMatched = 1<<12 on a quarter of prefix slots drawn by a salted phase of the run id; inverse bit replayArmMismatched = 1<<10 on another quarter; the stock half of prefix slots is the matched control (co-bits replaySlot and replayPrefix). Per-run depth>=8 ratio of the matched quarter to the stock prefix half, probe-free and matched on co-bits, in [1.03, 1.12] (base fidelity on the named baseline is 0.50-0.52, so the lift available is about 0.25-0.30 fidelity units on the quarter); the mismatched quarter in [0.86, 0.99]. Tape interaction: the bits change which parent tape a slot receives and never how a run consumes or records one; parents are admitted only from fresh runs; the only shared coupling is ring consumption order. The child's would-be Choice depends on the parent's config cell, so the matched cell's arm mix may drift toward the parents' mix: expected balance fault on the arm co-bits, read through co-bit matching, and checked by the steps-per-child clause. Firing: replay.arm_match.exact >= 12,000 per chunk and replay.arm_match.children on the matched cell >= 20,000. If the bits are taken by an earlier-built candidate, use 1<<16/1<<17 and rename those VARIANT_BITS rows in the same commit.",
+    "independentObservable": "Prefix fidelity per cell (replay.arm_match.faithful / children): matched cell >= 0.75 against the stock cell's 0.48-0.54 (named baseline 0.518 and 0.504); mismatched cell <= 0.30. Exact-match children fidelity >= 0.95 (the bits-equal control read 0.987). Steps per child within 2 percent across the three cells.",
+    "falsifier": "Refuted if the matched-cell depth>=8 per-run interval lies entirely below 1.03, or if matched-cell fidelity is below 0.65 with the firing floor met, or if exact-match children read fidelity below 0.90 (the match is not pinning the prefix: shared learned state diverges, file that finding), or if mismatched-cell fidelity is not below the stock cell's. Matched-cell fidelity above 0.75 with depth>=8 flat is recorded as a finding against the corpus's cut, not against the fix.",
+    "costClause": "Cross-binary throughput >= 0.98 of the paired baseline (serving costs at most 64 peeks per prefix slot); matched-cell steps per run <= 1.02x the stock cell."
+   },
+   "verifiedClaims": [
+    "a child replays the parent's tape under its own run id's arm set via arm_selector::choose -> verified (explorer.rs run_single_simulation calls choose(run_id, schedule_seed, arm_index, cell) for every run; campaign.rs passes the parent's tape with the child's run_id)",
+    "the cell depends on the parent's config_index -> verified (arm_selector::cell returns (POOLED_ARM, config_index); campaign.rs uses attribution.with_config(seed.config_index) for children)",
+    "choose() has side effects that a peek must avoid -> verified (util_stats::record_arm_selector_draw and record_arm_selector_learner_run inside choose)",
+    "parents admitted only from fresh runs; children never admitted -> verified (GridOutcome.admit is None on GridRun::Child)",
+    "prefix_faithful means the child fired the signal at the parent's cut step -> verified (campaign.rs: faithful = prefix && r.cut.step == seed.cut_step)",
+    "61 percent of prefix children unfaithful, 38,161 of 98,033 -> FALSE on the named baseline: 56,198/108,506 = 0.518 and 54,542/108,175 = 0.504; the cited pair is from an earlier binary's cache",
+    "iteration 28: fidelity 0.32 own-id, 0.99 bits-equal, inherit-bits closed on per-second cost from heavier inherited arms -> verified in research/lite/pool.md (replay-prefix-inherit-parent-bits)",
+    "bits 1<<12 and 1<<10 are free -> verified (not tagged in run_variant.rs; VARIANT_BITS rows 4096 recoverWindowFreshOnly and 1024 freshFirstDestCut are retired); collides with the PCT candidate's choice",
+    "parents oversupplied about 21x -> not supported by the counters (about 2.7x per chunk); immaterial to the mechanism",
+    "ring capacity 64, 8 children per parent, probes never slots -> verified (replay_corpus.rs)"
+   ]
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "expectedGain": 6,
+   "expectedCost": 2,
+   "scoreReason": "Perf kind: graded cross-binary on the per-second rung only, per-run rung identically 1.0. The named hotspot is real in shape and verified: util_stats.rs holds 211 static AtomicU64 with 217 fetch_add sites, and on the named baseline five counters read exactly one per step (1,380,309,440 each on chunk 0: steer_reach.no_weighted_predicate, steer_empty_slice.candidate_mask_skipped, queue_audit_skipped, multiplier_authority.decisions, recovery_weight_placebo.decisions) with two more at 572M, timer_context.biased_steps 1.29e9, timer_steer.evaluated 949M, crash_anchor 187M/134M, deliveries 362M; the host has 32 cores (nproc) and the step budget works out to 300 s x 32 / 1.38e9 = 7.0 us of thread time, so the arithmetic is sound. The hot-path callers live in core/scheduler.rs (53 calls) and path.rs (18), not exec.rs (2 purgatory calls, not on the list), so the fold does not touch execution. The counter-identity falsifier is the right one for a perf candidate. It does not reach 7 because the magnitude is unprofiled and the cited values were misattributed to the baseline. Cost 2: the utilStats counters are the firing instrument every graded mechanism is read through, and the fold changes when and whether counts land (slice boundaries, erroring runs), which is measurement validity by the rubric.",
+   "redTeam": "Strongest case against: the hotspot is asserted by arithmetic, not by a profile. Neither recorded profile (research/observations/PROFILE.md, PROFILE_RESWEEP.md) names the util_stats atomics, fetch_add or a lock-prefixed instruction, so the 3-12 percent figure is a model of contention, not a measurement; Relaxed fetch_add on x86 is a single lock xadd whose cost is dominated by cache-line ownership transfer, and the counters are gated behind an enabled() load so the line may already be shared read-mostly between bursts. Every prior perf estimate in this pool was corrected down by the judge (handler-invocation +6 percent, inside the layout band) or closed on its own work-reduction gate before grading (iteration 70), and the merged one (trace-print) landed at the bottom of its band. The 5 percent build-layout floor is the whole lower half of the claimed band, so a real 4 percent gain closes as inseparable. Measurement risk: folding at run end moves when counts land relative to the campaign's per-arm slice boundaries and drops the counts of any run that errors before the fold, which the identity falsifier only catches if it is read on a deterministic slice. Finally the cited numbers are not the baseline's: 1,265,677,429 appears only in research/lite/state/provenance/chunk-1000.cand.json, the iteration-72 candidate session, so the 'baseline chunk' attribution is false even though the per-step shape holds on the real cache.",
+   "predictionRewrite": {
+    "firingCounter": "steer_reach.no_weighted_predicate",
+    "firingFloor": 1000000000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.05,
+     "max": 0.15
+    },
+    "mechanism": "No treatment bit: the contention removed is shared by every thread, so the candidate is graded on the cross-binary rung only. Per-run depth>=8 must read identically 1.00 (byte-identical schedules); the band is on depth>=8 events per explore-second over the rate stratum (grid arms, AOS excluded), expected in [1.05, 1.15], carried entirely by runs per second. Tape interaction: none. Firing: steer_reach.no_weighted_predicate >= 1e9 per chunk and equal to termination.all.steps_used_sum minus steer_reach.no_schedule_attempt (the named baseline reads 1,380,309,440 against 1,380,309,493 with 53 no-schedule steps), which is the identity the fold must preserve.",
+    "independentObservable": "On a deterministic-slice session every folded counter total equals the baseline binary's on the same seed and run count within 0.1 percent (steps, decisions, biased steps, deliveries, timer fires, crash-anchor offers); the campaign's per-arm run counts move only with the wall clock; grid plan_complete share and steps per run within 0.5 percent of baseline. Named baseline values to reproduce on the golden slice: the five per-step counters equal each other exactly, ranking_pass_skipped equals multiplier_authority.contested_decisions exactly.",
+    "falsifier": "Refuted if cross-binary depth>=8 events per explore-second or runs per explore-second read below 1.05 of the paired baseline (inside the 5 percent layout floor: no separable gain, close), or if any folded counter total drifts from the baseline by more than 0.1 percent on the deterministic slice (counts lost, including runs that error before the fold), or if per-run depth>=8 reads outside [0.99, 1.01] or any shared run id differs in steps_used or end_reason (a schedule moved, which this change must not do).",
+    "costClause": "Cross-binary throughput >= 1.05 of the paired baseline (this is the gain, not a cost); memory per run within 1 KB of baseline."
+   },
+   "verifiedClaims": [
+    "util_stats per-step counters are static AtomicU64 incremented with fetch_add from every worker -> verified (211 statics, 217 fetch_add sites in spur-core/src/simulator/util_stats.rs)",
+    "steer_reach.no_weighted_predicate, steer_empty_slice.candidate_mask_skipped, queue_audit_skipped, multiplier_authority.decisions, recovery_weight_placebo.decisions read one per step -> verified on the named baseline (all 1,380,309,440 on chunk 0, 1,400,297,347 on chunk 1)",
+    "ranking_pass_skipped and contested_decisions equal (524M cited) -> verified in shape (572,057,516 both on chunk 0)",
+    "the cited values (1,265,677,429 etc.) are the baseline chunk's -> FALSE: they occur only in research/lite/state/provenance/chunk-1000.cand.json, the iteration-72 candidate session; the named baseline reads 1.38e9/1.40e9",
+    "no_weighted_predicate equals termination.all.steps_used_sum -> nearly: differs by steer_reach.no_schedule_attempt (53 on chunk 0: 1,380,309,440 vs 1,380,309,493); rewritten below",
+    "32 threads -> verified (nproc 32); ~7.5 us per step -> verified (7.0 us from 300 s x 32 / 1.38e9)",
+    "hot-path record calls do not require touching exec.rs -> verified (scheduler.rs 53, path.rs 18, exec.rs 2 purgatory calls only)",
+    "the hotspot appears in a recorded profile -> uncheckable/no evidence: neither PROFILE.md nor PROFILE_RESWEEP.md mentions the atomics",
+    "no config field, no schedule change -> verified by construction (no RNG stream touched)"
+   ]
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Re-judged with the iteration-74 record in hand. Claims verified: priority is outside Record's Hash (state.rs hashes pc, node, origin_node, continuation, env, entry_pc, initial_env, link_seq); the default within-queue selector is Tournament k=10; priorities are drawn once at creation (exec.rs 256/318/634, with record_priority substituting only the rush constant); Record carries origin_incarnation and SendLedger carries entries and entries_at_restart; run_phase::salted_phase and derive_seed exist; bits 1<<10 and 1<<12 are untagged; the timer count is 236 per run. One new fact since the last judging cuts both ways: the network-heavy inverse of iteration 74 cost depth 8 (0.91-0.92) while buying depth 6, so denser delivery inside a restart window hurts the rung and demoting a stream there has the predicted sign, but the local-drain cell showed the restarted node has almost nothing of its own to reorder. The saturation gate and the implementer clause remain load-bearing. Stays at 3, cost 0 (scheduler.rs scoring and State only). If admitted after the replay-arm-set candidate, take bits 1<<16/1<<17 or 1<<22/1<<23 and rename those rows.",
+   "redTeam": "Strongest case against: as written a mark lifts only on the origin's incarnation change, so a demoted stream is effectively held at the bottom of every contest for the rest of its incarnation, which is the shape of pct-fault-change-point-stream-dominance (held) and of the many closed hold mechanisms, not a PCT change point; with the timer anchor class included the 1/2 coin fires about 120 times per run (143,335,281 timer fires over 606,180 runs on the named baseline) and every live stream is marked within tens of network steps, after which the shift is a uniform offset. The proposal delegates the fix (mark lifetime or anchor restriction) to the implementer, so the frozen prediction still has an undefined parameter. Within-queue scoring is the loop's weakest lever (four scoring mechanisms refuted, configured multipliers flip nothing, 45 percent of steps contested); the depth-8 label is a recovery-timing condition, and iteration 74 showed the restarted node's own post-restart segment is about five steps, so a stream demotion at a restart anchor mostly reorders peers' continuations, which read flat there. Both bits collide with the replay-arm-set candidate's choice.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "priority is outside Record's Hash so dedup is untouched -> verified (core/state.rs Hash impl for Record)",
+    "k=10 tournament is the default within-queue selector -> verified (core/queue_selector.rs default_tournament_k)",
+    "every message carries one priority drawn at creation and never touched again -> verified (core/exec.rs policy.sample at 256, 318, 634; record_priority only substitutes the rush constant)",
+    "send_ledger.entries and entries_at_restart exist to recognise the first entry since restart -> verified (core/state.rs SendLedger)",
+    "records carry (origin, origin_incarnation) -> verified (Record.origin_incarnation)",
+    "run_phase::salted_phase and derive_seed(session_seed, run_id, salt) exist -> verified",
+    "bits 1<<10 and 1<<12 are free -> verified; they collide with the replay-arm-set candidate",
+    "timer wakes about 236 per run on the baseline -> verified (143,335,281 / 606,180); the original 'handful' claim remains false and the saturation gate stands",
+    "the restarted node's post-restart local segment is about five steps -> verified in the iteration-74 record; it weakens the restart-anchor siting"
+   ]
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "All source claims verified (generator.rs passes and cycle guard; plan.rs PlanEngine readiness; campaign.rs Child/Fresh assignment, ReplayRng/LiveRng routing, admit None for children; CAPACITY 64 and CHILDREN_PER_PARENT 8; the exact baseline counts 72,959/216,336/108,506/107,830/18,454/176,434 and 71,910/215,790/108,175/107,615/17,996/174,730; general_vr.json density and arms). Not a member of the retired replay-prefix ranking family (it mutates a plan-only child's dependency graph rather than ranking replay prefixes) but it rides the same corpus vehicle. The argument is coverage in general with an explicit full-system exception and no internal contrast, and its own rationale asks for score 2. Prior judgings at iterations 72 and 74 gave 2; nothing since has added evidence. Kept at 2 with the frozen prediction unchanged.",
+   "redTeam": "Strongest case against: there is no treatment bit, so the only read is cross-binary, and the band [1.07, 1.20] sits inside the recorded session spread: iteration 74 read the untreated stock cell at 1.080 on seed 1000 and 0.993 on seed 1001 against the same baseline, and the epoch ledger records a 7 percent depth-8 swing between sessions. The mechanism acts on the weaker half of the corpus (prefix over plan-only 1.12; plan-only children are plan re-sampling) and only at density 0.3, since density-0 plans carry no optional edge and fall back, so at most about a quarter of children are actually reversed. A single reversed edge in an 11-event graph changes the release order of one pair; the plan generator already samples such orders freely across parents. The rationale concedes the argument is neighborhood breadth, which the rubric scores at 1-2.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "generator.rs: base actions, mandatory pairing/serialization/write-chain/post-fault edges, then a probabilistic pass with a cycle guard and no provenance -> verified",
+    "plan.rs: ExecutionPlan is a DiGraph; Ready at zero in-degree; dependents released when every predecessor is Completed -> verified",
+    "campaign.rs: GridArm::assign distinguishes Child from unfilled Fresh; prefix children via ReplayRng, plan-only via LiveRng; children return admit None -> verified",
+    "replay_corpus.rs: CAPACITY 64, CHILDREN_PER_PARENT 8, salted slot/prefix splits excluding probes, round-robin -> verified",
+    "baseline counts for seeds 1000 and 1001 -> verified exactly in the named baseline cache",
+    "general_vr.json density [0.0, 0.3], post_fault_client_ops 1, five arms -> verified",
+    "no existing tag denotes assignment to this policy -> verified (run_variant.rs)",
+    "a cross-binary band of [1.07, 1.20] is separable from session spread -> not supported: iteration 74 recorded an 8 percent stock-cell swing between seeds"
+   ]
+  }
+ ],
+ "admissionDecisions": {
+  "prediction": "The judge's rewritten prediction is frozen: pooled band [1.02,1.12] on the exempt quarter against the stock half, forced quarter [0.85,0.98], counters split by density with the unrecovered-crash share read on density-0.3 runs only and a density-0.0 leak check.",
+  "gradingPlan": "Internal contrast on treatment bit recoverDepsExempt = 8192 with band [1.02,1.12] (--band-min 0.02 --band-max 0.12); inverse bit recoverDepsForced = 2048 read from variantContrasts. Retired rows replyBeforeNews and newsBeforeReply renamed. Two to four normal chunks; the density-0.3 unrecovered-share clause is self-diagnosing on chunk 1.",
+  "parkedEntries": "contextual-single-pivot-crash-phase-learning stays parked: its full-system exception is declined (retired family premise, a per-run bit is feasible)."
+ }
+}
