@@ -62,7 +62,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 67108864, name: "originAlternate" },
   { bit: 536870912, name: "pairOrderGhostOnly" },
   { bit: 16777216, name: "freshFirstPair" },
-  { bit: 8192, name: "replyBeforeNews" },
+  { bit: 8192, name: "recoverDepsExempt" },
   { bit: 2048, name: "newsBeforeReply" },
   { bit: 32768, name: "pairSendOrder" },
   { bit: 262144, name: "clientFanoutRelease" },
