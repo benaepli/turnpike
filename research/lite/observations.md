@@ -7829,3 +7829,71 @@ with deeper rungs up on both, throughput +2.6%, zero violations; the
 internal per-run contrast was flat because the untreated half gains
 through the shared learners, and the merge is written as a departure
 from the rule's letter. Next round stays on the salvage lens.
+
+
+**Iteration 76 proposals.** Three through the salvage lens under a
+directive at the waste frontier (on the pre-merge baseline 19% of runs
+complete their plan, 49% end at the learned cap, 32% exhaust the
+iteration budget, 5.5 planned events per run never released): a learned
+quiet-gap stall cap that ends a run when no progress mark has appeared
+for longer than a per-scope p99 of completed probes' longest quiet gap
+(bit 1<<10, share 3/4, cross-binary rung through runs per second, with an
+internal per-run preservation guard); a child of it that, instead of
+ending the run at the first stall, settles the blocked client operations
+for dependency purposes so the fault-pair and write-chain successors
+issue (bit 1<<12, internal rung); and a one-dose follow-up on the merged
+run cap, capping treated runs at the learned p99 instead of 1.5x it
+(bit 1<<16, share 3/4, cross-binary).
+
+The proposer's diagnostic of the cap-length runs (a 60-second campaign
+on the merged binary, numbers discarded, ran while the fresh baseline
+cache was being measured, which is one reason that cache is being
+re-measured): in cap-reached grid runs the last progress mark sits at a
+median step 444 of 3,131 and three quarters of the run's steps follow
+it; those tails are client redirect loops, not idle steps. Anatomy of
+one run: a primary crashed and was restarted one step later, before any
+backup timed out; its single Recovery drew only backup responses and no
+response from the primary of the latest view (itself), so it never left
+recovering status; the planned client operation at that node then looped
+on a self-redirect every four or five steps for 2,900 steps; later
+restarts stalled the same way; 65 of 3,131 steps were timer fires. Of
+19,086 cap-reached runs in that campaign, 18,100 exit with a node still
+in recovery. Tail steps are cheap (about 6 us against 12-14 us for
+completing runs), so ending them saves about a quarter of session wall on
+treated runs, not more.
+
+Flagged for the user as a protocol-level finding, classified ambiguous
+(liveness, not safety): the VR spec sends Recovery once and never retries
+it, and a primary restarted before any backup times out cannot obtain the
+response the paper requires from "the primary of the latest view",
+because that primary is itself; the paper is silent on both the retry and
+the self-primary case, and the spec is protected, so the explorer can
+only stop paying for the stall. This is the proposer's reading from one
+diagnostic run and the source; it is not verified by the loop and no
+violation is involved. It also bears on the goal directly: the depth-8
+rung needs the initiating node's post-restart Recovery delivered to its
+recovered peer, and a Recovery that is never retried gives that delivery
+exactly one chance per restart.
+
+The fresh baseline cache measured after the merge read 1,924 and 1,777
+runs per second on seeds 1000 and 1001 against 2,018 and 2,010 before the
+merge, while the merge-form grading session read 1,914 and 2,220 on the
+same seeds and the proposer was parsing the tree, loading the 100 MB
+baseline record and running its own 60-second campaign during both
+chunks (load average 16 on 32 threads). Its per-run depth8 rates on the
+grid, 0.01736 and 0.01682 against 0.01576 and 0.01621, agree with the
+grading session. Following the ledger's precedent, that cache is moved
+to research/lite/baselines/contaminated/ and both seeds are re-measured
+on an idle host before the ledger row is written; the judge waits for
+the measurement to finish.
+
+**Fresh baseline after the merge, idle host.** Seeds 1000 and 1001 read
+2,106 and 2,141 runs per second (median 2,124 against 2,014 on the
+previous cache), depth8 events per chunk 8,971 and 8,953 against 7,897
+and 8,087, grid depth8 per run 0.01711 and 0.01681 against 0.01576 and
+0.01621, depth9 1,644 and 1,691 against 1,307 and 1,329, zero violations
+on 1,275,240 runs. The merged tree's cache therefore carries the grading
+session's reading. Epoch ledger row appended with the session's
+throughput ratio 1.0263; the cumulative product moves from 0.9778 to
+1.0036. The contaminated first measurement is retained under
+research/lite/baselines/contaminated/ and is not used.

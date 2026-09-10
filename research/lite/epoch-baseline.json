@@ -233,6 +233,21 @@
    "cacheFile": "research/lite/baselines/34b5ef40e3bf-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-06T06:00:00Z",
    "note": "measured by grader baseline --chunks 2 after the pooled-cells merge, the proposer reading the tree meanwhile; depth>=8 events per chunk [9551, 9285] against 8813/8610 on the previous merge's cache"
+  },
+  {
+   "name": "recover-events-exempt-from-client-dependencies",
+   "commit": "2353b4c",
+   "spurCommit": "d051f69",
+   "ratio": 1.0263,
+   "cumulative": 1.003557491637846,
+   "measuredRps": 2123.7800254128183,
+   "measuredRpsChunks": [
+    2106.4,
+    2141.1
+   ],
+   "cacheFile": "research/lite/baselines/afeccdf6e8f7-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+   "measuredAtIso": "2026-09-10T22:42:00Z",
+   "note": "measured by grader baseline --chunks 2 on an idle host after the recover-dependency merge (a first measurement under the proposer's load, 1924/1777 rps, is kept under research/lite/baselines/contaminated/); depth>=8 events per chunk [8971, 8953] against 7897/8087 on the previous merge's cache; grid depth>=8 per run 0.01711/0.01681 against 0.01576/0.01621"
   }
  ]
 }
