@@ -1,0 +1,9 @@
+{
+ "cand-spur": "c3fa79d503978c23d9aa28ef1a7862cb13a71595c50e653cf46c04eb1b9e7164",
+ "spur.patch": "965449df0490dcf1709b6090062bd3cd8afe7a70b09bfd68b76076ee107ba7ac",
+ "mergedSpurCommit": "d051f696d461afb7498d0746c02d8dfca83ebc02",
+ "mergedSuperCommit": "2353b4c",
+ "baselineSpurCommit": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+ "baselineCache": "research/lite/baselines/34b5ef40e3bf-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+ "form": "merge form: exempt half by workload seed, no forced cell"
+}

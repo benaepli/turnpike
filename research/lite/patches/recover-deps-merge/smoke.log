@@ -1,0 +1,10 @@
+Config overrides: campaign.wall_budget_sec=30
+Explorer finished in 30.23s. Results saved to tmp/loop/recover-deps-merge/out
+  - Coverage heatmap: skipped (no CFG feedback)
+  - CFG: tmp/loop/recover-deps-merge/out/cfg.svg
+  - Utilization counters: tmp/loop/recover-deps-merge/out/utilization.json
+  - Utilization counters: tmp/loop/recover-deps-merge/out.utilization.json
+  - Session summary: tmp/loop/recover-deps-merge/out/session.json
+  - Session summary: tmp/loop/recover-deps-merge/out.session.json
+  - Campaign report: tmp/loop/recover-deps-merge/out/campaign.json
+  - Campaign report: tmp/loop/recover-deps-merge/out.campaign.json

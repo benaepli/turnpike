@@ -1,0 +1,236 @@
+[
+ {
+  "seed": 1000,
+  "gates": {
+   "block": {
+    "stock": {
+     "density_zero": {
+      "runs": 163049,
+      "crashes": 378344,
+      "unrecovered_crashes": 0,
+      "zero_recovery_runs": 0,
+      "plan_complete": 26857,
+      "steps_used_sum": 432970423
+     },
+     "density_positive": {
+      "runs": 124615,
+      "crashes": 238817,
+      "unrecovered_crashes": 56556,
+      "zero_recovery_runs": 17135,
+      "plan_complete": 22980,
+      "steps_used_sum": 332447447
+     }
+    },
+    "exempt": {
+     "density_zero": {
+      "runs": 164052,
+      "crashes": 380487,
+      "unrecovered_crashes": 0,
+      "zero_recovery_runs": 0,
+      "plan_complete": 26902,
+      "steps_used_sum": 436918270
+     },
+     "density_positive": {
+      "runs": 122964,
+      "crashes": 246959,
+      "unrecovered_crashes": 0,
+      "zero_recovery_runs": 435,
+      "plan_complete": 29459,
+      "steps_used_sum": 312358876
+     }
+    }
+   },
+   "firing_dropped": 365789,
+   "firing_floor_60k": true,
+   "forced_edges": null,
+   "forced_floor_30k": null,
+   "unrecovered_share": {
+    "stock": {
+     "density_zero": 0.0,
+     "density_positive": 0.23681731200040199
+    },
+    "exempt": {
+     "density_zero": 0.0,
+     "density_positive": 0.0
+    }
+   },
+   "zero_recovery_share": {
+    "stock": {
+     "density_zero": 0.0,
+     "density_positive": 0.13750351081330497
+    },
+    "exempt": {
+     "density_zero": 0.0,
+     "density_positive": 0.0035376207670537716
+    }
+   },
+   "plan_complete_share": {
+    "stock": {
+     "density_zero": 0.16471735490558054,
+     "density_positive": 0.18440797656782892
+    },
+    "exempt": {
+     "density_zero": 0.16398459025187137,
+     "density_positive": 0.2395741843141082
+    }
+   },
+   "steps_per_run": {
+    "stock": {
+     "density_zero": 2655.461996087066,
+     "density_positive": 2667.7963888777435
+    },
+    "exempt": {
+     "density_zero": 2663.291334454929,
+     "density_positive": 2540.246543703848
+    }
+   },
+   "exempt_over_stock_unrec_pos": 0.0,
+   "forced_over_stock_unrec_pos": null,
+   "exempt_over_stock_zero_pos": 0.02572749412818242,
+   "density_zero_leak": {
+    "exempt_unrec": 0.0,
+    "stock_unrec": 0.0,
+    "exempt_complete": 0.16398459025187137,
+    "stock_complete": 0.16471735490558054
+   },
+   "exempt_steps_over_stock": {
+    "density_zero": 1.0029483902911809,
+    "density_positive": 0.9521890629638525
+   },
+   "clauses": {
+    "exempt_unrec_le_0_75x": true,
+    "forced_unrec_ge_1_15x": null,
+    "exempt_zero_le_0_70x": true
+   }
+  },
+  "baseline_pooled": {
+   "unrecovered_share": 0.9094009991173212
+  },
+  "violations": [
+   0,
+   0
+  ],
+  "runs": [
+   574680,
+   606180
+  ],
+  "failed": 0
+ },
+ {
+  "seed": 1001,
+  "gates": {
+   "block": {
+    "stock": {
+     "density_zero": {
+      "runs": 181965,
+      "crashes": 416385,
+      "unrecovered_crashes": 0,
+      "zero_recovery_runs": 0,
+      "plan_complete": 32130,
+      "steps_used_sum": 396308281
+     },
+     "density_positive": {
+      "runs": 151420,
+      "crashes": 292362,
+      "unrecovered_crashes": 69095,
+      "zero_recovery_runs": 19341,
+      "plan_complete": 28322,
+      "steps_used_sum": 338777549
+     }
+    },
+    "exempt": {
+     "density_zero": {
+      "runs": 183365,
+      "crashes": 419344,
+      "unrecovered_crashes": 0,
+      "zero_recovery_runs": 0,
+      "plan_complete": 32067,
+      "steps_used_sum": 400132361
+     },
+     "density_positive": {
+      "runs": 149910,
+      "crashes": 300421,
+      "unrecovered_crashes": 0,
+      "zero_recovery_runs": 169,
+      "plan_complete": 37206,
+      "steps_used_sum": 317423860
+     }
+    }
+   },
+   "firing_dropped": 437948,
+   "firing_floor_60k": true,
+   "forced_edges": null,
+   "forced_floor_30k": null,
+   "unrecovered_share": {
+    "stock": {
+     "density_zero": 0.0,
+     "density_positive": 0.2363337232608889
+    },
+    "exempt": {
+     "density_zero": 0.0,
+     "density_positive": 0.0
+    }
+   },
+   "zero_recovery_share": {
+    "stock": {
+     "density_zero": 0.0,
+     "density_positive": 0.12773081495178973
+    },
+    "exempt": {
+     "density_zero": 0.0,
+     "density_positive": 0.0011273430725101728
+    }
+   },
+   "plan_complete_share": {
+    "stock": {
+     "density_zero": 0.1765724177726486,
+     "density_positive": 0.18704266279223353
+    },
+    "exempt": {
+     "density_zero": 0.17488070242412673,
+     "density_positive": 0.2481889133480088
+    }
+   },
+   "steps_per_run": {
+    "stock": {
+     "density_zero": 2177.9368614843515,
+     "density_positive": 2237.3368709549595
+    },
+    "exempt": {
+     "density_zero": 2182.1632318054153,
+     "density_positive": 2117.4295243812953
+    }
+   },
+   "exempt_over_stock_unrec_pos": 0.0,
+   "forced_over_stock_unrec_pos": null,
+   "exempt_over_stock_zero_pos": 0.00882592875443309,
+   "density_zero_leak": {
+    "exempt_unrec": 0.0,
+    "stock_unrec": 0.0,
+    "exempt_complete": 0.17488070242412673,
+    "stock_complete": 0.1765724177726486
+   },
+   "exempt_steps_over_stock": {
+    "density_zero": 1.0019405384957685,
+    "density_positive": 0.9464062170832217
+   },
+   "clauses": {
+    "exempt_unrec_le_0_75x": true,
+    "forced_unrec_ge_1_15x": null,
+    "exempt_zero_le_0_70x": true
+   }
+  },
+  "baseline_pooled": {
+   "unrecovered_share": 0.9066855729667941
+  },
+  "violations": [
+   0,
+   0
+  ],
+  "runs": [
+   666660,
+   603480
+  ],
+  "failed": 0
+ }
+]

@@ -1,0 +1,48 @@
+{
+ "plan_deps": {
+  "recover_edges_dropped": 34865,
+  "stock": {
+   "density_zero": {
+    "runs": 13553,
+    "crashes": 28812,
+    "unrecovered_crashes": 0,
+    "zero_recovery_runs": 0,
+    "plan_complete": 3188,
+    "steps_used_sum": 38086123
+   },
+   "density_positive": {
+    "runs": 13292,
+    "crashes": 22709,
+    "unrecovered_crashes": 6627,
+    "zero_recovery_runs": 3052,
+    "plan_complete": 3077,
+    "steps_used_sum": 37682544
+   }
+  },
+  "exempt": {
+   "density_zero": {
+    "runs": 13539,
+    "crashes": 28667,
+    "unrecovered_crashes": 0,
+    "zero_recovery_runs": 0,
+    "plan_complete": 3268,
+    "steps_used_sum": 37514971
+   },
+   "density_positive": {
+    "runs": 13056,
+    "crashes": 23834,
+    "unrecovered_crashes": 0,
+    "zero_recovery_runs": 56,
+    "plan_complete": 4435,
+    "steps_used_sum": 33533790
+   }
+  }
+ },
+ "crash_recovery": {
+  "runs": 53440,
+  "crashes": 104022,
+  "recovers": 97395
+ },
+ "termination_by_recovered_nodes_0_runs": 3108,
+ "termination_all_runs": 53440
+}

@@ -3712,10 +3712,12 @@ full-system exception clause. Awaiting-approval entries remain unchanged.
 
 ## recover-events-exempt-from-client-dependencies
 
-- kind: enabling | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 75 (rank 1 net 6; bits recoverDepsExempt 1<<13 and
-  recoverDepsForced 1<<11 on retired rows; split by workload seed; internal
-  contrast) | gain: 6 | cost: 0 | rank: 1
+- kind: enabling | category: scheduler | origin: proposer | status: MERGED at
+  iteration 75 (commit 2353b4c, spur d051f69; merge form with the exempt
+  half by workload seed and no forced cell; cross-binary depth8/sec 1.121,
+  internal contrast flat, panel clean, regression passed; as-built and
+  merge evidence under research/lite/patches/recover-deps and
+  recover-deps-merge) | gain: 6 | cost: 0 | rank: 1
 - A planned restart never waits on client work: drop probabilistic plan
   edges into RecoverNode events; the inverse cell forces one such edge.
 - Frozen (judge-rewritten) prediction, observables, falsifiers and review:

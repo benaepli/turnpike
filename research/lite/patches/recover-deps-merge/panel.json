@@ -1,0 +1,986 @@
+{
+ "phase": "panel",
+ "manifest": "/home/benaepli/Rust/turnpike/research/panel/manifest.30.json",
+ "binary": "/home/benaepli/Rust/turnpike/tmp/loop/lite/recover-deps-merge/cand-spur",
+ "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/recover-deps-merge/general_vr.json",
+ "seed": 1000,
+ "scale": 3,
+ "stateDir": "research/lite/state/panel/2026-09-10T21-52-10-724Z",
+ "members": [
+  {
+   "id": "paxos-accept-stale-ballot",
+   "role": "gate",
+   "wallSecBudget": 30,
+   "exploreSec": 11.3,
+   "exploreTimedOut": false,
+   "runs": 95995,
+   "violations": 3440,
+   "unknown": 0,
+   "expectedEvents": 382.6,
+   "read": "rate",
+   "violationsPerExploreSec": 303.77958318615333,
+   "runsPerSec": 8477.128223242671,
+   "calibration": {
+    "eventsPerSec": 33.78496,
+    "runsPerSec": 1959,
+    "expectedRate": 0.01664
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 95995,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 82254,
+     "treatedViolations": 3081,
+     "controlRuns": 7754,
+     "controlViolations": 168,
+     "ratio": 1.7288256063969096,
+     "lo": 1.3583908540093625,
+     "hi": 2.2002783429466772,
+     "read": "up"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 22921,
+     "treatedViolations": 821,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 22324,
+     "treatedViolations": 841,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 22689,
+     "treatedViolations": 811,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 67934,
+     "treatedViolations": 2473,
+     "controlRuns": 22074,
+     "controlViolations": 776,
+     "ratio": 1.0355146474792543,
+     "lo": 0.9143846402689739,
+     "hi": 1.1726909419964238,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 45916,
+     "treatedViolations": 1796,
+     "controlRuns": 36338,
+     "controlViolations": 1285,
+     "ratio": 1.1061147356549923,
+     "lo": 0.9905149255119777,
+     "hi": 1.235205827717049,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 16724,
+     "treatedViolations": 708,
+     "controlRuns": 23947,
+     "controlViolations": 910,
+     "ratio": 1.1140452228947804,
+     "lo": 0.95779362946063,
+     "hi": 1.295787234828018,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 63745,
+     "treatedViolations": 2336,
+     "controlRuns": 26263,
+     "controlViolations": 913,
+     "ratio": 1.0541447960138959,
+     "lo": 0.9368005048337641,
+     "hi": 1.1861877157723832,
+     "read": "flat"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 46090,
+     "treatedViolations": 1727,
+     "controlRuns": 43918,
+     "controlViolations": 1522,
+     "ratio": 1.0812186577766347,
+     "lo": 0.9722144412315128,
+     "hi": 1.2024443747651823,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "replyBeforeNews",
+     "treatedRuns": 45007,
+     "treatedViolations": 1669,
+     "controlRuns": 45001,
+     "controlViolations": 1580,
+     "ratio": 1.056188291947835,
+     "lo": 0.9498758376996821,
+     "hi": 1.1743994991484121,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 49454,
+     "treatedViolations": 1741,
+     "controlRuns": 40554,
+     "controlViolations": 1508,
+     "ratio": 0.9467377663287342,
+     "lo": 0.8512522737488368,
+     "hi": 1.052933925504649,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 49337,
+     "treatedViolations": 1631,
+     "controlRuns": 23947,
+     "controlViolations": 910,
+     "ratio": 0.8699432942354077,
+     "lo": 0.767685434082266,
+     "hi": 0.985822189123434,
+     "read": "down"
+    }
+   ],
+   "cellsMatchedOn": {
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ]
+   },
+   "summary": "panel-cells paxos-accept-stale-ballot: crashPlaced 1.73 [1.36,2.20] 3081/82k vs 168/7754 up; armSelectorAxisB count-only 821/23k vs 0/0; armSelectorAxis count-only 841/22k vs 0/0; armSelectorAxisC count-only 811/23k vs 0/0; armSelectorConcentrated 1.04 [0.91,1.17] 2473/68k vs 776/22k flat; crashPhase 1.11 [0.99,1.24] 1796/46k vs 1285/36k flat; clientRushPriority 1.11 [0.96,1.30] 708/17k vs 910/24k flat; ghostAbsorberRetarget 1.05 [0.94,1.19] 2336/64k vs 913/26k flat; freshFirstPair 1.08 [0.97,1.20] 1727/46k vs 1522/44k flat; replyBeforeNews 1.06 [0.95,1.17] 1669/45k vs 1580/45k flat; pairSendOrder 0.95 [0.85,1.05] 1741/49k vs 1508/41k flat; clientFanoutRelease 0.87 [0.77,0.99] 1631/49k vs 910/24k down",
+   "stateDir": "research/lite/state/panel/2026-09-10T21-52-10-724Z/paxos-accept-stale-ballot"
+  },
+  {
+   "id": "mencius-opt1-2",
+   "role": "gate",
+   "wallSecBudget": 45,
+   "exploreSec": 45.5,
+   "exploreTimedOut": false,
+   "runs": 65452,
+   "violations": 987,
+   "unknown": 0,
+   "expectedEvents": 207.9,
+   "read": "rate",
+   "violationsPerExploreSec": 21.69183094877036,
+   "runsPerSec": 1438.4738796949518,
+   "calibration": {
+    "eventsPerSec": 4.56937,
+    "runsPerSec": 544,
+    "expectedRate": 0.007418
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 65452,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 51435,
+     "treatedViolations": 784,
+     "controlRuns": 9971,
+     "controlViolations": 146,
+     "ratio": 1.0409819016154183,
+     "lo": 0.7903572091564406,
+     "hi": 1.371080451897744,
+     "read": "flat"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 11415,
+     "treatedViolations": 164,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 11300,
+     "treatedViolations": 187,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 11276,
+     "treatedViolations": 162,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 33991,
+     "treatedViolations": 513,
+     "controlRuns": 27415,
+     "controlViolations": 417,
+     "ratio": 0.9922146128820811,
+     "lo": 0.8111922290465559,
+     "hi": 1.21363322128205,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 25653,
+     "treatedViolations": 404,
+     "controlRuns": 25782,
+     "controlViolations": 380,
+     "ratio": 1.0685041454062005,
+     "lo": 0.8589428387482487,
+     "hi": 1.329193349366594,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 17746,
+     "treatedViolations": 278,
+     "controlRuns": 17798,
+     "controlViolations": 255,
+     "ratio": 1.0933906121898775,
+     "lo": 0.8389141606932525,
+     "hi": 1.4250600202493051,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 30672,
+     "treatedViolations": 474,
+     "controlRuns": 30734,
+     "controlViolations": 456,
+     "ratio": 1.0415748634104822,
+     "lo": 0.8524303082093196,
+     "hi": 1.2726884363925806,
+     "read": "flat"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 30441,
+     "treatedViolations": 440,
+     "controlRuns": 30965,
+     "controlViolations": 490,
+     "ratio": 0.9134163175470248,
+     "lo": 0.7473530146985724,
+     "hi": 1.116379211365963,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "replyBeforeNews",
+     "treatedRuns": 30699,
+     "treatedViolations": 468,
+     "controlRuns": 30707,
+     "controlViolations": 462,
+     "ratio": 1.0132509921428128,
+     "lo": 0.8292779998923182,
+     "hi": 1.2380378753707546,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 30822,
+     "treatedViolations": 465,
+     "controlRuns": 30584,
+     "controlViolations": 465,
+     "ratio": 0.9922782428135747,
+     "lo": 0.8121166680864299,
+     "hi": 1.2124072191268056,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 25862,
+     "treatedViolations": 397,
+     "controlRuns": 17798,
+     "controlViolations": 255,
+     "ratio": 1.0714191917583675,
+     "lo": 0.8384125436768118,
+     "hi": 1.3691816673375736,
+     "read": "flat"
+    }
+   ],
+   "cellsMatchedOn": {
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ]
+   },
+   "summary": "panel-cells mencius-opt1-2: crashPlaced 1.04 [0.79,1.37] 784/51k vs 146/9971 flat; armSelectorAxisB count-only 164/11k vs 0/0; armSelectorAxis count-only 187/11k vs 0/0; armSelectorAxisC count-only 162/11k vs 0/0; armSelectorConcentrated 0.99 [0.81,1.21] 513/34k vs 417/27k flat; crashPhase 1.07 [0.86,1.33] 404/26k vs 380/26k flat; clientRushPriority 1.09 [0.84,1.43] 278/18k vs 255/18k flat; ghostAbsorberRetarget 1.04 [0.85,1.27] 474/31k vs 456/31k flat; freshFirstPair 0.91 [0.75,1.12] 440/30k vs 490/31k flat; replyBeforeNews 1.01 [0.83,1.24] 468/31k vs 462/31k flat; pairSendOrder 0.99 [0.81,1.21] 465/31k vs 465/31k flat; clientFanoutRelease 1.07 [0.84,1.37] 397/26k vs 255/18k flat",
+   "stateDir": "research/lite/state/panel/2026-09-10T21-52-10-724Z/mencius-opt1-2"
+  },
+  {
+   "id": "raft-stale-vote",
+   "role": "gate-report",
+   "wallSecBudget": 120,
+   "exploreSec": 49,
+   "exploreTimedOut": false,
+   "runs": 288000,
+   "violations": 93,
+   "unknown": 0,
+   "expectedEvents": 14.6,
+   "read": "rate",
+   "violationsPerExploreSec": 1.8986954125068904,
+   "runsPerSec": 5879.830954860047,
+   "calibration": {
+    "eventsPerSec": 0.29776,
+    "runsPerSec": 950,
+    "expectedRate": 0.0002998
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 288000,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 262836,
+     "treatedViolations": 86,
+     "controlRuns": 7041,
+     "controlViolations": 1,
+     "ratio": 2.3038168287449206,
+     "lo": 0.10419099205821064,
+     "hi": 50.94079512596449,
+     "read": "count-only"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 88519,
+     "treatedViolations": 29,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 69700,
+     "treatedViolations": 27,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 87408,
+     "treatedViolations": 20,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 245627,
+     "treatedViolations": 76,
+     "controlRuns": 24250,
+     "controlViolations": 11,
+     "ratio": 0.6821133448092211,
+     "lo": 0.25272816341023396,
+     "hi": 1.841024003373826,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 214946,
+     "treatedViolations": 69,
+     "controlRuns": 47890,
+     "controlViolations": 17,
+     "ratio": 0.9043064715022815,
+     "lo": 0.39297885143399225,
+     "hi": 2.080952171896369,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 46712,
+     "treatedViolations": 20,
+     "controlRuns": 58367,
+     "controlViolations": 21,
+     "ratio": 1.190007258255246,
+     "lo": 0.45489417980572766,
+     "hi": 3.1130696710715244,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 224240,
+     "treatedViolations": 73,
+     "controlRuns": 45637,
+     "controlViolations": 14,
+     "ratio": 1.061203875949238,
+     "lo": 0.432293825648335,
+     "hi": 2.605065350264326,
+     "read": "flat"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 147497,
+     "treatedViolations": 48,
+     "controlRuns": 122380,
+     "controlViolations": 39,
+     "ratio": 1.0211837424594297,
+     "lo": 0.5259309184584867,
+     "hi": 1.9828007809846213,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "replyBeforeNews",
+     "treatedRuns": 135480,
+     "treatedViolations": 46,
+     "controlRuns": 134397,
+     "controlViolations": 41,
+     "ratio": 1.1129825660524097,
+     "lo": 0.5746252251216044,
+     "hi": 2.1557184373074847,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 137030,
+     "treatedViolations": 38,
+     "controlRuns": 132847,
+     "controlViolations": 49,
+     "ratio": 0.7518368538395436,
+     "lo": 0.38652268436102605,
+     "hi": 1.462420389959238,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 164798,
+     "treatedViolations": 46,
+     "controlRuns": 58367,
+     "controlViolations": 21,
+     "ratio": 0.7758074965079905,
+     "lo": 0.3449139726793892,
+     "hi": 1.7450069272707134,
+     "read": "flat"
+    }
+   ],
+   "cellsMatchedOn": {
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ]
+   },
+   "summary": "panel-cells raft-stale-vote: crashPlaced count-only 86/263k vs 1/7041; armSelectorAxisB count-only 29/89k vs 0/0; armSelectorAxis count-only 27/70k vs 0/0; armSelectorAxisC count-only 20/87k vs 0/0; armSelectorConcentrated 0.68 [0.25,1.84] 76/246k vs 11/24k flat; crashPhase 0.90 [0.39,2.08] 69/215k vs 17/48k flat; clientRushPriority 1.19 [0.45,3.11] 20/47k vs 21/58k flat; ghostAbsorberRetarget 1.06 [0.43,2.61] 73/224k vs 14/46k flat; freshFirstPair 1.02 [0.53,1.98] 48/147k vs 39/122k flat; replyBeforeNews 1.11 [0.57,2.16] 46/135k vs 41/134k flat; pairSendOrder 0.75 [0.39,1.46] 38/137k vs 49/133k flat; clientFanoutRelease 0.78 [0.34,1.75] 46/165k vs 21/58k flat",
+   "stateDir": "research/lite/state/panel/2026-09-10T21-52-10-724Z/raft-stale-vote"
+  },
+  {
+   "id": "paxos-fixed-recover-stale-scout",
+   "role": "gate-report",
+   "wallSecBudget": 45,
+   "exploreSec": 15.7,
+   "exploreTimedOut": false,
+   "runs": 96000,
+   "violations": 25,
+   "unknown": 0,
+   "expectedEvents": 29.4,
+   "read": "rate",
+   "violationsPerExploreSec": 1.5944894444798776,
+   "runsPerSec": 6122.8394668027295,
+   "calibration": {
+    "eventsPerSec": 1.8764,
+    "runsPerSec": 6356,
+    "expectedRate": 0.0002951
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 96000,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 81629,
+     "treatedViolations": 22,
+     "controlRuns": 8384,
+     "controlViolations": 2,
+     "ratio": 1.1297945583064843,
+     "lo": 0.11633358004110135,
+     "hi": 10.972203756885772,
+     "read": "count-only"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 22896,
+     "treatedViolations": 6,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 22162,
+     "treatedViolations": 3,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 22652,
+     "treatedViolations": 8,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 67710,
+     "treatedViolations": 17,
+     "controlRuns": 22303,
+     "controlViolations": 7,
+     "ratio": 0.7999472540456147,
+     "lo": 0.20078653653738499,
+     "hi": 3.1870444118944774,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 46089,
+     "treatedViolations": 11,
+     "controlRuns": 35540,
+     "controlViolations": 11,
+     "ratio": 0.7711167523704138,
+     "lo": 0.20754623293923802,
+     "hi": 2.865005244206853,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 17724,
+     "treatedViolations": 4,
+     "controlRuns": 22018,
+     "controlViolations": 6,
+     "ratio": 0.8281802452418565,
+     "lo": 0.11355956245740456,
+     "hi": 6.039848197426189,
+     "read": "count-only"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 63586,
+     "treatedViolations": 16,
+     "controlRuns": 26427,
+     "controlViolations": 8,
+     "ratio": 0.8312207089610921,
+     "lo": 0.2192182021157517,
+     "hi": 3.1517814685888013,
+     "read": "flat"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 37377,
+     "treatedViolations": 8,
+     "controlRuns": 52636,
+     "controlViolations": 16,
+     "ratio": 0.7041228563020039,
+     "lo": 0.1856934710194033,
+     "hi": 2.669932303193831,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "replyBeforeNews",
+     "treatedRuns": 45008,
+     "treatedViolations": 13,
+     "controlRuns": 45005,
+     "controlViolations": 11,
+     "ratio": 1.1817394079436383,
+     "lo": 0.33486966352830366,
+     "hi": 4.170303196691169,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 48682,
+     "treatedViolations": 14,
+     "controlRuns": 41331,
+     "controlViolations": 10,
+     "ratio": 1.1885994823548744,
+     "lo": 0.33231659931850605,
+     "hi": 4.251273431274551,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 50271,
+     "treatedViolations": 14,
+     "controlRuns": 22018,
+     "controlViolations": 6,
+     "ratio": 1.0219676022624042,
+     "lo": 0.22759091255142452,
+     "hi": 4.589013543491021,
+     "read": "flat"
+    }
+   ],
+   "cellsMatchedOn": {
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ]
+   },
+   "summary": "panel-cells paxos-fixed-recover-stale-scout: crashPlaced count-only 22/82k vs 2/8384; armSelectorAxisB count-only 6/23k vs 0/0; armSelectorAxis count-only 3/22k vs 0/0; armSelectorAxisC count-only 8/23k vs 0/0; armSelectorConcentrated 0.80 [0.20,3.19] 17/68k vs 7/22k flat; crashPhase 0.77 [0.21,2.87] 11/46k vs 11/36k flat; clientRushPriority count-only 4/18k vs 6/22k; ghostAbsorberRetarget 0.83 [0.22,3.15] 16/64k vs 8/26k flat; freshFirstPair 0.70 [0.19,2.67] 8/37k vs 16/53k flat; replyBeforeNews 1.18 [0.33,4.17] 13/45k vs 11/45k flat; pairSendOrder 1.19 [0.33,4.25] 14/49k vs 10/41k flat; clientFanoutRelease 1.02 [0.23,4.59] 14/50k vs 6/22k flat",
+   "stateDir": "research/lite/state/panel/2026-09-10T21-52-10-724Z/paxos-fixed-recover-stale-scout"
+  },
+  {
+   "id": "paxos-fixed-recover-forget-accepted",
+   "role": "gate-report",
+   "wallSecBudget": 45,
+   "exploreSec": 15,
+   "exploreTimedOut": false,
+   "runs": 96000,
+   "violations": 167,
+   "unknown": 0,
+   "expectedEvents": 137.4,
+   "read": "rate",
+   "violationsPerExploreSec": 11.119989346117992,
+   "runsPerSec": 6392.329204954055,
+   "calibration": {
+    "eventsPerSec": 9.147,
+    "runsPerSec": 5560,
+    "expectedRate": 0.0016458
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 96000,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 81887,
+     "treatedViolations": 157,
+     "controlRuns": 8126,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 22923,
+     "treatedViolations": 49,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 22191,
+     "treatedViolations": 42,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 22698,
+     "treatedViolations": 37,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 67812,
+     "treatedViolations": 128,
+     "controlRuns": 22201,
+     "controlViolations": 29,
+     "ratio": 1.445033632537828,
+     "lo": 0.7675644508360827,
+     "hi": 2.7204519397569125,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 45132,
+     "treatedViolations": 103,
+     "controlRuns": 36755,
+     "controlViolations": 54,
+     "ratio": 1.5533714273521948,
+     "lo": 0.9265073784773062,
+     "hi": 2.6043643551763664,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 19076,
+     "treatedViolations": 38,
+     "controlRuns": 22667,
+     "controlViolations": 49,
+     "ratio": 0.9214976827384339,
+     "lo": 0.47402198069986073,
+     "hi": 1.7913894584351981,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 64953,
+     "treatedViolations": 131,
+     "controlRuns": 25060,
+     "controlViolations": 26,
+     "ratio": 1.9439263183201105,
+     "lo": 1.0041736883268237,
+     "hi": 3.7631433436121813,
+     "read": "up"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 46306,
+     "treatedViolations": 88,
+     "controlRuns": 43707,
+     "controlViolations": 69,
+     "ratio": 1.2037805223851168,
+     "lo": 0.7340903156589356,
+     "hi": 1.9739908226047798,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "replyBeforeNews",
+     "treatedRuns": 45008,
+     "treatedViolations": 74,
+     "controlRuns": 45005,
+     "controlViolations": 83,
+     "ratio": 0.89150683787407,
+     "lo": 0.54520063589159,
+     "hi": 1.457783409728564,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 49737,
+     "treatedViolations": 81,
+     "controlRuns": 40276,
+     "controlViolations": 76,
+     "ratio": 0.8630544030018952,
+     "lo": 0.5280989913538052,
+     "hi": 1.410460755911441,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 48270,
+     "treatedViolations": 70,
+     "controlRuns": 22667,
+     "controlViolations": 49,
+     "ratio": 0.6708396223623072,
+     "lo": 0.37828981562164266,
+     "hi": 1.189632340991461,
+     "read": "flat"
+    }
+   ],
+   "cellsMatchedOn": {
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ]
+   },
+   "summary": "panel-cells paxos-fixed-recover-forget-accepted: crashPlaced count-only 157/82k vs 0/8126; armSelectorAxisB count-only 49/23k vs 0/0; armSelectorAxis count-only 42/22k vs 0/0; armSelectorAxisC count-only 37/23k vs 0/0; armSelectorConcentrated 1.45 [0.77,2.72] 128/68k vs 29/22k flat; crashPhase 1.55 [0.93,2.60] 103/45k vs 54/37k flat; clientRushPriority 0.92 [0.47,1.79] 38/19k vs 49/23k flat; ghostAbsorberRetarget 1.94 [1.00,3.76] 131/65k vs 26/25k up; freshFirstPair 1.20 [0.73,1.97] 88/46k vs 69/44k flat; replyBeforeNews 0.89 [0.55,1.46] 74/45k vs 83/45k flat; pairSendOrder 0.86 [0.53,1.41] 81/50k vs 76/40k flat; clientFanoutRelease 0.67 [0.38,1.19] 70/48k vs 49/23k flat",
+   "stateDir": "research/lite/state/panel/2026-09-10T21-52-10-724Z/paxos-fixed-recover-forget-accepted"
+  }
+ ]
+}
