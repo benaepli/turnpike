@@ -50,7 +50,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 128, name: "armSelectorAxisC" },
   { bit: 256, name: "armSelectorConcentrated" },
   { bit: 512, name: "crashPhase" },
-  { bit: 1024, name: "freshFirstDestCut" },
+  { bit: 1024, name: "stallCap" },
   { bit: 4096, name: "recoverWindowFreshOnly" },
   { bit: 16384, name: "clientRushPriority" },
   { bit: 65536, name: "recoverWindowFreshEarly" },
