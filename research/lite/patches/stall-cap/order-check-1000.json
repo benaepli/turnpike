@@ -1,0 +1,87 @@
+{
+ "treated/deadlock": {
+  "runs": 140,
+  "d6": 0,
+  "d8": 0,
+  "d10": 0,
+  "d8_rate": 0.0,
+  "d6_rate": 0.0
+ },
+ "treated/iterations_exhausted": {
+  "runs": 40852,
+  "d6": 296,
+  "d8": 181,
+  "d10": 11,
+  "d8_rate": 0.004430627631450113,
+  "d6_rate": 0.007245667286791344
+ },
+ "treated/learned_cap_reached": {
+  "runs": 41676,
+  "d6": 216,
+  "d8": 166,
+  "d10": 12,
+  "d8_rate": 0.003983107783856416,
+  "d6_rate": 0.005182839044054132
+ },
+ "treated/plan_complete": {
+  "runs": 111868,
+  "d6": 1898,
+  "d8": 1412,
+  "d10": 97,
+  "d8_rate": 0.012622018807880716,
+  "d6_rate": 0.01696642471484249
+ },
+ "treated/stall_cap_reached": {
+  "runs": 392370,
+  "d6": 22866,
+  "d8": 8397,
+  "d10": 67,
+  "d8_rate": 0.021400718709381452,
+  "d6_rate": 0.05827662665341387
+ },
+ "untreated/deadlock": {
+  "runs": 41,
+  "d6": 0,
+  "d8": 0,
+  "d10": 0,
+  "d8_rate": 0.0,
+  "d6_rate": 0.0
+ },
+ "untreated/iterations_exhausted": {
+  "runs": 51665,
+  "d6": 2647,
+  "d8": 1057,
+  "d10": 6,
+  "d8_rate": 0.020458724474983064,
+  "d6_rate": 0.05123391077131521
+ },
+ "untreated/learned_cap_reached": {
+  "runs": 106635,
+  "d6": 5199,
+  "d8": 1913,
+  "d10": 27,
+  "d8_rate": 0.017939700848689455,
+  "d6_rate": 0.04875509917006611
+ },
+ "untreated/plan_complete": {
+  "runs": 37331,
+  "d6": 624,
+  "d8": 468,
+  "d10": 33,
+  "d8_rate": 0.012536497816827837,
+  "d6_rate": 0.016715330422437117
+ },
+ "totals": {
+  "treated": {
+   "runs": 586906,
+   "d8": 10156,
+   "d8_rate": 0.017304304266782075
+  },
+  "untreated": {
+   "runs": 195672,
+   "d8": 3438,
+   "d8_rate": 0.01757021955108549
+  }
+ },
+ "note": "Treated runs cut by the stall cap keep the depth events they reached before the cut; a cut before the eighth oracle event would show as a lower depth8 rate among stall_cap_reached runs than among the untreated runs that ended at the learned cap or the iteration budget."
+}

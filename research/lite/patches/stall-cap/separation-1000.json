@@ -1,0 +1,37 @@
+{
+ "graded_runs": 834660,
+ "untreated_rows": 195672,
+ "joined": 195672,
+ "by_rung": {
+  "4": {
+   "runs": 43260,
+   "over_cap": 34724,
+   "capped": 43260,
+   "share_over_cap": 0.8026814609338881
+  },
+  "6": {
+   "runs": 8470,
+   "over_cap": 7726,
+   "capped": 8470,
+   "share_over_cap": 0.9121605667060213
+  },
+  "8": {
+   "runs": 3438,
+   "over_cap": 2885,
+   "capped": 3438,
+   "share_over_cap": 0.8391506689936009
+  },
+  "10": {
+   "runs": 66,
+   "over_cap": 25,
+   "capped": 66,
+   "share_over_cap": 0.3787878787878788
+  }
+ },
+ "gate": {
+  "depth8_share": 0.8391506689936009,
+  "depth6_share": 0.9121605667060213,
+  "passes_0_05": false,
+  "closes_0_10": true
+ }
+}

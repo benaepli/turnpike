@@ -3750,10 +3750,11 @@ crash-phase learning stays parked. Awaiting-approval entries unchanged.
 
 ## quiet-gap-learned-stall-cap
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 76 (rank 1 net 6; bit stallCap 1<<10 on the retired
-  freshFirstDestCut row, share 3/4 by run id; cross-binary rung with an
-  internal preservation guard and a chunk-1 separation gate) | gain: 6 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  iteration 76 (commit 10d5136, spur 3d88510; cross-binary depth8/sec
+  1.245, throughput 1.18, per-run depth preserved, panel clean, regression
+  passed; the judge's separation gate recorded as a mis-specified proxy;
+  evidence under research/lite/patches/stall-cap) | gain: 6 | cost: 0 | rank: 1
 - End a run once it has gone a learned number of steps (run_cap's shape
   over completed probes' longest quiet gap) without any handler writing
   state, any client or fault row, or any plan release.

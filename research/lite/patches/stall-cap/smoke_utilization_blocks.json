@@ -1,0 +1,76 @@
+{
+ "stall_cap": {
+  "stops": 28808,
+  "treated_runs": 70056,
+  "untreated_runs": 23432,
+  "steps_saved_sum": 33860116,
+  "suspended_steps_sum": 16411051,
+  "marks": {
+   "rows": 1101636,
+   "acted_deliveries": 16235261,
+   "acted_timers": 3640445,
+   "releases": 702826
+  },
+  "probes_keyed": 956,
+  "probe_over_cap_completions": 0,
+  "scopes_learned": 2,
+  "cap_max_scope": 1043,
+  "untreated_runs_capped": 14553,
+  "untreated_over_cap_runs": 9711,
+  "untreated_rows_dropped": 0,
+  "untreated_gap_hist": [
+   0,
+   3,
+   27,
+   87,
+   307,
+   1334,
+   2014,
+   1128,
+   971,
+   1081,
+   1306,
+   2547,
+   4033,
+   6703,
+   1891,
+   0
+  ]
+ },
+ "termination_all": {
+  "runs": 99712,
+  "plan_complete": 22583,
+  "plan_complete_with_pending_work": 22583,
+  "iterations_exhausted": 34885,
+  "deadlock": 20,
+  "learned_cap_reached": 13416,
+  "stall_cap_reached": 28808,
+  "steps_used_sum": 217519270,
+  "step_budget_sum": 432672000,
+  "pending_work_at_exit_sum": 686162,
+  "planned_events_outstanding_sum": 580256
+ },
+ "prefix_extension_all": {
+  "runs": 99712,
+  "plan_complete_quiescent": 0,
+  "plan_complete_pending": 22583,
+  "budget_releasing": 77109,
+  "budget_blocked": 0,
+  "budget_idle": 0,
+  "deadlock": 20,
+  "steps_sum": 217519270,
+  "steps_released_sum": 213765840,
+  "steps_blocked_sum": 3753429,
+  "steps_idle_sum": 1,
+  "tail_without_release_sum": 1718,
+  "pending_at_exit_sum": 686162
+ },
+ "run_cap": {
+  "probes": 3137,
+  "probe_completions": 956,
+  "over_cap_completions": 4,
+  "cap_recomputes": 3,
+  "scopes_learned": 2,
+  "current_cap_max_scope": 2951
+ }
+}

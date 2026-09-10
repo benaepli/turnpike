@@ -1,0 +1,190 @@
+[
+ {
+  "seed": 1000,
+  "stall_cap": {
+   "stops": 331215,
+   "treated_runs": 497155,
+   "untreated_runs": 165613,
+   "steps_saved_sum": 650615454,
+   "suspended_steps_sum": 182057171,
+   "marks.rows": 8143793,
+   "marks.acted_deliveries": 113106229,
+   "marks.acted_timers": 24016275,
+   "marks.releases": 5183097,
+   "probes_keyed": 6550,
+   "probe_over_cap_completions": 11,
+   "scopes_learned": 2,
+   "cap_max_scope": 827,
+   "untreated_runs_capped": 156576,
+   "untreated_over_cap_runs": 110020,
+   "untreated_rows_dropped": 0,
+   "untreated_gap_hist.0": 9,
+   "untreated_gap_hist.1": 26,
+   "untreated_gap_hist.2": 294,
+   "untreated_gap_hist.3": 809,
+   "untreated_gap_hist.4": 2553,
+   "untreated_gap_hist.5": 6813,
+   "untreated_gap_hist.6": 10152,
+   "untreated_gap_hist.7": 6229,
+   "untreated_gap_hist.8": 5587,
+   "untreated_gap_hist.9": 5670,
+   "untreated_gap_hist.10": 6715,
+   "untreated_gap_hist.11": 28231,
+   "untreated_gap_hist.12": 20847,
+   "untreated_gap_hist.13": 41240,
+   "untreated_gap_hist.14": 30438,
+   "untreated_gap_hist.15": 0
+  },
+  "firing_stops": 331215,
+  "firing_floor_120k": true,
+  "cap_max_scope": 827,
+  "cap_band_450_900": true,
+  "probe_over_cap_share": 0.0016793893129770992,
+  "learned_cap_reached": [
+   126678,
+   316337
+  ],
+  "stall_cap_reached": 331215,
+  "plan_complete": [
+   133784,
+   119950
+  ],
+  "iterations_exhausted": [
+   115170,
+   196154
+  ],
+  "runs": [
+   707040,
+   632580
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "learned_cap_drop": 0.5995473182081135,
+  "plan_complete_ratio": 1.115331388078366,
+  "steps_per_run_ratio_by_arm": {
+   "aos": 0.5162881684769215,
+   "grid": 0.5045536705096951,
+   "grid-no-purgatory": 0.4537182441624617,
+   "grid-post-fault-2": 0.45310193101783713,
+   "grid-short": 0.8681952730814467
+  },
+  "wall_per_run_ratio_by_arm": {
+   "aos": 0.6636516375469929,
+   "grid": 0.6212613452472374,
+   "grid-no-purgatory": 0.5877673204718247,
+   "grid-post-fault-2": 0.5894972240997123,
+   "grid-short": 0.9111510607362426
+  },
+  "d8_per_run_ratio_by_arm": {
+   "aos": 1.0588603843965603,
+   "grid": 0.93575009528277,
+   "grid-no-purgatory": 0.9873202764304921,
+   "grid-post-fault-2": 0.996461638055496,
+   "grid-short": 1.0218264746626449
+  },
+  "untreated_wall_per_step_vs_baseline": {
+   "aos": 0.8162157140423117,
+   "grid": 0.7803092854276343,
+   "grid-no-purgatory": 0.7842208681102576,
+   "grid-post-fault-2": 0.7863795598996326,
+   "grid-short": 0.8871338874022704
+  }
+ },
+ {
+  "seed": 1001,
+  "stall_cap": {
+   "stops": 369576,
+   "treated_runs": 561189,
+   "untreated_runs": 187042,
+   "steps_saved_sum": 532942617,
+   "suspended_steps_sum": 193557795,
+   "marks.rows": 9297970,
+   "marks.acted_deliveries": 120809185,
+   "marks.acted_timers": 24424036,
+   "marks.releases": 5730820,
+   "probes_keyed": 7844,
+   "probe_over_cap_completions": 17,
+   "scopes_learned": 2,
+   "cap_max_scope": 755,
+   "untreated_runs_capped": 178050,
+   "untreated_over_cap_runs": 122988,
+   "untreated_rows_dropped": 0,
+   "untreated_gap_hist.0": 16,
+   "untreated_gap_hist.1": 27,
+   "untreated_gap_hist.2": 633,
+   "untreated_gap_hist.3": 1457,
+   "untreated_gap_hist.4": 4063,
+   "untreated_gap_hist.5": 8821,
+   "untreated_gap_hist.6": 10968,
+   "untreated_gap_hist.7": 7099,
+   "untreated_gap_hist.8": 6710,
+   "untreated_gap_hist.9": 6403,
+   "untreated_gap_hist.10": 8164,
+   "untreated_gap_hist.11": 26743,
+   "untreated_gap_hist.12": 30219,
+   "untreated_gap_hist.13": 73688,
+   "untreated_gap_hist.14": 2031,
+   "untreated_gap_hist.15": 0
+  },
+  "firing_stops": 369576,
+  "firing_floor_120k": true,
+  "cap_max_scope": 755,
+  "cap_band_450_900": true,
+  "probe_over_cap_share": 0.0021672616012238656,
+  "learned_cap_reached": [
+   149435,
+   323598
+  ],
+  "stall_cap_reached": 369576,
+  "plan_complete": [
+   163918,
+   124518
+  ],
+  "iterations_exhausted": [
+   114911,
+   194410
+  ],
+  "runs": [
+   798060,
+   642660
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "learned_cap_drop": 0.5382078999252158,
+  "plan_complete_ratio": 1.3164201159671693,
+  "steps_per_run_ratio_by_arm": {
+   "aos": 0.6026039178714232,
+   "grid": 0.5825415990430163,
+   "grid-no-purgatory": 0.497333614504212,
+   "grid-post-fault-2": 0.4935655833855178,
+   "grid-short": 0.8226850709178332
+  },
+  "wall_per_run_ratio_by_arm": {
+   "aos": 0.7416819763926819,
+   "grid": 0.6907810098305501,
+   "grid-no-purgatory": 0.6330326529983015,
+   "grid-post-fault-2": 0.627321207563099,
+   "grid-short": 0.88480337215683
+  },
+  "d8_per_run_ratio_by_arm": {
+   "aos": 1.0382272430228998,
+   "grid": 0.9645768769933228,
+   "grid-no-purgatory": 1.0324470145196774,
+   "grid-post-fault-2": 1.0365373312460497,
+   "grid-short": 0.9938092780537554
+  },
+  "untreated_wall_per_step_vs_baseline": {
+   "aos": 0.8849606517237704,
+   "grid": 0.8226347123460214,
+   "grid-no-purgatory": 0.8120392367870864,
+   "grid-post-fault-2": 0.8139198294737107,
+   "grid-short": 0.8770973503721833
+  }
+ }
+]
