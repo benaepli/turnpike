@@ -7250,3 +7250,120 @@ ran; successful-vector mutation leads the queued ranking. Those artifacts
 remain in tmp/loop/lite. Iteration 73 is not admitted or implemented.
 At the user's request, finish this iteration's archive/commit/cleanup and
 stop here before the next iteration. No grading process remains active.
+
+
+**Iteration 73 implementation review.** Successful-vector population
+mutation implemented on the accepted b86baad baseline in an isolated
+worktree. The host session restarted mid-implementation; the implementer
+was resumed from its transcript and re-implemented from the clean baseline.
+Root reviewed the full subject diff: each CellLearner gains a 24-entry ring
+of rewarded ArmSet indices stamped with the credited-observation index,
+expiry at age > 500 on every credit, insertion only on the learner's own
+true reward, entropy axis weights refreshed every 24 credits, and a cached
+exact 72-value mixture rebuilt on membership change or refresh. Supported
+draws (>= 8 live, >= 2 distinct) invert the mixture with one private-RNG
+variate; the coupled product-marginal comparator uses the same variate and
+index order. Coin, probe and unsupported paths are unchanged with identical
+generator consumption. Choice carries a population marker so the run's own
+reward is counted under supported-outcome counters. No config field, no
+campaign edit, no treatment bit (judged full-system exception), no harness
+edit. general_vr.json exported byte-identical. Tests 464 passed, 0 failed
+across 25 suites; release build passes. Layout: CellLearner 1336 bytes,
+Population 1120 bytes; 165 cells in the smoke.
+
+Two implementation choices flagged: per-cell layout sizes ride in a
+two-element layout_bytes array because the completeness test requires
+integer leaves to be zero in a fresh session; a parent axis whose other
+directions all have zero coin share contributes nothing and the draw
+normalizes the remaining mass (the map left this undefined). Binary SHA256
+fd0caa8c11e52c9b4e44f7dd043de4f930d4be709bcd120a4447cf585d152c04. Cross-
+binary session against the cached seed 1000/1001 baseline.
+
+
+**Iteration 73 closed, autonomous.** Seed 1000 completed 606,540 candidate
+runs against 606,180 baseline runs, zero simulator failures, zero
+linearizability violations on either side. Throughput ratio 1.00095;
+projected epoch throughput 0.97877 against the 0.90 floor.
+
+Every frozen applicability gate passed at the normal horizon: 428,833
+supported draws (floor 100,000) against 73,361 unsupported; 326,234
+changed_joint_draws (floor 50,000); 111 cells with >= 100 supported draws
+(floor 20), 37 per learner; two-or-more-coordinate departures 41.6% (floor
+20%); joint TV >= 0.10 on 99.8% of supported draws (floor half), mean TV
+0.430; mutation mass crash 0.190, retarget 0.069, fresh_first 0.253,
+pair_order 0.208, request 0.280 (four axes above the 10% floor, two
+required); 98.4% of supported draws from cells with >= 4 distinct vectors
+(floor 80%); mean top-vector concentration 0.229. The mechanism ran as
+specified and moved the policy far from the marginal sampler.
+
+Search utility fell. Fixed four-grid depth8: 7,372/506,220 candidate versus
+7,897/501,000 baseline, per-run 0.92389 against the frozen band [1.07,1.18],
+per-second 0.93388 against the >= 1.04 guard; the grader reads the cross-
+binary depth8 per-second rung at 0.93388 [null band 0.0162], separated
+below the baseline at z 2.7, -6.61%, outside the 5% layout floor. Grid
+depth6 per-run 0.91772. Per arm depth8 per-run: grid 0.887, grid-short
+0.925, grid-no-purgatory 0.972, grid-post-fault-2 0.897. AOS per-run 0.67762
+and per-second 0.64647, the largest AOS loss recorded in this family.
+Whole campaign per-run 0.88326, per-second 0.88410. Advance rungs: depth9
+0.959, depth10 0.936, depth11-13 flat on small counts. Own-run reward
+rates fell for all three learners: overtaken ghost 0.0535 versus 0.0583
+(0.919), absorber cycle 0.1717 versus 0.1783 (0.963), cycle-before-request
+0.0467 versus 0.0542 (0.863); the four-chunk reward clause (two >= 1.10,
+third >= 0.95) cannot be met from here. Supported-draw outcome rates were
+0.061/0.191/0.055 per learner, so population-sampled runs succeed at about
+the baseline learner-run rate while the whole treated population does
+worse; concentrating the learner draws on past successes did not raise the
+reward rate the population is fitted to, and it lowered oracle depth.
+
+Decision: close after one chunk under the frozen falsifier (primary
+interval entirely below 1.07), the per-second guard, the reward clause and
+the AOS harm clause; grader adviceVerdict=close with the same reading. A
+second chunk cannot lift a 0.92 pooled ratio into the band. No panel or
+regression run. Patch, tests, smoke, implementation map, chunk and finish
+records, gate and pooled-utility summaries and their scripts retained under
+research/lite/patches/successful-vector; the finished session is
+research/lite/state/successful-vector.json. Main Spur remains b86baad; the
+epoch ledger is unchanged at 0.97784. Proxy findings only; the VR violation
+goal remains open.
+
+**Direction review after iteration 73.** Eight consecutive closes
+(iterations 66 through 73), all in two families: arm-selector posterior
+variants (conditional parents 67, interaction value 68, provenance contexts
+72, population resampling 73) and replay-prefix ranking (checkpoint 66,
+dependency frontier 69, chain demotion 71), plus one evaluator perf
+attempt (70). The selector family shows one consistent signature: ample
+firing, a policy that moves well away from the marginal sampler, and lower
+depth yield with repeated AOS harm. Concentrating learner draws on
+whatever the generic rewards favored has now lowered the reward rates
+themselves; the rewards are proxies of proxies, and the diversity the
+coin-drawn control supplies appears to be what the depth ladder was
+feeding on. This is a finding about the search shape, not about any one
+variant: the selector is not the lever, and no further posterior,
+context or population variant is worth a round without a new premise.
+
+Steering has narrowed the search to that family for eight rounds and has
+not paid for itself. Verdict: retire both families from active steering.
+The iteration 74 proposer ran through the scheduling-theory lens with a
+directive to avoid selector and replay-prefix variants and to propose
+structurally different mechanisms anchored to generic fault-window events
+(crash, restart, first delivery to a restarted node, timer fire): adaptive
+switching among built strategy arms on a protocol-agnostic signal,
+checkpoint branching into a different queue policy, PCT-style change
+points placed relative to fault windows, partial-order reduction that
+spends saved runs on the fault window, or a feedback loop scoring the
+schedule shape rather than the arm set, with a per-run treatment bit
+wherever possible so the internal contrast applies. The kept
+contextual-single-pivot-crash-phase-learning and
+parent-plan-optional-cover-edge-reversal entries stay in the pool and are
+re-judged against the new candidates. The fixed goal, oracle ladder,
+campaign and measurements stay as given; zero violations across the family
+is not a reason to move rungs or rescale.
+
+Digest for the user: iteration 73 closed after one chunk on a clean
+negative (grid depth8 per-run 0.92, AOS 0.68, reward rates down, all
+support gates passed, throughput flat); the arm-selector and replay-prefix
+families are retired from steering after eight closes; iteration 74 is
+being proposed through the scheduling-theory lens toward structurally
+different mechanisms with per-run treatment bits. One stale implementer
+worktree from an earlier session (.claude/worktrees/agent-a45ab2a7277b53983)
+predates this loop session and was left untouched.

@@ -1,0 +1,139 @@
+{
+  "arm_selector_population": {
+    "supported_draws": 15233,
+    "unsupported_draws": 16512,
+    "changed_joint_draws": 12351,
+    "supported_draws_by_learner": [
+      6051,
+      5586,
+      3596
+    ],
+    "changed_joint_draws_by_learner": [
+      5161,
+      4643,
+      2547
+    ],
+    "hamming_hist": [
+      2882,
+      4474,
+      4253,
+      2588,
+      883,
+      153
+    ],
+    "tv_at_least_tenth": 15233,
+    "tv_micro_sum": 6479018608,
+    "tv_hist": [
+      0,
+      30,
+      757,
+      4888,
+      6877,
+      2570,
+      111,
+      0,
+      0,
+      0
+    ],
+    "mutation_axis_mass_micro": [
+      4264702386,
+      2075863731,
+      2370521766,
+      2813335887,
+      3708575947
+    ],
+    "live_entries_hist": [
+      7515,
+      1184,
+      1207,
+      1472,
+      1372,
+      1419,
+      1348,
+      995,
+      1268,
+      996,
+      864,
+      807,
+      959,
+      1227,
+      878,
+      498,
+      891,
+      749,
+      747,
+      681,
+      407,
+      512,
+      352,
+      379,
+      3018
+    ],
+    "distinct_hist": [
+      7515,
+      1307,
+      1875,
+      1492,
+      1690,
+      1732,
+      1878,
+      1298,
+      1412,
+      1623,
+      1615,
+      1822,
+      1550,
+      1298,
+      921,
+      963,
+      378,
+      311,
+      481,
+      231,
+      305,
+      48,
+      0,
+      0,
+      0
+    ],
+    "supported_draws_with_four_distinct": 15216,
+    "supported_top_multiplicity_sum": 45708,
+    "supported_top_share_micro": 2929724892,
+    "supported_completed_runs_by_learner": [
+      6051,
+      5586,
+      3596
+    ],
+    "supported_successful_runs_by_learner": [
+      334,
+      361,
+      174
+    ],
+    "cells_created": 165,
+    "cell_draw_thresholds": [
+      1,
+      10,
+      100,
+      1000,
+      10000
+    ],
+    "cells_reaching_supported_draws": [
+      81,
+      79,
+      51,
+      3,
+      0
+    ],
+    "cells_reaching_hundred_supported_draws_by_learner": [
+      22,
+      21,
+      8
+    ],
+    "layout_bytes": [
+      1336,
+      1120
+    ],
+    "storage_bytes": 220440,
+    "population_storage_bytes": 184800
+  }
+}

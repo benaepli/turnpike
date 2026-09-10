@@ -1,0 +1,6 @@
+diff --git a/spur b/spur
+--- a/spur
++++ b/spur
+@@ -1 +1 @@
+-Subproject commit b86baad3f94ce14dbdf20688b61fd92317a75cc2
++Subproject commit b86baad3f94ce14dbdf20688b61fd92317a75cc2-dirty

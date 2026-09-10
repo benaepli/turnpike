@@ -1,0 +1,7 @@
+{
+ "cand-spur": "fd0caa8c11e52c9b4e44f7dd043de4f930d4be709bcd120a4447cf585d152c04",
+ "spur.patch": "989c6cf6b14a19adbccff9a373bd8c238c81606d89c6d5e1bd1fac306577a91f",
+ "general_vr.json": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+ "baselineSpurCommit": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+ "baselineCache": "research/lite/baselines/34b5ef40e3bf-30-f9daa01b-300-g870d4c11-s3d907a50.json"
+}

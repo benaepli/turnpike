@@ -1,0 +1,1900 @@
+diff --git a/spur-core/src/simulator/arm_selector.rs b/spur-core/src/simulator/arm_selector.rs
+index c90b227..33d46b6 100644
+--- a/spur-core/src/simulator/arm_selector.rs
++++ b/spur-core/src/simulator/arm_selector.rs
+@@ -42,18 +42,38 @@
+ //! arm set, depend on the learner's state at draw time, so neither is a
+ //! function of the run id alone; the run's tag records the arms it ran
+ //! under and which learner, if any, drew them.
++//!
++//! Each cell also remembers the arm sets of its recent rewarded runs, up
++//! to `POPULATION_CAPACITY` of them and none older than
++//! `POPULATION_AGE_LIMIT` credited observations, repeated sets kept as
++//! repeated entries. Once that population holds
++//! `POPULATION_SUPPORT_ENTRIES` live entries spanning
++//! `POPULATION_SUPPORT_DISTINCT` distinct sets, a learner run stops picking
++//! its axes independently: it takes one remembered set, drawn uniformly,
++//! and changes exactly one axis of it, the axis chosen with probability
++//! proportional to the entropy of the axis's normalized leading
++//! probabilities and the new direction drawn from the coin shares of the
++//! other directions. That mixture over parents, axes and replacements is
++//! summed into one distribution over the 72 arm sets and sampled with a
++//! single unit variate, so the run's four unchanged coordinates keep a
++//! setting that was rewarded together while the least decided coordinate
++//! explores. For observation only, the same variate inverts the product of
++//! the marginal distributions the independent pick would have used, in
++//! the same index order; the two tuples agree whenever the distributions
++//! do, and their disagreement is what the population counters report.
+ 
+ use crate::simulator::rng::derive_seed;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_phase;
+-use crate::simulator::run_variant::{AXES, AXIS_START, ArmSet, DIRECTIONS};
++use crate::simulator::run_variant::{AXES, AXIS_START, ArmSet, COMBINATIONS, DIRECTIONS};
+ use crate::simulator::timer_context;
+-use crate::simulator::util_stats::{self, Reward};
++use crate::simulator::util_stats::{self, PopulationCensus, Reward, SupportedDraw};
+ use dashmap::DashMap;
+ use rand::Rng;
+ use rand::SeedableRng;
+ use rand::rngs::SmallRng;
+ use std::sync::LazyLock;
++use std::sync::atomic::{AtomicU64, Ordering};
+ 
+ /// Salt for the assignment of a run to a learner. Distinct from every other
+ /// split of a session.
+@@ -78,6 +98,21 @@ pub const DISCOUNT: f64 = 0.998;
+ /// from the posteriors; below it every run of the cell is coin-drawn.
+ pub const WARMUP_OBSERVATIONS: u64 = 24;
+ 
++/// Rewarded arm sets a cell's population holds at most; the oldest is
++/// dropped for a newer one.
++pub const POPULATION_CAPACITY: usize = 24;
++
++/// Credited observations after which a population entry expires. An entry
++/// whose age is exactly this many observations is still live.
++pub const POPULATION_AGE_LIMIT: u64 = 500;
++
++/// Live entries a population needs before a learner draw samples from it.
++pub const POPULATION_SUPPORT_ENTRIES: usize = 8;
++
++/// Distinct arm sets among the live entries a population needs before a
++/// learner draw samples from it.
++pub const POPULATION_SUPPORT_DISTINCT: usize = 2;
++
+ /// A cell key: a campaign arm index and a configuration index. A run at a
+ /// configuration of the grid is keyed by the configuration alone, under
+ /// `POOLED_ARM`, so every campaign arm walking the grid (and standard mode,
+@@ -166,11 +201,14 @@ pub fn learner(run_id: i64) -> Option<Learner> {
+ 
+ /// What the selector decided for a run: the arm set it runs under and, on
+ /// a learner run, the learner whose pick it took. A coin-drawn run and a
+-/// probe carry no learner.
++/// probe carry no learner. `population` marks a learner run whose set was
++/// drawn from the cell's population of rewarded sets; its outcome is
++/// counted against that draw without rereading the cell.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct Choice {
+     pub arms: ArmSet,
+     pub learner: Option<Learner>,
++    pub population: bool,
+ }
+ 
+ /// The standard normal distribution function, by a rational approximation
+@@ -207,6 +245,201 @@ pub struct Rewards {
+     pub first_post_fault_request_entry_step: Option<i32>,
+ }
+ 
++/// One rewarded run a cell remembers: its arm set by `ArmSet::index` and
++/// the cell's observation count when the run was credited.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++struct Success {
++    at: u64,
++    arms: u8,
++}
++
++/// The rewarded runs a cell's learner resamples from, in credit order, and
++/// the distribution a supported draw samples from them.
++struct Population {
++    entries: [Success; POPULATION_CAPACITY],
++    /// Slot of the oldest live entry; the live entries follow it in credit
++    /// order, wrapping at the capacity.
++    head: usize,
++    live: usize,
++    /// Live entries per arm set, by `ArmSet::index`.
++    multiplicity: [u8; COMBINATIONS],
++    distinct: usize,
++    /// How many live entries carry the most repeated arm set.
++    top_multiplicity: usize,
++    /// The probability that a mutation lands on each axis, refreshed from
++    /// the posteriors every `WARMUP_OBSERVATIONS` credits; uniform until
++    /// the first refresh.
++    axis_weights: [f64; AXES],
++    /// Mass per arm set, by `ArmSet::index`, of one parent drawn uniformly
++    /// from the live entries and changed on one axis. Rebuilt whenever the
++    /// entries or the axis weights change, so it is current whenever the
++    /// population is supported.
++    mixture: [f64; COMBINATIONS],
++    /// The mass the mixture holds. Below one when a parent's axis has no
++    /// other direction with a positive coin share; the draw then samples
++    /// the mass that remains.
++    mixture_total: f64,
++    /// Draws served from this population while it was supported.
++    supported_draws: AtomicU64,
++}
++
++impl Population {
++    fn new() -> Self {
++        Self {
++            entries: [Success { at: 0, arms: 0 }; POPULATION_CAPACITY],
++            head: 0,
++            live: 0,
++            multiplicity: [0; COMBINATIONS],
++            distinct: 0,
++            top_multiplicity: 0,
++            axis_weights: [1.0 / AXES as f64; AXES],
++            mixture: [0.0; COMBINATIONS],
++            mixture_total: 0.0,
++            supported_draws: AtomicU64::new(0),
++        }
++    }
++
++    fn supported(&self) -> bool {
++        self.live >= POPULATION_SUPPORT_ENTRIES && self.distinct >= POPULATION_SUPPORT_DISTINCT
++    }
++
++    /// The live entries, oldest first.
++    fn entries(&self) -> impl Iterator<Item = Success> + '_ {
++        (0..self.live).map(move |i| self.entries[(self.head + i) % POPULATION_CAPACITY])
++    }
++
++    fn census(&self) -> PopulationCensus {
++        PopulationCensus {
++            live: self.live,
++            distinct: self.distinct,
++            top_multiplicity: self.top_multiplicity,
++        }
++    }
++
++    /// Drops the entries older than the age limit at observation `now`
++    /// and says whether any went. Entries sit in credit order, so the
++    /// oldest is always at the head.
++    fn expire(&mut self, now: u64) -> bool {
++        let mut dropped = false;
++        while self.live > 0 && now - self.entries[self.head].at > POPULATION_AGE_LIMIT {
++            self.head = (self.head + 1) % POPULATION_CAPACITY;
++            self.live -= 1;
++            dropped = true;
++        }
++        if dropped {
++            self.recount();
++        }
++        dropped
++    }
++
++    /// Appends a rewarded arm set credited at observation `now`, dropping
++    /// the oldest entry when the population is full.
++    fn insert(&mut self, arms: u8, now: u64) {
++        if self.live == POPULATION_CAPACITY {
++            self.head = (self.head + 1) % POPULATION_CAPACITY;
++            self.live -= 1;
++        }
++        self.entries[(self.head + self.live) % POPULATION_CAPACITY] = Success { at: now, arms };
++        self.live += 1;
++        self.recount();
++    }
++
++    fn recount(&mut self) {
++        let mut multiplicity = [0u8; COMBINATIONS];
++        for s in self.entries() {
++            multiplicity[s.arms as usize] += 1;
++        }
++        self.multiplicity = multiplicity;
++        self.distinct = multiplicity.iter().filter(|&&m| m > 0).count();
++        self.top_multiplicity = multiplicity.iter().copied().max().unwrap_or(0) as usize;
++    }
++
++    /// Sums, over every live entry, every axis and every other direction
++    /// of that axis, the mass `(1 / live) * axis_weight * coin(d) / (sum of
++    /// the coin shares of the axis's other directions)` onto the arm set
++    /// that differs from the entry on that axis alone. Paths that reach
++    /// the same arm set add.
++    fn rebuild(&mut self, coins: &[f64; DIRECTIONS]) {
++        let mut mixture = [0.0f64; COMBINATIONS];
++        if self.live > 0 {
++            let per_parent = 1.0 / self.live as f64;
++            for s in self.entries() {
++                let parent = ArmSet::from_index(s.arms as usize).directions();
++                for a in 0..AXES {
++                    let weight = per_parent * self.axis_weights[a];
++                    if weight <= 0.0 {
++                        continue;
++                    }
++                    let range = AXIS_START[a]..AXIS_START[a + 1];
++                    let others: f64 =
++                        range.clone().filter(|&j| j != parent[a]).map(|j| coins[j]).sum();
++                    if others <= 0.0 {
++                        continue;
++                    }
++                    for d in range.filter(|&j| j != parent[a]) {
++                        let mut child = parent;
++                        child[a] = d;
++                        mixture[ArmSet::from_directions(child).index()] +=
++                            weight * coins[d] / others;
++                    }
++                }
++            }
++        }
++        self.mixture_total = mixture.iter().sum();
++        self.mixture = mixture;
++    }
++}
++
++/// The coin share of every direction, in direction order.
++fn coin_table() -> [f64; DIRECTIONS] {
++    std::array::from_fn(ArmSet::coin_probability)
++}
++
++/// The index at which the running sum of `p` first exceeds `u` times the
++/// total of `p`, taken in index order; the last index with positive mass
++/// when rounding carries the target past the sum, and index zero when no
++/// mass is positive.
++fn invert(p: &[f64; COMBINATIONS], u: f64) -> usize {
++    let total: f64 = p.iter().sum();
++    if total <= 0.0 {
++        return 0;
++    }
++    let target = u * total;
++    let mut acc = 0.0;
++    let mut last = 0;
++    for (i, &m) in p.iter().enumerate() {
++        if m <= 0.0 {
++            continue;
++        }
++        acc += m;
++        last = i;
++        if target < acc {
++            return i;
++        }
++    }
++    last
++}
++
++/// Half the absolute difference of two distributions, summed.
++fn total_variation(p: &[f64; COMBINATIONS], q: &[f64; COMBINATIONS]) -> f64 {
++    0.5 * p.iter().zip(q).map(|(x, y)| (x - y).abs()).sum::<f64>()
++}
++
++/// The axes on which two arm sets differ.
++fn hamming(a: &ArmSet, b: &ArmSet) -> usize {
++    a.directions().iter().zip(b.directions()).filter(|(x, y)| *x != y).count()
++}
++
++/// Bytes one cell's learner state occupies, population included.
++pub fn cell_bytes() -> usize {
++    std::mem::size_of::<CellLearner>()
++}
++
++/// Bytes of a cell's learner state that the population occupies.
++pub fn population_bytes() -> usize {
++    std::mem::size_of::<Population>()
++}
++
+ /// One cell's learner state.
+ struct CellLearner {
+     /// Discounted reward and non-reward mass per direction.
+@@ -219,6 +452,7 @@ struct CellLearner {
+     mass: f64,
+     /// Runs observed in this cell.
+     observations: u64,
++    population: Population,
+ }
+ 
+ impl CellLearner {
+@@ -229,6 +463,7 @@ impl CellLearner {
+             reward_mass: 0.0,
+             mass: 0.0,
+             observations: 0,
++            population: Population::new(),
+         }
+     }
+ 
+@@ -343,6 +578,83 @@ impl CellLearner {
+         Self::pick(a, &weights, rng)
+     }
+ 
++    /// The distribution `sample_axis_leading` draws from on axis `a`,
++    /// normalized to one; the first direction alone when no weight is
++    /// positive, where `pick` falls back to it.
++    fn marginal_distribution(&self, a: usize) -> [f64; 3] {
++        let range = AXIS_START[a]..AXIS_START[a + 1];
++        let mut weights = self.leading_probability(a);
++        for (slot, d) in range.clone().enumerate() {
++            weights[slot] *= ArmSet::coin_probability(d);
++        }
++        let total: f64 = weights[..range.len()].iter().sum();
++        if total <= 0.0 {
++            let mut first = [0.0; 3];
++            first[0] = 1.0;
++            return first;
++        }
++        weights.map(|w| w / total)
++    }
++
++    /// The probability that a population draw changes each axis: the
++    /// Shannon entropy of the axis's leading probabilities, normalized
++    /// within the axis first, then the five entropies normalized to one.
++    /// A direction with no leading probability contributes nothing, an
++    /// axis with none has no entropy, and when no axis has any the axes
++    /// are equally likely.
++    fn mutation_axis_weights(&self) -> [f64; AXES] {
++        let mut entropy = [0.0f64; AXES];
++        for (a, h) in entropy.iter_mut().enumerate() {
++            let width = AXIS_START[a + 1] - AXIS_START[a];
++            let leading = self.leading_probability(a);
++            let total: f64 = leading[..width].iter().sum();
++            if total <= 0.0 {
++                continue;
++            }
++            *h = leading[..width]
++                .iter()
++                .filter(|&&p| p > 0.0)
++                .map(|&p| {
++                    let q = p / total;
++                    -q * q.ln()
++                })
++                .sum();
++        }
++        let total: f64 = entropy.iter().sum();
++        if total > 0.0 { entropy.map(|h| h / total) } else { [1.0 / AXES as f64; AXES] }
++    }
++
++    /// The arm set of a supported learner draw at unit variate `u`, with
++    /// what is recorded about it. The draw inverts the cached mixture's
++    /// distribution function in `ArmSet::index` order. For observation
++    /// only, the same variate inverts, in the same order, the product of
++    /// the marginal distributions the independent pick uses now, so two
++    /// equal distributions give one tuple, and the total variation between
++    /// the two distributions is read off directly.
++    fn population_draw(&self, u: f64) -> (ArmSet, SupportedDraw) {
++        let pop = &self.population;
++        let mut joint = pop.mixture;
++        if pop.mixture_total > 0.0 {
++            for m in &mut joint {
++                *m /= pop.mixture_total;
++            }
++        }
++        let marginals: [[f64; 3]; AXES] = std::array::from_fn(|a| self.marginal_distribution(a));
++        let mut product = [0.0f64; COMBINATIONS];
++        for (i, p) in product.iter_mut().enumerate() {
++            let d = ArmSet::from_index(i).directions();
++            *p = (0..AXES).map(|a| marginals[a][d[a] - AXIS_START[a]]).product();
++        }
++        let actual = ArmSet::from_index(invert(&joint, u));
++        let comparison = ArmSet::from_index(invert(&product, u));
++        let draw = SupportedDraw {
++            hamming: hamming(&actual, &comparison),
++            total_variation: total_variation(&joint, &product),
++            axis_mass: pop.axis_weights,
++        };
++        (actual, draw)
++    }
++
+     /// One categorical draw over the directions of axis `a` with the given
+     /// weights, slot by slot from the axis's first direction. The first
+     /// direction when no weight is positive.
+@@ -362,7 +674,11 @@ impl CellLearner {
+         AXIS_START[a + 1] - 1
+     }
+ 
+-    /// Fold one run's reward into the directions it carried.
++    /// Fold one run's reward into the directions it carried. The
++    /// population ages by this observation whatever the reward, takes the
++    /// arm set when the reward is true, and rebuilds its mixture when its
++    /// entries changed or the observation count reached a multiple of
++    /// `WARMUP_OBSERVATIONS`, where the axis weights are refreshed.
+     fn credit(&mut self, arms: &ArmSet, reward: bool) {
+         self.observations += 1;
+         let r = reward as u8 as f64;
+@@ -372,6 +688,19 @@ impl CellLearner {
+             self.alpha[d] = DISCOUNT * self.alpha[d] + r;
+             self.beta[d] = DISCOUNT * self.beta[d] + (1.0 - r);
+         }
++        let now = self.observations;
++        let mut changed = self.population.expire(now);
++        if reward {
++            self.population.insert(arms.index() as u8, now);
++            changed = true;
++        }
++        let refresh = now % WARMUP_OBSERVATIONS == 0;
++        if refresh {
++            self.population.axis_weights = self.mutation_axis_weights();
++        }
++        if changed || refresh {
++            self.population.rebuild(&coin_table());
++        }
+     }
+ }
+ 
+@@ -392,7 +721,7 @@ static CELLS: [LazyLock<DashMap<Cell, CellLearner>>; 3] = [
+ pub fn choose(run_id: i64, schedule_seed: u64, arm_index: i32, cell: Cell) -> Choice {
+     let coins = ArmSet::coins(run_id);
+     let Some(learner) = learner(run_id) else {
+-        return Choice { arms: coins, learner: None };
++        return Choice { arms: coins, learner: None, population: false };
+     };
+     let slot = learner.index();
+     let pooled = is_pooled(cell);
+@@ -401,16 +730,36 @@ pub fn choose(run_id: i64, schedule_seed: u64, arm_index: i32, cell: Cell) -> Ch
+         .filter(|state| state.observations >= WARMUP_OBSERVATIONS);
+     let Some(state) = warmed else {
+         util_stats::record_arm_selector_draw(slot, arm_index, pooled, 1.0, None, true);
+-        return Choice { arms: coins, learner: None };
++        return Choice { arms: coins, learner: None, population: false };
+     };
+     let (share, margins) = state.explore_share();
+     let coin = run_phase::salted_unit(run_id, EXPLORE_SALT) < share;
+     let top_margin = margins.iter().copied().fold(0.0, f64::max);
+     util_stats::record_arm_selector_draw(slot, arm_index, pooled, share, Some(top_margin), coin);
+     if coin {
+-        return Choice { arms: coins, learner: None };
++        return Choice { arms: coins, learner: None, population: false };
+     }
+     let mut rng = SmallRng::seed_from_u64(derive_seed(schedule_seed, run_id, DRAW_SALT));
++    let census = state.population.census();
++    if state.population.supported() {
++        let (arms, draw) = state.population_draw(rng.random::<f64>());
++        let agreements = arms
++            .directions()
++            .iter()
++            .enumerate()
++            .filter(|&(a, &d)| d == state.leader(a))
++            .count() as u64;
++        util_stats::record_arm_selector_learner_run(learner.reward(), &arms, &coins, agreements, &margins);
++        util_stats::record_arm_selector_population_draw(slot, &census, Some(&draw));
++        let served = state.population.supported_draws.fetch_add(1, Ordering::Relaxed) + 1;
++        util_stats::record_arm_selector_population_cell_draws(slot, served);
++        return Choice {
++            arms,
++            learner: Some(learner),
++            population: true,
++        };
++    }
++    util_stats::record_arm_selector_population_draw(slot, &census, None);
+     let mut directions = [0usize; AXES];
+     let mut agreements = 0u64;
+     for (a, d) in directions.iter_mut().enumerate() {
+@@ -422,6 +771,7 @@ pub fn choose(run_id: i64, schedule_seed: u64, arm_index: i32, cell: Cell) -> Ch
+     Choice {
+         arms,
+         learner: Some(learner),
++        population: false,
+     }
+ }
+ 
+@@ -478,6 +828,9 @@ pub fn observe(arm_index: i32, cell: Cell, run_id: i64, choice: &Choice, rewards
+             let r = rewards_of(learner, rewards);
+             credit(learner, cell, arms, r);
+             util_stats::record_arm_selector_observation(learner.reward(), true, arm_index, arms, r);
++            if choice.population {
++                util_stats::record_arm_selector_population_outcome(learner.index(), r);
++            }
+         }
+     }
+ }
+@@ -548,6 +901,7 @@ mod tests {
+         Choice {
+             arms,
+             learner: None,
++            population: false,
+         }
+     }
+ 
+@@ -555,6 +909,15 @@ mod tests {
+         Choice {
+             arms,
+             learner: Some(l),
++            population: false,
++        }
++    }
++
++    fn population_drawn(arms: ArmSet, l: Learner) -> Choice {
++        Choice {
++            arms,
++            learner: Some(l),
++            population: true,
+         }
+     }
+ 
+@@ -586,14 +949,16 @@ mod tests {
+     }
+ 
+     /// Five hundred coin-drawn runs on each direction of the retarget axis,
+-    /// interleaved, rewarded for every learner at one in fifty without the
+-    /// retarget and one in seventeen with it.
++    /// interleaved, rewarded for every learner at one in seventeen with the
++    /// retarget and never without it, so every rewarded run carries the
++    /// one arm set and the cell's population never reaches two distinct
++    /// sets: its learner runs take the independent per-axis pick.
+     fn separate_retarget(cell: Cell) {
+         let id = unprobed_id();
+         for i in 0..1000usize {
+             let retarget = i % 2 == 1;
+             let k = i / 2;
+-            let reward = if retarget { k % 17 == 0 } else { k % 50 == 0 };
++            let reward = retarget && k % 17 == 0;
+             let arms = ArmSet {
+                 retarget,
+                 ..ArmSet::default()
+@@ -848,8 +1213,11 @@ mod tests {
+         // Reward only runs that took stock crashes and the rush: learner A's
+         // posteriors then separate those directions from the coin. Learner
+         // A is rewarded on every run of the stock-and-rush set and never on
+-        // the mixed runs; learner B on half of the mixed runs, whatever
+-        // their arms, and never on the stock-and-rush set.
++        // the mixed runs; learner B on the mixed runs that took the last
++        // combination, and never on the stock-and-rush set. Each learner's
++        // rewarded runs carry one arm set, so neither population reaches
++        // two distinct sets and both learners take the independent
++        // per-axis pick.
+         reset();
+         let rewarded_arms = ArmSet {
+             crash: CrashArm::Stock,
+@@ -862,7 +1230,18 @@ mod tests {
+             } else {
+                 ArmSet::from_index(i % COMBINATIONS)
+             };
+-            observe(cell.0, cell, unprobed_id(), &coin(arms), &rewarded(i % 2 == 0, i % 4 == 1));
++            observe(
++                cell.0,
++                cell,
++                unprobed_id(),
++                &coin(arms),
++                &rewarded(i % 2 == 0, i % COMBINATIONS == COMBINATIONS - 1),
++            );
++        }
++        for l in Learner::ALL {
++            let state = CELLS[l.index()].get(&cell).unwrap();
++            assert!(state.population.distinct <= 1, "{l:?}: the fixture is supported");
++            assert!(!state.population.supported(), "{l:?}");
+         }
+         let mut coin_runs = [0usize; 3];
+         let mut stock = [0usize; 3];
+@@ -893,11 +1272,12 @@ mod tests {
+         let rush_share = rush[a] as f64 / m[a] as f64;
+         assert!(stock_share > ArmSet::coin_probability(0) + 0.1, "stock share {stock_share}");
+         assert!(rush_share > 0.35, "rush share {rush_share}");
+-        // Learner B's reward never landed on the stock-and-rush set, whose
+-        // runs all carry the off direction of the retarget, fresh-first and
+-        // pair-order axes: the on directions lead those axes decisively, so
+-        // B is decided too, and its learner runs pull stock and rush under
+-        // their coins while the other learner's reward moved nothing.
++        // Learner B's reward landed only on the last combination, which
++        // carries the on direction of the retarget, fresh-first and
++        // pair-order axes and the stock request: the on directions lead
++        // those axes decisively, so B is decided too, and its learner runs
++        // pull stock and rush under their coins while the other learner's
++        // reward moved nothing.
+         let b = Learner::AbsorberCycle.index();
+         let coin_share_b = coin_runs[b] as f64 / n[b] as f64;
+         assert!(coin_share_b < 0.1, "learner B leaves {coin_share_b} to the coins");
+@@ -1344,4 +1724,763 @@ mod tests {
+         assert_eq!(util_stats::snapshot().arm_selector_axis.absorber_cycle.cells, 0);
+         assert_eq!(util_stats::snapshot().arm_selector_axis.cycle_before_request.cells, 0);
+     }
++
++    /// The mixture a population would hold with the given weights, built
++    /// afresh from its live entries.
++    fn recomputed(pop: &Population, weights: [f64; AXES]) -> [f64; COMBINATIONS] {
++        let mut fresh = Population::new();
++        for s in pop.entries() {
++            fresh.insert(s.arms, s.at);
++        }
++        fresh.axis_weights = weights;
++        fresh.rebuild(&coin_table());
++        fresh.mixture
++    }
++
++    #[test]
++    fn the_population_keeps_recent_rewarded_sets_and_expires_them_by_credited_age() {
++        let mut state = CellLearner::new();
++        let a = ArmSet::default();
++        let b = ArmSet {
++            retarget: true,
++            ..ArmSet::default()
++        };
++        let pop = |state: &CellLearner| {
++            let p = &state.population;
++            (p.live, p.distinct, p.top_multiplicity, p.supported())
++        };
++        assert_eq!(pop(&state), (0, 0, 0, false));
++        for _ in 0..7 {
++            state.credit(&a, true);
++        }
++        assert_eq!(pop(&state), (7, 1, 7, false), "seven entries support a draw");
++        state.credit(&a, true);
++        assert_eq!(pop(&state), (8, 1, 8, false), "one distinct set supports a draw");
++        state.credit(&b, true);
++        assert_eq!(pop(&state), (9, 2, 8, true));
++        // Repeated sets are repeated entries up to the capacity, then the
++        // oldest goes for the newest.
++        for _ in 0..15 {
++            state.credit(&a, true);
++        }
++        assert_eq!(pop(&state), (24, 2, 23, true));
++        assert_eq!(state.population.entries().next().unwrap().at, 1);
++        state.credit(&a, true);
++        assert_eq!(pop(&state), (24, 2, 23, true));
++        assert_eq!(state.population.entries().next().unwrap().at, 2, "the oldest entry went");
++        assert_eq!(state.observations, 25);
++        // Zero rewards move the clock. The oldest live entry was credited
++        // at observation 2: it stays through age 500 and goes at 501.
++        while state.observations < 2 + POPULATION_AGE_LIMIT - 1 {
++            state.credit(&a, false);
++        }
++        assert_eq!(state.population.entries().next().unwrap().at, 2, "age 499 is live");
++        assert_eq!(pop(&state).0, 24);
++        state.credit(&b, false);
++        assert_eq!(state.observations, 502);
++        assert_eq!(state.population.entries().next().unwrap().at, 2, "age 500 is live");
++        assert_eq!(pop(&state).0, 24);
++        state.credit(&b, false);
++        assert_eq!(state.population.entries().next().unwrap().at, 3, "age 501 expired");
++        assert_eq!(pop(&state), (23, 2, 22, true));
++        // The one entry of the second set was credited at observation 9:
++        // once it expires the population loses support on distinctness
++        // with sixteen live entries, and one rewarded run restores it,
++        // expiring the entry of observation 10 on the same credit.
++        while state.observations < 9 + POPULATION_AGE_LIMIT + 1 {
++            state.credit(&a, false);
++        }
++        assert_eq!(pop(&state), (16, 1, 16, false), "support lost on distinctness");
++        state.credit(&b, true);
++        assert_eq!(pop(&state), (16, 2, 15, true), "support regained");
++        // Everything expires; eight fresh alternating rewards support again.
++        let newest = state.population.entries().last().unwrap().at;
++        while state.observations < newest + POPULATION_AGE_LIMIT + 1 {
++            state.credit(&a, false);
++        }
++        assert_eq!(pop(&state), (0, 0, 0, false));
++        assert_eq!(state.population.mixture_total, 0.0);
++        for i in 0..8 {
++            state.credit(if i % 2 == 0 { &a } else { &b }, true);
++            assert_eq!(pop(&state).3, i == 7, "after {} rewards", i + 1);
++        }
++    }
++
++    #[test]
++    fn a_learner_admits_only_the_rewarded_runs_it_observes_and_ticks_once_per_outcome() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        reset();
++        let cell = (5, 5);
++        let arms = ArmSet::default();
++        let a = Learner::OvertakenGhost;
++        let b = Learner::AbsorberCycle;
++        let c = Learner::CycleBeforeRequest;
++        let seen = |l: Learner| {
++            CELLS[l.index()].get(&cell).map_or((0, 0), |s| (s.observations, s.population.live))
++        };
++        // A coin-drawn run rewarded for A and C: each learner ticks once
++        // and only the rewarded learners admit the set.
++        observe(
++            cell.0,
++            cell,
++            unprobed_id(),
++            &coin(arms),
++            &Rewards {
++                cycle_before_request: true,
++                ..rewarded(true, false)
++            },
++        );
++        assert_eq!(seen(a), (1, 1));
++        assert_eq!(seen(b), (1, 0));
++        assert_eq!(seen(c), (1, 1));
++        // B's own run rewarded for everyone reaches B alone.
++        observe(
++            cell.0,
++            cell,
++            assigned_id(b),
++            &learned(arms, b),
++            &Rewards {
++                cycle_before_request: true,
++                ..rewarded(true, true)
++            },
++        );
++        assert_eq!(seen(a), (1, 1));
++        assert_eq!(seen(b), (2, 1));
++        assert_eq!(seen(c), (1, 1));
++        // A probe reaches nobody.
++        let probe = id_where(run_cap::is_probe);
++        observe(
++            cell.0,
++            cell,
++            probe,
++            &coin(arms),
++            &Rewards {
++                cycle_before_request: true,
++                ..rewarded(true, true)
++            },
++        );
++        assert_eq!(seen(a), (1, 1));
++        assert_eq!(seen(b), (2, 1));
++        assert_eq!(seen(c), (1, 1));
++        // A's population-drawn run without A's reward ticks A once and
++        // admits nothing, whatever the other rewards say.
++        observe(cell.0, cell, assigned_id(a), &population_drawn(arms, a), &rewarded(false, true));
++        assert_eq!(seen(a), (2, 1));
++        assert_eq!(seen(b), (2, 1));
++        assert_eq!(seen(c), (1, 1));
++        // A's marginal state is the discounted update of one reward then
++        // one non-reward on the set's directions.
++        let state = CELLS[a.index()].get(&cell).unwrap();
++        assert!((state.reward_mass - DISCOUNT).abs() < 1e-12);
++        assert!((state.mass - (DISCOUNT + 1.0)).abs() < 1e-12);
++        for d in 0..DIRECTIONS {
++            let carried = arms.directions().contains(&d);
++            let want_alpha = if carried { DISCOUNT } else { 0.0 };
++            let want_beta = if carried { 1.0 } else { 0.0 };
++            assert!((state.alpha[d] - want_alpha).abs() < 1e-12, "alpha[{d}]");
++            assert!((state.beta[d] - want_beta).abs() < 1e-12, "beta[{d}]");
++        }
++        drop(state);
++        reset();
++    }
++
++    #[test]
++    fn the_mixture_is_the_enumerated_parent_axis_replacement_sum() {
++        let mut pop = Population::new();
++        for (i, arms) in [0u8, 0, 5, 71, 0, 5, 30, 66].iter().enumerate() {
++            pop.insert(*arms, i as u64 + 1);
++        }
++        assert!(pop.supported());
++        assert_eq!((pop.live, pop.distinct, pop.top_multiplicity), (8, 5, 3));
++        let weights = [0.4, 0.05, 0.0, 0.25, 0.3];
++        pop.axis_weights = weights;
++        let coins = [0.6, 0.3, 0.1, 0.5, 0.5, 0.2, 0.8, 0.35, 0.65, 0.5, 0.25, 0.25];
++        pop.rebuild(&coins);
++        // Enumerate every parent, axis and replacement by hand.
++        let mut want = [0.0f64; COMBINATIONS];
++        for s in pop.entries() {
++            let parent = ArmSet::from_index(s.arms as usize).directions();
++            for a in 0..AXES {
++                let range = AXIS_START[a]..AXIS_START[a + 1];
++                let others: f64 = range.clone().filter(|&j| j != parent[a]).map(|j| coins[j]).sum();
++                for d in range.filter(|&j| j != parent[a]) {
++                    let mut child = parent;
++                    child[a] = d;
++                    want[ArmSet::from_directions(child).index()] +=
++                        weights[a] / 8.0 * coins[d] / others;
++                }
++            }
++        }
++        for i in 0..COMBINATIONS {
++            assert!((pop.mixture[i] - want[i]).abs() < 1e-12, "set {i}: {} against {}", pop.mixture[i], want[i]);
++            assert!(pop.mixture[i].is_finite() && pop.mixture[i] >= 0.0);
++        }
++        let total: f64 = pop.mixture.iter().sum();
++        assert!((total - 1.0).abs() < 1e-12, "mass {total}");
++        assert!((pop.mixture_total - 1.0).abs() < 1e-12);
++        // Every set with mass is one axis away from a live entry, and no
++        // set differs from every entry only on the axis with no weight.
++        for i in 0..COMBINATIONS {
++            if pop.mixture[i] > 0.0 {
++                let set = ArmSet::from_index(i);
++                assert!(
++                    pop.entries().any(|s| hamming(&set, &ArmSet::from_index(s.arms as usize)) == 1),
++                    "set {i} carries mass but is no neighbour"
++                );
++            }
++        }
++        let fresh_first_only = ArmSet::from_directions([0, 3, 6, 8, 11]);
++        assert_eq!(fresh_first_only.index(), 11);
++        assert_eq!(pop.mixture[11], 0.0, "reachable only over the axis with no weight");
++        // Two parents reach one child: three entries of set 0 over the
++        // pair-order axis and two entries of set 5 over the request axis.
++        let shared_child = ArmSet::from_directions([0, 3, 5, 8, 9]);
++        assert_eq!(shared_child.index(), 3);
++        let from_zero = 3.0 / 8.0 * weights[3] * coins[8] / coins[8];
++        let from_five = 2.0 / 8.0 * weights[4] * coins[9] / (coins[9] + coins[10]);
++        assert!((pop.mixture[3] - (from_zero + from_five)).abs() < 1e-12);
++        assert!((from_zero + from_five - 0.14375).abs() < 1e-12);
++        // A parent's axis without another direction of positive coin share
++        // contributes nothing on that axis; the mass that remains is
++        // what a draw samples, and every draw lands on a set with mass.
++        let mut no_placed = coins;
++        no_placed[1] = 0.0;
++        no_placed[2] = 0.0;
++        pop.rebuild(&no_placed);
++        let stock_parents = pop.entries().filter(|s| ArmSet::from_index(s.arms as usize).crash == CrashArm::Stock).count();
++        assert_eq!(stock_parents, 5);
++        let want_total = 1.0 - weights[0] * stock_parents as f64 / 8.0;
++        assert!((pop.mixture_total - want_total).abs() < 1e-12, "{} against {want_total}", pop.mixture_total);
++        for u in [0.0, 0.3, 0.5, 0.999_999] {
++            let i = invert(&pop.mixture, u);
++            assert!(pop.mixture[i] > 0.0, "u {u} landed on set {i} without mass");
++        }
++    }
++
++    #[test]
++    fn the_mutation_axis_weights_follow_the_normalized_leading_entropies() {
++        let mut state = CellLearner::new();
++        state.observations = WARMUP_OBSERVATIONS;
++        state.mass = 500.0;
++        state.reward_mass = 25.0;
++        for d in 0..DIRECTIONS {
++            state.alpha[d] = 10.0;
++            state.beta[d] = 190.0;
++        }
++        // Flat posteriors: the leading probabilities of an axis are equal,
++        // so a three-way axis has entropy ln 3 and a binary one ln 2.
++        let ln2 = 2f64.ln();
++        let ln3 = 3f64.ln();
++        let want = [ln3, ln2, ln2, ln2, ln3].map(|h| h / (2.0 * ln3 + 3.0 * ln2));
++        let got = state.mutation_axis_weights();
++        for a in 0..AXES {
++            assert!((got[a] - want[a]).abs() < 1e-12, "axis {a}: {} against {}", got[a], want[a]);
++        }
++        assert!((got.iter().sum::<f64>() - 1.0).abs() < 1e-12);
++        // A fully separated axis has one leading direction and no entropy.
++        let (lo, hi) = (AXIS_START[1], AXIS_START[1] + 1);
++        state.alpha[hi] = 1e6;
++        state.beta[lo] = 1e6;
++        let leading = state.leading_probability(1);
++        assert_eq!(leading[0], 0.0);
++        assert_eq!(leading[1], 1.0);
++        let got = state.mutation_axis_weights();
++        assert_eq!(got[1], 0.0);
++        let rest = 2.0 * ln3 + 2.0 * ln2;
++        for (a, h) in [(0, ln3), (2, ln2), (3, ln2), (4, ln3)] {
++            assert!((got[a] - h / rest).abs() < 1e-12, "axis {a}");
++        }
++        // Every axis separated: no entropy anywhere, so the axes are
++        // equally likely.
++        for a in 0..AXES {
++            let first = AXIS_START[a];
++            state.alpha[first + 1] = 1e6;
++            state.beta[first] = 1e6;
++            for d in first + 2..AXIS_START[a + 1] {
++                state.beta[d] = 1e6;
++            }
++        }
++        for a in 0..AXES {
++            let leading = state.leading_probability(a);
++            assert_eq!(leading[1], 1.0, "axis {a}");
++            assert_eq!(leading[0] + leading[2], 0.0, "axis {a}");
++        }
++        assert_eq!(state.mutation_axis_weights(), [1.0 / AXES as f64; AXES]);
++    }
++
++    #[test]
++    fn the_cache_follows_membership_changes_and_the_weights_the_warmup_boundary() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        let mut state = CellLearner::new();
++        let uniform = [1.0 / AXES as f64; AXES];
++        let a = ArmSet::default();
++        let b = ArmSet {
++            retarget: true,
++            ..ArmSet::default()
++        };
++        let c = ArmSet {
++            pair_order: true,
++            ..ArmSet::default()
++        };
++        assert_eq!(state.population.axis_weights, uniform);
++        assert_eq!(state.population.mixture_total, 0.0);
++        // Twenty-three rewards: the population is supported and its mixture
++        // stands on the uniform weights, since no boundary has passed.
++        for i in 0..23 {
++            state.credit(if i % 2 == 0 { &a } else { &b }, true);
++        }
++        assert!(state.population.supported());
++        assert_eq!(state.population.axis_weights, uniform);
++        assert_eq!(state.population.mixture, recomputed(&state.population, uniform));
++        assert!(state.population.mixture_total > 0.0);
++        // The twenty-fourth observation, with no reward and nothing to
++        // expire, refreshes the weights and rebuilds the mixture on them.
++        state.alpha[AXIS_START[1] + 1] = 200.0;
++        let before = state.population.mixture;
++        state.credit(&a, false);
++        assert_eq!(state.observations, WARMUP_OBSERVATIONS);
++        let refreshed = state.population.axis_weights;
++        assert_eq!(refreshed, state.mutation_axis_weights());
++        assert_ne!(refreshed, uniform);
++        assert_eq!(state.population.mixture, recomputed(&state.population, refreshed));
++        assert_ne!(state.population.mixture, before, "the weights changed and so did the mixture");
++        // Between boundaries the weights stay frozen although the
++        // posteriors move, and without a membership change so does the
++        // mixture.
++        state.alpha[AXIS_START[3] + 1] = 300.0;
++        let frozen = state.population.mixture;
++        for _ in 0..5 {
++            state.credit(&a, false);
++        }
++        assert_eq!(state.observations, 29);
++        assert_eq!(state.population.axis_weights, refreshed);
++        assert_ne!(state.mutation_axis_weights(), refreshed);
++        assert_eq!(state.population.mixture, frozen);
++        // A reward off the boundary rebuilds on the frozen weights.
++        state.credit(&c, true);
++        assert_eq!(state.observations, 30);
++        assert_eq!(state.population.axis_weights, refreshed);
++        assert_ne!(state.population.mixture, frozen);
++        assert_eq!(state.population.mixture, recomputed(&state.population, refreshed));
++        // The next boundary refreshes again.
++        while state.observations < 2 * WARMUP_OBSERVATIONS {
++            state.credit(&a, false);
++        }
++        let second = state.population.axis_weights;
++        assert_eq!(second, state.mutation_axis_weights());
++        assert_ne!(second, refreshed);
++        assert_eq!(state.population.mixture, recomputed(&state.population, second));
++        // An expiry on a zero reward rebuilds on the weights of the time.
++        while state.observations < 1 + POPULATION_AGE_LIMIT {
++            state.credit(&a, false);
++        }
++        assert_eq!(state.population.entries().next().unwrap().at, 1, "age 500 is live");
++        let held = state.population.mixture;
++        let weights = state.population.axis_weights;
++        state.credit(&a, false);
++        assert_eq!(state.observations, 502);
++        assert_eq!(state.population.entries().next().unwrap().at, 2);
++        assert_eq!(state.population.axis_weights, weights, "502 is no boundary");
++        assert_ne!(state.population.mixture, held);
++        assert_eq!(state.population.mixture, recomputed(&state.population, weights));
++        for m in state.population.mixture {
++            assert!(m.is_finite() && m >= 0.0);
++        }
++    }
++
++    #[test]
++    fn the_coupled_inversion_reads_both_distributions_in_one_order() {
++        for i in 0..COMBINATIONS {
++            assert_eq!(ArmSet::from_index(i).index(), i);
++        }
++        let mut p = [0.0f64; COMBINATIONS];
++        for (i, m) in p.iter_mut().enumerate() {
++            *m = (i + 1) as f64 / (COMBINATIONS * (COMBINATIONS + 1) / 2) as f64;
++        }
++        let q = p;
++        for u in [0.0, 0.1, 0.25, 0.5, 0.75, 0.999_999] {
++            assert_eq!(invert(&p, u), invert(&q, u), "u {u}");
++        }
++        assert_eq!(total_variation(&p, &q), 0.0);
++        assert_eq!(invert(&p, 0.0), 0);
++        assert_eq!(invert(&p, 0.999_999_999), COMBINATIONS - 1);
++        // A two-point distribution: the running sum passes one half at the
++        // second point, and a variate at exactly one half falls there.
++        let mut two = [0.0f64; COMBINATIONS];
++        two[3] = 0.5;
++        two[10] = 0.5;
++        assert_eq!(invert(&two, 0.4999), 3);
++        assert_eq!(invert(&two, 0.5), 10);
++        assert_eq!(invert(&two, 0.9999), 10);
++        assert_eq!(invert(&two, 1.0), 10, "past the sum, the last set with mass");
++        // Mass in a different scale inverts the same way.
++        let mut scaled = two;
++        scaled[3] = 2.0;
++        scaled[10] = 2.0;
++        assert_eq!(invert(&scaled, 0.4999), 3);
++        assert_eq!(invert(&scaled, 0.5), 10);
++        assert_eq!(invert(&[0.0; COMBINATIONS], 0.7), 0);
++        // Total variation and Hamming distance by hand.
++        let mut one_hot_3 = [0.0f64; COMBINATIONS];
++        one_hot_3[3] = 1.0;
++        let mut one_hot_10 = [0.0f64; COMBINATIONS];
++        one_hot_10[10] = 1.0;
++        assert_eq!(total_variation(&one_hot_3, &one_hot_10), 1.0);
++        assert_eq!(total_variation(&two, &one_hot_3), 0.5);
++        assert_eq!(hamming(&ArmSet::from_index(0), &ArmSet::from_index(COMBINATIONS - 1)), 5);
++        assert_eq!(
++            hamming(
++                &ArmSet::default(),
++                &ArmSet {
++                    retarget: true,
++                    ..ArmSet::default()
++                }
++            ),
++            1
++        );
++        assert_eq!(hamming(&ArmSet::default(), &ArmSet::default()), 0);
++        // Equal marginals give equal product and mixture comparisons only
++        // when the mixture equals the product; a fresh state's product
++        // inverts to the same set for the same variate twice.
++        let state = CellLearner::new();
++        for a in 0..AXES {
++            let m = state.marginal_distribution(a);
++            let width = AXIS_START[a + 1] - AXIS_START[a];
++            assert!((m[..width].iter().sum::<f64>() - 1.0).abs() < 1e-12);
++            assert_eq!(m[width..].iter().sum::<f64>(), 0.0);
++        }
++    }
++
++    /// Coin-drawn runs cycling six arm sets, rewarded for every learner
++    /// exactly when the set carries the pair-order direction: four of the
++    /// six sets are rewarded, so the population holds four distinct sets
++    /// and the pair-order axis is decided.
++    fn support_pair_order(cell: Cell) {
++        let id = unprobed_id();
++        for i in 0..120usize {
++            let arms = ArmSet::from_index([0, 3, 30, 71, 27, 39][i % 6]);
++            let reward = arms.pair_order;
++            observe(
++                cell.0,
++                cell,
++                id,
++                &coin(arms),
++                &Rewards {
++                    cycle_before_request: reward,
++                    ..rewarded(reward, reward)
++                },
++            );
++        }
++    }
++
++    #[test]
++    fn supported_draws_are_counted_against_the_product_of_the_marginals() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        util_stats::set_enabled(true);
++        reset();
++        let cell = (9, 9);
++        support_pair_order(cell);
++        let a = Learner::OvertakenGhost;
++        {
++            let state = CELLS[a.index()].get(&cell).unwrap();
++            let p = &state.population;
++            assert_eq!((p.live, p.distinct, p.top_multiplicity), (24, 4, 6));
++            assert!(p.supported());
++        }
++        let before = util_stats::snapshot();
++        let ids: Vec<i64> = (0..1_000_000i64).filter(|&id| learner(id) == Some(a)).take(300).collect();
++        let seed = 4u64;
++        let mut supported = 0u64;
++        let mut coins = 0u64;
++        let mut hamming_hist = [0u64; AXES + 1];
++        let mut tv_tenth = 0u64;
++        let mut tv_micro = 0u64;
++        let mut axis_micro = [0u64; AXES];
++        let choices: Vec<(i64, Choice)> =
++            ids.iter().map(|&id| (id, choose(id, seed, cell.0, cell))).collect();
++        let state = CELLS[a.index()].get(&cell).unwrap();
++        for &(id, choice) in &choices {
++            let Some(l) = choice.learner else {
++                assert!(!choice.population);
++                assert_eq!(choice.arms, ArmSet::coins(id));
++                coins += 1;
++                continue;
++            };
++            assert_eq!(l, a);
++            assert!(choice.population, "run {id}: a supported cell fell back");
++            let u = SmallRng::seed_from_u64(derive_seed(seed, id, DRAW_SALT)).random::<f64>();
++            let (arms, draw) = state.population_draw(u);
++            assert_eq!(arms, choice.arms, "run {id}: not the mixture's set");
++            supported += 1;
++            hamming_hist[draw.hamming] += 1;
++            tv_tenth += (draw.total_variation >= 0.1) as u64;
++            tv_micro += (draw.total_variation * 1_000_000.0).round() as u64;
++            for x in 0..AXES {
++                axis_micro[x] += (draw.axis_mass[x].clamp(0.0, 1.0) * 1_000_000.0).round() as u64;
++            }
++        }
++        drop(state);
++        assert!(supported >= 100, "only {supported} supported draws with {coins} coin runs");
++        let after = util_stats::snapshot();
++        let p = &after.arm_selector_population;
++        let p0 = &before.arm_selector_population;
++        let d = |x: u64, y: u64| x - y;
++        assert_eq!(d(p.supported_draws, p0.supported_draws), supported);
++        assert_eq!(d(p.unsupported_draws, p0.unsupported_draws), 0);
++        assert_eq!(d(p.supported_draws_by_learner[0], p0.supported_draws_by_learner[0]), supported);
++        assert_eq!(d(p.supported_draws_by_learner[1], p0.supported_draws_by_learner[1]), 0);
++        let changed: u64 = hamming_hist[1..].iter().sum();
++        assert!(changed > 0, "the mixture never departed from the product");
++        assert_eq!(d(p.changed_joint_draws, p0.changed_joint_draws), changed);
++        assert_eq!(d(p.changed_joint_draws_by_learner[0], p0.changed_joint_draws_by_learner[0]), changed);
++        for k in 0..=AXES {
++            assert_eq!(d(p.hamming_hist[k], p0.hamming_hist[k]), hamming_hist[k], "hamming {k}");
++        }
++        assert_eq!(d(p.tv_at_least_tenth, p0.tv_at_least_tenth), tv_tenth);
++        assert_eq!(d(p.tv_micro_sum, p0.tv_micro_sum), tv_micro);
++        let tv_bins: u64 = (0..10).map(|b| d(p.tv_hist[b], p0.tv_hist[b])).sum();
++        assert_eq!(tv_bins, supported);
++        for x in 0..AXES {
++            assert_eq!(d(p.mutation_axis_mass_micro[x], p0.mutation_axis_mass_micro[x]), axis_micro[x], "axis {x}");
++        }
++        let mass: u64 = axis_micro.iter().sum();
++        assert!(mass.abs_diff(supported * 1_000_000) <= supported * AXES as u64, "axis mass {mass}");
++        assert_eq!(d(p.live_entries_hist[24], p0.live_entries_hist[24]), supported);
++        assert_eq!(d(p.distinct_hist[4], p0.distinct_hist[4]), supported);
++        assert_eq!(d(p.supported_draws_with_four_distinct, p0.supported_draws_with_four_distinct), supported);
++        assert_eq!(d(p.supported_top_multiplicity_sum, p0.supported_top_multiplicity_sum), 6 * supported);
++        assert_eq!(d(p.supported_top_share_micro, p0.supported_top_share_micro), 250_000 * supported);
++        // One cell reached one, ten and a hundred supported draws.
++        assert_eq!(p.cell_draw_thresholds, vec![1, 10, 100, 1000, 10_000]);
++        assert_eq!(p.cells_reaching_supported_draws, vec![1, 1, 1, 0, 0]);
++        assert_eq!(p.cells_reaching_hundred_supported_draws_by_learner, vec![1, 0, 0]);
++        // The learner-run counters kept their meaning on the supported draws.
++        let ax = &after.arm_selector_axis;
++        let ax0 = &before.arm_selector_axis;
++        assert_eq!(d(ax.chosen_runs, ax0.chosen_runs), supported);
++        assert_eq!(d(ax.axis_draws, ax0.axis_draws), AXES as u64 * supported);
++        assert_eq!(d(ax.explore.draws, ax0.explore.draws), 300);
++        assert_eq!(d(ax.explore.coin_runs, ax0.explore.coin_runs), coins);
++        // A supported draw is a function of the cell's state and the seed.
++        for &(id, choice) in choices.iter().filter(|(_, c)| c.population).take(5) {
++            assert_eq!(choose(id, seed, cell.0, cell), choice, "run {id}: not reproducible");
++        }
++        // Outcomes of the runs a supported draw chose: three rewarded, two
++        // not, each counted once under A and under A's own-run reward.
++        let arms = ArmSet::from_index(3);
++        for r in [true, true, false, true, false] {
++            observe(cell.0, cell, assigned_id(a), &population_drawn(arms, a), &rewarded(r, true));
++        }
++        let done = util_stats::snapshot();
++        let q = &done.arm_selector_population;
++        assert_eq!(d(q.supported_completed_runs_by_learner[0], p0.supported_completed_runs_by_learner[0]), 5);
++        assert_eq!(d(q.supported_successful_runs_by_learner[0], p0.supported_successful_runs_by_learner[0]), 3);
++        assert_eq!(q.supported_completed_runs_by_learner[1], p0.supported_completed_runs_by_learner[1]);
++        assert_eq!(d(done.arm_selector_axis.reward_runs_treated, ax0.reward_runs_treated), 5);
++        assert_eq!(d(done.arm_selector_axis.reward_positive_treated, ax0.reward_positive_treated), 3);
++        // Clearing the learners clears the cell gauges and leaves the
++        // session counters; enabling a session clears the counters.
++        reset();
++        let cleared = util_stats::snapshot().arm_selector_population;
++        assert_eq!(cleared.cells_created, 0);
++        assert_eq!(cleared.storage_bytes, 0);
++        assert_eq!(cleared.cells_reaching_supported_draws, vec![0; 5]);
++        assert_eq!(cleared.cells_reaching_hundred_supported_draws_by_learner, vec![0; 3]);
++        assert_eq!(cleared.supported_draws, q.supported_draws);
++        util_stats::set_enabled(true);
++        let fresh = util_stats::snapshot().arm_selector_population;
++        util_stats::set_enabled(false);
++        assert_eq!(fresh.supported_draws, 0);
++        assert_eq!(fresh.changed_joint_draws, 0);
++        assert_eq!(fresh.supported_completed_runs_by_learner, vec![0; 3]);
++        assert_eq!(fresh.hamming_hist, vec![0; AXES + 1]);
++        assert_eq!(fresh.live_entries_hist, vec![0; POPULATION_CAPACITY + 1]);
++        assert_eq!(fresh.mutation_axis_mass_micro, vec![0; AXES]);
++    }
++
++    #[test]
++    fn an_unsupported_cell_takes_the_independent_pick_and_a_supported_one_the_mixture() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        util_stats::set_enabled(true);
++        reset();
++        let cell = (10, 10);
++        let a = Learner::OvertakenGhost;
++        separate_retarget(cell);
++        {
++            let state = CELLS[a.index()].get(&cell).unwrap();
++            let p = &state.population;
++            assert!(p.live >= POPULATION_SUPPORT_ENTRIES, "{} live", p.live);
++            assert_eq!(p.distinct, 1);
++            assert!(!p.supported());
++        }
++        let before = util_stats::snapshot().arm_selector_population;
++        let ids: Vec<i64> = (0..1_000_000i64).filter(|&id| learner(id) == Some(a)).take(200).collect();
++        let seed = 7u64;
++        let mut learner_runs = 0u64;
++        let choices: Vec<(i64, Choice)> =
++            ids.iter().map(|&id| (id, choose(id, seed, cell.0, cell))).collect();
++        let state = CELLS[a.index()].get(&cell).unwrap();
++        for &(id, choice) in &choices {
++            assert!(!choice.population, "run {id}: an unsupported cell drew from its population");
++            if choice.learner.is_none() {
++                assert_eq!(choice.arms, ArmSet::coins(id));
++                continue;
++            }
++            // The independent pick, one categorical draw per axis from the
++            // selector's generator at the run's seed.
++            let mut rng = SmallRng::seed_from_u64(derive_seed(seed, id, DRAW_SALT));
++            let mut directions = [0usize; AXES];
++            for (x, d) in directions.iter_mut().enumerate() {
++                *d = state.sample_axis_leading(x, &mut rng);
++            }
++            assert_eq!(choice.arms, ArmSet::from_directions(directions), "run {id}");
++            learner_runs += 1;
++        }
++        drop(state);
++        assert!(learner_runs > 150, "{learner_runs} learner runs");
++        let after = util_stats::snapshot().arm_selector_population;
++        assert_eq!(after.unsupported_draws - before.unsupported_draws, learner_runs);
++        assert_eq!(after.supported_draws, before.supported_draws);
++        assert_eq!(after.distinct_hist[1] - before.distinct_hist[1], learner_runs);
++        // A second distinct rewarded set supports the cell: the same runs
++        // now take the mixture, reproducibly, and the probe and coin runs
++        // are as before.
++        let id = unprobed_id();
++        for i in 0..8 {
++            let arms = ArmSet {
++                retarget: i % 2 == 1,
++                ..ArmSet::default()
++            };
++            observe(cell.0, cell, id, &coin(arms), &rewarded(true, true));
++        }
++        assert!(CELLS[a.index()].get(&cell).unwrap().population.supported());
++        let probe = id_where(run_cap::is_probe);
++        assert_eq!(choose(probe, seed, cell.0, cell), coin(ArmSet::coins(probe)));
++        let mut supported = 0u64;
++        let choices: Vec<(i64, Choice)> =
++            ids.iter().map(|&id| (id, choose(id, seed, cell.0, cell))).collect();
++        for &(id, choice) in &choices {
++            match choice.learner {
++                None => assert_eq!(choice.arms, ArmSet::coins(id)),
++                Some(_) => {
++                    assert!(choice.population);
++                    supported += 1;
++                }
++            }
++        }
++        assert!(supported > 0);
++        let last = util_stats::snapshot().arm_selector_population;
++        assert_eq!(last.supported_draws - after.supported_draws, supported);
++        for &(id, choice) in choices.iter().filter(|(_, c)| c.population).take(5) {
++            assert_eq!(choose(id, seed, cell.0, cell), choice, "run {id}: not reproducible");
++        }
++        util_stats::set_enabled(false);
++        reset();
++    }
++
++    #[test]
++    fn a_population_run_is_scored_by_its_own_reward_whatever_its_cell_does_later() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        util_stats::set_enabled(true);
++        reset();
++        let cell = (11, 11);
++        let a = Learner::OvertakenGhost;
++        let arms = ArmSet::from_index(3);
++        let choice = population_drawn(arms, a);
++        let before = util_stats::snapshot();
++        let completed = |s: &util_stats::UtilizationSnapshot| {
++            let p = &s.arm_selector_population;
++            (
++                p.supported_completed_runs_by_learner[0] - before.arm_selector_population.supported_completed_runs_by_learner[0],
++                p.supported_successful_runs_by_learner[0] - before.arm_selector_population.supported_successful_runs_by_learner[0],
++            )
++        };
++        // The marker alone routes the outcome; the cell need not hold a
++        // supported population, or exist.
++        observe(cell.0, cell, assigned_id(a), &choice, &rewarded(false, true));
++        assert_eq!(completed(&util_stats::snapshot()), (1, 0));
++        // A population of rewarded copies of the set does not lend the run
++        // its reward.
++        feed(cell, 10, &arms, true);
++        observe(cell.0, cell, assigned_id(a), &choice, &rewarded(false, false));
++        assert_eq!(completed(&util_stats::snapshot()), (2, 0));
++        observe(cell.0, cell, assigned_id(a), &choice, &rewarded(true, false));
++        assert_eq!(completed(&util_stats::snapshot()), (3, 1));
++        // The population expires between the draw and the completion; the
++        // run is still counted as a population run with its own reward.
++        feed(cell, (POPULATION_AGE_LIMIT + 1) as usize, &arms, false);
++        assert_eq!(CELLS[a.index()].get(&cell).unwrap().population.live, 0);
++        observe(cell.0, cell, assigned_id(a), &choice, &rewarded(true, true));
++        let after = util_stats::snapshot();
++        util_stats::set_enabled(false);
++        assert_eq!(completed(&after), (4, 2));
++        let p = &after.arm_selector_population;
++        let p0 = &before.arm_selector_population;
++        assert_eq!(p.supported_completed_runs_by_learner[1], p0.supported_completed_runs_by_learner[1]);
++        assert_eq!(p.supported_completed_runs_by_learner[2], p0.supported_completed_runs_by_learner[2]);
++        assert_eq!(after.arm_selector_axis.reward_runs_treated - before.arm_selector_axis.reward_runs_treated, 4);
++        assert_eq!(after.arm_selector_axis.reward_positive_treated - before.arm_selector_axis.reward_positive_treated, 2);
++        reset();
++    }
++
++    #[test]
++    fn populations_stay_with_their_cell_and_die_with_the_tables() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        util_stats::set_enabled(true);
++        reset();
++        let shared = cell(0, 5);
++        let own = cell(4, -1);
++        let arms = ArmSet::from_index(30);
++        let id = unprobed_id();
++        for i in 0..10 {
++            observe(
++                i % 2,
++                shared,
++                id,
++                &coin(arms),
++                &Rewards {
++                    cycle_before_request: true,
++                    ..rewarded(true, true)
++                },
++            );
++        }
++        for _ in 0..3 {
++            observe(4, own, id, &coin(arms), &rewarded(false, false));
++        }
++        for l in Learner::ALL {
++            let cells = &CELLS[l.index()];
++            assert_eq!(cells.len(), 2, "{l:?}");
++            assert_eq!(cells.get(&shared).unwrap().population.live, 10, "{l:?}: the shared cell");
++            assert_eq!(cells.get(&own).unwrap().population.live, 0, "{l:?}: the arm's own cell");
++            assert_eq!(cells.get(&own).unwrap().observations, 3);
++        }
++        let snapshot = util_stats::snapshot().arm_selector_population;
++        assert_eq!(snapshot.cells_created, 6);
++        assert_eq!(snapshot.layout_bytes, vec![cell_bytes() as u64, population_bytes() as u64]);
++        assert!(population_bytes() < cell_bytes());
++        assert_eq!(snapshot.storage_bytes, 6 * cell_bytes() as u64);
++        assert_eq!(snapshot.population_storage_bytes, 6 * population_bytes() as u64);
++        eprintln!("cell {} bytes, population {} bytes", cell_bytes(), population_bytes());
++        // The tables and their gauges go together; a new session starts
++        // its populations empty.
++        reset();
++        for l in Learner::ALL {
++            assert!(CELLS[l.index()].is_empty(), "{l:?}");
++        }
++        let cleared = util_stats::snapshot().arm_selector_population;
++        assert_eq!(cleared.cells_created, 0);
++        assert_eq!(cleared.storage_bytes, 0);
++        assert_eq!(cleared.population_storage_bytes, 0);
++        observe(0, shared, id, &coin(arms), &rewarded(true, true));
++        assert_eq!(CELLS[0].get(&shared).unwrap().population.live, 1);
++        assert_eq!(util_stats::snapshot().arm_selector_population.cells_created, 3);
++        util_stats::set_enabled(false);
++        reset();
++    }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..c621b86 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -6,6 +6,7 @@
+ //! probe is a single relaxed atomic load.
+ 
+ use crate::simulator::core::steer_terms::{Term, TERMS};
++use crate::simulator::arm_selector;
+ use crate::simulator::client_anchor;
+ use crate::simulator::run_variant;
+ use crate::simulator::fresh_first;
+@@ -335,6 +336,138 @@ static AX_POOLED: AxPooledCounters = AxPooledCounters {
+     draws: AtomicU64::new(0),
+     observations_by_learner: [const { AtomicU64::new(0) }; AX_LEARNERS],
+ };
++
++/// Cumulative supported draws at which a cell is counted once more in
++/// `cells_reaching_supported_draws`, one slot per threshold.
++const AX_POP_CELL_THRESHOLDS: [u64; 5] = [1, 10, 100, 1000, 10_000];
++/// Bins of the live-entry and distinct-set histograms: zero through the
++/// population's capacity.
++const AX_POP_LIVE_BINS: usize = arm_selector::POPULATION_CAPACITY + 1;
++/// Bins of the Hamming histogram: zero through every axis.
++const AX_POP_HAMMING_BINS: usize = run_variant::AXES + 1;
++/// Bins of the total-variation histogram, tenths of the unit interval.
++const AX_POP_TV_BINS: usize = 10;
++
++/// What a learner draw past warmup found in its cell's population before
++/// the run was chosen.
++#[derive(Clone, Copy, Debug)]
++pub struct PopulationCensus {
++    pub live: usize,
++    pub distinct: usize,
++    /// How many live entries carry the most repeated arm set.
++    pub top_multiplicity: usize,
++}
++
++/// What a supported population draw produced, read against the product of
++/// the marginal distributions inverted at the same unit variate.
++#[derive(Clone, Copy, Debug)]
++pub struct SupportedDraw {
++    /// Axes on which the drawn set differs from the comparison set.
++    pub hamming: usize,
++    /// Half the summed absolute difference between the population mixture
++    /// and the product of the marginals, over the 72 arm sets.
++    pub total_variation: f64,
++    /// The probability the mixture gave each axis of being the mutated one.
++    pub axis_mass: [f64; run_variant::AXES],
++}
++
++/// The arm selector's population draws: every learner draw past warmup,
++/// split by whether the cell's population was supported, with what the
++/// supported draws produced and what became of the runs they chose.
++struct AxPopulationCounters {
++    supported_draws: AtomicU64,
++    unsupported_draws: AtomicU64,
++    changed_joint_draws: AtomicU64,
++    supported_draws_by_learner: [AtomicU64; AX_LEARNERS],
++    changed_joint_draws_by_learner: [AtomicU64; AX_LEARNERS],
++    hamming_hist: [AtomicU64; AX_POP_HAMMING_BINS],
++    tv_at_least_tenth: AtomicU64,
++    tv_micro_sum: AtomicU64,
++    tv_hist: [AtomicU64; AX_POP_TV_BINS],
++    mutation_axis_mass_micro: [AtomicU64; run_variant::AXES],
++    live_entries_hist: [AtomicU64; AX_POP_LIVE_BINS],
++    distinct_hist: [AtomicU64; AX_POP_LIVE_BINS],
++    supported_draws_with_four_distinct: AtomicU64,
++    supported_top_multiplicity_sum: AtomicU64,
++    supported_top_share_micro: AtomicU64,
++    supported_completed_runs_by_learner: [AtomicU64; AX_LEARNERS],
++    supported_successful_runs_by_learner: [AtomicU64; AX_LEARNERS],
++    /// Gauges that follow the learner tables: cleared when the cells are.
++    cells_created: AtomicU64,
++    cells_reaching_supported_draws: [AtomicU64; AX_POP_CELL_THRESHOLDS.len()],
++    cells_reaching_hundred_supported_draws_by_learner: [AtomicU64; AX_LEARNERS],
++}
++
++impl AxPopulationCounters {
++    const fn new() -> Self {
++        Self {
++            supported_draws: AtomicU64::new(0),
++            unsupported_draws: AtomicU64::new(0),
++            changed_joint_draws: AtomicU64::new(0),
++            supported_draws_by_learner: [const { AtomicU64::new(0) }; AX_LEARNERS],
++            changed_joint_draws_by_learner: [const { AtomicU64::new(0) }; AX_LEARNERS],
++            hamming_hist: [const { AtomicU64::new(0) }; AX_POP_HAMMING_BINS],
++            tv_at_least_tenth: AtomicU64::new(0),
++            tv_micro_sum: AtomicU64::new(0),
++            tv_hist: [const { AtomicU64::new(0) }; AX_POP_TV_BINS],
++            mutation_axis_mass_micro: [const { AtomicU64::new(0) }; run_variant::AXES],
++            live_entries_hist: [const { AtomicU64::new(0) }; AX_POP_LIVE_BINS],
++            distinct_hist: [const { AtomicU64::new(0) }; AX_POP_LIVE_BINS],
++            supported_draws_with_four_distinct: AtomicU64::new(0),
++            supported_top_multiplicity_sum: AtomicU64::new(0),
++            supported_top_share_micro: AtomicU64::new(0),
++            supported_completed_runs_by_learner: [const { AtomicU64::new(0) }; AX_LEARNERS],
++            supported_successful_runs_by_learner: [const { AtomicU64::new(0) }; AX_LEARNERS],
++            cells_created: AtomicU64::new(0),
++            cells_reaching_supported_draws: [const { AtomicU64::new(0) };
++                AX_POP_CELL_THRESHOLDS.len()],
++            cells_reaching_hundred_supported_draws_by_learner: [const { AtomicU64::new(0) };
++                AX_LEARNERS],
++        }
++    }
++
++    fn reset_counters(&self) {
++        for c in [
++            &self.supported_draws,
++            &self.unsupported_draws,
++            &self.changed_joint_draws,
++            &self.tv_at_least_tenth,
++            &self.tv_micro_sum,
++            &self.supported_draws_with_four_distinct,
++            &self.supported_top_multiplicity_sum,
++            &self.supported_top_share_micro,
++        ] {
++            c.store(0, Ordering::Relaxed);
++        }
++        for c in self
++            .supported_draws_by_learner
++            .iter()
++            .chain(self.changed_joint_draws_by_learner.iter())
++            .chain(self.hamming_hist.iter())
++            .chain(self.tv_hist.iter())
++            .chain(self.mutation_axis_mass_micro.iter())
++            .chain(self.live_entries_hist.iter())
++            .chain(self.distinct_hist.iter())
++            .chain(self.supported_completed_runs_by_learner.iter())
++            .chain(self.supported_successful_runs_by_learner.iter())
++        {
++            c.store(0, Ordering::Relaxed);
++        }
++    }
++
++    fn reset_gauges(&self) {
++        self.cells_created.store(0, Ordering::Relaxed);
++        for c in self
++            .cells_reaching_supported_draws
++            .iter()
++            .chain(self.cells_reaching_hundred_supported_draws_by_learner.iter())
++        {
++            c.store(0, Ordering::Relaxed);
++        }
++    }
++}
++
++static AX_POPULATION: AxPopulationCounters = AxPopulationCounters::new();
+ static RP_PARENTS_ADMITTED: AtomicU64 = AtomicU64::new(0);
+ static RP_CHILDREN: AtomicU64 = AtomicU64::new(0);
+ static RP_CHILDREN_PREFIX: AtomicU64 = AtomicU64::new(0);
+@@ -826,6 +959,7 @@ pub fn set_enabled(on: bool) {
+         for c in ELIGIBLE_HIST.iter().chain(CANDIDATES_HIST.iter()) {
+             c.store(0, Ordering::Relaxed);
+         }
++        AX_POPULATION.reset_counters();
+     }
+     ENABLED.store(on, Ordering::Relaxed);
+ }
+@@ -2370,6 +2504,85 @@ pub fn record_arm_selector_cell_created(reward: Reward, pooled: bool) {
+     if pooled {
+         ax.pooled_cells.fetch_add(1, Ordering::Relaxed);
+     }
++    AX_POPULATION.cells_created.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A learner draw past warmup read its cell's population: `census` is
++/// what it held, and `supported` what the draw produced when the
++/// population was supported, or None when the draw fell back to the
++/// independent per-axis pick.
++pub fn record_arm_selector_population_draw(
++    learner: usize,
++    census: &PopulationCensus,
++    supported: Option<&SupportedDraw>,
++) {
++    if !enabled() {
++        return;
++    }
++    let p = &AX_POPULATION;
++    let learner = learner.min(AX_LEARNERS - 1);
++    p.live_entries_hist[census.live.min(AX_POP_LIVE_BINS - 1)].fetch_add(1, Ordering::Relaxed);
++    p.distinct_hist[census.distinct.min(AX_POP_LIVE_BINS - 1)].fetch_add(1, Ordering::Relaxed);
++    let Some(draw) = supported else {
++        p.unsupported_draws.fetch_add(1, Ordering::Relaxed);
++        return;
++    };
++    p.supported_draws.fetch_add(1, Ordering::Relaxed);
++    p.supported_draws_by_learner[learner].fetch_add(1, Ordering::Relaxed);
++    if draw.hamming > 0 {
++        p.changed_joint_draws.fetch_add(1, Ordering::Relaxed);
++        p.changed_joint_draws_by_learner[learner].fetch_add(1, Ordering::Relaxed);
++    }
++    p.hamming_hist[draw.hamming.min(AX_POP_HAMMING_BINS - 1)].fetch_add(1, Ordering::Relaxed);
++    let tv = draw.total_variation;
++    p.tv_micro_sum.fetch_add(micro(tv), Ordering::Relaxed);
++    if tv >= 0.1 {
++        p.tv_at_least_tenth.fetch_add(1, Ordering::Relaxed);
++    }
++    let bin = ((tv.clamp(0.0, 1.0) * AX_POP_TV_BINS as f64) as usize).min(AX_POP_TV_BINS - 1);
++    p.tv_hist[bin].fetch_add(1, Ordering::Relaxed);
++    for (a, m) in draw.axis_mass.iter().enumerate() {
++        p.mutation_axis_mass_micro[a].fetch_add(micro(*m), Ordering::Relaxed);
++    }
++    if census.distinct >= 4 {
++        p.supported_draws_with_four_distinct.fetch_add(1, Ordering::Relaxed);
++    }
++    p.supported_top_multiplicity_sum
++        .fetch_add(census.top_multiplicity as u64, Ordering::Relaxed);
++    if census.live > 0 {
++        let share = census.top_multiplicity as f64 / census.live as f64;
++        p.supported_top_share_micro.fetch_add(micro(share), Ordering::Relaxed);
++    }
++}
++
++/// A gauge, not a counter, so it reads with stats off: a cell of the
++/// learner at `learner` has now served `cumulative` supported population
++/// draws in all, and is counted once at each threshold it reaches.
++pub fn record_arm_selector_population_cell_draws(learner: usize, cumulative: u64) {
++    let p = &AX_POPULATION;
++    for (i, threshold) in AX_POP_CELL_THRESHOLDS.iter().enumerate() {
++        if cumulative == *threshold {
++            p.cells_reaching_supported_draws[i].fetch_add(1, Ordering::Relaxed);
++            if *threshold == 100 {
++                p.cells_reaching_hundred_supported_draws_by_learner[learner.min(AX_LEARNERS - 1)]
++                    .fetch_add(1, Ordering::Relaxed);
++            }
++        }
++    }
++}
++
++/// A run chosen by a supported population draw of the learner at
++/// `learner` completed, and its own reward read `positive`.
++pub fn record_arm_selector_population_outcome(learner: usize, positive: bool) {
++    if !enabled() {
++        return;
++    }
++    let p = &AX_POPULATION;
++    let learner = learner.min(AX_LEARNERS - 1);
++    p.supported_completed_runs_by_learner[learner].fetch_add(1, Ordering::Relaxed);
++    if positive {
++        p.supported_successful_runs_by_learner[learner].fetch_add(1, Ordering::Relaxed);
++    }
+ }
+ 
+ /// A run was credited into a cell shared across campaign arms by the
+@@ -2381,12 +2594,14 @@ pub fn record_arm_selector_pooled_credit(learner: usize) {
+     AX_POOLED.observations_by_learner[learner.min(AX_LEARNERS - 1)].fetch_add(1, Ordering::Relaxed);
+ }
+ 
+-/// The learners were cleared, so their gauges read empty.
++/// The learners were cleared, so their gauges read empty, the population
++/// gauges that follow the cells among them.
+ pub fn reset_arm_selector_gauges() {
+     for ax in &AX {
+         ax.cells.store(0, Ordering::Relaxed);
+         ax.pooled_cells.store(0, Ordering::Relaxed);
+     }
++    AX_POPULATION.reset_gauges();
+ }
+ 
+ /// A post-crash client request was issued under the rush direction.
+@@ -4915,6 +5130,102 @@ impl ArmSelectorAxisStats {
+     }
+ }
+ 
++/// The arm selector's population draws. Every learner draw past warmup is
++/// one of `supported_draws` or `unsupported_draws`; `changed_joint_draws`
++/// is the firing counter, the supported draws whose arm set differs from
++/// the product-of-marginals set inverted at the same unit variate, and
++/// `hamming_hist[k]` splits the supported draws by the number of axes the
++/// two sets differ on. `tv_at_least_tenth` counts supported draws whose
++/// total variation between the mixture and the product of the marginals
++/// reached one tenth; `tv_micro_sum` sums that distance in millionths and
++/// `tv_hist` bins it in tenths. `mutation_axis_mass_micro[a]` sums, in
++/// millionths, the probability the mixture gave axis `a` of being the
++/// mutated one, so divided by `supported_draws * 1_000_000` it is that
++/// axis's share of the mutation mass. `live_entries_hist` and
++/// `distinct_hist` bin every learner draw past warmup by the live entries
++/// and distinct sets its population held, capacity in the last bin;
++/// `supported_draws_with_four_distinct` counts the supported draws whose
++/// population held at least four distinct sets; the most repeated set's
++/// count and its share of the live entries, in millionths, are summed in
++/// `supported_top_multiplicity_sum` and `supported_top_share_micro`. The
++/// `by_learner` arrays follow `arm_selector::Learner::ALL`; the
++/// `supported_completed_runs` and `supported_successful_runs` pairs count
++/// the runs a supported draw chose and the ones whose own reward was
++/// true. `cells_created`, `cells_reaching_supported_draws` (one slot per
++/// value of `cell_draw_thresholds`, a cell counted once when its
++/// cumulative supported draws reach that value) and its per-learner
++/// hundred-draw split are gauges cleared with the learner tables.
++/// `layout_bytes` is the memory one cell occupies in all and, second, for
++/// its population; `storage_bytes` and `population_storage_bytes` are
++/// those sizes times `cells_created`.
++#[derive(Serialize, Debug, Clone)]
++pub struct ArmSelectorPopulationStats {
++    pub supported_draws: u64,
++    pub unsupported_draws: u64,
++    pub changed_joint_draws: u64,
++    pub supported_draws_by_learner: Vec<u64>,
++    pub changed_joint_draws_by_learner: Vec<u64>,
++    pub hamming_hist: Vec<u64>,
++    pub tv_at_least_tenth: u64,
++    pub tv_micro_sum: u64,
++    pub tv_hist: Vec<u64>,
++    pub mutation_axis_mass_micro: Vec<u64>,
++    pub live_entries_hist: Vec<u64>,
++    pub distinct_hist: Vec<u64>,
++    pub supported_draws_with_four_distinct: u64,
++    pub supported_top_multiplicity_sum: u64,
++    pub supported_top_share_micro: u64,
++    pub supported_completed_runs_by_learner: Vec<u64>,
++    pub supported_successful_runs_by_learner: Vec<u64>,
++    pub cells_created: u64,
++    pub cell_draw_thresholds: Vec<u64>,
++    pub cells_reaching_supported_draws: Vec<u64>,
++    pub cells_reaching_hundred_supported_draws_by_learner: Vec<u64>,
++    pub layout_bytes: Vec<u64>,
++    pub storage_bytes: u64,
++    pub population_storage_bytes: u64,
++}
++
++impl ArmSelectorPopulationStats {
++    fn read() -> Self {
++        let p = &AX_POPULATION;
++        let load = |a: &[AtomicU64]| a.iter().map(|n| n.load(Ordering::Relaxed)).collect();
++        let cells_created = p.cells_created.load(Ordering::Relaxed);
++        let cell_bytes = arm_selector::cell_bytes() as u64;
++        let population_bytes = arm_selector::population_bytes() as u64;
++        Self {
++            supported_draws: p.supported_draws.load(Ordering::Relaxed),
++            unsupported_draws: p.unsupported_draws.load(Ordering::Relaxed),
++            changed_joint_draws: p.changed_joint_draws.load(Ordering::Relaxed),
++            supported_draws_by_learner: load(&p.supported_draws_by_learner),
++            changed_joint_draws_by_learner: load(&p.changed_joint_draws_by_learner),
++            hamming_hist: load(&p.hamming_hist),
++            tv_at_least_tenth: p.tv_at_least_tenth.load(Ordering::Relaxed),
++            tv_micro_sum: p.tv_micro_sum.load(Ordering::Relaxed),
++            tv_hist: load(&p.tv_hist),
++            mutation_axis_mass_micro: load(&p.mutation_axis_mass_micro),
++            live_entries_hist: load(&p.live_entries_hist),
++            distinct_hist: load(&p.distinct_hist),
++            supported_draws_with_four_distinct: p
++                .supported_draws_with_four_distinct
++                .load(Ordering::Relaxed),
++            supported_top_multiplicity_sum: p.supported_top_multiplicity_sum.load(Ordering::Relaxed),
++            supported_top_share_micro: p.supported_top_share_micro.load(Ordering::Relaxed),
++            supported_completed_runs_by_learner: load(&p.supported_completed_runs_by_learner),
++            supported_successful_runs_by_learner: load(&p.supported_successful_runs_by_learner),
++            cells_created,
++            cell_draw_thresholds: AX_POP_CELL_THRESHOLDS.to_vec(),
++            cells_reaching_supported_draws: load(&p.cells_reaching_supported_draws),
++            cells_reaching_hundred_supported_draws_by_learner: load(
++                &p.cells_reaching_hundred_supported_draws_by_learner,
++            ),
++            layout_bytes: vec![cell_bytes, population_bytes],
++            storage_bytes: cells_created * cell_bytes,
++            population_storage_bytes: cells_created * population_bytes,
++        }
++    }
++}
++
+ /// The replay corpus of the grid arms. `parents_admitted` counts fresh runs
+ /// whose prefix entered a corpus; `children` the slots that ran a child,
+ /// split into `children_prefix` and `children_plan_only`; `slots_unfilled`
+@@ -5016,6 +5327,7 @@ pub struct UtilizationSnapshot {
+     pub pair_order: PairOrderStats,
+     pub client_anchor: ClientAnchorStats,
+     pub arm_selector_axis: ArmSelectorAxisStats,
++    pub arm_selector_population: ArmSelectorPopulationStats,
+     pub replay: ReplayStats,
+     pub timer_context: TimerContextStats,
+     pub timeline_keys: TimelineKeyStats,
+@@ -5214,6 +5526,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         pair_order: PairOrderStats::read(),
+         client_anchor: ClientAnchorStats::read(),
+         arm_selector_axis: ArmSelectorAxisStats::read(),
++        arm_selector_population: ArmSelectorPopulationStats::read(),
+         replay: ReplayStats::read(),
+         timer_context: TimerContextStats::read(),
+         timeline_keys: TimelineKeyStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..82c735c 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -14,7 +14,8 @@
+ use serde_json::{Map, Value};
+ use spur_core::simulator::util_stats::{
+     self, AcceptanceDistanceBucket, AcceptanceDistanceStats, ArmSelectorAxisStats, ArmSelectorExploreStats,
+-    ArmSelectorLearnerStats, ArmSelectorPooledStats, ArmSelectorRewardStats, ClientAnchorArmRuns,
++    ArmSelectorLearnerStats, ArmSelectorPooledStats, ArmSelectorPopulationStats,
++    ArmSelectorRewardStats, ClientAnchorArmRuns,
+     ClientAnchorAxisStats, ClientAnchorCensusStats, ClientAnchorDistance,
+     ClientAnchorFirstDelivery, ClientAnchorFirstEntry, ClientAnchorHalfStats,
+     ClientAnchorHeldHist,
+@@ -893,6 +894,118 @@ fn arm_selector_axis(m: &mut Marks) -> ArmSelectorAxisStats {
+     }
+ }
+ 
++fn arm_selector_population(m: &mut Marks) -> ArmSelectorPopulationStats {
++    ArmSelectorPopulationStats {
++        supported_draws: m.int(),
++        unsupported_draws: m.int(),
++        changed_joint_draws: m.int(),
++        supported_draws_by_learner: marks_vec(m, 3),
++        changed_joint_draws_by_learner: marks_vec(m, 3),
++        hamming_hist: marks_vec(m, 6),
++        tv_at_least_tenth: m.int(),
++        tv_micro_sum: m.int(),
++        tv_hist: marks_vec(m, 10),
++        mutation_axis_mass_micro: marks_vec(m, 5),
++        live_entries_hist: marks_vec(m, 25),
++        distinct_hist: marks_vec(m, 25),
++        supported_draws_with_four_distinct: m.int(),
++        supported_top_multiplicity_sum: m.int(),
++        supported_top_share_micro: m.int(),
++        supported_completed_runs_by_learner: marks_vec(m, 3),
++        supported_successful_runs_by_learner: marks_vec(m, 3),
++        cells_created: m.int(),
++        cell_draw_thresholds: marks_vec(m, 5),
++        cells_reaching_supported_draws: marks_vec(m, 5),
++        cells_reaching_hundred_supported_draws_by_learner: marks_vec(m, 3),
++        layout_bytes: marks_vec(m, 2),
++        storage_bytes: m.int(),
++        population_storage_bytes: m.int(),
++    }
++}
++
++fn arm_selector_population_leaves(
++    prefix: &str,
++    p: &ArmSelectorPopulationStats,
++) -> Vec<(String, Value)> {
++    let ArmSelectorPopulationStats {
++        supported_draws,
++        unsupported_draws,
++        changed_joint_draws,
++        supported_draws_by_learner,
++        changed_joint_draws_by_learner,
++        hamming_hist,
++        tv_at_least_tenth,
++        tv_micro_sum,
++        tv_hist,
++        mutation_axis_mass_micro,
++        live_entries_hist,
++        distinct_hist,
++        supported_draws_with_four_distinct,
++        supported_top_multiplicity_sum,
++        supported_top_share_micro,
++        supported_completed_runs_by_learner,
++        supported_successful_runs_by_learner,
++        cells_created,
++        cell_draw_thresholds,
++        cells_reaching_supported_draws,
++        cells_reaching_hundred_supported_draws_by_learner,
++        layout_bytes,
++        storage_bytes,
++        population_storage_bytes,
++    } = p;
++    let mut out = vec![
++        leaf(prefix, "supported_draws", *supported_draws),
++        leaf(prefix, "unsupported_draws", *unsupported_draws),
++        leaf(prefix, "changed_joint_draws", *changed_joint_draws),
++        leaf(prefix, "tv_at_least_tenth", *tv_at_least_tenth),
++        leaf(prefix, "tv_micro_sum", *tv_micro_sum),
++        leaf(
++            prefix,
++            "supported_draws_with_four_distinct",
++            *supported_draws_with_four_distinct,
++        ),
++        leaf(prefix, "supported_top_multiplicity_sum", *supported_top_multiplicity_sum),
++        leaf(prefix, "supported_top_share_micro", *supported_top_share_micro),
++        leaf(prefix, "cells_created", *cells_created),
++        leaf(prefix, "storage_bytes", *storage_bytes),
++        leaf(prefix, "population_storage_bytes", *population_storage_bytes),
++    ];
++    out.extend(vec_leaves(prefix, "supported_draws_by_learner", supported_draws_by_learner));
++    out.extend(vec_leaves(
++        prefix,
++        "changed_joint_draws_by_learner",
++        changed_joint_draws_by_learner,
++    ));
++    out.extend(vec_leaves(prefix, "hamming_hist", hamming_hist));
++    out.extend(vec_leaves(prefix, "tv_hist", tv_hist));
++    out.extend(vec_leaves(prefix, "mutation_axis_mass_micro", mutation_axis_mass_micro));
++    out.extend(vec_leaves(prefix, "live_entries_hist", live_entries_hist));
++    out.extend(vec_leaves(prefix, "distinct_hist", distinct_hist));
++    out.extend(vec_leaves(
++        prefix,
++        "supported_completed_runs_by_learner",
++        supported_completed_runs_by_learner,
++    ));
++    out.extend(vec_leaves(
++        prefix,
++        "supported_successful_runs_by_learner",
++        supported_successful_runs_by_learner,
++    ));
++    out.extend(vec_leaves(prefix, "cell_draw_thresholds", cell_draw_thresholds));
++    out.extend(vec_leaves(
++        prefix,
++        "cells_reaching_supported_draws",
++        cells_reaching_supported_draws,
++    ));
++    out.extend(vec_leaves(
++        prefix,
++        "cells_reaching_hundred_supported_draws_by_learner",
++        cells_reaching_hundred_supported_draws_by_learner,
++    ));
++    out.extend(vec_leaves(prefix, "layout_bytes", layout_bytes));
++    out
++}
++
+ fn vec_leaves(prefix: &str, name: &str, v: &[u64]) -> Vec<(String, Value)> {
+     let p = format!("{prefix}.{name}");
+     v.iter()
+@@ -1459,6 +1572,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         pair_order: _,
+         client_anchor: _,
+         arm_selector_axis: _,
++        arm_selector_population: _,
+         replay: _,
+         timer_context: _,
+         timeline_keys: _,
+@@ -1497,6 +1611,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "pair_order",
+         "client_anchor",
+         "arm_selector_axis",
++        "arm_selector_population",
+         "replay",
+         "timer_context",
+         "timeline_keys",
+@@ -1570,6 +1685,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.pair_order = pair_order(&mut m);
+     s.client_anchor = client_anchor(&mut m);
+     s.arm_selector_axis = arm_selector_axis(&mut m);
++    s.arm_selector_population = arm_selector_population(&mut m);
+     s.replay = replay(&mut m);
+     s.timer_context = timer_context(&mut m);
+     let mut expected = steer_authority_leaves("steer_authority", &s.steer_authority);
+@@ -1587,6 +1703,10 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(pair_order_leaves("pair_order", &s.pair_order));
+     expected.extend(client_anchor_leaves("client_anchor", &s.client_anchor));
+     expected.extend(arm_selector_axis_leaves("arm_selector_axis", &s.arm_selector_axis));
++    expected.extend(arm_selector_population_leaves(
++        "arm_selector_population",
++        &s.arm_selector_population,
++    ));
+     expected.extend(replay_leaves("replay", &s.replay));
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
+     (s, expected)
+@@ -1630,6 +1750,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "pair_order",
+         "client_anchor",
+         "arm_selector_axis",
++        "arm_selector_population",
+         "replay",
+         "timer_context",
+     ] {

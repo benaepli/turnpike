@@ -3657,11 +3657,19 @@ Iteration 72 selects provenance specialization net 3/rank 1; successful-vector m
 
 ## selector-successful-joint-arms-with-uncertain-axis-mutation
 
-- kind: enabling | category: scheduler | origin: proposer | status: ADMITTED
-  at iteration 73 (rank 1 net 3, incumbent tie winner; cross-binary
-  full-system exception per judge; normal horizon) | gain: 3 | cost: 0 | rank: 1
+- kind: enabling | category: scheduler | origin: proposer | status: CLOSED
+  at iteration 73 (one normal chunk; all support gates pass, grid depth8
+  per-run 0.924 against band [1.07,1.18], AOS 0.678, own-run reward rates
+  fall; patch kept under research/lite/patches/successful-vector) | gain: 3 | cost: 0 | rank: 1
 - Resample successful joint arm sets and mutate their uncertain axes.
 - Frozen specification, prediction, observables, falsifiers, entropy
   interpretation and judge review: `research/lite/plans/iteration-73-admitted.json`,
   hypothesis `selector-successful-joint-arms-with-uncertain-axis-mutation`;
   source map `tmp/loop/lite/successful-vector-implementation-map.md`.
+
+Iteration 73 closes successful-vector population mutation after one chunk.
+Direction review after iteration 73 retires the arm-selector posterior
+family (conditional, interaction-value, provenance, population) and the
+replay-prefix ranking family from active steering; iteration 74 proposals
+are directed at structurally different mechanisms. Awaiting-approval
+entries remain unchanged.
