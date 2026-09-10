@@ -1,0 +1,441 @@
+{
+ "iteration": 76,
+ "admittedAtIso": "2026-09-10T22:54:06.005096+00:00",
+ "mode": "autonomous",
+ "acceptedBaselineCommit": "d051f696d461afb7498d0746c02d8dfca83ebc02",
+ "superCommit": "2f03e26",
+ "lens": "ablation and salvage",
+ "focusDirective": "waste frontier: cap-length runs, stalls beyond the fixed one, dead or inert paths; expected rung stated with shared-state reasoning",
+ "admittedFrom": "tmp/loop/lite/judged-76.json (blind judge, rank 1 net 6)",
+ "hypothesis": {
+  "id": "quiet-gap-learned-stall-cap",
+  "parent": null,
+  "kind": "add",
+  "title": "Learned stall cap: end a run once it has gone a learned number of steps without any handler writing state or any client or fault row",
+  "description": "Add spur/spur-core/src/simulator/stall_cap.rs with the run_cap learner's shape verbatim (one histogram per configured step budget, checkpoints at 200/400/800 completed run-cap probes, cap = ceil(1.5 x the p99 cell's upper edge) clamped to the budget, identity below the floor, decay and reset beside run_cap's). The statistic it learns is a completed probe's longest quiet gap: the most steps the run ever went between two progress marks, counting the final segment up to plan completion. A progress mark is any of: (a) a non-timer history row (Invocation, Response, Crash, Recover, Partition, Heal); (b) a dispatched handler entry, delivery or timer firing, after which the node's state token differs from before (the same node_state_token compare the acted probes make at scheduler.rs:1450 and :1455, now taken at every entry regardless of emit_acted_fraction and returned on ScheduleResult::RecordExecuted and ::TimerFired as `acted: bool`); (c) a planned event released by the engine, a held client request issued, or a withheld crash landing. In exec_plan (path.rs) a per-run clock counts steps since the last mark and does not advance while a queued planned crash is withheld by a placement hold or a phase wait, while the client hold queue is non-empty, or while purgatory holds anything (each of those is a bounded, scheduler-owned future release). A run in the treated cell ends with a new RunOutcome::StallCapReached { cap, outstanding_events } (end_reason 'stall_cap_reached' in the runs table, RunEnd::StallCapReached folded into the termination and prefix_extension blocks) as soon as its clock exceeds the scope's stall cap. Treated cell: three of four salted phases of the run id under a salt of its own (share 0.75); run-cap probes and timer-context probes are exempt, so every learner feed (cap, placement, timer context, stall cap) sees exactly the runs it sees today. No config field. Tag STALL_CAP = 1 << 10 in run_variant.rs (bit 1024, the retired freshFirstDestCut row renamed stallCap in VARIANT_BITS). Counters: stall_cap.stops, stall_cap.treated_runs, stall_cap.untreated_runs, stall_cap.steps_saved_sum (effective cap minus stop step), stall_cap.suspended_steps_sum, stall_cap.marks.{rows,acted_deliveries,acted_timers,releases}, stall_cap.probes_keyed, stall_cap.probe_over_cap_completions (a completed probe whose longest gap exceeded the standing cap: the over-cap check run_cap already exports), stall_cap.scopes_learned and stall_cap.cap_max_scope gauges, termination.all.stall_cap_reached.",
+  "category": "scheduler",
+  "buildsOn": [
+   "learned-run-cap-probe-p99",
+   "acted probes (emit_acted_fraction)",
+   "client_anchor hold queue",
+   "fault_timing crash placement"
+  ],
+  "rationale": "Baseline chunk (606,180 runs): learned_cap_reached 295,328 (49%), iterations_exhausted 194,220 (32%), plan_complete 116,301 (19%); steps_used_sum 1.38B of which cap-reached runs at 3,275 steps hold about 967M (70%); prefix_extension.steps_released_sum 1.355B of 1.380B and tail_without_release_sum 12,053, so the unfinished runs are not idle, they release runnables every step. A 60 s campaign session on the merged tree (69,632 runs, output in this session's scratchpad) shows what those runnables are: in cap-reached grid runs the last progress mark (client/fault row, or a log line that only a state-changing handler prints) sits at median step 444 of 3,131 and 73-75% of the run's steps come after it (tail p25 2,526, p50 2,669, p75 2,771); in grid-short's exhausted runs the last mark is at median 281 of 1,500 (tail share 60%). One such run (31765): node 0 crashed at step 205 and restarted at 206, its Recovery drew only backup responses so it never left recovering status, the planned Read at node 0 then looped on a self-redirect every 4-5 steps from 207 to 3,129, and the later restarts of nodes 1 and 2 stalled the same way; 65 of 3,131 steps were timer fires, the rest client-loop deliveries whose handlers write nothing. 18,100 of 19,086 cap-reached runs end with at least one node still in recovery (avg 1.89), 13,337 with node 0. The deadlock exit (331 per chunk) cannot fire because the client loop and the timer loop keep the queues non-empty. The learner feed is tight: completed run-cap probes' longest quiet gap reads p90 177, p99 410, p999 545, max 562 (n 662), so the 6000-scope cap lands near 615 steps; with a cap of 813, 84-87% of cap-reached grid runs have a tail longer than the cap and the cut removes 50-52% of their steps (40% at a cap of 1,200), and 22% of grid-short's exhausted steps. Tail steps are cheap (cap-reached runs average 5.8-6.3 us per step against 12-13.6 us for completing runs, so the tail costs about 4 us per step), which prices the wall saving at about 36% of a cap-reached run's wall and 25% of the session's wall on treated runs. The closed recover-settle-learned-stop keyed on the last fault-crossing delivery, whose tail is heavy (settles learned at 935-2,411 steps) and saved a sixth of treated steps for +6.5% per second; this key is the run's own state changes, whose completed-probe gap is a quarter of that, and a run that is progressing is never cut.",
+  "generalityArgument": "The rule names no handler, message, role or timer label: a step is progress when it appends a client or fault row, when a dispatched handler wrote its node's state (the token compare every Spur role already carries), or when the plan released something. The cap is learned per session from that protocol's own completed probes with the constants run_cap already ships (quantile 0.99, headroom 1.5, floor 200), so a protocol whose runs legitimately go quiet for long stretches learns a long cap; the exported probe_over_cap_completions share says whether the cap cuts live runs (run_cap's twin reads 11 of 5,342 on the baseline). Every panel member's stuck states (a stale ballot that never wins, a candidate that never gets votes) are inert churn under the same definition.",
+  "prediction": {
+   "firingCounter": "stall_cap.stops",
+   "firingFloor": 120000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": -0.03,
+    "max": 0.03
+   },
+   "mechanism": "Treatment bit stallCap = 1 << 10, drawn by a salted phase of the run id (three phases of four treated, share 0.75 of non-probe runs; run-cap and timer-context probes exempt). The direct per-run effect is on length, not on events: a treated run keeps every step it would have taken up to the stall and loses only inert tail, so on the internal rung (depth>=8 per run, treated against co-bit-matched untreated) the honest prediction is preservation, [0.97, 1.03], while treated steps per run read [0.58, 0.78] on the long grid arms and [0.75, 0.95] on grid-short. The gain is delivered on the cross-binary rung: the whole candidate's depth>=8 events per explore-second against the baseline in [1.10, 1.28], carried by runs per second. Shared state: probes are exempt so the cap, placement and timer-context learners see the same samples; the arm-selector learners read rewards computed from events that all occur before a stall; a replay parent cut at its stall leaves a tape the child replays as a prefix either way, so the split by run id keeps tapes and plans consistent between parent and child. Judge note: the closed settle-stop cut a sixth of treated steps and read 1.065 against a predicted [1.10, 1.30]; this band's floor of 1.10 clears the 5% layout floor and the recorded 7-8% cross-session spread only at its low end, so a read in [1.05, 1.10) is unresolved, not confirmed. Both seeds of the fresh merged-tree cache (afeccdf6e8f7) are the paired baseline.",
+   "crossBinaryBand": {
+    "min": 1.1,
+    "max": 1.28
+   },
+   "independentObservable": "SEPARATION GATE, read on chunk 1 before any rung is credited (the read-only demonstration the closed stall-abort family demanded): export stall_cap.untreated_gap_over_cap.{depth6,depth8,depth10} and stall_cap.untreated_runs_at.{depth6,depth8,depth10} - on untreated non-probe runs (the stock quarter, which still ends at the learned cap) the longest quiet gap as this mechanism defines it, measured whether or not it exceeds the standing stall cap of the run's scope. The share of untreated depth>=8 runs whose longest gap exceeds the standing cap must be at or below 0.05, and at depth>=6 at or below 0.05; above 0.10 at either rung the cap is cutting the population that produces depth and the candidate closes on chunk 1 without a rung read. Also: stall_cap.probe_over_cap_completions at or below 2% of run_cap.probe_completions per chunk (the fresh merged baseline's run_cap twin reads 26/6010 = 0.43% on seed 1000 and 14/6179 = 0.23% on seed 1001); stall_cap.cap_max_scope between 450 and 900 steps for the 6000 budget; termination.all.learned_cap_reached falls by at least 55% against the fresh baseline chunk (316,337 on seed 1000, 323,598 on seed 1001) while termination.all.plan_complete stays within 3% of it (119,950 / 124,518); treated steps per run on the long grid arms in [0.58, 0.78] and on grid-short in [0.75, 0.95], read on chunk 1.",
+   "falsifier": "Separation gate failed on chunk 1 (untreated depth>=8 or depth>=6 gap-over-cap share above 0.10): close without a rung read. Per-run depth>=8 treated over untreated below 0.95, or pooled depth>=10 per run below 0.85 over two chunks (the cut removes events); or cross-binary depth>=8 per explore-second below 1.05 with stops at or above the floor (the saved steps do not reach the wall clock, as the closed stall-abort read 0.948 runs per second); or probe_over_cap_completions above 5% of probe completions (the cap cuts live runs). The per-run guard interval is read pooled over two chunks: with a 0.75 share the stock quarter carries about 2,500 depth-8 events per chunk, so a 0.95 floor resolves at two chunks.",
+   "costClause": "Cross-binary runs per explore-second at or above 1.10; per-step wall of the untreated quarter within 3% of the baseline (the acted compare at every handler entry must not cost measurable time).",
+   "judgeSeparationNote": "research/observations/OBSERVATIONS.md records stall-abort-quantile-off-identity-path (closed): acted-bit quiescence with a p90 threshold from completed runs lost depth monotonically (d>=8 0.784) and slowed the session (runs/s 0.948) in a pre-learned-cap regime with purgatory delays on; it retired the family until an observable is shown to separate never-gains-depth from quietly-working. The chunk-1 separation gate above is that demonstration, built into the candidate rather than run as a census; the candidate is admitted on the regime change (learned cap engaged, purgatory off, cap-reached runs measured as client redirect loops with no state change) and not on the old question being open."
+  },
+  "createdAtIso": "2026-09-10T22:22:00Z",
+  "notes": "Diagnosis, for the record and not for this candidate: the stalls are a liveness gap of the VR spec as written. A replica sends Recovery exactly once and never retries, and a primary that is restarted within a step or two of its crash (the Recover runnable is dispatched at priority ~1.0 in the next few steps) draws responses only from backups still in its own view, so the primary-of-latest-view response it needs is its own and never comes; NewEntry on a recovering node that believes itself primary answers with a redirect to itself, so ClientInterface loops. The paper leaves the retry unspecified (Ambiguous/implementation), it is a liveness not a safety matter, and bin/spur is protected, so the explorer can only stop paying for it. Not proposed: the placebo recovery-weight walk (recovery_weight_placebo.decisions 1.38B, flipped 0) and the quick-fire offer path (quick_fire_offers 1.16M, decisions 4,439, flipped 0) are dead but cost under 2% of wall, below the readable floor; the client hold's expiry-only release (908,006 expiry vs 139 dry) is by decision since the window was ablated as ornament at iteration 33 and the merged rule is the 64-step deferral.",
+  "expectedGain": 6,
+  "expectedCost": 0,
+  "redTeam": "Strongest case against: the loop already tried this signal and retired it. OBSERVATIONS.md (stall-abort-quantile-off-identity-path, closed) used acted-bit quiescence with a threshold learned from completed runs and read a monotone-in-depth loss (d>=4 0.889 down to d>=8 0.784) with runs/s 0.948, and concluded that long no-act stretches are the normal texture of a run walking toward a deep interleaving because fault-injected deliveries mostly do not change state; the fresh baseline still reads receiver_restarted acted 0.14% and sender_restarted 18.6%. The candidate calibrates on completed probes, the population the log named as the wrong one, and does not cite the precedent. Its evidence that the tails are inert is one 60 s campaign on a loaded host (n 662 probe gaps), not reproducible here. The whole gain is throughput on the cross-binary rung where the settle-stop precedent under-read its band (1.065 vs [1.10, 1.30]); tail steps priced at 4 us mean the wall saving is well under the step saving, and the old stall-abort's bookkeeping made its session slower. Ending 75% of cap-reached runs early also changes the replay corpus's parents' tapes only if the cut precedes the signal, which it should not, and starves nothing the learners read, as argued; that part holds.",
+  "scoreReason": "Mechanism-to-observable path is explicit and nearly every checkable claim reproduces on the merged tree: run_cap.rs constants (QUANTILE 0.99, HEADROOM 1.5, MIN_COMPLETED_SAMPLES 200, doubling checkpoints, over_cap counter, decay/reset), the node_state_token compare at scheduler.rs:1450 and :1455, RunOutcome variants and the deadlock exit in path.rs, the fresh baseline's termination split (50/31/19), steps_released_sum near steps_sum with a tiny tail_without_release, the 23-step/55% and sixth-of-steps/+6.5% precedents in the pool. What holds it at 6 rather than 7-9: the load-bearing premise (a quiet gap separates stuck from working) was refuted once in an earlier regime and the candidate's own evidence for it in this regime is a single unreproducible diagnostic. The rewrite adds a chunk-1 separation gate on the untreated quarter so the premise is read before the rung; with that it is falsifiable cheaply. Cost 0: no exec.rs, history.rs or linearizability-recording touch; a new termination outcome like the merged cap. Keeps bit 1<<10 (1024) as ranked first; PCT and the replay-arm candidate move.",
+  "verifiedClaims": [
+   {
+    "claim": "run_cap.rs: one histogram per scope, checkpoints 200/400/800, cap = ceil(1.5 x p99 upper edge), floor 200, decay and reset, over_cap counter",
+    "status": "verified"
+   },
+   {
+    "claim": "scheduler.rs:1450 and :1455 take node_state_token before/after for acted probes, gated on acted_fraction_enabled (config emit_acted_fraction true)",
+    "status": "verified"
+   },
+   {
+    "claim": "RunOutcome has Completed/Deadlock/IterationsExhausted/LearnedCapReached; deadlock exit requires empty queues and in_progress non-empty",
+    "status": "verified"
+   },
+   {
+    "claim": "Baseline chunk: learned_cap_reached 49%, iterations_exhausted 32%, plan_complete 19%",
+    "status": "verified (fresh merged baseline: 316,337 / 196,154 / 119,950 of 632,580 = 50/31/19%)"
+   },
+   {
+    "claim": "cap-reached runs hold about 70% of steps",
+    "status": "verified (316,337 x 3383 = 1.07B of 1.469B = 73%)"
+   },
+   {
+    "claim": "prefix_extension steps_released_sum ~ steps_sum, tail_without_release_sum small",
+    "status": "verified (1,455,286,878 of 1,468,752,503; 6,504)"
+   },
+   {
+    "claim": "run_cap over-cap twin reads 11 of 5,342 (0.2%)",
+    "status": "stale: fresh baseline reads 26/6010 (0.43%) and 14/6179 (0.23%)"
+   },
+   {
+    "claim": "recovery_weight_placebo.flipped 0; quick_fire decisions ~4.4k of ~1.2M offers, flipped 0",
+    "status": "verified (0; 5,022 of 1,306,734; 0)"
+   },
+   {
+    "claim": "client hold released by expiry vs dry queue (908,006 vs 139)",
+    "status": "verified in kind (1,012,664 vs 55)"
+   },
+   {
+    "claim": "a 23-step hold cost 55% of depth 8; settle-stop saved a sixth of treated steps for +6.5%/s",
+    "status": "verified (pool: iteration 32; recover-settle-learned-stop treated steps 0.836, cross-binary 1.065)"
+   },
+   {
+    "claim": "60 s session: last mark at median step 444 of 3,131, 73-75% of steps after it; probe longest-gap p99 410; tail steps ~4 us",
+    "status": "uncheckable (proposer scratch, loaded host)"
+   },
+   {
+    "claim": "no prior stall/quiet-gap cap exists in the pool or logs",
+    "status": "false by omission: OBSERVATIONS.md stall-abort-quantile-off-identity-path (closed, family retired) used the same acted-bit signal"
+   },
+   {
+    "claim": "bit 1<<10 free",
+    "status": "verified (no reader in spur-core; decide.ts row freshFirstDestCut retired)"
+   }
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "stall_cap.stops",
+   "firingFloor": 120000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": -0.03,
+    "max": 0.03
+   },
+   "mechanism": "Treatment bit stallCap = 1 << 10, drawn by a salted phase of the run id (three phases of four treated, share 0.75 of non-probe runs; run-cap and timer-context probes exempt). The direct per-run effect is on length, not on events: a treated run keeps every step it would have taken up to the stall and loses only inert tail, so on the internal rung (depth>=8 per run, treated against co-bit-matched untreated) the honest prediction is preservation, [0.97, 1.03], while treated steps per run read [0.58, 0.78] on the long grid arms and [0.75, 0.95] on grid-short. The gain is delivered on the cross-binary rung: the whole candidate's depth>=8 events per explore-second against the baseline in [1.10, 1.28], carried by runs per second. Shared state: probes are exempt so the cap, placement and timer-context learners see the same samples; the arm-selector learners read rewards computed from events that all occur before a stall; a replay parent cut at its stall leaves a tape the child replays as a prefix either way, so the split by run id keeps tapes and plans consistent between parent and child.",
+   "crossBinaryBand": {
+    "min": 1.1,
+    "max": 1.28
+   },
+   "independentObservable": "stall_cap.probe_over_cap_completions at or below 2% of run_cap.probe_completions per chunk (the baseline's run_cap twin reads 0.2%); stall_cap.cap_max_scope between 450 and 900 steps for the 6000 budget; termination.all.learned_cap_reached falls by at least 55% against the baseline chunk while termination.all.plan_complete stays within 3% of it.",
+   "falsifier": "Per-run depth>=8 treated over untreated below 0.95, or pooled depth>=10 per run below 0.85 over two chunks (the cut removes events); or cross-binary depth>=8 per explore-second below 1.05 with stops at or above the floor (the saved steps do not reach the wall clock); or probe_over_cap_completions above 5% of probe completions (the cap cuts live runs).",
+   "costClause": "Cross-binary runs per explore-second at or above 1.10; per-step wall of the untreated quarter within 3% of the baseline (the acted compare at every handler entry must not cost measurable time)."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "rankedQueue": [
+  {
+   "id": "quiet-gap-learned-stall-cap",
+   "net": 6,
+   "rank": 1
+  },
+  {
+   "id": "replay-parent-served-by-child-arm-set",
+   "net": 5,
+   "rank": 2
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "net": 4,
+   "rank": 3
+  },
+  {
+   "id": "stall-release-of-client-blocked-plan-events",
+   "net": 4,
+   "rank": 4
+  },
+  {
+   "id": "run-cap-headroom-one-dose",
+   "net": 4,
+   "rank": 5
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "net": 3,
+   "rank": 6
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "net": 2,
+   "rank": 7
+  }
+ ],
+ "rejected": [],
+ "reviewSummary": "Seven candidates, none rejected, all verified against the merged tree (spur d051f69) and the fresh baseline cache afeccdf6e8f7. The stall cap ranks first at 6 (cost 0) after a load-bearing omission was found: OBSERVATIONS.md records the stall-abort family closed and retired on the same acted-bit progress signal with a monotone-in-depth loss and slower sessions; the regime has changed enough that the question is open, and a chunk-1 separation gate (untreated depth>=8 and depth>=6 runs' longest quiet gap against the standing cap, at most 5%) is written into its prediction so the premise is read before the rung. Its cross-binary floor 1.10 clears the layout floor and the 7-8% spread only at its low end. Replay-arm serving carries at 5 with stale fidelity references corrected to the merged baseline (0.478/0.453; the description's 0.39 remains false) and a power note; counter folding carries at 6-2 with every identity reproduced on the fresh baseline; the stall-release child at 4 stands alone only by carrying its parent, and its one-sided internal contrast floor is raised to 1.02; the headroom dose at 4 rides the stall cap's tail blind, with its band floor raised to 1.08 so it clears the spread, and must run in a separate session from the stall cap. PCT carries at 3 and the cover-edge reversal at 2, both unchanged. Bits: stall cap keeps 1<<10, stall release 1<<12, headroom 1<<16; PCT moves to 1<<11 / 1<<17; replay-arm moves to 1<<22 / 1<<23 (all verified unread in spur-core; decide.ts now derives its off-roster selftest bit, so 4096 is usable). Ties at net 4 are ordered counters, stall-release, headroom by independence of mechanism. Checkable claims found false: the replay candidate's 0.39 fidelity base and its GridArm::pick name; the stall cap's implicit claim that no prior stall mechanism exists in the record.",
+ "otherCandidates": [
+  {
+   "id": "replay-parent-served-by-child-arm-set",
+   "expectedGain": 5,
+   "expectedCost": 0,
+   "scoreReason": "Carried from iteration 75 at gain 5; nothing in the merge changes the miswiring it fixes, and choose() is verified to record util_stats draws so a side-effect-free peek is genuinely needed. Seed<C> carries cfg and config_index but not arms, as the candidate says. It is an enabling fix of a recorded defect, not a member of the retired replay-prefix ranking or arm-selector posterior families. Held at 5 rather than higher because the expected per-run effect sits at the resolution floor on a thin cell. Rewritten: stale fidelity references and the bit assignment; the description's 61%/38,161-of-98,033 figure remains false on every available baseline (0.45-0.52).",
+   "redTeam": "Strongest case against: the effect is small and thin. Iteration 28 read 1.080 on depth 8 at fidelity 1.0 stratified; lifting a quarter of prefix slots from 0.45-0.48 to about 0.7-0.8 buys 2-3 fidelity tenths, so the per-run lift on that quarter is 2-4%, at or below the harness's 2% resolution floor, on 4.5% of runs (about 550 depth-8 events per chunk): the frozen band's low end is unreadable before four chunks. The matched cell inherits the parents' arm mix by construction (a slot is served the parent that agrees with its own draw), which is a milder form of the balance fault that closed inherit-bits on cost. Exact matches among 64 ring parents over 72 arm sets may be rare for cells that are still exploring; the nearest-parent fallback then delivers partial fidelity and the mechanism degrades toward stock. The description still carries the 0.39 fidelity base the previous judge found false; on the merged tree the stock reference has moved again (0.45-0.48).",
+   "predictionRewrite": {
+    "firingCounter": "replay.arm_match.exact",
+    "firingFloor": 12000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.03,
+     "max": 0.12
+    },
+    "mechanism": "Treatment bit replayArmMatched = 1<<12 on a quarter of prefix slots drawn by a salted phase of the run id; inverse bit replayArmMismatched = 1<<10 on another quarter; the stock half of prefix slots is the matched control (co-bits replaySlot and replayPrefix). Per-run depth>=8 ratio of the matched quarter to the stock prefix half, probe-free and matched on co-bits, in [1.03, 1.12] (base fidelity on the merged tree's fresh baseline (afeccdf6e8f7) is 0.478 (seed 1000) and 0.453 (seed 1001), so the lift available is about 0.25-0.30 fidelity units on the quarter); the mismatched quarter in [0.86, 0.99]. Tape interaction: the bits change which parent tape a slot receives and never how a run consumes or records one; parents are admitted only from fresh runs; the only shared coupling is ring consumption order. The child's would-be Choice depends on the parent's config cell, so the matched cell's arm mix may drift toward the parents' mix: expected balance fault on the arm co-bits, read through co-bit matching, and checked by the steps-per-child clause. Firing: replay.arm_match.exact >= 12,000 per chunk and replay.arm_match.children on the matched cell >= 20,000. JUDGE BIT ASSIGNMENT: bits 1<<10 and 1<<12 go to the higher-ranked stall-cap family; this candidate takes replayArmMatched = 1<<22 (4194304, retired staleFirstPair row) and replayArmMismatched = 1<<23 (8388608, retired crashPhaseOnLanding row), both unread in spur-core, renamed in VARIANT_BITS in the same commit.",
+    "independentObservable": "Prefix fidelity per cell (replay.arm_match.faithful / children): matched cell >= 0.70 against the stock cell's 0.43-0.50 (merged baseline 55,044/115,217 = 0.478 and 53,024/117,005 = 0.453); mismatched cell <= 0.30. Exact-match children fidelity >= 0.95 (the bits-equal control read 0.987 at iteration 28). Steps per child within 2 percent across the three cells. Power note: the matched quarter is about 29k runs per chunk (4.5% of runs) carrying about 550 depth-8 events, so the [1.03, 1.12] interval cannot resolve at its low end before four chunks; the fidelity clauses are the chunk-1 read.",
+    "falsifier": "Refuted if the matched-cell depth>=8 per-run interval lies entirely below 1.03, or if matched-cell fidelity is below 0.62 with the firing floor met, or if exact-match children read fidelity below 0.90 (the match is not pinning the prefix: shared learned state diverges, file that finding), or if mismatched-cell fidelity is not below the stock cell's. Matched-cell fidelity above 0.75 with depth>=8 flat is recorded as a finding against the corpus's cut, not against the fix.",
+    "costClause": "Cross-binary throughput >= 0.98 of the paired baseline (serving costs at most 64 peeks per prefix slot); matched-cell steps per run <= 1.02x the stock cell."
+   },
+   "verifiedClaims": [
+    {
+     "claim": "replay.prefix_faithful 38,161 of children_prefix 98,033 (61% unfaithful)",
+     "status": "false (fresh merged baseline: 55,044/115,217 = 0.478 and 53,024/117,005 = 0.453; previous judge: 0.518/0.504 on the pre-merge cache)"
+    },
+    {
+     "claim": "arm_selector::choose(run_id, schedule_seed, arm_index, cell) -> Choice { arms, learner } records draws (needs a peek)",
+     "status": "verified (record_arm_selector_draw / record_arm_selector_learner_run inside choose)"
+    },
+    {
+     "claim": "replay_corpus::Seed has tape, workload_seed, cfg, config_index, cut_step and no arms",
+     "status": "verified"
+    },
+    {
+     "claim": "CAPACITY 64, CHILDREN_PER_PARENT 8, salted slot/prefix splits",
+     "status": "verified"
+    },
+    {
+     "claim": "GridArm::pick exists",
+     "status": "false in name: the functions are GridArm::assign / fresh / run (campaign.rs:391-533); the sites are otherwise as described"
+    },
+    {
+     "claim": "iteration 28: fidelity 0.32 own-id, 0.99 bits-matched; inherit-bits closed on cost (0.944 per second at 0.977 throughput)",
+     "status": "verified (pool replay-prefix-inherit-parent-bits)"
+    },
+    {
+     "claim": "bits 1<<12 / 1<<10 free",
+     "status": "verified free, but reassigned to the stall-cap family; this candidate takes 1<<22 / 1<<23 (both unread in spur-core)"
+    }
+   ]
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "expectedGain": 6,
+   "expectedCost": 2,
+   "scoreReason": "Carried from iteration 75 at gain 6, cost 2. Every checkable identity reproduces on the merged tree: 218 fetch_add sites on static AtomicU64s in util_stats.rs, the five per-step counters equal each other exactly, ranking_pass_skipped equals contested_decisions, and no_weighted_predicate equals steps_used_sum minus no_schedule_attempt. The prediction is byte-identical schedules with a counter-identity falsifier, so it is exactly reproducible seed for seed. Cost 2 stands: it rewrites the event-accounting layer that measurement validity rests on. Stale baseline figures updated.",
+   "redTeam": "Strongest case against: the hot spot is unprofiled. Relaxed fetch_add on x86 is a locked add; if the cache lines are not actually bouncing (each thread's run is long, and the hardware may keep lines in a shared-modified state cheaply), ten atomics cost 50-100 ns per step against a 6.5 us step (1.47B steps over 300 s x 32 threads), which is 1-2%, inside the 5% layout floor, and the candidate closes as unseparable. The 292 consecutive statics are false-shared across a few lines, which argues the other way, but nothing measured says so. The fold must also cover error and early-return paths in run_single_simulation or counts are lost, and the utilization dump is the instrument every other candidate's firing floor is read from, which is why it carries cost 2.",
+   "predictionRewrite": {
+    "firingCounter": "steer_reach.no_weighted_predicate",
+    "firingFloor": 1000000000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.05,
+     "max": 0.15
+    },
+    "mechanism": "No treatment bit: the contention removed is shared by every thread, so the candidate is graded on the cross-binary rung only. Per-run depth>=8 must read identically 1.00 (byte-identical schedules); the band is on depth>=8 events per explore-second over the rate stratum (grid arms, AOS excluded), expected in [1.05, 1.15], carried entirely by runs per second. Tape interaction: none. Firing: steer_reach.no_weighted_predicate >= 1e9 per chunk and equal to termination.all.steps_used_sum minus steer_reach.no_schedule_attempt (the merged tree's fresh baseline reads steer_reach.no_weighted_predicate 1,468,752,468 against steps_used_sum 1,468,752,503 with 35 no-schedule steps on seed 1000), which is the identity the fold must preserve.",
+    "independentObservable": "On a deterministic-slice session every folded counter total equals the baseline binary's on the same seed and run count within 0.1 percent (steps, decisions, biased steps, deliveries, timer fires, crash-anchor offers); the campaign's per-arm run counts move only with the wall clock; grid plan_complete share and steps per run within 0.5 percent of baseline. Named baseline values to reproduce on the golden slice: the five per-step counters equal each other exactly, ranking_pass_skipped equals multiplier_authority.contested_decisions exactly. On the merged baseline the five per-step counters (steer_reach.no_weighted_predicate, steer_empty_slice.candidate_mask_skipped, steer_empty_slice.queue_audit_skipped, multiplier_authority.decisions, recovery_weight_placebo.decisions) all read 1,468,752,468 and ranking_pass_skipped equals contested_decisions at 594,420,962; these are the identities the fold reproduces.",
+    "falsifier": "Refuted if cross-binary depth>=8 events per explore-second or runs per explore-second read below 1.05 of the paired baseline (inside the 5 percent layout floor: no separable gain, close), or if any folded counter total drifts from the baseline by more than 0.1 percent on the deterministic slice (counts lost, including runs that error before the fold), or if per-run depth>=8 reads outside [0.99, 1.01] or any shared run id differs in steps_used or end_reason (a schedule moved, which this change must not do).",
+    "costClause": "Cross-binary throughput >= 1.05 of the paired baseline (this is the gain, not a cost); memory per run within 1 KB of baseline."
+   },
+   "verifiedClaims": [
+    {
+     "claim": "util_stats.rs counters are static AtomicU64 incremented with fetch_add from the hot path",
+     "status": "verified (292 AtomicU64 statics, 218 fetch_add sites, Ordering::Relaxed)"
+    },
+    {
+     "claim": "five per-step counters read equal (one per step)",
+     "status": "verified (1,468,752,468 each on the fresh baseline)"
+    },
+    {
+     "claim": "ranking_pass_skipped equals multiplier_authority.contested_decisions",
+     "status": "verified (594,420,962)"
+    },
+    {
+     "claim": "no_weighted_predicate = steps_used_sum - no_schedule_attempt",
+     "status": "verified (1,468,752,503 - 35)"
+    },
+    {
+     "claim": "timer_context.biased_steps ~1.2e9, timer_steer.evaluated ~9e8, crash_anchor eligible/offered, delivery_effects.all.deliveries exist",
+     "status": "verified (1.37e9, 1.03e9, 202M/145M, 395M)"
+    },
+    {
+     "claim": "contention costs 3-12% of thread time",
+     "status": "uncheckable (unprofiled)"
+    }
+   ]
+  },
+  {
+   "id": "stall-release-of-client-blocked-plan-events",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "A child of the stall cap: plausible story, mechanism verified in the engine (in_progress map, mark_event_completed idempotent for release purposes, outstanding_count), thin evidence on the fault-side conversion that is its whole exploration content. Its late_responses counter is the one observable that reads the family's premise directly and is worth having. Prediction rewritten: internal band floor raised to 1.02, the falsifier restated so the one-sided contrast cannot be read as confirmation. Keeps bit 1<<12 (4096) nested in the parent's 1<<10; decide.ts now computes its off-roster selftest bit dynamically, so the old fixture concern on 4096 is gone. Cost 0: no history or recording touch; a pending invocation without a response is what Porcupine already models.",
+   "redTeam": "Strongest case against: it is a completion device dressed as an exploration device. The internal contrast is one-sided by construction (release runs contain the cut runs' event prefixes), so 'release >= cut' carries no information and the original 1.01 floor sat under the 2% resolution floor. The exploration claim rests on fault pairs being blocked behind stuck client operations at density 0.3; the merged exemption already removed edges into restarts, so what remains is edges into crashes, and the candidate's 10,000-per-chunk floor is a guess with no census. Released work issues into a system with a node stuck in recovery forever; a released crash of another node leaves no quorum and the run stalls again longer, which is why plan completion may not follow. Settling an in-flight operation that later responds is harmless to the engine (mark_event_completed re-notifies but only Pending children move) but its late_responses clause is the only thing separating stuck from slow.",
+   "predictionRewrite": {
+    "firingCounter": "stall_release.releases",
+    "firingFloor": 60000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.02,
+     "max": 0.12
+    },
+    "mechanism": "Treatment bit stallRelease = 1 << 12 drawn under its own salt over the stall cap's treated runs (a nested cell with its own bit; share 0.375 of non-probe runs; probes exempt). Internal rung: the release cell against the cut cell (co-bit matched, so both carry stallCap): depth>=8 per run in [1.02, 1.12] (judge: the release cell's runs carry the cut cell's prefixes and more, so the ratio is at or above 1.00 by construction; a read inside [1.00, 1.02) is the harness's resolution floor and is a null, not a confirmation), because the cut cell can produce no further event after its stall while the release cell restarts nodes on quiet systems in the runs whose blocked successors are fault pairs; steps per run release over cut in [1.05, 1.30]; plan_complete share on the release cell at or above 0.40 against at most 0.25 on the cut cell. The effect is direct per run and not delivered through shared learners, so the internal rung is where it reads; cross-binary, the whole candidate (both cells) reads depth>=8 per explore-second in [1.08, 1.25], slightly under the parent alone since released runs are longer.",
+    "crossBinaryBand": {
+     "min": 1.08,
+     "max": 1.25
+    },
+    "independentObservable": "stall_release.dependents_released.fault at or above 10,000 per chunk; stall_release.late_responses at or below 3% of stall_release.ops_settled (a settled operation was truly stuck); ClientInterface invocations per run on the release cell at least 1.5 higher than on the cut cell (read from the executions table).",
+    "falsifier": "Fault dependents released below 10,000 per chunk (inapplicable: nothing to convert, close as a completion device with the counters kept); or late_responses above 10% of settled operations (the stall clock fires on slow runs, not stuck ones - this also reads against the parent's premise and is filed on both); or plan_complete share on the release cell below 0.30; or the release-over-cut depth>=8 interval entirely below 1.02 after two chunks (the released work produces no events on the rung: null). A read below 0.98 is an implementation fault, not a refutation, since the release cell cannot lose events the cut cell keeps.",
+    "costClause": "Cross-binary runs per explore-second at or above 1.06 for the whole candidate.",
+    "judgeStandaloneNote": "Stands alone only in the sense its notes state: built without the parent it carries the parent's stall detection and cut cell as its own terminal. It is one mechanism family with the stall cap and inherits the chunk-1 separation gate written into the parent's prediction; if the parent's gate fails, this closes with it."
+   },
+   "verifiedClaims": [
+    {
+     "claim": "path.rs keeps in_progress: HashMap<op_id, NodeIndex>; a Response marks the plan node completed and removes it",
+     "status": "verified (path.rs:937-945)"
+    },
+    {
+     "claim": "engine.mark_event_completed can be called before the response without double-releasing",
+     "status": "verified (plan.rs:105-124: children move only from Pending)"
+    },
+    {
+     "claim": "planned_events_outstanding_sum ~5.5 per run",
+     "status": "verified (3,443,849 / 632,580 = 5.4)"
+    },
+    {
+     "claim": "374,882 runs recovered two nodes, 22,418 complete their plan",
+     "status": "stale but consistent (fresh: 438,138 runs with two recovered nodes, 27,839 plan_complete)"
+    },
+    {
+     "claim": "max_concurrent_writes 2 and density 0.3 still order writes/reads/fault pairs after client ops; exemption removed only edges into recover events",
+     "status": "verified (generator.rs write-chain pass; exempt_edges only when current_is_recover)"
+    },
+    {
+     "claim": "60 s session: 3.96 unanswered client ops at cap, ~2.4 events never released",
+     "status": "uncheckable"
+    },
+    {
+     "claim": "bit 1<<12 free",
+     "status": "verified"
+    }
+   ]
+  },
+  {
+   "id": "run-cap-headroom-one-dose",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "A cheap dose on a merged knob with verified arithmetic (3275/1.5 = 2183; fresh caps 3383 and 3095) and existing counters, but a plausible-story-thin-evidence argument: no inertness evidence of its own, precedents against blind tail cuts, and a band whose floor is below the session spread. The pool's 'headroom question answered' on max-observed concerns the conservative direction, so this tighter direction is not already-answered. Held to 4 because it rides the stall cap's tail; ranked below both the stall cap and its child. Bit 1<<16 (65536) is free and kept. Band floor raised to 1.08; separate-session clause added.",
+   "redTeam": "Strongest case against: it is a blind cut on the same tail the stall cap cuts on evidence, and its own notes say it is subsumed if the stall cap merges. Two precedents warn that truncating tails costs the deep rungs: the settle-stop's depth>=12 0.68 at a sixth of steps cut, and the closed stall-abort's monotone loss; this cut is a third of every cap-reached run's steps with no inertness test at all. The over-cap share it leans on is measured only on probe completions, not on the runs that reach depth 8-13, which are the population at risk. Cross-binary the proposed floor of 1.06 sits inside the recorded 7-8% cross-session spread, so the low half of its band is unreadable. The deep-rung guard at depth>=10 has a few hundred events per chunk and resolves a 0.85 floor only at two chunks.",
+   "predictionRewrite": {
+    "firingCounter": "run_cap.tight_cap_exits",
+    "firingFloor": 150000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": -0.03,
+     "max": 0.03
+    },
+    "mechanism": "Treatment bit capHeadroomOne = 1 << 16 by salted phase of the run id, share 0.75; probes exempt. The per-run effect is on length only: treated steps per run on the long grid arms in [0.70, 0.84] and per-run depth>=8 treated over untreated in [0.97, 1.03] as the guard (a blind cut, so the deep rungs are the risk: depth>=10 per run reported). The gain is on the cross-binary rung, depth>=8 per explore-second in [1.08, 1.16] (judge: the proposed 1.06 floor sits inside the recorded 7-8% cross-session spread; a read in [1.05, 1.08) is unresolved), carried by runs per second. Shared state: the histogram is fed by probes only, so both cells read the same p99; nothing else is shared.",
+    "crossBinaryBand": {
+     "min": 1.08,
+     "max": 1.16
+    },
+    "independentObservable": "run_cap.over_tight_cap_completions at or below 2% of run_cap.probe_completions per chunk (the stock twin reads 26/6010 = 0.43% and 14/6179 = 0.23% on the merged tree's fresh baseline); termination.all.learned_cap_reached unchanged in count while its steps_used_sum falls by about 25%; treated steps per run on the long grid arms in [0.70, 0.84]; depth>=10 per run treated over untreated reported pooled over two chunks. Build and grade in a session separate from the stall cap: both cut the same runs and a combined session cannot attribute the saving.",
+    "falsifier": "Per-run depth>=8 treated over untreated below 0.95 or depth>=10 below 0.85 pooled over two chunks (the headroom was protecting events; the settle-stop precedent read depth>=12 0.68 when it cut a sixth of steps), or over_tight_cap_completions above 5% of probe completions, or cross-binary depth>=8 per explore-second below 1.05 with the firing floor met.",
+    "costClause": "Cross-binary runs per explore-second at or above 1.06."
+   },
+   "verifiedClaims": [
+    {
+     "claim": "run_cap.current_cap_max_scope 3275 implies p99 2183",
+     "status": "verified arithmetic; fresh baseline reads 3383 (seed 1000) and 3095 (seed 1001)"
+    },
+    {
+     "claim": "over_cap_completions 11 of 5,342 (0.2%)",
+     "status": "stale: fresh baseline 26/6010 (0.43%) and 14/6179 (0.23%)"
+    },
+    {
+     "claim": "merge record read 8 of 7,080",
+     "status": "uncheckable (not in pool text)"
+    },
+    {
+     "claim": "295,328 cap-reached runs hold ~70% of steps",
+     "status": "verified in kind (316,337 runs, 73%)"
+    },
+    {
+     "claim": "learned-run-cap-max-observed closed as dominated; headroom question answered",
+     "status": "verified, but the answered question is the conservative direction (running max), not a tighter cap"
+    },
+    {
+     "claim": "bit 1<<16 free",
+     "status": "verified"
+    }
+   ]
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Carried unchanged; the causal story is plausible and the required gates were written at iteration 74. Nothing new verifies the siting argument; score stays at 3. Bits reassigned to 1<<11 / 1<<17 since the stall-cap family outranks it on 1<<10 / 1<<12. The priority-outside-Hash and k=10 near-greedy tournament claims reproduce in the pool's verified notes and scheduler.rs; salted_phase, derive_seed and score_with_terms exist as cited.",
+   "redTeam": "Strongest case against: unchanged from iterations 74 and 75. With about 200 timer fires per run and a 1/2 coin, marks saturate every live stream within tens of network steps and the shift becomes a uniform offset; the saturation gate catches that but then the candidate has nothing left unless the anchor set is restricted, at which point it is a 4-5-anchor rule whose siting argument is untested. Priorities are drawn in a 0.15-wide band, so a 0.5 shift is a total demotion, not a PCT-style reprioritisation, and demoting whatever was last dispatched at a restart is as likely to delay the restarted node's own Recovery (the depth-8 record) as the ghost it should fall behind.",
+   "predictionRewrite": {
+    "firingCounter": "pct_change_point.change_points_placed.demote",
+    "firingFloor": 150000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.1,
+     "max": 0.4
+    },
+    "mechanism": "JUDGE BIT ASSIGNMENT: bits 1<<10 and 1<<12 go to the higher-ranked stall-cap family; this candidate takes pctDemote = 1<<11 (2048, the newsBeforeReply row restored to retired after iteration 75) and pctPromote = 1<<17 (131072, retired crashQuietBySecond row), both unread in spur-core, renamed in VARIANT_BITS in the same commit. Treatment bit pctDemote = 1<<11, treated share 1/4 of non-probe runs drawn by run id; inverse cell pctPromote = 1<<17 at 1/4; stock 1/2. On the depth>=8 rung the per-run ratio of pctDemote runs to co-bit-matched untreated runs in the same session lands in [1.10, 1.40]: demoting the last-dispatched stream at a fault anchor makes a stream that was ahead fall behind, which is the shape the post-restart ordering rung needs. The promote cell is predicted in [0.80, 0.98]. Firing: pct_change_point.change_points_placed.demote >= 150000 per chunk and pct_change_point.dispatches_overridden >= 60000 per chunk.",
+    "independentObservable": "Two reads. (1) termination mean completed steps on the demote cell over stock in [1.00, 1.06], and the promote cell's depth>=8 per-run ratio in [0.80, 0.98]. (2) SATURATION GATE, read on chunk 1 before any rung is credited: pct_change_point.saturated_steps / pct_change_point.marked_steps <= 0.30 on the demote cell, where marked_steps counts network steps taken while any mark is live and saturated_steps counts those at which every origin with an eligible record in the queue is marked (the shift is then a uniform offset and has no relative effect). pct_change_point.anchors_seen by class must be reported with the timer class's share; the merged baseline fires timer_effects.all.fired 128,573,624 over 632,580 runs (203 per run), so timer wakes are not a handful and the candidate's 1/(anchors) siting argument holds only for the fault-anchor classes.",
+    "falsifier": "Refuted if the pctDemote depth>=8 per-run interval lies entirely below 1.10, or if the pctPromote interval lies entirely above 1.00, or if dispatches_overridden stays below 60000 per chunk. Closes on chunk 1 without a rung read if saturated_steps / marked_steps exceeds 0.30 on the demote cell: the marks cover every live stream and the mechanism as built is a uniform offset.",
+    "costClause": "Cross-binary throughput at or above 0.97 of the paired baseline; the only shared hot-path cost is one vector lookup per scored candidate while a mark is live, which is read on the cross-binary rung.",
+    "implementerMustDefine": "Mark lifetime and the anchor set must be fixed in the plan before the build and stated with the firing counters: as written a mark lifts only on the origin's incarnation change and a 1/2 coin fires at roughly 240 anchors per run, so with three origins the marked set saturates within tens of network steps. The plan must either bound the mark's lifetime (a fixed number of network dispatches of the marked stream, or lift at the next anchor) or restrict anchors to the crash, restart and first-post-restart-entry classes (about 4-5 per run), and count marks_lifted by reason. Stock runs must remain byte-identical: the private generator is seeded from derive_seed(schedule_seed, run_id, PCT_SALT) and no Stream draw is consumed on any cell."
+   },
+   "verifiedClaims": [
+    {
+     "claim": "priority drawn once at record creation, k=10 near-greedy tournament, priority outside Record's Hash",
+     "status": "verified (pool verified notes; scheduler.rs score_with_terms/priority_component; state.rs)"
+    },
+    {
+     "claim": "run_phase::salted_phase, derive_seed(schedule_seed, run_id, salt), score_with_terms exist",
+     "status": "verified"
+    },
+    {
+     "claim": "timer wakes are ~236 per run",
+     "status": "verified in kind (203 per run on the merged baseline)"
+    },
+    {
+     "claim": "bits 1<<10 / 1<<12 free",
+     "status": "verified free but reassigned; takes 1<<11 / 1<<17"
+    }
+   ]
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "Carried at the floor. Verified again: the generator's final pass records no provenance (has_path_connecting cycle guard only), density 0 draws but adds no edges, ExecutionPlan release is by full-predecessor completion, the exempt cell is a function of the workload seed so regeneration reproduces the parent graph. Broader-neighborhood coverage in general, no bit, band inside the recorded session swing: gain 2, cost 0.",
+   "redTeam": "Strongest case against: unchanged from iterations 72, 74 and 75. Nothing measures whether a one-edge reversal of a successful parent's optional order transfers anything; a fresh plan-only child already reaches the same neighboring orders by regeneration at density 0.3, and at density 0 (half the runs) there is nothing to reverse. It asks for a full-system cross-binary exception and a per-run band [1.07, 1.20] on the grid arms, which the merge-form session just showed can move by 11% through shared learners alone; its own rationale concedes score 2 is intentional.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    {
+     "claim": "generator.rs final probabilistic pass checks cycles via has_path_connecting and records no provenance",
+     "status": "verified"
+    },
+    {
+     "claim": "density 0 adds no optional edges",
+     "status": "verified (rng.random() >= 0.0 always continues)"
+    },
+    {
+     "claim": "PlanEngine releases a node only when every predecessor is Completed",
+     "status": "verified (plan.rs:114-122)"
+    },
+    {
+     "claim": "GridArm distinguishes Child from unfilled Fresh; children admit None",
+     "status": "verified (campaign.rs assign/run)"
+    },
+    {
+     "claim": "baseline cache 34b5ef40e3bf counts (parents 72,959, children 216,336 ...)",
+     "status": "consistent in kind with the fresh cache (76,957 / 229,624 / prefix 115,217 / plan-only 114,407 / unfilled 16,028)"
+    }
+   ]
+  }
+ ],
+ "admissionDecisions": {
+  "prediction": "The judge's rewritten prediction is frozen: chunk-1 separation gate on the untreated quarter (gap-over-cap share of depth>=8 and depth>=6 runs <= 0.05, close above 0.10), internal per-run preservation [0.97,1.03] with a 0.95 floor read over two chunks, cross-binary depth8 per second [1.10,1.28] with refutation below 1.05, probe over-cap <= 2% (close above 5%), cap between 450 and 900 steps, learned_cap_reached down >= 55%, plan_complete within 3%, treated steps per run [0.58,0.78] long arms and [0.75,0.95] grid-short.",
+  "gradingPlan": "Internal contrast on treatment bit stallCap = 1024 with band [0.97,1.03] as a preservation guard (--band-min -0.03 --band-max 0.03); decision on the cross-binary depth8 per second rung against the fresh merged-tree cache afeccdf6e8f7, plus the separation gate read from the new counters on chunk 1. Two to four chunks; panel and regression before any merge.",
+  "bitReuse": "Bit 1<<10 (1024) has no tag in run_variant.rs; the retired row freshFirstDestCut is renamed stallCap. The judge moved the replay-arm candidate to 1<<22/1<<23 and PCT to 1<<11/1<<17 for later rounds.",
+  "precedent": "stall-abort-quantile-off-identity-path (closed, pre-learned-cap regime) is acknowledged; admission rests on the regime change and the built-in separation gate, not on the old question being open."
+ }
+}

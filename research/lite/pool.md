@@ -3746,3 +3746,34 @@ Iteration 75 re-judged the carried entries: PCT fault-anchor change points
 gain 3 rank 4; optional-cover reversal gain 2 rank 5 (no bit; its
 cross-binary band sits inside the recorded session swing). Single-pivot
 crash-phase learning stays parked. Awaiting-approval entries unchanged.
+
+
+## quiet-gap-learned-stall-cap
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 76 (rank 1 net 6; bit stallCap 1<<10 on the retired
+  freshFirstDestCut row, share 3/4 by run id; cross-binary rung with an
+  internal preservation guard and a chunk-1 separation gate) | gain: 6 | cost: 0 | rank: 1
+- End a run once it has gone a learned number of steps (run_cap's shape
+  over completed probes' longest quiet gap) without any handler writing
+  state, any client or fault row, or any plan release.
+- Frozen (judge-rewritten) prediction, gates, falsifiers and review:
+  `research/lite/plans/iteration-76-admitted.json`.
+
+## stall-release-of-client-blocked-plan-events
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 76 (child of the stall cap; bit 1<<12; band raised to [1.02,1.12]; stands alone only with its parent's cut cell and separation gate) | gain: 4 | cost: 0 | rank: 4
+- At the first stall, settle the blocked client operations for dependency
+  purposes so the fault-pair and write-chain successors issue, instead of
+  ending the run. Review: `research/lite/plans/iteration-76-admitted.json`.
+
+## run-cap-headroom-one-dose
+
+- kind: ablate | category: scheduler | origin: proposer | status: KEPT at iteration 76 (bit 1<<16, share 3/4; band raised to [1.08,1.16], refute at 1.05; separate session from the stall cap) | gain: 4 | cost: 0 | rank: 5
+- Cap treated runs at the learned p99 itself instead of 1.5x it. Review:
+  `research/lite/plans/iteration-76-admitted.json`.
+
+Iteration 76 re-judged the carried entries: replay parent by arm set 5
+(bits moved to 1<<22/1<<23, fidelity floor 0.70, power note), run-local
+counters 4, PCT fault-anchor change points 3 (bits moved to 1<<11/1<<17),
+optional-cover reversal 2. Awaiting-approval entries unchanged.

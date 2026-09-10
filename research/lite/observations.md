@@ -7897,3 +7897,29 @@ session's reading. Epoch ledger row appended with the session's
 throughput ratio 1.0263; the cumulative product moves from 0.9778 to
 1.0036. The contaminated first measurement is retained under
 research/lite/baselines/contaminated/ and is not used.
+
+
+**Iteration 76 admission.** Blind judge over seven candidates (three new,
+four carried), none rejected: learned stall cap 6-0, replay parent by arm
+set 5-0, run-local counters 6-2, stall-release child 4-0, cap headroom
+dose 4-0, PCT change points 3-0, optional-cover reversal 2-0. One
+load-bearing omission: the stall cap presented the quiet-gap cut as
+unattempted, while the older log records stall-abort-quantile-off-
+identity-path closed on the same acted-bit signal in the pre-learned-cap
+regime with a monotone depth loss (depth8 0.784) and a slower session
+(0.948), the family retired until an observable separates never-gains-
+depth from quietly-working. The judge admitted on the regime change
+(learned cap engaged, purgatory off, cap-reached runs measured as client
+redirect loops with no state change) and wrote that demonstration into
+the candidate as a chunk-1 separation gate: on the untreated quarter the
+share of depth8 and depth6 runs whose longest quiet gap exceeds the
+standing cap must be at or below 0.05, closing above 0.10 without a rung
+read. Frozen otherwise: bit stallCap 1<<10 at share 3/4 by run id, probes
+exempt; internal depth8 per-run preservation [0.97, 1.03] with a 0.95
+floor over two chunks; cross-binary depth8 per second [1.10, 1.28]
+against the fresh merged-tree cache, refuted below 1.05 with stops at
+floor; probe over-cap completions at or below 2% (close above 5%); cap
+between 450 and 900 steps; learned_cap_reached down at least 55% with
+plan_complete within 3%; treated steps per run [0.58, 0.78] on the long
+grid arms and [0.75, 0.95] on grid-short; untreated per-step wall within
+3%. Full record: research/lite/plans/iteration-76-admitted.json.
