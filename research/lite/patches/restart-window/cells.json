@@ -1,0 +1,157 @@
+{
+ "note": "depth counts by restart-window cell against the baseline session, probe runs excluded; fixed populations, no independent-run uncertainty claim",
+ "bySeed": {
+  "1000": {
+   "four_grid": {
+    "baseline": {
+     "runs": 469571,
+     "d6": 20113,
+     "d8": 7784,
+     "d9": 1297,
+     "d10": 124
+    },
+    "candidate": {
+     "stock": {
+      "runs": 234803,
+      "d6": 10169,
+      "d8": 4205,
+      "d9": 680,
+      "d10": 84
+     },
+     "local_drain": {
+      "runs": 117339,
+      "d6": 5041,
+      "d8": 2108,
+      "d9": 335,
+      "d10": 37
+     },
+     "net_heavy": {
+      "runs": 118182,
+      "d6": 5399,
+      "d8": 1950,
+      "d9": 340,
+      "d10": 34
+     }
+    },
+    "d8_ratio_vs_baseline": {
+     "stock": 1.080340852769455,
+     "local_drain": 1.0837438956724215,
+     "net_heavy": 0.9953635123508615
+    }
+   },
+   "aos": {
+    "baseline": {
+     "runs": 98529,
+     "d6": 3511,
+     "d8": 1629,
+     "d9": 307,
+     "d10": 30
+    },
+    "candidate": {
+     "stock": {
+      "runs": 47002,
+      "d6": 1961,
+      "d8": 663,
+      "d9": 134,
+      "d10": 22
+     },
+     "local_drain": {
+      "runs": 23366,
+      "d6": 944,
+      "d8": 379,
+      "d9": 85,
+      "d10": 7
+     },
+     "net_heavy": {
+      "runs": 23365,
+      "d6": 919,
+      "d8": 318,
+      "d9": 73,
+      "d10": 14
+     }
+    },
+    "d8_ratio_vs_baseline": {
+     "stock": 0.8531790465716634,
+     "local_drain": 0.9810651039610054,
+     "net_heavy": 0.8231980354995726
+    }
+   }
+  },
+  "1001": {
+   "four_grid": {
+    "baseline": {
+     "runs": 467567,
+     "d6": 19724,
+     "d8": 7986,
+     "d9": 1323,
+     "d10": 132
+    },
+    "candidate": {
+     "stock": {
+      "runs": 237679,
+      "d6": 9789,
+      "d8": 4030,
+      "d9": 672,
+      "d10": 81
+     },
+     "local_drain": {
+      "runs": 118788,
+      "d6": 4808,
+      "d8": 2019,
+      "d9": 342,
+      "d10": 42
+     },
+     "net_heavy": {
+      "runs": 119664,
+      "d6": 5180,
+      "d8": 1821,
+      "d9": 278,
+      "d10": 25
+     }
+    },
+    "d8_ratio_vs_baseline": {
+     "stock": 0.9927245923268962,
+     "local_drain": 0.9951265071233989,
+     "net_heavy": 0.8909656812428166
+    }
+   },
+   "aos": {
+    "baseline": {
+     "runs": 97988,
+     "d6": 3036,
+     "d8": 1170,
+     "d9": 200,
+     "d10": 28
+    },
+    "candidate": {
+     "stock": {
+      "runs": 50630,
+      "d6": 1066,
+      "d8": 471,
+      "d9": 105,
+      "d10": 13
+     },
+     "local_drain": {
+      "runs": 25242,
+      "d6": 500,
+      "d8": 222,
+      "d9": 42,
+      "d10": 4
+     },
+     "net_heavy": {
+      "runs": 25246,
+      "d6": 576,
+      "d8": 217,
+      "d9": 56,
+      "d10": 11
+     }
+    },
+    "d8_ratio_vs_baseline": {
+     "stock": 0.7791122117726897,
+     "local_drain": 0.7365737608666062,
+     "net_heavy": 0.7198701867639521
+    }
+   }
+  }
+ }
+}

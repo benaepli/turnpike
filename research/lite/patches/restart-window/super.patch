@@ -1,0 +1,28 @@
+diff --git a/research/orchestrator/src/decide.ts b/research/orchestrator/src/decide.ts
+index 9916d22..a3e8a6e 100644
+--- a/research/orchestrator/src/decide.ts
++++ b/research/orchestrator/src/decide.ts
+@@ -53,7 +53,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+   { bit: 1024, name: "freshFirstDestCut" },
+   { bit: 4096, name: "recoverWindowFreshOnly" },
+   { bit: 16384, name: "clientRushPriority" },
+-  { bit: 65536, name: "recoverWindowFreshEarly" },
++  { bit: 65536, name: "restartWindowLocalDrain" },
+   { bit: 524288, name: "ghostAbsorberRetarget" },
+   { bit: 8388608, name: "crashPhaseOnLanding" },
+   { bit: 1048576, name: "replaySlot" },
+@@ -70,7 +70,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+   { bit: 134217728, name: "clientDeferralOnly" },
+   { bit: 4194304, name: "staleFirstPair" },
+   { bit: 268435456, name: "clientProgressRelease" },
+-  { bit: 131072, name: "crashQuietBySecond" },
++  { bit: 131072, name: "restartWindowNetHeavy" },
+ ];
+ 
+ // The tag that marks a run-cap probe. Probes are about 3% of runs, are
+diff --git a/spur b/spur
+--- a/spur
++++ b/spur
+@@ -1 +1 @@
+-Subproject commit b86baad3f94ce14dbdf20688b61fd92317a75cc2
++Subproject commit b86baad3f94ce14dbdf20688b61fd92317a75cc2-dirty

@@ -1,0 +1,166 @@
+[
+ {
+  "seed": 1000,
+  "gates": {
+   "block": {
+    "runs": {
+     "stock": 319608,
+     "local_drain": 140705,
+     "net_heavy": 141547
+    },
+    "stock_preemptive_runs": {
+     "stock": 3544,
+     "local_drain": 1515,
+     "net_heavy": 1509
+    },
+    "windows_opened": {
+     "stock": 613675,
+     "local_drain": 275017,
+     "net_heavy": 276735
+    },
+    "window_steps": {
+     "stock": 27749934,
+     "local_drain": 12806875,
+     "net_heavy": 11850233
+    },
+    "steps_group_changed": {
+     "stock": 0,
+     "local_drain": 1335169,
+     "net_heavy": 4677036
+    },
+    "closed_by_entries": {
+     "stock": 471643,
+     "local_drain": 208411,
+     "net_heavy": 223509
+    },
+    "closed_by_steps": {
+     "stock": 118832,
+     "local_drain": 58952,
+     "net_heavy": 46907
+    },
+    "restarted_local_steps": {
+     "stock": 3324811,
+     "local_drain": 1521956,
+     "net_heavy": 1274985
+    }
+   },
+   "firing_window_steps_local_drain": 12806875,
+   "firing_floor_2M": true,
+   "steps_group_changed_local_drain": 1335169,
+   "changed_floor_500k": true,
+   "restarted_local_steps_per_window": {
+    "stock": 5.417869393408563,
+    "local_drain": 5.534043350047452,
+    "net_heavy": 4.607241584909751
+   },
+   "local_drain_over_stock": 1.0214427385016382,
+   "observable_1_5x": false,
+   "closed_by_entries_share": {
+    "stock": 0.798751852322283,
+    "local_drain": 0.7795057655696562,
+    "net_heavy": 0.8265376309094137
+   },
+   "window_steps_per_run": {
+    "stock": 86.8249042577157,
+    "local_drain": 91.01933122490317,
+    "net_heavy": 83.71942181748818
+   },
+   "stock_preemptive_share": {
+    "stock": 0.011088583514805636,
+    "local_drain": 0.010767207988344409,
+    "net_heavy": 0.010660769920944986
+   }
+  },
+  "violations": [
+   0,
+   0
+  ],
+  "runs": [
+   601860,
+   606180
+  ],
+  "failed": 0
+ },
+ {
+  "seed": 1001,
+  "gates": {
+   "block": {
+    "runs": {
+     "stock": 327020,
+     "local_drain": 144030,
+     "net_heavy": 144910
+    },
+    "stock_preemptive_runs": {
+     "stock": 3915,
+     "local_drain": 1681,
+     "net_heavy": 1681
+    },
+    "windows_opened": {
+     "stock": 607448,
+     "local_drain": 273231,
+     "net_heavy": 274600
+    },
+    "window_steps": {
+     "stock": 27136302,
+     "local_drain": 12533396,
+     "net_heavy": 11548629
+    },
+    "steps_group_changed": {
+     "stock": 0,
+     "local_drain": 1311702,
+     "net_heavy": 4610969
+    },
+    "closed_by_entries": {
+     "stock": 469174,
+     "local_drain": 207923,
+     "net_heavy": 223344
+    },
+    "closed_by_steps": {
+     "stock": 114179,
+     "local_drain": 56670,
+     "net_heavy": 44307
+    },
+    "restarted_local_steps": {
+     "stock": 3262980,
+     "local_drain": 1498523,
+     "net_heavy": 1248697
+    }
+   },
+   "firing_window_steps_local_drain": 12533396,
+   "firing_floor_2M": true,
+   "steps_group_changed_local_drain": 1311702,
+   "changed_floor_500k": true,
+   "restarted_local_steps_per_window": {
+    "stock": 5.371620286839367,
+    "local_drain": 5.484454545787265,
+    "net_heavy": 4.547330662782229
+   },
+   "local_drain_over_stock": 1.0210056282690614,
+   "observable_1_5x": false,
+   "closed_by_entries_share": {
+    "stock": 0.8042711702862589,
+    "local_drain": 0.7858219983143923,
+    "net_heavy": 0.8344598002622818
+   },
+   "window_steps_per_run": {
+    "stock": 82.98055776405113,
+    "local_drain": 87.01934319239048,
+    "net_heavy": 79.69518321716927
+   },
+   "stock_preemptive_share": {
+    "stock": 0.011971744847409944,
+    "local_drain": 0.01167117961535791,
+    "net_heavy": 0.011600303636740045
+   }
+  },
+  "violations": [
+   0,
+   0
+  ],
+  "runs": [
+   615960,
+   603480
+  ],
+  "failed": 0
+ }
+]

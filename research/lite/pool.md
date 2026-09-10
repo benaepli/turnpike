@@ -3677,9 +3677,10 @@ entries remain unchanged.
 
 ## restart-window-queue-shape-switch
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 74 (rank 1 net 6; bits restartWindowLocalDrain 1<<16 and
-  restartWindowNetHeavy 1<<17 on retired rows; internal contrast) | gain: 6 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 74 (two chunks; internal contrast 1.003 [0.946,1.063] excludes
+  the band, restarted-local steps 1.02x against 1.5x, inverse cell 0.91-0.92
+  as predicted; patch kept under research/lite/patches/restart-window) | gain: 6 | cost: 0 | rank: 1
 - Switch the queue-group policy to the built local-drain shape inside restart
   windows, back to stock outside; inverse cell runs network-heavy inside.
 - Frozen (judge-rewritten) prediction, observables, falsifiers and review:

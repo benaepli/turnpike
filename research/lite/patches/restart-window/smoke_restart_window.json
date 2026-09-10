@@ -1,0 +1,42 @@
+{
+  "runs": {
+    "stock": 24623,
+    "local_drain": 10802,
+    "net_heavy": 11167
+  },
+  "stock_preemptive_runs": {
+    "stock": 592,
+    "local_drain": 267,
+    "net_heavy": 241
+  },
+  "windows_opened": {
+    "stock": 40638,
+    "local_drain": 17542,
+    "net_heavy": 18704
+  },
+  "window_steps": {
+    "stock": 1450640,
+    "local_drain": 621696,
+    "net_heavy": 632265
+  },
+  "steps_group_changed": {
+    "stock": 0,
+    "local_drain": 91282,
+    "net_heavy": 337524
+  },
+  "closed_by_entries": {
+    "stock": 26329,
+    "local_drain": 11121,
+    "net_heavy": 13146
+  },
+  "closed_by_steps": {
+    "stock": 7411,
+    "local_drain": 3392,
+    "net_heavy": 2671
+  },
+  "restarted_local_steps": {
+    "stock": 236569,
+    "local_drain": 106548,
+    "net_heavy": 84899
+  }
+}

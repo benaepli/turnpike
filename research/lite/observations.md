@@ -7395,3 +7395,150 @@ restartWindowLocalDrain 1<<16 at one quarter, inverse restartWindowNetHeavy
 predicted [0.80,0.98], firing window_steps.local_drain >= 2,000,000 and
 steps_group_changed.local_drain >= 500,000 per chunk, throughput >= 0.97.
 Full record: research/lite/plans/iteration-74-admitted.json.
+
+
+**Iteration 74 implementation review.** Restart-window queue-shape switch
+implemented on b86baad in an isolated worktree. A WindowedSelector wraps
+the configured stock selector in exec_plan; a window opens at every Recover
+apply for the restarted node and closes at 8 handler entries since restart
+or 96 steps, windows union across nodes. Cells by a new salt over four
+phases: two stock, local-drain tagged 1<<16 restartWindowLocalDrain,
+network-heavy tagged 1<<17 restartWindowNetHeavy, probes exempt; the two
+retired VARIANT_BITS rows were renamed. The stock roll is drawn first on
+every cell so the queue-choice stream is consumed identically; timer
+selections pass through untouched on treated cells with the forwarded bias;
+the window's own draws use a new Stream::WindowShape (COUNT 8 -> 9, which
+leaves streams 0-7 seeded as before). The scheduler's three selection
+sites call one select_streamed entry; exec.rs and history.rs untouched.
+Counter block restart_window with eight counters by cell. Tests 467
+passed, 0 failed; release build passes; general_vr.json byte-identical.
+Implementer flags: steps_group_changed compares the full selection
+(including which local queue), the stock-preemptive share is about 1%
+on the grid arms rather than the hypothesis's 20% (only AOS-seeded runs
+draw the random policy), and the 30-second smoke already showed
+restarted-local-steps per window at 6.1 local-drain against 5.8 stock.
+
+**Iteration 74 first chunk.** Seed 1000: 601,860 candidate runs against
+606,180 baseline, zero failures, zero violations either side. Throughput
+0.99311; projected epoch 0.97111. Firing: window_steps.local_drain
+12,806,875 (floor 2,000,000), steps_group_changed.local_drain 1,335,169
+(floor 500,000), 275,017 windows opened on the local-drain cell, 91 window
+steps per run. Cells 319,608 / 140,705 / 141,547 runs.
+
+Internal primary (local-drain against co-bit-matched untreated, depth8
+per-run): 1.0031 [0.9247, 1.0882], z 0.10, treated rate 0.01797 against
+control 0.01791; band [1.08, 1.30] undecided; depth9 0.986, depth10 0.881
+resolve neither way. Inverse cell (network-heavy) depth8 0.9213 [0.8736,
+0.9717], inside its predicted [0.80, 0.98]; its depth6 reads 1.055. The
+independent observable fails decisively: restarted-local steps per window
+5.53 on local-drain against 5.42 on stock, ratio 1.02 against the frozen
+1.5x clause; windows close by entries 78-80% on every cell. The restarted
+node's post-restart local segment is about five steps long on every cell,
+as the judge's red team said, so draining it first changes almost nothing
+the restarted node does; what the local-drain cell does change (1.3M of
+12.8M window steps) is which peer's continuation runs and how often the
+network is pulled, and that reads flat on depth8.
+
+Cross-binary, the whole candidate reads depth8 per second 1.0609 (null
+band 0.0157, pGreater 0.9975), four-grid per-run 1.058, depth10 157/124,
+depth11 31/18, depth12 25/14, depth13 11/4; campaign per-run 1.028; AOS
+per-run 0.878 and per-second 0.836. Decomposed by cell against the
+baseline's grid rate 0.01658: the candidate's stock cell reads 1.080, the
+local-drain cell 1.084, the network-heavy cell 0.995; on AOS the stock
+cell reads 0.853, local-drain 0.981, network-heavy 0.823. The whole-
+candidate gain therefore lives in the untreated cell, not in the
+mechanism: either seed-level cross-session spread (a 7% depth8 swing
+between sessions is on record in the epoch ledger) or contamination of the
+untreated runs through session-shared state (learners, replay tapes and
+AOS individuals recorded from treated runs and replayed by stock runs,
+whose window draws come from a different stream so a parent's schedule is
+not reproduced). The internal contrast is immune to both; the cross-
+binary cost and AOS reads are not.
+
+Autonomous judgment: a second chunk cannot lift the internal contrast into
+the band and the observable falsifier has already fired, so the merge
+question is settled; one more chunk is bought to see whether the inverse
+cell's predicted loss and the stock-cell divergence from baseline
+replicate on seed 1001, which bears on how every per-run-bit session's
+cross-binary side is read. This is not a rescue of the candidate.
+
+**Iteration 74 closed, autonomous.** Two chunks: 601,860 + 615,960
+candidate runs against 606,180 + 603,480 baseline, zero failures, zero
+violations either side. Throughput 1.00679; projected epoch 0.98448.
+Firing replicated: window_steps.local_drain 12,806,875 and 12,533,396,
+steps_group_changed.local_drain 1,335,169 and 1,311,702 per chunk.
+
+Internal primary pooled 1.0028 [0.9461, 1.0629], per-chunk 1.0031 and
+1.0024; the frozen band [1.08, 1.30] is excluded and the grader reads
+refuted. Depth9 1.002 [0.867, 1.158] and depth10 0.958 resolve neither
+way. The restarted-local-steps observable fails on both seeds: 5.53
+against 5.42 and 5.48 against 5.37 per window, ratio 1.02 against the 1.5x
+clause. The inverse cell's prediction held on both seeds: network-heavy
+depth8 0.9213 [0.8736, 0.9717] and 0.9097 [0.8756, 0.9451], inside
+[0.80, 0.98], while its depth6 rose about 5% on both. Reading: the
+delivery-density end of the race argument has the predicted sign (denser
+deliveries inside the restart window cost depth8 and buy depth6), but the
+local-drain end has no lever because a restarted node's post-restart local
+segment is about five steps on every cell, so draining it first changes
+nothing the restarted node does; the 1.3M changed steps per chunk are
+peers' continuations and pull spacing, which read flat.
+
+Cross-binary: four-grid depth8 per second 1.0204 (null band 0.011),
+inside the 5% layout floor, per-run 1.0106; campaign per-run 0.982. The
+seed 1000 stock-cell excess over baseline (1.080 on grid) did not
+replicate: seed 1001 reads 0.993 stock, 0.995 local-drain, 0.891
+network-heavy, so that excess was cross-session spread, not
+contamination. The AOS arm is different: per-run 0.8161 pooled, 0.878 and
+0.759 by seed, and on seed 1001 every cell including the untreated stock
+cell reads 0.72-0.78 against the baseline AOS rate. An untreated cell that
+is scheduling-identical per run to the baseline cannot lose 22% on AOS by
+the mechanism; either the AOS arm's cross-binary read carries mostly
+session-level spread (its baseline depth8 rate itself moved from 0.01653
+to 0.01194 between the two cached seeds, and the AOS population is
+seeded and evolved from whichever runs the campaign happened to allocate),
+or session-shared state (individuals and tapes recorded from treated runs)
+contaminates the untreated AOS runs. Both mechanisms with per-run bits
+and full-system replacements have now shown the same AOS loss (iterations
+67, 71, 72, 73, 74), which makes the AOS cross-binary read a standing
+question for the operator: it is used as a harm guard, and the evidence
+here is that it moves on its own. Flagged for the user; no harness edit
+by the loop. Per-cell decomposition retained as
+research/lite/patches/restart-window/cells.json.
+
+Decision: close on the excluded band and the failed observable; the
+grader's adviceVerdict is close with the same reading. No panel or
+regression run. Patch, untracked module, tests, smoke, chunk and finish
+records, gate, pooled-utility and per-cell summaries and their scripts are
+retained under research/lite/patches/restart-window; the finished session
+is research/lite/state/restart-window.json. Main Spur remains b86baad and
+the epoch ledger is unchanged at 0.97784. The renamed VARIANT_BITS rows
+were never merged, so the orchestrator table is unchanged. Proxy findings
+only; zero violations; the VR violation goal remains open.
+
+**Direction review after iteration 74.** The first structurally different
+mechanism after the retired families fired abundantly and refuted its
+prediction cleanly through an observable, which is the intended shape of
+a round. The recorded facts worth carrying forward: a restarted node's
+post-restart local segment is about five steps under this workload,
+so mechanisms that act on the restarted node's own continuations have
+little to act on; delivery density inside the restart window trades depth6
+for depth8 in the predicted direction; and the AOS arm's cross-binary
+harm read is now suspect as a guard. Next lens: ablation and salvage. The
+judge verified on the baseline counters that the AOS arm's tape-mutation
+path is dead (dedup hits equal tape wins, every mutation child rejected
+because the timeline key folds to a constant with novelty disabled, and
+the score that ranks individuals is about zero), so the campaign's one
+evolutionary arm is a fresh-random-config search with an inert
+population. The iteration 75 proposer runs with that finding as its
+directive: make the tape path live with a protocol-agnostic schedule-shape
+identity and fitness, or retire the dead path and spend its share, and
+say how the mechanism interacts with tape recording and replay so a
+per-run bit does not contaminate the untreated cell. The PCT fault-anchor
+candidate (net 3, with its saturation gate) stays queued for re-judging.
+
+Digest for the user: iteration 74 closed after two chunks on a clean
+refutation (internal 1.003, band excluded; observable 1.02x against 1.5x;
+inverse cell as predicted; throughput flat); the AOS arm's cross-binary
+harm read is flagged as moving on its own across five unrelated candidates
+and two cached seeds; the AOS tape-mutation path is verified dead on the
+baseline counters and is the salvage target for iteration 75.

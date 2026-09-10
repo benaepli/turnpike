@@ -1,0 +1,1192 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index f7fa8db..760b318 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -17,6 +17,7 @@ pub mod history;
+ mod path;
+ pub mod plan_config;
+ pub mod replay_corpus;
++pub mod restart_window;
+ pub mod rng;
+ pub mod run_cap;
+ pub mod run_phase;
+diff --git a/spur-core/src/simulator/core/queue_selector.rs b/spur-core/src/simulator/core/queue_selector.rs
+index fa0e852..0f97512 100644
+--- a/spur-core/src/simulator/core/queue_selector.rs
++++ b/spur-core/src/simulator/core/queue_selector.rs
+@@ -1,7 +1,10 @@
++use crate::simulator::restart_window::{self, Cell};
++use crate::simulator::rng::{Stream, StreamRng};
++use crate::simulator::util_stats;
+ use rand::Rng;
+ use serde::{Deserialize, Serialize};
+ 
+-#[derive(Debug, Clone, Copy)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub enum QueueSelection {
+     Local(usize),
+     Network,
+@@ -46,6 +49,22 @@ pub trait QueueSelector {
+     ) -> Option<QueueSelection> {
+         self.select(info, rng)
+     }
++
++    /// Select on a source with named substreams, with `timer_bias` forwarded
++    /// to `select_timer_biased` when present. The caller has routed the
++    /// source to the queue-choice stream; a selector that draws for a
++    /// decision of its own routes to that decision's stream and back.
++    fn select_streamed(
++        &mut self,
++        info: &QueueInfo,
++        timer_bias: Option<f64>,
++        rng: &mut impl StreamRng,
++    ) -> Option<QueueSelection> {
++        match timer_bias {
++            Some(b) => self.select_timer_biased(info, b, rng),
++            None => self.select(info, rng),
++        }
++    }
+ }
+ 
+ /// Pick a non-empty local queue index, weighted by queue size.
+@@ -70,41 +89,35 @@ pub struct ProbabilisticSelector {
+     pub p_timer: f64,
+ }
+ 
+-impl ProbabilisticSelector {
+-    /// Try to select from a specific queue category, falling back to others.
+-    fn try_select(
+-        &self,
+-        primary: usize,
+-        info: &QueueInfo,
+-        rng: &mut impl Rng,
+-    ) -> Option<QueueSelection> {
+-        let order: [usize; 3] = match primary {
+-            0 => [0, 1, 2],
+-            1 => [1, 0, 2],
+-            _ => [2, 0, 1],
+-        };
+-        for &cat in &order {
+-            match cat {
+-                0 => {
+-                    if let Some(sel) = pick_local(info, rng) {
+-                        return Some(sel);
+-                    }
++/// Select from the queue category `primary` (0 local, 1 network, 2 timer),
++/// falling back to the others when it is empty.
++fn select_from(primary: usize, info: &QueueInfo, rng: &mut impl Rng) -> Option<QueueSelection> {
++    let order: [usize; 3] = match primary {
++        0 => [0, 1, 2],
++        1 => [1, 0, 2],
++        _ => [2, 0, 1],
++    };
++    for &cat in &order {
++        match cat {
++            0 => {
++                if let Some(sel) = pick_local(info, rng) {
++                    return Some(sel);
+                 }
+-                1 => {
+-                    if info.network_queue_size > 0 {
+-                        return Some(QueueSelection::Network);
+-                    }
++            }
++            1 => {
++                if info.network_queue_size > 0 {
++                    return Some(QueueSelection::Network);
+                 }
+-                2 => {
+-                    if info.timer_queue_size > 0 {
+-                        return Some(QueueSelection::Timer);
+-                    }
++            }
++            2 => {
++                if info.timer_queue_size > 0 {
++                    return Some(QueueSelection::Timer);
+                 }
+-                _ => unreachable!(),
+             }
++            _ => unreachable!(),
+         }
+-        None
+     }
++    None
+ }
+ 
+ impl QueueSelector for ProbabilisticSelector {
+@@ -120,7 +133,7 @@ impl QueueSelector for ProbabilisticSelector {
+         } else {
+             1 // network
+         };
+-        self.try_select(primary, info, rng)
++        select_from(primary, info, rng)
+     }
+ 
+     fn supports_timer_bias(&self) -> bool {
+@@ -148,7 +161,7 @@ impl QueueSelector for ProbabilisticSelector {
+         } else {
+             1 // network
+         };
+-        self.try_select(primary, info, rng)
++        select_from(primary, info, rng)
+     }
+ }
+ 
+@@ -235,6 +248,214 @@ impl QueueSelector for AnySelector {
+     }
+ }
+ 
++/// An open restart window: the node that came back and the step its
++/// recover was applied on.
++#[derive(Debug, Clone, Copy)]
++struct Window {
++    node: usize,
++    opened_step: i32,
++}
++
++/// The configured selector with the restart-window switch around it.
++///
++/// Every step first takes the wrapped selector's own selection, drawing the
++/// stock roll, so the queue-choice stream is consumed the same way on every
++/// cell whether or not a window is open. Outside a window that selection
++/// stands. Inside one, the stock cell keeps it and only counts; a treated
++/// cell keeps it when it is the timer, so the timer share and the forwarded
++/// timer bias are the wrapped selector's, and otherwise replaces it by the
++/// cell's own shape, drawing on the window-shape stream. When the wrapped
++/// selector is itself the preemptive shape the window applies the same
++/// way, over that selector's selection.
++#[derive(Debug, Clone)]
++pub struct WindowedSelector<S> {
++    inner: S,
++    cell: Cell,
++    /// Open windows in opening order; a node appears at most once.
++    windows: Vec<Window>,
++    /// The local-drain shape's state, held only while a window is open.
++    active_node: Option<usize>,
++    local_steps_since_pull: i32,
++}
++
++impl<S: QueueSelector> WindowedSelector<S> {
++    pub fn new(inner: S, cell: Cell) -> Self {
++        Self {
++            inner,
++            cell,
++            windows: Vec::new(),
++            active_node: None,
++            local_steps_since_pull: 0,
++        }
++    }
++
++    /// Whether `node` is inside its own window.
++    pub fn window_open_for(&self, node: usize) -> bool {
++        self.windows.iter().any(|w| w.node == node)
++    }
++
++    /// A recover of `node` was applied at `step`. A window already open for
++    /// the node starts over, and the node becomes the most recently
++    /// restarted one; the active node is dropped so the next local pick
++    /// falls on the restarted node's queue.
++    pub fn open_window(&mut self, node: usize, step: i32) {
++        self.windows.retain(|w| w.node != node);
++        self.windows.push(Window {
++            node,
++            opened_step: step,
++        });
++        self.active_node = None;
++        util_stats::record_restart_window_opened(self.cell);
++    }
++
++    /// Close every window whose node has taken the entry limit since its
++    /// restart or whose step limit has passed, as of `step`; `entries` reads
++    /// a node's handler entries since its restart. A window spans the step
++    /// limit's worth of selections after the step it opened on.
++    pub fn advance(&mut self, step: i32, entries: impl Fn(usize) -> u32) {
++        let cell = self.cell;
++        self.windows.retain(|w| {
++            if entries(w.node) >= restart_window::ENTRY_LIMIT {
++                util_stats::record_restart_window_closed(cell, true);
++                false
++            } else if step - w.opened_step > restart_window::STEP_LIMIT {
++                util_stats::record_restart_window_closed(cell, false);
++                false
++            } else {
++                true
++            }
++        });
++        if self.windows.is_empty() {
++            self.active_node = None;
++            self.local_steps_since_pull = 0;
++        }
++    }
++
++    fn local_size(info: &QueueInfo, node: usize) -> usize {
++        info.local_queue_sizes.get(node).copied().unwrap_or(0)
++    }
++
++    /// The preemptive shape: a forced network pull once the interval of
++    /// local steps has passed, else the active node's queue while it has
++    /// items, else a new active node - the most recently restarted node
++    /// inside its window with a non-empty queue, or the size-weighted pick.
++    fn local_drain(&mut self, info: &QueueInfo, rng: &mut impl Rng) -> Option<QueueSelection> {
++        if self.local_steps_since_pull >= restart_window::NET_PULL_INTERVAL
++            && info.network_queue_size > 0
++        {
++            self.local_steps_since_pull = 0;
++            self.active_node = None;
++            return Some(QueueSelection::Network);
++        }
++        if let Some(node) = self.active_node {
++            if Self::local_size(info, node) > 0 {
++                self.local_steps_since_pull += 1;
++                return Some(QueueSelection::Local(node));
++            }
++            self.active_node = None;
++        }
++        let restarted = self
++            .windows
++            .iter()
++            .rev()
++            .map(|w| w.node)
++            .find(|&n| Self::local_size(info, n) > 0);
++        let pick = match restarted {
++            Some(node) => Some(QueueSelection::Local(node)),
++            None => pick_local(info, rng),
++        };
++        if let Some(QueueSelection::Local(node)) = pick {
++            self.active_node = Some(node);
++            self.local_steps_since_pull += 1;
++            return pick;
++        }
++        if info.network_queue_size > 0 {
++            self.local_steps_since_pull = 0;
++            return Some(QueueSelection::Network);
++        }
++        if info.timer_queue_size > 0 {
++            return Some(QueueSelection::Timer);
++        }
++        None
++    }
++
++    /// The stock roll shape between local and network only, at the
++    /// network-heavy local share.
++    fn net_heavy(info: &QueueInfo, rng: &mut impl Rng) -> Option<QueueSelection> {
++        let roll: f64 = rng.random();
++        let primary = if roll < restart_window::NET_HEAVY_P_LOCAL { 0 } else { 1 };
++        select_from(primary, info, rng)
++    }
++
++    /// The selection inside an open window given the wrapped selector's
++    /// `stock` selection for this step.
++    fn decide(
++        &mut self,
++        stock: Option<QueueSelection>,
++        info: &QueueInfo,
++        rng: &mut impl Rng,
++    ) -> Option<QueueSelection> {
++        let chosen = match (self.cell, stock) {
++            (Cell::Stock, s) => s,
++            (_, None) => None,
++            (_, Some(QueueSelection::Timer)) => Some(QueueSelection::Timer),
++            (Cell::LocalDrain, Some(_)) => self.local_drain(info, rng),
++            (Cell::NetHeavy, Some(_)) => Self::net_heavy(info, rng),
++        };
++        if chosen.is_some() && util_stats::enabled() {
++            let restarted_local = match chosen {
++                Some(QueueSelection::Local(n)) => self.window_open_for(n),
++                _ => false,
++            };
++            util_stats::record_restart_window_step(self.cell, stock != chosen, restarted_local);
++        }
++        chosen
++    }
++}
++
++impl<S: QueueSelector> QueueSelector for WindowedSelector<S> {
++    fn select(&mut self, info: &QueueInfo, rng: &mut impl Rng) -> Option<QueueSelection> {
++        let stock = self.inner.select(info, rng);
++        if self.windows.is_empty() {
++            return stock;
++        }
++        self.decide(stock, info, rng)
++    }
++
++    fn supports_timer_bias(&self) -> bool {
++        self.inner.supports_timer_bias()
++    }
++
++    fn select_timer_biased(
++        &mut self,
++        info: &QueueInfo,
++        timer_bias: f64,
++        rng: &mut impl Rng,
++    ) -> Option<QueueSelection> {
++        let stock = self.inner.select_timer_biased(info, timer_bias, rng);
++        if self.windows.is_empty() {
++            return stock;
++        }
++        self.decide(stock, info, rng)
++    }
++
++    fn select_streamed(
++        &mut self,
++        info: &QueueInfo,
++        timer_bias: Option<f64>,
++        rng: &mut impl StreamRng,
++    ) -> Option<QueueSelection> {
++        let stock = self.inner.select_streamed(info, timer_bias, rng);
++        if self.windows.is_empty() {
++            return stock;
++        }
++        rng.use_stream(Stream::WindowShape);
++        let chosen = self.decide(stock, info, rng);
++        rng.use_stream(Stream::QueueChoice);
++        chosen
++    }
++}
++
+ #[derive(Debug, Clone, Deserialize, Serialize)]
+ #[serde(tag = "type")]
+ pub enum QueuePolicyConfig {
+@@ -388,4 +609,250 @@ mod tests {
+         let f = frequency(&mut s, Some(4.0), 200_000);
+         assert!((f - 0.05).abs() < 0.005, "capped share was {f}");
+     }
++
++    use crate::simulator::config_override;
++    use crate::simulator::rng::StreamSet;
++    use rand::RngCore;
++
++    fn probabilistic(p_local: f64, p_timer: f64) -> AnySelector {
++        AnySelector::Probabilistic(ProbabilisticSelector { p_local, p_timer })
++    }
++
++    fn info(local: &[usize], network: usize, timer: usize) -> QueueInfo {
++        QueueInfo {
++            local_queue_sizes: local.to_vec(),
++            network_queue_size: network,
++            timer_queue_size: timer,
++            step: 0,
++        }
++    }
++
++    /// A step sequence that does not depend on what was selected, so two
++    /// selectors can be driven through the same steps.
++    fn infos(n: usize, seed: u64) -> Vec<QueueInfo> {
++        let mut r = StdRng::seed_from_u64(seed);
++        (0..n)
++            .map(|i| QueueInfo {
++                local_queue_sizes: (0..3).map(|_| r.random_range(0..3)).collect(),
++                network_queue_size: r.random_range(0..3),
++                timer_queue_size: r.random_range(0..2),
++                step: i as i32,
++            })
++            .collect()
++    }
++
++    fn share<S: QueueSelector>(
++        w: &mut WindowedSelector<S>,
++        info: &QueueInfo,
++        bias: Option<f64>,
++        draws: u32,
++    ) -> (f64, f64, f64) {
++        let mut rng = StreamSet::new(7, true);
++        let (mut local, mut network, mut timer) = (0u32, 0u32, 0u32);
++        for _ in 0..draws {
++            rng.use_stream(Stream::QueueChoice);
++            match w.select_streamed(info, bias, &mut rng) {
++                Some(QueueSelection::Local(_)) => local += 1,
++                Some(QueueSelection::Network) => network += 1,
++                Some(QueueSelection::Timer) => timer += 1,
++                None => {}
++            }
++        }
++        let d = f64::from(draws);
++        (f64::from(local) / d, f64::from(network) / d, f64::from(timer) / d)
++    }
++
++    #[test]
++    fn an_untreated_run_draws_the_queue_choice_stream_exactly_as_the_stock_selector() {
++        let steps = infos(2000, 3);
++        for isolated in [false, true] {
++            let mut base = probabilistic(0.8, 0.03);
++            let mut base_rng = StreamSet::new(11, isolated);
++            let mut windowed = WindowedSelector::new(probabilistic(0.8, 0.03), Cell::Stock);
++            let mut win_rng = StreamSet::new(11, isolated);
++            windowed.open_window(0, 0);
++            windowed.open_window(2, 0);
++            for (i, step) in steps.iter().enumerate() {
++                let bias = if i % 2 == 0 { Some(2.0) } else { None };
++                base_rng.use_stream(Stream::QueueChoice);
++                win_rng.use_stream(Stream::QueueChoice);
++                let a = base.select_streamed(step, bias, &mut base_rng);
++                let b = windowed.select_streamed(step, bias, &mut win_rng);
++                assert_eq!(format!("{a:?}"), format!("{b:?}"), "step {i} isolated {isolated}");
++            }
++            assert!(windowed.window_open_for(0) && windowed.window_open_for(2));
++            for stream in [Stream::QueueChoice, Stream::WindowShape] {
++                base_rng.use_stream(stream);
++                win_rng.use_stream(stream);
++                assert_eq!(base_rng.next_u64(), win_rng.next_u64(), "{stream:?} isolated {isolated}");
++            }
++        }
++    }
++
++    #[test]
++    fn a_treated_run_leaves_the_queue_choice_stream_untouched_under_isolation() {
++        let steps = infos(2000, 5);
++        for cell in [Cell::LocalDrain, Cell::NetHeavy] {
++            let mut base = probabilistic(0.8, 0.03);
++            let mut base_rng = StreamSet::new(11, true);
++            let mut windowed = WindowedSelector::new(probabilistic(0.8, 0.03), cell);
++            let mut win_rng = StreamSet::new(11, true);
++            windowed.open_window(1, 0);
++            let mut changed = 0u32;
++            for (i, step) in steps.iter().enumerate() {
++                let bias = if i % 2 == 0 { Some(2.0) } else { None };
++                base_rng.use_stream(Stream::QueueChoice);
++                win_rng.use_stream(Stream::QueueChoice);
++                let a = base.select_streamed(step, bias, &mut base_rng);
++                let b = windowed.select_streamed(step, bias, &mut win_rng);
++                changed += (a != b) as u32;
++            }
++            assert!(changed > 0, "{cell:?} never changed a selection");
++            base_rng.use_stream(Stream::QueueChoice);
++            win_rng.use_stream(Stream::QueueChoice);
++            assert_eq!(base_rng.next_u64(), win_rng.next_u64(), "{cell:?} drew on the stock stream");
++            base_rng.use_stream(Stream::WindowShape);
++            win_rng.use_stream(Stream::WindowShape);
++            assert_ne!(base_rng.next_u64(), win_rng.next_u64(), "{cell:?} drew nothing of its own");
++        }
++    }
++
++    #[test]
++    fn a_window_closes_on_the_entry_limit_or_the_step_limit_whichever_comes_first() {
++        let mut w = WindowedSelector::new(probabilistic(0.8, 0.03), Cell::LocalDrain);
++        w.open_window(0, 10);
++        for step in 11..=10 + restart_window::STEP_LIMIT {
++            w.advance(step, |_| 0);
++            assert!(w.window_open_for(0), "closed at step {step}");
++        }
++        w.advance(11 + restart_window::STEP_LIMIT, |_| 0);
++        assert!(!w.window_open_for(0), "the step limit did not close the window");
++        w.open_window(0, 200);
++        w.advance(201, |_| restart_window::ENTRY_LIMIT - 1);
++        assert!(w.window_open_for(0), "closed below the entry limit");
++        w.advance(202, |_| restart_window::ENTRY_LIMIT);
++        assert!(!w.window_open_for(0), "the entry limit did not close the window");
++    }
++
++    #[test]
++    fn windows_of_several_nodes_union_and_close_independently() {
++        let mut w = WindowedSelector::new(probabilistic(0.8, 0.03), Cell::LocalDrain);
++        w.open_window(0, 0);
++        w.open_window(1, 40);
++        w.advance(50, |n| if n == 0 { restart_window::ENTRY_LIMIT } else { 0 });
++        assert!(!w.window_open_for(0) && w.window_open_for(1));
++        w.advance(40 + restart_window::STEP_LIMIT, |_| 0);
++        assert!(w.window_open_for(1));
++        w.advance(41 + restart_window::STEP_LIMIT, |_| 0);
++        assert!(!w.window_open_for(1));
++        w.open_window(2, 0);
++        w.advance(90, |_| 0);
++        w.open_window(2, 90);
++        w.advance(150, |_| 0);
++        assert!(w.window_open_for(2), "a reopened window did not start over");
++    }
++
++    #[test]
++    fn the_timer_decision_inside_a_window_is_the_wrapped_selectors_biased_roll() {
++        let contested = info(&[1], 1, 1);
++        for cell in [Cell::LocalDrain, Cell::NetHeavy] {
++            let mut w = WindowedSelector::new(probabilistic(0.5, 0.1), cell);
++            w.open_window(0, 0);
++            assert!(w.supports_timer_bias());
++            let (_, _, stock) = share(&mut w, &contested, None, 200_000);
++            assert!((stock - 0.10).abs() < 0.005, "{cell:?} stock timer share {stock}");
++            let (_, _, promoted) = share(&mut w, &contested, Some(4.0), 200_000);
++            assert!((promoted - 0.40).abs() < 0.005, "{cell:?} promoted timer share {promoted}");
++            let (_, _, suppressed) = share(&mut w, &contested, Some(0.0), 200_000);
++            assert_eq!(suppressed, 0.0, "{cell:?} took a timer with the bias at zero");
++        }
++        let preemptive = QueuePolicyConfig::Preemptive { p_timer: 0.2, preempt_interval: 50 };
++        let mut w = WindowedSelector::new(preemptive.to_selector(), Cell::LocalDrain);
++        w.open_window(0, 0);
++        assert!(!w.supports_timer_bias());
++        let (_, _, timer) = share(&mut w, &contested, None, 200_000);
++        assert!((timer - 0.20).abs() < 0.005, "preemptive stock timer share {timer}");
++    }
++
++    #[test]
++    fn the_local_drain_cell_drains_the_restarted_node_and_forces_a_pull_every_sixteen_local_steps() {
++        let mut w = WindowedSelector::new(probabilistic(0.0, 0.0), Cell::LocalDrain);
++        let mut rng = StdRng::seed_from_u64(1);
++        let busy = info(&[3, 2, 1], 5, 0);
++        assert!(matches!(w.select(&busy, &mut rng), Some(QueueSelection::Network)));
++        w.open_window(1, 0);
++        let period = restart_window::NET_PULL_INTERVAL as usize + 1;
++        for i in 0..2 * period {
++            let got = w.select(&busy, &mut rng);
++            if i % period == period - 1 {
++                assert!(matches!(got, Some(QueueSelection::Network)), "step {i}: {got:?}");
++            } else {
++                assert!(matches!(got, Some(QueueSelection::Local(1))), "step {i}: {got:?}");
++            }
++        }
++        w.open_window(2, 0);
++        assert!(matches!(w.select(&busy, &mut rng), Some(QueueSelection::Local(2))));
++        let peers_only = info(&[4, 0, 0], 5, 0);
++        assert!(matches!(w.select(&peers_only, &mut rng), Some(QueueSelection::Local(0))));
++        assert!(matches!(w.select(&peers_only, &mut rng), Some(QueueSelection::Local(0))));
++        let idle_locals = info(&[0, 0, 0], 5, 1);
++        assert!(matches!(w.select(&idle_locals, &mut rng), Some(QueueSelection::Network)));
++        w.advance(1 + restart_window::STEP_LIMIT, |_| 0);
++        assert!(!w.window_open_for(1) && !w.window_open_for(2));
++        assert!(matches!(w.select(&busy, &mut rng), Some(QueueSelection::Network)));
++    }
++
++    #[test]
++    fn the_net_heavy_cell_rolls_local_against_network_at_one_half_inside_a_window() {
++        let contested = info(&[1], 1, 1);
++        let mut w = WindowedSelector::new(probabilistic(0.95, 0.03), Cell::NetHeavy);
++        let (local, network, timer) = share(&mut w, &contested, None, 200_000);
++        assert!((local - 0.95).abs() < 0.005, "stock local share {local}");
++        assert!((timer - 0.03).abs() < 0.005, "stock timer share {timer}");
++        assert!((network - 0.02).abs() < 0.005, "stock network share {network}");
++        w.open_window(0, 0);
++        let (local, network, timer) = share(&mut w, &contested, None, 200_000);
++        assert!((local - 0.485).abs() < 0.01, "window local share {local}");
++        assert!((network - 0.485).abs() < 0.01, "window network share {network}");
++        assert!((timer - 0.03).abs() < 0.005, "window timer share {timer}");
++    }
++
++    #[test]
++    fn the_window_counters_count_what_the_selector_did() {
++        let _serial = config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().restart_window;
++        let mut rng = StdRng::seed_from_u64(1);
++        let busy = info(&[3, 2, 1], 5, 0);
++        let mut w = WindowedSelector::new(probabilistic(0.0, 0.0), Cell::LocalDrain);
++        w.select(&busy, &mut rng);
++        w.open_window(1, 0);
++        for step in 1..=20 {
++            w.advance(step, |_| 0);
++            w.select(&busy, &mut rng);
++        }
++        w.advance(1 + restart_window::STEP_LIMIT, |_| 0);
++        w.open_window(1, 200);
++        w.advance(201, |_| restart_window::ENTRY_LIMIT);
++        let mut stock = WindowedSelector::new(probabilistic(0.0, 0.0), Cell::Stock);
++        stock.open_window(1, 0);
++        for _ in 0..5 {
++            stock.select(&busy, &mut rng);
++        }
++        let after = util_stats::snapshot().restart_window;
++        util_stats::set_enabled(false);
++        assert_eq!(after.windows_opened.local_drain - before.windows_opened.local_drain, 2);
++        assert_eq!(after.window_steps.local_drain - before.window_steps.local_drain, 20);
++        assert_eq!(after.steps_group_changed.local_drain - before.steps_group_changed.local_drain, 19);
++        assert_eq!(
++            after.restarted_local_steps.local_drain - before.restarted_local_steps.local_drain,
++            19
++        );
++        assert_eq!(after.closed_by_steps.local_drain - before.closed_by_steps.local_drain, 1);
++        assert_eq!(after.closed_by_entries.local_drain - before.closed_by_entries.local_drain, 1);
++        assert_eq!(after.windows_opened.stock - before.windows_opened.stock, 1);
++        assert_eq!(after.window_steps.stock - before.window_steps.stock, 5);
++        assert_eq!(after.steps_group_changed.stock - before.steps_group_changed.stock, 0);
++        assert_eq!(after.restarted_local_steps.stock - before.restarted_local_steps.stock, 0);
++    }
+ }
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f858656..baead16 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -988,13 +988,13 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             let picked = match bias {
+                 Some(m) if selector.supports_timer_bias() => {
+                     util_stats::record_timer_context_bias(m);
+-                    selector.select_timer_biased(&info, m, rng)
++                    selector.select_streamed(&info, Some(m), rng)
+                 }
+                 Some(_) => {
+                     util_stats::record_timer_context_excluded();
+-                    selector.select(&info, rng)
++                    selector.select_streamed(&info, None, rng)
+                 }
+-                None => selector.select(&info, rng),
++                None => selector.select_streamed(&info, None, rng),
+             };
+             match picked {
+                 Some(s) => s,
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index f051107..2162f02 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -4,8 +4,8 @@ use crate::simulator::core::steer_terms::ResolvedTerms;
+ use crate::simulator::core::{
+     Continuation, Env, LogEntry, Logger, NodeId, OpKind, Operation, PurgatoryConfig,
+     QueuePolicyConfig, Record, Reservation, Runnable, RunnableCategory,
+-    RuntimeError, SchedulePolicy, ScheduleResult, State, TraceEntry, Value, WithinQueueSelector,
+-    make_local_env, schedule_runnable,
++    RuntimeError, SchedulePolicy, ScheduleResult, State, TraceEntry, Value, WindowedSelector,
++    WithinQueueSelector, make_local_env, schedule_runnable,
+ };
+ use crate::simulator::client_anchor::{self, HoldQueue, Released};
+ use crate::simulator::coverage::GlobalState;
+@@ -17,6 +17,7 @@ use crate::simulator::path::plan::{
+ use crate::simulator::fault_timing;
+ use crate::simulator::pair_order as pair_order_split;
+ use crate::simulator::rng::StreamRng;
++use crate::simulator::restart_window;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_variant::{ArmSet, CrashArm};
+ use crate::simulator::timer_context;
+@@ -449,7 +450,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         run_cap::effective_cap(backup)
+     };
+     let timer_ctx_mode = timer_context::run_mode(run_id);
+-    let mut selector = queue_policy.to_selector();
++    let window_cell = restart_window::cell(run_id);
++    util_stats::record_restart_window_run(
++        window_cell,
++        matches!(queue_policy, QueuePolicyConfig::Preemptive { .. }),
++    );
++    let mut selector = WindowedSelector::new(queue_policy.to_selector(), window_cell);
+     let mut op_id_counter = 0i32;
+     let mut in_progress: HashMap<i32, NodeIndex> = HashMap::new();
+     // Plan engine NodeIndex of the queued crash, and of the queued recover,
+@@ -539,6 +545,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+ 
+         path_state.state.crash_info.current_step = step;
+         util_stats::record_steer_step_total();
++        selector.advance(step, |node| path_state.state.entries_since_restart(node));
+ 
+         // Release delayed messages whose time has come
+         path_state.state.release_from_purgatory(step);
+@@ -821,6 +828,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     if crashed_nodes.contains(&node_id.index) {
+                         recovered_nodes.insert(node_id.index);
+                     }
++                    selector.open_window(node_id.index, path_state.state.crash_info.current_step);
+                     if let Some(plan_node) = pending_recover.remove(&node_id.index) {
+                         engine.mark_event_completed(plan_node);
+                     }
+diff --git a/spur-core/src/simulator/rng.rs b/spur-core/src/simulator/rng.rs
+index f068c09..33e075b 100644
+--- a/spur-core/src/simulator/rng.rs
++++ b/spur-core/src/simulator/rng.rs
+@@ -48,10 +48,14 @@ pub enum Stream {
+     SendDelay,
+     /// Which fan-out phase of its victim a placed crash waits for.
+     CrashPhase,
++    /// The queue-group choice a restart window makes on its own, kept off
++    /// the stock queue-choice stream so a treated run draws the stock roll
++    /// exactly as an untreated one does.
++    WindowShape,
+ }
+ 
+ impl Stream {
+-    pub const COUNT: usize = 8;
++    pub const COUNT: usize = 9;
+ 
+     #[inline]
+     fn index(self) -> usize {
+@@ -64,6 +68,7 @@ impl Stream {
+             Stream::PartitionPriority => 5,
+             Stream::SendDelay => 6,
+             Stream::CrashPhase => 7,
++            Stream::WindowShape => 8,
+         }
+     }
+ }
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 4c8d485..f016498 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -30,6 +30,7 @@ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+ use crate::simulator::pair_order;
+ use crate::simulator::replay_corpus;
++use crate::simulator::restart_window;
+ use crate::simulator::run_cap;
+ use crate::simulator::timer_context;
+ 
+@@ -53,6 +54,13 @@ pub const CRASH_PHASE: i32 = 1 << 9;
+ /// sender to the same destination, sent by the same incarnation, with the
+ /// lowest send ordinal.
+ pub const PAIR_SEND_ORDER: i32 = 1 << 15;
++/// Inside a restart window the run drains the active node's local queue
++/// before any other group, with one network pull forced at a fixed
++/// interval of local steps.
++pub const RESTART_WINDOW_LOCAL_DRAIN: i32 = 1 << 16;
++/// Inside a restart window the run lowers the local share of the stock
++/// roll so deliveries come denser.
++pub const RESTART_WINDOW_NET_HEAVY: i32 = 1 << 17;
+ /// The run holds client requests that become ready after its first crash
+ /// and issues each once it has waited a fixed number of steps, or earlier
+ /// when nothing else in the run can move.
+@@ -302,8 +310,18 @@ pub fn probe_bits(run_id: i64) -> i32 {
+     v
+ }
+ 
++/// The bit naming the run's restart-window cell, or zero on the stock cell.
++/// The cell is a pure function of the run id and is not an arm-set axis.
++pub fn restart_window_bits(run_id: i64) -> i32 {
++    match restart_window::cell(run_id) {
++        restart_window::Cell::Stock => 0,
++        restart_window::Cell::LocalDrain => RESTART_WINDOW_LOCAL_DRAIN,
++        restart_window::Cell::NetHeavy => RESTART_WINDOW_NET_HEAVY,
++    }
++}
++
+ /// The whole tag: the run's probe roles, the arms it ran under, the learner
+-/// that drew them if any, and what the run did.
++/// that drew them if any, the restart-window cell, and what the run did.
+ pub fn of(
+     run_id: i64,
+     arms: &ArmSet,
+@@ -311,6 +329,7 @@ pub fn of(
+     crash_hold_drawn: bool,
+ ) -> i32 {
+     probe_bits(run_id)
++        | restart_window_bits(run_id)
+         | selector_bits(learner)
+         | of_arms(arms)
+         | if crash_hold_drawn { CRASH_HOLD_DRAWN } else { 0 }
+@@ -347,7 +366,7 @@ pub fn from_run_id(run_id: i64) -> i32 {
+     if client_anchor::is_rushed(run_id) {
+         v |= CLIENT_RUSH_PRIORITY;
+     }
+-    v
++    v | restart_window_bits(run_id)
+ }
+ 
+ /// The bits a grid arm joins to the tag of every run it issues. A slot whose
+@@ -387,6 +406,14 @@ mod tests {
+             assert_eq!(v & PAIR_SEND_ORDER != 0, pair_order::is_treated(id));
+             assert_eq!(v & CLIENT_FANOUT_RELEASE != 0, client_anchor::is_treated(id));
+             assert_eq!(v & CLIENT_RUSH_PRIORITY != 0, client_anchor::is_rushed(id));
++            assert_eq!(
++                v & RESTART_WINDOW_LOCAL_DRAIN != 0,
++                restart_window::cell(id) == restart_window::Cell::LocalDrain
++            );
++            assert_eq!(
++                v & RESTART_WINDOW_NET_HEAVY != 0,
++                restart_window::cell(id) == restart_window::Cell::NetHeavy
++            );
+             assert_ne!(
+                 v & (CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY),
+                 CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY,
+@@ -533,6 +560,34 @@ mod tests {
+         assert!(prefixes > 0 && prefixes < slots, "the prefix split leaves no contrast");
+     }
+ 
++    #[test]
++    fn the_window_bits_spare_every_probe_and_name_one_cell_each() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        let n = 64_000i64;
++        let mut local_drain = 0i64;
++        let mut net_heavy = 0i64;
++        for id in 0..n {
++            let v = from_run_id(id);
++            let w = v & (RESTART_WINDOW_LOCAL_DRAIN | RESTART_WINDOW_NET_HEAVY);
++            if v & (RUN_CAP_PROBE | TIMER_STEER_OFF) != 0 {
++                assert_eq!(w, 0, "run {id}: a probe carries a window bit");
++            }
++            assert_ne!(
++                w,
++                RESTART_WINDOW_LOCAL_DRAIN | RESTART_WINDOW_NET_HEAVY,
++                "run {id}: a run is on both treated cells"
++            );
++            assert_eq!(w, restart_window_bits(id), "run {id}: the tag and the cell disagree");
++            local_drain += (w == RESTART_WINDOW_LOCAL_DRAIN) as i64;
++            net_heavy += (w == RESTART_WINDOW_NET_HEAVY) as i64;
++        }
++        for (name, count) in [("local drain", local_drain), ("net heavy", net_heavy)] {
++            let share = count as f64 / n as f64;
++            assert!((0.2..0.25).contains(&share), "the {name} cell holds {share} of all runs");
++        }
++    }
++
+     #[test]
+     fn the_populations_overlap_so_a_single_label_could_not_name_them() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index deeba8c..83996ab 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -9,6 +9,7 @@ use crate::simulator::core::steer_terms::{Term, TERMS};
+ use crate::simulator::client_anchor;
+ use crate::simulator::run_variant;
+ use crate::simulator::fresh_first;
++use crate::simulator::restart_window;
+ use serde::Serialize;
+ use std::cell::RefCell;
+ use std::collections::{HashMap, HashSet};
+@@ -93,6 +94,16 @@ static VS_VICTIM_CRASHED_HOLDS: AtomicU64 = AtomicU64::new(0);
+ static GS_FIRED_RUNS: AtomicU64 = AtomicU64::new(0);
+ static FF_SWAPS: AtomicU64 = AtomicU64::new(0);
+ static FF_REPEAT_SWAPS: AtomicU64 = AtomicU64::new(0);
++/// The restart-window census, indexed by `restart_window::Cell::index`.
++const RW_CELLS: usize = restart_window::CELLS;
++static RSW_RUNS: [AtomicU64; RW_CELLS] = [const { AtomicU64::new(0) }; RW_CELLS];
++static RSW_STOCK_PREEMPTIVE_RUNS: [AtomicU64; RW_CELLS] = [const { AtomicU64::new(0) }; RW_CELLS];
++static RSW_WINDOWS_OPENED: [AtomicU64; RW_CELLS] = [const { AtomicU64::new(0) }; RW_CELLS];
++static RSW_WINDOW_STEPS: [AtomicU64; RW_CELLS] = [const { AtomicU64::new(0) }; RW_CELLS];
++static RSW_STEPS_GROUP_CHANGED: [AtomicU64; RW_CELLS] = [const { AtomicU64::new(0) }; RW_CELLS];
++static RSW_CLOSED_BY_ENTRIES: [AtomicU64; RW_CELLS] = [const { AtomicU64::new(0) }; RW_CELLS];
++static RSW_CLOSED_BY_STEPS: [AtomicU64; RW_CELLS] = [const { AtomicU64::new(0) }; RW_CELLS];
++static RSW_RESTARTED_LOCAL_STEPS: [AtomicU64; RW_CELLS] = [const { AtomicU64::new(0) }; RW_CELLS];
+ /// How many times a ghost was displaced before it was taken: once, twice,
+ /// three times, four or more.
+ const FF_HIST_SLOTS: usize = 4;
+@@ -720,6 +731,14 @@ pub fn set_enabled(on: bool) {
+             .chain(FF_OVERTAKEN.iter())
+             .chain(FF_GHOST_ENTRIES_RESTARTED_DEST.iter())
+             .chain(FF_OVERTAKEN_RESTARTED_DEST.iter())
++            .chain(RSW_RUNS.iter())
++            .chain(RSW_STOCK_PREEMPTIVE_RUNS.iter())
++            .chain(RSW_WINDOWS_OPENED.iter())
++            .chain(RSW_WINDOW_STEPS.iter())
++            .chain(RSW_STEPS_GROUP_CHANGED.iter())
++            .chain(RSW_CLOSED_BY_ENTRIES.iter())
++            .chain(RSW_CLOSED_BY_STEPS.iter())
++            .chain(RSW_RESTARTED_LOCAL_STEPS.iter())
+             .chain(PO_CONTESTS.iter())
+             .chain(PO_INORDER_DRAWS.iter())
+             .chain(PO_PAIR_ENTRIES.iter())
+@@ -2038,6 +2057,69 @@ pub fn record_fresh_first_skipped_never_restarted_dest() {
+     FF_SKIPPED_NEVER_RESTARTED_DEST.fetch_add(1, Ordering::Relaxed);
+ }
+ 
++/// A run started on `cell` of the restart-window split; `stock_preemptive`
++/// says its configured queue policy is already the preemptive shape.
++#[inline]
++pub fn record_restart_window_run(cell: restart_window::Cell, stock_preemptive: bool) {
++    if !enabled() {
++        return;
++    }
++    let i = cell.index();
++    RSW_RUNS[i].fetch_add(1, Ordering::Relaxed);
++    if stock_preemptive {
++        RSW_STOCK_PREEMPTIVE_RUNS[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// A restart window opened for a node on a run of `cell`. Counted on every
++/// cell; the stock cells track windows without changing a selection.
++#[inline]
++pub fn record_restart_window_opened(cell: restart_window::Cell) {
++    if !enabled() {
++        return;
++    }
++    RSW_WINDOWS_OPENED[cell.index()].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A queue-group selection was made while at least one window was open.
++/// `group_changed` says the chosen queue differs from the one the stock
++/// roll alone chose, a different node's local queue included;
++/// `restarted_local` that the chosen queue is the local queue of a node
++/// inside its own window.
++#[inline]
++pub fn record_restart_window_step(
++    cell: restart_window::Cell,
++    group_changed: bool,
++    restarted_local: bool,
++) {
++    if !enabled() {
++        return;
++    }
++    let i = cell.index();
++    RSW_WINDOW_STEPS[i].fetch_add(1, Ordering::Relaxed);
++    if group_changed {
++        RSW_STEPS_GROUP_CHANGED[i].fetch_add(1, Ordering::Relaxed);
++    }
++    if restarted_local {
++        RSW_RESTARTED_LOCAL_STEPS[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// A window closed; `by_entries` says the restarted node reached the entry
++/// limit, otherwise the step limit passed.
++#[inline]
++pub fn record_restart_window_closed(cell: restart_window::Cell, by_entries: bool) {
++    if !enabled() {
++        return;
++    }
++    let i = cell.index();
++    if by_entries {
++        RSW_CLOSED_BY_ENTRIES[i].fetch_add(1, Ordering::Relaxed);
++    } else {
++        RSW_CLOSED_BY_STEPS[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
+ /// A network step's pick was a remote record from a sender that has crashed
+ /// at least once in the run while an eligible record of the same class -
+ /// same sender, same destination, same sending incarnation - was present.
+@@ -4318,6 +4400,62 @@ impl FreshFirstStats {
+     }
+ }
+ 
++/// One counter of the restart-window census read on each cell.
++#[derive(Serialize, Debug)]
++pub struct RestartWindowCells {
++    pub stock: u64,
++    pub local_drain: u64,
++    pub net_heavy: u64,
++}
++
++impl RestartWindowCells {
++    fn read(counter: &[AtomicU64; RW_CELLS]) -> Self {
++        Self {
++            stock: counter[restart_window::Cell::Stock.index()].load(Ordering::Relaxed),
++            local_drain: counter[restart_window::Cell::LocalDrain.index()].load(Ordering::Relaxed),
++            net_heavy: counter[restart_window::Cell::NetHeavy.index()].load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// The restart-window block, every counter split by cell. `runs` counts
++/// runs started and `stock_preemptive_runs` those whose configured queue
++/// policy is already the preemptive shape. `windows_opened` counts recover
++/// applies that opened a window and `window_steps` selections made while
++/// any window was open; `steps_group_changed` is the subset whose chosen
++/// queue differs from the stock roll's, a different node's local queue
++/// included, and `restarted_local_steps`
++/// the subset that took the local queue of a node inside its own window.
++/// `closed_by_entries` and `closed_by_steps` split the closes by which
++/// limit ended the window. The mechanism is read as having fired on
++/// `window_steps.local_drain`.
++#[derive(Serialize, Debug)]
++pub struct RestartWindowStats {
++    pub runs: RestartWindowCells,
++    pub stock_preemptive_runs: RestartWindowCells,
++    pub windows_opened: RestartWindowCells,
++    pub window_steps: RestartWindowCells,
++    pub steps_group_changed: RestartWindowCells,
++    pub closed_by_entries: RestartWindowCells,
++    pub closed_by_steps: RestartWindowCells,
++    pub restarted_local_steps: RestartWindowCells,
++}
++
++impl RestartWindowStats {
++    fn read() -> Self {
++        Self {
++            runs: RestartWindowCells::read(&RSW_RUNS),
++            stock_preemptive_runs: RestartWindowCells::read(&RSW_STOCK_PREEMPTIVE_RUNS),
++            windows_opened: RestartWindowCells::read(&RSW_WINDOWS_OPENED),
++            window_steps: RestartWindowCells::read(&RSW_WINDOW_STEPS),
++            steps_group_changed: RestartWindowCells::read(&RSW_STEPS_GROUP_CHANGED),
++            closed_by_entries: RestartWindowCells::read(&RSW_CLOSED_BY_ENTRIES),
++            closed_by_steps: RestartWindowCells::read(&RSW_CLOSED_BY_STEPS),
++            restarted_local_steps: RestartWindowCells::read(&RSW_RESTARTED_LOCAL_STEPS),
++        }
++    }
++}
++
+ /// One half of the pair-order census. `contests` counts network steps whose
+ /// pick was a remote record from a sender that has crashed at least once in
+ /// the run while an eligible record of the same class - same sender, same
+@@ -5013,6 +5151,7 @@ pub struct UtilizationSnapshot {
+     pub victim_swap: VictimSwapStats,
+     pub ghost_signal: GhostSignalStats,
+     pub fresh_first: FreshFirstStats,
++    pub restart_window: RestartWindowStats,
+     pub pair_order: PairOrderStats,
+     pub client_anchor: ClientAnchorStats,
+     pub arm_selector_axis: ArmSelectorAxisStats,
+@@ -5211,6 +5350,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         victim_swap: VictimSwapStats::read(),
+         ghost_signal: GhostSignalStats::read(),
+         fresh_first: FreshFirstStats::read(),
++        restart_window: RestartWindowStats::read(),
+         pair_order: PairOrderStats::read(),
+         client_anchor: ClientAnchorStats::read(),
+         arm_selector_axis: ArmSelectorAxisStats::read(),
+@@ -5284,6 +5424,62 @@ mod tests {
+         assert_eq!(c.sampled_runs - bc.sampled_runs, 2);
+     }
+ 
++    #[test]
++    fn restart_window_counters_land_on_their_cell_and_reset_on_enable() {
++        use restart_window::Cell;
++        let _serial = config_override::exclusive_session();
++        set_enabled(true);
++        let before = snapshot().restart_window;
++        record_restart_window_run(Cell::LocalDrain, true);
++        record_restart_window_run(Cell::LocalDrain, false);
++        record_restart_window_run(Cell::Stock, false);
++        record_restart_window_opened(Cell::LocalDrain);
++        record_restart_window_opened(Cell::NetHeavy);
++        record_restart_window_opened(Cell::NetHeavy);
++        record_restart_window_step(Cell::LocalDrain, true, true);
++        record_restart_window_step(Cell::LocalDrain, false, true);
++        record_restart_window_step(Cell::Stock, false, false);
++        record_restart_window_closed(Cell::LocalDrain, true);
++        record_restart_window_closed(Cell::NetHeavy, false);
++        let after = snapshot().restart_window;
++        assert_eq!(after.runs.local_drain - before.runs.local_drain, 2);
++        assert_eq!(after.runs.stock - before.runs.stock, 1);
++        assert_eq!(after.runs.net_heavy - before.runs.net_heavy, 0);
++        assert_eq!(
++            after.stock_preemptive_runs.local_drain - before.stock_preemptive_runs.local_drain,
++            1
++        );
++        assert_eq!(after.windows_opened.local_drain - before.windows_opened.local_drain, 1);
++        assert_eq!(after.windows_opened.net_heavy - before.windows_opened.net_heavy, 2);
++        assert_eq!(after.window_steps.local_drain - before.window_steps.local_drain, 2);
++        assert_eq!(after.window_steps.stock - before.window_steps.stock, 1);
++        assert_eq!(
++            after.steps_group_changed.local_drain - before.steps_group_changed.local_drain,
++            1
++        );
++        assert_eq!(after.steps_group_changed.stock - before.steps_group_changed.stock, 0);
++        assert_eq!(
++            after.restarted_local_steps.local_drain - before.restarted_local_steps.local_drain,
++            2
++        );
++        assert_eq!(after.closed_by_entries.local_drain - before.closed_by_entries.local_drain, 1);
++        assert_eq!(after.closed_by_steps.net_heavy - before.closed_by_steps.net_heavy, 1);
++        assert_eq!(after.closed_by_steps.local_drain - before.closed_by_steps.local_drain, 0);
++        set_enabled(false);
++        record_restart_window_step(Cell::LocalDrain, true, true);
++        assert_eq!(
++            snapshot().restart_window.window_steps.local_drain,
++            after.window_steps.local_drain,
++            "a disabled session counted"
++        );
++        set_enabled(true);
++        let reset = snapshot().restart_window;
++        assert_eq!(reset.window_steps.local_drain, 0, "enabling did not reset the block");
++        assert_eq!(reset.windows_opened.net_heavy, 0, "enabling did not reset the block");
++        assert_eq!(reset.runs.stock, 0, "enabling did not reset the block");
++        set_enabled(false);
++    }
++
+     #[test]
+     fn fresh_first_counters_land_on_their_half_and_in_their_bucket() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9fb160d..7d5c81f 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, ReplayStats, RunCapStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, ReplayStats, RestartWindowCells, RestartWindowStats, RunCapStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -766,6 +766,67 @@ fn fresh_first_leaves(prefix: &str, f: &FreshFirstStats) -> Vec<(String, Value)>
+     out
+ }
+ 
++fn restart_window_cells(m: &mut Marks) -> RestartWindowCells {
++    RestartWindowCells {
++        stock: m.int(),
++        local_drain: m.int(),
++        net_heavy: m.int(),
++    }
++}
++
++fn restart_window_cells_leaves(prefix: &str, c: &RestartWindowCells) -> Vec<(String, Value)> {
++    let RestartWindowCells {
++        stock,
++        local_drain,
++        net_heavy,
++    } = c;
++    vec![
++        leaf(prefix, "stock", *stock),
++        leaf(prefix, "local_drain", *local_drain),
++        leaf(prefix, "net_heavy", *net_heavy),
++    ]
++}
++
++fn restart_window(m: &mut Marks) -> RestartWindowStats {
++    RestartWindowStats {
++        runs: restart_window_cells(m),
++        stock_preemptive_runs: restart_window_cells(m),
++        windows_opened: restart_window_cells(m),
++        window_steps: restart_window_cells(m),
++        steps_group_changed: restart_window_cells(m),
++        closed_by_entries: restart_window_cells(m),
++        closed_by_steps: restart_window_cells(m),
++        restarted_local_steps: restart_window_cells(m),
++    }
++}
++
++fn restart_window_leaves(prefix: &str, r: &RestartWindowStats) -> Vec<(String, Value)> {
++    let RestartWindowStats {
++        runs,
++        stock_preemptive_runs,
++        windows_opened,
++        window_steps,
++        steps_group_changed,
++        closed_by_entries,
++        closed_by_steps,
++        restarted_local_steps,
++    } = r;
++    let mut out = Vec::new();
++    for (name, cells) in [
++        ("runs", runs),
++        ("stock_preemptive_runs", stock_preemptive_runs),
++        ("windows_opened", windows_opened),
++        ("window_steps", window_steps),
++        ("steps_group_changed", steps_group_changed),
++        ("closed_by_entries", closed_by_entries),
++        ("closed_by_steps", closed_by_steps),
++        ("restarted_local_steps", restarted_local_steps),
++    ] {
++        out.extend(restart_window_cells_leaves(&format!("{prefix}.{name}"), cells));
++    }
++    out
++}
++
+ fn ghost_signal(m: &mut Marks) -> GhostSignalStats {
+     GhostSignalStats {
+         fired_runs: m.int(),
+@@ -1456,6 +1517,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         victim_swap: _,
+         ghost_signal: _,
+         fresh_first: _,
++        restart_window: _,
+         pair_order: _,
+         client_anchor: _,
+         arm_selector_axis: _,
+@@ -1494,6 +1556,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "victim_swap",
+         "ghost_signal",
+         "fresh_first",
++        "restart_window",
+         "pair_order",
+         "client_anchor",
+         "arm_selector_axis",
+@@ -1567,6 +1630,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.victim_swap = victim_swap(&mut m);
+     s.ghost_signal = ghost_signal(&mut m);
+     s.fresh_first = fresh_first(&mut m);
++    s.restart_window = restart_window(&mut m);
+     s.pair_order = pair_order(&mut m);
+     s.client_anchor = client_anchor(&mut m);
+     s.arm_selector_axis = arm_selector_axis(&mut m);
+@@ -1584,6 +1648,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(victim_swap_leaves("victim_swap", &s.victim_swap));
+     expected.extend(ghost_signal_leaves("ghost_signal", &s.ghost_signal));
+     expected.extend(fresh_first_leaves("fresh_first", &s.fresh_first));
++    expected.extend(restart_window_leaves("restart_window", &s.restart_window));
+     expected.extend(pair_order_leaves("pair_order", &s.pair_order));
+     expected.extend(client_anchor_leaves("client_anchor", &s.client_anchor));
+     expected.extend(arm_selector_axis_leaves("arm_selector_axis", &s.arm_selector_axis));
+@@ -1627,6 +1692,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "victim_swap",
+         "ghost_signal",
+         "fresh_first",
++        "restart_window",
+         "pair_order",
+         "client_anchor",
+         "arm_selector_axis",
