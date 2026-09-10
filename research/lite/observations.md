@@ -7367,3 +7367,31 @@ being proposed through the scheduling-theory lens toward structurally
 different mechanisms with per-run treatment bits. One stale implementer
 worktree from an earlier session (.claude/worktrees/agent-a45ab2a7277b53983)
 predates this loop session and was left untouched.
+
+
+**Iteration 74 proposals and admission.** Three proposals through the
+scheduling-theory lens under a directive away from the retired families:
+PCT change points at generic fault anchors with a fixed demotion band and
+an inverse cell; an intra-run switch among the two built queue-group
+policies keyed on a restart window, with a network-heavy inverse; and an
+AOS fitness multiplier from post-fault delivery inversions at restarted
+receivers. The blind judge re-scored the two carried pool entries beside
+them and rejected nothing. Ranking: restart-window queue-shape switch 6-0,
+PCT fault-anchor change points 3-0, optional-cover reversal 2-0,
+single-pivot crash-phase learning 2-0, AOS inversion fitness 1-2. Two
+checkable claims were false: timer wakes are not a handful but about 236
+per run on the baseline, which collapses the PCT siting argument; and the
+AOS novelty base score is inert with novelty disabled while every
+tape-mutation child is dedup-rejected, so the inversion multiplier would
+multiply nothing. The restart-window candidate's claims all verified; the
+judge rewrote one wrong-signed observable (SendLedger entries count only
+triggered handler entries, not local steps) into a restarted-local-steps
+per window ratio, and added two implementer requirements: the in-window
+timer decision routes through the wrapped stock selector's biased timer
+path, and runs whose stock policy is already Preemptive are counted per
+cell. Admitted at rank 1 with the rewritten prediction frozen: bit
+restartWindowLocalDrain 1<<16 at one quarter, inverse restartWindowNetHeavy
+1<<17 at one quarter, band [1.08,1.30] on depth8 per-run, inverse
+predicted [0.80,0.98], firing window_steps.local_drain >= 2,000,000 and
+steps_group_changed.local_drain >= 500,000 per chunk, throughput >= 0.97.
+Full record: research/lite/plans/iteration-74-admitted.json.

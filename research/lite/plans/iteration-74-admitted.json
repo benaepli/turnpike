@@ -1,0 +1,192 @@
+{
+ "iteration": 74,
+ "admittedAtIso": "2026-09-10T19:34:00.398309+00:00",
+ "mode": "autonomous",
+ "acceptedBaselineCommit": "b86baad3f94ce14dbdf20688b61fd92317a75cc2",
+ "lens": "scheduling theory",
+ "focusDirective": "structurally different mechanisms anchored to generic fault-window events; no arm-selector or replay-prefix variants; per-run treatment bits preferred",
+ "admittedFrom": "tmp/loop/lite/judged-74.json (blind judge, rank 1 net 6)",
+ "hypothesis": {
+  "id": "restart-window-queue-shape-switch",
+  "parent": null,
+  "kind": "add",
+  "title": "Switch the queue-group policy to the built local-drain shape inside restart windows, back to stock outside",
+  "description": "An intra-run switch among the two built queue policies driven by a generic signal. In spur/spur-core/src/simulator/path.rs exec_plan the selector becomes a WindowedSelector (core/queue_selector.rs) wrapping the configured stock selector. On a treated run a restart window opens at every Recover apply (ScheduleResult::Recover) for the restarted node and closes when that node has taken 8 handler entries since its restart (State::entries_since_restart) or 96 steps have passed, whichever comes first; windows of several nodes union. Inside an open window the local-drain cell selects with the built PreemptiveSelector shape: the active node's local queue is drained before any other group, one network pull is forced every 16 local steps, the timer share is unchanged; when a new active node is needed the most recently restarted node still inside its window is taken if its local queue is non-empty, else the stock size-weighted pick. The network-heavy cell (the inverse) keeps the stock selector inside the window with the roll thresholds set to p_local 0.5. Outside any window every cell runs the stock selector, and the timer-context bias is forwarded to the wrapped stock selector as today. The stock QueueChoice roll is drawn on every cell at every step so the shared stream is consumed identically; the window's own decisions read a new Stream::WindowShape (Stream::COUNT 8 -> 9). Cells by run_phase::salted_phase(run_id, WINDOW_SALT, 4): phases 0 and 1 stock; phase 2 local-drain with bit 1<<16 (retired recoverWindowFreshEarly slot, renamed restartWindowLocalDrain in VARIANT_BITS); phase 3 network-heavy with bit 1<<17 (retired crashQuietBySecond slot, renamed restartWindowNetHeavy). Probes exempt. Counter block restart_window in util_stats.rs: windows_opened by cell, window_steps by cell, steps_group_changed (steps inside a window where the chosen queue group differs from what the stock roll alone would have chosen), closed_by_entries and closed_by_steps by cell. No config field.",
+  "category": "scheduler",
+  "buildsOn": [
+   "queue_selector PreemptiveSelector",
+   "State::entries_since_restart",
+   "StreamRng stream isolation",
+   "run_phase salted splits"
+  ],
+  "expectedGain": 6,
+  "expectedCost": 0,
+  "rationale": "The rung the general explorer fails on is a race between a restarted node finishing its post-restart handler segment and emitting its sends, which are local steps, and the network pulling an older record to one of its peers. Under the stock roll a network pull arrives with probability about 0.17 per step whatever the restarted node is doing, so the older record often lands before the fresh sends even exist in the queue. Draining the restarted node's local queue first, with a forced network pull only every 16 local steps, makes the post-restart sends exist before the next delivery on most windows; the inverse cell makes deliveries denser and should lose. The switch is confined to the window so the rest of the run keeps the stock shape and the stock throughput.",
+  "generalityArgument": "Opened by a restart apply and closed by the restarted node's own handler-entry count or a step cap: no handler, message, timer label or role is read. The two shapes are the two queue policies the explorer already ships; the mechanism only decides when to run which. A protocol whose bug needs deliveries to interleave a restarting node's continuations lands on the inverse cell, which is why it is shipped.",
+  "prediction": {
+   "firingCounter": "restart_window.window_steps.local_drain",
+   "firingFloor": 2000000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.08,
+    "max": 0.3
+   },
+   "mechanism": "Treatment bit restartWindowLocalDrain = 1<<16, treated share 1/4 of non-probe runs by run id; inverse restartWindowNetHeavy = 1<<17 at 1/4; stock 1/2. Depth>=8 per-run ratio of the local-drain cell to co-bit-matched untreated runs in [1.08, 1.30]: the restarted node's post-restart sends reach the network queue before the next pull on most windows, which is the ordering the rung needs. Network-heavy cell predicted in [0.80, 0.98]. Firing: restart_window.window_steps.local_drain >= 2000000 per chunk and restart_window.steps_group_changed.local_drain >= 500000 per chunk.",
+   "independentObservable": "Mechanism-direct read, both cells counted: restart_window.restarted_local_steps by cell = steps inside an open window at which the chosen group is the local queue of a node inside its own window. (restarted_local_steps / windows_opened) on the local-drain cell >= 1.5x the same ratio on the stock cells. restart_window.closed_by_entries and closed_by_steps are reported by cell descriptively with no sign committed: SendLedger::entries counts only Timer- and Delivery-triggered handler entries (core/state.rs note_handler_entry), not local continuation steps, so draining the local queue does not by itself raise the entry count and the original >= 0.60 clause was not implied by the mechanism.",
+   "falsifier": "Refuted if the local-drain depth>=8 per-run interval lies entirely below 1.08, or if the network-heavy interval lies entirely above 1.00 (the race argument has the wrong sign), or if steps_group_changed.local_drain stays below 500000 per chunk, or if restarted_local_steps per window on the local-drain cell is below 1.5x stock (the window is draining peers' queues, not the restarted node's, and the depth read is of a different mechanism).",
+   "costClause": "Cross-binary throughput at or above 0.97 of the paired baseline; the shared cost is one window-state check per step, read on the cross-binary rung.",
+   "implementerMustDefine": "Inside an open window the timer decision must still be taken by the wrapped stock selector's select_timer_biased with the forwarded timer-context bias; the local-drain and network-heavy overrides apply only after the timer branch declines. PreemptiveSelector reports supports_timer_bias() == false, so reusing its select() verbatim inside the window would silently disable the merged timer-context mechanism on the treated cells (the flaw the semi-markov-queue-class-bursts judge rewrote). Also state how the window behaves on the 20 percent of runs whose stock policy is already Preemptive (explorer.rs SingleRunConfig::random): count them under restart_window.stock_preemptive_runs by cell so the contrast can be read on the Probabilistic-stock majority alone."
+  },
+  "createdAtIso": "2026-09-10T19:20:54Z",
+  "notes": "Distinct from the closed hold/priority rules: no record class is held or ranked; only the queue-group policy switches, and only inside a window keyed on a restart.",
+  "redTeam": "The restarted node's post-restart local segment is short: RecoverInit runs to its first yield (an RPC await) in a few local steps, after which its local queue is empty and the local-drain rule falls to the stock size-weighted pick, so most of a 96-step window drains OTHER nodes' continuations while suppressing network pulls to one per 16 local steps. That delays every delivery, including the restarted node's own Recovery sends to its peer, which is the delivery the rung-8 ordering needs; iteration 32 recorded a 23-step hold on a chain record costing 55 percent of depth 8. Creating the same-step contest earlier only pays if the network draw then picks the fresh record, which fresh-first-pair already biases. Twenty percent of runs already run the Preemptive shape with preempt_interval in [10,200] and there is no per-run evidence that those runs reach depth 8 more often (queue policy is not exported per run). The recovering-receiver family closed both ways on the same restart window, albeit on a different lever (inbound record priority).",
+  "scoreReason": "Structurally new for this loop: switches which queue GROUP is served, keyed on a restart apply, using two policies the explorer already ships; no hold, no priority stamp, no learner. The mechanism-to-observable path is clear (restart -> window -> local drain -> post-restart sends exist before the next pull -> same-step contest at the peer), and the premise that contenders at a recovering receiver are almost never co-eligible is a recorded finding (iteration 34, pool net-episode entry). Every code claim checked out; the 0.17 figure is approximate; one hazard (timer bias bypass) and one wrong-signed observable were fixed in the rewrite. Ships its own inverse cell and per-run bits, as the direction review asked.",
+  "verifiedClaims": [
+   {
+    "claim": "PreemptiveSelector exists in core/queue_selector.rs",
+    "status": "verified (queue_selector.rs:156)"
+   },
+   {
+    "claim": "State::entries_since_restart exists",
+    "status": "verified (core/state.rs:1152)"
+   },
+   {
+    "claim": "ScheduleResult::Recover is returned at a recover apply",
+    "status": "verified (core/scheduler.rs:1169)"
+   },
+   {
+    "claim": "Stream::COUNT is 8",
+    "status": "verified (rng.rs:54)"
+   },
+   {
+    "claim": "run_phase::salted_phase exists",
+    "status": "verified (run_phase.rs:27)"
+   },
+   {
+    "claim": "exec_plan builds the selector from the configured queue policy",
+    "status": "verified (path.rs:452 queue_policy.to_selector())"
+   },
+   {
+    "claim": "bits 1<<16 and 1<<17 are untagged in run_variant.rs and named recoverWindowFreshEarly / crashQuietBySecond in VARIANT_BITS",
+    "status": "verified (no 1<<16 or 1<<17 constant in run_variant.rs; decide.ts rows 65536 and 131072)"
+   },
+   {
+    "claim": "the two shapes are the two queue policies the explorer already ships",
+    "status": "verified (explorer.rs:652-670 draws Preemptive 20 percent, Probabilistic 80 percent)"
+   },
+   {
+    "claim": "under the stock roll a network pull arrives with probability about 0.17 per step",
+    "status": "approximate: p_local is drawn per run in [0.6,0.95] and p_timer in [0.005,0.03] or [0.05,0.2], so the per-step network probability ranges roughly 0.03-0.40; 0.17 is a central value, not a constant"
+   },
+   {
+    "claim": "the timer share is unchanged inside the window",
+    "status": "not guaranteed as written: PreemptiveSelector::supports_timer_bias() is false, so the timer-context bias is dropped unless the window routes the timer decision through the wrapped stock selector (rewrite adds this)"
+   },
+   {
+    "claim": "closed_by_entries share rises on the local-drain cell",
+    "status": "unsupported: SendLedger::entries counts only Timer/Delivery-triggered handler entries (state.rs:1129-1137), not local steps; observable rewritten"
+   },
+   {
+    "claim": "not already answered in the observation logs",
+    "status": "verified: no prior restart-keyed queue-group switch; nearest are semi-markov-queue-class-bursts (scored, not built) and the recovering-receiver priority family (closed, different lever)"
+   }
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "restart_window.window_steps.local_drain",
+   "firingFloor": 2000000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.08,
+    "max": 0.3
+   },
+   "mechanism": "Treatment bit restartWindowLocalDrain = 1<<16, treated share 1/4 of non-probe runs by run id; inverse restartWindowNetHeavy = 1<<17 at 1/4; stock 1/2. Depth>=8 per-run ratio of the local-drain cell to co-bit-matched untreated runs in [1.08, 1.30]: the restarted node's post-restart sends reach the network queue before the next pull on most windows, which is the ordering the rung needs. Network-heavy cell predicted in [0.80, 0.98]. Firing: restart_window.window_steps.local_drain >= 2000000 per chunk and restart_window.steps_group_changed.local_drain >= 500000 per chunk.",
+   "independentObservable": "restart_window.closed_by_entries.local_drain / restart_window.windows_opened.local_drain >= 0.60, above the same share on the stock cell (the restarted node progresses faster through its first entries when its local queue is drained first).",
+   "falsifier": "Refuted if the local-drain depth>=8 per-run interval lies entirely below 1.08, or if the network-heavy interval lies entirely above 1.00 (the race argument has the wrong sign), or if steps_group_changed.local_drain stays below 500000 per chunk.",
+   "costClause": "Cross-binary throughput at or above 0.97 of the paired baseline; the shared cost is one window-state check per step, read on the cross-binary rung."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "rankedQueue": [
+  {
+   "id": "restart-window-queue-shape-switch",
+   "net": 6,
+   "rank": 1
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "net": 3,
+   "rank": 2
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "net": 2,
+   "rank": 3
+  },
+  {
+   "id": "contextual-single-pivot-crash-phase-learning",
+   "net": 2,
+   "rank": 4
+  },
+  {
+   "id": "aos-fitness-post-fault-inversions-at-restarted-receivers",
+   "net": -1,
+   "rank": 5
+  }
+ ],
+ "rejected": [],
+ "reviewSummary": "Iteration 74 judging. Five candidates, none rejected outright (no already-set values, no answered questions, nothing out of bounds or protocol-specific; every bit reuse names a row whose bit has no tag in run_variant.rs: 1024, 2048, 4096, 65536, 131072 all free, and the old 4096 selftest fixture is gone from decide.ts). Rank 1 restart-window-queue-shape-switch (gain 6, cost 0): the one structurally new, bit-carrying, self-inverting mechanism whose claims all verified; its premise (contenders at a recovering receiver are rarely co-eligible) is a recorded finding; prediction rewritten to route the in-window timer decision through select_timer_biased (PreemptiveSelector drops the bias) and to replace the wrong-signed closed_by_entries observable (entries count only triggered handler entries) with a restarted-local-steps ratio. Rank 2 the PCT fixed-band form (gain 3, cost 0 by rubric): the pool-invited form and its code claims hold, but the claim that timer wakes are a handful is false (236 per run on the baseline), which collapses the 1/(anchors) siting argument and lets marks saturate every stream; a chunk-1 saturation gate and a mark-lifetime clause are added. Ranks 3-4 are the two carried-over entries at gain 2 each: optional-cover reversal rides the replay corpus's dependence structure though it ranks nothing, and single-pivot crash-phase learning is the retired family's premise (concentrate on a generic-reward posterior) on a new action surface and asks for the full-system exception the direction review argued against; the exception is not endorsed. Rank 5 the AOS shape fitness (gain 1, cost 2, net -1): on this config novelty is ablated so AOS scores are ~0 and a multiplicative fitness is inert, and every tape-mutation child is dedup-rejected (dedup.hits == aos.tape_wins on both seeds), so shape cannot propagate through parents; do not build in this form, salvage noted. Retired-family bearing: it applies to the two kept entries, not to the top two.",
+ "otherCandidates": [
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "This is the parity-preserving fixed-band form the pool explicitly invited under restart-progress-priority-change-point, and it answers the net-episode judge's objection that PCT needs a persistent priority-carrying entity by marking the (origin, incarnation) stream rather than a record. The code claims verified: priority is outside Record's Hash, the default within-queue selector is a k=10 tournament, novelty is ablated on this config so priority is the sole ranking key (feedback.timeline_score_sum 24.3 over 606k runs), the four anchor classes are recognisable in schedule_runnable, both bits are free. But one load-bearing supporting claim is false (a handful of timer wakes) and it breaks the 1/(anchors) argument and the mark-lifetime design as written, so the score sinks from the 6-7 the story would otherwise earn. Cost is 0 by the rubric: scheduler.rs scoring and State only, no exec.rs, history or event accounting, no scheduler stream consumed.",
+   "redTeam": "The anchor arithmetic is wrong on the baseline: timers fire about 236 times per run (timer_effects.all.fired 143.3M / 606,180 runs; 245 per run on seed 1001) against roughly one armed crash and 1.56 recovers per run, so timer wakes outnumber fault anchors about 50:1 and a 1/2 coin places on the order of 120 change points per run. Each re-marks the last-dispatched stream and marks lift only on an incarnation change, so with three origins every live stream is marked within tens of network steps; a shift applied to all of them, clamped at 0 or 1, is a uniform offset with no relative effect (ties then resolve by index, a deterministic order, which is a second unpredicted bias). dispatches_overridden still counts during the transient, so the firing gate cannot see the saturation. Independently, within-queue scoring has been the loop's weakest lever: four scoring mechanisms refuted, 45 percent of steps contested, and the merged fresh-first and pair-order preferences run after the tournament and can undo the shifted pick.",
+   "predictionRewrite": {
+    "firingCounter": "pct_change_point.change_points_placed.demote",
+    "firingFloor": 150000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.1,
+     "max": 0.4
+    },
+    "mechanism": "Treatment bit pctDemote = 1<<10, treated share 1/4 of non-probe runs drawn by run id; inverse cell pctPromote = 1<<12 at 1/4; stock 1/2. On the depth>=8 rung the per-run ratio of pctDemote runs to co-bit-matched untreated runs in the same session lands in [1.10, 1.40]: demoting the last-dispatched stream at a fault anchor makes a stream that was ahead fall behind, which is the shape the post-restart ordering rung needs. The promote cell is predicted in [0.80, 0.98]. Firing: pct_change_point.change_points_placed.demote >= 150000 per chunk and pct_change_point.dispatches_overridden >= 60000 per chunk.",
+    "independentObservable": "Two reads. (1) termination mean completed steps on the demote cell over stock in [1.00, 1.06], and the promote cell's depth>=8 per-run ratio in [0.80, 0.98]. (2) SATURATION GATE, read on chunk 1 before any rung is credited: pct_change_point.saturated_steps / pct_change_point.marked_steps <= 0.30 on the demote cell, where marked_steps counts network steps taken while any mark is live and saturated_steps counts those at which every origin with an eligible record in the queue is marked (the shift is then a uniform offset and has no relative effect). pct_change_point.anchors_seen by class must be reported with the timer class's share; the baseline fires timer_effects.all.fired 143,335,281 over 606,180 runs (236 per run), so timer wakes are not a handful and the candidate's 1/(anchors) siting argument holds only for the fault-anchor classes.",
+    "falsifier": "Refuted if the pctDemote depth>=8 per-run interval lies entirely below 1.10, or if the pctPromote interval lies entirely above 1.00, or if dispatches_overridden stays below 60000 per chunk. Closes on chunk 1 without a rung read if saturated_steps / marked_steps exceeds 0.30 on the demote cell: the marks cover every live stream and the mechanism as built is a uniform offset.",
+    "costClause": "Cross-binary throughput at or above 0.97 of the paired baseline; the only shared hot-path cost is one vector lookup per scored candidate while a mark is live, which is read on the cross-binary rung.",
+    "implementerMustDefine": "Mark lifetime and the anchor set must be fixed in the plan before the build and stated with the firing counters: as written a mark lifts only on the origin's incarnation change and a 1/2 coin fires at roughly 240 anchors per run, so with three origins the marked set saturates within tens of network steps. The plan must either bound the mark's lifetime (a fixed number of network dispatches of the marked stream, or lift at the next anchor) or restrict anchors to the crash, restart and first-post-restart-entry classes (about 4-5 per run), and count marks_lifted by reason. Stock runs must remain byte-identical: the private generator is seeded from derive_seed(schedule_seed, run_id, PCT_SALT) and no Stream draw is consumed on any cell."
+   }
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "Re-judged on the same footing as the new candidates. All plumbing claims verify (generator second pass with has_path_connecting cycle check and the density gate, GridRun::Child{seed, prefix}, ReplayRng/LiveRng split, CAPACITY 64 and CHILDREN_PER_PARENT 8). It is not in the retired replay-prefix RANKING family (it ranks nothing and touches no selector), but it inherits that family's dependence structure and the concentrate-on-past-successes premise, which the direction review now counts against rather than for it. The causal story stops at 'a neighboring release order is sampled'; no measured deficit says the neighborhood is under-sampled. Gain 2 as at iteration 72.",
+   "redTeam": "Its own rationale is neighborhood breadth, which the rubric grades at 1-2, and it says so. It rides the replay corpus: parents are admitted on the same generic signals whose concentration iteration 73 found lowers depth yield, and each parent's eight children are correlated, so the family-sensitivity caveat that closed the replay-prefix ranking entries applies here too. Half the configs (density 0.0) produce no optional edges and fall back, and at density 0.3 a single cover-edge reversal changes the release order of two planned events that free generation already samples in both orders with the same probability mass; nothing in the argument says the parent's event choices are what made it a parent rather than its schedule. It requests the full-system exception with no per-run bit, though a bit on plan-only children is feasible.",
+   "predictionRewrite": null
+  },
+  {
+   "id": "contextual-single-pivot-crash-phase-learning",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "Re-judged on the same footing. Its quoted baseline figures verify exactly (Early/Mid/Stock armed 295,616 / 294,431 / 290,482 on seed 1000; 301,955 / 298,256 / 295,621 on seed 1001), the draw is next_u64 % 3 as described, WINDOW is 96, the cycle flag exists and is read after exec_plan. Nothing false. But the causal story rests on the unmeasured link the proposer names (cycle reward -> depth), and the observation logs now record the nearest test of that link as negative, so the story has less support than at its last judging. Gain 2. The exception is not endorsed this round: a per-run bit on the designated draw (learned vs uniform, reusing a free row) is feasible and would give the internal contrast; by the candidate's own clause the specification is not to be built without the exception, so it stays parked unless the operator accepts it.",
+   "redTeam": "The retired-family finding bears on it directly: it is a contextual posterior that concentrates a draw (2/3 on the leader) on the absorber_cycle_fresh_peer reward, the same generic reward learner B uses, and iteration 73 recorded that concentrating draws on what those rewards favored lowered the reward rates themselves and the depth yield, with the coin-drawn diversity looking like what the ladder fed on. Moving the same premise from the run-level arm set to one designated crash's Early/Mid/Stock draw changes the action surface, not the premise. Dilution is severe: one designated event among about 1.5 placed crashes per run, only on fresh-schedule PlacedPhase runs, after a 24-observation warmup per (arm, config, context) cell, so the changed-choice share of all phase draws is a few percent. It also asks for the full-system exception while stating a per-run switch is possible; the direction review asked for a per-run bit wherever possible, and here it is.",
+   "predictionRewrite": null
+  },
+  {
+   "id": "aos-fitness-post-fault-inversions-at-restarted-receivers",
+   "expectedGain": 1,
+   "expectedCost": 2,
+   "scoreReason": "On-directive in spirit (a feedback loop on schedule shape rather than the arm set) and the inversion statistic is a sound generic definition with a known non-zero base rate (pair_order census control inversions ~0.37 per pair entry). But two checkable claims about how AOS scores and keeps parents are false on this config, the same off-by-configuration misreading that sank timer-steer-coverage-holdout-governor and partial-order-class-restart-sampler, and the mechanism as specified cannot fire. Gain 1, cost 2, net -1: do not build in this form. A salvage would make inversions the score itself (additive, not multiplicative), give the treated population a shape-aware dedup key or bypass the timeline-hash dedup for it, use a side map keyed on (origin, send_ordinal) for the send step to avoid the Record field and the exec.rs edit, and freeze the band on tape-mutation children only.",
+   "redTeam": "As written the fitness is inert on the loop config. general_vr.json sets novelty_enabled false, which folds the timeline key to Constant (feedback.rs key_granularity); the baseline records timeline_keys.novelty_ablated_runs 606,180 of 606,180 and feedback.timeline_score_sum 24.3 over 606,180 scored runs, so Individual.score is ~0 for every AOS member, Population::insert's score comparison never replaces anyone, and multiplying ~0 by (1 + min(inversions, 8)) leaves ~0. Worse, dedup.hits equals aos.tape_wins on both seeds (10,525 = 10,525; 10,629 = 10,629): under the constant key every tape-mutation child has its parent's timeline_hash and is rejected at insert, so the only children that inherit a schedule shape never become parents; the sentence 'parents with more post-fault inversions seed tapes whose mutations keep that shape' has no path in the current code. Even with both fixed, tape children are 10 percent of AOS picks (10,525 vs 94,595 config picks), so a [1.10, 1.45] band on the whole treated half is unsupported, and AOS is the guard arm: the fixed four-grid primary cannot move. Adding a Record field means editing the exec.rs Record literal (exec.rs:257), cost 2.",
+   "predictionRewrite": null
+  }
+ ],
+ "admissionDecisions": {
+  "prediction": "The judge's rewritten prediction is the frozen one: the original closed_by_entries >= 0.60 observable rested on a false reading of SendLedger::entries and was replaced before admission by the restarted_local_steps per window ratio >= 1.5x stock; the timer-decision routing through select_timer_biased and the stock_preemptive_runs counter are implementer requirements.",
+  "gradingPlan": "Internal contrast on treatment bit restartWindowLocalDrain = 65536 with band [1.08,1.30] (--band-min 0.08 --band-max 0.30); inverse bit restartWindowNetHeavy = 131072 read from variantContrasts, predicted [0.80,0.98]. Both bits renamed on their retired VARIANT_BITS rows in the same change. Normal 300-second chunks, two to four.",
+  "bitReuse": "Bits 1<<16 and 1<<17 have no tag in run_variant.rs (selftest warning list); the retired rows recoverWindowFreshEarly and crashQuietBySecond are renamed, the permitted orchestrator edit."
+ }
+}

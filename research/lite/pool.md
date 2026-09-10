@@ -3673,3 +3673,37 @@ family (conditional, interaction-value, provenance, population) and the
 replay-prefix ranking family from active steering; iteration 74 proposals
 are directed at structurally different mechanisms. Awaiting-approval
 entries remain unchanged.
+
+
+## restart-window-queue-shape-switch
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 74 (rank 1 net 6; bits restartWindowLocalDrain 1<<16 and
+  restartWindowNetHeavy 1<<17 on retired rows; internal contrast) | gain: 6 | cost: 0 | rank: 1
+- Switch the queue-group policy to the built local-drain shape inside restart
+  windows, back to stock outside; inverse cell runs network-heavy inside.
+- Frozen (judge-rewritten) prediction, observables, falsifiers and review:
+  `research/lite/plans/iteration-74-admitted.json`.
+
+## pct-change-points-at-fault-anchors-fixed-band-shift
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 74 | gain: 3 | cost: 0 | rank: 2
+- PCT change points at generic fault anchors demoting the last-dispatched
+  stream by a fixed band; inverse promotes. Judge found the "handful of timer
+  wakes" claim false (about 236 fired per run), so marks saturate; a chunk-1
+  saturation gate and a mark-lifetime clause were added. Review:
+  `research/lite/plans/iteration-74-admitted.json`.
+
+## aos-fitness-post-fault-inversions-at-restarted-receivers
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at iteration 74, not buildable in this form | gain: 1 | cost: 2 | rank: 5
+- Multiply AOS fitness by post-fault delivery inversions at restarted
+  receivers. Judge found the novelty base score inert (novelty_enabled false,
+  timeline_score_sum about 24 over 606k runs) and every tape-mutation child
+  dedup-rejected; salvage notes in the review. Review:
+  `research/lite/plans/iteration-74-admitted.json`.
+
+Iteration 74 re-judged the two carried entries: parent-plan-optional-cover-
+edge-reversal gain 2 rank 3; contextual-single-pivot-crash-phase-learning
+gain 2 rank 4, parked under the retired-family finding and its own
+full-system exception clause. Awaiting-approval entries remain unchanged.
