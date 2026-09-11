@@ -9383,3 +9383,55 @@ re-run folded both chunks cleanly. `npx tsx` spawns a child node process
 that does not inherit the flag, and --stack-size cannot travel in
 NODE_OPTIONS, so the `--import tsx` form is the one that works. This lifts
 the two-new-bits-per-session limit recorded after the ghost-key loss.
+
+**Direction review after iteration 84.** Thirteen rounds this session:
+four merges (a plan liveness fix, a learned stall cap, a stall release, a
+ghost-triggered crash release), nine closes, zero violations on 16.2M
+candidate runs. Iteration 84 was the first round aimed at the ladder's top
+rather than its body, and it separates two questions that the depth metric
+had been running together.
+
+First, what rung 10 measures. The oracle matches a client operation by the
+destination of its invocation, while the protocol redirects a request at a
+non-leader to the leader inside one round trip. Retargeting every reserved
+post-fault request to the never-crashed server raised rung 10 by 1.26x and
+left the redirect-insensitive census of writes actually answered there
+flat at 1.013. The rung can therefore be bought with plan shape that does
+not change what the run does. Any future candidate whose gain lands on
+rung 10 and above now owes a state-level census beside it; the artifact
+rule the judge wrote for this round should become standing practice.
+
+Second, where the ladder's top is actually bound. Planning a read behind
+the post-fault write's response doubled depth 11, tripled depth 12 and
+took depth 13 from 3 events to 35 on the matched contrast, with the
+9-to-10 conversion 0.104 above stock. The top of the ladder is conversion-
+bound, not event-bound, and one plan edge moves it. The same cell halved
+depth 5 through 9, because the general workload carries only two to four
+writes and the cell spends one. That is a supply constraint of the
+workload, not of the mechanism, and the follow-up recorded in the pool is
+the same cell with an added post-fault write instead of a consumed one.
+
+Third, the arms. Pooled over the two cache seeds on the merged tree with
+equal wall time per arm: grid-short leads the body of the ladder (8,670
+depth-8 events against 3,940 for plain grid, from cheap runs at 1,233
+steps against 2,391), while aos leads its top, producing 46% of all
+depth-13 events from 17.8% of runs, and pooling rungs 11 through 13 at
+1.73x grid-short [1.23, 2.42]. Plain grid is last on every rung. The
+grader excludes aos from the primary stratum and its cross-binary read has
+moved on its own before, so this is a direction for proposals, not a
+creditable gain: the arm that reaches the top of the ladder is the one the
+merge rule cannot currently credit. Flagged for the user as an operator
+question alongside the earlier AOS note.
+
+Digest for the user: iteration 84 closed both plan-shape cells and merged
+nothing. The survivor-target cell showed that the ladder's rung 10 can be
+raised without changing the protocol state, which makes it a weaker
+witness than its position suggests and adds a census requirement to any
+future claim up there. The write-then-read cell produced the largest
+top-of-ladder movement this loop has seen (depth 13 from 3 events to 35)
+and closed on its own frozen falsifier because it starves the ladder root;
+its non-cannibalizing successor is queued. A harness fault that cost a
+chunk record twice is fixed: the grader folds large records cleanly when
+run in one node process under a raised V8 stack, which lifts the
+two-new-bits-per-session limit. Tree unchanged at spur 12b7582, cumulative
+throughput ledger unchanged at 1.0736.
