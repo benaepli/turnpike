@@ -8295,3 +8295,42 @@ and 1,919, depth10 421 and 254 against 232 and 199, zero violations on
 re-measurement reads throughput flat against the previous cache while
 the session read it 4.5% down; the seed swing is wider than the
 difference, so the ledger keeps the session's ratio as the rule says.
+
+
+**Iteration 78 proposals and admission.** Four proposals through the
+salvage lens under the directive at the released runs' tail: a second
+stall clock marked only by plan-level progress and learned from the same
+probes; folding the stall cap's untreated quarter; repeating the release
+at every stall until nothing fresh is stuck; and a learned post-release
+quiet-gap cap. The proposer corrected the directive: the released tail is
+not sustained by invocation rows (a row is a one-shot mark and the
+release cell issues 7.84 invocations per run against 7.13), most of the
+released runs' extra 323 steps is the second stall's own learned cap, and
+the residual runs continue on acted timers and deliveries, so the "rows
+are not marks" variants are inert. It also read the fresh cache: the
+active budget-enders (learned cap plus iteration budget, about 271,000-
+299,000 runs per chunk, 573,782 of 790,380 runs ending at a budget while
+still releasing runnables) are the largest step sink left; the untreated
+quarter of the stall cap costs 31% of grid wall for 22% of runs at
+identical depth; the merged release's depth10 gain replicates on the
+fresh cache (261 against 139 events, 0.000600 against 0.000319 per run).
+Blind judge over twelve candidates: plan-progress clock 7-0, repeated
+release 6-0 (the concrete nesting, superseding the withheld-faults
+entry), crash holds for the restarted-peer window 5-0, replay parent by
+arm set 4-0, run-local counters 5-2, post-release cap 3-0 (subsumed),
+withheld-faults 3-0, stalled runs as replay parents 3-0, PCT change
+points 3-0, run-cap headroom dose 2-0, optional-cover reversal 2-0; the
+fold rejected as operator work on the merged form (no bit, control cell
+removed, per-cell reads lost; its 1.08x arithmetic and its preservation
+premise are recorded for the user). Stale figures corrected on several
+carried entries; one false claim on the crash-hold entry (an accessor
+that does not exist, proposed over existing fields). Admitted at rank 1
+with the rewritten prediction frozen: bit planProgressClock 1<<28 over
+half the stall cap's treated runs, crossing the release bit; internal
+depth8 per-run preservation [0.97, 1.03] with steps per run 0.75-0.90;
+cross-binary depth8 per second [1.06, 1.25], runs per second [1.08,
+1.25], depth10 per second [1.05, 1.30]; plan_clock.stops >= 60,000 per
+chunk; learned plan-quiet cap below 0.8x the run cap (inert at or above
+0.9x, closing); budget-enders at most 0.75x baseline; probe over-cap <=
+2%; throughput >= 1.05, refuted outright below 1.00. Full record:
+research/lite/plans/iteration-78-admitted.json.

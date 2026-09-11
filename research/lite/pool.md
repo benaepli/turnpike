@@ -3813,3 +3813,42 @@ Iteration 77 re-judged the carried entries against the merged tree:
 replay parent by arm set 4, run-local counters 5-2, PCT change points 3,
 run-cap headroom dose 2 (premise removed by the stall-cap merge),
 optional-cover reversal 2. Awaiting-approval entries unchanged.
+
+
+## plan-progress-clock-second-stall-cap
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 78 (rank 1 net 7; child of the merged stall cap; bit
+  planProgressClock 1<<28 on the retired clientProgressRelease row, half of
+  the stall cap's treated runs, crossing the release bit; cross-binary rung
+  with an internal preservation guard) | gain: 7 | cost: 0 | rank: 1
+- A second stall clock marked only by plan-level progress (history rows
+  and plan releases; state writes do not re-arm it), learned from the same
+  probes with the same estimator, ends a run when either clock exceeds its
+  cap.
+- Frozen (judge-rewritten) prediction and review:
+  `research/lite/plans/iteration-78-admitted.json`.
+
+## stall-release-repeated-until-nothing-fresh
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 78 (the concrete nesting for the force-faults follow-up; bit 1<<29; rewritten to a cross-binary depth10 primary with the internal contrast as a guard) | gain: 6 | cost: 0 | rank: 2
+- Every stall settles the operations that became stuck since the last
+  release, ending only at a stall with nothing fresh. Review:
+  `research/lite/plans/iteration-78-admitted.json`.
+
+## post-release-quiet-gap-learned-cap
+
+- kind: perf | category: scheduler | origin: proposer | status: KEPT at iteration 78, subsumed by the plan clock | gain: 3 | cost: 0 | rank: 6
+- A learned post-release quiet-gap cap on the release cell; bit 1<<30.
+  Review: `research/lite/plans/iteration-78-admitted.json`.
+
+## stall-cap-untreated-quarter-folded
+
+- kind: ablate | category: scheduler | origin: proposer | status: REJECTED at iteration 78 as operator work on the merged form (no bit; removes the control cell and the per-cell reads). Verified arithmetic for the operator: the untreated quarter costs 9,629 us per run against the cut cell's 6,757 with identical depth8 per run (0.01868 against 0.01859); folding it reads about 1.08x runs per second. Review: `research/lite/plans/iteration-78-admitted.json`.
+
+Iteration 78 re-judged the carried entries: crash holds for the
+restarted-peer window 5, replay parent by arm set 4 (bits 1<<22/1<<23),
+run-local counters 5-2, withheld-faults release 3 (superseded as the
+nesting by the repeat), stalled runs as replay parents 3, PCT change
+points 3, run-cap headroom dose 2, optional-cover reversal 2.
+Awaiting-approval entries unchanged.
