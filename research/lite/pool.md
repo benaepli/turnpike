@@ -4044,22 +4044,22 @@ Awaiting-approval entries unchanged.
 
 ## write-region-replay-ring
 
-- kind: add | category: feedback | origin: proposer | status: ADMITTED at
-  iteration 83 (rank 1 net 7; bit writeRingSlot 1<<26 on a salted half of
-  the plan-only replay slots; a new parent source with its own ring keyed
-  on a post-fault operation invoked at a never-restarted server with two
-  stranded fault-crossing records addressed to it, cut at the invocation,
-  children inheriting the parent's mechanism draws; honest rung depth11
-  stratified) | gain: 7 | cost: 0 | rank: 1
+- kind: add | category: feedback | origin: proposer | status: CLOSED at
+  iteration 83 as unresolved (two chunks; every gate met, fidelity 0.98;
+  depth 8-9 mechanical replay 1.28/1.5; depth11 10:9 and depth10 84:94
+  stratified; the signal admits shallow parents 500:1 so the honest rung
+  cannot separate; cross-binary inside the floor; a tighter admission
+  signal is the follow-up; patch under research/lite/patches/write-ring) | gain: 7 | cost: 0 | rank: 1
 - Frozen (judge-rewritten) prediction and review:
   `research/lite/plans/iteration-83-admitted.json`.
 
 ## write-ring-suffix-uniform-within-queue
 
-- kind: arm | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 83 as the ring's nested cell (rank 2 net 5; bit
-  writeRingUniformSuffix 1<<29 on half the write slots; the suffix past a
-  reproduced cut runs under the uniform within-queue selector) | gain: 5 | cost: 0 | rank: 2
+- kind: arm | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 83 with the ring (stale-first at the target 0.56 against 0.19
+  on both seeds; depth10 49:35, depth11 7:3, depth12 5:2 stratified, a
+  lean that cannot separate; kept as a finding for a future checkpoint
+  source) | gain: 5 | cost: 0 | rank: 2
 - Frozen prediction and review: `research/lite/plans/iteration-83-admitted.json`.
 
 ## write-ring-children-by-state-fork

@@ -1,0 +1,46 @@
+{
+ "parents_admitted": 19660,
+ "children": 53679,
+ "children_prefix": 32315,
+ "children_plan_only": 21364,
+ "slots_unfilled": 13890,
+ "prefix_faithful": 13216,
+ "tape_words_sum": 1116871342,
+ "children_signal_fired": 40964,
+ "write_ring": {
+  "signal_runs": 15148,
+  "parents_admitted": 1413,
+  "probe_parents_skipped": 90,
+  "children": 11258,
+  "slots_unfilled": 8267,
+  "prefix_faithful": 10908,
+  "children_signal_fired": 11036,
+  "cut_step_sum": 395012,
+  "child_steps_sum": 22241495,
+  "control_plan_only_steps_sum": 30261472,
+  "write": {
+   "runs": 11258,
+   "plan_complete": 1943
+  },
+  "control": {
+   "runs": 15789,
+   "plan_complete": 2409
+  },
+  "uniform": {
+   "switched": 5439,
+   "not_switched": 165,
+   "first_post_cut_delivery_at_target": {
+    "uniform": {
+     "stale": 2958,
+     "fresh": 2544,
+     "total": 5502
+    },
+    "tournament": {
+     "stale": 1159,
+     "fresh": 4375,
+     "total": 5534
+    }
+   }
+  }
+ }
+}

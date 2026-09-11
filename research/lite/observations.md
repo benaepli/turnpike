@@ -9107,3 +9107,132 @@ stratified depth8 >= 0.9 and cross-binary depth8 per second >= 0.95)
 and bit writeRingUniformSuffix 1<<29 (switched >= 6,000, stale-first
 share at the target [0.35, 0.65] against at most 0.20, depth11 [1.3,
 3.0] as a lean). Full record: research/lite/plans/iteration-83-admitted.json.
+
+
+**Iteration 83 implementation review.** The write-region replay ring and
+its uniform-suffix cell built on the merged tree 12b7582: the signal read
+in invoke_client_request before the request's priority draw (target at
+incarnation zero with no queued crash, two servers restarted, two fault-
+crossing records from two dead incarnations addressed to the target in
+the network queue), a write_cut field beside replay_cut excluded from
+the signature, a second Corpus per grid arm fed from the same RunResult
+as the ghost ring, write slots as a salted half of the plan-only slots
+falling through to the ghost ring when empty, children replayed under
+the parent's run id for every id-keyed mechanism draw and never admitted
+or observed, an owned per-run within-queue selector switched to the
+uniform selector at a reproduced cut on the nested half; bits 1<<26 and
+1<<29 on the retired originAlternate and pairOrderGhostOnly rows. The
+implementer stopped twice while waiting on its own background runs and
+was resumed; the full suite rerun by the loop reads 500 passed, 0 failed
+across 27 binaries; general_vr.json untouched; exec.rs and history.rs
+untouched. Probe fresh runs that fire the signal are not admitted
+(counted), a documented choice.
+
+**Iteration 83 first chunk.** Seed 1000 against the merged-tree cache:
+754,140 candidate runs against 757,560 baseline, zero failures, zero
+violations. Every chunk-1 gate holds: 50,801 write children (floor
+20,000) from 6,354 parents on 67,449 signal runs, applicability 0.172 of
+391,579 fresh grid runs (inside [0.01, 0.25]), prefix fidelity 0.985
+(floor 0.4; the child fires the signal at the parent's cut on 98.5% of
+replays), mean cut step 315, slots unfilled 20,945; child steps 1.006x
+the control's and plan completion 0.189 against 0.157, so the tier-2
+shape did not reproduce. The grader's co-bit balance check faulted on
+eleven inherited rows as the frozen record said it would and the
+session reads cross-binary: depth8 per second 1.0508 (null band 0.013,
+at the 5% layout floor), depth9 1.008, depth10 0.912, throughput 0.9954.
+
+Stratified over the inherited strata, write slots against the plan-only
+control (71,730 against 71,929 runs): depth5 1.037, depth8 1.309 (2,353
+against 1,765), depth9 1.684 (477 against 276), depth10 1.228 (47
+against 45), depth11 0.885 (5 against 3), depth12 4 against 2. Against
+fresh runs the write children read depth8 2.64x, depth9 3.1x, depth10
+1.9x, depth11 1.34x per run. The replay does what it promises through
+depth 9 and the honest rung is starved: the signal fires on 17% of fresh
+runs while a few dozen per chunk stand at depth 10, so the 64-parent
+ring is flooded with signal-but-shallow parents and only 47 children
+reach depth 10, converting to 11 at 0.11, no better than fresh runs. The
+uniform cell against the tournament half (35,907 against 35,839): stale-
+first delivery at the target 0.560 against 0.189 (the chunk-1 read, met
+by 0.37 against the required 0.15), switched 25,108 against 365 not
+switched, depth8 0.974 and depth9 1.041 inside the guards, depth10 1.999
+(31 against 16), depth11 4 against 1, depth12 3 against 1, steps 0.997.
+Autonomous judgment: the frozen plan pre-commits a second chunk and, if
+the depth11 read stays unresolved, a third and fourth; the second is
+bought now.
+
+**Iteration 83 second chunk and close, autonomous.** Seed 1001: 723,000
+candidate runs against 753,240 baseline, zero failures, zero violations;
+53,487 children, applicability 0.187, fidelity 0.981, child steps 1.014x
+the control, plan completion 0.183 against 0.160. Stratified against
+the plan-only control: depth8 1.241 (2,230 against 1,752), depth9 1.320
+(421 against 329), depth10 0.954 (37 against 49), depth11 5 against 6,
+depth12 3 against 5. Pooled over both seeds: depth8 4,583 against 3,517,
+depth9 898 against 605, depth10 84 against 94, depth11 10 against 9,
+depth12 7 against 7. Cross-binary pooled: depth8 per second 1.0262
+(inside the layout floor), depth9 1.034, depth10 0.875, depth11 71
+against 85, throughput 0.9775. The uniform cell: stale-first at the
+target 0.557 against 0.191 on seed 1001 (met again), switched 26,244;
+pooled stratified depth8 0.955, depth9 0.948, depth10 49 against 35,
+depth11 7 against 3, depth12 5 against 2, steps 0.997.
+
+Decision: both cells closed after the two-chunk minimum. The ring did
+exactly what it promised through depth 9 and could not move the honest
+rung: the admission signal is generic and fires on 17-19% of fresh runs,
+while the runs that stand at depth 10 are a few dozen per chunk, so the
+64-parent ring is flooded about 500 to 1 with parents that fired the
+signal in shallow states, and the few deep parents get one or two
+children each; the children that do reach depth 10 convert to 11 at the
+fresh rate. The pre-committed third and fourth chunks are not bought: at
+these event rates (10 against 9 at depth 11, projecting to about 20
+against 18 after four chunks) no chunk can bring the stratified interval
+to a decision, and the ring's supply problem is a design fact, not a
+sampling one; written as a departure from the frozen commitment. The
+uniform cell's finding is kept: forcing the uniform within-queue
+selector on the suffix past a reproduced cut raises the stale-first
+share at the target from 0.19 to 0.56 on both seeds and leans up at
+depth 10 through 12 on small counts, without moving depth 8 or 9. The
+follow-up the pool now records is a tighter admission signal (a parent
+must carry the write-region state deeper, for example the second
+restarted node's opening sends already delivered and the stranded
+records still in flight, or admission ranked by the parent's own
+prefix depth as read at run end without the oracle) rather than more
+chunks. Grader adviceVerdict human on both chunks (balance fault and
+cross-binary inside the floor). Patch, tests (500 passed), smoke, chunk,
+gate and pooled-utility records retained under
+research/lite/patches/write-ring; session research/lite/state/write-ring.json.
+Main tree unchanged at spur 12b7582; ledger unchanged at 1.0736.
+
+**Direction review after iteration 83.** Twelve rounds this session:
+four merges (a plan liveness fix, a learned stall cap, a stall release,
+a ghost-triggered crash release), eight closes, zero violations on 14.8M
+candidate runs. The merged tree reaches depth 8 and 9 far more often
+than the epoch's frozen tree and depth 10 about twice as often; the
+transitions past the write (labels 10 to 13) have resisted holds
+(iterations 82) and now a checkpoint source (83), each for a reason the
+counters made explicit. Proxy check: the loop has not moved a rung,
+rescaled the oracle or changed the campaign; the two standing operator
+items remain the AOS cross-binary read and the stall cap's untreated
+quarter fold. Steering verdict: rotate to the premise-check lens. After
+four merges the ladder past depth 10 still reads 60, 40 and 15 events
+per chunk, and labels 14 through 20 of the oracle are never counted;
+the question the goal file itself allows is whether the general config
+supplies the events the rest of the path needs: how many post-fault
+client operations at which servers, whether a read after the broadcast
+is even planned on most runs, whether two concurrent writes and one key
+are the shape the violation needs, and whether the plan generator's
+post-fault operations land at the never-restarted node often enough.
+The proposer is asked for config or plan-generation experiments and
+structural diagnostics stated against the oracle's labels 13 to 20 in
+generic terms, each with its own bit where a plan-level property can be
+split by workload seed as the recover-dependency exemption was, and
+with the queued repeated release as the alternative if the premise
+check finds no supply limit.
+
+Digest for the user: iteration 83 closed the write-region replay ring
+and its uniform-suffix cell after two chunks as unresolved (the ring
+replays faithfully and reaches depth 8 and 9 at 1.3 to 1.5 times the
+control mechanically, but its generic signal floods the ring with
+shallow parents and the honest depth 11 rung reads 10 against 9); the
+uniform-suffix finding (stale-first at the target 0.56 against 0.19,
+depth 10 to 12 leaning up) is kept for a future checkpoint source. Next
+round rotates to the premise-check lens at labels 13 to 20.

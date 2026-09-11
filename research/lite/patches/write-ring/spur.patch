@@ -1,0 +1,1854 @@
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index 2a2d80e..90f50d8 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -19,17 +19,18 @@ use crate::simulator::config_override;
+ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::explorer::{
+     AosExplorer, CurriculumExplorer, CurriculumRnrExplorer, EXPLORER_CONFIG_KEYS, ExploreSummary,
+-    ExplorerConfig, RunAttribution, SessionSummary, SingleRunConfig, StepCtx, StepReport, Strategy,
+-    check_top_level_keys, dispatch_feedback, run_single_simulation,
++    ExplorerConfig, ReplayCut, RunAttribution, RunOutcome, SessionSummary, SingleRunConfig,
++    StepCtx, StepReport, Strategy, WriteCutDelivery, check_top_level_keys, dispatch_feedback,
++    run_single_simulation,
+ };
+ use crate::simulator::feedback::{
+     CfgFeedback, CoverageConfig, Feedback, FeedbackMode, FullFeedback, NoFeedback, TimelineFeedback,
+ };
+ use crate::simulator::history::{HistoryWriter, LogBackend, create_writer};
+-use crate::simulator::replay_corpus::{self, Corpus, Seed};
++use crate::simulator::replay_corpus::{self, Corpus, Seed, WriteChild};
+ use crate::simulator::rng::{LiveRng, RecordRng, ReplayRng, SCHEDULE_SALT, WORKLOAD_SALT, derive_seed};
+ use crate::simulator::run_variant;
+-use crate::simulator::util_stats;
++use crate::simulator::util_stats::{self, WriteRingChildRun};
+ use log::{error, info};
+ use rayon::prelude::*;
+ use serde::{Deserialize, Serialize};
+@@ -375,8 +376,10 @@ impl<F: Feedback> Arm for StrategyArm<F> {
+ /// Every fresh run records its scheduling draws. A fresh run that fires the
+ /// fault-crossing signal enters the arm's replay corpus with its draws cut
+ /// at the signal, and a run whose id is a replay slot becomes a child of the
+-/// next parent in turn when the corpus holds one. Only fresh runs advance
+-/// the grid cursor, so children do not thin the grid's coverage.
++/// next parent in turn when the corpus holds one. A fresh run that fires the
++/// write signal enters the arm's write ring the same way, cut at that
++/// signal, and serves the write slots. Only fresh runs advance the grid
++/// cursor, so children do not thin the grid's coverage.
+ pub(crate) struct GridArm<F: Feedback> {
+     config: ExplorerConfig,
+     configs: Vec<SingleRunConfig>,
+@@ -385,19 +388,22 @@ pub(crate) struct GridArm<F: Feedback> {
+     batch_size: usize,
+     arm_seed: u64,
+     corpus: Corpus<SingleRunConfig>,
++    write_corpus: Corpus<SingleRunConfig>,
+ }
+ 
+ /// What one run of a grid-arm batch is.
+ enum GridRun {
+     Fresh { config_index: usize },
+     Child { seed: Seed<SingleRunConfig>, prefix: bool },
++    WriteChild { seed: Seed<SingleRunConfig>, uniform: bool },
+ }
+ 
+-/// What a grid-arm run hands back: its score, and the corpus entry it earned
+-/// when it was a fresh run that fired the signal.
++/// What a grid-arm run hands back: its score, and the ring entries it earned
++/// when it was a fresh run that fired a signal.
+ struct GridOutcome {
+     score: Option<f64>,
+     admit: Option<Seed<SingleRunConfig>>,
++    admit_write: Option<Seed<SingleRunConfig>>,
+ }
+ 
+ impl<F: Feedback> GridArm<F> {
+@@ -411,6 +417,7 @@ impl<F: Feedback> GridArm<F> {
+             batch_size,
+             arm_seed,
+             corpus: Corpus::new(),
++            write_corpus: Corpus::new(),
+         }
+     }
+ 
+@@ -424,6 +431,17 @@ impl<F: Feedback> GridArm<F> {
+         if !replay_corpus::is_slot(run_id) {
+             return self.fresh();
+         }
++        if replay_corpus::is_write_slot(run_id) {
++            match self.write_corpus.next_child() {
++                Some(seed) => {
++                    return GridRun::WriteChild {
++                        seed,
++                        uniform: replay_corpus::is_uniform_suffix(run_id),
++                    };
++                }
++                None => util_stats::record_write_ring_slot_unfilled(),
++            }
++        }
+         match self.corpus.next_child() {
+             Some(seed) => GridRun::Child {
+                 seed,
+@@ -454,6 +472,7 @@ impl<F: Feedback> GridArm<F> {
+                     workload_seed,
+                     schedule_seed,
+                     None,
++                    None,
+                     &ctx.attribution
+                         .with_config(config_index)
+                         .with_variant_bits(bits),
+@@ -462,18 +481,30 @@ impl<F: Feedback> GridArm<F> {
+                     Ok(r) => {
+                         let tape = r.recording.unwrap_or_default();
+                         util_stats::record_replay_tape_words(tape.len() as u64);
+-                        let admit = r.cut.and_then(|cut| {
++                        let seed = |cut: ReplayCut| {
+                             cut.tape_pos.map(|pos| Seed {
+                                 tape: tape[..pos.min(tape.len())].into(),
+                                 workload_seed,
+                                 cfg: self.configs[config_index].clone(),
+                                 config_index,
+                                 cut_step: cut.step,
++                                parent_run_id: run_id,
++                                arms: r.arms,
+                             })
+-                        });
++                        };
++                        let admit = r.cut.and_then(seed);
++                        // A probe's id-keyed draws make its child a probe
++                        // too, and a replayed run may not feed the probes'
++                        // learners, so a probe is never a write parent.
++                        let probe = run_variant::probe_bits(run_id) != 0;
++                        if probe && r.write_cut.is_some() {
++                            util_stats::record_write_ring_probe_parent_skipped();
++                        }
++                        let admit_write = if probe { None } else { r.write_cut.and_then(seed) };
+                         GridOutcome {
+                             score: Some(r.score),
+                             admit,
++                            admit_write,
+                         }
+                     }
+                     Err(e) => {
+@@ -481,6 +512,7 @@ impl<F: Feedback> GridArm<F> {
+                         GridOutcome {
+                             score: None,
+                             admit: None,
++                            admit_write: None,
+                         }
+                     }
+                 }
+@@ -501,6 +533,7 @@ impl<F: Feedback> GridArm<F> {
+                         seed.workload_seed,
+                         schedule_seed,
+                         Some(seed.tape.clone()),
++                        None,
+                         &attribution,
+                     )
+                 } else {
+@@ -514,6 +547,7 @@ impl<F: Feedback> GridArm<F> {
+                         seed.workload_seed,
+                         schedule_seed,
+                         None,
++                        None,
+                         &attribution,
+                     )
+                 };
+@@ -521,9 +555,18 @@ impl<F: Feedback> GridArm<F> {
+                     Ok(r) => {
+                         let faithful = *prefix && r.cut.is_some_and(|c| c.step == seed.cut_step);
+                         util_stats::record_replay_child(*prefix, r.cut.is_some(), faithful);
++                        // The plan-only children outside the write slots
++                        // are the write children's control.
++                        if !*prefix && !replay_corpus::is_write_slot(run_id) {
++                            util_stats::record_write_ring_control_child(
++                                r.outcome.steps_used(seed.cfg.max_iterations).max(0) as u64,
++                                matches!(r.outcome, RunOutcome::Completed { .. }),
++                            );
++                        }
+                         GridOutcome {
+                             score: Some(r.score),
+                             admit: None,
++                            admit_write: None,
+                         }
+                     }
+                     Err(e) => {
+@@ -531,6 +574,61 @@ impl<F: Feedback> GridArm<F> {
+                         GridOutcome {
+                             score: None,
+                             admit: None,
++                            admit_write: None,
++                        }
++                    }
++                }
++            }
++            GridRun::WriteChild { seed, uniform } => {
++                let attribution = ctx
++                    .attribution
++                    .with_config(seed.config_index)
++                    .with_variant_bits(bits);
++                let child = WriteChild {
++                    parent_run_id: seed.parent_run_id,
++                    arms: seed.arms,
++                    cut_step: seed.cut_step,
++                    uniform_suffix: *uniform,
++                };
++                let result = run_single_simulation::<F, ReplayRng>(
++                    ctx.program,
++                    ctx.writer,
++                    &self.global_state,
++                    run_id,
++                    &seed.cfg,
++                    weights,
++                    seed.workload_seed,
++                    schedule_seed,
++                    Some(seed.tape.clone()),
++                    Some(&child),
++                    &attribution,
++                );
++                match result {
++                    Ok(r) => {
++                        util_stats::record_write_ring_child(&WriteRingChildRun {
++                            signal_fired: r.write_cut.is_some(),
++                            faithful: r.write_cut.is_some_and(|c| c.step == seed.cut_step),
++                            steps: r.outcome.steps_used(seed.cfg.max_iterations).max(0) as u64,
++                            plan_complete: matches!(r.outcome, RunOutcome::Completed { .. }),
++                            uniform_suffix: *uniform,
++                            switched: r.uniform_switched,
++                            first_delivery_stale: match r.write_delivery {
++                                Some(WriteCutDelivery::Seen { stale }) => Some(stale),
++                                _ => None,
++                            },
++                        });
++                        GridOutcome {
++                            score: Some(r.score),
++                            admit: None,
++                            admit_write: None,
++                        }
++                    }
++                    Err(e) => {
++                        error!("Campaign run {} failed: {}", run_id, e);
++                        GridOutcome {
++                            score: None,
++                            admit: None,
++                            admit_write: None,
+                         }
+                     }
+                 }
+@@ -570,6 +668,10 @@ impl<F: Feedback> Arm for GridArm<F> {
+                 self.corpus.admit(seed);
+                 util_stats::record_replay_parent_admitted();
+             }
++            if let Some(seed) = outcome.admit_write {
++                util_stats::record_write_ring_parent_admitted(seed.cut_step);
++                self.write_corpus.admit(seed);
++            }
+         }
+         StepReport {
+             runs: count as u64,
+@@ -1353,4 +1455,126 @@ mod tests {
+         assert_eq!(Reward::Runs.read(&delta), 9.0);
+         assert_eq!(Reward::HazardCrossing.read(&delta), 0.0);
+     }
++
++    fn ring_seed(tag: i64) -> Seed<SingleRunConfig> {
++        let config: ExplorerConfig = serde_json::from_str(MINIMAL).expect("parses");
++        Seed {
++            tape: vec![tag as u64].into(),
++            workload_seed: tag as u64,
++            cfg: config.expand_grid().remove(0),
++            config_index: 0,
++            cut_step: tag as i32,
++            parent_run_id: tag,
++            arms: run_variant::ArmSet::default(),
++        }
++    }
++
++    fn arm_with(ghost_parents: i64, write_parents: i64) -> GridArm<NoFeedback> {
++        let config: ExplorerConfig = serde_json::from_str(MINIMAL).expect("parses");
++        let mut arm = GridArm::<NoFeedback>::new(config, 8, 1);
++        for tag in 0..ghost_parents {
++            arm.corpus.admit(ring_seed(tag));
++        }
++        for tag in 0..write_parents {
++            arm.write_corpus.admit(ring_seed(1_000_000 + tag));
++        }
++        arm
++    }
++
++    /// A write slot takes the write ring's child when the ring holds one,
++    /// falls through to the ghost ring's plan-only child when it is empty,
++    /// and runs fresh when both rings are empty; prefix slots and the other
++    /// plan-only half never touch the write ring.
++    #[test]
++    fn write_slots_take_write_children_and_fall_through_when_the_ring_is_empty() {
++        let _serial = config_override::exclusive_session();
++        let ids: Vec<i64> = (0..1_000).collect();
++        let slots = ids.iter().filter(|&&id| replay_corpus::is_slot(id)).count();
++        let write_slots = ids.iter().filter(|&&id| replay_corpus::is_write_slot(id)).count();
++        assert!(write_slots > 50, "the id range holds {write_slots} write slots");
++        let served = replay_corpus::CAPACITY * replay_corpus::CHILDREN_PER_PARENT as usize;
++        assert!(served > slots, "a full ring serves every slot of the range");
++
++        let mut arm = arm_with(replay_corpus::CAPACITY as i64, replay_corpus::CAPACITY as i64);
++        let mut write_children = 0;
++        for &id in &ids {
++            match arm.assign(id) {
++                GridRun::WriteChild { seed, uniform } => {
++                    assert!(
++                        replay_corpus::is_write_slot(id),
++                        "run {id}: a write child outside a write slot"
++                    );
++                    assert!(
++                        seed.parent_run_id >= 1_000_000,
++                        "run {id}: a ghost parent served a write slot"
++                    );
++                    assert_eq!(uniform, replay_corpus::is_uniform_suffix(id));
++                    write_children += 1;
++                }
++                GridRun::Child { seed, prefix } => {
++                    assert!(replay_corpus::is_slot(id) && !replay_corpus::is_write_slot(id));
++                    assert_eq!(prefix, replay_corpus::is_prefix(id));
++                    assert!(
++                        seed.parent_run_id < 1_000_000,
++                        "run {id}: a write parent served the ghost ring"
++                    );
++                }
++                GridRun::Fresh { .. } => {
++                    assert!(
++                        !replay_corpus::is_slot(id),
++                        "run {id}: a slot ran fresh with full rings"
++                    );
++                }
++            }
++        }
++        assert_eq!(write_children, write_slots);
++
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().replay.write_ring.slots_unfilled;
++        let mut arm = arm_with(replay_corpus::CAPACITY as i64, 0);
++        let mut fell_through = 0;
++        for &id in &ids {
++            match arm.assign(id) {
++                GridRun::WriteChild { .. } => panic!("run {id}: a child from an empty write ring"),
++                GridRun::Child { seed, prefix } => {
++                    assert!(replay_corpus::is_slot(id));
++                    assert_eq!(prefix, replay_corpus::is_prefix(id));
++                    assert!(seed.parent_run_id < 1_000_000);
++                    if replay_corpus::is_write_slot(id) {
++                        assert!(!prefix, "run {id}: a write slot fell through to a prefix child");
++                        fell_through += 1;
++                    }
++                }
++                GridRun::Fresh { .. } => assert!(!replay_corpus::is_slot(id)),
++            }
++        }
++        assert_eq!(fell_through, write_slots);
++        let after = util_stats::snapshot().replay.write_ring.slots_unfilled;
++        assert_eq!(after - before, write_slots as u64, "each empty write slot is counted");
++        util_stats::set_enabled(false);
++
++        let mut arm = arm_with(0, 0);
++        for &id in &ids {
++            assert!(
++                matches!(arm.assign(id), GridRun::Fresh { .. }),
++                "run {id}: a child with both rings empty"
++            );
++        }
++    }
++
++    /// The write ring admits what a fresh run earned at the write signal
++    /// and drops its oldest parent at capacity, apart from the ghost ring.
++    #[test]
++    fn the_write_ring_is_its_own_ring() {
++        let config: ExplorerConfig = serde_json::from_str(MINIMAL).expect("parses");
++        let mut arm = GridArm::<NoFeedback>::new(config, 8, 1);
++        for tag in 0..(replay_corpus::CAPACITY as i64 + 2) {
++            arm.write_corpus.admit(ring_seed(1_000_000 + tag));
++        }
++        assert_eq!(arm.write_corpus.len(), replay_corpus::CAPACITY);
++        assert!(arm.corpus.is_empty(), "a write parent entered the ghost ring");
++        let first = arm.write_corpus.next_child().expect("a full ring");
++        assert_eq!(first.parent_run_id, 1_000_002, "the two oldest parents were dropped");
++        assert_eq!(first.cut_step, 1_000_002 as i32);
++    }
+ }
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index a1732e6..00d8813 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -8,7 +8,7 @@ use crate::simulator::core::queue_selector::{
+ };
+ use crate::simulator::core::state::{
+     Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, Record, ReplayCut, Runnable,
+-    RunnableCategory, SchedulePolicy, ScheduleResult, State,
++    RunnableCategory, SchedulePolicy, ScheduleResult, State, WriteCutDelivery,
+ };
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+ use crate::simulator::core::values::{Env, Value};
+@@ -1635,6 +1635,15 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             );
+                         }
+                     }
++                    if message_entry
++                        && let Some(WriteCutDelivery::Awaiting { target }) =
++                            state.write_cut_delivery
++                        && target == record_dest.index
++                    {
++                        state.write_cut_delivery = Some(WriteCutDelivery::Seen {
++                            stale: state.fault_crossing(record_origin, r.origin_incarnation),
++                        });
++                    }
+                     // A delivery from a sender that is down, or that restarted
+                     // since sending, marks its receiver as having absorbed
+                     // state from an incarnation that no longer exists.
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index e137dff..8d63f54 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -658,6 +658,19 @@ pub struct State<H: HashPolicy> {
+     /// number of scheduling draws taken by then when the run records its
+     /// draws. Observation only, excluded from `signature()`.
+     pub replay_cut: Option<ReplayCut>,
++    /// Where the write signal fired, when it did: the first client operation
++    /// invoked at a server that never restarted, with no crash queued, after
++    /// two servers had restarted, while records from dead incarnations of
++    /// two distinct origins were still addressed to it. Observation only,
++    /// excluded from `signature()`.
++    pub write_cut: Option<ReplayCut>,
++    /// What has reached the write signal's target since the signal.
++    /// Observation only, excluded from `signature()`.
++    pub write_cut_delivery: Option<WriteCutDelivery>,
++    /// Whether this run replaced its within-queue selector with the uniform
++    /// one at the reproduced write signal. Observation only, excluded from
++    /// `signature()`.
++    pub uniform_switched: bool,
+     /// Whether some message entry in the run came from a dead incarnation
+     /// of a restarted sender, landed on a restarted destination that had
+     /// already heard from the sender's current incarnation, and wrote the
+@@ -714,6 +727,15 @@ pub struct ReplayCut {
+     pub tape_pos: Option<usize>,
+ }
+ 
++/// The first message entry at the write signal's target after the signal:
++/// still awaited, or seen and classed by whether its sender was down or had
++/// restarted since sending.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum WriteCutDelivery {
++    Awaiting { target: usize },
++    Seen { stale: bool },
++}
++
+ /// One node's send bookkeeping. `issued` numbers the node's sends; `floor`
+ /// is `issued` at the node's last handler entry, so a record with
+ /// `send_ordinal >= floor` was sent by that handler. `in_flight` counts the
+@@ -852,6 +874,9 @@ impl<H: HashPolicy> State<H> {
+             pair_order: pair_order::RunState::default(),
+             client_anchor: client_anchor::RunState::default(),
+             replay_cut: None,
++            write_cut: None,
++            write_cut_delivery: None,
++            uniform_switched: false,
+             overtaken_ghost_acted: false,
+             absorber_cycle_fresh_peer: false,
+             absorber_cycle_closed_step: None,
+@@ -1188,6 +1213,44 @@ impl<H: HashPolicy> State<H> {
+         self.crash_info.currently_crashed.contains(&origin) || sent_at != self.incarnation(origin)
+     }
+ 
++    /// Whether a client operation invoked now at server `target` meets the
++    /// write signal: the target never restarted and has no crash queued, at
++    /// least two of the first `num_servers` nodes have restarted, and the
++    /// network queue holds fault-crossing records addressed to the target
++    /// from at least two distinct remote origins.
++    pub fn write_signal(&self, target: usize, num_servers: usize) -> bool {
++        if self.incarnation_at(target) != 0
++            || self.send_ledger.get(target).is_none_or(|l| l.crash_pending != 0)
++        {
++            return false;
++        }
++        let restarted = self
++            .incarnations
++            .iter()
++            .take(num_servers)
++            .filter(|&&i| i > 0)
++            .count();
++        if restarted < 2 {
++            return false;
++        }
++        let mut origins: Vec<usize> = Vec::new();
++        for r in &self.network_queue {
++            let Runnable::Record(rec) = r else { continue };
++            if rec.node.index != target
++                || rec.origin_node.index == target
++                || !self.fault_crossing(rec.origin_node, rec.origin_incarnation)
++                || origins.contains(&rec.origin_node.index)
++            {
++                continue;
++            }
++            origins.push(rec.origin_node.index);
++            if origins.len() >= 2 {
++                return true;
++            }
++        }
++        false
++    }
++
+     /// `node` took a fault-crossing delivery at `step`; `before` is the
+     /// node's state token from just before the handler ran, so the mark
+     /// records whether the delivery wrote anything.
+@@ -2097,4 +2160,85 @@ mod ledger_tests {
+         assert_eq!(st.send_ledger[0].recent, 1, "removing the early send leaves recent alone");
+         assert_exact(&st, "after removing the early send");
+     }
++
++    /// Node 0 never restarted, nodes 1 and 2 restarted with one record each
++    /// of their dead incarnations still addressed to node 0.
++    fn stranded_state() -> State<NoHashing> {
++        let mut st = state();
++        let target = node(SERVER, 0);
++        for origin in [node(SERVER, 1), node(SERVER, 2)] {
++            let rec = record(&mut st, origin, target);
++            st.push_runnable(Runnable::Record(rec));
++        }
++        st.incarnations[1] = 1;
++        st.incarnations[2] = 1;
++        st
++    }
++
++    /// The write signal needs a never-restarted target with no crash queued,
++    /// two restarted servers, and fault-crossing records to the target from
++    /// two distinct remote origins; each condition is necessary on its own.
++    #[test]
++    fn the_write_signal_needs_each_of_its_conditions() {
++        let st = stranded_state();
++        assert!(st.write_signal(0, 3), "the stranded state fires");
++        assert!(!st.write_signal(1, 3), "a restarted target");
++        assert!(!st.write_signal(2, 3), "a restarted target with nothing addressed to it");
++
++        let mut st = stranded_state();
++        st.incarnations[0] = 1;
++        assert!(!st.write_signal(0, 3), "a target that restarted");
++
++        let mut st = stranded_state();
++        st.push_runnable(Runnable::Crash {
++            node_id: node(SERVER, 0),
++            priority: 0.5,
++        });
++        assert!(!st.write_signal(0, 3), "a target with a crash queued");
++
++        let mut st = stranded_state();
++        st.incarnations[2] = 0;
++        st.crash_info.currently_crashed.insert(node(SERVER, 2));
++        assert!(!st.write_signal(0, 3), "one restarted server, even with two stranded origins");
++
++        let mut st = stranded_state();
++        st.incarnations[2] = 0;
++        st.crash_info.currently_crashed.insert(node(SERVER, 2));
++        st.incarnations[3] = 1;
++        assert!(!st.write_signal(0, 3), "a restarted client is not a restarted server");
++        assert!(st.write_signal(0, 4), "counted as a server it would be");
++
++        let mut st = state();
++        let target = node(SERVER, 0);
++        for _ in 0..2 {
++            let rec = record(&mut st, node(SERVER, 1), target);
++            st.push_runnable(Runnable::Record(rec));
++        }
++        st.incarnations[1] = 1;
++        st.incarnations[2] = 1;
++        assert!(!st.write_signal(0, 3), "two stranded records of one origin");
++
++        let mut st = state();
++        let rec = record(&mut st, node(SERVER, 1), target);
++        st.push_runnable(Runnable::Record(rec));
++        st.incarnations[1] = 1;
++        st.incarnations[2] = 1;
++        let rec = record(&mut st, node(SERVER, 2), target);
++        st.push_runnable(Runnable::Record(rec));
++        assert!(!st.write_signal(0, 3), "a record of the second origin's current incarnation");
++
++        let mut st = state();
++        let rec = record(&mut st, node(SERVER, 1), target);
++        st.push_runnable(Runnable::Record(rec));
++        let rec = record(&mut st, node(SERVER, 2), node(SERVER, 1));
++        st.push_runnable(Runnable::Record(rec));
++        st.incarnations[1] = 1;
++        st.incarnations[2] = 1;
++        assert!(!st.write_signal(0, 3), "the second origin's record is addressed elsewhere");
++
++        let mut st = stranded_state();
++        let taken = st.take_network(0);
++        assert!(matches!(taken, Runnable::Record(_)));
++        assert!(!st.write_signal(0, 3), "one stranded origin left once a record is delivered");
++    }
+ }
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index b8c762d..8904a9f 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -5,7 +5,7 @@ use crate::simulator::core::{
+     Env, Logger, NodeId, PurgatoryConfig, QueuePolicyConfig, RuntimeError, SchedulePolicy, State,
+     Value, WithinQueueSelector, exec_sync_on_node, make_local_env,
+ };
+-pub use crate::simulator::core::ReplayCut;
++pub use crate::simulator::core::{ReplayCut, WriteCutDelivery};
+ pub use crate::simulator::coverage::GlobalState;
+ use crate::simulator::curriculum::{Curriculum, lower};
+ pub use crate::simulator::feedback::{CoverageConfig, NoFeedback};
+@@ -21,6 +21,7 @@ use crate::simulator::path::generator::{GeneratorConfig, generate_plan};
+ use crate::simulator::path::plan::ExecutionPlan;
+ pub use crate::simulator::path::RunOutcome;
+ use crate::simulator::path::{PathState, Topology, TopologyInfo, exec_plan};
++use crate::simulator::replay_corpus::WriteChild;
+ use crate::simulator::rng::{
+     LiveRng, RecRng, RecordRng, Recording, ReplayRng, RngSource, SCHEDULE_SALT, StreamRng,
+     StreamSet, WORKLOAD_SALT, derive_seed, mutate_tape,
+@@ -906,6 +907,16 @@ pub struct RunResult {
+     pub tuples: HashSet<TimelineTuple>,
+     pub outcome: RunOutcome,
+     pub cut: Option<ReplayCut>,
++    /// Where the write signal fired, when it did.
++    pub write_cut: Option<ReplayCut>,
++    /// The first message entry at the write signal's target after the
++    /// signal, when the signal fired.
++    pub write_delivery: Option<WriteCutDelivery>,
++    /// Whether the run switched to the uniform within-queue selector at
++    /// the reproduced write signal.
++    pub uniform_switched: bool,
++    /// The arm set the run ran under.
++    pub arms: ArmSet,
+ }
+ 
+ /// Which strategy issued a run, for the `runs` table. A single-strategy
+@@ -969,6 +980,7 @@ fn session_elapsed_ms() -> i64 {
+ 
+ fn run_row(
+     run_id: i64,
++    draw_id: i64,
+     attribution: &RunAttribution,
+     workload_seed: u64,
+     schedule_seed: u64,
+@@ -980,12 +992,13 @@ fn run_row(
+     learner: Option<arm_selector::Learner>,
+     crash_hold_drawn: bool,
+ ) -> crate::simulator::history::PersistableRun {
+-    let (steps_used, end_reason) = match outcome {
+-        RunOutcome::Completed { steps } => (*steps, "plan_complete"),
+-        RunOutcome::Deadlock { step, .. } => (*step, "deadlock"),
+-        RunOutcome::IterationsExhausted { .. } => (max_iterations, "iterations_exhausted"),
+-        RunOutcome::LearnedCapReached { cap, .. } => (*cap, "learned_cap_reached"),
+-        RunOutcome::StallCapReached { step, .. } => (*step, "stall_cap_reached"),
++    let steps_used = outcome.steps_used(max_iterations);
++    let end_reason = match outcome {
++        RunOutcome::Completed { .. } => "plan_complete",
++        RunOutcome::Deadlock { .. } => "deadlock",
++        RunOutcome::IterationsExhausted { .. } => "iterations_exhausted",
++        RunOutcome::LearnedCapReached { .. } => "learned_cap_reached",
++        RunOutcome::StallCapReached { .. } => "stall_cap_reached",
+     };
+     crate::simulator::history::PersistableRun {
+         run_id,
+@@ -1005,7 +1018,7 @@ fn run_row(
+         timers_idle_fired: timers.idle_fired as i32,
+         timers_idle_acted: timers.idle_acted as i32,
+         max_inert_streak: timers.max_inert_streak as i32,
+-        variant: crate::simulator::run_variant::of(run_id, arms, learner, crash_hold_drawn)
++        variant: crate::simulator::run_variant::of(draw_id, arms, learner, crash_hold_drawn)
+             | run_variant::recover_deps_bits(RecoverDeps::of_workload_seed(workload_seed))
+             | attribution.variant_bits,
+     }
+@@ -1014,7 +1027,9 @@ fn run_row(
+ /// Runs a single simulation configuration. `S` selects the RNG strategy
+ /// (`LiveRng` for plain explore; `RecordRng`/`ReplayRng` for RnR). Workload and
+ /// schedule seeds are supplied by the caller (derived from `(session_seed,
+-/// run_id)`); `seed_tape` is the recording to replay, if any.
++/// run_id)`); `seed_tape` is the recording to replay, if any. A write-ring
++/// child passes `write_child`: it takes its parent's arm set and every draw
++/// keyed on a run id under the parent's id, and feeds no learner.
+ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     program: &Program,
+     writer: &Arc<dyn HistoryWriter>,
+@@ -1025,6 +1040,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     workload_seed: u64,
+     schedule_seed: u64,
+     seed_tape: Option<Recording>,
++    write_child: Option<&WriteChild>,
+     attribution: &RunAttribution,
+ ) -> Result<RunResult, Box<dyn Error>> {
+     let started = std::time::Instant::now();
+@@ -1118,8 +1134,15 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     // The arms are drawn before the plan runs and read nothing from the
+     // run's schedule stream.
+     let cell = arm_selector::cell(attribution.arm_index, attribution.config_index);
+-    let choice = arm_selector::choose(run_id, schedule_seed, attribution.arm_index, cell);
++    let choice = match write_child {
++        Some(child) => arm_selector::Choice {
++            arms: child.arms,
++            learner: None,
++        },
++        None => arm_selector::choose(run_id, schedule_seed, attribution.arm_index, cell),
++    };
+     let arms = choice.arms;
++    let draw_id = write_child.map_or(run_id, |c| c.parent_run_id);
+     let outcome = exec_plan::<crate::simulator::hash_utils::NoHashing, F>(
+         &mut path_state,
+         program.clone(),
+@@ -1137,28 +1160,32 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         &config.purgatory,
+         config.partial_fanout_crash_bias,
+         &arms,
++        write_child,
+         &mut rec,
+     )?;
+     // A replay slot's prefix carries its parent's ghost signal, so the
+-    // signal is not read on it.
++    // signal is not read on it. A write-ring child ran under its parent's
++    // draws and feeds no learner.
+     let replay_slot = attribution.variant_bits & run_variant::REPLAY_SLOT != 0;
+-    arm_selector::observe(
+-        attribution.arm_index,
+-        cell,
+-        run_id,
+-        &choice,
+-        &arm_selector::Rewards {
+-            overtaken_ghost: path_state.state.overtaken_ghost_acted,
+-            absorber_cycle: path_state.state.absorber_cycle_fresh_peer,
+-            mutual_absorber_cycle: path_state.state.mutual_absorber_cycle,
+-            ghost_signal: (!replay_slot).then_some(path_state.state.replay_cut.is_some()),
+-            cycle_before_request: path_state.state.cycle_before_request(),
+-            exchange_before_request: path_state.state.exchange_before_request,
+-            first_post_fault_request_entry_step: path_state
+-                .state
+-                .first_post_fault_request_entry_step,
+-        },
+-    );
++    if write_child.is_none() {
++        arm_selector::observe(
++            attribution.arm_index,
++            cell,
++            run_id,
++            &choice,
++            &arm_selector::Rewards {
++                overtaken_ghost: path_state.state.overtaken_ghost_acted,
++                absorber_cycle: path_state.state.absorber_cycle_fresh_peer,
++                mutual_absorber_cycle: path_state.state.mutual_absorber_cycle,
++                ghost_signal: (!replay_slot).then_some(path_state.state.replay_cut.is_some()),
++                cycle_before_request: path_state.state.cycle_before_request(),
++                exchange_before_request: path_state.state.exchange_before_request,
++                first_post_fault_request_entry_step: path_state
++                    .state
++                    .first_post_fault_request_entry_step,
++            },
++        );
++    }
+ 
+     if let RunOutcome::Deadlock { step, pending_ops } = &outcome {
+         warn!(
+@@ -1182,6 +1209,7 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     writer.write(run_id, serialized, serialized_logs, serialized_traces);
+     writer.write_run(run_row(
+         run_id,
++        draw_id,
+         attribution,
+         workload_seed,
+         schedule_seed,
+@@ -1200,6 +1228,10 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         tuples,
+         outcome,
+         cut: path_state.state.replay_cut,
++        write_cut: path_state.state.write_cut,
++        write_delivery: path_state.state.write_cut_delivery,
++        uniform_switched: path_state.state.uniform_switched,
++        arms,
+     })
+ }
+ 
+@@ -1336,6 +1368,7 @@ fn run_explorer_impl<F: Feedback>(
+                 derive_seed(config.session_seed, run_id, WORKLOAD_SALT),
+                 derive_seed(config.session_seed, run_id, SCHEDULE_SALT),
+                 None,
++                None,
+                 &attribution.with_config(config_index),
+             ) {
+                 Ok(_) => {
+@@ -1477,6 +1510,7 @@ fn run_single_plan<F: Feedback>(
+         purgatory_config,
+         partial_fanout_crash_bias,
+         &arms,
++        None,
+         &mut rng,
+     )?;
+ 
+@@ -1495,6 +1529,7 @@ fn run_single_plan<F: Feedback>(
+     let serialized_traces = serialize_traces(std::mem::take(&mut path_state.logs.traces));
+     writer.write(run_id, serialized, serialized_logs, serialized_traces);
+     writer.write_run(run_row(
++        run_id,
+         run_id,
+         attribution,
+         0,
+@@ -1696,6 +1731,7 @@ fn run_explorer_genetic_impl<F: Feedback>(
+                     derive_seed(config.session_seed, run_id, WORKLOAD_SALT),
+                     derive_seed(config.session_seed, run_id, SCHEDULE_SALT),
+                     None,
++                    None,
+                     &RunAttribution::mode("genetic"),
+                 );
+                 match result {
+@@ -1993,6 +2029,7 @@ fn run_recorded<F: Feedback>(
+         workload_seed,
+         derive_seed(session_seed, run_id, SCHEDULE_SALT),
+         None,
++        None,
+         attribution,
+     );
+     package_child(Operator::ConfigMutate, cfg, workload_seed, run_id, r)
+@@ -2027,6 +2064,7 @@ fn run_aos_child<F: Feedback>(
+                 parent.workload_seed,
+                 derive_seed(session, run_id, SCHEDULE_SALT),
+                 Some(mutated),
++                None,
+                 attribution,
+             );
+             package_child(op, parent.cfg.clone(), parent.workload_seed, run_id, r)
+@@ -2376,6 +2414,7 @@ impl<F: Feedback> Strategy<F> for CurriculumExplorer<F> {
+                     derive_seed(ctx.session_seed, *run_id, WORKLOAD_SALT),
+                     derive_seed(ctx.session_seed, *run_id, SCHEDULE_SALT),
+                     None,
++                    None,
+                     ctx.attribution,
+                 ) {
+                     Ok(r) => r.score,
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 0dd437f..cf685c3 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -3,9 +3,9 @@ use crate::compiler::cfg::{Program, Vertex};
+ use crate::simulator::core::steer_terms::ResolvedTerms;
+ use crate::simulator::core::{
+     Continuation, Env, LogEntry, Logger, NodeId, OpKind, Operation, PurgatoryConfig,
+-    QueuePolicyConfig, Record, Reservation, Runnable, RunnableCategory,
++    QueuePolicyConfig, Record, ReplayCut, Reservation, Runnable, RunnableCategory,
+     RuntimeError, SchedulePolicy, ScheduleResult, State, TraceEntry, Value, WithinQueueSelector,
+-    make_local_env, schedule_runnable,
++    WriteCutDelivery, make_local_env, schedule_runnable,
+ };
+ use crate::simulator::client_anchor::{self, HoldQueue, Released};
+ use crate::simulator::coverage::GlobalState;
+@@ -17,6 +17,7 @@ use crate::simulator::path::plan::{
+ use crate::simulator::fault_timing;
+ use crate::simulator::pair_order as pair_order_split;
+ use crate::simulator::ghost_release;
++use crate::simulator::replay_corpus::WriteChild;
+ use crate::simulator::rng::StreamRng;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_variant::{ArmSet, CrashArm};
+@@ -241,6 +242,8 @@ fn validate_node<H: HashPolicy>(
+ /// Hand the planned client request at `plan_node` to a client node. The
+ /// invocation is recorded at the current step, so a request the run held
+ /// back is recorded when it is issued, not when the plan made it ready.
++/// The write signal is read here, before the request's priority is drawn,
++/// so a tape cut at the signal precedes every draw the request causes.
+ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     path_state: &mut PathState<H, F>,
+     program: &Program,
+@@ -248,6 +251,7 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     policy: &SchedulePolicy,
+     purgatory_config: &PurgatoryConfig,
+     server_role: NameId,
++    num_servers: usize,
+     plan_node: NodeIndex,
+     op_spec: &ClientOpSpec,
+     post_fault: bool,
+@@ -320,6 +324,18 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     };
+     validate_node(&path_state.state, target_idx, server_role)?;
+ 
++    if path_state.state.write_cut.is_none()
++        && path_state.state.write_signal(target_idx, num_servers)
++    {
++        path_state.state.write_cut = Some(ReplayCut {
++            step: path_state.state.crash_info.current_step,
++            tape_pos: rng.position(),
++        });
++        path_state.state.write_cut_delivery =
++            Some(WriteCutDelivery::Awaiting { target: target_idx });
++        util_stats::record_write_ring_signal_run();
++    }
++
+     schedule_client_op(
+         &mut path_state.state,
+         &mut path_state.history,
+@@ -352,6 +368,20 @@ pub enum RunOutcome {
+     },
+ }
+ 
++impl RunOutcome {
++    /// The steps the run took: the step it ended at, or the whole budget
++    /// `max_iterations` when it ran out.
++    pub fn steps_used(&self, max_iterations: i32) -> i32 {
++        match self {
++            RunOutcome::Completed { steps } => *steps,
++            RunOutcome::Deadlock { step, .. } => *step,
++            RunOutcome::IterationsExhausted { .. } => max_iterations,
++            RunOutcome::LearnedCapReached { cap, .. } => *cap,
++            RunOutcome::StallCapReached { step, .. } => *step,
++        }
++    }
++}
++
+ /// How a run spent its steps: how many released a runnable, how many offered
+ /// queued work the scheduler released none of, and how many had nothing queued
+ /// at all. `tail_without_release` is the run of steps up to the current one
+@@ -495,14 +525,19 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     purgatory_config: &PurgatoryConfig,
+     partial_fanout_crash_bias: f64,
+     arms: &ArmSet,
++    write_child: Option<&WriteChild>,
+     rng: &mut impl StreamRng,
+ ) -> Result<RunOutcome, RuntimeError> {
+     util_stats::begin_run();
++    // A write-ring child takes every draw keyed on a run id under its
++    // parent's id, so the replayed tape meets the mechanisms that produced
++    // it; the run keeps its own id for its rows and logs.
++    let draw_id = write_child.map_or(run_id, |c| c.parent_run_id);
+     path_state.state.retarget.enabled = arms.retarget;
+     // The bound is read once here so the scheduler needs no learner access
+     // of its own.
+     path_state.state.ghost_release = ghost_release::RunState::at_run_start(
+-        run_id,
++        draw_id,
+         max_iterations,
+         arms.placed(),
+         arms.crash == CrashArm::PlacedPhase,
+@@ -517,32 +552,36 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     // waiting out their hold, and the last step at which a window opened.
+     let mut held: HoldQueue<(NodeIndex, ClientOpSpec)> = HoldQueue::default();
+     let mut last_window_step: Option<i32> = None;
+-    let census = util_stats::enabled() && pair_order_split::is_census_run(run_id);
++    let census = util_stats::enabled() && pair_order_split::is_census_run(draw_id);
+     path_state.state.pair_order.census = census;
+     if census {
+         util_stats::record_pair_order_census_run(pair_order);
+     }
+     let backup = max_iterations;
+-    let is_probe = run_cap::is_probe(run_id);
++    let is_probe = run_cap::is_probe(draw_id);
+     let effective_cap = if is_probe {
+         backup
+     } else {
+         run_cap::effective_cap(backup)
+     };
+-    let timer_ctx_mode = timer_context::run_mode(run_id);
++    let timer_ctx_mode = timer_context::run_mode(draw_id);
+     // The stall cap is frozen at run start like the step cap. Every cell
+     // keeps the clock; only the treated cell is cut by it.
+-    let stall_cell = stall_cap::cell(run_id);
++    let stall_cell = stall_cap::cell(draw_id);
+     let stall_treated = stall_cell == StallCapCell::Treated;
+     let stall_cap_standing = stall_cap::effective_cap(backup);
+     let mut stall_clock = RunClock::default();
+     // A released run settles its in-progress operations once, at its first
+     // stall; `settled` holds their ids so a later real response completes
+     // no plan node twice.
+-    let release_cell = stall_release::cell(run_id);
++    let release_cell = stall_release::cell(draw_id);
+     let mut release_step: Option<i32> = None;
+     let mut settled: HashSet<i32> = HashSet::new();
+     let mut selector = queue_policy.to_selector();
++    // The run's own within-queue selector: the configured one, replaced by
++    // the uniform selector on a uniform-suffix child at the step its replay
++    // reproduces the parent's signal. The replacement draws nothing.
++    let mut within_queue_run = within_queue.clone();
+     let mut op_id_counter = 0i32;
+     let mut in_progress: HashMap<i32, NodeIndex> = HashMap::new();
+     // Plan engine NodeIndex of the queued crash, and of the queued recover,
+@@ -608,6 +647,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         .find(|(_, name)| name == "Node")
+         .map(|(id, _)| *id)
+         .ok_or_else(|| RuntimeError::RoleNotFound("Node".to_string()))?;
++    let num_servers = topology.num_servers.max(0) as usize;
+ 
+     for step in 0..effective_cap {
+         if engine.is_complete() {
+@@ -727,6 +767,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 policy,
+                 purgatory_config,
+                 server_role,
++                num_servers,
+                 plan_node,
+                 &op_spec,
+                 true,
+@@ -761,6 +802,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         policy,
+                         purgatory_config,
+                         server_role,
++                        num_servers,
+                         node_idx,
+                         op_spec,
+                         post_fault,
+@@ -840,6 +882,15 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             }
+         }
+ 
++        if let Some(child) = write_child
++            && child.uniform_suffix
++            && !path_state.state.uniform_switched
++            && path_state.state.write_cut.is_some_and(|c| c.step == child.cut_step)
++        {
++            within_queue_run = WithinQueueSelector::Proportional { exponent: 0.0 };
++            path_state.state.uniform_switched = true;
++        }
++
+         // Build reservations from delivers that are NOT yet ready and NOT completed.
+         // These constrain the scheduler from picking their matching runnables early.
+         let reservations: Vec<Reservation> = all_delivers
+@@ -881,7 +932,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 policy,
+                 strict_timers,
+                 &mut selector,
+-                within_queue,
++                &within_queue_run,
+                 terms,
+                 purgatory_config,
+                 partial_fanout_crash_bias,
+@@ -1299,6 +1350,7 @@ mod tests {
+                 &policy,
+                 &purgatory,
+                 server_role,
++                3,
+                 plan_node,
+                 &spec,
+                 true,
+diff --git a/spur-core/src/simulator/replay_corpus.rs b/spur-core/src/simulator/replay_corpus.rs
+index 7f64781..7a8415a 100644
+--- a/spur-core/src/simulator/replay_corpus.rs
++++ b/spur-core/src/simulator/replay_corpus.rs
+@@ -17,8 +17,17 @@
+ //! empty runs fresh and stays on the treated half. Run-cap probes and
+ //! steer-off timer probes are never slots; their runs feed learners that
+ //! must not carry a replay imprint.
++//!
++//! A second ring of the same shape, the write ring, holds parents cut at
++//! the write signal: a client operation invoked at a server that never
++//! restarted while records from two dead incarnations are still addressed
++//! to it. Its children take a salted half of the plan-only slots and replay
++//! the parent's draws under the parent's run id, so every draw keyed on the
++//! id is the parent's and the replayed tape pins the prefix. A slot whose
++//! write ring is empty falls through to the ghost ring's plan-only child.
+ 
+ use crate::simulator::rng::Recording;
++use crate::simulator::run_variant::ArmSet;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_phase;
+ use crate::simulator::timer_context;
+@@ -28,6 +37,10 @@ use std::collections::VecDeque;
+ const REPLAY_SALT: u64 = 0x_5245_504C_4159_5354; // "REPLAYST"
+ /// Salt for the prefix half of the slots.
+ const PREFIX_SALT: u64 = 0x_5052_4546_4958_5450; // "PREFIXTP"
++/// Salt for the write-ring half of the plan-only slots.
++const WRITE_SALT: u64 = 0x_5752_4954_4552_494E; // "WRITERIN"
++/// Salt for the uniform-suffix half of the write slots.
++const UNIFORM_SALT: u64 = 0x_554E_4946_5346_5558; // "UNIFSFUX"
+ 
+ /// Parents kept per corpus; the oldest is dropped to admit a new one.
+ pub const CAPACITY: usize = 64;
+@@ -48,10 +61,25 @@ pub fn is_prefix(run_id: i64) -> bool {
+     is_slot(run_id) && run_phase::salted_phase(run_id, PREFIX_SALT, 2) == 1
+ }
+ 
++/// Whether this slot's child comes from the write ring rather than the
++/// ghost ring: a salted half of the plan-only slots. Implies `is_slot` and
++/// excludes `is_prefix`.
++pub fn is_write_slot(run_id: i64) -> bool {
++    is_slot(run_id) && !is_prefix(run_id) && run_phase::salted_phase(run_id, WRITE_SALT, 2) == 1
++}
++
++/// Whether this write slot's child runs its suffix under the uniform
++/// within-queue selector once its replay reproduces the signal. Implies
++/// `is_write_slot`.
++pub fn is_uniform_suffix(run_id: i64) -> bool {
++    is_write_slot(run_id) && run_phase::salted_phase(run_id, UNIFORM_SALT, 2) == 1
++}
++
+ /// What a child takes from its parent: the draws up to the signal, the
+ /// workload seed and configuration that make the plan, the parent's place in
+-/// the configuration grid, and the step the signal fired at, which is what a
+-/// faithful prefix child fires at too.
++/// the configuration grid, the step the signal fired at, which is what a
++/// faithful prefix child fires at too, and the parent's run id and arm set,
++/// under which a write-ring child takes every draw keyed on the id.
+ #[derive(Clone, Debug)]
+ pub struct Seed<C> {
+     pub tape: Recording,
+@@ -59,6 +87,22 @@ pub struct Seed<C> {
+     pub cfg: C,
+     pub config_index: usize,
+     pub cut_step: i32,
++    pub parent_run_id: i64,
++    pub arms: ArmSet,
++}
++
++/// What a write-ring child runs under besides its parent's tape. Every draw
++/// keyed on a run id is taken under `parent_run_id` and the arm set is the
++/// parent's, so the replayed draws meet the mechanisms that produced them.
++/// `cut_step` is where the parent's signal fired; a child with
++/// `uniform_suffix` switches to the uniform within-queue selector at that
++/// step once its own signal has fired there.
++#[derive(Clone, Copy, Debug)]
++pub struct WriteChild {
++    pub parent_run_id: i64,
++    pub arms: ArmSet,
++    pub cut_step: i32,
++    pub uniform_suffix: bool,
+ }
+ 
+ struct Parent<C> {
+@@ -136,6 +180,8 @@ mod tests {
+             cfg: tag,
+             config_index: tag as usize,
+             cut_step: tag as i32,
++            parent_run_id: tag as i64,
++            arms: ArmSet::default(),
+         }
+     }
+ 
+@@ -175,6 +221,7 @@ mod tests {
+         assert_eq!(s.cfg, 7);
+         assert_eq!(s.config_index, 7);
+         assert_eq!(s.cut_step, 7);
++        assert_eq!(s.parent_run_id, 7);
+         assert_eq!(c.len(), 1, "one child does not use a parent up");
+     }
+ 
+@@ -207,21 +254,37 @@ mod tests {
+         let n = 40_000i64;
+         let mut slots = 0;
+         let mut prefixes = 0;
++        let mut plan_only = 0;
++        let mut writes = 0;
++        let mut uniforms = 0;
+         for id in 0..n {
+             let slot = is_slot(id);
+             let prefix = is_prefix(id);
++            let write = is_write_slot(id);
++            let uniform = is_uniform_suffix(id);
+             assert_eq!(slot, is_slot(id), "id {id}: the slot changed between reads");
+             assert!(!prefix || slot, "id {id}: a prefix child outside a slot");
++            assert!(
++                !write || (slot && !prefix),
++                "id {id}: a write slot outside the plan-only slots"
++            );
++            assert!(!uniform || write, "id {id}: a uniform suffix outside a write slot");
+             if run_cap::is_probe(id)
+                 || timer_context::run_mode(id) == timer_context::RunMode::Probe
+             {
+                 assert!(!slot, "id {id}: a probe is a slot");
++                assert!(!write && !uniform, "id {id}: a probe is a write slot");
+             }
+             slots += slot as i64;
+             prefixes += prefix as i64;
++            plan_only += (slot && !prefix) as i64;
++            writes += write as i64;
++            uniforms += uniform as i64;
+         }
+         let slot_share = slots as f64 / n as f64;
+         let prefix_share = prefixes as f64 / slots.max(1) as f64;
++        let write_share = writes as f64 / plan_only.max(1) as f64;
++        let uniform_share = uniforms as f64 / writes.max(1) as f64;
+         assert!(
+             (0.42..0.5).contains(&slot_share),
+             "slots take {slot_share} of the runs; half less the probes was expected"
+@@ -230,5 +293,13 @@ mod tests {
+             (0.47..0.53).contains(&prefix_share),
+             "prefix children take {prefix_share} of the slots"
+         );
++        assert!(
++            (0.47..0.53).contains(&write_share),
++            "write slots take {write_share} of the plan-only slots"
++        );
++        assert!(
++            (0.47..0.53).contains(&uniform_share),
++            "uniform suffixes take {uniform_share} of the write slots"
++        );
+     }
+ }
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 5f7a1a9..3448819 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -93,6 +93,15 @@ pub const REPLAY_SLOT: i32 = 1 << 20;
+ /// A replay slot whose child replays the parent's schedule prefix rather
+ /// than only its plan. Joined by the arm like `REPLAY_SLOT`.
+ pub const REPLAY_PREFIX: i32 = 1 << 21;
++/// A plan-only replay slot served from the write ring: its child replays a
++/// parent cut at the write signal under the parent's run id when the ring
++/// held one, and runs as a ghost-ring plan-only child otherwise. Joined by
++/// the arm like `REPLAY_SLOT`; never set with `REPLAY_PREFIX`.
++pub const WRITE_RING_SLOT: i32 = 1 << 26;
++/// A write-ring slot whose child runs its suffix under the uniform
++/// within-queue selector from the step its replay reproduces the signal.
++/// Implies `WRITE_RING_SLOT`.
++pub const WRITE_RING_UNIFORM_SUFFIX: i32 = 1 << 29;
+ /// At a network step whose draw fell on a record from a sender's dead
+ /// incarnation, the run takes instead an eligible record from that sender's
+ /// current incarnation to the same destination.
+@@ -436,6 +445,12 @@ pub fn grid_arm_bits(run_id: i64) -> i32 {
+     if replay_corpus::is_prefix(run_id) {
+         v |= REPLAY_PREFIX;
+     }
++    if replay_corpus::is_write_slot(run_id) {
++        v |= WRITE_RING_SLOT;
++    }
++    if replay_corpus::is_uniform_suffix(run_id) {
++        v |= WRITE_RING_UNIFORM_SUFFIX;
++    }
+     v
+ }
+ 
+@@ -482,11 +497,18 @@ mod tests {
+                 of(id, &coins, Some(arm_selector::Learner::AbsorberCycle), false),
+                 v | ARM_SELECTOR_AXIS_B | ARM_SELECTOR_CONCENTRATED
+             );
+-            assert_eq!(v & (REPLAY_SLOT | REPLAY_PREFIX), 0, "the slot bits are the arm's");
++            let arm_bits =
++                REPLAY_SLOT | REPLAY_PREFIX | WRITE_RING_SLOT | WRITE_RING_UNIFORM_SUFFIX;
++            assert_eq!(v & arm_bits, 0, "the slot bits are the arm's");
+             let g = grid_arm_bits(id);
+             assert_eq!(g & REPLAY_SLOT != 0, replay_corpus::is_slot(id));
+             assert_eq!(g & REPLAY_PREFIX != 0, replay_corpus::is_prefix(id));
+-            assert_eq!(g & !(REPLAY_SLOT | REPLAY_PREFIX), 0, "the arm sets only its bits");
++            assert_eq!(g & WRITE_RING_SLOT != 0, replay_corpus::is_write_slot(id));
++            assert_eq!(
++                g & WRITE_RING_UNIFORM_SUFFIX != 0,
++                replay_corpus::is_uniform_suffix(id)
++            );
++            assert_eq!(g & !arm_bits, 0, "the arm sets only its bits");
+         }
+     }
+ 
+@@ -624,19 +646,51 @@ mod tests {
+         let n = 64_000i64;
+         let mut slots = 0;
+         let mut prefixes = 0;
++        let mut plan_only = 0;
++        let mut writes = 0;
++        let mut uniforms = 0;
+         for id in 0..n {
+             let v = from_run_id(id) | grid_arm_bits(id);
+             if v & (RUN_CAP_PROBE | TIMER_STEER_OFF) != 0 {
+                 assert_eq!(v & REPLAY_SLOT, 0, "run {id}: a probe is a replay slot");
++                assert_eq!(
++                    v & (WRITE_RING_SLOT | WRITE_RING_UNIFORM_SUFFIX),
++                    0,
++                    "run {id}: a probe is a write slot"
++                );
+             }
+             if v & REPLAY_PREFIX != 0 {
+                 assert_ne!(v & REPLAY_SLOT, 0, "run {id}: a prefix child outside a slot");
++                assert_eq!(v & WRITE_RING_SLOT, 0, "run {id}: a prefix child in a write slot");
++            }
++            if v & WRITE_RING_SLOT != 0 {
++                assert_ne!(v & REPLAY_SLOT, 0, "run {id}: a write slot outside a slot");
++            }
++            if v & WRITE_RING_UNIFORM_SUFFIX != 0 {
++                assert_ne!(
++                    v & WRITE_RING_SLOT,
++                    0,
++                    "run {id}: a uniform suffix outside a write slot"
++                );
+             }
+             slots += (v & REPLAY_SLOT != 0) as i64;
+             prefixes += (v & REPLAY_PREFIX != 0) as i64;
++            plan_only += (v & REPLAY_SLOT != 0 && v & REPLAY_PREFIX == 0) as i64;
++            writes += (v & WRITE_RING_SLOT != 0) as i64;
++            uniforms += (v & WRITE_RING_UNIFORM_SUFFIX != 0) as i64;
+         }
+         assert!(slots > 0 && slots < n, "the slot split leaves no contrast");
+         assert!(prefixes > 0 && prefixes < slots, "the prefix split leaves no contrast");
++        let write_share = writes as f64 / plan_only as f64;
++        assert!(
++            (0.47..0.53).contains(&write_share),
++            "write slots take {write_share} of the plan-only slots"
++        );
++        let uniform_share = uniforms as f64 / writes as f64;
++        assert!(
++            (0.47..0.53).contains(&uniform_share),
++            "uniform suffixes take {uniform_share} of the write slots"
++        );
+     }
+ 
+     #[test]
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 537621d..4e87ebe 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -345,6 +345,25 @@ static RP_SLOTS_UNFILLED: AtomicU64 = AtomicU64::new(0);
+ static RP_PREFIX_FAITHFUL: AtomicU64 = AtomicU64::new(0);
+ static RP_TAPE_WORDS_SUM: AtomicU64 = AtomicU64::new(0);
+ static RP_CHILDREN_SIGNAL_FIRED: AtomicU64 = AtomicU64::new(0);
++static WR_SIGNAL_RUNS: AtomicU64 = AtomicU64::new(0);
++static WR_PARENTS_ADMITTED: AtomicU64 = AtomicU64::new(0);
++static WR_PROBE_PARENTS_SKIPPED: AtomicU64 = AtomicU64::new(0);
++static WR_CHILDREN: AtomicU64 = AtomicU64::new(0);
++static WR_SLOTS_UNFILLED: AtomicU64 = AtomicU64::new(0);
++static WR_PREFIX_FAITHFUL: AtomicU64 = AtomicU64::new(0);
++static WR_CHILDREN_SIGNAL_FIRED: AtomicU64 = AtomicU64::new(0);
++static WR_CUT_STEP_SUM: AtomicU64 = AtomicU64::new(0);
++static WR_CHILD_STEPS_SUM: AtomicU64 = AtomicU64::new(0);
++static WR_CONTROL_PLAN_ONLY_STEPS_SUM: AtomicU64 = AtomicU64::new(0);
++/// Index 0 is the write children, index 1 the control plan-only children.
++static WR_CELL_RUNS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
++static WR_CELL_PLAN_COMPLETE: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
++static WR_UNIFORM_SWITCHED: AtomicU64 = AtomicU64::new(0);
++static WR_UNIFORM_NOT_SWITCHED: AtomicU64 = AtomicU64::new(0);
++/// The first message entry at the cut operation's target after the cut, by
++/// half (index 0 the uniform half, index 1 the tournament half) and class
++/// (stale, fresh, total).
++static WR_FIRST_DELIVERY: [[AtomicU64; 3]; 2] = [const { [const { AtomicU64::new(0) }; 3] }; 2];
+ 
+ /// The crash census split by retarget half: index 0 is the control half,
+ /// index 1 the treated half.
+@@ -788,9 +807,28 @@ pub fn set_enabled(on: bool) {
+             &RWP_CONTESTED,
+             &RWP_WON,
+             &RWP_FLIPPED,
++            &WR_SIGNAL_RUNS,
++            &WR_PARENTS_ADMITTED,
++            &WR_PROBE_PARENTS_SKIPPED,
++            &WR_CHILDREN,
++            &WR_SLOTS_UNFILLED,
++            &WR_PREFIX_FAITHFUL,
++            &WR_CHILDREN_SIGNAL_FIRED,
++            &WR_CUT_STEP_SUM,
++            &WR_CHILD_STEPS_SUM,
++            &WR_CONTROL_PLAN_ONLY_STEPS_SUM,
++            &WR_UNIFORM_SWITCHED,
++            &WR_UNIFORM_NOT_SWITCHED,
+         ] {
+             c.store(0, Ordering::Relaxed);
+         }
++        for c in WR_CELL_RUNS
++            .iter()
++            .chain(WR_CELL_PLAN_COMPLETE.iter())
++            .chain(WR_FIRST_DELIVERY.iter().flatten())
++        {
++            c.store(0, Ordering::Relaxed);
++        }
+         for c in DELIVERIES
+             .iter()
+             .chain(DELIVERIES_ACTED.iter())
+@@ -2789,6 +2827,111 @@ pub fn record_replay_child(prefix: bool, signal_fired: bool, faithful: bool) {
+     }
+ }
+ 
++/// The first time in a run a client operation was invoked at a server that
++/// never restarted, with no crash queued, after two servers had restarted,
++/// while fault-crossing records from two distinct origins were still
++/// addressed to it. Called once per run at most.
++#[inline]
++pub fn record_write_ring_signal_run() {
++    if !enabled() {
++        return;
++    }
++    WR_SIGNAL_RUNS.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A fresh grid-arm run that fired the write signal entered its arm's write
++/// ring, cut at `cut_step`.
++#[inline]
++pub fn record_write_ring_parent_admitted(cut_step: i32) {
++    if !enabled() {
++        return;
++    }
++    WR_PARENTS_ADMITTED.fetch_add(1, Ordering::Relaxed);
++    WR_CUT_STEP_SUM.fetch_add(cut_step.max(0) as u64, Ordering::Relaxed);
++}
++
++/// A fresh grid-arm run fired the write signal but was a probe, whose
++/// id-keyed draws a child may not inherit, so it was not admitted.
++#[inline]
++pub fn record_write_ring_probe_parent_skipped() {
++    if !enabled() {
++        return;
++    }
++    WR_PROBE_PARENTS_SKIPPED.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A write slot found its arm's write ring empty and fell through to the
++/// ghost ring.
++#[inline]
++pub fn record_write_ring_slot_unfilled() {
++    if !enabled() {
++        return;
++    }
++    WR_SLOTS_UNFILLED.fetch_add(1, Ordering::Relaxed);
++}
++
++/// One finished child of the write ring. `signal_fired` says the child
++/// itself reached the write signal; `faithful` that it reached it at the
++/// parent's own step; `uniform_suffix` names its half of the ring and
++/// `switched` whether that half's selector switch happened;
++/// `first_delivery_stale` is the class of the first message entry at the
++/// cut operation's target after the cut, when one happened.
++pub struct WriteRingChildRun {
++    pub signal_fired: bool,
++    pub faithful: bool,
++    pub steps: u64,
++    pub plan_complete: bool,
++    pub uniform_suffix: bool,
++    pub switched: bool,
++    pub first_delivery_stale: Option<bool>,
++}
++
++/// A write slot ran a child of the write ring.
++#[inline]
++pub fn record_write_ring_child(run: &WriteRingChildRun) {
++    if !enabled() {
++        return;
++    }
++    WR_CHILDREN.fetch_add(1, Ordering::Relaxed);
++    if run.signal_fired {
++        WR_CHILDREN_SIGNAL_FIRED.fetch_add(1, Ordering::Relaxed);
++    }
++    if run.faithful {
++        WR_PREFIX_FAITHFUL.fetch_add(1, Ordering::Relaxed);
++    }
++    WR_CHILD_STEPS_SUM.fetch_add(run.steps, Ordering::Relaxed);
++    WR_CELL_RUNS[0].fetch_add(1, Ordering::Relaxed);
++    if run.plan_complete {
++        WR_CELL_PLAN_COMPLETE[0].fetch_add(1, Ordering::Relaxed);
++    }
++    if run.uniform_suffix {
++        if run.switched {
++            WR_UNIFORM_SWITCHED.fetch_add(1, Ordering::Relaxed);
++        } else {
++            WR_UNIFORM_NOT_SWITCHED.fetch_add(1, Ordering::Relaxed);
++        }
++    }
++    if let Some(stale) = run.first_delivery_stale {
++        let half = &WR_FIRST_DELIVERY[(!run.uniform_suffix) as usize];
++        half[(!stale) as usize].fetch_add(1, Ordering::Relaxed);
++        half[2].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// A plan-only slot on the half of the plan-only slots the write ring does
++/// not serve ran a ghost-ring child: the write children's control.
++#[inline]
++pub fn record_write_ring_control_child(steps: u64, plan_complete: bool) {
++    if !enabled() {
++        return;
++    }
++    WR_CONTROL_PLAN_ONLY_STEPS_SUM.fetch_add(steps, Ordering::Relaxed);
++    WR_CELL_RUNS[1].fetch_add(1, Ordering::Relaxed);
++    if plan_complete {
++        WR_CELL_PLAN_COMPLETE[1].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
+ /// Why a single plan execution stopped.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum RunEnd {
+@@ -5951,6 +6094,7 @@ pub struct ReplayStats {
+     pub prefix_faithful: u64,
+     pub tape_words_sum: u64,
+     pub children_signal_fired: u64,
++    pub write_ring: WriteRingStats,
+ }
+ 
+ impl ReplayStats {
+@@ -5964,6 +6108,115 @@ impl ReplayStats {
+             prefix_faithful: RP_PREFIX_FAITHFUL.load(Ordering::Relaxed),
+             tape_words_sum: RP_TAPE_WORDS_SUM.load(Ordering::Relaxed),
+             children_signal_fired: RP_CHILDREN_SIGNAL_FIRED.load(Ordering::Relaxed),
++            write_ring: WriteRingStats::read(),
++        }
++    }
++}
++
++/// The write ring of the grid arms. `signal_runs` counts runs that fired
++/// the write signal; `parents_admitted` the fresh runs whose prefix entered
++/// a write ring and `probe_parents_skipped` the probes that fired but were
++/// not admitted; `children` the write slots that ran a write child and
++/// `slots_unfilled` the ones that found the ring empty; `prefix_faithful`
++/// the children that fired the signal at their parent's step and
++/// `children_signal_fired` the ones that fired it at all. `cut_step_sum`
++/// is over admitted parents. `child_steps_sum` and `write` describe the
++/// write children, `control_plan_only_steps_sum` and `control` the
++/// ghost-ring plan-only children on the other half of the plan-only slots.
++#[derive(Serialize, Debug)]
++pub struct WriteRingStats {
++    pub signal_runs: u64,
++    pub parents_admitted: u64,
++    pub probe_parents_skipped: u64,
++    pub children: u64,
++    pub slots_unfilled: u64,
++    pub prefix_faithful: u64,
++    pub children_signal_fired: u64,
++    pub cut_step_sum: u64,
++    pub child_steps_sum: u64,
++    pub control_plan_only_steps_sum: u64,
++    pub write: WriteRingCellStats,
++    pub control: WriteRingCellStats,
++    pub uniform: WriteRingUniformStats,
++}
++
++/// One population of the write ring's contrast: its runs and the ones that
++/// completed their plan.
++#[derive(Serialize, Debug)]
++pub struct WriteRingCellStats {
++    pub runs: u64,
++    pub plan_complete: u64,
++}
++
++/// The uniform-suffix half of the write ring: `switched` counts its children
++/// whose replay reproduced the signal and switched selector, `not_switched`
++/// the ones that kept the tournament; `first_post_cut_delivery_at_target`
++/// classes, on each half, the first message entry at the cut operation's
++/// target after the cut.
++#[derive(Serialize, Debug)]
++pub struct WriteRingUniformStats {
++    pub switched: u64,
++    pub not_switched: u64,
++    pub first_post_cut_delivery_at_target: WriteRingDeliveryHalves,
++}
++
++#[derive(Serialize, Debug)]
++pub struct WriteRingDeliveryHalves {
++    pub uniform: WriteRingDeliveryStats,
++    pub tournament: WriteRingDeliveryStats,
++}
++
++/// `stale` counts first entries whose sender was down or had restarted since
++/// sending, `fresh` the rest; `total` is their sum.
++#[derive(Serialize, Debug)]
++pub struct WriteRingDeliveryStats {
++    pub stale: u64,
++    pub fresh: u64,
++    pub total: u64,
++}
++
++impl WriteRingDeliveryStats {
++    fn read(half: &[AtomicU64; 3]) -> Self {
++        Self {
++            stale: half[0].load(Ordering::Relaxed),
++            fresh: half[1].load(Ordering::Relaxed),
++            total: half[2].load(Ordering::Relaxed),
++        }
++    }
++}
++
++impl WriteRingCellStats {
++    fn read(i: usize) -> Self {
++        Self {
++            runs: WR_CELL_RUNS[i].load(Ordering::Relaxed),
++            plan_complete: WR_CELL_PLAN_COMPLETE[i].load(Ordering::Relaxed),
++        }
++    }
++}
++
++impl WriteRingStats {
++    fn read() -> Self {
++        Self {
++            signal_runs: WR_SIGNAL_RUNS.load(Ordering::Relaxed),
++            parents_admitted: WR_PARENTS_ADMITTED.load(Ordering::Relaxed),
++            probe_parents_skipped: WR_PROBE_PARENTS_SKIPPED.load(Ordering::Relaxed),
++            children: WR_CHILDREN.load(Ordering::Relaxed),
++            slots_unfilled: WR_SLOTS_UNFILLED.load(Ordering::Relaxed),
++            prefix_faithful: WR_PREFIX_FAITHFUL.load(Ordering::Relaxed),
++            children_signal_fired: WR_CHILDREN_SIGNAL_FIRED.load(Ordering::Relaxed),
++            cut_step_sum: WR_CUT_STEP_SUM.load(Ordering::Relaxed),
++            child_steps_sum: WR_CHILD_STEPS_SUM.load(Ordering::Relaxed),
++            control_plan_only_steps_sum: WR_CONTROL_PLAN_ONLY_STEPS_SUM.load(Ordering::Relaxed),
++            write: WriteRingCellStats::read(0),
++            control: WriteRingCellStats::read(1),
++            uniform: WriteRingUniformStats {
++                switched: WR_UNIFORM_SWITCHED.load(Ordering::Relaxed),
++                not_switched: WR_UNIFORM_NOT_SWITCHED.load(Ordering::Relaxed),
++                first_post_cut_delivery_at_target: WriteRingDeliveryHalves {
++                    uniform: WriteRingDeliveryStats::read(&WR_FIRST_DELIVERY[0]),
++                    tournament: WriteRingDeliveryStats::read(&WR_FIRST_DELIVERY[1]),
++                },
++            },
+         }
+     }
+ }
+diff --git a/spur-core/tests/client_anchor_release.rs b/spur-core/tests/client_anchor_release.rs
+index f101ced..34cc81e 100644
+--- a/spur-core/tests/client_anchor_release.rs
++++ b/spur-core/tests/client_anchor_release.rs
+@@ -135,6 +135,7 @@ fn session(
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            None,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/crash_census_landing.rs b/spur-core/tests/crash_census_landing.rs
+index 4a3521b..0a4c620 100644
+--- a/spur-core/tests/crash_census_landing.rs
++++ b/spur-core/tests/crash_census_landing.rs
+@@ -119,6 +119,7 @@ fn check() {
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            None,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/crash_phase_anchor.rs b/spur-core/tests/crash_phase_anchor.rs
+index 9f4bd15..738032c 100644
+--- a/spur-core/tests/crash_phase_anchor.rs
++++ b/spur-core/tests/crash_phase_anchor.rs
+@@ -114,6 +114,7 @@ fn run_session(run_ids: &[i64], out: &Path) {
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            None,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/fresh_first_dispatch.rs b/spur-core/tests/fresh_first_dispatch.rs
+index c8249dc..ac11f40 100644
+--- a/spur-core/tests/fresh_first_dispatch.rs
++++ b/spur-core/tests/fresh_first_dispatch.rs
+@@ -135,6 +135,7 @@ fn session(
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            None,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/ghost_absorber_retarget.rs b/spur-core/tests/ghost_absorber_retarget.rs
+index e6f6d3d..17899fc 100644
+--- a/spur-core/tests/ghost_absorber_retarget.rs
++++ b/spur-core/tests/ghost_absorber_retarget.rs
+@@ -140,6 +140,7 @@ fn session(
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            None,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/pair_order_dispatch.rs b/spur-core/tests/pair_order_dispatch.rs
+index 9c8a744..413383a 100644
+--- a/spur-core/tests/pair_order_dispatch.rs
++++ b/spur-core/tests/pair_order_dispatch.rs
+@@ -143,6 +143,7 @@ fn session(
+             0x_C0FF_EE00 ^ run_id as u64,
+             0x_5EED_1234 ^ run_id as u64,
+             None,
++            None,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/replay_prefix_fidelity.rs b/spur-core/tests/replay_prefix_fidelity.rs
+index 3e22ece..aac42b3 100644
+--- a/spur-core/tests/replay_prefix_fidelity.rs
++++ b/spur-core/tests/replay_prefix_fidelity.rs
+@@ -153,6 +153,7 @@ fn run<S: RngSource>(
+         workload,
+         schedule,
+         tape,
++        None,
+         &RunAttribution::mode("test"),
+     )
+     .expect("the run executes")
+diff --git a/spur-core/tests/run_cap_exit.rs b/spur-core/tests/run_cap_exit.rs
+index ce0e8b4..33df2c1 100644
+--- a/spur-core/tests/run_cap_exit.rs
++++ b/spur-core/tests/run_cap_exit.rs
+@@ -148,6 +148,7 @@ fn check() {
+         7,
+         11,
+         None,
++        None,
+         &RunAttribution::mode("test"),
+     )
+     .expect("the run executes");
+diff --git a/spur-core/tests/stall_cap_exit.rs b/spur-core/tests/stall_cap_exit.rs
+index acd589f..9681dcd 100644
+--- a/spur-core/tests/stall_cap_exit.rs
++++ b/spur-core/tests/stall_cap_exit.rs
+@@ -248,6 +248,7 @@ fn run_session(
+             7,
+             11,
+             None,
++            None,
+             &RunAttribution::mode("test"),
+         )
+         .expect("the run executes");
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 1389681..2c70449 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -23,7 +23,8 @@ use spur_core::simulator::util_stats::{
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+     FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+-    VictimSwapStats,
++    VictimSwapStats, WriteRingCellStats, WriteRingDeliveryHalves, WriteRingDeliveryStats,
++    WriteRingStats, WriteRingUniformStats,
+ };
+ use std::collections::BTreeMap;
+ 
+@@ -1234,6 +1235,46 @@ fn ghost_signal_leaves(prefix: &str, g: &GhostSignalStats) -> Vec<(String, Value
+     vec![leaf(prefix, "fired_runs", *fired_runs)]
+ }
+ 
++fn write_ring_cell(m: &mut Marks) -> WriteRingCellStats {
++    WriteRingCellStats {
++        runs: m.int(),
++        plan_complete: m.int(),
++    }
++}
++
++fn write_ring_delivery(m: &mut Marks) -> WriteRingDeliveryStats {
++    WriteRingDeliveryStats {
++        stale: m.int(),
++        fresh: m.int(),
++        total: m.int(),
++    }
++}
++
++fn write_ring(m: &mut Marks) -> WriteRingStats {
++    WriteRingStats {
++        signal_runs: m.int(),
++        parents_admitted: m.int(),
++        probe_parents_skipped: m.int(),
++        children: m.int(),
++        slots_unfilled: m.int(),
++        prefix_faithful: m.int(),
++        children_signal_fired: m.int(),
++        cut_step_sum: m.int(),
++        child_steps_sum: m.int(),
++        control_plan_only_steps_sum: m.int(),
++        write: write_ring_cell(m),
++        control: write_ring_cell(m),
++        uniform: WriteRingUniformStats {
++            switched: m.int(),
++            not_switched: m.int(),
++            first_post_cut_delivery_at_target: WriteRingDeliveryHalves {
++                uniform: write_ring_delivery(m),
++                tournament: write_ring_delivery(m),
++            },
++        },
++    }
++}
++
+ fn replay(m: &mut Marks) -> ReplayStats {
+     ReplayStats {
+         parents_admitted: m.int(),
+@@ -1244,6 +1285,7 @@ fn replay(m: &mut Marks) -> ReplayStats {
+         prefix_faithful: m.int(),
+         tape_words_sum: m.int(),
+         children_signal_fired: m.int(),
++        write_ring: write_ring(m),
+     }
+ }
+ 
+@@ -1588,6 +1630,77 @@ fn arm_selector_axis_leaves(prefix: &str, a: &ArmSelectorAxisStats) -> Vec<(Stri
+     out
+ }
+ 
++fn write_ring_cell_leaves(prefix: &str, c: &WriteRingCellStats) -> Vec<(String, Value)> {
++    let WriteRingCellStats {
++        runs,
++        plan_complete,
++    } = c;
++    vec![
++        leaf(prefix, "runs", *runs),
++        leaf(prefix, "plan_complete", *plan_complete),
++    ]
++}
++
++fn write_ring_delivery_leaves(prefix: &str, d: &WriteRingDeliveryStats) -> Vec<(String, Value)> {
++    let WriteRingDeliveryStats {
++        stale,
++        fresh,
++        total,
++    } = d;
++    vec![
++        leaf(prefix, "stale", *stale),
++        leaf(prefix, "fresh", *fresh),
++        leaf(prefix, "total", *total),
++    ]
++}
++
++fn write_ring_leaves(prefix: &str, w: &WriteRingStats) -> Vec<(String, Value)> {
++    let WriteRingStats {
++        signal_runs,
++        parents_admitted,
++        probe_parents_skipped,
++        children,
++        slots_unfilled,
++        prefix_faithful,
++        children_signal_fired,
++        cut_step_sum,
++        child_steps_sum,
++        control_plan_only_steps_sum,
++        write,
++        control,
++        uniform,
++    } = w;
++    let WriteRingUniformStats {
++        switched,
++        not_switched,
++        first_post_cut_delivery_at_target,
++    } = uniform;
++    let WriteRingDeliveryHalves {
++        uniform: uniform_half,
++        tournament,
++    } = first_post_cut_delivery_at_target;
++    let mut out = vec![
++        leaf(prefix, "signal_runs", *signal_runs),
++        leaf(prefix, "parents_admitted", *parents_admitted),
++        leaf(prefix, "probe_parents_skipped", *probe_parents_skipped),
++        leaf(prefix, "children", *children),
++        leaf(prefix, "slots_unfilled", *slots_unfilled),
++        leaf(prefix, "prefix_faithful", *prefix_faithful),
++        leaf(prefix, "children_signal_fired", *children_signal_fired),
++        leaf(prefix, "cut_step_sum", *cut_step_sum),
++        leaf(prefix, "child_steps_sum", *child_steps_sum),
++        leaf(prefix, "control_plan_only_steps_sum", *control_plan_only_steps_sum),
++        leaf(prefix, "uniform.switched", *switched),
++        leaf(prefix, "uniform.not_switched", *not_switched),
++    ];
++    out.extend(write_ring_cell_leaves(&format!("{prefix}.write"), write));
++    out.extend(write_ring_cell_leaves(&format!("{prefix}.control"), control));
++    let delivery = format!("{prefix}.uniform.first_post_cut_delivery_at_target");
++    out.extend(write_ring_delivery_leaves(&format!("{delivery}.uniform"), uniform_half));
++    out.extend(write_ring_delivery_leaves(&format!("{delivery}.tournament"), tournament));
++    out
++}
++
+ fn replay_leaves(prefix: &str, r: &ReplayStats) -> Vec<(String, Value)> {
+     let ReplayStats {
+         parents_admitted,
+@@ -1598,8 +1711,9 @@ fn replay_leaves(prefix: &str, r: &ReplayStats) -> Vec<(String, Value)> {
+         prefix_faithful,
+         tape_words_sum,
+         children_signal_fired,
++        write_ring,
+     } = r;
+-    vec![
++    let mut out = vec![
+         leaf(prefix, "parents_admitted", *parents_admitted),
+         leaf(prefix, "children", *children),
+         leaf(prefix, "children_prefix", *children_prefix),
+@@ -1608,7 +1722,9 @@ fn replay_leaves(prefix: &str, r: &ReplayStats) -> Vec<(String, Value)> {
+         leaf(prefix, "prefix_faithful", *prefix_faithful),
+         leaf(prefix, "tape_words_sum", *tape_words_sum),
+         leaf(prefix, "children_signal_fired", *children_signal_fired),
+-    ]
++    ];
++    out.extend(write_ring_leaves(&format!("{prefix}.write_ring"), write_ring));
++    out
+ }
+ 
+ fn timer_context(m: &mut Marks) -> TimerContextStats {
