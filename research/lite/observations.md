@@ -8283,3 +8283,15 @@ as such; panel clean, regression passed, zero violations. Three merges
 this session; cumulative depth8 events per second on the tree since
 iteration 74 about +35%, throughput about +13%, and depth10 events per
 second about +90%.
+
+**Fresh baseline after the stall-release merge, idle host.** Seeds 1000
+and 1001 read 2,633 and 2,354 runs per second (median 2,493 against
+2,472 on the previous cache; the two seeds swing 12% against each other
+where the previous cache's swung 1%), depth8 events per chunk 11,473 and
+10,522 against 11,278 and 10,918, depth9 2,282 and 1,935 against 2,036
+and 1,919, depth10 421 and 254 against 232 and 199, zero violations on
+1,497,000 runs. Ledger row appended with the session's throughput ratio
+0.9548; the cumulative product moves from 1.1846 to 1.1311. The idle
+re-measurement reads throughput flat against the previous cache while
+the session read it 4.5% down; the seed swing is wider than the
+difference, so the ledger keeps the session's ratio as the rule says.

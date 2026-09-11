@@ -263,6 +263,21 @@
    "cacheFile": "research/lite/baselines/819d3a0bf347-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-11T00:10:00Z",
    "note": "measured by grader baseline --chunks 2 on an idle host after the stall-cap merge; depth>=8 events per chunk [11278, 10918] against 8971/8953 on the previous merge's cache; depth>=9 [2036, 1919] against 1644/1691; grid depth>=8 per run 0.01823/0.01737 against 0.01711/0.01681; stall_cap.stops 352842/344241, cap 719/827"
+  },
+  {
+   "name": "stall-release-of-client-blocked-plan-events",
+   "commit": "6d3ed35",
+   "spurCommit": "98e9a93",
+   "ratio": 0.9548,
+   "cumulative": 1.1310553764358684,
+   "measuredRps": 2493.3420366057785,
+   "measuredRpsChunks": [
+    2633.1,
+    2353.6
+   ],
+   "cacheFile": "research/lite/baselines/17a424fcac21-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+   "measuredAtIso": "2026-09-11T01:44:00Z",
+   "note": "measured by grader baseline --chunks 2 on an idle host after the stall-release merge; the two seeds read 2633 and 2354 runs per second (a 12% seed swing, median 2493 against 2472 on the previous cache, while the session read 0.955); depth>=8 events per chunk [11473, 10522] against 11278/10918; depth>=9 [2282, 1935] against 2036/1919; depth>=10 [421, 254] against 232/199"
   }
  ]
 }
