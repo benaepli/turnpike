@@ -8089,3 +8089,12 @@ recorded as a mis-specified proxy (it measured whether deep runs contain
 long stalls, which they do, after their depth events), and the treated
 steps-per-run band was missed on the deep side. Cumulative since
 iteration 74: about +39% depth8 events per second on the merged tree.
+
+**Fresh baseline after the stall-cap merge, idle host.** Seeds 1000 and
+1001 read 2,461 and 2,484 runs per second (median 2,472 against 2,124),
+depth8 events per chunk 11,278 and 10,918 against 8,971 and 8,953, depth9
+2,036 and 1,919 against 1,644 and 1,691, depth10 232 and 199, grid depth8
+per run 0.01823 and 0.01737 against 0.01711 and 0.01681, zero violations
+on 1,484,460 runs; stall_cap.stops 352,842 and 344,241 with caps of 719
+and 827 steps. Ledger row appended with the session's throughput ratio
+1.1804; the cumulative product moves from 1.0036 to 1.1846.

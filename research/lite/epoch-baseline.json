@@ -248,6 +248,21 @@
    "cacheFile": "research/lite/baselines/afeccdf6e8f7-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-10T22:42:00Z",
    "note": "measured by grader baseline --chunks 2 on an idle host after the recover-dependency merge (a first measurement under the proposer's load, 1924/1777 rps, is kept under research/lite/baselines/contaminated/); depth>=8 events per chunk [8971, 8953] against 7897/8087 on the previous merge's cache; grid depth>=8 per run 0.01711/0.01681 against 0.01576/0.01621"
+  },
+  {
+   "name": "quiet-gap-learned-stall-cap",
+   "commit": "10d5136",
+   "spurCommit": "3d88510",
+   "ratio": 1.1804,
+   "cumulative": 1.1845992631293134,
+   "measuredRps": 2472.3149731649773,
+   "measuredRpsChunks": [
+    2460.6,
+    2484.0
+   ],
+   "cacheFile": "research/lite/baselines/819d3a0bf347-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+   "measuredAtIso": "2026-09-11T00:10:00Z",
+   "note": "measured by grader baseline --chunks 2 on an idle host after the stall-cap merge; depth>=8 events per chunk [11278, 10918] against 8971/8953 on the previous merge's cache; depth>=9 [2036, 1919] against 1644/1691; grid depth>=8 per run 0.01823/0.01737 against 0.01711/0.01681; stall_cap.stops 352842/344241, cap 719/827"
   }
  ]
 }
