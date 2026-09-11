@@ -1,0 +1,33 @@
+{
+  "goalFile": "research/PERF_GOAL.md",
+  "spec": "bin/spur/VR.spur",
+  "campaignTemplate": "scheduler_configs/loop/general_vr.json",
+  "benchTemplate": "scheduler_configs/loop/bench.json",
+  "branch": "research/lite",
+  "relevantFiles": [
+    "research/PERF_GOAL.md",
+    "research/STYLE.md",
+    "research/perf/observations.md",
+    "scheduler_configs/loop/general_vr.json",
+    "scheduler_configs/loop/bench.json",
+    "spur/spur-core/src/simulator/"
+  ],
+  "budgets": {
+    "campaignWallSec": 120,
+    "benchWallSec": 300,
+    "benchRunsPerConfig": 2000,
+    "benchSeed": 777,
+    "minRounds": 3,
+    "maxRounds": 6,
+    "rayonThreads": 30,
+    "maxBuildSeconds": 600,
+    "identityRunsPerConfig": 200,
+    "identitySeed": 4242,
+    "identityThreads": 30
+  },
+  "floors": {
+    "layoutFloor": 0.05,
+    "minEffect": 0.01,
+    "relabelSpreadMultiple": 2
+  }
+}
