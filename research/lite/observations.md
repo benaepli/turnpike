@@ -9062,3 +9062,48 @@ one chunk (bound-from-restart clock misses its class; response-keyed
 shelter expires like CLIENT_FIRST did), with the reusable finding that
 every hold in the post-write region kills the deep tail; next round
 rotates to feedback and novelty, branching from post-write checkpoints.
+
+
+**Iteration 83 proposals and admission.** Four proposals through the
+feedback and novelty lens as branching from a checkpoint: a second
+replay-parent ring keyed on a generic run-end signal (a client operation
+invoked at a never-restarted server with no queued crash, after two
+restarts, with at least two fault-crossing records from two dead
+incarnations addressed to it in the network queue), cut at the
+invocation before the request's priority draw, children served to a
+salted half of the plan-only slots with the parent's run-id-keyed
+mechanism draws inherited; and three alternative second bits: a state
+fork resuming a cloned state at the cut, a uniform within-queue selector
+for the suffix past a reproduced cut, and a second-generation admission
+of children that reach the label-11 marker. The proposer corrected the
+directive: the DAG guarantees two dead-incarnation records to the never-
+restarted node undelivered at the write (not a dead and a current record
+from one peer); re-drawing the fresh-first and pair-order coins is inert
+at a destination with incarnation zero; and the preemptive queue policy
+cannot drain a target last since it picks among queues, not records. It
+also read the ring supply: the merged ghost ring's plan-only and prefix
+children convert from depth 10 to 11 at 0.11 and 0.065 against 0.20 on
+fresh runs, and only 24 of the 59 depth-11 runs on seed 1000 are fresh
+runs with an admissible tape. Blind judge over fourteen: the write ring
+7-0 (every cache figure re-derived and verified; the DAG guarantee
+verified; a new source, not a ranking rule; docked for an unaddressed
+balance fault, since children inheriting the parent's mechanism draws
+carry the parent's bits and the grader's co-bit check will blank its
+internal primary as at iteration 28, so the reads are stratified over
+the inherited strata; depth 8-10 are mechanical replay and the honest
+rung is depth11, never replayed), uniform suffix 5-0 (the direct test of
+a tape checkpoint's one limitation: all children of a parent share the
+prefix's in-flight priorities; its chunk-1 read is the stale-first share
+at the target on thousands of events), repeated release 5-0 (to lead its
+own session), backlog deferral 4-0, run-local counters 5-2, PCT change
+points 3-0, condition-released defer exemption 3-0, state fork 4-2, gen-2
+admission 2-0, post-release cap 2-0, stalled runs as replay parents 2-0,
+optional-cover reversal 2-0; the replay-arm serving fix rejected as a
+retired ranking rule in a new costume and the reply-wait as parentless.
+Admitted as a two-bit session: bit writeRingSlot 1<<26 (children >=
+20,000, applicability in [0.01, 0.25], fidelity >= 0.4, depth11
+stratified [2.0, 40] pooled with sibling inflation, merge guards
+stratified depth8 >= 0.9 and cross-binary depth8 per second >= 0.95)
+and bit writeRingUniformSuffix 1<<29 (switched >= 6,000, stale-first
+share at the target [0.35, 0.65] against at most 0.20, depth11 [1.3,
+3.0] as a lean). Full record: research/lite/plans/iteration-83-admitted.json.

@@ -4040,3 +4040,49 @@ exemption 3, reply-wait 3 (its text still nests in the closed pull cell),
 run-local counters 5-2, post-release cap 2, stalled runs as replay parents
 2 (supply figure stale for the third round), optional-cover reversal 2.
 Awaiting-approval entries unchanged.
+
+
+## write-region-replay-ring
+
+- kind: add | category: feedback | origin: proposer | status: ADMITTED at
+  iteration 83 (rank 1 net 7; bit writeRingSlot 1<<26 on a salted half of
+  the plan-only replay slots; a new parent source with its own ring keyed
+  on a post-fault operation invoked at a never-restarted server with two
+  stranded fault-crossing records addressed to it, cut at the invocation,
+  children inheriting the parent's mechanism draws; honest rung depth11
+  stratified) | gain: 7 | cost: 0 | rank: 1
+- Frozen (judge-rewritten) prediction and review:
+  `research/lite/plans/iteration-83-admitted.json`.
+
+## write-ring-suffix-uniform-within-queue
+
+- kind: arm | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 83 as the ring's nested cell (rank 2 net 5; bit
+  writeRingUniformSuffix 1<<29 on half the write slots; the suffix past a
+  reproduced cut runs under the uniform within-queue selector) | gain: 5 | cost: 0 | rank: 2
+- Frozen prediction and review: `research/lite/plans/iteration-83-admitted.json`.
+
+## write-ring-children-by-state-fork
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 83 (waits on the ring's read; cost 2; per-second gain inside the layout floor at its share) | gain: 4 | cost: 2 | rank: 8
+- Review: `research/lite/plans/iteration-83-admitted.json`.
+
+## write-ring-second-generation-admission
+
+- kind: add | category: feedback | origin: proposer | status: KEPT at iteration 83 (waits; its share is below the grader's minimum and a floor of 100 children is not gradable) | gain: 2 | cost: 0 | rank: 9
+- Review: `research/lite/plans/iteration-83-admitted.json`.
+
+## replay-parent-served-by-child-arm-set
+
+- status: REJECTED at iteration 83 (a retired replay-prefix ranking rule in a new costume; its fidelity finding is carried by the ring's inheritance).
+
+## pulled-crash-waits-for-victim-reply-to-restarted-peer
+
+- status: REJECTED at iteration 83 (parentless on the merged tree; the pull closed at iteration 79).
+
+Iteration 83 re-judged the carried entries: repeated release 5 (leads its
+own session next), backlog deferral 4, run-local counters 5-2, PCT change
+points 3 (its "handful of timer wakes" claim false again: 153 per run),
+condition-released defer exemption 3, post-release cap 2, stalled runs as
+replay parents 2 (supply figure stale for the third round), optional-cover
+reversal 2. Awaiting-approval entries unchanged.
