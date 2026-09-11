@@ -1,0 +1,84 @@
+{
+ "name": "layout-control-e2",
+ "createdAtIso": "2026-09-11T22:11:09.556Z",
+ "note": "epoch layout floor, iteration 2",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "private",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": null,
+  "counter": null,
+  "argument": "layout control: the candidate is a second build of the identical baseline commit 12b7582 in a separate directory, so nothing about the search changes and any reading is build-layout noise"
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/layout-control/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:layout-control-e2"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "63a21f95fdfbdd2744a561515661a861975f935b",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/63a21f95fdfb-30-f9daa01b-120.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-11T22:15:17.760Z",
+   "seed": 1000,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-11T22:19:21.664Z",
+   "seed": 1001,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-11T22:23:25.658Z",
+   "seed": 1002,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-11T22:27:57.339Z",
+   "seed": 1003,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-11T22:32:01.554Z",
+   "seed": 1004,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-11T22:36:05.948Z",
+   "seed": 1005,
+   "wallSec": 243,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}
