@@ -8745,3 +8745,17 @@ that peer): within-session depth8 +9% [5%, 14%] on the primary rung,
 depth9 +33%, depth10 +53%, depth5/6 -4.5% as the recorded cost,
 throughput -5%, panel clean, regression passed, zero violations. Next
 round stays on fault injection at the trigger's key.
+
+**Fresh baseline after the ghost-release merge, idle host.** Seeds 1000
+and 1001 read 2,524 and 2,510 runs per second (median 2,517; the two
+seeds agree within 1%, so the previous cache's seed-1000 chunk at 2,633
+was that measurement's artifact and the cost reads made against it this
+session were about a tenth pessimistic on that seed), depth8 events per
+chunk 11,183 and 11,562 against 11,473 and 10,522, depth9 2,674 and
+2,596 against 2,282 and 1,935, depth10 423 and 396 against 421 and 254,
+zero violations on 1,510,800 runs. Ledger row appended with the
+session's throughput ratio 0.9492; the cumulative product moves from
+1.1311 to 1.0736. Against the ledger, the measured runs per second on
+the tree now stand at 1.23 of the epoch's frozen rate with the
+cumulative at 1.07, the gap being the layout and session spread the
+ledger has always carried.

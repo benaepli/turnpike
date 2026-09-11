@@ -278,6 +278,21 @@
    "cacheFile": "research/lite/baselines/17a424fcac21-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-11T01:44:00Z",
    "note": "measured by grader baseline --chunks 2 on an idle host after the stall-release merge; the two seeds read 2633 and 2354 runs per second (a 12% seed swing, median 2493 against 2472 on the previous cache, while the session read 0.955); depth>=8 events per chunk [11473, 10522] against 11278/10918; depth>=9 [2282, 1935] against 2036/1919; depth>=10 [421, 254] against 232/199"
+  },
+  {
+   "name": "held-crash-released-at-first-acted-ghost-entry-after-restart",
+   "commit": "9766bdb",
+   "spurCommit": "12b7582",
+   "ratio": 0.9492,
+   "cumulative": 1.0735977633129263,
+   "measuredRps": 2516.6776678811534,
+   "measuredRpsChunks": [
+    2523.5,
+    2509.9
+   ],
+   "cacheFile": "research/lite/baselines/63a21f95fdfb-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+   "measuredAtIso": "2026-09-11T05:30:00Z",
+   "note": "measured by grader baseline --chunks 2 on an idle host after the ghost-release merge; the two seeds agree within 1% (2524/2510), so the previous cache's seed-1000 outlier at 2633 was that measurement's artifact; depth>=8 events per chunk [11183, 11562] against 11473/10522; depth>=9 [2674, 2596] against 2282/1935; depth>=10 [423, 396] against 421/254"
   }
  ]
 }
