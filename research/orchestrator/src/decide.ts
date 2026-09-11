@@ -44,7 +44,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 2, name: "runCapProbe" },
   { bit: 4, name: "timerSteerOff" },
   { bit: 8, name: "crashHoldDrawn" },
-  { bit: 16, name: "staleOrder" },
+  { bit: 16, name: "ghostReleasedCrash" },
   { bit: 32, name: "armSelectorAxisB" },
   { bit: 64, name: "armSelectorAxis" },
   { bit: 128, name: "armSelectorAxisC" },
@@ -69,7 +69,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
   { bit: 1073741824, name: "restartAfterPeerSettle" },
   { bit: 134217728, name: "clientDeferralOnly" },
   { bit: 4194304, name: "staleFirstPair" },
-  { bit: 268435456, name: "clientProgressRelease" },
+  { bit: 268435456, name: "ghostReleaseSingleOntoAbsorber" },
   { bit: 131072, name: "crashQuietBySecond" },
 ];
 
