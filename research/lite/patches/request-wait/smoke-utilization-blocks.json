@@ -1,0 +1,320 @@
+{
+ "request_wait": {
+  "masked_offers": 2954894,
+  "records_masked": 82536,
+  "arrivals_after_bound": 8798737,
+  "released_settled": 6928,
+  "released_bound": 74781,
+  "released_lifted": 0,
+  "lift_steps": 0,
+  "hold_steps_sum": 4026513,
+  "settle": {
+   "treated": {
+    "settled": 14402,
+    "settle_steps_hist": [
+     3,
+     2270,
+     2475,
+     1789,
+     1347,
+     963,
+     769,
+     600,
+     390,
+     365,
+     312,
+     242,
+     240,
+     183,
+     163,
+     133,
+     139,
+     80,
+     68,
+     76,
+     62,
+     65,
+     55,
+     68,
+     48,
+     44,
+     42,
+     48,
+     41,
+     49,
+     33,
+     34,
+     38,
+     28,
+     40,
+     35,
+     26,
+     28,
+     30,
+     25,
+     30,
+     23,
+     23,
+     34,
+     22,
+     15,
+     12,
+     16,
+     33,
+     24,
+     16,
+     20,
+     22,
+     14,
+     17,
+     26,
+     15,
+     8,
+     18,
+     10,
+     9,
+     11,
+     16,
+     522
+    ]
+   },
+   "untreated": {
+    "settled": 16449,
+    "settle_steps_hist": [
+     2,
+     2294,
+     2497,
+     1837,
+     1415,
+     1016,
+     853,
+     678,
+     501,
+     463,
+     423,
+     316,
+     299,
+     273,
+     230,
+     186,
+     190,
+     136,
+     123,
+     103,
+     122,
+     109,
+     94,
+     90,
+     106,
+     76,
+     84,
+     68,
+     67,
+     63,
+     75,
+     52,
+     48,
+     54,
+     48,
+     38,
+     44,
+     34,
+     35,
+     46,
+     39,
+     25,
+     27,
+     41,
+     35,
+     37,
+     29,
+     25,
+     39,
+     32,
+     26,
+     34,
+     24,
+     24,
+     20,
+     23,
+     18,
+     23,
+     19,
+     10,
+     7,
+     15,
+     19,
+     670
+    ]
+   }
+  },
+  "cells": {
+   "treated": {
+    "request_entries_at_restarted": 9594317,
+    "request_entries_at_restarted_acted": 69308
+   },
+   "untreated": {
+    "request_entries_at_restarted": 11348898,
+    "request_entries_at_restarted_acted": 76076
+   }
+  },
+  "crossed": {
+   "wait_on_shelter_on": {
+    "request_entries_at_restarted": 4810234,
+    "request_entries_at_restarted_acted": 34065
+   },
+   "wait_on_shelter_off": {
+    "request_entries_at_restarted": 4784083,
+    "request_entries_at_restarted_acted": 35243
+   },
+   "wait_off_shelter_on": {
+    "request_entries_at_restarted": 4823791,
+    "request_entries_at_restarted_acted": 31355
+   },
+   "wait_off_shelter_off": {
+    "request_entries_at_restarted": 6525107,
+    "request_entries_at_restarted_acted": 44721
+   }
+  }
+ },
+ "shelter": {
+  "ops_examined": 162581,
+  "ops_sheltered": 23247,
+  "records_ghost": 29039,
+  "records_settled_fresh": 17675,
+  "released_on_response": 17546,
+  "released_on_expiry": 26025,
+  "released_dry": 1,
+  "hold_steps_sum": 6120765,
+  "skipped_target_opening": 48272,
+  "skipped_target_crash_pending": 7551,
+  "stall_clock_steps_not_suspended": 2322430,
+  "hazards": {
+   "ops_with_ghost": 14697,
+   "ops_with_settled_fresh": 9437,
+   "ops_with_both": 887
+  },
+  "cells": {
+   "treated": {
+    "sender_restarted_entries": 256812,
+    "sender_restarted_acted": 41484
+   },
+   "untreated": {
+    "sender_restarted_entries": 275518,
+    "sender_restarted_acted": 47312
+   }
+  },
+  "crossed": {
+   "wait_on_shelter_on": {
+    "sender_restarted_entries": 128784,
+    "sender_restarted_acted": 20988
+   },
+   "wait_on_shelter_off": {
+    "sender_restarted_entries": 130040,
+    "sender_restarted_acted": 22092
+   },
+   "wait_off_shelter_on": {
+    "sender_restarted_entries": 128028,
+    "sender_restarted_acted": 20496
+   },
+   "wait_off_shelter_off": {
+    "sender_restarted_entries": 145478,
+    "sender_restarted_acted": 25220
+   }
+  }
+ },
+ "stall_cap": {
+  "stops": 28482,
+  "treated_runs": 85733,
+  "untreated_runs": 28563,
+  "steps_saved_sum": 57833881,
+  "suspended_steps_sum": 21558370,
+  "marks": {
+   "rows": 1377465,
+   "acted_deliveries": 20251631,
+   "acted_timers": 4495953,
+   "releases": 902215
+  },
+  "probes_keyed": 1223,
+  "probe_over_cap_completions": 4,
+  "scopes_learned": 2,
+  "cap_max_scope": 791,
+  "untreated_runs_capped": 19090,
+  "untreated_over_cap_runs": 12801,
+  "untreated_rows_dropped": 0,
+  "untreated_gap_hist": [
+   1,
+   4,
+   53,
+   158,
+   515,
+   1710,
+   2444,
+   1312,
+   1249,
+   1311,
+   1406,
+   3177,
+   4910,
+   3303,
+   7010,
+   0
+  ]
+ },
+ "termination": {
+  "all": {
+   "runs": 121984,
+   "plan_complete": 35220,
+   "plan_complete_with_pending_work": 35220,
+   "iterations_exhausted": 42363,
+   "deadlock": 32,
+   "learned_cap_reached": 15887,
+   "stall_cap_reached": 28482,
+   "steps_used_sum": 271641115,
+   "step_budget_sum": 530880000,
+   "pending_work_at_exit_sum": 857029,
+   "planned_events_outstanding_sum": 585110
+  },
+  "by_recovered_nodes": [
+   {
+    "runs": 4942,
+    "plan_complete": 0,
+    "plan_complete_with_pending_work": 0,
+    "iterations_exhausted": 3347,
+    "deadlock": 32,
+    "learned_cap_reached": 1357,
+    "stall_cap_reached": 206,
+    "steps_used_sum": 16844278,
+    "step_budget_sum": 20427000,
+    "pending_work_at_exit_sum": 26933,
+    "planned_events_outstanding_sum": 52216
+   },
+   {
+    "runs": 44375,
+    "plan_complete": 24627,
+    "plan_complete_with_pending_work": 24627,
+    "iterations_exhausted": 12257,
+    "deadlock": 0,
+    "learned_cap_reached": 5223,
+    "stall_cap_reached": 2268,
+    "steps_used_sum": 83856604,
+    "step_budget_sum": 196140000,
+    "pending_work_at_exit_sum": 310993,
+    "planned_events_outstanding_sum": 136964
+   },
+   {
+    "runs": 72667,
+    "plan_complete": 10593,
+    "plan_complete_with_pending_work": 10593,
+    "iterations_exhausted": 26759,
+    "deadlock": 0,
+    "learned_cap_reached": 9307,
+    "stall_cap_reached": 26008,
+    "steps_used_sum": 170940233,
+    "step_budget_sum": 314313000,
+    "pending_work_at_exit_sum": 519103,
+    "planned_events_outstanding_sum": 395930
+   }
+  ]
+ }
+}

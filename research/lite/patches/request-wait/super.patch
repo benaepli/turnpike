@@ -1,0 +1,21 @@
+diff --git a/research/orchestrator/src/decide.ts b/research/orchestrator/src/decide.ts
+index f47423a..264d0e7 100644
+--- a/research/orchestrator/src/decide.ts
++++ b/research/orchestrator/src/decide.ts
+@@ -59,8 +59,8 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+   { bit: 1048576, name: "replaySlot" },
+   { bit: 2097152, name: "replayPrefix" },
+   { bit: 33554432, name: "ghostPendingTimerHold" },
+-  { bit: 67108864, name: "originAlternate" },
+-  { bit: 536870912, name: "pairOrderGhostOnly" },
++  { bit: 67108864, name: "opTargetShelter" },
++  { bit: 536870912, name: "requestWaitsForSettle" },
+   { bit: 16777216, name: "freshFirstPair" },
+   { bit: 8192, name: "recoverDepsExempt" },
+   { bit: 2048, name: "newsBeforeReply" },
+diff --git a/spur b/spur
+--- a/spur
++++ b/spur
+@@ -1 +1 @@
+-Subproject commit 12b758213355c983c8a5f156549eb74668874e34
++Subproject commit 12b758213355c983c8a5f156549eb74668874e34-dirty

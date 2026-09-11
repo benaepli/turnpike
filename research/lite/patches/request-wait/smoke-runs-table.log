@@ -1,0 +1,52 @@
+warning: method `get` is never used
+  --> spur-core/src/simulator/coverage.rs:38:12
+   |
+22 | impl VertexMap {
+   | -------------- method in this implementation
+...
+38 |     pub fn get(&self, vertex: &Vertex) -> Option<u64> {
+   |            ^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `novelty_score` and `unique_edges` are never used
+   --> spur-core/src/simulator/coverage.rs:122:12
+    |
+ 95 | impl LocalCoverage {
+    | ------------------ methods in this implementation
+...
+122 |     pub fn novelty_score(&self) -> f64 {
+    |            ^^^^^^^^^^^^^
+...
+141 |     pub fn unique_edges(&self) -> usize {
+    |            ^^^^^^^^^^^^
+
+warning: methods `total` and `novelty_score` are never used
+   --> spur-core/src/simulator/coverage.rs:199:12
+    |
+169 | impl GlobalCoverage {
+    | ------------------- methods in this implementation
+...
+199 |     pub fn total(&self) -> u64 {
+    |            ^^^^^
+...
+221 |     pub fn novelty_score(&self, vertex: Vertex) -> f64 {
+    |            ^^^^^^^^^^^^^
+
+warning: `spur-core` (lib) generated 3 warnings
+   Compiling spur-core v0.1.0 (/home/benaepli/Rust/turnpike/.claude/worktrees/agent-a4a2e216c7f394c59/spur/spur-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running tests/zz_scratch_runs_table.rs (spur/target/debug/deps/zz_scratch_runs_table-d9c14a205e440abb)
+
+running 1 test
+runs 121984 probes 7688 non-probe 114296
+wait share of non-probe 0.5022
+shelter share of non-probe 0.4983
+wait on probes 0 shelter on probes 0
+cells (wait, shelter) {(false, false): 28759, (false, true): 28134, (true, false): 28578, (true, true): 28825}
+ends {"deadlock": 32, "iterations_exhausted": 42363, "learned_cap_reached": 15887, "plan_complete": 35220, "stall_cap_reached": 28482}
+test print_runs_table_bit_shares ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+exit 0

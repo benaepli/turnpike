@@ -4002,10 +4002,10 @@ unchanged.
 
 ## request-caused-record-waits-for-restarted-target-settle
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 82 (rank 1 net 7; bit requestWaitsForSettle 1<<29, own salt,
-  probes exempt; the session's primary bit; eligibility mask with a
-  per-step lift, bounded by the learned ghost-lag quantile) | gain: 7 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 82 (chunk 1: applicability 0.012 against 0.40, bound releases
+  17x settled releases, acted ratio 1.08x; depth 11-12 suppressed 5:21 and
+  2:16; throughput 0.91; patch under research/lite/patches/request-wait) | gain: 7 | cost: 0 | rank: 1
 - A record caused by a post-fault client operation waits at a restarted
   destination until that node has heard back from a majority of the peers
   its restart addressed. Frozen prediction and review:
@@ -4013,11 +4013,10 @@ unchanged.
 
 ## post-fault-op-target-shelter-from-fault-touched-inflight
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 82 (rank 2 net 5; bit opTargetShelter 1<<26, own salt, paired
-  in the same session; purgatory keyed on a post-fault invocation with a
-  response-keyed release and a 192-step bound; sheltered rows must not
-  suspend the stall clock) | gain: 5 | cost: 0 | rank: 2
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 82 (chunk 1: expiry releases 0.66 against the 0.35 ceiling, the
+  CLIENT_FIRST shape; both-class hazards 4% of sheltered operations; depth
+  11-12 suppressed 2:23 and 1:16) | gain: 5 | cost: 0 | rank: 2
 - At a post-fault client operation's target, fault-touched records already
   in flight are held until the operation's response leaves the target.
   Frozen prediction and review:

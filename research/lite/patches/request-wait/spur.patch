@@ -1,0 +1,2323 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index 2370fb6..cb547b4 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -11,6 +11,7 @@ pub mod fault_timing;
+ pub mod fresh_first;
+ pub mod ghost_absorber;
+ pub mod ghost_release;
++pub mod op_shelter;
+ pub mod pair_order;
+ mod feedback;
+ mod hash_utils;
+@@ -19,6 +20,7 @@ mod path;
+ pub mod plan_config;
+ pub mod recover_deps;
+ pub mod replay_corpus;
++pub mod request_wait;
+ 
+ pub mod rng;
+ pub mod run_cap;
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index a1732e6..f5e3098 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -17,6 +17,8 @@ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+ use crate::simulator::pair_order;
+ use crate::simulator::ghost_release;
++use crate::simulator::op_shelter;
++use crate::simulator::request_wait;
+ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::feedback::Feedback;
+ use crate::simulator::hash_utils::HashPolicy;
+@@ -1025,6 +1027,132 @@ fn phase_read_node<H: HashPolicy>(state: &State<H>, n: usize, servers: usize) ->
+     }
+ }
+ 
++/// Whether the request wait masks `r` at this step: a remote record from a
++/// live current incarnation, caused by a post-fault client operation, whose
++/// destination is a server that has restarted, has not settled, and is
++/// within the learned bound from its restart.
++fn request_wait_masks<H: HashPolicy>(state: &State<H>, servers: usize, r: &Runnable<H>) -> bool {
++    let Runnable::Record(rec) = r else {
++        return false;
++    };
++    if rec.origin_node == rec.node
++        || rec.node.index >= servers
++        || !state.client_anchor.caused_post_fault(rec.causal_operation_id)
++        || state.fault_crossing(rec.origin_node, rec.origin_incarnation)
++        || state.incarnation(rec.node) == 0
++    {
++        return false;
++    }
++    let Some(l) = state.send_ledger.get(rec.node.index) else {
++        return false;
++    };
++    if request_wait::settled(l) {
++        return false;
++    }
++    let bound = state
++        .ghost_release
++        .bound
++        .unwrap_or(request_wait::DEFAULT_BOUND);
++    state.crash_info.current_step < l.last_restart_step.saturating_add(bound)
++}
++
++/// One pass over every queue, on the runs that need it. The request wait
++/// learns which records it masks this step and whether anything else is
++/// eligible under `base_ineligible`, so the mask is lifted rather than leave
++/// the step unfilled; the shelter learns whether nothing at all is eligible,
++/// in which case every sheltered record is released. Returns the keys of
++/// the records masked this step and whether the mask was lifted.
++fn treatment_prepass<H: HashPolicy>(
++    state: &mut State<H>,
++    servers: usize,
++    strict_timers: bool,
++    base_ineligible: &impl Fn(&Runnable<H>) -> bool,
++) -> (Vec<fresh_first::RecordKey>, bool) {
++    let wait_on = state.request_wait.enabled;
++    let shelter_pending = state.shelter.enabled && state.shelter.held_len() > 0;
++    let mut masked_now: Vec<fresh_first::RecordKey> = Vec::new();
++    if !(wait_on || shelter_pending) {
++        return (masked_now, false);
++    }
++    let mut eligible_base = state
++        .local_queues
++        .iter()
++        .flatten()
++        .any(|r| !base_ineligible(r))
++        || state
++            .timer_queue
++            .iter()
++            .any(|r| !base_ineligible(r) && !(strict_timers && timer_gate_blocks(state, r)));
++    let mut eligible_masked = eligible_base;
++    for r in &state.network_queue {
++        if base_ineligible(r) {
++            continue;
++        }
++        eligible_base = true;
++        if wait_on
++            && let Runnable::Record(rec) = r
++            && request_wait_masks(state, servers, r)
++        {
++            masked_now.push((rec.origin_node.index, rec.send_ordinal));
++        } else {
++            eligible_masked = true;
++        }
++    }
++    let step = state.crash_info.current_step;
++    if shelter_pending && !eligible_base {
++        let keys = state.shelter.mark_all(op_shelter::Release::Dry);
++        state.release_sheltered(&keys, step);
++    }
++    if masked_now.is_empty() {
++        return (masked_now, false);
++    }
++    if !eligible_masked {
++        masked_now.clear();
++        util_stats::record_request_wait_lift();
++        return (masked_now, true);
++    }
++    let mut new_records = 0;
++    for &key in &masked_now {
++        if state.request_wait.mask(key, step) {
++            new_records += 1;
++        }
++    }
++    util_stats::record_request_wait_masked(masked_now.len() as u64, new_records);
++    (masked_now, false)
++}
++
++/// The record at `idx` of the network queue is being taken: when it had
++/// been masked, count how its wait ended. `lifted` says the mask is off
++/// this step because nothing else was eligible.
++fn note_request_wait_take<H: HashPolicy>(
++    state: &mut State<H>,
++    servers: usize,
++    idx: usize,
++    lifted: bool,
++) {
++    if state.request_wait.masked_len() == 0 {
++        return;
++    }
++    let Runnable::Record(rec) = &state.network_queue[idx] else {
++        return;
++    };
++    let key = (rec.origin_node.index, rec.send_ordinal);
++    let dest = rec.node.index;
++    let still_masked = lifted && request_wait_masks(state, servers, &state.network_queue[idx]);
++    let Some(first) = state.request_wait.take(key) else {
++        return;
++    };
++    let release = if still_masked {
++        request_wait::Release::Lifted
++    } else if state.send_ledger.get(dest).is_some_and(request_wait::settled) {
++        request_wait::Release::Settled
++    } else {
++        request_wait::Release::Bound
++    };
++    let held = (state.crash_info.current_step - first).max(0) as u64;
++    util_stats::record_request_wait_release(release, held);
++}
++
+ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+@@ -1090,7 +1218,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     } else {
+         Vec::new()
+     };
+-    let is_ineligible = |r: &Runnable<H>| {
++    let base_ineligible = |r: &Runnable<H>| {
+         if crash_block_mask != 0
+             && let Runnable::Crash { node_id, .. } = r
+             && node_id.index < u64::BITS as usize
+@@ -1108,6 +1236,20 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         reservations.iter().any(|res| res.matches(r)) || is_fifo_blocked(r, &link_deliver_seq)
+     };
+ 
++    let servers = topology.num_servers.max(0) as usize;
++    let (masked_now, lifted) = treatment_prepass(state, servers, strict_timers, &base_ineligible);
++    let is_ineligible = |r: &Runnable<H>| {
++        if base_ineligible(r) {
++            return true;
++        }
++        if !masked_now.is_empty()
++            && let Runnable::Record(rec) = r
++        {
++            return masked_now.contains(&(rec.origin_node.index, rec.send_ordinal));
++        }
++        false
++    };
++
+     // Observation-only crash-anchor probe: is there a schedulable crash for a
+     // node whose own message is still in flight, and does the step take it?
+     // A crash is never withheld by a reservation or a link order, so a
+@@ -1315,6 +1457,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             let idx = fresh_first_dispatch(state, &eligible, drawn);
+             let idx = pair_order_dispatch(state, &eligible, idx);
+             observe_rush_dispatch(state, &eligible, idx);
++            note_request_wait_take(state, servers, idx, lifted);
+             let delivered_op = state.network_queue[idx].causal_operation_id();
+             note_first_delivery(state, delivered_op);
+             // The mask names the predicates true of the record the step
+@@ -1535,6 +1678,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     let record_origin = r.origin_node;
+                     let record_dest = r.node;
+                     let record_sent_at = r.origin_incarnation;
++                    let record_key = (record_origin.index, r.send_ordinal);
++                    let request_caused =
++                        state.client_anchor.caused_post_fault(r.causal_operation_id);
++                    let sender_restarted = record_sent_at != state.incarnation(record_origin);
+                     // Bump the link's deliver counter so the next FIFO message
+                     // in this link becomes schedulable.
+                     if let Some((link_id, seq)) = r.link_seq {
+@@ -1581,11 +1728,29 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             entry_step,
+                         );
+                         let servers = topology.num_servers.max(0) as usize;
+-                        if record_dest.index < servers
+-                            && state.client_anchor.caused_post_fault(r.causal_operation_id)
+-                        {
++                        if record_dest.index < servers && request_caused {
+                             state.note_post_fault_request_entry(record_dest.index, entry_step, servers);
+                         }
++                        // A request-caused entry reaching an unsettled
++                        // restarted server past the bound from its restart
++                        // is one the wait never reached.
++                        if state.request_wait.enabled
++                            && request_caused
++                            && record_dest.index < servers
++                            && state.incarnation(record_dest) > 0
++                            && let Some(l) = state.send_ledger.get(record_dest.index)
++                            && !request_wait::settled(l)
++                        {
++                            let bound = state
++                                .ghost_release
++                                .bound
++                                .unwrap_or(request_wait::DEFAULT_BOUND);
++                            if entry_step >= l.last_restart_step.saturating_add(bound)
++                                && !state.request_wait.was_masked(record_key)
++                            {
++                                util_stats::record_request_wait_arrival_after_bound();
++                            }
++                        }
+                         state.fresh_first.note_entry(
+                             record_dest.index,
+                             record_origin.index,
+@@ -1717,6 +1882,36 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             topology.num_servers.max(0) as usize,
+                         );
+                     }
++                    if message_entry {
++                        if let Some(steps) = state.note_opening_entry(
++                            record_dest.index,
++                            record_origin.index,
++                            !sender_restarted,
++                            acted,
++                            entry_step,
++                        ) {
++                            util_stats::record_request_wait_settled(
++                                state.request_wait.enabled,
++                                steps as u64,
++                            );
++                        }
++                        if util_stats::enabled() {
++                            let servers = topology.num_servers.max(0) as usize;
++                            let cell = util_stats::treatment_cell(
++                                state.request_wait.enabled,
++                                state.shelter.enabled,
++                            );
++                            if request_caused
++                                && record_dest.index < servers
++                                && state.incarnation(record_dest) > 0
++                            {
++                                util_stats::record_request_wait_entry(cell, acted);
++                            }
++                            if sender_restarted {
++                                util_stats::record_shelter_entry(cell, acted);
++                            }
++                        }
++                    }
+                     if let Some(before) = ghost {
+                         state.note_ghost_delivery(record_dest.index, entry_step, before);
+                         if acted {
+@@ -2047,6 +2242,7 @@ fn crash_node<H: HashPolicy>(state: &mut State<H>, node_id: NodeId) {
+     state.note_handler_entry(node_id.index, HandlerTrigger::None);
+     state.note_crash_of_acted_absorber(node_id.index);
+     state.clear_ghost_mark(node_id.index);
++    state.clear_opening(node_id.index);
+ 
+     let mut held: u64 = 0;
+     let mut dropped: u64 = 0;
+@@ -2145,6 +2341,7 @@ fn recover_crashed_node<H: HashPolicy, L: Logger, F: Feedback>(
+     arm_release_trigger(state, node_id.index, restart_step);
+     state.fresh_first.clear_origin(node_id.index);
+     state.note_handler_entry(node_id.index, HandlerTrigger::None);
++    state.begin_opening(node_id.index);
+     util_stats::record_recover(
+         node_id.index,
+         state.crash_info.current_step,
+@@ -3973,4 +4170,287 @@ mod tests {
+             assert_eq!(idx, 0);
+         }
+     }
++
++    /// A remote record from `origin` to `dest`, sent at `incarnation` under
++    /// the client operation `cause`, queued through the ledger hooks.
++    fn queue_caused_record(
++        state: &mut State<NoHashing>,
++        origin: usize,
++        dest: usize,
++        incarnation: u32,
++        cause: Option<i32>,
++    ) -> usize {
++        let idx = queue_record(state, origin, dest, incarnation, 0.5);
++        if let Runnable::Record(rec) = &mut state.network_queue[idx] {
++            rec.causal_operation_id = cause;
++        }
++        idx
++    }
++
++    fn key_at(state: &State<NoHashing>, idx: usize) -> (usize, u32) {
++        match &state.network_queue[idx] {
++            Runnable::Record(rec) => (rec.origin_node.index, rec.send_ordinal),
++            other => panic!("not a record: {other:?}"),
++        }
++    }
++
++    /// Three servers, node 2 back from a crash at step 100 with an opening
++    /// that addressed nodes 0 and 1, the run past its first crash so that
++    /// operation 5 and later are post-fault, at step 110.
++    fn restarted_state() -> State<NoHashing> {
++        let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++        state.incarnations[2] = 1;
++        state.send_ledger[2].last_restart_step = 100;
++        state.send_ledger[2].opening_peers = 0b011;
++        state.client_anchor.first_post_fault_op = Some(5);
++        state.crash_info.current_step = 110;
++        state
++    }
++
++    /// The wait masks a record caused by a post-fault operation, from a
++    /// live current incarnation, at a restarted server that has not settled
++    /// and is within the bound from its restart, and nothing else.
++    #[test]
++    fn the_wait_masks_only_a_request_caused_record_at_an_unsettled_restarted_destination() {
++        let mut state = restarted_state();
++        let caused = queue_caused_record(&mut state, 0, 2, 0, Some(5));
++        let uncaused = queue_caused_record(&mut state, 0, 2, 0, None);
++        let pre_fault = queue_caused_record(&mut state, 0, 2, 0, Some(4));
++        let to_settled_dest = queue_caused_record(&mut state, 0, 1, 0, Some(6));
++        let masks = |state: &State<NoHashing>, idx: usize| {
++            request_wait_masks(state, 3, &state.network_queue[idx])
++        };
++        assert!(masks(&state, caused));
++        assert!(!masks(&state, uncaused), "a record no request caused");
++        assert!(!masks(&state, pre_fault), "a record caused before the first crash");
++        assert!(!masks(&state, to_settled_dest), "a destination that never restarted");
++        let cs = queue_channel_send(&mut state, 0, 2);
++        assert!(!masks(&state, cs), "a channel send");
++        queue_timer(&mut state);
++        assert!(!request_wait_masks(&state, 3, &state.timer_queue[0]), "a timer");
++
++        // A ghost: sent by an incarnation of node 1 that has since died.
++        state.incarnations[1] = 1;
++        let ghost = queue_caused_record(&mut state, 1, 2, 0, Some(5));
++        assert!(!masks(&state, ghost), "a dead-incarnation record");
++        let fresh = queue_caused_record(&mut state, 1, 2, 1, Some(5));
++        assert!(masks(&state, fresh), "the current incarnation of a restarted origin");
++
++        // A record whose sender is down.
++        crash_node(&mut state, node(0));
++        assert!(state.network_queue.iter().all(|r| match r {
++            Runnable::Record(rec) => rec.origin_node.index != 0 || !masks(&state, 0),
++            _ => true,
++        }));
++        let down = state
++            .network_queue
++            .iter()
++            .position(|r| matches!(r, Runnable::Record(rec) if rec.origin_node.index == 0 && rec.node.index == 2))
++            .expect("node 0's record to node 2 is still queued");
++        assert!(!masks(&state, down), "a record whose sender is down");
++
++        // The bound from the restart: the default with no learned quantile,
++        // the learned one otherwise.
++        assert_eq!(state.ghost_release.bound, None);
++        state.crash_info.current_step = 100 + request_wait::DEFAULT_BOUND - 1;
++        assert!(masks(&state, fresh));
++        state.crash_info.current_step = 100 + request_wait::DEFAULT_BOUND;
++        assert!(!masks(&state, fresh), "at the bound the mask is off");
++        state.ghost_release.bound = Some(50);
++        assert!(masks(&state, fresh), "the learned bound is wider");
++        state.crash_info.current_step = 150;
++        assert!(!masks(&state, fresh));
++        state.crash_info.current_step = 110;
++
++        // Settled: a majority of the opening peers answered, or the opening
++        // addressed nobody.
++        state.send_ledger[2].opening_replied = 0b001;
++        assert!(masks(&state, fresh), "one of two peers is no majority");
++        state.send_ledger[2].opening_replied = 0b011;
++        assert!(!masks(&state, fresh), "a settled destination");
++        state.send_ledger[2].opening_replied = 0;
++        state.send_ledger[2].opening_peers = 0;
++        assert!(!masks(&state, fresh), "an empty opening is settled");
++        state.send_ledger[2].opening_peers = 0b011;
++        assert!(masks(&state, fresh));
++        assert!(!request_wait_masks(&state, 2, &state.network_queue[fresh]), "past the servers");
++    }
++
++    fn queue_timer(state: &mut State<NoHashing>) {
++        state.push_runnable(Runnable::Timer(crate::simulator::core::state::Timer {
++            pc: 0,
++            node: node(2),
++            channel: crate::simulator::core::values::ChannelId {
++                node: node(2),
++                id: 0,
++            },
++            label: None,
++            priority: 0.5,
++        }));
++    }
++
++    /// On a treated run the pre-pass names the masked records and counts
++    /// them once per record; when the mask would leave nothing eligible it
++    /// is lifted for the step. An untreated run masks nothing and touches
++    /// no counter.
++    #[test]
++    fn the_prepass_masks_counts_once_per_record_and_lifts_when_nothing_else_is_eligible() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().request_wait;
++        let never = |_: &Runnable<NoHashing>| false;
++
++        let mut untreated = restarted_state();
++        queue_caused_record(&mut untreated, 0, 2, 0, Some(5));
++        assert_eq!(treatment_prepass(&mut untreated, 3, false, &never), (Vec::new(), false));
++        assert_eq!(untreated.request_wait.masked_len(), 0);
++
++        let mut state = restarted_state();
++        state.request_wait.enabled = true;
++        let caused = queue_caused_record(&mut state, 0, 2, 0, Some(5));
++        let other = queue_caused_record(&mut state, 0, 1, 0, Some(5));
++        let key = key_at(&state, caused);
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never), (vec![key], false));
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never), (vec![key], false));
++        let mid = util_stats::snapshot().request_wait;
++        assert_eq!(mid.masked_offers - before.masked_offers, 2, "one offer per step");
++        assert_eq!(mid.records_masked - before.records_masked, 1, "one record");
++        assert_eq!(mid.lift_steps - before.lift_steps, 0);
++
++        // Only the masked record is left: the mask is lifted, and taking
++        // the record reads as a lifted release.
++        state.take_network(other);
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never), (Vec::new(), true));
++        state.crash_info.current_step = 113;
++        note_request_wait_take(&mut state, 3, 0, true);
++        let after = util_stats::snapshot().request_wait;
++        assert_eq!(after.lift_steps - mid.lift_steps, 1);
++        assert_eq!(after.released_lifted - mid.released_lifted, 1);
++        assert_eq!(after.hold_steps_sum - mid.hold_steps_sum, 3);
++        assert_eq!(state.request_wait.masked_len(), 0);
++
++        // A blocked rival does not keep the mask on: eligibility is read
++        // under the base rule.
++        let blocked = queue_caused_record(&mut state, 1, 2, 0, None);
++        let block_it = |r: &Runnable<NoHashing>| {
++            matches!(r, Runnable::Record(rec) if rec.origin_node.index == 1)
++        };
++        assert_eq!(treatment_prepass(&mut state, 3, false, &block_it), (Vec::new(), true));
++        state.take_network(blocked);
++        util_stats::set_enabled(false);
++    }
++
++    /// A masked record taken once its destination settled reads as a
++    /// settled release; one taken past the bound as a bound release.
++    #[test]
++    fn a_masked_record_is_released_by_the_settle_or_the_bound() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().request_wait;
++        let never = |_: &Runnable<NoHashing>| false;
++        let mut state = restarted_state();
++        state.request_wait.enabled = true;
++        let caused = queue_caused_record(&mut state, 0, 2, 0, Some(5));
++        queue_caused_record(&mut state, 0, 1, 0, None);
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never).0.len(), 1);
++        state.send_ledger[2].opening_replied = 0b011;
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never), (Vec::new(), false));
++        state.crash_info.current_step = 115;
++        note_request_wait_take(&mut state, 3, caused, false);
++        let mid = util_stats::snapshot().request_wait;
++        assert_eq!(mid.released_settled - before.released_settled, 1);
++        assert_eq!(mid.hold_steps_sum - before.hold_steps_sum, 5);
++
++        let mut state = restarted_state();
++        state.request_wait.enabled = true;
++        let caused = queue_caused_record(&mut state, 0, 2, 0, Some(5));
++        queue_caused_record(&mut state, 0, 1, 0, None);
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never).0.len(), 1);
++        state.crash_info.current_step = 100 + request_wait::DEFAULT_BOUND;
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never), (Vec::new(), false));
++        note_request_wait_take(&mut state, 3, caused, false);
++        let after = util_stats::snapshot().request_wait;
++        assert_eq!(after.released_bound - mid.released_bound, 1);
++        assert_eq!(after.released_settled - mid.released_settled, 0);
++        assert_eq!(
++            after.hold_steps_sum - mid.hold_steps_sum,
++            request_wait::DEFAULT_BOUND as u64 - 10
++        );
++        // A record that was never masked counts nothing when taken.
++        let plain = queue_caused_record(&mut state, 1, 0, 0, None);
++        note_request_wait_take(&mut state, 3, plain, false);
++        assert_eq!(util_stats::snapshot().request_wait.hold_steps_sum, after.hold_steps_sum);
++        util_stats::set_enabled(false);
++    }
++
++    /// With sheltered records in the delay queue and nothing eligible, the
++    /// pre-pass releases every sheltered record to this step; with anything
++    /// eligible it leaves them alone.
++    #[test]
++    fn the_prepass_releases_sheltered_records_on_a_dry_step() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().shelter;
++        let never = |_: &Runnable<NoHashing>| false;
++        let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++        state.shelter.enabled = true;
++        state.crash_info.current_step = 20;
++        let idx = queue_record(&mut state, 1, 0, 0, 0.5);
++        let key = key_at(&state, idx);
++        let mut r = state.take_network(idx);
++        if let Runnable::Record(rec) = &mut r {
++            rec.bias.insert(DeliveryBias::SHELTERED);
++        }
++        state.shelter.shelter(7, key, 20);
++        state.delay_runnable(20 + op_shelter::BOUND_STEPS, r);
++        let rival = queue_record(&mut state, 2, 0, 0, 0.5);
++
++        state.crash_info.current_step = 21;
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never), (Vec::new(), false));
++        assert_eq!(state.purgatory[0].0, 20 + op_shelter::BOUND_STEPS, "a rival is eligible");
++        state.take_network(rival);
++        state.crash_info.current_step = 22;
++        assert_eq!(treatment_prepass(&mut state, 3, false, &never), (Vec::new(), false));
++        assert_eq!(state.purgatory[0].0, 22, "nothing eligible: released to this step");
++        assert_eq!(state.send_ledger[1].in_flight, 1);
++        state.release_from_purgatory(23);
++        assert!(state.purgatory.is_empty());
++        assert_eq!(state.network_queue.len(), 1);
++        assert_eq!(state.send_ledger[1].in_flight, 1);
++        assert_eq!(state.send_ledger[1].net_records, 1);
++        let after = util_stats::snapshot().shelter;
++        assert_eq!(after.released_dry - before.released_dry, 1);
++        assert_eq!(after.hold_steps_sum - before.hold_steps_sum, 3);
++        assert_eq!(state.shelter.held_len(), 0);
++        util_stats::set_enabled(false);
++    }
++
++    /// A crash clears the node's opening and what it heard back; a restart
++    /// starts an empty opening that the restart segment's sends fill.
++    #[test]
++    fn a_crash_clears_the_opening_and_a_restart_begins_a_new_one() {
++        let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++        state.incarnations[2] = 1;
++        state.send_ledger[2].opening_peers = 0b011;
++        state.send_ledger[2].opening_replied = 0b001;
++        state.send_ledger[2].opening_end = Some(4);
++        state.send_ledger[2].delivery_acted_since_restart = true;
++        crash_node(&mut state, node(2));
++        let l = state.send_ledger[2];
++        assert_eq!((l.opening_peers, l.opening_replied, l.opening_end), (0, 0, None));
++        assert!(!l.delivery_acted_since_restart);
++        assert_eq!(l.trigger, HandlerTrigger::None);
++        // The restart bumps the incarnation and its sends before any
++        // handler entry are opening sends.
++        state.crash_info.currently_crashed.remove(&node(2));
++        state.incarnations[2] = 2;
++        state.begin_opening(2);
++        queue_record(&mut state, 2, 0, 2, 0.5);
++        queue_record(&mut state, 2, 1, 2, 0.5);
++        assert_eq!(state.send_ledger[2].opening_peers, 0b011);
++        state.note_handler_entry(2, HandlerTrigger::Delivery);
++        assert_eq!(state.send_ledger[2].opening_end, Some(2));
++        queue_record(&mut state, 2, 0, 2, 0.5);
++        assert_eq!(state.send_ledger[2].opening_peers, 0b011, "a handler's send is not an opening send");
++    }
+ }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index e137dff..692416b 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -13,7 +13,9 @@ use crate::simulator::pair_order;
+ use crate::simulator::ghost_release;
+ use crate::simulator::hash_utils::{HashPolicy, compute_hash};
+ use crate::simulator::rng::{Stream, StreamRng};
+-use crate::simulator::util_stats::DeliveryBias;
++use crate::simulator::op_shelter;
++use crate::simulator::request_wait;
++use crate::simulator::util_stats::{self, DeliveryBias};
+ use imbl::{HashMap as ImHashMap, OrdSet, Vector};
+ use rand_distr::{Beta, Distribution};
+ use rustc_hash::FxHasher;
+@@ -692,6 +694,14 @@ pub struct State<H: HashPolicy> {
+     /// Remote records in the network queue whose origin has another role
+     /// than the receiver, which is how a client request looks to a server.
+     pub net_requests: u32,
++    /// The wait of request-caused records at unsettled restarted
++    /// destinations: whether this run masks them, and the records masked so
++    /// far. Scheduling bookkeeping, excluded from `signature()`.
++    pub request_wait: request_wait::RunState,
++    /// The shelter of a post-fault operation's target from fault-touched
++    /// records: whether this run shelters, and the records held. Scheduling
++    /// bookkeeping, excluded from `signature()`.
++    pub shelter: op_shelter::RunState,
+ }
+ 
+ /// What woke the handler a node ran last.
+@@ -739,6 +749,18 @@ pub struct ReplayCut {
+ /// a message entry caused by a post-fault client operation has reached it.
+ /// `last_restart_step` is the step the node last came back from a crash,
+ /// -1 while it never has.
++///
++/// The next four fields describe the node's restart opening, the sends it
++/// issues after coming back and before its first handler entry, and are
++/// cleared when the node crashes. `opening_peers` is a bitmask over node
++/// indices of the remote destinations of those sends; `opening_replied`
++/// the subset whose current incarnation has since produced a message entry
++/// that wrote this node's state. `opening_end` is `issued` at the node's
++/// first handler entry after its last restart, unset until then, so a
++/// record with `send_ordinal >= opening_end` was sent by a later segment.
++/// `delivery_acted_since_restart` says whether a message entry has written
++/// the node's state since its last restart, which is when its opening is
++/// over.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct SendLedger {
+     pub issued: u32,
+@@ -758,6 +780,10 @@ pub struct SendLedger {
+     pub ghost_acted_since_restart: bool,
+     pub request_entered_since_restart: bool,
+     pub last_restart_step: i32,
++    pub opening_peers: u64,
++    pub opening_replied: u64,
++    pub opening_end: Option<u32>,
++    pub delivery_acted_since_restart: bool,
+ }
+ 
+ impl Default for SendLedger {
+@@ -780,6 +806,10 @@ impl Default for SendLedger {
+             ghost_acted_since_restart: false,
+             request_entered_since_restart: false,
+             last_restart_step: -1,
++            opening_peers: 0,
++            opening_replied: 0,
++            opening_end: None,
++            delivery_acted_since_restart: false,
+         }
+     }
+ }
+@@ -860,6 +890,8 @@ impl<H: HashPolicy> State<H> {
+             exchange_before_request: false,
+             net_stale_records: 0,
+             net_requests: 0,
++            request_wait: request_wait::RunState::default(),
++            shelter: op_shelter::RunState::default(),
+         }
+     }
+ 
+@@ -1106,6 +1138,7 @@ impl<H: HashPolicy> State<H> {
+             return;
+         }
+         let fresh = rec.origin_incarnation == self.incarnation(rec.origin_node);
++        let restarted = self.incarnation(rec.origin_node) > 0;
+         let Some(l) = self.send_ledger.get_mut(rec.origin_node.index) else { return };
+         l.net_records += 1;
+         if fresh {
+@@ -1116,6 +1149,15 @@ impl<H: HashPolicy> State<H> {
+         if rec.origin_node.role != rec.node.role {
+             self.net_requests += 1;
+         }
++        // A send of the current incarnation before any handler entry since
++        // the restart addresses a peer the opening waits on.
++        if fresh
++            && restarted
++            && l.trigger == HandlerTrigger::None
++            && rec.node.index < u64::BITS as usize
++        {
++            l.opening_peers |= 1u64 << rec.node.index;
++        }
+     }
+ 
+     /// A remote record left the network queue.
+@@ -1158,6 +1200,9 @@ impl<H: HashPolicy> State<H> {
+             l.trigger = trigger;
+             if trigger != HandlerTrigger::None {
+                 l.entries = l.entries.saturating_add(1);
++                if l.opening_end.is_none() {
++                    l.opening_end = Some(l.issued);
++                }
+             }
+         }
+     }
+@@ -1215,6 +1260,78 @@ impl<H: HashPolicy> State<H> {
+         }
+     }
+ 
++    /// `node` is going down: its restart opening, what it heard back, and
++    /// where the opening ended are lost with its state.
++    pub fn clear_opening(&mut self, node: usize) {
++        if let Some(l) = self.send_ledger.get_mut(node) {
++            l.opening_peers = 0;
++            l.opening_replied = 0;
++            l.opening_end = None;
++            l.delivery_acted_since_restart = false;
++        }
++    }
++
++    /// `node` came back from a crash: the sends it issues before its first
++    /// handler entry address the peers its opening waits on.
++    pub fn begin_opening(&mut self, node: usize) {
++        if let Some(l) = self.send_ledger.get_mut(node) {
++            l.opening_peers = 0;
++        }
++    }
++
++    /// A message entry at `dest` from `origin` ran at `step`; `current`
++    /// says the entry came from the origin's current incarnation and
++    /// `acted` that it wrote `dest`'s state. An acted entry ends `dest`'s
++    /// opening, and one from a peer the opening waits on counts as that
++    /// peer's answer. Returns the steps from `dest`'s restart when this
++    /// entry is the one that settled it.
++    pub fn note_opening_entry(
++        &mut self,
++        dest: usize,
++        origin: usize,
++        current: bool,
++        acted: bool,
++        step: i32,
++    ) -> Option<i32> {
++        if !acted {
++            return None;
++        }
++        let l = self.send_ledger.get_mut(dest)?;
++        l.delivery_acted_since_restart = true;
++        if !current || origin >= u64::BITS as usize || l.opening_peers & (1u64 << origin) == 0 {
++            return None;
++        }
++        let before = request_wait::settled(l);
++        l.opening_replied |= 1u64 << origin;
++        (!before && request_wait::settled(l)).then(|| (step - l.last_restart_step).max(0))
++    }
++
++    /// Whether `node` is still in its restart opening: it has restarted and
++    /// no message entry has written its state since.
++    pub fn in_opening(&self, node: usize) -> bool {
++        self.incarnation_at(node) > 0
++            && self
++                .send_ledger
++                .get(node)
++                .is_some_and(|l| !l.delivery_acted_since_restart)
++    }
++
++    /// Every sheltered record in the delay queue whose key is in `keys` is
++    /// released at `step`.
++    pub fn release_sheltered(&mut self, keys: &[fresh_first::RecordKey], step: i32) {
++        if keys.is_empty() {
++            return;
++        }
++        for (release_step, r) in self.purgatory.iter_mut() {
++            if let Runnable::Record(rec) = r
++                && rec.bias.contains(DeliveryBias::SHELTERED)
++                && keys.contains(&(rec.origin_node.index, rec.send_ordinal))
++            {
++                *release_step = (*release_step).min(step);
++            }
++        }
++    }
++
+     /// A crash is landing on `node` while its ghost mark says the absorbed
+     /// delivery wrote state; the fact outlives the mark. Read the mark
+     /// before `clear_ghost_mark`.
+@@ -1406,6 +1523,14 @@ impl<H: HashPolicy> State<H> {
+             if self.purgatory[i].0 <= current_step {
+                 let (_, runnable) = self.purgatory.swap_remove(i);
+                 self.flight_leave(&runnable);
++                if let Runnable::Record(rec) = &runnable
++                    && rec.bias.contains(DeliveryBias::SHELTERED)
++                    && let Some((reason, held)) = self
++                        .shelter
++                        .released((rec.origin_node.index, rec.send_ordinal), current_step)
++                {
++                    util_stats::record_shelter_release(reason, held as u64);
++                }
+                 self.push_runnable(runnable);
+                 // Don't increment i — swap_remove moved the last element here
+             } else {
+@@ -2097,4 +2222,169 @@ mod ledger_tests {
+         assert_eq!(st.send_ledger[0].recent, 1, "removing the early send leaves recent alone");
+         assert_exact(&st, "after removing the early send");
+     }
++
++    /// The opening: sends of the current incarnation before any handler
++    /// entry since a restart name the peers; an acted entry from such a
++    /// peer's current incarnation answers, and the entry that reaches a
++    /// majority reports the steps from the restart. A crash clears it all.
++    #[test]
++    fn an_opening_names_its_peers_and_settles_on_a_majority_of_acted_answers() {
++        let mut st = state();
++        let (a, b, c) = (node(SERVER, 0), node(SERVER, 1), node(SERVER, 2));
++        // A never-restarted node's early sends are not an opening.
++        let r = record(&mut st, c, a);
++        st.push_runnable(Runnable::Record(r));
++        assert_eq!(st.send_ledger[2].opening_peers, 0);
++        st.incarnations[2] = 1;
++        st.note_incarnation_bump(2);
++        st.send_ledger[2].last_restart_step = 40;
++        st.begin_opening(2);
++        let r = record(&mut st, c, a);
++        st.push_runnable(Runnable::Record(r));
++        let r = record(&mut st, c, b);
++        st.push_runnable(Runnable::Record(r));
++        assert_eq!(st.send_ledger[2].opening_peers, 0b011);
++        assert!(!request_wait::settled(&st.send_ledger[2]));
++        // A dead-incarnation record of the restarted node is not an opening
++        // send even while its trigger is still None.
++        let mut stale = record(&mut st, c, a);
++        stale.origin_incarnation = 0;
++        st.push_runnable(Runnable::Record(stale));
++        assert_eq!(st.send_ledger[2].opening_peers, 0b011);
++        assert_exact(&st, "after the opening sends");
++
++        assert_eq!(st.note_opening_entry(2, 0, true, false, 45), None, "an inert entry answers nothing");
++        assert_eq!(st.send_ledger[2].opening_replied, 0);
++        assert!(!st.send_ledger[2].delivery_acted_since_restart);
++        assert!(st.in_opening(2));
++        assert_eq!(st.note_opening_entry(2, 0, false, true, 46), None, "a dead incarnation answers nothing");
++        assert_eq!(st.send_ledger[2].opening_replied, 0);
++        assert!(st.send_ledger[2].delivery_acted_since_restart, "an acted entry ends the opening");
++        assert!(!st.in_opening(2));
++        assert_eq!(st.note_opening_entry(2, 3, true, true, 47), None, "a node outside the opening");
++        assert_eq!(st.send_ledger[2].opening_replied, 0);
++        assert_eq!(st.note_opening_entry(2, 0, true, true, 48), None, "one of two is no majority");
++        assert_eq!(st.send_ledger[2].opening_replied, 0b001);
++        assert_eq!(st.note_opening_entry(2, 1, true, true, 51), Some(11), "the settling entry");
++        assert!(request_wait::settled(&st.send_ledger[2]));
++        assert_eq!(st.note_opening_entry(2, 1, true, true, 52), None, "settled once");
++        assert!(!st.in_opening(0), "a node that never restarted is not in an opening");
++
++        st.clear_opening(2);
++        let l = st.send_ledger[2];
++        assert_eq!((l.opening_peers, l.opening_replied, l.opening_end), (0, 0, None));
++        assert!(!l.delivery_acted_since_restart);
++        assert!(st.in_opening(2));
++    }
++
++    /// The first handler entry after a restart fixes the end of the
++    /// opening at the sends issued so far, and only the first.
++    #[test]
++    fn the_opening_ends_at_the_first_handler_entry() {
++        let mut st = state();
++        let (a, c) = (node(SERVER, 0), node(SERVER, 2));
++        let r = record(&mut st, c, a);
++        st.push_runnable(Runnable::Record(r));
++        st.note_handler_entry(2, HandlerTrigger::None);
++        assert_eq!(st.send_ledger[2].opening_end, None, "a restart segment is no handler");
++        let r = record(&mut st, c, a);
++        st.push_runnable(Runnable::Record(r));
++        st.note_handler_entry(2, HandlerTrigger::Timer);
++        assert_eq!(st.send_ledger[2].opening_end, Some(2));
++        let r = record(&mut st, c, a);
++        st.push_runnable(Runnable::Record(r));
++        st.note_handler_entry(2, HandlerTrigger::Delivery);
++        assert_eq!(st.send_ledger[2].opening_end, Some(2), "later entries leave it");
++        st.clear_opening(2);
++        st.note_handler_entry(2, HandlerTrigger::Delivery);
++        assert_eq!(st.send_ledger[2].opening_end, Some(3));
++    }
++
++    /// A record moved to the delay queue by the shelter and back keeps
++    /// every ledger count exact, is counted as pending for its destination
++    /// throughout, and is counted once with the reason it was marked.
++    #[test]
++    fn a_sheltered_record_keeps_the_ledger_exact_through_the_hold_and_the_release() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().shelter;
++        let mut st = state();
++        let (a, b, c) = (node(SERVER, 0), node(SERVER, 1), node(SERVER, 2));
++        st.crash_info.current_step = 10;
++        let r = record(&mut st, b, a);
++        st.push_runnable(Runnable::Record(r));
++        let r = record(&mut st, c, a);
++        st.push_runnable(Runnable::Record(r));
++        let r = record(&mut st, c, b);
++        st.push_runnable(Runnable::Record(r));
++        assert_eq!(st.pending_deliveries_to(a), 2);
++        assert_exact(&st, "before the shelter");
++
++        let keys: Vec<fresh_first::RecordKey> = (0..2)
++            .map(|_| {
++                let mut r = st.take_network(0);
++                let key = match &mut r {
++                    Runnable::Record(rec) => {
++                        rec.bias.insert(DeliveryBias::SHELTERED);
++                        (rec.origin_node.index, rec.send_ordinal)
++                    }
++                    other => panic!("{other:?}"),
++                };
++                st.shelter.shelter(3, key, 10);
++                st.delay_runnable(10 + op_shelter::BOUND_STEPS, r);
++                key
++            })
++            .collect();
++        assert_eq!(st.network_queue.len(), 1);
++        assert_eq!(st.purgatory.len(), 2);
++        assert_eq!(st.pending_deliveries_to(a), 2, "a held record is still pending");
++        assert_exact(&st, "while sheltered");
++        assert_eq!(st.send_ledger[1].in_flight, 1);
++        assert_eq!(st.send_ledger[1].net_records, 0, "a held record is not in the network queue");
++
++        // The response releases one operation's records to the current
++        // step; an unrelated key changes nothing.
++        st.release_sheltered(&[(7, 7)], 12);
++        assert!(st.purgatory.iter().all(|(s, _)| *s == 10 + op_shelter::BOUND_STEPS));
++        let marked = st.shelter.mark_op(3, op_shelter::Release::Response);
++        assert_eq!(marked.len(), 2);
++        st.release_sheltered(&marked, 12);
++        assert!(st.purgatory.iter().all(|(s, _)| *s == 12));
++        st.release_from_purgatory(12);
++        assert!(st.purgatory.is_empty());
++        assert_eq!(st.network_queue.len(), 3);
++        assert_exact(&st, "after the release");
++        assert_eq!(st.pending_deliveries_to(a), 2);
++        assert_eq!(st.shelter.held_len(), 0);
++        for key in keys {
++            assert!(!st.shelter.holds(key));
++        }
++        let after = util_stats::snapshot().shelter;
++        assert_eq!(after.released_on_response - before.released_on_response, 2);
++        assert_eq!(after.released_on_expiry - before.released_on_expiry, 0);
++        assert_eq!(after.hold_steps_sum - before.hold_steps_sum, 4);
++
++        // An unmarked record leaving at its bound is an expiry.
++        let mut r = st.take_network(0);
++        if let Runnable::Record(rec) = &mut r {
++            rec.bias.insert(DeliveryBias::SHELTERED);
++            st.shelter.shelter(4, (rec.origin_node.index, rec.send_ordinal), 12);
++        }
++        st.delay_runnable(12 + op_shelter::BOUND_STEPS, r);
++        st.release_from_purgatory(12 + op_shelter::BOUND_STEPS - 1);
++        assert_eq!(st.purgatory.len(), 1, "held until the bound");
++        st.release_from_purgatory(12 + op_shelter::BOUND_STEPS);
++        assert!(st.purgatory.is_empty());
++        assert_exact(&st, "after the expiry");
++        let end = util_stats::snapshot().shelter;
++        assert_eq!(end.released_on_expiry - after.released_on_expiry, 1);
++        assert_eq!(end.hold_steps_sum - after.hold_steps_sum, op_shelter::BOUND_STEPS as u64);
++        // A delayed record that was never sheltered counts nothing.
++        let r = st.take_network(0);
++        st.delay_runnable(300, r);
++        st.release_from_purgatory(300);
++        assert_eq!(util_stats::snapshot().shelter.released_on_expiry, end.released_on_expiry);
++        assert_exact(&st, "after a plain delay");
++        util_stats::set_enabled(false);
++    }
+ }
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 0dd437f..11a020b 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -17,6 +17,8 @@ use crate::simulator::path::plan::{
+ use crate::simulator::fault_timing;
+ use crate::simulator::pair_order as pair_order_split;
+ use crate::simulator::ghost_release;
++use crate::simulator::op_shelter;
++use crate::simulator::request_wait;
+ use crate::simulator::rng::StreamRng;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_variant::{ArmSet, CrashArm};
+@@ -238,6 +240,102 @@ fn validate_node<H: HashPolicy>(
+     Ok(node_id)
+ }
+ 
++/// Whether the stall clock holds this step: a planned crash is withheld, a
++/// client request is held, or a message is delayed for a reason other than
++/// the shelter. A step on which only sheltered records sit in the delay
++/// queue and nothing else holds the clock is counted, since a delayed
++/// message would have held it there.
++fn stall_clock_suspended<H: HashPolicy>(
++    state: &State<H>,
++    crash_withheld: bool,
++    requests_held: bool,
++) -> bool {
++    let delayed_unsheltered = state
++        .purgatory
++        .iter()
++        .any(|(_, r)| !op_shelter::is_sheltered(r));
++    let suspended = crash_withheld || requests_held || delayed_unsheltered;
++    if !suspended && !state.purgatory.is_empty() {
++        util_stats::record_shelter_stall_clock_not_suspended();
++    }
++    suspended
++}
++
++/// A post-fault operation `op` is being invoked at server `target` on a run
++/// that shelters: every record in flight to the target from another server
++/// that a fault touched - sent by an incarnation that died or a sender that
++/// is down, or by a restarted sender's current incarnation after its
++/// opening - leaves the network queue for the delay queue until the
++/// operation's response, at most `BOUND_STEPS`. A target still in its own
++/// restart opening, or with a crash queued, is left alone.
++fn shelter_target<H: HashPolicy>(
++    state: &mut State<H>,
++    server_role: NameId,
++    target: usize,
++    op: i32,
++) {
++    let skip = if state.in_opening(target) {
++        Some(util_stats::ShelterSkip::TargetOpening)
++    } else if state
++        .send_ledger
++        .get(target)
++        .is_some_and(|l| l.crash_pending > 0)
++    {
++        Some(util_stats::ShelterSkip::TargetCrashPending)
++    } else {
++        None
++    };
++    if skip.is_some() {
++        util_stats::record_shelter_invocation(skip, 0, 0);
++        return;
++    }
++    let step = state.crash_info.current_step;
++    let mut ghosts = 0;
++    let mut settled_fresh = 0;
++    let mut idx = state.network_queue.len();
++    while idx > 0 {
++        idx -= 1;
++        let class = match &state.network_queue[idx] {
++            Runnable::Record(rec)
++                if rec.node.index == target
++                    && rec.origin_node.index != target
++                    && rec.origin_node.role == server_role =>
++            {
++                if state.fault_crossing(rec.origin_node, rec.origin_incarnation) {
++                    Some(op_shelter::Class::Ghost)
++                } else if state.incarnation(rec.origin_node) > 0
++                    && state
++                        .send_ledger
++                        .get(rec.origin_node.index)
++                        .and_then(|l| l.opening_end)
++                        .is_some_and(|end| rec.send_ordinal >= end)
++                {
++                    Some(op_shelter::Class::SettledFresh)
++                } else {
++                    None
++                }
++            }
++            _ => None,
++        };
++        let Some(class) = class else {
++            continue;
++        };
++        let mut r = state.take_network(idx);
++        if let Runnable::Record(rec) = &mut r {
++            rec.bias.insert(DeliveryBias::SHELTERED);
++            state
++                .shelter
++                .shelter(op, (rec.origin_node.index, rec.send_ordinal), step);
++        }
++        state.delay_runnable(step + op_shelter::BOUND_STEPS, r);
++        match class {
++            op_shelter::Class::Ghost => ghosts += 1,
++            op_shelter::Class::SettledFresh => settled_fresh += 1,
++        }
++    }
++    util_stats::record_shelter_invocation(None, ghosts, settled_fresh);
++}
++
+ /// Hand the planned client request at `plan_node` to a client node. The
+ /// invocation is recorded at the current step, so a request the run held
+ /// back is recorded when it is issued, not when the plan made it ready.
+@@ -319,6 +417,9 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+         ClientOpSpec::Rmw(t, _) => *t as usize,
+     };
+     validate_node(&path_state.state, target_idx, server_role)?;
++    if post_fault && path_state.state.shelter.enabled {
++        shelter_target(&mut path_state.state, server_role, target_idx, *op_id_counter);
++    }
+ 
+     schedule_client_op(
+         &mut path_state.state,
+@@ -510,6 +611,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     path_state.state.fresh_first.enabled = arms.fresh_first;
+     path_state.state.pair_order.enabled = arms.pair_order;
+     path_state.state.client_anchor.arm = arms.request;
++    path_state.state.request_wait.enabled = request_wait::is_treated(run_id);
++    path_state.state.shelter.enabled = op_shelter::is_treated(run_id);
+     let pair_order = arms.pair_order;
+     util_stats::record_client_anchor_arm_run(arms.request);
+     let anchored = path_state.state.client_anchor.holds();
+@@ -899,6 +1002,13 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             match result {
+                 ScheduleResult::None => {}
+                 ScheduleResult::ClientOp(result) => {
++                    if path_state.state.shelter.enabled {
++                        let keys = path_state
++                            .state
++                            .shelter
++                            .mark_op(result.unique_id, op_shelter::Release::Response);
++                        path_state.state.release_sheltered(&keys, step);
++                    }
+                     path_state.client_pool.release(NodeId {
+                         role: path_state.client_pool.client_role,
+                         index: result.client_id as usize,
+@@ -1112,7 +1222,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         // itself owns and will grant: a planned crash withheld by its
+         // placement hold or its phase wait, a held client request, or a
+         // delayed message. Each of those is bounded, so a run waiting on one
+-        // is not stalled.
++        // is not stalled. A sheltered record is an ordering choice, not work
++        // the run owes, so it does not hold the clock.
+         marks.row = path_state.history[step_rows_start..]
+             .iter()
+             .any(|op| !matches!(op.kind, OpKind::TimerFired));
+@@ -1124,8 +1235,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 .is_some_and(|&until| step < until)
+                 || path_state.state.crash_phase.awaits_release(n)
+         });
+-        let suspended =
+-            crash_withheld || !held.is_empty() || !path_state.state.purgatory.is_empty();
++        let suspended = stall_clock_suspended(&path_state.state, crash_withheld, !held.is_empty());
+         let gap = stall_clock.step(marks, suspended);
+         if stall_treated
+             && let Some(cap) = stall_cap_standing
+@@ -1138,6 +1248,18 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     util_stats::record_stall_release_without_ops();
+                 } else {
+                     let settlement = settle_in_progress(&mut engine, &in_progress, &mut settled);
++                    if path_state.state.shelter.enabled {
++                        let mut keys = Vec::new();
++                        for &op in in_progress.keys() {
++                            keys.extend(
++                                path_state
++                                    .state
++                                    .shelter
++                                    .mark_op(op, op_shelter::Release::Response),
++                            );
++                        }
++                        path_state.state.release_sheltered(&keys, step);
++                    }
+                     stall_clock.release();
+                     release_step = Some(stop_step);
+                     util_stats::record_stall_release(&settlement);
+@@ -1322,4 +1444,217 @@ mod tests {
+         );
+         assert!(held.is_empty());
+     }
++
++    const SERVER: NameId = NameId(0);
++    const CLIENT: NameId = NameId(1);
++
++    fn node(role: NameId, index: usize) -> NodeId {
++        NodeId { role, index }
++    }
++
++    /// A remote record from `origin` to `dest` sent at `incarnation`,
++    /// queued through the ledger hooks.
++    fn queue_record(
++        state: &mut State<NoHashing>,
++        origin: NodeId,
++        dest: NodeId,
++        incarnation: u32,
++    ) -> (usize, u32) {
++        let env = Env::<NoHashing>::with_slots(1);
++        let ordinal = state.next_send_ordinal(origin);
++        let rec = Record {
++            pc: 0,
++            node: dest,
++            origin_node: origin,
++            continuation: crate::simulator::core::Continuation::Recover,
++            entry_pc: 0,
++            initial_env: env.clone(),
++            env,
++            priority: 0.5,
++            causal_operation_id: None,
++            trace_id: None,
++            link_seq: None,
++            origin_incarnation: incarnation,
++            bias: DeliveryBias::NONE,
++            timer_entry: None,
++            send_ordinal: ordinal,
++            receiver_token_at_send: state.node_state_token(dest),
++        };
++        state.push_runnable(Runnable::Record(rec));
++        (origin.index, ordinal)
++    }
++
++    fn sheltered_keys(state: &State<NoHashing>) -> Vec<(usize, u32)> {
++        let mut keys: Vec<(usize, u32)> = state
++            .purgatory
++            .iter()
++            .filter_map(|(_, r)| match r {
++                Runnable::Record(rec) if rec.bias.contains(DeliveryBias::SHELTERED) => {
++                    Some((rec.origin_node.index, rec.send_ordinal))
++                }
++                _ => None,
++            })
++            .collect();
++        keys.sort_unstable();
++        keys
++    }
++
++    /// The scan at a post-fault invocation moves exactly the records in
++    /// flight to the target that a fault touched - from a dead incarnation
++    /// or a downed sender, or from a restarted sender's current incarnation
++    /// past its opening - and nothing else: opening sends, records from a
++    /// never-restarted sender, client records, records to other
++    /// destinations and channel sends stay.
++    #[test]
++    fn the_shelter_moves_exactly_the_fault_touched_records_to_the_target() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().shelter;
++        let mut state = State::<NoHashing>::new(&[(SERVER, 4), (CLIENT, 1)], 1);
++        state.shelter.enabled = true;
++        state.crash_info.current_step = 50;
++        let target = node(SERVER, 0);
++        let (n1, n2, n3, client) = (node(SERVER, 1), node(SERVER, 2), node(SERVER, 3), node(CLIENT, 4));
++        // Node 1 restarted twice and is past its opening; node 2 restarted
++        // and is still in its opening; node 3 never restarted.
++        state.incarnations[1] = 2;
++        state.send_ledger[1].opening_end = Some(2);
++        state.incarnations[2] = 1;
++        let ghost = queue_record(&mut state, n1, target, 1);
++        let opening_send_of_1 = queue_record(&mut state, n1, target, 2);
++        let fresh_past_opening = queue_record(&mut state, n1, target, 2);
++        assert_eq!(fresh_past_opening.1, 2);
++        let opening_send_of_2 = queue_record(&mut state, n2, target, 1);
++        let never_restarted = queue_record(&mut state, n3, target, 0);
++        let elsewhere = queue_record(&mut state, n1, n2, 1);
++        let from_client = queue_record(&mut state, client, target, 0);
++        state.push_runnable(Runnable::ChannelSend {
++            target,
++            channel: crate::simulator::core::values::ChannelId { node: target, id: 0 },
++            message: Value::<NoHashing>::unit(),
++            origin_node: n1,
++            pc: 0,
++            priority: 0.5,
++        });
++        // Node 3 goes down with its record in the air: a downed sender.
++        let queued_before = state.network_queue.len();
++        state.crash_info.currently_crashed.insert(n3);
++
++        shelter_target(&mut state, SERVER, 0, 9);
++
++        let mut want = vec![ghost, fresh_past_opening, never_restarted];
++        want.sort_unstable();
++        assert_eq!(sheltered_keys(&state), want);
++        assert_eq!(state.network_queue.len(), queued_before - 3);
++        for key in [opening_send_of_1, opening_send_of_2, elsewhere, from_client] {
++            assert!(
++                state.network_queue.iter().any(|r| matches!(r, Runnable::Record(rec)
++                    if (rec.origin_node.index, rec.send_ordinal) == key)),
++                "record {key:?} was moved"
++            );
++        }
++        assert!(state.network_queue.iter().any(|r| matches!(r, Runnable::ChannelSend { .. })));
++        assert!(state.purgatory.iter().all(|(s, _)| *s == 50 + op_shelter::BOUND_STEPS));
++        assert_eq!(state.shelter.held_len(), 3);
++        assert_eq!(state.pending_deliveries_to(target), 7, "held records are still pending");
++        let after = util_stats::snapshot().shelter;
++        assert_eq!(after.ops_examined - before.ops_examined, 1);
++        assert_eq!(after.ops_sheltered - before.ops_sheltered, 1);
++        assert_eq!(after.records_ghost - before.records_ghost, 2);
++        assert_eq!(after.records_settled_fresh - before.records_settled_fresh, 1);
++        assert_eq!(after.hazards.ops_with_ghost - before.hazards.ops_with_ghost, 1);
++        assert_eq!(after.hazards.ops_with_settled_fresh - before.hazards.ops_with_settled_fresh, 1);
++        assert_eq!(after.hazards.ops_with_both - before.hazards.ops_with_both, 1);
++
++        // Records sent after the invocation are never touched.
++        queue_record(&mut state, n1, target, 2);
++        assert_eq!(state.shelter.held_len(), 3);
++
++        // The response releases the operation's records to the step it is
++        // recorded at, and nothing else in the delay queue.
++        state.delay_runnable(500, Runnable::Timer(crate::simulator::core::state::Timer {
++            pc: 0,
++            node: target,
++            channel: crate::simulator::core::values::ChannelId { node: target, id: 1 },
++            priority: 0.5,
++            label: None,
++        }));
++        state.crash_info.current_step = 60;
++        let keys = state.shelter.mark_op(9, op_shelter::Release::Response);
++        state.release_sheltered(&keys, 60);
++        assert!(state.purgatory.iter().filter(|(_, r)| op_shelter::is_sheltered(r)).all(|(s, _)| *s == 60));
++        assert!(state.purgatory.iter().any(|(s, _)| *s == 500), "the plain delay keeps its step");
++        state.release_from_purgatory(61);
++        assert_eq!(state.shelter.held_len(), 0);
++        assert_eq!(state.purgatory.len(), 1);
++        let end = util_stats::snapshot().shelter;
++        assert_eq!(end.released_on_response - after.released_on_response, 3);
++        assert_eq!(end.hold_steps_sum - after.hold_steps_sum, 33);
++        util_stats::set_enabled(false);
++    }
++
++    /// A target still in its own restart opening, or with a crash queued,
++    /// is skipped and nothing moves; an invocation that finds nothing to
++    /// move is examined but not counted as sheltering.
++    #[test]
++    fn the_shelter_skips_a_target_in_its_opening_or_with_a_crash_pending() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().shelter;
++        let mut state = State::<NoHashing>::new(&[(SERVER, 3), (CLIENT, 1)], 1);
++        state.shelter.enabled = true;
++        let target = node(SERVER, 0);
++        let n1 = node(SERVER, 1);
++        state.incarnations[1] = 1;
++        queue_record(&mut state, n1, target, 0);
++
++        state.incarnations[0] = 1;
++        shelter_target(&mut state, SERVER, 0, 1);
++        assert!(state.purgatory.is_empty(), "a target in its opening is left alone");
++        state.send_ledger[0].delivery_acted_since_restart = true;
++        state.push_runnable(Runnable::Crash { node_id: target, priority: 0.5 });
++        shelter_target(&mut state, SERVER, 0, 2);
++        assert!(state.purgatory.is_empty(), "a target about to crash is left alone");
++        state.take_local(0, 0);
++        shelter_target(&mut state, SERVER, 2, 3);
++        assert!(state.purgatory.is_empty(), "nothing in flight to node 2");
++        shelter_target(&mut state, SERVER, 0, 4);
++        assert_eq!(state.purgatory.len(), 1);
++        let after = util_stats::snapshot().shelter;
++        assert_eq!(after.ops_examined - before.ops_examined, 4);
++        assert_eq!(after.skipped_target_opening - before.skipped_target_opening, 1);
++        assert_eq!(after.skipped_target_crash_pending - before.skipped_target_crash_pending, 1);
++        assert_eq!(after.ops_sheltered - before.ops_sheltered, 1);
++        assert_eq!(after.records_ghost - before.records_ghost, 1);
++        util_stats::set_enabled(false);
++    }
++
++    /// Sheltered records in the delay queue do not hold the stall clock;
++    /// any other delayed message, a withheld crash or a held request does.
++    #[test]
++    fn sheltered_records_do_not_suspend_the_stall_clock() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().shelter.stall_clock_steps_not_suspended;
++        let mut state = State::<NoHashing>::new(&[(SERVER, 2), (CLIENT, 1)], 1);
++        let (a, b) = (node(SERVER, 0), node(SERVER, 1));
++        assert!(!stall_clock_suspended(&state, false, false));
++        assert!(stall_clock_suspended(&state, true, false));
++        assert!(stall_clock_suspended(&state, false, true));
++        queue_record(&mut state, b, a, 0);
++        let mut r = state.take_network(0);
++        if let Runnable::Record(rec) = &mut r {
++            rec.bias.insert(DeliveryBias::SHELTERED);
++        }
++        state.delay_runnable(100, r);
++        assert!(!stall_clock_suspended(&state, false, false), "a sheltered record holds nothing");
++        assert!(stall_clock_suspended(&state, true, false));
++        queue_record(&mut state, b, a, 0);
++        let r = state.take_network(0);
++        state.delay_runnable(100, r);
++        assert!(stall_clock_suspended(&state, false, false), "a delayed message holds the clock");
++        let counted = util_stats::snapshot().shelter.stall_clock_steps_not_suspended - before;
++        assert_eq!(counted, 1, "only the step where the exclusion mattered is counted");
++        util_stats::set_enabled(false);
++    }
+ }
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 5f7a1a9..42dc51f 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -34,7 +34,9 @@ use crate::simulator::crash_phase;
+ use crate::simulator::fault_timing;
+ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
++use crate::simulator::op_shelter;
+ use crate::simulator::pair_order;
++use crate::simulator::request_wait;
+ use crate::simulator::recover_deps::RecoverDeps;
+ use crate::simulator::replay_corpus;
+ use crate::simulator::ghost_release;
+@@ -118,6 +120,15 @@ pub const RECOVER_DEPS_EXEMPT: i32 = 1 << 13;
+ /// The run ends once it has gone the learned stall cap's worth of steps
+ /// without a progress mark. Never set on a run-cap or timer-context probe.
+ pub const STALL_CAP: i32 = 1 << 10;
++/// The run masks a record caused by a post-fault client operation at a
++/// destination that restarted until that node has heard back from a
++/// majority of the peers its restart addressed, within the learned
++/// ghost-lag bound. Never set on a run-cap or timer-context probe.
++pub const REQUEST_WAITS_FOR_SETTLE: i32 = 1 << 29;
++/// The run holds the fault-touched records in flight to a post-fault client
++/// operation's target until the operation's response. Never set on a
++/// run-cap or timer-context probe.
++pub const OP_TARGET_SHELTER: i32 = 1 << 26;
+ /// The run's first stall settles its in-progress client operations for the
+ /// plan and releases the events behind them instead of ending the run.
+ /// Drawn over the stall cap's treated runs only, so it implies `STALL_CAP`
+@@ -353,6 +364,7 @@ pub fn of(
+ ) -> i32 {
+     probe_bits(run_id)
+         | stall_cap_bits(run_id)
++        | treatment_bits(run_id)
+         | ghost_release_cell_bits(ghost_release::cell_of(arms.placed(), run_id))
+         | selector_bits(learner)
+         | of_arms(arms)
+@@ -371,6 +383,19 @@ pub fn stall_cap_bits(run_id: i64) -> i32 {
+     }
+ }
+ 
++/// The request-wait bit and the shelter bit, pure functions of the run id,
++/// each drawn under its own salt over the runs neither probe exempts.
++pub fn treatment_bits(run_id: i64) -> i32 {
++    let mut v = 0;
++    if request_wait::is_treated(run_id) {
++        v |= REQUEST_WAITS_FOR_SETTLE;
++    }
++    if op_shelter::is_treated(run_id) {
++        v |= OP_TARGET_SHELTER;
++    }
++    v
++}
++
+ /// The ghost-release bit and the single bit the run id's coins alone name.
+ /// The release is nested in the crash axis, so like `CRASH_PHASE` the bits
+ /// a run actually carries follow its arm set in `of`; only a coin-drawn run
+@@ -422,7 +447,7 @@ pub fn from_run_id(run_id: i64) -> i32 {
+     if client_anchor::is_rushed(run_id) {
+         v |= CLIENT_RUSH_PRIORITY;
+     }
+-    v | stall_cap_bits(run_id) | ghost_release_bits(run_id)
++    v | stall_cap_bits(run_id) | treatment_bits(run_id) | ghost_release_bits(run_id)
+ }
+ 
+ /// The bits a grid arm joins to the tag of every run it issues. A slot whose
+@@ -469,6 +494,8 @@ mod tests {
+                 v & GHOST_RELEASE_SINGLE_ONTO_ABSORBER != 0,
+                 ghost_release::is_single(id)
+             );
++            assert_eq!(v & REQUEST_WAITS_FOR_SETTLE != 0, request_wait::is_treated(id));
++            assert_eq!(v & OP_TARGET_SHELTER != 0, op_shelter::is_treated(id));
+             assert_ne!(
+                 v & (CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY),
+                 CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY,
+@@ -774,6 +801,37 @@ mod tests {
+         assert_eq!(released_without_cap, 0, "the release bit implies the stall-cap bit");
+     }
+ 
++    #[test]
++    fn the_wait_and_shelter_bits_each_take_half_the_unprobed_runs_and_cross_evenly() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        let tags: Vec<i32> = (0..64_000i64).map(from_run_id).collect();
++        let probe = |v: i32| v & (RUN_CAP_PROBE | TIMER_STEER_OFF) != 0;
++        let unprobed = tags.iter().filter(|&&v| !probe(v)).count() as f64;
++        for (bit, name) in [
++            (REQUEST_WAITS_FOR_SETTLE, "request wait"),
++            (OP_TARGET_SHELTER, "shelter"),
++        ] {
++            let on = tags.iter().filter(|&&v| v & bit != 0).count();
++            let on_probe = tags.iter().filter(|&&v| v & bit != 0 && probe(v)).count();
++            let share = on as f64 / unprobed;
++            assert!((share - 0.5).abs() < 0.02, "the {name} bit is on {share} of the unprobed runs");
++            assert_eq!(on_probe, 0, "a probe carries the {name} bit");
++        }
++        let mut cells = [0usize; 4];
++        for &v in tags.iter().filter(|&&v| !probe(v)) {
++            let i = ((v & REQUEST_WAITS_FOR_SETTLE != 0) as usize) << 1
++                | (v & OP_TARGET_SHELTER != 0) as usize;
++            cells[i] += 1;
++        }
++        for (i, &n) in cells.iter().enumerate() {
++            let share = n as f64 / unprobed;
++            assert!((share - 0.25).abs() < 0.02, "crossed cell {i} takes {share}");
++        }
++        let both = treatment_bits(0) | treatment_bits(1) | treatment_bits(2) | treatment_bits(3);
++        assert_eq!(both & !(REQUEST_WAITS_FOR_SETTLE | OP_TARGET_SHELTER), 0);
++    }
++
+     #[test]
+     fn the_release_bit_takes_half_the_placed_runs_and_the_single_bit_half_of_those() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 537621d..2e0fe70 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -10,6 +10,8 @@ use crate::simulator::client_anchor;
+ use crate::simulator::recover_deps::RecoverDeps;
+ use crate::simulator::run_variant;
+ use crate::simulator::fresh_first;
++use crate::simulator::op_shelter;
++use crate::simulator::request_wait;
+ use serde::Serialize;
+ use std::cell::RefCell;
+ use std::collections::{HashMap, HashSet};
+@@ -168,6 +170,45 @@ static CAN_FIRST_DELIVERY_COUNT: [AtomicU64; CAN_ARMS] = [const { AtomicU64::new
+ /// coin-drawn runs: runs that had one and the sum of their steps.
+ static CAN_FIRST_ENTRY_RUNS: [AtomicU64; run_variant::DIRECTIONS] =
+     [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
++// Request-wait counters. The cells are indexed by the two treatment bits,
++// `treatment_cell`, so each contrast can be read matched on the other bit.
++static RQW_MASKED_OFFERS: AtomicU64 = AtomicU64::new(0);
++static RQW_RECORDS_MASKED: AtomicU64 = AtomicU64::new(0);
++static RQW_ARRIVALS_AFTER_BOUND: AtomicU64 = AtomicU64::new(0);
++static RQW_RELEASED_SETTLED: AtomicU64 = AtomicU64::new(0);
++static RQW_RELEASED_BOUND: AtomicU64 = AtomicU64::new(0);
++static RQW_RELEASED_LIFTED: AtomicU64 = AtomicU64::new(0);
++static RQW_LIFT_STEPS: AtomicU64 = AtomicU64::new(0);
++static RQW_HOLD_STEPS_SUM: AtomicU64 = AtomicU64::new(0);
++/// Settle histogram cell width in steps and cell count; the last cell takes
++/// every settle past the range.
++pub const SETTLE_HIST_WIDTH: usize = 4;
++pub const SETTLE_HIST_CELLS: usize = 64;
++const TREATMENT_CELLS: usize = 4;
++static RQW_SETTLE_HIST: [[AtomicU64; SETTLE_HIST_CELLS]; 2] =
++    [const { [const { AtomicU64::new(0) }; SETTLE_HIST_CELLS] }; 2];
++static RQW_SETTLED: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
++static RQW_ENTRIES: [AtomicU64; TREATMENT_CELLS] = [const { AtomicU64::new(0) }; TREATMENT_CELLS];
++static RQW_ENTRIES_ACTED: [AtomicU64; TREATMENT_CELLS] =
++    [const { AtomicU64::new(0) }; TREATMENT_CELLS];
++// Shelter counters.
++static SH_OPS_EXAMINED: AtomicU64 = AtomicU64::new(0);
++static SH_OPS_SHELTERED: AtomicU64 = AtomicU64::new(0);
++static SH_RECORDS_GHOST: AtomicU64 = AtomicU64::new(0);
++static SH_RECORDS_SETTLED_FRESH: AtomicU64 = AtomicU64::new(0);
++static SH_RELEASED_ON_RESPONSE: AtomicU64 = AtomicU64::new(0);
++static SH_RELEASED_ON_EXPIRY: AtomicU64 = AtomicU64::new(0);
++static SH_RELEASED_DRY: AtomicU64 = AtomicU64::new(0);
++static SH_HOLD_STEPS_SUM: AtomicU64 = AtomicU64::new(0);
++static SH_SKIPPED_TARGET_OPENING: AtomicU64 = AtomicU64::new(0);
++static SH_SKIPPED_TARGET_CRASH_PENDING: AtomicU64 = AtomicU64::new(0);
++static SH_STALL_CLOCK_STEPS_NOT_SUSPENDED: AtomicU64 = AtomicU64::new(0);
++static SH_OPS_WITH_GHOST: AtomicU64 = AtomicU64::new(0);
++static SH_OPS_WITH_SETTLED_FRESH: AtomicU64 = AtomicU64::new(0);
++static SH_OPS_WITH_BOTH: AtomicU64 = AtomicU64::new(0);
++static SH_ENTRIES: [AtomicU64; TREATMENT_CELLS] = [const { AtomicU64::new(0) }; TREATMENT_CELLS];
++static SH_ENTRIES_ACTED: [AtomicU64; TREATMENT_CELLS] =
++    [const { AtomicU64::new(0) }; TREATMENT_CELLS];
+ static CAN_FIRST_ENTRY_STEPS_SUM: [AtomicU64; run_variant::DIRECTIONS] =
+     [const { AtomicU64::new(0) }; run_variant::DIRECTIONS];
+ /// The per-run rewards the arm selector reads. `OvertakenGhost`,
+@@ -764,6 +805,28 @@ pub fn set_enabled(on: bool) {
+             &CAN_RUSH_RECORDS_PRIORITIZED,
+             &CAN_RUSH_WAS_PICK,
+             &CAN_RUSH_DISPLACED,
++            &RQW_MASKED_OFFERS,
++            &RQW_RECORDS_MASKED,
++            &RQW_ARRIVALS_AFTER_BOUND,
++            &RQW_RELEASED_SETTLED,
++            &RQW_RELEASED_BOUND,
++            &RQW_RELEASED_LIFTED,
++            &RQW_LIFT_STEPS,
++            &RQW_HOLD_STEPS_SUM,
++            &SH_OPS_EXAMINED,
++            &SH_OPS_SHELTERED,
++            &SH_RECORDS_GHOST,
++            &SH_RECORDS_SETTLED_FRESH,
++            &SH_RELEASED_ON_RESPONSE,
++            &SH_RELEASED_ON_EXPIRY,
++            &SH_RELEASED_DRY,
++            &SH_HOLD_STEPS_SUM,
++            &SH_SKIPPED_TARGET_OPENING,
++            &SH_SKIPPED_TARGET_CRASH_PENDING,
++            &SH_STALL_CLOCK_STEPS_NOT_SUSPENDED,
++            &SH_OPS_WITH_GHOST,
++            &SH_OPS_WITH_SETTLED_FRESH,
++            &SH_OPS_WITH_BOTH,
+             &RW_CLOSED,
+             &RW_WIDTH_SUM,
+             &RW_MAX,
+@@ -826,6 +889,12 @@ pub fn set_enabled(on: bool) {
+             .chain(CAN_ARM_RUNS.iter())
+             .chain(CAN_FIRST_DELIVERY_SUM.iter())
+             .chain(CAN_FIRST_DELIVERY_COUNT.iter())
++            .chain(RQW_SETTLE_HIST.iter().flatten())
++            .chain(RQW_SETTLED.iter())
++            .chain(RQW_ENTRIES.iter())
++            .chain(RQW_ENTRIES_ACTED.iter())
++            .chain(SH_ENTRIES.iter())
++            .chain(SH_ENTRIES_ACTED.iter())
+             .chain(ACCEPT_DIST.iter().flatten())
+             .chain(ACCEPT_DIST_ACTED.iter().flatten())
+         {
+@@ -1471,6 +1540,10 @@ impl DeliveryBias {
+     /// The message was kept across the receiver's own crash and handed to a
+     /// later incarnation of it.
+     pub const RECEIVER_RESTARTED: Self = Self(4);
++    /// Held in the delay queue by the shelter of a post-fault operation's
++    /// target, and released by that operation's response, a dry step or
++    /// the shelter's bound.
++    pub const SHELTERED: Self = Self(8);
+ 
+     #[inline]
+     pub fn insert(&mut self, other: Self) {
+@@ -2739,6 +2812,175 @@ pub fn record_client_anchor_first_post_fault_entry(arms: &run_variant::ArmSet, s
+     }
+ }
+ 
++/// The index of the cell a run occupies under the two treatment bits of the
++/// request wait and the shelter, so each contrast can be read matched on
++/// the other bit.
++pub fn treatment_cell(request_wait: bool, shelter: bool) -> usize {
++    (request_wait as usize) << 1 | shelter as usize
++}
++
++/// A treated step kept the request-wait mask on with `masked` records
++/// masked, of which `new_records` were masked for the first time in their
++/// run.
++#[inline]
++pub fn record_request_wait_masked(masked: u64, new_records: u64) {
++    if !enabled() {
++        return;
++    }
++    RQW_MASKED_OFFERS.fetch_add(masked, Ordering::Relaxed);
++    RQW_RECORDS_MASKED.fetch_add(new_records, Ordering::Relaxed);
++}
++
++/// A treated step lifted the request-wait mask because nothing else was
++/// eligible.
++#[inline]
++pub fn record_request_wait_lift() {
++    if !enabled() {
++        return;
++    }
++    RQW_LIFT_STEPS.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A request-caused record entered an unsettled restarted destination at or
++/// past the bound from its restart on a treated run, never having been
++/// masked.
++#[inline]
++pub fn record_request_wait_arrival_after_bound() {
++    if !enabled() {
++        return;
++    }
++    RQW_ARRIVALS_AFTER_BOUND.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A record that had been masked was taken, `hold_steps` after it was first
++/// masked.
++#[inline]
++pub fn record_request_wait_release(release: request_wait::Release, hold_steps: u64) {
++    if !enabled() {
++        return;
++    }
++    match release {
++        request_wait::Release::Settled => &RQW_RELEASED_SETTLED,
++        request_wait::Release::Bound => &RQW_RELEASED_BOUND,
++        request_wait::Release::Lifted => &RQW_RELEASED_LIFTED,
++    }
++    .fetch_add(1, Ordering::Relaxed);
++    RQW_HOLD_STEPS_SUM.fetch_add(hold_steps, Ordering::Relaxed);
++}
++
++/// A restarted node settled `steps` after its restart. Counted on both
++/// halves of the request-wait split.
++#[inline]
++pub fn record_request_wait_settled(treated: bool, steps: u64) {
++    if !enabled() {
++        return;
++    }
++    let i = treated as usize;
++    let cell = (steps as usize / SETTLE_HIST_WIDTH).min(SETTLE_HIST_CELLS - 1);
++    RQW_SETTLE_HIST[i][cell].fetch_add(1, Ordering::Relaxed);
++    RQW_SETTLED[i].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A message entry caused by a post-fault client operation reached a
++/// restarted server, in the run's treatment cell; `acted` says it wrote
++/// the server's state.
++#[inline]
++pub fn record_request_wait_entry(cell: usize, acted: bool) {
++    if !enabled() {
++        return;
++    }
++    RQW_ENTRIES[cell].fetch_add(1, Ordering::Relaxed);
++    if acted {
++        RQW_ENTRIES_ACTED[cell].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// Why a post-fault invocation on a treated run sheltered nothing.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum ShelterSkip {
++    /// The target is still in its restart opening.
++    TargetOpening,
++    /// The target has a crash queued.
++    TargetCrashPending,
++}
++
++/// A post-fault invocation on a treated run was examined; `skip` says why
++/// nothing was sheltered, and otherwise `ghosts` and `settled_fresh` are
++/// the records of each class moved for it.
++#[inline]
++pub fn record_shelter_invocation(skip: Option<ShelterSkip>, ghosts: u64, settled_fresh: u64) {
++    if !enabled() {
++        return;
++    }
++    SH_OPS_EXAMINED.fetch_add(1, Ordering::Relaxed);
++    match skip {
++        Some(ShelterSkip::TargetOpening) => {
++            SH_SKIPPED_TARGET_OPENING.fetch_add(1, Ordering::Relaxed);
++            return;
++        }
++        Some(ShelterSkip::TargetCrashPending) => {
++            SH_SKIPPED_TARGET_CRASH_PENDING.fetch_add(1, Ordering::Relaxed);
++            return;
++        }
++        None => {}
++    }
++    if ghosts + settled_fresh == 0 {
++        return;
++    }
++    SH_OPS_SHELTERED.fetch_add(1, Ordering::Relaxed);
++    SH_RECORDS_GHOST.fetch_add(ghosts, Ordering::Relaxed);
++    SH_RECORDS_SETTLED_FRESH.fetch_add(settled_fresh, Ordering::Relaxed);
++    if ghosts > 0 {
++        SH_OPS_WITH_GHOST.fetch_add(1, Ordering::Relaxed);
++    }
++    if settled_fresh > 0 {
++        SH_OPS_WITH_SETTLED_FRESH.fetch_add(1, Ordering::Relaxed);
++    }
++    if ghosts > 0 && settled_fresh > 0 {
++        SH_OPS_WITH_BOTH.fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// A sheltered record left the delay queue, `hold_steps` after it was
++/// moved there.
++#[inline]
++pub fn record_shelter_release(release: op_shelter::Release, hold_steps: u64) {
++    if !enabled() {
++        return;
++    }
++    match release {
++        op_shelter::Release::Response => &SH_RELEASED_ON_RESPONSE,
++        op_shelter::Release::Expiry => &SH_RELEASED_ON_EXPIRY,
++        op_shelter::Release::Dry => &SH_RELEASED_DRY,
++    }
++    .fetch_add(1, Ordering::Relaxed);
++    SH_HOLD_STEPS_SUM.fetch_add(hold_steps, Ordering::Relaxed);
++}
++
++/// A step whose delay queue held only sheltered records, with nothing else
++/// suspending the stall clock, so the clock ran where a delayed message
++/// would have held it.
++#[inline]
++pub fn record_shelter_stall_clock_not_suspended() {
++    if !enabled() {
++        return;
++    }
++    SH_STALL_CLOCK_STEPS_NOT_SUSPENDED.fetch_add(1, Ordering::Relaxed);
++}
++
++/// A message entry from a sender that restarted since sending, in the
++/// run's treatment cell; `acted` says it wrote the receiver's state.
++#[inline]
++pub fn record_shelter_entry(cell: usize, acted: bool) {
++    if !enabled() {
++        return;
++    }
++    SH_ENTRIES[cell].fetch_add(1, Ordering::Relaxed);
++    if acted {
++        SH_ENTRIES_ACTED[cell].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
+ /// A fresh grid-arm run that fired the signal entered its arm's replay corpus.
+ #[inline]
+ pub fn record_replay_parent_admitted() {
+@@ -5999,6 +6241,229 @@ impl TimerContextStats {
+     }
+ }
+ 
++/// One cell of the request-wait entry census: message entries caused by a
++/// post-fault client operation at restarted servers, and the subset that
++/// wrote the server's state.
++#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
++pub struct RequestWaitCellStats {
++    pub request_entries_at_restarted: u64,
++    pub request_entries_at_restarted_acted: u64,
++}
++
++impl RequestWaitCellStats {
++    fn read(cells: &[usize]) -> Self {
++        Self {
++            request_entries_at_restarted: cells
++                .iter()
++                .map(|&c| RQW_ENTRIES[c].load(Ordering::Relaxed))
++                .sum(),
++            request_entries_at_restarted_acted: cells
++                .iter()
++                .map(|&c| RQW_ENTRIES_ACTED[c].load(Ordering::Relaxed))
++                .sum(),
++        }
++    }
++}
++
++/// A census read on the halves of one treatment bit.
++#[derive(Serialize, Debug)]
++pub struct TreatmentHalves<T> {
++    pub treated: T,
++    pub untreated: T,
++}
++
++/// A census read on the four cells the two treatment bits cross.
++#[derive(Serialize, Debug)]
++pub struct TreatmentCrossed<T> {
++    pub wait_on_shelter_on: T,
++    pub wait_on_shelter_off: T,
++    pub wait_off_shelter_on: T,
++    pub wait_off_shelter_off: T,
++}
++
++/// One half of the request-wait split: how many restarted nodes settled
++/// and the histogram of the steps from restart to settle, in cells of
++/// `SETTLE_HIST_WIDTH` steps with the last cell open.
++#[derive(Serialize, Debug)]
++pub struct RequestWaitSettleStats {
++    pub settled: u64,
++    pub settle_steps_hist: Vec<u64>,
++}
++
++impl RequestWaitSettleStats {
++    fn read(treated: bool) -> Self {
++        let i = treated as usize;
++        Self {
++            settled: RQW_SETTLED[i].load(Ordering::Relaxed),
++            settle_steps_hist: RQW_SETTLE_HIST[i]
++                .iter()
++                .map(|c| c.load(Ordering::Relaxed))
++                .collect(),
++        }
++    }
++}
++
++/// The request-wait block. `masked_offers` counts record-steps on which
++/// the mask kept a record out of the offer; `records_masked` the distinct
++/// records masked at least once in their run, which is the number the
++/// mechanism is read as having fired. `arrivals_after_bound` counts
++/// request-caused records that entered an unsettled restarted destination
++/// at or past the bound from its restart on a treated run without ever
++/// having been masked. The three `released_*` counts say how each masked
++/// record's wait ended when it was taken, `hold_steps_sum` the steps
++/// between first masking and taking summed over them, and `lift_steps`
++/// the treated steps on which the mask was lifted.
++#[derive(Serialize, Debug)]
++pub struct RequestWaitStats {
++    pub masked_offers: u64,
++    pub records_masked: u64,
++    pub arrivals_after_bound: u64,
++    pub released_settled: u64,
++    pub released_bound: u64,
++    pub released_lifted: u64,
++    pub lift_steps: u64,
++    pub hold_steps_sum: u64,
++    pub settle: TreatmentHalves<RequestWaitSettleStats>,
++    pub cells: TreatmentHalves<RequestWaitCellStats>,
++    pub crossed: TreatmentCrossed<RequestWaitCellStats>,
++}
++
++impl RequestWaitStats {
++    fn read() -> Self {
++        Self {
++            masked_offers: RQW_MASKED_OFFERS.load(Ordering::Relaxed),
++            records_masked: RQW_RECORDS_MASKED.load(Ordering::Relaxed),
++            arrivals_after_bound: RQW_ARRIVALS_AFTER_BOUND.load(Ordering::Relaxed),
++            released_settled: RQW_RELEASED_SETTLED.load(Ordering::Relaxed),
++            released_bound: RQW_RELEASED_BOUND.load(Ordering::Relaxed),
++            released_lifted: RQW_RELEASED_LIFTED.load(Ordering::Relaxed),
++            lift_steps: RQW_LIFT_STEPS.load(Ordering::Relaxed),
++            hold_steps_sum: RQW_HOLD_STEPS_SUM.load(Ordering::Relaxed),
++            settle: TreatmentHalves {
++                treated: RequestWaitSettleStats::read(true),
++                untreated: RequestWaitSettleStats::read(false),
++            },
++            cells: TreatmentHalves {
++                treated: RequestWaitCellStats::read(&[
++                    treatment_cell(true, true),
++                    treatment_cell(true, false),
++                ]),
++                untreated: RequestWaitCellStats::read(&[
++                    treatment_cell(false, true),
++                    treatment_cell(false, false),
++                ]),
++            },
++            crossed: TreatmentCrossed {
++                wait_on_shelter_on: RequestWaitCellStats::read(&[treatment_cell(true, true)]),
++                wait_on_shelter_off: RequestWaitCellStats::read(&[treatment_cell(true, false)]),
++                wait_off_shelter_on: RequestWaitCellStats::read(&[treatment_cell(false, true)]),
++                wait_off_shelter_off: RequestWaitCellStats::read(&[treatment_cell(false, false)]),
++            },
++        }
++    }
++}
++
++/// One cell of the shelter entry census: message entries from a sender
++/// that restarted since sending, and the subset that wrote the receiver's
++/// state.
++#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
++pub struct ShelterCellStats {
++    pub sender_restarted_entries: u64,
++    pub sender_restarted_acted: u64,
++}
++
++impl ShelterCellStats {
++    fn read(cells: &[usize]) -> Self {
++        Self {
++            sender_restarted_entries: cells
++                .iter()
++                .map(|&c| SH_ENTRIES[c].load(Ordering::Relaxed))
++                .sum(),
++            sender_restarted_acted: cells
++                .iter()
++                .map(|&c| SH_ENTRIES_ACTED[c].load(Ordering::Relaxed))
++                .sum(),
++        }
++    }
++}
++
++/// The hazards census: among the sheltered operations, how many held at
++/// least one record of each class, and of both.
++#[derive(Serialize, Debug)]
++pub struct ShelterHazardsStats {
++    pub ops_with_ghost: u64,
++    pub ops_with_settled_fresh: u64,
++    pub ops_with_both: u64,
++}
++
++/// The shelter block. `ops_examined` counts post-fault invocations on
++/// treated runs; `ops_sheltered` those that moved at least one record,
++/// which is the number the mechanism is read as having fired;
++/// `records_ghost` and `records_settled_fresh` the records moved of each
++/// class. The three `released_*` counts say how each sheltered record's
++/// hold ended and `hold_steps_sum` the steps held summed over them. The
++/// two `skipped_*` counts are the examined invocations that sheltered
++/// nothing because of their target. `stall_clock_steps_not_suspended`
++/// counts the steps on which only sheltered records sat in the delay queue
++/// and nothing else held the stall clock.
++#[derive(Serialize, Debug)]
++pub struct ShelterStats {
++    pub ops_examined: u64,
++    pub ops_sheltered: u64,
++    pub records_ghost: u64,
++    pub records_settled_fresh: u64,
++    pub released_on_response: u64,
++    pub released_on_expiry: u64,
++    pub released_dry: u64,
++    pub hold_steps_sum: u64,
++    pub skipped_target_opening: u64,
++    pub skipped_target_crash_pending: u64,
++    pub stall_clock_steps_not_suspended: u64,
++    pub hazards: ShelterHazardsStats,
++    pub cells: TreatmentHalves<ShelterCellStats>,
++    pub crossed: TreatmentCrossed<ShelterCellStats>,
++}
++
++impl ShelterStats {
++    fn read() -> Self {
++        Self {
++            ops_examined: SH_OPS_EXAMINED.load(Ordering::Relaxed),
++            ops_sheltered: SH_OPS_SHELTERED.load(Ordering::Relaxed),
++            records_ghost: SH_RECORDS_GHOST.load(Ordering::Relaxed),
++            records_settled_fresh: SH_RECORDS_SETTLED_FRESH.load(Ordering::Relaxed),
++            released_on_response: SH_RELEASED_ON_RESPONSE.load(Ordering::Relaxed),
++            released_on_expiry: SH_RELEASED_ON_EXPIRY.load(Ordering::Relaxed),
++            released_dry: SH_RELEASED_DRY.load(Ordering::Relaxed),
++            hold_steps_sum: SH_HOLD_STEPS_SUM.load(Ordering::Relaxed),
++            skipped_target_opening: SH_SKIPPED_TARGET_OPENING.load(Ordering::Relaxed),
++            skipped_target_crash_pending: SH_SKIPPED_TARGET_CRASH_PENDING.load(Ordering::Relaxed),
++            stall_clock_steps_not_suspended: SH_STALL_CLOCK_STEPS_NOT_SUSPENDED
++                .load(Ordering::Relaxed),
++            hazards: ShelterHazardsStats {
++                ops_with_ghost: SH_OPS_WITH_GHOST.load(Ordering::Relaxed),
++                ops_with_settled_fresh: SH_OPS_WITH_SETTLED_FRESH.load(Ordering::Relaxed),
++                ops_with_both: SH_OPS_WITH_BOTH.load(Ordering::Relaxed),
++            },
++            cells: TreatmentHalves {
++                treated: ShelterCellStats::read(&[
++                    treatment_cell(true, true),
++                    treatment_cell(false, true),
++                ]),
++                untreated: ShelterCellStats::read(&[
++                    treatment_cell(true, false),
++                    treatment_cell(false, false),
++                ]),
++            },
++            crossed: TreatmentCrossed {
++                wait_on_shelter_on: ShelterCellStats::read(&[treatment_cell(true, true)]),
++                wait_on_shelter_off: ShelterCellStats::read(&[treatment_cell(true, false)]),
++                wait_off_shelter_on: ShelterCellStats::read(&[treatment_cell(false, true)]),
++                wait_off_shelter_off: ShelterCellStats::read(&[treatment_cell(false, false)]),
++            },
++        }
++    }
++}
++
+ /// A point-in-time copy of all counters, serializable to `utilization.json`.
+ #[derive(Serialize)]
+ pub struct UtilizationSnapshot {
+@@ -6036,6 +6501,8 @@ pub struct UtilizationSnapshot {
+     pub fresh_first: FreshFirstStats,
+     pub pair_order: PairOrderStats,
+     pub client_anchor: ClientAnchorStats,
++    pub request_wait: RequestWaitStats,
++    pub shelter: ShelterStats,
+     pub arm_selector_axis: ArmSelectorAxisStats,
+     pub replay: ReplayStats,
+     pub timer_context: TimerContextStats,
+@@ -6247,6 +6714,8 @@ pub fn snapshot() -> UtilizationSnapshot {
+         fresh_first: FreshFirstStats::read(),
+         pair_order: PairOrderStats::read(),
+         client_anchor: ClientAnchorStats::read(),
++        request_wait: RequestWaitStats::read(),
++        shelter: ShelterStats::read(),
+         arm_selector_axis: ArmSelectorAxisStats::read(),
+         replay: ReplayStats::read(),
+         timer_context: TimerContextStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 1389681..0cc4db0 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RequestWaitCellStats, RequestWaitSettleStats, RequestWaitStats, RunCapStats, ShelterCellStats, ShelterHazardsStats, ShelterStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally, TreatmentCrossed, TreatmentHalves,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1223,6 +1223,241 @@ fn fresh_first_leaves(prefix: &str, f: &FreshFirstStats) -> Vec<(String, Value)>
+     out
+ }
+ 
++fn request_wait_cell(m: &mut Marks) -> RequestWaitCellStats {
++    RequestWaitCellStats {
++        request_entries_at_restarted: m.int(),
++        request_entries_at_restarted_acted: m.int(),
++    }
++}
++
++fn request_wait_cell_leaves(prefix: &str, c: &RequestWaitCellStats) -> Vec<(String, Value)> {
++    let RequestWaitCellStats {
++        request_entries_at_restarted,
++        request_entries_at_restarted_acted,
++    } = c;
++    vec![
++        leaf(prefix, "request_entries_at_restarted", *request_entries_at_restarted),
++        leaf(
++            prefix,
++            "request_entries_at_restarted_acted",
++            *request_entries_at_restarted_acted,
++        ),
++    ]
++}
++
++fn request_wait_settle(m: &mut Marks) -> RequestWaitSettleStats {
++    RequestWaitSettleStats {
++        settled: m.int(),
++        settle_steps_hist: vec![m.int(), m.int(), m.int()],
++    }
++}
++
++fn request_wait_settle_leaves(prefix: &str, h: &RequestWaitSettleStats) -> Vec<(String, Value)> {
++    let RequestWaitSettleStats {
++        settled,
++        settle_steps_hist,
++    } = h;
++    let mut out = vec![leaf(prefix, "settled", *settled)];
++    out.extend(vec_leaves(prefix, "settle_steps_hist", settle_steps_hist));
++    out
++}
++
++fn treatment_halves<T>(mut cell: impl FnMut() -> T) -> TreatmentHalves<T> {
++    TreatmentHalves {
++        treated: cell(),
++        untreated: cell(),
++    }
++}
++
++fn treatment_crossed<T>(mut cell: impl FnMut() -> T) -> TreatmentCrossed<T> {
++    TreatmentCrossed {
++        wait_on_shelter_on: cell(),
++        wait_on_shelter_off: cell(),
++        wait_off_shelter_on: cell(),
++        wait_off_shelter_off: cell(),
++    }
++}
++
++fn treatment_halves_leaves<T>(
++    prefix: &str,
++    h: &TreatmentHalves<T>,
++    cell: impl Fn(&str, &T) -> Vec<(String, Value)>,
++) -> Vec<(String, Value)> {
++    let TreatmentHalves { treated, untreated } = h;
++    let mut out = cell(&format!("{prefix}.treated"), treated);
++    out.extend(cell(&format!("{prefix}.untreated"), untreated));
++    out
++}
++
++fn treatment_crossed_leaves<T>(
++    prefix: &str,
++    c: &TreatmentCrossed<T>,
++    cell: impl Fn(&str, &T) -> Vec<(String, Value)>,
++) -> Vec<(String, Value)> {
++    let TreatmentCrossed {
++        wait_on_shelter_on,
++        wait_on_shelter_off,
++        wait_off_shelter_on,
++        wait_off_shelter_off,
++    } = c;
++    let mut out = cell(&format!("{prefix}.wait_on_shelter_on"), wait_on_shelter_on);
++    out.extend(cell(&format!("{prefix}.wait_on_shelter_off"), wait_on_shelter_off));
++    out.extend(cell(&format!("{prefix}.wait_off_shelter_on"), wait_off_shelter_on));
++    out.extend(cell(&format!("{prefix}.wait_off_shelter_off"), wait_off_shelter_off));
++    out
++}
++
++fn request_wait(m: &mut Marks) -> RequestWaitStats {
++    RequestWaitStats {
++        masked_offers: m.int(),
++        records_masked: m.int(),
++        arrivals_after_bound: m.int(),
++        released_settled: m.int(),
++        released_bound: m.int(),
++        released_lifted: m.int(),
++        lift_steps: m.int(),
++        hold_steps_sum: m.int(),
++        settle: treatment_halves(|| request_wait_settle(m)),
++        cells: treatment_halves(|| request_wait_cell(m)),
++        crossed: treatment_crossed(|| request_wait_cell(m)),
++    }
++}
++
++fn request_wait_leaves(prefix: &str, r: &RequestWaitStats) -> Vec<(String, Value)> {
++    let RequestWaitStats {
++        masked_offers,
++        records_masked,
++        arrivals_after_bound,
++        released_settled,
++        released_bound,
++        released_lifted,
++        lift_steps,
++        hold_steps_sum,
++        settle,
++        cells,
++        crossed,
++    } = r;
++    let mut out = vec![
++        leaf(prefix, "masked_offers", *masked_offers),
++        leaf(prefix, "records_masked", *records_masked),
++        leaf(prefix, "arrivals_after_bound", *arrivals_after_bound),
++        leaf(prefix, "released_settled", *released_settled),
++        leaf(prefix, "released_bound", *released_bound),
++        leaf(prefix, "released_lifted", *released_lifted),
++        leaf(prefix, "lift_steps", *lift_steps),
++        leaf(prefix, "hold_steps_sum", *hold_steps_sum),
++    ];
++    out.extend(treatment_halves_leaves(
++        &format!("{prefix}.settle"),
++        settle,
++        request_wait_settle_leaves,
++    ));
++    out.extend(treatment_halves_leaves(
++        &format!("{prefix}.cells"),
++        cells,
++        request_wait_cell_leaves,
++    ));
++    out.extend(treatment_crossed_leaves(
++        &format!("{prefix}.crossed"),
++        crossed,
++        request_wait_cell_leaves,
++    ));
++    out
++}
++
++fn shelter_cell(m: &mut Marks) -> ShelterCellStats {
++    ShelterCellStats {
++        sender_restarted_entries: m.int(),
++        sender_restarted_acted: m.int(),
++    }
++}
++
++fn shelter_cell_leaves(prefix: &str, c: &ShelterCellStats) -> Vec<(String, Value)> {
++    let ShelterCellStats {
++        sender_restarted_entries,
++        sender_restarted_acted,
++    } = c;
++    vec![
++        leaf(prefix, "sender_restarted_entries", *sender_restarted_entries),
++        leaf(prefix, "sender_restarted_acted", *sender_restarted_acted),
++    ]
++}
++
++fn shelter(m: &mut Marks) -> ShelterStats {
++    ShelterStats {
++        ops_examined: m.int(),
++        ops_sheltered: m.int(),
++        records_ghost: m.int(),
++        records_settled_fresh: m.int(),
++        released_on_response: m.int(),
++        released_on_expiry: m.int(),
++        released_dry: m.int(),
++        hold_steps_sum: m.int(),
++        skipped_target_opening: m.int(),
++        skipped_target_crash_pending: m.int(),
++        stall_clock_steps_not_suspended: m.int(),
++        hazards: ShelterHazardsStats {
++            ops_with_ghost: m.int(),
++            ops_with_settled_fresh: m.int(),
++            ops_with_both: m.int(),
++        },
++        cells: treatment_halves(|| shelter_cell(m)),
++        crossed: treatment_crossed(|| shelter_cell(m)),
++    }
++}
++
++fn shelter_leaves(prefix: &str, r: &ShelterStats) -> Vec<(String, Value)> {
++    let ShelterStats {
++        ops_examined,
++        ops_sheltered,
++        records_ghost,
++        records_settled_fresh,
++        released_on_response,
++        released_on_expiry,
++        released_dry,
++        hold_steps_sum,
++        skipped_target_opening,
++        skipped_target_crash_pending,
++        stall_clock_steps_not_suspended,
++        hazards,
++        cells,
++        crossed,
++    } = r;
++    let ShelterHazardsStats {
++        ops_with_ghost,
++        ops_with_settled_fresh,
++        ops_with_both,
++    } = hazards;
++    let h = format!("{prefix}.hazards");
++    let mut out = vec![
++        leaf(prefix, "ops_examined", *ops_examined),
++        leaf(prefix, "ops_sheltered", *ops_sheltered),
++        leaf(prefix, "records_ghost", *records_ghost),
++        leaf(prefix, "records_settled_fresh", *records_settled_fresh),
++        leaf(prefix, "released_on_response", *released_on_response),
++        leaf(prefix, "released_on_expiry", *released_on_expiry),
++        leaf(prefix, "released_dry", *released_dry),
++        leaf(prefix, "hold_steps_sum", *hold_steps_sum),
++        leaf(prefix, "skipped_target_opening", *skipped_target_opening),
++        leaf(prefix, "skipped_target_crash_pending", *skipped_target_crash_pending),
++        leaf(prefix, "stall_clock_steps_not_suspended", *stall_clock_steps_not_suspended),
++        leaf(&h, "ops_with_ghost", *ops_with_ghost),
++        leaf(&h, "ops_with_settled_fresh", *ops_with_settled_fresh),
++        leaf(&h, "ops_with_both", *ops_with_both),
++    ];
++    out.extend(treatment_halves_leaves(
++        &format!("{prefix}.cells"),
++        cells,
++        shelter_cell_leaves,
++    ));
++    out.extend(treatment_crossed_leaves(
++        &format!("{prefix}.crossed"),
++        crossed,
++        shelter_cell_leaves,
++    ));
++    out
++}
++
+ fn ghost_signal(m: &mut Marks) -> GhostSignalStats {
+     GhostSignalStats {
+         fired_runs: m.int(),
+@@ -1918,6 +2153,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         fresh_first: _,
+         pair_order: _,
+         client_anchor: _,
++        request_wait: _,
++        shelter: _,
+         arm_selector_axis: _,
+         replay: _,
+         timer_context: _,
+@@ -1959,6 +2196,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "fresh_first",
+         "pair_order",
+         "client_anchor",
++        "request_wait",
++        "shelter",
+         "arm_selector_axis",
+         "replay",
+         "timer_context",
+@@ -2034,6 +2273,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.fresh_first = fresh_first(&mut m);
+     s.pair_order = pair_order(&mut m);
+     s.client_anchor = client_anchor(&mut m);
++    s.request_wait = request_wait(&mut m);
++    s.shelter = shelter(&mut m);
+     s.arm_selector_axis = arm_selector_axis(&mut m);
+     s.replay = replay(&mut m);
+     s.timer_context = timer_context(&mut m);
+@@ -2055,6 +2296,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(fresh_first_leaves("fresh_first", &s.fresh_first));
+     expected.extend(pair_order_leaves("pair_order", &s.pair_order));
+     expected.extend(client_anchor_leaves("client_anchor", &s.client_anchor));
++    expected.extend(request_wait_leaves("request_wait", &s.request_wait));
++    expected.extend(shelter_leaves("shelter", &s.shelter));
+     expected.extend(arm_selector_axis_leaves("arm_selector_axis", &s.arm_selector_axis));
+     expected.extend(replay_leaves("replay", &s.replay));
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
+@@ -2101,6 +2344,8 @@ fn every_counter_field_reaches_the_written_json() {
+         "fresh_first",
+         "pair_order",
+         "client_anchor",
++        "request_wait",
++        "shelter",
+         "arm_selector_axis",
+         "replay",
+         "timer_context",

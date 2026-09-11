@@ -1,0 +1,94 @@
+// A node whose restart asks every peer for its state and whose peers answer
+// with a message that writes the restarted node's state, so a restart has
+// an opening that settles once a majority of the peers have answered. Every
+// write a node takes is told to every peer, so a client write invoked after
+// a crash sends request-caused records to a node that may still be waiting
+// on its opening; a peer that consumes a message while its sender is down,
+// or after the sender has come back, has taken a fault-crossing delivery.
+//
+// The peer list carries the node itself, and a message a node sends to
+// itself is never in flight, so the loops skip it.
+
+role Node {
+    var db: map<string, int> = {};
+    var seen: int = 0;
+    var heard: int = 0;
+    var me: int = 0;
+    var peers: list<Node> = [];
+
+    fn Init(me_: int, peers_: list<Node>) {
+        me = me_;
+        peers = peers_;
+        Heartbeat();
+    }
+
+    async fn RecoverInit(me_: int, peers_: list<Node>) {
+        me = me_;
+        peers = peers_;
+        for var i = 0; i < len(peers); i = i + 1 {
+            if (i != me) {
+                peers[i]->Ask(peers[me]);
+            }
+        }
+        Heartbeat();
+    }
+
+    async fn Heartbeat() {
+        for ;; {
+            <- set_timer("beat");
+            seen = seen + 1;
+            for var i = 0; i < len(peers); i = i + 1 {
+                if (i != me) {
+                    peers[i]->Note(seen);
+                }
+            }
+        }
+    }
+
+    async fn Ask(from: Node) {
+        heard = heard + 1;
+        from->Answer(seen);
+    }
+
+    async fn Answer(n: int) {
+        heard = heard + 1;
+        if (n > seen) {
+            seen = n;
+        }
+    }
+
+    async fn Note(n: int) {
+        seen = n;
+    }
+
+    async fn Write(key: string, uid: int): bool {
+        for var i = 0; i < len(peers); i = i + 1 {
+            if (i != me) {
+                peers[i]->Note(uid);
+            }
+        }
+        db = db[key] := uid;
+        return true;
+    }
+
+    async fn Read(key: string): int {
+        if (exists(db, key)) {
+            return db[key];
+        }
+        return 0;
+    }
+}
+
+ClientInterface {
+    async fn Write(dest: Node, key: string, uid: int) {
+        var ok: bool = <- dest->Write(key, uid);
+    }
+
+    async fn Read(dest: Node, key: string): list<int> {
+        var v: int = <- dest->Read(key);
+        if (v == 0) {
+            return [];
+        }
+        return [v];
+    }
+}

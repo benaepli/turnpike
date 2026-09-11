@@ -8983,3 +8983,82 @@ keyed release >= 0.55 and expiry <= 0.35, a hazards census gate, depth8
 guard [0.93, 1.03], depth11 [1.25, 2.6] pooled, merge only above a 1.50
 point with the interval clear of 1.00). Full record:
 research/lite/plans/iteration-82-admitted.json.
+
+
+**Iteration 82 implementation review.** Request-wait and op-target
+shelter built on the merged tree 12b7582 on independent salts: the
+opening bookkeeping on the send ledger (opening peers, opening replies,
+opening end), the eligibility mask with a per-step lift in the
+scheduler's pre-pass, the shelter scan at a post-fault invocation with
+its three release paths and the stall-clock exclusion for sheltered
+rows, bits 1<<29 and 1<<26 on the retired pairOrderGhostOnly and
+originAlternate rows; per-cell exports for both halves and the four
+crossed cells. Tests 515 passed, 0 failed; general_vr.json untouched;
+exec.rs and history.rs untouched. The implementer flagged that the
+smoke's shapes ran in both falsifiers' directions.
+
+**Iteration 82 closed, autonomous.** Seed 1000 against the merged-tree
+cache: 689,040 candidate runs against 757,560 baseline, zero failures,
+zero violations. Request-wait: 554,219 records masked (floor 25,000)
+against 46,198,690 request-caused arrivals at unsettled restarted
+destinations after the restart-plus-bound clock, applicability 0.012
+against the 0.40 gate; releases 518,247 on the bound against 31,090 on
+settlement (the falsifier's sign); the treated acted ratio 0.0069
+against 0.0064, 1.08x against the 1.15x refutation line; no lifts.
+Matched on the shelter bit and the merged bits: depth8 1.001, depth9
+1.002, depth10 0.875, depth11 5 against 21 events, depth12 2 against 16;
+steps per run 0.995. Shelter: 129,738 operations sheltered of 977,449
+examined (floor 150,000 missed), 197,665 dead-incarnation and 78,141
+settled-fresh records held; releases 88,158 on the response, 172,871 on
+the 192-step bound and 2 on a dry queue, so the response share is 0.34
+against the 0.55 floor and the expiry share 0.66 against the 0.35
+ceiling, the CLIENT_FIRST shape the judge's gate was written to catch;
+both hazard classes held on 5,063 operations (0.04 against the 0.30
+condition for the depth11 band); the stall-clock exclusion mattered on
+12.7M steps; matched depth8 1.010, depth9 0.951, depth10 0.826, depth11
+2 against 23, depth12 1 against 16; steps per run 0.9995. Cross-binary
+the candidate reads depth8 per second 0.934 and throughput 0.9095 (the
+per-step pre-pass on treated runs), AOS 0.91.
+
+Both close on their chunk-1 gates. The finding worth keeping is the
+deep tail: on both halves the held records were exactly the ones the
+path needs delivered, and depth 11 and 12 events fell to a quarter or
+less of the other half's on both mechanisms, as the CLIENT_FIRST arm's
+6 against 19 read at iteration 63 already showed. Three holds in this
+region (a blind orphan delay, a same-role mask while an operation is
+outstanding, and now a keyed wait and a keyed shelter) have all
+suppressed the tail; the region past the write wants its records
+delivered, not held. Patch, tests, smoke, chunk, gate and pooled-utility
+records retained under research/lite/patches/request-wait; session
+research/lite/state/request-wait.json. Main tree unchanged at spur
+12b7582; ledger unchanged at 1.0736.
+
+**Direction review after iteration 82.** The message-delay lens read
+clean negatives twice in the deep region and produced one reusable fact:
+holds at the write's target or at restarted destinations suppress depth
+11 to 13, so delivery-order structure there must reorder without
+holding, or the region must be reached by other means. Proxy check: the
+merged tree's rungs are where iteration 80 left them; violations remain
+zero on 11.9M candidate runs this session; nothing about the ladder is
+moved. The remaining queue has the repeated release (stall family, net
+5), the replay-arm serving fix (4), the backlog deferral (4), the PCT
+change points (3), and several at 2-3. Steering verdict: rotate to the
+feedback and novelty lens with the skill's own default direction,
+branching the search from a checkpoint: about 60 runs per chunk reach
+depth 11 and about 400 reach depth 10, and their prefixes up to the
+write's invocation are recorded tapes the replay corpus can serve; ask
+what generic run-end signal (a stranded-record count at a never-
+restarted node when a post-fault operation is invoked after two
+restarts, a client operation issued while records from two incarnations
+of a peer are in flight to its target) would mark those runs as parents
+and cut their tapes at that invocation, so the search branches from the
+post-write state instead of holding records to reach it. A replay-
+prefix ranking rule is retired; a new parent source keyed on a generic
+signal with its own ring is not. The grader's fold limit stands: at most
+two new bits per session.
+
+Digest for the user: iteration 82 closed two delivery-order holds on
+one chunk (bound-from-restart clock misses its class; response-keyed
+shelter expires like CLIENT_FIRST did), with the reusable finding that
+every hold in the post-write region kills the deep tail; next round
+rotates to feedback and novelty, branching from post-write checkpoints.

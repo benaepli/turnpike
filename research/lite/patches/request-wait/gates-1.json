@@ -1,0 +1,126 @@
+[
+ {
+  "seed": 1000,
+  "runs": [
+   689040,
+   757560
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "request_wait": {
+   "masked_offers": 17972147,
+   "records_masked": 554219,
+   "arrivals_after_bound": 46198690,
+   "applicability": 0.01185421424793054,
+   "released_settled": 31090,
+   "released_bound": 518247,
+   "released_lifted": 0,
+   "lifted_share": 0.0,
+   "acted_ratio_treated": 0.006917259691451832,
+   "acted_ratio_untreated": 0.0063778938041669534,
+   "acted_ratio": 1.0845680257222983
+  },
+  "shelter": {
+   "ops_examined": 977449,
+   "ops_sheltered": 129738,
+   "records_ghost": 197665,
+   "records_settled_fresh": 78141,
+   "released_on_response": 88158,
+   "released_on_expiry": 172871,
+   "released_dry": 2,
+   "response_share_of_releases": 0.3377300014174562,
+   "expiry_share_of_releases": 0.6622623366573319,
+   "response_per_op": 0.6795079313693752,
+   "expiry_per_op": 1.3324623471920332,
+   "hazards": {
+    "ghost": 91434,
+    "fresh": 43367,
+    "both": 5063
+   },
+   "stall_clock_steps_not_suspended": 12739703,
+   "sender_restarted_acted_treated": 0.16260909819097255,
+   "sender_restarted_acted_untreated": 0.17261971808621757
+  },
+  "steps_ratio": {
+   "wait": 0.9954299131034264,
+   "shelter": 0.9994700065728856
+  },
+  "wait_matched": {
+   "d5": [
+    1.018,
+    14047,
+    13836
+   ],
+   "d6": [
+    1.0162,
+    13801,
+    13617
+   ],
+   "d8": [
+    1.0011,
+    5981,
+    5989
+   ],
+   "d9": [
+    1.0023,
+    1103,
+    1101
+   ],
+   "d10": [
+    0.8748,
+    153,
+    175
+   ],
+   "d11": [
+    0.2402,
+    5,
+    21
+   ],
+   "d12": [
+    0.1262,
+    2,
+    16
+   ]
+  },
+  "shelter_matched": {
+   "d5": [
+    1.005,
+    13966,
+    13917
+   ],
+   "d6": [
+    1.0046,
+    13730,
+    13688
+   ],
+   "d8": [
+    1.0104,
+    6012,
+    5958
+   ],
+   "d9": [
+    0.9507,
+    1073,
+    1130
+   ],
+   "d10": [
+    0.826,
+    146,
+    177
+   ],
+   "d11": [
+    0.0876,
+    2,
+    23
+   ],
+   "d12": [
+    0.0626,
+    1,
+    16
+   ]
+  }
+ }
+]
