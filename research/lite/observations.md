@@ -9236,3 +9236,57 @@ shallow parents and the honest depth 11 rung reads 10 against 9); the
 uniform-suffix finding (stale-first at the target 0.56 against 0.19,
 depth 10 to 12 leaning up) is kept for a future checkpoint source. Next
 round rotates to the premise-check lens at labels 13 to 20.
+
+
+**Iteration 84 proposals and admission.** Four plan-shape experiments
+through the premise-check lens, with the proposer's reading of the
+oracle past the write verified by the judge: the ladder's chain is 13
+rungs long and there are no rungs 14 to 20; the seven off-chain DAG
+events are the first-crashed node's restart, the two recovery replies to
+the second-restarted node, the two stale view-change records addressed to
+the never-restarted node (leaves ordered after label 11 that the prefix
+walk never checks) and the reads at the two restarted nodes as
+alternatives to label 13; the oracle matches client operations by the
+invocation's destination while the protocol redirects a request at a
+non-leader to the leader within one round trip, so label 10's target
+constraint is stricter than the violation's; the violation's ending in
+generic terms is the survivor answering the write on the second-
+restarted node's current-incarnation reply while the two stale view-
+change records addressed to it are still undelivered, the first-
+restarted node's completion broadcast then installing the new epoch's
+log without the acked write, and a later read at any server returning
+the shorter list; and because the "must remain undelivered" events are
+leaves, a depth-13 run can have delivered them before the write, which
+is why every depth-13 run in the cache is linearizable. Flagged for the
+user as an oracle finding: the ladder's top rung does not encode the
+leaf condition the violation needs, so depth 13 is a weaker witness than
+its position suggests (the oracle is protected and not edited). Supply
+from the cache: 1.19 reservations per recover, 2.08 requests after the
+last recover per run, targets uniform so a third at the survivor, 71% of
+runs with two or more recovered nodes of which 83% end before plan
+completion, and no stock edge orders a read behind a post-fault write
+except density-0.3 chance. Blind judge over fourteen: survivor-target
+reservation 7-0 (every figure re-derived exactly; a new premise against
+the closed post-fault-client-work family, which varied the count on
+rungs a reservation cannot feed while this varies the target on rungs
+10 and 13; a premise gate added on the redirect-insensitive ack census
+and an artifact rule so a label-10 inflation without an ack rise is
+filed, never merged), write-then-dependent-read 6-0 (its label-13
+ordering claim false: the pulled read is invoked at the ack, before the
+broadcast lands; a last-free-write design constraint added so the
+ladder's root is not cannibalized; the honest read the per-cell 9-to-10
+conversion and a new outstanding-read-at-state-move counter as the
+violation-window observable), repeated release 5-0 (leads the
+alternative session), read train 4-0 (waits), backlog deferral 4-0,
+run-local counters 5-2, pre-fault root probe 3-0 (its depth1 claim false
+by the generator's symmetry over servers; rewritten to stratify by
+survivor-set size), condition-released defer exemption 3-0, PCT change
+points 3-0, stalled runs as replay parents 2-0, post-release cap 2-0,
+optional-cover reversal 2-0; the state fork and the second-generation
+admission rejected as parentless. Admitted as a crossed two-bit session
+split by workload seed: bit postFaultSurvivorTarget 1<<26 (retargeted
+>= 400,000, depth8 [0.90, 1.06], depth10 [1.4, 2.6], depth11 [1.3, 2.6],
+the premise gate and the artifact rule) and bit postFaultWriteThenRead
+1<<29 (pairs added >= 250,000, depth10 [1.15, 2.4], the 9-to-10
+conversion treated at least 0.08 above stock, the outstanding-read
+observable in [2.0, 6.0]). Full record: research/lite/plans/iteration-84-admitted.json.

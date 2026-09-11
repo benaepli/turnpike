@@ -4086,3 +4086,49 @@ points 3 (its "handful of timer wakes" claim false again: 153 per run),
 condition-released defer exemption 3, post-release cap 2, stalled runs as
 replay parents 2 (supply figure stale for the third round), optional-cover
 reversal 2. Awaiting-approval entries unchanged.
+
+
+## post-fault-reservation-targets-plan-survivor
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 84 (rank 1 net 7; bit postFaultSurvivorTarget 1<<26, a plan
+  cell by workload seed; the session's primary bit; premise gate on the
+  redirect-insensitive ack census) | gain: 7 | cost: 0 | rank: 1
+- Client requests reserved after a restart are addressed to a server the
+  plan never crashes, with a run-end census of post-restart survivor
+  operations and acks with stranded records still queued. Frozen prediction
+  and review: `research/lite/plans/iteration-84-admitted.json`.
+
+## post-fault-reservation-write-then-dependent-read
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 84 (rank 2 net 6; bit postFaultWriteThenRead 1<<29, a plan
+  cell by workload seed crossing the survivor cell; last-free-write design
+  constraint; honest read the per-cell 9-to-10 conversion) | gain: 6 | cost: 0 | rank: 2
+- The request reserved after a restart is a write when one is free and one
+  existing read is pulled behind its response. Frozen prediction and
+  review: `research/lite/plans/iteration-84-admitted.json`.
+
+## post-fault-read-train-behind-reserved-write
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 84 (nested in the write-then-read cell; waits for its parent's read; bit 1<<23) | gain: 4 | cost: 0 | rank: 4
+- Review: `research/lite/plans/iteration-84-admitted.json`.
+
+## pre-fault-write-targets-plan-survivor-ladder-root-probe
+
+- kind: meta | category: scheduler | origin: proposer | status: KEPT at iteration 84 (a ladder-root probe, rewritten to stratify by survivor-set size; not a merge candidate; bit 1<<22 contested) | gain: 3 | cost: 0 | rank: 7
+- Review: `research/lite/plans/iteration-84-admitted.json`.
+
+## write-ring-children-by-state-fork
+
+- status: REJECTED at iteration 84 (parentless after the ring closed; its cost premise refuted by the ring's own read).
+
+## write-ring-second-generation-admission
+
+- status: REJECTED at iteration 84 (parentless; supply and share below the grader's minimum).
+
+Iteration 84 re-judged the carried entries: repeated release 5 (leads the
+alternative session), backlog deferral 4, run-local counters 5-2,
+condition-released defer exemption 3, PCT change points 3, stalled runs as
+replay parents 2 (supply figure stale for the fourth round), post-release
+cap 2, optional-cover reversal 2. Awaiting-approval entries unchanged.

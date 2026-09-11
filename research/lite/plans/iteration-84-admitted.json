@@ -1,0 +1,543 @@
+{
+ "iteration": 84,
+ "admittedAtIso": "2026-09-11T10:55:24.063902+00:00",
+ "mode": "autonomous",
+ "acceptedBaselineCommit": "12b758213355c983c8a5f156549eb74668874e34",
+ "superCommit": "9cb6f2f",
+ "lens": "premise check",
+ "focusDirective": "does the general config supply the events the oracle's ending needs; plan-shape experiments split by workload seed with a supply census",
+ "admittedFrom": "tmp/loop/lite/judged-84.json (blind judge, ranks 1-2, one two-bit crossed session)",
+ "hypothesis": {
+  "id": "post-fault-reservation-targets-plan-survivor",
+  "parent": null,
+  "kind": "add",
+  "title": "Client requests reserved after a restart are addressed to a server the plan never crashes, split by workload seed, with a run-end census of post-restart survivor operations and redirect-insensitive acks",
+  "description": "Plan-generation change in spur/spur-core/src/simulator/path/generator.rs, post-fault pass, under a new plan cell drawn from the workload seed exactly as recover_deps.rs draws RecoverDeps (new module survivor_target.rs: SurvivorTarget::{Stock, Survivor}, of_workload_seed(seed) = salted_phase(seed, SURVIVOR_SALT, 2) == 1, own salt so the cell is independent of the recover-deps cell). On the Survivor cell, after the stock post-fault pass has chosen its reserved client requests (recover -> request edges, unchanged), each reserved request whose target is a server that has a CrashNode stub in the plan is rewritten to a server drawn uniformly from the plan's never-crashing servers, using a SmallRng seeded from the workload seed under a second salt so the stock workload stream is byte-identical (the generator's fingerprint tests must still pass on the Stock cell). When the plan crashes every server (about 7% of plans: 3 crashes on 3 distinct servers) nothing is rewritten. Pre-fault requests, reads and writes alike, are untouched. Wiring as recover_deps: GeneratorConfig gains survivor_target: SurvivorTarget; run_single_simulation derives it from workload_seed; run_variant.rs gains POST_FAULT_SURVIVOR_TARGET = 1 << 26 joined to the tag like RECOVER_DEPS_EXEMPT (a plan-cell bit, disjoint from every id bit, inherited by replay children through the parent's seed); decide.ts row 67108864 renamed from the retired originAlternate to postFaultSurvivorTarget. Counters (util_stats.rs, new PlanShapeStats block): plan_shape.survivor.reserved_seen, plan_shape.survivor.reserved_retargeted, plan_shape.survivor.plans_without_survivor at plan time; and per cell at run end, folded from a per-run struct kept beside RunCrossingState: plan_shape.cell.{stock,survivor}.runs, .post_restart_invocations_at_survivor (client requests invoked at a target with incarnation 0 while at least two servers have incarnation > 0), .post_restart_writes_at_survivor, .post_restart_reads_at_survivor, .acked_writes_at_survivor_after_two_restarts (a write whose response arrived while the responding server had incarnation 0 and at least two servers had incarnation > 0, counted at the ClientInterface response whatever the invocation's target, so redirected writes count), .acked_writes_with_stranded_records (the same ack while the network queue held records addressed to that server from at least two distinct dead incarnations, read with state.fault_crossing as the closed write-ring signal did), .reads_invoked_after_such_ack. No config field; general_vr.json untouched.",
+  "category": "config",
+  "buildsOn": [
+   "recover_deps plan cell by workload seed (merged, bit 1<<13)",
+   "generator.rs post-fault pass",
+   "run_variant.rs plan-cell bit joining",
+   "util_stats RunCrossingState per-run fold",
+   "state.fault_crossing and incarnation_at"
+  ],
+  "rationale": "Supply read from the merged-tree cache (seed 1000, 757,560 runs): the post-fault pass reserves 2,049,069 request edges over 1,720,330 recovers (1.19 per recover), 1,578,616 requests are invoked after a run's last recover (2.08 per run), and about 3.0 client requests per run are invoked after the first crash (client_anchor.census: 1,567,477 over 521,497 treated runs, 695,726 over 236,063 control runs). Every reserved request draws its target uniformly over the servers, so a request that lands at the plan's never-crashing server after two restarts is one third of them, about 0.5 per run in the 535,949 runs (71%) with two or more recovered nodes. The oracle's label 10 is a write invoked at the never-restarted node after both restarts, and the 9-to-10 conversion is 423/2,674 = 0.158 on seed 1000 and 396/2,596 = 0.153 on seed 1001, close to the product of the reserved request being a write (about 1/3: 2-4 writes against 4-8 reads) and its target being the survivor (1/3) plus the other routes, so rung 10 reads as plan-supply-bound, not scheduler-bound. Label 13 (a read at the survivor, or at either restarted node) converts from 12 at 15/40 = 0.375 and 24/57 = 0.42. This cell removes the target factor for reserved requests only. The census separates two things the ladder confounds: the oracle matches client operations by the invocation's destination (traceanalyzer candidates.go parseInvocationPayload), while the protocol under test redirects a request at a non-leader to the leader within one round trip (ClientInterface retry loop), so a write invoked at the second-restarted node after both restarts reaches the same replication at the survivor and is not label 10, whereas one invoked at the first-restarted node after it completed its epoch change is accepted there and cannot be lost. The redirect-insensitive ack counter therefore rises less than label 10 if the rung has been measuring the invocation target rather than the state; that gap is the premise reading. Generic reading of the oracle past the write: the ladder's chain is 13 rungs long, there are no rungs 14-20; the seven off-chain DAG events are (a) the first-crashed node's restart, a predecessor of the write and so already required at depth 10, (b) the two recovery replies to the second-restarted node from the never-restarted and first-restarted nodes, predecessors of label 11 (the second-restarted node must have finished recovering before its replication ack counts), (c) the two dead-incarnation view-change records addressed to the never-restarted node, ordered AFTER label 11 as leaves the depth metric never checks, and (d) reads at the first- and second-restarted nodes as alternatives to label 13. The violating ending: a write acknowledged by the never-restarted node (still leading the old epoch) on the second-restarted node's current-incarnation ack, while the two stale view-change records addressed to it are still undelivered; the first-restarted node's completion broadcast then lands at the never-restarted node, which adopts the new epoch's log lacking the acked write; a read invoked after that at any server is routed to the first-restarted node (the new leader), replicated to the never-restarted node in the new epoch, and returns the list without the acked uid: a completed write missing from a later read. Unlabelled but required: the completion broadcast to the second-restarted node must not land before it acks the write, and no timer at the survivor or the second-restarted node moves the epoch first.",
+  "generalityArgument": "Stated only in plan terms: a client request reserved after a restart is addressed to a server the plan never crashes. No handler, message, role, timer label or leader notion is used; the survivor is a property of the plan's own crash stubs. On any protocol the class 'client work at the node that kept its memory across the faults, issued while the restarted nodes hold ghost state' is the generic recovery-versus-client race; the stock half keeps client work at restarted nodes for bugs of the other class, and the panel's clean specs see only a different target draw on half the runs.",
+  "prediction": {
+   "firingCounter": "plan_shape.survivor.reserved_retargeted",
+   "firingFloor": 400000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.48,
+    "max": 0.52
+   },
+   "depth9Band": {
+    "min": 0.9,
+    "max": 1.1
+   },
+   "depth10Band": {
+    "min": 1.4,
+    "max": 2.6
+   },
+   "depth11Band": {
+    "min": 1.3,
+    "max": 2.6
+   },
+   "depth13Band": {
+    "min": 1.0,
+    "max": 3.5,
+    "reported": true
+   },
+   "mechanism": "Treatment bit POST_FAULT_SURVIVOR_TARGET = 1 << 26 (postFaultSurvivorTarget), a plan cell drawn from the workload seed with its own salt, treated share 0.50 of all runs (probes included, since the cell is part of the plan; the grader's contrast is probe-free and matched on co-bits as it was for recoverDepsExempt). Labels 1-9 involve no post-fault client request, so the primary rung depth>=8 per run is expected in [0.90, 1.06]: null, with the lower edge admitting the traffic effect the grid-post-fault-2 arm shows (two random post-fault requests per restart read depth>=8 per run at 0.83x of grid on both seeds). depth>=9 [0.90, 1.10]. depth>=10 is the rung the cell feeds: the reserved write's target factor goes from 1/3 to 1, so the 9-to-10 conversion is expected to move from 0.16 to 0.25-0.40 and the per-run ratio to [1.4, 2.6]. depth>=11 carries the same lift at the fresh 10-to-11 conversion (0.14-0.17) so [1.3, 2.6]; depth>=13 [1.2, 3.5], since reserved reads also land at the survivor (r1). Power: depth 11 reads 59-66 events per chunk, about 30 per half; a 1.5x separates at z about 2.4 on two chunks pooled and about 1.9 after the 1.3 overdispersion, so the depth-11 band is a lean at two chunks and a claim at four; depth 13 (8-12 per half per chunk) cannot resolve below 2.5x in four chunks and is reported, not claimed. Shared state: none; the cell changes only the plan, parents and replay children share a seed and so a cell, arm selectors and every id-keyed mechanism draw are untouched.",
+   "crossBinaryBand": {
+    "min": 0.95,
+    "max": 1.08
+   },
+   "supplyObservable": "plan_shape.cell.{stock,survivor}.post_restart_invocations_at_survivor per run: stock about 0.4-0.6, survivor about 1.2-1.6 (ratio in [2.2, 3.2]); plan_shape.cell.*.post_restart_writes_at_survivor ratio in [2.2, 3.2]; plan_shape.cell.*.acked_writes_at_survivor_after_two_restarts per run ratio in [1.15, 1.6] (redirect-insensitive, so it rises by the share of requests that were previously addressed to the first-restarted node after its epoch change plus the round trips saved); plan_shape.survivor.plans_without_survivor / plans about 0.07.",
+   "independentObservable": "The label-10 per-run ratio exceeds the acked_writes_at_survivor_after_two_restarts ratio by at least 1.3x: the rung counts the invocation's destination while the protocol state depends only on where the request ends up. Also: plan_shape.cell.*.acked_writes_with_stranded_records per run ratio in [1.3, 2.5] and reads_invoked_after_such_ack ratio in [1.5, 3.0]; plan completion within 2 points between cells; client_anchor first-delivery distances within 5% between cells.",
+   "falsifier": "depth>=10 treated/stock interval entirely below 1.15 while post_restart_invocations_at_survivor reads at least 2x: rung 10 is not target-supply-bound and the loop's ceiling past the write is the delivery order, which closes the premise. Or depth>=8 entirely below 0.90: survivor traffic damages the ghost chain, close. If depth>=10 rises above 1.4 and acked_writes_at_survivor_after_two_restarts rises less than 1.15, the gain is read as a metric artifact of the invocation-target match and is reported as such, not merged as a gain.",
+   "costClause": "Internal steps per run in [0.97, 1.05] between cells (a request at the survivor skips a redirect round trip, a request at a restarted node no longer spins at a recovering leader); cross-binary runs per second at or above 0.97 of the cache median 2,517 (one target rewrite per reserved edge and eight per-run counters folded at run end).",
+   "premiseGate": "plan_shape.cell.{stock,survivor}.acked_writes_with_stranded_records is the decisive premise read: reported per chunk on both cells. If the treated cell reads fewer than 10 such acks per chunk while its depth>=11 count exceeds 30, the finding is filed as 'the leaf condition (stale records undelivered at the ack) is not supplied at any target', the plan lens closes at label 11 and no rung ratio on this cell is merged as a gain.",
+   "artifactRule": "depth>=10 treated/stock above 1.4 with acked_writes_at_survivor_after_two_restarts below 1.15 is a metric artifact of the invocation-destination match and is filed, never merged; the merge case requires the ack ratio at or above 1.15 with depth>=8 not below 0.90.",
+   "bit": "POST_FAULT_SURVIVOR_TARGET = 1<<26, row 67108864 renamed postFaultSurvivorTarget; plan cell by workload seed, own salt; probes included in the cell, contrast probe-free."
+  },
+  "createdAtIso": "2026-09-11T10:35:00Z",
+  "notes": "",
+  "expectedGain": 7,
+  "expectedCost": 0,
+  "redTeam": "Strongest case against: label 10's target constraint is stricter than the violation's. A write invoked at the second-restarted server (still in the old epoch, not the leader) is redirected to the survivor in one round trip and produces the same replication, so it is violation-relevant but not label 10; only an invocation at the first-restarted server after its epoch change is truly lost to the ending (accepted in the new epoch). The cell therefore inflates label 10 by up to 3x (target factor 1/3 to 1) while the violation-relevant write supply moves at most 1.5x (2/3 to 1), and the ending's leaf condition - two dead-incarnation records addressed to the survivor still undelivered when it acks, hundreds of network steps after they were sent, plus the completion broadcast not yet at the restarted peer - is untouched by any target rewrite. The 15-24 depth-13 runs per chunk are all linearizable, which says the leaf, not the target, is what is missing. What separates ladder inflation from a gain: the redirect-insensitive ack counter (acked_writes_at_survivor_after_two_restarts, counted at the response whatever the invocation target) rising much less than label 10, and acked_writes_with_stranded_records reading near zero on both cells - the latter closes the plan lens at label 11 regardless of what the rungs read. A read returning a shorter list is the checker's finding, not the ladder's. Small real effect in its favor: a survivor-addressed write skips two hops, shortening the window in which the stale records can land.",
+  "scoreReason": "Every cited figure re-derives on the fresh cache (edges 2,049,069 over 1,720,330 recovers = 1.19; 1,578,616 after the last recover = 2.08 per run; 3.01 and 2.95 after the first crash; 535,949 two-restart runs with 91,061 completing = 83.0% ending before completion; 9-to-10 0.158/0.153; 12-to-13 0.375/0.421; grid-post-fault-2 at 0.826/0.829 of grid at depth>=8 with 9-to-10 0.193/0.219 against 0.152/0.157). Targets are uniform in generate_base_actions and the post-fault pass never rewrites them. The oracle reading, the invocation-destination matcher and the redirect are verified in source. The rule is a plan-shape rule any protocol can use (a server the plan never crashes) and the stock cell is byte-identical by the recover_deps pattern. New premise against the closed post-fault-client-work family: that family varied the reservation COUNT and closed on rungs at or below 8, which no reservation can feed (labels 1-9 contain no post-fault request); this varies the reservation's TARGET on rungs 10 and 13, and the gpf2 arm on this cache already shows the reservation moving the 9-to-10 conversion. The census reads the leaf condition the ladder is blind to, which is the premise check the lens asks for. Power: about 210 depth-10 events per half per chunk resolve the 1.4x lower edge on one chunk. Docked from 8 because the violation-relevant gain is bounded near 1.5x by the proposer's own redirect argument.",
+  "verifiedClaims": [
+   "Ladder chain is 13 rungs with no rungs 14-20: verified (longest root-anchored path in relax_minimal_general_v2.json is w1, allow_t1, crash_nl, deliver_svc_1_to_2, crash_2, recover_2, deliver_rec_2_to_1, deliver_svc_2_to_1, deliver_dvc_2_to_1, w2, deliver_pok_2_to_0, deliver_sv_1_to_0, r1|r2|r3; maxPrefixDepth 13 on both cached chunks)",
+   "Seven off-chain events are recover_nl, deliver_rr_1_to_2, deliver_rr_0_to_2, deliver_svc_1_to_0, deliver_svc_2_to_0, r2, r3: verified; the two stale view-change records are leaves ordered after w2 and deliver_pok_2_to_0 and rootAnchoredPrefix never requires a leaf off the deepest chain; r2/r3 are alternatives to r1. Imprecision: recover_nl is also a predecessor of label 7 (deliver_rec_2_to_1), so it is required from depth 7, not first at depth 10",
+   "Oracle matches client operations by the invocation's destination: verified (traceanalyzer/metrics/dagorder/candidates.go collectClientInvocations keeps an Invocation row only when parseInvocationPayload's target == spec.Target and key == spec.Key)",
+   "Protocol redirects a request at a non-leader to the leader within one round trip: verified (bin/spur/VR.spur ClientInterface.Write/Read loop on resp.primary; NewEntry returns is_primary false with the current primary when self is not primary or status != 0)",
+   "Violating ending in generic terms: verified against VR.spur - the survivor commits and answers the write on the restarted peer's current-incarnation replication reply at status 0 with quorum 2 of 3 (PrepareOK handler); the completion broadcast installs the new epoch's log and redirects every pending request (enter_normal_mode 271-300); a later read at any server reaches the new leader and returns the new log; the two stale view-change records must still be undelivered at the survivor through the ack (a delivered one moves it to status 1 and it stops acking)",
+   "2,049,069 reserved edges over 1,720,330 recovers (1.19 per recover): verified (counters.post_fault_ops)",
+   "1,578,616 requests invoked after the last recover, 2.08 per run: verified",
+   "About 3.0 requests per run after the first crash (1,567,477/521,497 = 3.01; 695,726/236,063 = 2.95): verified (client_anchor.census)",
+   "Reserved targets uniform over servers: verified (generator.rs generate_base_actions random_range(0..num_servers); the post-fault pass reserves from the same list)",
+   "535,949 runs with two or more recovered nodes, 83% ending before plan completion: verified (termination.by_recovered_nodes.2: 91,061 plan_complete of 535,949)",
+   "9-to-10 conversion 423/2,674 = 0.158 and 396/2,596 = 0.153; 12-to-13 15/40 = 0.375 and 24/57 = 0.42: verified",
+   "About 7% of plans crash every server: verified analytically (1/3 of plans have three crashes, 6/27 of those on three distinct servers = 0.074)",
+   "grid-post-fault-2 reads depth>=8 per run at 0.83x grid on both seeds: verified (0.826, 0.829)",
+   "A request at a restarted node spins at a recovering leader: verified (NewEntry at the primary with status != 0 returns primary = self, the client loops)",
+   "Bit 1<<26 free in run_variant.rs and retired (originAlternate) in decide.ts: verified",
+   "state.fault_crossing, incarnation_at and a per-run fold beside RunCrossingState exist: verified (state.rs 1187, 980)"
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "plan_shape.survivor.reserved_retargeted",
+   "firingFloor": 400000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.48,
+    "max": 0.52
+   },
+   "depth9Band": {
+    "min": 0.9,
+    "max": 1.1
+   },
+   "depth10Band": {
+    "min": 1.4,
+    "max": 2.6
+   },
+   "depth11Band": {
+    "min": 1.3,
+    "max": 2.6
+   },
+   "depth13Band": {
+    "min": 1.2,
+    "max": 3.5
+   },
+   "mechanism": "Treatment bit POST_FAULT_SURVIVOR_TARGET = 1 << 26 (postFaultSurvivorTarget), a plan cell drawn from the workload seed with its own salt, treated share 0.50 of all runs (probes included, since the cell is part of the plan; the grader's contrast is probe-free and matched on co-bits as it was for recoverDepsExempt). Labels 1-9 involve no post-fault client request, so the primary rung depth>=8 per run is expected in [0.90, 1.06]: null, with the lower edge admitting the traffic effect the grid-post-fault-2 arm shows (two random post-fault requests per restart read depth>=8 per run at 0.83x of grid on both seeds). depth>=9 [0.90, 1.10]. depth>=10 is the rung the cell feeds: the reserved write's target factor goes from 1/3 to 1, so the 9-to-10 conversion is expected to move from 0.16 to 0.25-0.40 and the per-run ratio to [1.4, 2.6]. depth>=11 carries the same lift at the fresh 10-to-11 conversion (0.14-0.17) so [1.3, 2.6]; depth>=13 [1.2, 3.5], since reserved reads also land at the survivor (r1). Power: depth 11 reads 59-66 events per chunk, about 30 per half; a 1.5x separates at z about 2.4 on two chunks pooled and about 1.9 after the 1.3 overdispersion, so the depth-11 band is a lean at two chunks and a claim at four; depth 13 (8-12 per half per chunk) cannot resolve below 2.5x in four chunks and is reported, not claimed. Shared state: none; the cell changes only the plan, parents and replay children share a seed and so a cell, arm selectors and every id-keyed mechanism draw are untouched.",
+   "crossBinaryBand": {
+    "min": 0.95,
+    "max": 1.08
+   },
+   "supplyObservable": "plan_shape.cell.{stock,survivor}.post_restart_invocations_at_survivor per run: stock about 0.4-0.6, survivor about 1.2-1.6 (ratio in [2.2, 3.2]); plan_shape.cell.*.post_restart_writes_at_survivor ratio in [2.2, 3.2]; plan_shape.cell.*.acked_writes_at_survivor_after_two_restarts per run ratio in [1.15, 1.6] (redirect-insensitive, so it rises by the share of requests that were previously addressed to the first-restarted node after its epoch change plus the round trips saved); plan_shape.survivor.plans_without_survivor / plans about 0.07.",
+   "independentObservable": "The label-10 per-run ratio exceeds the acked_writes_at_survivor_after_two_restarts ratio by at least 1.3x: the rung counts the invocation's destination while the protocol state depends only on where the request ends up. Also: plan_shape.cell.*.acked_writes_with_stranded_records per run ratio in [1.3, 2.5] and reads_invoked_after_such_ack ratio in [1.5, 3.0]; plan completion within 2 points between cells; client_anchor first-delivery distances within 5% between cells.",
+   "falsifier": "depth>=10 treated/stock interval entirely below 1.15 while post_restart_invocations_at_survivor reads at least 2x: rung 10 is not target-supply-bound and the loop's ceiling past the write is the delivery order, which closes the premise. Or depth>=8 entirely below 0.90: survivor traffic damages the ghost chain, close. If depth>=10 rises above 1.4 and acked_writes_at_survivor_after_two_restarts rises less than 1.15, the gain is read as a metric artifact of the invocation-target match and is reported as such, not merged as a gain.",
+   "costClause": "Internal steps per run in [0.97, 1.05] between cells (a request at the survivor skips a redirect round trip, a request at a restarted node no longer spins at a recovering leader); cross-binary runs per second at or above 0.97 of the cache median 2,517 (one target rewrite per reserved edge and eight per-run counters folded at run end)."
+  },
+  "judgeAdditions": {
+   "note": "Kept as written with two additions.",
+   "depth13Band": {
+    "min": 1.0,
+    "max": 3.5,
+    "reported": true
+   },
+   "premiseGate": "plan_shape.cell.{stock,survivor}.acked_writes_with_stranded_records is the decisive premise read: reported per chunk on both cells. If the treated cell reads fewer than 10 such acks per chunk while its depth>=11 count exceeds 30, the finding is filed as 'the leaf condition (stale records undelivered at the ack) is not supplied at any target', the plan lens closes at label 11 and no rung ratio on this cell is merged as a gain.",
+   "artifactRule": "depth>=10 treated/stock above 1.4 with acked_writes_at_survivor_after_two_restarts below 1.15 is a metric artifact of the invocation-destination match and is filed, never merged; the merge case requires the ack ratio at or above 1.15 with depth>=8 not below 0.90.",
+   "bit": "POST_FAULT_SURVIVOR_TARGET = 1<<26, row 67108864 renamed postFaultSurvivorTarget; plan cell by workload seed, own salt; probes included in the cell, contrast probe-free."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "pairedHypothesis": {
+  "id": "post-fault-reservation-write-then-dependent-read",
+  "parent": null,
+  "kind": "add",
+  "title": "The request reserved after a restart is a write when one is available and one read is pulled behind it so the read's invocation follows the write's response, split by workload seed",
+  "description": "Plan-generation change in generator.rs, post-fault pass, under a plan cell drawn from the workload seed (new module post_fault_shape.rs: PostFaultShape::{Stock, WriteThenRead}, own salt). On the WriteThenRead cell, for each recover the candidate list is the stock shuffled list filtered to write-like requests (Write or Rmw) not path-connected with the recover; if it is non-empty the first is taken and the edge recover -> write is added as today (one reserved request per recover, post_fault_client_ops unchanged); if it is empty the stock choice is made (counted as a fallback). Then one read not path-connected with that write, preferring reads not already reserved after any recover, gets the mandatory edge write -> read, so the read becomes ready only when the write's response completes the plan event (path.rs marks the plan event complete on the response). The read is one of the plan's existing reads pulled from the run's start to after the write, so the number of client requests is unchanged; the second pass's probabilistic edges and the cycle guard see the graph with these edges present, exactly as the write-chain edges are treated. Stock cell byte-identical (fingerprint tests). Wiring as recover_deps: GeneratorConfig.post_fault_shape, derived in run_single_simulation from workload_seed; run_variant.rs POST_FAULT_WRITE_THEN_READ = 1 << 29 joined as a plan-cell bit; decide.ts row 536870912 renamed from the retired pairOrderGhostOnly to postFaultWriteThenRead. Counters (PlanShapeStats): plan_shape.write_read.pairs_added, .write_fallbacks (no write available), .read_unavailable (write reserved, no read free), at plan time; per cell at run end: plan_shape.cell.{stock,write_then_read}.runs, .post_restart_writes_invoked (writes invoked while at least two servers have incarnation > 0), .post_restart_write_acks, .reads_invoked_after_post_restart_write_ack (reads whose invocation step follows the response step of such a write), .reads_invoked_after_survivor_state_moved_post_ack (such a read invoked after the responding server, at incarnation 0, took a state-changing delivery from a restarted peer's current incarnation following the ack), .acked_writes_with_stranded_records and .reads_invoked_after_such_ack as in the survivor cell. No config field; general_vr.json untouched.",
+  "category": "config",
+  "buildsOn": [
+   "recover_deps plan cell by workload seed",
+   "generator.rs post-fault pass and write-chain pass",
+   "path.rs plan completion on client response",
+   "util_stats per-run fold"
+  ],
+  "rationale": "Two plan facts read from the generator and the cache. First, the stock reservation draws its request uniformly over all client requests, so it is a write about one third of the time (2-4 writes against 4-8 reads); label 10 needs a write after both restarts, and the 9-to-10 conversion is 0.158 and 0.153 on the two seeds. Second, nothing in a stock plan orders a read after a post-fault write: reads not reserved are all ready at step 0 and issued at once (path.rs get_ready_events), a reserved read becomes ready at its recover, i.e. at the same step as a write reserved after the same recover, so the two are concurrent and a read concurrent with the write may legally return the old value; only the density-0.3 half (334,669 of 757,560 runs) supplies write -> read edges by chance, at about 0.15 per (write, read) pair. The ending needs a read invoked after the write's response (and after the completion broadcast lands): the 12-to-13 conversion is 0.375 and 0.42, and 12 to 13 is the rung whose event is a plan event, so it is the cleanest supply-bound rung in the ladder. This cell makes the reserved request a write and pulls one read behind its response on every restart, changing the count of client requests by zero. The blocked fault-frontier-client-reservation entry proposed a state-mutating preference; this differs in keeping per-restart reservation and in adding the dependent read, which is the event class label 13 needs, and it answers the block: the zero ablation of post_fault_client_ops measured rungs at or below 8 on a tree with no events at labels 10-13, and those are the only rungs a reserved request can feed; on this cache they read 423, 59, 40 and 15 per chunk, so that null bounds nothing here. Traffic risk from the cache: the grid-post-fault-2 arm (two random post-fault requests per restart) reads depth>=8 per run at 0.83x of grid on both seeds while its 9-to-10 conversion reads 0.19 and 0.22 against 0.15 and 0.16, so more post-fault client work costs the ghost chain and pays at the write; this cell adds no request and moves one read later, so the depth-8 cost is expected smaller. Generic reading of the oracle past the write: the ladder's chain is 13 rungs long, there are no rungs 14-20; the seven off-chain DAG events are (a) the first-crashed node's restart, a predecessor of the write and so already required at depth 10, (b) the two recovery replies to the second-restarted node from the never-restarted and first-restarted nodes, predecessors of label 11 (the second-restarted node must have finished recovering before its replication ack counts), (c) the two dead-incarnation view-change records addressed to the never-restarted node, ordered AFTER label 11 as leaves the depth metric never checks, and (d) reads at the first- and second-restarted nodes as alternatives to label 13. The violating ending: a write acknowledged by the never-restarted node (still leading the old epoch) on the second-restarted node's current-incarnation ack, while the two stale view-change records addressed to it are still undelivered; the first-restarted node's completion broadcast then lands at the never-restarted node, which adopts the new epoch's log lacking the acked write; a read invoked after that at any server is routed to the first-restarted node (the new leader), replicated to the never-restarted node in the new epoch, and returns the list without the acked uid: a completed write missing from a later read. Unlabelled but required: the completion broadcast to the second-restarted node must not land before it acks the write, and no timer at the survivor or the second-restarted node moves the epoch first.",
+  "generalityArgument": "A plan-shape rule only: after a restart the reserved client work is a state-mutating request followed by a read that starts after it completes. It names no handler, message or role; it is the generic 'write then read across a fault boundary' probe every linearizability checker wants, since a read that starts after a write's response is the only read that can witness a lost write. Protocols without restarts see no change (no recover stubs); the stock half keeps the uniform reservation.",
+  "prediction": {
+   "firingCounter": "plan_shape.write_read.pairs_added",
+   "firingFloor": 250000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.48,
+    "max": 0.52
+   },
+   "depth9Band": {
+    "min": 0.88,
+    "max": 1.1
+   },
+   "depth10Band": {
+    "min": 1.15,
+    "max": 2.4
+   },
+   "depth11Band": {
+    "min": 1.1,
+    "max": 2.4
+   },
+   "depth13Band": {
+    "min": 1.0,
+    "max": 3.0,
+    "reported": true,
+    "note": "a lean only; the pulled read is label 13 only when the broadcast lands inside the ack-to-response window"
+   },
+   "mechanism": "Treatment bit POST_FAULT_WRITE_THEN_READ = 1 << 29 (postFaultWriteThenRead), a plan cell drawn from the workload seed with its own salt, share 0.50. Primary rung depth>=8 per run in [0.88, 1.06]: labels 1-9 have no post-fault request; the lower edge admits a traffic effect from the reserved request being a write (two replication rounds instead of a read's one) net of one fewer read at the run's start. depth>=9 [0.90, 1.10]. depth>=10 [1.3, 2.4]: the reserved request is a write on every restart instead of one third, target still uniform, so the 9-to-10 conversion moves from 0.16 toward 0.25-0.35. depth>=11 [1.2, 2.4] carries the depth-10 lift at the fresh conversion. depth>=13 [2.0, 6.0]: the 12-to-13 conversion moves from 0.38-0.42 toward 0.7-0.9 because a read is now planned after the write's response on every treated run that reached the ack, multiplied by the depth-10 lift. Power: depth 13 reads 15 and 24 per chunk, about 10 per half; on two chunks pooled a 3x separates at z about 4.3 (3.3 after overdispersion) and a 2x at about 2.0, so the band's lower edge is a claim at four chunks and a lean at two; depth 11-12 (59-66 and 40-57 per chunk) resolve 1.5x at four chunks. Shared state: none; the cell changes only the plan, replay children inherit their parent's seed and cell.",
+   "crossBinaryBand": {
+    "min": 0.93,
+    "max": 1.08
+   },
+   "supplyObservable": "plan_shape.cell.{stock,write_then_read}.reads_invoked_after_post_restart_write_ack per run: stock 0.10-0.30 (density-0.3 chance edges and a later reservation), treated at or above 0.70 (ratio in [2.5, 6]); plan_shape.cell.*.post_restart_writes_invoked per run ratio in [1.8, 3.0]; plan_shape.write_read.write_fallbacks / (pairs_added + write_fallbacks) below 0.25 (a third restart in a two-write plan has no free write).",
+   "independentObservable": "The 12-to-13 conversion on the treated cell (depth>=13 events over depth>=12 events, both from the same cell) is at least 0.15 absolute above the stock cell's pooled over the session's chunks; and plan_shape.cell.*.reads_invoked_after_survivor_state_moved_post_ack per run ratio in [2.0, 6.0], the unlabelled window the ending needs (a read invoked after the survivor's state moved following the ack). Plan completion between cells within 3 points; steps per run within 5%.",
+   "falsifier": "reads_invoked_after_post_restart_write_ack at least 2.5x on the treated cell while reads_outstanding_at_survivor_state_move_post_ack is not above 1.5x pooled over two chunks: the pulled read is answered before the survivor's state moves; close the read-at-ack shape (the read train is its successor). Or depth>=10 entirely below 1.1 with post_restart_writes_invoked at least 1.8x: rung 10 is not write-supply-bound. Or depth>=8 entirely below 0.85 with depth>=1 inside the guard: the write reservation's traffic costs the ghost chain, close.",
+   "costClause": "Internal steps per run in [0.97, 1.06] between cells; cross-binary runs per second at or above 0.96 x 2,517.",
+   "designConstraint": "At a recover, the write preference is skipped (stock choice, counted plan_shape.write_read.write_fallbacks.last_free_write) when taking the write would leave the plan with no write-like request unreserved by any recover, so every plan keeps at least one write outside the post-fault reservations; the write -> read edge is added only when a write was reserved. Guard check: depth>=1 per run between cells in [0.97, 1.03], outside it is an implementation fault.",
+   "depth8Band": {
+    "min": 0.85,
+    "max": 1.06
+   },
+   "honestRead": "the per-cell 9-to-10 conversion (depth>=10 events over depth>=9 events on the same cell): treated at least 0.08 absolute above stock pooled over two chunks",
+   "newCounter": "plan_shape.cell.{stock,write_then_read}.reads_outstanding_at_survivor_state_move_post_ack: a read invoked after a post-restart write's ack and still unanswered when the acking server, at incarnation 0, took a state-changing delivery from a restarted peer's current incarnation. This is the window the ending needs; supplyObservable: its per-run ratio treated/stock in [2.0, 6.0].",
+   "bit": "POST_FAULT_WRITE_THEN_READ = 1<<29, row 536870912 renamed postFaultWriteThenRead; plan cell by workload seed, own salt independent of the survivor cell's."
+  },
+  "createdAtIso": "2026-09-11T10:35:00Z",
+  "notes": "",
+  "expectedGain": 6,
+  "expectedCost": 0,
+  "redTeam": "Three cases against. (i) The depth-13 mechanism rests on a wrong ordering claim: label 13 is a read INVOKED after label 12 (the completion broadcast landing at the survivor); the pulled read is invoked at the write's response, and the broadcast lands at the survivor at a later network step, so the pulled read counts as label 13 only when the broadcast lands between the replication reply and the response's delivery. The read can still witness the violation - a read logged at the survivor in the old epoch is redirected when the broadcast installs the new epoch (enter_normal_mode redirects pending requests) - but only if the broadcast lands within that read's two replication hops, the same delivery-order race the leaf needs; the ladder does not count it. (ii) As written the cell cannibalizes the ladder's root: with 2-4 writes and 1-3 recovers, reserving a write at every recover leaves no unreserved write on plans with writes <= recovers ((2,2),(2,3),(3,3)) - one third of all plans and one half of the plans with two or more recovers - and on those a write at the survivor before the timer and the first crash is impossible, so the run reads depth 0 whatever follows. The depth>=8 band [0.88, 1.06] and the 'close' falsifier would fire by construction for a reason the violation does not share (the violating path needs no pre-fault write). (iii) Rung 10's write factor is real, but a write reserved after the FIRST-executed recover is invoked before the second restart and is not label 10; only the later recover's reservation can be. What separates inflation from gain: the outstanding-read counter added below (a read unanswered at the survivor when its state moved after the ack) and the per-cell 9-to-10 conversion, not the raw rung.",
+  "scoreReason": "Verified in source: uniform reservation over all client requests (write about 1/3), all unreserved reads Ready at step 0 and issued in one step (plan.rs 64-71, path.rs 739), a reserved read ready at its recover and so concurrent with a write reserved there, the density-0.3 half at 334,669 of 757,560, plan completion on the client response (path.rs 1067-1082), bit 1<<29 free. The plan rule is generic (a state-mutating request then a read that starts after it completes, across a fault boundary). New premise against the closed family as for the survivor cell: the family varied count on rungs a reservation cannot feed; this varies TYPE and adds the only read class that can witness a lost write. The write-supply argument at rung 10 is sound and power at depth 10 is adequate. Docked to 6 for the false label-13 ordering claim and the unaddressed root cannibalization; admitted with a design constraint that keeps one write outside the reservations, so the ladder stays readable while the census reads the violation window. Pairs with the survivor cell in one session (independent salts, crossed cells, the 2x2 gives the multiplicative read at rung 10).",
+  "verifiedClaims": [
+   "Ladder chain is 13 rungs with no rungs 14-20: verified (longest root-anchored path in relax_minimal_general_v2.json is w1, allow_t1, crash_nl, deliver_svc_1_to_2, crash_2, recover_2, deliver_rec_2_to_1, deliver_svc_2_to_1, deliver_dvc_2_to_1, w2, deliver_pok_2_to_0, deliver_sv_1_to_0, r1|r2|r3; maxPrefixDepth 13 on both cached chunks)",
+   "Seven off-chain events are recover_nl, deliver_rr_1_to_2, deliver_rr_0_to_2, deliver_svc_1_to_0, deliver_svc_2_to_0, r2, r3: verified; the two stale view-change records are leaves ordered after w2 and deliver_pok_2_to_0 and rootAnchoredPrefix never requires a leaf off the deepest chain; r2/r3 are alternatives to r1. Imprecision: recover_nl is also a predecessor of label 7 (deliver_rec_2_to_1), so it is required from depth 7, not first at depth 10",
+   "Oracle matches client operations by the invocation's destination: verified (traceanalyzer/metrics/dagorder/candidates.go collectClientInvocations keeps an Invocation row only when parseInvocationPayload's target == spec.Target and key == spec.Key)",
+   "Protocol redirects a request at a non-leader to the leader within one round trip: verified (bin/spur/VR.spur ClientInterface.Write/Read loop on resp.primary; NewEntry returns is_primary false with the current primary when self is not primary or status != 0)",
+   "Violating ending in generic terms: verified against VR.spur - the survivor commits and answers the write on the restarted peer's current-incarnation replication reply at status 0 with quorum 2 of 3 (PrepareOK handler); the completion broadcast installs the new epoch's log and redirects every pending request (enter_normal_mode 271-300); a later read at any server reaches the new leader and returns the new log; the two stale view-change records must still be undelivered at the survivor through the ack (a delivered one moves it to status 1 and it stops acking)",
+   "Stock reservation draws uniformly over all client requests, a write about one third of the time: verified (generator.rs 217-250; 2-4 writes, 4-8 reads)",
+   "Reads not reserved are all ready at step 0 and issued at once: verified (plan.rs marks zero-indegree events Ready; path.rs 739 invokes every ready event in the step)",
+   "A reserved read becomes ready at its recover, concurrent with a write reserved after the same recover: verified",
+   "Density-0.3 half is 334,669 of 757,560 runs: verified (plan_deps density_positive 166,660 + 168,009)",
+   "path.rs marks the plan event complete on the response: verified (1067-1082)",
+   "12-to-13 conversion moves toward 0.7-0.9 because a read is planned after the write's response: FALSE - label 13 is the read's invocation after the broadcast lands at the survivor; the pulled read is invoked at the ack, before that landing on most runs",
+   "Unstated: reserving a write at every recover leaves no pre-fault write on plans with writes <= recovers (one half of two-restart plans), zeroing the ladder's root there: found by the judge, not addressed by the candidate",
+   "9-to-10 0.158/0.153, 12-to-13 0.375/0.42, gpf2 0.83x and its conversions 0.19/0.22: verified",
+   "Bit 1<<29 free in run_variant.rs and retired (pairOrderGhostOnly): verified"
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "plan_shape.write_read.pairs_added",
+   "firingFloor": 350000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.48,
+    "max": 0.52
+   },
+   "depth9Band": {
+    "min": 0.9,
+    "max": 1.1
+   },
+   "depth10Band": {
+    "min": 1.3,
+    "max": 2.4
+   },
+   "depth11Band": {
+    "min": 1.2,
+    "max": 2.4
+   },
+   "depth13Band": {
+    "min": 2.0,
+    "max": 6.0
+   },
+   "mechanism": "Treatment bit POST_FAULT_WRITE_THEN_READ = 1 << 29 (postFaultWriteThenRead), a plan cell drawn from the workload seed with its own salt, share 0.50. Primary rung depth>=8 per run in [0.88, 1.06]: labels 1-9 have no post-fault request; the lower edge admits a traffic effect from the reserved request being a write (two replication rounds instead of a read's one) net of one fewer read at the run's start. depth>=9 [0.90, 1.10]. depth>=10 [1.3, 2.4]: the reserved request is a write on every restart instead of one third, target still uniform, so the 9-to-10 conversion moves from 0.16 toward 0.25-0.35. depth>=11 [1.2, 2.4] carries the depth-10 lift at the fresh conversion. depth>=13 [2.0, 6.0]: the 12-to-13 conversion moves from 0.38-0.42 toward 0.7-0.9 because a read is now planned after the write's response on every treated run that reached the ack, multiplied by the depth-10 lift. Power: depth 13 reads 15 and 24 per chunk, about 10 per half; on two chunks pooled a 3x separates at z about 4.3 (3.3 after overdispersion) and a 2x at about 2.0, so the band's lower edge is a claim at four chunks and a lean at two; depth 11-12 (59-66 and 40-57 per chunk) resolve 1.5x at four chunks. Shared state: none; the cell changes only the plan, replay children inherit their parent's seed and cell.",
+   "crossBinaryBand": {
+    "min": 0.93,
+    "max": 1.08
+   },
+   "supplyObservable": "plan_shape.cell.{stock,write_then_read}.reads_invoked_after_post_restart_write_ack per run: stock 0.10-0.30 (density-0.3 chance edges and a later reservation), treated at or above 0.70 (ratio in [2.5, 6]); plan_shape.cell.*.post_restart_writes_invoked per run ratio in [1.8, 3.0]; plan_shape.write_read.write_fallbacks / (pairs_added + write_fallbacks) below 0.25 (a third restart in a two-write plan has no free write).",
+   "independentObservable": "The 12-to-13 conversion on the treated cell (depth>=13 events over depth>=12 events, both from the same cell) is at least 0.15 absolute above the stock cell's pooled over the session's chunks; and plan_shape.cell.*.reads_invoked_after_survivor_state_moved_post_ack per run ratio in [2.0, 6.0], the unlabelled window the ending needs (a read invoked after the survivor's state moved following the ack). Plan completion between cells within 3 points; steps per run within 5%.",
+   "falsifier": "reads_invoked_after_post_restart_write_ack at least 2.5x on the treated cell while the treated 12-to-13 conversion is not above the stock cell's by 0.15 absolute pooled over two chunks: the read after the ack is not what depth 13 lacks, the missing piece is the broadcast's arrival before the read, which is delivery order and closes the plan premise at label 13. Or depth>=8 entirely below 0.88: the write reservation's traffic costs the ghost chain more than the ending gains, close. Or depth>=10 entirely below 1.1 with post_restart_writes_invoked at least 1.8x: rung 10 is not write-supply-bound.",
+   "costClause": "Internal steps per run in [0.97, 1.06] between cells (one read moved later, one write's two rounds after the restart); cross-binary runs per second at or above 0.96 of the cache median 2,517 (two has_path_connecting calls per recover at plan time, run-end counters only)."
+  },
+  "judgeAdditions": {
+   "designConstraint": "At a recover, the write preference is skipped (stock choice, counted plan_shape.write_read.write_fallbacks.last_free_write) when taking the write would leave the plan with no write-like request unreserved by any recover, so every plan keeps at least one write outside the post-fault reservations; the write -> read edge is added only when a write was reserved. Guard check: depth>=1 per run between cells in [0.97, 1.03], outside it is an implementation fault.",
+   "firingCounter": "plan_shape.write_read.pairs_added",
+   "firingFloor": 250000,
+   "depth8Band": {
+    "min": 0.85,
+    "max": 1.06
+   },
+   "depth9Band": {
+    "min": 0.88,
+    "max": 1.1
+   },
+   "depth10Band": {
+    "min": 1.15,
+    "max": 2.4
+   },
+   "depth11Band": {
+    "min": 1.1,
+    "max": 2.4
+   },
+   "depth13Band": {
+    "min": 1.0,
+    "max": 3.0,
+    "reported": true,
+    "note": "a lean only; the pulled read is label 13 only when the broadcast lands inside the ack-to-response window"
+   },
+   "honestRead": "the per-cell 9-to-10 conversion (depth>=10 events over depth>=9 events on the same cell): treated at least 0.08 absolute above stock pooled over two chunks",
+   "newCounter": "plan_shape.cell.{stock,write_then_read}.reads_outstanding_at_survivor_state_move_post_ack: a read invoked after a post-restart write's ack and still unanswered when the acking server, at incarnation 0, took a state-changing delivery from a restarted peer's current incarnation. This is the window the ending needs; supplyObservable: its per-run ratio treated/stock in [2.0, 6.0].",
+   "falsifier": "reads_invoked_after_post_restart_write_ack at least 2.5x on the treated cell while reads_outstanding_at_survivor_state_move_post_ack is not above 1.5x pooled over two chunks: the pulled read is answered before the survivor's state moves; close the read-at-ack shape (the read train is its successor). Or depth>=10 entirely below 1.1 with post_restart_writes_invoked at least 1.8x: rung 10 is not write-supply-bound. Or depth>=8 entirely below 0.85 with depth>=1 inside the guard: the write reservation's traffic costs the ghost chain, close.",
+   "costClause": "Internal steps per run in [0.97, 1.06] between cells; cross-binary runs per second at or above 0.96 x 2,517.",
+   "bit": "POST_FAULT_WRITE_THEN_READ = 1<<29, row 536870912 renamed postFaultWriteThenRead; plan cell by workload seed, own salt independent of the survivor cell's."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "rankedQueue": [
+  {
+   "id": "post-fault-reservation-targets-plan-survivor",
+   "net": 7,
+   "rank": 1
+  },
+  {
+   "id": "post-fault-reservation-write-then-dependent-read",
+   "net": 6,
+   "rank": 2
+  },
+  {
+   "id": "stall-release-repeated-until-nothing-fresh",
+   "net": 5,
+   "rank": 3
+  },
+  {
+   "id": "post-fault-read-train-behind-reserved-write",
+   "net": 4,
+   "rank": 4
+  },
+  {
+   "id": "restart-backlog-deferred-to-learned-first-acting-distance",
+   "net": 4,
+   "rank": 5
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "net": 3,
+   "rank": 6
+  },
+  {
+   "id": "pre-fault-write-targets-plan-survivor-ladder-root-probe",
+   "net": 3,
+   "rank": 7
+  },
+  {
+   "id": "condition-released-crash-exempt-from-fanout-defer-coin",
+   "net": 3,
+   "rank": 8
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "net": 3,
+   "rank": 9
+  },
+  {
+   "id": "stalled-runs-admitted-as-replay-prefix-parents",
+   "net": 2,
+   "rank": 10
+  },
+  {
+   "id": "post-release-quiet-gap-learned-cap",
+   "net": 2,
+   "rank": 11
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "net": 2,
+   "rank": 12
+  }
+ ],
+ "rejected": [
+  {
+   "id": "write-ring-children-by-state-fork",
+   "reason": "Parentless: the write-region replay ring it nests in closed at iteration 83 (two chunks, honest rung 10 against 9, ring flooded 500:1 by shallow signal parents) and its bits 1<<26/1<<29 were released; the pool records a tighter admission signal as the follow-up, not a nested resumption. Its cost premise is also refuted by the ring's own read: the mean cut step was 315 of about 1,740 (prefix share 0.18), not the 0.25-0.5 the fork's wall argument needs, so the fork child's wall would repeat the 0.90-0.93 of the two filed trials. Cost 2 (a cloned prefix assembled into the child's history changes the per-run accounting unit)."
+  },
+  {
+   "id": "write-ring-second-generation-admission",
+   "reason": "Parentless: nests in the closed write-region replay ring. Its supply is the ring's depth>=11 yield, which read 10 events over two chunks, against a firing floor of 100 gen-2 children per chunk; its share 0.024 is below TREATED_SHARE_MIN 0.05 so the grader blanks the contrast; and its depth>=12 band is a replay artifact for the cell as depth>=11 was for the ring. Not gradable by the grader or by hand at these counts."
+  }
+ ],
+ "reviewSummary": "Fourteen candidates scored blind against the fresh merged-tree cache (63a21f95fdfb, seeds 1000/1001), the oracle DAG, the matcher and the source. Oracle reading verified: the root-anchored chain is 13 rungs (w1 ... deliver_pok_2_to_0, deliver_sv_1_to_0, r1|r2|r3), no rungs 14-20; the seven off-chain events are recover_nl (also a predecessor of label 7, so required from depth 7 - the proposals say depth 10), the two recovery replies (predecessors of label 11), the two stale view-change records to the survivor (leaves after label 11, never checked by rootAnchoredPrefix) and r2/r3 (alternatives to r1). The matcher keys client labels on the invocation's destination (candidates.go collectClientInvocations) while VR.spur redirects to the leader in one round trip, so label 10 is stricter than the violation (an invocation at the second-restarted node reaches the same replication). The ending verified in generic terms, with one addition: enter_normal_mode redirects every pending request, so a read logged at the survivor in the old epoch and overtaken by the completion broadcast is also a witness, which is wider than label 13. Ranking: survivor target 7, write-then-read 6 (with a design constraint), repeated release 5, read train 4, backlog 4, run-local counters 3 net (5-2), pre-fault root probe 3, defer coin 3, PCT 3, stalled parents 2, post-release cap 2, cover-edge 2. Rejected: state fork and gen-2 admission as parentless (the ring closed at iteration 83; the fork's cut-depth premise is refuted by the ring's mean cut step 315). Post-fault family: the survivor cell stands first (every supply figure verified; its census reads the leaf condition the ladder is blind to), write-then-read pairs with it in one two-bit session (independent workload-seed salts, 2x2 crossed cells, replay and AOS children inherit the plan), the read train waits as the third bit. None re-admits the closed count family without a new premise: that family closed on rungs at or below 8, which no reservation can feed, and this cache's gpf2 arm shows the reservation moving the 9-to-10 conversion; the new cells vary target and type on rungs 10 and 13 and add a census of the ack-with-stranded-records condition. False checkable claims: write-then-read's 12-to-13 mechanism (the pulled read is invoked at the ack, before the broadcast lands at the survivor, so it is not label 13 on most runs) and its unstated root cannibalization (a write at every recover leaves no pre-fault write on half the two-restart plans); the pre-fault probe's depth>=1 rise to 0.80-0.92 (false by symmetry; the lift is conditional on sole-survivor plans and appears from depth>=5); stalled parents' 352,842 (267,533, fourth round); PCT's handful of timer wakes (153 per run); run-local counters' absolute values (previous cache; identity holds). Meta probe: it is a plan-shape experiment and could ride as a second bit, but its label (1) is one the violation does not need and its root factor is arithmetic (about 1.46); it does not displace write-then-read. Recommended session: postFaultSurvivorTarget = 1<<26 (row 67108864, originAlternate renamed) and postFaultWriteThenRead = 1<<29 (row 536870912, pairOrderGhostOnly renamed) with the last-free-write guard; primary depth>=8 null on both, advance reads on depth>=10/11 and the per-cell 9-to-10 conversion; the decisive premise read is acked_writes_with_stranded_records per cell (near zero on both closes the plan lens at label 11). Bit conflicts resolved: repeated release takes 1<<25 or the next free row when it leads; backlog and PCT wait; 1<<22 is available to the pre-fault probe only in a session that does not build the deep-supply walk.",
+ "otherCandidates": [
+  {
+   "id": "post-fault-read-train-behind-reserved-write",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "Figures verified (stall cap ends 247,423 of 535,949 two-restart runs; 4-8 reads per plan, unreserved reads issued at step 0 - overstated on the density-0.3 half where chance edges delay some; the broadcast shares the survivor's queue with the two stale records per the DAG). Generic rule (remaining reads run in sequence after a post-fault write). It is the mechanically better shape for the ending than the single pulled read, but it waits on the parent's read and its own power is thin; 4.",
+   "redTeam": "Nested in an unbuilt parent and a third bit, so it cannot enter this session. The train's first read is the parent's (invoked at the ack, before the broadcast lands); later reads follow only after each response, so the train samples the post-ack window once per replication round, and whether the broadcast lands during the train is the same delivery-order race the leaf needs. Depth 13 on a quarter share is about 5 events per chunk on the control and cannot resolve in four chunks; the early-read loss reshapes pre-fault traffic. In its favor, the shape is the right one for a witness: each old-epoch read commits in two hops, the broadcast gets repeated chances to land, and the in-flight read is redirected when it does - so a later read in the train can be label 13 and a violation at once. What separates inflation from gain: the outstanding-read counter from the parent's rewrite, per read of the train.",
+   "predictionRewrite": {
+    "note": "Waits; admissible only after write-then-read is built. At admission: depth13Band becomes a lean [1.0, 3.0]; add reads_outstanding_at_survivor_state_move_post_ack per train read as the supply observable with ratio [2.0, 8.0] against the one-read cell; the guard from the parent's design constraint applies."
+   },
+   "verifiedClaims": [
+    "Ladder chain is 13 rungs with no rungs 14-20: verified (longest root-anchored path in relax_minimal_general_v2.json is w1, allow_t1, crash_nl, deliver_svc_1_to_2, crash_2, recover_2, deliver_rec_2_to_1, deliver_svc_2_to_1, deliver_dvc_2_to_1, w2, deliver_pok_2_to_0, deliver_sv_1_to_0, r1|r2|r3; maxPrefixDepth 13 on both cached chunks)",
+    "Seven off-chain events are recover_nl, deliver_rr_1_to_2, deliver_rr_0_to_2, deliver_svc_1_to_0, deliver_svc_2_to_0, r2, r3: verified; the two stale view-change records are leaves ordered after w2 and deliver_pok_2_to_0 and rootAnchoredPrefix never requires a leaf off the deepest chain; r2/r3 are alternatives to r1. Imprecision: recover_nl is also a predecessor of label 7 (deliver_rec_2_to_1), so it is required from depth 7, not first at depth 10",
+    "Oracle matches client operations by the invocation's destination: verified (traceanalyzer/metrics/dagorder/candidates.go collectClientInvocations keeps an Invocation row only when parseInvocationPayload's target == spec.Target and key == spec.Key)",
+    "Protocol redirects a request at a non-leader to the leader within one round trip: verified (bin/spur/VR.spur ClientInterface.Write/Read loop on resp.primary; NewEntry returns is_primary false with the current primary when self is not primary or status != 0)",
+    "Violating ending in generic terms: verified against VR.spur - the survivor commits and answers the write on the restarted peer's current-incarnation replication reply at status 0 with quorum 2 of 3 (PrepareOK handler); the completion broadcast installs the new epoch's log and redirects every pending request (enter_normal_mode 271-300); a later read at any server reaches the new leader and returns the new log; the two stale view-change records must still be undelivered at the survivor through the ack (a delivered one moves it to status 1 and it stops acking)",
+    "Stall cap ends 247,423 of the 535,949 two-restart runs: verified",
+    "Reads 4-8 per plan, all but the reserved ones issued at step 0: PARTIAL - true on the density-0 half; the density-0.3 half delays some behind chance edges",
+    "The completion broadcast is queued to the survivor together with the two stale view-change records: verified (all three are ordered after deliver_pok_2_to_0 in the DAG)",
+    "Bit 1<<23 free in run_variant.rs and retired (crashPhaseOnLanding): verified"
+   ]
+  },
+  {
+   "id": "stalled-runs-admitted-as-replay-prefix-parents",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "A new parent source with its own ring, so not a retired ranking rule, and the tape machinery is real. But its headline figure is false for the fourth consecutive round (352,842 stall-capped runs, about half: the fresh cache reads 267,533 of 757,560, 35%) and the wedge premise is contradicted by what the cap measures; 2.",
+   "redTeam": "A stall-capped run's last progress mark is the wedged state; the cap fires after hundreds of quiet steps in which no draw moved it, so a child replaying to the mark and redrawing faces the same wedge (a restarted node whose recovery no live peer answers is structural, not an ordering). The merged stall release already salvages these runs. The candidate's own falsifier (children ending in StallCapReached above 0.90) is the expected outcome.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "352,842 stall-capped runs per chunk, about half of all runs: FALSE - termination.all.stall_cap_reached 267,533 of 757,560 (35%); uncorrected since iteration 80",
+    "replay.parents_admitted 92,826 and children_prefix 145,187/129,440: PARTIAL - previous cache (91,926; 137,527/138,664 at iteration 83)",
+    "Ghost corpus merged at depth>=6 2.19x: verified from the pool",
+    "Bit 1<<27 free (clientDeferralOnly retired): verified"
+   ]
+  },
+  {
+   "id": "pre-fault-write-targets-plan-survivor-ladder-root-probe",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Premise-check lens applies and the rule is generic; the cache figures it cites are right (depth>=1 0.565/0.571; analytic no-write share 0.31). But the precision of its supply claim is wrong on the one number it turns on, so it is a plausible story with a broken prediction; rewritten and scored 3. Bit 1<<22: the kept deep-supply-walk holds the row by name but is unbuilt; by the defer-coin precedent a retired row can be taken by a session that does not build its holder, so 1<<22 is available to this probe in such a session; not this session.",
+   "redTeam": "Its central supply claim is false by symmetry: the generator is exchangeable over servers, so a first write retargeted uniformly among the plan's never-crashing servers lands at any given server with probability exactly 1/3, and the unconditional share of runs with a write at the oracle's survivor is unchanged - depth>=1 per run reads about 1.00, not 0.80-0.92 against 0.565. The lift exists only on the plans whose sole survivor is that server (both other servers crash), which is where the chain lives from depth 5 on, so the whole read lands on rungs 5-13 at about 1/(1-(2/3)^n) = 1.46 under the artifact reading, and the candidate's own falsifier ('depth>=1 at or above 1.4 while depth>=8 below 1.15') can never fire. Second, its census counts a write at ANY never-crashing server, which is the ladder's root only when the survivor is unique. Third, what it would learn is mostly arithmetic (a 1.46 root factor from the target draw) plus one empirical question (whether the redirect round trip delays the pre-fault write past the timer); the label it feeds (1) is one the violation does not need at all. Classification: a plan-shape experiment on a new premise, generic, able to ride as a second bit because it changes the plan - but it does not earn the second slot over the write-then-read cell, which feeds a label the violation needs.",
+   "predictionRewrite": {
+    "depth1Band": {
+     "min": 0.97,
+     "max": 1.03
+    },
+    "depth5Band": {
+     "min": 1.3,
+     "max": 1.65,
+     "note": "artifact reading; [1.0, 1.25] under the state reading"
+    },
+    "depth8Band": {
+     "min": 1.3,
+     "max": 1.65,
+     "note": "artifact reading; [1.0, 1.25] under the state reading"
+    },
+    "depth9Band": {
+     "min": 1.3,
+     "max": 1.65
+    },
+    "depth10Band": {
+     "min": 1.2,
+     "max": 1.8
+    },
+    "depth11Band": {
+     "min": 1.0,
+     "max": 2.2
+    },
+    "supplyObservable": "plan_shape.cell.*.writes_invoked_at_survivor_before_first_crash stratified by survivor-set size {1, 2}: on the size-1 stratum stock about 0.69 per run, treated about 1.0; on size 2 both cells within 5%.",
+    "independentObservable": "depth>=8 ratio equals the depth>=5 ratio within 10% and depth>=1 is inside [0.97, 1.03]; steps per run and plan completion within 2%.",
+    "falsifier": "depth>=5 ratio at or above 1.3 while depth>=8 is below 1.15: the root's target conditions the chain (state reading). A depth>=8 ratio inside [1.30, 1.65] with writes_acked_before_first_crash inside [0.95, 1.08] is the artifact confirmed and is filed as a ladder finding, never merged.",
+    "bit": "PRE_FAULT_SURVIVOR_WRITE = 1<<22 in a session that does not build the deep-supply walk; otherwise the next free retired row."
+   },
+   "verifiedClaims": [
+    "depth>=1 is 428,320 of 757,560 (0.565) and 430,125 of 753,240 (0.571): verified",
+    "Analytic share of plans with no write at the survivor about 0.31 (mean of (2/3)^n over n = 2..4): verified",
+    "The treated cell raises the root's supply from 0.57 to about 0.85: FALSE - by symmetry the unconditional share is unchanged; the lift is conditional on the sole-survivor plans and appears from depth>=5",
+    "Oracle matches by invocation destination; the ending needs no pre-fault write: verified",
+    "Bit 1<<22 retired (staleFirstPair) and unset in run_variant.rs: verified; contested by name with the kept lite-config-cell-deep-supply-walk"
+   ]
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "expectedGain": 5,
+   "expectedCost": 2,
+   "scoreReason": "The identity it must preserve holds on the fresh cache (five per-step counters at 1,318,696,023, plus 54 no-schedule steps = steps_used_sum 1,318,696,077; ranking_pass_skipped = contested_decisions 559,259,809). Its cited absolute values are still the previous cache's, uncorrected. Gain 5, cost 2 by the rubric (event accounting); runs alone.",
+   "redTeam": "The hotspot is unprofiled; its band [1.05, 1.15] sits at the layout floor and the seed-to-seed swing (2,523 against 2,510) is already 0.5%; folding can lose counts on runs that error before the fold, which is the harness's evidence. It cannot share a session with any candidate read per second.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "Five per-step counters equal each other and steps_used_sum minus no_schedule_attempt: verified (1,318,696,023 + 54 = 1,318,696,077)",
+    "ranking_pass_skipped == multiplier_authority.contested_decisions: verified (559,259,809)",
+    "Cited absolute values 1,468,752,468 / 1,468,752,503 / 35: FALSE for this cache (previous cache); the identity holds",
+    "3-12% of thread time in contention: uncheckable (unprofiled)"
+   ]
+  },
+  {
+   "id": "restart-backlog-deferred-to-learned-first-acting-distance",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "Census exact on this cache (receiver_restarted 4,828,168 delivered, 5,570 acted; buckets 0-3 read 0/0/0/1 acted of 2,060,131; ghost-lag p75 71), plumbing verified at iteration 83, learned and inert elsewhere. The measurable claim is thin by its own admission; 4. Both rows it names (1<<26, 1<<29) go to the plan cells this session; it waits for the next free retired row.",
+   "redTeam": "A length effect of at most 0.5% of deliveries with a within-session primary predicted flat and a cost clause inside the floor: nothing it predicts is separable on any rung. The ordering side effect is speculative and, where the path's ghosts are backlog records, it is a hold in the region where three holds have suppressed depth 11-13.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "receiver_restarted deliveries 4,828,168 / acted 5,570 with the bucket census: verified at iteration 83 on this cache",
+    "Ghost-lag p50 31, p75 71, p90 151: verified (crash_place.ghost_release)",
+    "Ladder 2,674 -> 423 -> 59 -> 40 -> 15: verified"
+   ]
+  },
+  {
+   "id": "condition-released-crash-exempt-from-fanout-defer-coin",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Mechanism verified at iteration 83 (crash_block_mask, coin on Stream::FaultPriority, LandingRead.on_condition; fresh figures 336,265 / 344,089 of 383,626 / 62,116 / 51,779 / 47,361 / 203,199 with bucket_2 73,747 omitted by the candidate). The depth argument is priced near zero by its sibling; 3. Bit 1<<16 is free and uncontested this session, but it is not a plan-shape experiment and the session has its two bits.",
+   "redTeam": "The same exemption at the ghost-release site read bucket_3plus 1.07x (not the 1.12x needed), depth8 1.022 unresolved, depth9 0.93, depth10 0.90 at iteration 81; the removable bucket-1 mass is 16% of applies and the depth-8 band on a 0.22 share needs all of it to convert.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "crash_phase early figures: PARTIAL - previous cache; fresh reads 336,265 / 344,089 of 383,626 / 62,116 / 51,779 / 47,361 / 203,199",
+    "Sibling read at iteration 81 (1.07x, depth8 unresolved): verified from the log",
+    "Bit 1<<16 free (recoverWindowFreshEarly retired): verified"
+   ]
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "Plumbing verified at iteration 83; the exception is granted as asked; the argument is novelty, self-declared 2.",
+   "redTeam": "No mechanism-to-observable argument beyond neighbourhood coverage, by its own statement; a whole-population per-run band [1.07, 1.20] would need the plan-only fifth to gain about 37% from one reversed edge; it requests a full-system exception whose band sits inside the recorded session swing; density-0 plans (half) fall back.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "Final probabilistic pass with cycle check and no provenance; mandatory edge classes: verified",
+    "Plan-only children rerun the parent's plan from its workload seed: verified",
+    "Density 0 yields no optional edges: verified"
+   ]
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Parity-preserving change points remain unattempted, anchors are generic, the saturation gate makes chunk 1 honest, dedup-safe shift verified. The timer-wake claim is false for the third round and no observable ties to the ladder's transitions; 3. Its 1<<26 row goes to the survivor cell this session.",
+   "redTeam": "Marks saturate as written: timer wakes are 153 per run on this cache (116,144,643 fired over 757,560 runs), not a handful, and a mark lifts only on the origin's incarnation change; a -0.5 shift clamped at 0 under the near-greedy tournament is a hold on the demoted stream for as long as anything else is eligible, unbounded in the post-write region where holds suppressed depth 11-13. Mark lifetime and the anchor set are left to the implementer.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "Timer wakes are a handful per run: FALSE - timer_effects.all.fired 116,144,643 over 757,560 runs = 153 per run",
+    "Priority outside Record's Hash; tournament k=10 near-greedy on a once-drawn priority: verified at iteration 83",
+    "Bits 1<<11 free (newsBeforeReply retired): verified; 1<<26 contested"
+   ]
+  },
+  {
+   "id": "stall-release-repeated-until-nothing-fresh",
+   "expectedGain": 5,
+   "expectedCost": 0,
+   "scoreReason": "A concrete nesting of a merged mechanism with its gain on record (internal depth10 2.20, cross-binary depth10/sec 1.47 at merge); the once-only guard, settle_in_progress and the counters verified at iteration 83; the second-stall arithmetic holds in shape on the fresh cache. Leads the alternative session the direction review names if the premise check finds no supply limit; 5. Its 1<<29 row goes to the write-then-read cell this session; it takes 1<<25 (ghostPendingTimerHold, retired) or the next free retired row when it leads.",
+   "redTeam": "The parent's advance-rung gain came from the FIRST release issuing the fault pairs behind the stuck operation; the later layers may hold few faults (the 3,000 floor is a guess), in which case the repeat only lengthens runs (up to 1.25x steps admitted). The cross-binary depth10 primary against a cache at 423 per chunk has its 1.06 lower edge near one chunk-to-chunk standard error. Cited figures are the previous cache's (fresh: releases 180,980, second_stall_stops 86,224, plan_completed_after_release 59,247, fault dependents 17,600).",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "Merged release fires once (release_step.is_none() guard): verified at iteration 83",
+    "Cited per-chunk figures 173,591/151,076 client, 16,643/14,759 faults, 62,732 of 186,532 completions, 88,007 second stalls: PARTIAL - previous cache; fresh reads 171,363 client, 17,600 faults, 59,247 of 180,980, 86,224 second stalls",
+    "Parent's gain on the advance rung: verified from the pool"
+   ]
+  },
+  {
+   "id": "post-release-quiet-gap-learned-cap",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "Plumbing verified; the gain sits inside the floor by its own admission and its nearest sibling closed on cost; 2. Cited caps 827/791 are the previous cache's (fresh cap_max_scope 755 and 863; steps_after_release_sum 83,026,184).",
+   "redTeam": "Recoverable wall at most about 2.5% of grid wall by its own arithmetic, inside the layout floor; the plan clock cut the same tail with the same estimator and closed at iteration 78 on throughput 0.921; ending released runs earlier risks the segment the parent's depth10 gain lives in.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "stall_cap learner constants and ScopeAccum keyed by budget: verified at iteration 83",
+    "steps_after_release_sum 87.06M/84.42M and stall cap 827/791: PARTIAL - previous cache (83,026,184; 755/863)",
+    "Plan clock closed on throughput 0.921 with few stops: verified from the pool"
+   ]
+  }
+ ],
+ "admissionDecisions": {
+  "prediction": "Both predictions are frozen as the judge left them (the survivor cell's original prediction plus the judge's premise gate and artifact rule; the write-then-read cell's rewrite). Survivor (1<<26 by workload seed): firing reserved_retargeted >= 400,000; depth8 [0.90,1.06]; depth10 [1.4,2.6]; depth11 [1.3,2.6]; depth13 [1.2,3.5] reported; premise gate: acked_writes_with_stranded_records per cell, fewer than 10 per chunk on the treated cell with depth11 above 30 files the finding that the leaf condition is not supplied and closes the plan lens at label 11; artifact rule: depth10 above 1.4 with the redirect-insensitive ack ratio below 1.15 is a metric artifact, never merged; merge needs the ack ratio >= 1.15 with depth8 >= 0.90. Write-then-read (1<<29 by workload seed, own salt): last-free-write design constraint with a depth1 guard [0.97,1.03]; pairs_added >= 250,000; depth8 [0.85,1.06]; depth9 [0.88,1.1]; depth10 [1.15,2.4]; depth11 [1.1,2.4]; depth13 reported as a lean; honest read the per-cell 9-to-10 conversion treated >= 0.08 above stock pooled; supply observable reads_outstanding_at_survivor_state_move_post_ack treated/stock in [2.0,6.0]; falsifiers as written; steps [0.97,1.06]; runs per second >= 0.96 of the cache median.",
+  "gradingPlan": "One session with treatment bit 67108864 (survivor) and band [-0.10,0.06] on its depth8 preservation read; the write-then-read contrast (bit 536870912) and the 2x2 reads computed from the chunk records' variants rows, each contrast matched on the other bit; supply and premise counters from the utilization block. Two to four chunks; panel and regression before any merge.",
+  "bitReuse": "Bits 1<<26 (originAlternate row) and 1<<29 (pairOrderGhostOnly row) renamed postFaultSurvivorTarget and postFaultWriteThenRead; both rows freed by the iteration 83 closes.",
+  "rejected": "write-ring-children-by-state-fork and write-ring-second-generation-admission rejected as parentless after the ring closed.",
+  "oracleReading": "Verified by the judge: the ladder's chain is 13 rungs with no rungs 14-20; the two stale view-change records to the survivor are DAG leaves the matcher never checks; the oracle matches client operations by invocation destination while the protocol redirects to the leader, so label 10 is stricter than the violation; a read logged at the survivor in the old epoch and overtaken by the completion broadcast is also a witness. Recorded for the user as an oracle finding (protected file, not edited)."
+ }
+}
