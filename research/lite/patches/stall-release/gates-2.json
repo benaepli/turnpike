@@ -1,0 +1,192 @@
+[
+ {
+  "seed": 1000,
+  "stall_release": {
+   "releases": 151881,
+   "ops_settled": 629705,
+   "dependents_released.client": 146370,
+   "dependents_released.fault": 14941,
+   "dependents_released.other": 0,
+   "late_responses": 311,
+   "plan_completed_after_release": 47997,
+   "second_stall_stops": 67797,
+   "steps_after_release_sum": 73550784,
+   "stalls_without_ops": 105,
+   "release_cell.runs": 232796,
+   "release_cell.invocations": 1810907,
+   "release_cell.plan_complete": 92458,
+   "cut_cell.runs": 232812,
+   "cut_cell.invocations": 1641982,
+   "cut_cell.plan_complete": 44254
+  },
+  "firing_releases": 151881,
+  "firing_floor_60k": true,
+  "fault_dependents": 14941,
+  "fault_floor_10k": true,
+  "late_response_share": 0.0004938820558833104,
+  "invocations_per_run": {
+   "release": 7.7789437962851595,
+   "cut": 7.052823737608027
+  },
+  "plan_complete_share": {
+   "release": 0.39716318149796387,
+   "cut": 0.19008470353761833
+  },
+  "stall_cap": {
+   "stops": 220295,
+   "base_stops": 352842,
+   "cap": 827
+  },
+  "termination": {
+   "cand": {
+    "plan_complete": 180738,
+    "learned_cap_reached": 70979,
+    "iterations_exhausted": 190146,
+    "stall_cap_reached": 220295,
+    "runs": 662340
+   },
+   "base": {
+    "plan_complete": 134816,
+    "learned_cap_reached": 136951,
+    "iterations_exhausted": 113822,
+    "stall_cap_reached": 352842,
+    "runs": 738660
+   }
+  },
+  "runs": [
+   662340,
+   738660
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "invocations_ratio": 1.1029545166151276,
+  "plan_complete_ratio": 2.089401062297283,
+  "clauses": {
+   "late_le_3pct": true,
+   "late_close_gt_10pct": false,
+   "invocations_ge_1_5": false,
+   "plan_complete_ge_0_35": true,
+   "plan_complete_close_lt_0_30": false
+  },
+  "release_over_cut_by_arm": {
+   "aos": {
+    "steps": 1.2437713014786216,
+    "d8": 0.9445019898598921
+   },
+   "grid": {
+    "steps": 1.141914718593389,
+    "d8": 1.036191894234829
+   },
+   "grid-no-purgatory": {
+    "steps": 1.289049275902313,
+    "d8": 0.9911796037040496
+   },
+   "grid-post-fault-2": {
+    "steps": 1.3009449441640781,
+    "d8": 0.9927888114920795
+   },
+   "grid-short": {
+    "steps": 1.115065888949766,
+    "d8": 1.0134255344007526
+   }
+  }
+ },
+ {
+  "seed": 1001,
+  "stall_release": {
+   "releases": 181726,
+   "ops_settled": 764303,
+   "dependents_released.client": 170224,
+   "dependents_released.fault": 16551,
+   "dependents_released.other": 0,
+   "late_responses": 422,
+   "plan_completed_after_release": 60829,
+   "second_stall_stops": 86307,
+   "steps_after_release_sum": 79763320,
+   "stalls_without_ops": 112,
+   "release_cell.runs": 265401,
+   "release_cell.invocations": 2093322,
+   "release_cell.plan_complete": 108759,
+   "cut_cell.runs": 265602,
+   "cut_cell.invocations": 1900669,
+   "cut_cell.plan_complete": 48032
+  },
+  "firing_releases": 181726,
+  "firing_floor_60k": true,
+  "fault_dependents": 16551,
+  "fault_floor_10k": true,
+  "late_response_share": 0.0005521370451247738,
+  "invocations_per_run": {
+   "release": 7.887393039212362,
+   "cut": 7.156079396992492
+  },
+  "plan_complete_share": {
+   "release": 0.40979122158544995,
+   "cut": 0.18084201173183936
+  },
+  "stall_cap": {
+   "stops": 268519,
+   "base_stops": 344241,
+   "cap": 719
+  },
+  "termination": {
+   "cand": {
+    "plan_complete": 205234,
+    "learned_cap_reached": 137707,
+    "iterations_exhausted": 143410,
+    "stall_cap_reached": 268519,
+    "runs": 755040
+   },
+   "base": {
+    "plan_complete": 152190,
+    "learned_cap_reached": 134946,
+    "iterations_exhausted": 114265,
+    "stall_cap_reached": 344241,
+    "runs": 745800
+   }
+  },
+  "runs": [
+   755040,
+   745800
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "invocations_ratio": 1.1021947356435453,
+  "plan_complete_ratio": 2.266017822192261,
+  "clauses": {
+   "late_le_3pct": true,
+   "late_close_gt_10pct": false,
+   "invocations_ge_1_5": false,
+   "plan_complete_ge_0_35": true,
+   "plan_complete_close_lt_0_30": false
+  },
+  "release_over_cut_by_arm": {
+   "aos": {
+    "steps": 1.2372671175043783,
+    "d8": 1.1087673754237517
+   },
+   "grid": {
+    "steps": 1.1791654347024776,
+    "d8": 1.087895578121642
+   },
+   "grid-no-purgatory": {
+    "steps": 1.2827100408807957,
+    "d8": 0.979537112835205
+   },
+   "grid-post-fault-2": {
+    "steps": 1.3008272433489696,
+    "d8": 0.9584083264774352
+   },
+   "grid-short": {
+    "steps": 1.1404539143557355,
+    "d8": 1.03615883660411
+   }
+  }
+ }
+]

@@ -3763,10 +3763,12 @@ crash-phase learning stays parked. Awaiting-approval entries unchanged.
 
 ## stall-release-of-client-blocked-plan-events
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 77 (rank 1 net 6; child of the merged stall cap; bit stallRelease
-  1<<12 on the retired recoverWindowFreshOnly row, half of the stall cap's
-  treated runs; read cross-binary against the merged cache) | gain: 6 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  iteration 77 (commit 6d3ed35, spur 98e9a93; carried by the depth10
+  advance rung, internal 2.20 [1.60,3.03], cross-binary depth10/sec 1.47,
+  depth8/sec 0.967 inside the layout floor, throughput 0.955; its own
+  depth8 band refuted; panel clean, regression passed; evidence under
+  research/lite/patches/stall-release) | gain: 6 | cost: 0 | rank: 1
 - Frozen (judge-rewritten) prediction and review:
   `research/lite/plans/iteration-77-admitted.json`.
 - At the first stall, settle the blocked client operations for dependency

@@ -8136,3 +8136,150 @@ run at or above 1.00 as a guard; releases >= 60,000 and fault dependents
 released >= 10,000 per chunk; late responses <= 3% of settled operations;
 plan completion on the release cell >= 0.35 of the cut cell's; throughput
 >= 0.90. Full record: research/lite/plans/iteration-77-admitted.json.
+
+
+**Iteration 77 implementation review.** Stall-release implemented on the
+merged tree 3d88510 in an isolated worktree: a stall_release cell splits
+the stall cap's treated runs by a salt of their own (bit 1<<12, the
+retired recoverWindowFreshOnly row renamed); at the release cell's first
+over-cap gap exec_plan settles every in-progress client operation in the
+plan engine (plan node completed in id order, the operation left pending
+in the history so a real late response is recorded exactly as before and
+cannot double-complete), counts the released dependents by kind, re-arms
+the stall clock and continues; the run then ends by plan completion or at
+its next stall as the parent does. PlanEngine::mark_event_completed now
+returns the newly ready children. Counter block stall_release with the
+frozen per-cell reads; exec.rs and history.rs untouched. Tests 477
+passed, 0 failed; release build passes; general_vr.json untouched.
+
+**Iteration 77 first chunk.** Seed 1000 against the merged-tree cache
+819d3a0bf347: 662,340 candidate runs against 738,660 baseline, zero
+failures, zero violations. Firing 151,881 releases (floor 60,000);
+629,705 operations settled; dependents released 146,370 client and
+14,941 fault (floor 10,000); late responses 311, 0.05% of settled
+operations (clause 3%); plan completed after release 47,997, second-stall
+stops 67,797, stalls without operations 105. Per cell: plan completion
+0.397 on the release cell against 0.190 on the cut cell (ratio 2.09,
+clause at least 0.35); invocations per run 7.78 against 7.05 (ratio 1.10,
+clause at least 1.5, missed); steps per run release over cut 1.14 on
+grid, 1.29 grid-no-purgatory, 1.30 grid-post-fault-2, 1.12 grid-short.
+Session-level: stall_cap.stops 220,295 against 352,842 on the baseline,
+iterations_exhausted 190,146 against 113,822, learned_cap_reached 70,979
+against 136,951, plan_complete 180,738 against 134,816: a released run
+that keeps issuing client operations keeps making history-row marks, so
+many released runs never stall again and run to the iteration budget.
+
+Internal release over cut, co-bit matched: depth8 per run 1.0076
+[0.9391, 1.0811] (guard at or above 1.00 met by the point); depth6 1.031
+[1.002, 1.061]; depth9 0.921; depth10 1.6298 [1.0556, 2.5165], separated
+up, the first advance-rung separation this loop has recorded. Cross-
+binary: depth8 per second 0.8926 (regressed 10.8%, beyond the layout
+floor), four-grid per-run 0.990, depth10 1.394 (265 against 190),
+throughput 0.8965 against the frozen 0.90 floor, projected epoch 1.062.
+The release converts stall-cut runs into runs up to 30% longer that
+complete their plans twice as often and reach depth 10 more often, at a
+per-second cost on depth 8 the frozen prediction does not allow.
+Autonomous judgment: buy the second chunk to complete the frozen two-
+chunk read on the cross-binary interval and to see whether the depth10
+separation holds on seed 1001; the cost clause and the depth8 falsifier
+are both expected to close the candidate as built, and the depth10
+finding is what the next round should keep.
+
+**Iteration 77 second chunk.** Seed 1001: 755,040 candidate runs against
+745,800 baseline, zero failures, zero violations. Firing 181,726
+releases, 16,551 fault dependents, late responses 0.06%, plan completion
+release over cut 2.27, invocations per run ratio 1.10 (clause 1.5 missed
+again), steps per run release over cut 1.14-1.30. Session-level:
+stall_cap.stops 268,519 against 344,241, iterations_exhausted 143,410
+against 114,265, plan_complete 205,234 against 152,190.
+
+Internal, release over cut, co-bit matched, pooled: depth8 per run
+1.0128 [0.9651, 1.0630] (per chunk 1.0076 and 1.0175; guard met), depth6
+1.024 [1.005, 1.044], depth9 1.002, depth10 2.2013 [1.5993, 3.0299],
+separated up on both seeds (1.63 on seed 1000, about 2.9 on seed 1001)
+on 414,781 treated against 415,026 control runs. Cross-binary pooled:
+depth8 per second 0.9669 (null band 0.0096; 0.893 and 1.043 by seed),
+inside the 5% layout floor and read by the grader as a cost reading, not
+a regression; depth6 0.963, depth9 0.998, depth10 1.4719 (534 against
+364, z 2.7), depth11 1.07, depth12 1.01, depth13 1.47 on small counts;
+four-grid per-run 1.022, campaign per-run 1.049; throughput 0.9548
+(0.897 and 1.017 by seed) against the frozen 0.90 floor; projected epoch
+1.131. AOS per-run 1.24.
+
+Reading: the hypothesis's own primary claim, depth8 per second in
+[1.02, 1.12] cross-binary, is refuted (0.967 pooled, at or below the
+0.99 refutation line) and its invocations clause is missed; its plan-
+completion, fault-release and late-response clauses hold. What the
+mechanism does instead is move the advance rung: on the release cell
+depth10 per run is 2.2x the cut cell's, and the whole candidate produces
+47% more depth10 events per second than the baseline while depth8 per
+second stays inside the layout floor and throughput costs 4.5%. The
+goal's ladder names depth>=9 and depth>=10 as advance rungs a separated
+gain may carry on when the primary resolves neither way, and the
+grader's rule reads exactly that: merge, with the regression suite
+outstanding and the note that depth8 is below its band with the gain on
+another rung. Panel and regression next; if both are clean the merge is
+taken on the advance rung with the refuted depth8 claim recorded, as a
+decision under the rule rather than a departure from it.
+
+**Panel on the stall-release binary, seed 1000, scale 3.** paxos-accept-
+stale-ballot 3.62e-2, mencius-opt1-2 1.51e-2, raft-stale-vote 3.23e-4,
+paxos-fixed-recover-stale-scout 2.60e-4, paxos-fixed-recover-forget-
+accepted 1.75e-3: every member at its calibration and at the previous
+panel's reading. Bit-4096 cells 1.016 [0.90, 1.15], 0.941 [0.77, 1.15],
+0.648 [0.30, 1.41], count-only on 16 against 3, 0.878 [0.49, 1.58], all
+flat; the bit-1024 cells read as on the merged tree. Known bugs stay
+findable on released runs. Regression suite next.
+
+**Decision: merged (6d3ed35, spur 98e9a93), autonomous, under the rule.**
+Regression passed (vr-nofault-clean 1,800 runs, zero violations); grader
+advice merge with the informational note that depth8 sits below its band
+while the gain is on another rung. The merge is carried by the depth10
+advance rung as the goal's ladder provides: release over cut 2.20 [1.60,
+3.03] per run on both seeds, the whole candidate 1.47x depth10 events per
+second, with depth8 flat inside the layout floor (0.967 per second,
+1.013 per run internally), throughput 0.955 above the 0.90 cost floor,
+projected epoch 1.131, a clean panel and a passing regression. Recorded
+against it: the hypothesis's own cross-binary depth8 band [1.02, 1.12] is
+refuted at 0.967 and its invocations clause is missed at 1.10x; the
+throughput cost is 4.5%, the first negative ratio in the ledger since the
+epoch's early merges. Shipped as graded: half of the stall cap's treated
+runs, probes exempt, no config field, no constant. Evidence under
+research/lite/patches/stall-release; session
+research/lite/state/stall-release.json. The baseline is rebuilt and a
+fresh cache is being measured on an idle host for the ledger.
+
+**Direction review after iteration 77 (merge).** Three merges in a row
+from the salvage lens, each on what the scheduler is asked to do with a
+run rather than on how it picks records: restarts exempt from client
+dependencies (75), the learned stall cap (76), and now the release of the
+events planned behind a stalled operation (77). This one is different in
+kind: it is the first merge carried by an advance rung rather than the
+primary, and it costs throughput, so it is the first that trades the
+primary for depth. Proxy check: depth10 is the goal's own advance rung,
+named as one a separated gain may carry on; the primary did not move
+against the tree; violations remain zero on 6.9M candidate runs this
+session, so the goal stays open and no rung is moved. What the two
+seeds say about the released runs: they double plan completion, issue
+their planned faults on a quiet system, reach depth10 twice as often,
+and many then run to the iteration budget because each released client
+operation's invocation is a progress mark; the throughput cost is that
+tail. Steering verdict: the next round stays on salvage with a narrow
+directive at that tail (a bounded post-release budget, or not re-arming
+the clock on invocation rows alone), the nested force-faults addition
+(stall-release-of-withheld-faults) as a queued follow-up, and the
+restarted-peer crash hold (net 5) as the mechanism-level alternative;
+the judge re-ranks them together. One more merge-form question for the
+operator, not for the loop: three merges have landed with per-run-id
+bits at shares of one half, three quarters and three eighths, and the
+untreated cells now differ on run length and plan completion, so a
+future full-tree read may want the cells folded to one behavior.
+
+Digest for the user: iteration 77 merged the stall-release child under
+the rule on the depth10 advance rung (2.2x per run on the release cell,
++47% depth10 events per second cross-binary) with depth8 flat and a 4.5%
+throughput cost; its own depth8 prediction was refuted and is recorded
+as such; panel clean, regression passed, zero violations. Three merges
+this session; cumulative depth8 events per second on the tree since
+iteration 74 about +35%, throughput about +13%, and depth10 events per
+second about +90%.
