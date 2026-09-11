@@ -1,0 +1,450 @@
+{
+ "iteration": 82,
+ "admittedAtIso": "2026-09-11T08:10:37.929129+00:00",
+ "mode": "autonomous",
+ "acceptedBaselineCommit": "12b758213355c983c8a5f156549eb74668874e34",
+ "superCommit": "1c442e9",
+ "lens": "message-delay and reordering",
+ "focusDirective": "delivery-order structure at the ladder's depth 9 to 13 transitions, stated in generic event classes",
+ "admittedFrom": "tmp/loop/lite/judged-82.json (blind judge, ranks 1-2, one two-bit session)",
+ "hypothesis": {
+  "id": "request-caused-record-waits-for-restarted-target-settle",
+  "parent": null,
+  "kind": "add",
+  "title": "A record caused by a post-fault client operation waits at a restarted destination until that node has heard back from a majority of the peers its restart addressed",
+  "description": "An eligibility mask in the is_ineligible closure of schedule_runnable (core/scheduler.rs), no hold outside the queue, no swap, bounded. New SendLedger fields: opening_peers: u64 (bitmask of remote destinations of Records the node sent while its trigger was HandlerTrigger::None and its incarnation was above zero, set in State::net_enter; that is the restart segment before any handler entry), opening_replied: u64 (set at the delivery site after exec when a message entry at D from origin O's current incarnation wrote D's state and O's bit is in D's opening_peers), both cleared in crash_node and opening_peers reset in recover_crashed_node. settled(D) = opening_peers == 0 or 2 * popcount(opening_replied & opening_peers) > popcount(opening_peers). On a treated run (own salt REQWAIT, probes exempt, bit requestWaitsForSettle = 1 << 29 on the retired 536870912 row) a Runnable::Record r with r.origin_node != r.node, r.node a server D with incarnation(D) > 0, !settled(D), current_step < D.last_restart_step + Q (Q the learned ghost-lag quantile the ghost release already reads for the run's scope, 71 on the cache; 32 when no bound is learned) and client_anchor.caused_post_fault(r.causal_operation_id) is ineligible. Lift: before building QueueInfo the closure is evaluated once over every queue; if no runnable at all is eligible with the mask, the mask is off for this step and the lift is counted, so no step goes unfilled and no run reads as a deadlock. ChannelSends, timers, faults, ghosts, opening replies and records not caused by a post-fault operation are never masked. Counters under request_wait: masked_offers, records_masked (distinct record keys), released_settled, released_bound, released_lifted, hold_steps_sum, settle_steps_hist (steps from restart to settled, both halves), and per-cell {treated, untreated} request_entries_at_restarted and request_entries_at_restarted_acted. No config field.",
+  "category": "scheduler",
+  "buildsOn": [
+   "client-release-into-ghost-consumer-fanout-window (caused_post_fault)",
+   "ghost_release learned lag bound",
+   "send ledger trigger and incarnation bookkeeping",
+   "opening-round-first-at-recovering-receiver (kept design, narrowed here to the request-caused class and made cost 0 by deriving the opening from the ledger)"
+  ],
+  "rationale": "Generic reading of the chain (rootAnchoredPrefix in traceanalyzer/metrics/dagorder/matching.go counts a chain from the root with every predecessor matched and earlier; write/read labels match client Invocation rows, deliver labels match handler enters, acted or not). Label 10: a client write invoked at the never-restarted node N0 (the only server that took no fault-crossing delivery on the path) after the second-restarted node N2's two dead-incarnation records (its stranded reaction, labels 8-9) entered the first-restarted node N1, with both restarts done. For the path to continue N0 must still hold its pre-fault role, so four records addressed to N0 must be undelivered at label 10 and stay undelivered through label 11: N1's dead-incarnation stranded fan-out sibling (sent with label 4's record), N2's dead-incarnation stranded-reaction sibling (sent at label 4's reaction), N1's current-incarnation reaction to the label-8 ghost, and N1's current-incarnation completion broadcast sent when label 9 acted. Label 11: N2's current-incarnation reply to the write's replication record, entered at N0. Side witnesses that must have entered N2 earlier: N1's current-incarnation recovery reply (sent at label 7, before N1's ghost-driven reaction) and N0's recovery reply (sent after N2's opening request landed at N0). For the reply to exist at all both must have ACTED at N2 before the write's replication record entered N2, and none of N1's later current-incarnation sends to N2 (reaction, broadcast) may have acted at N2 between its recovery completion and that record. Label 12: N1's current-incarnation completion broadcast entered at N0 after label 11; it was sent before label 10 and must survive undelivered across 10 and 11. Label 13: a read invoked at any server after label 12. Cache ladder: 2674 -> 423 -> 59 -> 40 -> 15, so 9->10 0.158, 10->11 0.139, 11->12 0.68, 12->13 0.375. The other half of the 10->11 loss sits at N2: the reply of label 11 exists only if the write's replication record acted at N2 after both recovery replies acted there; a request-caused record entering a node still rebuilding its state is dropped on every protocol that ignores traffic while recovering, and the drop is invisible to the ladder (entries, not effects, are matched) until the missing reply fails label 11. The DAG carries this order as the two co-predecessors of the reply: deliver_rr_1_to_2 and deliver_rr_0_to_2 both precede deliver_pok_2_to_0, and the pok is caused by the replication record acting, so the recovering-receiver-admission entry's objection (no DAG edge) does not apply to the request-caused class. The tree has nothing here: fresh_first orders dead against current records of one origin at a restarted destination, pair_order orders the dead class of one origin by ordinal, and the replication record comes from the never-crashed node while the recovery replies come from two origins. The filed reply-first read (iteration 34) found the reply and the request are rarely eligible in the same step (swaps 11,200 per chunk), which is why a same-step swap cannot carry this order and a bounded wait can. Receiver-restarted census on the cache: 4,828,168 deliveries at restarted destinations, acted 5,570 (0.0012), with zero acted at distance 0-2 and one at distance 3 of 2,060,131 deliveries, so entries into a restarted node in its first four handler entries do nothing on this protocol; the wait moves request-caused entries past that window only while the node is unsettled. Grounding for the floor: post-fault ops about 1.5 per run become ready after the first crash (merged entry), each fanning out at least two server-to-server records, 2.1 recoveries per run (1,583,194 / 757,560), an opening of tens of steps in a run of about 1,740 steps (1,318,696,077 / 757,560), so tens of thousands of request-caused records per chunk meet an unsettled restarted destination.",
+  "generalityArgument": "A node that came back from a crash and asked its peers for state does not take a client-caused message until a majority of those peers have answered it, for at most the learned ghost-lag scale. The predicate uses only ledger facts (which peers the restart segment wrote to, which of them produced an acted entry since) and the run's causal ids; a protocol whose restart sends nothing (state persisted, Raft-style) has an empty opening and the mask is inert there, so nothing is imposed on protocols that do not recover by asking. The bound is the learned quantile the tree already carries, read per scope, and the lift keeps every step filled.",
+  "prediction": {
+   "firingCounter": "request_wait.records_masked",
+   "firingFloor": 25000,
+   "rung": "depth>=8",
+   "applicabilityGate": "Chunk 1, before any rung is credited: add request_wait.arrivals_after_bound (request-caused records entering an unsettled restarted destination at or after last_restart_step + Q, never masked) and require records_masked / (records_masked + arrivals_after_bound) >= 0.40; below 0.40 the bound-from-restart clock misses the class and the round files that finding instead of reading a rung.",
+   "decisiveRead": "Chunk 1: request_wait.cells.treated.request_entries_at_restarted_acted / request_entries_at_restarted >= 1.3x the untreated cell's, and released_settled >= released_bound. Then depth>=11 treated/untreated per run, probe-free, co-bit matched, pooled over up to four chunks (two minimum): decided only if the z-2.7 interval clears 1.00 with the point >= 1.30; an interval straddling 1.00 after four chunks is unresolved, not a confirmation.",
+   "depth9Band": {
+    "min": 0.97,
+    "max": 1.08
+   },
+   "depth10Band": {
+    "min": 0.97,
+    "max": 1.12
+   },
+   "depth11Band": {
+    "min": 1.1,
+    "max": 1.55
+   },
+   "guards": "depth>=8 per run treated/untreated in [0.96, 1.04]; depth>=6 in [0.98, 1.02]; released_lifted <= 0.02 of masked_offers; settle_steps_hist median below Q on both halves; steps per run treated/untreated in [0.99, 1.02].",
+   "falsifier": "With the floor and the applicability gate met: the treated acted ratio not above 1.15x the untreated; or released_bound > released_settled; or depth>=8 below 0.96; or the pooled depth>=11 interval entirely below 1.00 over four chunks.",
+   "costClause": "Cross-binary runs per second >= 0.97 of the cache median 2,517; the pre-pass scan runs on treated runs only and its per-step wall is read against the untreated half within 1 percent.",
+   "sessionRead": "Primary rung depth>=8 is a preservation guard by the candidate's own claim; the session reads the chunk-1 gates first, then the depth>=11 pooled lean; the depth>=9 and depth>=10 bands are reported.",
+   "bit": "requestWaitsForSettle = 1 << 29 (row 536870912 renamed in VARIANT_BITS), own salt, probes exempt."
+  },
+  "createdAtIso": "2026-09-11T12:00:00Z",
+  "notes": "",
+  "expectedGain": 7,
+  "expectedCost": 0,
+  "redTeam": "The mask applies only while current_step < D.last_restart_step + Q (71 on the cache), a clock that starts at the restart, not at the record's arrival. On the chain the write (label 10) is a post-fault operation deferred by the merged client release and issued after label 9, which follows the first acted ghost entry whose lag from the restart reads p50 31 / p75 71 / p90 151; so on a large share of depth-10 runs the replication record reaches N2 after restart+Q and the mask is inert exactly where the conversion is claimed. Where it fires, the conversion needs both recovery replies to exist and act inside the same window; if the first-restarted node dropped the opening request the wait ends on the bound as a blind delay. Depth>=11 carries 59 events per chunk on the cache (about 29 per half), so [1.10, 1.55] is not separable in two chunks and only a 2x lean is. The acted-ratio observable can rise without touching the chain (any request-caused record that waited lands on a settled node and acts). The pre-pass over every queue on treated steps is a hot-path cost with no wall counter of its own.",
+  "scoreReason": "Clear mechanism-to-observable path with the checkable claims verified: the oracle DAG carries deliver_rr_1_to_2 and deliver_rr_0_to_2 as direct predecessors of deliver_pok_2_to_0, and the prefix walk (rootAnchoredPrefix) requires every predecessor assigned and earlier, so the order the mask enforces is the ladder's own 10->11 condition at the second-restarted node; the cross-origin contest at a restarted destination (the never-crashed node's replication record against replies from two origins) is untouched by fresh_first (same-origin class) and pair_order (exits for never-crashed origins, scheduler.rs:1997); the filed reply-first read (iteration 34, swaps 11,200 per chunk) showed the same-step form cannot carry it. It narrows the kept opening-round-first design to request-caused records, so the mutual-hold objection (the second-restarted node's fresh opening request held at the first-restarted node) no longer applies, and derives the opening from the ledger so exec.rs is untouched (cost 0 where the parent was cost 2). Eligibility mask only: no purgatory, no stall-clock interaction, bounded by the learned quantile, per-step lift stated, counters and floor stated. Not the closed orphan family: anchor is a restarted destination's unsettled opening, held class is request-caused records only, release is the settle predicate, bound is from the restart.",
+  "verifiedClaims": [
+   "DAG labels 10-13 read as w2 (chain length 10), deliver_pok_2_to_0 (11), deliver_sv_1_to_0 (12), r1/r2/r3 (13): verified against relax_minimal_general_v2.json and the longest-root-anchored-chain semantics of matching.go rootAnchoredPrefix",
+   "deliver_rr_1_to_2 and deliver_rr_0_to_2 both precede deliver_pok_2_to_0 in the DAG: verified",
+   "deliver labels match handler Enter rows acted or not: verified (candidates.go builds the index from Enter rows)",
+   "receiver-restarted deliveries 4,828,168 with acted 5,570; buckets 0-2 acted 0, bucket 3 acted 1 of 612,173; 2,060,131 deliveries in buckets 0-3: verified on the fresh cache",
+   "recovers 1,583,194 (2.1 per run) and steps per run about 1,740 (1,318,696,077 / 757,560): verified",
+   "learned ghost-lag quantile 71 on the cache: verified (crash_place.ghost_release.lag_p75 = 71; ghost_release::BOUND_QUANTILE 0.75)",
+   "fresh_first orders only same-origin classes and pair_order exits for never-crashed origins: verified in core/scheduler.rs",
+   "filed reply-first read: swaps_over_fresh 11,200 per chunk against 20,000: verified in the pool",
+   "restart segment sends carry HandlerTrigger::None with incarnation > 0: verified (recover_crashed_node calls note_handler_entry(None) before reinit_node)",
+   "no liveness lift exists on the merged tree; the per-step lift is new work the candidate describes: verified (is_ineligible masks crashes, reservations and FIFO only)",
+   "post-fault ops about 1.5 per run become ready after the first crash: uncheckable on the cache (cited from the merged client-release entry)",
+   "a quarter to a third of the 0.139 loss recoverable: uncheckable (no census of unsettled-at-arrival on depth-10 runs exists)"
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "request_wait.records_masked",
+   "firingFloor": 25000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": -0.02,
+    "max": 0.04
+   },
+   "depth9Band": {
+    "min": 0.97,
+    "max": 1.08
+   },
+   "depth10Band": {
+    "min": 0.97,
+    "max": 1.12
+   },
+   "depth11Band": {
+    "min": 1.1,
+    "max": 1.55
+   },
+   "mechanism": "Treatment bit requestWaitsForSettle = 1 << 29 in run_variant.rs and VARIANT_BITS (row 536870912 renamed), own salt, treated share about 0.49 of runs by id. Depth>=8 flat: the masked class is request-caused records only, ghosts and recovery replies are untouched, so labels 4 through 9 are unchanged. Depth>=11 up because on the treated depth-10 runs where the replication record reaches N2 before N2 settled (its recovery replies from N1, sent at label 7, and from N0 have not both acted) the record now waits and acts after them, producing the reply the rung needs; the share of depth-10 runs in that state is the conversion this bit can recover, estimated a quarter to a third of the 0.139 loss. Shared-state reasoning: the mask only reorders within the network queue, the record stays eligible for everything else, a settled destination frees it at once, the ghost-lag bound frees it otherwise, and the per-step lift means a step is never left with nothing to run.",
+   "crossBinaryBand": {
+    "min": 0.97,
+    "max": 1.08
+   },
+   "independentObservable": "Per cell at run end: request_wait.cells.treated.request_entries_at_restarted_acted / request_entries_at_restarted >= 1.3 x the untreated cell's ratio (a request-caused entry that waits for the settle acts where the untreated one is dropped), and request_wait.released_settled >= request_wait.released_bound (the settle, not the bound, ends most waits; settle_steps_hist median below Q on both halves).",
+   "falsifier": "Refuted if, with the floor met, the depth>=11 interval lies entirely below 1.00 over two chunks, or the treated acted ratio of request-caused entries at restarted destinations is not above the untreated by at least 1.15x (the wait is not converting drops into acts), or released_bound exceeds released_settled (the opening outlasts the learned scale and the mask is a blind delay), or depth>=8 reads below 0.96.",
+   "costClause": "Steps per run treated over untreated within [0.99, 1.02]; the closure adds two integer reads per Record candidate and a popcount per masked destination, the pre-pass one extra scan of the queues per step only on treated runs; cross-binary runs per second >= 0.97 of the cache median 2,517."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "pairedHypothesis": {
+  "id": "post-fault-op-target-shelter-from-fault-touched-inflight",
+  "parent": null,
+  "kind": "add",
+  "title": "At a post-fault client operation's target, fault-touched records already in flight are held in purgatory until the operation's response leaves the target",
+  "description": "Purgatory keyed on an event class instead of the inert probability. In path.rs invoke_client_request, when post_fault is true, the run is treated (own salt OPSHELTR, run-cap and timer-context probes exempt, bit opTargetShelter = 1 << 26 on the retired 67108864 row), the target server T is not in its own restart opening (never restarted, or has an acted delivery-triggered entry since its last restart) and T's ledger has crash_pending == 0: scan state.network_queue once for Runnable::Record r with r.node == T, r.origin_node != T, origin a server, and either (a) state.fault_crossing(origin, r.origin_incarnation) (dead incarnation or origin down) or (b) incarnation(origin) > 0, r.origin_incarnation current, and r.send_ordinal >= origin's opening_end (a new SendLedger field: `issued` at the origin's first handler entry after its last restart; unset means every current record is an opening send and is left alone). Each such record is removed with take_network and moved with delay_runnable(step + 192, record) tagged with a new DeliveryBias::SHELTERED bit and keyed on the op id in a small per-run table {op_id -> Vec<record key>}. Release: (1) at ScheduleResult::ClientOp(result) whose unique_id is the op, or when the stall release settles the op, every sheltered record of that op gets release_step = current step (release_from_purgatory pushes it back next step through push_runnable, so net_enter re-counts it stale or fresh); (2) at the step start, when the network queue, every local queue and the timer queue hold nothing eligible, every sheltered record is released (dry release); (3) the 192-step bound. Records sent after the invocation are never touched; ChannelSends, client-origin records and records to other destinations are never touched. Counters in util_stats.rs under shelter: ops_examined, ops_sheltered, records_ghost, records_settled_fresh, released_on_response, released_on_expiry, released_dry, hold_steps_sum, skipped_target_opening, skipped_target_crash_pending, and per-cell {treated, untreated} sender_restarted_entries and sender_restarted_acted read at the delivery site. No config field.",
+  "category": "scheduler",
+  "buildsOn": [
+   "client-release-into-ghost-consumer-fanout-window (post-fault op class, caused_post_fault)",
+   "purgatory (delay_runnable, release_from_purgatory, flight accounting)",
+   "send ledger (opening range, crash_pending)",
+   "stall release (op settled hook)"
+  ],
+  "rationale": "Generic reading of the chain (rootAnchoredPrefix in traceanalyzer/metrics/dagorder/matching.go counts a chain from the root with every predecessor matched and earlier; write/read labels match client Invocation rows, deliver labels match handler enters, acted or not). Label 10: a client write invoked at the never-restarted node N0 (the only server that took no fault-crossing delivery on the path) after the second-restarted node N2's two dead-incarnation records (its stranded reaction, labels 8-9) entered the first-restarted node N1, with both restarts done. For the path to continue N0 must still hold its pre-fault role, so four records addressed to N0 must be undelivered at label 10 and stay undelivered through label 11: N1's dead-incarnation stranded fan-out sibling (sent with label 4's record), N2's dead-incarnation stranded-reaction sibling (sent at label 4's reaction), N1's current-incarnation reaction to the label-8 ghost, and N1's current-incarnation completion broadcast sent when label 9 acted. Label 11: N2's current-incarnation reply to the write's replication record, entered at N0. Side witnesses that must have entered N2 earlier: N1's current-incarnation recovery reply (sent at label 7, before N1's ghost-driven reaction) and N0's recovery reply (sent after N2's opening request landed at N0). For the reply to exist at all both must have ACTED at N2 before the write's replication record entered N2, and none of N1's later current-incarnation sends to N2 (reaction, broadcast) may have acted at N2 between its recovery completion and that record. Label 12: N1's current-incarnation completion broadcast entered at N0 after label 11; it was sent before label 10 and must survive undelivered across 10 and 11. Label 13: a read invoked at any server after label 12. Cache ladder: 2674 -> 423 -> 59 -> 40 -> 15, so 9->10 0.158, 10->11 0.139, 11->12 0.68, 12->13 0.375. The 10->11 loss at N0 is the survival of four records across the whole window from their send (labels 3, 4, 8, 9) to the reply's entry after label 11; nothing on the tree orders anything at a never-restarted destination (fresh_first.skipped_never_restarted_dest 601,449 per chunk is the rule declining exactly this destination class; pair_order exits for never-crashed origins and suppresses the fresh class, corrections_fresh_suppressed 2,199,371), and the sender-preference family closed both ways (0.738 and 0.949). The shelter makes the constraint hold by construction on every treated depth-10 run where the four records are still in flight at the invocation: dead records fall in class (a), N1's reaction and broadcast in class (b) since N1's opening_end is set at its first entry after restart and both were sent by later segments; N2's opening request to N0, if still in flight, is an opening send and is not held, so N0's recovery reply (a label-11 witness) is never blocked. Release at the response also serves 11->12: N1's broadcast, held through the reply's entry, is released the step the write's response leaves N0. The orphan family (iteration 18) showed blind ghost delays from the crash cost depth>=6 (0.82): this hold starts only at a post-fault invocation and only at its target, and the crash_pending exemption keeps it off the node the plan is about to crash (the label-4 destination), so the chain's early ghost deliveries are untouched. The 192-step bound is three times the request hold's EXPIRY_STEPS and above the stock first-delivery distance of the op's own record (client_anchor first_delivery_distance stock 1,884,080 / 70,474 = 26.7 steps, hold 15.6, rush 8.1) plus a replication round trip; another protocol reads shelter.released_on_expiry / ops_sheltered: above 0.5 means its operations outlast the bound and the bound is too short there, so the value is diagnosed from the counter, not tuned. Grounding for the floor: post-fault ops per run about 2.8 (client_anchor.axis.rush.ops 206,241 on 72,988 rush runs), stale deliveries per run about 5.4 (sender_restarted 4,125,894 / 757,560), so a fault-touched record to the target is in flight at a fair share of invocations.",
+  "generalityArgument": "Stated without any handler or role name: a coordinator that receives a client request while messages touched by a fault (sent by an incarnation that died, or by a peer that restarted and has since moved on from its recovery) are on their way to it serves the request before that news arrives. This is the canonical stale-coordinator schedule (old leader commits before learning of the new view; a node acts on a request before hearing the recovery news) that stale-leader and split-brain bugs in every consensus family need, and a real network can delay any message arbitrarily, so no protocol-specific assumption is added. The mechanism has no knob: the class is defined by incarnation and ledger facts every run carries, the bound is diagnosed by an exported ratio, and the dry release keeps every run live.",
+  "prediction": {
+   "firingCounter": "shelter.ops_sheltered",
+   "firingFloor": 150000,
+   "rung": "depth>=8",
+   "designConstraint": "Sheltered purgatory rows must not suspend the stall clock: the suspension test at path.rs:1128 excludes rows tagged DeliveryBias::SHELTERED, and shelter.stall_clock_steps_not_suspended is counted; without this the internal contrast is a run-length change and the primary read moves cross-binary.",
+   "chunk1Gates": "released_on_response / ops_sheltered >= 0.55 and released_on_expiry / ops_sheltered <= 0.35 (the CLIENT_FIRST failure shape, 0.81 closed on the cap, closes the round if reproduced); a hazards-at-invocation census on the treated half: among ops_sheltered, the share holding at least one class (a) record and at least one class (b) record, reported, and among treated depth>=10 runs the share whose label-10 operation was sheltered with both classes held >= 0.30 to apply the depth>=11 band (0.15-0.30 a lean, below 0.15 void).",
+   "sizePct": {
+    "min": -0.07,
+    "max": 0.03
+   },
+   "depth9Band": {
+    "min": 0.93,
+    "max": 1.1
+   },
+   "depth10Band": {
+    "min": 0.93,
+    "max": 1.18
+   },
+   "depth11Band": {
+    "min": 1.25,
+    "max": 2.6
+   },
+   "decisiveRead": "depth>=11 treated/untreated per run, probe-free, co-bit matched, pooled over up to four chunks (two minimum): merge only if the z-2.7 interval clears 1.00 with the point >= 1.50; depth>=12 over depth>=11 not below 0.60.",
+   "guards": "depth>=8 per run treated/untreated in [0.93, 1.03] (below 0.90 refutes: the hold reaches labels 8-9 through reads at the first-restarted node); steps per run treated/untreated in [0.98, 1.02] after the stall-clock exclusion; plan_complete within 2 points; the per-cell sender_restarted_acted / entries on the treated cell below the untreated by >= 0.03 absolute.",
+   "falsifier": "With the floor met: the chunk-1 gates missed; or the depth>=11 pooled interval entirely below 1.05 over the chunks run; or depth>=8 below 0.90; or released_on_expiry > released_on_response; or steps per run outside [0.98, 1.02].",
+   "costClause": "Cross-binary runs per second >= 0.97 of the cache median 2,517; one queue scan per post-fault invocation.",
+   "bit": "opTargetShelter = 1 << 26 (row 67108864 renamed), own salt, probes exempt; the nested ghost-only cut is not admitted this session (two-bit limit)."
+  },
+  "createdAtIso": "2026-09-11T12:00:00Z",
+  "notes": "Bit rows free on the merged tree: 1 << 26 and 1 << 29. This hypothesis takes 1 << 26 alone. If the session wants a nested ghost-only cut (class (a) only, class (b) left in the queue) it takes 1 << 29 and then no other proposal of this round can join the session; the recommended session is this bit crossed with request-caused-record-waits-for-restarted-target-settle on 1 << 29, each read on its own contrast matched on the other. Implementer notes: take_network then delay_runnable keeps in_flight and net_records exact (take_network does flight_leave and net_leave; delay_runnable does flight_enter; release_from_purgatory does flight_leave then push_runnable); pending_deliveries_to already counts purgatory, so the timer-context features see the held records. The single-release cell's stale-mark ranking flaw noted at iteration 81 is untouched.",
+  "expectedGain": 5,
+  "expectedCost": 0,
+  "redTeam": "The nearest prior is not the orphan family the proposal cites but the causal-window CLIENT_FIRST arm (iteration 63), which it never mentions: while a post-fault operation was outstanding that arm masked every same-role remote record with no post-fault cause at every destination (replies to the destination's current incarnation and restart sends exempt), a superset of this hold, and read cross-binary flat at every rung with the within-binary deep tail down (depth>=11 6 against 19, depth>=12 3 against 15, depth>=13 0 against 5). The one thing this candidate changes there is the release: response-keyed with a 192 bound, where CLIENT_FIRST closed 0.81 of its windows on its 64-step cap before the response, so its held broadcast was freed mid-round-trip; that is a real premise but not the one argued. Second: purgatory rows suspend the stall clock (path.rs:1128 tests !purgatory.is_empty()), so a 192-step shelter at a wedged target keeps the stall cap from firing and lengthens the 35 percent of runs that end on it; the 'composition only, steps within [0.98, 1.02]' claim is false as designed. Third: any post-fault read invoked at the first-restarted node between labels 7 and 9 shelters the chain's own ghosts (labels 8-9) for up to the response or 192 steps; the crash_pending exemption protects only label 4's destination. Fourth: depth>=11 at about 29 events per half per chunk resolves only a 2x lean. Fifth: three of the four 'hazards' at N0 are DAG records ordered after the reply; the fourth (N1's post-restart reaction broadcast) is a protocol inference the DAG does not carry.",
+  "scoreReason": "Explicit mechanism-to-observable path and every plumbing and counter claim verified (take_network then delay_runnable keeps in_flight exact, release_from_purgatory does flight_leave then push_runnable so net_enter re-classes the record, all_queues_empty and pending_deliveries_to count purgatory, EXPIRY_STEPS 64, the fresh_first and pair_order counters, the ladder, the first-delivery distances). The response-keyed release is a genuine new premise against the CLIENT_FIRST closure. But the proposal rests on unstated evidence that leans against it, its clean-composition claim is contradicted by the stall-clock suspension, and its decisive rung is count-limited. Not the closed orphan family: the orphan hold was armed at the crash, held the victim's ghosts at every destination and released on the destination's reply; this is armed at a post-fault invocation, holds fault-touched records to that target only and releases on the operation's response. It is, however, the CLIENT_FIRST hold narrowed to the target with a different release, and the session must read it as that.",
+  "verifiedClaims": [
+   "DAG reading of labels 10-13: verified (see the request-wait entry); the fourth held record (N1's post-restart reaction broadcast to N0) is a protocol inference, not a DAG label",
+   "pair_order.corrections_fresh_suppressed 2,199,371 and fresh_first.skipped_never_restarted_dest 601,449: verified on the fresh cache",
+   "purgatory.delayed_sends 0 with delay_probability 0.0: verified (config and cache)",
+   "ladder 2674 -> 423 -> 59 -> 40 -> 15 (depth9..13) with 0.158, 0.139, 0.68, 0.375: verified",
+   "client_anchor first_delivery_distance stock 1,884,080 / 70,474 = 26.7, hold 15.6, rush 8.1; rush ops 206,241: verified",
+   "sender_restarted deliveries 4,125,894 (5.4 per run): verified",
+   "EXPIRY_STEPS = 64 so 192 is three times it: verified (client_anchor.rs:48)",
+   "take_network does flight_leave + net_leave; delay_runnable does flight_enter; release_from_purgatory does flight_leave then push_runnable; all_queues_empty and pending_deliveries_to count purgatory: verified (core/state.rs)",
+   "the hold is composition only with steps per run within [0.98, 1.02]: FALSE as designed - purgatory rows suspend the stall clock (path.rs:1128), so sheltered records change run length on stall-capped runs unless excluded",
+   "the sender-preference family closed both ways (0.738 and 0.949): verified in the pool",
+   "the orphan family cost depth>=6 0.82 on a 96-step blind hold: verified in the pool",
+   "the causal-window CLIENT_FIRST arm (a superset mask) read flat cross-binary and depth>=11 6 against 19 within binary: verified in observations.md; NOT cited by the proposal",
+   "0.58 of post-fault windows opened with a competitor queued (0.23 a ghost, 0.11 a live record from a restarted sender): verified in observations.md (iteration 63), all runs, not depth-10 runs"
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "shelter.ops_sheltered",
+   "firingFloor": 150000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": -0.07,
+    "max": 0.03
+   },
+   "depth9Band": {
+    "min": 0.93,
+    "max": 1.1
+   },
+   "depth10Band": {
+    "min": 0.93,
+    "max": 1.18
+   },
+   "depth11Band": {
+    "min": 1.25,
+    "max": 2.6
+   },
+   "mechanism": "Treatment bit opTargetShelter = 1 << 26, registered in run_variant.rs and VARIANT_BITS (row 67108864 renamed), own salt, treated share about 0.49 of runs by id (half of non-probe runs). Primary rung depth>=8 read as treated over untreated per run in the same session, probe-free, matched on the anchor, ghost-release, phase, retarget and pair/fresh bits: expected flat to slightly down (a post-fault op that targets a node holding a chain ghost delays that ghost past the release trigger's lag bound on a minority of runs). The gain is on the advance rungs: depth>=11 per run in [1.25, 2.60] because the four hazards at N0 are held by construction whenever they are in flight at label 10, and depth>=12 over depth>=11 not below 0.60 (the broadcast is released at the response). Shared-state reasoning: nothing the op needs is in flight at its invocation (the replication round trip is sent after it), opening sends are exempt so a recovering peer's request still lands, and the dry release means a run never idles on a sheltered record; the held records re-enter the queue at the response step and compete as before, so the total delivery count of a run is unchanged.",
+   "crossBinaryBand": {
+    "min": 0.93,
+    "max": 1.04
+   },
+   "independentObservable": "On the treated cell, shelter.released_on_response / shelter.ops_sheltered >= 0.55 (the response arrives inside the bound for most sheltered ops, since the op's own first delivery averages 27 steps on stock), shelter.released_on_expiry / shelter.ops_sheltered <= 0.35, and the per-cell delivery census shelter.cells.treated.sender_restarted_acted / entries reads below the untreated cell's by at least 0.03 absolute (a ghost that lands after the response is more often overtaken and acts less; the stratification session measured AHEAD 0.120 against BEHIND 0.095), all read at run end from the counters the change adds.",
+   "falsifier": "Refuted if, with the firing floor met, the depth>=11 treated-over-untreated interval lies entirely below 1.05 over two chunks, or if depth>=8 per run reads below 0.90 (the hold is reaching the chain's early ghosts despite the crash_pending exemption), or if released_on_expiry exceeds released_on_response (the bound, not the response, is what ends the holds, so the mechanism is a blind delay).",
+   "costClause": "Internal steps per run treated over untreated within [0.98, 1.02] (the same deliveries happen, later); one queue scan per post-fault invocation (about 3 per run) and O(1) work at the response; cross-binary runs per second >= 0.97 of the cache median 2,517."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "rankedQueue": [
+  {
+   "id": "request-caused-record-waits-for-restarted-target-settle",
+   "net": 7,
+   "rank": 1
+  },
+  {
+   "id": "post-fault-op-target-shelter-from-fault-touched-inflight",
+   "net": 5,
+   "rank": 2
+  },
+  {
+   "id": "stall-release-repeated-until-nothing-fresh",
+   "net": 5,
+   "rank": 3
+  },
+  {
+   "id": "restart-backlog-deferred-to-learned-first-acting-distance",
+   "net": 4,
+   "rank": 4
+  },
+  {
+   "id": "replay-parent-served-by-child-arm-set",
+   "net": 4,
+   "rank": 5
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "net": 3,
+   "rank": 6
+  },
+  {
+   "id": "condition-released-crash-exempt-from-fanout-defer-coin",
+   "net": 3,
+   "rank": 7
+  },
+  {
+   "id": "pulled-crash-waits-for-victim-reply-to-restarted-peer",
+   "net": 3,
+   "rank": 8
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "net": 3,
+   "rank": 9
+  },
+  {
+   "id": "post-release-quiet-gap-learned-cap",
+   "net": 2,
+   "rank": 10
+  },
+  {
+   "id": "stalled-runs-admitted-as-replay-prefix-parents",
+   "net": 2,
+   "rank": 11
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "net": 2,
+   "rank": 12
+  }
+ ],
+ "rejected": [
+  {
+   "id": "ghost-released-crash-exempt-from-phase-wait",
+   "reason": "Already answered and parentless: the dose is defined only as a nested contrast inside the Early-on-ghost cell (1 << 29), which was refuted and closed on chunk 1 at iteration 81 (anchored within-three 0.33 against 0.51, nested depth8 0.951); the question it would settle (whether the phase condition carries depth for released crashes) was read in that session and in the coin exemption (landing within three 0.90 against 0.71 at flat depth), and the candidate carries no standalone premise or bit assignment that survives its parent's closure."
+  }
+ ],
+ "reviewSummary": "Thirteen candidates, twelve kept, one rejected. The DAG reading of labels 10-13 shared by the three new candidates is correct under the prefix walk's longest-root-anchored-chain semantics (w1, allow_t1, crash_nl, svc_1_to_2, crash_2, recover_2, rec_2_to_1, svc_2_to_1, dvc_2_to_1, w2 = 10; pok_2_to_0 = 11; sv_1_to_0 = 12; the reads = 13), and every cited fresh-cache counter checks (pair_order.corrections_fresh_suppressed 2,199,371; fresh_first.skipped_never_restarted_dest 601,449; purgatory.delayed_sends 0; receiver-restarted 4,828,168 / 5,570 with the acceptance buckets exact; ladder 2674/423/59/40/15). Two design facts the proposals missed: purgatory rows suspend the stall clock (path.rs:1128), so the shelter and the backlog deferral are run-length changes as written and their rewrites exclude their rows from the suspension; and the causal-window CLIENT_FIRST arm (iteration 63) is a superset of the shelter's hold that read flat cross-binary with the deep tail down, which the shelter never cites - its response-keyed release is the one new premise against that result. The request-wait mask stands first (DAG-backed order at the second-restarted node, eligibility mask, learned bound, cost 0); the shelter pairs with it on the other side of the same 10->11 loss; the backlog deferral waits. Recommended session: requestWaitsForSettle = 1 << 29 and opTargetShelter = 1 << 26, each read on its own contrast matched on the other; no third bit. Among carried entries the stalled-runs supply figure is still false on the merged tree (267,533 stall-capped runs per chunk, not 352,842) and the phase-wait dose is rejected with its refuted parent. Bit collisions to resolve if built later: repeated release and stalled-runs both on 1 << 27; PCT's promote cell and the shelter both on 1 << 26.",
+ "otherCandidates": [
+  {
+   "id": "stall-release-repeated-until-nothing-fresh",
+   "expectedGain": 5,
+   "expectedCost": 0,
+   "scoreReason": "The concrete nesting of a merged mechanism whose advance-rung gain is on record (internal depth10 2.20 at merge), with the guard verified in the source (release_step.is_none() at path.rs:1136) and the counters it reasons from present on the fresh cache, though the cited figures are from the previous cache (releases 180,980 not 186,532; second stalls 86,224 = 0.48; plan_completed_after_release 59,247; fault dependents 17,600). A clear path from the mechanism to a counted observable, with a plausible but unmeasured premise about the later layers' fault content; the cross-binary primary is honest about the run-length change. Bit: the pool moved this entry to 1 << 27 at iteration 81, the row the stalled-runs entry also claims; resolve at admission if either is built.",
+   "redTeam": "A released client request re-enters the same wedged system; a repeat settles it again and issues the next layer, which holds a fault only under density 0.3 and only when the plan had faults left. Even at the first release faults are under a tenth of the dependents (17,600 of 180,980 releases on the fresh cache), and later layers hold fewer, so the repeat mostly issues more stuck client operations and buys up to a learned cap of quiet steps (755 on the cache) on about 44,000 runs per chunk. The parent's depth-10 gain came from the first fault issued into a quiet system; the repeat's marginal fault supply is what the floor of 3,000 tests, and if it holds the mechanism only lengthens runs. Being a run-length change it must beat the layout floor cross-binary on a rung with about 423 events per chunk.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "the merged release fires once (release_step.is_none() guard): verified at path.rs:1136",
+    "released client requests 173,591/151,076 and faults 16,643/14,759 per chunk; second stalls 88,007/73,248; plan_completed_after_release 62,732 of 186,532: figures from the previous cache; the fresh cache reads 171,363 client, 17,600 fault, 86,224 second stalls, 59,247 of 180,980 - shape verified, values stale",
+    "learned cap 827/791: stale; the fresh cache reads stall_cap.cap_max_scope 755",
+    "release cell is half of placed runs (266,300 of 757,560 = 0.35, treated half about 3/16): verified",
+    "parent depth10 gain 0.000600 against 0.000319 per run: uncheckable on the fresh cache (session record)"
+   ]
+  },
+  {
+   "id": "restart-backlog-deferred-to-learned-first-acting-distance",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "Cost 0, learned, bounded (D entries, Q steps, dry release), inert by construction on a protocol whose restarted nodes act at distance 0, and the acceptance-distance census it stands on is exact on the fresh cache (buckets 0-3: 0, 0, 0, 1 acted of 2,060,131). The direction is supported by the iteration-50 finding that the backlog class carried a loss when promoted and by the never-built restart-buffer-fresh-first-release entry whose objection (a side vector hidden from all_queues_empty) purgatory answers. But the measurable claim is thin: the candidate predicts an effect smaller than the floor it would be read on and a flat within-session primary, so the argument is a plausible story with one strong census behind it.",
+   "redTeam": "By its own account the effect is a length effect of 0.5 to 1 percent of steps, inside the 5 percent layout floor the cross-binary read carries, so its stated primary cannot separate, and the within-session depth>=8 band is written as a guard. The backlog holds no chain record on a chain-completing run (the iteration-39 review: a node down when its peer reacts deadlocks its own recovery), so the mechanism acts only through the tournament's dilution, about three records per restart in a queue that holds tens. The iteration-50 loss (a quarter of depth 8 when the backlog was promoted) came from putting it AHEAD of the fresh recovery replies; that says the backlog's position matters when it is first, not that its presence at stock priority costs anything. Purgatory rows suspend the stall clock for up to Q steps after every restart. D is learned from run-cap probes only (1 in 32 runs) and engages after 20,000 deliveries per scope, late in chunk 1 on the smaller scope. entries_since_restart counts timer entries, so a quiet restarted node releases its backlog on its own timers, not on progress.",
+   "predictionRewrite": {
+    "firingCounter": "restart_backlog.deferred_records",
+    "firingFloor": 1500000,
+    "rung": "depth>=8",
+    "designConstraint": "Deferred purgatory rows must not suspend the stall clock (exclude rows carrying the deferral tag at path.rs:1128) and the exclusion is counted.",
+    "chunk1Gates": "learned_distance == 4 on both scopes by the end of chunk 1 (0 on either scope is inapplicable on this protocol); scopes_engaged == 2; treated receiver_restarted acted / deliveries >= 2.0x the untreated cell; treated deliveries in buckets 0-3 <= 0.05x the untreated; released_by_distance >= 0.6 x deferred_records.",
+    "sizePct": {
+     "min": -0.02,
+     "max": 0.06
+    },
+    "primaryRead": "Within-session depth>=8 per run treated/untreated, probe-free, co-bit matched, in [0.98, 1.06]; a lower edge above 1.00 is the ordering side effect the candidate names and would carry a merge; an interval inside [0.98, 1.02] with the gates met is a null on order and the candidate then stands or falls on the cost read.",
+    "depth9Band": {
+     "min": 0.97,
+     "max": 1.1
+    },
+    "depth10Band": {
+     "min": 0.95,
+     "max": 1.15
+    },
+    "depth11Band": {
+     "min": 0.9,
+     "max": 1.4
+    },
+    "crossBinaryBand": {
+     "min": 0.99,
+     "max": 1.07
+    },
+    "falsifier": "depth>=8 per run below 0.97; or the treated acted fraction not above 1.5x the untreated; or steps per run treated/untreated above 1.00 after the stall-clock exclusion; or learned_distance 0 on this protocol; or released_by_bound > released_by_distance.",
+    "costClause": "Steps per run treated/untreated in [0.985, 1.00]; cross-binary runs per second >= 0.99 of the cache median 2,517.",
+    "bit": "backlogDefer takes whichever of 1 << 26 / 1 << 29 is free after the request-wait and shelter session; not in this session."
+   },
+   "verifiedClaims": [
+    "receiver_restarted deliveries 4,828,168 (3.05 per recovery, 1.3 percent of 375,302,453), acted 5,570, buckets 0..6+ = 606,633/0, 456,213/0, 385,112/0, 612,173/1, 808,743/128, 784,208/1,092, 1,175,086/4,349: verified exactly on the fresh cache",
+    "recover_crashed_node re-pushes crash_info.queued_messages with DeliveryBias::RECEIVER_RESTARTED through push_runnable after reinit_node: verified (core/scheduler.rs:2170-2178)",
+    "all_queues_empty counts purgatory, so no side-vector hole: verified (core/state.rs:1389)",
+    "promoting the backlog cost a quarter of depth 8 and the fresh-only cut read 1.477: verified in the pool (iteration 50)",
+    "restart-buffer-fresh-first-release kept, not built, on the side-vector objection: verified in the pool",
+    "recovery-buffer-release-policy-draw rejected on an older baseline where bucket 0 was the best near bucket: verified in the pool; on the fresh cache bucket 0 acts 0 of 606,633",
+    "ghost-lag quantile 71: verified",
+    "learned D on this protocol reads 4: consistent with the census (first bucket with >= 1,000 deliveries and acted fraction >= 1e-4 is bucket 4: 128 / 808,743 = 1.6e-4)",
+    "steps per run treated over untreated in [0.985, 1.00]: unverifiable as designed - purgatory rows suspend the stall clock (path.rs:1128) unless excluded",
+    "no chain record is in the restart backlog on a chain-completing run: verified by the iteration-39 review's structural argument"
+   ]
+  },
+  {
+   "id": "replay-parent-served-by-child-arm-set",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "An enabling fix of a recorded miswiring (iteration 28: fidelity 0.32 own-id against 0.99 when the bits matched), with the fresh-cache fidelity verified at 0.548 (the candidate's 0.47-0.54 is another cache; its older 0.39 was already corrected at iteration 75). Bits 1 << 22 / 1 << 23 carry no tag.",
+   "redTeam": "Parents are fresh runs whose arm set was the learner's pick; when the learners concentrate, exact matches are common but the arms are then the same across cells and the fidelity lift buys at best the iteration-28 1.08 on a quarter of prefix slots (about 35,000 runs per chunk, about 650 depth-8 events per cell), so [1.03, 1.12] is count-limited. Sixty-four peeks per slot on the campaign's hot path. The corpus's own cut fires on the ghost signal and its children were measured to gain mostly by plan re-sampling, so a faithful prefix may not be the lever.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "prefix fidelity 77,752/145,187 and 60,207/129,440: another cache; fresh cache 75,386 / 137,527 = 0.548",
+    "replay.prefix_faithful 38,161 of children_prefix 98,033: an older cache",
+    "iteration-28 fidelity finding (1.03 inherited against 0.31 own-id, 0.987 bits-equal): verified in the pool",
+    "rows 1 << 22 and 1 << 23 carry no tag in run_variant.rs: verified"
+   ]
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Parity-preserving PCT change points remain unattempted and the saturation gate makes the read honest, but the mechanism as written saturates and the candidate concedes it; three rounds of re-judging at 3 stand. Bit rows 1 << 11 and 1 << 26: the latter is the shelter's row this session, so this entry cannot share the session.",
+   "redTeam": "The siting argument (1/(anchors) against 1/k) holds only for the crash, restart and first-post-restart-entry classes; timer wakes fire 153 times per run on the fresh cache (116,144,643 / 757,560), so with a 1/2 coin per anchor and marks that lift only on an incarnation change every live origin is marked within tens of network steps and the shift is a uniform offset. The implementerMustDefine clause moves the design's central choice (mark lifetime, anchor set) to the implementer, so the frozen prediction does not describe one mechanism. Demoting the last-dispatched stream is undirected, and the record's measurement is that a directed order at a destination is worth a factor the coin is not (iteration 39).",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "timer wakes are not a handful: verified (153 fired per run on the fresh cache; the candidate's 203 is the previous cache)",
+    "priority is outside Record's Hash: recorded in the pool (iteration 48 review), not re-verified here",
+    "the retired rows 1 << 11 and 1 << 26 carry no tag in run_variant.rs: verified"
+   ]
+  },
+  {
+   "id": "condition-released-crash-exempt-from-fanout-defer-coin",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "The mechanism is verified (crash_defer_mask draws the coin per step while in_flight != 1; the phase slot carries on_condition in LandingRead) and the cache shape holds (early released_on_condition 336,265; buckets 0/1/2/3plus 51,779 / 62,116 / 73,747 / 203,199; expired 47,361 - the cited figures are the previous cache). What is thin is the depth argument, which the sibling result at iteration 81 has already priced near zero.",
+   "redTeam": "The same coin exemption was built for ghost-released crashes at iteration 81 and read: landing within three steps up (0.90 against 0.71 unanchored), bucket_3plus 0.645 against 0.603 (1.07x, barely above this candidate's own 1.05x floor), nested depth8 1.02 unresolved, with the recorded finding that the one to two steps the coin costs do not carry depth. The condition-released population is larger (336,265 per chunk) so the read has power, but the prior on a depth effect from landing a crash one step earlier is now low, and the fault-injection lens was rotated out at iteration 81 for that reason.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "the coin keeps withholding a released crash while in_flight != 1 at 0.5 per step: verified (core/scheduler.rs:1062-1075)",
+    "LandingRead.on_condition exists and Released { arm } slots: verified (crash_phase.rs)",
+    "Early released_on_condition 347,633, bucket_1 62,471, bucket_0 55,525, expired 54,734, 3plus 215,627: previous cache; fresh cache 336,265 / 62,116 / 51,779 / 47,361 / 203,199 - shape verified",
+    "the sibling coin exemption on ghost-released crashes read bucket_3plus 1.07x and depth8 1.02 unresolved: verified in the observation tail"
+   ]
+  },
+  {
+   "id": "pulled-crash-waits-for-victim-reply-to-restarted-peer",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Bounded (crash_phase::WINDOW 96, fault_timing::cap_reserve) with a real release predicate, but the candidate predicts no gain on any advance rung and its parent cell no longer exists; the acted-share finding is the product. Bit 1 << 25 is free now that the phase-wait dose is rejected.",
+   "redTeam": "Its parent, the pull, closed at iteration 79 and the mechanism text still says 'nested in the pull's treated half'; on the merged tree the only crash release is the ghost trigger (1 << 4), whose released crash on the chain is the absorber's (label 5) after label 4 acted. The wait then holds that crash until the first-restarted node has an acted entry from the victim's current incarnation, which on a chain-completing run has already happened (the first-restarted node must have recovered before label 4), so the wait releases at once on chain-shaped runs and expires after 96 steps on dead-chain runs; its whole effect is a predicted depth-8 loss with a finding on the acted share, and the fault-injection lens was rotated out at iteration 81.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "crash_phase::WINDOW = 96 and fault_timing::cap_reserve exist: verified",
+    "delivery_effects.receiver_restarted acted 6,606 of 5,040,495: another cache; fresh cache 5,570 of 4,828,168 (0.12 percent)",
+    "the pull closed at iteration 79: verified in the pool",
+    "the acted token compare at the delivery site: verified (core/scheduler.rs:1710)"
+   ]
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "expectedGain": 5,
+   "expectedCost": 2,
+   "scoreReason": "The identity it must preserve holds on the fresh cache (steer_reach.no_weighted_predicate 1,318,696,023 against termination.all.steps_used_sum 1,318,696,077, 54 no-schedule steps; the candidate's 1,468,752,468/503 is the previous cache), the change moves no schedule, and throughput multiplies every rung. Cost 2 as the rubric prices a change to the measurement path (counter totals are the harness's evidence and a fold can lose them).",
+   "redTeam": "The hot spot is unprofiled: 3-12 percent of thread time is an estimate from a per-atomic cost range, not a measurement, and relaxed fetch_adds on lines that are already in a shared state may cost far less than the upper figure. The falsifier requires a cross-binary throughput of at least 1.05, exactly the layout floor, so a real 3 percent gain reads as a close. Counts from runs that error before the fold are lost, which the identity falsifier catches only if such runs exist on the deterministic slice.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "the five per-step counters read 1,468,752,468 with ranking_pass_skipped = contested_decisions 594,420,962: previous cache; fresh cache no_weighted_predicate 1,318,696,023 against steps_used_sum 1,318,696,077 (54 no-schedule steps) - identity verified",
+    "timer_effects.all.fired 128,573,624 over 632,580 runs: previous cache; fresh 116,144,643 over 757,560",
+    "hot spot profiled: uncheckable (no profile on record)"
+   ]
+  },
+  {
+   "id": "post-release-quiet-gap-learned-cap",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "A perf refinement whose predicted gain sits inside the floor by its own admission; subsumed by the closed plan clock. Cited caps 827/791 are the previous cache (755 on the fresh one).",
+   "redTeam": "The candidate's own arithmetic puts the recoverable wall at about 2.5 percent, inside the layout floor, so the cross-binary read is a cost reading and the only gradeable quantity is internal steps per run on the release cell; the plan clock (iteration 78) tried the same lever and closed on throughput 0.921 with 8,852 stops against a 60,000 floor. The learner is fed by released runs that complete after the release, which are the minority (59,247 of 180,980), and the sample is censored at the stall cap.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "stall cap 827/791: stale; fresh cache stall_cap.cap_max_scope 755",
+    "steps_after_release_sum 87.06M/84.42M: stale; fresh cache 83,026,184",
+    "plan clock closed at iteration 78 on throughput 0.921: verified in the pool"
+   ]
+  },
+  {
+   "id": "stalled-runs-admitted-as-replay-prefix-parents",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "A checkable claim is false (the supply) and remains uncorrected; the corpus fidelity defect the replay-arm entry addresses bounds what any new parent source can return. Bit 1 << 27 is also the row the pool moved the repeated release to at iteration 81.",
+   "redTeam": "Its supply figure is false on the merged tree and has been flagged uncorrected for two rounds: stall-capped runs are 267,533 of 757,560 per chunk (35 percent), not 352,842 (half). Prefix fidelity on the fresh cache is 0.548 (75,386 of 137,527), so nearly half of any child diverges from the parent tape before the cut regardless of source. The last progress mark of a stall-capped run is the step before the wedge, so the child inherits the wedge's cause (a restarted node whose recovery went unanswered) and must escape by chance in its suffix. The cross-binary band [1.03, 1.15] sits at the layout floor, and each child spends about 1,700 steps replaying the prefix.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "352,842 stall-capped runs per chunk, about half of all runs: FALSE - termination.all.stall_cap_reached 267,533 of 757,560 on the fresh cache (35 percent); previously flagged at iterations 80 and 81",
+    "replay.parents_admitted 92,826 per chunk: near (91,926 on the fresh cache)",
+    "ReplayCut is set at the first fault-crossing delivery into a node with a pending crash: verified (core/scheduler.rs:1645-1656)",
+    "RunOutcome::StallCapReached exists: verified (explorer.rs:988)",
+    "corpus CAPACITY 64 and CHILDREN_PER_PARENT 8: verified"
+   ]
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "Novelty in the plan neighbourhood with no mechanism-to-observable argument beyond broader coverage; self-declared 2.",
+   "redTeam": "No treatment bit and an explicit full-system cross-binary exception: a per-run band of [1.07, 1.20] read against a paired baseline session sits inside the recorded seed-to-seed swing. Density 0 (half of the plan draws) yields no optional edges and falls back to the parent plan, so the treated population is half of plan-only children at most. The rationale itself states that neither the legal-edge supply nor the transfer of a neighbouring order is measured and asks for score 2.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "density choices [0.0, 0.3] and post_fault_client_ops 1 in general_vr.json: verified",
+    "plan-only children about 108k per chunk: previous cache; fresh cache children_prefix 137,527 (plan-only not re-derived)"
+   ]
+  }
+ ],
+ "admissionDecisions": {
+  "prediction": "Both judge-rewritten predictions are frozen. Request-wait (1<<29): records_masked >= 25,000; applicability gate records_masked / (records_masked + arrivals_after_bound) >= 0.40 on chunk 1; decisive chunk-1 read: treated request entries at restarted destinations acted ratio >= 1.3x untreated (refute if not above 1.15x) and released_settled >= released_bound; depth8 guard [0.96,1.04], depth6 [0.98,1.02], depth9 [0.97,1.08], depth10 [0.97,1.12]; depth11 [1.10,1.55] read pooled over up to four chunks, decided only if the interval clears 1.00 with the point >= 1.30; released_lifted <= 2% of masked offers; steps per run [0.99,1.02]; runs per second >= 0.97 of the cache median. Shelter (1<<26): design constraint that sheltered purgatory rows do not suspend the stall clock; ops_sheltered >= 150,000; chunk-1 gates released_on_response/ops_sheltered >= 0.55 and released_on_expiry <= 0.35, hazards census with the both-classes share on treated depth10 runs >= 0.30 to apply the depth11 band; depth8 guard [0.93,1.03] (refute below 0.90); depth11 [1.25,2.6] pooled, merge only if the interval clears 1.00 with the point >= 1.50 and depth12/depth11 >= 0.60; steps [0.98,1.02]; runs per second >= 0.97 of the median.",
+  "gradingPlan": "One session with treatment bit 536870912 (request-wait) and band [-0.04,0.04] on its depth8 preservation guard; the shelter's contrast (bit 67108864) and all per-cell observables computed from the chunk records' variants rows and counters, each contrast matched on the other bit. Two to four chunks; the depth11 leans are pooled; panel and regression before any merge; a merge may take either bit whose frozen clauses hold.",
+  "bitReuse": "Bits 1<<29 (pairOrderGhostOnly row) and 1<<26 (originAlternate row) renamed requestWaitsForSettle and opTargetShelter; the rows were freed by the iteration 81 closes.",
+  "rejected": "ghost-released-crash-exempt-from-phase-wait rejected as parentless (its parent cell closed at iteration 81) and already answered.",
+  "sessionShape": "Two bits only, per the grader's fold limit recorded at iteration 81."
+ }
+}

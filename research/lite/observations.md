@@ -8932,3 +8932,54 @@ unresolved with a clean placement finding); the grader lost the second
 chunk to a stack overflow on a record with 112,288 variant rows, a
 harness fault recorded for the operator; next round rotates to the
 message-delay lens at the depth 9 to 13 transitions.
+
+
+**Iteration 82 proposals and admission.** Three proposals through the
+message-delay lens at the ladder's transitions past depth 9, with the
+proposer's generic reading of labels 10 through 13 verified by the judge
+against the DAG and the prefix walk: label 10 a client write at the
+never-restarted node after both restarts, with four records addressed to
+it still undelivered; label 11 the second-restarted node's current-
+incarnation reply to the write's replication record entered at the
+never-restarted node, which exists only if both recovery replies acted at
+the second-restarted node before the replication record entered; label
+12 the first-restarted node's completion broadcast entered afterwards,
+having survived undelivered since before the write; label 13 a client
+read invocation. The proposer corrected the directive: the merged pair-
+order bit acts only on the dead class of senders that crashed and
+fresh-first only at restarted destinations, so neither touches the 10-to-
+11 transitions, which hinge on a never-restarted destination and on a
+never-crashed sender's order at a restarted destination; a blind delay on
+records from a restarted sender was measured by the orphan family at
+iteration 18; and the same-step reply-first swap was filed at iteration
+34 as rarely co-eligible. Proposals: an eligibility mask that makes a
+request-caused record wait at a restarted destination until that node
+has heard back from a majority of the peers its restart addressed,
+bounded by the learned ghost-lag quantile with a per-step lift; a
+purgatory keyed on a post-fault invocation that shelters fault-touched
+records in flight to the operation's target until its response leaves,
+bounded at 192 steps; and a restart backlog deferral to a learned first-
+acting distance. Blind judge over thirteen: request-wait 7-0 (every
+claim verified, including that the DAG carries both recovery replies as
+direct predecessors of the label-11 reply; not the closed orphan family:
+anchor, class, release and bound all differ; narrows the kept opening-
+round-first design to request-caused records at cost 0), shelter 5-0
+(plumbing verified; its clean-composition claim false as designed
+because purgatory rows suspend the stall clock, fixed by a design
+constraint; its nearest prior is the causal-window CLIENT_FIRST arm of
+iteration 63, a superset hold that read flat, with the response-keyed
+release as the one new premise; chunk-1 gates added), repeated release
+5-0, backlog deferral 4-0 (waits for a row), replay parent by arm set
+4-0, PCT change points 3-0, condition-released defer exemption 3-0,
+reply-wait 3-0, run-local counters 5-2, post-release cap 2-0, stalled
+runs as replay parents 2-0 (stale supply figure for the third round),
+optional-cover reversal 2-0; the phase-wait exemption rejected as
+parentless. Admitted as a two-bit session per the grader's fold limit:
+bit requestWaitsForSettle 1<<29 (records masked >= 25,000, an
+applicability gate on arrivals after the bound, the chunk-1 acted-ratio
+read at 1.3x, depth8 guard [0.96, 1.04], depth11 [1.10, 1.55] pooled as a
+lean) and bit opTargetShelter 1<<26 (ops sheltered >= 150,000, response-
+keyed release >= 0.55 and expiry <= 0.35, a hazards census gate, depth8
+guard [0.93, 1.03], depth11 [1.25, 2.6] pooled, merge only above a 1.50
+point with the interval clear of 1.00). Full record:
+research/lite/plans/iteration-82-admitted.json.

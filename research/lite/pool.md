@@ -3998,3 +3998,46 @@ to 1<<27), replay parent by arm set 4, condition-released defer exemption
 stalled runs as replay parents 2 (stale supply figure still uncorrected),
 post-release cap 2, optional-cover reversal 2. Awaiting-approval entries
 unchanged.
+
+
+## request-caused-record-waits-for-restarted-target-settle
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 82 (rank 1 net 7; bit requestWaitsForSettle 1<<29, own salt,
+  probes exempt; the session's primary bit; eligibility mask with a
+  per-step lift, bounded by the learned ghost-lag quantile) | gain: 7 | cost: 0 | rank: 1
+- A record caused by a post-fault client operation waits at a restarted
+  destination until that node has heard back from a majority of the peers
+  its restart addressed. Frozen prediction and review:
+  `research/lite/plans/iteration-82-admitted.json`.
+
+## post-fault-op-target-shelter-from-fault-touched-inflight
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 82 (rank 2 net 5; bit opTargetShelter 1<<26, own salt, paired
+  in the same session; purgatory keyed on a post-fault invocation with a
+  response-keyed release and a 192-step bound; sheltered rows must not
+  suspend the stall clock) | gain: 5 | cost: 0 | rank: 2
+- At a post-fault client operation's target, fault-touched records already
+  in flight are held until the operation's response leaves the target.
+  Frozen prediction and review:
+  `research/lite/plans/iteration-82-admitted.json`.
+
+## restart-backlog-deferred-to-learned-first-acting-distance
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 82 (waits for a free row; a run-length effect read cross-binary) | gain: 4 | cost: 0 | rank: 4
+- Records buffered for a crashed node are released after its restart only
+  once its entries since restart reach a distance learned from the
+  acceptance-distance histogram. Review:
+  `research/lite/plans/iteration-82-admitted.json`.
+
+## ghost-released-crash-exempt-from-phase-wait
+
+- status: REJECTED at iteration 82 (parentless after the Early-on-ghost cell closed; already answered).
+
+Iteration 82 re-judged the carried entries: repeated release 5, replay
+parent by arm set 4, PCT change points 3, condition-released defer
+exemption 3, reply-wait 3 (its text still nests in the closed pull cell),
+run-local counters 5-2, post-release cap 2, stalled runs as replay parents
+2 (supply figure stale for the third round), optional-cover reversal 2.
+Awaiting-approval entries unchanged.
