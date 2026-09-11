@@ -8098,3 +8098,41 @@ per run 0.01823 and 0.01737 against 0.01711 and 0.01681, zero violations
 on 1,484,460 runs; stall_cap.stops 352,842 and 344,241 with caps of 719
 and 827 steps. Ledger row appended with the session's throughput ratio
 1.1804; the cumulative product moves from 1.0036 to 1.1846.
+
+
+**Iteration 77 proposals and admission.** Three proposals through the
+salvage lens under a directive at the stalled recoveries: force the
+outstanding planned faults at the stall instead of ending the run;
+withhold the next planned crash until an earlier-restarted node still has
+post-restart sends in flight; and admit stall-capped runs as replay
+parents cut at their last progress mark. The proposer corrected the
+directive: a node cannot re-restart before its first recovery completes
+(the generator's serialization edge), and recovery is synchronous inside
+one scheduler call, so "recovery in flight" can only mean the restarted
+node's post-restart sends are undelivered, and the reachable event is
+another node's crash landing in that window. It confirmed the placebo
+recovery weight and the quick-fire multiplier inert on the merged tree
+(flipped 0 at every magnitude) and did not propose removing them, since
+removal alone is measurement work with a sub-floor effect. Blind judge
+over nine candidates, none rejected: stall-release of client-blocked
+plan events 6-0 (the queued child, re-based to the merged tree), crash
+holds for the restarted-peer delivery window 5-0, replay parent by arm
+set 4-0, withheld-faults release 4-0 (same family, superseded standalone
+because it cannot issue a client operation after its release and its
+plan-completion clauses were false), run-local counters 5-2, stalled
+runs as replay parents 3-0 (rewritten to a separate ring with a
+signal-supply guard), PCT change points 3-0, run-cap headroom dose 2-0
+(premise removed by the merge), optional-cover reversal 2-0. False
+claims: the withheld-faults release's plan-completion clauses (stuck
+client operations never complete, so the plan cannot); the headroom
+dose's cap-reached figures (learned_cap_reached is 136,951 and 134,946
+on the merged tree, 39% of steps, cap 3,887 and 4,031); the child's own
+cross-binary band was written against a baseline without its parent.
+Admitted at rank 1 with the rewritten prediction frozen: bit stallRelease
+1<<12 under its own salt over half the stall cap's treated runs; read
+cross-binary against the merged cache in [1.02, 1.12], refuted at or
+below 0.99 pooled with firing met; internal release-over-cut depth8 per
+run at or above 1.00 as a guard; releases >= 60,000 and fault dependents
+released >= 10,000 per chunk; late responses <= 3% of settled operations;
+plan completion on the release cell >= 0.35 of the cut cell's; throughput
+>= 0.90. Full record: research/lite/plans/iteration-77-admitted.json.

@@ -3763,7 +3763,12 @@ crash-phase learning stays parked. Awaiting-approval entries unchanged.
 
 ## stall-release-of-client-blocked-plan-events
 
-- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 76 (child of the stall cap; bit 1<<12; band raised to [1.02,1.12]; stands alone only with its parent's cut cell and separation gate) | gain: 4 | cost: 0 | rank: 4
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 77 (rank 1 net 6; child of the merged stall cap; bit stallRelease
+  1<<12 on the retired recoverWindowFreshOnly row, half of the stall cap's
+  treated runs; read cross-binary against the merged cache) | gain: 6 | cost: 0 | rank: 1
+- Frozen (judge-rewritten) prediction and review:
+  `research/lite/plans/iteration-77-admitted.json`.
 - At the first stall, settle the blocked client operations for dependency
   purposes so the fault-pair and write-chain successors issue, instead of
   ending the run. Review: `research/lite/plans/iteration-76-admitted.json`.
@@ -3777,4 +3782,32 @@ crash-phase learning stays parked. Awaiting-approval entries unchanged.
 Iteration 76 re-judged the carried entries: replay parent by arm set 5
 (bits moved to 1<<22/1<<23, fidelity floor 0.70, power note), run-local
 counters 4, PCT fault-anchor change points 3 (bits moved to 1<<11/1<<17),
+optional-cover reversal 2. Awaiting-approval entries unchanged.
+
+
+## crash-holds-for-restarted-peer-delivery-window
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 77 | gain: 5 | cost: 0 | rank: 2
+- Withhold the next planned crash until a node that restarted earlier still
+  has post-restart sends undelivered, bounded hold, so the crash lands in
+  the restart-and-delivery window; bit 1<<26. Judge added a census
+  observable and requires the hold to count as suspended for the stall
+  clock. Review: `research/lite/plans/iteration-77-admitted.json`.
+
+## stall-release-of-withheld-faults
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 77, superseded standalone by the client-blocked release; may nest later as a force-faults addition | gain: 4 | cost: 0 | rank: 4
+- Force outstanding planned faults at the stall instead of ending the run;
+  bit 1<<25. Its plan-completion clauses were false (stuck client
+  operations never complete). Review: `research/lite/plans/iteration-77-admitted.json`.
+
+## stalled-runs-admitted-as-replay-prefix-parents
+
+- kind: enabling | category: scheduler | origin: proposer | status: KEPT at iteration 77 (rewritten to require a separate ring and a signal-supply guard) | gain: 3 | cost: 0 | rank: 6
+- Admit stall-capped runs as replay parents cut at their last progress
+  mark; bit 1<<27. Review: `research/lite/plans/iteration-77-admitted.json`.
+
+Iteration 77 re-judged the carried entries against the merged tree:
+replay parent by arm set 4, run-local counters 5-2, PCT change points 3,
+run-cap headroom dose 2 (premise removed by the stall-cap merge),
 optional-cover reversal 2. Awaiting-approval entries unchanged.
