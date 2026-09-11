@@ -1,0 +1,3 @@
+[lite] measuring candidate chunk at seed 1000 (~300s explore)
+[2026-09-11T11:29:58.498Z] lite-plan-shape/sequential seed 1000: exploring (campaign, budget 300s, wall 300s) -> /home/benaepli/Rust/turnpike/tmp/loop/eval-lite-plan-shape-sequential-1000
+[2026-09-11T11:38:20.640Z] lite-plan-shape/sequential seed 1000: done ok=true runs=701340 viol=0 explore=301s exposure=300s (budget hit) porc=39s grade=160s

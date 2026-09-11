@@ -4090,10 +4090,13 @@ reversal 2. Awaiting-approval entries unchanged.
 
 ## post-fault-reservation-targets-plan-survivor
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 84 (rank 1 net 7; bit postFaultSurvivorTarget 1<<26, a plan
-  cell by workload seed; the session's primary bit; premise gate on the
-  redirect-insensitive ack census) | gain: 7 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 84 (two chunks; depth10 1.259 [1.074, 1.460] but the redirect-
+  insensitive ack census flat at 1.013 [0.998, 1.028] against the merge
+  condition of 1.15, so the rung-10 lift is filed as a metric artifact of
+  the oracle's invocation-destination match; premise gate did not fire, the
+  leaf condition is supplied; patch under research/lite/patches/plan-shape)
+  | gain: 7 | cost: 0 | rank: 1
 - Client requests reserved after a restart are addressed to a server the
   plan never crashes, with a run-end census of post-restart survivor
   operations and acks with stranded records still queued. Frozen prediction
@@ -4101,10 +4104,13 @@ reversal 2. Awaiting-approval entries unchanged.
 
 ## post-fault-reservation-write-then-dependent-read
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 84 (rank 2 net 6; bit postFaultWriteThenRead 1<<29, a plan
-  cell by workload seed crossing the survivor cell; last-free-write design
-  constraint; honest read the per-cell 9-to-10 conversion) | gain: 6 | cost: 0 | rank: 2
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 84 (two chunks; every supply and conversion gate met, depth11
+  2.004, depth12 3.038, depth13 35 against 3, 9-to-10 conversion 0.104
+  above stock, but the frozen depth8 falsifier fired at 0.580 with depth1
+  inside its guard: reserving one of the workload's few writes starves the
+  ladder root. Kept as the strongest top-of-ladder conversion read; patch
+  under research/lite/patches/plan-shape) | gain: 6 | cost: 0 | rank: 2
 - The request reserved after a restart is a write when one is free and one
   existing read is pulled behind its response. Frozen prediction and
   review: `research/lite/plans/iteration-84-admitted.json`.
@@ -4132,3 +4138,18 @@ alternative session), backlog deferral 4, run-local counters 5-2,
 condition-released defer exemption 3, PCT change points 3, stalled runs as
 replay parents 2 (supply figure stale for the fourth round), post-release
 cap 2, optional-cover reversal 2. Awaiting-approval entries unchanged.
+
+## post-fault-write-then-read-without-root-cannibalization
+
+- kind: add | category: scheduler | origin: loop | status: OPEN (follow-up
+  recorded at the iteration 84 close) | gain: 0 | cost: 0 | rank: unranked
+- The iteration 84 write-then-read cell doubled depth 11, tripled depth 12
+  and raised depth 13 from 3 events to 35 on the matched contrast, while
+  halving depth 5 through 9 because the workload holds only two to four
+  writes and the cell consumes one for the post-fault region. The follow-up
+  keeps the conversion and drops the cost: pull the read behind the
+  reserved write only on plans that still hold a spare write after the
+  pre-fault chain, or plan an additional write into the post-fault region
+  rather than reserving an existing one. Evidence:
+  `research/lite/patches/plan-shape`, close in
+  `research/lite/observations.md` at iteration 84.

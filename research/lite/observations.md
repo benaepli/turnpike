@@ -9290,3 +9290,96 @@ the premise gate and the artifact rule) and bit postFaultWriteThenRead
 1<<29 (pairs added >= 250,000, depth10 [1.15, 2.4], the 9-to-10
 conversion treated at least 0.08 above stock, the outstanding-read
 observable in [2.0, 6.0]). Full record: research/lite/plans/iteration-84-admitted.json.
+
+**Iteration 84 implementation review.** Both plan cells landed in one
+candidate: survivor_target.rs and write_then_read.rs beside recover_deps.rs,
+each drawn from the workload seed under its own salt, wired through
+GeneratorConfig and joined to the run tag as plan-cell bits 1<<26 and
+1<<29, with a new PlanShapeStats block folding eleven per-run counters per
+cell at run end. 517 tests passed. The stock workload stream is byte-
+identical (generator fingerprint tests pass on the stock cell), the two
+cells are independent at 0.50 each and inherited by replay children, and
+`general_vr.json` is unchanged; the superproject patch carries only the
+two decide.ts row renames. Smoke: 64,977 retargeted reservations and
+122,091 write-then-read pairs.
+
+**Iteration 84 chunks and close, autonomous.** Two chunks, seeds 1000 and
+1001: 1,419,360 candidate runs against 1,510,800 baseline, zero failures,
+zero violations. Cross-binary the candidate binary is down on the ladder's
+body and up at its top: depth8 per second 0.733, depth9 0.734, depth10
+1.009, depth11 99 against 85, depth12 81 against 67, depth13 38 against 21;
+throughput 0.9393. The 2x2 split by cell says which half did what.
+
+Survivor cell (1<<26, retargeting each reserved post-fault request to a
+server the plan never crashes): firing 385,314 and 390,181 retargeted
+reservations per chunk, 0.55 per run, just under the frozen floor of
+400,000 on chunks that ran 4% short of the floor's run count; 0.07 of plans
+have no survivor, as predicted. Matched internal contrast: depth8 0.995,
+depth9 0.996, depth10 1.259 [1.074, 1.460] (separated up, below the frozen
+band [1.4, 2.6]), depth11 1.426 (56 against 40), depth13 1.441 (21 against
+17), steps 0.996. The census is the finding. Post-restart invocations at
+the survivor rose 1.544x and post-restart writes at the survivor 1.644x,
+both well under the predicted [2.2, 3.2] because two thirds of the
+reserved edges already had a survivor or a redirect route; but
+`acked_writes_at_survivor_after_two_restarts`, the redirect-insensitive
+census of writes actually answered by the never-crashed node, did not move
+at all: 1.013 [0.998, 1.028] against a merge condition of 1.15. The
+premise gate did not fire (456 and 478 stranded-record acks per chunk on
+the treated cell, so the leaf condition the ending needs is supplied, at
+0.0013 per run). Reading: rung 10 rose 1.26x while the protocol state it
+is supposed to witness did not move, a gap of 1.24x against the judge's
+predicted 1.3x. The oracle matches client operations by invocation
+destination while the protocol redirects to the leader within a round
+trip, so retargeting inflates the rung without changing what the run does.
+Closed under the frozen artifact rule: no merge without the ack ratio at
+1.15 or above. The rung-10 lift is filed as a metric artifact, not a gain.
+
+Write-then-read cell (1<<29, the reserved request is a write when one is
+free and one read is pulled behind its response): firing 699,333 and
+708,134 pairs, fallback share 0.114, both inside their gates. Supply moved
+exactly as designed: post-restart writes invoked 1.625x, their acks 1.541x,
+reads invoked after such an ack 3.39x, and the violation-window counter
+`reads_outstanding_at_survivor_state_move_post_ack` 3.75x (frozen band
+[2.0, 6.0]); redirect-insensitive acks at the survivor 1.298x, a real
+state-level rise. Matched internal contrast: depth1 guard 0.978/1.000
+inside [0.97, 1.03], then depth5 0.624, depth8 0.580 [0.580, 0.617],
+depth9 0.622, depth10 0.971, depth11 2.004 [1.308, 3.057], depth12 3.038
+[1.809, 4.976], depth13 12.7 (35 against 3), steps 1.020. The honest read
+was met: the per-cell 9-to-10 conversion is 0.286 treated against 0.182
+stock, 0.104 above, against a required 0.08; the 12-to-13 conversion is
+0.583 against 0.150. The frozen falsifier also fired: depth8 entirely
+below 0.85 with depth1 inside its guard closes the cell. Both are true at
+once, and that is the result worth keeping: the workload holds two to four
+writes, so reserving one for the post-fault region and pulling a read
+behind it starves the ladder's own root (depth 5 through 9 near 0.6) while
+converting what survives far better (depth 11 doubles, depth 12 triples,
+depth 13 rises about twelvefold on 35 events against 3). Closed as a merge
+candidate under its own falsifier; kept as the strongest top-of-ladder
+conversion read the loop has produced.
+
+Decision: both cells closed after the two-chunk minimum, no merge, tree
+unchanged at spur 12b7582 and ledger unchanged at 1.0736. Chunks three and
+four are not bought: the survivor cell's merge condition is refuted with a
+tight interval (ack 1.013 [0.998, 1.028]) and the grader calls it
+mechanism-dead for its advance rungs, while the write-then-read cell's
+close is already decisive at depth 8 and its depth-13 separation does not
+need more events to be read as a lead. The follow-up the pool now records
+is a write-then-read cell that does not cannibalize the root: pull the
+read behind the reserved write only on plans that still hold a spare write
+after the pre-fault chain, or plan an extra write into the post-fault
+region rather than consuming one, so the depth 11-13 conversion is kept
+without the depth 5-9 loss. Patch, tests, smoke, both chunk records, gate
+and pooled-utility reads under research/lite/patches/plan-shape; session
+research/lite/state/plan-shape.json.
+
+**Harness fault and fix (2026-09-11).** The second chunk's fold crashed
+again with "Maximum call stack size exceeded" (121,780 `metrics.variants`
+rows on chunk 1; the explore and grade finished first and the record was
+lost), the same fault that cost the ghost-key chunk. Fixed without
+touching the grader by running it in a single node process under a larger
+V8 stack: `ulimit -s 65536 && node --stack-size=60000 --import tsx
+../lite/grader.ts chunk --name <name>` from research/orchestrator. The
+re-run folded both chunks cleanly. `npx tsx` spawns a child node process
+that does not inherit the flag, and --stack-size cannot travel in
+NODE_OPTIONS, so the `--import tsx` form is the one that works. This lifts
+the two-new-bits-per-session limit recorded after the ghost-key loss.

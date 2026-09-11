@@ -1,0 +1,404 @@
+[
+ {
+  "seed": 1000,
+  "runs": [
+   701340,
+   757560
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "survivor_firing": {
+   "seen": 771418,
+   "retargeted": 385314,
+   "no_survivor": 38547
+  },
+  "write_read_firing": {
+   "pairs": 699333,
+   "last_free_write": 89842,
+   "no_write": 0,
+   "read_unavailable": 0
+  },
+  "survivor_census": {
+   "stock": {
+    "post_restart_invocations_at_survivor": 0.3982092912107646,
+    "post_restart_writes_at_survivor": 0.177654035740647,
+    "post_restart_reads_at_survivor": 0.22055525547011762,
+    "acked_writes_at_survivor_after_two_restarts": 0.04956405912845762,
+    "acked_writes_with_stranded_records": 0.0012641295464122194,
+    "reads_invoked_after_such_ack": 0.001156664394815655,
+    "post_restart_writes_invoked": 0.7414331891980555,
+    "post_restart_write_acks": 0.08777357658164665,
+    "reads_invoked_after_post_restart_write_ack": 0.10047143265187229,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.04562461291335198,
+    "runs": 353603,
+    "acked_with_stranded_count": 447
+   },
+   "survivor": {
+    "post_restart_invocations_at_survivor": 0.611283815067134,
+    "post_restart_writes_at_survivor": 0.2926407025999534,
+    "post_restart_reads_at_survivor": 0.31864311246718063,
+    "acked_writes_at_survivor_after_two_restarts": 0.04891915441842542,
+    "acked_writes_with_stranded_records": 0.0013113358658986532,
+    "reads_invoked_after_such_ack": 0.001538519053192499,
+    "post_restart_writes_invoked": 0.7382332049796254,
+    "post_restart_write_acks": 0.08740801237717011,
+    "reads_invoked_after_post_restart_write_ack": 0.10003249582299266,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.045689702274995185,
+    "runs": 347737,
+    "acked_with_stranded_count": 456
+   }
+  },
+  "survivor_ratios": {
+   "post_restart_invocations_at_survivor": 1.5350817486164408,
+   "post_restart_writes_at_survivor": 1.6472505191335634,
+   "post_restart_reads_at_survivor": 1.444731442866718,
+   "acked_writes_at_survivor_after_two_restarts": 0.9869884605625062,
+   "acked_writes_with_stranded_records": 1.0373429444952158,
+   "reads_invoked_after_such_ack": 1.330134358841142,
+   "post_restart_writes_invoked": 0.9956840558730704,
+   "post_restart_write_acks": 0.995835145168814,
+   "reads_invoked_after_post_restart_write_ack": 0.995631227531108,
+   "reads_outstanding_at_survivor_state_move_post_ack": 1.0014266282492483
+  },
+  "write_read_census": {
+   "stock": {
+    "post_restart_invocations_at_survivor": 0.49854933971930876,
+    "post_restart_writes_at_survivor": 0.1697013481930069,
+    "post_restart_reads_at_survivor": 0.32884799152630184,
+    "acked_writes_at_survivor_after_two_restarts": 0.04295854105023199,
+    "acked_writes_with_stranded_records": 0.0014161207501986023,
+    "reads_invoked_after_such_ack": 0.0010419425031949067,
+    "post_restart_writes_invoked": 0.5636793810516135,
+    "post_restart_write_acks": 0.06883152768343369,
+    "reads_invoked_after_post_restart_write_ack": 0.046179352268671495,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.019877499798519407,
+    "runs": 347428,
+    "acked_with_stranded_count": 492
+   },
+   "write_then_read": {
+    "post_restart_invocations_at_survivor": 0.5090644001898778,
+    "post_restart_writes_at_survivor": 0.29844142046610456,
+    "post_restart_reads_at_survivor": 0.21062297972377314,
+    "acked_writes_at_survivor_after_two_restarts": 0.05541490540021248,
+    "acked_writes_with_stranded_records": 0.0011613056352991703,
+    "reads_invoked_after_such_ack": 0.00164447659305138,
+    "post_restart_writes_invoked": 0.912786229345148,
+    "post_restart_write_acks": 0.10600940346752866,
+    "reads_invoked_after_post_restart_write_ack": 0.15333755283799363,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.07096396844413301,
+    "runs": 353912,
+    "acked_with_stranded_count": 411
+   }
+  },
+  "write_read_ratios": {
+   "post_restart_invocations_at_survivor": 1.021091313602961,
+   "post_restart_writes_at_survivor": 1.7586272804779215,
+   "post_restart_reads_at_survivor": 0.6404873532789302,
+   "acked_writes_at_survivor_after_two_restarts": 1.28996246253836,
+   "acked_writes_with_stranded_records": 0.8200611671965856,
+   "reads_invoked_after_such_ack": 1.5782795960515328,
+   "post_restart_writes_invoked": 1.619335849472146,
+   "post_restart_write_acks": 1.5401285869330328,
+   "reads_invoked_after_post_restart_write_ack": 3.3204786404511624,
+   "reads_outstanding_at_survivor_state_move_post_ack": 3.570065106951671
+  },
+  "survivor_matched": {
+   "d1": {
+    "ratio": 0.9496525415002718,
+    "on": 143668,
+    "off": 152532
+   },
+   "d5": {
+    "ratio": 0.9854314512692375,
+    "on": 9607,
+    "off": 9828
+   },
+   "d8": {
+    "ratio": 0.9802252146886343,
+    "on": 4012,
+    "off": 4118
+   },
+   "d9": {
+    "ratio": 0.9845487621935333,
+    "on": 724,
+    "off": 739
+   },
+   "d10": {
+    "ratio": 1.1706063458732798,
+    "on": 162,
+    "off": 139
+   },
+   "d11": {
+    "ratio": 1.2803091912815334,
+    "on": 27,
+    "off": 21
+   },
+   "d12": {
+    "ratio": 1.101236423982431,
+    "on": 22,
+    "off": 20
+   },
+   "d13": {
+    "ratio": 0.887231356402926,
+    "on": 10,
+    "off": 11
+   },
+   "steps_ratio": 0.9961699174800731,
+   "conv_9_10": [
+    0.22375690607734808,
+    0.1880920162381597
+   ]
+  },
+  "write_read_matched": {
+   "d1": {
+    "ratio": 0.9837314209392006,
+    "on": 148418,
+    "off": 147782
+   },
+   "d5": {
+    "ratio": 0.623903205955249,
+    "on": 7601,
+    "off": 11834
+   },
+   "d8": {
+    "ratio": 0.5708153909062317,
+    "on": 3012,
+    "off": 5118
+   },
+   "d9": {
+    "ratio": 0.6147588813927903,
+    "on": 569,
+    "off": 894
+   },
+   "d10": {
+    "ratio": 0.9424381578405787,
+    "on": 149,
+    "off": 152
+   },
+   "d11": {
+    "ratio": 1.602081718961455,
+    "on": 30,
+    "off": 18
+   },
+   "d12": {
+    "ratio": 2.4902266349746816,
+    "on": 30,
+    "off": 12
+   },
+   "d13": {
+    "ratio": 9.828928966202726,
+    "on": 19,
+    "off": 2
+   },
+   "steps_ratio": 1.019056763982975,
+   "conv_9_10": [
+    0.2618629173989455,
+    0.17002237136465326
+   ]
+  }
+ },
+ {
+  "seed": 1001,
+  "runs": [
+   718020,
+   753240
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "survivor_firing": {
+   "seen": 790653,
+   "retargeted": 390181,
+   "no_survivor": 40671
+  },
+  "write_read_firing": {
+   "pairs": 708134,
+   "last_free_write": 89827,
+   "no_write": 0,
+   "read_unavailable": 0
+  },
+  "survivor_census": {
+   "stock": {
+    "post_restart_invocations_at_survivor": 0.38852594990609823,
+    "post_restart_writes_at_survivor": 0.17572257221561072,
+    "post_restart_reads_at_survivor": 0.2128033776904875,
+    "acked_writes_at_survivor_after_two_restarts": 0.045611027427090875,
+    "acked_writes_with_stranded_records": 0.0011429110388007202,
+    "reads_invoked_after_such_ack": 0.0012788397788522621,
+    "post_restart_writes_invoked": 0.7243004524485205,
+    "post_restart_write_acks": 0.08038381837701085,
+    "reads_invoked_after_post_restart_write_ack": 0.09042312674938902,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.04141388082100959,
+    "runs": 360483,
+    "acked_with_stranded_count": 412
+   },
+   "survivor": {
+    "post_restart_invocations_at_survivor": 0.6031739372428587,
+    "post_restart_writes_at_survivor": 0.2883393886506851,
+    "post_restart_reads_at_survivor": 0.3148345485921737,
+    "acked_writes_at_survivor_after_two_restarts": 0.047485994456517786,
+    "acked_writes_with_stranded_records": 0.001336924570044499,
+    "reads_invoked_after_such_ack": 0.0014795671496935982,
+    "post_restart_writes_invoked": 0.7342177173271578,
+    "post_restart_write_acks": 0.08135661483986273,
+    "reads_invoked_after_post_restart_write_ack": 0.0910311380360634,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.042023622729955225,
+    "runs": 357537,
+    "acked_with_stranded_count": 478
+   }
+  },
+  "survivor_ratios": {
+   "post_restart_invocations_at_survivor": 1.5524675697688615,
+   "post_restart_writes_at_survivor": 1.6408784882621346,
+   "post_restart_reads_at_survivor": 1.4794621777577504,
+   "acked_writes_at_survivor_after_two_restarts": 1.0411077569437357,
+   "acked_writes_with_stranded_records": 1.1697538344256095,
+   "reads_invoked_after_such_ack": 1.1569605310694087,
+   "post_restart_writes_invoked": 1.0136921975474567,
+   "post_restart_write_acks": 1.0121018941684174,
+   "reads_invoked_after_post_restart_write_ack": 1.0067240683720162,
+   "reads_outstanding_at_survivor_state_move_post_ack": 1.0147231289813416
+  },
+  "write_read_census": {
+   "stock": {
+    "post_restart_invocations_at_survivor": 0.48991985747460004,
+    "post_restart_writes_at_survivor": 0.1678174957771808,
+    "post_restart_reads_at_survivor": 0.32210236169741924,
+    "acked_writes_at_survivor_after_two_restarts": 0.04032337130835964,
+    "acked_writes_with_stranded_records": 0.00139219975965646,
+    "reads_invoked_after_such_ack": 0.001100874256629756,
+    "post_restart_writes_invoked": 0.553636106434652,
+    "post_restart_write_acks": 0.06357618862205838,
+    "reads_invoked_after_post_restart_write_ack": 0.040497046127471716,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.016776427284874326,
+    "runs": 356989,
+    "acked_with_stranded_count": 497
+   },
+   "write_then_read": {
+    "post_restart_invocations_at_survivor": 0.5008378781877456,
+    "post_restart_writes_at_survivor": 0.29506607465840884,
+    "post_restart_reads_at_survivor": 0.20577180352933683,
+    "acked_writes_at_survivor_after_two_restarts": 0.05269630585739175,
+    "acked_writes_with_stranded_records": 0.0010885491827571593,
+    "reads_invoked_after_such_ack": 0.0016535976135013336,
+    "post_restart_writes_invoked": 0.9028753763527232,
+    "post_restart_write_acks": 0.0979666566028956,
+    "reads_invoked_after_post_restart_write_ack": 0.14039237627793735,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.06637934138619675,
+    "runs": 361031,
+    "acked_with_stranded_count": 393
+   }
+  },
+  "write_read_ratios": {
+   "post_restart_invocations_at_survivor": 1.0222853198264403,
+   "post_restart_writes_at_survivor": 1.7582557366377458,
+   "post_restart_reads_at_survivor": 0.6388397851073115,
+   "acked_writes_at_survivor_after_two_restarts": 1.3068427601058994,
+   "acked_writes_with_stranded_records": 0.7818915175116611,
+   "reads_invoked_after_such_ack": 1.5020767390489254,
+   "post_restart_writes_invoked": 1.6308101401968322,
+   "post_restart_write_acks": 1.540933150070986,
+   "reads_invoked_after_post_restart_write_ack": 3.4667312730915527,
+   "reads_outstanding_at_survivor_state_move_post_ack": 3.9567030726526946
+  },
+  "survivor_matched": {
+   "d1": {
+    "ratio": 0.9541505958540591,
+    "on": 147073,
+    "off": 153603
+   },
+   "d5": {
+    "ratio": 1.0012423529960663,
+    "on": 10011,
+    "off": 9933
+   },
+   "d8": {
+    "ratio": 1.0093353585780853,
+    "on": 4194,
+    "off": 4128
+   },
+   "d9": {
+    "ratio": 1.007778646145243,
+    "on": 755,
+    "off": 746
+   },
+   "d10": {
+    "ratio": 1.3287516779473247,
+    "on": 205,
+    "off": 154
+   },
+   "d11": {
+    "ratio": 1.5621766699578978,
+    "on": 29,
+    "off": 19
+   },
+   "d12": {
+    "ratio": 1.4135350974683474,
+    "on": 22,
+    "off": 16
+   },
+   "d13": {
+    "ratio": 1.945361585564061,
+    "on": 11,
+    "off": 6
+   },
+   "steps_ratio": 0.9973892287609687,
+   "conv_9_10": [
+    0.271523178807947,
+    0.2064343163538874
+   ]
+  },
+  "write_read_matched": {
+   "d1": {
+    "ratio": 0.9732014152848603,
+    "on": 150043,
+    "off": 150633
+   },
+   "d5": {
+    "ratio": 0.6231386977053311,
+    "on": 7809,
+    "off": 12135
+   },
+   "d8": {
+    "ratio": 0.5896307054526696,
+    "on": 3146,
+    "off": 5176
+   },
+   "d9": {
+    "ratio": 0.6284135664705094,
+    "on": 589,
+    "off": 912
+   },
+   "d10": {
+    "ratio": 0.9940603409176586,
+    "on": 182,
+    "off": 177
+   },
+   "d11": {
+    "ratio": 2.3588365904053616,
+    "on": 34,
+    "off": 14
+   },
+   "d12": {
+    "ratio": 3.586147195549801,
+    "on": 30,
+    "off": 8
+   },
+   "d13": {
+    "ratio": 16.168839230291745,
+    "on": 16,
+    "off": 1
+   },
+   "steps_ratio": 1.0202150576497986,
+   "conv_9_10": [
+    0.3089983022071307,
+    0.19407894736842105
+   ]
+  }
+ }
+]

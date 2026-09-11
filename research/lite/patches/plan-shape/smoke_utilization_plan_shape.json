@@ -1,0 +1,125 @@
+{
+  "survivor": {
+    "reserved_seen": 131799,
+    "reserved_retargeted": 64977,
+    "plans_without_survivor": 6147,
+    "cell": {
+      "stock": {
+        "runs": 62507,
+        "post_restart_invocations_at_survivor": 21848,
+        "post_restart_writes_at_survivor": 9815,
+        "post_restart_reads_at_survivor": 12033,
+        "acked_writes_at_survivor_after_two_restarts": 2897,
+        "acked_writes_with_stranded_records": 58,
+        "reads_invoked_after_such_ack": 50,
+        "post_restart_writes_invoked": 39009,
+        "post_restart_write_acks": 5162,
+        "reads_invoked_after_post_restart_write_ack": 5834,
+        "reads_outstanding_at_survivor_state_move_post_ack": 2701
+      },
+      "survivor": {
+        "runs": 62485,
+        "post_restart_invocations_at_survivor": 38488,
+        "post_restart_writes_at_survivor": 18527,
+        "post_restart_reads_at_survivor": 19961,
+        "acked_writes_at_survivor_after_two_restarts": 2979,
+        "acked_writes_with_stranded_records": 48,
+        "reads_invoked_after_such_ack": 49,
+        "post_restart_writes_invoked": 38924,
+        "post_restart_write_acks": 5138,
+        "reads_invoked_after_post_restart_write_ack": 6022,
+        "reads_outstanding_at_survivor_state_move_post_ack": 2982
+      }
+    }
+  },
+  "write_read": {
+    "pairs_added": 122091,
+    "write_fallbacks": {
+      "no_write_available": 0,
+      "last_free_write": 15231
+    },
+    "read_unavailable": 0,
+    "cell": {
+      "stock": {
+        "runs": 62157,
+        "post_restart_invocations_at_survivor": 30397,
+        "post_restart_writes_at_survivor": 9882,
+        "post_restart_reads_at_survivor": 20515,
+        "acked_writes_at_survivor_after_two_restarts": 2472,
+        "acked_writes_with_stranded_records": 66,
+        "reads_invoked_after_such_ack": 54,
+        "post_restart_writes_invoked": 28843,
+        "post_restart_write_acks": 4080,
+        "reads_invoked_after_post_restart_write_ack": 2727,
+        "reads_outstanding_at_survivor_state_move_post_ack": 1170
+      },
+      "write_then_read": {
+        "runs": 62835,
+        "post_restart_invocations_at_survivor": 29939,
+        "post_restart_writes_at_survivor": 18460,
+        "post_restart_reads_at_survivor": 11479,
+        "acked_writes_at_survivor_after_two_restarts": 3404,
+        "acked_writes_with_stranded_records": 40,
+        "reads_invoked_after_such_ack": 45,
+        "post_restart_writes_invoked": 49090,
+        "post_restart_write_acks": 6220,
+        "reads_invoked_after_post_restart_write_ack": 9129,
+        "reads_outstanding_at_survivor_state_move_post_ack": 4513
+      }
+    }
+  },
+  "crossed": {
+    "stock": {
+      "runs": 30796,
+      "post_restart_invocations_at_survivor": 10707,
+      "post_restart_writes_at_survivor": 3576,
+      "post_restart_reads_at_survivor": 7131,
+      "acked_writes_at_survivor_after_two_restarts": 1241,
+      "acked_writes_with_stranded_records": 33,
+      "reads_invoked_after_such_ack": 22,
+      "post_restart_writes_invoked": 14249,
+      "post_restart_write_acks": 2056,
+      "reads_invoked_after_post_restart_write_ack": 1291,
+      "reads_outstanding_at_survivor_state_move_post_ack": 509
+    },
+    "survivor_only": {
+      "runs": 31361,
+      "post_restart_invocations_at_survivor": 19690,
+      "post_restart_writes_at_survivor": 6306,
+      "post_restart_reads_at_survivor": 13384,
+      "acked_writes_at_survivor_after_two_restarts": 1231,
+      "acked_writes_with_stranded_records": 33,
+      "reads_invoked_after_such_ack": 32,
+      "post_restart_writes_invoked": 14594,
+      "post_restart_write_acks": 2024,
+      "reads_invoked_after_post_restart_write_ack": 1436,
+      "reads_outstanding_at_survivor_state_move_post_ack": 661
+    },
+    "write_then_read_only": {
+      "runs": 31711,
+      "post_restart_invocations_at_survivor": 11141,
+      "post_restart_writes_at_survivor": 6239,
+      "post_restart_reads_at_survivor": 4902,
+      "acked_writes_at_survivor_after_two_restarts": 1656,
+      "acked_writes_with_stranded_records": 25,
+      "reads_invoked_after_such_ack": 28,
+      "post_restart_writes_invoked": 24760,
+      "post_restart_write_acks": 3106,
+      "reads_invoked_after_post_restart_write_ack": 4543,
+      "reads_outstanding_at_survivor_state_move_post_ack": 2192
+    },
+    "both": {
+      "runs": 31124,
+      "post_restart_invocations_at_survivor": 18798,
+      "post_restart_writes_at_survivor": 12221,
+      "post_restart_reads_at_survivor": 6577,
+      "acked_writes_at_survivor_after_two_restarts": 1748,
+      "acked_writes_with_stranded_records": 15,
+      "reads_invoked_after_such_ack": 17,
+      "post_restart_writes_invoked": 24330,
+      "post_restart_write_acks": 3114,
+      "reads_invoked_after_post_restart_write_ack": 4586,
+      "reads_outstanding_at_survivor_state_move_post_ack": 2321
+    }
+  }
+}

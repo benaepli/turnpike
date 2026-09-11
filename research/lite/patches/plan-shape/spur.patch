@@ -1,0 +1,1997 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index 2370fb6..63d09ef 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -17,6 +17,7 @@ mod hash_utils;
+ pub mod history;
+ mod path;
+ pub mod plan_config;
++pub mod post_fault_shape;
+ pub mod recover_deps;
+ pub mod replay_corpus;
+ 
+@@ -25,6 +26,7 @@ pub mod run_cap;
+ pub mod run_phase;
+ pub mod stall_cap;
+ pub mod stall_release;
++pub mod survivor_target;
+ pub mod run_variant;
+ pub mod timer_context;
+ pub mod util_stats;
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index a1732e6..af79fd3 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -1694,6 +1694,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     } else if timer_entry {
+                         state.note_handler_entry(record_dest.index, HandlerTrigger::Timer);
+                     }
++                    let fresh = record_sent_at == state.incarnation(record_origin);
++                    state.executing = Some(record_dest);
+                     let result = exec::<H, L, F>(
+                         state,
+                         logger,
+@@ -1705,6 +1707,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         purgatory_config,
+                         rng,
+                     )?;
++                    state.executing = None;
+                     let acted = state.node_state_token(record_dest) != token_before;
+                     if message_entry {
+                         note_ghost_release_entry(
+@@ -1752,11 +1755,15 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             dest_node: record_dest,
+                             acted,
+                             timer_entry,
++                            fresh,
+                         }),
+                     }
+                 }
+                 Runnable::ChannelSend {
+-                    channel, message, ..
++                    channel,
++                    message,
++                    origin_node,
++                    ..
+                 } => {
+                     if let Some(chan) = state.channels.get_mut(&channel) {
+                         match chan.pop_waiting_reader() {
+@@ -1775,6 +1782,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                                 state.nodes[node_index] = r_node_env;
+                                 reader.timer_entry = None;
+                                 state.push_to_local(node_index, Runnable::Record(reader));
++                                state.note_wake_from(node_index, origin_node);
+                             }
+                         }
+                     }
+@@ -2302,6 +2310,7 @@ fn recover_node<H: HashPolicy, L: Logger, F: Feedback>(
+         receiver_token_at_send: state.node_state_token(node_id),
+     };
+ 
++    state.executing = Some(node_id);
+     exec::<H, L, F>(
+         state,
+         logger,
+@@ -2313,6 +2322,7 @@ fn recover_node<H: HashPolicy, L: Logger, F: Feedback>(
+         purgatory_config,
+         rng,
+     )?;
++    state.executing = None;
+     Ok(())
+ }
+ 
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index e137dff..b697fb0 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -559,14 +559,17 @@ pub enum ScheduleResult<H: HashPolicy> {
+     /// A network partition was healed.
+     Heal,
+     /// A non-client Record runnable was executed (internal RPC delivery).
+-    /// `acted` says whether the segment left its node's state changed, and
+-    /// `timer_entry` whether the segment is one a timer firing woke.
++    /// `acted` says whether the segment left its node's state changed,
++    /// `timer_entry` whether the segment is one a timer firing woke, and
++    /// `fresh` whether the record was sent by its origin's current
++    /// incarnation.
+     RecordExecuted {
+         entry_pc: Vertex,
+         origin_node: NodeId,
+         dest_node: NodeId,
+         acted: bool,
+         timer_entry: bool,
++        fresh: bool,
+     },
+ }
+ 
+@@ -692,6 +695,15 @@ pub struct State<H: HashPolicy> {
+     /// Remote records in the network queue whose origin has another role
+     /// than the receiver, which is how a client request looks to a server.
+     pub net_requests: u32,
++    /// The node whose handler segment is running, while one is. Set by the
++    /// scheduler around each segment so a value the segment hands to a
++    /// waiting reader is credited to the node that produced it. Scheduling
++    /// bookkeeping, excluded from `signature()`.
++    pub executing: Option<NodeId>,
++    /// Per node, the node whose value last woke a reader on it, with that
++    /// node's incarnation at the time. Observation only, excluded from
++    /// `signature()`.
++    pub wake_origin: Vec<Option<(NodeId, u32)>>,
+ }
+ 
+ /// What woke the handler a node ran last.
+@@ -860,6 +872,8 @@ impl<H: HashPolicy> State<H> {
+             exchange_before_request: false,
+             net_stale_records: 0,
+             net_requests: 0,
++            executing: None,
++            wake_origin: vec![None; num_nodes],
+         }
+     }
+ 
+@@ -967,9 +981,65 @@ impl<H: HashPolicy> State<H> {
+         self.send_ledger.push(SendLedger::default());
+         self.crash_hold_until.push(0);
+         self.crash_phase.push_node();
++        self.wake_origin.push(None);
+         node_id
+     }
+ 
++    /// A value produced by the running handler segment woke a reader on
++    /// `node`.
++    pub fn note_wake(&mut self, node: usize) {
++        let origin = self.executing.map(|n| (n, self.incarnation(n)));
++        if let Some(slot) = self.wake_origin.get_mut(node) {
++            *slot = origin;
++        }
++    }
++
++    /// A value sent by `origin` woke a reader on `node`.
++    pub fn note_wake_from(&mut self, node: usize, origin: NodeId) {
++        let incarnation = self.incarnation(origin);
++        if let Some(slot) = self.wake_origin.get_mut(node) {
++            *slot = Some((origin, incarnation));
++        }
++    }
++
++    /// The node whose value last woke a reader on `node`, with its
++    /// incarnation at the time.
++    pub fn wake_origin(&self, node: usize) -> Option<(NodeId, u32)> {
++        self.wake_origin.get(node).copied().flatten()
++    }
++
++    /// Forget what last woke a reader on `node`.
++    pub fn clear_wake_origin(&mut self, node: usize) {
++        if let Some(slot) = self.wake_origin.get_mut(node) {
++            *slot = None;
++        }
++    }
++
++    /// How many of the first `servers` nodes have restarted at least once.
++    pub fn restarted_servers(&self, servers: usize) -> usize {
++        self.incarnations.iter().take(servers).filter(|&&i| i > 0).count()
++    }
++
++    /// Distinct dead incarnations of the first `servers` nodes other than
++    /// `dest` with a record addressed to `dest` still in the network queue.
++    /// A record is from a dead incarnation when its delivery would cross a
++    /// fault.
++    pub fn stranded_dead_incarnations(&self, dest: usize, servers: usize) -> usize {
++        let mut seen: HashSet<(usize, u32)> = HashSet::new();
++        for r in &self.network_queue {
++            let Runnable::Record(rec) = r else { continue };
++            if rec.node.index != dest
++                || rec.origin_node.index == dest
++                || rec.origin_node.index >= servers
++                || !self.fault_crossing(rec.origin_node, rec.origin_incarnation)
++            {
++                continue;
++            }
++            seen.insert((rec.origin_node.index, rec.origin_incarnation));
++        }
++        seen.len()
++    }
++
+     /// How many times `node` has recovered from a crash so far.
+     #[inline]
+     pub fn incarnation(&self, node: NodeId) -> u32 {
+@@ -1570,6 +1640,7 @@ impl<H: HashPolicy> Continuation<H> {
+                         }
+                         state.nodes[node_index] = node_env;
+                         state.push_to_local(node_index, Runnable::Record(reader));
++                        state.note_wake(node_index);
+                     }
+                 }
+                 None
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index b8c762d..216d2e7 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -30,7 +30,9 @@ use crate::simulator::fault_timing;
+ use crate::simulator::ghost_release;
+ use crate::simulator::run_cap;
+ use crate::simulator::stall_cap;
++use crate::simulator::post_fault_shape::PostFaultShape;
+ use crate::simulator::recover_deps::RecoverDeps;
++use crate::simulator::survivor_target::SurvivorTarget;
+ use crate::simulator::run_variant::{self, ArmSet};
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats;
+@@ -1006,7 +1008,7 @@ fn run_row(
+         timers_idle_acted: timers.idle_acted as i32,
+         max_inert_streak: timers.max_inert_streak as i32,
+         variant: crate::simulator::run_variant::of(run_id, arms, learner, crash_hold_drawn)
+-            | run_variant::recover_deps_bits(RecoverDeps::of_workload_seed(workload_seed))
++            | run_variant::plan_cell_bits(workload_seed)
+             | attribution.variant_bits,
+     }
+ }
+@@ -1033,6 +1035,8 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+     // seed: a child that replays its parent's plan lands in the parent's
+     // cell.
+     let recover_deps = RecoverDeps::of_workload_seed(workload_seed);
++    let survivor_target = SurvivorTarget::of_workload_seed(workload_seed);
++    let post_fault_shape = PostFaultShape::of_workload_seed(workload_seed);
+     let gen_config = GeneratorConfig {
+         num_servers: config.num_servers,
+         num_write_ops: config.num_write_ops,
+@@ -1045,8 +1049,12 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         max_concurrent_writes: config.max_concurrent_writes,
+         post_fault_client_ops: config.post_fault_client_ops,
+         recover_deps,
++        survivor_target,
++        post_fault_shape,
++        workload_seed,
+     };
+     util_stats::record_plan_deps_run(recover_deps, config.dependency_density > 0.0);
++    util_stats::record_plan_shape_run(survivor_target, post_fault_shape);
+     // Workload RNG: seeded separately from the scheduling RNG so the plan is
+     // reproducible from its own seed and uncorrelated with schedule draws.
+     let mut workload_rng = SmallRng::seed_from_u64(workload_seed);
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 0dd437f..eb49ea6 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -24,7 +24,8 @@ use crate::simulator::stall_cap::{self, Marks, RunClock, RunEnding};
+ use crate::simulator::stall_release;
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats::{
+-    self, DeliveryBias, RunEnd, RunExtension, RunTermination, StallCapCell, StallReleaseCell,
++    self, DeliveryBias, PlanShapeInvocation, PlanShapeResponse, RunEnd, RunExtension,
++    RunTermination, StallCapCell, StallReleaseCell,
+     StallReleaseRun, StallReleaseSettlement,
+ };
+ use ecow::EcoString;
+@@ -248,6 +249,7 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     policy: &SchedulePolicy,
+     purgatory_config: &PurgatoryConfig,
+     server_role: NameId,
++    servers: usize,
+     plan_node: NodeIndex,
+     op_spec: &ClientOpSpec,
+     post_fault: bool,
+@@ -258,6 +260,18 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     *op_id_counter += 1;
+     in_progress.insert(*op_id_counter, plan_node);
+     util_stats::record_client_op_invoked();
++    if util_stats::enabled() {
++        let (target, write_like) = match op_spec {
++            ClientOpSpec::Write(t, _) | ClientOpSpec::Rmw(t, _) => (*t as usize, true),
++            ClientOpSpec::Read(t, _) => (*t as usize, false),
++        };
++        util_stats::record_plan_shape_invocation(&PlanShapeInvocation {
++            op_id: *op_id_counter,
++            write_like,
++            target_never_restarted: path_state.state.incarnations.get(target) == Some(&0),
++            two_servers_restarted: path_state.state.restarted_servers(servers) >= 2,
++        });
++    }
+ 
+     if post_fault {
+         let op_id = *op_id_counter;
+@@ -282,6 +296,7 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+ 
+     // Get a client node from the pool (creates one if needed)
+     let (client_node_id, is_new) = path_state.client_pool.get(&mut path_state.state);
++    path_state.state.clear_wake_origin(client_node_id.index);
+ 
+     if is_new && let Some(init_fn) = program.get_func_by_name("ClientInterface.BASE_NODE_INIT") {
+         let mut env = make_local_env(
+@@ -596,6 +611,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     let mut recovered_nodes: HashSet<usize> = HashSet::new();
+ 
+     let mut census = StepCensus::default();
++    let servers = topology.num_servers.max(0) as usize;
+ 
+     // Starvation detection: track consecutive no-progress iterations
+     let mut no_progress_count: i32 = 0;
+@@ -727,6 +743,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 policy,
+                 purgatory_config,
+                 server_role,
++                servers,
+                 plan_node,
+                 &op_spec,
+                 true,
+@@ -761,6 +778,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         policy,
+                         purgatory_config,
+                         server_role,
++                        servers,
+                         node_idx,
+                         op_spec,
+                         post_fault,
+@@ -899,6 +917,21 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             match result {
+                 ScheduleResult::None => {}
+                 ScheduleResult::ClientOp(result) => {
++                    if util_stats::enabled() {
++                        let state = &path_state.state;
++                        let responder = state
++                            .wake_origin(result.client_id as usize)
++                            .filter(|(n, _)| n.index < servers)
++                            .map(|(n, inc)| (n.index, inc));
++                        util_stats::record_plan_shape_response(&PlanShapeResponse {
++                            op_id: result.unique_id,
++                            write_like: result.op_name != "ClientInterface.Read",
++                            responder,
++                            two_servers_restarted: state.restarted_servers(servers) >= 2,
++                            stranded_dead_incarnations: responder
++                                .map_or(0, |(n, _)| state.stranded_dead_incarnations(n, servers)),
++                        });
++                    }
+                     path_state.client_pool.release(NodeId {
+                         role: path_state.client_pool.client_role,
+                         index: result.client_id as usize,
+@@ -1009,12 +1042,23 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                     dest_node,
+                     acted,
+                     timer_entry,
++                    fresh,
+                 } => {
+                     if acted && timer_entry {
+                         marks.acted_timer = true;
+                     } else if acted {
+                         marks.acted_delivery = true;
+                     }
++                    if acted
++                        && fresh
++                        && origin_node.index != dest_node.index
++                        && origin_node.index < servers
++                        && dest_node.index < servers
++                        && path_state.state.incarnation(origin_node) > 0
++                        && path_state.state.incarnation(dest_node) == 0
++                    {
++                        util_stats::record_plan_shape_state_move(dest_node.index);
++                    }
+                     // Check if this record delivery matches any ready deliver event.
+                     if let Some(&func_name) = entry_to_name.get(&entry_pc) {
+                         let matched = ready_delivers
+@@ -1299,6 +1343,7 @@ mod tests {
+                 &policy,
+                 &purgatory,
+                 server_role,
++                3,
+                 plan_node,
+                 &spec,
+                 true,
+diff --git a/spur-core/src/simulator/path/generator.rs b/spur-core/src/simulator/path/generator.rs
+index 8ebcf54..515f543 100644
+--- a/spur-core/src/simulator/path/generator.rs
++++ b/spur-core/src/simulator/path/generator.rs
+@@ -1,3 +1,4 @@
++use petgraph::Direction;
+ use petgraph::algo::has_path_connecting;
+ use petgraph::graph::{DiGraph, EdgeIndex, NodeIndex};
+ use petgraph::visit::EdgeRef;
+@@ -6,7 +7,10 @@ use std::collections::{HashMap, HashSet};
+ 
+ use crate::simulator::path::plan::{ClientOpSpec, EventAction, ExecutionPlan, PlannedEvent};
+ use crate::simulator::plan_config::PartitionSpec;
++use crate::simulator::post_fault_shape::PostFaultShape;
+ use crate::simulator::recover_deps::RecoverDeps;
++use crate::simulator::survivor_target::SurvivorTarget;
++use crate::simulator::util_stats::{PlanShapeSurvivorRewrite, PlanShapeWriteReadPass};
+ 
+ #[derive(Debug, Clone)]
+ enum ActionStub {
+@@ -55,6 +59,16 @@ pub struct GeneratorConfig {
+     /// before the same node's next crash, and the post-fault recover before
+     /// client edges - are the same under both values.
+     pub recover_deps: RecoverDeps,
++    /// Whether a request reserved behind a restart keeps the target the
++    /// workload drew or is readdressed to a server the plan never crashes.
++    pub survivor_target: SurvivorTarget,
++    /// Whether the request reserved behind a restart is a write when one is
++    /// free, with one read ordered behind that write's response.
++    pub post_fault_shape: PostFaultShape,
++    /// The seed the plan is generated from. Draws a cell makes beside the
++    /// workload stream are seeded from it, so the stream itself is the same
++    /// under every cell.
++    pub workload_seed: u64,
+ }
+ 
+ /// Generates a bag of action stubs based on the config.
+@@ -229,11 +243,27 @@ pub fn generate_plan(config: GeneratorConfig, rng: &mut impl Rng) -> ExecutionPl
+             .collect();
+         let wanted = config.post_fault_client_ops as usize;
+         let mut edges_added = 0u64;
++        let mut write_read = PlanShapeWriteReadPass::default();
+         for recover in &recover_indices {
+             let mut candidates = client_indices.clone();
+             candidates.shuffle(rng);
+             let mut added = 0;
+-            for client in candidates {
++            // The write the cell reserved behind this recover, if it did.
++            // Taken before the stock loop runs over the same shuffled list,
++            // which then skips it as already ordered after the recover.
++            let mut reserved_write = None;
++            if config.post_fault_shape == PostFaultShape::WriteThenRead {
++                match prefer_write(&graph, *recover, &candidates) {
++                    WritePick::Write(write) => {
++                        graph.add_edge(*recover, write, ());
++                        added += 1;
++                        reserved_write = Some(write);
++                    }
++                    WritePick::NoWriteAvailable => write_read.no_write_available += 1,
++                    WritePick::LastFreeWrite => write_read.last_free_write += 1,
++                }
++            }
++            for client in candidates.iter().copied() {
+                 if added >= wanted {
+                     break;
+                 }
+@@ -247,11 +277,31 @@ pub fn generate_plan(config: GeneratorConfig, rng: &mut impl Rng) -> ExecutionPl
+                 added += 1;
+             }
+             edges_added += added as u64;
++            if let Some(write) = reserved_write {
++                match dependent_read(&graph, write, &candidates) {
++                    Some(read) => {
++                        graph.add_edge(write, read, ());
++                        write_read.pairs_added += 1;
++                    }
++                    None => write_read.read_unavailable += 1,
++                }
++            }
+         }
+         crate::simulator::util_stats::record_post_fault_ops(
+             recover_indices.len() as u64,
+             edges_added,
+         );
++        if config.post_fault_shape == PostFaultShape::WriteThenRead {
++            crate::simulator::util_stats::record_plan_shape_write_read(&write_read);
++        }
++        if config.survivor_target == SurvivorTarget::Survivor {
++            let rewrite = retarget_reserved_to_survivors(
++                &mut graph,
++                config.num_servers,
++                &mut SurvivorTarget::target_rng(config.workload_seed),
++            );
++            crate::simulator::util_stats::record_plan_shape_survivor(&rewrite);
++        }
+     }
+ 
+     // Shuffle node order for dependency generation
+@@ -310,10 +360,140 @@ fn without_edges(graph: &ExecutionPlan, dropped: &[EdgeIndex]) -> ExecutionPlan
+     out
+ }
+ 
++fn is_write_like(graph: &ExecutionPlan, idx: NodeIndex) -> bool {
++    matches!(
++        graph[idx].action,
++        EventAction::ClientRequest(ClientOpSpec::Write(..))
++            | EventAction::ClientRequest(ClientOpSpec::Rmw(..))
++    )
++}
++
++fn is_read(graph: &ExecutionPlan, idx: NodeIndex) -> bool {
++    matches!(graph[idx].action, EventAction::ClientRequest(ClientOpSpec::Read(..)))
++}
++
++/// Whether some recover has a mandatory edge to `idx`, which is what the
++/// post-fault pass leaves on the requests it reserves.
++fn reserved_by_a_recover(graph: &ExecutionPlan, idx: NodeIndex) -> bool {
++    graph
++        .neighbors_directed(idx, Direction::Incoming)
++        .any(|p| matches!(graph[p].action, EventAction::RecoverNode(_)))
++}
++
++/// Whether some write-like request has an edge to `idx`, which a read
++/// pulled behind a reserved write carries.
++fn pulled_behind_a_write(graph: &ExecutionPlan, idx: NodeIndex) -> bool {
++    graph
++        .neighbors_directed(idx, Direction::Incoming)
++        .any(|p| is_write_like(graph, p))
++}
++
++fn path_connected(graph: &ExecutionPlan, a: NodeIndex, b: NodeIndex) -> bool {
++    has_path_connecting(graph, a, b, None) || has_path_connecting(graph, b, a, None)
++}
++
++enum WritePick {
++    Write(NodeIndex),
++    /// No write-like request is free of a path to or from the recover.
++    NoWriteAvailable,
++    /// Taking the write would leave the plan with no write-like request
++    /// that no recover reserves.
++    LastFreeWrite,
++}
++
++/// The write the write-then-read cell reserves behind `recover`: the first
++/// write-like request in `candidates`, the stock shuffled list, that is
++/// not path-connected with the recover. Held back when it is the last
++/// write-like request outside the post-fault reservations.
++fn prefer_write(graph: &ExecutionPlan, recover: NodeIndex, candidates: &[NodeIndex]) -> WritePick {
++    let Some(write) = candidates
++        .iter()
++        .copied()
++        .find(|&c| is_write_like(graph, c) && !path_connected(graph, recover, c))
++    else {
++        return WritePick::NoWriteAvailable;
++    };
++    let free_after = graph
++        .node_indices()
++        .filter(|&i| i != write && is_write_like(graph, i) && !reserved_by_a_recover(graph, i))
++        .count();
++    if free_after == 0 {
++        WritePick::LastFreeWrite
++    } else {
++        WritePick::Write(write)
++    }
++}
++
++/// The read ordered behind `write`: the first read in `candidates` that is
++/// not path-connected with the write, preferring one no recover reserves
++/// and no other write has pulled.
++fn dependent_read(
++    graph: &ExecutionPlan,
++    write: NodeIndex,
++    candidates: &[NodeIndex],
++) -> Option<NodeIndex> {
++    let usable = |c: NodeIndex| is_read(graph, c) && !path_connected(graph, write, c);
++    candidates
++        .iter()
++        .copied()
++        .find(|&c| usable(c) && !reserved_by_a_recover(graph, c) && !pulled_behind_a_write(graph, c))
++        .or_else(|| candidates.iter().copied().find(|&c| usable(c)))
++}
++
++/// Readdress every request a recover reserves whose target is a server the
++/// plan crashes to a server it never crashes, drawn uniformly from `rng`.
++/// Requests are visited in index order. A plan that crashes every server
++/// is left as it is.
++fn retarget_reserved_to_survivors(
++    graph: &mut ExecutionPlan,
++    num_servers: i32,
++    rng: &mut impl Rng,
++) -> PlanShapeSurvivorRewrite {
++    let crashing: HashSet<i32> = graph
++        .node_indices()
++        .filter_map(|i| match graph[i].action {
++            EventAction::CrashNode(s) => Some(s),
++            _ => None,
++        })
++        .collect();
++    let survivors: Vec<i32> = (0..num_servers).filter(|s| !crashing.contains(s)).collect();
++    let mut rewrite = PlanShapeSurvivorRewrite::default();
++    let reserved: Vec<NodeIndex> = graph
++        .node_indices()
++        .filter(|&i| {
++            matches!(graph[i].action, EventAction::ClientRequest(_)) && reserved_by_a_recover(graph, i)
++        })
++        .collect();
++    rewrite.reserved_seen = reserved.len() as u64;
++    if survivors.is_empty() {
++        rewrite.plans_without_survivor = 1;
++        return rewrite;
++    }
++    for idx in reserved {
++        let EventAction::ClientRequest(spec) = &graph[idx].action else {
++            continue;
++        };
++        let target = match spec {
++            ClientOpSpec::Write(t, _) | ClientOpSpec::Read(t, _) | ClientOpSpec::Rmw(t, _) => *t,
++        };
++        if !crashing.contains(&target) {
++            continue;
++        }
++        let survivor = survivors[rng.random_range(0..survivors.len())];
++        let readdressed = match spec {
++            ClientOpSpec::Write(_, key) => ClientOpSpec::Write(survivor, key.clone()),
++            ClientOpSpec::Read(_, key) => ClientOpSpec::Read(survivor, key.clone()),
++            ClientOpSpec::Rmw(_, key) => ClientOpSpec::Rmw(survivor, key.clone()),
++        };
++        graph[idx].action = EventAction::ClientRequest(readdressed);
++        rewrite.reserved_retargeted += 1;
++    }
++    rewrite
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use petgraph::Direction;
+     use rand::SeedableRng;
+     use rand::rngs::SmallRng;
+ 
+@@ -330,6 +510,9 @@ mod tests {
+             max_concurrent_writes: Some(2),
+             post_fault_client_ops,
+             recover_deps: RecoverDeps::Stock,
++            survivor_target: SurvivorTarget::Stock,
++            post_fault_shape: PostFaultShape::Stock,
++            workload_seed: 0,
+         }
+     }
+ 
+@@ -521,4 +704,347 @@ mod tests {
+             );
+         }
+     }
++
++    use crate::simulator::path::plan::PlanEngine;
++    use std::collections::BTreeSet;
++
++    fn shape_config(num_write_ops: i32, dependency_density: f64, shape: PostFaultShape) -> GeneratorConfig {
++        GeneratorConfig {
++            num_write_ops,
++            dependency_density,
++            max_concurrent_writes: None,
++            post_fault_shape: shape,
++            ..config(1)
++        }
++    }
++
++    fn survivor_config(num_servers: i32, num_crashes: i32, cell: SurvivorTarget, seed: u64) -> GeneratorConfig {
++        GeneratorConfig {
++            num_servers,
++            num_crashes,
++            dependency_density: 0.3,
++            survivor_target: cell,
++            workload_seed: seed,
++            ..config(1)
++        }
++    }
++
++    fn target_of(plan: &ExecutionPlan, i: NodeIndex) -> Option<i32> {
++        match &plan[i].action {
++            EventAction::ClientRequest(ClientOpSpec::Write(t, _))
++            | EventAction::ClientRequest(ClientOpSpec::Read(t, _))
++            | EventAction::ClientRequest(ClientOpSpec::Rmw(t, _)) => Some(*t),
++            _ => None,
++        }
++    }
++
++    fn recovers(plan: &ExecutionPlan) -> Vec<NodeIndex> {
++        plan.node_indices()
++            .filter(|&i| matches!(plan[i].action, EventAction::RecoverNode(_)))
++            .collect()
++    }
++
++    fn client_successors(plan: &ExecutionPlan, of: NodeIndex) -> BTreeSet<NodeIndex> {
++        plan.neighbors_directed(of, Direction::Outgoing)
++            .filter(|&n| matches!(plan[n].action, EventAction::ClientRequest(_)))
++            .collect()
++    }
++
++    fn crashing_servers(plan: &ExecutionPlan) -> BTreeSet<i32> {
++        plan.node_indices()
++            .filter_map(|i| match plan[i].action {
++                EventAction::CrashNode(s) => Some(s),
++                _ => None,
++            })
++            .collect()
++    }
++
++    fn write_read_edges(plan: &ExecutionPlan) -> BTreeSet<(usize, usize)> {
++        edges(plan)
++            .into_iter()
++            .filter(|&(a, b)| {
++                is_write_like(plan, NodeIndex::new(a)) && is_read(plan, NodeIndex::new(b))
++            })
++            .collect()
++    }
++
++    fn free_writes(plan: &ExecutionPlan) -> usize {
++        plan.node_indices()
++            .filter(|&i| is_write_like(plan, i) && !reserved_by_a_recover(plan, i))
++            .count()
++    }
++
++    #[test]
++    fn the_stock_cells_leave_every_plan_the_baseline_plan_whatever_the_seed_field_says() {
++        for seed in 0..8u64 {
++            let general = GeneratorConfig {
++                workload_seed: seed.wrapping_mul(7919) + 1,
++                ..cell_config(0.3, 2, Some(2), RecoverDeps::Stock)
++            };
++            assert_eq!(fingerprint(&plan(general, seed)), BASELINE_GENERAL[seed as usize], "seed {seed}");
++        }
++        for seed in 0..32u64 {
++            let stock = plan(config(0), seed);
++            let treated = plan(
++                GeneratorConfig {
++                    survivor_target: SurvivorTarget::Survivor,
++                    post_fault_shape: PostFaultShape::WriteThenRead,
++                    workload_seed: seed,
++                    ..config(0)
++                },
++                seed,
++            );
++            assert_eq!(fingerprint(&stock), fingerprint(&treated), "seed {seed}: nothing is reserved, so nothing changes");
++        }
++    }
++
++    #[test]
++    fn the_survivor_cell_readdresses_exactly_the_reserved_requests_whose_target_crashes() {
++        let mut retargeted = 0;
++        let mut without_survivor = 0;
++        for seed in 0..192u64 {
++            let stock = plan(survivor_config(3, 3, SurvivorTarget::Stock, seed), seed);
++            let survivor = plan(survivor_config(3, 3, SurvivorTarget::Survivor, seed), seed);
++            let again = plan(survivor_config(3, 3, SurvivorTarget::Survivor, seed), seed);
++            // The post-fault pass runs before the probabilistic pass, so its
++            // reservations are the recover edges of the plan without one.
++            let mandatory = plan(
++                GeneratorConfig {
++                    dependency_density: 0.0,
++                    ..survivor_config(3, 3, SurvivorTarget::Stock, seed)
++                },
++                seed,
++            );
++            assert_eq!(fingerprint(&survivor), fingerprint(&again), "seed {seed}: the rewrite is not a function of the seed");
++            assert_eq!(stock.node_count(), survivor.node_count());
++            assert_eq!(edges(&stock), edges(&survivor), "seed {seed}: an edge changed");
++            let crashing = crashing_servers(&stock);
++            let survivors: BTreeSet<i32> = (0..3).filter(|s| !crashing.contains(s)).collect();
++            if survivors.is_empty() {
++                without_survivor += 1;
++                assert_eq!(fingerprint(&stock), fingerprint(&survivor), "seed {seed}: every server crashes and yet something changed");
++                continue;
++            }
++            for i in stock.node_indices() {
++                assert_eq!(stock[i], mandatory[i], "seed {seed}: the events differ");
++                let reserved = matches!(stock[i].action, EventAction::ClientRequest(_))
++                    && reserved_by_a_recover(&mandatory, i);
++                let target = target_of(&stock, i);
++                if reserved && target.is_some_and(|t| crashing.contains(&t)) {
++                    let new_target = target_of(&survivor, i).expect("still a client request");
++                    assert!(survivors.contains(&new_target), "seed {seed}: node {} moved to {new_target}, which crashes", i.index());
++                    let same_kind_and_key = match (&stock[i].action, &survivor[i].action) {
++                        (
++                            EventAction::ClientRequest(ClientOpSpec::Write(_, a)),
++                            EventAction::ClientRequest(ClientOpSpec::Write(_, b)),
++                        )
++                        | (
++                            EventAction::ClientRequest(ClientOpSpec::Read(_, a)),
++                            EventAction::ClientRequest(ClientOpSpec::Read(_, b)),
++                        )
++                        | (
++                            EventAction::ClientRequest(ClientOpSpec::Rmw(_, a)),
++                            EventAction::ClientRequest(ClientOpSpec::Rmw(_, b)),
++                        ) => a == b,
++                        _ => false,
++                    };
++                    assert!(same_kind_and_key, "seed {seed}: node {} changed kind or key", i.index());
++                    retargeted += 1;
++                } else {
++                    assert_eq!(stock[i], survivor[i], "seed {seed}: node {} is not a reserved request at a crashing target and yet changed", i.index());
++                }
++            }
++        }
++        assert!(retargeted > 50, "only {retargeted} requests were readdressed over 192 seeds");
++        assert!(without_survivor > 0, "no seed crashed every server");
++    }
++
++    #[test]
++    fn the_survivor_cell_draws_from_the_only_survivor_when_there_is_one() {
++        let mut moved = 0;
++        for seed in 0..64u64 {
++            let stock = plan(survivor_config(2, 1, SurvivorTarget::Stock, seed), seed);
++            let survivor = plan(survivor_config(2, 1, SurvivorTarget::Survivor, seed), seed);
++            let crashing = crashing_servers(&stock);
++            let only = (0..2).find(|s| !crashing.contains(s)).expect("one server survives");
++            for i in stock.node_indices() {
++                if stock[i] != survivor[i] {
++                    assert_eq!(target_of(&survivor, i), Some(only), "seed {seed}");
++                    moved += 1;
++                }
++            }
++        }
++        assert!(moved > 0);
++    }
++
++    fn hand_graph(writes: usize, reads: usize) -> (ExecutionPlan, Vec<NodeIndex>, Vec<NodeIndex>, NodeIndex, NodeIndex) {
++        let mut g: ExecutionPlan = DiGraph::new();
++        let key = ecow::EcoString::from("key1");
++        let ws: Vec<NodeIndex> = (0..writes)
++            .map(|_| g.add_node(PlannedEvent { action: EventAction::ClientRequest(ClientOpSpec::Write(0, key.clone())) }))
++            .collect();
++        let rs: Vec<NodeIndex> = (0..reads)
++            .map(|_| g.add_node(PlannedEvent { action: EventAction::ClientRequest(ClientOpSpec::Read(0, key.clone())) }))
++            .collect();
++        let r1 = g.add_node(PlannedEvent { action: EventAction::RecoverNode(0) });
++        let r2 = g.add_node(PlannedEvent { action: EventAction::RecoverNode(1) });
++        (g, ws, rs, r1, r2)
++    }
++
++    #[test]
++    fn prefer_write_takes_the_first_free_write_and_never_the_last_one() {
++        let (mut g, w, r, r1, r2) = hand_graph(3, 2);
++        assert!(matches!(prefer_write(&g, r1, &[r[0], w[2], w[0], r[1], w[1]]), WritePick::Write(x) if x == w[2]));
++        assert!(matches!(prefer_write(&g, r1, &[r[0], r[1]]), WritePick::NoWriteAvailable));
++        g.add_edge(r1, w[2], ());
++        assert!(matches!(prefer_write(&g, r1, &[w[2], r[0]]), WritePick::NoWriteAvailable), "a write ordered after the recover is not a candidate");
++        assert!(matches!(prefer_write(&g, r2, &[w[0], w[1]]), WritePick::Write(x) if x == w[0]));
++        g.add_edge(r2, w[0], ());
++        assert!(matches!(prefer_write(&g, r2, &[w[1], r[0]]), WritePick::LastFreeWrite), "w1 is the last write no recover reserves");
++        assert!(matches!(prefer_write(&g, r2, &[w[2], w[1]]), WritePick::Write(x) if x == w[2]), "a write another recover reserved leaves the free one free");
++
++        let (g, w, r, r1, _) = hand_graph(1, 2);
++        assert!(matches!(prefer_write(&g, r1, &[r[0], w[0], r[1]]), WritePick::LastFreeWrite));
++        let (g, _, r, r1, _) = hand_graph(0, 2);
++        assert!(matches!(prefer_write(&g, r1, &[r[0], r[1]]), WritePick::NoWriteAvailable));
++    }
++
++    #[test]
++    fn dependent_read_prefers_a_read_no_restart_or_write_has_claimed() {
++        let (mut g, w, r, r1, _) = hand_graph(2, 3);
++        g.add_edge(r1, r[0], ());
++        g.add_edge(w[1], r[1], ());
++        assert_eq!(dependent_read(&g, w[0], &[r[0], r[1], r[2]]), Some(r[2]));
++        assert_eq!(dependent_read(&g, w[0], &[r[1], r[0]]), Some(r[1]), "the first usable read is the fallback");
++        assert_eq!(dependent_read(&g, w[1], &[r[1], r[0]]), Some(r[0]), "a read behind this write is path-connected with it");
++        assert_eq!(dependent_read(&g, w[0], &[w[1]]), None);
++        g.add_edge(r[2], w[0], ());
++        assert_eq!(dependent_read(&g, w[0], &[r[2]]), None, "a read before the write cannot follow it");
++    }
++
++    #[test]
++    fn the_write_then_read_cell_reserves_a_write_and_pulls_a_read_when_writes_are_plenty() {
++        for seed in 0..64u64 {
++            let stock = plan(shape_config(3, 0.0, PostFaultShape::Stock), seed);
++            let treated = plan(shape_config(3, 0.0, PostFaultShape::WriteThenRead), seed);
++            for i in stock.node_indices() {
++                assert_eq!(stock[i], treated[i], "seed {seed}: the events differ");
++            }
++            assert!(!petgraph::algo::is_cyclic_directed(&treated), "seed {seed}");
++            let rs = recovers(&treated);
++            assert_eq!(rs.len(), 2);
++            let mut reserved_writes: Vec<NodeIndex> = Vec::new();
++            for r in &rs {
++                let succ = client_successors(&treated, *r);
++                assert_eq!(succ.len(), 1, "seed {seed}: one request per recover");
++                let w = *succ.iter().next().unwrap();
++                assert!(is_write_like(&treated, w), "seed {seed}: the reserved request is not a write");
++                reserved_writes.push(w);
++            }
++            for w in &reserved_writes {
++                let pulled: Vec<NodeIndex> = treated
++                    .neighbors_directed(*w, Direction::Outgoing)
++                    .filter(|&n| is_read(&treated, n))
++                    .collect();
++                let times_reserved = reserved_writes.iter().filter(|x| *x == w).count();
++                assert_eq!(pulled.len(), times_reserved, "seed {seed}: one read behind the write per reservation");
++                for read in pulled {
++                    assert!(!reserved_by_a_recover(&treated, read), "seed {seed}: a free read was available and not taken");
++                }
++            }
++            assert_eq!(write_read_edges(&treated).len(), 2, "seed {seed}");
++            assert!(free_writes(&treated) >= 1, "seed {seed}: no write is left outside the reservations");
++            let mut rest_stock = edges(&stock);
++            let mut rest_treated = edges(&treated);
++            for r in &rs {
++                rest_stock.retain(|(a, _)| *a != r.index());
++                rest_treated.retain(|(a, _)| *a != r.index());
++            }
++            rest_treated.retain(|e| !write_read_edges(&treated).contains(e));
++            assert_eq!(rest_stock, rest_treated, "seed {seed}: an edge other than the reservation and the pulled read changed");
++        }
++    }
++
++    #[test]
++    fn the_write_then_read_cell_keeps_one_write_free_when_writes_equal_recovers() {
++        let mut guard_fired = 0;
++        let mut same_write_twice = 0;
++        for seed in 0..128u64 {
++            let stock = plan(shape_config(2, 0.0, PostFaultShape::Stock), seed);
++            let treated = plan(shape_config(2, 0.0, PostFaultShape::WriteThenRead), seed);
++            assert!(!petgraph::algo::is_cyclic_directed(&treated), "seed {seed}");
++            let rs = recovers(&treated);
++            let first = client_successors(&treated, rs[0]);
++            assert_eq!(first.len(), 1, "seed {seed}");
++            assert!(first.iter().all(|&w| is_write_like(&treated, w)), "seed {seed}: the first recover did not take a write");
++            let second = client_successors(&treated, rs[1]);
++            let second_stock = client_successors(&stock, rs[1]);
++            if second == first {
++                assert_eq!(write_read_edges(&treated).len(), 2, "seed {seed}");
++                assert_eq!(free_writes(&treated), 1, "seed {seed}: the preference took the last free write");
++                same_write_twice += 1;
++            } else {
++                assert_eq!(second, second_stock, "seed {seed}: the guard did not make the stock choice");
++                assert_eq!(write_read_edges(&treated).len(), 1, "seed {seed}: a read was pulled behind a stock choice");
++                guard_fired += 1;
++            }
++        }
++        assert!(guard_fired > 0, "the guard never fired");
++        assert!(same_write_twice > 0, "the second recover never reserved the already reserved write");
++    }
++
++    #[test]
++    fn the_write_then_read_cell_makes_the_stock_choice_when_writes_are_fewer_than_recovers() {
++        for seed in 0..64u64 {
++            let stock = plan(shape_config(1, 0.0, PostFaultShape::Stock), seed);
++            let treated = plan(shape_config(1, 0.0, PostFaultShape::WriteThenRead), seed);
++            assert_eq!(fingerprint(&stock), fingerprint(&treated), "seed {seed}: the only write must stay outside the reservations");
++        }
++    }
++
++    #[test]
++    fn the_pulled_read_becomes_ready_only_when_the_write_completes() {
++        let mut checked = 0;
++        for seed in 0..32u64 {
++            let treated = plan(shape_config(3, 0.0, PostFaultShape::WriteThenRead), seed);
++            let mut engine = PlanEngine::new(treated.clone());
++            let ready0: BTreeSet<NodeIndex> = engine.get_ready_events().into_iter().map(|(i, _)| i).collect();
++            for r in recovers(&treated) {
++                let w = *client_successors(&treated, r).iter().next().unwrap();
++                let read = treated
++                    .neighbors_directed(w, Direction::Outgoing)
++                    .find(|&n| is_read(&treated, n))
++                    .unwrap();
++                assert!(!ready0.contains(&w), "seed {seed}: the reserved write is ready at step 0");
++                assert!(!ready0.contains(&read), "seed {seed}: the pulled read is ready at step 0");
++                let only_dep = treated.neighbors_directed(w, Direction::Incoming).count() == 1
++                    && treated.neighbors_directed(read, Direction::Incoming).count() == 1;
++                if !only_dep {
++                    continue;
++                }
++                let crash = treated
++                    .neighbors_directed(r, Direction::Incoming)
++                    .find(|&n| matches!(treated[n].action, EventAction::CrashNode(_)))
++                    .unwrap();
++                assert!(engine.mark_event_completed(crash).contains(&r));
++                let after_recover = engine.mark_event_completed(r);
++                assert!(after_recover.contains(&w), "seed {seed}: the recover does not release the write");
++                assert!(!after_recover.contains(&read), "seed {seed}: the recover released the read");
++                assert!(engine.mark_event_completed(w).contains(&read), "seed {seed}: the write's completion does not release the read");
++                checked += 1;
++            }
++        }
++        assert!(checked > 0);
++    }
++
++    #[test]
++    fn the_second_pass_keeps_every_write_read_edge_and_stays_acyclic() {
++        for seed in 0..64u64 {
++            let mandatory = plan(shape_config(3, 0.0, PostFaultShape::WriteThenRead), seed);
++            let dense = plan(shape_config(3, 0.5, PostFaultShape::WriteThenRead), seed);
++            assert!(!petgraph::algo::is_cyclic_directed(&dense), "seed {seed}");
++            assert!(edges(&mandatory).is_subset(&edges(&dense)), "seed {seed}: the pass dropped a mandatory edge");
++            assert_eq!(write_read_edges(&mandatory).len(), 2, "seed {seed}");
++        }
++    }
+ }
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 5f7a1a9..0d5e68e 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -22,11 +22,12 @@
+ //! a learner run depends on the learner's state when the run was drawn, so
+ //! those bits come from the selector's choice, not from the id.
+ //!
+-//! The plan-cell bit, `RECOVER_DEPS_EXEMPT`, names how the run's plan was
+-//! generated. A plan is a function of the workload seed, and a child run
+-//! keeps its parent's seed under a fresh id, so this bit follows the seed
+-//! and never the id: it is joined where the tag is assembled with the seed
+-//! at hand, and `from_run_id` cannot name it.
++//! The plan-cell bits, `RECOVER_DEPS_EXEMPT`, `POST_FAULT_SURVIVOR_TARGET`
++//! and `POST_FAULT_WRITE_THEN_READ`, name how the run's plan was generated.
++//! A plan is a function of the workload seed, and a child run keeps its
++//! parent's seed under a fresh id, so these bits follow the seed and never
++//! the id: they are joined where the tag is assembled with the seed at
++//! hand, through `plan_cell_bits`, and `from_run_id` cannot name them.
+ 
+ use crate::simulator::arm_selector;
+ use crate::simulator::client_anchor;
+@@ -35,12 +36,14 @@ use crate::simulator::fault_timing;
+ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+ use crate::simulator::pair_order;
++use crate::simulator::post_fault_shape::PostFaultShape;
+ use crate::simulator::recover_deps::RecoverDeps;
+ use crate::simulator::replay_corpus;
+ use crate::simulator::ghost_release;
+ use crate::simulator::run_cap;
+ use crate::simulator::stall_cap;
+ use crate::simulator::stall_release;
++use crate::simulator::survivor_target::SurvivorTarget;
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats;
+ 
+@@ -115,6 +118,17 @@ pub const ARM_SELECTOR_CONCENTRATED: i32 = 1 << 8;
+ /// The run's plan was generated with no probabilistic edge into a node
+ /// restart. A function of the workload seed, not of the run id.
+ pub const RECOVER_DEPS_EXEMPT: i32 = 1 << 13;
++/// The run's plan readdresses the client requests reserved behind a node
++/// restart to a server the plan never crashes. A function of the workload
++/// seed, not of the run id.
++pub const POST_FAULT_SURVIVOR_TARGET: i32 = 1 << 26;
++/// The run's plan reserves a write behind each node restart when one is
++/// free and orders one read behind that write's response. A function of
++/// the workload seed, not of the run id.
++pub const POST_FAULT_WRITE_THEN_READ: i32 = 1 << 29;
++/// Every bit that names a plan cell.
++pub const PLAN_CELL_BITS: i32 =
++    RECOVER_DEPS_EXEMPT | POST_FAULT_SURVIVOR_TARGET | POST_FAULT_WRITE_THEN_READ;
+ /// The run ends once it has gone the learned stall cap's worth of steps
+ /// without a progress mark. Never set on a run-cap or timer-context probe.
+ pub const STALL_CAP: i32 = 1 << 10;
+@@ -133,6 +147,32 @@ pub fn recover_deps_bits(cell: RecoverDeps) -> i32 {
+     }
+ }
+ 
++/// The bit that names the survivor-target cell a run's plan was generated
++/// under, or zero for the stock cell.
++pub fn survivor_target_bits(cell: SurvivorTarget) -> i32 {
++    match cell {
++        SurvivorTarget::Stock => 0,
++        SurvivorTarget::Survivor => POST_FAULT_SURVIVOR_TARGET,
++    }
++}
++
++/// The bit that names the post-fault shape cell a run's plan was generated
++/// under, or zero for the stock cell.
++pub fn post_fault_shape_bits(cell: PostFaultShape) -> i32 {
++    match cell {
++        PostFaultShape::Stock => 0,
++        PostFaultShape::WriteThenRead => POST_FAULT_WRITE_THEN_READ,
++    }
++}
++
++/// Every plan-cell bit the workload seed names. A child run that replays
++/// its parent's plan carries the parent's seed and so the same bits.
++pub fn plan_cell_bits(workload_seed: u64) -> i32 {
++    recover_deps_bits(RecoverDeps::of_workload_seed(workload_seed))
++        | survivor_target_bits(SurvivorTarget::of_workload_seed(workload_seed))
++        | post_fault_shape_bits(PostFaultShape::of_workload_seed(workload_seed))
++}
++
+ /// The direction a run takes on the crash-timing axis.
+ #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+ pub enum CrashArm {
+@@ -617,6 +657,43 @@ mod tests {
+         assert_eq!(recover_deps_bits(RecoverDeps::Stock), 0);
+     }
+ 
++    #[test]
++    fn every_plan_cell_bit_is_disjoint_from_every_id_bit_and_from_each_other() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        use crate::simulator::rng::{WORKLOAD_SALT, derive_seed};
++        assert_eq!(POST_FAULT_SURVIVOR_TARGET & POST_FAULT_WRITE_THEN_READ, 0);
++        assert_eq!(RECOVER_DEPS_EXEMPT & (POST_FAULT_SURVIVOR_TARGET | POST_FAULT_WRITE_THEN_READ), 0);
++        assert_eq!(survivor_target_bits(SurvivorTarget::Stock), 0);
++        assert_eq!(post_fault_shape_bits(PostFaultShape::Stock), 0);
++        let mut survivor = 0;
++        let mut write_read = 0;
++        let mut both = 0;
++        for id in 0..64_000i64 {
++            let id_bits = from_run_id(id) | grid_arm_bits(id);
++            assert_eq!(id_bits & PLAN_CELL_BITS, 0, "run {id}: an id bit shares a plan-cell bit");
++            let seed = derive_seed(3, id, WORKLOAD_SALT);
++            let cell = plan_cell_bits(seed);
++            assert_eq!(cell & !PLAN_CELL_BITS, 0);
++            assert_eq!(
++                cell,
++                recover_deps_bits(RecoverDeps::of_workload_seed(seed))
++                    | survivor_target_bits(SurvivorTarget::of_workload_seed(seed))
++                    | post_fault_shape_bits(PostFaultShape::of_workload_seed(seed))
++            );
++            let tag = of(id, &ArmSet::coins(id), None, false) | cell;
++            assert_eq!(tag & !cell, from_run_id(id), "run {id}: a cell bit touched an id bit");
++            let s = cell & POST_FAULT_SURVIVOR_TARGET != 0;
++            let w = cell & POST_FAULT_WRITE_THEN_READ != 0;
++            survivor += s as i64;
++            write_read += w as i64;
++            both += (s && w) as i64;
++        }
++        assert!(survivor > 30_000 && survivor < 34_000, "survivor takes {survivor} of 64000");
++        assert!(write_read > 30_000 && write_read < 34_000, "write-then-read takes {write_read} of 64000");
++        assert!(both > 14_500 && both < 17_500, "both take {both} of 64000");
++    }
++
+     #[test]
+     fn the_slot_bits_spare_every_probe_and_leave_a_contrast() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 537621d..9f00460 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -8,6 +8,8 @@
+ use crate::simulator::core::steer_terms::{Term, TERMS};
+ use crate::simulator::client_anchor;
+ use crate::simulator::recover_deps::RecoverDeps;
++use crate::simulator::post_fault_shape::PostFaultShape;
++use crate::simulator::survivor_target::SurvivorTarget;
+ use crate::simulator::run_variant;
+ use crate::simulator::fresh_first;
+ use serde::Serialize;
+@@ -363,6 +365,13 @@ static PFO_PAIRS_SEEN: AtomicU64 = AtomicU64::new(0);
+ static PFO_EDGES_ADDED: AtomicU64 = AtomicU64::new(0);
+ static PFO_OPS_AFTER_LAST_RECOVER: AtomicU64 = AtomicU64::new(0);
+ static PD_RECOVER_EDGES_DROPPED: AtomicU64 = AtomicU64::new(0);
++static PS_RESERVED_SEEN: AtomicU64 = AtomicU64::new(0);
++static PS_RESERVED_RETARGETED: AtomicU64 = AtomicU64::new(0);
++static PS_PLANS_WITHOUT_SURVIVOR: AtomicU64 = AtomicU64::new(0);
++static PS_PAIRS_ADDED: AtomicU64 = AtomicU64::new(0);
++static PS_NO_WRITE_AVAILABLE: AtomicU64 = AtomicU64::new(0);
++static PS_LAST_FREE_WRITE: AtomicU64 = AtomicU64::new(0);
++static PS_READ_UNAVAILABLE: AtomicU64 = AtomicU64::new(0);
+ static NOVELTY_ABLATED_RUNS: AtomicU64 = AtomicU64::new(0);
+ static MA_DECISIONS: AtomicU64 = AtomicU64::new(0);
+ static MA_CONTESTED_DECISIONS: AtomicU64 = AtomicU64::new(0);
+@@ -448,6 +457,9 @@ static TERMINATION: Mutex<TerminationStats> = Mutex::new(TerminationStats::new()
+ 
+ static PLAN_DEPS_CELLS: Mutex<[PlanDepsDensitySplit; 2]> =
+     Mutex::new([PlanDepsDensitySplit::new(); 2]);
++/// Per-run census of each crossed plan-shape cell, indexed by
++/// `plan_shape_cell_index`.
++static PLAN_SHAPE_CELLS: Mutex<[PlanShapeCensus; 4]> = Mutex::new([PlanShapeCensus::new(); 4]);
+ 
+ static PREFIX_EXTENSION: Mutex<PrefixExtensionStats> = Mutex::new(PrefixExtensionStats::new());
+ static PREFIX_EXTENSION_ENABLED: AtomicBool = AtomicBool::new(false);
+@@ -775,6 +787,13 @@ pub fn set_enabled(on: bool) {
+             &PFO_EDGES_ADDED,
+             &PFO_OPS_AFTER_LAST_RECOVER,
+             &PD_RECOVER_EDGES_DROPPED,
++            &PS_RESERVED_SEEN,
++            &PS_RESERVED_RETARGETED,
++            &PS_PLANS_WITHOUT_SURVIVOR,
++            &PS_PAIRS_ADDED,
++            &PS_NO_WRITE_AVAILABLE,
++            &PS_LAST_FREE_WRITE,
++            &PS_READ_UNAVAILABLE,
+             &NOVELTY_ABLATED_RUNS,
+             &MA_DECISIONS,
+             &MA_CONTESTED_DECISIONS,
+@@ -844,6 +863,11 @@ pub fn set_enabled(on: bool) {
+             *c = [PlanDepsDensitySplit::new(); 2];
+         }
+         PLAN_DEPS_RUN.with(|r| r.set(None));
++        if let Ok(mut c) = PLAN_SHAPE_CELLS.lock() {
++            *c = [PlanShapeCensus::new(); 4];
++        }
++        PLAN_SHAPE_RUN.with(|r| r.set(None));
++        PLAN_SHAPE_CENSUS.with(|c| *c.borrow_mut() = PlanShapeRun::default());
+         if let Ok(mut p) = PREFIX_EXTENSION.lock() {
+             *p = PrefixExtensionStats::new();
+         }
+@@ -1785,6 +1809,12 @@ thread_local! {
+     /// plan runs and consumed when the run terminates, so a run that never
+     /// registered contributes to no cell.
+     static PLAN_DEPS_RUN: std::cell::Cell<Option<(RecoverDeps, bool)>> = const { std::cell::Cell::new(None) };
++    /// The plan-shape cells the run about to execute on this thread
++    /// generated its plan under. Set before the plan runs and consumed when
++    /// the run terminates.
++    static PLAN_SHAPE_RUN: std::cell::Cell<Option<(SurvivorTarget, PostFaultShape)>> = const { std::cell::Cell::new(None) };
++    /// The plan-shape census of the run executing on this thread.
++    static PLAN_SHAPE_CENSUS: RefCell<PlanShapeRun> = RefCell::new(PlanShapeRun::default());
+ }
+ 
+ /// Fold this thread's finished run into the per-run tallies. Idempotent, so it
+@@ -1856,6 +1886,7 @@ pub fn begin_run() {
+         c.quiet_longest = 0;
+         c.finalized = false;
+     });
++    PLAN_SHAPE_CENSUS.with(|c| *c.borrow_mut() = PlanShapeRun::default());
+ }
+ 
+ /// The plan generator examined one crash-and-recover pair for post-fault client
+@@ -1979,6 +2010,402 @@ fn fold_plan_deps_run(s: &RunTermination) {
+     }
+ }
+ 
++/// What the survivor rewrite did to one plan.
++#[derive(Clone, Copy, Debug, Default)]
++pub struct PlanShapeSurvivorRewrite {
++    /// Client requests with a mandatory edge from a recover.
++    pub reserved_seen: u64,
++    /// Those whose target the plan crashes, readdressed to a survivor.
++    pub reserved_retargeted: u64,
++    /// One when the plan crashes every server and nothing is readdressed.
++    pub plans_without_survivor: u64,
++}
++
++/// What the write-then-read pass did to one plan.
++#[derive(Clone, Copy, Debug, Default)]
++pub struct PlanShapeWriteReadPass {
++    /// Recovers behind which a write was reserved and a read pulled behind
++    /// that write.
++    pub pairs_added: u64,
++    /// Recovers that made the stock choice because no write-like request
++    /// was free of a path to or from them.
++    pub no_write_available: u64,
++    /// Recovers that made the stock choice because the write would have
++    /// been the last one outside the post-fault reservations.
++    pub last_free_write: u64,
++    /// Recovers behind which a write was reserved and no read could be
++    /// pulled behind it.
++    pub read_unavailable: u64,
++}
++
++/// The plan generator finished one plan on the survivor cell.
++pub fn record_plan_shape_survivor(r: &PlanShapeSurvivorRewrite) {
++    if !enabled() {
++        return;
++    }
++    PS_RESERVED_SEEN.fetch_add(r.reserved_seen, Ordering::Relaxed);
++    PS_RESERVED_RETARGETED.fetch_add(r.reserved_retargeted, Ordering::Relaxed);
++    PS_PLANS_WITHOUT_SURVIVOR.fetch_add(r.plans_without_survivor, Ordering::Relaxed);
++}
++
++/// The plan generator finished one plan on the write-then-read cell.
++pub fn record_plan_shape_write_read(p: &PlanShapeWriteReadPass) {
++    if !enabled() {
++        return;
++    }
++    PS_PAIRS_ADDED.fetch_add(p.pairs_added, Ordering::Relaxed);
++    PS_NO_WRITE_AVAILABLE.fetch_add(p.no_write_available, Ordering::Relaxed);
++    PS_LAST_FREE_WRITE.fetch_add(p.last_free_write, Ordering::Relaxed);
++    PS_READ_UNAVAILABLE.fetch_add(p.read_unavailable, Ordering::Relaxed);
++}
++
++/// The run about to execute on this thread generated its plan under these
++/// cells. Its census is then folded into that crossed cell's tally.
++pub fn record_plan_shape_run(survivor: SurvivorTarget, shape: PostFaultShape) {
++    if !enabled() {
++        return;
++    }
++    PLAN_SHAPE_RUN.with(|r| r.set(Some((survivor, shape))));
++}
++
++/// The index of a crossed plan-shape cell in `PLAN_SHAPE_CELLS`.
++fn plan_shape_cell_index(survivor: SurvivorTarget, shape: PostFaultShape) -> usize {
++    survivor.index() + 2 * shape.index()
++}
++
++/// A client request handed to a client node, read against the servers'
++/// restart state at that step.
++#[derive(Clone, Copy, Debug)]
++pub struct PlanShapeInvocation {
++    pub op_id: i32,
++    /// The request is a write or a read-modify-write.
++    pub write_like: bool,
++    /// The request's target has never restarted.
++    pub target_never_restarted: bool,
++    /// At least two servers have restarted.
++    pub two_servers_restarted: bool,
++}
++
++/// A client operation's response, read against the servers' restart state
++/// at that step and the network queue.
++#[derive(Clone, Copy, Debug)]
++pub struct PlanShapeResponse {
++    pub op_id: i32,
++    /// The operation is a write or a read-modify-write.
++    pub write_like: bool,
++    /// The server whose reply the client last took before responding,
++    /// with that server's incarnation when it replied.
++    pub responder: Option<(usize, u32)>,
++    /// At least two servers have restarted.
++    pub two_servers_restarted: bool,
++    /// Distinct dead incarnations of other servers with a record addressed
++    /// to the responder still in the network queue.
++    pub stranded_dead_incarnations: usize,
++}
++
++/// One run's plan-shape census and the operations it is following.
++#[derive(Debug, Default)]
++struct PlanShapeRun {
++    census: PlanShapeCensus,
++    /// Writes invoked while at least two servers had restarted, until
++    /// their response arrives.
++    post_restart_writes: HashSet<i32>,
++    /// Servers, as a bit set over their indices, that answered a
++    /// post-restart write while they had never restarted.
++    acking_servers: u64,
++    /// A post-restart write has been answered.
++    post_restart_ack_seen: bool,
++    /// A write was answered at a never-restarted server after two restarts
++    /// with records from two dead incarnations still queued to it.
++    stranded_ack_seen: bool,
++    /// Reads invoked after a post-restart write's ack that are still
++    /// unanswered: the acking servers as of the read's invocation, and
++    /// whether the read was already counted as outstanding at a state
++    /// move of one of them.
++    reads_after_ack: HashMap<i32, (u64, bool)>,
++}
++
++/// A planned client request was handed to a client node.
++pub fn record_plan_shape_invocation(inv: &PlanShapeInvocation) {
++    if !enabled() {
++        return;
++    }
++    PLAN_SHAPE_CENSUS.with(|c| {
++        let mut c = c.borrow_mut();
++        if inv.two_servers_restarted && inv.target_never_restarted {
++            c.census.post_restart_invocations_at_survivor += 1;
++            if inv.write_like {
++                c.census.post_restart_writes_at_survivor += 1;
++            } else {
++                c.census.post_restart_reads_at_survivor += 1;
++            }
++        }
++        if inv.write_like {
++            if inv.two_servers_restarted {
++                c.census.post_restart_writes_invoked += 1;
++                c.post_restart_writes.insert(inv.op_id);
++            }
++        } else {
++            if c.stranded_ack_seen {
++                c.census.reads_invoked_after_such_ack += 1;
++            }
++            if c.post_restart_ack_seen {
++                c.census.reads_invoked_after_post_restart_write_ack += 1;
++                let acking = c.acking_servers;
++                c.reads_after_ack.insert(inv.op_id, (acking, false));
++            }
++        }
++    });
++}
++
++/// A client operation's response was recorded.
++pub fn record_plan_shape_response(resp: &PlanShapeResponse) {
++    if !enabled() {
++        return;
++    }
++    PLAN_SHAPE_CENSUS.with(|c| {
++        let mut c = c.borrow_mut();
++        if !resp.write_like {
++            c.reads_after_ack.remove(&resp.op_id);
++            return;
++        }
++        let responder_never_restarted = resp.responder.is_some_and(|(_, inc)| inc == 0);
++        if resp.two_servers_restarted && responder_never_restarted {
++            c.census.acked_writes_at_survivor_after_two_restarts += 1;
++            if resp.stranded_dead_incarnations >= 2 {
++                c.census.acked_writes_with_stranded_records += 1;
++                c.stranded_ack_seen = true;
++            }
++        }
++        if c.post_restart_writes.remove(&resp.op_id) {
++            c.census.post_restart_write_acks += 1;
++            c.post_restart_ack_seen = true;
++            if let Some((server, 0)) = resp.responder
++                && server < u64::BITS as usize
++            {
++                c.acking_servers |= 1 << server;
++            }
++        }
++    });
++}
++
++/// `server`, which has never restarted, took a delivery from a restarted
++/// peer's current incarnation that changed its state. Counts the reads
++/// invoked after `server` answered a post-restart write and still
++/// unanswered now, each once.
++pub fn record_plan_shape_state_move(server: usize) {
++    if !enabled() {
++        return;
++    }
++    if server >= u64::BITS as usize {
++        return;
++    }
++    let bit = 1u64 << server;
++    PLAN_SHAPE_CENSUS.with(|c| {
++        let mut c = c.borrow_mut();
++        let mut newly = 0u64;
++        for (acking, counted) in c.reads_after_ack.values_mut() {
++            if *acking & bit != 0 && !*counted {
++                *counted = true;
++                newly += 1;
++            }
++        }
++        c.census.reads_outstanding_at_survivor_state_move_post_ack += newly;
++    });
++}
++
++fn fold_plan_shape_run() {
++    let Some((survivor, shape)) = PLAN_SHAPE_RUN.with(|r| r.take()) else {
++        return;
++    };
++    let census = PLAN_SHAPE_CENSUS.with(|c| std::mem::take(&mut *c.borrow_mut()).census);
++    if let Ok(mut cells) = PLAN_SHAPE_CELLS.lock() {
++        let cell = &mut cells[plan_shape_cell_index(survivor, shape)];
++        cell.add(&census);
++        cell.runs += 1;
++    }
++}
++
++/// The per-run census of one plan-shape cell, summed over its runs.
++///
++/// A server has restarted when its incarnation is above zero; "two
++/// restarts" means at least two servers have. `post_restart_*_at_survivor`
++/// count client requests invoked at a target that has never restarted
++/// while two servers had, split by kind. `acked_writes_at_survivor_after_two_restarts`
++/// counts write responses whose replying server had never restarted while
++/// two servers had, whatever the invocation's target;
++/// `acked_writes_with_stranded_records` the subset answered while records
++/// from at least two distinct dead incarnations were still queued to that
++/// server, and `reads_invoked_after_such_ack` the reads invoked after one
++/// of those. `post_restart_writes_invoked` counts writes invoked while two
++/// servers had restarted, `post_restart_write_acks` their responses,
++/// `reads_invoked_after_post_restart_write_ack` the reads invoked after
++/// one of those responses, and
++/// `reads_outstanding_at_survivor_state_move_post_ack` the subset still
++/// unanswered when a never-restarted server that answered such a write
++/// took a state-changing delivery from a restarted peer's current
++/// incarnation.
++#[derive(Clone, Copy, Debug, Default, Serialize)]
++pub struct PlanShapeCensus {
++    pub runs: u64,
++    pub post_restart_invocations_at_survivor: u64,
++    pub post_restart_writes_at_survivor: u64,
++    pub post_restart_reads_at_survivor: u64,
++    pub acked_writes_at_survivor_after_two_restarts: u64,
++    pub acked_writes_with_stranded_records: u64,
++    pub reads_invoked_after_such_ack: u64,
++    pub post_restart_writes_invoked: u64,
++    pub post_restart_write_acks: u64,
++    pub reads_invoked_after_post_restart_write_ack: u64,
++    pub reads_outstanding_at_survivor_state_move_post_ack: u64,
++}
++
++impl PlanShapeCensus {
++    const fn new() -> Self {
++        Self {
++            runs: 0,
++            post_restart_invocations_at_survivor: 0,
++            post_restart_writes_at_survivor: 0,
++            post_restart_reads_at_survivor: 0,
++            acked_writes_at_survivor_after_two_restarts: 0,
++            acked_writes_with_stranded_records: 0,
++            reads_invoked_after_such_ack: 0,
++            post_restart_writes_invoked: 0,
++            post_restart_write_acks: 0,
++            reads_invoked_after_post_restart_write_ack: 0,
++            reads_outstanding_at_survivor_state_move_post_ack: 0,
++        }
++    }
++
++    fn add(&mut self, o: &Self) {
++        self.runs += o.runs;
++        self.post_restart_invocations_at_survivor += o.post_restart_invocations_at_survivor;
++        self.post_restart_writes_at_survivor += o.post_restart_writes_at_survivor;
++        self.post_restart_reads_at_survivor += o.post_restart_reads_at_survivor;
++        self.acked_writes_at_survivor_after_two_restarts +=
++            o.acked_writes_at_survivor_after_two_restarts;
++        self.acked_writes_with_stranded_records += o.acked_writes_with_stranded_records;
++        self.reads_invoked_after_such_ack += o.reads_invoked_after_such_ack;
++        self.post_restart_writes_invoked += o.post_restart_writes_invoked;
++        self.post_restart_write_acks += o.post_restart_write_acks;
++        self.reads_invoked_after_post_restart_write_ack +=
++            o.reads_invoked_after_post_restart_write_ack;
++        self.reads_outstanding_at_survivor_state_move_post_ack +=
++            o.reads_outstanding_at_survivor_state_move_post_ack;
++    }
++}
++
++/// The census on each half of the survivor-target split, summed over the
++/// other cell.
++#[derive(Clone, Copy, Debug, Serialize)]
++pub struct PlanShapeSurvivorCells {
++    pub stock: PlanShapeCensus,
++    pub survivor: PlanShapeCensus,
++}
++
++/// The survivor-target block. `reserved_retargeted` is the number the
++/// rewrite is read as having fired.
++#[derive(Clone, Copy, Debug, Serialize)]
++pub struct PlanShapeSurvivorStats {
++    pub reserved_seen: u64,
++    pub reserved_retargeted: u64,
++    pub plans_without_survivor: u64,
++    pub cell: PlanShapeSurvivorCells,
++}
++
++/// Recovers on the write-then-read cell that made the stock choice, by
++/// why the write preference was skipped.
++#[derive(Clone, Copy, Debug, Serialize)]
++pub struct PlanShapeWriteFallbacks {
++    pub no_write_available: u64,
++    pub last_free_write: u64,
++}
++
++/// The census on each half of the post-fault shape split, summed over the
++/// other cell.
++#[derive(Clone, Copy, Debug, Serialize)]
++pub struct PlanShapeWriteReadCells {
++    pub stock: PlanShapeCensus,
++    pub write_then_read: PlanShapeCensus,
++}
++
++/// The write-then-read block. `pairs_added` is the number the pass is read
++/// as having fired.
++#[derive(Clone, Copy, Debug, Serialize)]
++pub struct PlanShapeWriteReadStats {
++    pub pairs_added: u64,
++    pub write_fallbacks: PlanShapeWriteFallbacks,
++    pub read_unavailable: u64,
++    pub cell: PlanShapeWriteReadCells,
++}
++
++/// The census of each crossed cell, so either split can be read matched
++/// on the other.
++#[derive(Clone, Copy, Debug, Serialize)]
++pub struct PlanShapeCrossedCells {
++    pub stock: PlanShapeCensus,
++    pub survivor_only: PlanShapeCensus,
++    pub write_then_read_only: PlanShapeCensus,
++    pub both: PlanShapeCensus,
++}
++
++/// How the plan generator shaped the client requests reserved behind node
++/// restarts, and the per-run census of each cell.
++#[derive(Clone, Copy, Debug, Serialize)]
++pub struct PlanShapeStats {
++    pub survivor: PlanShapeSurvivorStats,
++    pub write_read: PlanShapeWriteReadStats,
++    pub crossed: PlanShapeCrossedCells,
++}
++
++impl PlanShapeStats {
++    fn read() -> Self {
++        let cells = PLAN_SHAPE_CELLS
++            .lock()
++            .map(|c| *c)
++            .unwrap_or_else(|p| *p.into_inner());
++        let at = |s: SurvivorTarget, w: PostFaultShape| cells[plan_shape_cell_index(s, w)];
++        let sum = |a: PlanShapeCensus, b: PlanShapeCensus| {
++            let mut out = a;
++            out.add(&b);
++            out
++        };
++        let stock_stock = at(SurvivorTarget::Stock, PostFaultShape::Stock);
++        let survivor_only = at(SurvivorTarget::Survivor, PostFaultShape::Stock);
++        let write_only = at(SurvivorTarget::Stock, PostFaultShape::WriteThenRead);
++        let both = at(SurvivorTarget::Survivor, PostFaultShape::WriteThenRead);
++        Self {
++            survivor: PlanShapeSurvivorStats {
++                reserved_seen: PS_RESERVED_SEEN.load(Ordering::Relaxed),
++                reserved_retargeted: PS_RESERVED_RETARGETED.load(Ordering::Relaxed),
++                plans_without_survivor: PS_PLANS_WITHOUT_SURVIVOR.load(Ordering::Relaxed),
++                cell: PlanShapeSurvivorCells {
++                    stock: sum(stock_stock, write_only),
++                    survivor: sum(survivor_only, both),
++                },
++            },
++            write_read: PlanShapeWriteReadStats {
++                pairs_added: PS_PAIRS_ADDED.load(Ordering::Relaxed),
++                write_fallbacks: PlanShapeWriteFallbacks {
++                    no_write_available: PS_NO_WRITE_AVAILABLE.load(Ordering::Relaxed),
++                    last_free_write: PS_LAST_FREE_WRITE.load(Ordering::Relaxed),
++                },
++                read_unavailable: PS_READ_UNAVAILABLE.load(Ordering::Relaxed),
++                cell: PlanShapeWriteReadCells {
++                    stock: sum(stock_stock, survivor_only),
++                    write_then_read: sum(write_only, both),
++                },
++            },
++            crossed: PlanShapeCrossedCells {
++                stock: stock_stock,
++                survivor_only,
++                write_then_read_only: write_only,
++                both,
++            },
++        }
++    }
++}
++
+ /// A planned client operation was handed to a client node. Only invocations
+ /// that follow every recover in the run are reported, so this is the execution
+ /// side of the same question the generator edges are meant to force.
+@@ -2908,6 +3335,7 @@ pub fn record_run_termination(s: &RunTermination) {
+         s.steps_used
+     );
+     fold_plan_deps_run(s);
++    fold_plan_shape_run();
+     finish_run();
+     let bucket = s.recovered_nodes.min(2);
+     if let Ok(mut t) = TERMINATION.lock() {
+@@ -6019,6 +6447,7 @@ pub struct UtilizationSnapshot {
+     pub ordered_h3: OrderedH3Stats,
+     pub post_fault_ops: PostFaultOpsStats,
+     pub plan_deps: PlanDepsStats,
++    pub plan_shape: PlanShapeStats,
+     pub delivery_effects: DeliveryEffectStats,
+     pub timer_effects: TimerEffectStats,
+     pub timer_steer: TimerSteerStats,
+@@ -6202,6 +6631,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+                 exempt: cells[RecoverDeps::Exempt.index()],
+             }
+         },
++        plan_shape: PlanShapeStats::read(),
+         delivery_effects: DeliveryEffectStats {
+             all: DeliveryEffect::read(DELIVERY_ALL),
+             biased: DeliveryEffect::read(DELIVERY_BIASED),
+@@ -7105,4 +7535,147 @@ mod tests {
+         // reports none rather than declaring saturation early.
+         assert_eq!(s.saturation_run_index, 0);
+     }
++
++    fn plan_shape_run_end() -> RunTermination {
++        RunTermination {
++            end: RunEnd::PlanComplete,
++            steps_used: 1,
++            step_budget: 1,
++            pending_work_at_exit: 0,
++            planned_events_outstanding: 0,
++            recovered_nodes: 2,
++        }
++    }
++
++    fn invoked(op_id: i32, write_like: bool, target_never_restarted: bool, two_servers_restarted: bool) {
++        record_plan_shape_invocation(&PlanShapeInvocation {
++            op_id,
++            write_like,
++            target_never_restarted,
++            two_servers_restarted,
++        });
++    }
++
++    fn answered(op_id: i32, write_like: bool, responder: Option<(usize, u32)>, stranded: usize) {
++        record_plan_shape_response(&PlanShapeResponse {
++            op_id,
++            write_like,
++            responder,
++            two_servers_restarted: true,
++            stranded_dead_incarnations: stranded,
++        });
++    }
++
++    #[test]
++    fn plan_shape_census_counts_each_condition_into_the_runs_crossed_cell() {
++        let _serial = config_override::exclusive_session();
++        set_enabled(true);
++        record_plan_shape_run(SurvivorTarget::Survivor, PostFaultShape::WriteThenRead);
++        begin_run();
++        invoked(1, true, true, false);
++        invoked(2, true, true, true);
++        invoked(3, false, false, true);
++        invoked(4, false, true, true);
++        answered(1, true, Some((0, 0)), 2);
++        answered(2, true, Some((1, 1)), 5);
++        invoked(5, false, true, true);
++        record_plan_shape_state_move(0);
++        invoked(6, true, false, true);
++        answered(6, true, Some((0, 0)), 1);
++        record_plan_shape_state_move(0);
++        invoked(7, false, true, true);
++        record_plan_shape_state_move(1);
++        record_plan_shape_state_move(0);
++        record_plan_shape_state_move(0);
++        answered(7, false, Some((2, 0)), 3);
++        record_plan_shape_state_move(0);
++        answered(8, true, None, 0);
++        record_run_termination(&plan_shape_run_end());
++
++        let s = snapshot().plan_shape;
++        let both = s.crossed.both;
++        assert_eq!(both.runs, 1);
++        assert_eq!(both.post_restart_invocations_at_survivor, 4);
++        assert_eq!(both.post_restart_writes_at_survivor, 1);
++        assert_eq!(both.post_restart_reads_at_survivor, 3);
++        assert_eq!(both.acked_writes_at_survivor_after_two_restarts, 2);
++        assert_eq!(both.acked_writes_with_stranded_records, 1);
++        assert_eq!(both.reads_invoked_after_such_ack, 2);
++        assert_eq!(both.post_restart_writes_invoked, 2);
++        assert_eq!(both.post_restart_write_acks, 2);
++        assert_eq!(both.reads_invoked_after_post_restart_write_ack, 2);
++        assert_eq!(both.reads_outstanding_at_survivor_state_move_post_ack, 1);
++        for empty in [s.crossed.stock, s.crossed.survivor_only, s.crossed.write_then_read_only] {
++            assert_eq!(empty.runs, 0);
++            assert_eq!(empty.post_restart_invocations_at_survivor, 0);
++        }
++        assert_eq!(s.survivor.cell.survivor.runs, 1);
++        assert_eq!(s.survivor.cell.survivor.reads_outstanding_at_survivor_state_move_post_ack, 1);
++        assert_eq!(s.survivor.cell.stock.runs, 0);
++        assert_eq!(s.write_read.cell.write_then_read.runs, 1);
++        assert_eq!(s.write_read.cell.write_then_read.acked_writes_with_stranded_records, 1);
++        assert_eq!(s.write_read.cell.stock.runs, 0);
++
++        record_plan_shape_run(SurvivorTarget::Stock, PostFaultShape::Stock);
++        begin_run();
++        invoked(1, true, true, true);
++        record_run_termination(&plan_shape_run_end());
++        begin_run();
++        invoked(1, true, true, true);
++        record_run_termination(&plan_shape_run_end());
++        let s = snapshot().plan_shape;
++        assert_eq!(s.crossed.stock.runs, 1);
++        assert_eq!(s.crossed.stock.post_restart_writes_at_survivor, 1);
++        assert_eq!(s.survivor.cell.stock.post_restart_writes_at_survivor, 1);
++        assert_eq!(s.survivor.cell.survivor.post_restart_writes_at_survivor, 1);
++        assert_eq!(s.write_read.cell.stock.post_restart_writes_at_survivor, 1);
++        assert_eq!(s.write_read.cell.write_then_read.post_restart_writes_at_survivor, 1);
++        assert_eq!(s.crossed.both.runs + s.crossed.stock.runs, 2, "a run without a registered cell folded somewhere");
++
++        set_enabled(true);
++        let s = snapshot().plan_shape;
++        for cell in [s.crossed.stock, s.crossed.survivor_only, s.crossed.write_then_read_only, s.crossed.both] {
++            assert_eq!(cell.runs, 0);
++            assert_eq!(cell.post_restart_writes_at_survivor, 0);
++        }
++    }
++
++    #[test]
++    fn plan_shape_plan_time_counters_reach_the_snapshot_and_reset() {
++        let _serial = config_override::exclusive_session();
++        set_enabled(true);
++        record_plan_shape_survivor(&PlanShapeSurvivorRewrite {
++            reserved_seen: 3,
++            reserved_retargeted: 2,
++            plans_without_survivor: 1,
++        });
++        record_plan_shape_survivor(&PlanShapeSurvivorRewrite {
++            reserved_seen: 1,
++            reserved_retargeted: 0,
++            plans_without_survivor: 0,
++        });
++        record_plan_shape_write_read(&PlanShapeWriteReadPass {
++            pairs_added: 4,
++            no_write_available: 1,
++            last_free_write: 2,
++            read_unavailable: 1,
++        });
++        let s = snapshot().plan_shape;
++        assert_eq!(s.survivor.reserved_seen, 4);
++        assert_eq!(s.survivor.reserved_retargeted, 2);
++        assert_eq!(s.survivor.plans_without_survivor, 1);
++        assert_eq!(s.write_read.pairs_added, 4);
++        assert_eq!(s.write_read.write_fallbacks.no_write_available, 1);
++        assert_eq!(s.write_read.write_fallbacks.last_free_write, 2);
++        assert_eq!(s.write_read.read_unavailable, 1);
++        set_enabled(true);
++        let s = snapshot().plan_shape;
++        assert_eq!(s.survivor.reserved_seen, 0);
++        assert_eq!(s.survivor.reserved_retargeted, 0);
++        assert_eq!(s.survivor.plans_without_survivor, 0);
++        assert_eq!(s.write_read.pairs_added, 0);
++        assert_eq!(s.write_read.write_fallbacks.no_write_available, 0);
++        assert_eq!(s.write_read.write_fallbacks.last_free_write, 0);
++        assert_eq!(s.write_read.read_unavailable, 0);
++    }
+ }
+diff --git a/spur-core/tests/client_anchor_release.rs b/spur-core/tests/client_anchor_release.rs
+index f101ced..5cb043d 100644
+--- a/spur-core/tests/client_anchor_release.rs
++++ b/spur-core/tests/client_anchor_release.rs
+@@ -132,7 +132,7 @@ fn session(
+             run_id,
+             run_config,
+             &Default::default(),
+-            0x_C0FF_EE00 ^ run_id as u64,
++            workload_seed(run_id),
+             0x_5EED_1234 ^ run_id as u64,
+             None,
+             &RunAttribution::mode("test"),
+@@ -181,11 +181,25 @@ fn seed_span() {
+     );
+ }
+ 
++/// The seed a run's plan is generated from in these sessions.
++fn workload_seed(run_id: i64) -> u64 {
++    0x_C0FF_EE00 ^ run_id as u64
++}
++
++/// Whether the run's plan makes every client request ready at step 0 or at
++/// a restart: the post-fault shape cells that order a read behind a
++/// reserved write's response can make a request ready inside the hold's
++/// expiry of the step budget, which the invariants here do not describe.
++fn requests_ready_at_a_restart(run_id: i64) -> bool {
++    run_variant::plan_cell_bits(workload_seed(run_id)) & run_variant::POST_FAULT_WRITE_THEN_READ == 0
++}
++
+ fn placed_ids(treated: bool, n: usize) -> Vec<i64> {
+     let ids: Vec<i64> = (0..1_000_000i64)
+         .filter(|&id| {
+             client_anchor::is_treated(id) == treated
+                 && fault_timing::is_placed(id)
++                && requests_ready_at_a_restart(id)
+         })
+         .take(n)
+         .collect();
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 1389681..c444132 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, PlanShapeCensus, PlanShapeCrossedCells, PlanShapeStats, PlanShapeSurvivorCells, PlanShapeSurvivorStats, PlanShapeWriteFallbacks, PlanShapeWriteReadCells, PlanShapeWriteReadStats, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -257,6 +257,142 @@ fn plan_deps_leaves(prefix: &str, p: &PlanDepsStats) -> Vec<(String, Value)> {
+     out
+ }
+ 
++fn plan_shape_census(m: &mut Marks) -> PlanShapeCensus {
++    PlanShapeCensus {
++        runs: m.int(),
++        post_restart_invocations_at_survivor: m.int(),
++        post_restart_writes_at_survivor: m.int(),
++        post_restart_reads_at_survivor: m.int(),
++        acked_writes_at_survivor_after_two_restarts: m.int(),
++        acked_writes_with_stranded_records: m.int(),
++        reads_invoked_after_such_ack: m.int(),
++        post_restart_writes_invoked: m.int(),
++        post_restart_write_acks: m.int(),
++        reads_invoked_after_post_restart_write_ack: m.int(),
++        reads_outstanding_at_survivor_state_move_post_ack: m.int(),
++    }
++}
++
++fn plan_shape_census_leaves(prefix: &str, c: &PlanShapeCensus) -> Vec<(String, Value)> {
++    let PlanShapeCensus {
++        runs,
++        post_restart_invocations_at_survivor,
++        post_restart_writes_at_survivor,
++        post_restart_reads_at_survivor,
++        acked_writes_at_survivor_after_two_restarts,
++        acked_writes_with_stranded_records,
++        reads_invoked_after_such_ack,
++        post_restart_writes_invoked,
++        post_restart_write_acks,
++        reads_invoked_after_post_restart_write_ack,
++        reads_outstanding_at_survivor_state_move_post_ack,
++    } = c;
++    vec![
++        leaf(prefix, "runs", *runs),
++        leaf(prefix, "post_restart_invocations_at_survivor", *post_restart_invocations_at_survivor),
++        leaf(prefix, "post_restart_writes_at_survivor", *post_restart_writes_at_survivor),
++        leaf(prefix, "post_restart_reads_at_survivor", *post_restart_reads_at_survivor),
++        leaf(
++            prefix,
++            "acked_writes_at_survivor_after_two_restarts",
++            *acked_writes_at_survivor_after_two_restarts,
++        ),
++        leaf(prefix, "acked_writes_with_stranded_records", *acked_writes_with_stranded_records),
++        leaf(prefix, "reads_invoked_after_such_ack", *reads_invoked_after_such_ack),
++        leaf(prefix, "post_restart_writes_invoked", *post_restart_writes_invoked),
++        leaf(prefix, "post_restart_write_acks", *post_restart_write_acks),
++        leaf(
++            prefix,
++            "reads_invoked_after_post_restart_write_ack",
++            *reads_invoked_after_post_restart_write_ack,
++        ),
++        leaf(
++            prefix,
++            "reads_outstanding_at_survivor_state_move_post_ack",
++            *reads_outstanding_at_survivor_state_move_post_ack,
++        ),
++    ]
++}
++
++fn plan_shape(m: &mut Marks) -> PlanShapeStats {
++    PlanShapeStats {
++        survivor: PlanShapeSurvivorStats {
++            reserved_seen: m.int(),
++            reserved_retargeted: m.int(),
++            plans_without_survivor: m.int(),
++            cell: PlanShapeSurvivorCells {
++                stock: plan_shape_census(m),
++                survivor: plan_shape_census(m),
++            },
++        },
++        write_read: PlanShapeWriteReadStats {
++            pairs_added: m.int(),
++            write_fallbacks: PlanShapeWriteFallbacks {
++                no_write_available: m.int(),
++                last_free_write: m.int(),
++            },
++            read_unavailable: m.int(),
++            cell: PlanShapeWriteReadCells {
++                stock: plan_shape_census(m),
++                write_then_read: plan_shape_census(m),
++            },
++        },
++        crossed: PlanShapeCrossedCells {
++            stock: plan_shape_census(m),
++            survivor_only: plan_shape_census(m),
++            write_then_read_only: plan_shape_census(m),
++            both: plan_shape_census(m),
++        },
++    }
++}
++
++fn plan_shape_leaves(prefix: &str, p: &PlanShapeStats) -> Vec<(String, Value)> {
++    let PlanShapeStats {
++        survivor,
++        write_read,
++        crossed,
++    } = p;
++    let PlanShapeSurvivorStats {
++        reserved_seen,
++        reserved_retargeted,
++        plans_without_survivor,
++        cell: PlanShapeSurvivorCells { stock, survivor: survivor_cell },
++    } = survivor;
++    let PlanShapeWriteReadStats {
++        pairs_added,
++        write_fallbacks: PlanShapeWriteFallbacks { no_write_available, last_free_write },
++        read_unavailable,
++        cell: PlanShapeWriteReadCells { stock: wr_stock, write_then_read },
++    } = write_read;
++    let PlanShapeCrossedCells {
++        stock: x_stock,
++        survivor_only,
++        write_then_read_only,
++        both,
++    } = crossed;
++    let sv = format!("{prefix}.survivor");
++    let wr = format!("{prefix}.write_read");
++    let x = format!("{prefix}.crossed");
++    let mut out = vec![
++        leaf(&sv, "reserved_seen", *reserved_seen),
++        leaf(&sv, "reserved_retargeted", *reserved_retargeted),
++        leaf(&sv, "plans_without_survivor", *plans_without_survivor),
++    ];
++    out.extend(plan_shape_census_leaves(&format!("{sv}.cell.stock"), stock));
++    out.extend(plan_shape_census_leaves(&format!("{sv}.cell.survivor"), survivor_cell));
++    out.push(leaf(&wr, "pairs_added", *pairs_added));
++    out.push(leaf(&format!("{wr}.write_fallbacks"), "no_write_available", *no_write_available));
++    out.push(leaf(&format!("{wr}.write_fallbacks"), "last_free_write", *last_free_write));
++    out.push(leaf(&wr, "read_unavailable", *read_unavailable));
++    out.extend(plan_shape_census_leaves(&format!("{wr}.cell.stock"), wr_stock));
++    out.extend(plan_shape_census_leaves(&format!("{wr}.cell.write_then_read"), write_then_read));
++    out.extend(plan_shape_census_leaves(&format!("{x}.stock"), x_stock));
++    out.extend(plan_shape_census_leaves(&format!("{x}.survivor_only"), survivor_only));
++    out.extend(plan_shape_census_leaves(&format!("{x}.write_then_read_only"), write_then_read_only));
++    out.extend(plan_shape_census_leaves(&format!("{x}.both"), both));
++    out
++}
++
+ fn delivery_effect(m: &mut Marks) -> DeliveryEffect {
+     DeliveryEffect {
+         deliveries: m.int(),
+@@ -1901,6 +2037,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         ordered_h3: _,
+         post_fault_ops: _,
+         plan_deps: _,
++        plan_shape: _,
+         delivery_effects: _,
+         timer_effects: _,
+         timer_steer: _,
+@@ -1942,6 +2079,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "ordered_h3",
+         "post_fault_ops",
+         "plan_deps",
++        "plan_shape",
+         "delivery_effects",
+         "timer_effects",
+         "timer_steer",
+@@ -2038,9 +2176,11 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.replay = replay(&mut m);
+     s.timer_context = timer_context(&mut m);
+     s.plan_deps = plan_deps(&mut m);
++    s.plan_shape = plan_shape(&mut m);
+     let mut expected = steer_authority_leaves("steer_authority", &s.steer_authority);
+     expected.extend(termination_leaves("termination", &s.termination));
+     expected.extend(plan_deps_leaves("plan_deps", &s.plan_deps));
++    expected.extend(plan_shape_leaves("plan_shape", &s.plan_shape));
+     expected.extend(delivery_effects_leaves(
+         "delivery_effects",
+         &s.delivery_effects,
+@@ -2090,6 +2230,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "steer_authority",
+         "termination",
+         "plan_deps",
++        "plan_shape",
+         "delivery_effects",
+         "run_cap",
+         "stall_cap",

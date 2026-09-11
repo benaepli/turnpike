@@ -1,0 +1,5133 @@
+{
+ "name": "plan-shape",
+ "phase": "sampling",
+ "chunk": 1,
+ "maxChunks": 4,
+ "minChunks": 2,
+ "verdict": "continue",
+ "reason": "undecided",
+ "resolvedIfStopped": {
+  "verdict": "stop",
+  "reason": "cap reached with pGreater 0.052",
+  "rule": {
+   "verdict": "close",
+   "reason": "depth>=8 per second separated below the baseline at z 2.7 by -26.34%, more than the 5% build-layout floor",
+   "blockers": [
+    "the regression suite has not passed",
+    "depth>=8 per second separated below the baseline at z 2.7",
+    "the internal contrast applies and did not separate up on a rung the rule merges on",
+    "nothing separated and no stated prediction was met"
+   ]
+  }
+ },
+ "canStillAdvance": false,
+ "stopper": {
+  "hypothesis": "lite-plan-shape",
+  "prediction": "",
+  "chunk": 1,
+  "chunksRemaining": 3,
+  "exploreSecPerChunk": 300,
+  "primaryRung": 8,
+  "canStillAdvance": false,
+  "rungs": [
+   {
+    "rung": "depth>=4",
+    "candEvents": 103382,
+    "baseEvents": 132754,
+    "candPerSec": 430.5269251110861,
+    "basePerSec": 552.8053767291564,
+    "ratio": 0.7789182320642123,
+    "nullBand": 0.004147962567168823,
+    "insideNullBand": false,
+    "pGreater": 0,
+    "pRegress": 0,
+    "mei": 0.03907227880983782,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     430.5269251110861
+    ]
+   },
+   {
+    "rung": "depth>=5",
+    "candEvents": 19697,
+    "baseEvents": 27104,
+    "candPerSec": 82.02674395845565,
+    "basePerSec": 112.86467398998941,
+    "ratio": 0.7267066357647312,
+    "nullBand": 0.009362909586309252,
+    "insideNullBand": false,
+    "pGreater": 0,
+    "pRegress": null,
+    "mei": 0.042358113137142196,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     82.02674395845565
+    ]
+   },
+   {
+    "rung": "depth>=6",
+    "candEvents": 19416,
+    "baseEvents": 26623,
+    "candPerSec": 80.85653960995964,
+    "basePerSec": 110.8617257834817,
+    "ratio": 0.7293899529700569,
+    "nullBand": 0.009437447815227703,
+    "insideNullBand": false,
+    "pGreater": 0,
+    "pRegress": 0,
+    "mei": 0.04242975463744369,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     80.85653960995964
+    ]
+   },
+   {
+    "rung": "depth>=7",
+    "candEvents": 19302,
+    "baseEvents": 26413,
+    "candPerSec": 80.38179478530289,
+    "basePerSec": 109.98725775153447,
+    "ratio": 0.7311380179740714,
+    "nullBand": 0.009469331941221007,
+    "insideNullBand": false,
+    "pGreater": 0,
+    "pRegress": null,
+    "mei": 0.04246181169927387,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     80.38179478530289
+    ]
+   },
+   {
+    "rung": "depth>=8",
+    "candEvents": 8237,
+    "baseEvents": 11183,
+    "candPerSec": 34.3023957955932,
+    "basePerSec": 46.56750476793284,
+    "ratio": 0.7364940604853034,
+    "nullBand": 0.014519809462890313,
+    "insideNullBand": false,
+    "pGreater": 0,
+    "pRegress": 0,
+    "mei": 0.047674568055451144,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     34.3023957955932
+    ]
+   },
+   {
+    "rung": "depth>=9",
+    "candEvents": 1482,
+    "baseEvents": 2056,
+    "candPerSec": 6.17168272053771,
+    "basePerSec": 8.561458446111947,
+    "ratio": 0.7223166042010545,
+    "nullBand": 0.03407558004811903,
+    "insideNullBand": false,
+    "pGreater": 0,
+    "pRegress": null,
+    "mei": 0.07674772023002076,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     6.17168272053771
+    ]
+   },
+   {
+    "rung": "depth>=10",
+    "candEvents": 304,
+    "baseEvents": 347,
+    "candPerSec": 1.2659861990846586,
+    "basePerSec": 1.4449543194556644,
+    "ratio": 0.8790653185638618,
+    "nullBand": 0.07855773714036056,
+    "insideNullBand": false,
+    "pGreater": 0.0525,
+    "pRegress": null,
+    "mei": 0.1664907767555513,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     1.2659861990846586
+    ]
+   },
+   {
+    "rung": "depth>=11",
+    "candEvents": 49,
+    "baseEvents": 38,
+    "candPerSec": 0.20405698603667194,
+    "basePerSec": 0.15823707244759436,
+    "ratio": 1.3292870357752182,
+    "nullBand": 0.21615724077391052,
+    "insideNullBand": false,
+    "pGreater": 0.8905,
+    "pRegress": null,
+    "mei": 0.4911863464693197,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     0.20405698603667194
+    ]
+   },
+   {
+    "rung": "depth>=12",
+    "candEvents": 43,
+    "baseEvents": 25,
+    "candPerSec": 0.17907041631789578,
+    "basePerSec": 0.10410333713657524,
+    "ratio": 1.7785022942692896,
+    "nullBand": 0.2515070852948051,
+    "insideNullBand": false,
+    "pGreater": 0.9825,
+    "pRegress": null,
+    "mei": 0.6049488912098074,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     0.17907041631789578
+    ]
+   },
+   {
+    "rung": "depth>=13",
+    "candEvents": 21,
+    "baseEvents": 6,
+    "candPerSec": 0.08745299401571655,
+    "basePerSec": 0.02498480091277806,
+    "ratio": 3.87159051284553,
+    "nullBand": 0.4629100498862757,
+    "insideNullBand": false,
+    "pGreater": 0.998,
+    "pRegress": null,
+    "mei": 1.2329758732702618,
+    "chunkCv": 0.01,
+    "perChunkPerSec": [
+     0.08745299401571655
+    ]
+   }
+  ],
+  "throughput": {
+   "ratio": 0.9258034759128321,
+   "cv": 0.01,
+   "floor": 0.8
+  },
+  "exposure": {
+   "candidateSec": 240.12900000000002,
+   "baselineSec": 240.14600000000002,
+   "ratio": 0.9999292097307472,
+   "lopsided": false
+  },
+  "violations": {
+   "candidate": 0,
+   "baseline": 0,
+   "archiveOnePerRuns": null,
+   "runs": []
+  }
+ },
+ "advice": [
+  "the internal per-run contrast is 0.9825 [0.9181, 1.0514]: resolves neither the mechanism nor its band",
+  "the internal contrast on depth>=9 is 0.9880 [0.8413, 1.1603]: resolves neither way",
+  "the internal contrast on depth>=10 is 1.1753 [0.8234, 1.6776]: resolves neither way",
+  "the ledger and the measured drift disagree by 15.1%: host drift, a template change, or a missing ledger row"
+ ],
+ "baseline": {
+  "source": "measured",
+  "cacheFile": "/home/benaepli/Rust/turnpike/research/lite/baselines/63a21f95fdfb-30-f9daa01b-300-g870d4c11-s3d907a50.json",
+  "chunksCached": 2,
+  "measuredThisCall": false
+ },
+ "timing": {
+  "lastChunkWallSec": 504,
+  "candRps": 2336.242504996669,
+  "baseMedianRps": 2516.6776678811534,
+  "slowConfirmed": false,
+  "anomalies": 0,
+  "failures": 0
+ },
+ "primary": {
+  "kind": "internal",
+  "inapplicableReason": null,
+  "bit": 67108864,
+  "name": "originAlternate",
+  "rung": "depth>=8",
+  "ratio": 0.9824897059962578,
+  "lo": 0.9181127975105526,
+  "hi": 1.0513806419058422,
+  "z": -0.7038053494752795,
+  "seCount": 0.02201402964835728,
+  "seEff": 0.025099855612460788,
+  "perChunkRatios": [
+   0.9824897059962578
+  ],
+  "matchedOnMask": 0,
+  "matchedOn": [],
+  "treatedShare": {
+   "candidate": 0.4666001540292656,
+   "baseline": null
+  },
+  "differenceInDifferences": false,
+  "meiAtCap": 0.06776961015364413,
+  "band": {
+   "min": -0.1,
+   "max": 0.06
+  },
+  "bandReading": "met",
+  "treated": {
+   "runs": 266578,
+   "gradedRuns": 266578,
+   "events": 4012,
+   "rate": 0.01505000412637202,
+   "meanStepsUsed": 1728.9579522691295,
+   "meanWallUs": 8959.573734516727,
+   "planCompleteShare": 0.21091387886472251
+  },
+  "control": {
+   "runs": 268830,
+   "gradedRuns": 268830,
+   "events": 4118,
+   "rate": 0.015318230852211435,
+   "meanStepsUsed": 1735.6054644198937,
+   "meanWallUs": 8984.64811218986,
+   "planCompleteShare": 0.20829520514823494
+  },
+  "balance": {
+   "cobit": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treated": 0.950543555732281,
+     "control": 0.9514749097942938
+    },
+    {
+     "bit": 2,
+     "name": "runCapProbe",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 4,
+     "name": "timerSteerOff",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 8,
+     "name": "crashHoldDrawn",
+     "treated": 0.8846266383572537,
+     "control": 0.8841572741137522
+    },
+    {
+     "bit": 16,
+     "name": "ghostReleasedCrash",
+     "treated": 0.47627711213978646,
+     "control": 0.47543056950489154
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treated": 0.2996383797612706,
+     "control": 0.2993825093925529
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treated": 0.29035029147191443,
+     "control": 0.29003087453037235
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treated": 0.29786403979323123,
+     "control": 0.2986906223263773
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treated": 0.8878527110264163,
+     "control": 0.8881040062493025
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treated": 0.6605608864947595,
+     "control": 0.6614440352639215
+    },
+    {
+     "bit": 1024,
+     "name": "stallCap",
+     "treated": 0.7498293182483176,
+     "control": 0.7503664025592381
+    },
+    {
+     "bit": 4096,
+     "name": "stallRelease",
+     "treated": 0.37505345527387857,
+     "control": 0.375486366848938
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treated": 0.16358439181027692,
+     "control": 0.16396235539188334
+    },
+    {
+     "bit": 65536,
+     "name": "recoverWindowFreshEarly",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treated": 0.8035921944046396,
+     "control": 0.8036975039988097
+    },
+    {
+     "bit": 8388608,
+     "name": "crashPhaseOnLanding",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 1048576,
+     "name": "replaySlot",
+     "treated": 0.4992497505420552,
+     "control": 0.5007514042331584
+    },
+    {
+     "bit": 2097152,
+     "name": "replayPrefix",
+     "treated": 0.24997186564532708,
+     "control": 0.25060075140423316
+    },
+    {
+     "bit": 33554432,
+     "name": "ghostPendingTimerHold",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 536870912,
+     "name": "pairOrderGhostOnly",
+     "treated": 0.5047378253269212,
+     "control": 0.505750846259718
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treated": 0.6530808993990502,
+     "control": 0.6521816761522151
+    },
+    {
+     "bit": 8192,
+     "name": "recoverDepsExempt",
+     "treated": 0.49990621881775693,
+     "control": 0.5000297585834914
+    },
+    {
+     "bit": 2048,
+     "name": "newsBeforeReply",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treated": 0.5204705564600229,
+     "control": 0.5202655953576609
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treated": 0.5863499613621529,
+     "control": 0.5865565599077484
+    },
+    {
+     "bit": 1073741824,
+     "name": "restartAfterPeerSettle",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 134217728,
+     "name": "clientDeferralOnly",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 4194304,
+     "name": "staleFirstPair",
+     "treated": 0,
+     "control": 0
+    },
+    {
+     "bit": 268435456,
+     "name": "ghostReleaseSingleOntoAbsorber",
+     "treated": 0.23826422285409898,
+     "control": 0.2380612282855336
+    },
+    {
+     "bit": 131072,
+     "name": "crashQuietBySecond",
+     "treated": 0,
+     "control": 0
+    }
+   ],
+   "armL1": 0.005788942790236243,
+   "stepsPerRunRatio": 0.9961699174800731,
+   "probeShare": {
+    "treated": 0.03188523985110145,
+    "control": 0.031447089052438544
+   },
+   "faults": []
+  },
+  "verdict": "resolves neither way",
+  "advance": [
+   {
+    "rung": "depth>=9",
+    "ratio": 0.9879786382152038,
+    "lo": 0.8412621310377544,
+    "hi": 1.1602825725264492,
+    "z": -0.2031276389394457,
+    "verdict": "resolves neither way"
+   },
+   {
+    "rung": "depth>=10",
+    "ratio": 1.1753132736778864,
+    "lo": 0.8234216054162218,
+    "hi": 1.677586891329117,
+    "z": 1.225736980446998,
+    "verdict": "resolves neither way"
+   }
+  ]
+ },
+ "cost": {
+  "label": "cross-binary depth>=8 per explore-second - COST AND REGRESSION ONLY, not the primary",
+  "ratio": 0.73661657343544,
+  "nullBand": 0.014519809462890313,
+  "layoutFloor": 0.05,
+  "insideLayoutFloor": false,
+  "primaryRungRegressed": true,
+  "throughput": {
+   "ratio": 0.9258034759128321,
+   "floor": 0.8,
+   "epoch": {
+    "frozenRps": 2041.8467725654139,
+    "cumulative": 1.0735977633129263,
+    "projected": 0.9939405410073492,
+    "measured": 1.1441811091737168,
+    "floor": 0.9,
+    "drift": 0.1511564947477646
+   }
+  }
+ },
+ "variantContrasts": {
+  "candidate": [
+   {
+    "bit": 1,
+    "name": "crashPlaced",
+    "treated": {
+     "runs": 509179,
+     "gradedRuns": 509179,
+     "meanWallUs": 8972.561472488063,
+     "meanStepsUsed": 1732.6848259649357,
+     "planCompleteShare": 0.20133783993448276
+    },
+    "control": {
+     "runs": 26229,
+     "gradedRuns": 26229,
+     "meanWallUs": 8964.440924167906,
+     "meanStepsUsed": 1724.7414312402302,
+     "planCompleteShare": 0.36997216821075907
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5535656419451706,
+      "controlRate": 0.5465705898051775,
+      "ratio": 1.012798076351833,
+      "lo": 1.0014223320328264,
+      "hi": 1.024303044430558
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5239787972402632,
+      "controlRate": 0.5130580655000191,
+      "ratio": 1.0212855668287777,
+      "lo": 1.0090253205136568,
+      "hi": 1.0336947822893219
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.19597233978620485,
+      "controlRate": 0.04231956994166762,
+      "ratio": 4.630773423650781,
+      "lo": 4.370531139577595,
+      "hi": 4.906511775423
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.19408498779407635,
+      "controlRate": 0.04071828891684776,
+      "ratio": 4.7665310345045215,
+      "lo": 4.493408006601992,
+      "hi": 5.05625531211797
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03813786507299005,
+      "controlRate": 0.0006100118189789927,
+      "ratio": 62.519878937466004,
+      "lo": 38.29961556313514,
+      "hi": 102.05677537185815
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03759777995557555,
+      "controlRate": 0.0005718860802928057,
+      "ratio": 65.7434780303194,
+      "lo": 39.63230428335234,
+      "hi": 109.0576231102122
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.037377818016846726,
+      "controlRate": 0.0005718860802928057,
+      "ratio": 65.35885258425819,
+      "lo": 39.400393603971736,
+      "hi": 108.41971920555075
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.015955096341365216,
+      "controlRate": 0.00022875443211712226,
+      "ratio": 69.74770365627805,
+      "lo": 31.328199233669448,
+      "hi": 155.2831724874784
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.002871288878763657,
+      "controlRate": 0.000038125738686187046,
+      "ratio": 75.31103600109195,
+      "lo": 10.601502743317786,
+      "hi": 534.9951116253515
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0005891837644521867,
+      "controlRate": 0.000038125738686187046,
+      "ratio": 15.453700957816405,
+      "lo": 2.169775688483448,
+      "hi": 110.06523603393092
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00009426940231234989,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00008248572702330615,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000041242863511653074,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 2,
+    "name": "runCapProbe",
+    "treated": {
+     "runs": 18091,
+     "gradedRuns": 18091,
+     "meanWallUs": 12367.639599801007,
+     "meanStepsUsed": 3182.8728649604777,
+     "planCompleteShare": 0.30827483278978496
+    },
+    "control": {
+     "runs": 39,
+     "gradedRuns": 39,
+     "meanWallUs": 7039.589743589743,
+     "meanStepsUsed": 1307.6153846153845,
+     "planCompleteShare": 0.5897435897435898
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5256757503731136,
+      "controlRate": 0.6410256410256411,
+      "ratio": 0.8200541705820572,
+      "lo": 0.6481344309049001,
+      "hi": 1.0375761734338398
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.49765076557404236,
+      "controlRate": 0.6410256410256411,
+      "ratio": 0.776335194295506,
+      "lo": 0.6135512320375891,
+      "hi": 0.9823080819189307
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.04449726383284506,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.04300480902106019,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.0006633132496821624,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.0006633132496821624,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.0006633132496821624,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.0002211044165607208,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0001105522082803604,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0001105522082803604,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.0000552761041401802,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.0000552761041401802,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 4,
+    "name": "timerSteerOff",
+    "treated": {
+     "runs": 17821,
+     "gradedRuns": 17821,
+     "meanWallUs": 8630.79400707031,
+     "meanStepsUsed": 1721.8840693563773,
+     "planCompleteShare": 0.3947589922002132
+    },
+    "control": {
+     "runs": 1480,
+     "gradedRuns": 1480,
+     "meanWallUs": 8809.625,
+     "meanStepsUsed": 1560.4074324324324,
+     "planCompleteShare": 0.5891891891891892
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5808877167386791,
+      "controlRate": 0.6168918918918919,
+      "ratio": 0.9416361673310462,
+      "lo": 0.9028686184011134,
+      "hi": 0.9820683248423429
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5186577633129454,
+      "controlRate": 0.575,
+      "ratio": 0.9020135014138182,
+      "lo": 0.861436410069204,
+      "hi": 0.944501935630342
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.1545928960215476,
+      "controlRate": 0.11283783783783784,
+      "ratio": 1.370044827017308,
+      "lo": 1.1828409394728205,
+      "hi": 1.58687678571005
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.15218001234498627,
+      "controlRate": 0.11283783783783784,
+      "ratio": 1.34866118724898,
+      "lo": 1.1642915937375022,
+      "hi": 1.56222634241737
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.014028393468380002,
+      "controlRate": 0.0006756756756756757,
+      "ratio": 20.762022333202403,
+      "lo": 2.915161538431828,
+      "hi": 147.8688455790615
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.0137478255990124,
+      "controlRate": 0.0006756756756756757,
+      "ratio": 20.346781886538352,
+      "lo": 2.8566301453110743,
+      "hi": 144.92304291400782
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.01363559845126536,
+      "controlRate": 0.0006756756756756757,
+      "ratio": 20.180685707872733,
+      "lo": 2.8332175959855745,
+      "hi": 143.74472197864057
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.005779698108972561,
+      "controlRate": 0.0006756756756756757,
+      "ratio": 8.55395320127939,
+      "lo": 1.1943663390326233,
+      "hi": 61.26270724352632
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.00095393075584984,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.00005611357387352,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 8,
+    "name": "crashHoldDrawn",
+    "treated": {
+     "runs": 473510,
+     "gradedRuns": 473510,
+     "meanWallUs": 8606.600663132775,
+     "meanStepsUsed": 1649.4828535828176,
+     "planCompleteShare": 0.19539397267217165
+    },
+    "control": {
+     "runs": 35669,
+     "gradedRuns": 35669,
+     "meanWallUs": 13830.732512826264,
+     "meanStepsUsed": 2837.200398104797,
+     "planCompleteShare": 0.28024334856598165
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5557855166733543,
+      "controlRate": 0.5240965544310185,
+      "ratio": 1.0604639774377809,
+      "lo": 1.0496897726499783,
+      "hi": 1.0713487706030582
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5258009334544149,
+      "controlRate": 0.4997897333819283,
+      "ratio": 1.0520442864971966,
+      "lo": 1.0408173663176041,
+      "hi": 1.0633923074008909
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.20641169141095225,
+      "controlRate": 0.05738876895904006,
+      "ratio": 3.5967262437407213,
+      "lo": 3.447314179343652,
+      "hi": 3.752614063994672
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.20449620916136935,
+      "controlRate": 0.05587484930892372,
+      "ratio": 3.6598972827781653,
+      "lo": 3.5057592744162704,
+      "hi": 3.82081228971927
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.040858693586196704,
+      "controlRate": 0.0020185595334884635,
+      "ratio": 20.24151029897292,
+      "lo": 16.063798446071477,
+      "hi": 25.50571961911204
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.04029270765136956,
+      "controlRate": 0.0018223106899548627,
+      "ratio": 22.110778295641552,
+      "lo": 17.335930470300617,
+      "hi": 28.200765899272547
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.04005617621591941,
+      "controlRate": 0.0018223106899548627,
+      "ratio": 21.980980760701993,
+      "lo": 17.23412074790513,
+      "hi": 28.035286642695787
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.017099955650355853,
+      "controlRate": 0.0007569598250581738,
+      "ratio": 22.59030807750159,
+      "lo": 15.484564761521472,
+      "hi": 32.956820349549865
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0030727967730354165,
+      "controlRate": 0.0001962488435336006,
+      "ratio": 15.657655442485753,
+      "lo": 7.451741028294905,
+      "hi": 32.89998579187088
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006293425693227176,
+      "controlRate": 0.00005607109815245732,
+      "ratio": 11.224010052586006,
+      "lo": 2.794140646793577,
+      "hi": 45.08663578017039
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00009925872737640176,
+      "controlRate": 0.00002803554907622866,
+      "ratio": 3.5404595467888744,
+      "lo": 0.48848058674963174,
+      "hi": 25.660904736984275
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00008658740047728664,
+      "controlRate": 0.00002803554907622866,
+      "ratio": 3.0884859876243373,
+      "lo": 0.4248376202154324,
+      "hi": 22.45268601898966
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00004223775633038373,
+      "controlRate": 0.00002803554907622866,
+      "ratio": 1.5065785305484571,
+      "lo": 0.2021930567702158,
+      "hi": 11.225800257271247
+     }
+    ]
+   },
+   {
+    "bit": 16,
+    "name": "ghostReleasedCrash",
+    "treated": {
+     "runs": 254775,
+     "gradedRuns": 254775,
+     "meanWallUs": 8904.179723285251,
+     "meanStepsUsed": 1726.2419114905308,
+     "planCompleteShare": 0.19660877244627611
+    },
+    "control": {
+     "runs": 254404,
+     "gradedRuns": 254404,
+     "meanWallUs": 9041.042943507178,
+     "meanStepsUsed": 1739.1371362085501,
+     "planCompleteShare": 0.20607380387100832
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5513492297124915,
+      "controlRate": 0.555785286394868,
+      "ratio": 0.9920183984877482,
+      "lo": 0.9871363843254,
+      "hi": 0.9969245572998733
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.52213129231675,
+      "controlRate": 0.5258289963994277,
+      "ratio": 0.9929678581668234,
+      "lo": 0.9877821360423513,
+      "hi": 0.998180804628496
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.19156510646649005,
+      "controlRate": 0.20038600022012232,
+      "ratio": 0.9559804889366393,
+      "lo": 0.9453988898417055,
+      "hi": 0.9666805250644583
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.18971641644588363,
+      "controlRate": 0.19845992987531644,
+      "ratio": 0.955943179890641,
+      "lo": 0.9452985569228959,
+      "hi": 0.9667076676326373
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03716612697478167,
+      "controlRate": 0.03911102026697694,
+      "ratio": 0.9502724991851614,
+      "lo": 0.9244060480965882,
+      "hi": 0.9768627375026209
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03660092238249436,
+      "controlRate": 0.03859609125642679,
+      "ratio": 0.9483064525711471,
+      "lo": 0.9223034455744834,
+      "hi": 0.975042576608751
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.0363928956922775,
+      "controlRate": 0.03836417666388893,
+      "ratio": 0.948616622510058,
+      "lo": 0.9225269215992024,
+      "hi": 0.9754441582500999
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.01653615935629477,
+      "controlRate": 0.015373185956195657,
+      "ratio": 1.0756494719710599,
+      "lo": 1.0301984890635338,
+      "hi": 1.12310569160645
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003293101756451771,
+      "controlRate": 0.0024488608669675006,
+      "ratio": 1.3447484097084372,
+      "lo": 1.2125118900305156,
+      "hi": 1.4914066412724907
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006476302619958787,
+      "controlRate": 0.0005306520337730539,
+      "ratio": 1.2204424383170336,
+      "lo": 0.9722117240381236,
+      "hi": 1.5320528527043549
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00008635070159945049,
+      "controlRate": 0.00010219965094888445,
+      "ratio": 0.8449216880656386,
+      "lo": 0.47890027076924485,
+      "hi": 1.490691700418088
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00007065057403591404,
+      "controlRate": 0.0000943381393374318,
+      "ratio": 0.7489078598763614,
+      "lo": 0.40646721605876324,
+      "hi": 1.3798480183048945
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00002355019134530468,
+      "controlRate": 0.000058961337085894876,
+      "ratio": 0.39941752526739277,
+      "lo": 0.15497336903611647,
+      "hi": 1.029430801453048
+     }
+    ]
+   },
+   {
+    "bit": 256,
+    "name": "armSelectorConcentrated",
+    "treated": {
+     "runs": 475431,
+     "gradedRuns": 475431,
+     "meanWallUs": 8871.649608460533,
+     "meanStepsUsed": 1730.4163359141494,
+     "planCompleteShare": 0.1705946814574565
+    },
+    "control": {
+     "runs": 59977,
+     "gradedRuns": 59977,
+     "meanWallUs": 9768.927322140155,
+     "meanStepsUsed": 1747.1931073578205,
+     "planCompleteShare": 0.5187821998432732
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5474085619153989,
+      "controlRate": 0.5993130700101705,
+      "ratio": 0.9133933319794096,
+      "lo": 0.9069893468157919,
+      "hi": 0.9198425337997826
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5181235552582815,
+      "controlRate": 0.565616819780916,
+      "ratio": 0.9160327931177321,
+      "lo": 0.9091607169644556,
+      "hi": 0.9229568132560217
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.19933702261737243,
+      "controlRate": 0.10210580722610334,
+      "ratio": 1.9522594065189658,
+      "lo": 1.9051871996909715,
+      "hi": 2.000494644809704
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.19739983299364156,
+      "controlRate": 0.1007386164696467,
+      "ratio": 1.9595249558854086,
+      "lo": 1.911929793995007,
+      "hi": 2.0083049413203193
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.040424372832230125,
+      "controlRate": 0.003601380529202861,
+      "ratio": 11.22468800629012,
+      "lo": 9.8185790233932,
+      "hi": 12.83216446477315
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03985646707934485,
+      "controlRate": 0.003501342181169448,
+      "ratio": 11.383196790561268,
+      "lo": 9.938374775387699,
+      "hi": 13.038064281248595
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.03962930477819074,
+      "controlRate": 0.003434649949147173,
+      "ratio": 11.538091323696825,
+      "lo": 10.060456959486896,
+      "hi": 13.232753932556733
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.016919384726700615,
+      "controlRate": 0.0014338829884789168,
+      "ratio": 11.799696950620033,
+      "lo": 9.542586960564122,
+      "hi": 14.59068161514986
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0030435541645370203,
+      "controlRate": 0.0002667689280891008,
+      "ratio": 11.408953007902305,
+      "lo": 6.971078856680779,
+      "hi": 18.672032179320322
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006183862642528569,
+      "controlRate": 0.00011671140603898161,
+      "ratio": 5.29842185301337,
+      "lo": 2.5039750022362717,
+      "hi": 11.211483384385911
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00009675431345452863,
+      "controlRate": 0.0000333461160111376,
+      "ratio": 2.901516729031132,
+      "lo": 0.7043509440890973,
+      "hi": 11.952563419553789
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00008413418561263358,
+      "controlRate": 0.0000333461160111376,
+      "ratio": 2.5230580252444623,
+      "lo": 0.6097795031782964,
+      "hi": 10.439547025720792
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00003996373816600096,
+      "controlRate": 0.0000333461160111376,
+      "ratio": 1.1984525619911197,
+      "lo": 0.2791538375887402,
+      "hi": 5.145150630023121
+     }
+    ]
+   },
+   {
+    "bit": 512,
+    "name": "crashPhase",
+    "treated": {
+     "runs": 353907,
+     "gradedRuns": 353907,
+     "meanWallUs": 8949.516615947128,
+     "meanStepsUsed": 1740.144758368724,
+     "planCompleteShare": 0.17288157623330422
+    },
+    "control": {
+     "runs": 155272,
+     "gradedRuns": 155272,
+     "meanWallUs": 9025.086950641455,
+     "meanStepsUsed": 1715.6816167757227,
+     "planCompleteShare": 0.26619738265753
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.544507455348439,
+      "controlRate": 0.5742117059096296,
+      "ratio": 0.9482695140912619,
+      "lo": 0.9433163981650541,
+      "hi": 0.9532486375769972
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5156608939636684,
+      "controlRate": 0.5429375547426452,
+      "ratio": 0.9497609613836604,
+      "lo": 0.9444856295901487,
+      "hi": 0.9550657580251908
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.2017789984374426,
+      "controlRate": 0.18273738987067856,
+      "ratio": 1.1042020386754983,
+      "lo": 1.090601897118041,
+      "hi": 1.1179717781869585
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.19983781049823823,
+      "controlRate": 0.1809727446030192,
+      "ratio": 1.1042425804869198,
+      "lo": 1.0905611003453344,
+      "hi": 1.1180956997038447
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.0415561150245686,
+      "controlRate": 0.030346746354783863,
+      "ratio": 1.3693762928893922,
+      "lo": 1.3259013597998222,
+      "hi": 1.4142767240321716
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.040917529181395115,
+      "controlRate": 0.030031171106187853,
+      "ratio": 1.3625019496147506,
+      "lo": 1.3189875634150818,
+      "hi": 1.4074519079599455
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.040683004292088036,
+      "controlRate": 0.02984440208150858,
+      "ratio": 1.3631703587486175,
+      "lo": 1.3194989533389665,
+      "hi": 1.4082871549603058
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.01743395863885145,
+      "controlRate": 0.012584368076665464,
+      "ratio": 1.3853662363212602,
+      "lo": 1.3171059122422175,
+      "hi": 1.4571642195969303
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.00305447476314399,
+      "controlRate": 0.0024537585656138903,
+      "ratio": 1.2448147123960462,
+      "lo": 1.107785504191171,
+      "hi": 1.398793956352621
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0005481666087418446,
+      "controlRate": 0.0006826729867587201,
+      "ratio": 0.8029709969109783,
+      "lo": 0.63375253387826,
+      "hi": 1.0173725348829379
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00006781442582373336,
+      "controlRate": 0.0001545674687000876,
+      "ratio": 0.4387367302709469,
+      "lo": 0.24916808853989025,
+      "hi": 0.7725303814658641
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00005933762259576669,
+      "controlRate": 0.00013524653511257664,
+      "ratio": 0.4387367302709469,
+      "lo": 0.2396213150540344,
+      "hi": 0.8033088310421606
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000025430409683900007,
+      "controlRate": 0.0000772837343500438,
+      "ratio": 0.32905254770321013,
+      "lo": 0.1386509035704292,
+      "hi": 0.7809222757424992
+     }
+    ]
+   },
+   {
+    "bit": 1024,
+    "name": "stallCap",
+    "treated": {
+     "runs": 401609,
+     "gradedRuns": 401609,
+     "meanWallUs": 8383.813390636165,
+     "meanStepsUsed": 1566.732844632466,
+     "planCompleteShare": 0.2234910074226424
+    },
+    "control": {
+     "runs": 133799,
+     "gradedRuns": 133799,
+     "meanWallUs": 10738.146675236736,
+     "meanStepsUsed": 2229.2465489278693,
+     "planCompleteShare": 0.16790110538942743
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5622508459720773,
+      "controlRate": 0.5261250084081346,
+      "ratio": 1.0686639809676535,
+      "lo": 1.0625141807277931,
+      "hi": 1.0748493760670237
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5287954204213551,
+      "controlRate": 0.507380473695618,
+      "ratio": 1.0422068799174642,
+      "lo": 1.0359379093425274,
+      "hi": 1.048513787121339
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.1893832060536492,
+      "controlRate": 0.18562919005373732,
+      "ratio": 1.0202231987265857,
+      "lo": 1.0071275720894264,
+      "hi": 1.0334891071053762
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.18753812788060029,
+      "controlRate": 0.1836710289314569,
+      "ratio": 1.0210544851392243,
+      "lo": 1.0078647464932553,
+      "hi": 1.0344168354438055
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.0365654156156859,
+      "controlRate": 0.0355010127130995,
+      "ratio": 1.0299823250448754,
+      "lo": 0.9974189623133723,
+      "hi": 1.0636088043126073
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03610227858439427,
+      "controlRate": 0.034828361945903934,
+      "ratio": 1.0365769897668173,
+      "lo": 1.0035100709642133,
+      "hi": 1.070733505127279
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.03589311992510128,
+      "controlRate": 0.034619092818331976,
+      "ratio": 1.0368012851594617,
+      "lo": 1.0036263304774737,
+      "hi": 1.071072840822044
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.015223762415682915,
+      "controlRate": 0.015067377185180756,
+      "ratio": 1.0103790612380745,
+      "lo": 0.961144536213137,
+      "hi": 1.0621356194880895
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.002798742060063395,
+      "controlRate": 0.0025336512231033115,
+      "ratio": 1.1046279908390035,
+      "lo": 0.9784524836097673,
+      "hi": 1.2470743532106592
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006324559459573864,
+      "controlRate": 0.00035127317842435297,
+      "ratio": 1.8004675130457943,
+      "lo": 1.3190127467685873,
+      "hi": 2.457658785690296
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00009959936156809235,
+      "controlRate": 0.00005979117930627284,
+      "ratio": 1.6657868723061486,
+      "lo": 0.7797500061824013,
+      "hi": 3.5586353086843086
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.0000871494413720808,
+      "controlRate": 0.000052317281892988736,
+      "ratio": 1.6657868723061484,
+      "lo": 0.7399328013370123,
+      "hi": 3.7501323078711026
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00004232972866643925,
+      "controlRate": 0.00002989558965313642,
+      "ratio": 1.4159188414602262,
+      "lo": 0.4764402993299331,
+      "hi": 4.20792734876051
+     }
+    ]
+   },
+   {
+    "bit": 4096,
+    "name": "stallRelease",
+    "treated": {
+     "runs": 200923,
+     "gradedRuns": 200923,
+     "meanWallUs": 9116.156482831731,
+     "meanStepsUsed": 1754.2932665747576,
+     "planCompleteShare": 0.2791566918670336
+    },
+    "control": {
+     "runs": 200686,
+     "gradedRuns": 200686,
+     "meanWallUs": 7650.605438346472,
+     "meanStepsUsed": 1378.950923332968,
+     "planCompleteShare": 0.16775958462473714
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5971690647661044,
+      "controlRate": 0.5272913905304805,
+      "ratio": 1.1325219328260294,
+      "lo": 1.126329811098738,
+      "hi": 1.1387480964219705
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5569944705185569,
+      "controlRate": 0.5005630686744467,
+      "ratio": 1.1127358476396343,
+      "lo": 1.1062374391292282,
+      "hi": 1.119272429973918
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.19214823589136137,
+      "controlRate": 0.18661491085576473,
+      "ratio": 1.0296510338333755,
+      "lo": 1.016556290353954,
+      "hi": 1.0429144569111812
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.19066010362178545,
+      "controlRate": 0.18441246524421234,
+      "ratio": 1.0338786121062886,
+      "lo": 1.020650530702294,
+      "hi": 1.0472781352842961
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03648661427512032,
+      "controlRate": 0.036644310016642916,
+      "ratio": 0.9956965831407121,
+      "lo": 0.9645786085376103,
+      "hi": 1.027818445176967
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03613822210498549,
+      "controlRate": 0.036066292616326004,
+      "ratio": 1.001994368798165,
+      "lo": 0.9704750804603031,
+      "hi": 1.0345373470352606
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.03599886523693156,
+      "controlRate": 0.03578724973341439,
+      "ratio": 1.0059131535698755,
+      "lo": 0.9741764506997144,
+      "hi": 1.038683774174699
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.015015702532811077,
+      "controlRate": 0.015432068006736892,
+      "ratio": 0.973019463512988,
+      "lo": 0.9257922615437888,
+      "hi": 1.022655854561085
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0028020684540844003,
+      "controlRate": 0.0027954117377395533,
+      "ratio": 1.0023813008491658,
+      "lo": 0.8919173763107157,
+      "hi": 1.126526177175896
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0008212101153178083,
+      "controlRate": 0.0004434788674845281,
+      "ratio": 1.851745766322131,
+      "lo": 1.4310822163915498,
+      "hi": 2.396062465046913
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00010949468204237445,
+      "controlRate": 0.00008969235522158994,
+      "ratio": 1.2207805422419977,
+      "lo": 0.6548115880630502,
+      "hi": 2.275929686469092
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00009954062003852222,
+      "controlRate": 0.00007474362935132496,
+      "ratio": 1.3317605915367245,
+      "lo": 0.6818558186932558,
+      "hi": 2.601116283746379
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000029862186011556665,
+      "controlRate": 0.0000548119948576383,
+      "ratio": 0.5448111510832055,
+      "lo": 0.20148617854321377,
+      "hi": 1.4731491385199262
+     }
+    ]
+   },
+   {
+    "bit": 16384,
+    "name": "clientRushPriority",
+    "treated": {
+     "runs": 87686,
+     "gradedRuns": 87686,
+     "meanWallUs": 9433.411069041807,
+     "meanStepsUsed": 1817.0995369842392,
+     "planCompleteShare": 0.24626508222521268
+    },
+    "control": {
+     "runs": 133730,
+     "gradedRuns": 133730,
+     "meanWallUs": 8726.063643161595,
+     "meanStepsUsed": 1687.6600837508413,
+     "planCompleteShare": 0.21435728707096388
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5703304974568346,
+      "controlRate": 0.5526658191879159,
+      "ratio": 1.0319626755547775,
+      "lo": 1.024251404294138,
+      "hi": 1.0397320025859103
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5409529457382022,
+      "controlRate": 0.5232707694608539,
+      "ratio": 1.033791637731966,
+      "lo": 1.0255961359306742,
+      "hi": 1.042052629493118
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.17966380037862373,
+      "controlRate": 0.1906378523891423,
+      "ratio": 0.9424350837308132,
+      "lo": 0.9256745655247587,
+      "hi": 0.9594990724879638
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.17826106790137536,
+      "controlRate": 0.18834218200852465,
+      "ratio": 0.9464744753424753,
+      "lo": 0.92954512494795,
+      "hi": 0.9637121517096601
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.030084620121798234,
+      "controlRate": 0.035661407313243104,
+      "ratio": 0.8436184208194752,
+      "lo": 0.8050551863370826,
+      "hi": 0.884028886496676
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.029867937869215155,
+      "controlRate": 0.03522769759964107,
+      "ratio": 0.8478538168648149,
+      "lo": 0.8089203155347222,
+      "hi": 0.8886611956296934
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.029628446958465435,
+      "controlRate": 0.03511553129439916,
+      "ratio": 0.8437419530995703,
+      "lo": 0.804873657700781,
+      "hi": 0.8844872441892401
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.014574732568482997,
+      "controlRate": 0.014723697001420772,
+      "ratio": 0.98988267464867,
+      "lo": 0.9230630865415891,
+      "hi": 1.0615392640614019
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0024861437401637663,
+      "controlRate": 0.002572347266881029,
+      "ratio": 0.9664883789886641,
+      "lo": 0.8158321151851758,
+      "hi": 1.1449656973948807
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0003421298724996008,
+      "controlRate": 0.000336498915725716,
+      "ratio": 1.0167339522082584,
+      "lo": 0.6406304984490064,
+      "hi": 1.6136414549038367
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.000011404329083320028,
+      "controlRate": 0.000029911014731174755,
+      "ratio": 0.3812752320780969,
+      "lo": 0.042614366628415945,
+      "hi": 3.411309708385318
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.000011404329083320028,
+      "controlRate": 0.000014955507365587377,
+      "ratio": 0.7625504641561938,
+      "lo": 0.06914348579693799,
+      "hi": 8.409804679106552
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0,
+      "controlRate": 0.000007477753682793689,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 524288,
+    "name": "ghostAbsorberRetarget",
+    "treated": {
+     "runs": 430278,
+     "gradedRuns": 430278,
+     "meanWallUs": 8896.056686607264,
+     "meanStepsUsed": 1736.4616248100065,
+     "planCompleteShare": 0.16586021130524917
+    },
+    "control": {
+     "runs": 105130,
+     "gradedRuns": 105130,
+     "meanWallUs": 9283.655664415486,
+     "meanStepsUsed": 1715.2452677637211,
+     "planCompleteShare": 0.3886140968324931
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5464699566326886,
+      "controlRate": 0.5808617901645582,
+      "ratio": 0.9407917096386623,
+      "lo": 0.9353398519877579,
+      "hi": 0.9462753447785539
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5168495716722677,
+      "controlRate": 0.5504327974888233,
+      "ratio": 0.938987600357812,
+      "lo": 0.9332026309448349,
+      "hi": 0.9448084310832194
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.20126058036897077,
+      "controlRate": 0.13599353181774945,
+      "ratio": 1.4799275941938796,
+      "lo": 1.4559155429413408,
+      "hi": 1.5043356702077104
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.19930370597613636,
+      "controlRate": 0.13446209454960525,
+      "ratio": 1.482229669586249,
+      "lo": 1.4580249683226503,
+      "hi": 1.506836193573044
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.042151818126885406,
+      "controlRate": 0.012346618472367545,
+      "ratio": 3.4140374727884923,
+      "lo": 3.2283953544462283,
+      "hi": 3.6103545526267644
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.041554529862089164,
+      "controlRate": 0.012165889850661086,
+      "ratio": 3.415658893198932,
+      "lo": 3.2285760568444175,
+      "hi": 3.613582418154927
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.041305853424995,
+      "controlRate": 0.012118329687054124,
+      "ratio": 3.408543461985655,
+      "lo": 3.2214766477303463,
+      "hi": 3.6064729944358276
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.017393406123482957,
+      "controlRate": 0.006144773138019595,
+      "ratio": 2.8306018355445253,
+      "lo": 2.6127367327956526,
+      "hi": 3.066633790850712
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003072432241481089,
+      "controlRate": 0.0013411966137163512,
+      "ratio": 2.290814195368134,
+      "lo": 1.9259069671518398,
+      "hi": 2.7248614638229345
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006112327379043316,
+      "controlRate": 0.00036145724341291735,
+      "ratio": 1.6910236246284835,
+      "lo": 1.2035211284849807,
+      "hi": 2.3759955944033435
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00009528723290523801,
+      "controlRate": 0.00006658422904974793,
+      "ratio": 1.431078113618239,
+      "lo": 0.6420410695128481,
+      "hi": 3.1898030585972577
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00008599091749984893,
+      "controlRate": 0.00004756016360696281,
+      "ratio": 1.8080450313518237,
+      "lo": 0.7106198863771399,
+      "hi": 4.600246767736923
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.0000371852616215563,
+      "controlRate": 0.00004756016360696281,
+      "ratio": 0.7818573108548427,
+      "lo": 0.28642986928355796,
+      "hi": 2.1342077768153236
+     }
+    ]
+   },
+   {
+    "bit": 1048576,
+    "name": "replaySlot",
+    "treated": {
+     "runs": 267706,
+     "gradedRuns": 267706,
+     "meanWallUs": 8890.887335360432,
+     "meanStepsUsed": 1782.3036428021785,
+     "planCompleteShare": 0.11275802559524255
+    },
+    "control": {
+     "runs": 267702,
+     "gradedRuns": 267702,
+     "meanWallUs": 9053.441192071781,
+     "meanStepsUsed": 1682.2869870228837,
+     "planCompleteShare": 0.30644149091153594
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5406938955421245,
+      "controlRate": 0.5657522170174298,
+      "ratio": 0.955707957085154,
+      "lo": 0.9511152614026304,
+      "hi": 0.9603228297366405
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5127303833309675,
+      "controlRate": 0.5341573839567878,
+      "ratio": 0.9598863532184109,
+      "lo": 0.9549900735484005,
+      "hi": 0.9648077363478926
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.2189640874690892,
+      "controlRate": 0.15792560384307924,
+      "ratio": 1.3865015053965541,
+      "lo": 1.3709214262377085,
+      "hi": 1.402258647122189
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.2170702188221407,
+      "controlRate": 0.15607279736423335,
+      "ratio": 1.3908267327044521,
+      "lo": 1.375097949822244,
+      "hi": 1.4067354261239333
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.04828057645327337,
+      "controlRate": 0.024318085034852187,
+      "ratio": 1.9853774005674634,
+      "lo": 1.9280452001964545,
+      "hi": 2.044414426737705
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.047667964109881736,
+      "controlRate": 0.0238997093783386,
+      "ratio": 1.9944997386907721,
+      "lo": 1.9364384188810044,
+      "hi": 2.054301943635426
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.04738780602601361,
+      "controlRate": 0.02376149599181179,
+      "ratio": 1.9943107135318183,
+      "lo": 1.9360823883259797,
+      "hi": 2.0542902750883
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.020365624976653493,
+      "controlRate": 0.010003660786994493,
+      "ratio": 2.0358172283420815,
+      "lo": 1.9444087780691213,
+      "hi": 2.131522874181913
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003713028471532203,
+      "controlRate": 0.0017519480616506413,
+      "ratio": 2.1193713174544007,
+      "lo": 1.899235068206484,
+      "hi": 2.3650230855784
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0007807071937125055,
+      "controlRate": 0.00034366571785044564,
+      "ratio": 2.271705186643752,
+      "lo": 1.7777704297837276,
+      "hi": 2.9028745042473987
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00010459235131076629,
+      "controlRate": 0.00007470993866314036,
+      "ratio": 1.399979081529738,
+      "lo": 0.7887176029738565,
+      "hi": 2.4849723415971665
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00008591514571955802,
+      "controlRate": 0.00007097444172998334,
+      "ratio": 1.210508228390375,
+      "lo": 0.6593062100298464,
+      "hi": 2.2225335492205813
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00003361897006417488,
+      "controlRate": 0.000044825963197884216,
+      "ratio": 0.7499887936766453,
+      "lo": 0.3160170307282801,
+      "hi": 1.7799141690062514
+     }
+    ]
+   },
+   {
+    "bit": 2097152,
+    "name": "replayPrefix",
+    "treated": {
+     "runs": 134006,
+     "gradedRuns": 134006,
+     "meanWallUs": 8890.430331477695,
+     "meanStepsUsed": 1779.1938644538304,
+     "planCompleteShare": 0.11163679238243064
+    },
+    "control": {
+     "runs": 133700,
+     "gradedRuns": 133700,
+     "meanWallUs": 8891.345385190725,
+     "meanStepsUsed": 1785.4205385190726,
+     "planCompleteShare": 0.11388182498130142
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5411175619002134,
+      "controlRate": 0.5402692595362752,
+      "ratio": 1.0015701473829295,
+      "lo": 0.9946006773347442,
+      "hi": 1.0085884546316712
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5128725579451666,
+      "controlRate": 0.5125878833208676,
+      "ratio": 1.0005553674473433,
+      "lo": 0.9931926851486548,
+      "hi": 1.0079726303842524
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.2227586824470546,
+      "controlRate": 0.21516080777860883,
+      "ratio": 1.0353125401735044,
+      "lo": 1.020600650990139,
+      "hi": 1.0502365002419252
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.2209453308060833,
+      "controlRate": 0.21318623784592372,
+      "ratio": 1.0363958435523748,
+      "lo": 1.021586944733344,
+      "hi": 1.0514194117985776
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.04994552482724654,
+      "controlRate": 0.04661181750186986,
+      "ratio": 1.0715206465665696,
+      "lo": 1.0360533961522302,
+      "hi": 1.1082020485455149
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.0492291389937764,
+      "controlRate": 0.046103216155572176,
+      "ratio": 1.0678027065976483,
+      "lo": 1.0322269256824501,
+      "hi": 1.1046046095565913
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.04889333313433727,
+      "controlRate": 0.04587883320867614,
+      "ratio": 1.0657056798273383,
+      "lo": 1.0300927998577007,
+      "hi": 1.1025497859737892
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.021036371505753475,
+      "controlRate": 0.019693343305908752,
+      "ratio": 1.0681970643065855,
+      "lo": 1.0134850543437384,
+      "hi": 1.1258626491853576
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003843111502470039,
+      "controlRate": 0.0035826477187733733,
+      "ratio": 1.0727014778293198,
+      "lo": 0.9474270187189224,
+      "hi": 1.2145404741497947
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0007835470053579691,
+      "controlRate": 0.0007778608825729245,
+      "ratio": 1.0073099482342351,
+      "lo": 0.7681533057985094,
+      "hi": 1.3209255550321248
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00011939763891169052,
+      "controlRate": 0.00008975317875841435,
+      "ratio": 1.3302886935410854,
+      "lo": 0.6293592524247076,
+      "hi": 2.8118566642904157
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.0001044729340477292,
+      "controlRate": 0.00006731488406881077,
+      "ratio": 1.5520034757979329,
+      "lo": 0.6717812856266131,
+      "hi": 3.585563992962536
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000044774114591883944,
+      "controlRate": 0.00002243829468960359,
+      "ratio": 1.9954330403116278,
+      "lo": 0.49905074594789434,
+      "hi": 7.978653575207839
+     }
+    ]
+   },
+   {
+    "bit": 67108864,
+    "name": "originAlternate",
+    "treated": {
+     "runs": 266578,
+     "gradedRuns": 266578,
+     "meanWallUs": 8959.573734516727,
+     "meanStepsUsed": 1728.9579522691295,
+     "planCompleteShare": 0.21091387886472251
+    },
+    "control": {
+     "runs": 268830,
+     "gradedRuns": 268830,
+     "meanWallUs": 8984.64811218986,
+     "meanStepsUsed": 1735.6054644198937,
+     "planCompleteShare": 0.20829520514823494
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5389341956200436,
+      "controlRate": 0.5673920321392701,
+      "ratio": 0.9498444903924183,
+      "lo": 0.9452780699292431,
+      "hi": 0.9544329701802619
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5107248160013205,
+      "controlRate": 0.5360562437227988,
+      "ratio": 0.9527448322482789,
+      "lo": 0.9478830536376331,
+      "hi": 0.9576315473647184
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.18820757902002416,
+      "controlRate": 0.1886805788044489,
+      "ratio": 0.9974931188603413,
+      "lo": 0.9864646493692998,
+      "hi": 1.0086448843452052
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.18642948780469507,
+      "controlRate": 0.1867127924710784,
+      "ratio": 0.998482671365824,
+      "lo": 0.9873755947566192,
+      "hi": 1.0097146924758427
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03603823271237686,
+      "controlRate": 0.036558419819216606,
+      "ratio": 0.9857710724530191,
+      "lo": 0.9589306545610713,
+      "hi": 1.0133627522106583
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.035501804349946355,
+      "controlRate": 0.03606368336867165,
+      "ratio": 0.984419810561741,
+      "lo": 0.9574191337799415,
+      "hi": 1.0121819475243048
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.03525797327611431,
+      "controlRate": 0.03588885169065952,
+      "ratio": 0.9824213262663568,
+      "lo": 0.9553942117756541,
+      "hi": 1.01021300988328
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.01505000412637202,
+      "controlRate": 0.015318230852211435,
+      "ratio": 0.9824897059962578,
+      "lo": 0.9409992741456927,
+      "hi": 1.0258095291996583
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.002715903037760055,
+      "controlRate": 0.002748949150020459,
+      "ratio": 0.9879786382152038,
+      "lo": 0.8918606976770089,
+      "hi": 1.0944554369443331
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.000607702060935261,
+      "controlRate": 0.0005170553881635234,
+      "ratio": 1.1753132736778864,
+      "lo": 0.9370585566563054,
+      "hi": 1.4741461795221473
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.0001012836768225435,
+      "controlRate": 0.00007811628166499274,
+      "ratio": 1.2965757542954461,
+      "lo": 0.7330626076981772,
+      "hi": 2.293267544917481
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00008252744037392433,
+      "controlRate": 0.00007439645872856452,
+      "ratio": 1.109292589786104,
+      "lo": 0.605433899363508,
+      "hi": 2.0324762968311094
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00003751247289723833,
+      "controlRate": 0.000040918052300710485,
+      "ratio": 0.9167707353604164,
+      "lo": 0.3893538392404734,
+      "hi": 2.1586241010305973
+     }
+    ]
+   },
+   {
+    "bit": 536870912,
+    "name": "pairOrderGhostOnly",
+    "treated": {
+     "runs": 270513,
+     "gradedRuns": 270513,
+     "meanWallUs": 9011.265203520717,
+     "meanStepsUsed": 1748.4727092598137,
+     "planCompleteShare": 0.17445741979128546
+    },
+    "control": {
+     "runs": 264895,
+     "gradedRuns": 264895,
+     "meanWallUs": 8932.2328281017,
+     "meanStepsUsed": 1715.7755790030012,
+     "planCompleteShare": 0.24548594726212272
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5486538539737462,
+      "controlRate": 0.557888974876838,
+      "ratio": 0.9834463104327693,
+      "lo": 0.9787233173677782,
+      "hi": 0.9881920950907428
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5172838273946169,
+      "controlRate": 0.5297344230732932,
+      "ratio": 0.9764965327221076,
+      "lo": 0.9715179979449299,
+      "hi": 0.9815005799535887
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.155914872852691,
+      "controlRate": 0.2216651880933955,
+      "ratio": 0.7033800579773423,
+      "lo": 0.6954730984769598,
+      "hi": 0.7113769131310254
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.1546580016487193,
+      "controlRate": 0.21916230959436758,
+      "ratio": 0.7056779148520799,
+      "lo": 0.6976993583775088,
+      "hi": 0.7137477102860301
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.02809846476879115,
+      "controlRate": 0.04467430491326752,
+      "ratio": 0.6289625506953634,
+      "lo": 0.6114076894210251,
+      "hi": 0.647021450698186
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.027765763567739812,
+      "controlRate": 0.043972139904490455,
+      "ratio": 0.6314398987187876,
+      "lo": 0.6136944695858735,
+      "hi": 0.6496984500496642
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.027677043247459458,
+      "controlRate": 0.04363993280356367,
+      "ratio": 0.6342136999165894,
+      "lo": 0.6163455064791489,
+      "hi": 0.6525999020575274
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.011134400195184704,
+      "controlRate": 0.01932086298344627,
+      "ratio": 0.5762889682890685,
+      "lo": 0.5511007685197615,
+      "hi": 0.6026284010884484
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0021034109266467784,
+      "controlRate": 0.0033749221389607204,
+      "ratio": 0.6232472454296403,
+      "lo": 0.5611384557128338,
+      "hi": 0.6922304557476623
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0005508053217405448,
+      "controlRate": 0.0005738122652371694,
+      "ratio": 0.9599051033056686,
+      "lo": 0.7658158120151313,
+      "hi": 1.2031846207610828
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00011090040035044527,
+      "controlRate": 0.00006795145246229638,
+      "ratio": 1.6320534194906224,
+      "lo": 0.9098317840596972,
+      "hi": 2.9275723389064034
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00011090040035044527,
+      "controlRate": 0.00004530096830819759,
+      "ratio": 2.448080129235933,
+      "lo": 1.2533977761087096,
+      "hi": 4.781479936693321
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00007023692022194867,
+      "controlRate": 0.000007550161384699598,
+      "ratio": 9.302704491096547,
+      "lo": 2.1668333317330823,
+      "hi": 39.938609758901464
+     }
+    ]
+   },
+   {
+    "bit": 16777216,
+    "name": "freshFirstPair",
+    "treated": {
+     "runs": 349423,
+     "gradedRuns": 349423,
+     "meanWallUs": 8891.772450582817,
+     "meanStepsUsed": 1725.5148916928765,
+     "planCompleteShare": 0.1918820455436534
+    },
+    "control": {
+     "runs": 185985,
+     "gradedRuns": 185985,
+     "meanWallUs": 9123.200225824663,
+     "meanStepsUsed": 1745.0352447778046,
+     "planCompleteShare": 0.24288517891227787
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5570096988463838,
+      "controlRate": 0.546108557141705,
+      "ratio": 1.019961492201724,
+      "lo": 1.014782775012938,
+      "hi": 1.0251666378167523
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5279389164422491,
+      "controlRate": 0.5149985213861333,
+      "ratio": 1.0251270528336398,
+      "lo": 1.0195947046393319,
+      "hi": 1.0306894196975267
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.20067368204153704,
+      "controlRate": 0.1654703336290561,
+      "ratio": 1.2127471894230792,
+      "lo": 1.1980845811038159,
+      "hi": 1.2275892442406242
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.19896228925972245,
+      "controlRate": 0.16329273866172003,
+      "ratio": 1.2184392943025841,
+      "lo": 1.203602569338104,
+      "hi": 1.2334589105413765
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03964822006565109,
+      "controlRate": 0.030007796327660832,
+      "ratio": 1.3212639686275072,
+      "lo": 1.2814955353445383,
+      "hi": 1.3622665289457738
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03913880883628153,
+      "controlRate": 0.029480872113342473,
+      "ratio": 1.3276001023920883,
+      "lo": 1.2873072047337433,
+      "hi": 1.3691541734484658
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.038952787881736464,
+      "controlRate": 0.029228163561577546,
+      "ratio": 1.3327141747948412,
+      "lo": 1.2921112530810177,
+      "hi": 1.3745929907072238
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.01772064231604674,
+      "controlRate": 0.010420195177030406,
+      "ratio": 1.7006056043085411,
+      "lo": 1.6165257730010931,
+      "hi": 1.7890586526415144
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0032195934440491895,
+      "controlRate": 0.001817350861628626,
+      "ratio": 1.7715860553002618,
+      "lo": 1.5689877087053892,
+      "hi": 2.0003452760786833
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006811228797188508,
+      "controlRate": 0.0003387369949189451,
+      "ratio": 2.0107720441985784,
+      "lo": 1.5232904179694775,
+      "hi": 2.6542569729546766
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00008585582517464506,
+      "controlRate": 0.00009678199854827002,
+      "ratio": 0.88710531361702,
+      "lo": 0.4945418055094683,
+      "hi": 1.5912827362225597
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00007727024265718055,
+      "controlRate": 0.00008065166545689168,
+      "ratio": 0.9580737387063817,
+      "lo": 0.5096732600353405,
+      "hi": 1.8009681118746097
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00004292791258732253,
+      "controlRate": 0.00003226066618275668,
+      "ratio": 1.33065797042553,
+      "lo": 0.5162935921500353,
+      "hi": 3.4295421465204585
+     }
+    ]
+   },
+   {
+    "bit": 8192,
+    "name": "recoverDepsExempt",
+    "treated": {
+     "runs": 267687,
+     "gradedRuns": 267687,
+     "meanWallUs": 8827.122807607393,
+     "meanStepsUsed": 1713.938685853254,
+     "planCompleteShare": 0.21884887947490914
+    },
+    "control": {
+     "runs": 267721,
+     "gradedRuns": 267721,
+     "meanWallUs": 9117.186085514397,
+     "meanStepsUsed": 1750.6503598895865,
+     "planCompleteShare": 0.20035036474538792
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5614131429617426,
+      "controlRate": 0.545033822524195,
+      "ratio": 1.0300519339546501,
+      "lo": 1.02510360664411,
+      "hi": 1.0350241475758166
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5338025380388289,
+      "controlRate": 0.5130863847064668,
+      "ratio": 1.0403755662785978,
+      "lo": 1.0350688836141322,
+      "hi": 1.0457094557129192
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.18889225102451743,
+      "controlRate": 0.18799795309295872,
+      "ratio": 1.004756955684068,
+      "lo": 0.9936483198662457,
+      "hi": 1.015989782110646
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.18889225102451743,
+      "controlRate": 0.18425151557031388,
+      "ratio": 1.0251869594659184,
+      "lo": 1.0137819070834013,
+      "hi": 1.036720318754427
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03630732908209962,
+      "controlRate": 0.036291512432719136,
+      "ratio": 1.0004358222713865,
+      "lo": 0.9731979080220531,
+      "hi": 1.0284360726977078
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03630732908209962,
+      "controlRate": 0.03526058844842205,
+      "ratio": 1.0296858526683041,
+      "lo": 1.0014426459119432,
+      "hi": 1.058725589042351
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.036281179138321996,
+      "controlRate": 0.0348683891065699,
+      "ratio": 1.0405177889759725,
+      "lo": 1.011889156606937,
+      "hi": 1.0699563900910607
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.0149951249033386,
+      "controlRate": 0.01537421420060436,
+      "ratio": 0.9753425253271899,
+      "lo": 0.9341541702643712,
+      "hi": 1.0183469410005401
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0026000515527463044,
+      "controlRate": 0.0028649228114342915,
+      "ratio": 0.9075468080218949,
+      "lo": 0.8191591155238348,
+      "hi": 1.0054715782830899
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0005304702880603092,
+      "controlRate": 0.0005939018605189731,
+      "ratio": 0.893195194904365,
+      "lo": 0.7123449614970657,
+      "hi": 1.1199597095817082
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.0001307497188881044,
+      "controlRate": 0.00004855801375312359,
+      "ratio": 2.692649653110938,
+      "lo": 1.4246723604437683,
+      "hi": 5.089143550268676
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00011207118761837519,
+      "controlRate": 0.00004482278192596023,
+      "ratio": 2.5003175350315856,
+      "lo": 1.28014291409464,
+      "hi": 4.883507698363315
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00005603559380918759,
+      "controlRate": 0.000022411390962980116,
+      "ratio": 2.5003175350315856,
+      "lo": 0.9701184975820454,
+      "hi": 6.444148618512154
+     }
+    ]
+   },
+   {
+    "bit": 32768,
+    "name": "pairSendOrder",
+    "treated": {
+     "runs": 278609,
+     "gradedRuns": 278609,
+     "meanWallUs": 9012.758676137526,
+     "meanStepsUsed": 1737.4907343266011,
+     "planCompleteShare": 0.20112774533485997
+    },
+    "control": {
+     "runs": 256799,
+     "gradedRuns": 256799,
+     "meanWallUs": 8928.120892215313,
+     "meanStepsUsed": 1726.6594262438716,
+     "planCompleteShare": 0.2187897927951433
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.541012673675294,
+      "controlRate": 0.5664702744169564,
+      "ratio": 0.9550592468989396,
+      "lo": 0.9504753873964817,
+      "hi": 0.9596652129895499
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5101558097548895,
+      "controlRate": 0.537860349923481,
+      "ratio": 0.948491201902998,
+      "lo": 0.9436585336825997,
+      "hi": 0.9533486192050765
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.17666335258372845,
+      "controlRate": 0.2012274191098875,
+      "ratio": 0.877928829804526,
+      "lo": 0.8682207826975595,
+      "hi": 0.8877454278475093
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.17439852983930884,
+      "controlRate": 0.19977881533806596,
+      "ratio": 0.8729580738788115,
+      "lo": 0.8632449102839002,
+      "hi": 0.8827805292238363
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03433485637578111,
+      "controlRate": 0.03843083501103976,
+      "ratio": 0.8934194733452441,
+      "lo": 0.8690929166911857,
+      "hi": 0.9184269483997148
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03369955744430367,
+      "controlRate": 0.038045319491119514,
+      "ratio": 0.8857740687962884,
+      "lo": 0.861476671206374,
+      "hi": 0.9107567589186351
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.03344472001981271,
+      "controlRate": 0.03788566154852628,
+      "ratio": 0.8827804148800374,
+      "lo": 0.8584915587257417,
+      "hi": 0.9077564630367331
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.014037593904001666,
+      "controlRate": 0.016429191702459902,
+      "ratio": 0.8544299779458933,
+      "lo": 0.8183252347251321,
+      "hi": 0.8921276727557313
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0027134801819036713,
+      "controlRate": 0.002753125985693091,
+      "ratio": 0.9855997132003972,
+      "lo": 0.889666961840557,
+      "hi": 1.0918768891350574
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0005419781844807598,
+      "controlRate": 0.0005841144241215892,
+      "ratio": 0.9278630386431642,
+      "lo": 0.7402599953280953,
+      "hi": 1.1630100558095782
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00008614222799694195,
+      "controlRate": 0.00009345830785945428,
+      "ratio": 0.9217182503077791,
+      "lo": 0.5234605832965067,
+      "hi": 1.622977087597081
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00007537444949732421,
+      "controlRate": 0.0000817760193770225,
+      "ratio": 0.921718250307779,
+      "lo": 0.5034046017451761,
+      "hi": 1.6876375980775877
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000035892594998725814,
+      "controlRate": 0.00004283505776891655,
+      "ratio": 0.8379256820979809,
+      "lo": 0.35586824243994164,
+      "hi": 1.9729758516956182
+     }
+    ]
+   },
+   {
+    "bit": 262144,
+    "name": "clientFanoutRelease",
+    "treated": {
+     "runs": 313992,
+     "gradedRuns": 313992,
+     "meanWallUs": 8948.169459731458,
+     "meanStepsUsed": 1727.6236241687686,
+     "planCompleteShare": 0.19733305307141583
+    },
+    "control": {
+     "runs": 133730,
+     "gradedRuns": 133730,
+     "meanWallUs": 8726.063643161595,
+     "meanStepsUsed": 1687.6600837508413,
+     "planCompleteShare": 0.21435728707096388
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5486827689877449,
+      "controlRate": 0.5526658191879159,
+      "ratio": 0.992793022362006,
+      "lo": 0.9870791929859999,
+      "hi": 0.9985399269424841
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5186278631302709,
+      "controlRate": 0.5232707694608539,
+      "ratio": 0.9911271437245256,
+      "lo": 0.9850741027833427,
+      "hi": 0.9972173791311117
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.18996343855894418,
+      "controlRate": 0.1906378523891423,
+      "ratio": 0.9964623299006671,
+      "lo": 0.9833995274114304,
+      "hi": 1.0096986496675884
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.1881385513006701,
+      "controlRate": 0.18834218200852465,
+      "ratio": 0.9989188258005562,
+      "lo": 0.9857322053872847,
+      "hi": 1.0122818500656785
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03830670845117073,
+      "controlRate": 0.035661407313243104,
+      "ratio": 1.074178259839602,
+      "lo": 1.0393883056945747,
+      "hi": 1.110132688226625
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03767293434227623,
+      "controlRate": 0.03522769759964107,
+      "ratio": 1.069412334874252,
+      "lo": 1.0345373183498143,
+      "hi": 1.1054630139446475
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.03743088995897985,
+      "controlRate": 0.03511553129439916,
+      "ratio": 1.0659354587338958,
+      "lo": 1.0311007456145203,
+      "hi": 1.1019470279881063
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.015551351626793039,
+      "controlRate": 0.014723697001420772,
+      "ratio": 1.0562124190203317,
+      "lo": 1.002762314386096,
+      "hi": 1.1125115673854937
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.002869499859869041,
+      "controlRate": 0.002572347266881029,
+      "ratio": 1.1155180705240897,
+      "lo": 0.985369815897322,
+      "hi": 1.2628563871043677
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0007197635608550536,
+      "controlRate": 0.000336498915725716,
+      "ratio": 2.1389773554032514,
+      "lo": 1.553395597449763,
+      "hi": 2.9453051974906543
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00013694616423348365,
+      "controlRate": 0.000029911014731174755,
+      "ratio": 4.5784526357359425,
+      "lo": 1.6434753303049896,
+      "hi": 12.754817885697934
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00012420698616525262,
+      "controlRate": 0.000014955507365587377,
+      "ratio": 8.305100129939616,
+      "lo": 2.0054381191388413,
+      "hi": 34.3938252245557
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00006369589034115519,
+      "controlRate": 0.000007477753682793689,
+      "ratio": 8.518051415322685,
+      "lo": 1.1431589681974295,
+      "hi": 63.47078746929778
+     }
+    ]
+   },
+   {
+    "bit": 268435456,
+    "name": "ghostReleaseSingleOntoAbsorber",
+    "treated": {
+     "runs": 127514,
+     "gradedRuns": 127514,
+     "meanWallUs": 8898.994008501028,
+     "meanStepsUsed": 1725.4186050159199,
+     "planCompleteShare": 0.19654312467650611
+    },
+    "control": {
+     "runs": 127261,
+     "gradedRuns": 127261,
+     "meanWallUs": 8909.37574747959,
+     "meanStepsUsed": 1727.0668547316145,
+     "planCompleteShare": 0.19667455072645978
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5516962843295639,
+      "controlRate": 0.5510014851368448,
+      "ratio": 1.0012609751724109,
+      "lo": 0.9942709874480687,
+      "hi": 1.0083001043571829
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5224759634236241,
+      "controlRate": 0.5217859359898162,
+      "ratio": 1.0013224339450602,
+      "lo": 0.9939104459782822,
+      "hi": 1.008789696072445
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.19113979641451134,
+      "controlRate": 0.19199126205200337,
+      "ratio": 0.9955650813042658,
+      "lo": 0.9798077664815622,
+      "hi": 1.011575806008903
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.18933607290179902,
+      "controlRate": 0.19009751612827183,
+      "ratio": 0.9959944598857409,
+      "lo": 0.9801363898861815,
+      "hi": 1.0121091047729442
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.03739197264614082,
+      "controlRate": 0.03693983231312028,
+      "ratio": 1.012239912980329,
+      "lo": 0.9730071413291362,
+      "hi": 1.053054595293896
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.03685869786846935,
+      "controlRate": 0.03634263442845805,
+      "ratio": 1.0141999458247086,
+      "lo": 0.9745831539743434,
+      "hi": 1.0554271597207605
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.03665479868877143,
+      "controlRate": 0.03613047202206489,
+      "ratio": 1.0145120347828929,
+      "lo": 0.9747679404534336,
+      "hi": 1.055876610222281
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.01673541728751353,
+      "controlRate": 0.01633650529227336,
+      "ratio": 1.024418441282472,
+      "lo": 0.9648600522803031,
+      "hi": 1.0876532201322153
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0033251250843044687,
+      "controlRate": 0.0032610147649319117,
+      "ratio": 1.0196596225389662,
+      "lo": 0.890787528900613,
+      "hi": 1.1671759113191507
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.000603855262951519,
+      "controlRate": 0.0006914922875036342,
+      "ratio": 0.8732639161190143,
+      "lo": 0.643218461974235,
+      "hi": 1.1855845444095219
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00009410731370673024,
+      "controlRate": 0.0000785786690345039,
+      "ratio": 1.1976190849632198,
+      "lo": 0.5174458294304506,
+      "hi": 2.771867876965702
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00007058048528004768,
+      "controlRate": 0.0000707208021310535,
+      "ratio": 0.9980159041360165,
+      "lo": 0.39617221019377413,
+      "hi": 2.5141484417123894
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00002352682842668256,
+      "controlRate": 0.000023573600710351168,
+      "ratio": 0.9980159041360165,
+      "lo": 0.20143258462354277,
+      "hi": 4.944759790328466
+     }
+    ]
+   }
+  ],
+  "baseline": [
+   {
+    "bit": 1,
+    "name": "crashPlaced",
+    "treated": {
+     "runs": 553024,
+     "gradedRuns": 553024,
+     "meanWallUs": 7842.1828058095125,
+     "meanStepsUsed": 1685.299753717741,
+     "planCompleteShare": 0.23777449079967597
+    },
+    "control": {
+     "runs": 28247,
+     "gradedRuns": 28247,
+     "meanWallUs": 8023.428611887988,
+     "meanStepsUsed": 1697.583353984494,
+     "planCompleteShare": 0.38053598612242007
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.565839818886703,
+      "controlRate": 0.5351364746698765,
+      "ratio": 1.0573747925438408,
+      "lo": 1.0456905444235094,
+      "hi": 1.0691895971226442
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5370327508390232,
+      "controlRate": 0.4973625517754098,
+      "ratio": 1.0797611298277379,
+      "lo": 1.066906741174236,
+      "hi": 1.0927703917248688
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.23222681113297072,
+      "controlRate": 0.048677735688745706,
+      "ratio": 4.7706987156894725,
+      "lo": 4.529972117382172,
+      "hi": 5.024217731616793
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.22983089341511398,
+      "controlRate": 0.046978440188338584,
+      "ratio": 4.8922631848505835,
+      "lo": 4.6408993786634465,
+      "hi": 5.157241542422173
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.04823841279944451,
+      "controlRate": 0.0010974616773462668,
+      "ratio": 43.95453052728739,
+      "lo": 30.911485339253385,
+      "hi": 62.50106498185191
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.04739215657909964,
+      "controlRate": 0.0010620596877544519,
+      "ratio": 44.62287489632758,
+      "lo": 31.199315112966275,
+      "hi": 63.82194470627239
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.047021467422752,
+      "controlRate": 0.0010266576981626367,
+      "ratio": 45.800530699671576,
+      "lo": 31.82735827716836,
+      "hi": 65.90834822368383
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.01993222717278093,
+      "controlRate": 0.0003540198959181506,
+      "ratio": 56.30256209495429,
+      "lo": 30.28849132616177,
+      "hi": 104.65950463891562
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003676151487096401,
+      "controlRate": 0.00014160795836726023,
+      "ratio": 25.960062764003013,
+      "lo": 9.734424825715129,
+      "hi": 69.23109179811931
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006238427265362806,
+      "controlRate": 0.00007080397918363011,
+      "ratio": 8.81084274823516,
+      "lo": 2.194806404206032,
+      "hi": 35.37029497697816
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00006509663233422058,
+      "controlRate": 0.00007080397918363011,
+      "ratio": 0.9193922867723644,
+      "lo": 0.22137455852556323,
+      "hi": 3.8183347833934067
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.000043397754889480385,
+      "controlRate": 0.00003540198959181506,
+      "ratio": 1.2258563823631525,
+      "lo": 0.16583844186661872,
+      "hi": 9.061372340853836
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000009041198935308414,
+      "controlRate": 0.00003540198959181506,
+      "ratio": 0.2553867463256568,
+      "lo": 0.02983672186029757,
+      "hi": 2.1859770823414073
+     }
+    ]
+   },
+   {
+    "bit": 2,
+    "name": "runCapProbe",
+    "treated": {
+     "runs": 19505,
+     "gradedRuns": 19505,
+     "meanWallUs": 11228.643373493976,
+     "meanStepsUsed": 3208.2715201230453,
+     "planCompleteShare": 0.3020251217636504
+    },
+    "control": {
+     "runs": 36,
+     "gradedRuns": 36,
+     "meanWallUs": 7568.138888888889,
+     "meanStepsUsed": 1492.3333333333333,
+     "planCompleteShare": 0.5833333333333334
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5262240451166368,
+      "controlRate": 0.6666666666666666,
+      "ratio": 0.7893360676749552,
+      "lo": 0.6262943298000374,
+      "hi": 0.9948220797903259
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.4963855421686747,
+      "controlRate": 0.5555555555555556,
+      "ratio": 0.8934939759036145,
+      "lo": 0.6668854493212082,
+      "hi": 1.1971043689566678
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.05224301461163804,
+      "controlRate": 0.08333333333333333,
+      "ratio": 0.6269161753396566,
+      "lo": 0.21181947780293398,
+      "hi": 1.85546624408239
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.05008972058446552,
+      "controlRate": 0.08333333333333333,
+      "ratio": 0.6010766470135863,
+      "lo": 0.2030737744567228,
+      "hi": 1.7791225703646478
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.0009228402973596514,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.0007690335811330429,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.0007690335811330429,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.00010253781081773904,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.00010253781081773904,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 4,
+    "name": "timerSteerOff",
+    "treated": {
+     "runs": 19264,
+     "gradedRuns": 19264,
+     "meanWallUs": 7876.157963039867,
+     "meanStepsUsed": 1702.6896802325582,
+     "planCompleteShare": 0.3871470099667774
+    },
+    "control": {
+     "runs": 1550,
+     "gradedRuns": 1550,
+     "meanWallUs": 8056.234193548387,
+     "meanStepsUsed": 1533.6387096774195,
+     "planCompleteShare": 0.5754838709677419
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5880398671096345,
+      "controlRate": 0.6270967741935484,
+      "ratio": 0.9377178950822361,
+      "lo": 0.9007975517359678,
+      "hi": 0.9761514660679218
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5319248338870431,
+      "controlRate": 0.5870967741935483,
+      "ratio": 0.9060258159614472,
+      "lo": 0.8671971432541433,
+      "hi": 0.9465930389349032
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.17639119601328904,
+      "controlRate": 0.1032258064516129,
+      "ratio": 1.7087897113787376,
+      "lo": 1.4709519995149813,
+      "hi": 1.98508331929025
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.17379568106312293,
+      "controlRate": 0.10064516129032258,
+      "ratio": 1.7268160618451316,
+      "lo": 1.4833576925909837,
+      "hi": 2.0102324114676953
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.019622093023255814,
+      "controlRate": 0.0006451612903225806,
+      "ratio": 30.414244186046513,
+      "lo": 4.275933855219087,
+      "hi": 216.33315217900355
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.019154900332225912,
+      "controlRate": 0.0006451612903225806,
+      "ratio": 29.690095514950166,
+      "lo": 4.173862229090405,
+      "hi": 211.19570395570207
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.018947259136212626,
+      "controlRate": 0.0006451612903225806,
+      "ratio": 29.36825166112957,
+      "lo": 4.128497070281054,
+      "hi": 208.9123937715969
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.007682724252491694,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0008824750830564784,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 8,
+    "name": "crashHoldDrawn",
+    "treated": {
+     "runs": 516303,
+     "gradedRuns": 516303,
+     "meanWallUs": 7504.605049747919,
+     "meanStepsUsed": 1600.0152178081476,
+     "planCompleteShare": 0.2349705502389101
+    },
+    "control": {
+     "runs": 36721,
+     "gradedRuns": 36721,
+     "meanWallUs": 12588.578824106098,
+     "meanStepsUsed": 2884.413659758721,
+     "planCompleteShare": 0.27719833337872063
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5680133564980254,
+      "controlRate": 0.5352795403175294,
+      "ratio": 1.0611527505069187,
+      "lo": 1.0507804442048636,
+      "hi": 1.0716274423630798
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5390110071024186,
+      "controlRate": 0.5092181585468806,
+      "ratio": 1.058507042719285,
+      "lo": 1.0476044871464383,
+      "hi": 1.069523062599967
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.24391297358334157,
+      "controlRate": 0.06791754037199423,
+      "ratio": 3.591310466300676,
+      "lo": 3.4567302178328605,
+      "hi": 3.731130303089333
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.24153646211623794,
+      "controlRate": 0.06524876773508347,
+      "ratio": 3.7017781408056654,
+      "lo": 3.5601381161249237,
+      "hi": 3.8490533110726686
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.051489144940083637,
+      "controlRate": 0.0025326107676806185,
+      "ratio": 20.330461197256035,
+      "lo": 16.589964461405668,
+      "hi": 24.914318138214508
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.05058851101000769,
+      "controlRate": 0.0024509136461425343,
+      "ratio": 20.640674586649915,
+      "lo": 16.786529311020818,
+      "hi": 25.379722007947787
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.05019339418907114,
+      "controlRate": 0.002423681272296506,
+      "ratio": 20.709568854122264,
+      "lo": 16.82303728613675,
+      "hi": 25.493983923881594
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.021272392374245355,
+      "controlRate": 0.0010892949538411263,
+      "ratio": 19.528588009366594,
+      "lo": 14.319080237513544,
+      "hi": 26.63339706976874
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003908557571813451,
+      "controlRate": 0.0004084856076904224,
+      "ratio": 9.568409506304114,
+      "lo": 5.758229995680328,
+      "hi": 15.89975748606997
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.000666275423540053,
+      "controlRate": 0.00002723237384602816,
+      "ratio": 24.466299827814286,
+      "lo": 3.436585626945286,
+      "hi": 174.1844645368517
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00006972649781233113,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00004648433187488742,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000009684235807268213,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 16,
+    "name": "ghostReleasedCrash",
+    "treated": {
+     "runs": 276763,
+     "gradedRuns": 276763,
+     "meanWallUs": 7763.178596850013,
+     "meanStepsUsed": 1676.8407590610016,
+     "planCompleteShare": 0.2321047249813017
+    },
+    "control": {
+     "runs": 276261,
+     "gradedRuns": 276261,
+     "meanWallUs": 7921.330575072124,
+     "meanStepsUsed": 1693.7741194015805,
+     "planCompleteShare": 0.24345455927546777
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5634170752593374,
+      "controlRate": 0.5682669649353329,
+      "ratio": 0.9914654731398166,
+      "lo": 0.9868980303410887,
+      "hi": 0.9960540544281131
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5352630228751676,
+      "controlRate": 0.538805694614875,
+      "ratio": 0.9934249549046811,
+      "lo": 0.9885747061519288,
+      "hi": 0.9982990004558111
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.22784837568605631,
+      "controlRate": 0.2366132027321989,
+      "ratio": 0.9629571513975799,
+      "lo": 0.9537697538792533,
+      "hi": 0.9722330485488802
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.22548895625499074,
+      "controlRate": 0.2341807204057033,
+      "ratio": 0.962884373505835,
+      "lo": 0.9536358102053478,
+      "hi": 0.9722226313440145
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.04645852227356981,
+      "controlRate": 0.05002153760393251,
+      "ratio": 0.9287703757014739,
+      "lo": 0.9072619626283634,
+      "hi": 0.9507886876262713
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.04555522233824608,
+      "controlRate": 0.04923242875396817,
+      "ratio": 0.925309262435571,
+      "lo": 0.903681744431772,
+      "hi": 0.9474543847153076
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.045150543967221055,
+      "controlRate": 0.048895790574854936,
+      "ratio": 0.9234034962191632,
+      "lo": 0.9017315709773368,
+      "hi": 0.9455962775103993
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.020338701343748985,
+      "controlRate": 0.01952501438856733,
+      "ratio": 1.041674077108906,
+      "lo": 1.0038652409911355,
+      "hi": 1.0809069171967403
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.004166019301713018,
+      "controlRate": 0.0031853935227918527,
+      "ratio": 1.3078507480801593,
+      "lo": 1.198186863593918,
+      "hi": 1.4275516041991392
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0007154135487763899,
+      "controlRate": 0.0005321055089209118,
+      "ratio": 1.344495662574927,
+      "lo": 1.0862093158434454,
+      "hi": 1.664199119190145
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.000039745197154243885,
+      "controlRate": 0.00009049413417022309,
+      "ratio": 0.4392019164411428,
+      "lo": 0.21611791522092524,
+      "hi": 0.8925605413525457
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00002529239818906429,
+      "controlRate": 0.0000615360112357517,
+      "ratio": 0.4110178362417112,
+      "lo": 0.17044940654449814,
+      "hi": 0.991119095886762
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000007226399482589797,
+      "controlRate": 0.000010859296100426771,
+      "ratio": 0.6654574491532466,
+      "lo": 0.11119166692819189,
+      "hi": 3.98261514434827
+     }
+    ]
+   },
+   {
+    "bit": 256,
+    "name": "armSelectorConcentrated",
+    "treated": {
+     "runs": 517387,
+     "gradedRuns": 517387,
+     "meanWallUs": 7736.439707607651,
+     "meanStepsUsed": 1682.8249956029047,
+     "planCompleteShare": 0.2094563643848802
+    },
+    "control": {
+     "runs": 63884,
+     "gradedRuns": 63884,
+     "meanWallUs": 8778.720195980213,
+     "meanStepsUsed": 1710.7737774716675,
+     "planCompleteShare": 0.5302423141944775
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5587596905217951,
+      "controlRate": 0.6096049088973765,
+      "ratio": 0.9165931611877146,
+      "lo": 0.9105077050032198,
+      "hi": 0.9227192900395246
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5305912208849468,
+      "controlRate": 0.5716611358086532,
+      "ratio": 0.9281568881438648,
+      "lo": 0.9215118348361224,
+      "hi": 0.9348498591579171
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.2365192786057632,
+      "controlRate": 0.11630455200050091,
+      "ratio": 2.0336201338426076,
+      "lo": 1.9895106600878703,
+      "hi": 2.078707559469608
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.23409362817388144,
+      "controlRate": 0.1144574541356208,
+      "ratio": 2.0452458072018933,
+      "lo": 2.0004904684939833,
+      "hi": 2.091002420534404
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.05114546751271292,
+      "controlRate": 0.00385072944712291,
+      "ratio": 13.282020514561594,
+      "lo": 11.718116711332465,
+      "hi": 15.05464344612892
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.05025831727507649,
+      "controlRate": 0.00369419572976019,
+      "ratio": 13.604670935597403,
+      "lo": 11.971325219406404,
+      "hi": 15.460867353753692
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.04986789385894891,
+      "controlRate": 0.003631582242815102,
+      "ratio": 13.731726427952983,
+      "lo": 12.06987891361657,
+      "hi": 15.622386275923535
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.021121520254664305,
+      "controlRate": 0.0016436040323085594,
+      "ratio": 12.85073523760928,
+      "lo": 10.605616536399445,
+      "hi": 15.571126447986543
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003886839058577042,
+      "controlRate": 0.00040698766514307184,
+      "ratio": 9.550262554543682,
+      "lo": 6.486943568607346,
+      "hi": 14.060167765618496
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006687450593076363,
+      "controlRate": 0.000015653371736271994,
+      "ratio": 42.72210936880903,
+      "lo": 6.000863966756277,
+      "hi": 304.1526418581801
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00007344598917251496,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00004831972971875985,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000011596735132502363,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 512,
+    "name": "crashPhase",
+    "treated": {
+     "runs": 409359,
+     "gradedRuns": 409359,
+     "meanWallUs": 7841.093209139166,
+     "meanStepsUsed": 1699.9105430685536,
+     "planCompleteShare": 0.18969168871332986
+    },
+    "control": {
+     "runs": 143665,
+     "gradedRuns": 143665,
+     "meanWallUs": 7845.287502175199,
+     "meanStepsUsed": 1643.6677757282566,
+     "planCompleteShare": 0.3747816099954756
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5555050701218246,
+      "controlRate": 0.5952876483485887,
+      "ratio": 0.9331708320555171,
+      "lo": 0.9284531285382617,
+      "hi": 0.937912507409145
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5259857484506265,
+      "controlRate": 0.5685100755229179,
+      "ratio": 0.9252003985449557,
+      "lo": 0.9202526351548218,
+      "hi": 0.9301747637198927
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.2344641256207876,
+      "controlRate": 0.22585180802561514,
+      "ratio": 1.0381326041640353,
+      "lo": 1.0267153647137273,
+      "hi": 1.04967680514735
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.23165974120515245,
+      "controlRate": 0.2246197751714057,
+      "ratio": 1.031341701897683,
+      "lo": 1.019946976383293,
+      "hi": 1.0428637279213688
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.05128750070231752,
+      "controlRate": 0.039550342811401525,
+      "ratio": 1.2967650102777977,
+      "lo": 1.2600930427059434,
+      "hi": 1.3345042269812741
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.05021264953256188,
+      "controlRate": 0.03935544495875822,
+      "ratio": 1.275875538573665,
+      "lo": 1.2396376824769166,
+      "hi": 1.3131727221118519
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.04974606641114523,
+      "controlRate": 0.03925799603243657,
+      "ratio": 1.267157558680351,
+      "lo": 1.23109390875196,
+      "hi": 1.3042776567293215
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.020930283687423508,
+      "controlRate": 0.017088365294260954,
+      "ratio": 1.2248265604699382,
+      "lo": 1.1715588839790954,
+      "hi": 1.280516176990885
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003659379664304437,
+      "controlRate": 0.0037239411130059515,
+      "ratio": 0.9826631392005549,
+      "lo": 0.8904549493337433,
+      "hi": 1.0844196507257229
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006595677632591442,
+      "controlRate": 0.0005220478195802735,
+      "ratio": 1.2634240361149993,
+      "lo": 0.9783039923645808,
+      "hi": 1.6316403771132222
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00006839961989354088,
+      "controlRate": 0.00005568510075522918,
+      "ratio": 1.2283289240006938,
+      "lo": 0.5598589419643453,
+      "hi": 2.694950160558103
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.000046414027784902735,
+      "controlRate": 0.00003480318797201824,
+      "ratio": 1.3336142603436103,
+      "lo": 0.49796110269946753,
+      "hi": 3.5716183166724615
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.0000122142178381323,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 1024,
+    "name": "stallCap",
+    "treated": {
+     "runs": 436012,
+     "gradedRuns": 436012,
+     "meanWallUs": 7331.069498087209,
+     "meanStepsUsed": 1518.6084671981505,
+     "planCompleteShare": 0.2717104116400466
+    },
+    "control": {
+     "runs": 145259,
+     "gradedRuns": 145259,
+     "meanWallUs": 9411.594586221852,
+     "meanStepsUsed": 2188.0319498275494,
+     "planCompleteShare": 0.1636731631086542
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5739727346953754,
+      "controlRate": 0.5354573554822765,
+      "ratio": 1.0719298723208477,
+      "lo": 1.0661251788497967,
+      "hi": 1.077766170397963
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5409392402043981,
+      "controlRate": 0.5175927137044865,
+      "ratio": 1.0451059798211169,
+      "lo": 1.0391991064626578,
+      "hi": 1.051046428220832
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.22395484527948772,
+      "controlRate": 0.22136322017912832,
+      "ratio": 1.011707568665934,
+      "lo": 1.0005241414645862,
+      "hi": 1.0230159993917192
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.2217163747786758,
+      "controlRate": 0.21863017093605217,
+      "ratio": 1.014116093078143,
+      "lo": 1.0028210756105054,
+      "hi": 1.0255383290722926
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.046237259524967204,
+      "controlRate": 0.04507810187320579,
+      "ratio": 1.0257144290374482,
+      "lo": 0.998151752153196,
+      "hi": 1.0540382137947137
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.04545287744374008,
+      "controlRate": 0.04420380148562223,
+      "ratio": 1.0282572067591094,
+      "lo": 1.0003540649463811,
+      "hi": 1.0569386583226588
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.04511343724484647,
+      "controlRate": 0.04380451469444234,
+      "ratio": 1.0298809965030886,
+      "lo": 1.0018082207701828,
+      "hi": 1.0587404305214936
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.018990303019182957,
+      "controlRate": 0.018952354071004207,
+      "ratio": 1.0020023342766062,
+      "lo": 0.9601080296617809,
+      "hi": 1.0457246964692628
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.00346779446437254,
+      "controlRate": 0.003614233885680061,
+      "ratio": 0.959482583048173,
+      "lo": 0.8689486553760596,
+      "hi": 1.0594490496960127
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006536517343559351,
+      "controlRate": 0.0004268238112612644,
+      "ratio": 1.531432214206593,
+      "lo": 1.163698242022967,
+      "hi": 2.0153718051792175
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00006651193086428814,
+      "controlRate": 0.00006195829518308676,
+      "ratio": 1.0734951739350702,
+      "lo": 0.5081751158394373,
+      "hi": 2.267706254286555
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00004128326743300643,
+      "controlRate": 0.00004818978514240082,
+      "ratio": 0.856680877721583,
+      "lo": 0.3578207919100753,
+      "hi": 2.0510326477569816
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000013761089144335477,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 4096,
+    "name": "stallRelease",
+    "treated": {
+     "runs": 217913,
+     "gradedRuns": 217913,
+     "meanWallUs": 7839.229311697788,
+     "meanStepsUsed": 1671.734531670896,
+     "planCompleteShare": 0.379123778755742
+    },
+    "control": {
+     "runs": 218099,
+     "gradedRuns": 218099,
+     "meanWallUs": 6823.343055218043,
+     "meanStepsUsed": 1365.6129922649807,
+     "planCompleteShare": 0.16438864919142224
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.6112118138890291,
+      "controlRate": 0.5367654138716821,
+      "ratio": 1.1386944801088545,
+      "lo": 1.1328571320646001,
+      "hi": 1.1445619066433486
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5691766897798662,
+      "controlRate": 0.5127258721956542,
+      "ratio": 1.1100994130498463,
+      "lo": 1.1040273590349046,
+      "hi": 1.11620486283135
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.22522749904778513,
+      "controlRate": 0.2226832768605083,
+      "ratio": 1.0114252952585685,
+      "lo": 1.0003094084889168,
+      "hi": 1.0226647067472994
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.2233643701844314,
+      "controlRate": 0.22006978482248887,
+      "ratio": 1.0149706392660853,
+      "lo": 1.00374371023002,
+      "hi": 1.0263231421257237
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.04664246740671736,
+      "controlRate": 0.045832397214109186,
+      "ratio": 1.0176746197416617,
+      "lo": 0.9906011554284991,
+      "hi": 1.0454880109829319
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.04602754310206367,
+      "controlRate": 0.044878701873919645,
+      "ratio": 1.025598807010317,
+      "lo": 0.9980709990580278,
+      "hi": 1.0538858597571885
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.0457705598105666,
+      "controlRate": 0.04445687508883581,
+      "ratio": 1.0295496415145178,
+      "lo": 1.001807846016167,
+      "hi": 1.0580596554097723
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.01903053053282732,
+      "controlRate": 0.018950109812516335,
+      "ratio": 1.0042438128911457,
+      "lo": 0.962295458748041,
+      "hi": 1.0480207784023272
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0035702321568699437,
+      "controlRate": 0.003365444133168882,
+      "ratio": 1.060850222317681,
+      "lo": 0.9592450816216835,
+      "hi": 1.1732175809428032
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0009040305075878906,
+      "controlRate": 0.00040348649008019295,
+      "ratio": 2.240547155391038,
+      "lo": 1.742783486623565,
+      "hi": 2.88047918405322
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.000050478860829780695,
+      "controlRate": 0.0000825313275164031,
+      "ratio": 0.6116327260063522,
+      "lo": 0.28889108756508064,
+      "hi": 1.294932961328156
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.000027533924088971287,
+      "controlRate": 0.0000550208850109354,
+      "ratio": 0.5004267758233791,
+      "lo": 0.18781910033480326,
+      "hi": 1.3333412710133077
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000013766962044485643,
+      "controlRate": 0.00001375522125273385,
+      "ratio": 1.0008535516467583,
+      "lo": 0.20200373334714486,
+      "hi": 4.958858013393684
+     }
+    ]
+   },
+   {
+    "bit": 16384,
+    "name": "clientRushPriority",
+    "treated": {
+     "runs": 66066,
+     "gradedRuns": 66066,
+     "meanWallUs": 8610.545848091302,
+     "meanStepsUsed": 1809.4548179093633,
+     "planCompleteShare": 0.3278691005963733
+    },
+    "control": {
+     "runs": 107911,
+     "gradedRuns": 107911,
+     "meanWallUs": 7732.628999823929,
+     "meanStepsUsed": 1650.019794089574,
+     "planCompleteShare": 0.2877185829062839
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5753791662882572,
+      "controlRate": 0.5811919081465281,
+      "ratio": 0.9899985843285255,
+      "lo": 0.981834819559404,
+      "hi": 0.9982302292072928
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.541488814216087,
+      "controlRate": 0.5533170853759116,
+      "ratio": 0.9786229786275463,
+      "lo": 0.9700193680328658,
+      "hi": 0.987302899157579
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.17694426785335876,
+      "controlRate": 0.22589912057158212,
+      "ratio": 0.7832888742800098,
+      "lo": 0.7679240217393997,
+      "hi": 0.7989611513664233
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.17494626585535678,
+      "controlRate": 0.22367506556328826,
+      "ratio": 0.7821446946479432,
+      "lo": 0.7666996795920714,
+      "hi": 0.7979008465106062
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.025413979959434504,
+      "controlRate": 0.043730481600578255,
+      "ratio": 0.5811502418738158,
+      "lo": 0.5501334426849698,
+      "hi": 0.6139157837444845
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.025111252383979658,
+      "controlRate": 0.04310959957742955,
+      "ratio": 0.5824979269147955,
+      "lo": 0.5512122892494893,
+      "hi": 0.6155592708609933
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.024853933944843035,
+      "controlRate": 0.04284085959726071,
+      "ratio": 0.5801455474631098,
+      "lo": 0.5488416581749199,
+      "hi": 0.6132348943053523
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.012911331093149275,
+      "controlRate": 0.018691328965536415,
+      "ratio": 0.6907658153658063,
+      "lo": 0.6379992115039412,
+      "hi": 0.747896553905129
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.00207368389186571,
+      "controlRate": 0.0028171363438389044,
+      "ratio": 0.736096389655002,
+      "lo": 0.6017887308491502,
+      "hi": 0.9003789321521053
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0001967729240456513,
+      "controlRate": 0.00029654066777251624,
+      "ratio": 0.6635613439590712,
+      "lo": 0.3482972834659965,
+      "hi": 1.2641891800449705
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0,
+      "controlRate": 0.00003706758347156453,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0,
+      "controlRate": 0.000018533791735782265,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 524288,
+    "name": "ghostAbsorberRetarget",
+    "treated": {
+     "runs": 478560,
+     "gradedRuns": 478560,
+     "meanWallUs": 7755.579181293881,
+     "meanStepsUsed": 1688.1057756603143,
+     "planCompleteShare": 0.20490220661985958
+    },
+    "control": {
+     "runs": 102711,
+     "gradedRuns": 102711,
+     "meanWallUs": 8295.539124339166,
+     "meanStepsUsed": 1675.6038593724138,
+     "planCompleteShare": 0.43019734984568353
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.558327064526914,
+      "controlRate": 0.5924000350497999,
+      "ratio": 0.9424831726756709,
+      "lo": 0.9371597293866514,
+      "hi": 0.9478368552585513
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5299711634904715,
+      "controlRate": 0.5590248366776684,
+      "ratio": 0.9480279385083042,
+      "lo": 0.9423080655729088,
+      "hi": 0.9537825314546944
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.2398842360414577,
+      "controlRate": 0.1460700411835149,
+      "ratio": 1.6422548668968981,
+      "lo": 1.6167966991962799,
+      "hi": 1.66811390027407
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.2374164159144099,
+      "controlRate": 0.14420071852089844,
+      "ratio": 1.6464301866845559,
+      "lo": 1.6207177811531626,
+      "hi": 1.672550515054767
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.05316156803744567,
+      "controlRate": 0.012335582362161793,
+      "ratio": 4.309611534880886,
+      "lo": 4.074847612146235,
+      "hi": 4.5579008957824705
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.05224214309595453,
+      "controlRate": 0.012053236751662432,
+      "ratio": 4.334283327567516,
+      "lo": 4.095496517517322,
+      "hi": 4.586992537602685
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.051834670678702774,
+      "controlRate": 0.011946140140783363,
+      "ratio": 4.339030855811117,
+      "lo": 4.098934936702847,
+      "hi": 4.59319044054537
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.02175693747910398,
+      "controlRate": 0.006046090486900137,
+      "ratio": 3.5985133742612705,
+      "lo": 3.3195798229402818,
+      "hi": 3.900884809351424
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003991140086927449,
+      "controlRate": 0.0012364790528765176,
+      "ratio": 3.2278266887276006,
+      "lo": 2.6974975876232854,
+      "hi": 3.862418702528685
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006853895018388499,
+      "controlRate": 0.0001849850551547546,
+      "ratio": 3.705107427545795,
+      "lo": 2.333259745703671,
+      "hi": 5.88353743081225
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00007522567703109328,
+      "controlRate": 0.000019472111068921536,
+      "ratio": 3.8632522567703114,
+      "lo": 0.9301758232496807,
+      "hi": 16.045050437130918
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.000048060849214309595,
+      "controlRate": 0.000019472111068921536,
+      "ratio": 2.4681889418254768,
+      "lo": 0.5819150581001045,
+      "hi": 10.468807376181685
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000012537612838515546,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 1048576,
+    "name": "replaySlot",
+    "treated": {
+     "runs": 290953,
+     "gradedRuns": 290953,
+     "meanWallUs": 7689.799483078023,
+     "meanStepsUsed": 1727.9935212903802,
+     "planCompleteShare": 0.1623698672981547
+    },
+    "control": {
+     "runs": 290318,
+     "gradedRuns": 290318,
+     "meanWallUs": 8012.534059204046,
+     "meanStepsUsed": 1643.7077583890768,
+     "planCompleteShare": 0.3272342741407698
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.557818616752534,
+      "controlRate": 0.5708912296171784,
+      "ratio": 0.9771013948254021,
+      "lo": 0.9726967922587066,
+      "hi": 0.9815259424807675
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5311888861774926,
+      "controlRate": 0.5390296158006048,
+      "ratio": 0.9854539910363429,
+      "lo": 0.9807423888086806,
+      "hi": 0.9901882283573844
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.26287063546345973,
+      "controlRate": 0.1836572310363119,
+      "ratio": 1.4313111113576906,
+      "lo": 1.417367122820996,
+      "hi": 1.4453922801726495
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.26054723615154335,
+      "controlRate": 0.1812564153789982,
+      "ratio": 1.4374511136985246,
+      "lo": 1.4233457404959544,
+      "hi": 1.4516962713171526
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.06164913233408832,
+      "controlRate": 0.030211698895693688,
+      "ratio": 2.0405715198914436,
+      "lo": 1.9901607900519604,
+      "hi": 2.0922591524292673
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.06073145834550597,
+      "controlRate": 0.02951591013991554,
+      "ratio": 2.057583793202311,
+      "lo": 2.0062118178823747,
+      "hi": 2.1102712227652884
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.060236533048293024,
+      "controlRate": 0.029302351214874723,
+      "ratio": 2.055689408900239,
+      "lo": 2.0041648237928626,
+      "hi": 2.1085386270113338
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.025426787144315406,
+      "controlRate": 0.01252075310521566,
+      "ratio": 2.030771386564886,
+      "lo": 1.9523812690508866,
+      "hi": 2.1123089479830393
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.004736160135829498,
+      "controlRate": 0.002269924703256429,
+      "ratio": 2.086483366181712,
+      "lo": 1.9017859542484226,
+      "hi": 2.2891181984112494
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0008214385141242744,
+      "controlRate": 0.00037200586942593984,
+      "ratio": 2.208133208736399,
+      "lo": 1.7593641090201109,
+      "hi": 2.7713719079106047
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.000048117737229036994,
+      "controlRate": 0.00008266797098354219,
+      "ratio": 0.5820602182024818,
+      "lo": 0.3011032137305052,
+      "hi": 1.1251759601514906
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.0000309328310758095,
+      "controlRate": 0.00005511198065569479,
+      "ratio": 0.5612723532666788,
+      "lo": 0.24803150754427292,
+      "hi": 1.2701074055492088
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0,
+      "controlRate": 0.000020666992745885547,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 2097152,
+    "name": "replayPrefix",
+    "treated": {
+     "runs": 145760,
+     "gradedRuns": 145760,
+     "meanWallUs": 7668.476893523601,
+     "meanStepsUsed": 1724.8432423161362,
+     "planCompleteShare": 0.1606888035126235
+    },
+    "control": {
+     "runs": 145193,
+     "gradedRuns": 145193,
+     "meanWallUs": 7711.205340477847,
+     "meanStepsUsed": 1731.1561025669282,
+     "planCompleteShare": 0.16405749588478782
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5577456092206367,
+      "controlRate": 0.5578919093895711,
+      "ratio": 0.9997377625190971,
+      "lo": 0.9932899739792327,
+      "hi": 1.0062274058829743
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5304541712403952,
+      "controlRate": 0.5319264702843801,
+      "ratio": 0.9972321380374287,
+      "lo": 0.990446934160102,
+      "hi": 1.0040638249620233
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.26453073545554334,
+      "controlRate": 0.26120405253696805,
+      "ratio": 1.0127359544626684,
+      "lo": 1.0004855183813306,
+      "hi": 1.0251363909002589
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.2622530186608123,
+      "controlRate": 0.2588347923109241,
+      "ratio": 1.013206208946524,
+      "lo": 1.0008765943974982,
+      "hi": 1.0256877097478392
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.06366630076838639,
+      "controlRate": 0.05962408656064686,
+      "ratio": 1.0677949875781825,
+      "lo": 1.0379263890611818,
+      "hi": 1.09852312024594
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.06268523600439078,
+      "controlRate": 0.05877005089777056,
+      "ratio": 1.0666187121979973,
+      "lo": 1.0365477751940828,
+      "hi": 1.0975620269870303
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.062184412733260155,
+      "controlRate": 0.058281046606930086,
+      "ratio": 1.0669748804041883,
+      "lo": 1.0367643248234257,
+      "hi": 1.0980657495206754
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.026111416026344675,
+      "controlRate": 0.024739484685900835,
+      "ratio": 1.055455130042612,
+      "lo": 1.009000932133373,
+      "hi": 1.1040480697851496
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.004774972557628979,
+      "controlRate": 0.004697196145819702,
+      "ratio": 1.0165580506742293,
+      "lo": 0.9149077497727115,
+      "hi": 1.1295021499679196
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0008301317233809001,
+      "controlRate": 0.0008127113566081009,
+      "ratio": 1.021434875532568,
+      "lo": 0.7927311350440119,
+      "hi": 1.3161198782690775
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.000034302963776070254,
+      "controlRate": 0.00006198645940231278,
+      "ratio": 0.5533944688376632,
+      "lo": 0.18546375269586912,
+      "hi": 1.6512414619492408
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.0000137211855104281,
+      "controlRate": 0.000048211690646243276,
+      "ratio": 0.284602869687941,
+      "lo": 0.05912273103151311,
+      "hi": 1.3700110265785563
+     }
+    ]
+   },
+   {
+    "bit": 16777216,
+    "name": "freshFirstPair",
+    "treated": {
+     "runs": 354891,
+     "gradedRuns": 354891,
+     "meanWallUs": 7742.619595875917,
+     "meanStepsUsed": 1671.073876204243,
+     "planCompleteShare": 0.2409894869128831
+    },
+    "control": {
+     "runs": 226380,
+     "gradedRuns": 226380,
+     "meanWallUs": 8020.881177665871,
+     "meanStepsUsed": 1709.134062196307,
+     "planCompleteShare": 0.2505477515681597
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5632433620463748,
+      "controlRate": 0.5660791589363018,
+      "ratio": 0.9949904587633016,
+      "lo": 0.9903980627370614,
+      "hi": 0.9996041493599326
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5352601221220037,
+      "controlRate": 0.5348617369025532,
+      "ratio": 1.0007448377626667,
+      "lo": 0.9958383544824431,
+      "hi": 1.0056754952254479
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.23045103989675703,
+      "controlRate": 0.21210796006714375,
+      "ratio": 1.0864799219407262,
+      "lo": 1.0757133247814175,
+      "hi": 1.0973542797940046
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.22837998145909588,
+      "controlRate": 0.2092896899019348,
+      "ratio": 1.0912146774459175,
+      "lo": 1.0803199279698505,
+      "hi": 1.102219297677002
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.04782313442719032,
+      "controlRate": 0.04300733280325117,
+      "ratio": 1.1119762912517817,
+      "lo": 1.0852220059909694,
+      "hi": 1.1393901574793137
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.047118692781727346,
+      "controlRate": 0.042039932856259385,
+      "ratio": 1.1208079932675672,
+      "lo": 1.0935628093706347,
+      "hi": 1.1487319676639727
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.046814373990887344,
+      "controlRate": 0.041607032423358954,
+      "ratio": 1.1251553226517759,
+      "lo": 1.097677777910345,
+      "hi": 1.1533206971736862
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.021674260547604757,
+      "controlRate": 0.01475837088081986,
+      "ratio": 1.4686079325850838,
+      "lo": 1.410645639771432,
+      "hi": 1.5289518493115704
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0041646590079770975,
+      "controlRate": 0.0024692994080749184,
+      "ratio": 1.6865751453056446,
+      "lo": 1.5303881671154562,
+      "hi": 1.8587021135456525
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0007044416454629731,
+      "controlRate": 0.00042848308154430604,
+      "ratio": 1.6440360793804933,
+      "lo": 1.3005088199861963,
+      "hi": 2.0783054976385875
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.000059173098218889745,
+      "controlRate": 0.00007509497305415672,
+      "ratio": 0.7879768220466036,
+      "lo": 0.4157274394477983,
+      "hi": 1.4935445995756322
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00004508426530963028,
+      "controlRate": 0.0000397561622051418,
+      "ratio": 1.134019553421567,
+      "lo": 0.5011342741859725,
+      "hi": 2.5661791934534723
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.00001127106632740757,
+      "controlRate": 0.000008834702712253733,
+      "ratio": 1.2757719975992627,
+      "lo": 0.2336689005806917,
+      "hi": 6.965386432741674
+     }
+    ]
+   },
+   {
+    "bit": 8192,
+    "name": "recoverDepsExempt",
+    "treated": {
+     "runs": 291608,
+     "gradedRuns": 291608,
+     "meanWallUs": 7685.51834654742,
+     "meanStepsUsed": 1664.6799882033415,
+     "planCompleteShare": 0.2564024306603385
+    },
+    "control": {
+     "runs": 289663,
+     "gradedRuns": 289663,
+     "meanWallUs": 8017.573725329089,
+     "meanStepsUsed": 1707.255831776927,
+     "planCompleteShare": 0.23294310975167695
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5752962881676772,
+      "controlRate": 0.5533257613157359,
+      "ratio": 1.03970631477504,
+      "lo": 1.03501732793281,
+      "hi": 1.0444165443510998
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.548229129516337,
+      "controlRate": 0.5218926821858505,
+      "ratio": 1.0504633389764753,
+      "lo": 1.0454369432075674,
+      "hi": 1.0555139013434645
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.22638953663822667,
+      "controlRate": 0.22020416829211878,
+      "ratio": 1.0280892427880952,
+      "lo": 1.018276241218386,
+      "hi": 1.0379968110342224
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.22638953663822667,
+      "controlRate": 0.21546417733711243,
+      "ratio": 1.0507061518816678,
+      "lo": 1.0406056501683139,
+      "hi": 1.0609046927848385
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.046823132424350496,
+      "controlRate": 0.04506616309297356,
+      "ratio": 1.038986441507173,
+      "lo": 1.0149208114226775,
+      "hi": 1.0636227117291508
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.046823132424350496,
+      "controlRate": 0.04344704018117606,
+      "ratio": 1.077705920336483,
+      "lo": 1.05249836411848,
+      "hi": 1.1035172028044702
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.046788839812350824,
+      "controlRate": 0.04277039180012635,
+      "ratio": 1.0939539677588972,
+      "lo": 1.0682529799554161,
+      "hi": 1.1202732929660355
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.01970110559381087,
+      "controlRate": 0.0182556971377083,
+      "ratio": 1.0791757469024277,
+      "lo": 1.0399797824222228,
+      "hi": 1.119848974361683
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003422402677567145,
+      "controlRate": 0.003586926877095107,
+      "ratio": 0.9541322683273648,
+      "lo": 0.8748766048602827,
+      "hi": 1.0405677559624624
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0005898329263943376,
+      "controlRate": 0.0006041503402229487,
+      "ratio": 0.9763015711895031,
+      "lo": 0.7910726856611308,
+      "hi": 1.2049016167338593
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.0000823022687992099,
+      "controlRate": 0.0000483320272178359,
+      "ratio": 1.7028515776561097,
+      "lo": 0.8808952520833617,
+      "hi": 3.2917687871151045
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.000058297440399440346,
+      "controlRate": 0.000027618301267334798,
+      "ratio": 2.110826434802886,
+      "lo": 0.9109677421710579,
+      "hi": 4.891049409986692
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000017146305999835396,
+      "controlRate": 0.0000034522876584168498,
+      "ratio": 4.966650434830321,
+      "lo": 0.5802358541797792,
+      "hi": 42.5130856083865
+     }
+    ]
+   },
+   {
+    "bit": 32768,
+    "name": "pairSendOrder",
+    "treated": {
+     "runs": 325135,
+     "gradedRuns": 325135,
+     "meanWallUs": 7888.524529810694,
+     "meanStepsUsed": 1695.8385255355468,
+     "planCompleteShare": 0.22781306226644316
+    },
+    "control": {
+     "runs": 256136,
+     "gradedRuns": 256136,
+     "meanWallUs": 7803.345367304869,
+     "meanStepsUsed": 1673.276653808914,
+     "planCompleteShare": 0.2661632882531155
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.539778861088471,
+      "controlRate": 0.5955351844332698,
+      "ratio": 0.9063761053885366,
+      "lo": 0.9023055541159696,
+      "hi": 0.9104650200498547
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5086133452258292,
+      "controlRate": 0.5687330168348065,
+      "ratio": 0.8942919263883012,
+      "lo": 0.8900330079668357,
+      "hi": 0.898571224263066
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.21258554139049934,
+      "controlRate": 0.23691710653715214,
+      "ratio": 0.8972992473937831,
+      "lo": 0.8887304710198004,
+      "hi": 0.9059506404113281
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.20970981284697127,
+      "controlRate": 0.2352070774900834,
+      "ratio": 0.8915965245808255,
+      "lo": 0.8830261434298462,
+      "hi": 0.9002500872249232
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.04828148307626063,
+      "controlRate": 0.042984976731111596,
+      "ratio": 1.1232176157330693,
+      "lo": 1.0967917859949707,
+      "hi": 1.150280142870131
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.047309579097913175,
+      "controlRate": 0.0423876378174095,
+      "ratio": 1.1161173760544432,
+      "lo": 1.0896319933055052,
+      "hi": 1.1432465316584985
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.046885140018761436,
+      "controlRate": 0.04212215385576413,
+      "ratio": 1.1130755606493168,
+      "lo": 1.0865609582187725,
+      "hi": 1.1402371807522083
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.018539991080628048,
+      "controlRate": 0.019540400412280976,
+      "ratio": 0.9488030280574916,
+      "lo": 0.914227434164401,
+      "hi": 0.9846862524683128
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0035308410352622756,
+      "controlRate": 0.003470812380922635,
+      "ratio": 1.017295274924565,
+      "lo": 0.9321475281424751,
+      "hi": 1.1102209093941484
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006581881372353023,
+      "controlRate": 0.0005192553955711028,
+      "ratio": 1.2675614790894842,
+      "lo": 1.0209581487721169,
+      "hi": 1.5737296432805568
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00007689113752748858,
+      "controlRate": 0.00005075428678514539,
+      "ratio": 1.5149683385954473,
+      "lo": 0.7750806580030422,
+      "hi": 2.9611486794934856
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.000049210328017592693,
+      "controlRate": 0.00003513758315894681,
+      "ratio": 1.4005040641237914,
+      "lo": 0.6188960006180534,
+      "hi": 3.1692103869931545
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000015378227505497718,
+      "controlRate": 0.000003904175906549646,
+      "ratio": 3.938917680348163,
+      "lo": 0.46016958425449095,
+      "hi": 33.7159886777283
+     }
+    ]
+   },
+   {
+    "bit": 262144,
+    "name": "clientFanoutRelease",
+    "treated": {
+     "runs": 407294,
+     "gradedRuns": 407294,
+     "meanWallUs": 7759.144603161352,
+     "meanStepsUsed": 1675.3601084229083,
+     "planCompleteShare": 0.21982891965017898
+    },
+    "control": {
+     "runs": 107911,
+     "gradedRuns": 107911,
+     "meanWallUs": 7732.628999823929,
+     "meanStepsUsed": 1650.019794089574,
+     "planCompleteShare": 0.2877185829062839
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5580956262552358,
+      "controlRate": 0.5811919081465281,
+      "ratio": 0.9602604895774471,
+      "lo": 0.9547499347622793,
+      "hi": 0.9658028498039225
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.5292442314396971,
+      "controlRate": 0.5533170853759116,
+      "ratio": 0.9564935647706235,
+      "lo": 0.9506830562120875,
+      "hi": 0.9623395867523644
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.23014088103433883,
+      "controlRate": 0.22589912057158212,
+      "ratio": 1.0187772331827762,
+      "lo": 1.006231200630936,
+      "hi": 1.0314796939319266
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.2276831969044474,
+      "controlRate": 0.22367506556328826,
+      "ratio": 1.0179194374261848,
+      "lo": 1.0053027204916918,
+      "hi": 1.0306944962640274
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.04986569897911582,
+      "controlRate": 0.043730481600578255,
+      "ratio": 1.1402961310733986,
+      "lo": 1.1055394354124644,
+      "hi": 1.1761455312137674
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.04892780153893748,
+      "controlRate": 0.04310959957742955,
+      "ratio": 1.1349630249071974,
+      "lo": 1.100097166082602,
+      "hi": 1.1709339025874501
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.048534964914779,
+      "controlRate": 0.04284085959726071,
+      "ratio": 1.1329129567204665,
+      "lo": 1.0979916739387838,
+      "hi": 1.168944900010843
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.020042033518784957,
+      "controlRate": 0.018691328965536415,
+      "ratio": 1.0722636980890448,
+      "lo": 1.0217327635686049,
+      "hi": 1.1252936963906937
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.003918545325980741,
+      "controlRate": 0.0028171363438389044,
+      "ratio": 1.3909675811575912,
+      "lo": 1.230634517701005,
+      "hi": 1.572189617633882
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0007414791280991127,
+      "controlRate": 0.00029654066777251624,
+      "ratio": 2.5004298185094798,
+      "lo": 1.7369792412512366,
+      "hi": 3.5994381100303774
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.00008347778263367494,
+      "controlRate": 0.00003706758347156453,
+      "ratio": 2.252042750445624,
+      "lo": 0.7991672044372827,
+      "hi": 6.346227074477892
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.00005647026472278011,
+      "controlRate": 0.000018533791735782265,
+      "ratio": 3.046881368249962,
+      "lo": 0.7183509634775356,
+      "hi": 12.92332932533065
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000014731373405942636,
+      "controlRate": 0,
+      "ratio": 0,
+      "lo": 0,
+      "hi": null
+     }
+    ]
+   },
+   {
+    "bit": 268435456,
+    "name": "ghostReleaseSingleOntoAbsorber",
+    "treated": {
+     "runs": 138509,
+     "gradedRuns": 138509,
+     "meanWallUs": 7771.199589918345,
+     "meanStepsUsed": 1678.5972824870587,
+     "planCompleteShare": 0.23153730082521715
+    },
+    "control": {
+     "runs": 138254,
+     "gradedRuns": 138254,
+     "meanWallUs": 7755.142809611295,
+     "meanStepsUsed": 1675.0809958482214,
+     "planCompleteShare": 0.2326731957122398
+    },
+    "rungs": [
+     {
+      "rung": "depth>=1",
+      "treatedRate": 0.5630103458981005,
+      "controlRate": 0.5638245548049242,
+      "ratio": 0.9985559179714949,
+      "lo": 0.9920276336151013,
+      "hi": 1.0051271633253385
+     },
+     {
+      "rung": "depth>=2",
+      "treatedRate": 0.534499563205279,
+      "controlRate": 0.5360278906939402,
+      "ratio": 0.9971487911073385,
+      "lo": 0.9902494896342043,
+      "hi": 1.0040961616391446
+     },
+     {
+      "rung": "depth>=3",
+      "treatedRate": 0.2281151405323842,
+      "controlRate": 0.22758111881030568,
+      "ratio": 1.0023465115422145,
+      "lo": 0.9886911180534262,
+      "hi": 1.0161905076875137
+     },
+     {
+      "rung": "depth>=4",
+      "treatedRate": 0.22576150286262986,
+      "controlRate": 0.2252159069538675,
+      "ratio": 1.0024225460632055,
+      "lo": 0.9886745316555016,
+      "hi": 1.0163617334950976
+     },
+     {
+      "rung": "depth>=5",
+      "treatedRate": 0.046942797940928024,
+      "controlRate": 0.04597335339303022,
+      "ratio": 1.0210870966842454,
+      "lo": 0.987190890546525,
+      "hi": 1.056147163633014
+     },
+     {
+      "rung": "depth>=6",
+      "treatedRate": 0.04596813203474143,
+      "controlRate": 0.045141551058197234,
+      "ratio": 1.0183108678627049,
+      "lo": 0.9841635989462522,
+      "hi": 1.053642935704561
+     },
+     {
+      "rung": "depth>=7",
+      "treatedRate": 0.045614364409532954,
+      "controlRate": 0.044685868039984374,
+      "ratio": 1.0207782999474861,
+      "lo": 0.9863902227056648,
+      "hi": 1.056365233209135
+     },
+     {
+      "rung": "depth>=8",
+      "treatedRate": 0.02021529286905544,
+      "controlRate": 0.02046233743689152,
+      "ratio": 0.9879268647290176,
+      "lo": 0.9381350705801964,
+      "hi": 1.0403613729627363
+     },
+     {
+      "rung": "depth>=9",
+      "treatedRate": 0.0040863770585304925,
+      "controlRate": 0.00424580843953882,
+      "ratio": 0.9624496999149484,
+      "lo": 0.8577042318154935,
+      "hi": 1.0799870054338718
+     },
+     {
+      "rung": "depth>=10",
+      "treatedRate": 0.0006642167656975359,
+      "controlRate": 0.0007667047608025808,
+      "ratio": 0.8663266483466711,
+      "lo": 0.6552914985389847,
+      "hi": 1.1453251923898207
+     },
+     {
+      "rung": "depth>=11",
+      "treatedRate": 0.000028878989812936343,
+      "controlRate": 0.000050631446468094954,
+      "ratio": 0.5703765510853859,
+      "lo": 0.16697170086608135,
+      "hi": 1.948410469202732
+     },
+     {
+      "rung": "depth>=12",
+      "treatedRate": 0.000021659242359702257,
+      "controlRate": 0.00002893225512462569,
+      "ratio": 0.748619223299569,
+      "lo": 0.1675487396537487,
+      "hi": 3.3448818693105045
+     },
+     {
+      "rung": "depth>=13",
+      "treatedRate": 0.000007219747453234086,
+      "controlRate": 0.0000072330637811564225,
+      "ratio": 0.9981589643994253,
+      "lo": 0.06243112690744456,
+      "hi": 15.958727121616757
+     }
+    ]
+   }
+  ]
+ },
+ "files": {
+  "state": "/home/benaepli/Rust/turnpike/research/lite/state/plan-shape.json",
+  "chunkDir": "/home/benaepli/Rust/turnpike/research/lite/state/plan-shape"
+ },
+ "budget": {
+  "freeDiskGb": 686.1,
+  "estSecPerChunk": 504
+ }
+}

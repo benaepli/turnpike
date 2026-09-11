@@ -1,0 +1,203 @@
+[
+ {
+  "seed": 1000,
+  "runs": [
+   701340,
+   757560
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "survivor_firing": {
+   "seen": 771418,
+   "retargeted": 385314,
+   "no_survivor": 38547
+  },
+  "write_read_firing": {
+   "pairs": 699333,
+   "last_free_write": 89842,
+   "no_write": 0,
+   "read_unavailable": 0
+  },
+  "survivor_census": {
+   "stock": {
+    "post_restart_invocations_at_survivor": 0.3982092912107646,
+    "post_restart_writes_at_survivor": 0.177654035740647,
+    "post_restart_reads_at_survivor": 0.22055525547011762,
+    "acked_writes_at_survivor_after_two_restarts": 0.04956405912845762,
+    "acked_writes_with_stranded_records": 0.0012641295464122194,
+    "reads_invoked_after_such_ack": 0.001156664394815655,
+    "post_restart_writes_invoked": 0.7414331891980555,
+    "post_restart_write_acks": 0.08777357658164665,
+    "reads_invoked_after_post_restart_write_ack": 0.10047143265187229,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.04562461291335198,
+    "runs": 353603,
+    "acked_with_stranded_count": 447
+   },
+   "survivor": {
+    "post_restart_invocations_at_survivor": 0.611283815067134,
+    "post_restart_writes_at_survivor": 0.2926407025999534,
+    "post_restart_reads_at_survivor": 0.31864311246718063,
+    "acked_writes_at_survivor_after_two_restarts": 0.04891915441842542,
+    "acked_writes_with_stranded_records": 0.0013113358658986532,
+    "reads_invoked_after_such_ack": 0.001538519053192499,
+    "post_restart_writes_invoked": 0.7382332049796254,
+    "post_restart_write_acks": 0.08740801237717011,
+    "reads_invoked_after_post_restart_write_ack": 0.10003249582299266,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.045689702274995185,
+    "runs": 347737,
+    "acked_with_stranded_count": 456
+   }
+  },
+  "survivor_ratios": {
+   "post_restart_invocations_at_survivor": 1.5350817486164408,
+   "post_restart_writes_at_survivor": 1.6472505191335634,
+   "post_restart_reads_at_survivor": 1.444731442866718,
+   "acked_writes_at_survivor_after_two_restarts": 0.9869884605625062,
+   "acked_writes_with_stranded_records": 1.0373429444952158,
+   "reads_invoked_after_such_ack": 1.330134358841142,
+   "post_restart_writes_invoked": 0.9956840558730704,
+   "post_restart_write_acks": 0.995835145168814,
+   "reads_invoked_after_post_restart_write_ack": 0.995631227531108,
+   "reads_outstanding_at_survivor_state_move_post_ack": 1.0014266282492483
+  },
+  "write_read_census": {
+   "stock": {
+    "post_restart_invocations_at_survivor": 0.49854933971930876,
+    "post_restart_writes_at_survivor": 0.1697013481930069,
+    "post_restart_reads_at_survivor": 0.32884799152630184,
+    "acked_writes_at_survivor_after_two_restarts": 0.04295854105023199,
+    "acked_writes_with_stranded_records": 0.0014161207501986023,
+    "reads_invoked_after_such_ack": 0.0010419425031949067,
+    "post_restart_writes_invoked": 0.5636793810516135,
+    "post_restart_write_acks": 0.06883152768343369,
+    "reads_invoked_after_post_restart_write_ack": 0.046179352268671495,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.019877499798519407,
+    "runs": 347428,
+    "acked_with_stranded_count": 492
+   },
+   "write_then_read": {
+    "post_restart_invocations_at_survivor": 0.5090644001898778,
+    "post_restart_writes_at_survivor": 0.29844142046610456,
+    "post_restart_reads_at_survivor": 0.21062297972377314,
+    "acked_writes_at_survivor_after_two_restarts": 0.05541490540021248,
+    "acked_writes_with_stranded_records": 0.0011613056352991703,
+    "reads_invoked_after_such_ack": 0.00164447659305138,
+    "post_restart_writes_invoked": 0.912786229345148,
+    "post_restart_write_acks": 0.10600940346752866,
+    "reads_invoked_after_post_restart_write_ack": 0.15333755283799363,
+    "reads_outstanding_at_survivor_state_move_post_ack": 0.07096396844413301,
+    "runs": 353912,
+    "acked_with_stranded_count": 411
+   }
+  },
+  "write_read_ratios": {
+   "post_restart_invocations_at_survivor": 1.021091313602961,
+   "post_restart_writes_at_survivor": 1.7586272804779215,
+   "post_restart_reads_at_survivor": 0.6404873532789302,
+   "acked_writes_at_survivor_after_two_restarts": 1.28996246253836,
+   "acked_writes_with_stranded_records": 0.8200611671965856,
+   "reads_invoked_after_such_ack": 1.5782795960515328,
+   "post_restart_writes_invoked": 1.619335849472146,
+   "post_restart_write_acks": 1.5401285869330328,
+   "reads_invoked_after_post_restart_write_ack": 3.3204786404511624,
+   "reads_outstanding_at_survivor_state_move_post_ack": 3.570065106951671
+  },
+  "survivor_matched": {
+   "d1": {
+    "ratio": 0.9496525415002718,
+    "on": 143668,
+    "off": 152532
+   },
+   "d5": {
+    "ratio": 0.9854314512692375,
+    "on": 9607,
+    "off": 9828
+   },
+   "d8": {
+    "ratio": 0.9802252146886343,
+    "on": 4012,
+    "off": 4118
+   },
+   "d9": {
+    "ratio": 0.9845487621935333,
+    "on": 724,
+    "off": 739
+   },
+   "d10": {
+    "ratio": 1.1706063458732798,
+    "on": 162,
+    "off": 139
+   },
+   "d11": {
+    "ratio": 1.2803091912815334,
+    "on": 27,
+    "off": 21
+   },
+   "d12": {
+    "ratio": 1.101236423982431,
+    "on": 22,
+    "off": 20
+   },
+   "d13": {
+    "ratio": 0.887231356402926,
+    "on": 10,
+    "off": 11
+   },
+   "steps_ratio": 0.9961699174800731,
+   "conv_9_10": [
+    0.22375690607734808,
+    0.1880920162381597
+   ]
+  },
+  "write_read_matched": {
+   "d1": {
+    "ratio": 0.9837314209392006,
+    "on": 148418,
+    "off": 147782
+   },
+   "d5": {
+    "ratio": 0.623903205955249,
+    "on": 7601,
+    "off": 11834
+   },
+   "d8": {
+    "ratio": 0.5708153909062317,
+    "on": 3012,
+    "off": 5118
+   },
+   "d9": {
+    "ratio": 0.6147588813927903,
+    "on": 569,
+    "off": 894
+   },
+   "d10": {
+    "ratio": 0.9424381578405787,
+    "on": 149,
+    "off": 152
+   },
+   "d11": {
+    "ratio": 1.602081718961455,
+    "on": 30,
+    "off": 18
+   },
+   "d12": {
+    "ratio": 2.4902266349746816,
+    "on": 30,
+    "off": 12
+   },
+   "d13": {
+    "ratio": 9.828928966202726,
+    "on": 19,
+    "off": 2
+   },
+   "steps_ratio": 1.019056763982975,
+   "conv_9_10": [
+    0.2618629173989455,
+    0.17002237136465326
+   ]
+  }
+ }
+]
