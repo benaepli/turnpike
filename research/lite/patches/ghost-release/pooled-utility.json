@@ -1,0 +1,441 @@
+{
+  "seeds": [
+    1000,
+    1001
+  ],
+  "pooled": {
+    "grid": {
+      "base": {
+        "runs": 228360,
+        "d8": 3728,
+        "d6": 9577,
+        "d11": 10,
+        "seconds": 120.092
+      },
+      "candidate": {
+        "runs": 214680,
+        "d8": 3827,
+        "d6": 8691,
+        "d11": 9,
+        "seconds": 120.104
+      },
+      "per_run_ratio": 1.0919707523564368,
+      "d6_per_run_ratio": 0.9653142342554564,
+      "per_second_ratio": 1.026453227303147,
+      "throughput_ratio": 0.9400006594389959
+    },
+    "grid-short": {
+      "base": {
+        "runs": 467040,
+        "d8": 8798,
+        "d6": 22030,
+        "d11": 24,
+        "seconds": 120.043
+      },
+      "candidate": {
+        "runs": 439080,
+        "d8": 8474,
+        "d6": 20086,
+        "d11": 26,
+        "seconds": 120.051
+      },
+      "per_run_ratio": 1.024506985953788,
+      "d6_per_run_ratio": 0.9698160859678913,
+      "per_second_ratio": 0.9631092642261122,
+      "throughput_ratio": 0.9400709584517707
+    },
+    "grid-no-purgatory": {
+      "base": {
+        "runs": 265080,
+        "d8": 5467,
+        "d6": 13599,
+        "d11": 24,
+        "seconds": 120.065
+      },
+      "candidate": {
+        "runs": 255240,
+        "d8": 5450,
+        "d6": 12687,
+        "d11": 11,
+        "seconds": 120.062
+      },
+      "per_run_ratio": 1.0353225047597205,
+      "d6_per_run_ratio": 0.968902757825365,
+      "per_second_ratio": 0.9969153429011376,
+      "throughput_ratio": 0.9629031903759337
+    },
+    "grid-post-fault-2": {
+      "base": {
+        "runs": 276720,
+        "d8": 4002,
+        "d6": 10380,
+        "d11": 15,
+        "seconds": 120.096
+      },
+      "candidate": {
+        "runs": 265140,
+        "d8": 3741,
+        "d6": 9181,
+        "d11": 12,
+        "seconds": 120.076
+      },
+      "per_run_ratio": 0.9756092761494337,
+      "d6_per_run_ratio": 0.9231195123876098,
+      "per_second_ratio": 0.9349383071880564,
+      "throughput_ratio": 0.958312236306425
+    },
+    "aos": {
+      "base": {
+        "runs": 259800,
+        "d8": 4627,
+        "d6": 10058,
+        "d11": 16,
+        "seconds": 120.065
+      },
+      "candidate": {
+        "runs": 246780,
+        "d8": 3169,
+        "d6": 8155,
+        "d11": 23,
+        "seconds": 120.078
+      },
+      "per_run_ratio": 0.7210276618738699,
+      "d6_per_run_ratio": 0.8535746741353348,
+      "per_second_ratio": 0.6848188706877305,
+      "throughput_ratio": 0.9497816892461007
+    },
+    "four_grid": {
+      "base": {
+        "runs": 1237200,
+        "d8": 21995,
+        "d6": 55586,
+        "d11": 73,
+        "seconds": 480.296
+      },
+      "candidate": {
+        "runs": 1174140,
+        "d8": 21492,
+        "d6": 50645,
+        "d11": 58,
+        "seconds": 480.293
+      },
+      "per_run_ratio": 1.0296103350457648,
+      "d6_per_run_ratio": 0.9600440935984741,
+      "per_second_ratio": 0.977137269518336,
+      "throughput_ratio": 0.949035995714732
+    },
+    "campaign": {
+      "base": {
+        "runs": 1497000,
+        "d8": 26622,
+        "d6": 65644,
+        "d11": 89,
+        "seconds": 600.361
+      },
+      "candidate": {
+        "runs": 1420920,
+        "d8": 24661,
+        "d6": 58800,
+        "d11": 81,
+        "seconds": 600.371
+      },
+      "per_run_ratio": 0.9759378850885088,
+      "d6_per_run_ratio": 0.9437011025544314,
+      "per_second_ratio": 0.9263236885779277,
+      "throughput_ratio": 0.9491625468499139
+    }
+  },
+  "chunks": [
+    {
+      "seed": 1000,
+      "populations": {
+        "grid": {
+          "base": {
+            "runs": 122460,
+            "d8": 2021,
+            "d6": 5231,
+            "d11": 6,
+            "seconds": 60.031
+          },
+          "candidate": {
+            "runs": 113820,
+            "d8": 1990,
+            "d6": 4515,
+            "d11": 7,
+            "seconds": 60.066
+          },
+          "per_run_ratio": 1.059406020652417,
+          "d6_per_run_ratio": 0.9286428268603084,
+          "per_second_ratio": 0.9840873043939972,
+          "throughput_ratio": 0.9289047685305432
+        },
+        "grid-short": {
+          "base": {
+            "runs": 233340,
+            "d8": 4377,
+            "d6": 11146,
+            "d11": 13,
+            "seconds": 60.011
+          },
+          "candidate": {
+            "runs": 218400,
+            "d8": 4095,
+            "d6": 9817,
+            "d11": 13,
+            "seconds": 60.026
+          },
+          "per_run_ratio": 0.999571624400274,
+          "d6_per_run_ratio": 0.9410144919677488,
+          "per_second_ratio": 0.9353385180335494,
+          "throughput_ratio": 0.9357393659456233
+        },
+        "grid-no-purgatory": {
+          "base": {
+            "runs": 145380,
+            "d8": 2943,
+            "d6": 7371,
+            "d11": 18,
+            "seconds": 60.028
+          },
+          "candidate": {
+            "runs": 135720,
+            "d8": 2810,
+            "d6": 6637,
+            "d11": 6,
+            "seconds": 60.022
+          },
+          "per_run_ratio": 1.0227673873144716,
+          "d6_per_run_ratio": 0.9645088567870768,
+          "per_second_ratio": 0.9549034648333101,
+          "throughput_ratio": 0.9336467672680148
+        },
+        "grid-post-fault-2": {
+          "base": {
+            "runs": 150120,
+            "d8": 2132,
+            "d6": 5651,
+            "d11": 12,
+            "seconds": 60.051
+          },
+          "candidate": {
+            "runs": 140160,
+            "d8": 1928,
+            "d6": 4668,
+            "d11": 8,
+            "seconds": 60.039
+          },
+          "per_run_ratio": 0.9685773214423398,
+          "d6_per_run_ratio": 0.884748850367131,
+          "per_second_ratio": 0.9044959425529129,
+          "throughput_ratio": 0.9338396868574196
+        },
+        "aos": {
+          "base": {
+            "runs": 139080,
+            "d8": 2808,
+            "d6": 5814,
+            "d11": 7,
+            "seconds": 60.033
+          },
+          "candidate": {
+            "runs": 133260,
+            "d8": 1606,
+            "d6": 4212,
+            "d11": 9,
+            "seconds": 60.048
+          },
+          "per_run_ratio": 0.5969161243812302,
+          "d6_per_run_ratio": 0.7560982069550017,
+          "per_second_ratio": 0.5717944519028652,
+          "throughput_ratio": 0.9579142337553599
+        },
+        "four_grid": {
+          "base": {
+            "runs": 651300,
+            "d8": 11473,
+            "d6": 29399,
+            "d11": 49,
+            "seconds": 240.121
+          },
+          "candidate": {
+            "runs": 608100,
+            "d8": 10823,
+            "d6": 25637,
+            "d11": 34,
+            "seconds": 240.153
+          },
+          "per_run_ratio": 1.0103613851374784,
+          "d6_per_run_ratio": 0.9339867602194013,
+          "per_second_ratio": 0.9432195461258814,
+          "throughput_ratio": 0.9335467091287727
+        },
+        "campaign": {
+          "base": {
+            "runs": 790380,
+            "d8": 14281,
+            "d6": 35213,
+            "d11": 56,
+            "seconds": 300.154
+          },
+          "candidate": {
+            "runs": 741360,
+            "d8": 12429,
+            "d6": 29849,
+            "d11": 43,
+            "seconds": 300.201
+          },
+          "per_run_ratio": 0.9278640771461056,
+          "d6_per_run_ratio": 0.9037192879660337,
+          "per_second_ratio": 0.8701809462752734,
+          "throughput_ratio": 0.9378323481945201
+        }
+      }
+    },
+    {
+      "seed": 1001,
+      "populations": {
+        "grid": {
+          "base": {
+            "runs": 105900,
+            "d8": 1707,
+            "d6": 4346,
+            "d11": 4,
+            "seconds": 60.061
+          },
+          "candidate": {
+            "runs": 100860,
+            "d8": 1837,
+            "d6": 4176,
+            "d11": 2,
+            "seconds": 60.038
+          },
+          "per_run_ratio": 1.1299328411861855,
+          "d6_per_run_ratio": 1.008899168941854,
+          "per_second_ratio": 1.0765692663344069,
+          "throughput_ratio": 0.9527727906414701
+        },
+        "grid-short": {
+          "base": {
+            "runs": 233700,
+            "d8": 4421,
+            "d6": 10884,
+            "d11": 11,
+            "seconds": 60.032
+          },
+          "candidate": {
+            "runs": 220680,
+            "d8": 4379,
+            "d6": 10269,
+            "d11": 13,
+            "seconds": 60.025
+          },
+          "per_run_ratio": 1.0489388416228393,
+          "d6_per_run_ratio": 0.9991607328176175,
+          "per_second_ratio": 0.990615397094308,
+          "throughput_ratio": 0.9443976691355067
+        },
+        "grid-no-purgatory": {
+          "base": {
+            "runs": 119700,
+            "d8": 2524,
+            "d6": 6228,
+            "d11": 6,
+            "seconds": 60.037
+          },
+          "candidate": {
+            "runs": 119520,
+            "d8": 2640,
+            "d6": 6050,
+            "d11": 5,
+            "seconds": 60.04
+          },
+          "per_run_ratio": 1.0475340347125428,
+          "d6_per_run_ratio": 0.9728823772933738,
+          "per_second_ratio": 1.0459065324648862,
+          "throughput_ratio": 0.9984463490505076
+        },
+        "grid-post-fault-2": {
+          "base": {
+            "runs": 126600,
+            "d8": 1870,
+            "d6": 4729,
+            "d11": 3,
+            "seconds": 60.045
+          },
+          "candidate": {
+            "runs": 124980,
+            "d8": 1813,
+            "d6": 4513,
+            "d11": 4,
+            "seconds": 60.037
+          },
+          "per_run_ratio": 0.9820856898601104,
+          "d6_per_run_ratio": 0.9666944046636382,
+          "per_second_ratio": 0.969647906072895,
+          "throughput_ratio": 0.9873353375213247
+        },
+        "aos": {
+          "base": {
+            "runs": 120720,
+            "d8": 1819,
+            "d6": 4244,
+            "d11": 9,
+            "seconds": 60.032
+          },
+          "candidate": {
+            "runs": 113520,
+            "d8": 1563,
+            "d6": 3943,
+            "d11": 14,
+            "seconds": 60.03
+          },
+          "per_run_ratio": 0.913762062885655,
+          "d6_per_run_ratio": 0.988002961026436,
+          "per_second_ratio": 0.859291959297976,
+          "throughput_ratio": 0.940389182479668
+        },
+        "four_grid": {
+          "base": {
+            "runs": 585900,
+            "d8": 10522,
+            "d6": 26187,
+            "d11": 24,
+            "seconds": 240.175
+          },
+          "candidate": {
+            "runs": 566040,
+            "d8": 10669,
+            "d6": 25008,
+            "d11": 24,
+            "seconds": 240.14
+          },
+          "per_run_ratio": 1.0495467626568955,
+          "d6_per_run_ratio": 0.9884838728487908,
+          "per_second_ratio": 1.0141185125220071,
+          "throughput_ratio": 0.9662442385652235
+        },
+        "campaign": {
+          "base": {
+            "runs": 706620,
+            "d8": 12341,
+            "d6": 30431,
+            "d11": 33,
+            "seconds": 300.207
+          },
+          "candidate": {
+            "runs": 679560,
+            "d8": 12232,
+            "d6": 28951,
+            "d11": 38,
+            "seconds": 300.17
+          },
+          "per_run_ratio": 1.0306358329478424,
+          "d6_per_run_ratio": 0.9892486426958281,
+          "per_second_ratio": 0.9912898273184185,
+          "throughput_ratio": 0.9618235613670777
+        }
+      }
+    }
+  ],
+  "note": "Per-second figures use recorded arm exposures. Fixed populations and count denominators; no independent-run uncertainty claim."
+}

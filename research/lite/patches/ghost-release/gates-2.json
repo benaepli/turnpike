@@ -1,0 +1,316 @@
+[
+ {
+  "seed": 1000,
+  "armed": 223656,
+  "fired": 95284,
+  "firing_floor_50k": true,
+  "fired_nothing_held": 1937,
+  "expired": 114849,
+  "superseded": 11511,
+  "fired_over_armed": 0.4260292592195157,
+  "steps_from_restart_mean": 9.901169136476218,
+  "released_crashes": 100086,
+  "restarts_with_held_crash": 223656,
+  "lag": {
+   "p50": 29,
+   "p75": 68,
+   "p90": 152,
+   "samples": 32460
+  },
+  "scopes_engaged": 2,
+  "cells": {
+   "untreated": {
+    "runs": 343157,
+    "crashes_per_run": 2.210600395737228,
+    "steps_per_run": 1766.4985851956976,
+    "within3_per_later": 0.01713717684266772,
+    "fired_within3": 0.0,
+    "fired_within3_unanchored": 0.0,
+    "fired_within3_anchored": 0.0,
+    "on_ghost_node": 0.0,
+    "on_ghost_retarget": 0.0,
+    "on_ghost_stock": 0.0,
+    "fired_bucket0_share": 0.0,
+    "fired_bucket3plus_share": 0.0,
+    "double_crash_per_fired": 0.0,
+    "fired_crashes_applied": 0
+   },
+   "treated": {
+    "runs": 343654,
+    "crashes_per_run": 2.20916677821297,
+    "steps_per_run": 1754.0821669469874,
+    "within3_per_later": 0.1327896780900039,
+    "fired_within3": 0.49296604919769,
+    "fired_within3_unanchored": 0.7171498889489165,
+    "fired_within3_anchored": 0.44820022294940487,
+    "on_ghost_node": 0.8688427951961313,
+    "on_ghost_retarget": 0.8787839460108368,
+    "on_ghost_stock": 0.74826183917093,
+    "fired_bucket0_share": 0.07457586475630958,
+    "fired_bucket3plus_share": 0.5998241512299423,
+    "double_crash_per_fired": 0.009691665167955558,
+    "fired_crashes_applied": 100086
+   },
+   "release_all": {
+    "runs": 171964,
+    "crashes_per_run": 2.2098753227419694,
+    "steps_per_run": 1754.2065606754902,
+    "within3_per_later": 0.13372582001682085,
+    "fired_within3": 0.4856138852217131,
+    "fired_within3_unanchored": 0.7069384918336615,
+    "fired_within3_anchored": 0.44104956268221573,
+    "on_ghost_node": 0.7917022598431311,
+    "on_ghost_retarget": 0.8151784028695488,
+    "on_ghost_stock": 0.4998696219035202,
+    "fired_bucket0_share": 0.07639589966607128,
+    "fired_bucket3plus_share": 0.5936165255882582,
+    "double_crash_per_fired": 0.017453599440863554,
+    "fired_crashes_applied": 51508
+   },
+   "single": {
+    "runs": 171690,
+    "crashes_per_run": 2.2084571029180498,
+    "steps_per_run": 1753.9575746985847,
+    "within3_per_later": 0.13185097370209198,
+    "fired_within3": 0.5007616616575404,
+    "fired_within3_unanchored": 0.7281335659107899,
+    "fired_within3_anchored": 0.455760505030578,
+    "on_ghost_node": 0.9506360904112973,
+    "on_ghost_retarget": 0.9464835900870731,
+    "on_ghost_stock": 0.9997360084477297,
+    "fired_bucket0_share": 0.07264605376919593,
+    "fired_bucket3plus_share": 0.6064061921034213,
+    "double_crash_per_fired": 0.001461566964469513,
+    "fired_crashes_applied": 48578
+   }
+  },
+  "within3_ratio": 7.748632071029776,
+  "steps_ratio_treated": 0.9929711700010591,
+  "crashes_ratio_treated": 0.999351480472444,
+  "single": {
+   "releases": 48578,
+   "released_own_crash": 27642,
+   "released_via_ranking": 5532,
+   "released_forced": 15404,
+   "no_release_case": 2157
+  },
+  "single_releases_per_fired": null,
+  "single_vs_release_all": {
+   "steps": 0.9998580634786763,
+   "on_ghost": [
+    0.9506360904112973,
+    0.7917022598431311
+   ],
+   "double_crash": [
+    0.001461566964469513,
+    0.017453599440863554
+   ]
+  },
+  "depth_treated_over_untreated": {
+   "d5": 0.9577297543917905,
+   "d6": 0.9568178334140642,
+   "d8": 1.084732775030808,
+   "d9": 1.3378798878222025,
+   "d10": 1.3450822128414328
+  },
+  "depth_single_over_release_all": {
+   "d5": 1.0310619755394093,
+   "d6": 1.0297321113138642,
+   "d8": 0.9941865646621266,
+   "d9": 0.9687864835611395,
+   "d10": 0.9686831242862477
+  },
+  "depth_counts": {
+   "untreated": {
+    "runs": 331780,
+    "d5": 15247,
+    "d6": 14991,
+    "d8": 5869,
+    "d9": 939,
+    "d10": 133
+   },
+   "release_all": {
+    "runs": 166128,
+    "d5": 7200,
+    "d6": 7077,
+    "d8": 3197,
+    "d9": 639,
+    "d10": 91
+   },
+   "single": {
+    "runs": 165845,
+    "d5": 7411,
+    "d6": 7275,
+    "d8": 3173,
+    "d9": 618,
+    "d10": 88
+   }
+  },
+  "runs": [
+   741360,
+   790380
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0
+ },
+ {
+  "seed": 1001,
+  "armed": 205663,
+  "fired": 86497,
+  "firing_floor_50k": true,
+  "fired_nothing_held": 1771,
+  "expired": 106734,
+  "superseded": 10638,
+  "fired_over_armed": 0.4205763798057988,
+  "steps_from_restart_mean": 9.948530006821045,
+  "released_crashes": 90840,
+  "restarts_with_held_crash": 205663,
+  "lag": {
+   "p50": 30,
+   "p75": 70,
+   "p90": 158,
+   "samples": 29900
+  },
+  "scopes_engaged": 2,
+  "cells": {
+   "untreated": {
+    "runs": 314889,
+    "crashes_per_run": 2.2193693650778528,
+    "steps_per_run": 1917.9141189435006,
+    "within3_per_later": 0.016815423156065545,
+    "fired_within3": 0.0,
+    "fired_within3_unanchored": 0.0,
+    "fired_within3_anchored": 0.0,
+    "on_ghost_node": 0.0,
+    "on_ghost_retarget": 0.0,
+    "on_ghost_stock": 0.0,
+    "fired_bucket0_share": 0.0,
+    "fired_bucket3plus_share": 0.0,
+    "double_crash_per_fired": 0.0,
+    "fired_crashes_applied": 0
+   },
+   "treated": {
+    "runs": 315754,
+    "crashes_per_run": 2.218876087080449,
+    "steps_per_run": 1907.211420916283,
+    "within3_per_later": 0.1315562015755389,
+    "fired_within3": 0.5006494936151475,
+    "fired_within3_unanchored": 0.7168183152333432,
+    "fired_within3_anchored": 0.4507553688774473,
+    "on_ghost_node": 0.8743945398502863,
+    "on_ghost_retarget": 0.8828526111731188,
+    "on_ghost_stock": 0.748646288209607,
+    "fired_bucket0_share": 0.07032144429766622,
+    "fired_bucket3plus_share": 0.6234147952443857,
+    "double_crash_per_fired": 0.009401144870101278,
+    "fired_crashes_applied": 90840
+   },
+   "release_all": {
+    "runs": 157628,
+    "crashes_per_run": 2.219592965716751,
+    "steps_per_run": 1906.0367003324282,
+    "within3_per_later": 0.13303748661934506,
+    "fired_within3": 0.49421462765386515,
+    "fired_within3_unanchored": 0.7047315741583258,
+    "fired_within3_anchored": 0.44523828424757217,
+    "on_ghost_node": 0.8014082390571667,
+    "on_ghost_retarget": 0.8212537176847403,
+    "on_ghost_stock": 0.4994778976679429,
+    "fired_bucket0_share": 0.07112036579868192,
+    "fired_bucket3plus_share": 0.6188523710366443,
+    "double_crash_per_fired": 0.016937509391838225,
+    "fired_crashes_applied": 46583
+   },
+   "single": {
+    "runs": 158126,
+    "crashes_per_run": 2.2181614661725457,
+    "steps_per_run": 1908.3824418501702,
+    "within3_per_later": 0.13007784341079642,
+    "fired_within3": 0.5074225546241272,
+    "fired_within3_unanchored": 0.7297100570180759,
+    "fired_within3_anchored": 0.4565446770700283,
+    "on_ghost_node": 0.951216756671261,
+    "on_ghost_retarget": 0.9478806907378335,
+    "on_ghost_stock": 0.9996493688639552,
+    "fired_bucket0_share": 0.06948053415278939,
+    "fired_bucket3plus_share": 0.6282170052195133,
+    "double_crash_per_fired": 0.0014686942178638407,
+    "fired_crashes_applied": 44257
+   }
+  },
+  "within3_ratio": 7.823543918850763,
+  "steps_ratio_treated": 0.9944196156013945,
+  "crashes_ratio_treated": 0.9997777395663986,
+  "single": {
+   "releases": 44257,
+   "released_own_crash": 25472,
+   "released_via_ranking": 4453,
+   "released_forced": 14332,
+   "no_release_case": 1895
+  },
+  "single_releases_per_fired": null,
+  "single_vs_release_all": {
+   "steps": 1.001230690635355,
+   "on_ghost": [
+    0.951216756671261,
+    0.8014082390571667
+   ],
+   "double_crash": [
+    0.0014686942178638407,
+    0.016937509391838225
+   ]
+  },
+  "depth_treated_over_untreated": {
+   "d5": 0.953217707181027,
+   "d6": 0.9550113059599179,
+   "d8": 1.0885292892472307,
+   "d9": 1.2569843724480534,
+   "d10": 1.6393688412670513
+  },
+  "depth_single_over_release_all": {
+   "d5": 1.0375387121518111,
+   "d6": 1.0343166531124737,
+   "d8": 1.0616495019427812,
+   "d9": 1.106848262361817,
+   "d10": 0.9366961226509166
+  },
+  "depth_counts": {
+   "release_all": {
+    "runs": 152262,
+    "d5": 6958,
+    "d6": 6838,
+    "d8": 3046,
+    "d9": 580,
+    "d10": 116
+   },
+   "untreated": {
+    "runs": 304454,
+    "d5": 14870,
+    "d6": 14563,
+    "d8": 5768,
+    "d9": 972,
+    "d10": 137
+   },
+   "single": {
+    "runs": 152743,
+    "d5": 7242,
+    "d6": 7095,
+    "d8": 3244,
+    "d9": 644,
+    "d10": 109
+   }
+  },
+  "runs": [
+   679560,
+   706620
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0
+ }
+]

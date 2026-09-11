@@ -1,0 +1,1276 @@
+{
+ "phase": "panel",
+ "manifest": "/home/benaepli/Rust/turnpike/research/panel/manifest.30.json",
+ "binary": "/home/benaepli/Rust/turnpike/tmp/loop/lite/ghost-release/cand-spur",
+ "template": "/home/benaepli/Rust/turnpike/tmp/loop/lite/ghost-release/general_vr.json",
+ "seed": 1000,
+ "scale": 3,
+ "stateDir": "research/lite/state/panel/2026-09-11T05-40-54-425Z",
+ "members": [
+  {
+   "id": "paxos-accept-stale-ballot",
+   "role": "gate",
+   "wallSecBudget": 30,
+   "exploreSec": 10.9,
+   "exploreTimedOut": false,
+   "runs": 95994,
+   "violations": 3391,
+   "unknown": 0,
+   "expectedEvents": 368.7,
+   "read": "rate",
+   "violationsPerExploreSec": 310.70185083379147,
+   "runsPerSec": 8795.492028587136,
+   "calibration": {
+    "eventsPerSec": 33.78496,
+    "runsPerSec": 1959,
+    "expectedRate": 0.01664
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 95994,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 82273,
+     "treatedViolations": 3033,
+     "controlRuns": 7734,
+     "controlViolations": 168,
+     "ratio": 1.6971098832979399,
+     "lo": 1.3333449465216725,
+     "hi": 2.1601176526008095,
+     "read": "up"
+    },
+    {
+     "bit": 16,
+     "name": "staleOrder",
+     "treatedRuns": 41261,
+     "treatedViolations": 1489,
+     "controlRuns": 41012,
+     "controlViolations": 1544,
+     "ratio": 0.9585584525552175,
+     "lo": 0.8589366007470906,
+     "hi": 1.0697347233379793,
+     "read": "flat"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 22913,
+     "treatedViolations": 786,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 22383,
+     "treatedViolations": 845,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 22704,
+     "treatedViolations": 788,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 68000,
+     "treatedViolations": 2419,
+     "controlRuns": 22007,
+     "controlViolations": 782,
+     "ratio": 1.0011082631262223,
+     "lo": 0.8840361124100551,
+     "hi": 1.1336841792213217,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 47355,
+     "treatedViolations": 1826,
+     "controlRuns": 34918,
+     "controlViolations": 1207,
+     "ratio": 1.1155191310464412,
+     "lo": 0.9972069017526746,
+     "hi": 1.247868350633655,
+     "read": "flat"
+    },
+    {
+     "bit": 1024,
+     "name": "stallCap",
+     "treatedRuns": 67459,
+     "treatedViolations": 2374,
+     "controlRuns": 22548,
+     "controlViolations": 827,
+     "ratio": 0.9594963615590735,
+     "lo": 0.8492733208134741,
+     "hi": 1.084024712990247,
+     "read": "flat"
+    },
+    {
+     "bit": 4096,
+     "name": "stallRelease",
+     "treatedRuns": 33797,
+     "treatedViolations": 1208,
+     "controlRuns": 33662,
+     "controlViolations": 1166,
+     "ratio": 1.0318822638504914,
+     "lo": 0.9114152712579611,
+     "hi": 1.1682720709513397,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 16913,
+     "treatedViolations": 696,
+     "controlRuns": 23841,
+     "controlViolations": 916,
+     "ratio": 1.071069333245892,
+     "lo": 0.9203371986969273,
+     "hi": 1.2464882634800207,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 64656,
+     "treatedViolations": 2351,
+     "controlRuns": 25351,
+     "controlViolations": 850,
+     "ratio": 1.0844760506281208,
+     "lo": 0.9608069762264957,
+     "hi": 1.2240630360584743,
+     "read": "flat"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 42257,
+     "treatedViolations": 1551,
+     "controlRuns": 47750,
+     "controlViolations": 1650,
+     "ratio": 1.0621908796175783,
+     "lo": 0.9544854349935311,
+     "hi": 1.1820499542252432,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "recoverDepsExempt",
+     "treatedRuns": 45005,
+     "treatedViolations": 1632,
+     "controlRuns": 45002,
+     "controlViolations": 1569,
+     "ratio": 1.0400836278441976,
+     "lo": 0.9346424657061758,
+     "hi": 1.1574200751644697,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 46551,
+     "treatedViolations": 1638,
+     "controlRuns": 43456,
+     "controlViolations": 1563,
+     "ratio": 0.9783081078680717,
+     "lo": 0.8791237709609554,
+     "hi": 1.0886826013977886,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 49253,
+     "treatedViolations": 1589,
+     "controlRuns": 23841,
+     "controlViolations": 916,
+     "ratio": 0.8396923619663804,
+     "lo": 0.7407439861741459,
+     "hi": 0.9518582342954272,
+     "read": "down"
+    },
+    {
+     "bit": 268435456,
+     "name": "clientProgressRelease",
+     "treatedRuns": 20710,
+     "treatedViolations": 737,
+     "controlRuns": 20551,
+     "controlViolations": 752,
+     "ratio": 0.9725288816174733,
+     "lo": 0.8315065825282021,
+     "hi": 1.1374683561787131,
+     "read": "flat"
+    }
+   ],
+   "cellsMatchedOn": {
+    "staleOrder": [
+     "crashPlaced"
+    ],
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "stallRelease": [
+     "stallCap"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ],
+    "clientProgressRelease": [
+     "crashPlaced",
+     "staleOrder"
+    ]
+   },
+   "summary": "panel-cells paxos-accept-stale-ballot: crashPlaced 1.70 [1.33,2.16] 3033/82k vs 168/7734 up; staleOrder 0.96 [0.86,1.07] 1489/41k vs 1544/41k flat; armSelectorAxisB count-only 786/23k vs 0/0; armSelectorAxis count-only 845/22k vs 0/0; armSelectorAxisC count-only 788/23k vs 0/0; armSelectorConcentrated 1.00 [0.88,1.13] 2419/68k vs 782/22k flat; crashPhase 1.12 [1.00,1.25] 1826/47k vs 1207/35k flat; stallCap 0.96 [0.85,1.08] 2374/67k vs 827/23k flat; stallRelease 1.03 [0.91,1.17] 1208/34k vs 1166/34k flat; clientRushPriority 1.07 [0.92,1.25] 696/17k vs 916/24k flat; ghostAbsorberRetarget 1.08 [0.96,1.22] 2351/65k vs 850/25k flat; freshFirstPair 1.06 [0.95,1.18] 1551/42k vs 1650/48k flat; recoverDepsExempt 1.04 [0.93,1.16] 1632/45k vs 1569/45k flat; pairSendOrder 0.98 [0.88,1.09] 1638/47k vs 1563/43k flat; clientFanoutRelease 0.84 [0.74,0.95] 1589/49k vs 916/24k down; clientProgressRelease 0.97 [0.83,1.14] 737/21k vs 752/21k flat",
+   "stateDir": "research/lite/state/panel/2026-09-11T05-40-54-425Z/paxos-accept-stale-ballot"
+  },
+  {
+   "id": "mencius-opt1-2",
+   "role": "gate",
+   "wallSecBudget": 45,
+   "exploreSec": 45.5,
+   "exploreTimedOut": false,
+   "runs": 81142,
+   "violations": 1226,
+   "unknown": 0,
+   "expectedEvents": 207.8,
+   "read": "rate",
+   "violationsPerExploreSec": 26.953348282988173,
+   "runsPerSec": 1783.8895484324848,
+   "calibration": {
+    "eventsPerSec": 4.56937,
+    "runsPerSec": 544,
+    "expectedRate": 0.007418
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 81142,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 63989,
+     "treatedViolations": 977,
+     "controlRuns": 12141,
+     "controlViolations": 179,
+     "ratio": 1.0355967257291343,
+     "lo": 0.8077938831284561,
+     "hi": 1.327641370825236,
+     "read": "flat"
+    },
+    {
+     "bit": 16,
+     "name": "staleOrder",
+     "treatedRuns": 32093,
+     "treatedViolations": 513,
+     "controlRuns": 31896,
+     "controlViolations": 464,
+     "ratio": 1.0988168007418095,
+     "lo": 0.9034949165454156,
+     "hi": 1.3363643109460415,
+     "read": "flat"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 13974,
+     "treatedViolations": 202,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 13828,
+     "treatedViolations": 222,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 13914,
+     "treatedViolations": 197,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 41716,
+     "treatedViolations": 621,
+     "controlRuns": 34414,
+     "controlViolations": 535,
+     "ratio": 0.9575695199313918,
+     "lo": 0.7996687084085969,
+     "hi": 1.146649075873454,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 31945,
+     "treatedViolations": 491,
+     "controlRuns": 32044,
+     "controlViolations": 486,
+     "ratio": 1.013419025884896,
+     "lo": 0.8334834252659548,
+     "hi": 1.2321998145287438,
+     "read": "flat"
+    },
+    {
+     "bit": 1024,
+     "name": "stallCap",
+     "treatedRuns": 57108,
+     "treatedViolations": 871,
+     "controlRuns": 19022,
+     "controlViolations": 285,
+     "ratio": 1.0179642388874757,
+     "lo": 0.8263907298946473,
+     "hi": 1.2539482283227745,
+     "read": "flat"
+    },
+    {
+     "bit": 4096,
+     "name": "stallRelease",
+     "treatedRuns": 28616,
+     "treatedViolations": 423,
+     "controlRuns": 28492,
+     "controlViolations": 448,
+     "ratio": 0.9401049987020248,
+     "lo": 0.7642399080052968,
+     "hi": 1.1564397505637831,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 21826,
+     "treatedViolations": 338,
+     "controlRuns": 21799,
+     "controlViolations": 309,
+     "ratio": 1.0924979767902478,
+     "lo": 0.8589612544439729,
+     "hi": 1.389529298458754,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 38022,
+     "treatedViolations": 586,
+     "controlRuns": 38108,
+     "controlViolations": 570,
+     "ratio": 1.0303955143236558,
+     "lo": 0.8608962148926126,
+     "hi": 1.2332670275135877,
+     "read": "flat"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 37868,
+     "treatedViolations": 557,
+     "controlRuns": 38262,
+     "controlViolations": 599,
+     "ratio": 0.9395581664663103,
+     "lo": 0.7849206610936036,
+     "hi": 1.1246608631037966,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "recoverDepsExempt",
+     "treatedRuns": 38082,
+     "treatedViolations": 584,
+     "controlRuns": 38048,
+     "controlViolations": 572,
+     "ratio": 1.0200674804424608,
+     "lo": 0.8522736522920681,
+     "hi": 1.2208962014229265,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 38188,
+     "treatedViolations": 586,
+     "controlRuns": 37942,
+     "controlViolations": 570,
+     "ratio": 1.0214475384018862,
+     "lo": 0.8534201852224949,
+     "hi": 1.2225572956600037,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 32505,
+     "treatedViolations": 509,
+     "controlRuns": 21799,
+     "controlViolations": 309,
+     "ratio": 1.1047034337261532,
+     "lo": 0.8862182624254125,
+     "hi": 1.3770531800444188,
+     "read": "flat"
+    },
+    {
+     "bit": 268435456,
+     "name": "clientProgressRelease",
+     "treatedRuns": 16119,
+     "treatedViolations": 284,
+     "controlRuns": 15974,
+     "controlViolations": 229,
+     "ratio": 1.2290185630833559,
+     "lo": 0.937042073258461,
+     "hi": 1.611973113598758,
+     "read": "flat"
+    }
+   ],
+   "cellsMatchedOn": {
+    "staleOrder": [
+     "crashPlaced"
+    ],
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "stallRelease": [
+     "stallCap"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ],
+    "clientProgressRelease": [
+     "crashPlaced",
+     "staleOrder"
+    ]
+   },
+   "summary": "panel-cells mencius-opt1-2: crashPlaced 1.04 [0.81,1.33] 977/64k vs 179/12k flat; staleOrder 1.10 [0.90,1.34] 513/32k vs 464/32k flat; armSelectorAxisB count-only 202/14k vs 0/0; armSelectorAxis count-only 222/14k vs 0/0; armSelectorAxisC count-only 197/14k vs 0/0; armSelectorConcentrated 0.96 [0.80,1.15] 621/42k vs 535/34k flat; crashPhase 1.01 [0.83,1.23] 491/32k vs 486/32k flat; stallCap 1.02 [0.83,1.25] 871/57k vs 285/19k flat; stallRelease 0.94 [0.76,1.16] 423/29k vs 448/28k flat; clientRushPriority 1.09 [0.86,1.39] 338/22k vs 309/22k flat; ghostAbsorberRetarget 1.03 [0.86,1.23] 586/38k vs 570/38k flat; freshFirstPair 0.94 [0.78,1.12] 557/38k vs 599/38k flat; recoverDepsExempt 1.02 [0.85,1.22] 584/38k vs 572/38k flat; pairSendOrder 1.02 [0.85,1.22] 586/38k vs 570/38k flat; clientFanoutRelease 1.10 [0.89,1.38] 509/33k vs 309/22k flat; clientProgressRelease 1.23 [0.94,1.61] 284/16k vs 229/16k flat",
+   "stateDir": "research/lite/state/panel/2026-09-11T05-40-54-425Z/mencius-opt1-2"
+  },
+  {
+   "id": "raft-stale-vote",
+   "role": "gate-report",
+   "wallSecBudget": 120,
+   "exploreSec": 48.1,
+   "exploreTimedOut": false,
+   "runs": 288000,
+   "violations": 89,
+   "unknown": 0,
+   "expectedEvents": 14.3,
+   "read": "rate",
+   "violationsPerExploreSec": 1.8498503491852343,
+   "runsPerSec": 5986.032590621882,
+   "calibration": {
+    "eventsPerSec": 0.29776,
+    "runsPerSec": 950,
+    "expectedRate": 0.0002998
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 288000,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 262748,
+     "treatedViolations": 81,
+     "controlRuns": 7129,
+     "controlViolations": 2,
+     "ratio": 1.0988646916437042,
+     "lo": 0.12136745554403489,
+     "hi": 9.949154863044017,
+     "read": "count-only"
+    },
+    {
+     "bit": 16,
+     "name": "staleOrder",
+     "treatedRuns": 131341,
+     "treatedViolations": 45,
+     "controlRuns": 131407,
+     "controlViolations": 36,
+     "ratio": 1.2506281359209996,
+     "lo": 0.6283757914790954,
+     "hi": 2.4890690500276333,
+     "read": "flat"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 88522,
+     "treatedViolations": 28,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 69596,
+     "treatedViolations": 22,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 87418,
+     "treatedViolations": 22,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 245536,
+     "treatedViolations": 72,
+     "controlRuns": 24341,
+     "controlViolations": 11,
+     "ratio": 0.6488780019667547,
+     "lo": 0.23957824652124662,
+     "hi": 1.7574327700867793,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 215101,
+     "treatedViolations": 68,
+     "controlRuns": 47647,
+     "controlViolations": 13,
+     "ratio": 1.1586671449154655,
+     "lo": 0.4563652701949067,
+     "hi": 2.9417434681942187,
+     "read": "flat"
+    },
+    {
+     "bit": 1024,
+     "name": "stallCap",
+     "treatedRuns": 202372,
+     "treatedViolations": 63,
+     "controlRuns": 67505,
+     "controlViolations": 20,
+     "ratio": 1.050741950467456,
+     "lo": 0.4768763754815156,
+     "hi": 2.3151883868378977,
+     "read": "flat"
+    },
+    {
+     "bit": 4096,
+     "name": "stallRelease",
+     "treatedRuns": 101358,
+     "treatedViolations": 17,
+     "controlRuns": 101014,
+     "controlViolations": 46,
+     "ratio": 0.36831094604831605,
+     "lo": 0.15373867704893465,
+     "hi": 0.8823606107643788,
+     "read": "down"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 50044,
+     "treatedViolations": 17,
+     "controlRuns": 55583,
+     "controlViolations": 21,
+     "ratio": 0.8991240089673468,
+     "lo": 0.3293863994275994,
+     "hi": 2.4543332235525672,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 223640,
+     "treatedViolations": 67,
+     "controlRuns": 46237,
+     "controlViolations": 16,
+     "ratio": 0.8657549521552496,
+     "lo": 0.3676561827877032,
+     "hi": 2.03867545895221,
+     "read": "flat"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 144142,
+     "treatedViolations": 42,
+     "controlRuns": 125735,
+     "controlViolations": 41,
+     "ratio": 0.8935751364423498,
+     "lo": 0.4546250496965407,
+     "hi": 1.7563408021642053,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "recoverDepsExempt",
+     "treatedRuns": 135480,
+     "treatedViolations": 40,
+     "controlRuns": 134397,
+     "controlViolations": 43,
+     "ratio": 0.9227964652810678,
+     "lo": 0.46930736297633047,
+     "hi": 1.8144895723235885,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 131626,
+     "treatedViolations": 33,
+     "controlRuns": 138251,
+     "controlViolations": 50,
+     "ratio": 0.6932191208423867,
+     "lo": 0.34758091366533256,
+     "hi": 1.382563686923818,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 164250,
+     "treatedViolations": 45,
+     "controlRuns": 55583,
+     "controlViolations": 21,
+     "ratio": 0.72515329419439,
+     "lo": 0.32148784721986073,
+     "hi": 1.6356677386979308,
+     "read": "flat"
+    },
+    {
+     "bit": 268435456,
+     "name": "clientProgressRelease",
+     "treatedRuns": 65761,
+     "treatedViolations": 17,
+     "controlRuns": 65580,
+     "controlViolations": 28,
+     "ratio": 0.605471762464509,
+     "lo": 0.23500858325409893,
+     "hi": 1.5599262378663983,
+     "read": "flat"
+    }
+   ],
+   "cellsMatchedOn": {
+    "staleOrder": [
+     "crashPlaced"
+    ],
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "stallRelease": [
+     "stallCap"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ],
+    "clientProgressRelease": [
+     "crashPlaced",
+     "staleOrder"
+    ]
+   },
+   "summary": "panel-cells raft-stale-vote: crashPlaced count-only 81/263k vs 2/7129; staleOrder 1.25 [0.63,2.49] 45/131k vs 36/131k flat; armSelectorAxisB count-only 28/89k vs 0/0; armSelectorAxis count-only 22/70k vs 0/0; armSelectorAxisC count-only 22/87k vs 0/0; armSelectorConcentrated 0.65 [0.24,1.76] 72/246k vs 11/24k flat; crashPhase 1.16 [0.46,2.94] 68/215k vs 13/48k flat; stallCap 1.05 [0.48,2.32] 63/202k vs 20/68k flat; stallRelease 0.37 [0.15,0.88] 17/101k vs 46/101k down; clientRushPriority 0.90 [0.33,2.45] 17/50k vs 21/56k flat; ghostAbsorberRetarget 0.87 [0.37,2.04] 67/224k vs 16/46k flat; freshFirstPair 0.89 [0.45,1.76] 42/144k vs 41/126k flat; recoverDepsExempt 0.92 [0.47,1.81] 40/135k vs 43/134k flat; pairSendOrder 0.69 [0.35,1.38] 33/132k vs 50/138k flat; clientFanoutRelease 0.73 [0.32,1.64] 45/164k vs 21/56k flat; clientProgressRelease 0.61 [0.24,1.56] 17/66k vs 28/66k flat",
+   "stateDir": "research/lite/state/panel/2026-09-11T05-40-54-425Z/raft-stale-vote"
+  },
+  {
+   "id": "paxos-fixed-recover-stale-scout",
+   "role": "gate-report",
+   "wallSecBudget": 45,
+   "exploreSec": 14.7,
+   "exploreTimedOut": false,
+   "runs": 96000,
+   "violations": 28,
+   "unknown": 0,
+   "expectedEvents": 27.6,
+   "read": "rate",
+   "violationsPerExploreSec": 1.9061883041731909,
+   "runsPerSec": 6535.502757165225,
+   "calibration": {
+    "eventsPerSec": 1.8764,
+    "runsPerSec": 6356,
+    "expectedRate": 0.0002951
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 96000,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 81908,
+     "treatedViolations": 25,
+     "controlRuns": 8105,
+     "controlViolations": 2,
+     "ratio": 1.2369060409239636,
+     "lo": 0.12882379669754612,
+     "hi": 11.876195185165946,
+     "read": "count-only"
+    },
+    {
+     "bit": 16,
+     "name": "staleOrder",
+     "treatedRuns": 41079,
+     "treatedViolations": 11,
+     "controlRuns": 40829,
+     "controlViolations": 14,
+     "ratio": 0.7809325585196467,
+     "lo": 0.22595209190825782,
+     "hi": 2.699048527524401,
+     "read": "flat"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 22898,
+     "treatedViolations": 8,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 22158,
+     "treatedViolations": 4,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 22694,
+     "treatedViolations": 8,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 67750,
+     "treatedViolations": 20,
+     "controlRuns": 22263,
+     "controlViolations": 7,
+     "ratio": 0.9388719030047444,
+     "lo": 0.24297560368155927,
+     "hi": 3.627855788381978,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 48207,
+     "treatedViolations": 12,
+     "controlRuns": 33701,
+     "controlViolations": 13,
+     "ratio": 0.6453132404965126,
+     "lo": 0.18820917105776172,
+     "hi": 2.2125870701184223,
+     "read": "flat"
+    },
+    {
+     "bit": 1024,
+     "name": "stallCap",
+     "treatedRuns": 67464,
+     "treatedViolations": 20,
+     "controlRuns": 22549,
+     "controlViolations": 7,
+     "ratio": 0.9549643407701038,
+     "lo": 0.2471398110261864,
+     "hi": 3.690044466554399,
+     "read": "flat"
+    },
+    {
+     "bit": 4096,
+     "name": "stallRelease",
+     "treatedRuns": 33800,
+     "treatedViolations": 14,
+     "controlRuns": 33664,
+     "controlViolations": 6,
+     "ratio": 2.3239447731755423,
+     "lo": 0.5175297806232081,
+     "hi": 10.435572040446425,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 18118,
+     "treatedViolations": 5,
+     "controlRuns": 20786,
+     "controlViolations": 5,
+     "ratio": 1.1472568716193838,
+     "lo": 0.16375686279678503,
+     "hi": 8.037515539799019,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 64723,
+     "treatedViolations": 19,
+     "controlRuns": 25290,
+     "controlViolations": 8,
+     "ratio": 0.9280124530692335,
+     "lo": 0.2536058705870815,
+     "hi": 3.3958484914325386,
+     "read": "flat"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 42217,
+     "treatedViolations": 12,
+     "controlRuns": 47796,
+     "controlViolations": 15,
+     "ratio": 0.9057204443707512,
+     "lo": 0.27495852968022455,
+     "hi": 2.9834663587457726,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "recoverDepsExempt",
+     "treatedRuns": 45008,
+     "treatedViolations": 12,
+     "controlRuns": 45005,
+     "controlViolations": 15,
+     "ratio": 0.7999466761464629,
+     "lo": 0.2428475733754979,
+     "hi": 2.6350466499754535,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 46092,
+     "treatedViolations": 14,
+     "controlRuns": 43921,
+     "controlViolations": 13,
+     "ratio": 1.0261984392419174,
+     "lo": 0.31358659242253983,
+     "hi": 3.3581896106182323,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 51109,
+     "treatedViolations": 17,
+     "controlRuns": 20786,
+     "controlViolations": 5,
+     "ratio": 1.3827779843080474,
+     "lo": 0.2888450148187515,
+     "hi": 6.619726343855517,
+     "read": "flat"
+    },
+    {
+     "bit": 268435456,
+     "name": "clientProgressRelease",
+     "treatedRuns": 20615,
+     "treatedViolations": 8,
+     "controlRuns": 20464,
+     "controlViolations": 3,
+     "ratio": 2.647133963942113,
+     "lo": 0.32941478519735623,
+     "hi": 21.272020983689966,
+     "read": "count-only"
+    }
+   ],
+   "cellsMatchedOn": {
+    "staleOrder": [
+     "crashPlaced"
+    ],
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "stallRelease": [
+     "stallCap"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ],
+    "clientProgressRelease": [
+     "crashPlaced",
+     "staleOrder"
+    ]
+   },
+   "summary": "panel-cells paxos-fixed-recover-stale-scout: crashPlaced count-only 25/82k vs 2/8105; staleOrder 0.78 [0.23,2.70] 11/41k vs 14/41k flat; armSelectorAxisB count-only 8/23k vs 0/0; armSelectorAxis count-only 4/22k vs 0/0; armSelectorAxisC count-only 8/23k vs 0/0; armSelectorConcentrated 0.94 [0.24,3.63] 20/68k vs 7/22k flat; crashPhase 0.65 [0.19,2.21] 12/48k vs 13/34k flat; stallCap 0.95 [0.25,3.69] 20/67k vs 7/23k flat; stallRelease 2.32 [0.52,10.44] 14/34k vs 6/34k flat; clientRushPriority 1.15 [0.16,8.04] 5/18k vs 5/21k flat; ghostAbsorberRetarget 0.93 [0.25,3.40] 19/65k vs 8/25k flat; freshFirstPair 0.91 [0.27,2.98] 12/42k vs 15/48k flat; recoverDepsExempt 0.80 [0.24,2.64] 12/45k vs 15/45k flat; pairSendOrder 1.03 [0.31,3.36] 14/46k vs 13/44k flat; clientFanoutRelease 1.38 [0.29,6.62] 17/51k vs 5/21k flat; clientProgressRelease count-only 8/21k vs 3/20k",
+   "stateDir": "research/lite/state/panel/2026-09-11T05-40-54-425Z/paxos-fixed-recover-stale-scout"
+  },
+  {
+   "id": "paxos-fixed-recover-forget-accepted",
+   "role": "gate-report",
+   "wallSecBudget": 45,
+   "exploreSec": 14.1,
+   "exploreTimedOut": false,
+   "runs": 95999,
+   "violations": 174,
+   "unknown": 0,
+   "expectedEvents": 129.1,
+   "read": "rate",
+   "violationsPerExploreSec": 12.323818967348963,
+   "runsPerSec": 6799.277569232949,
+   "calibration": {
+    "eventsPerSec": 9.147,
+    "runsPerSec": 5560,
+    "expectedRate": 0.0016458
+   },
+   "porcupineFailure": null,
+   "taggedRuns": 95999,
+   "cells": [
+    {
+     "bit": 1,
+     "name": "crashPlaced",
+     "treatedRuns": 81934,
+     "treatedViolations": 165,
+     "controlRuns": 8078,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 16,
+     "name": "staleOrder",
+     "treatedRuns": 41100,
+     "treatedViolations": 87,
+     "controlRuns": 40834,
+     "controlViolations": 78,
+     "ratio": 1.1081658244431967,
+     "lo": 0.6860231326453919,
+     "hi": 1.7900730106992533,
+     "read": "flat"
+    },
+    {
+     "bit": 32,
+     "name": "armSelectorAxisB",
+     "treatedRuns": 22928,
+     "treatedViolations": 58,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 64,
+     "name": "armSelectorAxis",
+     "treatedRuns": 22228,
+     "treatedViolations": 46,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 128,
+     "name": "armSelectorAxisC",
+     "treatedRuns": 22732,
+     "treatedViolations": 33,
+     "controlRuns": 0,
+     "controlViolations": 0,
+     "ratio": null,
+     "lo": null,
+     "hi": null,
+     "read": "count-only"
+    },
+    {
+     "bit": 256,
+     "name": "armSelectorConcentrated",
+     "treatedRuns": 67888,
+     "treatedViolations": 137,
+     "controlRuns": 22124,
+     "controlViolations": 28,
+     "ratio": 1.594531749772735,
+     "lo": 0.8424495990273688,
+     "hi": 3.018022091729549,
+     "read": "flat"
+    },
+    {
+     "bit": 512,
+     "name": "crashPhase",
+     "treatedRuns": 46462,
+     "treatedViolations": 111,
+     "controlRuns": 35472,
+     "controlViolations": 54,
+     "ratio": 1.5693398189201213,
+     "lo": 0.9420978922707297,
+     "hi": 2.6141948596361986,
+     "read": "flat"
+    },
+    {
+     "bit": 1024,
+     "name": "stallCap",
+     "treatedRuns": 67464,
+     "treatedViolations": 118,
+     "controlRuns": 22548,
+     "controlViolations": 47,
+     "ratio": 0.8391123019747647,
+     "lo": 0.4936770063212014,
+     "hi": 1.426255317362854,
+     "read": "flat"
+    },
+    {
+     "bit": 4096,
+     "name": "stallRelease",
+     "treatedRuns": 33800,
+     "treatedViolations": 57,
+     "controlRuns": 33664,
+     "controlViolations": 61,
+     "ratio": 0.9306664079930157,
+     "lo": 0.5280957666751448,
+     "hi": 1.6401191178255052,
+     "read": "flat"
+    },
+    {
+     "bit": 16384,
+     "name": "clientRushPriority",
+     "treatedRuns": 19944,
+     "treatedViolations": 39,
+     "controlRuns": 21200,
+     "controlViolations": 57,
+     "ratio": 0.7272995967656808,
+     "lo": 0.3838772666154499,
+     "hi": 1.3779526673180513,
+     "read": "flat"
+    },
+    {
+     "bit": 524288,
+     "name": "ghostAbsorberRetarget",
+     "treatedRuns": 65396,
+     "treatedViolations": 139,
+     "controlRuns": 24616,
+     "controlViolations": 26,
+     "ratio": 2.0123696109383307,
+     "lo": 1.0428233683943886,
+     "hi": 3.883334008196626,
+     "read": "up"
+    },
+    {
+     "bit": 16777216,
+     "name": "freshFirstPair",
+     "treatedRuns": 43402,
+     "treatedViolations": 80,
+     "controlRuns": 46610,
+     "controlViolations": 85,
+     "ratio": 1.0107422536776565,
+     "lo": 0.6259948836776953,
+     "hi": 1.6319620655164604,
+     "read": "flat"
+    },
+    {
+     "bit": 8192,
+     "name": "recoverDepsExempt",
+     "treatedRuns": 45007,
+     "treatedViolations": 85,
+     "controlRuns": 45005,
+     "controlViolations": 80,
+     "ratio": 1.0624527851223142,
+     "lo": 0.658021007278997,
+     "hi": 1.7154557500860381,
+     "read": "flat"
+    },
+    {
+     "bit": 32768,
+     "name": "pairSendOrder",
+     "treatedRuns": 50373,
+     "treatedViolations": 90,
+     "controlRuns": 39639,
+     "controlViolations": 75,
+     "ratio": 0.9442915847775595,
+     "lo": 0.583805747363074,
+     "hi": 1.527368651489426,
+     "read": "flat"
+    },
+    {
+     "bit": 262144,
+     "name": "clientFanoutRelease",
+     "treatedRuns": 48868,
+     "treatedViolations": 69,
+     "controlRuns": 21200,
+     "controlViolations": 57,
+     "ratio": 0.5251526130542858,
+     "lo": 0.30285731354355716,
+     "hi": 0.910611217444088,
+     "read": "down"
+    },
+    {
+     "bit": 268435456,
+     "name": "clientProgressRelease",
+     "treatedRuns": 20618,
+     "treatedViolations": 43,
+     "controlRuns": 20482,
+     "controlViolations": 44,
+     "ratio": 0.9708264623144826,
+     "lo": 0.5020546891764921,
+     "hi": 1.8772935304638214,
+     "read": "flat"
+    }
+   ],
+   "cellsMatchedOn": {
+    "staleOrder": [
+     "crashPlaced"
+    ],
+    "armSelectorAxisB": [
+     "armSelectorConcentrated",
+     "not armSelectorAxis",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxis": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxisC"
+    ],
+    "armSelectorAxisC": [
+     "armSelectorConcentrated",
+     "not armSelectorAxisB",
+     "not armSelectorAxis"
+    ],
+    "crashPhase": [
+     "crashPlaced"
+    ],
+    "stallRelease": [
+     "stallCap"
+    ],
+    "clientRushPriority": [
+     "not clientFanoutRelease"
+    ],
+    "clientFanoutRelease": [
+     "not clientRushPriority"
+    ],
+    "clientProgressRelease": [
+     "crashPlaced",
+     "staleOrder"
+    ]
+   },
+   "summary": "panel-cells paxos-fixed-recover-forget-accepted: crashPlaced count-only 165/82k vs 0/8078; staleOrder 1.11 [0.69,1.79] 87/41k vs 78/41k flat; armSelectorAxisB count-only 58/23k vs 0/0; armSelectorAxis count-only 46/22k vs 0/0; armSelectorAxisC count-only 33/23k vs 0/0; armSelectorConcentrated 1.59 [0.84,3.02] 137/68k vs 28/22k flat; crashPhase 1.57 [0.94,2.61] 111/46k vs 54/35k flat; stallCap 0.84 [0.49,1.43] 118/67k vs 47/23k flat; stallRelease 0.93 [0.53,1.64] 57/34k vs 61/34k flat; clientRushPriority 0.73 [0.38,1.38] 39/20k vs 57/21k flat; ghostAbsorberRetarget 2.01 [1.04,3.88] 139/65k vs 26/25k up; freshFirstPair 1.01 [0.63,1.63] 80/43k vs 85/47k flat; recoverDepsExempt 1.06 [0.66,1.72] 85/45k vs 80/45k flat; pairSendOrder 0.94 [0.58,1.53] 90/50k vs 75/40k flat; clientFanoutRelease 0.53 [0.30,0.91] 69/49k vs 57/21k down; clientProgressRelease 0.97 [0.50,1.88] 43/21k vs 44/20k flat",
+   "stateDir": "research/lite/state/panel/2026-09-11T05-40-54-425Z/paxos-fixed-recover-forget-accepted"
+  }
+ ]
+}

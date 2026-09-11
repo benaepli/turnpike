@@ -3912,10 +3912,11 @@ reversal 2. Awaiting-approval entries unchanged.
 
 ## held-crash-released-at-first-acted-ghost-entry-after-restart
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 80 (rank 1 net 7; elaboration of the iteration 79 lead; bit
-  ghostReleasedCrash 1<<4 on a salted half of placed runs; internal rung,
-  composition only) | gain: 7 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  iteration 80 (commit 9766bdb, spur 12b7582; internal depth8 1.094
+  [1.049,1.140] separated up on the primary, depth9 1.33, depth10 1.53;
+  depth5/6 0.955 recorded as the cost; panel clean, regression passed;
+  evidence under research/lite/patches/ghost-release) | gain: 7 | cost: 0 | rank: 1
 - A restart arms a trigger; the first acted dead-incarnation entry from the
   restarted node at a live peer releases every other node's still-held
   planned crash one step later, bounded by the learned ghost-lag p75; no
@@ -3925,10 +3926,10 @@ reversal 2. Awaiting-approval entries unchanged.
 
 ## ghost-release-of-one-crash-onto-the-absorber
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 80 as the nested cell (rank 2 net 5; bit
-  ghostReleaseSingleOntoAbsorber 1<<28, half of the release cell; built in
-  the same session) | gain: 5 | cost: 0 | rank: 2
+- kind: add | category: scheduler | origin: proposer | status: MERGED at
+  iteration 80 with its parent (against the release-all half depth8 about
+  1.03, on-ghost-node 0.95 against 0.80, double crashes 0.0015 against
+  0.017 per firing; shipped as graded) | gain: 5 | cost: 0 | rank: 2
 - The firing releases exactly one held crash, the one that lands on the
   peer that took the acted ghost. Frozen prediction and review:
   `research/lite/plans/iteration-80-admitted.json`.

@@ -1,0 +1,4 @@
+runs total=131136 placed=116555 released(bit16)=58464 single(bit1<<28)=29511 run_cap_probes=4173
+released/placed=0.502 single/released=0.505
+released&run_cap_probe=0 released&timer_probe=2075 single&!released=0 released&!placed=0
+cell runs: untreated=58091 release_all=28953 single=29511 treated=58464

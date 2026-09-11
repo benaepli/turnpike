@@ -1,0 +1,251 @@
+{
+ "crash_place": {
+  "draws": 169018,
+  "capped_draws": 0,
+  "holds": 33889320,
+  "held_steps_sum": 35577689,
+  "ghost_release": {
+   "armed": 26397,
+   "fired": 10756,
+   "fired_nothing_held": 233,
+   "expired": 13851,
+   "superseded": 1550,
+   "steps_from_restart_sum": 115523,
+   "released_crashes": 11271,
+   "restarts_with_held_crash": 26397,
+   "lag_samples": 5850,
+   "lag_p50": 31,
+   "lag_p75": 77,
+   "lag_p90": 161,
+   "scopes_engaged": 2,
+   "cells": {
+    "untreated": {
+     "runs": 58091,
+     "steps_used_sum": 120347215,
+     "crashes_applied": 120645,
+     "later_crashes_applied": 62590,
+     "applied_within_3_of_acted_ghost": 1053,
+     "fired_crashes_applied": 0,
+     "fired_crashes_applied_within_3": 0,
+     "fired_crashes_on_ghost_node": 0,
+     "fired_crashes_applied_anchored": 0,
+     "fired_crashes_applied_within_3_anchored": 0,
+     "fired_crashes_applied_unanchored": 0,
+     "fired_crashes_applied_within_3_unanchored": 0,
+     "fired_crashes_applied_retarget": 0,
+     "fired_crashes_on_ghost_node_retarget": 0,
+     "fired_crashes_applied_stock": 0,
+     "fired_crashes_on_ghost_node_stock": 0,
+     "fired_inflight_bucket_0": 0,
+     "fired_inflight_bucket_1": 0,
+     "fired_inflight_bucket_2": 0,
+     "fired_inflight_bucket_3plus": 0,
+     "double_crash_after_release": 0
+    },
+    "release_all": {
+     "runs": 28953,
+     "steps_used_sum": 59728132,
+     "crashes_applied": 59925,
+     "later_crashes_applied": 30997,
+     "applied_within_3_of_acted_ghost": 3406,
+     "fired_crashes_applied": 5749,
+     "fired_crashes_applied_within_3": 2975,
+     "fired_crashes_on_ghost_node": 4402,
+     "fired_crashes_applied_anchored": 4134,
+     "fired_crashes_applied_within_3_anchored": 1835,
+     "fired_crashes_applied_unanchored": 1615,
+     "fired_crashes_applied_within_3_unanchored": 1140,
+     "fired_crashes_applied_retarget": 4658,
+     "fired_crashes_on_ghost_node_retarget": 3859,
+     "fired_crashes_applied_stock": 1091,
+     "fired_crashes_on_ghost_node_stock": 543,
+     "fired_inflight_bucket_0": 445,
+     "fired_inflight_bucket_1": 857,
+     "fired_inflight_bucket_2": 917,
+     "fired_inflight_bucket_3plus": 3530,
+     "double_crash_after_release": 122
+    },
+    "single": {
+     "runs": 29511,
+     "steps_used_sum": 61424897,
+     "crashes_applied": 61411,
+     "later_crashes_applied": 31920,
+     "applied_within_3_of_acted_ghost": 3302,
+     "fired_crashes_applied": 5522,
+     "fired_crashes_applied_within_3": 2844,
+     "fired_crashes_on_ghost_node": 5289,
+     "fired_crashes_applied_anchored": 4032,
+     "fired_crashes_applied_within_3_anchored": 1752,
+     "fired_crashes_applied_unanchored": 1490,
+     "fired_crashes_applied_within_3_unanchored": 1092,
+     "fired_crashes_applied_retarget": 4369,
+     "fired_crashes_on_ghost_node_retarget": 4136,
+     "fired_crashes_applied_stock": 1153,
+     "fired_crashes_on_ghost_node_stock": 1153,
+     "fired_inflight_bucket_0": 437,
+     "fired_inflight_bucket_1": 778,
+     "fired_inflight_bucket_2": 802,
+     "fired_inflight_bucket_3plus": 3505,
+     "double_crash_after_release": 9
+    },
+    "treated": {
+     "runs": 58464,
+     "steps_used_sum": 121153029,
+     "crashes_applied": 121336,
+     "later_crashes_applied": 62917,
+     "applied_within_3_of_acted_ghost": 6708,
+     "fired_crashes_applied": 11271,
+     "fired_crashes_applied_within_3": 5819,
+     "fired_crashes_on_ghost_node": 9691,
+     "fired_crashes_applied_anchored": 8166,
+     "fired_crashes_applied_within_3_anchored": 3587,
+     "fired_crashes_applied_unanchored": 3105,
+     "fired_crashes_applied_within_3_unanchored": 2232,
+     "fired_crashes_applied_retarget": 9027,
+     "fired_crashes_on_ghost_node_retarget": 7995,
+     "fired_crashes_applied_stock": 2244,
+     "fired_crashes_on_ghost_node_stock": 1696,
+     "fired_inflight_bucket_0": 882,
+     "fired_inflight_bucket_1": 1635,
+     "fired_inflight_bucket_2": 1719,
+     "fired_inflight_bucket_3plus": 7035,
+     "double_crash_after_release": 131
+    }
+   },
+   "single": {
+    "releases": 5522,
+    "released_own_crash": 3172,
+    "released_via_ranking": 493,
+    "released_forced": 1857,
+    "no_release_case": 238,
+    "cells": {
+     "release_all": {
+      "runs": 28953,
+      "steps_used_sum": 59728132,
+      "crashes_applied": 59925,
+      "fired_crashes_applied": 5749,
+      "fired_crashes_on_ghost_node": 4402,
+      "double_crash_after_release": 122
+     },
+     "single": {
+      "runs": 29511,
+      "steps_used_sum": 61424897,
+      "crashes_applied": 61411,
+      "fired_crashes_applied": 5522,
+      "fired_crashes_on_ghost_node": 5289,
+      "double_crash_after_release": 9
+     }
+    }
+   }
+  }
+ },
+ "crash_phase": {
+  "armed": 78933,
+  "stock_releases": 38967,
+  "early": {
+   "runs": 31427,
+   "armed": 39335,
+   "released_on_condition": 34508,
+   "expired": 4825,
+   "wait_steps_sum": 907123,
+   "release_decisions": 39333,
+   "release_victim_had_inflight": 35520,
+   "expired_victim_had_inflight": 1012,
+   "apply_decisions": 39996,
+   "apply_victim_had_inflight": 35271,
+   "crashes_applied": 39996,
+   "inflight_bucket_0": 4725,
+   "inflight_bucket_1": 6028,
+   "inflight_bucket_2": 7245,
+   "inflight_bucket_3plus": 21998,
+   "moved_read_on_landing": {
+    "crashes_applied": 8651,
+    "apply_decisions": 8651,
+    "apply_victim_had_inflight": 6621,
+    "inflight_bucket_0": 2030,
+    "inflight_bucket_1": 1186,
+    "inflight_bucket_2": 1614,
+    "inflight_bucket_3plus": 3821
+   }
+  },
+  "mid": {
+   "runs": 31525,
+   "armed": 39598,
+   "released_on_condition": 34328,
+   "expired": 5270,
+   "wait_steps_sum": 988075,
+   "release_decisions": 39598,
+   "release_victim_had_inflight": 35841,
+   "expired_victim_had_inflight": 1513,
+   "apply_decisions": 40223,
+   "apply_victim_had_inflight": 35187,
+   "crashes_applied": 40223,
+   "inflight_bucket_0": 5036,
+   "inflight_bucket_1": 9527,
+   "inflight_bucket_2": 7935,
+   "inflight_bucket_3plus": 17725,
+   "moved_read_on_landing": {
+    "crashes_applied": 8680,
+    "apply_decisions": 8680,
+    "apply_victim_had_inflight": 6458,
+    "inflight_bucket_0": 2222,
+    "inflight_bucket_1": 1880,
+    "inflight_bucket_2": 1729,
+    "inflight_bucket_3plus": 2849
+   }
+  },
+  "stock": {
+   "runs": 30973,
+   "armed": 38967,
+   "released_on_condition": 0,
+   "expired": 0,
+   "wait_steps_sum": 0,
+   "release_decisions": 38967,
+   "release_victim_had_inflight": 28210,
+   "expired_victim_had_inflight": 0,
+   "apply_decisions": 39345,
+   "apply_victim_had_inflight": 29460,
+   "crashes_applied": 39345,
+   "inflight_bucket_0": 9885,
+   "inflight_bucket_1": 6910,
+   "inflight_bucket_2": 5769,
+   "inflight_bucket_3plus": 16781,
+   "moved_read_on_landing": {
+    "crashes_applied": 8088,
+    "apply_decisions": 8088,
+    "apply_victim_had_inflight": 5030,
+    "inflight_bucket_0": 3058,
+    "inflight_bucket_1": 1165,
+    "inflight_bucket_2": 1148,
+    "inflight_bucket_3plus": 2717
+   }
+  },
+  "landing": {
+   "evaluated_on_other_node": 23942,
+   "condition_on_other_node": 12583,
+   "expired_on_other_node": 3784,
+   "mismatch_at_apply": 1503
+  }
+ },
+ "victim_swap": {
+  "applied": 37192,
+  "acted_absorber": 15610,
+  "same_victim": 29715,
+  "no_absorber": 118472,
+  "skipped_pending_pair": 3097,
+  "victim_crashed_holds": 57770,
+  "forced_onto_absorber": 1857,
+  "census": {
+   "treated": {
+    "crashes": 184875,
+    "victim_had_absorbed": 66399,
+    "victim_had_inflight_sends": 131623
+   },
+   "control": {
+    "crashes": 83730,
+    "victim_had_absorbed": 12338,
+    "victim_had_inflight_sends": 51051
+   }
+  }
+ }
+}
