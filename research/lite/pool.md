@@ -3908,3 +3908,40 @@ mechanism, kept as fallback; its in_flight predicate counts the node's own
 dead-incarnation sends), run-local counters 5-2, stalled runs as replay
 parents 3, PCT change points 3, post-release cap 2, optional-cover
 reversal 2. Awaiting-approval entries unchanged.
+
+
+## held-crash-released-at-first-acted-ghost-entry-after-restart
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 80 (rank 1 net 7; elaboration of the iteration 79 lead; bit
+  ghostReleasedCrash 1<<4 on a salted half of placed runs; internal rung,
+  composition only) | gain: 7 | cost: 0 | rank: 1
+- A restart arms a trigger; the first acted dead-incarnation entry from the
+  restarted node at a live peer releases every other node's still-held
+  planned crash one step later, bounded by the learned ghost-lag p75; no
+  uniform pull; expiry keeps the original target.
+- Frozen (judge-rewritten) prediction and review:
+  `research/lite/plans/iteration-80-admitted.json`.
+
+## ghost-release-of-one-crash-onto-the-absorber
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 80 as the nested cell (rank 2 net 5; bit
+  ghostReleaseSingleOntoAbsorber 1<<28, half of the release cell; built in
+  the same session) | gain: 5 | cost: 0 | rank: 2
+- The firing releases exactly one held crash, the one that lands on the
+  peer that took the acted ghost. Frozen prediction and review:
+  `research/lite/plans/iteration-80-admitted.json`.
+
+## ghost-release-held-until-the-reaction-segment-has-a-send-in-flight
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 80 (waits on the parent's fired in-flight census; build only if the fired bucket_0 share is at least 0.15; bit 1<<17 reserved) | gain: 4 | cost: 0 | rank: 5
+- Review: `research/lite/plans/iteration-80-admitted.json`.
+
+Iteration 80 re-judged the carried entries: repeated release 5, defer-coin
+exemption 4 (the coin is skipped at one in-flight send), replay parent by
+arm set 4, run-local counters 5-2, reply-wait 3 (re-parents onto the
+release and waits), stalled runs as replay parents 3, PCT change points 3
+(bits 1<<11/1<<26), crash holds for the restarted-peer window 3
+(superseded by the standalone release, fallback only), post-release cap
+2, optional-cover reversal 2. Awaiting-approval entries unchanged.

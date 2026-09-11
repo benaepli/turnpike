@@ -8533,3 +8533,42 @@ not 20), but the treated cell read depth9 +21% [4%, 40%] and the nested
 ghost-triggered release added depth9 +18% and depth10 +20% over the pull
 alone; iteration 80 elaborates the trigger as a standalone release with
 a tighter window.
+
+
+**Iteration 80 proposals and admission.** The elaboration round: three
+variants of the iteration 79 lead through the fault-injection lens. The
+proposer verified from the retained patch that the closed trigger only
+shortened crashes the pull had already moved (targets past the 161-step
+window), so a standalone release covers about five times the occasions
+(208,488 restarts with a held crash against 39,751 armings), and that
+firings cluster at a mean lag of 12 steps; the learned median is not
+exported, so the bound is set at the p75 with p50 and p75 gauges added.
+It also corrected the directive: a second acted ghost entry is off the
+oracle path (the first-crashed node's second stranded record is ordered
+after the client write), and 92% of sends in flight at a crash are still
+in flight at the restart, so the restart anchor covers the ordering the
+DAG leaves open. Blind judge over thirteen candidates, none rejected:
+standalone ghost-triggered release 7-0 (keeps exactly the parts that
+produced the measured reads and drops the pull; fired now counts only
+firings that shortened a hold; the placement observable is the release's
+own landing, within three steps of the most recent acted ghost per later
+crash; a fired-crash in-flight census is added; cost read against the
+cache median), single release onto the absorber 5-0 (built with the
+parent; fixes a verified flaw where a firing also released the ghost
+node's own queued crash so both peers of the restarted node could go
+down together), repeated release 5-0, defer-coin exemption 4-0, at-send
+release 4-0 (waits on the parent's census), replay parent by arm set 4-0,
+run-local counters 5-2, reply-wait 3-0 (re-parented, waits), stalled
+runs as replay parents 3-0, PCT change points 3-0, crash holds for the
+restarted-peer window 3-0 (superseded by the standalone release),
+post-release cap 2-0, optional-cover reversal 2-0. Stale figures
+corrected on four carried entries. Admitted: bit ghostReleasedCrash 1<<4
+on a salted half of placed runs, internal depth8 [1.02, 1.20], depth9
+[1.08, 1.45], depth10 [1.00, 1.50], fired >= 50,000 per chunk, applied
+within three steps of an acted ghost per later crash treated >= 2.5x
+untreated (refute below 2.0x), depth5 >= 0.97, steps per run <= 1.00x,
+runs per second >= 0.93 of the cache median; nested bit
+ghostReleaseSingleOntoAbsorber 1<<28 on half the release cell, against
+the release-all half depth8 [1.00, 1.15], on-ghost-node share >= 0.92,
+exactly one released crash per firing. Full record:
+research/lite/plans/iteration-80-admitted.json.

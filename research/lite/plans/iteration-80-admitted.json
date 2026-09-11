@@ -1,0 +1,454 @@
+{
+ "iteration": 80,
+ "admittedAtIso": "2026-09-11T04:52:35.494274+00:00",
+ "mode": "autonomous",
+ "acceptedBaselineCommit": "98e9a9313b9e5c063ddc29b0756483c431ac54cd",
+ "superCommit": "92e0371",
+ "lens": "fault-injection (elaboration of the iteration 79 lead)",
+ "focusDirective": "the ghost-triggered release standing alone with a tighter learned bound; placement observable on the release's own landing",
+ "admittedFrom": "tmp/loop/lite/judged-80.json (blind judge, rank 1 net 7 with the rank 2 nested cell built in the same session)",
+ "hypothesis": {
+  "id": "held-crash-released-at-first-acted-ghost-entry-after-restart",
+  "parent": "pulled-crash-released-at-first-acted-ghost-entry",
+  "kind": "add",
+  "title": "A restart arms a trigger; the first acted dead-incarnation entry from the restarted node at a live peer releases every other node's still-held planned crash one step later, bounded by the learned ghost-lag p75, with no uniform pull",
+  "description": "Standalone form of the closed nested cell, without the parent pull. Bit ghostReleasedCrash = 1 << 4 (the retired staleOrder row renamed in VARIANT_BITS; the closed pull's rename was never merged) on a salted half of fault_timing::is_placed runs, run-cap probes exempt by inheritance, cell membership following the run's placed crash arm as the retained restart_pull::cell_of does. Reused from research/lite/patches/restart-pull: restart_pull.rs whole (renamed ghost_release.rs) minus pulled_target and pull_holds - the per-scope ghost-lag learner (256 one-step cells, 200-sample floor, doubling checkpoints, decay, reset, fed by stock run-cap probes only, the sample being entry_step minus the origin's SendLedger.last_restart_step at message entries from a dead incarnation of a live origin at a live destination other than the origin), the Trigger and RunState structs, the salted coin, the delivery-site hook note_restart_pull_entry placed right after `acted` is computed in core/scheduler.rs, expire_trigger at the top of crash_hold_mask, note_restart_pull_apply at the crash apply site, the last_restart_step ledger field, the run_variant join and the util_stats export shape. Changes: (a) the learner's QUANTILE becomes a per-read argument and the run reads Q = the p75 (ScopeAccum::estimate(0.75)); both the p50 and p75 gauges are published so the median is measured; (b) at every restart apply of p at step s in recover_crashed_node, if any other node n has crash_pending > 0 and crash_hold_until[n] > s, a trigger {origin: p, restart_step: s, expires: s + Q} is armed (superseding one still armed, counted) - no hold is moved at arming; (c) at the delivery-site hook, the first message entry after s at a live node v != p from p's dead incarnation (r.origin_incarnation != incarnation(p)) whose state token changed (`acted`) sets crash_hold_until[n] = min(crash_hold_until[n], step + 1) for every n != p with crash_pending > 0, records ghost_node = v and disarms the trigger; a firing that shortens no hold is counted separately (fired_nothing_held); (d) at s + Q the trigger expires and every crash keeps its original target - nothing is ever moved later. The phase stage (crash_phase Early/Mid/Stock on the anchored half) and the ghost-absorber retarget at apply are untouched: the released crash's Pending slot draws at the first hold() past step + 1, and the retarget's ranking already prefers v (the most recent acted ghost mark). No random draw is added, so treated and untreated twins keep every stream in step. Counters under crash_place.ghost_release: armed, fired, fired_nothing_held, expired, superseded, steps_from_restart_sum, released_crashes, restarts_with_held_crash, lag_samples, gauges lag_p50, lag_p75, scopes_engaged; per cell (untreated, treated, and the nested cells of the two sibling hypotheses) runs, steps_used_sum, crashes_applied, later_crashes_applied, applied_within_3_of_acted_ghost (a crash applied at most 3 steps after the run's most recent acted fault-crossing message entry anywhere, tracked in a new State field last_acted_ghost_step set where `ghost` and `acted` are both true), fired_crashes_applied, fired_crashes_on_ghost_node. No config field.",
+  "category": "scheduler",
+  "buildsOn": [
+   "restart-pulls-held-crash-into-learned-ghost-lag-window",
+   "pulled-crash-released-at-first-acted-ghost-entry",
+   "ghost-absorber-crash-retarget",
+   "crash-fanout-phase-anchored-release"
+  ],
+  "rationale": "The iteration 79 read on 258,000 treated placed runs was depth9 1.2056 [1.0372, 1.4014] and inside it the trigger half read depth9 1.179 and depth10 1.195 over the pull-only half (593 against 501, 78 against 65), while the pull itself barely moved placement (applied_within_window 0.687 against 0.563 on a 161-step window). Three facts from the retained patch say the trigger is the working part and was starved by the pull: (1) note_restart_pull_entry only shortened holds of crashes in pulled_mask, and pull_holds put a crash there only when its target lay past s + 161, so the trigger never touched a crash whose target already fell inside the window - the standalone release shortens every held crash, and arming at every restart with a held crash raises the occasion count from 39,751 armed to about 208,000 (restarts_with_held_crash 208,488 on 325,699 pulling-cell runs, 0.64 per run); (2) trigger.steps_from_restart_sum / fired = 222,707 / 18,471 = 12.1 steps, so firings cluster at the near end of a distribution whose p90 is 161 - a p75 bound loses few firings and stops the 21,280 expired triggers from holding a crash to the window's end; (3) the retained trigger cell's fired/armed was 0.465 against a 0.35 clause. Without the pull there is no too-early landing: the pull read depth5 0.989 and depth6 0.988 because it moved crashes ahead of the ghost; a release fired by the acted entry cannot land a crash before that entry. The oracle path is exactly the trigger's event class: label 4 is the first-crashed node's stranded record delivered at a peer, label 5 that peer's crash with its reaction in flight; the cache converts 4 to 5 at 0.205 (174,086 -> 35,694) after 3 to 4 at 0.99. 92 percent of sends in flight at a crash are still in flight at the restart (recoveries_with_own_prior_sends_inflight 1,194,550 against crashes_with_own_sends_inflight 1,289,999), so the restart anchor covers the ordering the DAG leaves open between the first delivery and the restart. Baseline per-run rates: depth8 14,281 / 790,380, depth9 2,282, depth10 421 on seed 1000; 12,341 / 1,935 / 254 on seed 1001.",
+  "generalityArgument": "The event class is generic: a node came back from a crash, and a record its dead incarnation sent changed the state of a live peer - the peer is now reacting to stale traffic, and a crash landing on the reactor at that moment strands a stale reply, which is the shape of every recovery-timing race. It names no handler, role or timer label, is bounded by a quantity learned from the workload, moves crashes only earlier, draws nothing, and does nothing on protocols where dead-incarnation entries never act (the trigger expires and the crash keeps its target).",
+  "prediction": {
+   "firingCounter": "crash_place.ghost_release.fired",
+   "firingFloor": 50000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.02,
+    "max": 0.2
+   },
+   "depth9Band": {
+    "min": 1.08,
+    "max": 1.45
+   },
+   "depth10Band": {
+    "min": 1.0,
+    "max": 1.5
+   },
+   "mechanism": "Bit ghostReleasedCrash = 1<<4 (the retired staleOrder row renamed in VARIANT_BITS; unread in spur-core on 98e9a93) on a salted half of fault_timing::is_placed runs by run id, cell membership following the run's placed crash arm as restart_pull::cell_of does, run-cap probes exempt by inheritance (about 0.46 of runs; placed cells were 650,417 of 704,760 in the retained chunk). Reuses the retained restart_pull.rs learner, Trigger, RunState, the delivery-site hook after `acted`, expire_trigger at the top of crash_hold_mask and the apply-site census, minus pulled_target and pull_holds. The learner's quantile becomes a per-read argument; Q = the per-scope p75 (ScopeAccum::estimate(0.75)), fixed before the build; gauges lag_p50, lag_p75 and lag_p90 are all published. At every restart apply of p at step s in recover_crashed_node, if some other node n has crash_pending > 0 and crash_hold_until[n] > s, a trigger {origin p, restart_step s, expires s + Q} is armed (an armed trigger is replaced and counted under superseded; nothing moves at arming; below the 200-sample floor no trigger is armed and identity holds). At the delivery-site hook, the first message entry after s at a live node v != p from a dead incarnation of p whose state token changed sets crash_hold_until[n] = min(crash_hold_until[n], step + 1) for every n != p with crash_pending > 0, records ghost_node = v and disarms; a firing that shortens no hold is counted under fired_nothing_held and NOT under fired. At s + Q the trigger expires and every crash keeps its original target; nothing is ever moved later. The phase stage and the ghost-absorber retarget at apply are untouched. No random draw is added on either cell. Internal per-run read, treated over untreated placed runs in the same session, probe-free, co-bit matched on crashPhase and ghostAbsorberRetarget: depth>=8 per run in [1.02, 1.20]; depth>=9 in [1.08, 1.45] and depth>=10 in [1.00, 1.50] as the advance reads; depth>=5 and depth>=6 per run reported, expected [0.99, 1.06]. Composition only: holds only shorten, nothing is drawn, the learner is fed by stock probes on both cells. Firing requires crash_place.ghost_release.scopes_engaged >= 1; expected about 208,000 armings per chunk (0.64 per treated run) and fired (holds actually shortened) >= 50,000 per chunk with fired_nothing_held exported beside it.",
+   "crossBinaryBand": {
+    "min": 0.97,
+    "max": 1.12
+   },
+   "independentObservable": "Placement, per later crash and counted on both cells: crash_place.ghost_release.cells.<cell>.applied_within_3_of_acted_ghost / later_crashes_applied on the treated cell >= 0.05 and >= 2.5x the untreated cell (expected about 0.08-0.10 against 0.02-0.03), where a crash counts when applied at most 3 steps after the run's most recent acted fault-crossing message entry (new State field last_acted_ghost_step set where `ghost` and `acted` are both true). Among fired (released) crashes: fired_crashes_applied_within_3 / fired_crashes_applied reported per crashPhase stratum, expected >= 0.6 on the unanchored stratum (the anchored stratum's phase stage may add up to 96 steps). Landing census on fired crashes: fired_inflight_bucket_{0,1,2,3plus} at the apply site (the victim's in_flight), so the at-send sibling's premise (crashes released onto a node with nothing in flight) is measured here before it is built; fired_crashes_on_ghost_node / fired_crashes_applied about 0.78 pooled, reported per retarget stratum. Balance: depth>=5 per run treated over untreated >= 0.99; steps per run treated <= 1.00x untreated; crashes per run within 1 percent; fired / armed reported (expected 0.30-0.45 with a p75 bound; mean lag at firing about 12 steps).",
+   "falsifier": "With fired >= 50,000 per chunk and scopes_engaged >= 1: the depth>=9 per-run interval entirely below 1.03, or the depth>=8 interval entirely below 1.00; or applied_within_3_of_acted_ghost per later crash on the treated cell below 2.0x the untreated cell (the release is not landing where it aims); or depth>=5 per run below 0.97 (a too-early loss the mechanism cannot produce: an implementation fault); or steps per run treated above 1.02x untreated; or crashes per run differing by more than 1 percent. fired below 50,000 with armed >= 150,000 closes it as inapplicable under the p75 bound (report fired / armed and lag_p75 against lag_p90).",
+   "costClause": "Internal steps per run treated over untreated <= 1.00 (expected 0.98-1.00; holds only shorten). Cross-binary runs per explore-second >= 0.93 of the cache median 2,493 (the seed-1000 chunk of the cache is the recorded outlier at 2,633; candidate binaries on that seed read 2,200-2,425), expected [0.95, 1.03]; refuted outright below 0.90 of the median."
+  },
+  "createdAtIso": "2026-09-11T05:00:00Z",
+  "notes": "Supersedes the closed pair restart-pulls-held-crash-into-learned-ghost-lag-window and pulled-crash-released-at-first-acted-ghost-entry as the restart-window mechanism: it keeps their trigger, learner and hooks and drops the uniform pull that read flat on placement. Bit 1 << 4 is free on the merged tree (the closed pull's rename lived only in its unmerged super.patch). The two sibling hypotheses in this file are nested cells inside this bit's treated half, each on its own salt, crossing each other; the implementer builds all three in one session or this one alone. Not a co-occurrence gate: the placement observable is a per-crash distance to the most recent acted ghost entry, counted on both cells.",
+  "expectedGain": 7,
+  "expectedCost": 0,
+  "redTeam": "The lead's depth9 read (1.21 [1.04, 1.40] treated over untreated; trigger over pull-only 1.18 on 593 against 501 events, z about 2.7 before the 1.3 over-dispersion) was produced by crashes that had been PULLED from far targets (mean 137 steps saved) to s+161 and then released on the ghost entry; the standalone extends the release to crashes whose targets already sat inside the window, a population the lead never measured (60 percent of restarts with a held crash were not pulled), and drops the pull that the retained data cannot separate from the trigger on the primary rung (depth8 1.048 [0.987, 1.113], unresolved). Second, arming only at a restart means a ghost that reaches v BEFORE p restarts (the DAG leaves the order of recover_nl and deliver_svc_1_to_2 open) arms nothing at the right moment, and the next acted dead-incarnation entry from p after the restart may be at the other peer, so the release lands the crash on the wrong node in that share; the retarget only fixes it on the ghostAbsorberRetarget half. Third, on three nodes the release shortens EVERY other held crash, so on the runs that hold two (about 7 percent of firings by the retained pull arithmetic) both peers of the restarted node go down together, which the reply-wait analysis says leaves nobody to answer; the single-onto-absorber cell is the only guard. Fourth, the p75 bound is unmeasured (the learner exports only lag_p90 on the retained patch); with the firing mean at 12 steps a tighter bound loses few firings, but the sample is right-skewed and a p75 near 60-100 steps still holds a crash that would otherwise apply earlier - no, it does not: at expiry the crash keeps its ORIGINAL target and a crash whose target arrives first simply applies, so the expiring path is identity, which dilutes rather than harms. Fifth, the primary rung has read unresolved on 258,000 treated runs; the standalone doubles the occasions but the mechanism's effect on the objective rung may still sit inside [0.98, 1.10] and the session would rest on the advance rung alone, as the stall-release merge did.",
+  "scoreReason": "An elaboration of the recorded lead that keeps the mechanism that produced the measured reads (the trigger, the learner, the delivery-site hook, the expiry in crash_hold_mask, the apply census; verified line by line against research/lite/patches/restart-pull) and drops the uniform pull that read flat on placement (within-window 1.22x against 2.0x) and slightly down on depth 5/6 (0.989/0.988). Every checkable figure verified: restarts_with_held_crash 208,488 on 325,699; trigger armed 39,751 / fired 18,471 / expired 21,280; steps_from_restart_sum 222,707 (12.1 per firing); retarget-stratum landing 14,681 of 18,293 and stock 728 of 1,476; recoveries_with_own_prior_sends_inflight 1,194,550 against crashes_with_own_sends_inflight 1,289,999; sender_restarted acted 810,690 on 790,380 runs; depth counts 14,281 / 2,282 / 421 and the 4->5 (0.205) and 8->9 (0.16) conversions on the cache; bit 1<<4 retired and unread. The claim that the retained code only shortened pulled_mask holds is true (note_restart_pull_entry loops over pulled_mask, pull_holds adds only targets past s + window). The event class matches the oracle's label 4 -> 5 edge without naming a handler. Composition only, no draw, clean internal contrast. Marked down from the top for the unmeasured extension to unpulled crashes and the p75 bound, and because the primary-rung read is likely to resolve neither way again at this share, leaving the advance rung to carry it. Rewritten: fired counts only firings that shortened a hold; the placement observable is the release's own landing (within 3 steps of the most recent acted ghost, per later crash, both cells, 2.5x expected, 2.0x refutes) plus the fired-crash within-3 share by crashPhase stratum; a fired-crash in-flight census is added so the at-send sibling's premise is measured before it is built; the cost clause reads against the cache median. Stands first in the family; the single-onto-absorber cell is built with it; the at-send cell waits.",
+  "verifiedClaims": [
+   "restart_pull.rs learner exports only lag_p90 (QUANTILE 0.9 const) and scopes_engaged; p50/p75 are new work as the candidate says -> verified",
+   "note_restart_pull_entry shortens only holds in pulled_mask; pull_holds masks only targets past restart + window -> verified (spur.patch scheduler hunk, restart_pull.rs pull_holds)",
+   "Trigger armed only when a restart pulled at least one crash (armed 39,751) -> verified (pull_held_crashes returns before arming when pulls == 0)",
+   "restarts_with_held_crash 208,488 on 325,699 pulling-cell runs; placed cells 650,417 of 704,760 -> verified (chunk-1000.cand.json, gates-1.json)",
+   "steps_from_restart_sum 222,707 / fired 18,471 = 12.1; expired 21,280; fired/armed 0.465 -> verified",
+   "trigger over pull-only depth8 1.018, depth9 1.179 (593 vs 501), depth10 1.195 (78 vs 65); pull depth5 0.989, depth6 0.988 -> verified (gates-1.json)",
+   "recoveries_with_own_prior_sends_inflight 1,194,550 vs crashes_with_own_sends_inflight 1,289,999 (92 percent) -> verified (cache chunk 0)",
+   "sender_restarted acted 810,690 on 790,380 runs -> verified",
+   "cache depth8 14,281 / depth9 2,282 / depth10 421 on seed 1000; 4->5 0.205 (174,086 -> 35,694); 8->9 0.16 -> verified (depthAtLeast[7..9], [3..4])",
+   "seed 1001 12,341 / 1,935 / 254 -> uncheckable here (the fresh cache's second chunk is seed 1000 again; the observation log reads 10,522 / 1,935 / 254 on the grid arms)",
+   "bit 1<<4 is the retired staleOrder row, not in NON_DECLARABLE_BITS, no tag in run_variant.rs -> verified",
+   "expire_trigger at the top of crash_hold_mask; hook placed right after `acted`; note_restart_pull_apply before the ledger read at the apply site -> verified",
+   "sends of a reaction issue synchronously inside exec (exec.rs next_send_ordinal / push_runnable) -> verified"
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "crash_place.ghost_release.fired",
+   "firingFloor": 50000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.02,
+    "max": 0.2
+   },
+   "depth9Band": {
+    "min": 1.08,
+    "max": 1.45
+   },
+   "depth10Band": {
+    "min": 1.0,
+    "max": 1.5
+   },
+   "mechanism": "Bit ghostReleasedCrash = 1 << 4 on a salted half of the placed runs by run id (about 0.46 of all runs; placed cells were 650,417 of 704,760 runs in the retained chunk), probes exempt by inheritance. At every restart apply of p with another node's crash still held a trigger is armed; the first acted dead-incarnation entry from p at a live peer v sets every other held crash's hold to step + 1; at s + Q (Q the learned ghost-lag p75, per backup scope, identity below the 200-sample floor) the trigger expires and the crash keeps its original target. Read on the internal rung, treated over untreated placed runs in the same session, probe-free, matched on crashPhase and ghostAbsorberRetarget: depth>=8 per run in [1.02, 1.20]; depth>=9 in [1.08, 1.45] and depth>=10 in [1.00, 1.50] as the advance reads, where the retained data put the effect (depth9 1.18-1.21); depth>=5 and depth>=6 per run reported, expected [0.99, 1.06] because no crash is moved ahead of the ghost. Composition only: holds only shorten, nothing is drawn, the learner is fed by stock probes on both cells, so the untreated control is balanced on steps and streams. Expected firing: about 208,000 armings per chunk (0.64 per treated run) and fired/armed at least 0.30 with a p75 bound (0.465 under the p90 bound, mean lag at firing 12 steps), so fired at or above 50,000 per chunk (a chunk being 300 seconds, about 700,000-790,000 runs); crash_place.ghost_release.scopes_engaged >= 1 is required for the read.",
+   "crossBinaryBand": {
+    "min": 0.97,
+    "max": 1.12
+   },
+   "independentObservable": "crash_place.ghost_release.cells.treated.applied_within_3_of_acted_ghost / later_crashes_applied >= 0.06 and >= 3.0x the untreated cell (expected about 0.10 against 0.02-0.03: fired releases are about 0.25 per treated run against 2.19 crashes per run, and the untreated background is bounded by about one acted dead-incarnation entry per run - sender_restarted acted 810,690 on 790,380 runs - each opening a 4-step window in a 1,750-step run); depth>=5 per run treated over untreated >= 0.99 (the pull read 0.989); steps per run treated <= 1.00x untreated (the pull read 0.992); crashes per run within 1 percent between cells; fired_crashes_on_ghost_node / fired_crashes_applied about 0.78 pooled, reported per retarget stratum.",
+   "falsifier": "With fired >= 50,000 per chunk and scopes_engaged >= 1: the depth>=9 per-run interval entirely below 1.03, or the depth>=8 interval entirely below 1.00; or applied_within_3_of_acted_ghost on the treated cell below 2.0x the untreated cell (the release is not landing where it aims); or depth>=5 per run below 0.97 (a too-early loss the mechanism cannot produce, so an implementation fault); or steps per run treated above 1.02x untreated; or crashes per run differing by more than 1 percent.",
+   "costClause": "Internal steps per run treated over untreated <= 1.00 (expected 0.98-1.00; holds only shorten and no hold is lengthened at expiry). Cross-binary runs per explore-second >= 0.93 of the cache median 2,493 (seeds 1000 and 1001 read 2,633 and 2,354; every candidate binary on seed 1000 has read 2,200-2,425), expected [0.95, 1.03]; refuted outright below 0.90 of the median."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "nestedHypothesis": {
+  "id": "ghost-release-of-one-crash-onto-the-absorber",
+  "parent": "pulled-crash-released-at-first-acted-ghost-entry",
+  "kind": "add",
+  "title": "The ghost-triggered release moves exactly one held crash, the one that lands on the peer that took the acted ghost, and leaves every other held crash at its target",
+  "description": "Nested cell inside held-crash-released-at-first-acted-ghost-entry-after-restart's treated half by its own salt (half of it, about 0.23 of runs), bit ghostReleaseSingleOntoAbsorber = 1 << 28 (the retired clientProgressRelease row renamed; set only together with 1 << 4). At firing on v, instead of shortening every held crash: (1) if v itself has a held planned crash (send_ledger[v].crash_pending > 0), that crash alone is released to step + 1; (2) otherwise, if the run retargets (state.retarget.enabled) and the absorber ranking read on the current ledgers (absorber_decision, the same function the hold-time read and the apply use) would move some held crash n onto v (Choice::Retarget { node: v }), the first such n by index is released alone; (3) otherwise, if v is live, has no pending pair (retarget.has_pending_pair(v) false) and no held crash of its own, the first held crash n by index is released to step + 1 and RunState.forced_victim = Some((n, v)) is set; at the crash apply site, before retarget_crash, a planned crash n with forced_victim == Some((n, v)) and v still live with no pending pair is applied to v (counted under victim_swap as Applied { acted: true } through a new record_victim_swap outcome ForcedOntoAbsorber), else the stock path runs; (4) if none of the three cases holds, nothing is released and the trigger stays armed until s + Q. Every other held crash keeps its original target. Reused: everything the parent hypothesis reuses, plus retarget_crash and absorber_decision in core/scheduler.rs and ghost_absorber::choose unchanged. Counters under crash_place.ghost_release.single: released_own_crash, released_via_ranking, released_forced, no_release_case, and per-cell runs, steps_used_sum, crashes_applied, fired_crashes_applied, fired_crashes_on_ghost_node, double_crash_after_release (a second crash applied within 8 steps of a released one while the released victim is still down). No config field.",
+  "category": "scheduler",
+  "buildsOn": [
+   "held-crash-released-at-first-acted-ghost-entry-after-restart",
+   "ghost-absorber-crash-retarget"
+  ],
+  "rationale": "The retained trigger released every pulled crash at once and let the apply-time retarget decide the landing: on the retarget stratum 14,681 of 18,293 fired crashes landed on v (0.80), on the stock stratum 728 of 1,476 (0.49), and the two strata split 18,293 to 1,476, so the retarget is on for about 92 percent of fired crashes. The leak is therefore small but of two kinds this cell closes: (a) the ranking passes v over when it has a pending pair or its own queued crash (victim_swap.skipped_pending_pair 38,845 per chunk, victim_crashed_holds 534,927), and in the retained code v's own queued crash was released alongside n's, so with three planned crashes on three nodes both other nodes could go down together right after p's restart - on three nodes that leaves nobody to answer the restarted node (label 7 needs the Recovery delivered to a live peer), which is the double-crash the queued reply-wait entry also targets; pulls per pulling restart were about 1.07 (85,326 pulls over about 80,000 pulling restarts), so about 7 percent of firings held two crashes; (b) on the stock stratum the crash lands on the plan victim, which is v only half the time on three nodes. Releasing one crash and landing it on v converts the release into the oracle's label 5 (the absorber's crash) deterministically and leaves the run's other crashes for later phases, where the DAG has no further crash before label 13. The pooled read is diluted by the 92 percent already landing on v, so the bands are narrow and the sharper reads are the double-crash count and the stock-stratum landing share.",
+  "generalityArgument": "The rule is stated on generic classes only: the node that reacted to a stale record is the one crashed, one crash per reaction, the others untouched. It reuses the existing absorber ranking and its liveness and pending-pair guards, adds no draw, moves no hold later, and on protocols where the ranking already picks the reactor it reduces to the parent.",
+  "prediction": {
+   "firingCounter": "crash_place.ghost_release.single.releases",
+   "firingFloor": 25000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.0,
+    "max": 0.15
+   },
+   "depth9Band": {
+    "min": 1.0,
+    "max": 1.3
+   },
+   "depth10Band": {
+    "min": 0.95,
+    "max": 1.5
+   },
+   "mechanism": "Bit ghostReleaseSingleOntoAbsorber = 1<<28 (the retired clientProgressRelease row renamed) nested in 1<<4 by its own salt, half of the release cell (about 0.23 of runs), set only with 1<<4; built in the same session as the parent. At a firing on v: (1) if v has a held planned crash of its own (send_ledger[v].crash_pending > 0 and crash_hold_until[v] > step), that crash alone is released to step + 1; (2) else if the run retargets and absorber_decision on the current ledgers would move some held crash n onto v (Choice::Retarget { node: v }), the first such n by index is released alone; (3) else if v is live with no pending pair and no held crash of its own, the first held crash n by index is released to step + 1 and RunState.forced_victim = Some((n, v)); at the crash apply site, before retarget_crash, a planned crash n with forced_victim == Some((n, v)) and v still live with no pending pair is applied to v and counted under a new victim_swap outcome ForcedOntoAbsorber (Applied { acted: true }), else the stock path runs; (4) otherwise nothing is released and the trigger stays armed until s + Q. Every other held crash keeps its original target. Counters under crash_place.ghost_release.single: releases (= released_own_crash + released_via_ranking + released_forced), no_release_case, and per cell runs, steps_used_sum, crashes_applied, fired_crashes_applied, fired_crashes_on_ghost_node, double_crash_after_release (a second crash applied within 8 steps of a released one while the released victim is still down). Read against the release-all half, probe-free, matched on crashPhase, ghostAbsorberRetarget and the sibling bit: depth>=8 per run in [1.00, 1.15] pooled; depth>=9 in [1.00, 1.30]; depth>=10 in [0.95, 1.50]; on the ghostAbsorberRetarget = 0 stratum depth>=8 in [1.05, 1.35], reported with its interval. Composition only; no draw; no shared state beyond the parent's learner.",
+   "crossBinaryBand": {
+    "min": 0.97,
+    "max": 1.1
+   },
+   "independentObservable": "fired_crashes_on_ghost_node / fired_crashes_applied on this cell >= 0.92 pooled against about 0.78 on the release-all half (0.80 retarget and 0.49 stock in the retained read); double_crash_after_release per firing <= 0.5x the release-all half's; released crashes per firing exactly 1.0 against about 1.07 on the release-all half; released_forced reported (expected a few thousand: it reaches only the stock stratum, about 8 percent of firings); steps per run this cell within [0.99, 1.01] of the release-all half.",
+   "falsifier": "With releases >= 25,000 on this cell: the depth>=8 interval against the release-all half entirely below 0.97; or the on-ghost-node share not above the release-all half's; or released crashes per firing not 1.0 (implementation fault); or steps per run above 1.02x the release-all half.",
+   "costClause": "Internal steps per run this cell <= 1.01x the release-all half (fewer holds shortened, at most a few hundred steps later on the runs that held two crashes). Cross-binary runs per explore-second is the parent's clause, >= 0.93 of the cache median 2,493, since this cell adds one ranking read per firing."
+  },
+  "createdAtIso": "2026-09-11T05:00:00Z",
+  "notes": "Case (3) is the only part that changes a victim on runs that do not retarget; it reaches at most the stock stratum (about 8 percent of fired crashes), so the firing floor for released_forced is grounded on 1,476 stock-stratum fired crashes in the retained chunk at a 0.22 share, scaled to this cell's occasions (about 0.25 released per run on 160,000 runs, times the stock share), not on the parent's floor. If the judge prefers a cell without any victim change, drop case (3) and keep (1)-(2); the double-crash read survives.",
+  "expectedGain": 5,
+  "expectedCost": 0,
+  "redTeam": "Ninety-two percent of fired crashes already ran on the retarget stratum and 80 percent of those landed on v, so the cell differs from its parent on a thin slice: the 7 percent of firings that held two crashes and the stock stratum's half that landed on the plan victim. A depth contrast diluted that far cannot separate in one session; the depth>=8 band [1.00, 1.15] will read unresolved and the cell's value is the double-crash count and the stock-stratum landing share, which are censuses, not rung evidence. Case (3) changes the plan victim on runs that do not retarget, a new behaviour the ghost-absorber retarget was merged to test on its own bit; a forced landing on a stock run confounds the ghostAbsorberRetarget = 0 stratum read the candidate itself names as the sharp one. Releasing ONE crash also leaves the other held crash at its far target, so on runs where the plan's later crash would have been the one to strand the reaction (the ranking preferring v's own queued crash), the cell lands a different crash than the parent does and the two halves are no longer the same mechanism plus a guard.",
+  "scoreReason": "Addresses a real flaw in the retained code (verified: a firing shortens every pulled hold, including v's own queued crash, so two peers of the restarted node can go down together), reusing absorber_decision, retarget_crash, has_pending_pair and the victim_swap counters that exist on 98e9a93. Figures verified: skipped_pending_pair 38,845 and victim_crashed_holds 534,927 on the cache; landing shares by stratum; pulls per pulling restart about 1.07 is an inference (pulling restarts are not exported; 85,326 pulls against about 2 x 39,751 armings) and is marked as such. Composition only, no draw, own bit, readable contrast on the double-crash and landing-share observables even where the depth bands stay unresolved. Marked down because the differing slice is small and the rung bands are unlikely to resolve. Firing counter rewritten to the total single releases (25,000) with released_forced reported rather than gating. Built with the parent in the same session on its own salt.",
+  "verifiedClaims": [
+   "retained firing shortened every pulled hold including v's own -> verified (note_restart_pull_entry loops pulled_mask; pull_holds excludes only origin p)",
+   "retarget stratum 14,681 of 18,293 (0.80); stock 728 of 1,476 (0.49); split 18,293 to 1,476 -> verified",
+   "victim_swap.skipped_pending_pair 38,845; victim_crashed_holds 534,927 per chunk -> verified (cache chunk 0)",
+   "pulls per pulling restart about 1.07 -> inference, uncheckable (pulling restarts not exported; consistent with 85,326 pulls over about 2 x 39,751 armings)",
+   "absorber_decision / retarget_crash / has_pending_pair / record_victim_swap exist; ranking prefers the most recent acted mark and passes nodes with a pending pair or own queued crash -> verified (core/scheduler.rs 1517-1570, ghost_absorber.rs choose)",
+   "bit 1<<28 retired (clientProgressRelease), unread on 98e9a93 -> verified"
+  ],
+  "disposition": "keep",
+  "originalPrediction": {
+   "firingCounter": "crash_place.ghost_release.single.released_forced",
+   "firingFloor": 3000,
+   "rung": "depth>=8",
+   "sizePct": {
+    "min": 0.0,
+    "max": 0.15
+   },
+   "depth9Band": {
+    "min": 1.0,
+    "max": 1.3
+   },
+   "depth10Band": {
+    "min": 0.95,
+    "max": 1.5
+   },
+   "mechanism": "Bit ghostReleaseSingleOntoAbsorber = 1 << 28 nested in 1 << 4 by its own salt, half of the release cell (about 0.23 of runs), crossing the sibling at-send coin; read against the release-all half, probe-free, matched on crashPhase, ghostAbsorberRetarget and the sibling bit. One crash is released per firing and it lands on v; the other held crashes keep their targets, so the cell's crashes land later on average than the release-all cell's (fewer crashes shortened) while the first landing is the same step. Expected: depth>=8 per run in [1.00, 1.15] pooled; depth>=9 in [1.00, 1.30]; depth>=10 in [0.95, 1.50]; on the ghostAbsorberRetarget = 0 stratum depth>=8 in [1.05, 1.35] and reported with its interval. Shared state: none beyond the parent's learner; composition only.",
+   "crossBinaryBand": {
+    "min": 0.97,
+    "max": 1.1
+   },
+   "independentObservable": "fired_crashes_on_ghost_node / fired_crashes_applied on this cell >= 0.92 pooled against about 0.78 on the release-all half (0.80 and 0.49 by stratum in the retained read); double_crash_after_release per firing <= 0.5x the release-all half's; released crashes per firing exactly 1.0 against about 1.07; steps per run this cell within [0.99, 1.01] of the release-all half.",
+   "falsifier": "With fired >= 25,000 on this cell: the depth>=8 interval against the release-all half entirely below 0.97 (landing one crash on v is worse than releasing all); or the on-ghost-node share not above the release-all half's; or released crashes per firing not 1.0 (implementation fault); or steps per run above 1.02x the release-all half.",
+   "costClause": "Internal steps per run this cell <= 1.01x the release-all half (fewer holds shortened, at most a few hundred steps later on the runs that held two crashes). Cross-binary runs per explore-second is the parent's clause, >= 0.93 of the cache median 2,493, since this cell adds one ranking read per firing."
+  },
+  "origin": "proposer",
+  "status": "admitted"
+ },
+ "rankedQueue": [
+  {
+   "id": "held-crash-released-at-first-acted-ghost-entry-after-restart",
+   "net": 7,
+   "rank": 1
+  },
+  {
+   "id": "ghost-release-of-one-crash-onto-the-absorber",
+   "net": 5,
+   "rank": 2
+  },
+  {
+   "id": "stall-release-repeated-until-nothing-fresh",
+   "net": 5,
+   "rank": 3
+  },
+  {
+   "id": "condition-released-crash-exempt-from-fanout-defer-coin",
+   "net": 4,
+   "rank": 4
+  },
+  {
+   "id": "ghost-release-held-until-the-reaction-segment-has-a-send-in-flight",
+   "net": 4,
+   "rank": 5
+  },
+  {
+   "id": "replay-parent-served-by-child-arm-set",
+   "net": 4,
+   "rank": 6
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "net": 3,
+   "rank": 7
+  },
+  {
+   "id": "pulled-crash-waits-for-victim-reply-to-restarted-peer",
+   "net": 3,
+   "rank": 8
+  },
+  {
+   "id": "stalled-runs-admitted-as-replay-prefix-parents",
+   "net": 3,
+   "rank": 9
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "net": 3,
+   "rank": 10
+  },
+  {
+   "id": "crash-holds-for-restarted-peer-delivery-window",
+   "net": 3,
+   "rank": 11
+  },
+  {
+   "id": "post-release-quiet-gap-learned-cap",
+   "net": 2,
+   "rank": 12
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "net": 2,
+   "rank": 13
+  }
+ ],
+ "rejected": [],
+ "reviewSummary": "Thirteen candidates judged blind against the merged tree (spur 98e9a93), the fresh merged-tree cache 17a424fcac21, the retained restart-pull patch, the pool and the oracle DAG. The three new candidates are one family elaborating the iteration-79 lead: the standalone ghost-triggered release stands first (net 7) - it keeps exactly the parts of the retained patch that produced the measured reads (the trigger armed at a restart, the first acted dead-incarnation entry from the restarted node at a live peer, the learner, the delivery-site hook, the expiry in crash_hold_mask, the apply census; all verified against research/lite/patches/restart-pull) and drops the uniform pull that read flat on placement and slightly down on depth 5/6. Its unmeasured changes are the extension to crashes whose targets already sat inside the window (60 percent of restarts with a held crash were not pulled) and the p75 bound (only lag_p90 is exported today). Rewritten: fired counts only firings that shortened a hold (floor 50,000, fired_nothing_held beside it); the placement observable is the release's own landing (crashes applied within 3 steps of the most recent acted ghost entry, per later crash, both cells, 2.5x expected, 2.0x refutes) plus the fired-crash within-3 share by crashPhase stratum; a fired-crash in-flight census is added; the cost clause reads against the cache median 2,493. The single-onto-absorber cell (net 5) is built with it in the same session on its own salt and bit 1<<28: it fixes a verified flaw (the retained firing shortened every pulled hold including the ghost node's own queued crash) and its double-crash and landing-share observables are readable even where its rung bands stay unresolved; firing counter rewritten to the total single releases (25,000). The at-send cell (net 4) waits: it differs from the parent only on reactions that yield before sending (about a tenth of firings), so its depth contrast cannot resolve in one session, and its premise (releases landing with nothing in flight) is now measured by the parent's fired_inflight_bucket census; it is built only if that bucket_0 share is at or above 0.15, and its decisive read is the census. The standalone release supersedes the queued crash-holds-for-restarted-peer-delivery-window (same window, sharper trigger, shortens instead of lengthens, measured lead; kept at net 3 as the fallback, must not share a session, its bit 1<<26 released) and supersedes the pull that pulled-crash-waits-for-victim-reply-to-restarted-peer was nested in: that cell is not superseded in premise (a truth-side hold on who answers) but must be re-parented onto the release and built after the release has read (net 3, bit 1<<25). Independent candidates: the repeated stall release (net 5; verified figures; lengthens runs, cross-binary depth10 primary with the internal depth10 guard), the defer-coin exemption (net 4, down from 5: the coin adds about one withheld step and is skipped at in_flight == 1, so Early's bucket_1 mass is largely single-send segments rather than erosion; its bucket falsifier is the cheap read; can share the session on its own salt), replay parent by arm set 4, run-local counters 5-2 (identity holds on the fresh cache; the cited absolute totals are stale), stalled runs as replay parents 3 (its supply claim is false on the fresh cache: 274,867 stall-capped of 790,380, not 352,842 and not half), PCT change points 3 (bits reassigned to 1<<11 and 1<<26), post-release cap 2, optional-cover reversal 2. No rejections: no candidate is already set, already answered without a new premise, out of bounds or protocol-specific. Checkable claims found false or stale: the stalled-parents supply figure (false on the fresh cache); the run-local counters' per-step totals 1,468,752,468 / 594,420,962 (not this cache; the identities hold at 1,383,308,290 and 591,375,077); the crash-holds entry's 'fresh in_flight' predicate (in_flight counts dead-incarnation sends; net_fresh is the fresh count) and its stale absolutes; the PCT timer figure (123,424,940 over 790,380 on the fresh cache); the replay-arm-set description's stale fidelity base. Bit layout for the session: 1<<4 release (staleOrder renamed ghostReleasedCrash), 1<<28 single-onto-absorber (clientProgressRelease renamed ghostReleaseSingleOntoAbsorber); 1<<17 reserved for the at-send cell; 1<<16 for the defer-coin exemption if built alongside; 1<<11 and 1<<26 to the PCT pair; 1<<22/1<<23 replay arm set; 1<<25 reply-wait; 1<<27 stalled parents; 1<<29 repeat release; 1<<30 post-release cap. Bits 1<<10, 1<<12, 1<<13 are tagged on the merged tree and must not be reused.",
+ "otherCandidates": [
+  {
+   "id": "stall-release-repeated-until-nothing-fresh",
+   "expectedGain": 5,
+   "expectedCost": 0,
+   "scoreReason": "Carried at 5-6 through three rounds; every figure re-verified on the fresh cache (releases 186,532; client 173,591 / fault 16,643 dependents; second_stall_stops 88,007 = 47 percent; plan_completed_after_release 62,732; the release-over-cut depth10 read 0.000600 against 0.000319 from the observation log; the release_step.is_none() guard at path.rs:1126). Mechanism and counters are concrete, bit 1<<29 is free, and the internal depth10-per-run guard against the once-only half keeps the read honest even if the cross-binary primary is noisy. It lengthens runs, so the internal per-run contrast is not clean on composition (the guard bands and the steps-per-run clause [1.05, 1.25] carry that). Kept at 5; the family's bounded arithmetic keeps it below the release family's lead.",
+   "redTeam": "The direction review after iteration 78 recorded the stall family as mined: the released runs' tail is mostly the second stall's own learned cap, and a repeat issues one more layer into the same wedged system, paying another 827-step quiet gap per repeated run (about 44,000 runs, 2.6 percent of steps) for a layer whose faults are the only thing that can move depth. The parent's gain came on depth 10 (261 against 139 events); the repeat's primary is cross-binary depth10 per second, a rung with 421 and 254 events per chunk on the two cache seeds and a seed-1000 throughput outlier that reads cost about a tenth pessimistic, so [1.06, 1.35] pooled over two chunks is inside the noise of that rung. Under dependency density 0.3 only a fraction of plans have a further fault behind the second layer; the 16,643 faults released at the FIRST release bound what a second release can find, and the floor of 3,000 repeat fault dependents is a guess.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "stall_release.releases 186,532; dependents client 173,591 / fault 16,643; second_stall_stops 88,007 (47 percent); plan_completed_after_release 62,732 -> verified (cache chunk 0); 151,076 / 14,759 / 73,248 / 56,144 -> verified (chunk 1)",
+    "release_step.is_none() guard on the stall exit -> verified (path.rs:1126)",
+    "release over cut depth10 per run 0.000600 vs 0.000319 (261 vs 139) -> verified (observation log)",
+    "learned stall cap 827 / 791 -> verified (stall_cap.cap_max_scope)",
+    "bit 1<<29 retired (pairOrderGhostOnly), unread -> verified"
+   ]
+  },
+  {
+   "id": "condition-released-crash-exempt-from-fanout-defer-coin",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "Cheapest candidate in the queue, independent of the release family, own salt over the anchored runs, coin still drawn so streams stay in step, composition only. All cited figures verified on the fresh cache (released_on_condition 347,633; release_victim_had_inflight 358,024 of 402,367; buckets 55,525 / 62,471 / 75,865 / 215,627; expired 54,734) and the coin's shape verified in code (drawn on Stream::FaultPriority per node with crash_pending > 0 and in_flight != 1, withhold at 0.5). Bit 1<<16 free. Marked down from 5 because the mechanism's expected effect is about one withheld step and the bucket_1 mass is largely single-send segments, so the argument for a depth move is thin; it is worth its cell for the bucket read. Can share a session with the release family on its own salt if the implementer has capacity; otherwise next.",
+   "redTeam": "The erosion story attributes Early's bucket_1 mass (62,471 of 409,488) to the coin walking in_flight down from 3plus, but the coin withholds with probability 0.5 per step and is skipped outright at in_flight == 1, so the expected extra wait after a condition release is about one step; losing two or more deliveries of the victim's own fan-out in one or two steps is uncommon. The bucket_1 mass is more simply the segments that sent exactly one message: Early's condition (segment_sends >= 1, undelivered == segment_sends) is met at once by a single-send segment, and at in_flight == 1 the coin is never drawn, so those crashes apply immediately and land in bucket 1 with no erosion at all. The predicted 3plus share move (0.53 to 0.60) is therefore optimistic by most of its size, and the depth>=8 band [1.03, 1.12] on a 0.22 share will resolve neither way. The falsifier on bucket_3plus (not above 1.05x) is the one read that can close it cheaply.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "crash_defer_mask: coin at partial_fanout_crash_bias (0.5 in general_vr.json) per node with crash_pending > 0, skipped when in_flight == 1; drawn on Stream::FaultPriority -> verified (core/scheduler.rs 801-822)",
+    "crash_block_mask = crash_defer_mask | crash_hold_mask -> verified",
+    "LandingRead.on_condition exists; Slot::Released { arm }; CrashPhaseRelease::Condition / Expired -> verified (crash_phase.rs)",
+    "Early released_on_condition 347,633; release_victim_had_inflight 358,024 of 402,367; buckets 55,525 / 62,471 / 215,627; expired 54,734 -> verified (cache chunk 0)",
+    "bit 1<<16 retired (recoverWindowFreshEarly), unread -> verified"
+   ]
+  },
+  {
+   "id": "ghost-release-held-until-the-reaction-segment-has-a-send-in-flight",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "A plausible sharpening on verified sites (SendLedger.recent is the segment's undelivered count kept by flight_enter/flight_leave with floor reset at note_handler_entry; local queues hold Crash, Recover and local Records only; crash_hold_mask reads the ledgers every step), composition only and bounded by the parent's expiry. But its premise (released crashes landing with nothing in flight) is unmeasured, the differing slice is a tenth of firings, and its rung bands cannot be read against the at-entry half. It waits: the parent's rewritten census (fired_inflight_bucket_*) measures the premise first; if bucket_0 among fired crashes is at or above 0.15 the cell is worth its bit. Bit contest resolved: 1<<17 goes to this cell; the PCT pair takes 1<<11 and 1<<26.",
+   "redTeam": "On a reaction that sends before its first yield - the common shape, since sends issue synchronously inside exec - the cell is byte-identical to the parent; it differs only on inert or delayed reactions, which the proposer puts at a tenth of firings, so a depth contrast between the two halves is diluted ten-fold and cannot resolve in one session. The Early bucket_3plus miss the rationale cites (1.008x) is a read on ALL Early applies of the trigger cell, most of which are not released crashes, so it does not show that released crashes landed with nothing in flight; that census does not exist yet, which is why the parent now carries fired_inflight_bucket_*. The local-queue check (no Runnable::Record queued at v) is not the same as 'the segment has yielded to the network': a continuation woken by a channel is pushed to the local queue only when the value arrives, so a segment mid-way through two synchronous sends is not in the local queue either and the condition can fire between them, exactly what it claims to avoid. Bit 1<<17 is contested with the queued PCT pair.",
+   "predictionRewrite": {
+    "firingCounter": "crash_place.ghost_release.at_send.fired_later",
+    "firingFloor": 4000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.0,
+     "max": 0.15
+    },
+    "depth9Band": {
+     "min": 1.03,
+     "max": 1.35
+    },
+    "depth10Band": {
+     "min": 1.0,
+     "max": 1.5
+    },
+    "mechanism": "WAITS: not built in the parent's session. Bit ghostReleaseAtReactionSend = 1<<17 (the retired crashQuietBySecond row) nested in 1<<4 by its own salt, half of the release cell, built only after the parent's chunk has read and only if the parent's fired_inflight_bucket_0 share of fired crashes is at or above 0.15 (the premise: releases landing on a node with nothing in flight). Mechanism as proposed: at the acted entry the trigger moves to ArmedOnReaction { node: v, since: step } with the same expiry s + Q; the release fires at the first step where ledger[v].recent >= 1 and v's local queue holds no Runnable::Record, checked at the entry site right after exec and then at the top of crash_hold_mask; on the release every held crash of a node other than p (or the single crash on the sibling coin) gets hold = step. The decisive reads are the censuses, because the cell differs from the parent only on reactions that yield before sending (about a tenth of firings by the proposer's estimate), so the depth bands are reported and decided only if fired_later / (fired_at_entry + fired_later) >= 0.25: depth>=8 in [0.98, 1.12], depth>=9 in [1.03, 1.35], depth>=10 in [1.00, 1.50].",
+    "crossBinaryBand": {
+     "min": 0.97,
+     "max": 1.1
+    },
+    "independentObservable": "fired_later >= 4,000; among fired crashes on this cell the share applied with in_flight >= 2 (fired_inflight_bucket_2 + 3plus) >= 1.15x the release-at-entry half's and fired_inflight_bucket_0 <= 0.5x; wait_steps_sum / fired_later under 10; expired_waiting / (fired_later + expired_waiting) <= 0.5.",
+    "falsifier": "With fired_later >= 4,000 on this cell: the depth>=9 interval against the release-at-entry half entirely below 0.98, or the bucket_0 share of fired crashes not below the release-at-entry half's (the condition does not land crashes with more in flight); or expired_waiting above 0.7 of the differing cases (reactions do not send inside the bound, so the cell only loses firings); or steps per run above 1.02x the release-at-entry half.",
+    "costClause": "Internal steps per run this cell <= 1.01x the release-at-entry half (the wait is at most Q steps on the differing cases, which are a tenth of firings). Cross-binary runs per explore-second is the parent's clause, >= 0.93 of the cache median 2,493; the per-step cost while ArmedOnReaction is one ledger read and a scan of one short local queue."
+   },
+   "verifiedClaims": [
+    "SendLedger.recent counts the current segment's undelivered sends; floor reset in note_handler_entry; maintained by flight_enter/flight_leave -> verified (core/state.rs 1062-1150)",
+    "local queues hold Crash, Recover and local Records (plus continuations via push_to_local) -> verified (state.rs push_runnable)",
+    "sends are created and pushed inside exec at RPC time (exec.rs next_send_ordinal, push_runnable) -> verified",
+    "trigger cell Early bucket_3plus 1.008x pull-only; crash_phase.early bucket_0 55,525 of 409,488 -> verified; but the former is a read on all Early applies, not on released crashes",
+    "cache converts 8 to 9 at 0.16 -> verified",
+    "1<<17 retired (crashQuietBySecond), unread -> verified; contested with the queued PCT pair, resolved in this cell's favour"
+   ]
+  },
+  {
+   "id": "replay-parent-served-by-child-arm-set",
+   "expectedGain": 4,
+   "expectedCost": 0,
+   "scoreReason": "Carried at 4-5; an enabling fix of a recorded miswiring (iteration 28: fidelity 0.32 own-id, 0.99 when bits matched). arm_selector::choose exists (arm_selector.rs:392), GridArm::assign/run and the ReplayRng/LiveRng split exist (campaign.rs:423-510), replay_corpus Seed carries the tape. Stale description figures (38,161 of 98,033) already corrected in the judge-rewritten mechanism (0.47-0.54 on the fresh cache: 77,752/145,187 and 60,207/129,440 verified). Bits 1<<22/1<<23 free. Kept at 4.",
+   "redTeam": "The fidelity gain is real but the depth transfer is a linear extrapolation from one confounded read (iteration 28's 1.080 stratified over 32 strata), and the corpus's own reads put prefix children only 1.12x over plan-only at current fidelity; lifting a quarter of prefix slots from 0.50 to 0.80 faithful buys at most a few percent on that quarter, inside the internal resolution floor. Matching parents to the slot's arm set also biases WHICH parents are replayed toward the arm sets the learners concentrate on, so the matched cell's parent mix differs from the stock cell's and the contrast is not the same parents under two servings. Up to 64 peeks per slot is a real per-slot cost on a mechanism graded on throughput.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "replay.prefix_faithful / children_prefix 77,752/145,187 and 60,207/129,440 -> verified (cache); the description's 38,161/98,033 is stale",
+    "arm_selector::choose(run_id, schedule_seed, arm_index, cell) exists -> verified; GridArm::pick is GridArm::assign at campaign.rs:423 (naming)",
+    "prefix children replay through ReplayRng, plan-only through LiveRng -> verified (campaign.rs 494-510)",
+    "bits 1<<22 / 1<<23 retired (staleFirstPair, crashPhaseOnLanding), unread -> verified"
+   ]
+  },
+  {
+   "id": "run-local-utilization-counters-folded-at-run-end",
+   "expectedGain": 5,
+   "expectedCost": 2,
+   "scoreReason": "Carried at 5-2 through several rounds; the argument is concrete (named counters, an identity falsifier, byte-identical schedules) and throughput multiplies every rung, but the hotspot is unprofiled and the gain may sit inside the cross-binary floor. Identity verified on the fresh cache: steer_reach.no_weighted_predicate 1,383,308,290 = steps_used_sum 1,383,308,321 - 31; the five per-step counters equal each other; ranking_pass_skipped = contested_decisions 591,375,077. The cited absolute figures are stale. Cost 2: it rewires the counting layer the grader and the utilization export read.",
+   "redTeam": "The hotspot is unprofiled: ten relaxed fetch_adds per step at 7.5 microseconds of thread time is 3-12 percent only if the lines are contended, and static counters incremented by 30 threads may already be absorbed by the core's store buffer; the gain could be under the 5 percent layout floor, in which case the candidate's own falsifier closes it as inseparable. Folding at run end loses the counts of runs that error before the fold and moves the measurement layer the grader reads, which is why it carries cost 2. The cited per-step totals (1,468,752,468) are not the fresh cache's (1,383,308,290), a stale figure, though the identity it names (counter = steps_used_sum - no_schedule_attempt) does hold on the fresh cache.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "five per-step counters equal each other (1,383,308,290 on chunk 0) and equal steps_used_sum minus no_schedule_attempt (1,383,308,321 - 31) -> verified; the cited 1,468,752,468 / 35 is stale, not this cache",
+    "ranking_pass_skipped == multiplier_authority.contested_decisions (591,375,077) -> verified; the cited 594,420,962 is stale",
+    "timer_context.biased_steps 1.26e9, timer_steer.evaluated 1.01e9, crash_anchor eligible 248M / offered 179M, deliveries 395M -> order verified (cited values stale)",
+    "no treatment bit; cross-binary only -> as stated"
+   ]
+  },
+  {
+   "id": "pulled-crash-waits-for-victim-reply-to-restarted-peer",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "A truth-side cell with a bounded, counted predicate that answers the iteration-25 hold's objection (a readiness a recovering node cannot satisfy by dropping a message); receiver_restarted figures verified on the cache. But it is nested in a superseded mechanism and must be re-parented on the standalone release ('a released crash of v is withheld while some live restarted peer p has bit v clear', bounded by crash_phase::WINDOW and cap_reserve, suspended for the stall clock) and built only after the release has read. It lengthens holds, so its internal contrast carries a steps-per-run guard. Kept at 3 with bit 1<<25.",
+   "redTeam": "Its parent (the pull) is closed and superseded by the standalone release; as written it withholds a PULLED crash, which no longer exists. Re-parented onto the release it becomes a hold that lengthens (up to 96 steps) on the very crashes the release just shortened, on a predicate (an acted entry from the victim's current incarnation at a restarted peer) that the cache says is rare at restarted receivers (receiver_restarted acted 6,606 of 5,040,495, 0.13 percent), so most waits expire and the cell mostly delays the release by the window. It predicts a depth-8 loss by its own band and cannot merge on the objective; its value is a finding on an acted observable the DAG does not score.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "delivery_effects.receiver_restarted 6,606 acted of 5,040,495 (0.13 percent) -> verified (cache chunk 0)",
+    "crash-hold-while-peer-restart-unsettled HELD at iteration 25 with the stated re-admission condition -> verified (pool.md:1499)",
+    "clear_ghost_mark clears the since-restart fields at the node's crash -> verified (state.rs:1192)",
+    "parent restart-pulls-held-crash-into-learned-ghost-lag-window -> CLOSED at iteration 79; the cell must be re-parented on the standalone release",
+    "bit 1<<25 retired (ghostPendingTimerHold), unread -> verified"
+   ]
+  },
+  {
+   "id": "stalled-runs-admitted-as-replay-prefix-parents",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Reuses real machinery (ReplayCut with rng.position() at the ghost signal, scheduler.rs:1379-1390; the corpus Seed tape cut at tape_pos; ReplayRng children) and the judge-rewritten prediction (separate ring, signal-supply guard) is sound. But the supply claim is stale/false on the fresh cache, the mechanism most likely replays the wedge, and the primary is cross-binary. Kept at 3; bit 1<<27 free.",
+   "redTeam": "A stalled run's prefix up to its last progress mark reproduces the wedge by construction: the tape replays the same crashes, restarts and the unanswered recovery, and the fresh suffix starts inside the same stuck state; the candidate's own falsifier (children ending in StallCapReached above 0.90) names the likely outcome. The primary read is cross-binary (a session-shared ring), so it sits on the 5 percent layout floor and the seed-1000 cache outlier. The rationale's supply figure is false on the fresh cache: stall-capped runs are 274,867 of 790,380 (35 percent), not 352,842 and not half, and after the release merge many of those runs stall only after a release.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "replay_cut set at the first fault-crossing delivery into a node with crash_pending > 0, with rng.position() -> verified (core/scheduler.rs:1376-1390)",
+    "replay.parents_admitted 92,826 per chunk -> approximately verified (98,009 / 86,713 on the fresh cache)",
+    "stall-capped runs 352,842 per chunk, about half of all runs -> FALSE on the fresh cache: termination.all.stall_cap_reached 274,867 of 790,380 (35 percent) and 238,145 of 706,620",
+    "prefix children of interesting parents reach depth>=6 at 2.19x fresh -> uncheckable here (historical, older rung)",
+    "bit 1<<27 retired (clientDeferralOnly), unread -> verified"
+   ]
+  },
+  {
+   "id": "pct-change-points-at-fault-anchors-fixed-band-shift",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Carried at 3 for several rounds with the saturation gate and mark-lifetime clause added by a prior judge; nothing new this round. Timer figure stale but the order holds (123,424,940 fires over 790,380 runs, 156 per run). The per-origin mark cannot separate a dead from a live incarnation of the same origin, which is the order the deep rungs need. Kept at 3; bits reassigned to 1<<11 and 1<<26 because 1<<17 is taken by the at-send cell.",
+   "redTeam": "The mark lifetime is still undefined (the implementerMustDefine clause is open): with a 1/2 coin at about 156-203 timer wakes per run and three origins, marks saturate within tens of steps and the shift is a uniform offset, which the chunk-1 saturation gate then closes. Restricting anchors to the fault classes gives 4-5 change points per run, each demoting whatever stream happened to be last dispatched, which on a three-node system is one of two peers; PCT's bound argument does not say that the last-dispatched stream at a restart is the one the oracle path needs to fall behind (the path needs the restarted node's own dead-incarnation records to arrive AFTER its fresh Recovery, an order between two records of the same origin, which a per-origin band shift cannot express since both carry the same origin and different incarnations only).",
+   "predictionRewrite": {
+    "firingCounter": "pct_change_point.change_points_placed.demote",
+    "firingFloor": 150000,
+    "rung": "depth>=8",
+    "sizePct": {
+     "min": 0.1,
+     "max": 0.4
+    },
+    "mechanism": "JUDGE BIT ASSIGNMENT (iteration 80): pctDemote = 1<<11 (2048, the retired newsBeforeReply row) and pctPromote = 1<<26 (67108864, the retired originAlternate row, released by the superseded crash-holds-for-restarted-peer-delivery-window entry); 1<<17 goes to the release family's at-send cell. Both unread in spur-core, renamed in VARIANT_BITS in the same commit. Treatment bit pctDemote = 1<<11, treated share 1/4 of non-probe runs drawn by run id; inverse cell pctPromote = 1<<26 at 1/4; stock 1/2. On the depth>=8 rung the per-run ratio of pctDemote runs to co-bit-matched untreated runs in the same session lands in [1.10, 1.40]: demoting the last-dispatched stream at a fault anchor makes a stream that was ahead fall behind, which is the shape the post-restart ordering rung needs. The promote cell is predicted in [0.80, 0.98]. Firing: pct_change_point.change_points_placed.demote >= 150000 per chunk and pct_change_point.dispatches_overridden >= 60000 per chunk.",
+    "independentObservable": "Two reads. (1) termination mean completed steps on the demote cell over stock in [1.00, 1.06], and the promote cell's depth>=8 per-run ratio in [0.80, 0.98]. (2) SATURATION GATE, read on chunk 1 before any rung is credited: pct_change_point.saturated_steps / pct_change_point.marked_steps <= 0.30 on the demote cell, where marked_steps counts network steps taken while any mark is live and saturated_steps counts those at which every origin with an eligible record in the queue is marked (the shift is then a uniform offset and has no relative effect). pct_change_point.anchors_seen by class must be reported with the timer class's share; the merged baseline fires timer_effects.all.fired 128,573,624 over 632,580 runs (203 per run), so timer wakes are not a handful and the candidate's 1/(anchors) siting argument holds only for the fault-anchor classes.",
+    "falsifier": "Refuted if the pctDemote depth>=8 per-run interval lies entirely below 1.10, or if the pctPromote interval lies entirely above 1.00, or if dispatches_overridden stays below 60000 per chunk. Closes on chunk 1 without a rung read if saturated_steps / marked_steps exceeds 0.30 on the demote cell: the marks cover every live stream and the mechanism as built is a uniform offset.",
+    "costClause": "Cross-binary throughput at or above 0.97 of the paired baseline; the only shared hot-path cost is one vector lookup per scored candidate while a mark is live, which is read on the cross-binary rung.",
+    "implementerMustDefine": "Mark lifetime and the anchor set must be fixed in the plan before the build and stated with the firing counters: as written a mark lifts only on the origin's incarnation change and a 1/2 coin fires at roughly 240 anchors per run, so with three origins the marked set saturates within tens of network steps. The plan must either bound the mark's lifetime (a fixed number of network dispatches of the marked stream, or lift at the next anchor) or restrict anchors to the crash, restart and first-post-restart-entry classes (about 4-5 per run), and count marks_lifted by reason. Stock runs must remain byte-identical: the private generator is seeded from derive_seed(schedule_seed, run_id, PCT_SALT) and no Stream draw is consumed on any cell."
+   },
+   "verifiedClaims": [
+    "timer_effects.all.fired 128,573,624 over 632,580 runs -> stale; fresh cache 123,424,940 over 790,380 (156 per run), the 'not a handful' point stands",
+    "priority is outside Record's Hash (dedup untouched) -> recorded in the pool entry at iteration 48, not re-verified here",
+    "bits 1<<11 free -> verified; 1<<17 contested and assigned to the at-send cell; 1<<26 reassigned here"
+   ]
+  },
+  {
+   "id": "crash-holds-for-restarted-peer-delivery-window",
+   "expectedGain": 3,
+   "expectedCost": 0,
+   "scoreReason": "Kept only as the fallback if the release family closes without a lead; must not share a session with the release (same crash_hold_until actuator). The 73 percent figure is verified on the fresh cache (1,194,550 of 1,641,062 recovers); the cited absolute figures are from an older cache. entries_since_restart exists (state.rs:1161); the 'fresh in_flight' predicate should be net_fresh > 0. If revived it takes the next free retired row.",
+   "redTeam": "Superseded twice: the pull took its window at iteration 79 and the standalone release now holds the same window with a sharper trigger (the acted dead-incarnation entry, the oracle's label 4 -> 5 edge) and a measured advance-rung lead, whereas this holds a crash on a predicate true on most post-restart steps (73 percent of restarts have prior sends in flight, and 'fresh in_flight' is not a ledger field: in_flight counts the node's dead-incarnation sends too; the fresh-send count is net_fresh) so the hold releases almost at once and lengthens rather than shortens. Its bit 1<<26 is released to the PCT pair.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "recoveries_with_own_prior_sends_inflight 73 percent of recoveries -> verified in ratio (1,194,550 / 1,641,062); cited absolutes 1,112,223 / 1,516,908 are stale",
+    "stale_sender_deliveries_after_recovery 3,973,798 -> stale; fresh 4,350,173 / 3,954,311",
+    "state.entries_since_restart(n) exists -> verified (state.rs:1161); 'fresh in_flight' is not a field (in_flight counts dead-incarnation sends; net_fresh is the fresh count)",
+    "crash_phase WINDOW = 96 and cap_reserve -> verified",
+    "supersededBy restart-pulls-held-crash-into-learned-ghost-lag-window -> that entry is CLOSED; now superseded by the standalone release"
+   ]
+  },
+  {
+   "id": "post-release-quiet-gap-learned-cap",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "Figures verified (steps_after_release_sum 87.06M / 84.42M; second stalls 88,007 / 73,248; completions 62,732 / 56,144; residual 35,793 / 34,856; caps 827 / 791). A perf refinement with no separable gain by its own statement and a sibling that just closed on the same arithmetic. Kept at 2.",
+   "redTeam": "By its own rationale the recoverable wall is at most 2.5 percent of grid wall, inside the layout floor, so the only readable outcome is an internal steps-per-run reduction with depth flat: no path to more violations per second that the harness can see. The plan clock (the same estimator shape learned from completing runs) just closed because its learned bound sat near the run cap and cut 2-3 percent of steps; the post-release gaps of released runs that complete are censored at the stall cap, so the learned cap is likely to sit near 827 and read inert by the candidate's own 0.9x clause.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "stall_release.steps_after_release_sum 87,057,930 / 84,416,390; second_stall_stops 88,007 / 73,248; plan_completed_after_release 62,732 / 56,144 -> verified",
+    "stall_cap.cap_max_scope 827 / 791 -> verified",
+    "RunClock.release() and longest gap tracking exist -> verified (stall_cap.rs:238-276)",
+    "bit 1<<30 retired (restartAfterPeerSettle), unread -> verified"
+   ]
+  },
+  {
+   "id": "parent-plan-optional-cover-edge-reversal",
+   "expectedGain": 2,
+   "expectedCost": 0,
+   "scoreReason": "Kept at 2 as in the last five rounds; nothing new. Its source verification is careful and its correctness invariants are well stated, but the gain argument is general coverage. Retain as a low-rank option.",
+   "redTeam": "A neighbourhood-search argument with no measured supply (optional cover edges at density 0.3 only, none at density 0) and no evidence that a one-edge reversal of a parent plan transfers the parent's signal; it asks for a full-system cross-binary exception on a rung with a 5 percent null floor and states its own score as 2.",
+   "predictionRewrite": null,
+   "verifiedClaims": [
+    "general_vr.json dependency_density [0.0, 0.3], post_fault_client_ops 1, five arms -> verified",
+    "ReplayRng / LiveRng split of prefix and plan-only children -> verified (campaign.rs)",
+    "no treatment bit; full-system exception requested -> as stated"
+   ]
+  }
+ ],
+ "admissionDecisions": {
+  "prediction": "Both judge-rewritten predictions are frozen. Parent: bit ghostReleasedCrash 1<<4 on a salted half of placed runs; internal depth8 [1.02,1.20], depth9 [1.08,1.45], depth10 [1.00,1.50], depth5/6 [0.99,1.06]; fired (holds actually shortened) >= 50,000 per chunk with scopes_engaged >= 1 (inapplicable below 50,000 with armed >= 150,000); applied within 3 steps of the most recent acted ghost per later crash treated >= 2.5x untreated (refute below 2.0x); depth5 >= 0.97; steps per run <= 1.00x (refute above 1.02x); crashes per run within 1%; runs per second >= 0.93 of the cache median 2,493 (refute below 0.90). Nested: bit ghostReleaseSingleOntoAbsorber 1<<28 on half the release cell; against the release-all half depth8 [1.00,1.15], depth9 [1.00,1.30]; single.releases >= 25,000; on-ghost-node share >= 0.92 against about 0.78; released crashes per firing exactly 1.0; steps within [0.99,1.01].",
+  "gradingPlan": "One session on treatment bit 16 with band [0.02,0.20]; the nested contrast computed from the variants rows and counters. Two to four chunks; panel and regression before any merge. Cost read against the cache median as frozen.",
+  "bitReuse": "Bits 1<<4 (staleOrder row) and 1<<28 (clientProgressRelease row) renamed ghostReleasedCrash and ghostReleaseSingleOntoAbsorber; the closed pull's renames were never merged.",
+  "supersession": "The standalone release supersedes crash-holds-for-restarted-peer-delivery-window (fallback only, bit 1<<26 released); the reply-wait cell re-parents onto the release and waits; the at-send sibling waits on the parent's in-flight census."
+ }
+}
