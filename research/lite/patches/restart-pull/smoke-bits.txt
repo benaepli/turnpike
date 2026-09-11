@@ -1,0 +1,3 @@
+runs total=140032 placed=123546 pulled(bit16)=62062 triggered(bit1<<28)=31081 run_cap_probes=4455
+pulled/placed=0.502 triggered/pulled=0.501
+pulled&run_cap_probe=0 pulled&timer_probe=2246 triggered&!pulled=0 pulled&!placed=0

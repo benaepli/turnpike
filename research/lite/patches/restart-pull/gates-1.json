@@ -1,0 +1,115 @@
+[
+ {
+  "seed": 1000,
+  "pulls": 85326,
+  "firing_floor_150k": false,
+  "restarts_with_held_crash": 208488,
+  "scopes_engaged": 2,
+  "lag_p90": 161,
+  "lag_samples": 31535,
+  "steps_saved_per_pull": 137.41278156716592,
+  "cells": {
+   "untreated": {
+    "runs": 324718,
+    "crashes_per_run": 2.1940329763055946,
+    "steps_per_run": 1841.3464729395969,
+    "within_window_share": 0.5630199903089786,
+    "early_expired_over_armed": 0.13217763674006264,
+    "bucket_3plus_share": 0.5249947891336066
+   },
+   "treated": {
+    "runs": 325699,
+    "crashes_per_run": 2.192782292853217,
+    "steps_per_run": 1826.37792870104,
+    "within_window_share": 0.6869704125572996,
+    "early_expired_over_armed": 0.12385858798982546,
+    "bucket_3plus_share": 0.5446022940466776
+   },
+   "pull_only": {
+    "runs": 162486,
+    "crashes_per_run": 2.1943798234924854,
+    "steps_per_run": 1828.4094198884827,
+    "within_window_share": 0.7140319167014259,
+    "early_expired_over_armed": 0.12460971429912905,
+    "bucket_3plus_share": 0.54242659049117
+   },
+   "trigger": {
+    "runs": 163213,
+    "crashes_per_run": 2.191191878097946,
+    "steps_per_run": 1824.355486388952,
+    "within_window_share": 0.6599589828992614,
+    "early_expired_over_armed": 0.12310951912721824,
+    "bucket_3plus_share": 0.5467705499976949
+   }
+  },
+  "within_window_ratio": 1.2201527909875785,
+  "steps_ratio_treated": 0.9918708703340005,
+  "crashes_ratio_treated": 0.9994299614154006,
+  "trigger": {
+   "armed": 39751,
+   "fired": 18471,
+   "expired": 21280,
+   "superseded": 0,
+   "steps_from_restart_sum": 222707,
+   "fired_crashes_applied_retarget": 18293,
+   "fired_crashes_on_ghost_node_retarget": 14681,
+   "fired_crashes_applied_stock": 1476,
+   "fired_crashes_on_ghost_node_stock": 728
+  },
+  "fired_over_armed": 0.4646675555331941,
+  "trigger_vs_pull_only": {
+   "steps": 0.997782808677622,
+   "bucket_3plus": 1.008008382300343,
+   "expired_over_armed": 0.9879608489566909
+  },
+  "depth_treated_over_untreated": {
+   "d5": 0.9891338251717811,
+   "d6": 0.987956082550043,
+   "d8": 1.0549629672773633,
+   "d9": 1.1885472599101723,
+   "d10": 1.1501544568426607
+  },
+  "depth_trigger_over_pull_only": {
+   "d5": 0.9942581572300218,
+   "d6": 0.9947885068599227,
+   "d8": 1.018314878052571,
+   "d9": 1.178790027273171,
+   "d10": 1.1950903278189384
+  },
+  "depth_counts": {
+   "untreated": {
+    "runs": 313813,
+    "d5": 14590,
+    "d6": 14353,
+    "d8": 5694,
+    "d9": 918,
+    "d10": 124
+   },
+   "pull_only": {
+    "runs": 157003,
+    "d5": 7241,
+    "d6": 7113,
+    "d8": 2978,
+    "d9": 501,
+    "d10": 65
+   },
+   "trigger": {
+    "runs": 157648,
+    "d5": 7229,
+    "d6": 7105,
+    "d8": 3045,
+    "d9": 593,
+    "d10": 78
+   }
+  },
+  "runs": [
+   704760,
+   790380
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0
+ }
+]

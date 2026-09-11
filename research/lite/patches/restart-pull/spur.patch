@@ -1,0 +1,1533 @@
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index e6bab33..4c886ea 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -18,6 +18,7 @@ mod path;
+ pub mod plan_config;
+ pub mod recover_deps;
+ pub mod replay_corpus;
++pub mod restart_pull;
+ pub mod rng;
+ pub mod run_cap;
+ pub mod run_phase;
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index d0cb24d..e1f5fd0 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -970,6 +970,7 @@ pub fn run_explorer_campaign(
+     crate::simulator::stall_cap::reset();
+     crate::simulator::arm_selector::reset();
+     crate::simulator::fault_timing::reset();
++    crate::simulator::restart_pull::reset();
+     crate::simulator::timer_context::reset();
+     crate::simulator::fault_timing::set_fraction(
+         config.envelope.faults.crash_placement_fraction,
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index 6204319..3c14ce8 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -16,6 +16,7 @@ use crate::simulator::crash_phase;
+ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+ use crate::simulator::pair_order;
++use crate::simulator::restart_pull;
+ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::feedback::Feedback;
+ use crate::simulator::hash_utils::HashPolicy;
+@@ -707,6 +708,7 @@ fn crash_hold_mask<H: HashPolicy>(
+     rng: &mut impl StreamRng,
+ ) -> u64 {
+     let step_now = state.crash_info.current_step;
++    expire_trigger(state, step_now);
+     let mut mask = 0u64;
+     let width = state.crash_hold_until.len().min(u64::BITS as usize);
+     for n in 0..width {
+@@ -738,6 +740,150 @@ fn crash_hold_mask<H: HashPolicy>(
+     mask
+ }
+ 
++/// The trigger a restart armed runs out at the window's end: the pulled
++/// crashes are then due at their target and nothing is left to release.
++fn expire_trigger<H: HashPolicy>(state: &mut State<H>, step_now: i32) {
++    if let Some(t) = state.restart_pull.trigger
++        && step_now >= t.expires
++    {
++        state.restart_pull.trigger = None;
++        state.restart_pull.pulled_mask = 0;
++        util_stats::record_restart_pull_trigger(util_stats::RestartPullTrigger::Expired);
++    }
++}
++
++/// A restart of `origin` at `restart_step` on a pulling run re-targets the
++/// other nodes' held crashes into the learned window. On the triggering
++/// half the pulled crashes go to the window's end and the trigger is armed
++/// on `origin`; a trigger still armed from an earlier restart is replaced,
++/// and the crashes it had pulled stay pulled. Below the learner's floor
++/// nothing moves. Nothing here reads a random stream.
++fn pull_held_crashes<H: HashPolicy>(state: &mut State<H>, origin: usize, restart_step: i32) {
++    if !state.restart_pull.pulls() {
++        return;
++    }
++    let Some(window) = state.restart_pull.window else {
++        return;
++    };
++    let to_end = state.restart_pull.triggers();
++    let pull = restart_pull::pull_holds(
++        &mut state.crash_hold_until,
++        &state.send_ledger,
++        origin,
++        restart_step,
++        window,
++        to_end,
++    );
++    util_stats::record_restart_pull(pull.held_crash, pull.pulls, pull.steps_saved);
++    let rp = &mut state.restart_pull;
++    rp.pulled_mask |= pull.mask;
++    if !to_end || pull.pulls == 0 {
++        return;
++    }
++    if rp.trigger.is_some() {
++        util_stats::record_restart_pull_trigger(util_stats::RestartPullTrigger::Superseded);
++    }
++    rp.trigger = Some(restart_pull::Trigger {
++        origin,
++        restart_step,
++        expires: restart_step.saturating_add(window),
++    });
++    util_stats::record_restart_pull_trigger(util_stats::RestartPullTrigger::Armed);
++}
++
++/// A message entry at `dest` sent by `origin` at incarnation `sent_at`
++/// landed at `step` and `acted` says whether it wrote `dest`'s state. An
++/// entry from a dead incarnation of a live origin at a live destination is
++/// a ghost lag sample - the step less the origin's last restart step - fed
++/// to the learner on the runs that feed it. On the triggering half the
++/// first such entry after the armed restart, from the restarted node and
++/// writing state, releases every pulled crash at the next step.
++fn note_restart_pull_entry<H: HashPolicy>(
++    state: &mut State<H>,
++    origin: NodeId,
++    sent_at: u32,
++    dest: NodeId,
++    step: i32,
++    acted: bool,
++) {
++    if origin == dest || sent_at == state.incarnation(origin) {
++        return;
++    }
++    let down = &state.crash_info.currently_crashed;
++    if down.contains(&dest) {
++        return;
++    }
++    let last_restart = state
++        .send_ledger
++        .get(origin.index)
++        .map_or(-1, |l| l.last_restart_step);
++    if !down.contains(&origin) && last_restart >= 0 && state.restart_pull.feeds_learner {
++        restart_pull::merge_probe_lag(state.restart_pull.scope, step - last_restart);
++    }
++    let Some(t) = state.restart_pull.trigger else {
++        return;
++    };
++    if !acted || t.origin != origin.index || step <= t.restart_step {
++        return;
++    }
++    let width = state.crash_hold_until.len().min(u64::BITS as usize);
++    for n in 0..width {
++        if state.restart_pull.pulled_mask & (1u64 << n) == 0
++            || state.send_ledger.get(n).is_none_or(|l| l.crash_pending == 0)
++        {
++            continue;
++        }
++        if state.crash_hold_until[n] > step + 1 {
++            state.crash_hold_until[n] = step + 1;
++        }
++    }
++    let rp = &mut state.restart_pull;
++    rp.fired_mask |= rp.pulled_mask;
++    rp.pulled_mask = 0;
++    rp.ghost_node = Some(dest.index);
++    rp.trigger = None;
++    util_stats::record_restart_pull_trigger(util_stats::RestartPullTrigger::Fired {
++        steps_from_restart: (step - t.restart_step).max(0) as u64,
++    });
++}
++
++/// A planned crash of `planned` is being applied on `victim`: count where
++/// it landed against the other nodes' restarts, and close its pull.
++fn note_restart_pull_apply<H: HashPolicy>(state: &mut State<H>, planned: usize, victim: usize) {
++    let step = state.crash_info.current_step;
++    let rp = &mut state.restart_pull;
++    let later = rp.crashes_applied > 0;
++    rp.crashes_applied = rp.crashes_applied.saturating_add(1);
++    let bit = if planned < u64::BITS as usize {
++        1u64 << planned
++    } else {
++        0
++    };
++    rp.pulled_mask &= !bit;
++    let fired = rp.fired_mask & bit != 0;
++    rp.fired_mask &= !bit;
++    let (cell, window, ghost_node) = (rp.cell, rp.window, rp.ghost_node);
++    if !util_stats::enabled() {
++        return;
++    }
++    let last_other_restart = state
++        .send_ledger
++        .iter()
++        .enumerate()
++        .filter(|(n, _)| *n != victim)
++        .map(|(_, l)| l.last_restart_step)
++        .max()
++        .unwrap_or(-1);
++    let within = window.is_some_and(|w| last_other_restart >= 0 && step - last_other_restart <= w);
++    util_stats::record_restart_pull_apply(cell, later, within);
++    if fired {
++        util_stats::record_restart_pull_fired_apply(
++            state.retarget.enabled,
++            ghost_node == Some(victim),
++        );
++    }
++}
++
+ /// The node whose ledger the fan-out phase of `n`'s waiting crash is read
+ /// on. This is `n` itself unless the run retargets its crashes, still has a
+ /// release ahead for `n`, and the absorber ranking would move the crash to
+@@ -1123,6 +1269,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             // the phase arm is keyed on the planned node, the node the hold
+             // was armed on.
+             let victim = retarget_crash(state, node_id, topology.num_servers.max(0) as usize);
++            note_restart_pull_apply(state, node_id.index, victim.index);
+             let ledger = state.send_ledger.get(victim.index).copied().unwrap_or_default();
+             if util_stats::enabled() {
+                 util_stats::record_crash_anchor_apply(ledger.in_flight > 0);
+@@ -1270,6 +1417,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     let record_entry_pc = r.entry_pc;
+                     let record_origin = r.origin_node;
+                     let record_dest = r.node;
++                    let record_sent_at = r.origin_incarnation;
+                     // Bump the link's deliver counter so the next FIFO message
+                     // in this link becomes schedulable.
+                     if let Some((link_id, seq)) = r.link_seq {
+@@ -1441,6 +1589,16 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         rng,
+                     )?;
+                     let acted = state.node_state_token(record_dest) != token_before;
++                    if message_entry {
++                        note_restart_pull_entry(
++                            state,
++                            record_origin,
++                            record_sent_at,
++                            record_dest,
++                            entry_step,
++                            acted,
++                        );
++                    }
+                     if let Some(before) = ghost {
+                         state.note_ghost_delivery(record_dest.index, entry_step, before);
+                         // A dead-incarnation record is a ghost, so the
+@@ -1859,6 +2017,11 @@ fn recover_crashed_node<H: HashPolicy, L: Logger, F: Feedback>(
+         .get(node_id.index)
+         .is_some_and(|l| l.in_flight > 0);
+     state.note_incarnation_bump(node_id.index);
++    let restart_step = state.crash_info.current_step;
++    if let Some(l) = state.send_ledger.get_mut(node_id.index) {
++        l.last_restart_step = restart_step;
++    }
++    pull_held_crashes(state, node_id.index, restart_step);
+     state.fresh_first.clear_origin(node_id.index);
+     state.note_handler_entry(node_id.index, HandlerTrigger::None);
+     util_stats::record_recover(
+@@ -2170,6 +2333,337 @@ mod tests {
+         );
+     }
+ 
++    /// A pulling twin, an untreated twin and a twin below the learner's
++    /// floor take the same restart: only the pulling twin's holds move, and
++    /// only the other nodes' holds whose targets lie past the window, each
++    /// to the restart plus the old target reduced modulo the window plus
++    /// one; the restarted node's own hold and a hold already inside the
++    /// window stay. The pull itself takes no random value, and the twins'
++    /// streams stay in step over the offers that follow.
++    #[test]
++    fn a_restart_pulls_the_other_nodes_held_crashes_and_the_untreated_twin_keeps_its_streams() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().crash_place.restart_pull;
++        let build = |cell: util_stats::RestartPullCell, window: Option<i32>| {
++            let mut state = State::<NoHashing>::new(&[(ROLE, 4)], 1);
++            for n in 0..4 {
++                state.push_runnable(Runnable::Crash {
++                    node_id: node(n),
++                    priority: 0.5,
++                });
++            }
++            state.crash_hold_until = vec![900, 500, 431, 110];
++            state.restart_pull.cell = cell;
++            state.restart_pull.window = window;
++            state.crash_info.current_step = 100;
++            state
++        };
++        let mut treated = build(util_stats::RestartPullCell::PullOnly, Some(20));
++        let mut control = build(util_stats::RestartPullCell::Untreated, Some(20));
++        let mut unplaced = build(util_stats::RestartPullCell::Unplaced, Some(20));
++        let mut unlearned = build(util_stats::RestartPullCell::PullOnly, None);
++        for s in [&mut treated, &mut control, &mut unplaced, &mut unlearned] {
++            pull_held_crashes(s, 0, 100);
++        }
++        let t1 = 100 + 500 % 21;
++        let t2 = 100 + 431 % 21;
++        assert_eq!(treated.crash_hold_until, vec![900, t1, t2, 110]);
++        assert_eq!(control.crash_hold_until, vec![900, 500, 431, 110], "the untreated twin");
++        assert_eq!(unplaced.crash_hold_until, vec![900, 500, 431, 110], "an unplaced run");
++        assert_eq!(unlearned.crash_hold_until, vec![900, 500, 431, 110], "below the floor");
++        assert_eq!(treated.restart_pull.trigger, None, "the pull-only half arms no trigger");
++        assert_eq!(treated.restart_pull.pulled_mask, 0b110);
++        assert_eq!(control.restart_pull.pulled_mask, 0);
++
++        // A second restart pulls the hold still past its window and leaves
++        // the holds an earlier pull already put inside it: a pulled hold
++        // never lengthens.
++        pull_held_crashes(&mut treated, 3, 105);
++        let t0 = 105 + 900 % 21;
++        assert_eq!(treated.crash_hold_until, vec![t0, t1, t2, 110]);
++
++        let mut rng_t = StdRng::seed_from_u64(3);
++        let mut rng_c = StdRng::seed_from_u64(3);
++        for step in 100..=200 {
++            treated.crash_info.current_step = step;
++            control.crash_info.current_step = step;
++            let held_t = crash_hold_mask(&mut treated, 4, &mut rng_t);
++            let held_c = crash_hold_mask(&mut control, 4, &mut rng_c);
++            let node3 = if step < 110 { 1u64 << 3 } else { 0 };
++            assert_eq!(held_c, 0b111 | node3, "step {step}: the control twin");
++            let mut want = node3;
++            for (n, t) in [(0, t0), (1, t1), (2, t2)] {
++                if step < t {
++                    want |= 1 << n;
++                }
++            }
++            assert_eq!(held_t, want, "step {step}: the pulling twin");
++        }
++        assert_eq!(rng_t.next_u64(), rng_c.next_u64(), "the twins' streams parted");
++        let after = util_stats::snapshot().crash_place.restart_pull;
++        util_stats::set_enabled(false);
++        assert_eq!(after.pulls - before.pulls, 3);
++        assert_eq!(after.restarts_with_held_crash - before.restarts_with_held_crash, 2);
++        assert_eq!(
++            after.steps_saved_sum - before.steps_saved_sum,
++            (500 - t1) as u64 + (431 - t2) as u64 + (900 - t0) as u64
++        );
++        assert_eq!(after.trigger.armed, before.trigger.armed, "the pull-only half never arms");
++    }
++
++    /// On an anchored run the pulled crash's phase slot stays pending until
++    /// its new target and draws its arm at the first offer past it, as an
++    /// unpulled hold does at its drawn target.
++    #[test]
++    fn a_pulled_crash_s_phase_slot_draws_at_the_first_offer_past_its_new_target() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        let mut state = State::<NoHashing>::new(&[(ROLE, 2)], 1);
++        state.push_runnable(Runnable::Crash {
++            node_id: node(1),
++            priority: 0.5,
++        });
++        state.crash_hold_until[1] = 500;
++        state.crash_phase.arm_node(1, 0);
++        // A segment with nothing issued meets no waiting arm's phase.
++        state.send_ledger[1].floor = state.send_ledger[1].issued;
++        state.restart_pull.cell = util_stats::RestartPullCell::PullOnly;
++        state.restart_pull.window = Some(20);
++        pull_held_crashes(&mut state, 0, 100);
++        let target = state.crash_hold_until[1];
++        assert_eq!(target, 100 + 500 % 21);
++        let mut rng = StdRng::seed_from_u64(9);
++        for step in 100..target {
++            state.crash_info.current_step = step;
++            assert_eq!(crash_hold_mask(&mut state, 2, &mut rng), 1 << 1, "step {step}");
++            assert_eq!(state.crash_phase.arm_of(1), None, "the slot drew before its target");
++        }
++        state.crash_info.current_step = target;
++        let held = crash_hold_mask(&mut state, 2, &mut rng) != 0;
++        match state.crash_phase.arm_of(1) {
++            Some(util_stats::CrashPhaseArm::Stock) => assert!(!held, "a stock draw held"),
++            Some(_) => assert!(held, "a waiting arm released at once on a silent segment"),
++            None => panic!("the slot did not draw at the first offer past the new target"),
++        }
++    }
++
++    /// On the triggering half a pulling restart sends the pulled crashes to
++    /// the window's end and arms the trigger on the restarted node. Entries
++    /// that are not from that node's dead incarnation, that land on the
++    /// restarted node, or that leave the receiver's state unchanged do not
++    /// fire it; the first entry that does moves every pulled crash to the
++    /// next step and disarms it, and a window that ends first expires it.
++    #[test]
++    fn the_trigger_arms_at_a_pulling_restart_fires_on_the_first_acted_ghost_entry_and_expires_otherwise() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().crash_place.restart_pull.trigger;
++        let build = || {
++            let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++            for n in 1..3 {
++                state.push_runnable(Runnable::Crash {
++                    node_id: node(n),
++                    priority: 0.5,
++                });
++            }
++            state.crash_hold_until = vec![0, 500, 431];
++            state.restart_pull.cell = util_stats::RestartPullCell::Trigger;
++            state.restart_pull.window = Some(20);
++            state.incarnations = vec![1, 1, 0];
++            state.send_ledger[0].last_restart_step = 100;
++            state.send_ledger[1].last_restart_step = 50;
++            state.crash_info.current_step = 100;
++            state
++        };
++        let armed = restart_pull::Trigger {
++            origin: 0,
++            restart_step: 100,
++            expires: 120,
++        };
++
++        let mut state = build();
++        pull_held_crashes(&mut state, 0, 100);
++        assert_eq!(state.crash_hold_until, vec![0, 120, 120], "pulled to the window's end");
++        assert_eq!(state.restart_pull.trigger, Some(armed));
++        assert_eq!(state.restart_pull.pulled_mask, 0b110);
++        // Another node's dead incarnation entering the restarted node.
++        note_restart_pull_entry(&mut state, node(1), 0, node(0), 103, true);
++        // The restarted node's live incarnation entering a peer.
++        note_restart_pull_entry(&mut state, node(0), 1, node(2), 104, true);
++        // The dead incarnation entering a peer without writing its state.
++        note_restart_pull_entry(&mut state, node(0), 0, node(2), 105, false);
++        assert_eq!(state.restart_pull.trigger, Some(armed), "a non-firing entry disarmed");
++        assert_eq!(state.crash_hold_until, vec![0, 120, 120]);
++        note_restart_pull_entry(&mut state, node(0), 0, node(2), 106, true);
++        assert_eq!(state.crash_hold_until, vec![0, 107, 107], "the firing releases at the next step");
++        assert_eq!(state.restart_pull.trigger, None);
++        assert_eq!(state.restart_pull.pulled_mask, 0);
++        assert_eq!(state.restart_pull.fired_mask, 0b110);
++        assert_eq!(state.restart_pull.ghost_node, Some(2));
++        note_restart_pull_entry(&mut state, node(0), 0, node(1), 108, true);
++        assert_eq!(state.crash_hold_until, vec![0, 107, 107], "a second entry moves nothing");
++        assert_eq!(state.restart_pull.ghost_node, Some(2));
++
++        let mut idle = build();
++        pull_held_crashes(&mut idle, 0, 100);
++        let mut rng = StdRng::seed_from_u64(1);
++        for step in 101..120 {
++            idle.crash_info.current_step = step;
++            assert_eq!(crash_hold_mask(&mut idle, 3, &mut rng), 0b110, "step {step}");
++            assert_eq!(idle.restart_pull.trigger, Some(armed), "step {step}: expired early");
++        }
++        idle.crash_info.current_step = 120;
++        assert_eq!(crash_hold_mask(&mut idle, 3, &mut rng), 0, "the crashes go at the window's end");
++        assert_eq!(idle.restart_pull.trigger, None, "the window's end expires the trigger");
++        assert_eq!(idle.restart_pull.pulled_mask, 0);
++        // An entry after the expiry moves nothing.
++        note_restart_pull_entry(&mut idle, node(0), 0, node(2), 121, true);
++        assert_eq!(idle.crash_hold_until, vec![0, 120, 120]);
++
++        // A restart with nothing to pull arms nothing; a restart while armed
++        // replaces the trigger and keeps the earlier pulls.
++        let mut again = build();
++        again.crash_hold_until = vec![0, 110, 115];
++        pull_held_crashes(&mut again, 0, 100);
++        assert_eq!(again.restart_pull.trigger, None, "nothing pulled, nothing armed");
++        let mut twice = build();
++        pull_held_crashes(&mut twice, 0, 100);
++        twice.send_ledger[0].crash_pending = 1;
++        twice.crash_hold_until[0] = 900;
++        pull_held_crashes(&mut twice, 2, 105);
++        assert_eq!(twice.crash_hold_until, vec![125, 120, 120]);
++        assert_eq!(
++            twice.restart_pull.trigger,
++            Some(restart_pull::Trigger {
++                origin: 2,
++                restart_step: 105,
++                expires: 125
++            })
++        );
++        assert_eq!(twice.restart_pull.pulled_mask, 0b111);
++
++        let after = util_stats::snapshot().crash_place.restart_pull.trigger;
++        util_stats::set_enabled(false);
++        assert_eq!(after.armed - before.armed, 4);
++        assert_eq!(after.fired - before.fired, 1);
++        assert_eq!(after.expired - before.expired, 1);
++        assert_eq!(after.superseded - before.superseded, 1);
++        assert_eq!(after.steps_from_restart_sum - before.steps_from_restart_sum, 6);
++    }
++
++    /// A ghost lag is sampled at an entry from a dead incarnation of a live
++    /// origin at a live destination, on a run that feeds the learner, and
++    /// nowhere else.
++    #[test]
++    fn only_dead_incarnation_entries_between_live_nodes_on_a_feeding_run_are_lag_samples() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        restart_pull::reset();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().crash_place.restart_pull.lag_samples;
++        let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++        state.incarnations[0] = 1;
++        state.send_ledger[0].last_restart_step = 40;
++        state.restart_pull.feeds_learner = true;
++        state.restart_pull.scope = 6000;
++        for _ in 0..199 {
++            note_restart_pull_entry(&mut state, node(0), 0, node(1), 52, true);
++        }
++        note_restart_pull_entry(&mut state, node(0), 1, node(1), 52, true);
++        state.crash_info.currently_crashed.insert(node(1));
++        note_restart_pull_entry(&mut state, node(0), 0, node(1), 52, true);
++        state.crash_info.currently_crashed.remove(&node(1));
++        state.crash_info.currently_crashed.insert(node(0));
++        note_restart_pull_entry(&mut state, node(0), 0, node(2), 52, true);
++        state.crash_info.currently_crashed.remove(&node(0));
++        state.restart_pull.feeds_learner = false;
++        note_restart_pull_entry(&mut state, node(0), 0, node(1), 52, true);
++        state.restart_pull.feeds_learner = true;
++        assert_eq!(restart_pull::lag_quantile(6000), None, "a non-sample reached the learner");
++        note_restart_pull_entry(&mut state, node(0), 0, node(2), 52, false);
++        assert_eq!(restart_pull::lag_quantile(6000), Some(12), "an inert entry is still a lag");
++        let after = util_stats::snapshot().crash_place.restart_pull.lag_samples;
++        util_stats::set_enabled(false);
++        assert_eq!(after - before, 200);
++        restart_pull::reset();
++    }
++
++    /// A crash apply counts under its run's cell, marks a later crash that
++    /// lands within the window after another node's most recent restart,
++    /// and counts a crash the trigger released by where it landed against
++    /// the node whose entry fired it, per retarget arm. Enabling the
++    /// counters again clears the block.
++    #[test]
++    fn a_crash_apply_counts_its_landing_and_closes_its_pull() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().crash_place.restart_pull;
++        let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++        state.restart_pull.cell = util_stats::RestartPullCell::PullOnly;
++        state.restart_pull.window = Some(20);
++        state.send_ledger[0].last_restart_step = 100;
++        state.crash_info.current_step = 110;
++        note_restart_pull_apply(&mut state, 1, 1);
++        state.crash_info.current_step = 115;
++        note_restart_pull_apply(&mut state, 2, 2);
++        state.crash_info.current_step = 140;
++        note_restart_pull_apply(&mut state, 1, 1);
++        // The victim's own restart is not another node's.
++        state.send_ledger[1].last_restart_step = 150;
++        state.crash_info.current_step = 160;
++        note_restart_pull_apply(&mut state, 1, 1);
++        assert_eq!(state.restart_pull.crashes_applied, 4);
++
++        state.restart_pull.pulled_mask = 0b110;
++        state.restart_pull.fired_mask = 0b110;
++        state.restart_pull.ghost_node = Some(2);
++        state.retarget.enabled = false;
++        note_restart_pull_apply(&mut state, 1, 2);
++        state.retarget.enabled = true;
++        note_restart_pull_apply(&mut state, 2, 1);
++        assert_eq!(state.restart_pull.fired_mask, 0);
++        assert_eq!(state.restart_pull.pulled_mask, 0);
++
++        let mut other = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++        other.restart_pull.cell = util_stats::RestartPullCell::Untreated;
++        note_restart_pull_apply(&mut other, 0, 0);
++        other.restart_pull.cell = util_stats::RestartPullCell::Trigger;
++        note_restart_pull_apply(&mut other, 0, 0);
++        other.restart_pull.cell = util_stats::RestartPullCell::Unplaced;
++        note_restart_pull_apply(&mut other, 0, 0);
++
++        let after = util_stats::snapshot().crash_place.restart_pull;
++        let d = |f: fn(&util_stats::RestartPullCellStats) -> u64| {
++            (
++                f(&after.cells.untreated) - f(&before.cells.untreated),
++                f(&after.cells.pull_only) - f(&before.cells.pull_only),
++                f(&after.cells.trigger) - f(&before.cells.trigger),
++                f(&after.cells.treated) - f(&before.cells.treated),
++            )
++        };
++        assert_eq!(d(|c| c.crashes_applied), (1, 6, 1, 7));
++        assert_eq!(d(|c| c.later_crashes_applied), (0, 5, 1, 6));
++        // The two fired applies land at step 160: node 2 within the window
++        // after node 1's restart at 150, node 1 outside it.
++        assert_eq!(d(|c| c.applied_within_window), (0, 2, 0, 2));
++        let t = (&before.trigger, &after.trigger);
++        assert_eq!(t.1.fired_crashes_applied_stock - t.0.fired_crashes_applied_stock, 1);
++        assert_eq!(t.1.fired_crashes_on_ghost_node_stock - t.0.fired_crashes_on_ghost_node_stock, 1);
++        assert_eq!(t.1.fired_crashes_applied_retarget - t.0.fired_crashes_applied_retarget, 1);
++        assert_eq!(
++            t.1.fired_crashes_on_ghost_node_retarget - t.0.fired_crashes_on_ghost_node_retarget,
++            0
++        );
++
++        util_stats::set_enabled(true);
++        let zero = util_stats::snapshot().crash_place.restart_pull;
++        util_stats::set_enabled(false);
++        assert_eq!(zero.pulls, 0);
++        assert_eq!(zero.cells.treated.crashes_applied, 0);
++        assert_eq!(zero.cells.untreated.crashes_applied, 0);
++        assert_eq!(zero.trigger.fired_crashes_applied_stock, 0);
++        assert_eq!(zero.lag_samples, 0);
++    }
++
+     /// The identity-weighted recovery term reads its predicate and reports
+     /// what it preferred without being able to reach the selection: the same
+     /// seed draws the same candidates with the term on and off, and the term
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index bf4b121..60483bd 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -10,6 +10,7 @@ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+ use crate::simulator::client_anchor;
+ use crate::simulator::pair_order;
++use crate::simulator::restart_pull;
+ use crate::simulator::hash_utils::{HashPolicy, compute_hash};
+ use crate::simulator::rng::{Stream, StreamRng};
+ use crate::simulator::util_stats::DeliveryBias;
+@@ -633,6 +634,11 @@ pub struct State<H: HashPolicy> {
+     /// once-per-run signal has been counted. Scheduling bookkeeping like
+     /// `crash_hold_until`, excluded from `signature()`.
+     pub retarget: ghost_absorber::RunState,
++    /// Where this run stands with the restart pull: its cell, the learned
++    /// window, the holds a restart pulled and the trigger armed for them.
++    /// Scheduling bookkeeping like `crash_hold_until`, excluded from
++    /// `signature()`.
++    pub restart_pull: restart_pull::RunState,
+     /// Same-step preference for a sender's current incarnation at a
+     /// contested network step, and the census tables it is read against.
+     pub fresh_first: fresh_first::RunState,
+@@ -727,6 +733,8 @@ pub struct ReplayCut {
+ /// entry from; `ghost_acted_since_restart` says whether a fault-crossing
+ /// delivery wrote the node's state; `request_entered_since_restart` whether
+ /// a message entry caused by a post-fault client operation has reached it.
++/// `last_restart_step` is the step the node last came back from a crash,
++/// -1 while it never has.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct SendLedger {
+     pub issued: u32,
+@@ -745,6 +753,7 @@ pub struct SendLedger {
+     pub absorber_peers_heard: u64,
+     pub ghost_acted_since_restart: bool,
+     pub request_entered_since_restart: bool,
++    pub last_restart_step: i32,
+ }
+ 
+ impl Default for SendLedger {
+@@ -766,6 +775,7 @@ impl Default for SendLedger {
+             absorber_peers_heard: 0,
+             ghost_acted_since_restart: false,
+             request_entered_since_restart: false,
++            last_restart_step: -1,
+         }
+     }
+ }
+@@ -832,6 +842,7 @@ impl<H: HashPolicy> State<H> {
+             crash_phase: crash_phase::RunAnchor::with_nodes(num_nodes),
+             crash_hold_drawn: false,
+             retarget: ghost_absorber::RunState::default(),
++            restart_pull: restart_pull::RunState::default(),
+             fresh_first: fresh_first::RunState::default(),
+             pair_order: pair_order::RunState::default(),
+             client_anchor: client_anchor::RunState::default(),
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index 69966ce..1f24c15 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -27,6 +27,7 @@ use crate::simulator::rng::{
+ };
+ use crate::simulator::arm_selector;
+ use crate::simulator::fault_timing;
++use crate::simulator::restart_pull;
+ use crate::simulator::run_cap;
+ use crate::simulator::stall_cap;
+ use crate::simulator::recover_deps::RecoverDeps;
+@@ -1230,6 +1231,7 @@ pub fn run_explorer(
+     run_cap::reset();
+     arm_selector::reset();
+     fault_timing::reset();
++    restart_pull::reset();
+     timer_context::reset();
+     fault_timing::set_fraction(config.faults.crash_placement_fraction);
+     util_stats::set_acted_fraction_enabled(config.emit_acted_fraction);
+@@ -1632,6 +1634,7 @@ pub fn run_explorer_genetic(
+     run_cap::reset();
+     arm_selector::reset();
+     fault_timing::reset();
++    restart_pull::reset();
+     timer_context::reset();
+     fault_timing::set_fraction(config.faults.crash_placement_fraction);
+     util_stats::set_acted_fraction_enabled(config.emit_acted_fraction);
+@@ -2074,6 +2077,7 @@ pub fn run_explorer_aos(
+     run_cap::reset();
+     arm_selector::reset();
+     fault_timing::reset();
++    restart_pull::reset();
+     timer_context::reset();
+     fault_timing::set_fraction(config.faults.crash_placement_fraction);
+     util_stats::set_acted_fraction_enabled(config.emit_acted_fraction);
+@@ -2730,6 +2734,7 @@ pub fn run_explorer_continuous(
+     run_cap::reset();
+     arm_selector::reset();
+     fault_timing::reset();
++    restart_pull::reset();
+     timer_context::reset();
+     fault_timing::set_fraction(config.envelope.faults.crash_placement_fraction);
+     util_stats::set_acted_fraction_enabled(config.envelope.emit_acted_fraction);
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 9e736c5..a7f0682 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -16,6 +16,7 @@ use crate::simulator::path::plan::{
+ };
+ use crate::simulator::fault_timing;
+ use crate::simulator::pair_order as pair_order_split;
++use crate::simulator::restart_pull;
+ use crate::simulator::rng::StreamRng;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_variant::{ArmSet, CrashArm};
+@@ -474,6 +475,7 @@ fn record_termination<H: HashPolicy>(
+         pending_at_exit: pending as u64,
+         recovered_nodes,
+     });
++    util_stats::record_restart_pull_run(state.restart_pull.cell, steps_used);
+ }
+ 
+ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+@@ -497,6 +499,12 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+ ) -> Result<RunOutcome, RuntimeError> {
+     util_stats::begin_run();
+     path_state.state.retarget.enabled = arms.retarget;
++    // The window is read once here so the scheduler needs no learner
++    // access of its own; the cell is named to the counters for the arm
++    // splits they keep per cell.
++    path_state.state.restart_pull =
++        restart_pull::RunState::at_run_start(run_id, max_iterations, arms.placed());
++    util_stats::set_restart_pull_run_cell(path_state.state.restart_pull.cell);
+     path_state.state.fresh_first.enabled = arms.fresh_first;
+     path_state.state.pair_order.enabled = arms.pair_order;
+     path_state.state.client_anchor.arm = arms.request;
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 5438db5..77a7187 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -37,10 +37,12 @@ use crate::simulator::ghost_absorber;
+ use crate::simulator::pair_order;
+ use crate::simulator::recover_deps::RecoverDeps;
+ use crate::simulator::replay_corpus;
++use crate::simulator::restart_pull;
+ use crate::simulator::run_cap;
+ use crate::simulator::stall_cap;
+ use crate::simulator::stall_release;
+ use crate::simulator::timer_context;
++use crate::simulator::util_stats;
+ 
+ /// The run draws crash holds over the learned completed-run span.
+ pub const CRASH_PLACED: i32 = 1 << 0;
+@@ -54,6 +56,15 @@ pub const TIMER_STEER_OFF: i32 = 1 << 2;
+ /// floor, or one whose span is already spent, is selected and inert; only
+ /// this bit separates the two.
+ pub const CRASH_HOLD_DRAWN: i32 = 1 << 3;
++/// At every restart the run re-targets the other nodes' held planned
++/// crashes whose targets lie past the learned ghost-lag window into that
++/// window. Drawn over the placed runs, so never set on a run-cap probe.
++pub const RESTART_PULLED_CRASH: i32 = 1 << 4;
++/// A pulled crash goes to the window's end unless an entry from the
++/// restarted node's dead incarnation changes a live peer's state first, and
++/// then at the next step. Drawn over the pulling runs, so it implies
++/// `RESTART_PULLED_CRASH`.
++pub const GHOST_TRIGGERED_CRASH: i32 = 1 << 28;
+ /// The run's placed crashes wait for a drawn phase of the victim's own
+ /// fan-out once their step hold expires, instead of competing at once.
+ pub const CRASH_PHASE: i32 = 1 << 9;
+@@ -341,6 +352,7 @@ pub fn of(
+ ) -> i32 {
+     probe_bits(run_id)
+         | stall_cap_bits(run_id)
++        | restart_pull_cell_bits(restart_pull::cell_of(arms.placed(), run_id))
+         | selector_bits(learner)
+         | of_arms(arms)
+         | if crash_hold_drawn { CRASH_HOLD_DRAWN } else { 0 }
+@@ -358,6 +370,23 @@ pub fn stall_cap_bits(run_id: i64) -> i32 {
+     }
+ }
+ 
++/// The restart-pull bit and the trigger bit the run id's coins alone name.
++/// The pull is nested in the crash axis, so like `CRASH_PHASE` the bits a
++/// run actually carries follow its arm set in `of`; only a coin-drawn run
++/// carries exactly these.
++pub fn restart_pull_bits(run_id: i64) -> i32 {
++    restart_pull_cell_bits(restart_pull::cell(run_id))
++}
++
++/// The bits a restart-pull cell names.
++fn restart_pull_cell_bits(cell: util_stats::RestartPullCell) -> i32 {
++    match cell {
++        util_stats::RestartPullCell::Trigger => RESTART_PULLED_CRASH | GHOST_TRIGGERED_CRASH,
++        util_stats::RestartPullCell::PullOnly => RESTART_PULLED_CRASH,
++        util_stats::RestartPullCell::Untreated | util_stats::RestartPullCell::Unplaced => 0,
++    }
++}
++
+ /// The bits the run id's coins alone would name, read straight from each
+ /// mechanism's own coin. A coin-drawn run carries exactly these bits plus
+ /// the plan-cell bit its workload seed names, which no id can reproduce.
+@@ -390,7 +419,7 @@ pub fn from_run_id(run_id: i64) -> i32 {
+     if client_anchor::is_rushed(run_id) {
+         v |= CLIENT_RUSH_PRIORITY;
+     }
+-    v | stall_cap_bits(run_id)
++    v | stall_cap_bits(run_id) | restart_pull_bits(run_id)
+ }
+ 
+ /// The bits a grid arm joins to the tag of every run it issues. A slot whose
+@@ -432,6 +461,8 @@ mod tests {
+             assert_eq!(v & CLIENT_RUSH_PRIORITY != 0, client_anchor::is_rushed(id));
+             assert_eq!(v & STALL_CAP != 0, stall_cap::is_treated(id));
+             assert_eq!(v & STALL_RELEASE != 0, stall_release::is_treated(id));
++            assert_eq!(v & RESTART_PULLED_CRASH != 0, restart_pull::is_treated(id));
++            assert_eq!(v & GHOST_TRIGGERED_CRASH != 0, restart_pull::is_triggered(id));
+             assert_ne!(
+                 v & (CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY),
+                 CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY,
+@@ -736,4 +767,68 @@ mod tests {
+         );
+         assert_eq!(released_without_cap, 0, "the release bit implies the stall-cap bit");
+     }
++
++    #[test]
++    fn the_pull_bit_takes_half_the_placed_runs_and_the_trigger_bit_half_of_those() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        let n = 64_000i64;
++        let tags: Vec<i32> = (0..n).map(from_run_id).collect();
++        let placed = tags.iter().filter(|&&v| v & CRASH_PLACED != 0).count();
++        let pulled = tags.iter().filter(|&&v| v & RESTART_PULLED_CRASH != 0).count();
++        let triggered = tags.iter().filter(|&&v| v & GHOST_TRIGGERED_CRASH != 0).count();
++        let share = pulled as f64 / placed as f64;
++        assert!((share - 0.5).abs() < 0.02, "the pull bit is on {share} of the placed runs");
++        let nested = triggered as f64 / pulled as f64;
++        assert!((nested - 0.5).abs() < 0.02, "the trigger bit is on {nested} of the pulling runs");
++        assert_eq!(
++            tags.iter()
++                .filter(|&&v| v & RESTART_PULLED_CRASH != 0 && v & CRASH_PLACED == 0)
++                .count(),
++            0,
++            "the pull bit implies the placed bit"
++        );
++        assert_eq!(
++            tags.iter()
++                .filter(|&&v| v & RESTART_PULLED_CRASH != 0 && v & RUN_CAP_PROBE != 0)
++                .count(),
++            0,
++            "a run-cap probe must never pull"
++        );
++        assert_eq!(
++            tags.iter()
++                .filter(|&&v| v & GHOST_TRIGGERED_CRASH != 0 && v & RESTART_PULLED_CRASH == 0)
++                .count(),
++            0,
++            "the trigger bit implies the pull bit"
++        );
++        assert_eq!(restart_pull_bits(0) & !(RESTART_PULLED_CRASH | GHOST_TRIGGERED_CRASH), 0);
++        assert_eq!(
++            of_arms(&ArmSet::coins(0)) & (RESTART_PULLED_CRASH | GHOST_TRIGGERED_CRASH),
++            0,
++            "the arm set alone names no pull bit"
++        );
++        // The pull is nested in the crash axis: a learner run whose arm
++        // set draws no holds carries no pull bit whatever its coins say,
++        // and one placed by the learner carries the bits its coins name.
++        let pull_bits = RESTART_PULLED_CRASH | GHOST_TRIGGERED_CRASH;
++        let learner = Some(arm_selector::Learner::OvertakenGhost);
++        let treated = (0..n).find(|&id| restart_pull::is_triggered(id)).unwrap();
++        let stock_arms = ArmSet::default();
++        assert_eq!(of(treated, &stock_arms, learner, false) & pull_bits, 0);
++        let unplaced_coin = (0..n)
++            .find(|&id| !fault_timing::is_placed(id) && !run_cap::is_probe(id))
++            .unwrap();
++        let placed_arms = ArmSet {
++            crash: CrashArm::Placed,
++            ..ArmSet::default()
++        };
++        let learned = of(unplaced_coin, &placed_arms, learner, false) & pull_bits;
++        assert_eq!(
++            learned,
++            restart_pull_cell_bits(restart_pull::cell_of(true, unplaced_coin)),
++            "a learner-placed run takes the pull cell its coins name"
++        );
++        assert_eq!(from_run_id(unplaced_coin) & pull_bits, 0, "the id alone names no pull");
++    }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 7c9008b..70a16fa 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -596,6 +596,33 @@ static CRASH_PLACE_CAPPED_DRAWS: AtomicU64 = AtomicU64::new(0);
+ static CRASH_PLACE_HOLDS: AtomicU64 = AtomicU64::new(0);
+ static CRASH_PLACE_HELD_STEPS_SUM: AtomicU64 = AtomicU64::new(0);
+ 
++static RP_PULLS: AtomicU64 = AtomicU64::new(0);
++static RP_RESTARTS_WITH_HELD_CRASH: AtomicU64 = AtomicU64::new(0);
++static RP_STEPS_SAVED_SUM: AtomicU64 = AtomicU64::new(0);
++static RP_LAG_SAMPLES: AtomicU64 = AtomicU64::new(0);
++static RP_LAG_P90: AtomicU64 = AtomicU64::new(0);
++static RP_SCOPES_ENGAGED: AtomicU64 = AtomicU64::new(0);
++/// One column per placed cell of the restart pull, indexed by
++/// `RestartPullCell::index`.
++const RP_CELLS: usize = 3;
++static RP_CELL_RUNS: [AtomicU64; RP_CELLS] = [const { AtomicU64::new(0) }; RP_CELLS];
++static RP_CELL_CRASHES_APPLIED: [AtomicU64; RP_CELLS] = [const { AtomicU64::new(0) }; RP_CELLS];
++static RP_CELL_LATER_CRASHES: [AtomicU64; RP_CELLS] = [const { AtomicU64::new(0) }; RP_CELLS];
++static RP_CELL_WITHIN_WINDOW: [AtomicU64; RP_CELLS] = [const { AtomicU64::new(0) }; RP_CELLS];
++static RP_CELL_STEPS_USED_SUM: [AtomicU64; RP_CELLS] = [const { AtomicU64::new(0) }; RP_CELLS];
++static RP_CELL_EARLY_ARMED: [AtomicU64; RP_CELLS] = [const { AtomicU64::new(0) }; RP_CELLS];
++static RP_CELL_EARLY_EXPIRED: [AtomicU64; RP_CELLS] = [const { AtomicU64::new(0) }; RP_CELLS];
++static RP_CELL_EARLY_INFLIGHT: [[AtomicU64; CC_INFLIGHT_SLOTS]; RP_CELLS] =
++    [const { [const { AtomicU64::new(0) }; CC_INFLIGHT_SLOTS] }; RP_CELLS];
++static RP_TRIGGER_ARMED: AtomicU64 = AtomicU64::new(0);
++static RP_TRIGGER_FIRED: AtomicU64 = AtomicU64::new(0);
++static RP_TRIGGER_EXPIRED: AtomicU64 = AtomicU64::new(0);
++static RP_TRIGGER_SUPERSEDED: AtomicU64 = AtomicU64::new(0);
++static RP_TRIGGER_STEPS_FROM_RESTART_SUM: AtomicU64 = AtomicU64::new(0);
++/// Indexed by whether the run retargets its crashes.
++static RP_FIRED_APPLIED: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
++static RP_FIRED_ON_GHOST_NODE: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
++
+ /// One column per arm of the fan-out anchor, indexed by `CrashPhaseArm`.
+ const CP_ARMS: usize = 3;
+ static CP_RUNS: [AtomicU64; CP_ARMS] = [const { AtomicU64::new(0) }; CP_ARMS];
+@@ -858,6 +885,17 @@ pub fn set_enabled(on: bool) {
+             &CRASH_PLACE_CAPPED_DRAWS,
+             &CRASH_PLACE_HOLDS,
+             &CRASH_PLACE_HELD_STEPS_SUM,
++            &RP_PULLS,
++            &RP_RESTARTS_WITH_HELD_CRASH,
++            &RP_STEPS_SAVED_SUM,
++            &RP_LAG_SAMPLES,
++            &RP_LAG_P90,
++            &RP_SCOPES_ENGAGED,
++            &RP_TRIGGER_ARMED,
++            &RP_TRIGGER_FIRED,
++            &RP_TRIGGER_EXPIRED,
++            &RP_TRIGGER_SUPERSEDED,
++            &RP_TRIGGER_STEPS_FROM_RESTART_SUM,
+             &TIMER_CONTEXT_PROBE_FIRINGS,
+             &TIMER_CONTEXT_PROBE_ACTED,
+             &TIMER_CONTEXT_BIASED_STEPS,
+@@ -888,6 +926,16 @@ pub fn set_enabled(on: bool) {
+             .chain(CP_APPLY_INFLIGHT.iter())
+             .chain(CP_CRASHES_APPLIED.iter())
+             .chain(CP_INFLIGHT.iter().flatten())
++            .chain(RP_CELL_RUNS.iter())
++            .chain(RP_CELL_CRASHES_APPLIED.iter())
++            .chain(RP_CELL_LATER_CRASHES.iter())
++            .chain(RP_CELL_WITHIN_WINDOW.iter())
++            .chain(RP_CELL_STEPS_USED_SUM.iter())
++            .chain(RP_CELL_EARLY_ARMED.iter())
++            .chain(RP_CELL_EARLY_EXPIRED.iter())
++            .chain(RP_CELL_EARLY_INFLIGHT.iter().flatten())
++            .chain(RP_FIRED_APPLIED.iter())
++            .chain(RP_FIRED_ON_GHOST_NODE.iter())
+         {
+             c.store(0, Ordering::Relaxed);
+         }
+@@ -1709,6 +1757,11 @@ thread_local! {
+     /// plan runs and consumed when the run terminates, so a run that never
+     /// registered contributes to no cell.
+     static PLAN_DEPS_RUN: std::cell::Cell<Option<(RecoverDeps, bool)>> = const { std::cell::Cell::new(None) };
++    /// The restart-pull cell of the run executing on this thread, so the
++    /// fan-out anchor's arm counters can be split by it without the anchor
++    /// knowing the cell. Set at run start; a run that never set it counts
++    /// under no cell.
++    static RESTART_PULL_RUN: std::cell::Cell<RestartPullCell> = const { std::cell::Cell::new(RestartPullCell::Unplaced) };
+ }
+ 
+ /// Fold this thread's finished run into the per-run tallies. Idempotent, so it
+@@ -3324,6 +3377,156 @@ pub fn record_crash_place_hold() {
+     CRASH_PLACE_HOLDS.fetch_add(1, Ordering::Relaxed);
+ }
+ 
++/// The cell a run occupies under the restart pull: the placed runs whose
++/// restarts pull the other nodes' held crashes into the learned window,
++/// split into the half that releases a pulled crash by the trigger and the
++/// half that keeps the reduced offset; the placed runs that never pull; and
++/// the runs outside the placed posture, which no cell counts.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub enum RestartPullCell {
++    #[default]
++    Unplaced,
++    Untreated,
++    PullOnly,
++    Trigger,
++}
++
++impl RestartPullCell {
++    /// The column a placed cell counts under, or None outside the posture.
++    #[inline]
++    fn index(self) -> Option<usize> {
++        match self {
++            RestartPullCell::Unplaced => None,
++            RestartPullCell::Untreated => Some(0),
++            RestartPullCell::PullOnly => Some(1),
++            RestartPullCell::Trigger => Some(2),
++        }
++    }
++}
++
++/// Name the restart-pull cell of the run about to execute on this thread.
++/// Ungated: the cell is read by gated records.
++pub fn set_restart_pull_run_cell(cell: RestartPullCell) {
++    RESTART_PULL_RUN.with(|c| c.set(cell));
++}
++
++/// One restart on a pulling run examined the other nodes' holds: `held`
++/// marks a restart that found some other node's crash still held, `pulls`
++/// the holds it re-targeted and `steps_saved` their summed shortening.
++#[inline]
++pub fn record_restart_pull(held: bool, pulls: u64, steps_saved: u64) {
++    if !enabled() {
++        return;
++    }
++    if held {
++        RP_RESTARTS_WITH_HELD_CRASH.fetch_add(1, Ordering::Relaxed);
++    }
++    RP_PULLS.fetch_add(pulls, Ordering::Relaxed);
++    RP_STEPS_SAVED_SUM.fetch_add(steps_saved, Ordering::Relaxed);
++}
++
++/// One ghost lag from a run that feeds the learner was folded into its
++/// scope.
++#[inline]
++pub fn record_restart_pull_lag_sample() {
++    if !enabled() {
++        return;
++    }
++    RP_LAG_SAMPLES.fetch_add(1, Ordering::Relaxed);
++}
++
++/// Gauges, not counters: overwritten with the lag learner's current view,
++/// ungated so it is visible with stats off.
++pub fn set_restart_pull_learned(scopes_engaged: u64, lag_p90: u64) {
++    RP_SCOPES_ENGAGED.store(scopes_engaged, Ordering::Relaxed);
++    RP_LAG_P90.store(lag_p90, Ordering::Relaxed);
++}
++
++/// One crash was applied on a run in `cell`; `later` marks a crash that is
++/// not the run's first, and `within_window` a crash landing within the
++/// learned window after another node's most recent restart, which is only
++/// read on later crashes.
++#[inline]
++pub fn record_restart_pull_apply(cell: RestartPullCell, later: bool, within_window: bool) {
++    if !enabled() {
++        return;
++    }
++    let Some(i) = cell.index() else {
++        return;
++    };
++    RP_CELL_CRASHES_APPLIED[i].fetch_add(1, Ordering::Relaxed);
++    if later {
++        RP_CELL_LATER_CRASHES[i].fetch_add(1, Ordering::Relaxed);
++        if within_window {
++            RP_CELL_WITHIN_WINDOW[i].fetch_add(1, Ordering::Relaxed);
++        }
++    }
++}
++
++/// One run in `cell` ended after `steps_used` steps.
++#[inline]
++pub fn record_restart_pull_run(cell: RestartPullCell, steps_used: u64) {
++    if !enabled() {
++        return;
++    }
++    let Some(i) = cell.index() else {
++        return;
++    };
++    RP_CELL_RUNS[i].fetch_add(1, Ordering::Relaxed);
++    RP_CELL_STEPS_USED_SUM[i].fetch_add(steps_used, Ordering::Relaxed);
++}
++
++/// What happened to the trigger a restart arms on the triggering half.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum RestartPullTrigger {
++    /// A restart pulled at least one crash and armed the trigger.
++    Armed,
++    /// An entry from the restarted node's dead incarnation changed a live
++    /// peer's state `steps_from_restart` steps after the restart.
++    Fired { steps_from_restart: u64 },
++    /// The window ended with no such entry.
++    Expired,
++    /// Another restart re-armed the trigger while it was still armed.
++    Superseded,
++}
++
++#[inline]
++pub fn record_restart_pull_trigger(event: RestartPullTrigger) {
++    if !enabled() {
++        return;
++    }
++    match event {
++        RestartPullTrigger::Armed => {
++            RP_TRIGGER_ARMED.fetch_add(1, Ordering::Relaxed);
++        }
++        RestartPullTrigger::Fired { steps_from_restart } => {
++            RP_TRIGGER_FIRED.fetch_add(1, Ordering::Relaxed);
++            RP_TRIGGER_STEPS_FROM_RESTART_SUM.fetch_add(steps_from_restart, Ordering::Relaxed);
++        }
++        RestartPullTrigger::Expired => {
++            RP_TRIGGER_EXPIRED.fetch_add(1, Ordering::Relaxed);
++        }
++        RestartPullTrigger::Superseded => {
++            RP_TRIGGER_SUPERSEDED.fetch_add(1, Ordering::Relaxed);
++        }
++    }
++}
++
++/// One crash the trigger released was applied; `on_ghost_node` marks a
++/// landing on the node whose entry fired the trigger, `retarget` the run's
++/// crash-retarget arm.
++#[inline]
++pub fn record_restart_pull_fired_apply(retarget: bool, on_ghost_node: bool) {
++    if !enabled() {
++        return;
++    }
++    let i = retarget as usize;
++    RP_FIRED_APPLIED[i].fetch_add(1, Ordering::Relaxed);
++    if on_ghost_node {
++        RP_FIRED_ON_GHOST_NODE[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
+ /// Which phase of its victim's fan-out a placed crash's release waits for.
+ /// `Stock` waits for nothing and releases where it would have without the
+ /// anchor, so it is the control the other two are read against.
+@@ -3378,6 +3581,11 @@ pub fn record_crash_phase_arm(arm: CrashPhaseArm, first_in_run: bool) {
+     if first_in_run {
+         CP_RUNS[arm.index()].fetch_add(1, Ordering::Relaxed);
+     }
++    if arm == CrashPhaseArm::Early
++        && let Some(c) = RESTART_PULL_RUN.with(|c| c.get()).index()
++    {
++        RP_CELL_EARLY_ARMED[c].fetch_add(1, Ordering::Relaxed);
++    }
+ }
+ 
+ /// One anchored crash's mask came off after `wait_steps` steps, with the
+@@ -3409,6 +3617,11 @@ pub fn record_crash_phase_release(
+             if victim_inflight > 0 {
+                 CP_EXPIRED_INFLIGHT[i].fetch_add(1, Ordering::Relaxed);
+             }
++            if arm == CrashPhaseArm::Early
++                && let Some(c) = RESTART_PULL_RUN.with(|c| c.get()).index()
++            {
++                RP_CELL_EARLY_EXPIRED[c].fetch_add(1, Ordering::Relaxed);
++            }
+         }
+     }
+     CP_WAIT_STEPS_SUM[i].fetch_add(wait_steps, Ordering::Relaxed);
+@@ -3429,6 +3642,15 @@ pub fn record_crash_phase_apply(arm: CrashPhaseArm, victim_inflight: u32, moved:
+     if moved {
+         CP_MOVED_APPLIED[i].fetch_add(1, Ordering::Relaxed);
+     }
++    let slot = (victim_inflight as usize).min(CC_INFLIGHT_SLOTS - 1);
++    // The per-cell histogram is not behind the census switch: the cells are
++    // compared to each other, and a crash is applied once per run at most a
++    // few times.
++    if arm == CrashPhaseArm::Early
++        && let Some(c) = RESTART_PULL_RUN.with(|c| c.get()).index()
++    {
++        RP_CELL_EARLY_INFLIGHT[c][slot].fetch_add(1, Ordering::Relaxed);
++    }
+     if !crash_census_enabled() {
+         return;
+     }
+@@ -3436,7 +3658,6 @@ pub fn record_crash_phase_apply(arm: CrashPhaseArm, victim_inflight: u32, moved:
+     if victim_inflight > 0 {
+         CP_APPLY_INFLIGHT[i].fetch_add(1, Ordering::Relaxed);
+     }
+-    let slot = (victim_inflight as usize).min(CC_INFLIGHT_SLOTS - 1);
+     CP_INFLIGHT[i][slot].fetch_add(1, Ordering::Relaxed);
+     if moved {
+         CP_MOVED_APPLY_DECISIONS[i].fetch_add(1, Ordering::Relaxed);
+@@ -4505,6 +4726,7 @@ pub struct CrashPlaceStats {
+     pub capped_draws: u64,
+     pub holds: u64,
+     pub held_steps_sum: u64,
++    pub restart_pull: RestartPullStats,
+ }
+ 
+ impl CrashPlaceStats {
+@@ -4514,6 +4736,152 @@ impl CrashPlaceStats {
+             capped_draws: CRASH_PLACE_CAPPED_DRAWS.load(Ordering::Relaxed),
+             holds: CRASH_PLACE_HOLDS.load(Ordering::Relaxed),
+             held_steps_sum: CRASH_PLACE_HELD_STEPS_SUM.load(Ordering::Relaxed),
++            restart_pull: RestartPullStats::read(),
++        }
++    }
++}
++
++/// One cell of the restart pull. `runs` and `steps_used_sum` describe the
++/// runs that ended in the cell; `crashes_applied` its crashes,
++/// `later_crashes_applied` those after each run's first, and
++/// `applied_within_window` the later crashes that landed within the learned
++/// window after another node's most recent restart. The `early_*` fields
++/// are the fan-out anchor's Early arm on the cell's runs: draws, waits that
++/// ran out, and the apply-time count of the victim's undelivered sends.
++#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
++pub struct RestartPullCellStats {
++    pub runs: u64,
++    pub crashes_applied: u64,
++    pub later_crashes_applied: u64,
++    pub applied_within_window: u64,
++    pub steps_used_sum: u64,
++    pub early_armed: u64,
++    pub early_expired: u64,
++    pub early_inflight_bucket_0: u64,
++    pub early_inflight_bucket_1: u64,
++    pub early_inflight_bucket_2: u64,
++    pub early_inflight_bucket_3plus: u64,
++}
++
++impl RestartPullCellStats {
++    fn read(i: usize) -> Self {
++        Self {
++            runs: RP_CELL_RUNS[i].load(Ordering::Relaxed),
++            crashes_applied: RP_CELL_CRASHES_APPLIED[i].load(Ordering::Relaxed),
++            later_crashes_applied: RP_CELL_LATER_CRASHES[i].load(Ordering::Relaxed),
++            applied_within_window: RP_CELL_WITHIN_WINDOW[i].load(Ordering::Relaxed),
++            steps_used_sum: RP_CELL_STEPS_USED_SUM[i].load(Ordering::Relaxed),
++            early_armed: RP_CELL_EARLY_ARMED[i].load(Ordering::Relaxed),
++            early_expired: RP_CELL_EARLY_EXPIRED[i].load(Ordering::Relaxed),
++            early_inflight_bucket_0: RP_CELL_EARLY_INFLIGHT[i][0].load(Ordering::Relaxed),
++            early_inflight_bucket_1: RP_CELL_EARLY_INFLIGHT[i][1].load(Ordering::Relaxed),
++            early_inflight_bucket_2: RP_CELL_EARLY_INFLIGHT[i][2].load(Ordering::Relaxed),
++            early_inflight_bucket_3plus: RP_CELL_EARLY_INFLIGHT[i][3].load(Ordering::Relaxed),
++        }
++    }
++
++    fn plus(self, o: Self) -> Self {
++        Self {
++            runs: self.runs + o.runs,
++            crashes_applied: self.crashes_applied + o.crashes_applied,
++            later_crashes_applied: self.later_crashes_applied + o.later_crashes_applied,
++            applied_within_window: self.applied_within_window + o.applied_within_window,
++            steps_used_sum: self.steps_used_sum + o.steps_used_sum,
++            early_armed: self.early_armed + o.early_armed,
++            early_expired: self.early_expired + o.early_expired,
++            early_inflight_bucket_0: self.early_inflight_bucket_0 + o.early_inflight_bucket_0,
++            early_inflight_bucket_1: self.early_inflight_bucket_1 + o.early_inflight_bucket_1,
++            early_inflight_bucket_2: self.early_inflight_bucket_2 + o.early_inflight_bucket_2,
++            early_inflight_bucket_3plus: self.early_inflight_bucket_3plus
++                + o.early_inflight_bucket_3plus,
++        }
++    }
++}
++
++/// The restart pull's cells. `treated` is `pull_only` and `trigger`
++/// together, the half the pull is read against `untreated`.
++#[derive(Serialize, Debug)]
++pub struct RestartPullCellsStats {
++    pub untreated: RestartPullCellStats,
++    pub pull_only: RestartPullCellStats,
++    pub trigger: RestartPullCellStats,
++    pub treated: RestartPullCellStats,
++}
++
++/// The trigger block of the restart pull. `armed` counts the restarts on
++/// the triggering half that pulled a crash; `fired`, `expired` and
++/// `superseded` split how each arming ended, and `steps_from_restart_sum`
++/// over `fired` is how long a firing took. The `fired_crashes_*` fields
++/// count the crashes a firing released as they were applied, and the
++/// subset that landed on the node whose entry fired the trigger, on the
++/// runs that retarget their crashes and on the runs that do not.
++#[derive(Serialize, Debug)]
++pub struct RestartPullTriggerStats {
++    pub armed: u64,
++    pub fired: u64,
++    pub expired: u64,
++    pub superseded: u64,
++    pub steps_from_restart_sum: u64,
++    pub fired_crashes_applied_retarget: u64,
++    pub fired_crashes_on_ghost_node_retarget: u64,
++    pub fired_crashes_applied_stock: u64,
++    pub fired_crashes_on_ghost_node_stock: u64,
++}
++
++impl RestartPullTriggerStats {
++    fn read() -> Self {
++        Self {
++            armed: RP_TRIGGER_ARMED.load(Ordering::Relaxed),
++            fired: RP_TRIGGER_FIRED.load(Ordering::Relaxed),
++            expired: RP_TRIGGER_EXPIRED.load(Ordering::Relaxed),
++            superseded: RP_TRIGGER_SUPERSEDED.load(Ordering::Relaxed),
++            steps_from_restart_sum: RP_TRIGGER_STEPS_FROM_RESTART_SUM.load(Ordering::Relaxed),
++            fired_crashes_applied_retarget: RP_FIRED_APPLIED[1].load(Ordering::Relaxed),
++            fired_crashes_on_ghost_node_retarget: RP_FIRED_ON_GHOST_NODE[1].load(Ordering::Relaxed),
++            fired_crashes_applied_stock: RP_FIRED_APPLIED[0].load(Ordering::Relaxed),
++            fired_crashes_on_ghost_node_stock: RP_FIRED_ON_GHOST_NODE[0].load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// The restart-pull block. `pulls` is the number the mechanism is read as
++/// having fired: holds a restart re-targeted into its window.
++/// `restarts_with_held_crash` counts the restarts on pulling runs that
++/// found another node's crash still held, and `steps_saved_sum` the summed
++/// shortening of the pulled holds. `lag_samples` counts the ghost lags fed
++/// to the learner; `lag_p90` and `scopes_engaged` are gauges of the
++/// learner's state, the window of the widest engaged scope and how many
++/// scopes are past their floor.
++#[derive(Serialize, Debug)]
++pub struct RestartPullStats {
++    pub pulls: u64,
++    pub restarts_with_held_crash: u64,
++    pub steps_saved_sum: u64,
++    pub lag_samples: u64,
++    pub lag_p90: u64,
++    pub scopes_engaged: u64,
++    pub cells: RestartPullCellsStats,
++    pub trigger: RestartPullTriggerStats,
++}
++
++impl RestartPullStats {
++    fn read() -> Self {
++        let pull_only = RestartPullCellStats::read(1);
++        let trigger = RestartPullCellStats::read(2);
++        Self {
++            pulls: RP_PULLS.load(Ordering::Relaxed),
++            restarts_with_held_crash: RP_RESTARTS_WITH_HELD_CRASH.load(Ordering::Relaxed),
++            steps_saved_sum: RP_STEPS_SAVED_SUM.load(Ordering::Relaxed),
++            lag_samples: RP_LAG_SAMPLES.load(Ordering::Relaxed),
++            lag_p90: RP_LAG_P90.load(Ordering::Relaxed),
++            scopes_engaged: RP_SCOPES_ENGAGED.load(Ordering::Relaxed),
++            cells: RestartPullCellsStats {
++                untreated: RestartPullCellStats::read(0),
++                pull_only,
++                trigger,
++                treated: pull_only.plus(trigger),
++            },
++            trigger: RestartPullTriggerStats::read(),
+         }
+     }
+ }
+diff --git a/spur-core/tests/replay_prefix_fidelity.rs b/spur-core/tests/replay_prefix_fidelity.rs
+index 96f71dc..3e22ece 100644
+--- a/spur-core/tests/replay_prefix_fidelity.rs
++++ b/spur-core/tests/replay_prefix_fidelity.rs
+@@ -197,12 +197,14 @@ fn check_prefix() {
+         v & run_variant::CRASH_PLACED != 0
+             && v & (run_variant::RUN_CAP_PROBE | run_variant::TIMER_STEER_OFF) == 0
+     };
+-    let candidates: Vec<i64> = (0..1_000_000i64)
++    let parents: Vec<i64> = (0..1_000_000i64)
+         .filter(|&id| eligible(id))
+-        .take(3 * PARENT_CANDIDATES)
++        .take(PARENT_CANDIDATES)
+         .collect();
+-    assert_eq!(candidates.len(), 3 * PARENT_CANDIDATES, "not enough placed run ids");
+-    let (parents, children) = candidates.split_at(PARENT_CANDIDATES);
++    assert_eq!(parents.len(), PARENT_CANDIDATES, "not enough placed run ids");
++    // Children are drawn from every eligible id past the parents: the tag
++    // has many bit combinations, so a fixed pool could miss a parent's.
++    let first_child = parents.last().copied().expect("a parent pool") + 1;
+ 
+     let mut checked = 0;
+     for (i, &parent_id) in parents.iter().enumerate() {
+@@ -228,9 +230,9 @@ fn check_prefix() {
+         assert!(pos > 0, "the signal fired before any draw");
+         let prefix: Recording = tape[..pos].into();
+ 
+-        let child_id = *children
+-            .iter()
+-            .find(|&&id| run_variant::from_run_id(id) == run_variant::from_run_id(parent_id))
++        let child_id = (first_child..1_000_000i64)
++            .filter(|&id| eligible(id))
++            .find(|&id| run_variant::from_run_id(id) == run_variant::from_run_id(parent_id))
+             .expect("a child id with the parent's mechanism bits");
+         let child_dir = scratch(&format!("child_{i}"));
+         let w = writer(&child_dir);
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 360fd68..d248efe 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, RestartPullCellStats, RestartPullCellsStats, RestartPullStats, RestartPullTriggerStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -629,12 +629,149 @@ fn stall_release_leaves(prefix: &str, s: &StallReleaseStats) -> Vec<(String, Val
+     out
+ }
+ 
++fn restart_pull_cell(m: &mut Marks) -> RestartPullCellStats {
++    RestartPullCellStats {
++        runs: m.int(),
++        crashes_applied: m.int(),
++        later_crashes_applied: m.int(),
++        applied_within_window: m.int(),
++        steps_used_sum: m.int(),
++        early_armed: m.int(),
++        early_expired: m.int(),
++        early_inflight_bucket_0: m.int(),
++        early_inflight_bucket_1: m.int(),
++        early_inflight_bucket_2: m.int(),
++        early_inflight_bucket_3plus: m.int(),
++    }
++}
++
++fn restart_pull_cell_leaves(prefix: &str, c: &RestartPullCellStats) -> Vec<(String, Value)> {
++    let RestartPullCellStats {
++        runs,
++        crashes_applied,
++        later_crashes_applied,
++        applied_within_window,
++        steps_used_sum,
++        early_armed,
++        early_expired,
++        early_inflight_bucket_0,
++        early_inflight_bucket_1,
++        early_inflight_bucket_2,
++        early_inflight_bucket_3plus,
++    } = c;
++    vec![
++        leaf(prefix, "runs", *runs),
++        leaf(prefix, "crashes_applied", *crashes_applied),
++        leaf(prefix, "later_crashes_applied", *later_crashes_applied),
++        leaf(prefix, "applied_within_window", *applied_within_window),
++        leaf(prefix, "steps_used_sum", *steps_used_sum),
++        leaf(prefix, "early_armed", *early_armed),
++        leaf(prefix, "early_expired", *early_expired),
++        leaf(prefix, "early_inflight_bucket_0", *early_inflight_bucket_0),
++        leaf(prefix, "early_inflight_bucket_1", *early_inflight_bucket_1),
++        leaf(prefix, "early_inflight_bucket_2", *early_inflight_bucket_2),
++        leaf(prefix, "early_inflight_bucket_3plus", *early_inflight_bucket_3plus),
++    ]
++}
++
++fn restart_pull(m: &mut Marks) -> RestartPullStats {
++    RestartPullStats {
++        pulls: m.int(),
++        restarts_with_held_crash: m.int(),
++        steps_saved_sum: m.int(),
++        lag_samples: m.int(),
++        lag_p90: m.int(),
++        scopes_engaged: m.int(),
++        cells: RestartPullCellsStats {
++            untreated: restart_pull_cell(m),
++            pull_only: restart_pull_cell(m),
++            trigger: restart_pull_cell(m),
++            treated: restart_pull_cell(m),
++        },
++        trigger: RestartPullTriggerStats {
++            armed: m.int(),
++            fired: m.int(),
++            expired: m.int(),
++            superseded: m.int(),
++            steps_from_restart_sum: m.int(),
++            fired_crashes_applied_retarget: m.int(),
++            fired_crashes_on_ghost_node_retarget: m.int(),
++            fired_crashes_applied_stock: m.int(),
++            fired_crashes_on_ghost_node_stock: m.int(),
++        },
++    }
++}
++
++fn restart_pull_leaves(prefix: &str, r: &RestartPullStats) -> Vec<(String, Value)> {
++    let RestartPullStats {
++        pulls,
++        restarts_with_held_crash,
++        steps_saved_sum,
++        lag_samples,
++        lag_p90,
++        scopes_engaged,
++        cells,
++        trigger,
++    } = r;
++    let RestartPullCellsStats {
++        untreated,
++        pull_only,
++        trigger: trigger_cell,
++        treated,
++    } = cells;
++    let RestartPullTriggerStats {
++        armed,
++        fired,
++        expired,
++        superseded,
++        steps_from_restart_sum,
++        fired_crashes_applied_retarget,
++        fired_crashes_on_ghost_node_retarget,
++        fired_crashes_applied_stock,
++        fired_crashes_on_ghost_node_stock,
++    } = trigger;
++    let mut out = vec![
++        leaf(prefix, "pulls", *pulls),
++        leaf(prefix, "restarts_with_held_crash", *restarts_with_held_crash),
++        leaf(prefix, "steps_saved_sum", *steps_saved_sum),
++        leaf(prefix, "lag_samples", *lag_samples),
++        leaf(prefix, "lag_p90", *lag_p90),
++        leaf(prefix, "scopes_engaged", *scopes_engaged),
++    ];
++    for (name, cell) in [
++        ("untreated", untreated),
++        ("pull_only", pull_only),
++        ("trigger", trigger_cell),
++        ("treated", treated),
++    ] {
++        out.extend(restart_pull_cell_leaves(&format!("{prefix}.cells.{name}"), cell));
++    }
++    let t = format!("{prefix}.trigger");
++    out.extend([
++        leaf(&t, "armed", *armed),
++        leaf(&t, "fired", *fired),
++        leaf(&t, "expired", *expired),
++        leaf(&t, "superseded", *superseded),
++        leaf(&t, "steps_from_restart_sum", *steps_from_restart_sum),
++        leaf(&t, "fired_crashes_applied_retarget", *fired_crashes_applied_retarget),
++        leaf(
++            &t,
++            "fired_crashes_on_ghost_node_retarget",
++            *fired_crashes_on_ghost_node_retarget,
++        ),
++        leaf(&t, "fired_crashes_applied_stock", *fired_crashes_applied_stock),
++        leaf(&t, "fired_crashes_on_ghost_node_stock", *fired_crashes_on_ghost_node_stock),
++    ]);
++    out
++}
++
+ fn crash_place(m: &mut Marks) -> CrashPlaceStats {
+     CrashPlaceStats {
+         draws: m.int(),
+         capped_draws: m.int(),
+         holds: m.int(),
+         held_steps_sum: m.int(),
++        restart_pull: restart_pull(m),
+     }
+ }
+ 
+@@ -644,13 +781,16 @@ fn crash_place_leaves(prefix: &str, c: &CrashPlaceStats) -> Vec<(String, Value)>
+         capped_draws,
+         holds,
+         held_steps_sum,
++        restart_pull,
+     } = c;
+-    vec![
++    let mut out = vec![
+         leaf(prefix, "draws", *draws),
+         leaf(prefix, "capped_draws", *capped_draws),
+         leaf(prefix, "holds", *holds),
+         leaf(prefix, "held_steps_sum", *held_steps_sum),
+-    ]
++    ];
++    out.extend(restart_pull_leaves(&format!("{prefix}.restart_pull"), restart_pull));
++    out
+ }
+ 
+ fn crash_phase_moved(m: &mut Marks) -> CrashPhaseMovedStats {

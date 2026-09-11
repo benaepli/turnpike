@@ -3856,10 +3856,11 @@ Awaiting-approval entries unchanged.
 
 ## restart-pulls-held-crash-into-learned-ghost-lag-window
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 79 (rank 1 net 6; bit restartPulledCrash 1<<4 on the retired
-  staleOrder row, a salted half of placed runs; internal rung, composition
-  only) | gain: 6 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 79 (one chunk; pulls 85,326 against the 150,000 floor, learned
+  window 161 steps so within-window 1.22x against 2.0x, throughput 0.89;
+  lead kept: internal depth9 1.21 [1.04,1.40] and depth8 1.05 on the
+  treated cell; patch under research/lite/patches/restart-pull) | gain: 6 | cost: 0 | rank: 1
 - At every restart apply, every other node's still-held planned crash whose
   target lies past the restart plus a learned ghost-lag window is pulled
   into that window using its old target's randomness; the window is the
@@ -3869,10 +3870,12 @@ Awaiting-approval entries unchanged.
 
 ## pulled-crash-released-at-first-acted-ghost-entry
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 79 as the nested cell of the pull (rank 2 net 5; bit
-  ghostTriggeredCrash 1<<28 on the freed clientProgressRelease row, half
-  of the pull cell; built in the same session) | gain: 5 | cost: 0 | rank: 2
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 79 with its parent (one chunk; over pull-only depth8 1.02,
+  depth9 1.18, depth10 1.20; fired/armed 0.465 met; bucket_3plus 1.008 and
+  expired/armed 0.988 missed their clauses; the trigger as a standalone
+  release keyed on the ghost entry, without the wide uniform pull, is the
+  follow-up) | gain: 5 | cost: 0 | rank: 2
 - Inside the window the pulled crash's target is the window's end and the
   first acted dead-incarnation entry at a live peer releases it one step
   later. Frozen prediction and review:

@@ -1,0 +1,28 @@
+diff --git a/research/orchestrator/src/decide.ts b/research/orchestrator/src/decide.ts
+index a38a2a7..797bf80 100644
+--- a/research/orchestrator/src/decide.ts
++++ b/research/orchestrator/src/decide.ts
+@@ -44,7 +44,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+   { bit: 2, name: "runCapProbe" },
+   { bit: 4, name: "timerSteerOff" },
+   { bit: 8, name: "crashHoldDrawn" },
+-  { bit: 16, name: "staleOrder" },
++  { bit: 16, name: "restartPulledCrash" },
+   { bit: 32, name: "armSelectorAxisB" },
+   { bit: 64, name: "armSelectorAxis" },
+   { bit: 128, name: "armSelectorAxisC" },
+@@ -69,7 +69,7 @@ export const VARIANT_BITS: ReadonlyArray<{ bit: number; name: string }> = [
+   { bit: 1073741824, name: "restartAfterPeerSettle" },
+   { bit: 134217728, name: "clientDeferralOnly" },
+   { bit: 4194304, name: "staleFirstPair" },
+-  { bit: 268435456, name: "clientProgressRelease" },
++  { bit: 268435456, name: "ghostTriggeredCrash" },
+   { bit: 131072, name: "crashQuietBySecond" },
+ ];
+ 
+diff --git a/spur b/spur
+--- a/spur
++++ b/spur
+@@ -1 +1 @@
+-Subproject commit 98e9a9313b9e5c063ddc29b0756483c431ac54cd
++Subproject commit 98e9a9313b9e5c063ddc29b0756483c431ac54cd-dirty

@@ -8447,3 +8447,89 @@ throughput >= 0.98; nested bit ghostTriggeredCrash 1<<28 on half the
 pull cell, against the pull-only half depth8 [1.03, 1.25], depth9 [1.08,
 1.40], fired/armed >= 0.35, early bucket_3plus share >= 1.10x. Full
 record: research/lite/plans/iteration-79-admitted.json.
+
+
+**Iteration 79 implementation review.** Restart pull and its nested
+ghost-triggered release implemented on the merged tree 98e9a93: a per-
+scope ghost-lag learner with fault_timing's estimator shape (1-step
+cells, p90 at the cell's upper edge, 200-sample floor, checkpoints,
+decay, reset, fed by stock probes), the pull at the restart apply, the
+trigger armed only when a restart actually pulled a crash and fired at
+the first acted dead-incarnation entry at a live peer, expiry in the hold
+mask, per-cell counters including the Early apply-time buckets split by
+cell; bits 1<<4 and 1<<28 on the retired staleOrder and
+clientProgressRelease rows; cell membership follows the run's placed
+crash arm as the existing crash-phase convention does. Tests 491 passed,
+0 failed; general_vr.json untouched. The implementer flagged that the
+learned ghost-lag p90 reads about 161 steps, far above the 20 the
+hypothesis assumed.
+
+**Iteration 79 closed, autonomous.** Seed 1000 against the merged-tree
+cache: 704,760 candidate runs against 790,380 baseline, zero failures,
+zero violations. Firing: 85,326 pulls against the 150,000 floor on
+208,488 restarts with a held crash; scopes engaged 2; lag p90 161 on
+31,535 samples; 137 steps saved per pull. The window is wide enough that
+the untreated cell already lands 56% of its later crashes inside it, so
+applied-within-window reads 0.687 treated against 0.563 untreated, 1.22x
+against the frozen 2.0x clause and below the 1.5x refutation line: the
+pull is not landing where it aimed. Steps per run 0.992 and crashes per
+run 0.9994 treated over untreated, as the mechanism promises. Nested
+trigger: armed 39,751, fired 18,471 (0.465, clause 0.35 met), expired
+21,280; fired crashes landed on the node that took the ghost 14,681 of
+18,293 times on the retarget stratum; Early bucket_3plus 1.008x and
+expired-over-armed 0.988x the pull-only cell against clauses of 1.10x
+and 0.7x, missed.
+
+The rung reads are the lead. Internal, treated over untreated placed
+runs, co-bit matched: depth8 1.0482 [0.9871, 1.1131], z 2.1, band [1.03,
+1.30] met by the point; depth9 1.2056 [1.0372, 1.4014], separated up,
+inside its advance band [1.08, 1.50]; depth10 1.13 [0.76, 1.68]; depth5
+0.989 and depth6 0.988, the feared too-early loss being small. Over the
+pull-only half the trigger cell reads depth8 1.018, depth9 1.179, depth10
+1.195 (593 against 501 depth9 events, 78 against 65 depth10). A crash
+pulled toward a peer's restart, and released on the first acted ghost
+entry, moves the stranded-reaction rungs in the direction the oracle
+path needs. Cross-binary: depth8 per second 0.911 (regressed beyond the
+layout floor), depth5 and depth6 per second 0.86, throughput 0.8916
+against the 0.98 cost clause; the candidate ran 2,348 runs per second
+against the cache's 2,633 on this seed, while every candidate binary on
+this seed has read 2,200-2,425 (stall-release 2,206, plan clock 2,425)
+and the cache's own second seed reads 2,354, so the cache's seed-1000
+chunk is the outlier and the cost read is pessimistic by about a tenth;
+it fails by the letter regardless. AOS 0.59, the flagged read.
+
+Decision: close on the firing floor, the within-window clause and the
+cost clause after one chunk; the grader's rule closes on the cross-
+binary regression. The frozen clauses were written for a window of
+about 20 steps; the protocol's ghost lag is eight times that, and a p90
+window that wide makes the uniform pull nearly a no-op on placement
+while its trigger half does the work. Patch, tests, smoke, chunk, gate
+and pooled-utility records retained under research/lite/patches/restart-
+pull; session research/lite/state/restart-pull.json. Main tree unchanged
+at spur 98e9a93; ledger unchanged at 1.1311.
+
+**Direction review after iteration 79.** The fault-injection lens found
+the loop's first internal advance-rung separation from a placement
+mechanism (depth9 1.21 on 258,000 treated runs) inside a candidate that
+missed its own placement observable because the learned window was
+wide. The next round elaborates the lead as an operator directive: the
+ghost-triggered release standing alone, without the uniform pull (every
+other node's held crash is released one step after the first acted
+dead-incarnation entry from the restarted node, bounded by a tighter
+learned quantile of the ghost lag such as the median, falling back to the
+original target), with the placement observable stated as the share of
+later crashes applied within a few steps after an acted ghost entry
+rather than inside a wide window, and a cost clause read against the
+cache median. The pool's crash-placement family (pull, trigger, reply-
+wait, defer-coin exemption) is re-ranked by the judge against that
+elaboration. The cache's seed-1000 throughput outlier is recorded for
+the operator: cross-binary cost reads on that seed run about a tenth
+pessimistic until the cache is re-measured, which the loop does not do
+casually. Violations remain zero on 8.3M candidate runs this session.
+
+Digest for the user: iteration 79 closed after one chunk on its frozen
+placement and cost clauses (the learned ghost-lag window is 161 steps,
+not 20), but the treated cell read depth9 +21% [4%, 40%] and the nested
+ghost-triggered release added depth9 +18% and depth10 +20% over the pull
+alone; iteration 80 elaborates the trigger as a standalone release with
+a tighter window.
