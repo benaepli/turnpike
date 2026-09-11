@@ -8334,3 +8334,74 @@ chunk; learned plan-quiet cap below 0.8x the run cap (inert at or above
 0.9x, closing); budget-enders at most 0.75x baseline; probe over-cap <=
 2%; throughput >= 1.05, refuted outright below 1.00. Full record:
 research/lite/plans/iteration-78-admitted.json.
+
+
+**Iteration 78 implementation review.** Plan-progress clock implemented on
+the merged tree 98e9a93: a second RunClock fed only row and release
+marks, a second learner table sharing the run cap's accumulator shape,
+a plan-clock cell over half the stall cap's treated runs by a salt of
+its own (bit 1<<28, the retired clientProgressRelease row renamed),
+RunClocks bundling both clocks so a treated run ends at whichever cap is
+exceeded first with the fine clock winning a same-step tie, the release
+cell re-arming both clocks; plan-clock stops reuse the StallCapReached
+outcome and are partitioned from the fine clock's stops and saved
+steps. Tests 485 passed, 0 failed; release build passes; general_vr.json
+untouched. The 60-second smoke already read a plan cap of 3,743 against
+a fine cap of 899 with 1,145 plan stops against 20,016 fine stops.
+
+**Iteration 78 closed, autonomous.** Seed 1000 against the merged-tree
+cache 17a424fcac21: 728,040 candidate runs against 790,380 baseline,
+zero failures, zero violations. Firing: plan_clock.stops 8,852 against
+the 60,000 floor, seven times short. The learned plan-quiet cap in the
+6,000 scope reads 2,735 against a run cap of 3,923 (0.70, under the 0.8
+clause and not inert by the 0.9 letter), but a cap that close to the run
+cap cuts almost nothing: treated steps per run 0.97-0.98 of untreated on
+every grid arm against the predicted 0.75-0.90; budget-enders 270,270
+against 298,915 (0.904 against the 0.75 clause); the four cells read
+1,828/1,840 steps per run on the release side and 1,449/1,497 on the
+cut side. Probe over-cap 0.23%; 88,443 of 161,529 capped untreated runs
+carry a plan-quiet gap over the cap, most of them ending at the fine
+clock first. Internal depth8 per run treated over untreated 1.0275
+[0.9609, 1.0988], depth9 1.021, depth10 1.111, preserved. Cross-binary:
+depth8 per second 0.957 inside the layout floor, throughput 0.9208
+(2,425 against the cache's 2,633 on this seed, whose two chunks differ
+by 12%; against the cache median 0.97), where the cost clause refutes
+outright below 1.00; the grader flags a 14% disagreement between the
+ledger and the measured drift, which is that seed swing. AOS per-run
+0.64, the flagged read.
+
+Decision: close on the firing floor and the cost clause after one chunk;
+a second chunk cannot lift a firing counter missed seven-fold, and the
+red team's case held: completing runs hold planned operations open
+across long plan-quiet stretches, so the learned plan-quiet bound lands
+near the run cap and the second clock has little to cut. Grader
+adviceVerdict human (internal contrast unresolved, cross-binary inside
+the floor); the decision is the frozen prediction's own. Patch, tests,
+smoke, chunk, gate and pooled-utility records retained under
+research/lite/patches/plan-clock; session research/lite/state/plan-clock.json.
+Main tree unchanged at spur 98e9a93; ledger unchanged at 1.1311.
+
+**Direction review after iteration 78.** The stall family has been
+mined: three merges (the cap, the release, and the restart exemption
+that precedes them) and now a null on a second clock, whose learned
+bound turned out to sit near the run cap. The remaining stall-family
+entries (the repeated release at net 6, the force-faults nesting, the
+post-release cap) act on the release cell's tail, which the counters
+show is mostly the second stall's own cap, so their return is bounded
+by the same arithmetic. Proxy check: the merged tree's depth8 events
+per second are about 1.12 x 1.24 x 0.97 against iteration 74 and depth10
+about 1.9x; violations remain zero on 7.6M candidate runs this session.
+Steering verdict: leave the salvage lens after four rounds and rotate to
+the fault-injection lens with a directive at the restart-and-delivery
+window that the release opened up (a crash landing while an earlier-
+restarted node still has post-restart sends in flight, the queued
+crash-hold entry at net 5 being the incumbent), and let the judge rank
+the repeated release against it. The AOS cross-binary read stays
+flagged; the operator-side fold of the stall cap's untreated quarter
+(1.08x runs per second by the judge's arithmetic) is recorded for the
+user and not taken by the loop.
+
+Digest for the user: iteration 78 closed after one chunk (the second
+stall clock fired seven times below its floor and cost throughput; depth
+preserved). Next round rotates to the fault-injection lens at the
+restart-and-delivery window.

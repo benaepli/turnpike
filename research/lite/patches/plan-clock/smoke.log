@@ -1,0 +1,12 @@
+Config overrides: campaign.wall_budget_sec=60
+Explorer finished in 60.35s. Results saved to tmp/loop/plan-clock/out
+  - Coverage heatmap: skipped (no CFG feedback)
+  - CFG: tmp/loop/plan-clock/out/cfg.svg
+  - Utilization counters: tmp/loop/plan-clock/out/utilization.json
+  - Utilization counters: tmp/loop/plan-clock/out.utilization.json
+  - Stall-cap rows: tmp/loop/plan-clock/out/stall_cap_runs.csv
+  - Session summary: tmp/loop/plan-clock/out/session.json
+  - Session summary: tmp/loop/plan-clock/out.session.json
+  - Campaign report: tmp/loop/plan-clock/out/campaign.json
+  - Campaign report: tmp/loop/plan-clock/out.campaign.json
+smoke exit 0

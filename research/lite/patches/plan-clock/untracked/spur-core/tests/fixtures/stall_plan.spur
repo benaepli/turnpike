@@ -1,0 +1,35 @@
+// A node whose write never succeeds but whose handler writes state on every
+// try: the client interface retries the same request forever, each delivery
+// leaves the node's state changed, and the plan never advances. A run of
+// one write keeps re-arming the fine clock while its plan clock runs on.
+// The role and client-interface names are the ones the explorer looks up.
+
+role Node {
+    var ready: bool = false;
+    var tries: int = 0;
+
+    async fn Try(key: string, uid: int): bool {
+        tries = tries + 1;
+        return ready;
+    }
+
+    async fn Read(key: string): int {
+        return 0;
+    }
+}
+
+ClientInterface {
+    async fn Write(dest: Node, key: string, uid: int) {
+        var ok: bool = false;
+        for ;; {
+            ok = <-dest->Try(key, uid);
+            if (ok) {
+                return;
+            }
+        }
+    }
+
+    async fn Read(dest: Node, key: string): int {
+        return <-dest->Read(key);
+    }
+}

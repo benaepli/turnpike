@@ -3817,11 +3817,11 @@ optional-cover reversal 2. Awaiting-approval entries unchanged.
 
 ## plan-progress-clock-second-stall-cap
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 78 (rank 1 net 7; child of the merged stall cap; bit
-  planProgressClock 1<<28 on the retired clientProgressRelease row, half of
-  the stall cap's treated runs, crossing the release bit; cross-binary rung
-  with an internal preservation guard) | gain: 7 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 78 (one chunk; plan_clock.stops 8,852 against the 60,000 floor,
+  learned plan cap 2,735 against run cap 3,923 cuts little, throughput
+  0.921 against the >= 1.05 cost clause; depth preserved; patch kept under
+  research/lite/patches/plan-clock) | gain: 7 | cost: 0 | rank: 1
 - A second stall clock marked only by plan-level progress (history rows
   and plan releases; state writes do not re-arm it), learned from the same
   probes with the same estimator, ends a run when either clock exceeds its

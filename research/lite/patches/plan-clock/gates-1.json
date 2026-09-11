@@ -1,0 +1,122 @@
+[
+ {
+  "seed": 1000,
+  "plan_clock": {
+   "stops": 8852,
+   "steps_saved_sum": 6280511,
+   "probes_keyed": 6956,
+   "probe_over_cap_completions": 16,
+   "scopes_learned": 2,
+   "cap_max_scope": 2735,
+   "untreated_runs_capped": 161529,
+   "untreated_over_cap_runs": 88443,
+   "release_plan_clock.runs": 127945,
+   "release_plan_clock.plan_complete": 54500,
+   "release_plan_clock.steps_used_sum": 233838071,
+   "release_no_plan_clock.runs": 127960,
+   "release_no_plan_clock.plan_complete": 51511,
+   "release_no_plan_clock.steps_used_sum": 235502708,
+   "cut_plan_clock.runs": 128543,
+   "cut_plan_clock.plan_complete": 23912,
+   "cut_plan_clock.steps_used_sum": 186207533,
+   "cut_no_plan_clock.runs": 127666,
+   "cut_no_plan_clock.plan_complete": 23673,
+   "cut_no_plan_clock.steps_used_sum": 191168510
+  },
+  "firing_stops": 8852,
+  "firing_floor_60k": false,
+  "plan_cap": 2735,
+  "run_cap": 3923,
+  "plan_over_run_cap": 0.6971705327555442,
+  "inert_ge_0_9": false,
+  "clause_lt_0_8": true,
+  "probe_over_cap_share": 0.0023001725129384704,
+  "budget_enders": [
+   270270,
+   298915
+  ],
+  "budget_enders_ratio": 0.9041700817958283,
+  "fine_stops": [
+   247729,
+   274867
+  ],
+  "fine_cap": [
+   899,
+   827
+  ],
+  "termination": {
+   "cand": {
+    "plan_complete": 200996,
+    "learned_cap_reached": 124791,
+    "iterations_exhausted": 145479,
+    "stall_cap_reached": 256581,
+    "runs": 728040
+   },
+   "base": {
+    "plan_complete": 216437,
+    "learned_cap_reached": 152451,
+    "iterations_exhausted": 146464,
+    "stall_cap_reached": 274867,
+    "runs": 790380
+   }
+  },
+  "runs": [
+   728040,
+   790380
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "cells": {
+   "release_plan_clock": {
+    "runs": 127945,
+    "steps_per_run": 1827.6452460041423,
+    "plan_complete_share": 0.4259642815272187
+   },
+   "release_no_plan_clock": {
+    "runs": 127960,
+    "steps_per_run": 1840.4400437636762,
+    "plan_complete_share": 0.40255548608940295
+   },
+   "cut_plan_clock": {
+    "runs": 128543,
+    "steps_per_run": 1448.601114024101,
+    "plan_complete_share": 0.18602335405272943
+   },
+   "cut_no_plan_clock": {
+    "runs": 127666,
+    "steps_per_run": 1497.411291964971,
+    "plan_complete_share": 0.18542916673194115
+   }
+  },
+  "treated_over_untreated_by_arm": {
+   "aos": {
+    "steps": 0.9676782000667585,
+    "d8": 0.9682883730341396,
+    "d10": 0.6714367310393801
+   },
+   "grid": {
+    "steps": 0.9835736265431455,
+    "d8": 1.0267140834147195,
+    "d10": 0.7125702220714099
+   },
+   "grid-no-purgatory": {
+    "steps": 0.974373056728093,
+    "d8": 1.0360668618880726,
+    "d10": 1.0348029803853118
+   },
+   "grid-post-fault-2": {
+    "steps": 0.9742920415496182,
+    "d8": 1.0315981171872666,
+    "d10": 1.4064441818471507
+   },
+   "grid-short": {
+    "steps": 1.0008511257118695,
+    "d8": 1.0211472898327472,
+    "d10": 1.1580667985540505
+   }
+  }
+ }
+]
