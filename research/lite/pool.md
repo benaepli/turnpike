@@ -3946,3 +3946,51 @@ release and waits), stalled runs as replay parents 3, PCT change points 3
 (bits 1<<11/1<<26), crash holds for the restarted-peer window 3
 (superseded by the standalone release, fallback only), post-release cap
 2, optional-cover reversal 2. Awaiting-approval entries unchanged.
+
+
+## ghost-released-crash-exempt-from-fanout-defer-coin
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 81 (rank 1 net 7; bit ghostReleaseDeferExempt 1<<30 nested in
+  the merged release cell, half of it; the session's primary bit) | gain: 7 | cost: 0 | rank: 1
+- A crash the ghost trigger released is not withheld by the partial-fan-out
+  defer coin; the coin is still drawn. Frozen prediction and review:
+  `research/lite/plans/iteration-81-admitted.json`.
+
+## ghost-released-crash-phase-read-as-early-on-ghost-node
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 81 (rank 2 net 6; bit ghostReleasePhaseEarlyOnGhost 1<<29,
+  crossing cell in the same session; acts on the anchored stratum) | gain: 6 | cost: 0 | rank: 2
+- A released crash's phase wait reads the Early condition on the ghost
+  node's reaction segment whatever arm was drawn. Frozen prediction and
+  review: `research/lite/plans/iteration-81-admitted.json`.
+
+## ghost-release-keyed-on-stranded-fanout-record
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 81 (rank 3 net 6; bit ghostReleaseStrandedKey 1<<26, crossing
+  cell in the same session; aimed at the depth5 loss) | gain: 6 | cost: 0 | rank: 3
+- The trigger fires only on an acted entry whose record belongs to the
+  restarted node's last pre-crash handler segment. Frozen prediction and
+  review: `research/lite/plans/iteration-81-admitted.json`.
+
+## ghost-released-crash-exempt-from-phase-wait
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 81 (dose nested in the Early-on-ghost cell; bit 1<<25; waits) | gain: 3 | cost: 0 | rank: 7
+- Review: `research/lite/plans/iteration-81-admitted.json`.
+
+## ghost-release-held-until-the-reaction-segment-has-a-send-in-flight
+
+- status: REJECTED at iteration 81 by its own gate (the merged tree's fired in-flight bucket_0 share reads 0.076 against the 0.15 build condition).
+
+## crash-holds-for-restarted-peer-delivery-window
+
+- status: REJECTED at iteration 81 (superseded by the merged release; the fallback role discharged).
+
+Iteration 81 re-judged the carried entries: repeated release 5 (bit moved
+to 1<<27), replay parent by arm set 4, condition-released defer exemption
+3, run-local counters 5-2, reply-wait 3 (bit 1<<17), PCT change points 3,
+stalled runs as replay parents 2 (stale supply figure still uncorrected),
+post-release cap 2, optional-cover reversal 2. Awaiting-approval entries
+unchanged.

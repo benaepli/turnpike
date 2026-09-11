@@ -8759,3 +8759,46 @@ session's throughput ratio 0.9492; the cumulative product moves from
 the tree now stand at 1.23 of the epoch's frozen rate with the
 cumulative at 1.07, the gap being the layout and session spread the
 ledger has always carried.
+
+
+**Iteration 81 proposals and admission.** Four variants at the merged
+trigger's key through the fault-injection lens: a key requiring the
+acted entry's record to belong to the restarted node's last pre-crash
+handler segment (the stranded fan-out, the DAG's label 4); an exemption
+of released crashes from the partial-fan-out defer coin; reading the
+phase stage's Early condition on the ghost node's segment for released
+crashes on the anchored stratum; and a nested dose exempting released
+crashes from the phase wait. The proposer corrected the directive: a
+crash never strands its own outbound reply (crash_node sets aside only
+records addressed to the crashed node), and a "first stale record at
+that peer" key separates nothing because the trigger already disarms at
+the first acted entry anywhere; only the send-ordinal form discriminates.
+It also found that on the merged single cell the ranking case reads the
+absorber decision before the ghost node's mark is written, which is why
+the forced case dominates; recorded as a latent flaw for the implementer
+and the operator. Blind judge over fifteen candidates: defer-coin
+exemption 7-0 (verified: the coin re-withholds released crashes at one
+half per step, 129.7M of 259.5M examined), Early-on-ghost 6-0 (verified
+that on retarget runs the phase is already read on the ghost node for
+88% of firings, so the material change is forcing Early over Mid and
+Stock; the sharpened form of a kept, never-built Early-only ablation),
+stranded key 6-0 (source verified end to end; the only candidate aimed
+at the depth5 loss), repeated release 5-0, replay parent by arm set 4-0,
+condition-released exemption 3-0, phase-wait exemption 3-0 (waits),
+run-local counters 5-2, reply-wait 3-0, PCT change points 3-0, stalled
+runs as replay parents 2-0 (its supply figure still uncorrected), post-
+release cap 2-0, optional-cover reversal 2-0; the at-send sibling
+rejected by its own gate (fired bucket_0 0.076 against 0.15) and the
+crash-holds entry as superseded. The three leaders form one session:
+each frozen primary is the nested contrast against the release cell
+without the variant, co-bit matched on the phase, retarget, single and
+sibling bits, with the treated-over-untreated read beside it. Admitted:
+bit ghostReleaseDeferExempt 1<<30 (exempted >= 15,000, unanchored
+within-three >= 0.80 against 0.72, nested depth8 [1.00, 1.10]), bit
+ghostReleasePhaseEarlyOnGhost 1<<29 (overridden >= 20,000, anchored
+within-three >= 0.60 against 0.46, released-on-condition >= 0.85 of
+overridden, nested depth8 [1.00, 1.12]), bit ghostReleaseStrandedKey
+1<<26 (stranded fired >= 20,000, skipped entries >= 0.3x the other
+half's fired, nested depth5 [1.01, 1.06], nested depth8 [1.00, 1.12]);
+all with steps per run within about 1% and runs per second >= 0.97 of
+the cache median. Full record: research/lite/plans/iteration-81-admitted.json.
