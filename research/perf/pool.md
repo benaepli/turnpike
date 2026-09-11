@@ -24,7 +24,8 @@ human), the two declarations, and the frozen prediction.
 
 ## exec-node-env-in-place
 
-- category: allocation | origin: proposer | status: awaiting-approval
+- category: allocation | origin: proposer | status: closed
+- graded as: part of the combined commit env-detach-plan-dense, refuted
 - declarations: search-neutral, shared saving
 - judge: expectedGain 7, expectedCost 2 (touches core/exec.rs), net 5
 - plan: research/perf/plans/exec-node-env-in-place.md
@@ -64,7 +65,8 @@ human), the two declarations, and the frozen prediction.
 
 ## plan-engine-dense-status
 
-- category: data layout | origin: proposer | status: awaiting-approval
+- category: data layout | origin: proposer | status: closed
+- graded as: part of the combined commit env-detach-plan-dense, refuted
 - declarations: search-neutral, shared saving
 - judge: expectedGain 5, expectedCost 2 (release order decides operation
   ids and client-node assignment, which is the linearizability record), net 3
@@ -141,3 +143,79 @@ human), the two declarations, and the frozen prediction.
 - worth keeping from it: a profile ranks symbols but cannot say which branch
   inside them the graded config takes. Check the config before attributing
   a profile line to a mechanism.
+
+## env-detach-plan-dense
+
+- category: combined | origin: user (selection) | status: closed, refuted
+- declarations: search-neutral, shared saving
+- components: exec-node-env-in-place and plan-engine-dense-status, built
+  together in one commit at the user's direction
+- band: [1.07, 1.21] on cross-binary runs per second, declared before any
+  round was bought. Composed from the two component bands rather than
+  reused from either: [1.05, 1.14] and [1.02, 1.06] compose to a lower edge
+  of 1.05 * 1.02 = 1.071 and an upper edge of 1.14 * 1.06 = 1.208.
+- counters: env_traffic.node_slot_copies, env_traffic.node_slot_writes,
+  env_traffic.recv_node_slot_stores from the first component;
+  plan_deps.ready_scans, plan_deps.status_entries_scanned,
+  plan_deps.plan_nodes_sum from the second. The two groups are disjoint by
+  construction and neither aggregates over both mechanisms.
+  env_traffic.node_slot_copies is passed as --counter; the plan_deps group
+  is read off the utilization dump by hand and recorded in the log.
+- falsifier: the rps interval lies entirely below 1.07; or the neutrality
+  spread check reads outside the baseline's own spread; or
+  recv_node_slot_stores reads above 0 on any round; or either mechanism's
+  counters say it did not fire.
+- known limitation, recorded before the rounds were bought: a combined wall
+  reading cannot say which of the two mechanisms paid, or whether one paid
+  while the other regressed and the sum came out positive. There is no
+  treatment bit to split it with. The counters say which mechanism fired,
+  not which one bought the time. On a regressed or refuted verdict neither
+  component is individually refuted and the correct follow-up is to split
+  them and re-grade, not to close both.
+
+### env-detach-plan-dense: outcome
+
+Refuted at six rounds. Primary 0.9733, interval [0.9064, 1.0452], entirely
+below the frozen band [1.07, 1.21]. Not a demonstrated regression: the
+reading does not separate from the 0.05 floor and its interval includes 1.
+Patch kept at research/perf/patches/env-detach-plan-dense.spur.patch;
+candidate profile at
+research/perf/profiles/12b7582-cand-env-detach-plan-dense.md.
+
+What held: the search-neutral declaration, on every spread check from round
+3 to round 6, across steps per run, all five end reasons and all five arm
+shares. env_traffic.recv_node_slot_stores read 0, so the one disclosed
+behavior change never fired and the two programs are observationally
+identical on this workload. Both mechanisms fired -
+env_traffic.node_slot_copies 200 per run, and plan_deps put status entries
+examined per release at 0.004 against 13.0 nodes per plan.
+
+Why the saving did not arrive, from the post-mortem profile:
+
+- plan-engine-dense-status removed its own symbol - the get_ready_events
+  collect, 1.75 percent - but exec_plan went from 1.85 to 3.23 percent, and
+  take_ready_events appears nowhere, so the work was inlined into its
+  caller rather than removed. Net saving a few tenths of a percent, not the
+  1.75 the line suggested. The mechanism did what it claimed; the claim was
+  about a symbol rather than about work.
+- exec-node-env-in-place moved EcoVec::make_unique only from 1.45 to 1.33
+  percent, although its counter proves the detach fired 200 times per run.
+  Local envs are EcoVec-backed too, so the most likely reading is that the
+  node env clone was never the dominant contributor to that line. The
+  hypothesis named a profile line and assumed a site.
+
+Both components are therefore closed rather than split and re-graded, which
+is a departure from the follow-up both plans prescribed for a refuted
+combined verdict. The written reason: the prescribed split exists to
+protect a component whose individual effect the combined reading might have
+masked, and that protection is moot here. The two together read 0.9733, so
+neither alone can clear a 0.05 cross-binary floor, and re-grading them
+individually would spend twelve rounds to confirm an arithmetic certainty.
+The profile already attributes the shortfall to each component separately,
+which is what the split would have bought.
+
+What would reopen either: for the plan engine, a reading that shows the
+release path costs something after inlining, measured rather than inferred
+from a symbol disappearing. For the node env, an answer to the question
+this iteration actually produced - where the rest of make_unique is called
+from. That question is the lead this iteration hands the next one.

@@ -1,0 +1,576 @@
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index 7646a8a..c1d966b 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -1,4 +1,4 @@
+-use crate::compiler::cfg::{Instr, Label, Program, VarSlot};
++use crate::compiler::cfg::{Instr, Label, Lhs, Program, VarSlot};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::{eval, make_local_env, store};
+ use crate::simulator::core::state::{
+@@ -84,7 +84,8 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+     purgatory_config: &PurgatoryConfig,
+     rng: &mut impl StreamRng,
+ ) -> Result<Value<H>, RuntimeError> {
+-    let mut node_env = state.nodes[node_id.index].clone();
++    let mut node_env = state.nodes[node_id.index].detach();
++    let writes_at_entry = node_env.writes;
+     let result = exec_sync_inner::<H, L, F>(
+         state,
+         logger,
+@@ -100,7 +101,7 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+         None, // top-level sync calls have no causal client op
+         rng,
+     );
+-    state.nodes[node_id.index] = node_env;
++    restore_node_env(state, node_id, node_env, writes_at_entry);
+     result
+ }
+ 
+@@ -547,6 +548,20 @@ fn exec_sync_inner<H: HashPolicy, L: Logger, F: Feedback>(
+     }
+ }
+ 
++/// Put a node's env back in its slot. `writes_at_entry` is the env's write
++/// count when the segment took it, so the difference is what this segment
++/// assigned.
++#[inline]
++fn restore_node_env<H: HashPolicy>(
++    state: &mut State<H>,
++    node: NodeId,
++    env: Env<H>,
++    writes_at_entry: u64,
++) {
++    util_stats::record_env_traffic(env.writes.wrapping_sub(writes_at_entry));
++    state.nodes[node.index] = env;
++}
++
+ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+@@ -561,7 +576,8 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+     let causal_operation_id = record.causal_operation_id;
+     let mut pending_trace_id = record.trace_id;
+     let mut local_env = record.env;
+-    let mut node_env = state.nodes[record.node.index].clone();
++    let mut node_env = state.nodes[record.node.index].detach();
++    let writes_at_entry = node_env.writes;
+ 
+     let mut prev_pc = record.pc;
+ 
+@@ -612,7 +628,7 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+                 }
+                 StepOutcome::Return(val) => {
+                     let node_id = record.node;
+-                    state.nodes[node_id.index] = node_env;
++                    restore_node_env(state, node_id, node_env, writes_at_entry);
+                     let result = record.continuation.call(state, val);
+                     return Ok(result);
+                 }
+@@ -653,9 +669,10 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+                         None => chan.buffer.push_back(val),
+                         Some((mut reader, lhs)) => {
+                             let node_index = reader.node.index;
+-                            let mut r_node_env = state.nodes[node_index].clone();
+-                            store(&lhs, val, &mut reader.env, &mut r_node_env)?;
+-                            state.nodes[node_index] = r_node_env;
++                            if matches!(lhs, Lhs::Var(VarSlot::Node(_, _))) {
++                                util_stats::record_recv_node_slot_store();
++                            }
++                            store(&lhs, val, &mut reader.env, &mut node_env)?;
+                             state.push_to_local(node_index, Runnable::Record(reader));
+                         }
+                     }
+@@ -683,7 +700,7 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+                     record.env = local_env;
+                     record.pc = *next; // When woke, proceed to next
+                     chan.push_waiting_reader(record, lhs.clone());
+-                    state.nodes[node_id.index] = node_env;
++                    restore_node_env(state, node_id, node_env, writes_at_entry);
+                     return Ok(None); // Stop execution
+                 }
+             }
+@@ -692,7 +709,7 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+                 record.env = local_env;
+                 record.pc = *next;
+                 state.push_to_local(node_id.index, Runnable::Record(record));
+-                state.nodes[node_id.index] = node_env;
++                restore_node_env(state, node_id, node_env, writes_at_entry);
+                 return Ok(None); // Yield
+             }
+             Label::SpinAwait(expr, next) => {
+@@ -702,7 +719,7 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+                     let node_id = record.node;
+                     record.env = local_env;
+                     state.push_to_local(node_id.index, Runnable::Record(record));
+-                    state.nodes[node_id.index] = node_env;
++                    restore_node_env(state, node_id, node_env, writes_at_entry);
+                     return Ok(None); // Yield
+                 }
+             }
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index 863f47f..b644426 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -674,6 +674,19 @@ impl<H: HashPolicy> Env<H> {
+         }
+     }
+ 
++    /// Move the slots out, leaving behind an env that still answers `sig` and
++    /// `writes` but owns no slots. The returned env holds the only reference to
++    /// the slot buffer, so writing a slot does not copy it. Nothing may read
++    /// slots from the emptied env before the caller puts an env back.
++    pub fn detach(&mut self) -> Env<H> {
++        Env {
++            slots: std::mem::take(&mut self.slots),
++            sig: self.sig,
++            writes: self.writes,
++            _marker: PhantomData,
++        }
++    }
++
+     #[inline(always)]
+     pub fn get(&self, slot: u32) -> &Value<H> {
+         &self.slots[slot as usize]
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 0dd437f..c417f12 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -12,7 +12,7 @@ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::feedback::Feedback;
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::path::plan::{
+-    ClientOpSpec, DeliverSpec, EventAction, ExecutionPlan, PlanEngine, PlannedEvent,
++    ClientOpSpec, DeliverSpec, EventAction, ExecutionPlan, PlanEngine,
+ };
+ use crate::simulator::fault_timing;
+ use crate::simulator::pair_order as pair_order_split;
+@@ -590,6 +590,11 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+     let mut completed_delivers: HashSet<NodeIndex> = HashSet::new();
+ 
+     let mut engine = PlanEngine::new(plan);
++    util_stats::record_plan_nodes(engine.node_count() as u64);
++
++    // Reused across steps so the steady state allocates nothing for the
++    // ready set.
++    let mut ready_events: Vec<NodeIndex> = Vec::new();
+ 
+     // Nodes observed crashing, and the subset that later recovered.
+     let mut crashed_nodes: HashSet<usize> = HashSet::new();
+@@ -651,11 +656,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         path_state.state.release_from_purgatory(step);
+ 
+         // Dispatch ready events
+-        let ready_events: Vec<(NodeIndex, PlannedEvent)> = engine
+-            .get_ready_events()
+-            .into_iter()
+-            .map(|(idx, e)| (idx, e.clone()))
+-            .collect();
++        let visited = engine.take_ready_events(&mut ready_events);
++        util_stats::record_plan_ready_scan(visited as u64);
+ 
+         // Requests whose wait ran past expiry. When nothing else in the run
+         // can move, the earliest held request is issued now instead, so a
+@@ -736,8 +738,8 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+             )?;
+         }
+ 
+-        for (node_idx, event) in ready_events {
+-            match &event.action {
++        for &node_idx in &ready_events {
++            match &engine.event(node_idx).action {
+                 EventAction::ClientRequest(op_spec) => {
+                     // A request that becomes ready once a crash has happened
+                     // is the population every direction of the axis acts on:
+diff --git a/spur-core/src/simulator/path/plan.rs b/spur-core/src/simulator/path/plan.rs
+index 9b51be3..2bc286d 100644
+--- a/spur-core/src/simulator/path/plan.rs
++++ b/spur-core/src/simulator/path/plan.rs
+@@ -2,17 +2,6 @@ use crate::simulator::plan_config::PartitionSpec;
+ use ecow::EcoString;
+ use petgraph::Direction;
+ use petgraph::graph::{DiGraph, NodeIndex};
+-use std::collections::HashMap;
+-use thiserror::Error;
+-
+-#[derive(Debug, Error)]
+-#[allow(dead_code)]
+-pub enum PlanError {
+-    #[error("event not found: {0:?}")]
+-    EventNotFound(NodeIndex),
+-    #[error("event {0:?} is not in progress")]
+-    NotInProgress(NodeIndex),
+-}
+ 
+ #[derive(Debug, Clone, PartialEq, Hash, Eq, Ord, PartialOrd)]
+ pub enum ClientOpSpec {
+@@ -57,54 +46,72 @@ pub enum EventStatus {
+ #[derive(Debug, Clone)]
+ pub struct PlanEngine {
+     graph: DiGraph<PlannedEvent, ()>,
+-    statuses: HashMap<NodeIndex, EventStatus>,
++    /// Indexed by `NodeIndex::index()`, which the plan graph keeps dense
++    /// because it never removes a node.
++    statuses: Vec<EventStatus>,
++    /// Events whose status was Ready when they were pushed. An entry can go
++    /// stale, so draining keeps only those `statuses` still reports as Ready.
++    ready: Vec<NodeIndex>,
++    /// Entries whose status is not Completed.
++    remaining: usize,
+ }
+ 
+ impl PlanEngine {
+     pub fn new(graph: ExecutionPlan) -> Self {
+-        let statuses = graph
+-            .node_indices()
+-            .map(|idx| {
+-                let status = if graph.neighbors_directed(idx, Direction::Incoming).count() == 0 {
+-                    EventStatus::Ready
+-                } else {
+-                    EventStatus::Pending
+-                };
+-                (idx, status)
+-            })
+-            .collect();
++        let mut statuses = Vec::with_capacity(graph.node_count());
++        let mut ready = Vec::new();
++        for idx in graph.node_indices() {
++            if graph.neighbors_directed(idx, Direction::Incoming).count() == 0 {
++                statuses.push(EventStatus::Ready);
++                ready.push(idx);
++            } else {
++                statuses.push(EventStatus::Pending);
++            }
++        }
++        let remaining = statuses.len();
+ 
+-        PlanEngine { graph, statuses }
++        PlanEngine {
++            graph,
++            statuses,
++            ready,
++            remaining,
++        }
+     }
+ 
+-    /// Returns a list of all events that are currently ready, marking them as InProgress.
+-    /// Events are released in index order: the statuses map has no order of
+-    /// its own, and the release order decides which operation gets which id
+-    /// and which client node, so a run is only a function of its seed when
+-    /// this order is fixed.
+-    pub fn get_ready_events(&mut self) -> Vec<(NodeIndex, &PlannedEvent)> {
+-        let mut ready: Vec<_> = self
+-            .statuses
+-            .iter()
+-            .filter(|(_, s)| **s == EventStatus::Ready)
+-            .map(|(idx, _)| *idx)
+-            .collect();
+-        ready.sort_unstable();
++    pub fn node_count(&self) -> usize {
++        self.graph.node_count()
++    }
+ 
+-        for idx in &ready {
+-            self.statuses.insert(*idx, EventStatus::InProgress);
++    /// Writes the events that are currently ready into `out`, marking them as
++    /// InProgress, and returns how many candidate entries were looked at.
++    /// Events are released in index order: the release order decides which
++    /// operation gets which id and which client node, so a run is only a
++    /// function of its seed when this order is fixed.
++    pub fn take_ready_events(&mut self, out: &mut Vec<NodeIndex>) -> usize {
++        out.clear();
++        let visited = self.ready.len();
++        for idx in self.ready.drain(..) {
++            if self.statuses[idx.index()] == EventStatus::Ready {
++                out.push(idx);
++            }
+         }
++        out.sort_unstable();
+ 
+-        ready
+-            .into_iter()
+-            .map(|idx| (idx, &self.graph[idx]))
+-            .collect()
++        for idx in out.iter() {
++            self.statuses[idx.index()] = EventStatus::InProgress;
++        }
++
++        visited
+     }
+ 
+     /// Marks an event as completed and updates dependencies, returning the
+     /// dependents this completion made ready.
+     pub fn mark_event_completed(&mut self, idx: NodeIndex) -> Vec<NodeIndex> {
+-        self.statuses.insert(idx, EventStatus::Completed);
++        let slot = &mut self.statuses[idx.index()];
++        if *slot != EventStatus::Completed {
++            self.remaining -= 1;
++        }
++        *slot = EventStatus::Completed;
+ 
+         // Notify dependents
+         let children: Vec<_> = self
+@@ -117,10 +124,11 @@ impl PlanEngine {
+             let all_deps_done = self
+                 .graph
+                 .neighbors_directed(child, Direction::Incoming)
+-                .all(|dep| self.statuses.get(&dep) == Some(&EventStatus::Completed));
++                .all(|dep| self.statuses[dep.index()] == EventStatus::Completed);
+ 
+-            if all_deps_done && self.statuses.get(&child) == Some(&EventStatus::Pending) {
+-                self.statuses.insert(child, EventStatus::Ready);
++            if all_deps_done && self.statuses[child.index()] == EventStatus::Pending {
++                self.statuses[child.index()] = EventStatus::Ready;
++                self.ready.push(child);
+                 released.push(child);
+             }
+         }
+@@ -131,28 +139,12 @@ impl PlanEngine {
+         &self.graph[idx]
+     }
+ 
+-    /// Reverts an InProgress event back to Ready.
+-    #[allow(dead_code)]
+-    pub fn mark_as_ready(&mut self, idx: NodeIndex) -> Result<(), PlanError> {
+-        match self.statuses.get(&idx) {
+-            Some(EventStatus::InProgress) => {
+-                self.statuses.insert(idx, EventStatus::Ready);
+-                Ok(())
+-            }
+-            Some(_) => Err(PlanError::NotInProgress(idx)),
+-            None => Err(PlanError::EventNotFound(idx)),
+-        }
+-    }
+-
+     pub fn is_complete(&self) -> bool {
+-        self.statuses.values().all(|s| *s == EventStatus::Completed)
++        self.remaining == 0
+     }
+ 
+     /// Planned events that have not reached Completed.
+     pub fn outstanding_count(&self) -> usize {
+-        self.statuses
+-            .values()
+-            .filter(|s| **s != EventStatus::Completed)
+-            .count()
++        self.remaining
+     }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 537621d..6700d41 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -363,6 +363,9 @@ static PFO_PAIRS_SEEN: AtomicU64 = AtomicU64::new(0);
+ static PFO_EDGES_ADDED: AtomicU64 = AtomicU64::new(0);
+ static PFO_OPS_AFTER_LAST_RECOVER: AtomicU64 = AtomicU64::new(0);
+ static PD_RECOVER_EDGES_DROPPED: AtomicU64 = AtomicU64::new(0);
++static PD_READY_SCANS: AtomicU64 = AtomicU64::new(0);
++static PD_STATUS_ENTRIES_SCANNED: AtomicU64 = AtomicU64::new(0);
++static PD_PLAN_NODES_SUM: AtomicU64 = AtomicU64::new(0);
+ static NOVELTY_ABLATED_RUNS: AtomicU64 = AtomicU64::new(0);
+ static MA_DECISIONS: AtomicU64 = AtomicU64::new(0);
+ static MA_CONTESTED_DECISIONS: AtomicU64 = AtomicU64::new(0);
+@@ -674,6 +677,11 @@ static TIMER_CONTEXT_BIASED_STEPS_PROMOTED: AtomicU64 = AtomicU64::new(0);
+ static TIMER_CONTEXT_BIASED_STEPS_SUPPRESSED: AtomicU64 = AtomicU64::new(0);
+ static TIMER_CONTEXT_STEPS_EXCLUDED_SELECTOR: AtomicU64 = AtomicU64::new(0);
+ static TIMER_CONTEXT_CELLS_ENGAGED: AtomicU64 = AtomicU64::new(0);
++
++static ENV_NODE_SLOT_COPIES: AtomicU64 = AtomicU64::new(0);
++static ENV_NODE_SLOT_WRITES: AtomicU64 = AtomicU64::new(0);
++static ENV_RECV_NODE_SLOT_STORES: AtomicU64 = AtomicU64::new(0);
++
+ static TIMELINE_KEYS: Mutex<TimelineKeyGrowth> = Mutex::new(TimelineKeyGrowth::new());
+ 
+ /// Runs per point on the timeline-key growth curve, and the most points a
+@@ -775,6 +783,9 @@ pub fn set_enabled(on: bool) {
+             &PFO_EDGES_ADDED,
+             &PFO_OPS_AFTER_LAST_RECOVER,
+             &PD_RECOVER_EDGES_DROPPED,
++            &PD_READY_SCANS,
++            &PD_STATUS_ENTRIES_SCANNED,
++            &PD_PLAN_NODES_SUM,
+             &NOVELTY_ABLATED_RUNS,
+             &MA_DECISIONS,
+             &MA_CONTESTED_DECISIONS,
+@@ -788,6 +799,9 @@ pub fn set_enabled(on: bool) {
+             &RWP_CONTESTED,
+             &RWP_WON,
+             &RWP_FLIPPED,
++            &ENV_NODE_SLOT_COPIES,
++            &ENV_NODE_SLOT_WRITES,
++            &ENV_RECV_NODE_SLOT_STORES,
+         ] {
+             c.store(0, Ordering::Relaxed);
+         }
+@@ -1704,6 +1718,28 @@ pub fn record_dedup_check(hit: bool) {
+     }
+ }
+ 
++/// One executed segment finished on a node; `writes` is how many role-scope
++/// slots it assigned. A segment that assigned at least one is a segment whose
++/// slot array a second handle would have forced a copy of.
++#[inline]
++pub fn record_env_traffic(writes: u64) {
++    if writes == 0 || !enabled() {
++        return;
++    }
++    ENV_NODE_SLOT_COPIES.fetch_add(1, Ordering::Relaxed);
++    ENV_NODE_SLOT_WRITES.fetch_add(writes, Ordering::Relaxed);
++}
++
++/// A local channel send handed its value to a waiting reader whose target is a
++/// role-scope slot rather than a local slot.
++#[inline]
++pub fn record_recv_node_slot_store() {
++    if !enabled() {
++        return;
++    }
++    ENV_RECV_NODE_SLOT_STORES.fetch_add(1, Ordering::Relaxed);
++}
++
+ /// One run was scored by a feedback's `plan_score`; each component that the
+ /// feedback mode computes contributes to its sum (None = not tracked).
+ #[inline]
+@@ -1879,6 +1915,26 @@ pub fn record_plan_deps_edges(dropped: u64) {
+     PD_RECOVER_EDGES_DROPPED.fetch_add(dropped, Ordering::Relaxed);
+ }
+ 
++/// One request for the plan's ready events looked at `visited` status
++/// entries.
++#[inline]
++pub fn record_plan_ready_scan(visited: u64) {
++    if !enabled() {
++        return;
++    }
++    PD_READY_SCANS.fetch_add(1, Ordering::Relaxed);
++    PD_STATUS_ENTRIES_SCANNED.fetch_add(visited, Ordering::Relaxed);
++}
++
++/// A run began executing a plan of `nodes` planned events.
++#[inline]
++pub fn record_plan_nodes(nodes: u64) {
++    if !enabled() {
++        return;
++    }
++    PD_PLAN_NODES_SUM.fetch_add(nodes, Ordering::Relaxed);
++}
++
+ /// The run about to execute on this thread generated its plan under `cell`,
+ /// with a positive dependency density or not. Its termination is then folded
+ /// into that cell's tally.
+@@ -1950,12 +2006,18 @@ impl PlanDepsDensitySplit {
+     }
+ }
+ 
+-/// How the plan generator ordered node restarts against client work, and
+-/// how the runs of each cell ended.
++/// How the plan generator ordered node restarts against client work, how the
++/// runs of each cell ended, and what it cost to release the planned events.
+ #[derive(Clone, Copy, Debug, Serialize)]
+ pub struct PlanDepsStats {
+     /// Probabilistic edges into a recover left out of exempt-cell plans.
+     pub recover_edges_dropped: u64,
++    /// Times a plan execution asked the engine for its ready events.
++    pub ready_scans: u64,
++    /// Status entries those requests looked at.
++    pub status_entries_scanned: u64,
++    /// Planned events summed over the runs that executed a plan.
++    pub plan_nodes_sum: u64,
+     pub stock: PlanDepsDensitySplit,
+     pub exempt: PlanDepsDensitySplit,
+ }
+@@ -4093,6 +4155,14 @@ pub struct DedupStats {
+     pub skipped_large: u64,
+ }
+ 
++/// Traffic through the role-scope slot arrays that executed segments write.
++#[derive(Serialize)]
++pub struct EnvTrafficStats {
++    pub node_slot_copies: u64,
++    pub node_slot_writes: u64,
++    pub recv_node_slot_stores: u64,
++}
++
+ #[derive(Serialize)]
+ pub struct FeedbackStats {
+     pub timeline_score_sum: f64,
+@@ -6012,6 +6082,7 @@ pub struct UtilizationSnapshot {
+     pub purgatory: PurgatoryStats,
+     pub aos: AosStats,
+     pub dedup: DedupStats,
++    pub env_traffic: EnvTrafficStats,
+     pub feedback: FeedbackStats,
+     pub curriculum: CurriculumStats,
+     pub crash_recovery: CrashRecoveryStats,
+@@ -6165,6 +6236,11 @@ pub fn snapshot() -> UtilizationSnapshot {
+             hits: DEDUP_HITS.load(Ordering::Relaxed),
+             skipped_large: DEDUP_SKIPPED_LARGE.load(Ordering::Relaxed),
+         },
++        env_traffic: EnvTrafficStats {
++            node_slot_copies: ENV_NODE_SLOT_COPIES.load(Ordering::Relaxed),
++            node_slot_writes: ENV_NODE_SLOT_WRITES.load(Ordering::Relaxed),
++            recv_node_slot_stores: ENV_RECV_NODE_SLOT_STORES.load(Ordering::Relaxed),
++        },
+         feedback: FeedbackStats {
+             timeline_score_sum: f64::from_bits(FEEDBACK_TIMELINE_SCORE_SUM.load(Ordering::Relaxed)),
+             cfg_score_sum: f64::from_bits(FEEDBACK_CFG_SCORE_SUM.load(Ordering::Relaxed)),
+@@ -6198,6 +6274,9 @@ pub fn snapshot() -> UtilizationSnapshot {
+                 .unwrap_or_else(|p| *p.into_inner());
+             PlanDepsStats {
+                 recover_edges_dropped: PD_RECOVER_EDGES_DROPPED.load(Ordering::Relaxed),
++                ready_scans: PD_READY_SCANS.load(Ordering::Relaxed),
++                status_entries_scanned: PD_STATUS_ENTRIES_SCANNED.load(Ordering::Relaxed),
++                plan_nodes_sum: PD_PLAN_NODES_SUM.load(Ordering::Relaxed),
+                 stock: cells[RecoverDeps::Stock.index()],
+                 exempt: cells[RecoverDeps::Exempt.index()],
+             }
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 1389681..75c2fd6 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -240,6 +240,9 @@ fn plan_deps_split_leaves(prefix: &str, s: &PlanDepsDensitySplit) -> Vec<(String
+ fn plan_deps(m: &mut Marks) -> PlanDepsStats {
+     PlanDepsStats {
+         recover_edges_dropped: m.int(),
++        ready_scans: m.int(),
++        status_entries_scanned: m.int(),
++        plan_nodes_sum: m.int(),
+         stock: plan_deps_split(m),
+         exempt: plan_deps_split(m),
+     }
+@@ -248,10 +251,18 @@ fn plan_deps(m: &mut Marks) -> PlanDepsStats {
+ fn plan_deps_leaves(prefix: &str, p: &PlanDepsStats) -> Vec<(String, Value)> {
+     let PlanDepsStats {
+         recover_edges_dropped,
++        ready_scans,
++        status_entries_scanned,
++        plan_nodes_sum,
+         stock,
+         exempt,
+     } = p;
+-    let mut out = vec![leaf(prefix, "recover_edges_dropped", *recover_edges_dropped)];
++    let mut out = vec![
++        leaf(prefix, "recover_edges_dropped", *recover_edges_dropped),
++        leaf(prefix, "ready_scans", *ready_scans),
++        leaf(prefix, "status_entries_scanned", *status_entries_scanned),
++        leaf(prefix, "plan_nodes_sum", *plan_nodes_sum),
++    ];
+     out.extend(plan_deps_split_leaves(&format!("{prefix}.stock"), stock));
+     out.extend(plan_deps_split_leaves(&format!("{prefix}.exempt"), exempt));
+     out
+@@ -1894,6 +1905,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         purgatory: _,
+         aos: _,
+         dedup: _,
++        env_traffic: _,
+         feedback: _,
+         curriculum: _,
+         crash_recovery: _,
+@@ -1935,6 +1947,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "purgatory",
+         "aos",
+         "dedup",
++        "env_traffic",
+         "feedback",
+         "curriculum",
+         "crash_recovery",

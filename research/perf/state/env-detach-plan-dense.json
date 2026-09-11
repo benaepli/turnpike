@@ -1,0 +1,87 @@
+{
+ "name": "env-detach-plan-dense",
+ "createdAtIso": "2026-09-11T23:06:13.420Z",
+ "note": "combined at user direction: exec-node-env-in-place plus plan-engine-dense-status",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.07,
+   "max": 1.21
+  },
+  "counter": "env_traffic.node_slot_copies",
+  "argument": "Two mechanisms, neither of which removes a step, a draw, or a decision. The first replaces a clone of a node's role-slot array with a move that preserves the env signature and the env write count verbatim; those two fields are the only properties of an env the search reads, feeding the state hash, the node state token, the weighted stale-late term and the acted flag, and neither the buffer's address nor its reference count is read anywhere. The second replaces the plan engine's status map with a dense vector and an incremental ready queue; both the old and the new release paths end in sort_unstable on a vector of node indices, so release order is settled by which set is released, and the sets are equal because the only transitions into Ready are the constructor marking every root and mark_event_completed marking a dependent whose predecessors are all complete, with the drain filtering on the authoritative status so it can never yield an index the old full-table filter would not have. The third transition, mark_as_ready, had no callers anywhere in the tree and is deleted rather than left as a hole. Release order is what decides which operation gets which id and which client node and the order crash, recover, partition and heal dispatches draw from the RNG, and it is unchanged. No RNG draw is added, removed or reordered by either mechanism. One place where the old and new programs could differ is a local channel send waking a reader whose assignment target is a role-scope slot, where a store is lost today and would land after the change; this is not asserted away but counted by env_traffic.recv_node_slot_stores, whose frozen prediction is zero per run."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/env-detach-plan-dense/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:env-detach-plan-dense"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "63a21f95fdfbdd2744a561515661a861975f935b",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/63a21f95fdfb-30-f9daa01b-120.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-11T23:10:26.939Z",
+   "seed": 1000,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-11T23:14:31.307Z",
+   "seed": 1001,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-11T23:18:36.001Z",
+   "seed": 1002,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-11T23:24:10.418Z",
+   "seed": 1003,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-11T23:28:15.254Z",
+   "seed": 1004,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-11T23:32:20.146Z",
+   "seed": 1005,
+   "wallSec": 243,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}

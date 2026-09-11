@@ -184,3 +184,146 @@ proposer so. It was not: pool.md carries the closed global-allocator-swap
 entry. The judge read the file itself and used that entry against
 per-step-scratch-buffers, so the scoring was unaffected, and the proposer
 independently avoided the closed idea. No result turns on it.
+
+### Decision: build both, at the user's direction
+
+The moderated lane stopped for sign-off with two options: grade
+exec-node-env-in-place alone, or combine it with plan-engine-dense-status
+in one commit. The loop recommended alone, on the grounds that with no
+counter ratio available a combined wall reading cannot attribute which
+mechanism paid, and that the skill warns against fusing readings to beat a
+floor. The judge recommended combining, on the arithmetic: neither honest
+band clears the 0.05 cross-binary floor alone while their sum plausibly
+does.
+
+The user chose to combine. The concern stands on the record and the
+combined entry carries it as a known limitation.
+
+Frozen before any round was bought, as the combined-commit rule in the
+plans requires: band [1.07, 1.21] on cross-binary runs per second, composed
+from the component bands rather than reused from either. A true effect near
+9 percent reads inside the band and can separate; a true effect near zero
+reads below it and refutes, which is the band doing its job.
+
+One band question was settled against the planning pass. It proposed
+relaxing exec-node-env-in-place to [1.00, 1.10] because the instrument
+cannot resolve a tighter band. The reasoning about the instrument is right
+and the conclusion is not: a band containing 1.0 predicts nothing, and the
+loop grades a prediction rather than rewriting it to be easier to pass. The
+component band stayed at [1.05, 1.14] and the combined band was composed
+from it.
+
+The user also edited prompts/proposer.md and prompts/implementer.md during
+this session, adding that a dependency is part of the subject and that a
+dependency able to change any container's iteration or ordering declares
+search-affecting. Those arrived after the proposer had run. No candidate in
+this pool changes a dependency, so nothing here is affected, but the
+proposal pass for this iteration ran without that rule.
+
+### The combined candidate, graded and refuted
+
+Session env-detach-plan-dense, six rounds, search-neutral, shared, primary
+cross-binary, counter env_traffic.node_slot_copies, band [1.07, 1.21].
+
+Primary 0.9733 over six rounds, per-round 0.9510, 0.9013, 1.0257, 1.0841,
+0.9313, 0.9580, interval [0.9064, 1.0452], not dominant, not separated,
+band reading below, verdict refuted. One blocker stood, the structural one:
+the declared counter is absent from the unpatched baseline's dump, exactly
+as predicted at admission.
+
+Read the verdict precisely. This is not a demonstrated regression: the
+interval includes 1 and the reading does not separate from the 0.05 floor.
+It is a refuted prediction. The candidate said at least seven percent and
+the reading is incompatible with that.
+
+**What held, and it is worth as much as the refutation.** The
+search-neutral declaration survived every spread check from round 3 to
+round 6 - steps per run, all five end reasons, all five arm shares, none
+outside the baseline's own spread. env_traffic.recv_node_slot_stores read 0
+across the whole session, so the one disclosed behavior change never fired
+and the two programs are observationally identical on this workload. The
+neutrality of both mechanisms is now measured rather than argued, which is
+what the third counter was added to do. Both mechanisms also demonstrably
+fired: node_slot_copies at 200 per run, and status entries examined per
+release at 0.004 against 13.0 plan nodes.
+
+So the mechanisms work, are neutral, and do not pay.
+
+**Why they do not pay.** A post-mortem profile of the candidate binary, at
+research/perf/profiles/12b7582-cand-env-detach-plan-dense.md. Two profiles
+of 60 seconds each are a ranking rather than a measurement and their totals
+differ, so this is evidence and not proof.
+
+- The plan engine's collect symbol, 1.75 percent, is gone. But exec_plan
+  went from 1.85 to 3.23 percent and take_ready_events appears nowhere, so
+  the work was inlined into the caller rather than removed. The net is a
+  few tenths. A symbol disappearing is not the same as work disappearing,
+  and the hypothesis was written against the symbol.
+- EcoVec::make_unique moved only from 1.45 to 1.33 percent while its
+  counter proves the detach fired 200 times per run. Local envs are
+  EcoVec-backed too. The most likely reading is that the node env clone was
+  never the dominant contributor to that line at all.
+
+An earlier reading of this session, at three rounds, proposed that the new
+counters' atomics were taxing the treatment - microseconds per run was then
+dominant at 0.93 across all three rounds. The candidate profile shows no
+atomic, lock or util_stats symbol above the reporter's cutoff, and by six
+rounds microseconds per run was no longer dominant. That hypothesis is
+withdrawn.
+
+**The lesson this iteration actually bought.** A profile line names a
+symbol, not a site. Both hypotheses were argued from percentages attached
+to symbols, both were verified at judging against the source, and both were
+still wrong about how much of that symbol belonged to the site they named.
+The judge checked that the cited code exists and is on the hot path, which
+it did correctly; nothing in the pipeline checks what fraction of a
+symbol's cost comes from the caller the hypothesis blames. The counter
+answered it after the fact - 200 detaches per run against a line that
+barely moved - and that is an argument for a counter that attributes a
+symbol to its callers being worth more than another candidate.
+
+**Departure from the prescribed follow-up, with the reason.** Both plans
+said a refuted combined verdict refutes neither component and the follow-up
+is to split and re-grade. Both components are closed instead. The split
+exists to protect a component whose individual effect a combined reading
+might have masked; that protection is moot when the two together read
+0.9733, since neither alone can then clear a 0.05 cross-binary floor.
+Re-grading them individually would spend twelve rounds to confirm
+arithmetic, and the post-mortem profile already attributes the shortfall to
+each component separately, which is what the split would have bought.
+
+**The combined-commit cost, as it actually landed.** The loop recommended
+grading one candidate and the user chose to combine. The attribution
+problem the loop flagged did materialize - a single wall reading cannot say
+which mechanism paid - but the disjoint counter groups recovered the part
+that mattered, and the post-mortem profile recovered the rest. The combined
+form cost less than feared. What it did not do was rescue the effect size,
+because the effect was not there to rescue in either component.
+
+### Harness findings for the operator
+
+Three, none of which this loop may fix itself.
+
+1. **The implementer prompt's step 0 does not work.** `git submodule update
+   --init spur` fails in a fresh worktree: the public remote refuses
+   12b7582 with `upload-pack: not our ref`, leaving the clone on 10c2a0a.
+   The loop branch's gitlink is not reachable from the remote. The
+   implementer recovered by fetching the object from the main tree's local
+   clone, which every future implementer will now have to rediscover. The
+   prompt should name that fetch.
+
+2. **`cargo test -p spur-core` does not pass out of the box on this host.**
+   simulator::path::tests::a_held_request_is_recorded_at_the_step_it_is_issued
+   aborts with a stack overflow in the debug profile, on unmodified
+   sources; exec_plan's debug frame exceeds the 2 MB test thread default.
+   It passes under RUST_MIN_STACK=67108864. Pre-existing and unrelated to
+   any candidate, but it means an implementer cannot tell a real test
+   failure from this one without knowing.
+
+3. **`profile --binary <other>` mislabels and overwrites.** cmdProfile
+   derives its label from the main tree's spur commit rather than from the
+   binary it profiles, so profiling a candidate writes over the baseline
+   profile for that commit. This session backed the baseline up first and
+   restored it, and kept the candidate profile under an explicit name. An
+   operator who did not think of that would silently lose the baseline
+   profile the proposer reads.
