@@ -29,11 +29,11 @@ expectedGain and expectedCost.
   pressure, memory bandwidth, cache footprint, a shared structure and
   thread-pool contention all travel. If the answer is not clearly private,
   say so and rewrite the declaration to shared before admission.
-- Audit the semantic tier the same way. An identity claim must be an
-  equality claim - the same executions, checkable by diffing the runs
-  tables. A relabeling claim must name the collection whose order changes and
-  argue the order was never load-bearing; if the order is the order random
-  draws are consumed in, the claim is wrong and the tier is declared change.
+- Audit the search declaration the same way. A `neutral` claim must name what
+  the change permutes or drops and argue the search never relied on it; if
+  what changes is the order random draws are consumed in, the claim is wrong
+  and the declaration is `affecting`. A claim the candidate cannot argue in
+  writing is not `neutral`.
 - Verify what is checkable: the cited symbol or structure exists, the cited
   profile line says what the candidate says it says, the cited counter exists
   or is added by the change, the question is not already answered in the

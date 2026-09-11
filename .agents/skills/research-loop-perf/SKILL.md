@@ -137,7 +137,7 @@ contrast handles worst. Let the sharing profile pick the instrument, and
 pick the candidate on the size of the cost.
 
 Be patient. The clock is a noisy instrument and most rounds will read
-inside a floor. That is not a reason to move a floor, change the workloads,
+inside a floor. That is not a reason to move a floor, change the workload,
 or fuse two readings into a ratio that flatters one. Be persistent at the
 goal as given and the measurements as given. Three channels: a **focus
 directive** appended to the proposer prompt beside the rotating lens; an
@@ -163,12 +163,9 @@ any deviation, and the rest is the normal pipeline.
 npx tsx ../perf/grader.ts start --name <name> \
   --cand-bin ../../tmp/loop/perf/<name>/cand-spur \
   --base-bin ../../spur/target/release/spur \
-  --tier identity|relabeling|declared --sharing private|shared \
+  --search neutral|affecting --sharing private|shared \
   [--treatment-bit <bit> --band-min <lo> --band-max <hi>] \
   [--counter <dotted.path>] [--argument <text>]
-npx tsx ../perf/grader.ts identity --name <name> \
-  --cand-bin ../../tmp/loop/perf/<name>/cand-spur \
-  --base-bin ../../spur/target/release/spur   # identity tier only
 npx tsx ../perf/grader.ts round  --name <name>    # one round; run in the background
 npx tsx ../perf/grader.ts status --name <name>    # reprint, runs nothing
 npx tsx ../perf/grader.ts finish --name <name>
@@ -177,8 +174,9 @@ npx tsx ../perf/grader.ts finish --name <name>
 The two declarations come from the hypothesis and are frozen at admission;
 you pass them, you do not choose them here. The grader refuses the
 combinations it cannot read - a shared saving on the within-binary
-contrast, a within-binary primary with no registered bit - before any round
-is bought. The band is the frozen band on the primary, as a speedup ratio.
+contrast, a within-binary primary with no registered bit, a `neutral`
+declaration with no written argument - before any round is bought. The band
+is the frozen band on the primary, as a speedup ratio.
 
 Every ratio the grader prints is a speedup. It enforces the round bounds
 from `perf.json` and prints after every round what `finish` would say now.
@@ -194,22 +192,23 @@ it means anything.
 `finish` prints `adviceVerdict` and `blockers`. Depart from the rule only
 with a written reason, in either direction. Beyond what it computes,
 check: the declared counter actually moved and moved the way the mechanism
-predicts; the second workload agrees with the primary, since it can only
-block; the gap between the within-binary and cross-binary readings, which
-is the best estimate available of how much of a saving travels, and which
-on a private-declared candidate is the misdeclaration to catch; and the
-diff, since with no size cap your review is the only check that the code
-does what the hypothesis says.
+predicts; on a counter primary, runs per second agrees with it, since the
+clock can only block; the gap between the within-binary and cross-binary
+readings, which is the best estimate available of how much of a saving
+travels, and which on a private-declared candidate is the misdeclaration to
+catch; and the diff, since with no size cap your review is the only check
+that the code does what the hypothesis says.
 
-A candidate that fails its own declared tier is closed, not re-declared: a
-refuted prediction is a result. A candidate whose gain turns out to come
+A candidate whose observables leave the baseline's own spread after
+declaring the search unchanged is closed, not re-declared: a refuted
+prediction is a result. A candidate whose gain turns out to come
 from searching differently belongs to the search loop, whatever it does to
 the clock; close it here and write the case into the log.
 
 Split evidence - the primary resolves neither way and the rounds are spent,
-the workloads disagree, the counter moved but the clock did not, the diff
-touches execution semantics - is filed for the user in interactive mode and
-decided by you in autonomous mode.
+the counter moved but the clock did not, the diff touches execution
+semantics - is filed for the user in interactive mode and decided by you in
+autonomous mode.
 
 ## Merge
 

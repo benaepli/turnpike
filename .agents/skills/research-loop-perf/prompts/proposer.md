@@ -41,13 +41,14 @@ Rotate one per round:
 
 ## Frozen prediction template (all fields required)
 
-- **Semantic tier**: `identity` | `relabeling` | `declared change`. Identity
-  claims executions are unchanged and will be checked by equality.
-  Relabeling claims only a permutation of a collection whose order the
-  algorithm never relied on - say which collection, and argue the order was
-  never load-bearing. If the order being changed is the order random draws
-  are consumed in, it is not a relabeling. Declared change admits the search
-  moves, and owes the search loop's non-inferiority reading and its panel.
+- **Search declaration**: `neutral` | `affecting`. Neutral claims the change
+  does not alter what the explorer searches - say what it permutes or drops,
+  and argue the search never relied on it. If what changes is the order
+  random draws are consumed in, the claim is wrong. The claim is guarded by
+  a distributional check on steps per run, end reasons and per-arm counts
+  against the baseline's own round-to-round spread, and a reading outside
+  that spread closes the candidate. Affecting admits the search moves, and
+  owes the search loop's non-inferiority reading and its panel.
 - **Sharing profile**: `private` | `shared`, with an argument, not a
   checkbox. Say what the cost is and why it does or does not travel between
   runs inside one process. Allocator pressure, memory bandwidth, cache
@@ -70,8 +71,9 @@ Rotate one per round:
 - **Independent observable**: `<something the primary does not measure>`,
   expected `<value>`.
 - **Falsifier**: the prediction is refuted if the primary's interval lies
-  entirely below the band's lower edge, if the declared tier's check fails,
-  or if `<observable>` moves the wrong way. State the sign explicitly.
+  entirely below the band's lower edge, if a `neutral` declaration's spread
+  check reads outside the baseline's own spread, or if `<observable>` moves
+  the wrong way. State the sign explicitly.
 - **Cost clause**: what this change may not do - steps per run, end reasons
-  and per-arm counts hold their distributions, and the second workload does
-  not separate downward.
+  and per-arm counts hold their distributions, and runs per second does not
+  separate downward.

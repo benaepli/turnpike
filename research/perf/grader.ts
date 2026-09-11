@@ -1,14 +1,14 @@
 // Round-based A/B grader for the perf research loop (research/perf). One
 // invocation buys at most one round: a paired candidate/baseline measurement
-// of both workloads. Whoever calls it decides between invocations whether to
-// buy another, so stopping early is simply not calling `round` again.
+// of the campaign workload. Whoever calls it decides between invocations
+// whether to buy another, so stopping early is not calling `round` again.
 //
 // Run from research/orchestrator so its node_modules resolve:
 //   cd research/orchestrator && npx tsx ../perf/grader.ts <command> [--flags]
 //
 // Commands:
 //   start    --name <slug> --cand-bin <path> --base-bin <path>
-//            --tier identity|relabeling|declared
+//            --search neutral|affecting
 //            --sharing private|shared
 //            [--primary within-binary|counter|cross-binary]
 //            [--treatment-bit <int>] [--band-min <frac> --band-max <frac>]
@@ -20,8 +20,7 @@
 //   finish   --name <slug>
 //   baseline --base-bin <path> --rounds <n> [--base-template <path>]
 //            [--base-spur <dir>]
-//   identity --cand-bin <path> --base-bin <path> [--name <slug>]
-//   profile  [--binary <path>]
+//   profile  [--binary <path>] [--wall-sec <n>]
 //   selftest
 //
 // Every ratio this grader prints is a speedup: above one means the candidate
@@ -33,16 +32,15 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
-import { HARD_LIMITS, loadPolicy, type Policy } from "../orchestrator/src/policy.js";
+import { loadPolicy, type Policy } from "../orchestrator/src/policy.js";
 import {
-  CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, readSessionSibling,
-  readUtilizationSibling, resolveRoot, runsTable, templateHasCampaign,
+  ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, readSessionSibling,
+  readUtilizationSibling, resolveRoot, run, runsTable, templateHasCampaign,
 } from "../orchestrator/src/runners.js";
 import { SLOW_CHUNK_FACTOR } from "../orchestrator/src/sequential.js";
 import {
   NON_DECLARABLE_BITS, VARIANT_BITS, complementCoBits, invariantCoBits, probeFreeScope, variantBitsMissingFromSource,
 } from "../orchestrator/src/decide.js";
-import { collectProfile } from "../orchestrator/src/bench.js";
 import type { RunRow, VariantMetrics } from "../orchestrator/src/schemas.js";
 
 // The orchestrator modules narrate progress on stdout; this process promises
@@ -56,10 +54,10 @@ const PROFILE_DIR = path.join(PERF_DIR, "profiles");
 const CONFIG_PATH = path.join(PERF_DIR, "perf.json");
 const WORK_DIR = path.join(ROOT, "tmp", "loop", "perf");
 
-type Workload = "campaign" | "bench";
-const WORKLOADS: Workload[] = ["campaign", "bench"];
+type Workload = "campaign";
+const WORKLOADS: Workload[] = ["campaign"];
 type Side = "cand" | "base";
-type Tier = "identity" | "relabeling" | "declared";
+type Search = "neutral" | "affecting";
 type Sharing = "private" | "shared";
 type PrimaryKind = "within-binary" | "counter" | "cross-binary";
 
@@ -67,42 +65,26 @@ interface PerfConfig {
   goalFile: string;
   spec: string;
   campaignTemplate: string;
-  benchTemplate: string;
   branch: string;
   relevantFiles: string[];
   budgets: {
     campaignWallSec: number;
-    benchWallSec: number;
-    benchRunsPerConfig: number;
-    benchSeed: number;
     minRounds: number;
     maxRounds: number;
     rayonThreads: number;
-    maxBuildSeconds: number;
-    identityRunsPerConfig: number;
-    identitySeed: number;
-    identityThreads: number;
+    profileWallSec: number;
   };
-  floors: { layoutFloor: number; minEffect: number; relabelSpreadMultiple: number };
+  floors: { layoutFloor: number; minEffect: number; spreadMultiple: number };
 }
 
 function perfConfig(): PerfConfig {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) as PerfConfig;
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(Math.max(v, lo), hi);
-}
-
-// The orchestrator's policy file supplies what the profiler needs; only the
-// knobs perf.json owns are overridden, clamped into the same hard limits the
-// rest of the harness obeys.
-function policyFor(cfg: PerfConfig): Policy {
+// The orchestrator's policy file carries the free-disk floor every command
+// honours.
+function policyFor(): Policy {
   const { policy } = loadPolicy(path.join(ROOT, "research", "policy.json"));
-  policy.evaluation.rayonThreads = clamp(Math.round(cfg.budgets.rayonThreads), 1, 1024);
-  policy.evaluation.spec = cfg.spec;
-  policy.perf.benchConfig = cfg.benchTemplate;
-  policy.budgets.maxBuildSeconds = clamp(Math.round(cfg.budgets.maxBuildSeconds), 60, HARD_LIMITS.maxBuildSeconds);
   return policy;
 }
 
@@ -132,40 +114,36 @@ function spurLabelOf(spurDir: string): string {
 }
 
 // What makes two baseline measurements the same quantity: the spur tree the
-// binary was built from, the content of both workload templates, the spec,
-// the thread count and the wall budgets. A depth scale plays no part here,
-// so there is no analyzer term.
+// binary was built from, the content of the campaign template, the spec, the
+// thread count and the wall budget. A depth scale plays no part here, so
+// there is no analyzer term.
 interface BaselineIdentity {
   spurTree: string;
   campaignSha: string;
-  benchSha: string;
   specSha: string;
   rayonThreads: number;
   campaignWallSec: number;
-  benchRunsPerConfig: number;
 }
 
 function identityFor(baseSpurDir: string, campaignTemplate: string, cfg: PerfConfig): BaselineIdentity {
   return {
     spurTree: spurTreeOf(baseSpurDir),
     campaignSha: sha256(fs.readFileSync(campaignTemplate, "utf8")),
-    benchSha: sha256(fs.readFileSync(resolveRoot(cfg.benchTemplate), "utf8")),
     specSha: sha256(fs.readFileSync(resolveRoot(cfg.spec), "utf8")),
     rayonThreads: cfg.budgets.rayonThreads,
     campaignWallSec: cfg.budgets.campaignWallSec,
-    benchRunsPerConfig: cfg.budgets.benchRunsPerConfig,
   };
 }
 
 function identityKey(id: BaselineIdentity): string {
   return [
-    id.spurTree.slice(0, 12), id.campaignSha.slice(0, 8), id.benchSha.slice(0, 8), id.specSha.slice(0, 8),
-    id.rayonThreads, id.campaignWallSec, id.benchRunsPerConfig,
+    id.spurTree.slice(0, 12), id.campaignSha.slice(0, 8), id.specSha.slice(0, 8),
+    id.rayonThreads, id.campaignWallSec,
   ].join("|");
 }
 
 function cacheFileFor(id: BaselineIdentity): string {
-  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.campaignSha.slice(0, 8)}-${id.campaignWallSec}-${id.benchSha.slice(0, 8)}-${id.benchRunsPerConfig}.json`);
+  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.campaignSha.slice(0, 8)}-${id.campaignWallSec}.json`);
 }
 
 interface BaselineCache {
@@ -205,7 +183,7 @@ interface Measurement {
 }
 
 interface Declaration {
-  tier: Tier;
+  search: Search;
   sharing: Sharing;
   primary: PrimaryKind;
   treatment: { bit: number; name: string } | null;
@@ -223,7 +201,7 @@ interface SessionState {
   base: { bin: string; template: string; spurDir: string };
   identity: BaselineIdentity;
   cacheFile: string;
-  limits: { campaignWallSec: number; benchWallSec: number; minRounds: number; maxRounds: number; rayonThreads: number };
+  limits: { campaignWallSec: number; minRounds: number; maxRounds: number; rayonThreads: number };
   rounds: Array<{ index: number; atIso: string; seed: number; wallSec: number; anomaly: string | null }>;
   finished: boolean;
 }
@@ -238,10 +216,6 @@ function roundDirFor(name: string): string {
 
 function roundFileFor(name: string, index: number): string {
   return path.join(roundDirFor(name), `round-${index}.json`);
-}
-
-function identityFileFor(name: string): string {
-  return path.join(STATE_DIR, `${name}.identity.json`);
 }
 
 function loadState(name: string): SessionState {
@@ -298,7 +272,7 @@ function emit(obj: unknown): void {
  *  when such a mechanism works: it is refused there rather than reported
  *  weakly. */
 export function selectInstrument(d: {
-  tier: Tier; sharing: Sharing; requested: PrimaryKind | null; treatmentBit: number | null; counter: string | null;
+  sharing: Sharing; requested: PrimaryKind | null; treatmentBit: number | null; counter: string | null;
 }): { primary: PrimaryKind } | { refusal: string } {
   const requested = d.requested ?? (d.sharing === "private" ? "within-binary" : "counter");
   if (requested === "within-binary" && d.sharing === "shared") {
@@ -314,9 +288,9 @@ export function selectInstrument(d: {
 }
 
 function declarationOf(flags: Map<string, string>): Declaration {
-  const tierRaw = need(flags, "tier");
-  if (tierRaw !== "identity" && tierRaw !== "relabeling" && tierRaw !== "declared") {
-    throw new Error(`--tier must be identity, relabeling or declared, got ${tierRaw}`);
+  const searchRaw = need(flags, "search");
+  if (searchRaw !== "neutral" && searchRaw !== "affecting") {
+    throw new Error(`--search must be neutral or affecting, got ${searchRaw}`);
   }
   const sharingRaw = need(flags, "sharing");
   if (sharingRaw !== "private" && sharingRaw !== "shared") {
@@ -329,16 +303,16 @@ function declarationOf(flags: Map<string, string>): Declaration {
   const treatment = declaredTreatment(flags);
   const counter = flags.get("counter") ?? null;
   const chosen = selectInstrument({
-    tier: tierRaw, sharing: sharingRaw, requested: primaryRaw ?? null,
+    sharing: sharingRaw, requested: primaryRaw ?? null,
     treatmentBit: treatment?.bit ?? null, counter,
   });
   if ("refusal" in chosen) throw new Error(chosen.refusal);
   const argument = flags.get("argument") ?? "";
-  if (tierRaw === "relabeling" && argument.length < 20) {
-    throw new Error("the relabeling tier owes a written argument that the order being permuted was never load-bearing; pass it as --argument");
+  if (searchRaw === "neutral" && argument.length < 20) {
+    throw new Error("a change declared search-neutral owes a written argument that what it moves was never load-bearing for the search; pass it as --argument");
   }
   return {
-    tier: tierRaw, sharing: sharingRaw, primary: chosen.primary, treatment,
+    search: searchRaw, sharing: sharingRaw, primary: chosen.primary, treatment,
     band: bandOf(flags), counter, argument,
   };
 }
@@ -411,17 +385,9 @@ export function flatCounters(raw: Record<string, unknown> | null): Record<string
   return out;
 }
 
-function workloadConfig(cfg: PerfConfig, workload: Workload, template: string, outPath: string, seed: number): void {
-  if (workload === "bench") {
-    materializeConfig(template, outPath, {
-      runsPerConfig: cfg.budgets.benchRunsPerConfig,
-      sessionSeed: cfg.budgets.benchSeed,
-      dropKeys: CAMPAIGN_ONLY_KEYS,
-    });
-    return;
-  }
+function workloadConfig(template: string, outPath: string, seed: number, wallSec: number): void {
   const raw = JSON.parse(fs.readFileSync(template, "utf8")) as Record<string, unknown>;
-  const campaign = { ...(raw["campaign"] as Record<string, unknown>), wall_budget_sec: cfg.budgets.campaignWallSec };
+  const campaign = { ...(raw["campaign"] as Record<string, unknown>), wall_budget_sec: wallSec };
   materializeConfig(template, outPath, { sessionSeed: seed, extra: { campaign } });
 }
 
@@ -431,19 +397,15 @@ async function measure(
   const dir = path.join(WORK_DIR, name, `${workload}-${side}-r${index}`);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   const configPath = `${dir}.config.json`;
-  workloadConfig(cfg, workload, template, configPath, seed);
-  const wallSec = workload === "campaign" ? cfg.budgets.campaignWallSec : cfg.budgets.benchWallSec;
+  const wallSec = cfg.budgets.campaignWallSec;
+  workloadConfig(template, configPath, seed, wallSec);
   console.error(`[perf] round ${index}: ${side} on ${workload} (${wallSec}s cap)`);
   try {
     const r = await explore({
       binary, configPath, spec: resolveRoot(cfg.spec), outputDir: dir, wallSec,
       rayonThreads: cfg.budgets.rayonThreads,
-      explorer: workload === "campaign" ? "campaign" : "standard",
+      explorer: "campaign",
     });
-    // The bench workload is a fixed amount of work, so a timeout there is a
-    // measurement of nothing; the campaign workload is wall-budgeted and
-    // ends at its budget by design.
-    if (workload === "bench" && r.timedOut) return { measurement: null, error: `${side} bench round ${index} hit the ${wallSec}s cap before its runs finished` };
     if (!r.ok && !r.timedOut) return { measurement: null, error: `${side} ${workload} round ${index} failed: ${r.stderr.slice(-400)}` };
     const session = readSessionSibling(dir);
     if (session === null) return { measurement: null, error: `${side} ${workload} round ${index} wrote no session summary` };
@@ -629,9 +591,8 @@ interface WorkloadReading {
   usPerRun: Ratio;
   // The candidate's steps per run over the baseline's. Steps are a
   // denominator the change can move, so this one is read beside the wall
-  // reading and never divided into it outside the identity tier.
+  // reading and never divided into it.
   stepsPerRun: Ratio;
-  usPerStep: Ratio | null;
   within: Ratio | null;
   withinDetail: WithinReading | null;
   candStepsPerRun: number;
@@ -669,7 +630,7 @@ function pairsOf(rounds: Measurement[][], workload: Workload): Array<{ cand: Mea
   return out;
 }
 
-function workloadReading(rounds: Measurement[][], workload: Workload, tier: Tier, bit: number | null): WorkloadReading {
+function workloadReading(rounds: Measurement[][], workload: Workload, bit: number | null): WorkloadReading {
   const pairs = pairsOf(rounds, workload);
   const candMs = pairs.map((p) => p.cand);
   const baseMs = pairs.map((p) => p.base);
@@ -683,13 +644,6 @@ function workloadReading(rounds: Measurement[][], workload: Workload, tier: Tier
     rps: ratioOf(pairs.map((p) => (p.base.rps > 0 ? p.cand.rps / p.base.rps : 0))),
     usPerRun: ratioOf(pairs.map((p) => (p.cand.usPerRun > 0 ? p.base.usPerRun / p.cand.usPerRun : 0))),
     stepsPerRun: ratioOf(pairs.map((p) => (p.base.stepsPerRun > 0 ? p.cand.stepsPerRun / p.base.stepsPerRun : 0))),
-    usPerStep: tier === "identity"
-      ? ratioOf(pairs.map((p) => {
-        const cand = p.cand.stepsPerRun > 0 ? p.cand.usPerRun / p.cand.stepsPerRun : 0;
-        const base = p.base.stepsPerRun > 0 ? p.base.usPerRun / p.base.stepsPerRun : 0;
-        return cand > 0 ? base / cand : 0;
-      }))
-      : null,
     within: withinRatio,
     // Pooled over the rounds: the cells only ever add, so the share and the
     // matched mask describe the whole sample and not its last round.
@@ -731,8 +685,8 @@ function counterReading(rounds: Measurement[][], workload: Workload, name: strin
 }
 
 /** A candidate observable against the baseline's own round-to-round spread.
- *  The relabeling tier is owed this on high-count observables, never on rare
- *  events. */
+ *  Read on high-count observables - steps per run, end reasons, per-arm
+ *  counts - and never on rare events. */
 interface SpreadCheck { name: string; cand: number; base: number; spread: number; allowed: number; within: boolean }
 
 function spreadCheck(name: string, candValues: number[], baseValues: number[], multiple: number, floor: number): SpreadCheck {
@@ -745,9 +699,9 @@ function spreadCheck(name: string, candValues: number[], baseValues: number[], m
   return { name, cand, base, spread, allowed, within: Math.abs(cand - base) <= allowed };
 }
 
-function relabelChecks(rounds: Measurement[][], cfg: PerfConfig): SpreadCheck[] {
+function searchNeutralityChecks(rounds: Measurement[][], cfg: PerfConfig): SpreadCheck[] {
   const out: SpreadCheck[] = [];
-  const mult = cfg.floors.relabelSpreadMultiple;
+  const mult = cfg.floors.spreadMultiple;
   const floor = cfg.floors.minEffect;
   for (const workload of WORKLOADS) {
     const pairs = pairsOf(rounds, workload);
@@ -775,26 +729,6 @@ function relabelChecks(rounds: Measurement[][], cfg: PerfConfig): SpreadCheck[] 
   return out;
 }
 
-interface IdentityRecord {
-  atIso: string;
-  candBin: string;
-  baseBin: string;
-  runs: number;
-  identical: boolean;
-  differing: number;
-  firstDiffering: Array<{ run_id: number; field: string; cand: string | number; base: string | number }>;
-}
-
-function loadIdentityRecord(name: string): IdentityRecord | null {
-  const file = identityFileFor(name);
-  if (!fs.existsSync(file)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8")) as IdentityRecord;
-  } catch {
-    return null;
-  }
-}
-
 interface Reading {
   name: string;
   declaration: Declaration;
@@ -804,8 +738,7 @@ interface Reading {
   floors: { crossBinary: number; withinBinary: number; counter: number };
   workloads: WorkloadReading[];
   counter: CounterReading | null;
-  identity: IdentityRecord | null;
-  relabel: SpreadCheck[] | null;
+  searchNeutrality: SpreadCheck[];
   baselineSpread: Array<{ workload: Workload; rounds: number; meanRps: number; spread: number }>;
   primary: {
     kind: PrimaryKind;
@@ -821,9 +754,8 @@ interface Reading {
   adviceReason: string;
 }
 
-/** The objective is runs per second on both workloads, so the primary is read
- *  on the campaign workload and the bench workload is its second reading; a
- *  gain the two workloads disagree about is not a gain. */
+/** The merge criterion the frozen declarations picked, read on the campaign
+ *  workload. */
 function primaryRatioOf(w: WorkloadReading, kind: PrimaryKind, counter: CounterReading | null): Ratio | null {
   if (kind === "within-binary") return w.within;
   if (kind === "counter") return counter === null ? null : counter.ratio;
@@ -833,8 +765,8 @@ function primaryRatioOf(w: WorkloadReading, kind: PrimaryKind, counter: CounterR
 function buildReading(state: SessionState, cfg: PerfConfig, rounds: Measurement[][]): Reading {
   const d = state.declaration;
   const bit = d.treatment?.bit ?? null;
-  const workloads = WORKLOADS.map((w) => workloadReading(rounds, w, d.tier, bit));
-  const counter = d.counter === null ? null : counterReading(rounds, "bench", d.counter);
+  const workloads = WORKLOADS.map((w) => workloadReading(rounds, w, bit));
+  const counter = d.counter === null ? null : counterReading(rounds, "campaign", d.counter);
   const floors = {
     crossBinary: Math.max(cfg.floors.layoutFloor, cfg.floors.minEffect),
     withinBinary: cfg.floors.minEffect,
@@ -842,11 +774,8 @@ function buildReading(state: SessionState, cfg: PerfConfig, rounds: Measurement[
   };
   const floor = d.primary === "cross-binary" ? floors.crossBinary : d.primary === "within-binary" ? floors.withinBinary : floors.counter;
   const campaign = workloads[0] as WorkloadReading;
-  const bench = workloads[1] as WorkloadReading;
-  const primaryWorkload: Workload = d.primary === "counter" ? "bench" : "campaign";
-  const primaryRatio = primaryRatioOf(d.primary === "counter" ? bench : campaign, d.primary, counter);
-  const identity = loadIdentityRecord(state.name);
-  const relabel = d.tier === "relabeling" ? relabelChecks(rounds, cfg) : null;
+  const primaryRatio = primaryRatioOf(campaign, d.primary, counter);
+  const searchNeutrality = searchNeutralityChecks(rounds, cfg);
   const cache = loadCache(state.cacheFile);
   const baselineSpread = WORKLOADS.map((w) => {
     const rps = (cache?.rounds ?? []).flatMap((r) => r.measurements.filter((m) => m.workload === w).map((m) => m.rps));
@@ -855,17 +784,12 @@ function buildReading(state: SessionState, cfg: PerfConfig, rounds: Measurement[
 
   const blockers: string[] = [];
   const n = rounds.length;
-  if (d.tier === "identity") {
-    if (identity === null) blockers.push("the identity tier owes an equality check; run `identity` for this session");
-    else if (!identity.identical) blockers.push(`the identity check found ${identity.differing} of ${identity.runs} runs differing: the declared tier is refuted`);
-  }
-  if (d.tier === "relabeling") {
-    const failed = (relabel ?? []).filter((c) => !c.within);
-    if (failed.length > 0) blockers.push(`the relabeling check reads outside the baseline's own spread on: ${failed.map((c) => c.name).join(", ")}`);
-    if (d.argument.length < 20) blockers.push("the relabeling tier owes a written argument that the order was never load-bearing");
-  }
-  if (d.tier === "declared") {
-    blockers.push("a declared change owes the search loop's non-inferiority reading and its protocol panel; record both in the log, and clear this with a written reason");
+  const moved = searchNeutrality.filter((c) => !c.within);
+  if (d.search === "neutral") {
+    if (moved.length > 0) blockers.push(`the candidate reads outside the baseline's own spread on: ${moved.map((c) => c.name).join(", ")}; the neutral declaration is refuted`);
+    if (d.argument.length < 20) blockers.push("a change declared search-neutral owes a written argument that what it moves was never load-bearing for the search");
+  } else {
+    blockers.push("a change that alters the search owes the search loop's non-inferiority reading and its protocol panel; record both in the log, and clear this with a written reason");
   }
   if (d.sharing === "shared" && d.counter === null) {
     blockers.push("a saving declared shared names no per-run counter, so wall time is the only read and it is confirmation, not a primary");
@@ -885,11 +809,12 @@ function buildReading(state: SessionState, cfg: PerfConfig, rounds: Measurement[
 
   const separated = primaryRatio !== null && separates(primaryRatio, floor);
   const bandReading = primaryRatio === null ? null : bandReadingOf(primaryRatio, d.band);
-  // Search quality can only block: the second workload can refuse a gain the
-  // primary reports, and can never supply one.
-  const secondary = d.primary === "counter" ? campaign.rps : bench.rps;
-  if (separated && (primaryRatio?.mean ?? 1) > 1 && separates(secondary, floors.crossBinary) && secondary.mean < 1) {
-    blockers.push("the two workloads disagree: the second workload's runs per second separates downward while the primary reads up");
+  // A counter is the primary a shared saving is read on; the campaign
+  // workload's runs per second confirms it and can refuse it, and never
+  // supplies a gain of its own.
+  const secondary = d.primary === "counter" ? campaign.rps : null;
+  if (separated && (primaryRatio?.mean ?? 1) > 1 && secondary !== null && separates(secondary, floors.crossBinary) && secondary.mean < 1) {
+    blockers.push("the declared counter reads a gain the campaign workload contradicts: its runs per second separates downward while the counter reads up");
   }
 
   let verdict = "inconclusive";
@@ -925,11 +850,10 @@ function buildReading(state: SessionState, cfg: PerfConfig, rounds: Measurement[
     floors,
     workloads,
     counter,
-    identity,
-    relabel,
+    searchNeutrality,
     baselineSpread,
     primary: primaryRatio === null ? null : {
-      kind: d.primary, workload: primaryWorkload, ratio: primaryRatio, floor, separated,
+      kind: d.primary, workload: "campaign", ratio: primaryRatio, floor, separated,
       band: d.band, bandReading,
     },
     blockers,
@@ -962,7 +886,7 @@ function baseSpurDirOf(flags: Map<string, string>): string {
 
 async function cmdStart(flags: Map<string, string>): Promise<void> {
   const cfg = perfConfig();
-  const policy = policyFor(cfg);
+  const policy = policyFor();
   refuseIfLoopActive();
   diskGuard(policy);
   const name = need(flags, "name");
@@ -975,7 +899,7 @@ async function cmdStart(flags: Map<string, string>): Promise<void> {
     if (!fs.existsSync(p)) throw new Error(`${label} ${p} does not exist`);
   }
   for (const t of [baseTemplate, candTemplate]) {
-    if (!templateHasCampaign(t)) throw new Error(`${t} carries no campaign block; the campaign workload is one of the two the objective is read on`);
+    if (!templateHasCampaign(t)) throw new Error(`${t} carries no campaign block; the objective is read on the campaign workload`);
   }
   const declaration = declarationOf(flags);
   const baseSpurDir = baseSpurDirOf(flags);
@@ -995,7 +919,6 @@ async function cmdStart(flags: Map<string, string>): Promise<void> {
     cacheFile,
     limits: {
       campaignWallSec: cfg.budgets.campaignWallSec,
-      benchWallSec: cfg.budgets.benchWallSec,
       minRounds: cfg.budgets.minRounds,
       maxRounds: cfg.budgets.maxRounds,
       rayonThreads: cfg.budgets.rayonThreads,
@@ -1020,7 +943,7 @@ async function cmdStart(flags: Map<string, string>): Promise<void> {
 
 async function cmdRound(flags: Map<string, string>): Promise<void> {
   const cfg = perfConfig();
-  const policy = policyFor(cfg);
+  const policy = policyFor();
   const state = loadState(need(flags, "name"));
   refuseIfLoopActive();
   diskGuard(policy);
@@ -1033,8 +956,8 @@ async function cmdRound(flags: Map<string, string>): Promise<void> {
   const measurements: Measurement[] = [];
   let anomaly: string | null = null;
   for (const workload of WORKLOADS) {
-    // Alternate which side goes first, so a drift over the round cancels
-    // between the two workloads rather than favouring one side.
+    // Alternate which side goes first, so a drift across the session cancels
+    // between rounds rather than favouring one side.
     const order: Array<[Side, string, string]> = index % 2 === 0
       ? [["base", state.base.bin, state.base.template], ["cand", state.cand.bin, state.cand.template]]
       : [["cand", state.cand.bin, state.cand.template], ["base", state.base.bin, state.base.template]];
@@ -1095,7 +1018,7 @@ async function cmdFinish(flags: Map<string, string>): Promise<void> {
 
 async function cmdBaseline(flags: Map<string, string>): Promise<void> {
   const cfg = perfConfig();
-  const policy = policyFor(cfg);
+  const policy = policyFor();
   refuseIfLoopActive();
   diskGuard(policy);
   const target = Number(need(flags, "rounds"));
@@ -1142,118 +1065,121 @@ async function cmdBaseline(flags: Map<string, string>): Promise<void> {
   if (cache.rounds.length < target) process.exitCode = 1;
 }
 
-// The columns an execution is identified by. Wall time and session offsets
-// are the measurement, not the execution, so they play no part.
-const IDENTITY_COLUMNS = ["arm", "config_index", "steps_used", "end_reason", "variant", "timers_fired", "timers_acted", "max_inert_streak"] as const;
+// Samples per second per thread. High enough to rank symbols over a short
+// wall, low enough that the recorder is not itself the workload.
+const PROFILE_HZ = 199;
+// A profile is read for its shape, so its seed is fixed rather than drawn:
+// two profiles of one tree are then comparable.
+const PROFILE_SEED = 1000;
+// Grace past the session's own wall budget for the recorder to finalize its
+// output after the explorer exits.
+const PROFILE_TAIL_MS = 120_000;
+// The reporter's floor on a symbol's share, in percent.
+const PROFILE_PERCENT_LIMIT = 1;
 
-async function runIdentityWorkload(cfg: PerfConfig, binary: string, side: string): Promise<RunRow[]> {
-  const dir = path.join(WORK_DIR, "identity", side);
-  fs.mkdirSync(path.dirname(dir), { recursive: true });
-  const configPath = `${dir}.config.json`;
-  materializeConfig(resolveRoot(cfg.benchTemplate), configPath, {
-    runsPerConfig: cfg.budgets.identityRunsPerConfig,
-    sessionSeed: cfg.budgets.identitySeed,
-    dropKeys: CAMPAIGN_ONLY_KEYS,
-  });
+interface ProfileSnapshot { ok: boolean; text: string; demangled: boolean }
+
+// perf does not demangle Rust v0 symbols; rustfilt does. Without it the
+// report keeps mangled names, which is worse to read but still ranked.
+function demangle(report: string): { text: string; demangled: boolean } {
   try {
-    const r = await explore({
-      binary, configPath, spec: resolveRoot(cfg.spec), outputDir: dir,
-      wallSec: cfg.budgets.benchWallSec, rayonThreads: cfg.budgets.identityThreads, explorer: "standard",
-    });
-    if (r.timedOut) throw new Error(`the ${side} identity workload hit the ${cfg.budgets.benchWallSec}s cap; an identity check needs its fixed run count to complete`);
-    if (!r.ok) throw new Error(`the ${side} identity workload failed: ${r.stderr.slice(-400)}`);
-    return await runsTable(dir);
-  } finally {
-    try { cleanupDir(dir); } catch { /* the directory may never have been created */ }
-    for (const sib of [".session.json", ".utilization.json", ".log", ".config.json"]) fs.rmSync(`${dir}${sib}`, { force: true });
+    return { text: execFileSync("rustfilt", { input: report, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }), demangled: true };
+  } catch {
+    return { text: report, demangled: false };
   }
 }
 
-async function cmdIdentity(flags: Map<string, string>): Promise<void> {
-  const cfg = perfConfig();
-  const policy = policyFor(cfg);
-  refuseIfLoopActive();
-  diskGuard(policy);
-  const candBin = path.resolve(need(flags, "cand-bin"));
-  const baseBin = path.resolve(need(flags, "base-bin"));
-  const candRows = await runIdentityWorkload(cfg, candBin, "cand");
-  const baseRows = await runIdentityWorkload(cfg, baseBin, "base");
-  const baseById = new Map(baseRows.map((r) => [r.run_id, r]));
-  const firstDiffering: IdentityRecord["firstDiffering"] = [];
-  let differing = 0;
-  for (const cand of candRows) {
-    const base = baseById.get(cand.run_id);
-    if (base === undefined) {
-      differing++;
-      if (firstDiffering.length < 10) firstDiffering.push({ run_id: cand.run_id, field: "run", cand: "present", base: "absent" });
-      continue;
+// The kernel refuses to record a user-space profile above this setting.
+function paranoidLevel(): number | null {
+  try {
+    return Number.parseInt(fs.readFileSync("/proc/sys/kernel/perf_event_paranoid", "utf8").trim(), 10);
+  } catch {
+    return null;
+  }
+}
+
+/** A flat sampled profile of the workload rounds are measured on. The
+ *  configuration comes from the same builder `round` uses, so the profile and
+ *  the measurement cannot name different work. */
+async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number): Promise<ProfileSnapshot> {
+  const dir = path.join(WORK_DIR, "profile");
+  const configPath = `${dir}.config.json`;
+  const perfData = `${dir}.perf.data`;
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  workloadConfig(resolveRoot(cfg.campaignTemplate), configPath, PROFILE_SEED, wallSec);
+  try {
+    const rec = await run("perf", [
+      "record", "-F", String(PROFILE_HZ), "-o", perfData, "--",
+      binary, "explore", "-e", "campaign", "--config", configPath, "-y", "--output-dir", dir,
+      resolveRoot(cfg.spec),
+    ], {
+      timeoutMs: wallSec * 1000 + PROFILE_TAIL_MS,
+      cwd: ROOT,
+      env: { ...process.env, RAYON_NUM_THREADS: String(cfg.budgets.rayonThreads), RUST_LOG: "warn" },
+    });
+    // A nonzero exit that still left samples behind is reportable; nothing
+    // written is not, and a killed recorder is the usual way that happens.
+    if (!fs.existsSync(perfData)) {
+      return { ok: false, text: `perf record wrote no samples${rec.timedOut ? " before the cap" : ""}: ${rec.stderr.slice(-400)}`, demangled: false };
     }
-    let same = true;
-    for (const field of IDENTITY_COLUMNS) {
-      if (cand[field] === base[field]) continue;
-      same = false;
-      if (firstDiffering.length < 10) firstDiffering.push({ run_id: cand.run_id, field, cand: cand[field], base: base[field] });
+    // No call graph is recorded: the report is ranked by self time, so
+    // collected stacks would be written and discarded.
+    const rep = await run("perf", [
+      "report", "--stdio", "--percent-limit", String(PROFILE_PERCENT_LIMIT),
+      "--no-children", "--no-inline", "-g", "none", "-i", perfData,
+    ], { timeoutMs: 120_000, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
+    if (!rep.ok) return { ok: false, text: `perf report failed: ${rep.stderr.slice(-400)}`, demangled: false };
+    const { text, demangled } = demangle(rep.stdout);
+    const lines = text.split("\n").filter((l) => !l.startsWith("#") || l.includes("Overhead"));
+    if (lines.filter((l) => l.trim().length > 0 && !l.startsWith("#")).length === 0) {
+      return { ok: false, text: "perf report carries no symbol above the cutoff", demangled };
     }
-    if (!same) differing++;
+    return { ok: true, text: lines.join("\n"), demangled };
+  } finally {
+    fs.rmSync(perfData, { force: true });
+    fs.rmSync(configPath, { force: true });
+    try { cleanupDir(dir); } catch { /* the directory may never have been created */ }
+    for (const sib of [".session.json", ".utilization.json", ".campaign.json", ".log"]) fs.rmSync(`${dir}${sib}`, { force: true });
   }
-  for (const base of baseRows) {
-    if (candRows.some((c) => c.run_id === base.run_id)) continue;
-    differing++;
-    if (firstDiffering.length < 10) firstDiffering.push({ run_id: base.run_id, field: "run", cand: "absent", base: "present" });
-  }
-  const record: IdentityRecord = {
-    atIso: new Date().toISOString(),
-    candBin, baseBin,
-    runs: Math.max(candRows.length, baseRows.length),
-    identical: differing === 0,
-    differing,
-    firstDiffering,
-  };
-  const name = flags.get("name");
-  if (name !== undefined) {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
-    fs.writeFileSync(identityFileFor(name), JSON.stringify(record, null, 1));
-  }
-  emit({
-    phase: "finished",
-    ...record,
-    columns: IDENTITY_COLUMNS,
-    workload: { template: cfg.benchTemplate, runsPerConfig: cfg.budgets.identityRunsPerConfig, seed: cfg.budgets.identitySeed, threads: cfg.budgets.identityThreads },
-    file: name === undefined ? null : path.relative(ROOT, identityFileFor(name)),
-  });
 }
 
 async function cmdProfile(flags: Map<string, string>): Promise<void> {
   const cfg = perfConfig();
-  const policy = policyFor(cfg);
   refuseIfLoopActive();
-  diskGuard(policy);
+  diskGuard(policyFor());
   const binary = path.resolve(flags.get("binary") ?? path.join(ROOT, "spur", "target", "release", "spur"));
   if (!fs.existsSync(binary)) throw new Error(`${binary} does not exist; build it first`);
+  const wallSec = Number(flags.get("wall-sec") ?? cfg.budgets.profileWallSec);
+  if (!Number.isFinite(wallSec) || wallSec <= 0) throw new Error(`--wall-sec must be a positive number of seconds, got ${flags.get("wall-sec")}`);
+  const paranoid = paranoidLevel();
+  if (paranoid !== null && paranoid > 2) {
+    throw new Error(`kernel.perf_event_paranoid is ${paranoid}; perf record needs 2 or lower (sysctl -w kernel.perf_event_paranoid=1)`);
+  }
   const label = spurLabelOf(path.join(ROOT, "spur"));
-  const snap = await collectProfile(policy, binary);
-  fs.mkdirSync(PROFILE_DIR, { recursive: true });
-  const file = path.join(PROFILE_DIR, `${label}.md`);
+  const snap = await recordProfile(cfg, binary, wallSec);
   if (!snap.ok) {
-    emit({
-      phase: "error", file: null, spur: label, ok: false, detail: snap.text,
-      hint: "perf needs kernel.perf_event_paranoid <= 2 and rustfilt on PATH for readable Rust symbols",
-    });
+    emit({ phase: "error", file: null, spur: label, ok: false, detail: snap.text });
     process.exitCode = 1;
     return;
   }
+  fs.mkdirSync(PROFILE_DIR, { recursive: true });
+  const file = path.join(PROFILE_DIR, `${label}.md`);
   fs.writeFileSync(file, [
     `# Profile: spur ${label}`,
     "",
-    `Workload: ${cfg.benchTemplate} on ${cfg.spec} at ${policy.evaluation.rayonThreads} threads.`,
+    `Workload: ${cfg.campaignTemplate} under the campaign explorer on ${cfg.spec}, ${cfg.budgets.rayonThreads} threads, ${wallSec}s.`,
     "Flat sampled profile, self time, symbols above the reporter's cutoff.",
+    snap.demangled ? "" : "Symbols are mangled: rustfilt is not on PATH.",
     "",
     "```",
     snap.text.trimEnd(),
     "```",
     "",
-  ].join("\n"));
-  emit({ phase: "finished", file: path.relative(ROOT, file), spur: label, ok: true, lines: snap.text.split("\n").length });
+  ].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n"));
+  emit({
+    phase: "finished", file: path.relative(ROOT, file), spur: label, ok: true,
+    wallSec, threads: cfg.budgets.rayonThreads, demangled: snap.demangled, lines: snap.text.split("\n").length,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1287,17 +1213,17 @@ async function cmdSelftest(): Promise<void> {
   // Instrument selection. Both refusals happen at start, before a round is
   // bought, because both would otherwise be discovered as a reading nobody
   // can interpret.
-  const shared = selectInstrument({ tier: "declared", sharing: "shared", requested: "within-binary", treatmentBit: 1, counter: "a.b" });
+  const shared = selectInstrument({ sharing: "shared", requested: "within-binary", treatmentBit: 1, counter: "a.b" });
   check("refusal" in shared, "a session declared shared must be refused a within-binary primary");
-  const noBit = selectInstrument({ tier: "identity", sharing: "private", requested: null, treatmentBit: null, counter: null });
+  const noBit = selectInstrument({ sharing: "private", requested: null, treatmentBit: null, counter: null });
   check("refusal" in noBit, "a session declared private must be refused when it registers no treatment bit");
-  const privateOk = selectInstrument({ tier: "identity", sharing: "private", requested: null, treatmentBit: 1, counter: null });
+  const privateOk = selectInstrument({ sharing: "private", requested: null, treatmentBit: 1, counter: null });
   check("primary" in privateOk && privateOk.primary === "within-binary", "a private declaration with a bit reads on the within-binary contrast");
-  const sharedOk = selectInstrument({ tier: "relabeling", sharing: "shared", requested: null, treatmentBit: null, counter: "alloc.bytes" });
+  const sharedOk = selectInstrument({ sharing: "shared", requested: null, treatmentBit: null, counter: "alloc.bytes" });
   check("primary" in sharedOk && sharedOk.primary === "counter", "a shared declaration with a named counter reads on that counter");
-  const sharedNoCounter = selectInstrument({ tier: "relabeling", sharing: "shared", requested: null, treatmentBit: null, counter: null });
+  const sharedNoCounter = selectInstrument({ sharing: "shared", requested: null, treatmentBit: null, counter: null });
   check("refusal" in sharedNoCounter, "a shared declaration with no named counter must be refused the counter primary");
-  const fallback = selectInstrument({ tier: "relabeling", sharing: "shared", requested: "cross-binary", treatmentBit: null, counter: null });
+  const fallback = selectInstrument({ sharing: "shared", requested: "cross-binary", treatmentBit: null, counter: null });
   check("primary" in fallback && fallback.primary === "cross-binary", "a shared declaration may fall back to the cross-binary read");
 
   // The ratio statistics, on known numbers.
@@ -1338,41 +1264,36 @@ async function cmdSelftest(): Promise<void> {
   const empty = withinBinary(fixtureCells([{ variant: 0, runs: 100, us: 1000, steps: 100 }]), 1024);
   check(!empty.applies, "a bit no run carries has no within-binary contrast");
 
-  // A synthetic session: three rounds, the candidate a known tenth faster on
-  // both workloads, its treated runs a known fifth cheaper, and its declared
-  // counter down by a known half.
+  // A synthetic session: three rounds, the candidate a known tenth faster,
+  // its treated runs a known fifth cheaper, and its declared counter down by
+  // a known half.
   const synthRounds: Measurement[][] = [0, 1, 2].map((i) => [
     fixtureMeasurement("campaign", "base", 1000 + i, 1000, 100_000, 1000, 100, fixtureCells([{ variant: 0, runs: 1000, us: 1000, steps: 100 }]), { "alloc.count": 4000 }),
     fixtureMeasurement("campaign", "cand", 1000 + i, 1100, 100_000, 900, 100, cells, { "alloc.count": 2200 }),
-    fixtureMeasurement("bench", "base", 1000 + i, 2000, 200_000, 1000, 100, fixtureCells([{ variant: 0, runs: 2000, us: 1000, steps: 100 }]), { "alloc.count": 8000 }),
-    fixtureMeasurement("bench", "cand", 1000 + i, 2000, 181_818.1818181818, 900, 100, cells, { "alloc.count": 4000 }),
   ]);
   const synthState: SessionState = {
     name: "selftest-synthetic", createdAtIso: new Date().toISOString(), note: "",
-    declaration: { tier: "identity", sharing: "private", primary: "within-binary", treatment: { bit: 1024, name: "stallCap" }, band: { min: 1.1, max: 1.4 }, counter: "alloc.count", argument: "" },
+    declaration: { search: "neutral", sharing: "private", primary: "within-binary", treatment: { bit: 1024, name: "stallCap" }, band: { min: 1.1, max: 1.4 }, counter: "alloc.count", argument: "the cap is a per-run budget no random draw is consumed from" },
     cand: { bin: "", template: "", spec: cfg.spec, spurLabel: "" },
     base: { bin: "", template: "", spurDir: "" },
-    identity: { spurTree: "t", campaignSha: "c", benchSha: "b", specSha: "s", rayonThreads: 1, campaignWallSec: 1, benchRunsPerConfig: 1 },
+    identity: { spurTree: "t", campaignSha: "c", specSha: "s", rayonThreads: 1, campaignWallSec: 1 },
     cacheFile: path.join(BASELINE_DIR, "selftest-absent.json"),
-    limits: { campaignWallSec: 1, benchWallSec: 1, minRounds: cfg.budgets.minRounds, maxRounds: cfg.budgets.maxRounds, rayonThreads: 1 },
+    limits: { campaignWallSec: 1, minRounds: cfg.budgets.minRounds, maxRounds: cfg.budgets.maxRounds, rayonThreads: 1 },
     rounds: [], finished: false,
   };
   const reading = buildReading(synthState, cfg, synthRounds);
   const campaign = reading.workloads[0];
-  const bench = reading.workloads[1];
+  check(reading.workloads.length === 1, `a reading carries the campaign workload alone, got ${reading.workloads.length} workloads`);
   check(campaign !== undefined && Math.abs(campaign.rps.mean - 1.1) < 1e-9, `the campaign workload must read a tenth more runs per second, got ${campaign?.rps.mean}`);
-  check(bench !== undefined && Math.abs(bench.rps.mean - 1.1) < 1e-9, `the bench workload must read a tenth more runs per second, got ${bench?.rps.mean}`);
   check(campaign !== undefined && Math.abs((campaign.usPerRun.mean) - 1000 / 900) < 1e-9, `microseconds per run must read the baseline over the candidate, got ${campaign?.usPerRun.mean}`);
   check(campaign !== undefined && Math.abs(campaign.stepsPerRun.mean - 1) < 1e-9, "steps per run must read one when neither side moved");
-  check(campaign?.usPerStep !== null && campaign?.usPerStep !== undefined, "the identity tier may read microseconds per step");
-  check(bench?.usPerStep !== null, "the identity tier may read microseconds per step on both workloads");
   check(reading.primary !== null && reading.primary.kind === "within-binary" && Math.abs(reading.primary.ratio.mean - 1.25) < 1e-9,
     `the primary must be the within-binary contrast at 1.25, got ${JSON.stringify(reading.primary?.ratio.mean)}`);
   check(reading.primary?.bandReading === "inside", `1.25 must read inside the frozen band [1.1, 1.4], got ${reading.primary?.bandReading}`);
   check(reading.counter !== null && Math.abs(reading.counter.ratio.mean - 2) < 1e-9, `the declared counter must read a halving as two, got ${reading.counter?.ratio.mean}`);
   check(reading.counter?.presentOnBothSides === true, "a counter present on both sides is not a blocker");
   check(reading.adviceVerdict === "gain", `the synthetic session must read a gain, got ${reading.adviceVerdict}: ${reading.adviceReason}`);
-  check(reading.blockers.some((b) => b.includes("identity tier owes")), "an identity-tier session with no equality check owes one");
+  check(reading.blockers.length === 0, `a neutral session whose observables held their distributions owes nothing, got ${JSON.stringify(reading.blockers)}`);
 
   // The same session read on a primary its declaration refuses to support.
   const noReading = buildReading({ ...synthState, declaration: { ...synthState.declaration, treatment: null, primary: "within-binary" } }, cfg, synthRounds);
@@ -1392,12 +1313,23 @@ async function cmdSelftest(): Promise<void> {
   const slowNoBand = buildReading({ ...synthState, declaration: { ...synthState.declaration, band: null } }, cfg, slowRounds);
   check(slowNoBand.adviceVerdict === "regressed", `a slower candidate with no frozen band must read regressed, got ${slowNoBand.adviceVerdict}`);
 
-  // The relabeling check reads a moved observable against the baseline's own
+  // The spread check reads a moved observable against the baseline's own
   // round-to-round spread, and is silent when nothing moved.
-  const steady = spreadCheck("steps per run", [100, 100, 100], [100.1, 99.9, 100.0], cfg.floors.relabelSpreadMultiple, cfg.floors.minEffect);
+  const steady = spreadCheck("steps per run", [100, 100, 100], [100.1, 99.9, 100.0], cfg.floors.spreadMultiple, cfg.floors.minEffect);
   check(steady.within, `an unmoved observable must sit inside the baseline spread, got ${JSON.stringify(steady)}`);
-  const moved = spreadCheck("steps per run", [140, 140, 140], [100.1, 99.9, 100.0], cfg.floors.relabelSpreadMultiple, cfg.floors.minEffect);
+  const moved = spreadCheck("steps per run", [140, 140, 140], [100.1, 99.9, 100.0], cfg.floors.spreadMultiple, cfg.floors.minEffect);
   check(!moved.within, `an observable moved well past the baseline spread must read outside, got ${JSON.stringify(moved)}`);
+
+  // The same check on a whole session: it blocks the candidate that declared
+  // the search unchanged, and is reported without blocking the one that
+  // admits the search moves.
+  const movedRounds = synthRounds.map((r) => r.map((m) => (m.side === "cand" ? { ...m, stepsPerRun: m.stepsPerRun * 1.4 } : m)));
+  const neutralMoved = buildReading(synthState, cfg, movedRounds);
+  check(neutralMoved.blockers.some((b) => b.includes("campaign steps per run")), `a neutral candidate whose steps per run left the baseline spread must block, got ${JSON.stringify(neutralMoved.blockers)}`);
+  const affectingMoved = buildReading({ ...synthState, declaration: { ...synthState.declaration, search: "affecting" } }, cfg, movedRounds);
+  check(affectingMoved.searchNeutrality.some((c) => !c.within), "the spread check is computed whatever the declaration says");
+  check(!affectingMoved.blockers.some((b) => b.includes("outside the baseline")), "a candidate that admits the search moves is not blocked by the spread check");
+  check(affectingMoved.blockers.some((b) => b.includes("non-inferiority")), "a candidate that admits the search moves owes the search loop's reading");
 
   // The counter path: a counter the dump does not carry blocks, and one that
   // did not move blocks.
@@ -1418,24 +1350,38 @@ async function cmdSelftest(): Promise<void> {
 
   // The baseline cache identity: what makes two measurements the same
   // quantity, and nothing else.
-  const idA: BaselineIdentity = { spurTree: "aaaaaaaaaaaa", campaignSha: "cccccccc", benchSha: "bbbbbbbb", specSha: "ssssssss", rayonThreads: 30, campaignWallSec: 120, benchRunsPerConfig: 2000 };
+  const idA: BaselineIdentity = { spurTree: "aaaaaaaaaaaa", campaignSha: "cccccccc", specSha: "ssssssss", rayonThreads: 30, campaignWallSec: 120 };
   check(identityKey(idA) === identityKey({ ...idA }), "an identity is its own key");
   check(identityKey(idA) !== identityKey({ ...idA, rayonThreads: 29 }), "a different thread count is a different quantity");
-  check(identityKey(idA) !== identityKey({ ...idA, benchRunsPerConfig: 1000 }), "a different bench run count is a different quantity");
+  check(identityKey(idA) !== identityKey({ ...idA, specSha: "tttttttt" }), "a different spec is a different quantity");
   check(cacheFileFor(idA) !== cacheFileFor({ ...idA, campaignWallSec: 240 }), "a different campaign wall budget writes a different cache file");
 
   // Configuration and tools.
   for (const [label, p] of [
-    ["goal file", cfg.goalFile], ["spec", cfg.spec], ["campaign template", cfg.campaignTemplate], ["bench template", cfg.benchTemplate],
+    ["goal file", cfg.goalFile], ["spec", cfg.spec], ["campaign template", cfg.campaignTemplate],
   ] as const) {
     if (!fs.existsSync(resolveRoot(p))) failures.push(`the configured ${label} ${p} is missing`);
   }
   if (fs.existsSync(resolveRoot(cfg.campaignTemplate)) && !templateHasCampaign(resolveRoot(cfg.campaignTemplate))) {
     failures.push(`the configured campaign template ${cfg.campaignTemplate} carries no campaign block`);
   }
-  if (fs.existsSync(resolveRoot(cfg.benchTemplate)) && templateHasCampaign(resolveRoot(cfg.benchTemplate))) {
-    failures.push(`the configured bench template ${cfg.benchTemplate} carries a campaign block; the fixed workload runs under the standard explorer`);
+  // The profile and a round are built by one function, so a profile cannot
+  // name work the measurement does not do.
+  if (fs.existsSync(resolveRoot(cfg.campaignTemplate))) {
+    const probe = path.join(WORK_DIR, "selftest.config.json");
+    fs.mkdirSync(path.dirname(probe), { recursive: true });
+    try {
+      workloadConfig(resolveRoot(cfg.campaignTemplate), probe, PROFILE_SEED, cfg.budgets.profileWallSec);
+      const built = JSON.parse(fs.readFileSync(probe, "utf8")) as Record<string, unknown>;
+      const campaign = built["campaign"] as { wall_budget_sec?: number; arms?: unknown[] } | undefined;
+      check(campaign?.wall_budget_sec === cfg.budgets.profileWallSec, "the profile's wall budget must reach the campaign block");
+      check((campaign?.arms ?? []).length > 0, "the profile's configuration must keep the campaign arms");
+    } finally {
+      fs.rmSync(probe, { force: true });
+    }
   }
+  if (cfg.budgets.profileWallSec <= 0) failures.push("profileWallSec must be a positive number of seconds");
+
   const tool = path.join(ROOT, "traceanalyzer", "main");
   if (!fs.existsSync(tool)) failures.push(`${tool} is missing; build it with: cd traceanalyzer && go build -o main main.go`);
   if (cfg.budgets.minRounds < 2) failures.push("minRounds under two leaves no round-to-round spread to read an interval from");
@@ -1452,7 +1398,7 @@ async function cmdSelftest(): Promise<void> {
   const missingBits = variantBitsMissingFromSource();
   if (missingBits.length > 0) warnings.push(`VARIANT_BITS entries with no tag in run_variant.rs: ${missingBits.join(", ")}`);
   if (fs.existsSync(STATE_DIR)) {
-    for (const f of fs.readdirSync(STATE_DIR).filter((x) => x.endsWith(".json") && !x.endsWith(".identity.json"))) {
+    for (const f of fs.readdirSync(STATE_DIR).filter((x) => x.endsWith(".json"))) {
       let st: SessionState;
       try { st = loadState(path.basename(f, ".json")); } catch { continue; }
       const bit = st.declaration?.treatment?.bit;
@@ -1496,11 +1442,10 @@ async function main(): Promise<void> {
     case "status": await cmdStatus(flags); break;
     case "finish": await cmdFinish(flags); break;
     case "baseline": await cmdBaseline(flags); break;
-    case "identity": await cmdIdentity(flags); break;
     case "profile": await cmdProfile(flags); break;
     case "selftest": await cmdSelftest(); break;
     default:
-      throw new Error(`unknown command ${cmd || "(none)"}; use start|round|status|finish|baseline|identity|profile|selftest`);
+      throw new Error(`unknown command ${cmd || "(none)"}; use start|round|status|finish|baseline|profile|selftest`);
   }
 }
 

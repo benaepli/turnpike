@@ -4,10 +4,11 @@ Make the Spur explorer faster: more runs per second at a fixed thread count,
 by removing cost from the simulator (`spur/spur-core/src/simulator/`) and its
 supporting crates - never by changing what the search does.
 
-Success = a merged change whose gain holds on both workloads, the loop's
-campaign template and the fixed bench workload named in
-`research/perf/perf.json`. Two workloads, so the loop cannot tune itself into
-one.
+Success = a merged change that raises runs per second on the campaign
+workload named in `research/perf/perf.json`, at a fixed thread count. That
+workload is wall-budgeted and its allocator and learners adapt as it runs, so
+the goal is a noisy instrument: the per-run counter a change names is the
+sharper read, and the layout floor guards wall time.
 
 ## Core ideas
 
@@ -24,26 +25,23 @@ mechanism did what it claimed. A win nobody can explain through such a
 counter is a suspect win, and a mechanism that counts nothing cannot be told
 apart from one that never ran.
 
-**Declare the semantic tier at admission, and freeze it there.** Failing your
-own declared tier closes the candidate: that is a refuted prediction, which
-is information, not an obstacle.
+**Declare whether the change touches the search at admission, and freeze it
+there.** Failing your own declaration closes the candidate: that is a refuted
+prediction, which is information, not an obstacle.
 
-- *Identity.* Executions are unchanged, checked by equality and not by
-  measurement. Needs a fixed run count, a fixed session seed and a fixed
-  thread count, so the wall-budgeted campaign workload cannot be the identity
-  workload. The check is a diff of the runs tables between the two binaries.
-  Owes nothing further.
-- *Relabeling.* Executions differ, but the change only permutes a collection
-  whose order the algorithm never relied on. Owes a written argument that the
-  order was never load-bearing, plus a distributional check against the
-  baseline's own round-to-round spread, read on high-count observables -
-  steps per run, end reasons, per-arm counts - never on rare events. The
-  trap: if the order changed is the order random draws are consumed in, the
-  permutation correlates choices with the sort key, and this is not a
-  relabeling.
-- *Declared change.* The candidate admits it alters the search. Owes the
+- *Search-neutral.* The change is claimed not to alter what the explorer
+  searches. Owes a written argument saying why - which collection it
+  permutes or which work it drops, and why the search never relied on it -
+  and is guarded by a distributional check against the baseline's own
+  round-to-round spread, read on high-count observables: steps per run, end
+  reasons, per-arm counts, never rare events. A check that reads outside
+  that spread refutes the declaration. The trap: if what changed is the
+  order random draws are consumed in, choices correlate with the new order
+  and the change is not neutral.
+- *Search-affecting.* The candidate admits it alters the search. Owes the
   search loop's non-inferiority reading and its protocol panel, recorded in
-  the log before a merge.
+  the log before a merge. The spread check is still reported there, as
+  description rather than as a gate.
 
 **Declare the sharing profile at admission; it picks the instrument.** Both
 halves of one session share an allocator, a cache hierarchy, a memory bus and
@@ -65,13 +63,11 @@ mechanism works. There is no default instrument.
   win; a wrong call toward shared costs a slower reading of a real one.
 
 **Read microseconds per run and steps per run separately.** Never fuse them
-into microseconds per step outside the identity tier: steps are a denominator
-the change can move, so the fused ratio improves when runs get longer and
-cheaper. At identity the step count is fixed by construction and either
-reading is safe; at relabeling, steps per run being distributionally
-unchanged is itself part of the check, so the read is microseconds per run;
-at declared change neither is clean and the read falls back to the
-cross-binary rate.
+into microseconds per step: steps are a denominator the change can move, so
+the fused ratio improves when runs get longer and cheaper. Steps per run
+holding its distribution is itself part of the search-neutral guard, so the
+wall reading there is microseconds per run; where the search moves, neither
+reading is clean and the read falls back to the cross-binary rate.
 
 **Every cross-binary read needs the layout control.** Two builds of identical
 source differ on the per-second rung by more than many real savings, and
@@ -90,7 +86,7 @@ hypothesis.
 **Search quality can only block, never credit.** A candidate may not claim a
 gain that comes from searching differently; its gain must be cost removed at
 equal search. A change that alters the search as an unavoidable side effect
-of removing cost is admissible at the declared-change tier, where the
+of removing cost is admissible, declared search-affecting, where the
 non-inferiority reading is the price of admission and never a source of
 credit. A candidate whose point is to search differently belongs to the
 search loop, whatever it does to the clock.

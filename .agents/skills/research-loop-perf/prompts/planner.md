@@ -2,7 +2,7 @@
 
 Write a plan for the given hypothesis variant with these sections:
 
-- the hypothesis, with both declarations: semantic tier and sharing profile;
+- the hypothesis, with both declarations: search and sharing profile;
 - the cost being removed, and where the profile shows it;
 - files and mechanisms to change;
 - config surface, if any, and its entry in the explorer's config-key list;
@@ -12,5 +12,6 @@ Write a plan for the given hypothesis variant with these sections:
 - risk flags: does it touch `spur-core/src/simulator/core/exec.rs`,
   `history.rs`, event accounting, the linearizability recording path, or the
   run tagging the grader reads;
-- the grading plan: which instrument the declarations pick, the frozen band
-  on it, whether an identity check is owed, and the expected rounds.
+- the grading plan: which instrument the sharing profile picks, the frozen
+  band on it, the written argument a `neutral` declaration owes, and the
+  expected rounds.
