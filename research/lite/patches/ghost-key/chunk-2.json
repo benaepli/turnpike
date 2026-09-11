@@ -1,0 +1,5 @@
+{
+ "phase": "error",
+ "verdict": "error",
+ "reason": "Maximum call stack size exceeded"
+}

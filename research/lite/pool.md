@@ -3950,27 +3950,31 @@ release and waits), stalled runs as replay parents 3, PCT change points 3
 
 ## ghost-released-crash-exempt-from-fanout-defer-coin
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 81 (rank 1 net 7; bit ghostReleaseDeferExempt 1<<30 nested in
-  the merged release cell, half of it; the session's primary bit) | gain: 7 | cost: 0 | rank: 1
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 81 as unresolved (one recorded chunk; every placement clause
+  met, unanchored within-three 0.90 against 0.71 at zero cost, nested
+  depth8 1.02 and depth9 0.93 unresolved at a 0.23 share; the second
+  chunk's record was lost to a grader stack overflow; patch under
+  research/lite/patches/ghost-key) | gain: 7 | cost: 0 | rank: 1
 - A crash the ghost trigger released is not withheld by the partial-fan-out
   defer coin; the coin is still drawn. Frozen prediction and review:
   `research/lite/plans/iteration-81-admitted.json`.
 
 ## ghost-released-crash-phase-read-as-early-on-ghost-node
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 81 (rank 2 net 6; bit ghostReleasePhaseEarlyOnGhost 1<<29,
-  crossing cell in the same session; acts on the anchored stratum) | gain: 6 | cost: 0 | rank: 2
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 81 (refuted on chunk 1: anchored within-three 0.33 against 0.51
+  on the other half; forcing Early waits on ghost nodes whose reaction
+  issued no send) | gain: 6 | cost: 0 | rank: 2
 - A released crash's phase wait reads the Early condition on the ghost
   node's reaction segment whatever arm was drawn. Frozen prediction and
   review: `research/lite/plans/iteration-81-admitted.json`.
 
 ## ghost-release-keyed-on-stranded-fanout-record
 
-- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
-  iteration 81 (rank 3 net 6; bit ghostReleaseStrandedKey 1<<26, crossing
-  cell in the same session; aimed at the depth5 loss) | gain: 6 | cost: 0 | rank: 3
+- kind: add | category: scheduler | origin: proposer | status: CLOSED at
+  iteration 81 (refuted on chunk 1: nested depth5 0.995 against the required
+  1.01; the skipped entries are not the too-early firings) | gain: 6 | cost: 0 | rank: 3
 - The trigger fires only on an acted entry whose record belongs to the
   restarted node's last pre-crash handler segment. Frozen prediction and
   review: `research/lite/plans/iteration-81-admitted.json`.

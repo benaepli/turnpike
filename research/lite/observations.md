@@ -8802,3 +8802,133 @@ overridden, nested depth8 [1.00, 1.12]), bit ghostReleaseStrandedKey
 half's fired, nested depth5 [1.01, 1.06], nested depth8 [1.00, 1.12]);
 all with steps per run within about 1% and runs per second >= 0.97 of
 the cache median. Full record: research/lite/plans/iteration-81-admitted.json.
+
+
+**Iteration 81 implementation review.** Three nested cells built on the
+merged tree 12b7582 inside the release cell, each on its own salt over
+half of it, crossing each other and the single cell: the defer-coin
+exemption (the coin still drawn on the fault-priority stream, its
+withhold ignored for a released crash), the Early-on-ghost phase read
+(the arm still drawn on the crash-phase stream, the settle evaluated as
+Early on the ghost node's segment, the deadline unchanged), and the
+stranded key (the crashed node's last handler segment's send-ordinal
+range captured before the entry reset, the trigger firing only on an
+acted entry inside that range). Bits 1<<30, 1<<29 and 1<<26 on the
+retired restartAfterPeerSettle, pairOrderGhostOnly and originAlternate
+rows. Every per-cell field exported for the eight crossed cells and the
+six marginal halves. Tests 458 lib plus every integration target, 0
+failed; general_vr.json untouched. The implementer flagged from the
+smoke that the Early-on-ghost half's anchored within-three share read
+below the other half's, a forced Early wait stalling on ghost nodes
+whose reaction segment issued no send, and that the merged single
+cell's stale-mark ranking flaw touches none of the three cells.
+
+**Iteration 81 first chunk.** Seed 1000 against the merged-tree cache
+63a21f95fdfb: 763,560 candidate runs against 757,560 baseline, zero
+failures, zero violations; the parent's trigger armed 237,398 and fired
+92,057 with lag p50/p75/p90 30/69/151. Each nested contrast is the
+release cell with the bit against the release cell without it, matched
+on the phase, retarget, single and the other two session bits (about
+171,000 runs a side).
+
+Defer-coin exemption (1<<30): exempted 285,678 of 572,063 examined
+(0.499, floor 15,000); fired crashes applied within three steps 0.90
+unanchored against 0.71 and 0.47 anchored against 0.37 on the other
+half; bucket_3plus 0.645 against 0.603; crashes per run 2.2026 against
+2.2007; steps per run 0.999. Every placement clause holds. Nested depth8
+1.022 (3,671 against 3,589 events), depth9 0.930 (670 against 720),
+depth10 0.897; the grader's read on this bit 1.0346 [0.9563, 1.1193],
+unresolved; treated over untreated depth8 1.096, depth9 1.15, depth10
+1.24, the parent's own read.
+
+Early-on-ghost (1<<29): overridden 42,174 (floor 20,000; drawn arms
+split 14,022 stock, 14,156 mid, 13,996 early), released on condition
+39,825 (0.944 of overridden, clause 0.85), expired 2,349. The placement
+clause fails the other way: anchored within-three 0.330 on this half
+against 0.512 on the other, where the clause required at least 0.60 and
+refutes if not above by 0.08; nested depth8 0.951 (3,539 against
+3,721), depth9 1.001, depth10 1.000. Forcing Early on a ghost node whose
+reaction segment issued no send waits for that node's next sending
+segment, and the drawn Stock and Mid arms would have released sooner on
+the anchored stratum; refuted on chunk 1 by its own falsifier.
+
+Stranded key (1<<26): stranded fired 40,759 (floor 20,000; 36,943 on the
+origin's first acted entry at that peer, 3,816 on a later one), skipped
+entries 24,169 against the other half's 52,068 fired (0.46x, clause
+0.3x), fired over armed 0.335 (clause [0.25, 0.38]), on-ghost-node 0.864,
+bucket_0 0.074. The decisive clause fails: nested depth5 0.9945 (8,087
+against 8,114) against the required [1.01, 1.06] with refutation below
+1.00, and nested depth8 0.957, depth9 0.904, depth10 1.110. The key
+removes a third of the firings and recovers none of the depth5 loss: the
+entries it skips are not what fires the trigger before the path's
+delivery, so the too-early share of the loss lives elsewhere (the
+sibling record acting first at the peer the path keeps up); refuted on
+chunk 1 by its own falsifier.
+
+Cross-binary, the whole candidate against the merged-tree cache: depth8
+per second 1.041 (inside the layout floor), four-grid per-run 1.021,
+throughput 1.008; the defer half's placement is where the small excess
+sits. Autonomous judgment: the Early and stranded cells close on their
+chunk-1 falsifiers; the defer cell has no early-close clause and no
+resolution, so the second chunk is bought to complete its two-chunk
+minimum and read its depth8 contrast on seed 1001.
+
+**Iteration 81 closed, autonomous.** The second chunk (seed 1001) ran to
+completion, 759,780 runs, zero violations, graded in 174 seconds, and
+the grader then failed with a JavaScript stack overflow while folding it
+into the session ("Maximum call stack size exceeded"); its record was
+not written and the run corpus was deleted as usual, so the chunk's work
+is lost. The candidate's three extra bits multiply the per-variant rows
+in the chunk record to 112,288 against 49,851 for the merged release
+and 17,795 for the stall cap, and the fold over two chunks is where the
+size bites. This is a harness fault for the operator: the grader's
+two-chunk fold overflows the call stack above roughly 100,000 variant
+rows, so a session should carry at most two new bits until the fold is
+made spread-free and iterative; the loop does not edit the grader. The
+session is decided on its one recorded chunk.
+
+Decision: all three cells closed. The Early-on-ghost read and the
+stranded key were refuted on chunk 1 by their own falsifiers (the
+anchored within-three share fell instead of rising; the depth5 loss did
+not move). The defer-coin exemption met every placement clause (fired
+crashes applied within three steps 0.90 against 0.71 on the unanchored
+stratum, 0.47 against 0.37 anchored, half the coin withholds overridden,
+crashes and steps per run flat) and read depth8 1.02 nested, unresolved,
+as its red team said it would at a 0.23 share; it closes as unresolved
+with the placement finding kept: the coin costs the release one to two
+steps on five of six released crashes, and those steps do not carry
+depth. Grader adviceVerdict human on chunk 1. Patch, tests, smoke, the
+recorded chunk, the crash log, gate and pooled-utility records retained
+under research/lite/patches/ghost-key; session
+research/lite/state/ghost-key.json. Main tree unchanged at spur 12b7582;
+ledger unchanged at 1.0736.
+
+**Direction review after iteration 81.** Two rounds at the trigger's key
+found that the merged release lands where it aims (within three steps on
+72% of unanchored firings, 90% with the coin exemption) and that neither
+the landing step nor the phase wait nor the segment key moves depth
+beyond the merged trigger; the depth5 loss is not the earlier-segment
+firings. The session-shape lesson: three nested cells in one session
+was one too many for the grader's fold, and the three reads competed
+for a 0.23 share each; two cells at most, with the primary on the
+wider one. Proxy check: the merged tree's rungs are where the last
+merge left them; violations remain zero on 11.2M candidate runs this
+session. Steering verdict: leave the fault-injection lens after three
+rounds (one merge, two rounds of key variants) and rotate to the
+message-delay lens with a directive at the ladder's next transition:
+on the fresh cache depth9 converts to depth10 at about 0.16 and depth10
+to depth11 at about 0.14, and labels 10 through 13 are a client write
+followed by deliveries; ask what delivery-order structure (purgatory is
+off on this template, the pair-order bit is merged, the fresh-first
+tiebreak is merged) would carry the stranded reaction's records past
+the write, stated in generic event classes. The queued repeated release
+(net 5) stays the stall family's lead; the placement finding on the coin
+exemption is recorded as a zero-cost default the operator may fold into
+the merged release without a further round.
+
+Digest for the user: iteration 81 closed three nested variants at the
+ghost trigger's key on one chunk (two refuted by their own clauses, one
+unresolved with a clean placement finding); the grader lost the second
+chunk to a stack overflow on a record with 112,288 variant rows, a
+harness fault recorded for the operator; next round rotates to the
+message-delay lens at the depth 9 to 13 transitions.

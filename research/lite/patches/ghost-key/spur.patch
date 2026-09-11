@@ -1,0 +1,2336 @@
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index a1732e6..59d9642 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -701,7 +701,11 @@ fn route_by_terms<H: HashPolicy>(
+ /// excludes is counted per node per step; the anchor's waiting is counted in
+ /// its own block, so the placement counters keep meaning the step hold alone.
+ /// The fan-out is read on the node `phase_read_node` names, which is the
+-/// victim itself on every run that does not retarget its crashes.
++/// victim itself on every run that does not retarget its crashes. On the
++/// half of the releasing runs that forces the early phase, a crash a firing
++/// released reads the node whose entry fired the trigger instead and waits
++/// for the early phase there whatever arm it draws; the draw, the window
++/// and the reserve are the anchor's.
+ fn crash_hold_mask<H: HashPolicy>(
+     state: &mut State<H>,
+     servers: usize,
+@@ -723,17 +727,38 @@ fn crash_hold_mask<H: HashPolicy>(
+             util_stats::record_crash_place_hold();
+             continue;
+         }
+-        let read = phase_read_node(state, n, servers);
++        let forced = state.ghost_release.early_on_ghost()
++            && state.ghost_release.released_mask & node_bit(n) != 0
++            && state.crash_phase.awaits_release(n);
++        let read = if forced {
++            ghost_read_node(state, n, servers)
++        } else {
++            phase_read_node(state, n, servers)
++        };
+         let ledger = state.send_ledger.get(read).copied().unwrap_or(*ledger);
+         let fanout = crash_phase::Fanout {
+             segment_sends: ledger.issued.saturating_sub(ledger.floor),
+             undelivered: ledger.recent,
+             in_flight: ledger.in_flight,
+         };
+-        if state
+-            .crash_phase
+-            .hold_read_on(n, read, fanout, step_now, rng)
+-        {
++        let hold = state.crash_phase.hold_read_on(
++            n,
++            read,
++            fanout,
++            step_now,
++            forced.then_some(util_stats::CrashPhaseArm::Early),
++            rng,
++        );
++        if forced {
++            let cell = state.ghost_release.cell;
++            if let Some(drawn) = hold.drawn {
++                util_stats::record_ghost_release_phase_override(cell, drawn);
++            }
++            if let Some(kind) = hold.ended {
++                util_stats::record_ghost_release_phase_ended(cell, kind);
++            }
++        }
++        if hold.held {
+             mask |= 1u64 << n;
+         }
+     }
+@@ -747,7 +772,10 @@ fn expire_release_trigger<H: HashPolicy>(state: &mut State<H>, step_now: i32) {
+         && step_now >= t.expires
+     {
+         state.ghost_release.trigger = None;
+-        util_stats::record_ghost_release_trigger(util_stats::GhostReleaseTrigger::Expired);
++        util_stats::record_ghost_release_trigger(
++            state.ghost_release.cell,
++            util_stats::GhostReleaseTrigger::Expired,
++        );
+     }
+ }
+ 
+@@ -774,14 +802,15 @@ fn arm_release_trigger<H: HashPolicy>(state: &mut State<H>, origin: usize, resta
+         return;
+     };
+     if gr.trigger.is_some() {
+-        util_stats::record_ghost_release_trigger(util_stats::GhostReleaseTrigger::Superseded);
++        util_stats::record_ghost_release_trigger(gr.cell, util_stats::GhostReleaseTrigger::Superseded);
+     }
+     gr.trigger = Some(ghost_release::Trigger {
+         origin,
+         restart_step,
+         expires: restart_step.saturating_add(bound),
+     });
+-    util_stats::record_ghost_release_trigger(util_stats::GhostReleaseTrigger::Armed);
++    gr.stranded_skipped_at = 0;
++    util_stats::record_ghost_release_trigger(gr.cell, util_stats::GhostReleaseTrigger::Armed);
+ }
+ 
+ /// What one firing released: how many holds moved and, over the first 64
+@@ -807,7 +836,10 @@ fn node_bit(n: usize) -> u64 {
+ /// to the learner on the runs that feed it. On a releasing run the first
+ /// such entry after the armed restart, from the restarted node and writing
+ /// state, fires the trigger: every other held crash goes at the next step,
+-/// or on the single half the one crash `release_one` names.
++/// or on the single half the one crash `release_one` names. On the
++/// stranded-key half the record, numbered `send_ordinal` by its origin,
++/// must also lie in the origin's stranded segment; an entry whose record
++/// does not is skipped and leaves the trigger armed.
+ fn note_ghost_release_entry<H: HashPolicy>(
+     state: &mut State<H>,
+     origin: NodeId,
+@@ -815,6 +847,7 @@ fn note_ghost_release_entry<H: HashPolicy>(
+     dest: NodeId,
+     step: i32,
+     acted: bool,
++    send_ordinal: u32,
+     servers: usize,
+ ) {
+     if origin == dest || sent_at == state.incarnation(origin) {
+@@ -837,6 +870,22 @@ fn note_ghost_release_entry<H: HashPolicy>(
+     if !acted || t.origin != origin.index || step <= t.restart_step {
+         return;
+     }
++    let cell = state.ghost_release.cell;
++    let stranded = if state.ghost_release.stranded_key() {
++        let range = state
++            .send_ledger
++            .get(t.origin)
++            .map_or(0..0, |l| l.stranded_floor..l.stranded_end);
++        let first = state.ghost_release.stranded_skipped_at & node_bit(dest.index) == 0;
++        if !range.contains(&send_ordinal) {
++            state.ghost_release.stranded_skipped_at |= node_bit(dest.index);
++            util_stats::record_ghost_release_stranded(cell, util_stats::StrandedEntry::Skipped);
++            return;
++        }
++        Some(first)
++    } else {
++        None
++    };
+     let released = if state.ghost_release.single() {
+         match release_one(state, t.origin, dest, step, servers) {
+             Some(r) => r,
+@@ -852,14 +901,23 @@ fn note_ghost_release_entry<H: HashPolicy>(
+     gr.released_mask |= released.mask;
+     gr.ghost_node = Some(dest.index);
+     gr.trigger = None;
+-    util_stats::record_ghost_release_trigger(if released.count > 0 {
+-        util_stats::GhostReleaseTrigger::Fired {
+-            steps_from_restart: (step - t.restart_step).max(0) as u64,
+-            released: released.count,
+-        }
+-    } else {
+-        util_stats::GhostReleaseTrigger::FiredNothingHeld
+-    });
++    if let Some(first) = stranded {
++        util_stats::record_ghost_release_stranded(
++            cell,
++            util_stats::StrandedEntry::Fired { first },
++        );
++    }
++    util_stats::record_ghost_release_trigger(
++        cell,
++        if released.count > 0 {
++            util_stats::GhostReleaseTrigger::Fired {
++                steps_from_restart: (step - t.restart_step).max(0) as u64,
++                released: released.count,
++            }
++        } else {
++            util_stats::GhostReleaseTrigger::FiredNothingHeld
++        },
++    );
+ }
+ 
+ /// Every node other than `origin` whose planned crash is still held goes
+@@ -1025,6 +1083,63 @@ fn phase_read_node<H: HashPolicy>(state: &State<H>, n: usize, servers: usize) ->
+     }
+ }
+ 
++/// The node a released crash's forced early wait is read on: the node
++/// whose entry fired the trigger while it is live, else the node
++/// `phase_read_node` names.
++fn ghost_read_node<H: HashPolicy>(state: &State<H>, n: usize, servers: usize) -> usize {
++    match state.ghost_release.ghost_node {
++        Some(g)
++            if g < state.send_ledger.len()
++                && !state.crash_info.currently_crashed.iter().any(|c| c.index == g) =>
++        {
++            g
++        }
++        _ => phase_read_node(state, n, servers),
++    }
++}
++
++/// Bitmask over the first 64 nodes of pending crashes the crash-timing bias
++/// withholds from this step: a pending crash for a node that is not in the
++/// middle of its own fan-out - it has no undelivered send of its own, or
++/// more than one - may be withheld, so the crash is more likely to be taken
++/// at a point where exactly one of the node's peers is still uninformed of
++/// its last action. Withholding is not cancelling: the crash stays queued
++/// and is offered again at the next step, which keeps the number of crashes
++/// a run takes the same and moves only when they land. Nodes past the width
++/// of the mask are never withheld. A crash a firing released draws its coin
++/// like any other, so the stream stays in step across the halves, but on
++/// the exempt half its withhold is not applied.
++fn crash_defer_mask<H: HashPolicy>(
++    state: &State<H>,
++    partial_fanout_crash_bias: f64,
++    rng: &mut impl StreamRng,
++) -> u64 {
++    if partial_fanout_crash_bias <= 0.0 {
++        return 0;
++    }
++    let mut mask = 0u64;
++    for (n, ledger) in state.send_ledger.iter().enumerate().take(u64::BITS as usize) {
++        if ledger.crash_pending == 0 || ledger.in_flight == 1 {
++            continue;
++        }
++        rng.use_stream(Stream::FaultPriority);
++        let withhold = rng.random::<f64>() < partial_fanout_crash_bias;
++        util_stats::record_crash_timing_bias(withhold);
++        let gr = &state.ghost_release;
++        if gr.released_mask & node_bit(n) != 0 {
++            let exempted = withhold && gr.defer_exempt();
++            util_stats::record_ghost_release_defer_coin(gr.cell, exempted);
++            if exempted {
++                continue;
++            }
++        }
++        if withhold {
++            mask |= 1u64 << n;
++        }
++    }
++    mask
++}
++
+ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+@@ -1049,33 +1164,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         return Ok(ScheduleResult::None);
+     }
+ 
+-    // Crash-timing bias: a pending crash for a node that is not in the middle of
+-    // its own fan-out - it has no undelivered send of its own, or more than one -
+-    // may be withheld from this step, so the crash is more likely to be taken at
+-    // a point where exactly one of the node's peers is still uninformed of its
+-    // last action. Withholding is not cancelling: the crash stays queued and is
+-    // offered again at the next step, which keeps the number of crashes a run
+-    // takes the same and moves only when they land. Nodes past the width of the
+-    // mask are never withheld.
+     let crash_hold_mask = crash_hold_mask(state, topology.num_servers.max(0) as usize, rng);
+-
+-    let crash_defer_mask: u64 = if partial_fanout_crash_bias > 0.0 {
+-        let mut mask = 0u64;
+-        for (n, ledger) in state.send_ledger.iter().enumerate().take(u64::BITS as usize) {
+-            if ledger.crash_pending == 0 || ledger.in_flight == 1 {
+-                continue;
+-            }
+-            rng.use_stream(Stream::FaultPriority);
+-            let withhold = rng.random::<f64>() < partial_fanout_crash_bias;
+-            util_stats::record_crash_timing_bias(withhold);
+-            if withhold {
+-                mask |= 1u64 << n;
+-            }
+-        }
+-        mask
+-    } else {
+-        0
+-    };
++    let crash_defer_mask = crash_defer_mask(state, partial_fanout_crash_bias, rng);
+ 
+     // Helper: check if a runnable is reserved OR FIFO-blocked. Both exclude the
+     // item from scheduling via the same plumbing, so combine them here.
+@@ -1535,6 +1625,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     let record_origin = r.origin_node;
+                     let record_dest = r.node;
+                     let record_sent_at = r.origin_incarnation;
++                    let record_send_ordinal = r.send_ordinal;
+                     // Bump the link's deliver counter so the next FIFO message
+                     // in this link becomes schedulable.
+                     if let Some((link_id, seq)) = r.link_seq {
+@@ -1714,6 +1805,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             record_dest,
+                             entry_step,
+                             acted,
++                            record_send_ordinal,
+                             topology.num_servers.max(0) as usize,
+                         );
+                     }
+@@ -2044,6 +2136,7 @@ fn crash_node<H: HashPolicy>(state: &mut State<H>, node_id: NodeId) {
+         return;
+     }
+     state.crash_info.currently_crashed.insert(node_id);
++    state.note_stranded_segment(node_id.index);
+     state.note_handler_entry(node_id.index, HandlerTrigger::None);
+     state.note_crash_of_acted_absorber(node_id.index);
+     state.clear_ghost_mark(node_id.index);
+@@ -2321,6 +2414,7 @@ mod tests {
+     use super::*;
+     use crate::simulator::feedback::NoFeedback;
+     use crate::simulator::hash_utils::NoHashing;
++    use crate::simulator::util_stats::GhostReleaseBits;
+     use rand::rngs::StdRng;
+     use rand::{RngCore, SeedableRng};
+ 
+@@ -2494,8 +2588,8 @@ mod tests {
+             expires: 120,
+         };
+         for cell in [
+-            util_stats::GhostReleaseCell::ReleaseAll,
+-            util_stats::GhostReleaseCell::Single,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
++            util_stats::GhostReleaseCell::Single(GhostReleaseBits::NONE),
+         ] {
+             let mut state = release_state(4, &[0, 1, 2, 3], holds.clone(), cell, Some(20));
+             arm_release_trigger(&mut state, 0, 100);
+@@ -2525,7 +2619,7 @@ mod tests {
+             4,
+             &[0, 1, 2, 3],
+             holds.clone(),
+-            util_stats::GhostReleaseCell::ReleaseAll,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
+             None,
+         );
+         arm_release_trigger(&mut unlearned, 0, 100);
+@@ -2538,7 +2632,7 @@ mod tests {
+             3,
+             &[0, 1],
+             vec![900, 90, 0],
+-            util_stats::GhostReleaseCell::ReleaseAll,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
+             Some(20),
+         );
+         arm_release_trigger(&mut own, 0, 100);
+@@ -2549,7 +2643,7 @@ mod tests {
+             3,
+             &[1],
+             vec![0, 105, 0],
+-            util_stats::GhostReleaseCell::ReleaseAll,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
+             Some(20),
+         );
+         arm_release_trigger(&mut near, 0, 100);
+@@ -2561,7 +2655,7 @@ mod tests {
+             3,
+             &[0, 1, 2],
+             vec![900, 500, 431],
+-            util_stats::GhostReleaseCell::Single,
++            util_stats::GhostReleaseCell::Single(GhostReleaseBits::NONE),
+             Some(20),
+         );
+         arm_release_trigger(&mut twice, 0, 100);
+@@ -2600,7 +2694,7 @@ mod tests {
+             5,
+             &[0, 1, 2, 3, 4],
+             vec![900, 500, 431, 90, 700],
+-            util_stats::GhostReleaseCell::ReleaseAll,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
+             Some(20),
+         );
+         state.incarnations = vec![1, 1, 0, 0, 0];
+@@ -2610,21 +2704,21 @@ mod tests {
+         let armed = state.ghost_release.trigger;
+         assert!(armed.is_some());
+         // Another node's dead incarnation entering the restarted node.
+-        note_ghost_release_entry(&mut state, node(1), 0, node(0), 103, true, 5);
++        note_ghost_release_entry(&mut state, node(1), 0, node(0), 103, true, 0, 5);
+         // The restarted node's live incarnation entering a peer.
+-        note_ghost_release_entry(&mut state, node(0), 1, node(2), 104, true, 5);
++        note_ghost_release_entry(&mut state, node(0), 1, node(2), 104, true, 0, 5);
+         // The dead incarnation entering a peer without writing its state.
+-        note_ghost_release_entry(&mut state, node(0), 0, node(2), 105, false, 5);
++        note_ghost_release_entry(&mut state, node(0), 0, node(2), 105, false, 0, 5);
+         // The dead incarnation entering a peer at the restart step itself.
+-        note_ghost_release_entry(&mut state, node(0), 0, node(2), 100, true, 5);
++        note_ghost_release_entry(&mut state, node(0), 0, node(2), 100, true, 0, 5);
+         // The dead incarnation entering a peer that is down.
+         state.crash_info.currently_crashed.insert(node(4));
+-        note_ghost_release_entry(&mut state, node(0), 0, node(4), 105, true, 5);
++        note_ghost_release_entry(&mut state, node(0), 0, node(4), 105, true, 0, 5);
+         state.crash_info.currently_crashed.remove(&node(4));
+         assert_eq!(state.ghost_release.trigger, armed, "a non-firing entry disarmed");
+         assert_eq!(state.crash_hold_until, vec![900, 500, 431, 90, 700]);
+ 
+-        note_ghost_release_entry(&mut state, node(0), 0, node(2), 106, true, 5);
++        note_ghost_release_entry(&mut state, node(0), 0, node(2), 106, true, 0, 5);
+         assert_eq!(
+             state.crash_hold_until,
+             vec![900, 107, 107, 90, 107],
+@@ -2633,7 +2727,7 @@ mod tests {
+         assert_eq!(state.ghost_release.trigger, None);
+         assert_eq!(state.ghost_release.released_mask, 0b10110);
+         assert_eq!(state.ghost_release.ghost_node, Some(2));
+-        note_ghost_release_entry(&mut state, node(0), 0, node(1), 108, true, 5);
++        note_ghost_release_entry(&mut state, node(0), 0, node(1), 108, true, 0, 5);
+         assert_eq!(
+             state.crash_hold_until,
+             vec![900, 107, 107, 90, 107],
+@@ -2662,7 +2756,7 @@ mod tests {
+             3,
+             &[0, 1, 2],
+             vec![900, 500, 431],
+-            util_stats::GhostReleaseCell::ReleaseAll,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
+             Some(20),
+         );
+         state.incarnations = vec![1, 0, 0];
+@@ -2670,7 +2764,7 @@ mod tests {
+         arm_release_trigger(&mut state, 0, 100);
+         // Every other hold is at the next step already, or has passed.
+         state.crash_hold_until = vec![900, 107, 101];
+-        note_ghost_release_entry(&mut state, node(0), 0, node(2), 106, true, 3);
++        note_ghost_release_entry(&mut state, node(0), 0, node(2), 106, true, 0, 3);
+         assert_eq!(state.crash_hold_until, vec![900, 107, 101]);
+         assert_eq!(state.ghost_release.trigger, None, "the firing did not disarm");
+         assert_eq!(state.ghost_release.released_mask, 0);
+@@ -2694,7 +2788,7 @@ mod tests {
+             3,
+             &[1, 2],
+             vec![0, 500, 431],
+-            util_stats::GhostReleaseCell::ReleaseAll,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
+             Some(20),
+         );
+         idle.incarnations = vec![1, 0, 0];
+@@ -2711,7 +2805,7 @@ mod tests {
+         assert_eq!(crash_hold_mask(&mut idle, 3, &mut rng), 0b110);
+         assert_eq!(idle.ghost_release.trigger, None, "the bound expires the trigger");
+         assert_eq!(idle.crash_hold_until, vec![0, 500, 431], "expiry moved a hold");
+-        note_ghost_release_entry(&mut idle, node(0), 0, node(2), 121, true, 3);
++        note_ghost_release_entry(&mut idle, node(0), 0, node(2), 121, true, 0, 3);
+         assert_eq!(idle.crash_hold_until, vec![0, 500, 431]);
+         let after = util_stats::snapshot().crash_place.ghost_release;
+         util_stats::set_enabled(false);
+@@ -2733,11 +2827,11 @@ mod tests {
+             state.send_ledger[0].last_restart_step = 100;
+             state
+         };
+-        let mut treated = build(util_stats::GhostReleaseCell::ReleaseAll);
++        let mut treated = build(util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE));
+         let mut control = build(util_stats::GhostReleaseCell::Untreated);
+         for s in [&mut treated, &mut control] {
+             arm_release_trigger(s, 0, 100);
+-            note_ghost_release_entry(s, node(0), 0, node(2), 106, true, 4);
++            note_ghost_release_entry(s, node(0), 0, node(2), 106, true, 0, 4);
+         }
+         assert_eq!(treated.crash_hold_until, vec![900, 107, 107, 107]);
+         assert_eq!(control.crash_hold_until, holds, "the untreated twin");
+@@ -2774,7 +2868,7 @@ mod tests {
+             2,
+             &[1],
+             vec![0, 500],
+-            util_stats::GhostReleaseCell::ReleaseAll,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
+             Some(20),
+         );
+         state.crash_phase.arm_node(1, 0);
+@@ -2782,7 +2876,7 @@ mod tests {
+         state.send_ledger[1].floor = state.send_ledger[1].issued;
+         state.incarnations = vec![1, 0];
+         arm_release_trigger(&mut state, 0, 100);
+-        note_ghost_release_entry(&mut state, node(0), 0, node(1), 103, true, 2);
++        note_ghost_release_entry(&mut state, node(0), 0, node(1), 103, true, 0, 2);
+         let target = state.crash_hold_until[1];
+         assert_eq!(target, 104);
+         let mut rng = StdRng::seed_from_u64(9);
+@@ -2816,7 +2910,7 @@ mod tests {
+                 4,
+                 crashes,
+                 holds,
+-                util_stats::GhostReleaseCell::Single,
++                util_stats::GhostReleaseCell::Single(GhostReleaseBits::NONE),
+                 Some(20),
+             );
+             state.incarnations = vec![1, 0, 0, 0];
+@@ -2826,7 +2920,7 @@ mod tests {
+             state
+         };
+         let fire_on = |state: &mut State<NoHashing>, v: usize| {
+-            note_ghost_release_entry(state, node(0), 0, node(v), 106, true, 4);
++            note_ghost_release_entry(state, node(0), 0, node(v), 106, true, 0, 4);
+         };
+ 
+         // (1) v's own held crash goes alone.
+@@ -2892,7 +2986,7 @@ mod tests {
+         assert_eq!(none.ghost_release.trigger, armed, "no case, yet disarmed");
+         assert_eq!(none.ghost_release.released_mask, 0);
+         assert_eq!(none.ghost_release.forced_victim, None);
+-        note_ghost_release_entry(&mut none, node(0), 0, node(3), 108, true, 4);
++        note_ghost_release_entry(&mut none, node(0), 0, node(3), 108, true, 0, 4);
+         assert_eq!(none.crash_hold_until, vec![900, 500, 0, 109]);
+         assert_eq!(none.ghost_release.trigger, None);
+         assert_eq!(none.ghost_release.ghost_node, Some(3));
+@@ -2971,20 +3065,20 @@ mod tests {
+         state.ghost_release.feeds_learner = true;
+         state.ghost_release.scope = 6000;
+         for _ in 0..199 {
+-            note_ghost_release_entry(&mut state, node(0), 0, node(1), 52, true, 3);
++            note_ghost_release_entry(&mut state, node(0), 0, node(1), 52, true, 0, 3);
+         }
+-        note_ghost_release_entry(&mut state, node(0), 1, node(1), 52, true, 3);
++        note_ghost_release_entry(&mut state, node(0), 1, node(1), 52, true, 0, 3);
+         state.crash_info.currently_crashed.insert(node(1));
+-        note_ghost_release_entry(&mut state, node(0), 0, node(1), 52, true, 3);
++        note_ghost_release_entry(&mut state, node(0), 0, node(1), 52, true, 0, 3);
+         state.crash_info.currently_crashed.remove(&node(1));
+         state.crash_info.currently_crashed.insert(node(0));
+-        note_ghost_release_entry(&mut state, node(0), 0, node(2), 52, true, 3);
++        note_ghost_release_entry(&mut state, node(0), 0, node(2), 52, true, 0, 3);
+         state.crash_info.currently_crashed.remove(&node(0));
+         state.ghost_release.feeds_learner = false;
+-        note_ghost_release_entry(&mut state, node(0), 0, node(1), 52, true, 3);
++        note_ghost_release_entry(&mut state, node(0), 0, node(1), 52, true, 0, 3);
+         state.ghost_release.feeds_learner = true;
+         assert_eq!(ghost_release::bound(6000), None, "a non-sample reached the learner");
+-        note_ghost_release_entry(&mut state, node(0), 0, node(2), 52, false, 3);
++        note_ghost_release_entry(&mut state, node(0), 0, node(2), 52, false, 0, 3);
+         assert_eq!(ghost_release::bound(6000), Some(12), "an inert entry is still a lag");
+         let after = util_stats::snapshot().crash_place.ghost_release.lag_samples;
+         util_stats::set_enabled(false);
+@@ -3006,7 +3100,7 @@ mod tests {
+         util_stats::set_enabled(true);
+         let before = util_stats::snapshot().crash_place.ghost_release;
+         let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
+-        state.ghost_release.cell = util_stats::GhostReleaseCell::ReleaseAll;
++        state.ghost_release.cell = util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE);
+         state.ghost_release.anchored = false;
+         state.retarget.enabled = false;
+         state.last_acted_ghost_step = 108;
+@@ -3051,7 +3145,7 @@ mod tests {
+         let mut other = State::<NoHashing>::new(&[(ROLE, 3)], 1);
+         other.ghost_release.cell = util_stats::GhostReleaseCell::Untreated;
+         note_ghost_release_apply(&mut other, node(0), node(0));
+-        other.ghost_release.cell = util_stats::GhostReleaseCell::Single;
++        other.ghost_release.cell = util_stats::GhostReleaseCell::Single(GhostReleaseBits::NONE);
+         note_ghost_release_apply(&mut other, node(0), node(0));
+         other.ghost_release.cell = util_stats::GhostReleaseCell::Unplaced;
+         note_ghost_release_apply(&mut other, node(0), node(0));
+@@ -3973,4 +4067,429 @@ mod tests {
+             assert_eq!(idx, 0);
+         }
+     }
++    /// The defer coin is drawn for a released crash on both halves, at the
++    /// same stream positions, and only the exempt half ignores its
++    /// withhold; a crash no firing released is withheld on both, a victim
++    /// with exactly one send in flight draws no coin, and a zero bias draws
++    /// nothing. The reads and the overrides count under the cell.
++    #[test]
++    fn a_released_crash_is_exempt_from_the_defer_coin_only_on_the_exempt_half() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().crash_place.ghost_release;
++        let exempt = GhostReleaseBits {
++            defer_exempt: true,
++            ..GhostReleaseBits::NONE
++        };
++        let holds = vec![0, 0, 0];
++        let mut treated = release_state(
++            3,
++            &[1, 2],
++            holds.clone(),
++            util_stats::GhostReleaseCell::ReleaseAll(exempt),
++            Some(20),
++        );
++        let mut control = release_state(
++            3,
++            &[1, 2],
++            holds,
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
++            Some(20),
++        );
++        // Node 1's crash was released by a firing, node 2's was not.
++        treated.ghost_release.released_mask = 0b010;
++        control.ghost_release.released_mask = 0b010;
++        let mut rng_t = StdRng::seed_from_u64(5);
++        let mut rng_c = StdRng::seed_from_u64(5);
++        let steps = 400u64;
++        let (mut withheld_1_c, mut withheld_2_t, mut withheld_2_c) = (0u64, 0u64, 0u64);
++        for _ in 0..steps {
++            let t = crash_defer_mask(&treated, 0.5, &mut rng_t);
++            let c = crash_defer_mask(&control, 0.5, &mut rng_c);
++            assert_eq!(t & 0b010, 0, "the exempt half withheld a released crash");
++            assert_eq!(t & 0b100, c & 0b100, "the halves differ on a crash no firing released");
++            assert_eq!(t & !0b110, 0);
++            withheld_1_c += (c & 0b010 != 0) as u64;
++            withheld_2_t += (t & 0b100 != 0) as u64;
++            withheld_2_c += (c & 0b100 != 0) as u64;
++        }
++        assert_eq!(rng_t.next_u64(), rng_c.next_u64(), "the streams diverged");
++        assert!(
++            withheld_1_c > steps / 3 && withheld_1_c < 2 * steps / 3,
++            "the control withheld the released crash {withheld_1_c} times of {steps}"
++        );
++        assert!(withheld_2_t > 0);
++        assert_eq!(withheld_2_t, withheld_2_c);
++        // A victim with exactly one send in flight draws no coin, and a
++        // zero bias draws nothing at all.
++        treated.send_ledger[1].in_flight = 1;
++        treated.send_ledger[2].in_flight = 1;
++        let mut rng_a = StdRng::seed_from_u64(8);
++        let mut rng_b = StdRng::seed_from_u64(8);
++        assert_eq!(crash_defer_mask(&treated, 0.5, &mut rng_a), 0);
++        assert_eq!(rng_a.next_u64(), rng_b.next_u64(), "a coin was drawn at one in flight");
++        treated.send_ledger[1].in_flight = 0;
++        assert_eq!(crash_defer_mask(&treated, 0.0, &mut rng_a), 0);
++        assert_eq!(rng_a.next_u64(), rng_b.next_u64(), "a coin was drawn at zero bias");
++        let after = util_stats::snapshot().crash_place.ghost_release;
++        let d = |f: fn(&util_stats::GhostReleaseCellStats) -> u64| {
++            (
++                f(&after.cells.defer_on) - f(&before.cells.defer_on),
++                f(&after.cells.defer_off) - f(&before.cells.defer_off),
++                f(&after.cells.defer1_early0_stranded0) - f(&before.cells.defer1_early0_stranded0),
++                f(&after.cells.defer0_early0_stranded0) - f(&before.cells.defer0_early0_stranded0),
++                f(&after.cells.treated) - f(&before.cells.treated),
++            )
++        };
++        assert_eq!(d(|c| c.defer_coin_examined), (steps, steps, steps, steps, 2 * steps));
++        assert_eq!(
++            d(|c| c.defer_coin_exempted),
++            (withheld_1_c, 0, withheld_1_c, 0, withheld_1_c)
++        );
++        assert_eq!(after.defer_coin.examined - before.defer_coin.examined, steps);
++        assert_eq!(after.defer_coin.exempted - before.defer_coin.exempted, withheld_1_c);
++        util_stats::set_enabled(false);
++    }
++
++    /// A state whose node 1 crash, held on an anchored run when `anchored`,
++    /// was released by a firing on node 2 at step 103, offered at step 104:
++    /// the planned victim's segment is silent and the ghost node's is all
++    /// undelivered.
++    fn released_onto_ghost(cell: util_stats::GhostReleaseCell, anchored: bool) -> State<NoHashing> {
++        let mut state = release_state(3, &[1], vec![0, 500, 0], cell, Some(20));
++        if anchored {
++            state.crash_phase.arm_node(1, 0);
++        }
++        state.incarnations = vec![1, 0, 0];
++        state.send_ledger[1].floor = state.send_ledger[1].issued;
++        state.send_ledger[2].issued = 2;
++        state.send_ledger[2].floor = 0;
++        state.send_ledger[2].recent = 2;
++        state.send_ledger[2].in_flight = 2;
++        arm_release_trigger(&mut state, 0, 100);
++        note_ghost_release_entry(&mut state, node(0), 0, node(2), 103, true, 0, 3);
++        assert_eq!(state.crash_hold_until[1], 104);
++        assert_eq!(state.ghost_release.released_mask, 0b010);
++        assert_eq!(state.ghost_release.ghost_node, Some(2));
++        state.crash_info.current_step = 104;
++        state
++    }
++
++    /// On the early-on-ghost half an anchored run's released crash draws
++    /// its arm as the other half does, at the same stream position, then
++    /// waits for the early phase on the node whose entry fired the
++    /// trigger: released at once when that node's segment is all
++    /// undelivered whatever the draw, held through the anchor's unchanged
++    /// window when it is not, and read on the planned victim when the ghost
++    /// node is down. The other half holds as its drawn arm says, and an
++    /// unanchored run is untouched on both. Each override counts under the
++    /// cell by the arm it drew and by how it ended.
++    #[test]
++    fn a_released_crash_on_the_early_on_ghost_half_waits_for_the_early_phase_on_the_ghost_node() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().crash_place.ghost_release;
++        let early = GhostReleaseBits {
++            early_on_ghost: true,
++            ..GhostReleaseBits::NONE
++        };
++        let treated_cell = util_stats::GhostReleaseCell::ReleaseAll(early);
++        let control_cell = util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE);
++        let mut arms = [0u64; 3];
++        let seeds = 60u64;
++        for seed in 0..seeds {
++            let mut treated = released_onto_ghost(treated_cell, true);
++            let mut control = released_onto_ghost(control_cell, true);
++            let mut rng_t = StdRng::seed_from_u64(seed);
++            let mut rng_c = StdRng::seed_from_u64(seed);
++            let held_t = crash_hold_mask(&mut treated, 3, &mut rng_t) != 0;
++            let held_c = crash_hold_mask(&mut control, 3, &mut rng_c) != 0;
++            let drawn = control.crash_phase.arm_of(1).expect("the control drew no arm");
++            arms[drawn.index()] += 1;
++            assert!(!held_t, "seed {seed}: the ghost node's early phase did not release");
++            assert_eq!(
++                treated.crash_phase.arm_of(1),
++                Some(util_stats::CrashPhaseArm::Early),
++                "seed {seed}: the forced slot carries another arm"
++            );
++            assert_eq!(
++                held_c,
++                drawn != util_stats::CrashPhaseArm::Stock,
++                "seed {seed}: the control did not hold as its arm says"
++            );
++            assert_eq!(rng_t.next_u64(), rng_c.next_u64(), "seed {seed}: the streams diverged");
++        }
++        assert!(arms.iter().all(|&c| c > 0), "an arm was never drawn: {arms:?}");
++        let after = util_stats::snapshot().crash_place.ghost_release;
++        let on = |f: fn(&util_stats::GhostReleaseCellStats) -> u64| {
++            f(&after.cells.early_on) - f(&before.cells.early_on)
++        };
++        let off = |f: fn(&util_stats::GhostReleaseCellStats) -> u64| {
++            f(&after.cells.early_off) - f(&before.cells.early_off)
++        };
++        assert_eq!(on(|c| c.phase_overridden), seeds);
++        assert_eq!(
++            on(|c| c.phase_overridden_stock_to_early),
++            arms[util_stats::CrashPhaseArm::Stock.index()]
++        );
++        assert_eq!(
++            on(|c| c.phase_overridden_mid_to_early),
++            arms[util_stats::CrashPhaseArm::Mid.index()]
++        );
++        assert_eq!(
++            on(|c| c.phase_overridden_early_read_on_ghost),
++            arms[util_stats::CrashPhaseArm::Early.index()]
++        );
++        assert_eq!(on(|c| c.phase_released_on_condition), seeds);
++        assert_eq!(on(|c| c.phase_expired), 0);
++        assert_eq!((off(|c| c.phase_overridden), off(|c| c.phase_released_on_condition)), (0, 0));
++        assert_eq!(after.phase.overridden - before.phase.overridden, seeds);
++        assert_eq!(
++            after.phase.released_on_condition - before.phase.released_on_condition,
++            seeds
++        );
++        assert_eq!(
++            after.cells.defer0_early1_stranded0.phase_overridden
++                - before.cells.defer0_early1_stranded0.phase_overridden,
++            seeds
++        );
++
++        // A ghost node whose segment is part delivered meets the mid phase
++        // and not the early one: the forced wait holds through the anchor's
++        // window and no longer, and ends as expired.
++        let mut waits = released_onto_ghost(treated_cell, true);
++        waits.send_ledger[2].recent = 1;
++        let mut rng = StdRng::seed_from_u64(1);
++        for step in 104..104 + crash_phase::WINDOW {
++            waits.crash_info.current_step = step;
++            assert_eq!(crash_hold_mask(&mut waits, 3, &mut rng), 1 << 1, "step {step}");
++        }
++        waits.crash_info.current_step = 104 + crash_phase::WINDOW;
++        assert_eq!(crash_hold_mask(&mut waits, 3, &mut rng), 0, "the window did not end the wait");
++        let expired = util_stats::snapshot().crash_place.ghost_release;
++        assert_eq!(expired.cells.early_on.phase_expired - after.cells.early_on.phase_expired, 1);
++        assert_eq!(expired.phase.expired - after.phase.expired, 1);
++        assert_eq!(expired.phase.overridden - after.phase.overridden, 1);
++
++        // A ghost node that is down: the read falls back to the planned
++        // victim, whose early phase then releases.
++        let mut down = released_onto_ghost(treated_cell, true);
++        down.crash_info.currently_crashed.insert(node(2));
++        down.send_ledger[1].issued = 3;
++        down.send_ledger[1].floor = 2;
++        down.send_ledger[1].recent = 1;
++        down.send_ledger[2].recent = 0;
++        assert_eq!(crash_hold_mask(&mut down, 3, &mut rng), 0, "the fallback read did not release");
++        let mut silent = released_onto_ghost(treated_cell, true);
++        silent.crash_info.currently_crashed.insert(node(2));
++        assert_eq!(crash_hold_mask(&mut silent, 3, &mut rng), 1 << 1, "a silent victim released");
++
++        // An unanchored run holds nothing past its target on either half
++        // and counts nothing.
++        let settled = util_stats::snapshot().crash_place.ghost_release;
++        for cell in [treated_cell, control_cell] {
++            let mut flat = released_onto_ghost(cell, false);
++            let mut rng_a = StdRng::seed_from_u64(2);
++            let mut rng_b = StdRng::seed_from_u64(2);
++            assert_eq!(crash_hold_mask(&mut flat, 3, &mut rng_a), 0, "{cell:?}");
++            assert_eq!(rng_a.next_u64(), rng_b.next_u64(), "{cell:?}: an unanchored run drew");
++        }
++        let unmoved = util_stats::snapshot().crash_place.ghost_release;
++        assert_eq!(unmoved.phase.overridden, settled.phase.overridden);
++        util_stats::set_enabled(false);
++    }
++
++    /// A crash captures the ordinal range of the sends its last handler
++    /// segment issued before the crash moves the floor, and a silent
++    /// segment leaves an empty range. On the stranded-key half only an
++    /// entry carrying a record of that range fires the trigger; every other
++    /// acted dead-incarnation entry is skipped with the trigger still armed,
++    /// an empty range fires on nothing until the bound expires, a new
++    /// arming forgets the skips, and the other half fires on the first
++    /// acted entry whatever its record. The firings count by whether the
++    /// entry was the first at its peer since arming.
++    #[test]
++    fn the_stranded_key_fires_only_on_a_record_of_the_segment_the_crash_stranded() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().crash_place.ghost_release;
++        let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++        assert_eq!(
++            (state.send_ledger[0].stranded_floor, state.send_ledger[0].stranded_end),
++            (0, 0),
++            "a node that never crashed has a range"
++        );
++        state.send_ledger[0].issued = 7;
++        state.send_ledger[0].floor = 5;
++        crash_node(&mut state, node(0));
++        let l = state.send_ledger[0];
++        assert_eq!((l.stranded_floor, l.stranded_end), (5, 7));
++        assert_eq!(l.floor, 7, "the crash did not move the floor past the capture");
++        state.crash_info.currently_crashed.remove(&node(0));
++        state.send_ledger[0].issued = 9;
++        state.send_ledger[0].floor = 9;
++        crash_node(&mut state, node(0));
++        let l = state.send_ledger[0];
++        assert_eq!((l.stranded_floor, l.stranded_end), (9, 9), "a silent segment is not empty");
++
++        let keyed = GhostReleaseBits {
++            stranded_key: true,
++            ..GhostReleaseBits::NONE
++        };
++        let armed = |cell: util_stats::GhostReleaseCell, floor: u32, end: u32| {
++            let mut state = release_state(3, &[1, 2], vec![0, 500, 500], cell, Some(20));
++            state.incarnations = vec![1, 0, 0];
++            state.send_ledger[0].stranded_floor = floor;
++            state.send_ledger[0].stranded_end = end;
++            arm_release_trigger(&mut state, 0, 100);
++            assert!(state.ghost_release.trigger.is_some());
++            state
++        };
++        let mut s = armed(util_stats::GhostReleaseCell::ReleaseAll(keyed), 5, 7);
++        let trigger = s.ghost_release.trigger;
++        // Records of earlier segments and of the range's end are skipped.
++        note_ghost_release_entry(&mut s, node(0), 0, node(2), 103, true, 4, 3);
++        note_ghost_release_entry(&mut s, node(0), 0, node(2), 104, true, 7, 3);
++        note_ghost_release_entry(&mut s, node(0), 0, node(1), 105, true, 2, 3);
++        assert_eq!(s.ghost_release.trigger, trigger, "a skipped entry disarmed the trigger");
++        assert_eq!(s.ghost_release.released_mask, 0);
++        assert_eq!(s.crash_hold_until, vec![0, 500, 500]);
++        assert_eq!(s.ghost_release.stranded_skipped_at, 0b110);
++        // An inert entry in the range neither fires nor counts as skipped.
++        note_ghost_release_entry(&mut s, node(0), 0, node(2), 106, false, 5, 3);
++        assert_eq!(s.ghost_release.trigger, trigger);
++        // The first record of the range fires as the other half does; at
++        // this peer an entry had been skipped, so it is a later entry.
++        note_ghost_release_entry(&mut s, node(0), 0, node(2), 107, true, 5, 3);
++        assert_eq!(s.ghost_release.trigger, None);
++        assert_eq!(s.ghost_release.released_mask, 0b110);
++        assert_eq!(s.crash_hold_until, vec![0, 108, 108]);
++        assert_eq!(s.ghost_release.ghost_node, Some(2));
++        // At a peer with no skipped entry the firing is a first entry.
++        let mut f = armed(util_stats::GhostReleaseCell::ReleaseAll(keyed), 5, 7);
++        note_ghost_release_entry(&mut f, node(0), 0, node(1), 103, true, 6, 3);
++        assert_eq!(f.ghost_release.trigger, None);
++        assert_eq!(f.crash_hold_until, vec![0, 104, 104]);
++        // An empty range fires on nothing; the bound expires the trigger
++        // and every hold stays; a new arming forgets the skips.
++        let mut e = armed(util_stats::GhostReleaseCell::ReleaseAll(keyed), 9, 9);
++        for ordinal in [8, 9, 10] {
++            note_ghost_release_entry(&mut e, node(0), 0, node(2), 103, true, ordinal, 3);
++        }
++        assert!(e.ghost_release.trigger.is_some(), "an empty range fired");
++        assert_eq!(e.ghost_release.stranded_skipped_at, 0b100);
++        e.crash_info.current_step = 120;
++        let mut rng = StdRng::seed_from_u64(1);
++        crash_hold_mask(&mut e, 3, &mut rng);
++        assert_eq!(e.ghost_release.trigger, None, "the bound did not expire the trigger");
++        assert_eq!(e.crash_hold_until, vec![0, 500, 500]);
++        arm_release_trigger(&mut e, 0, 130);
++        assert!(e.ghost_release.trigger.is_some());
++        assert_eq!(e.ghost_release.stranded_skipped_at, 0, "a new arming kept the skips");
++        // The other half fires on the first acted entry whatever its record.
++        let mut c = armed(
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
++            5,
++            7,
++        );
++        note_ghost_release_entry(&mut c, node(0), 0, node(2), 103, true, 4, 3);
++        assert_eq!(c.ghost_release.trigger, None);
++        assert_eq!(c.crash_hold_until, vec![0, 104, 104]);
++        // The single half keys its one release the same way.
++        let mut one = armed(util_stats::GhostReleaseCell::Single(keyed), 5, 7);
++        note_ghost_release_entry(&mut one, node(0), 0, node(1), 103, true, 4, 3);
++        assert!(one.ghost_release.trigger.is_some(), "the single half fired off the key");
++        note_ghost_release_entry(&mut one, node(0), 0, node(1), 104, true, 6, 3);
++        assert_eq!(one.ghost_release.trigger, None);
++        assert_eq!(one.crash_hold_until, vec![0, 105, 500]);
++
++        let after = util_stats::snapshot().crash_place.ghost_release;
++        let d = |f: fn(&util_stats::GhostReleaseCellStats) -> u64| {
++            (
++                f(&after.cells.stranded_on) - f(&before.cells.stranded_on),
++                f(&after.cells.stranded_off) - f(&before.cells.stranded_off),
++                f(&after.cells.release_all) - f(&before.cells.release_all),
++                f(&after.cells.single) - f(&before.cells.single),
++                f(&after.cells.defer0_early0_stranded1) - f(&before.cells.defer0_early0_stranded1),
++                f(&after.cells.defer1_early0_stranded1) - f(&before.cells.defer1_early0_stranded1),
++            )
++        };
++        assert_eq!(d(|c| c.stranded_skipped_entries), (7, 0, 6, 1, 7, 0));
++        assert_eq!(d(|c| c.stranded_fired), (3, 0, 2, 1, 3, 0));
++        assert_eq!(d(|c| c.stranded_fired_first_entry), (1, 0, 1, 0, 1, 0));
++        assert_eq!(d(|c| c.stranded_fired_later_entry), (2, 0, 1, 1, 2, 0));
++        assert_eq!(d(|c| c.triggers_armed), (5, 1, 5, 1, 5, 0));
++        assert_eq!(d(|c| c.triggers_fired), (3, 1, 3, 1, 3, 0));
++        assert_eq!(d(|c| c.triggers_expired), (1, 0, 1, 0, 1, 0));
++        assert_eq!(after.stranded.fired - before.stranded.fired, 3);
++        assert_eq!(after.stranded.fired_first_entry - before.stranded.fired_first_entry, 1);
++        assert_eq!(after.stranded.fired_later_entry - before.stranded.fired_later_entry, 2);
++        assert_eq!(after.stranded.skipped_entries - before.stranded.skipped_entries, 7);
++        assert_eq!(after.armed - before.armed, 6);
++        assert_eq!(after.fired - before.fired, 4);
++        assert_eq!(after.expired - before.expired, 1);
++
++        util_stats::set_enabled(true);
++        let zero = util_stats::snapshot().crash_place.ghost_release;
++        util_stats::set_enabled(false);
++        assert_eq!(zero.stranded.fired, 0);
++        assert_eq!(zero.stranded.skipped_entries, 0);
++        assert_eq!(zero.phase.overridden, 0);
++        assert_eq!(zero.phase.released_on_condition, 0);
++        assert_eq!(zero.defer_coin.examined, 0);
++        assert_eq!(zero.defer_coin.exempted, 0);
++        assert_eq!(zero.cells.stranded_on.stranded_skipped_entries, 0);
++        assert_eq!(zero.cells.early_on.phase_overridden_mid_to_early, 0);
++        assert_eq!(zero.cells.defer_on.defer_coin_exempted, 0);
++        assert_eq!(zero.cells.treated.triggers_armed, 0);
++    }
++
++    /// A run in a nested cell counts under its release-all or single half,
++    /// the treated pool, its crossed cell and the three marginal halves its
++    /// bits name, and under no other export cell.
++    #[test]
++    fn a_nested_cell_counts_under_exactly_the_export_cells_that_contain_it() {
++        let _serial = crate::simulator::config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let before = util_stats::snapshot().crash_place.ghost_release;
++        let bits = GhostReleaseBits {
++            defer_exempt: true,
++            early_on_ghost: false,
++            stranded_key: true,
++        };
++        util_stats::record_ghost_release_run(util_stats::GhostReleaseCell::Single(bits), 7);
++        util_stats::record_ghost_release_run(
++            util_stats::GhostReleaseCell::ReleaseAll(GhostReleaseBits::NONE),
++            3,
++        );
++        util_stats::record_ghost_release_run(util_stats::GhostReleaseCell::Untreated, 11);
++        util_stats::record_ghost_release_run(util_stats::GhostReleaseCell::Unplaced, 13);
++        let after = util_stats::snapshot().crash_place.ghost_release;
++        util_stats::set_enabled(false);
++        let (b, a) = (&before.cells, &after.cells);
++        let cells = [
++            ("untreated", &b.untreated, &a.untreated, 1u64, 11u64),
++            ("release_all", &b.release_all, &a.release_all, 1, 3),
++            ("single", &b.single, &a.single, 1, 7),
++            ("treated", &b.treated, &a.treated, 2, 10),
++            ("defer0_early0_stranded0", &b.defer0_early0_stranded0, &a.defer0_early0_stranded0, 1, 3),
++            ("defer1_early0_stranded0", &b.defer1_early0_stranded0, &a.defer1_early0_stranded0, 0, 0),
++            ("defer0_early1_stranded0", &b.defer0_early1_stranded0, &a.defer0_early1_stranded0, 0, 0),
++            ("defer1_early1_stranded0", &b.defer1_early1_stranded0, &a.defer1_early1_stranded0, 0, 0),
++            ("defer0_early0_stranded1", &b.defer0_early0_stranded1, &a.defer0_early0_stranded1, 0, 0),
++            ("defer1_early0_stranded1", &b.defer1_early0_stranded1, &a.defer1_early0_stranded1, 1, 7),
++            ("defer0_early1_stranded1", &b.defer0_early1_stranded1, &a.defer0_early1_stranded1, 0, 0),
++            ("defer1_early1_stranded1", &b.defer1_early1_stranded1, &a.defer1_early1_stranded1, 0, 0),
++            ("defer_on", &b.defer_on, &a.defer_on, 1, 7),
++            ("defer_off", &b.defer_off, &a.defer_off, 1, 3),
++            ("early_on", &b.early_on, &a.early_on, 0, 0),
++            ("early_off", &b.early_off, &a.early_off, 2, 10),
++            ("stranded_on", &b.stranded_on, &a.stranded_on, 1, 7),
++            ("stranded_off", &b.stranded_off, &a.stranded_off, 1, 3),
++        ];
++        for (name, before, after, runs, steps) in cells {
++            assert_eq!(after.runs - before.runs, runs, "{name}: runs");
++            assert_eq!(after.steps_used_sum - before.steps_used_sum, steps, "{name}: steps");
++        }
++    }
+ }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index e137dff..ca0b9a7 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -738,11 +738,17 @@ pub struct ReplayCut {
+ /// delivery wrote the node's state; `request_entered_since_restart` whether
+ /// a message entry caused by a post-fault client operation has reached it.
+ /// `last_restart_step` is the step the node last came back from a crash,
+-/// -1 while it never has.
++/// -1 while it never has. `stranded_floor..stranded_end` is the ordinal
++/// range of the sends the node's current handler segment had issued when it
++/// last crashed - the sends that crash stranded - empty when that segment
++/// issued nothing, and empty until the node's first crash. Ordinals are
++/// never reset, so the range names the latest crash's segment only.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub struct SendLedger {
+     pub issued: u32,
+     pub floor: u32,
++    pub stranded_floor: u32,
++    pub stranded_end: u32,
+     pub trigger: HandlerTrigger,
+     pub in_flight: u32,
+     pub recent: u32,
+@@ -765,6 +771,8 @@ impl Default for SendLedger {
+         Self {
+             issued: 0,
+             floor: 0,
++            stranded_floor: 0,
++            stranded_end: 0,
+             trigger: HandlerTrigger::None,
+             in_flight: 0,
+             recent: 0,
+@@ -1162,6 +1170,17 @@ impl<H: HashPolicy> State<H> {
+         }
+     }
+ 
++    /// `node` is going down: the sends its current handler segment issued
++    /// are the ones the crash strands, kept as an ordinal range so a record
++    /// of that segment can later be told from one of an earlier segment.
++    /// Read before the crash moves the floor.
++    pub fn note_stranded_segment(&mut self, node: usize) {
++        if let Some(l) = self.send_ledger.get_mut(node) {
++            l.stranded_floor = l.floor;
++            l.stranded_end = l.issued;
++        }
++    }
++
+     /// `node` came back from a crash: every remote record it sent before
+     /// now carries an incarnation that no longer exists.
+     pub fn note_incarnation_bump(&mut self, node: usize) {
+diff --git a/spur-core/src/simulator/crash_phase.rs b/spur-core/src/simulator/crash_phase.rs
+index b024dcb..7d82a40 100644
+--- a/spur-core/src/simulator/crash_phase.rs
++++ b/spur-core/src/simulator/crash_phase.rs
+@@ -20,6 +20,12 @@
+ //! the retarget would pick at that step, so the wait and the crash describe
+ //! the same node; the arm draw, the window and the reserve are unchanged,
+ //! and the read draws no random value of its own.
++//!
++//! A caller may force the arm a wait evaluates. The slot still draws its
++//! arm, so the stream and the arm counts are those of an unforced run, but
++//! the wait is settled against the forced arm from that draw on, under the
++//! same window and reserve. A forced arm never releases at once: a stock
++//! draw under a forced arm waits like any other.
+ 
+ use crate::simulator::fault_timing;
+ use crate::simulator::rng::{Stream, StreamRng};
+@@ -91,6 +97,16 @@ struct LandingRead {
+     on_condition: bool,
+ }
+ 
++/// What one read of a node's slot decided: whether the crash stays
++/// withheld, the arm the slot drew if this read drew it, and how the wait
++/// ended if this read ended it.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct Hold {
++    pub held: bool,
++    pub drawn: Option<CrashPhaseArm>,
++    pub ended: Option<CrashPhaseRelease>,
++}
++
+ /// One run's second stage: a slot per node, the arms already seen in this
+ /// run, the step past which no wait may run, and where each crash's phase
+ /// was read.
+@@ -156,27 +172,29 @@ impl RunAnchor {
+         step_now: i32,
+         rng: &mut impl StreamRng,
+     ) -> bool {
+-        self.hold_read_on(node, node, f, step_now, rng)
++        self.hold_read_on(node, node, f, step_now, None, rng).held
+     }
+ 
+     /// `hold` with `f` read on `read_node`, which is `node` itself unless
+-    /// the retarget would move the crash there. The draw and the wait are
+-    /// those of `hold`; only the landing counters learn where the read was,
+-    /// each once per crash.
++    /// the retarget would move the crash there, and the wait settled against
++    /// `force_arm` when one is given. The draw is that of `hold` either way;
++    /// only the landing counters learn where the read was, each once per
++    /// crash.
+     pub fn hold_read_on(
+         &mut self,
+         node: usize,
+         read_node: usize,
+         f: Fanout,
+         step_now: i32,
++        force_arm: Option<CrashPhaseArm>,
+         rng: &mut impl StreamRng,
+-    ) -> bool {
++    ) -> Hold {
+         let slot = match self.slots.get(node) {
+             Some(s) => *s,
+-            None => return false,
++            None => return Hold::default(),
+         };
+         if matches!(slot, Slot::Off | Slot::Released { .. }) {
+-            return false;
++            return Hold::default();
+         }
+         let other = read_node != node;
+         let read = &mut self.landing[node];
+@@ -187,10 +205,13 @@ impl RunAnchor {
+                 util_stats::CrashPhaseLanding::EvaluatedOnOtherNode,
+             );
+         }
++        let mut drawn = None;
+         let (next, release) = match slot {
+-            Slot::Off | Slot::Released { .. } => return false,
++            Slot::Off | Slot::Released { .. } => return Hold::default(),
+             Slot::Pending => {
+                 let arm = self.draw(rng);
++                drawn = Some(arm);
++                let arm = force_arm.unwrap_or(arm);
+                 if arm == CrashPhaseArm::Stock {
+                     util_stats::record_crash_phase_release(
+                         arm,
+@@ -203,7 +224,9 @@ impl RunAnchor {
+                     self.settle(arm, step_now, step_now, f)
+                 }
+             }
+-            Slot::Waiting { arm, armed_at } => self.settle(arm, armed_at, step_now, f),
++            Slot::Waiting { arm, armed_at } => {
++                self.settle(force_arm.unwrap_or(arm), armed_at, step_now, f)
++            }
+         };
+         self.slots[node] = next;
+         match release {
+@@ -222,7 +245,11 @@ impl RunAnchor {
+             }
+             _ => {}
+         }
+-        matches!(next, Slot::Waiting { .. })
++        Hold {
++            held: matches!(next, Slot::Waiting { .. }),
++            drawn,
++            ended: release,
++        }
+     }
+ 
+     /// `node`'s crash was applied to `victim`. A crash released by its phase
+@@ -389,7 +416,9 @@ mod tests {
+             let f = if step == 0 { fanout(0, 0) } else { fanout(2, 2) };
+             for node in 0..n {
+                 let held_v = on_victim.hold(node, f, step, &mut rng_v);
+-                let held_o = on_other.hold_read_on(node, (node + 1) % n, f, step, &mut rng_o);
++                let held_o = on_other
++                    .hold_read_on(node, (node + 1) % n, f, step, None, &mut rng_o)
++                    .held;
+                 assert_eq!(held_v, held_o, "step {step}, node {node}: the twins disagree");
+                 assert_eq!(on_victim.arm_of(node), on_other.arm_of(node));
+             }
+@@ -419,16 +448,16 @@ mod tests {
+         // applied once where it was read and once elsewhere.
+         let (mut reached, _) = armed_at(CrashPhaseArm::Early, 0, 10);
+         for step in 10..20 {
+-            assert!(reached.hold_read_on(0, 2, unmet, step, &mut rng));
++            assert!(reached.hold_read_on(0, 2, unmet, step, None, &mut rng).held);
+         }
+-        assert!(!reached.hold_read_on(0, 2, fanout(2, 2), 20, &mut rng));
++        assert!(!reached.hold_read_on(0, 2, fanout(2, 2), 20, None, &mut rng).held);
+         reached.landing_applied(0, 2);
+         reached.landing_applied(0, 1);
+ 
+         // Read on node 1 until the window runs out.
+         let (mut expired, _) = armed_at(CrashPhaseArm::Mid, 0, 0);
+         for step in 0..=WINDOW {
+-            expired.hold_read_on(0, 1, unmet, step, &mut rng);
++            expired.hold_read_on(0, 1, unmet, step, None, &mut rng);
+         }
+         assert!(!expired.awaits_release(0), "the window did not end the wait");
+         expired.landing_applied(0, 1);
+@@ -590,6 +619,91 @@ mod tests {
+         assert_eq!(after.stock.expired, before.stock.expired, "stock never expires");
+     }
+ 
++    /// A forced early arm keeps the draw - the same count, the same stream
++    /// position, the same drawn arm reported - but the slot waits for the
++    /// early phase whatever it drew, ends on that phase, and carries the
++    /// forced arm afterwards.
++    #[test]
++    fn a_forced_early_arm_keeps_the_draw_and_waits_for_the_early_phase() {
++        let _serial = config_override::exclusive_session();
++        util_stats::set_enabled(true);
++        let n = 900;
++        let mut free = RunAnchor::with_nodes(n);
++        let mut forced = RunAnchor::with_nodes(n);
++        let mut rng_f = CountingRng::new(17);
++        let mut rng_g = CountingRng::new(17);
++        for node in 0..n {
++            free.arm_node(node, 0);
++            forced.arm_node(node, 0);
++        }
++        let early = Some(CrashPhaseArm::Early);
++        let mut stock_draws = 0;
++        // A silent segment meets no waiting arm's phase.
++        for node in 0..n {
++            let a = free.hold_read_on(node, node, fanout(0, 0), 0, None, &mut rng_f);
++            let b = forced.hold_read_on(node, node, fanout(0, 0), 0, early, &mut rng_g);
++            assert_eq!(a.drawn, b.drawn, "node {node}: the forced read drew another arm");
++            assert_eq!(free.arm_of(node), a.drawn, "the free slot carries its draw");
++            assert_eq!(forced.arm_of(node), early, "the forced slot carries the forced arm");
++            assert!(b.held, "node {node}: a forced read released on a silent segment");
++            assert_eq!(b.ended, None);
++            if a.drawn == Some(CrashPhaseArm::Stock) {
++                stock_draws += 1;
++                assert!(!a.held, "an unforced stock draw held");
++                assert_eq!(a.ended, Some(CrashPhaseRelease::Immediate));
++            }
++        }
++        assert!(stock_draws > 0, "no stock draw to compare against");
++        assert_eq!(rng_f.draws, n as u64);
++        assert_eq!(rng_g.draws, rng_f.draws, "the forced read drew a different count");
++        assert_eq!(rng_f.inner.next_u64(), rng_g.inner.next_u64(), "the streams diverged");
++        // The early phase releases every forced wait, whatever it drew, and
++        // a later read draws nothing and reports nothing.
++        for node in 0..n {
++            let b = forced.hold_read_on(node, node, fanout(2, 2), 1, early, &mut rng_g);
++            assert!(!b.held, "node {node}: the early phase did not release");
++            assert_eq!(b.drawn, None, "a second read reported a draw");
++            assert_eq!(b.ended, Some(CrashPhaseRelease::Condition));
++            let again = forced.hold_read_on(node, node, fanout(0, 0), 2, early, &mut rng_g);
++            assert_eq!(again, Hold::default(), "a released slot reported something");
++        }
++        util_stats::set_enabled(false);
++        assert_eq!(rng_g.draws, n as u64, "a settled slot drew");
++    }
++
++    /// A forced early arm waits under the same window and reserve as any
++    /// other, and a forced read of a slot already waiting on another arm
++    /// evaluates the early phase from then on.
++    #[test]
++    fn a_forced_wait_keeps_the_deadline_and_overrides_a_waiting_arm() {
++        let mut rng = CountingRng::new(3);
++        let early = Some(CrashPhaseArm::Early);
++        let unmet = fanout(0, 0);
++        let (mut anchor, _) = armed_at(CrashPhaseArm::Stock, 0, 5);
++        for step in 5..5 + WINDOW {
++            let h = anchor.hold_read_on(0, 0, unmet, step, early, &mut rng);
++            assert!(h.held, "the window ended at step {step}");
++            assert_eq!(h.ended, None);
++        }
++        let h = anchor.hold_read_on(0, 0, unmet, 5 + WINDOW, early, &mut rng);
++        assert!(!h.held, "the window did not expire");
++        assert_eq!(h.ended, Some(CrashPhaseRelease::Expired));
++        let (mut anchor, _) = armed_at(CrashPhaseArm::Mid, 12, 5);
++        for step in 5..12 {
++            assert!(anchor.hold_read_on(0, 0, unmet, step, early, &mut rng).held);
++        }
++        assert!(!anchor.hold_read_on(0, 0, unmet, 12, early, &mut rng).held);
++        // The mid phase would release a mid wait; a forced early read holds
++        // on it and releases on the early phase.
++        let (mut anchor, _) = armed_at(CrashPhaseArm::Mid, 0, 10);
++        assert!(anchor.hold_read_on(0, 0, fanout(2, 1), 10, early, &mut rng).held);
++        assert_eq!(anchor.arm_of(0), early);
++        let h = anchor.hold_read_on(0, 0, fanout(2, 2), 11, early, &mut rng);
++        assert!(!h.held);
++        assert_eq!(h.ended, Some(CrashPhaseRelease::Condition));
++        assert_eq!(rng.draws, 0, "an already-armed slot draws nothing");
++    }
++
+     #[test]
+     fn a_stock_draw_releases_at_once_and_a_waiting_one_does_not() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/src/simulator/ghost_release.rs b/spur-core/src/simulator/ghost_release.rs
+index c7dc72d..f96653d 100644
+--- a/spur-core/src/simulator/ghost_release.rs
++++ b/spur-core/src/simulator/ghost_release.rs
+@@ -27,12 +27,23 @@
+ //! first held crash the absorber ranking would move onto v, else the first
+ //! held crash by index, which is then applied to v. When none of the three
+ //! applies nothing is released and the trigger stays armed.
++//!
++//! Three more halves of the releasing runs, each under a salt of its own
++//! and crossing the others and the single half, change what a firing does
++//! next. On the defer-exempt half a released crash is not withheld by the
++//! partial-fan-out defer coin, though the coin is drawn as before. On the
++//! early-on-ghost half, an anchored run's released crash reads its fan-out
++//! phase on v and waits for the early phase there whatever arm it drew,
++//! under the unchanged window. On the stranded-key half the trigger fires
++//! only on an entry whose record was issued by p's last handler segment
++//! before its crash; any other entry from p's dead incarnation leaves the
++//! trigger armed.
+ 
+ use crate::simulator::core::state::SendLedger;
+ use crate::simulator::fault_timing;
+ use crate::simulator::run_cap;
+ use crate::simulator::run_phase;
+-use crate::simulator::util_stats::{self, GhostReleaseCell, LagGauges};
++use crate::simulator::util_stats::{self, GhostReleaseBits, GhostReleaseCell, LagGauges};
+ use dashmap::DashMap;
+ use std::sync::LazyLock;
+ 
+@@ -43,6 +54,18 @@ const RELEASE_SALT: u64 = 0x_4748_4F53_5452_454C; // "GHOSTREL"
+ /// Salt for the half of the releasing runs that release one crash.
+ const SINGLE_SALT: u64 = 0x_4748_4F53_544F_4E45; // "GHOSTONE"
+ 
++/// Salt for the half of the releasing runs whose released crashes the
++/// defer coin does not withhold.
++const DEFER_EXEMPT_SALT: u64 = 0x_4748_4F53_5444_4546; // "GHOSTDEF"
++
++/// Salt for the half of the releasing runs whose released crashes wait for
++/// the early phase on the node that fired the trigger.
++const EARLY_ON_GHOST_SALT: u64 = 0x_4748_4F53_5445_4152; // "GHOSTEAR"
++
++/// Salt for the half of the releasing runs whose trigger fires only on a
++/// record of the stranded segment.
++const STRANDED_KEY_SALT: u64 = 0x_4748_4F53_5453_5452; // "GHOSTSTR"
++
+ /// Quantile of the lag distribution the run's bound is read from.
+ pub const BOUND_QUANTILE: f64 = 0.75;
+ 
+@@ -64,6 +87,25 @@ fn single_coin(run_id: i64) -> bool {
+     run_phase::salted_phase(run_id, SINGLE_SALT, 2) == 1
+ }
+ 
++/// The three nested coins of a releasing run.
++fn bits_coins(run_id: i64) -> GhostReleaseBits {
++    GhostReleaseBits {
++        defer_exempt: run_phase::salted_phase(run_id, DEFER_EXEMPT_SALT, 2) == 1,
++        early_on_ghost: run_phase::salted_phase(run_id, EARLY_ON_GHOST_SALT, 2) == 1,
++        stranded_key: run_phase::salted_phase(run_id, STRANDED_KEY_SALT, 2) == 1,
++    }
++}
++
++/// The nested bits this run carries, read from the run id's coins; none
++/// set without `is_treated`.
++pub fn bits(run_id: i64) -> GhostReleaseBits {
++    if is_treated(run_id) {
++        bits_coins(run_id)
++    } else {
++        GhostReleaseBits::NONE
++    }
++}
++
+ /// Whether this run's restarts arm the release trigger, read from the run
+ /// id's placement coin. Drawn over the placed runs, so run-cap probes are
+ /// exempt.
+@@ -88,9 +130,9 @@ pub fn cell_of(placed: bool, run_id: i64) -> GhostReleaseCell {
+     } else if !release_coin(run_id) {
+         GhostReleaseCell::Untreated
+     } else if single_coin(run_id) {
+-        GhostReleaseCell::Single
++        GhostReleaseCell::Single(bits_coins(run_id))
+     } else {
+-        GhostReleaseCell::ReleaseAll
++        GhostReleaseCell::ReleaseAll(bits_coins(run_id))
+     }
+ }
+ 
+@@ -252,7 +294,9 @@ pub struct Trigger {
+ /// first 64, whose planned crash a firing released and that has not yet
+ /// been applied, with `ghost_node` the node whose entry fired the trigger
+ /// last. `forced_victim` names a released crash and the node it is to be
+-/// applied to instead of its planned victim.
++/// applied to instead of its planned victim. `stranded_skipped_at` has a
++/// bit per node at which the stranded key turned an entry away since the
++/// trigger was armed.
+ #[derive(Clone, Debug, Default)]
+ pub struct RunState {
+     pub cell: GhostReleaseCell,
+@@ -268,6 +312,7 @@ pub struct RunState {
+     pub released_mask: u64,
+     pub ghost_node: Option<usize>,
+     pub forced_victim: Option<(usize, usize)>,
++    pub stranded_skipped_at: u64,
+     /// Crashes applied in this run so far.
+     pub crashes_applied: u32,
+     /// The node and step of the most recent applied crash a firing had
+@@ -294,13 +339,31 @@ impl RunState {
+     pub fn releases(&self) -> bool {
+         matches!(
+             self.cell,
+-            GhostReleaseCell::ReleaseAll | GhostReleaseCell::Single
++            GhostReleaseCell::ReleaseAll(_) | GhostReleaseCell::Single(_)
+         )
+     }
+ 
+     /// Whether a firing on this run releases one crash.
+     pub fn single(&self) -> bool {
+-        self.cell == GhostReleaseCell::Single
++        matches!(self.cell, GhostReleaseCell::Single(_))
++    }
++
++    /// Whether a released crash on this run is exempt from the defer coin's
++    /// withhold.
++    pub fn defer_exempt(&self) -> bool {
++        self.cell.bits().is_some_and(|b| b.defer_exempt)
++    }
++
++    /// Whether a released crash on this run waits for the early phase on
++    /// the node that fired the trigger.
++    pub fn early_on_ghost(&self) -> bool {
++        self.cell.bits().is_some_and(|b| b.early_on_ghost)
++    }
++
++    /// Whether the trigger on this run fires only on a record of the
++    /// stranded segment.
++    pub fn stranded_key(&self) -> bool {
++        self.cell.bits().is_some_and(|b| b.stranded_key)
+     }
+ }
+ 
+@@ -413,11 +476,12 @@ mod tests {
+         );
+         for id in 0..n {
+             let c = cell(id);
+-            assert_eq!(c == GhostReleaseCell::Single, is_single(id), "run {id}");
++            assert_eq!(matches!(c, GhostReleaseCell::Single(_)), is_single(id), "run {id}");
+             assert_eq!(
+-                c == GhostReleaseCell::ReleaseAll,
++                matches!(c, GhostReleaseCell::ReleaseAll(_)),
+                 is_treated(id) && !is_single(id)
+             );
++            assert_eq!(c.bits().unwrap_or(GhostReleaseBits::NONE), bits(id), "run {id}: bits");
+             assert_eq!(
+                 c == GhostReleaseCell::Untreated,
+                 fault_timing::is_placed(id) && !is_treated(id)
+@@ -430,6 +494,78 @@ mod tests {
+         }
+     }
+ 
++    /// Each nested bit is on half the releasing runs, never on a run that
++    /// does not release, never on a probe, and follows no other split of
++    /// the session: the eight combinations are all populated at an eighth
++    /// of the releasing runs each, crossing the single and anchor halves.
++    #[test]
++    fn the_nested_bits_split_the_releasing_runs_in_half_each_and_cross_every_other_split() {
++        let _serial = config_override::exclusive_session();
++        fault_timing::reset();
++        let n = 64_000i64;
++        let releasing: Vec<i64> = (0..n).filter(|&id| is_treated(id)).collect();
++        let each = |keep: fn(GhostReleaseBits) -> bool| {
++            releasing.iter().filter(|&&id| keep(bits(id))).count() as f64 / releasing.len() as f64
++        };
++        for (name, share) in [
++            ("defer", each(|b| b.defer_exempt)),
++            ("early", each(|b| b.early_on_ghost)),
++            ("stranded", each(|b| b.stranded_key)),
++        ] {
++            assert!((share - 0.5).abs() < 0.02, "the {name} bit is on {share} of the releasing runs");
++        }
++        assert_eq!(
++            (0..n).filter(|&id| !is_treated(id) && bits(id) != GhostReleaseBits::NONE).count(),
++            0,
++            "a bit is set on a run that does not release"
++        );
++        assert_eq!(
++            (0..n)
++                .filter(|&id| run_cap::is_probe(id) && bits(id) != GhostReleaseBits::NONE)
++                .count(),
++            0,
++            "a bit is set on a run-cap probe"
++        );
++        let mut cells = [0usize; 8];
++        for &id in &releasing {
++            cells[bits(id).index()] += 1;
++        }
++        for (i, &c) in cells.iter().enumerate() {
++            let share = c as f64 / releasing.len() as f64;
++            assert!((share - 0.125).abs() < 0.02, "cell {i} holds {share} of the releasing runs");
++        }
++        let follows = |name: &str, other: &dyn Fn(i64) -> bool, own: fn(GhostReleaseBits) -> bool| {
++            let same = releasing.iter().filter(|&&id| own(bits(id)) == other(id)).count();
++            let overlap = same as f64 / releasing.len() as f64;
++            assert!((overlap - 0.5).abs() < 0.03, "{name} at {overlap}");
++        };
++        let single = |id: i64| is_single(id);
++        let anchored = |id: i64| crate::simulator::crash_phase::is_anchored(id);
++        let retarget = |id: i64| crate::simulator::ghost_absorber::is_treated(id);
++        let defer = |id: i64| bits(id).defer_exempt;
++        let early = |id: i64| bits(id).early_on_ghost;
++        follows("defer follows single", &single, |b| b.defer_exempt);
++        follows("early follows single", &single, |b| b.early_on_ghost);
++        follows("stranded follows single", &single, |b| b.stranded_key);
++        follows("defer follows anchor", &anchored, |b| b.defer_exempt);
++        follows("early follows anchor", &anchored, |b| b.early_on_ghost);
++        follows("stranded follows anchor", &anchored, |b| b.stranded_key);
++        follows("defer follows retarget", &retarget, |b| b.defer_exempt);
++        follows("early follows retarget", &retarget, |b| b.early_on_ghost);
++        follows("stranded follows retarget", &retarget, |b| b.stranded_key);
++        follows("early follows defer", &defer, |b| b.early_on_ghost);
++        follows("stranded follows defer", &defer, |b| b.stranded_key);
++        follows("stranded follows early", &early, |b| b.stranded_key);
++        for id in 0..n {
++            let s = RunState::at_run_start(id, 6000, fault_timing::is_placed(id), false);
++            let b = bits(id);
++            assert_eq!(s.defer_exempt(), b.defer_exempt, "run {id}");
++            assert_eq!(s.early_on_ghost(), b.early_on_ghost, "run {id}");
++            assert_eq!(s.stranded_key(), b.stranded_key, "run {id}");
++            assert_eq!(s.stranded_skipped_at, 0);
++        }
++    }
++
+     #[test]
+     fn the_bound_is_the_upper_cell_edge_at_the_quantile_and_constant_between_checkpoints() {
+         let _serial = config_override::exclusive_session();
+diff --git a/spur-core/src/simulator/run_variant.rs b/spur-core/src/simulator/run_variant.rs
+index 5f7a1a9..3ecd00f 100644
+--- a/spur-core/src/simulator/run_variant.rs
++++ b/spur-core/src/simulator/run_variant.rs
+@@ -66,6 +66,26 @@ pub const GHOST_RELEASED_CRASH: i32 = 1 << 4;
+ /// instead of every held crash. Drawn over the releasing runs, so it
+ /// implies `GHOST_RELEASED_CRASH`.
+ pub const GHOST_RELEASE_SINGLE_ONTO_ABSORBER: i32 = 1 << 28;
++/// A crash a firing released is not withheld by the partial-fan-out defer
++/// coin, though the coin is still drawn. Drawn over the releasing runs
++/// under its own salt, so it implies `GHOST_RELEASED_CRASH`.
++pub const GHOST_RELEASE_DEFER_EXEMPT: i32 = 1 << 30;
++/// On an anchored run, a crash a firing released reads its fan-out phase
++/// on the node whose entry fired the trigger and waits for the early phase
++/// there whatever arm it drew. Drawn over the releasing runs under its own
++/// salt, so it implies `GHOST_RELEASED_CRASH`.
++pub const GHOST_RELEASE_PHASE_EARLY_ON_GHOST: i32 = 1 << 29;
++/// The release trigger fires only on an entry whose record was issued by
++/// the restarted node's last handler segment before its crash. Drawn over
++/// the releasing runs under its own salt, so it implies
++/// `GHOST_RELEASED_CRASH`.
++pub const GHOST_RELEASE_STRANDED_KEY: i32 = 1 << 26;
++/// Every bit the ghost release names.
++pub const GHOST_RELEASE_BITS: i32 = GHOST_RELEASED_CRASH
++    | GHOST_RELEASE_SINGLE_ONTO_ABSORBER
++    | GHOST_RELEASE_DEFER_EXEMPT
++    | GHOST_RELEASE_PHASE_EARLY_ON_GHOST
++    | GHOST_RELEASE_STRANDED_KEY;
+ /// The run's placed crashes wait for a drawn phase of the victim's own
+ /// fan-out once their step hold expires, instead of competing at once.
+ pub const CRASH_PHASE: i32 = 1 << 9;
+@@ -381,11 +401,24 @@ pub fn ghost_release_bits(run_id: i64) -> i32 {
+ 
+ /// The bits a ghost-release cell names.
+ fn ghost_release_cell_bits(cell: util_stats::GhostReleaseCell) -> i32 {
++    let nested = |b: util_stats::GhostReleaseBits| {
++        let mut v = 0;
++        if b.defer_exempt {
++            v |= GHOST_RELEASE_DEFER_EXEMPT;
++        }
++        if b.early_on_ghost {
++            v |= GHOST_RELEASE_PHASE_EARLY_ON_GHOST;
++        }
++        if b.stranded_key {
++            v |= GHOST_RELEASE_STRANDED_KEY;
++        }
++        v
++    };
+     match cell {
+-        util_stats::GhostReleaseCell::Single => {
+-            GHOST_RELEASED_CRASH | GHOST_RELEASE_SINGLE_ONTO_ABSORBER
++        util_stats::GhostReleaseCell::Single(b) => {
++            GHOST_RELEASED_CRASH | GHOST_RELEASE_SINGLE_ONTO_ABSORBER | nested(b)
+         }
+-        util_stats::GhostReleaseCell::ReleaseAll => GHOST_RELEASED_CRASH,
++        util_stats::GhostReleaseCell::ReleaseAll(b) => GHOST_RELEASED_CRASH | nested(b),
+         util_stats::GhostReleaseCell::Untreated | util_stats::GhostReleaseCell::Unplaced => 0,
+     }
+ }
+@@ -469,6 +502,10 @@ mod tests {
+                 v & GHOST_RELEASE_SINGLE_ONTO_ABSORBER != 0,
+                 ghost_release::is_single(id)
+             );
++            let bits = ghost_release::bits(id);
++            assert_eq!(v & GHOST_RELEASE_DEFER_EXEMPT != 0, bits.defer_exempt);
++            assert_eq!(v & GHOST_RELEASE_PHASE_EARLY_ON_GHOST != 0, bits.early_on_ghost);
++            assert_eq!(v & GHOST_RELEASE_STRANDED_KEY != 0, bits.stranded_key);
+             assert_ne!(
+                 v & (CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY),
+                 CLIENT_FANOUT_RELEASE | CLIENT_RUSH_PRIORITY,
+@@ -812,7 +849,62 @@ mod tests {
+             0,
+             "the single bit implies the release bit"
+         );
+-        let release_bits = GHOST_RELEASED_CRASH | GHOST_RELEASE_SINGLE_ONTO_ABSORBER;
++        // Each nested bit is on half the releasing runs, crosses the other
++        // two and the single bit, and is never set without the release bit
++        // or on a probe.
++        let nested = [
++            GHOST_RELEASE_DEFER_EXEMPT,
++            GHOST_RELEASE_PHASE_EARLY_ON_GHOST,
++            GHOST_RELEASE_STRANDED_KEY,
++        ];
++        for &bit in &nested {
++            let on = tags
++                .iter()
++                .filter(|&&v| v & GHOST_RELEASED_CRASH != 0 && v & bit != 0)
++                .count();
++            let share = on as f64 / released as f64;
++            assert!((share - 0.5).abs() < 0.02, "bit {bit} is on {share} of the releasing runs");
++            assert_eq!(
++                tags.iter()
++                    .filter(|&&v| v & bit != 0 && v & GHOST_RELEASED_CRASH == 0)
++                    .count(),
++                0,
++                "bit {bit} without the release bit"
++            );
++            assert_eq!(
++                tags.iter()
++                    .filter(|&&v| v & bit != 0 && v & RUN_CAP_PROBE != 0)
++                    .count(),
++                0,
++                "bit {bit} on a run-cap probe"
++            );
++            for &other in nested.iter().chain([GHOST_RELEASE_SINGLE_ONTO_ABSORBER].iter()) {
++                if other == bit {
++                    continue;
++                }
++                let both = tags
++                    .iter()
++                    .filter(|&&v| v & GHOST_RELEASED_CRASH != 0 && v & bit != 0 && v & other != 0)
++                    .count();
++                let share = both as f64 / released as f64;
++                assert!(
++                    (share - 0.25).abs() < 0.02,
++                    "bits {bit} and {other} meet on {share} of the releasing runs"
++                );
++            }
++        }
++        let mut crossed = [0usize; 8];
++        for &v in tags.iter().filter(|&&v| v & GHOST_RELEASED_CRASH != 0) {
++            let i = (v & GHOST_RELEASE_DEFER_EXEMPT != 0) as usize
++                | ((v & GHOST_RELEASE_PHASE_EARLY_ON_GHOST != 0) as usize) << 1
++                | ((v & GHOST_RELEASE_STRANDED_KEY != 0) as usize) << 2;
++            crossed[i] += 1;
++        }
++        for (i, &c) in crossed.iter().enumerate() {
++            let share = c as f64 / released as f64;
++            assert!((share - 0.125).abs() < 0.02, "crossed cell {i} holds {share}");
++        }
++        let release_bits = GHOST_RELEASE_BITS;
+         assert_eq!(ghost_release_bits(0) & !release_bits, 0);
+         assert_eq!(
+             of_arms(&ArmSet::coins(0)) & release_bits,
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 537621d..3587a53 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -615,8 +615,9 @@ static GR_SINGLE_VIA_RANKING: AtomicU64 = AtomicU64::new(0);
+ static GR_SINGLE_FORCED: AtomicU64 = AtomicU64::new(0);
+ static GR_SINGLE_NO_CASE: AtomicU64 = AtomicU64::new(0);
+ /// One column per placed cell of the ghost release, indexed by
+-/// `GhostReleaseCell::index`.
+-const GR_CELLS: usize = 3;
++/// `GhostReleaseCell::index`: the untreated cell, then the eight bit
++/// combinations of the release-all half, then those of the single half.
++const GR_CELLS: usize = 17;
+ static GR_CELL_RUNS: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
+ static GR_CELL_STEPS_USED_SUM: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
+ static GR_CELL_CRASHES_APPLIED: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
+@@ -639,6 +640,24 @@ static GR_CELL_FIRED_ON_GHOST_NODE_RETARGET: [[AtomicU64; 2]; GR_CELLS] =
+     [const { [const { AtomicU64::new(0) }; 2] }; GR_CELLS];
+ static GR_CELL_FIRED_INFLIGHT: [[AtomicU64; CC_INFLIGHT_SLOTS]; GR_CELLS] =
+     [const { [const { AtomicU64::new(0) }; CC_INFLIGHT_SLOTS] }; GR_CELLS];
++static GR_CELL_ARMED: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
++static GR_CELL_FIRED: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
++static GR_CELL_EXPIRED: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
++static GR_CELL_DEFER_EXAMINED: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
++static GR_CELL_DEFER_EXEMPTED: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
++/// Indexed by cell, then by the arm the overridden crash drew.
++static GR_CELL_PHASE_OVERRIDDEN: [[AtomicU64; CP_ARMS]; GR_CELLS] =
++    [const { [const { AtomicU64::new(0) }; CP_ARMS] }; GR_CELLS];
++/// Indexed by cell, then by whether the forced wait ended on its
++/// condition (0) or at its deadline (1).
++static GR_CELL_PHASE_ENDED: [[AtomicU64; 2]; GR_CELLS] =
++    [const { [const { AtomicU64::new(0) }; 2] }; GR_CELLS];
++/// Indexed by cell, then by whether the firing entry was the first acted
++/// dead-incarnation entry at its peer since the trigger was armed (0) or a
++/// later one (1).
++static GR_CELL_STRANDED_FIRED: [[AtomicU64; 2]; GR_CELLS] =
++    [const { [const { AtomicU64::new(0) }; 2] }; GR_CELLS];
++static GR_CELL_STRANDED_SKIPPED: [AtomicU64; GR_CELLS] = [const { AtomicU64::new(0) }; GR_CELLS];
+ 
+ /// One column per arm of the fan-out anchor, indexed by `CrashPhaseArm`.
+ const CP_ARMS: usize = 3;
+@@ -964,6 +983,15 @@ pub fn set_enabled(on: bool) {
+             .chain(GR_CELL_FIRED_APPLIED_RETARGET.iter().flatten())
+             .chain(GR_CELL_FIRED_ON_GHOST_NODE_RETARGET.iter().flatten())
+             .chain(GR_CELL_FIRED_INFLIGHT.iter().flatten())
++            .chain(GR_CELL_ARMED.iter())
++            .chain(GR_CELL_FIRED.iter())
++            .chain(GR_CELL_EXPIRED.iter())
++            .chain(GR_CELL_DEFER_EXAMINED.iter())
++            .chain(GR_CELL_DEFER_EXEMPTED.iter())
++            .chain(GR_CELL_PHASE_OVERRIDDEN.iter().flatten())
++            .chain(GR_CELL_PHASE_ENDED.iter().flatten())
++            .chain(GR_CELL_STRANDED_FIRED.iter().flatten())
++            .chain(GR_CELL_STRANDED_SKIPPED.iter())
+         {
+             c.store(0, Ordering::Relaxed);
+         }
+@@ -3408,18 +3436,64 @@ pub fn record_crash_place_hold() {
+     CRASH_PLACE_HOLDS.fetch_add(1, Ordering::Relaxed);
+ }
+ 
++/// The three halves a releasing run is split into, each by a coin of its
++/// own over the releasing runs, crossing each other and the single half.
++/// `defer_exempt`: a crash a firing released is not withheld by the
++/// partial-fan-out defer coin, though the coin is still drawn.
++/// `early_on_ghost`: on an anchored run, a released crash's phase wait
++/// reads the early phase on the node whose entry fired the trigger,
++/// whatever arm it drew. `stranded_key`: the trigger fires only on an entry
++/// whose record was issued by the restarted node's last handler segment
++/// before its crash.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct GhostReleaseBits {
++    pub defer_exempt: bool,
++    pub early_on_ghost: bool,
++    pub stranded_key: bool,
++}
++
++impl GhostReleaseBits {
++    /// No bit set.
++    pub const NONE: GhostReleaseBits = GhostReleaseBits {
++        defer_exempt: false,
++        early_on_ghost: false,
++        stranded_key: false,
++    };
++
++    /// Every combination, in the order `index` numbers them.
++    pub const ALL: [GhostReleaseBits; 8] = {
++        let mut all = [GhostReleaseBits::NONE; 8];
++        let mut i = 0;
++        while i < 8 {
++            all[i] = GhostReleaseBits {
++                defer_exempt: i & 1 != 0,
++                early_on_ghost: i & 2 != 0,
++                stranded_key: i & 4 != 0,
++            };
++            i += 1;
++        }
++        all
++    };
++
++    /// The combination's position among the eight.
++    #[inline]
++    pub fn index(self) -> usize {
++        self.defer_exempt as usize | (self.early_on_ghost as usize) << 1 | (self.stranded_key as usize) << 2
++    }
++}
++
+ /// The cell a run occupies under the ghost release: the placed runs whose
+ /// restarts arm the trigger, split into the half whose firing releases every
+-/// other held crash and the half that releases one; the placed runs that
+-/// never release; and the runs outside the placed posture, which no cell
+-/// counts.
++/// other held crash and the half that releases one, each carrying the three
++/// nested bits; the placed runs that never release; and the runs outside
++/// the placed posture, which no cell counts.
+ #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+ pub enum GhostReleaseCell {
+     #[default]
+     Unplaced,
+     Untreated,
+-    ReleaseAll,
+-    Single,
++    ReleaseAll(GhostReleaseBits),
++    Single(GhostReleaseBits),
+ }
+ 
+ impl GhostReleaseCell {
+@@ -3429,10 +3503,40 @@ impl GhostReleaseCell {
+         match self {
+             GhostReleaseCell::Unplaced => None,
+             GhostReleaseCell::Untreated => Some(0),
+-            GhostReleaseCell::ReleaseAll => Some(1),
+-            GhostReleaseCell::Single => Some(2),
++            GhostReleaseCell::ReleaseAll(b) => Some(1 + b.index()),
++            GhostReleaseCell::Single(b) => Some(1 + GhostReleaseBits::ALL.len() + b.index()),
++        }
++    }
++
++    /// The nested bits a releasing cell carries; None outside the releasing
++    /// halves.
++    #[inline]
++    pub fn bits(self) -> Option<GhostReleaseBits> {
++        match self {
++            GhostReleaseCell::ReleaseAll(b) | GhostReleaseCell::Single(b) => Some(b),
++            GhostReleaseCell::Unplaced | GhostReleaseCell::Untreated => None,
++        }
++    }
++}
++
++/// The columns of the releasing cells `keep` selects, given whether the
++/// cell is the single half and its bits.
++fn ghost_release_columns(keep: impl Fn(bool, GhostReleaseBits) -> bool) -> Vec<usize> {
++    let mut cols = Vec::new();
++    for single in [false, true] {
++        for b in GhostReleaseBits::ALL {
++            if !keep(single, b) {
++                continue;
++            }
++            let cell = if single {
++                GhostReleaseCell::Single(b)
++            } else {
++                GhostReleaseCell::ReleaseAll(b)
++            };
++            cols.extend(cell.index());
+         }
+     }
++    cols
+ }
+ 
+ /// The lag learner's quantiles for one scope, in steps.
+@@ -3489,14 +3593,22 @@ pub enum GhostReleaseTrigger {
+     Superseded,
+ }
+ 
++/// The trigger on a run in `cell` went through `event`. Armings, firings
++/// that moved a hold and expiries are also counted under the cell.
+ #[inline]
+-pub fn record_ghost_release_trigger(event: GhostReleaseTrigger) {
++pub fn record_ghost_release_trigger(cell: GhostReleaseCell, event: GhostReleaseTrigger) {
+     if !enabled() {
+         return;
+     }
++    let per_cell = |a: &[AtomicU64; GR_CELLS]| {
++        if let Some(i) = cell.index() {
++            a[i].fetch_add(1, Ordering::Relaxed);
++        }
++    };
+     match event {
+         GhostReleaseTrigger::Armed => {
+             GR_ARMED.fetch_add(1, Ordering::Relaxed);
++            per_cell(&GR_CELL_ARMED);
+         }
+         GhostReleaseTrigger::Fired {
+             steps_from_restart,
+@@ -3505,12 +3617,14 @@ pub fn record_ghost_release_trigger(event: GhostReleaseTrigger) {
+             GR_FIRED.fetch_add(1, Ordering::Relaxed);
+             GR_STEPS_FROM_RESTART_SUM.fetch_add(steps_from_restart, Ordering::Relaxed);
+             GR_RELEASED_CRASHES.fetch_add(released, Ordering::Relaxed);
++            per_cell(&GR_CELL_FIRED);
+         }
+         GhostReleaseTrigger::FiredNothingHeld => {
+             GR_FIRED_NOTHING_HELD.fetch_add(1, Ordering::Relaxed);
+         }
+         GhostReleaseTrigger::Expired => {
+             GR_EXPIRED.fetch_add(1, Ordering::Relaxed);
++            per_cell(&GR_CELL_EXPIRED);
+         }
+         GhostReleaseTrigger::Superseded => {
+             GR_SUPERSEDED.fetch_add(1, Ordering::Relaxed);
+@@ -3518,6 +3632,84 @@ pub fn record_ghost_release_trigger(event: GhostReleaseTrigger) {
+     }
+ }
+ 
++/// The partial-fan-out defer coin was read for a crash a firing released
++/// on a run in `cell`; `exempted` says its withhold was overridden.
++#[inline]
++pub fn record_ghost_release_defer_coin(cell: GhostReleaseCell, exempted: bool) {
++    if !enabled() {
++        return;
++    }
++    let Some(i) = cell.index() else {
++        return;
++    };
++    GR_CELL_DEFER_EXAMINED[i].fetch_add(1, Ordering::Relaxed);
++    if exempted {
++        GR_CELL_DEFER_EXEMPTED[i].fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++/// A released crash's phase wait on a run in `cell` drew `drawn` and was
++/// made to evaluate the early phase instead.
++#[inline]
++pub fn record_ghost_release_phase_override(cell: GhostReleaseCell, drawn: CrashPhaseArm) {
++    if !enabled() {
++        return;
++    }
++    let Some(i) = cell.index() else {
++        return;
++    };
++    GR_CELL_PHASE_OVERRIDDEN[i][drawn.index()].fetch_add(1, Ordering::Relaxed);
++}
++
++/// A forced early wait on a run in `cell` ended: on its condition, or at
++/// its deadline. An immediate release is not a forced wait and is not
++/// counted.
++#[inline]
++pub fn record_ghost_release_phase_ended(cell: GhostReleaseCell, kind: CrashPhaseRelease) {
++    if !enabled() {
++        return;
++    }
++    let Some(i) = cell.index() else {
++        return;
++    };
++    let j = match kind {
++        CrashPhaseRelease::Condition => 0,
++        CrashPhaseRelease::Expired => 1,
++        CrashPhaseRelease::Immediate => return,
++    };
++    GR_CELL_PHASE_ENDED[i][j].fetch_add(1, Ordering::Relaxed);
++}
++
++/// What the stranded key did with one acted dead-incarnation entry from
++/// the trigger's origin.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum StrandedEntry {
++    /// The entry's record was in the origin's stranded segment and the
++    /// firing went ahead; `first` says no earlier such entry at the same
++    /// peer had been skipped since the trigger was armed.
++    Fired { first: bool },
++    /// The record was outside the segment; the trigger stayed armed.
++    Skipped,
++}
++
++#[inline]
++pub fn record_ghost_release_stranded(cell: GhostReleaseCell, entry: StrandedEntry) {
++    if !enabled() {
++        return;
++    }
++    let Some(i) = cell.index() else {
++        return;
++    };
++    match entry {
++        StrandedEntry::Fired { first } => {
++            GR_CELL_STRANDED_FIRED[i][!first as usize].fetch_add(1, Ordering::Relaxed);
++        }
++        StrandedEntry::Skipped => {
++            GR_CELL_STRANDED_SKIPPED[i].fetch_add(1, Ordering::Relaxed);
++        }
++    }
++}
++
+ /// Which crash a firing on the single half released, or that no case
+ /// applied and nothing was released.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+@@ -4824,7 +5016,14 @@ impl CrashPlaceStats {
+ /// run's fan-out phase arm (anchored or not) or its crash-retarget arm, and
+ /// a histogram of the victim's undelivered sends at the apply.
+ /// `double_crash_after_release` counts crashes applied within eight steps
+-/// of a released one whose victim was still down.
++/// of a released one whose victim was still down. `triggers_armed`,
++/// `triggers_fired` and `triggers_expired` are the cell's share of the
++/// block's `armed`, `fired` and `expired`. The remaining fields belong to
++/// the nested bits: the defer coin reads on released crashes and the
++/// withholds overridden; the forced early waits by the arm they drew and by
++/// how they ended; the stranded key's firings, split by whether the entry
++/// was the first acted dead-incarnation entry at its peer since arming, and
++/// the entries it skipped.
+ #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+ pub struct GhostReleaseCellStats {
+     pub runs: u64,
+@@ -4848,6 +5047,21 @@ pub struct GhostReleaseCellStats {
+     pub fired_inflight_bucket_2: u64,
+     pub fired_inflight_bucket_3plus: u64,
+     pub double_crash_after_release: u64,
++    pub triggers_armed: u64,
++    pub triggers_fired: u64,
++    pub triggers_expired: u64,
++    pub defer_coin_examined: u64,
++    pub defer_coin_exempted: u64,
++    pub phase_overridden: u64,
++    pub phase_overridden_stock_to_early: u64,
++    pub phase_overridden_mid_to_early: u64,
++    pub phase_overridden_early_read_on_ghost: u64,
++    pub phase_released_on_condition: u64,
++    pub phase_expired: u64,
++    pub stranded_fired: u64,
++    pub stranded_fired_first_entry: u64,
++    pub stranded_fired_later_entry: u64,
++    pub stranded_skipped_entries: u64,
+ }
+ 
+ impl GhostReleaseCellStats {
+@@ -4864,6 +5078,17 @@ impl GhostReleaseCellStats {
+                 .map(|&i| GR_CELL_FIRED_INFLIGHT[i][j].load(Ordering::Relaxed))
+                 .sum()
+         };
++        let sum_arm = |j: usize| -> u64 {
++            cols.iter()
++                .map(|&i| GR_CELL_PHASE_OVERRIDDEN[i][j].load(Ordering::Relaxed))
++                .sum()
++        };
++        let overridden = [
++            sum_arm(CrashPhaseArm::Stock.index()),
++            sum_arm(CrashPhaseArm::Mid.index()),
++            sum_arm(CrashPhaseArm::Early.index()),
++        ];
++        let stranded_fired = [sum2(&GR_CELL_STRANDED_FIRED, 0), sum2(&GR_CELL_STRANDED_FIRED, 1)];
+         Self {
+             runs: sum(&GR_CELL_RUNS),
+             steps_used_sum: sum(&GR_CELL_STEPS_USED_SUM),
+@@ -4886,18 +5111,85 @@ impl GhostReleaseCellStats {
+             fired_inflight_bucket_2: sum_slot(2),
+             fired_inflight_bucket_3plus: sum_slot(3),
+             double_crash_after_release: sum(&GR_CELL_DOUBLE_CRASH),
++            triggers_armed: sum(&GR_CELL_ARMED),
++            triggers_fired: sum(&GR_CELL_FIRED),
++            triggers_expired: sum(&GR_CELL_EXPIRED),
++            defer_coin_examined: sum(&GR_CELL_DEFER_EXAMINED),
++            defer_coin_exempted: sum(&GR_CELL_DEFER_EXEMPTED),
++            phase_overridden: overridden.iter().sum(),
++            phase_overridden_stock_to_early: overridden[0],
++            phase_overridden_mid_to_early: overridden[1],
++            phase_overridden_early_read_on_ghost: overridden[2],
++            phase_released_on_condition: sum2(&GR_CELL_PHASE_ENDED, 0),
++            phase_expired: sum2(&GR_CELL_PHASE_ENDED, 1),
++            stranded_fired: stranded_fired[0] + stranded_fired[1],
++            stranded_fired_first_entry: stranded_fired[0],
++            stranded_fired_later_entry: stranded_fired[1],
++            stranded_skipped_entries: sum(&GR_CELL_STRANDED_SKIPPED),
+         }
+     }
+ }
+ 
+ /// The ghost release's cells. `treated` is `release_all` and `single`
+-/// together, the half the release is read against `untreated`.
++/// together, the half the release is read against `untreated`. The
++/// `defer*_early*_stranded*` cells are the treated runs by the three nested
++/// bits, each pooling the release-all and single halves, and the `*_on` and
++/// `*_off` cells are one bit's halves of the treated runs.
+ #[derive(Serialize, Debug)]
+ pub struct GhostReleaseCellsStats {
+     pub untreated: GhostReleaseCellStats,
+     pub release_all: GhostReleaseCellStats,
+     pub single: GhostReleaseCellStats,
+     pub treated: GhostReleaseCellStats,
++    pub defer0_early0_stranded0: GhostReleaseCellStats,
++    pub defer1_early0_stranded0: GhostReleaseCellStats,
++    pub defer0_early1_stranded0: GhostReleaseCellStats,
++    pub defer1_early1_stranded0: GhostReleaseCellStats,
++    pub defer0_early0_stranded1: GhostReleaseCellStats,
++    pub defer1_early0_stranded1: GhostReleaseCellStats,
++    pub defer0_early1_stranded1: GhostReleaseCellStats,
++    pub defer1_early1_stranded1: GhostReleaseCellStats,
++    pub defer_on: GhostReleaseCellStats,
++    pub defer_off: GhostReleaseCellStats,
++    pub early_on: GhostReleaseCellStats,
++    pub early_off: GhostReleaseCellStats,
++    pub stranded_on: GhostReleaseCellStats,
++    pub stranded_off: GhostReleaseCellStats,
++}
++
++/// The defer-coin exemption as read on its own half: coin reads on
++/// released crashes and the withholds overridden. The per-cell fields carry
++/// the other half's reads too.
++#[derive(Serialize, Debug)]
++pub struct GhostReleaseDeferCoinStats {
++    pub examined: u64,
++    pub exempted: u64,
++}
++
++/// The forced early wait as read on its own half: `overridden` counts the
++/// released crashes whose wait evaluated the early phase, split by the arm
++/// they drew, and `released_on_condition` and `expired` how those waits
++/// ended.
++#[derive(Serialize, Debug)]
++pub struct GhostReleasePhaseStats {
++    pub overridden: u64,
++    pub stock_to_early: u64,
++    pub mid_to_early: u64,
++    pub early_read_on_ghost: u64,
++    pub released_on_condition: u64,
++    pub expired: u64,
++}
++
++/// The stranded key as read on its own half: `fired` counts the firings
++/// whose entry carried a record of the stranded segment, split by whether
++/// it was the first acted dead-incarnation entry at its peer since arming,
++/// and `skipped_entries` the entries the key turned away.
++#[derive(Serialize, Debug)]
++pub struct GhostReleaseStrandedStats {
++    pub fired: u64,
++    pub fired_first_entry: u64,
++    pub fired_later_entry: u64,
++    pub skipped_entries: u64,
+ }
+ 
+ /// The fields of a releasing cell the single half is read on.
+@@ -4973,12 +5265,24 @@ pub struct GhostReleaseStats {
+     pub scopes_engaged: u64,
+     pub cells: GhostReleaseCellsStats,
+     pub single: GhostReleaseSingleStats,
++    pub defer_coin: GhostReleaseDeferCoinStats,
++    pub phase: GhostReleasePhaseStats,
++    pub stranded: GhostReleaseStrandedStats,
+ }
+ 
+ impl GhostReleaseStats {
+     fn read() -> Self {
+-        let release_all = GhostReleaseCellStats::read(&[1]);
+-        let single = GhostReleaseCellStats::read(&[2]);
++        let release_all = GhostReleaseCellStats::read(&ghost_release_columns(|single, _| !single));
++        let single = GhostReleaseCellStats::read(&ghost_release_columns(|single, _| single));
++        let crossed = |bits: GhostReleaseBits| {
++            GhostReleaseCellStats::read(&ghost_release_columns(|_, b| b == bits))
++        };
++        let half = |keep: fn(GhostReleaseBits) -> bool| {
++            GhostReleaseCellStats::read(&ghost_release_columns(|_, b| keep(b)))
++        };
++        let defer_on = half(|b| b.defer_exempt);
++        let early_on = half(|b| b.early_on_ghost);
++        let stranded_on = half(|b| b.stranded_key);
+         let own = GR_SINGLE_OWN_CRASH.load(Ordering::Relaxed);
+         let ranking = GR_SINGLE_VIA_RANKING.load(Ordering::Relaxed);
+         let forced = GR_SINGLE_FORCED.load(Ordering::Relaxed);
+@@ -4996,11 +5300,43 @@ impl GhostReleaseStats {
+             lag_p75: GR_LAG_P75.load(Ordering::Relaxed),
+             lag_p90: GR_LAG_P90.load(Ordering::Relaxed),
+             scopes_engaged: GR_SCOPES_ENGAGED.load(Ordering::Relaxed),
++            defer_coin: GhostReleaseDeferCoinStats {
++                examined: defer_on.defer_coin_examined,
++                exempted: defer_on.defer_coin_exempted,
++            },
++            phase: GhostReleasePhaseStats {
++                overridden: early_on.phase_overridden,
++                stock_to_early: early_on.phase_overridden_stock_to_early,
++                mid_to_early: early_on.phase_overridden_mid_to_early,
++                early_read_on_ghost: early_on.phase_overridden_early_read_on_ghost,
++                released_on_condition: early_on.phase_released_on_condition,
++                expired: early_on.phase_expired,
++            },
++            stranded: GhostReleaseStrandedStats {
++                fired: stranded_on.stranded_fired,
++                fired_first_entry: stranded_on.stranded_fired_first_entry,
++                fired_later_entry: stranded_on.stranded_fired_later_entry,
++                skipped_entries: stranded_on.stranded_skipped_entries,
++            },
+             cells: GhostReleaseCellsStats {
+                 untreated: GhostReleaseCellStats::read(&[0]),
+                 release_all,
+                 single,
+-                treated: GhostReleaseCellStats::read(&[1, 2]),
++                treated: GhostReleaseCellStats::read(&ghost_release_columns(|_, _| true)),
++                defer0_early0_stranded0: crossed(GhostReleaseBits::ALL[0]),
++                defer1_early0_stranded0: crossed(GhostReleaseBits::ALL[1]),
++                defer0_early1_stranded0: crossed(GhostReleaseBits::ALL[2]),
++                defer1_early1_stranded0: crossed(GhostReleaseBits::ALL[3]),
++                defer0_early0_stranded1: crossed(GhostReleaseBits::ALL[4]),
++                defer1_early0_stranded1: crossed(GhostReleaseBits::ALL[5]),
++                defer0_early1_stranded1: crossed(GhostReleaseBits::ALL[6]),
++                defer1_early1_stranded1: crossed(GhostReleaseBits::ALL[7]),
++                defer_on,
++                defer_off: half(|b| !b.defer_exempt),
++                early_on,
++                early_off: half(|b| !b.early_on_ghost),
++                stranded_on,
++                stranded_off: half(|b| !b.stranded_key),
+             },
+             single: GhostReleaseSingleStats {
+                 releases: own + ranking + forced,
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 1389681..0dfff21 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseDeferCoinStats, GhostReleasePhaseStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, GhostReleaseStrandedStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -652,6 +652,21 @@ fn ghost_release_cell(m: &mut Marks) -> GhostReleaseCellStats {
+         fired_inflight_bucket_2: m.int(),
+         fired_inflight_bucket_3plus: m.int(),
+         double_crash_after_release: m.int(),
++        triggers_armed: m.int(),
++        triggers_fired: m.int(),
++        triggers_expired: m.int(),
++        defer_coin_examined: m.int(),
++        defer_coin_exempted: m.int(),
++        phase_overridden: m.int(),
++        phase_overridden_stock_to_early: m.int(),
++        phase_overridden_mid_to_early: m.int(),
++        phase_overridden_early_read_on_ghost: m.int(),
++        phase_released_on_condition: m.int(),
++        phase_expired: m.int(),
++        stranded_fired: m.int(),
++        stranded_fired_first_entry: m.int(),
++        stranded_fired_later_entry: m.int(),
++        stranded_skipped_entries: m.int(),
+     }
+ }
+ 
+@@ -678,6 +693,21 @@ fn ghost_release_cell_leaves(prefix: &str, c: &GhostReleaseCellStats) -> Vec<(St
+         fired_inflight_bucket_2,
+         fired_inflight_bucket_3plus,
+         double_crash_after_release,
++        triggers_armed,
++        triggers_fired,
++        triggers_expired,
++        defer_coin_examined,
++        defer_coin_exempted,
++        phase_overridden,
++        phase_overridden_stock_to_early,
++        phase_overridden_mid_to_early,
++        phase_overridden_early_read_on_ghost,
++        phase_released_on_condition,
++        phase_expired,
++        stranded_fired,
++        stranded_fired_first_entry,
++        stranded_fired_later_entry,
++        stranded_skipped_entries,
+     } = c;
+     vec![
+         leaf(prefix, "runs", *runs),
+@@ -713,6 +743,25 @@ fn ghost_release_cell_leaves(prefix: &str, c: &GhostReleaseCellStats) -> Vec<(St
+         leaf(prefix, "fired_inflight_bucket_2", *fired_inflight_bucket_2),
+         leaf(prefix, "fired_inflight_bucket_3plus", *fired_inflight_bucket_3plus),
+         leaf(prefix, "double_crash_after_release", *double_crash_after_release),
++        leaf(prefix, "triggers_armed", *triggers_armed),
++        leaf(prefix, "triggers_fired", *triggers_fired),
++        leaf(prefix, "triggers_expired", *triggers_expired),
++        leaf(prefix, "defer_coin_examined", *defer_coin_examined),
++        leaf(prefix, "defer_coin_exempted", *defer_coin_exempted),
++        leaf(prefix, "phase_overridden", *phase_overridden),
++        leaf(prefix, "phase_overridden_stock_to_early", *phase_overridden_stock_to_early),
++        leaf(prefix, "phase_overridden_mid_to_early", *phase_overridden_mid_to_early),
++        leaf(
++            prefix,
++            "phase_overridden_early_read_on_ghost",
++            *phase_overridden_early_read_on_ghost,
++        ),
++        leaf(prefix, "phase_released_on_condition", *phase_released_on_condition),
++        leaf(prefix, "phase_expired", *phase_expired),
++        leaf(prefix, "stranded_fired", *stranded_fired),
++        leaf(prefix, "stranded_fired_first_entry", *stranded_fired_first_entry),
++        leaf(prefix, "stranded_fired_later_entry", *stranded_fired_later_entry),
++        leaf(prefix, "stranded_skipped_entries", *stranded_skipped_entries),
+     ]
+ }
+ 
+@@ -769,6 +818,20 @@ fn ghost_release(m: &mut Marks) -> GhostReleaseStats {
+             release_all: ghost_release_cell(m),
+             single: ghost_release_cell(m),
+             treated: ghost_release_cell(m),
++            defer0_early0_stranded0: ghost_release_cell(m),
++            defer1_early0_stranded0: ghost_release_cell(m),
++            defer0_early1_stranded0: ghost_release_cell(m),
++            defer1_early1_stranded0: ghost_release_cell(m),
++            defer0_early0_stranded1: ghost_release_cell(m),
++            defer1_early0_stranded1: ghost_release_cell(m),
++            defer0_early1_stranded1: ghost_release_cell(m),
++            defer1_early1_stranded1: ghost_release_cell(m),
++            defer_on: ghost_release_cell(m),
++            defer_off: ghost_release_cell(m),
++            early_on: ghost_release_cell(m),
++            early_off: ghost_release_cell(m),
++            stranded_on: ghost_release_cell(m),
++            stranded_off: ghost_release_cell(m),
+         },
+         single: GhostReleaseSingleStats {
+             releases: m.int(),
+@@ -781,6 +844,24 @@ fn ghost_release(m: &mut Marks) -> GhostReleaseStats {
+                 single: ghost_release_single_cell(m),
+             },
+         },
++        defer_coin: GhostReleaseDeferCoinStats {
++            examined: m.int(),
++            exempted: m.int(),
++        },
++        phase: GhostReleasePhaseStats {
++            overridden: m.int(),
++            stock_to_early: m.int(),
++            mid_to_early: m.int(),
++            early_read_on_ghost: m.int(),
++            released_on_condition: m.int(),
++            expired: m.int(),
++        },
++        stranded: GhostReleaseStrandedStats {
++            fired: m.int(),
++            fired_first_entry: m.int(),
++            fired_later_entry: m.int(),
++            skipped_entries: m.int(),
++        },
+     }
+ }
+ 
+@@ -801,13 +882,45 @@ fn ghost_release_leaves(prefix: &str, r: &GhostReleaseStats) -> Vec<(String, Val
+         scopes_engaged,
+         cells,
+         single,
++        defer_coin,
++        phase,
++        stranded,
+     } = r;
+     let GhostReleaseCellsStats {
+         untreated,
+         release_all,
+         single: single_cell,
+         treated,
++        defer0_early0_stranded0,
++        defer1_early0_stranded0,
++        defer0_early1_stranded0,
++        defer1_early1_stranded0,
++        defer0_early0_stranded1,
++        defer1_early0_stranded1,
++        defer0_early1_stranded1,
++        defer1_early1_stranded1,
++        defer_on,
++        defer_off,
++        early_on,
++        early_off,
++        stranded_on,
++        stranded_off,
+     } = cells;
++    let GhostReleaseDeferCoinStats { examined, exempted } = defer_coin;
++    let GhostReleasePhaseStats {
++        overridden,
++        stock_to_early,
++        mid_to_early,
++        early_read_on_ghost,
++        released_on_condition,
++        expired: phase_expired,
++    } = phase;
++    let GhostReleaseStrandedStats {
++        fired: stranded_fired,
++        fired_first_entry,
++        fired_later_entry,
++        skipped_entries,
++    } = stranded;
+     let GhostReleaseSingleStats {
+         releases,
+         released_own_crash,
+@@ -840,9 +953,41 @@ fn ghost_release_leaves(prefix: &str, r: &GhostReleaseStats) -> Vec<(String, Val
+         ("release_all", release_all),
+         ("single", single_cell),
+         ("treated", treated),
++        ("defer0_early0_stranded0", defer0_early0_stranded0),
++        ("defer1_early0_stranded0", defer1_early0_stranded0),
++        ("defer0_early1_stranded0", defer0_early1_stranded0),
++        ("defer1_early1_stranded0", defer1_early1_stranded0),
++        ("defer0_early0_stranded1", defer0_early0_stranded1),
++        ("defer1_early0_stranded1", defer1_early0_stranded1),
++        ("defer0_early1_stranded1", defer0_early1_stranded1),
++        ("defer1_early1_stranded1", defer1_early1_stranded1),
++        ("defer_on", defer_on),
++        ("defer_off", defer_off),
++        ("early_on", early_on),
++        ("early_off", early_off),
++        ("stranded_on", stranded_on),
++        ("stranded_off", stranded_off),
+     ] {
+         out.extend(ghost_release_cell_leaves(&format!("{prefix}.cells.{name}"), cell));
+     }
++    let d = format!("{prefix}.defer_coin");
++    out.extend([leaf(&d, "examined", *examined), leaf(&d, "exempted", *exempted)]);
++    let p = format!("{prefix}.phase");
++    out.extend([
++        leaf(&p, "overridden", *overridden),
++        leaf(&p, "stock_to_early", *stock_to_early),
++        leaf(&p, "mid_to_early", *mid_to_early),
++        leaf(&p, "early_read_on_ghost", *early_read_on_ghost),
++        leaf(&p, "released_on_condition", *released_on_condition),
++        leaf(&p, "expired", *phase_expired),
++    ]);
++    let k = format!("{prefix}.stranded");
++    out.extend([
++        leaf(&k, "fired", *stranded_fired),
++        leaf(&k, "fired_first_entry", *fired_first_entry),
++        leaf(&k, "fired_later_entry", *fired_later_entry),
++        leaf(&k, "skipped_entries", *skipped_entries),
++    ]);
+     let s = format!("{prefix}.single");
+     out.extend([
+         leaf(&s, "releases", *releases),

@@ -1,0 +1,406 @@
+[
+ {
+  "seed": 1000,
+  "runs": [
+   763560,
+   757560
+  ],
+  "violations": [
+   0,
+   0
+  ],
+  "failed": 0,
+  "parent": {
+   "armed": 237398,
+   "fired": 92057,
+   "lag": [
+    30,
+    69,
+    151
+   ]
+  },
+  "cells": {
+   "untreated": {
+    "runs": 353859,
+    "steps_per_run": 1717.3757654885137,
+    "crashes_per_run": 2.2016678959698637,
+    "within3_unanchored": 0.0,
+    "within3_anchored": 0.0,
+    "within3_per_later": 0.017412297920256517,
+    "on_ghost": 0.0,
+    "bucket0": 0.0,
+    "bucket3plus": 0.0,
+    "fired_over_armed": 0.0,
+    "triggers_fired": 0,
+    "triggers_armed": 0,
+    "exempted": 0,
+    "examined": 0,
+    "overridden": 0,
+    "overridden_split": [
+     0,
+     0,
+     0
+    ],
+    "released_on_condition": 0,
+    "phase_expired": 0,
+    "stranded_fired": 0,
+    "stranded_first": 0,
+    "stranded_skipped": 0
+   },
+   "release_all": {
+    "runs": 177293,
+    "steps_per_run": 1706.6657848871641,
+    "crashes_per_run": 2.2016943703361105,
+    "within3_unanchored": 0.7961325138659872,
+    "within3_anchored": 0.4174840579710145,
+    "within3_per_later": 0.12433789204532127,
+    "on_ghost": 0.7940597638364527,
+    "bucket0": 0.07829946180416097,
+    "bucket3plus": 0.6106715398827215,
+    "fired_over_armed": 0.3872565854998798,
+    "triggers_fired": 45103,
+    "triggers_armed": 116468,
+    "exempted": 143609,
+    "examined": 595692,
+    "overridden": 21609,
+    "overridden_split": [
+     7306,
+     7254,
+     7049
+    ],
+    "released_on_condition": 20619,
+    "phase_expired": 990,
+    "stranded_fired": 20286,
+    "stranded_first": 18369,
+    "stranded_skipped": 11789
+   },
+   "single": {
+    "runs": 176873,
+    "steps_per_run": 1705.9455315395792,
+    "crashes_per_run": 2.201619240924279,
+    "within3_unanchored": 0.8204524033930255,
+    "within3_anchored": 0.4228589730954962,
+    "within3_per_later": 0.12042101500736024,
+    "on_ghost": 0.9445840609958683,
+    "bucket0": 0.07096307023895727,
+    "bucket3plus": 0.6389019039911402,
+    "fired_over_armed": 0.3882742082196312,
+    "triggers_fired": 46954,
+    "triggers_armed": 120930,
+    "exempted": 142069,
+    "examined": 577150,
+    "overridden": 20565,
+    "overridden_split": [
+     6716,
+     6902,
+     6947
+    ],
+    "released_on_condition": 19206,
+    "phase_expired": 1359,
+    "stranded_fired": 20473,
+    "stranded_first": 18574,
+    "stranded_skipped": 12380
+   },
+   "defer_on": {
+    "runs": 177089,
+    "steps_per_run": 1705.2815138150872,
+    "crashes_per_run": 2.202621280824896,
+    "within3_unanchored": 0.9006693033160937,
+    "within3_anchored": 0.4722392710448043,
+    "within3_per_later": 0.1364756348822693,
+    "on_ghost": 0.8722208598986432,
+    "bucket0": 0.072543730586889,
+    "bucket3plus": 0.6452100702958967,
+    "fired_over_armed": 0.39134860479006656,
+    "triggers_fired": 46520,
+    "triggers_armed": 118871,
+    "exempted": 285678,
+    "examined": 572063,
+    "overridden": 21239,
+    "overridden_split": [
+     7073,
+     7134,
+     7032
+    ],
+    "released_on_condition": 20007,
+    "phase_expired": 1232,
+    "stranded_fired": 20567,
+    "stranded_first": 18657,
+    "stranded_skipped": 12012
+   },
+   "defer_off": {
+    "runs": 177077,
+    "steps_per_run": 1707.3307261812658,
+    "crashes_per_run": 2.2006923541736083,
+    "within3_unanchored": 0.7137552220331116,
+    "within3_anchored": 0.36666586055959954,
+    "within3_per_later": 0.10826363520965854,
+    "on_ghost": 0.8618814573137574,
+    "bucket0": 0.07698582005270423,
+    "bucket3plus": 0.6030451332245785,
+    "fired_over_armed": 0.3841909438355818,
+    "triggers_fired": 45537,
+    "triggers_armed": 118527,
+    "exempted": 0,
+    "examined": 600779,
+    "overridden": 20935,
+    "overridden_split": [
+     6949,
+     7022,
+     6964
+    ],
+    "released_on_condition": 19818,
+    "phase_expired": 1117,
+    "stranded_fired": 20192,
+    "stranded_first": 18286,
+    "stranded_skipped": 12157
+   },
+   "early_on": {
+    "runs": 177076,
+    "steps_per_run": 1704.6069823126793,
+    "crashes_per_run": 2.201642232713637,
+    "within3_unanchored": 0.8076745261211281,
+    "within3_anchored": 0.32987148480106226,
+    "within3_per_later": 0.10478995504572934,
+    "on_ghost": 0.8615375131003021,
+    "bucket0": 0.0790950003082424,
+    "bucket3plus": 0.6380001232969608,
+    "fired_over_armed": 0.390852496077472,
+    "triggers_fired": 46334,
+    "triggers_armed": 118546,
+    "exempted": 163181,
+    "examined": 668890,
+    "overridden": 42174,
+    "overridden_split": [
+     14022,
+     14156,
+     13996
+    ],
+    "released_on_condition": 39825,
+    "phase_expired": 2349,
+    "stranded_fired": 20525,
+    "stranded_first": 18623,
+    "stranded_skipped": 12064
+   },
+   "early_off": {
+    "runs": 177090,
+    "steps_per_run": 1708.0050539273816,
+    "crashes_per_run": 2.201671466485968,
+    "within3_unanchored": 0.8083384239462431,
+    "within3_anchored": 0.511687811454296,
+    "within3_per_later": 0.1399730378456581,
+    "on_ghost": 0.8727514712916172,
+    "bucket0": 0.07033085865202654,
+    "bucket3plus": 0.6105808222596544,
+    "fired_over_armed": 0.3847053478275502,
+    "triggers_fired": 45723,
+    "triggers_armed": 118852,
+    "exempted": 122497,
+    "examined": 503952,
+    "overridden": 0,
+    "overridden_split": [
+     0,
+     0,
+     0
+    ],
+    "released_on_condition": 0,
+    "phase_expired": 0,
+    "stranded_fired": 20234,
+    "stranded_first": 18320,
+    "stranded_skipped": 12105
+   },
+   "stranded_on": {
+    "runs": 177171,
+    "steps_per_run": 1706.4075554125675,
+    "crashes_per_run": 2.20016255481992,
+    "within3_unanchored": 0.8115972367594725,
+    "within3_anchored": 0.4145764443369089,
+    "within3_per_later": 0.10635197450372996,
+    "on_ghost": 0.864344594272645,
+    "bucket0": 0.07406966217182065,
+    "bucket3plus": 0.620336398723019,
+    "fired_over_armed": 0.33526723957241666,
+    "triggers_fired": 39989,
+    "triggers_armed": 119275,
+    "exempted": 126033,
+    "examined": 514413,
+    "overridden": 18740,
+    "overridden_split": [
+     6218,
+     6326,
+     6196
+    ],
+    "released_on_condition": 17707,
+    "phase_expired": 1033,
+    "stranded_fired": 40759,
+    "stranded_first": 36943,
+    "stranded_skipped": 24169
+   },
+   "stranded_off": {
+    "runs": 176995,
+    "steps_per_run": 1706.204514251815,
+    "crashes_per_run": 2.2031526314302665,
+    "within3_unanchored": 0.8059322033898305,
+    "within3_anchored": 0.42449909708487404,
+    "within3_per_later": 0.13838910611771665,
+    "on_ghost": 0.8692310500949321,
+    "bucket0": 0.07525193515408209,
+    "bucket3plus": 0.6274645830290638,
+    "fired_over_armed": 0.4407947647790862,
+    "triggers_fired": 52068,
+    "triggers_armed": 118123,
+    "exempted": 159645,
+    "examined": 658429,
+    "overridden": 23434,
+    "overridden_split": [
+     7804,
+     7830,
+     7800
+    ],
+    "released_on_condition": 22118,
+    "phase_expired": 1316,
+    "stranded_fired": 0,
+    "stranded_first": 0,
+    "stranded_skipped": 0
+   }
+  },
+  "defer": {
+   "nested": {
+    "d5": {
+     "ratio": 0.9931729790844465,
+     "on_events": 8076,
+     "off_events": 8125,
+     "on_runs": 171090,
+     "off_runs": 171034
+    },
+    "d6": {
+     "ratio": 0.9924498101108714,
+     "on_events": 7960,
+     "off_events": 8014,
+     "on_runs": 171090,
+     "off_runs": 171034
+    },
+    "d8": {
+     "ratio": 1.0218976470093228,
+     "on_events": 3671,
+     "off_events": 3589,
+     "on_runs": 171090,
+     "off_runs": 171034
+    },
+    "d9": {
+     "ratio": 0.9298279417137014,
+     "on_events": 670,
+     "off_events": 720,
+     "on_runs": 167056,
+     "off_runs": 166943
+    },
+    "d10": {
+     "ratio": 0.8972695549905562,
+     "on_events": 115,
+     "off_events": 128,
+     "on_runs": 151370,
+     "off_runs": 151249
+    }
+   },
+   "treated_over_untreated": {
+    "d5": 0.9627758683676847,
+    "d6": 0.962836261509227,
+    "d8": 1.0961160696575996,
+    "d9": 1.1535499049758655,
+    "d10": 1.242068963395689
+   }
+  },
+  "early": {
+   "nested": {
+    "d5": {
+     "ratio": 0.9927668811899407,
+     "on_events": 8071,
+     "off_events": 8130,
+     "on_runs": 171118,
+     "off_runs": 171006
+    },
+    "d6": {
+     "ratio": 0.991778052708253,
+     "on_events": 7954,
+     "off_events": 8020,
+     "on_runs": 171118,
+     "off_runs": 171006
+    },
+    "d8": {
+     "ratio": 0.9512973664107903,
+     "on_events": 3539,
+     "off_events": 3721,
+     "on_runs": 171118,
+     "off_runs": 171006
+    },
+    "d9": {
+     "ratio": 1.0007884127504263,
+     "on_events": 695,
+     "off_events": 694,
+     "on_runs": 165887,
+     "off_runs": 165767
+    },
+    "d10": {
+     "ratio": 0.9999465144696171,
+     "on_events": 123,
+     "off_events": 123,
+     "on_runs": 153052,
+     "off_runs": 153117
+    }
+   },
+   "treated_over_untreated": {
+    "d5": 0.9620223548716947,
+    "d6": 0.9619530756067612,
+    "d8": 1.0565295628690528,
+    "d9": 1.1977211940888883,
+    "d10": 1.2944871529095652
+   }
+  },
+  "stranded": {
+   "nested": {
+    "d5": {
+     "ratio": 0.9944890939077906,
+     "on_events": 8087,
+     "off_events": 8114,
+     "on_runs": 171197,
+     "off_runs": 170927
+    },
+    "d6": {
+     "ratio": 0.9940610186512404,
+     "on_events": 7972,
+     "off_events": 8002,
+     "on_runs": 171197,
+     "off_runs": 170927
+    },
+    "d8": {
+     "ratio": 0.9568449569991995,
+     "on_events": 3554,
+     "off_events": 3706,
+     "on_runs": 171197,
+     "off_runs": 170927
+    },
+    "d9": {
+     "ratio": 0.9034562454414008,
+     "on_events": 661,
+     "off_events": 730,
+     "on_runs": 168866,
+     "off_runs": 168579
+    },
+    "d10": {
+     "ratio": 1.1102710401574938,
+     "on_events": 129,
+     "off_events": 116,
+     "on_runs": 153172,
+     "off_runs": 152944
+    }
+   },
+   "treated_over_untreated": {
+    "d5": 0.9634846622010356,
+    "d6": 0.9636850830416737,
+    "d8": 1.0605180389751188,
+    "d9": 1.135775241348704,
+    "d10": 1.367525808217864
+   }
+  }
+ }
+]

@@ -1,0 +1,22 @@
+runs 135872, release-bit runs 60556 (0.446), probes 8575
+ghostReleaseDeferExempt: on 30212 (0.222 of runs), share of release-bit runs 0.499, without bit 16: 0, on probes: 1069, with single 15308 (0.253 of release runs)
+ghostReleasePhaseEarlyOnGhost: on 30097 (0.222 of runs), share of release-bit runs 0.497, without bit 16: 0, on probes: 1058, with single 15219 (0.251 of release runs)
+ghostReleaseStrandedKey: on 30357 (0.223 of runs), share of release-bit runs 0.501, without bit 16: 0, on probes: 1060, with single 15292 (0.253 of release runs)
+crossed cells (defer, early, stranded, single): count, share of release runs
+  (False, False, False, False): 3739 (0.062)
+  (False, False, False, True): 3891 (0.064)
+  (False, False, True, False): 3823 (0.063)
+  (False, False, True, True): 3731 (0.062)
+  (False, True, False, False): 3659 (0.060)
+  (False, True, False, True): 3774 (0.062)
+  (False, True, True, False): 3865 (0.064)
+  (False, True, True, True): 3862 (0.064)
+  (True, False, False, False): 3787 (0.063)
+  (True, False, False, True): 3852 (0.064)
+  (True, False, True, False): 3763 (0.062)
+  (True, False, True, True): 3873 (0.064)
+  (True, True, False, False): 3740 (0.062)
+  (True, True, False, True): 3757 (0.062)
+  (True, True, True, False): 3614 (0.060)
+  (True, True, True, True): 3826 (0.063)
+eight cells (three bits) all populated: True
