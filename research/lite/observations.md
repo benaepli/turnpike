@@ -8405,3 +8405,45 @@ Digest for the user: iteration 78 closed after one chunk (the second
 stall clock fired seven times below its floor and cost throughput; depth
 preserved). Next round rotates to the fault-injection lens at the
 restart-and-delivery window.
+
+
+**Iteration 79 proposals and admission.** Four proposals through the
+fault-injection lens under a directive at the restart-and-delivery
+window: a restart pulls every other node's still-held planned crash into
+a learned post-restart ghost-lag window; nested inside it, the first
+acted dead-incarnation entry at a live peer releases the pulled crash one
+step later; a nested reply-wait that re-admits a closed crash hold under
+an acted-entry predicate; and an exemption of condition-released crashes
+from the partial-fan-out defer coin. The proposer corrected the
+directive against the oracle DAG: labels 8 and 9 are the ghost
+StartViewChange and DoViewChange of the same stranded reaction segment
+and label 10 is a client write, with no crash between labels 7 and 13,
+so the deeper rungs need the earlier crash to have stranded the reaction
+pair, not a further crash; a restart-side race cannot start earlier
+because post-restart sends issue synchronously at the restart apply; and
+on three nodes a crash on the peer whose answer a rejoining node needs
+leaves both unable to finish. The judge verified the path reading
+against the DAG and the prefix walk (depth 4 the first delivery, 5 the
+absorber's crash, 6 its restart, 7 the Recovery delivery, 8 and 9 the
+stranded pair, 10 the write; conversions 4 to 5 at 0.205 and 8 to 9 at
+0.16 match the cache). Blind judge over fourteen candidates: restart
+pull 6-0, ghost-triggered release 5-0 (built with the pull in the same
+session), defer-coin exemption 5-0, repeated release 5-0, replay parent
+by arm set 4-0, reply-wait 4-0 (later), crash holds for the restarted-
+peer window 3-0 (superseded by the pull as the restart-window mechanism),
+run-local counters 5-2, stalled runs as replay parents 3-0, PCT change
+points 3-0, post-release cap 2-0, optional-cover reversal 2-0; the run-
+cap headroom dose (premise removed by the stall-cap merge) and the
+withheld-faults release (superseded) rejected. One false mechanism claim
+on the pull (ghost marks never age; the no-absorber mass is the too-
+early case, which the pull can add to on the share of the window ahead
+of the ghost) and one optimistic firing share on the trigger (sender-
+restarted deliveries act 18.6% of the time) were folded into the
+rewritten bands. Admitted: bit restartPulledCrash 1<<4 on a salted half
+of placed runs, internal depth8 per run [1.03, 1.30], depth9 [1.08,
+1.50] as the advance read, depth5 reported, pulls >= 150,000 per chunk,
+applied-within-window treated >= 2x untreated, steps per run <= 1.00x,
+throughput >= 0.98; nested bit ghostTriggeredCrash 1<<28 on half the
+pull cell, against the pull-only half depth8 [1.03, 1.25], depth9 [1.08,
+1.40], fired/armed >= 0.35, early bucket_3plus share >= 1.10x. Full
+record: research/lite/plans/iteration-79-admitted.json.

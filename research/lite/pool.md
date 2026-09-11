@@ -3852,3 +3852,56 @@ run-local counters 5-2, withheld-faults release 3 (superseded as the
 nesting by the repeat), stalled runs as replay parents 3, PCT change
 points 3, run-cap headroom dose 2, optional-cover reversal 2.
 Awaiting-approval entries unchanged.
+
+
+## restart-pulls-held-crash-into-learned-ghost-lag-window
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 79 (rank 1 net 6; bit restartPulledCrash 1<<4 on the retired
+  staleOrder row, a salted half of placed runs; internal rung, composition
+  only) | gain: 6 | cost: 0 | rank: 1
+- At every restart apply, every other node's still-held planned crash whose
+  target lies past the restart plus a learned ghost-lag window is pulled
+  into that window using its old target's randomness; the window is the
+  per-scope p90 of the ghost lag learned from stock probes.
+- Frozen (judge-rewritten) prediction and review:
+  `research/lite/plans/iteration-79-admitted.json`.
+
+## pulled-crash-released-at-first-acted-ghost-entry
+
+- kind: add | category: scheduler | origin: proposer | status: ADMITTED at
+  iteration 79 as the nested cell of the pull (rank 2 net 5; bit
+  ghostTriggeredCrash 1<<28 on the freed clientProgressRelease row, half
+  of the pull cell; built in the same session) | gain: 5 | cost: 0 | rank: 2
+- Inside the window the pulled crash's target is the window's end and the
+  first acted dead-incarnation entry at a live peer releases it one step
+  later. Frozen prediction and review:
+  `research/lite/plans/iteration-79-admitted.json`.
+
+## condition-released-crash-exempt-from-fanout-defer-coin
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 79 (bit reassigned to 1<<16) | gain: 5 | cost: 0 | rank: 3
+- A crash released by its Early or Mid condition is no longer re-withheld
+  by the per-step partial-fan-out coin (coin drawn, value discarded).
+  Review: `research/lite/plans/iteration-79-admitted.json`.
+
+## pulled-crash-waits-for-victim-reply-to-restarted-peer
+
+- kind: add | category: scheduler | origin: proposer | status: KEPT at iteration 79 (bit reassigned to 1<<25; built after the pull has read; re-admits the closed crash-hold-while-peer-restart-unsettled under an acted-entry predicate) | gain: 4 | cost: 0 | rank: 6
+- Review: `research/lite/plans/iteration-79-admitted.json`.
+
+## run-cap-headroom-one-dose
+
+- status: REJECTED at iteration 79 (premise removed by the stall-cap merge; stale figures).
+
+## stall-release-of-withheld-faults
+
+- status: REJECTED at iteration 79 (superseded by the repeated release, already ruled the concrete nesting at iteration 78; stale figures).
+
+Iteration 79 re-judged the carried entries: repeated release 5 (depth10
+band lowered to [1.06,1.35]), replay parent by arm set 4, crash holds for
+the restarted-peer window 3 (superseded by the pull as the restart-window
+mechanism, kept as fallback; its in_flight predicate counts the node's own
+dead-incarnation sends), run-local counters 5-2, stalled runs as replay
+parents 3, PCT change points 3, post-release cap 2, optional-cover
+reversal 2. Awaiting-approval entries unchanged.
