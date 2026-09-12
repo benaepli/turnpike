@@ -13,6 +13,9 @@
   config field must also be listed in `EXPLORER_CONFIG_KEYS`
   (`spur/spur-core/src/simulator/explorer.rs`), or configs with
   `strict_config_keys` set are rejected outright.
+- A dependency change carries its `Cargo.toml` and `Cargo.lock` edits in the
+  same patch. The worktree's `spur` is a fresh clone, so a lock left behind
+  builds a different binary than the one proposed.
 - Rust work lives in `spur/spur-core`; config work in
   `scheduler_configs/loop/`. If the mechanism must be enabled for
   evaluation, enable it in the templates the loop's configuration names -

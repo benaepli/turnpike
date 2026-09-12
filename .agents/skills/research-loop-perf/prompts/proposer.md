@@ -17,6 +17,11 @@
   harness, the orchestrator, the grader, the evaluation protocol, or the
   campaign arm set of the campaign template (an arm change moves the unit of
   comparison and the grader refuses it).
+- A dependency is part of the subject: adding one, dropping one, or swapping
+  one for a faster equivalent is a legitimate hypothesis. A dependency that
+  can change any container's iteration or ordering - hashers, map and set
+  types above all - changes the schedule, so it declares search-affecting
+  unless you can argue that it cannot.
 - Every hypothesis carries a frozen prediction in the template below,
   including both declarations. The prediction is graded, never rewritten.
 
