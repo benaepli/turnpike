@@ -9435,3 +9435,37 @@ chunk record twice is fixed: the grader folds large records cleanly when
 run in one node process under a raised V8 stack, which lifts the
 two-new-bits-per-session limit. Tree unchanged at spur 12b7582, cumulative
 throughput ledger unchanged at 1.0736.
+
+**Autonomous launch preflight (2026-09-12), before iteration 85.** Main
+branch research/lite was clean at 12d0dc1 with recorded spur 292c15b;
+spur-research-loop was inactive. The baseline release build passed. The
+first grader selftest aborted with EISDIR because the cache scan passed
+the existing baselines/contaminated directory to loadCache. The loader now
+returns null for non-files; no cache was moved or deleted. The next
+selftest exposed a stale panel-summary fixture expecting the retired name
+staleOrder for bit 16, now ghostReleasedCrash. The fixture now takes the
+label from the registered bit, retaining its arithmetic, interval, count,
+and direction checks. These are operator repairs, not research gains;
+no thresholds, oracle, protocol, or protected machinery changed.
+
+The plan-shape session was still marked unfinished although both decision
+rows and the iteration 84 close were already committed. Running finish
+without regression marked it finished, reporting adviceVerdict close,
+depth8 per second -26.75%, and zero violations on 1,419,360 candidate and
+1,510,800 baseline runs. No new exposure was bought, and regression was
+not run for the already-closed candidate. The final selftest passed with
+zero failures and no skipped fixtures using the raised-stack single-node
+command. Its warnings retain the missing inactive bit names, the older
+layout calibration, and the absence of a cache for the current spur tree;
+the next grade will measure that fresh baseline, not borrow the prior
+tree's cache. Epoch and ledger remain unchanged.
+
+Iteration 85 rotates from premise check to the fault-timing literature
+lens, with explicit mechanism-level steering and the non-cannibalizing
+write/read follow-up as one candidate rather than a predetermined winner.
+The first proposer failed with a provider HTTP 429 and returned no
+hypotheses; it was replaced using the session-model fork. The immutable
+skill's bit-registration instruction conflicts with its absolute ban on
+editing research/orchestrator: this launch honors the ban, reusing only
+inactive registered bits with their existing names recorded as aliases.
+Changing that rule remains the user's responsibility.

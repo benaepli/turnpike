@@ -204,7 +204,7 @@ function cacheFileFor(id: BaselineIdentity): string {
 }
 
 function loadCache(file: string): BaselineCache | null {
-  if (!fs.existsSync(file)) return null;
+  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return null;
   const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { identity: BaselineIdentity; source: BaselineCache["source"]; chunks: unknown[] };
   const chunks: Evaluation[] = [];
   // A chunk measured under another analyzer or another oracle DAG is on a
@@ -1612,7 +1612,8 @@ function selfTestPanelCells(): string[] {
       `the interval must be ratio*exp(-+z*se) with se inflated by ${INTERNAL_OVERDISPERSION}, got [${c.lo}, ${c.hi}]`);
   }
   const summary = panelCellsSummary("fixture", down.cells);
-  check(summary.startsWith("panel-cells fixture: staleOrder 0.50 [") && summary.endsWith("] 500/10k vs 1000/10k down"), `unexpected summary line: ${summary}`);
+  const name = VARIANT_BITS.find((v) => v.bit === 16)?.name;
+  check(name !== undefined && summary.startsWith(`panel-cells fixture: ${name} 0.50 [`) && summary.endsWith("] 500/10k vs 1000/10k down"), `unexpected summary line: ${summary}`);
   return f;
 }
 
