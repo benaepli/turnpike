@@ -496,3 +496,175 @@ instrument compounds it: with a baseline spread of 0.0476 and a dominance
 criterion, nothing under about ten percent is reliably readable. The next
 direction review should put that question to the user directly rather than
 spend further iterations discovering it one candidate at a time.
+
+## Iteration 4 - structural scope, authorized by the user
+
+The direction question raised at the end of iteration 3 was put to the user:
+three iterations, five candidates, zero merges, four of the five largest
+profile lines probed without a nameable five percent, and an instrument
+that cannot reliably resolve under about ten percent. The options offered
+were a longer campaign wall to cut per-round variance, a revisit of the
+dominance criterion, or accepting that the remaining wins are structural
+rather than local.
+
+The user chose the third and authorized structural changes.
+
+That resolves the instrument tension rather than dodging it. A structural
+change worth ten percent or more is exactly what this instrument CAN read,
+so no harness change is needed if the hypotheses are large enough. The
+practical consequence for steering is a raised floor on ambition: a
+mechanism plausibly worth under ten percent is not worth a round this
+epoch, and the proposer is told so directly.
+
+### The reframe iteration 3's counter makes available
+
+The queues hold about 8.5 runnables per step. schedule_runnable carries
+10.63 percent self time plus 1.12 for its replay specialization, over
+roughly 2000 steps per run. With queues that short, the per-element work
+cannot account for it: most of that 11.75 percent is per-step FIXED cost,
+paid once per scheduling decision regardless of how many candidates there
+are.
+
+Put in absolute terms, at the measured 2285 runs per second and 2000 steps
+per run the session executes about 4.6 million steps per second across 30
+threads, so 11.75 percent of thirty cores is on the order of 700 nanoseconds
+of scheduler overhead per decision. That is a large number for choosing one
+runnable out of eight, and it is the first time this loop has had the two
+measurements needed to state it.
+
+What is paid per step, from the config and the banked counters: the timer
+context path on 90 percent of steps, the crash anchor probe, the multiplier
+authority audit on the 43 percent of steps that are contested, the recovery
+placebo walk, the steer preference consulted three times per step, the
+feedback bias scoring per candidate, the QueueInfo build and the selection
+itself. Several of those are emit_ flags in the campaign template -
+observation for the search loop rather than scheduling.
+
+That yields the structural question for this iteration: how much of the
+scheduler's per-step cost is observation rather than decision, and can the
+observation be made cheap without changing what is observed? Making it
+cheaper is in scope; removing what it reports is not, for the same reason
+the trace-output ruling stood in iteration 3.
+
+### A diagnostic the loop has never run
+
+Both graded candidates failed on attribution, and the flat profile is why:
+it ranks symbols by self time and says nothing about callers. recordProfile
+in the grader states this deliberately - "No call graph is recorded: the
+report is ranked by self time, so collected stacks would be written and
+discarded."
+
+So this iteration records a call-graph profile as an operator diagnostic,
+outside the grader and without editing it, to answer the questions the flat
+profile structurally cannot: which callers produce EcoVec::make_unique,
+what the inclusive cost of the scheduler's per-step observation machinery
+is, and where the interpreter's time actually goes. Run at 8 threads rather
+than 30 so the DWARF unwinding stays affordable; caller shares are the
+quantity wanted and they are stable across thread count, while contention
+effects are not and will not be read from it.
+
+### The instrumented baseline: sizing a mechanism before grading it
+
+A second binary was built this iteration alongside the candidate: the same
+counters, with no mechanism change. It is run outside the grader as an
+operator diagnostic. This answers the structural blocker every previous
+iteration hit - a counter a candidate introduces reads NaN on the unpatched
+baseline, so no candidate has ever been able to state the size of what it
+was about to remove.
+
+Baseline, 8 threads, 40s campaign, 36,416 runs:
+
+| counter | per run |
+|---|---|
+| frame.calls | 2,856 |
+| frame.slots_built | 47,856 |
+| frame.entry_frame_copies | 1,197 |
+| slots per call | 16.76 |
+
+**What part (b) is actually worth, in bytes.** 1,197 entry-frame copy-on-write
+faults per run, each copying about 16.76 slots at 40 bytes, is roughly 800 KB
+per run of memmove, plus 1,197 malloc and free pairs, plus of the order of
+20,000 Value clone refcount operations and the matching drop decrements. At
+the graded 2,100 runs per second that is about 1.7 GB/s of cold copy traffic
+and 2.5 million malloc/free pairs per second.
+
+Set against iteration 2's exec-node-env-in-place, which the judge identified
+as the same kind of mechanism aimed at the wrong buffer: that one fired about
+200 times per run over a 21-slot array, roughly 168 KB per run. Part (b) is
+about five times larger in bytes and six times more frequent. The judge's
+read that this is the corrected re-aim of that candidate is confirmed by
+measurement rather than by argument.
+
+**What part (a) is worth.** 47,856 slots built per run at 40 bytes is about
+1.9 MB per run of frame slot writes, of which the redundant second write to
+every non-parameter slot is what part (a) removes. That is a larger number of
+bytes than part (b), but it lands on lines that Env::with_slots dirtied
+microseconds earlier and are still in L1, which is exactly why the judge
+weighted it as instruction removal rather than byte removal.
+
+**A prediction that landed outside its range.** The proposer predicted slots
+per call between 20 and 120. The measurement is 16.76, just below the range.
+Not a falsifier - the falsifiers are the wall reading and entry_frame_copies -
+but recorded as a miss.
+
+**H2 is now closable by arithmetic, before it is ever built.** cfg-temp-slot-reuse
+froze a falsifier that frame.slots_built must fall by at least 2.5x. At an
+average of 16.76 slots per call, reducing a frame to its maximum live depth
+plausibly reaches 8 to 10 slots, a factor near 1.7. The mechanism cannot
+reach its own declared falsifier on this workload. This is the counter doing
+the job it was designed for, and it is the second time in three iterations
+that a candidate's own counter has closed a different candidate without a
+round being bought. The judge predicted exactly this outcome when it argued
+against fusing H1 and H2.
+
+The candidate binary was not finished before the session ended; the
+implementer has been resumed with its worktree intact.
+
+### The candidate, graded and merged on operator judgment
+
+Session call-frame-one-pass, six rounds, search-neutral, shared, primary
+cross-binary, counter frame.entry_frame_copies, band [1.08, 1.20].
+
+Per-round 1.0490, 1.0320, 1.0980, 1.1373, 0.9454, 1.1317. Mean 1.0634,
+microseconds per run 1.0525, interval [0.9884, 1.1442], dominant false,
+separated false, band read inside, verdict no-gain. Five of six rounds above
+one. The search-neutral declaration held on every observable at the cap, and
+frame.entry_frame_copies read 1281 per run on the instrumented baseline
+against 0 on the candidate.
+
+**At round 4 this session read separated true, lo 1.0051, verdict gain.**
+Round 5 at 0.9454 destroyed dominance and the verdict with it. This is the
+criterion flaw recorded after iteration 3 - that dominance grows harder to
+satisfy as rounds are bought - demonstrated on a live candidate rather than
+argued from a probability. Buying evidence revoked a verdict that the
+evidence had already earned, and the revocation is permanent: once a session
+has gone mixed no further round can restore dominance, so no number of
+additional rounds could have recovered the gain.
+
+**Decision: merged, departing from the no-gain advice, at the user's
+direction after the split evidence was filed.** The written reason, which
+the rule requires in either direction:
+
+- The effect is real by every instrument the loop has. Five of six rounds
+  positive, mean plus 6.3 percent, microseconds per run plus 5.25 percent.
+- The mechanism is verified by measurement rather than by inference. An
+  instrumented baseline built alongside the candidate puts the removed cost
+  at 1281 entry-frame copies per run, roughly 800 KB of memmove, 1200
+  malloc and free pairs and 20,000 refcount operations per run. The
+  candidate reads 0.
+- Neutrality is verified three ways: the grader's spread check clean on
+  every observable at the cap, a deterministic single-configuration run of
+  both binaries producing byte-identical session output apart from wall
+  clock fields, and the compiler confirming that record and runnable
+  equality are unused.
+- The criterion that blocked it was identified as defective before it fired
+  here, and its failure mode is exactly what happened.
+- The reading is also the first confirmation of the bandwidth model this
+  iteration produced: every earlier candidate removed instructions and read
+  at or below one; this one removes bytes and reads above it.
+
+What argues against, recorded honestly: the interval includes one, by a
+hair, so the grader cannot certify the effect at its own confidence. The
+merge is a judgment that the mechanism evidence and the round-4 separation
+outweigh a criterion known to be broken, not a claim that the primary
+separated.

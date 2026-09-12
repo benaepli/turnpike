@@ -1,0 +1,87 @@
+{
+ "name": "call-frame-one-pass",
+ "createdAtIso": "2026-09-12T06:43:20.872Z",
+ "note": "iteration 4 structural: part (b) entry-frame alias removal is the claim under test; part (a) one-pass build rides along",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.08,
+   "max": 1.2
+  },
+  "counter": "frame.entry_frame_copies",
+  "argument": "The change stops every async record carrying a duplicate copy of its entry call frame, and builds each frame in one pass instead of writing every non-parameter slot twice. Neither alters what the explorer searches. Frame contents are identical by construction: the compiler can only emit a unit or a nil starting value for a slot, which the intermediate representation now enforces as a two-variant enum rather than a general expression, so the frame a record rebuilds on crash re-delivery is slot for slot what it used to clone. Record and runnable equality are provably unused - deleting the derives compiles the library and the whole test suite - so a frame that is rebuilt rather than cloned is indistinguishable. The record hash changes shape, but its only path is the state hash, whose signature method has exactly one caller which is that same hash implementation, and which nothing calls; no container in the tree is keyed on a record, a runnable or a state. The local environment write count diverges, and it is read in exactly two places, both on node environments rather than local ones. Under this workload the hash policy is the non-hashing one, so every signature is zero. No random draw is added, removed or reordered, and a deterministic single-configuration run of both binaries produced byte-identical session output apart from wall clock fields."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/call-frame-one-pass/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:call-frame-one-pass"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "63a21f95fdfbdd2744a561515661a861975f935b",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/63a21f95fdfb-30-f9daa01b-120.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-12T06:47:35.613Z",
+   "seed": 1000,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-12T06:51:41.178Z",
+   "seed": 1001,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-12T06:55:46.835Z",
+   "seed": 1002,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-12T07:00:16.593Z",
+   "seed": 1003,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-12T07:04:22.471Z",
+   "seed": 1004,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-12T07:08:28.790Z",
+   "seed": 1005,
+   "wallSec": 244,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}
