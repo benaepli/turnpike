@@ -293,6 +293,22 @@
    "cacheFile": "research/lite/baselines/63a21f95fdfb-30-f9daa01b-300-g870d4c11-s3d907a50.json",
    "measuredAtIso": "2026-09-11T05:30:00Z",
    "note": "measured by grader baseline --chunks 2 on an idle host after the ghost-release merge; the two seeds agree within 1% (2524/2510), so the previous cache's seed-1000 outlier at 2633 was that measurement's artifact; depth>=8 events per chunk [11183, 11562] against 11473/10522; depth>=9 [2674, 2596] against 2282/1935; depth>=10 [423, 396] against 421/254"
+  },
+  {
+   "name": "call-frame-one-pass",
+   "commit": "66ed777",
+   "spurCommit": "17e74ad",
+   "ratio": 1.0634,
+   "cumulative": 1.1416638615069659,
+   "measuredRps": 2491.6,
+   "measuredRpsChunks": [
+    2525.2,
+    2524.7,
+    2425.0
+   ],
+   "cacheFile": "research/perf/baselines/e3f602c256a1-30-f9daa01b-120.json",
+   "measuredAtIso": "2026-09-12T07:22:59.842548Z",
+   "note": "merged by the perf loop, not the search loop. WARNING on measuredRps: this figure is NOT comparable with the rows above it. Those were measured on the search loop's workload at a 300 second wall through cacheFile research/lite/baselines/...-300-g870d4c11-s3d907a50.json; this one is the perf loop's campaign workload at a 120 second wall through a different cache identity (spurTree e3f602c256a1). Reading 2516.7 above against 2491.6 here as a regression would be wrong - they are different workloads. The ratio field is the like-for-like number: 1.0634, the graded cross-binary primary over six rounds. Graded verdict was no-gain and the merge departs from it on operator judgment at the user's direction: per-round 1.0490 1.0320 1.0980 1.1373 0.9454 1.1317, five of six above one, separated true with lo 1.0051 at round 4 before round 5 destroyed dominance permanently. Mechanism verified against an instrumented baseline binary: entry_frame_copies 1281 per run before, 0 after. An independent check agrees with the direction: the post-merge baseline reads 2491.6 against the pre-merge perf baseline of 2300.5 on the SAME perf identity family, about plus 8 percent. Note also that research/perf/baselines/ is now gitignored - the caches are regenerable and one had reached 285 MB, over GitHub's file size limit."
   }
  ]
 }
