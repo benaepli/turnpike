@@ -1,0 +1,87 @@
+{
+ "name": "queue-eligibility-from-counters",
+ "createdAtIso": "2026-09-12T00:32:01.914Z",
+ "note": "iteration 3, graded alone on the judge's reasoning",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.04,
+   "max": 1.1
+  },
+  "counter": "queue_scan.elements_skipped",
+  "argument": "The change answers the scheduler's per-step eligibility counts by arithmetic instead of by walking the queues, and the arithmetic is exactly equal to the walk rather than approximately equal. Under three preconditions that hold on this workload - no reservation standing, no FIFO link in the run, no strict timer gate - the only runnable a step can withhold is a crash, and every crash sits in the local queue of the node it names, which the per-node ledger already counts. So the network and timer counts are the queue lengths, and a local count is its length less the crashes that node withholds. QueueInfo is still read, by the queue selector, which uses the sizes only as summed weights for a single random draw, and the eligible list only as an index list; equal integers therefore give an equal draw and an equal index. Exactness is the whole of the neutrality claim and it was verified rather than argued: a debug build ran ten million steps of the real workload with an assertion comparing all three answered counts against an actual walk on every step, and it never fired. The counter that reads per examined runnable, the victim crashed hold, is reproduced by the arithmetic rather than lost. No random draw is added, removed or reordered, and the scan remains as the fallback whenever a precondition fails."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/queue-eligibility-from-counters/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:queue-eligibility-from-counters"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "63a21f95fdfbdd2744a561515661a861975f935b",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/63a21f95fdfb-30-f9daa01b-120.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-12T00:36:16.212Z",
+   "seed": 1000,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-12T00:40:21.155Z",
+   "seed": 1001,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-12T00:44:26.222Z",
+   "seed": 1002,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-12T00:49:05.719Z",
+   "seed": 1003,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-12T00:53:11.003Z",
+   "seed": 1004,
+   "wallSec": 243,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-12T00:57:16.355Z",
+   "seed": 1005,
+   "wallSec": 243,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}

@@ -1,0 +1,416 @@
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index a1732e6..0896541 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -1090,7 +1090,9 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     } else {
+         Vec::new()
+     };
+-    let is_ineligible = |r: &Runnable<H>| {
++    // `count` gates the victim-hold counter, which reads per examined
++    // runnable, so an oracle pass can share the predicate without doubling it.
++    let ineligible_for = |r: &Runnable<H>, count: bool| {
+         if crash_block_mask != 0
+             && let Runnable::Crash { node_id, .. } = r
+             && node_id.index < u64::BITS as usize
+@@ -1102,11 +1104,36 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             && let Runnable::Crash { node_id, .. } = r
+             && crashed_victims.contains(node_id)
+         {
+-            util_stats::record_victim_crashed_hold();
++            if count {
++                util_stats::record_victim_crashed_hold();
++            }
+             return true;
+         }
+         reservations.iter().any(|res| res.matches(r)) || is_fifo_blocked(r, &link_deliver_seq)
+     };
++    let is_ineligible = |r: &Runnable<H>| ineligible_for(r, true);
++
++    // With no reservation standing, no FIFO link in the run and no timer gate,
++    // the only runnable a step can withhold is a crash, and every crash sits
++    // in its own node's local queue. The per-node ledger counts those, so the
++    // eligible counts follow from queue lengths without visiting an element.
++    let counted_eligibility =
++        reservations.is_empty() && state.link_deliver_seq.is_empty() && !strict_timers;
++    // Crashes queued for node `n` that this step withholds, and whether the
++    // hold is the one that reads per examined runnable. Every crash in
++    // `local_queues[n]` names node `n`, so one test settles the whole queue.
++    let held_crashes = |n: usize, pending: usize| -> (usize, bool) {
++        if pending == 0 {
++            return (0, false);
++        }
++        if crash_block_mask != 0 && n < u64::BITS as usize && crash_block_mask & (1u64 << n) != 0 {
++            return (pending, false);
++        }
++        if crashed_victims.iter().any(|v| v.index == n) {
++            return (pending, true);
++        }
++        (0, false)
++    };
+ 
+     // Observation-only crash-anchor probe: is there a schedulable crash for a
+     // node whose own message is still in flight, and does the step take it?
+@@ -1165,7 +1192,9 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     // Build QueueInfo, accounting for strict_timers eligibility AND reservations.
+     // Subtract reserved items so the QueueSelector doesn't route to queues
+     // where all items are reserved (wastes iterations in fully-constrained plans).
+-    let timer_queue_size = if strict_timers {
++    let timer_queue_size = if counted_eligibility {
++        state.timer_queue.len()
++    } else if strict_timers {
+         state
+             .timer_queue
+             .iter()
+@@ -1186,17 +1215,76 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         state.timer_queue.iter().filter(|r| !is_ineligible(r)).count()
+     };
+ 
+-    let info = QueueInfo {
+-        local_queue_sizes: state
++    let mut victim_holds_seen = 0usize;
++    let mut elements_skipped = 0u64;
++    let local_queue_sizes: Vec<usize> = if counted_eligibility {
++        state
++            .local_queues
++            .iter()
++            .enumerate()
++            .map(|(n, q)| {
++                elements_skipped += q.len() as u64;
++                let pending = state.send_ledger.get(n).map_or(0, |l| l.crash_pending) as usize;
++                let (held, counted) = held_crashes(n, pending);
++                if counted {
++                    victim_holds_seen += held;
++                }
++                q.len() - held
++            })
++            .collect()
++    } else {
++        state
+             .local_queues
+             .iter()
+             .map(|q| q.iter().filter(|r| !is_ineligible(r)).count())
+-            .collect(),
+-        network_queue_size: state.network_queue.iter().filter(|r| !is_ineligible(r)).count(),
++            .collect()
++    };
++    for _ in 0..victim_holds_seen {
++        util_stats::record_victim_crashed_hold();
++    }
++
++    let info = QueueInfo {
++        local_queue_sizes,
++        network_queue_size: if counted_eligibility {
++            state.network_queue.len()
++        } else {
++            state.network_queue.iter().filter(|r| !is_ineligible(r)).count()
++        },
+         timer_queue_size,
+         step: state.crash_info.current_step,
+     };
+ 
++    if counted_eligibility {
++        elements_skipped += (state.network_queue.len() + state.timer_queue.len()) as u64;
++        debug_assert!(
++            info.local_queue_sizes
++                .iter()
++                .enumerate()
++                .all(|(n, &size)| size
++                    == state.local_queues[n]
++                        .iter()
++                        .filter(|r| !ineligible_for(r, false))
++                        .count())
++                && info.network_queue_size
++                    == state
++                        .network_queue
++                        .iter()
++                        .filter(|r| !ineligible_for(r, false))
++                        .count()
++                && info.timer_queue_size
++                    == state
++                        .timer_queue
++                        .iter()
++                        .filter(|r| !ineligible_for(r, false))
++                        .count(),
++            "counted eligibility disagrees with a walk of the queues"
++        );
++        state.queue_scan.fast_steps += 1;
++        state.queue_scan.elements_skipped += elements_skipped;
++    } else {
++        state.queue_scan.slow_steps += 1;
++    }
++
+     let record_unscheduled = |audit: &Option<SteerPreference>| {
+         if let Some(a) = audit {
+             util_stats::record_steer_authority(a.expressed, a.outcome(None));
+@@ -1270,9 +1358,23 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     let (runnable, chosen_slot, chosen_mask) = match selection {
+         QueueSelection::Local(node_idx) => {
+             let queue = &state.local_queues[node_idx];
+-            let eligible: Vec<usize> = (0..queue.len())
+-                .filter(|&i| !is_ineligible(&queue[i]))
+-                .collect();
++            // A local queue still needs a walk when it holds a withheld crash:
++            // the ledger says how many, not where they sit.
++            let node_holds = held_crashes(
++                node_idx,
++                state
++                    .send_ledger
++                    .get(node_idx)
++                    .map_or(0, |l| l.crash_pending) as usize,
++            )
++            .0;
++            let eligible: Vec<usize> = if counted_eligibility && node_holds == 0 {
++                (0..queue.len()).collect()
++            } else {
++                (0..queue.len())
++                    .filter(|&i| !is_ineligible(&queue[i]))
++                    .collect()
++            };
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+@@ -1295,9 +1397,13 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+         QueueSelection::Network => {
+             let queue = &state.network_queue;
+-            let eligible: Vec<usize> = (0..queue.len())
+-                .filter(|&i| !is_ineligible(&queue[i]))
+-                .collect();
++            let eligible: Vec<usize> = if counted_eligibility {
++                (0..queue.len()).collect()
++            } else {
++                (0..queue.len())
++                    .filter(|&i| !is_ineligible(&queue[i]))
++                    .collect()
++            };
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+@@ -1328,7 +1434,9 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+         QueueSelection::Timer => {
+             let queue = &state.timer_queue;
+-            let eligible: Vec<usize> = if strict_timers {
++            let eligible: Vec<usize> = if counted_eligibility {
++                (0..queue.len()).collect()
++            } else if strict_timers {
+                 (0..queue.len())
+                     .filter(|&i| {
+                         if is_ineligible(&queue[i]) {
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index e137dff..ba4d8e0 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -616,6 +616,10 @@ pub struct State<H: HashPolicy> {
+     /// `nodes`. Kept exact by the queue hooks below and excluded from
+     /// `signature()`, so it cannot change deduplication.
+     pub send_ledger: Vec<SendLedger>,
++    /// Per-step queue-eligibility accounting for this run, added to the
++    /// process counters once when the run ends. Observation only, excluded
++    /// from `signature()`.
++    pub queue_scan: QueueScanTally,
+     /// Per-node step a queued crash is held until, indexed like `nodes`;
+     /// zero means no hold. Scheduling bookkeeping like `send_ledger`,
+     /// excluded from `signature()` so it cannot change deduplication.
+@@ -760,6 +764,16 @@ pub struct SendLedger {
+     pub last_restart_step: i32,
+ }
+ 
++/// Steps that answered the scheduler's eligible counts from the crash
++/// ledger, steps that had to walk the queues, and the queue elements the
++/// answered steps did not visit.
++#[derive(Debug, Clone, Copy, Default)]
++pub struct QueueScanTally {
++    pub fast_steps: u64,
++    pub slow_steps: u64,
++    pub elements_skipped: u64,
++}
++
+ impl Default for SendLedger {
+     fn default() -> Self {
+         Self {
+@@ -842,6 +856,7 @@ impl<H: HashPolicy> State<H> {
+             timer_stats: TimerRunStats::default(),
+             timer_inert_streaks: Vec::new(),
+             send_ledger: vec![SendLedger::default(); num_nodes],
++            queue_scan: QueueScanTally::default(),
+             crash_hold_until: vec![0; num_nodes],
+             crash_phase: crash_phase::RunAnchor::with_nodes(num_nodes),
+             crash_hold_drawn: false,
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 0dd437f..ba669f6 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -476,6 +476,11 @@ fn record_termination<H: HashPolicy>(
+         recovered_nodes,
+     });
+     util_stats::record_ghost_release_run(state.ghost_release.cell, steps_used);
++    util_stats::record_queue_scan(
++        state.queue_scan.fast_steps,
++        state.queue_scan.slow_steps,
++        state.queue_scan.elements_skipped,
++    );
+ }
+ 
+ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 537621d..0c60c43 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -91,6 +91,9 @@ static VS_SAME_VICTIM: AtomicU64 = AtomicU64::new(0);
+ static VS_NO_ABSORBER: AtomicU64 = AtomicU64::new(0);
+ static VS_SKIPPED_PENDING_PAIR: AtomicU64 = AtomicU64::new(0);
+ static VS_VICTIM_CRASHED_HOLDS: AtomicU64 = AtomicU64::new(0);
++static QS_FAST_STEPS: AtomicU64 = AtomicU64::new(0);
++static QS_SLOW_STEPS: AtomicU64 = AtomicU64::new(0);
++static QS_ELEMENTS_SKIPPED: AtomicU64 = AtomicU64::new(0);
+ static VS_FORCED_ONTO_ABSORBER: AtomicU64 = AtomicU64::new(0);
+ static GS_FIRED_RUNS: AtomicU64 = AtomicU64::new(0);
+ static FF_SWAPS: AtomicU64 = AtomicU64::new(0);
+@@ -747,6 +750,9 @@ pub fn set_enabled(on: bool) {
+             &VS_NO_ABSORBER,
+             &VS_SKIPPED_PENDING_PAIR,
+             &VS_VICTIM_CRASHED_HOLDS,
++            &QS_FAST_STEPS,
++            &QS_SLOW_STEPS,
++            &QS_ELEMENTS_SKIPPED,
+             &VS_FORCED_ONTO_ABSORBER,
+             &GS_FIRED_RUNS,
+             &FF_SWAPS,
+@@ -3165,6 +3171,18 @@ pub fn record_quiet_stretch(run_id: i64, end: RunEnd) {
+     }
+ }
+ 
++/// One run's queue-eligibility accounting, added to the process totals once
++/// when the run ends. The per-step tally is kept in the run's own state, so
++/// no step touches a shared counter.
++pub fn record_queue_scan(fast_steps: u64, slow_steps: u64, elements_skipped: u64) {
++    if !enabled() {
++        return;
++    }
++    QS_FAST_STEPS.fetch_add(fast_steps, Ordering::Relaxed);
++    QS_SLOW_STEPS.fetch_add(slow_steps, Ordering::Relaxed);
++    QS_ELEMENTS_SKIPPED.fetch_add(elements_skipped, Ordering::Relaxed);
++}
++
+ /// One probe run finished, of any outcome; `completed` marks the probes
+ /// whose length fed the learned-cap distribution.
+ pub fn record_run_cap_probe(completed: bool) {
+@@ -4645,6 +4663,28 @@ impl RecoveryPlaceboStats {
+     }
+ }
+ 
++/// The queue-eligibility block. A step answers the scheduler's per-queue
++/// eligible counts from the per-node crash ledger when nothing else can
++/// withhold a runnable, and walks the queues otherwise. `elements_skipped`
++/// sums the lengths of the queues answered from the ledger, so
++/// `elements_skipped / fast_steps` reads as the queue length a step holds.
++#[derive(Serialize)]
++pub struct QueueScanStats {
++    pub fast_steps: u64,
++    pub slow_steps: u64,
++    pub elements_skipped: u64,
++}
++
++impl QueueScanStats {
++    fn read() -> Self {
++        Self {
++            fast_steps: QS_FAST_STEPS.load(Ordering::Relaxed),
++            slow_steps: QS_SLOW_STEPS.load(Ordering::Relaxed),
++            elements_skipped: QS_ELEMENTS_SKIPPED.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// The learned-run-cap block: probe traffic, completions the cap would have
+ /// cut off, and gauges of what the learner currently holds.
+ #[derive(Serialize)]
+@@ -6027,6 +6067,7 @@ pub struct UtilizationSnapshot {
+     pub prefix_extension: PrefixExtensionStats,
+     pub quiet_stretch: QuietStretchStats,
+     pub run_cap: RunCapStats,
++    pub queue_scan: QueueScanStats,
+     pub stall_cap: StallCapStats,
+     pub stall_release: StallReleaseStats,
+     pub crash_place: CrashPlaceStats,
+@@ -6238,6 +6279,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+             .unwrap_or_else(|p| *p.into_inner()),
+         quiet_stretch: QuietStretchStats::read(),
+         run_cap: RunCapStats::read(),
++        queue_scan: QueueScanStats::read(),
+         stall_cap: StallCapStats::read(),
+         stall_release: StallReleaseStats::read(),
+         crash_place: CrashPlaceStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 1389681..62bd779 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -453,6 +453,27 @@ fn delivery_effects_leaves(prefix: &str, d: &DeliveryEffectStats) -> Vec<(String
+     out
+ }
+ 
++fn queue_scan(m: &mut Marks) -> util_stats::QueueScanStats {
++    util_stats::QueueScanStats {
++        fast_steps: m.int(),
++        slow_steps: m.int(),
++        elements_skipped: m.int(),
++    }
++}
++
++fn queue_scan_leaves(prefix: &str, q: &util_stats::QueueScanStats) -> Vec<(String, Value)> {
++    let util_stats::QueueScanStats {
++        fast_steps,
++        slow_steps,
++        elements_skipped,
++    } = q;
++    vec![
++        leaf(prefix, "fast_steps", *fast_steps),
++        leaf(prefix, "slow_steps", *slow_steps),
++        leaf(prefix, "elements_skipped", *elements_skipped),
++    ]
++}
++
+ fn run_cap(m: &mut Marks) -> RunCapStats {
+     RunCapStats {
+         probes: m.int(),
+@@ -1909,6 +1930,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         prefix_extension: _,
+         quiet_stretch: _,
+         run_cap: _,
++        queue_scan: _,
+         stall_cap: _,
+         stall_release: _,
+         crash_place: _,
+@@ -1950,6 +1972,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "prefix_extension",
+         "quiet_stretch",
+         "run_cap",
++        "queue_scan",
+         "stall_cap",
+         "stall_release",
+         "crash_place",
+@@ -2025,6 +2048,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.termination = termination(&mut m);
+     s.delivery_effects = delivery_effects(&mut m);
+     s.run_cap = run_cap(&mut m);
++    s.queue_scan = queue_scan(&mut m);
+     s.stall_cap = stall_cap(&mut m);
+     s.stall_release = stall_release(&mut m);
+     s.crash_place = crash_place(&mut m);
+@@ -2046,6 +2070,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+         &s.delivery_effects,
+     ));
+     expected.extend(run_cap_leaves("run_cap", &s.run_cap));
++    expected.extend(queue_scan_leaves("queue_scan", &s.queue_scan));
+     expected.extend(stall_cap_leaves("stall_cap", &s.stall_cap));
+     expected.extend(stall_release_leaves("stall_release", &s.stall_release));
+     expected.extend(crash_place_leaves("crash_place", &s.crash_place));
+@@ -2092,6 +2117,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "plan_deps",
+         "delivery_effects",
+         "run_cap",
++        "queue_scan",
+         "stall_cap",
+         "stall_release",
+         "crash_place",

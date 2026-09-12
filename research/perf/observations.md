@@ -327,3 +327,172 @@ Three, none of which this loop may fix itself.
    restored it, and kept the candidate profile under an explicit name. An
    operator who did not think of that would silently lose the baseline
    profile the proposer reads.
+
+## Iteration 3 - direction review, then the data layout lens
+
+Preflight: spur-research-loop inactive, branch research/lite, gitlink
+12b7582 unmoved, tree clean apart from the user's own edits to the skill
+prompts, baseline binary built, profile for the current commit present. No
+merge happened, so the tree has not moved and the profile was not retaken.
+
+### Direction review
+
+Triggered by a run of closes: four candidates raised, one closed at
+judging, two closed after grading, one left in the pool judged down. Zero
+merges, zero throughput gained.
+
+**Are the costs still the largest ones I can explain?** Only partly, and
+that is the review's main finding. The profile's largest single symbol,
+schedule_runnable at 10.63 percent plus a second specialization at 1.12 and
+two inlined collection closures at 2.01 and 1.21, has not been touched by
+any candidate. Both graded candidates went instead for mid-sized lines - 1.45
+and 1.75 percent - that were easy to name precisely. That is the wrong
+end of the distribution to be working, and the steering allowed it: the
+iteration 2 directive named the allocator-and-value-lifecycle aggregate and
+the proposer reasonably picked the two cleanest sites inside it.
+
+**Has the steering paid for itself?** The lens rotation and the
+instrument-reality directive did their job: nothing ungradeable was
+proposed, and two honest sub-floor bands were declared rather than
+inflated. The attribution directive did not exist, and that is exactly
+where both candidates failed. Added this round.
+
+**Do the next directives pull back to mechanism level?** Yes, deliberately.
+The iteration 3 directive adds a requirement that no previous round
+carried: every hypothesis must state what fraction of its cited symbol it
+claims and how that fraction is established rather than assumed, must say
+how many other callers of that symbol exist, and must design its counter so
+that a null wall reading still teaches where the cost actually is. It also
+names the inlining trap explicitly, since removing a symbol is not removing
+work and iteration 2 proved that on this tree.
+
+**Pool pruning.** Nothing pruned that was not already closed by grading.
+per-step-scratch-buffers stays at status proposed with the judge's
+deflation recorded against it; it is not promoted, because the half of it
+the judge did not dispute - the per-interpreted-call argument vector - is
+better proposed fresh with an attribution argument than revived as-is.
+
+**Verdict:** direction moves up the profile. The lens rotates to data
+layout and representation on schedule. The standing instruction is to
+attack the largest cost that can be explained AND attributed, with
+attribution now a first-class requirement rather than an assumption.
+
+### A lead established before proposing
+
+Traced the profile's JSON formatting - serde_json::ser::format_escaped_str
+1.26 percent and Value::write_to 1.16 percent - to the trace path.
+Label::TraceEnter, TraceExit and TraceDispatch in core/exec.rs each call
+trace_payload, which formats every evaluated parameter through
+Value::write_to and builds a fresh String, stored eagerly in
+TraceEntry.payload. The struct's own doc comment says the payload is
+serialized when the entry is made. Entries accumulate in Logs.traces and
+are drained by serialize_traces in explorer.rs.
+
+TraceEntry.function_name is already an Arc<str> carrying a comment that a
+row costs no copy, so this struct has been optimized once before. The
+proposer was told to check what is already done before proposing it again.
+
+A scope ruling was issued with the lead: removing trace output is out of
+scope, because traces are a product the debug command and traceanalyzer
+consume, and a candidate that disables tracing to win throughput changes
+the workload rather than removing cost. Making the path cheaper while the
+output stays byte-for-byte identical is in scope - doing per run what is
+now done per event, for instance.
+
+### The graded candidate: queue-eligibility-from-counters, no-gain
+
+Six rounds, search-neutral, shared, primary cross-binary, counter
+queue_scan.elements_skipped, band [1.04, 1.10].
+
+Primary 0.9748, per-round 0.9726, 1.0429, 0.8514, 0.9718, 0.9544, 1.0710,
+interval [0.8960, 1.0604], not dominant, not separated, band read inside,
+verdict no-gain. One blocker stood, the structural counter-absent one.
+
+The search-neutral declaration held on every observable at the round cap,
+steps per run 1999.1 against 1992.6. The fast path fired on 100 percent of
+steps. Exactness was verified rather than argued: the implementer ran a
+debug build over 10,041,431 steps of the real workload with an assertion
+comparing all three computed counts against an actual walk on every step,
+and it never fired. That is the strongest correctness evidence any
+candidate in this loop has carried.
+
+**The durable result is the counter, not the clock.** elements_skipped over
+fast_steps reads 8.57 elements per step on the graded workload, against
+8.27 and 8.15 on release smokes and 7.43 on an 8-thread debug run. The
+average total queue length a scheduling step holds is about 8.5 runnables.
+
+The proposer froze the interpretation of that number before it was
+measured: near 5 closes the queue-walk family, near 40 says the traffic is
+real. At 8.5 the family closes. pending-deliveries-dense,
+runnable-thin-queue and the scheduler half of per-step-scratch-buffers are
+all closed on this arithmetic rather than on six rounds of clock each. That
+is the design goal of the iteration met: a null wall reading that still
+decided three other hypotheses.
+
+**A claim of mine that did not survive.** Rounds 4 to 6 were bought on the
+stated argument that a tighter interval would convert the arithmetic into a
+measured upper bound on the effect. It did not: the interval only came in
+from [0.7372, 1.2301] to [0.8960, 1.0604], which bounds the effect at about
+plus six percent and is useless for the purpose. The instrument cannot
+supply that bound at this wall budget. The arithmetic is the stronger
+evidence and the extra rounds did not add to it.
+
+### Two harness findings about the instrument itself
+
+**1. The neutrality spread check is meaningless at low round counts, and
+looks alarming rather than silent.** Round 1 of this session flagged eight
+observables outside the baseline's spread - steps per run, four end
+reasons, three arm shares. Round 2 flagged two. Round 3 onward flagged
+none. Nothing about the candidate changed. The check compares against the
+baseline's own round-to-round spread, which is near zero when few rounds
+are in hand, so the allowance is tiny and almost everything reads outside
+it. The same pattern appeared in iteration 2. An operator reading a one- or
+two-round status would conclude the search had moved when it had not. The
+check should not be reported, or should be reported as unavailable, below
+some round count.
+
+**2. `dominant` gets harder to satisfy as rounds are bought, so buying
+evidence can destroy a separation.** separates() requires
+`xs.every(x => x > 1) || xs.every(x => x < 1)`. With per-round noise this
+probability falls as the round count rises. At the measured baseline spread
+of 0.0476 and a true effect of plus six percent, the chance that all rounds
+land above 1 is about 0.71 at three rounds and about 0.51 at six. The
+estimate improves while the criterion gets stricter, and a real effect can
+separate at three rounds and then fail at six.
+
+This also means the skill's rule of thumb - buy another round while it
+could change your decision - is actively harmful under this criterion once
+a session has gone mixed, because a mixed session can never recover
+dominance: once two rounds straddle 1, no further round can make every
+round fall on one side. This session went mixed at round 2, at which point
+a gain verdict was already unreachable and the remaining four rounds could
+only choose between no-gain and refuted. The loop bought them anyway, for a
+bound that did not materialise.
+
+Both of these are grader design questions and therefore operator work
+rather than hypotheses. Filed, not acted on.
+
+### Direction after three iterations
+
+Three iterations, five candidates graded or closed at judging, zero merges,
+zero throughput gained. What has been learned is real but it is all
+negative space: novelty is off on this workload, the node env clone is not
+where make_unique's cost is, the plan engine's table scan inlines rather
+than disappears, and the scheduler's queues hold 8.5 elements so walking
+them is not the cost either.
+
+The honest summary is that the profile's large symbols are large because
+the work is spread thin across many small contributors, not because any one
+site dominates. Four of the five largest lines have now been probed and
+none of them yielded a nameable five percent. That is itself a finding
+about this codebase: it has been optimised before - Value is 40 bytes,
+function_name is an Arc, WaitingReader is an Arc, the trace scratch is
+thread-local - and the remaining cost may not have a five percent lever in
+it at all.
+
+If that is right, the goal as stated is reachable only by a change larger
+than any single hypothesis so far, or not at all at this floor. The
+instrument compounds it: with a baseline spread of 0.0476 and a dominance
+criterion, nothing under about ten percent is reliably readable. The next
+direction review should put that question to the user directly rather than
+spend further iterations discovering it one candidate at a time.

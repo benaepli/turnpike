@@ -99,7 +99,7 @@ human), the two declarations, and the frozen prediction.
 
 ## per-step-scratch-buffers
 
-- category: allocation | origin: proposer | status: proposed
+- category: allocation | origin: proposer | status: closed in part (see queue-eligibility-from-counters)
 - declarations: search-neutral, shared saving
 - judge: expectedGain 4, expectedCost 2 (touches core/exec.rs), net 2
 - title: Reuse the scheduler's per-step vectors and the per-call argument vector
@@ -219,3 +219,49 @@ release path costs something after inlining, measured rather than inferred
 from a symbol disappearing. For the node env, an answer to the question
 this iteration actually produced - where the rest of make_unique is called
 from. That question is the lead this iteration hands the next one.
+
+## queue-eligibility-from-counters
+
+- category: data layout | origin: proposer | status: closed, no-gain
+- declarations: search-neutral, shared saving
+- judge: expectedGain 7, expectedCost 0, net 7 - the highest-scored
+  candidate the loop has raised
+- patch: research/perf/patches/queue-eligibility-from-counters.spur.patch
+- title: Answer the per-step eligibility counts from the per-node ledger
+  instead of walking every queue
+- outcome: no-gain at the six-round cap. Primary 0.9748, interval [0.8960,
+  1.0604], not dominant, not separated, band [1.04, 1.10] read inside so
+  not refuted.
+- what held: the fast path fired on 100 percent of steps (slow_steps 0);
+  the search-neutral declaration held on every observable at the round cap;
+  steps per run 1999.1 against 1992.6. Exactness was verified rather than
+  argued - a debug build ran ten million steps of the real workload with an
+  assertion comparing all three computed counts against an actual walk on
+  every step, and it never fired.
+- **the durable result**: elements_skipped over fast_steps reads 8.57
+  elements per step on the graded workload, 8.27 and 8.15 on release
+  smokes, 7.43 on an 8-thread debug run. **The average total queue length a
+  scheduling step holds is about 8.5 runnables.** Nobody in this repository
+  had that number before.
+
+### What 8.5 elements per step closes
+
+The proposer froze the interpretation before the measurement: a reading
+near 5 closes the queue-walk family, a reading near 40 says the traffic is
+real. At 8.5 the family is closed by arithmetic rather than by six more
+rounds of clock each:
+
+- `pending-deliveries-dense` - would remove a second traversal of the same
+  network queue. Its own band was [1.01, 1.04] and its whole symbol 1.28
+  percent; at 8.5 elements the traversal it removes is a fraction of that.
+  Not worth building against a 0.05 floor. Closed on this evidence.
+- `runnable-thin-queue` - its case rested on striding 240-byte elements
+  during queue walks. At 8.5 elements a walk touches about 33 cache lines,
+  which is not where a five percent saving lives, and the judge separately
+  found its headline size claim false (the enum lands near 88 bytes, not
+  32, because Timer stays unboxed). Closed.
+- `per-step-scratch-buffers` - the scheduler half of it reuses the buffers
+  these walks fill. Same arithmetic. The per-interpreted-call argument
+  vector half is untouched by this finding and remains the only live
+  fragment.
+
