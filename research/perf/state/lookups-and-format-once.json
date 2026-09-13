@@ -1,0 +1,88 @@
+{
+ "name": "lookups-and-format-once",
+ "createdAtIso": "2026-09-13T08:30:49.154Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.059,
+   "max": 1.135
+  },
+  "counter": "timeline.constant_short_circuits",
+  "argument": "Composite of four parts, none of which permutes a container or moves an RNG draw. (1) exec_plan borrows the Program instead of cloning it; its body only reads it. (2) Under the Constant timeline key, note_delivery returns once tuples is non-empty; tuples never shrinks within a run and holds only that key, so every reader of tuples (novel_count, plan_score, merge, timeline_keys, RunResult tuples, AOS readers) sees the same set; per_dest_seen, the only field whose content changes, is read under Constant only by the skipped branch. (3) TraceEnter reuses the payload text its dispatch formatted from the same argument values the frame's parameters are built from; traces have no search reader. (4) serialize_history writes the same JSON bytes by a streaming Serialize with sorted keys and runs sequentially; PersistableOp has no search reader. A one-thread identity run at session_seed 1000 over 3,008 runs showed 0 differing rows in executions, logs, traces and runs and no pre-existing dump leaf differing except a clock and stats_local.folded_increments. The 30-thread spread check is expected to trip on any large candidate because learned caps and the wall-slice allocator respond to throughput."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/lookups-and-format-once/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:lookups-and-format-once"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "23a8213c09392fb6c75fba688e432c4c8a05e464",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/23a8213c0939-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-13T08:34:53.755Z",
+   "seed": 1000,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-13T08:38:58.268Z",
+   "seed": 1001,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-13T08:43:03.023Z",
+   "seed": 1002,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-13T08:47:41.730Z",
+   "seed": 1003,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-13T08:51:46.745Z",
+   "seed": 1004,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-13T08:55:51.920Z",
+   "seed": 1005,
+   "wallSec": 244,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}

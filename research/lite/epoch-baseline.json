@@ -325,6 +325,22 @@
    "cacheFile": "research/perf/baselines/ac0be080068b-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-13T03:53:41.263553Z",
    "note": "merged by the perf loop, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711), so it is comparable with neither the search loop's rows nor the call-frame-one-pass row above, which was measured before frame pointers were forced. The ratio field is the like-for-like number: 1.3217, the graded cross-binary primary over three rounds, interval [1.1878, 1.4706], separated. Merged on split evidence at the user's direction: the grader's spread check flagged five search observables, and one-thread runs with the learned caps engaged over 100,000 runs showed the change leaves the search byte-identical; the shift at 30 threads is the learned caps and wall-slice allocation reacting to throughput. On the graded workload runs are 7.5 percent shorter for that reason, so about 1.22 of the ratio is cost removed at equal steps. Independent check: the post-merge baseline reads 3064.8 against 2569.6 for the pre-merge baseline on the same frame-pointer identity family, plus 19.3 percent."
+  },
+  {
+   "name": "lookups-and-format-once",
+   "commit": "2ba5f59",
+   "spurCommit": "84b7ab5",
+   "ratio": 1.1727,
+   "cumulative": 1.7695305673714308,
+   "measuredRps": 3782.0250688485107,
+   "measuredRpsChunks": [
+    3893.6,
+    3701.8,
+    3750.7
+   ],
+   "cacheFile": "research/perf/baselines/7725d9f87dc1-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-13T09:05:11.006Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the thread-local-stats-blocks row above, not with the search loop's rows. The ratio field is the like-for-like number: 1.1727, the graded cross-binary primary over six rounds, interval [1.1062, 1.2432], separated, band [1.059, 1.135] read inside, advice gain with one structural blocker (the declared counter is new to the candidate). Components: exec_plan borrows the Program, the constant timeline key is inserted once, handler entry trace rows reuse the dispatch payload, history JSON is streamed without a nested rayon job. Steps per run 0.9829 with an interval containing 1, so the gain is not shorter runs. Independent check: the post-merge baseline reads 3782.0 against 3174.0 for the pre-merge 69c488c cache on the same identity family, plus 19.2 percent; interleaving is what the graded ratio has and this check does not."
   }
  ]
 }

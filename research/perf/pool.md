@@ -334,7 +334,7 @@ rounds of clock each:
 
 ## exec-plan-borrows-program
 
-- category: allocation | origin: proposer | status: proposed
+- category: allocation | origin: proposer | status: closed, absorbed into run-invariant-lookups-once (iteration 6)
 - declarations: search-neutral, shared saving
 - judge: expectedGain 6, expectedCost 0, net 6
 - title: exec_plan borrows the Program instead of deep-cloning it per run
@@ -353,7 +353,7 @@ rounds of clock each:
 
 ## fx-hashed-call-and-timeline-lookups
 
-- category: redundant work per step | origin: proposer | status: proposed
+- category: redundant work per step | origin: proposer | status: proposed in part - the timeline half is absorbed into run-invariant-lookups-once (iteration 6); the call-map half stays and competes with call-targets-indexed, which removes the same cost
 - declarations: search-neutral, private saving (read cross-binary; no bit)
 - judge: expectedGain 6, expectedCost 0 after rewrite (2 as proposed), net 6
 - title: Fx-hash the call-target maps and the feedback timeline sets, and
@@ -378,7 +378,7 @@ rounds of clock each:
 
 ## serialize-history-inline
 
-- category: contention and parallelism | origin: proposer | status: proposed
+- category: contention and parallelism | origin: proposer | status: closed, absorbed into format-once-on-simulation-threads (iteration 6)
 - declarations: search-neutral, shared saving
 - judge: expectedGain 4, expectedCost 2 (history.rs; payload_json is the
   column porcupine parses), net 2
@@ -395,3 +395,119 @@ rounds of clock each:
 - band: [1.015, 1.05], below the floor alone. As a composite with the two
   entries above: [1.06, 1.17], cost 2, and a combined reading cannot say
   which part paid.
+
+## run-invariant-lookups-once
+
+- category: redundant work | origin: proposer | status: merged as part of lookups-and-format-once
+- declarations: search-neutral, shared saving
+- judge: expectedGain 7, expectedCost 0, net 7 (parts a and c of the
+  proposal; part b cut to call-targets-indexed)
+- title: Borrow the Program in exec_plan and insert the collapsed timeline
+  key once
+- mechanism: (a) exec_plan takes &Program; explorer.rs:1111 and 1451 stop
+  cloning. (c) LocalTimeline::note_delivery returns at once under Constant
+  granularity when tuples already holds the constant key. No exec.rs edit.
+- neutral argument: program is only read in exec_plan's body; tuples never
+  shrinks within a run, so every reader of tuples sees the same set;
+  per_dest_seen's only live reader under Constant is the skipped branch.
+- counters: timeline.constant_short_circuits 250 to 700 per run (primary),
+  timeline.constant_inserts equal to timeline_keys.keys_in_run_sum / runs
+  to 3 decimals and never above 1 per run, run_setup.program_clones_avoided
+  1.00.
+- band: [1.04, 1.08] cross-binary runs per second (a [1.025, 1.04] x c
+  [1.015, 1.04]); lower edge below the 0.05 floor, stated in advance.
+- independent observable: in a candidate profile Program::clone,
+  Vec<Label>::clone and drop_glue<Program> absent; note_delivery inclusive
+  at most 0.8 (from 3.96); HashMap<TimelineTuple>::insert at most 0.5 (from
+  3.22); Sip13 write inclusive down at least 1.8 points (from 4.32).
+- falsifier: rps interval entirely below 1.04; a one-thread identity run
+  differs in any run row, table row or pre-existing dump field;
+  constant_inserts above 1 on a run or unequal to keys_in_run_sum / runs;
+  constant_short_circuits 0; program_clones_avoided not 1.00;
+  note_delivery not below 0.8 or malloc inclusive rising.
+- full record: tmp/loop/perf/it6-judgment.md, keep-list item 1, copied into
+  observations.md iteration 6.
+
+## format-once-on-simulation-threads
+
+- category: redundant work | origin: proposer | status: merged as part of lookups-and-format-once
+- declarations: search-neutral, shared saving
+- judge: expectedGain 5, expectedCost 2 (exec.rs for a; history.rs and
+  payload_json for c), net 3 (parts a and c; part b scored 0)
+- title: Reuse the dispatch payload at handler entry, and serialize history
+  inline without JSON trees or nested rayon jobs
+- mechanism: (a) TraceDispatch stores a Box<str> copy of its payload beside
+  pending_trace_id; Instr::Async moves it into Record::trace_payload,
+  taken at exactly the points trace_id is; TraceEnter reuses it when it
+  took a pending id and the slot is Some, else formats as today; excluded
+  from Record's Hash. (c) serialize_history uses iter and a borrowed
+  Serialize impl through serde_json::to_string, writing every object's
+  keys sorted, NodeId by hand as {"index","role"}.
+- neutral argument: the Enter payload equals the Dispatch payload on every
+  path (args evaluated over the same temps with no store between, params
+  are those args, Record::reset rebuilds from the same initial_args);
+  traces and PersistableOp have no search reader; no draw or container
+  order moves.
+- counters: trace_format.enter_payload_reused 230 to 300 per run (primary),
+  trace_format.enter_payload_formatted 3 to 8, reused plus formatted equal
+  to Enter trace rows per run exactly; history_format.ops_streamed equal
+  to executions rows per run exactly.
+- band: [1.018, 1.051] cross-binary runs per second; nearly all below the
+  floor, so the wall can only rule out a regression, stated in advance.
+- independent observable: one-thread identity of the executions, logs and
+  traces tables on (run_id, seq) and every column; in a candidate profile
+  trace_payload inclusive down at least 1.2 points (from 5.33),
+  json_of_value and Vec<serde_json::Value> from_iter absent,
+  serialize_history summed inclusive at most 2.0 (from 3.88).
+- falsifier: rps interval entirely below 1.018; any byte difference in the
+  identity run; enter_payload_reused 0; reused plus formatted unequal to
+  Enter rows; ops_streamed unequal to executions rows; trace_payload down
+  less than 1.2 points.
+
+## lookups-and-format-once
+
+- category: combined | origin: operator-agent (selection) | status: merged (autonomous) - spur 84b7ab5; primary 1.1727 [1.1062, 1.2432] over 6 rounds, separated, band read inside; every frozen falsifier held
+- components: run-invariant-lookups-once and format-once-on-simulation-threads,
+  built together in one commit by the operator's decision in autonomous mode
+- declarations: search-neutral, shared saving
+- band: [1.059, 1.135] cross-binary runs per second, composed from the
+  component bands: 1.04 x 1.018 = 1.0587 and 1.08 x 1.051 = 1.1351.
+- counter passed to the grader: timeline.constant_short_circuits; the other
+  four counters are read off the dump by hand. The two groups are disjoint
+  by construction.
+- falsifier: the rps interval lies entirely below 1.059; the one-thread
+  identity run differs in any byte of the three tables, any run row or any
+  pre-existing dump field; or any component falsifier above fires.
+- why combined: neither component can be read against the 0.05 floor
+  alone, the user prefers fewer, larger rounds, and the parts touch
+  disjoint code with disjoint counters. Known limitation, recorded before
+  any round: the wall cannot say which part paid; the candidate profile and
+  the counters are the attribution. On a refuted verdict the component
+  whose profile observable did not move is the one closed.
+
+## call-targets-indexed
+
+- category: redundant work | origin: proposer | status: proposed
+- declarations: search-neutral, shared saving
+- judge: expectedGain 5, expectedCost 2 (exec.rs), net 3
+- title: Resolve call targets to a dense index once at compile time
+- description: every SyncCall and Async does a SipHash of the name in
+  func_name_to_id and a SipHash of the NameId in rpc (exec.rs:169-177,
+  224-232); both maps are fixed after compilation.
+- before admission: rewrite the count against frame.calls (indexed
+  resolutions per run within [0.95, 1.00] of frame.calls, about 2,045 to
+  2,126 on a702eef); subtract the NodeToString probe at eval.rs:415 from
+  hash_one<NameId>; realized size about 1.3 to 1.5 points. Must not be
+  graded alongside the call-map half of fx-hashed-call-and-timeline-lookups.
+
+## fstring-concat-once
+
+- category: allocation | origin: proposer | status: closed at judging, score 0
+- why closed: its structural claim is false - try_to_expr collapses pure
+  sub-chains into one label with nested Plus and no temps (cfg.rs:986-989,
+  1441-1450), so the label rewrite does not match the code; labels have
+  readers outside exec (visualization/cfg.rs:162-173, 511; cfg/test.rs:138).
+- lead it leaves: per-Add EcoString allocation, and contended atomic
+  refcount writes on shared literal buffers and on the trace
+  function_name Arc<str> cloned on every trace row (exec.rs:428, 461, 476),
+  neither priced anywhere.

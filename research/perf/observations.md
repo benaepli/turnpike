@@ -1270,3 +1270,291 @@ Two more things the same sessions settle:
   (1,181 us against 453), so stats change what a Mencius run is. The counter
   therefore cannot read the stats-off Mencius session this entry opened
   with; only its CPU reading stands there. Not investigated.
+
+## Iteration 6 - autonomous, algorithmic lens, profile 69c488c
+
+Mode: autonomous. Preflight: spur-research-loop inactive, no grader
+measuring, branch research/lite, spur gitlink 69c488c, tree clean, baseline
+rebuilt, selftest zero failures (one warning: ten VARIANT_BITS names with no
+tag in run_variant.rs, unchanged from before). No profile existed for
+69c488c, so one was taken: research/perf/profiles/69c488c.md.
+
+### No new layout control this epoch, decided
+
+The skill asks for a layout control before the first candidate of an epoch.
+The last one, layout-control-e3, measured the floor on 2026-09-13 under the
+frame-pointer toolchain with build config hash b813e711, and that hash has
+not moved. The tree has moved by thread-local-stats-blocks and the
+history_writer counter, which change code size but not build flags. Its
+interval half-width was 0.045 against a configured 0.05. A second control
+costs about 30 minutes of rounds plus a build, and the user's standing
+direction is minimal post-merge overhead with no standalone measurement.
+The floor stays at 0.05 and any gain read this epoch still owes a lower
+edge clearly above it. What would reverse this: a candidate whose reading
+lands between 1.03 and 1.07, where the floor's own accuracy decides the
+verdict; then the control is bought before deciding.
+
+### The profile, read before proposing
+
+Shares of the 60 s profile at 30 threads (rayon root 91.4 inclusive):
+
+- Interpreter value traffic is the largest block: eval 6.78 self and 22.35
+  inclusive, execute_common_label 34.11 inclusive, malloc 7.78 inclusive,
+  EcoVec reserve, grow, drop and make_unique about 5 together.
+- Trace payload formatting on simulation threads: trace_payload 5.33
+  inclusive, Value::write_to 4.07, json_string_array 2.78,
+  format_escaped_str 2.61.
+- serialize_history's nested par_iter 7.58 on its helper line (3.88 on the
+  collect frame), wake_any_threads 1.34.
+- Program::clone 2.37 plus its drop 1.00, once per run, up from 1.65.
+- SipHash: TimelineTuple insert 3.22 under note_delivery 3.96, NameId and
+  String map probes about 3.7.
+
+### Proposals
+
+Lens algorithmic, focus directive at the five blocks above. The proposer
+returned two composites and absorbed the pool's three proposed entries:
+
+- run-invariant-lookups-once: exec_plan borrows the Program; call targets
+  resolved to an index once at compile time; the Constant timeline key
+  inserted once. About 9.4 points, band [1.05, 1.11].
+- format-once-on-simulation-threads: TraceEnter reuses the TraceDispatch
+  payload; f-strings concatenate in one allocation; history serialized
+  inline and streamed. About 9.7 points, band [1.05, 1.13].
+
+It declined to price anything from the inclusive shares of Value::new and
+ValueKind::clone, arguing frame-pointer stacks attribute callees to a match
+with no calls there. It also raised a lead outside the on-CPU profile: the
+simulation threads' idle third fits grid batch stragglers (batch size 60 at
+30 threads, a batch waits for its slowest run), which predicts 40 to 60
+percent utilization against the measured 736 of 1,236 thread-seconds. Any
+fix changes when the corpus and learners see outcomes, so it is
+search-affecting; recorded as a lead for the direction review.
+
+### Judging
+
+The judge admitted neither composite as proposed and cut one part of each:
+
+- run-invariant-lookups-once, reduced to the Program borrow and the
+  constant timeline key: gain 7, cost 0. Both verified - the two Program
+  clones are the only ones in the workspace, and the dump confirms every
+  graded run takes the Constant key (novelty_ablated_runs equals runs, 0.9996
+  keys per run), with tuples monotone within a run so every reader sees the
+  same set. Band [1.04, 1.08].
+- Cut from it, returned to the pool as call-targets-indexed: resolving call
+  targets to an index. It needs exec.rs, its 2,300 to 2,900 resolutions per
+  run predates call-frame-one-pass (frame.calls caps it near 2,045 to
+  2,126), and it missed the NodeToString probe that shares hash_one<NameId>.
+- format-once-on-simulation-threads, reduced to the entry payload reuse and
+  inline streamed history: gain 5, cost 2 (exec.rs, history.rs). No
+  counterexample to Dispatch and Enter payload identity on any path,
+  crash re-delivery and records without a dispatch included. One identity
+  trap the proposer missed: NodeId's derived Serialize writes role before
+  index, while the json! tree sorts index first, so the streaming writer
+  must write NodeId by hand. The history part was overpriced at 4 points;
+  realistic 1.2 to 2.0. Band [1.018, 1.051].
+- Scored 0: n-ary f-string concatenation. Its structural claim is false -
+  try_to_expr already folds pure sub-chains into one label with no temps -
+  and CFG labels have readers outside exec. The cost it pointed at, per-Add
+  EcoString allocation and contended refcounts on shared literals and on
+  the trace function_name Arc cloned on every trace row, is unpriced and
+  kept as a lead.
+
+The proposer's caveat about Value::new holds: its body cannot call
+make_unique, yet the 12b7582 call graph shows that edge, so inclusive
+shares under Value::new and ValueKind::clone are not used to price anything.
+
+### Decision: build both reduced candidates as one
+
+lookups-and-format-once, search-neutral, shared, band [1.059, 1.135]
+composed from the two judged bands. Departure from "pick the top candidate",
+reason: neither part can be read against the 0.05 floor alone (lower edges
+1.04 and 1.018), the user's standing direction is fewer and larger rounds
+with compatible candidates combined, and the two touch disjoint code with
+disjoint counters. The known cost is recorded before any round: the wall
+cannot say which part paid. Attribution comes from the counters and a
+candidate profile against 69c488c.md, where each part has its own frozen
+observable; on a refuted verdict the part whose observable did not move is
+the one closed. Grader counter: timeline.constant_short_circuits; the other
+five are read off the dump.
+
+### Review of the diff, and an operator error at start
+
+The diff matches the admitted hypothesis, stays in spur-core, leaves the
+campaign block alone and declares no treatment bit. The trace payload
+moves out of the record once and is used only together with a pending id,
+so a stale payload cannot be reused; a re-delivered record formats its entry
+row again with the same bytes. The short-circuit tests `!tuples.is_empty()`
+under Constant, equivalent to the key lookup because the constant key is
+the only thing ever inserted. All six counters go through the per-thread
+block. The implementer's checks: 497 spur-core tests pass, including a new
+byte-identity test of the streamed JSON against the old tree path over every
+Value kind; a one-thread identity smoke at session_seed 1000 over 3,008
+runs showed 0 differing rows in executions (1,167,064), logs (3,377,240),
+traces (3,701,447) and runs, with every counter equality exact. On a
+30-thread smoke: constant_short_circuits about 1,048 per run, above the
+judge's 250 to 700 (a count miss in the direction of more work skipped);
+constant_inserts 0.9994 per run equal to keys_in_run_sum; reused plus
+formatted equal to Enter rows; ops_streamed equal to executions rows.
+
+Operator error: the first `start` omitted `--primary cross-binary`, so the
+grader chose the counter primary, which a counter new to the candidate
+cannot read and which the frozen runs-per-second band does not describe.
+Caught before the first round finished; the round was killed with nothing
+written to the session or the baseline cache, and the session was
+re-registered with `--force` and the primary the frozen prediction names.
+Declarations, band and counter unchanged. Earlier sessions passed the flag;
+this one did not.
+
+### Rounds 1 to 4
+
+Per-round runs per second, candidate over baseline: 1.1042, 1.2952,
+1.1329, 1.1847. At four rounds the mean is 1.1771, interval [1.0529,
+1.3159], separated, band [1.059, 1.135] read inside, advice gain. Baseline
+side 3,290.8, 2,957.8, 3,302.9 and 3,070.9 runs per second; the round-2
+baseline dip is why that round reads high. Steps per run, candidate over
+baseline: 1.0485, 0.8856, 1.0091, 0.9579, so no systematic length shift in
+either direction.
+
+Every counter, read by hand off the candidate's utilization dump in each of
+the four rounds:
+
+- timeline.constant_inserts equals timeline_keys.keys_in_run_sum exactly in
+  every round (436,423; 459,884; 449,330; 436,780), 0.9997 per run.
+- run_setup.program_clones_avoided and stats_local.folds are 1.0000 per run.
+- trace_format.enter_payload_reused 247 to 268 per run, inside the predicted
+  230 to 300; enter_payload_formatted 5.06 to 5.09, inside 3 to 8.
+- history_format.ops_streamed 176 to 193 per run; its exact equality with
+  executions rows was checked on the smokes, where the rows were in hand.
+- timeline.constant_short_circuits 823 to 897 per run, above the judged 250
+  to 700. A count miss in the direction of more skipped work; the judge's
+  figure undercounted deliveries per run.
+
+The one neutrality row outside the baseline's spread is the grid arm's share,
+lower on the candidate in all four rounds: 13.80, 13.53, 13.83, 14.03 percent
+against 14.16, 14.29, 14.19, 14.51. About half a point, consistent in sign.
+The other ten rows, steps per run and all end reasons included, sit inside
+the spread. Thread-local-stats-blocks flagged the grid arms the same way. The
+campaign allocates arms by wall slice and learns from completed runs, so a
+binary whose runs finish sooner shifts the allocation; the one-thread smoke
+at a fixed run count, where allocation does not depend on speed, showed
+identical run rows, arms and variants included.
+
+### Six rounds, finished
+
+Rounds 5 and 6 read 1.1443 and 1.1840. Final: mean 1.1727, sd 0.0556,
+interval [1.1062, 1.2432], separated at round 4 and stayed separated
+through rounds 5 and 6 with a rising lower edge (1.0529, 1.0837, 1.1062).
+Band [1.059, 1.135]: inside. Microseconds per run 1.2148, interval [1.1487,
+1.2846]. Steps per run 0.9829, interval [0.9225, 1.0473], so the runs did
+not get shorter. Baseline cache for 69c488c: six rounds at 3,174.0 runs
+per second, spread 0.0427.
+
+Advice gain with one blocker, the structural one: the declared counter is
+new to the candidate. At six rounds every one of the eleven neutrality rows
+sits inside the baseline's spread, the grid arm share included (13.89 against
+14.35 percent, allowance 0.54 points). The flag that stood at rounds 3 to 5
+cleared as the baseline's own spread was measured; the sign stayed
+consistent, and it is read here as the allocator's response to throughput,
+not as a change to the search.
+
+### The independent observable: the candidate profile
+
+research/perf/profiles/69c488c-cand-lookups-and-format-once.md, 60 s at 30
+threads, against 69c488c.md. Inclusive shares, baseline to candidate:
+
+- Program::clone 2.37, Vec<Label>::clone 1.01, drop_glue<Program> 1.00: all
+  absent. Frozen: absent.
+- LocalTimeline::note_delivery 3.96 and HashMap<TimelineTuple>::insert
+  3.22: both below the reporting cutoff of about 1.0. Frozen: at most 0.8
+  and 0.5, which the cutoff cannot tell apart from 1.0; recorded as down at
+  least 3 and 2.2 points rather than as the frozen thresholds met.
+- Sip13 Hasher::write 4.32 to 2.01, down 2.31. Frozen: down at least 1.8.
+- LocalKey<TraceScratch>::with<trace_payload> 5.33 to 3.61, down 1.72.
+  Frozen: down at least 1.2.
+- json_of_value 1.15, the Vec<serde_json::Value> collect 1.15,
+  serialize_history 3.88 and its nested par_iter helper 7.58: all absent.
+  Frozen: absent, serialize_history at most 2.0.
+- wake_any_threads 1.34, crossbeam_epoch with_handle 3.74, Stealer::steal
+  3.76: all below the cutoff. Not claimed by the hypothesis - the proposer
+  declined to attribute the steal and epoch lines because batch-boundary
+  spinning produces them too. Their disappearance says the nested par_iter
+  was the larger source of that traffic.
+- malloc 7.78 to 6.34, _int_malloc 4.38 to 3.82. Falsifier "malloc
+  inclusive rises": did not fire.
+- eval 22.35 to 27.00 inclusive, a share of a smaller total.
+
+Every frozen falsifier held: the rps interval clears 1.059; the identity
+smoke is exact; constant_inserts equals keys_in_run_sum in every round;
+constant_short_circuits, enter_payload_reused and ops_streamed are non-zero;
+program_clones_avoided is 1.00; trace_payload fell by more than 1.2 points.
+
+### Decision: merged
+
+Advice gain; one blocker, the structural one (the declared counter is new to
+the candidate, so no ratio). Departed from on the same reason as the last
+merge: every counter was read by hand in every round and agrees with the
+mechanism. The component bands composed to [1.059, 1.135] and the reading
+is 1.1727, inside and near the upper edge. Microseconds per run read 1.21
+against 1.17 runs per second at steps per run 0.98, so the saving is cost
+removed per run and not shorter runs.
+
+Where the reading exceeded the parts' pricing: the proposer priced the
+history part without the rayon steal and epoch traffic, and that traffic
+left the profile. The judge's history estimate of 1.2 to 2.0 points was
+conservative for the same reason.
+
+Merged: spur 84b7ab5, superproject 2ba5f59. spur.patch applied cleanly;
+super.patch carried only the gitlink. The implementer worktree (20 GB) and
+its branch were removed.
+
+### Direction review after the merge
+
+Digest for the user: iteration 6 merged a composite of four small
+mechanisms at 1.17 over six rounds. Cumulative on this loop's graded
+workload since call-frame-one-pass, 1.0634 x 1.3217 x 1.1727, about 1.65.
+
+**Are the costs attacked still the largest explainable ones?** The per-run
+Program copy, the collapsed timeline set, duplicate trace formatting and
+history's JSON trees are gone. The candidate profile's largest blocks are
+now the interpreter (eval 27.0 inclusive, 8.2 self), allocation (malloc 6.3
+inclusive), the remaining trace formatting (3.6) and the scheduler. The
+next profile, of 84b7ab5, decides the next directive; it is not assumed.
+
+**Has the steering paid for itself?** Yes. The focus directive named five
+blocks, the proposer attacked four and declined one for a stated reason
+(frame-pointer attribution under Value::new), and the judge cut two parts
+on checkable false claims before any build. Combining the two admitted
+reductions was the decision that let a floor-sized instrument read them.
+
+**What the next directives should pull toward.**
+
+- The interpreter's value traffic, still unattacked and now the largest
+  block. The attribution caveat stands: price from counts or self time, not
+  from inclusive shares under Value::new or ValueKind::clone.
+- Contended refcount writes on buffers all threads share, raised twice this
+  iteration and priced nowhere: the trace function_name Arc cloned on every
+  trace row and literal EcoString clones in eval.
+- call-targets-indexed, returned to the pool at net 3, about 1.3 to 1.5
+  points.
+- The simulation threads' idle third. The proposer's grid-batch straggler
+  argument fits the measured utilization. Any fix is search-affecting,
+  since the corpus and learners would see outcomes at different times. It
+  owes per-batch off-CPU evidence before a proposal, and a search-affecting
+  declaration with the search loop's reading.
+
+**Harness note, repeated.** The neutrality spread check flagged the grid arm
+share through round 5 and cleared at round 6 only because six baseline
+rounds widened the allowance. The throughput response to the wall-slice
+allocator is still what it reads, as iteration 5 recorded.
+
+### Post-merge baseline and ledger
+
+The baseline was rebuilt at spur 84b7ab5 and a fresh cache measured:
+3,782.0 runs per second over three rounds, spread 0.0263, against 3,174.0
+over six rounds on the pre-merge 69c488c cache of the same identity family -
+plus 19.2 percent, an independent reading in the graded direction, somewhat
+above the interleaved 1.17 as the non-interleaved check was last time too.
+Ledger row appended to research/lite/epoch-baseline.json with ratio 1.1727.
+The candidate export was removed; round records, both profiles and the
+judgment's content (copied into this log and the pool) are what is kept.
