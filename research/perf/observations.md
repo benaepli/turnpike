@@ -2190,3 +2190,32 @@ share: -1.81, +0.86, -2.10 points - mixed in sign. These rows come under the
 frozen spread-check falsifier, which every candidate large enough to matter
 has tripped through the wall-slice allocator's response to throughput; a
 consistent grid shift that survives six rounds owes a written decision.
+
+### Six rounds, finished
+
+Rounds 4 to 6 read 1.3216, 1.2491, 1.1846. Final: mean 1.1972, sd 0.0643,
+interval [1.1191, 1.2808], separated since round 3 with the lower edge
+rising (1.0362, 1.0483, 1.0977, 1.1191), band [1.08, 1.15] read inside, advice
+gain. Microseconds per run 1.1718, interval [1.1095, 1.2375]. Steps per run
+0.9587, interval [0.8972, 1.0244]: the candidate's runs were 13.9 and 6.4
+percent shorter in rounds 4 and 5, so runs per second overstates the
+per-run saving in those rounds and microseconds per run is the cleaner read
+of the session. Baseline for b1fb646: nine rounds cached, 4,167.8 runs per
+second, spread 0.0492.
+
+Blockers. The structural one: compiled_ops.label_execs is new to the
+candidate. And the spread check, which is also a frozen falsifier of this
+candidate: iterations_exhausted 20.14 against 21.88 percent (allowance
+1.26 points), stall_cap_reached 34.23 against 31.95 (allowance 2.22), grid
+arm share 15.05 against 13.89 (allowance 0.98). Steps per run, the other
+end reasons and the other four arm shares sit inside.
+
+That pattern - more stall-cap stops, fewer exhausted runs, shorter runs,
+one grid arm's share moving - is the one iteration 5 read on
+thread-local-stats-blocks and resolved with a one-thread identity run at
+100,000 runs with both learned caps engaged. The fixed-count identity smokes
+this candidate passed ran 2,160 to 3,008 runs, too few for the caps to
+engage, so they do not reach the cap path. The same caps-engaged run is
+bought now, after the candidate profile, before any decision: config
+general_vr.json with session_seed 1000, slices of 20,000 runs, one round,
+one thread.
