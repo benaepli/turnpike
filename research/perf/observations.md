@@ -3117,3 +3117,33 @@ pool is decided on them; the "held" decision above is superseded by that
 reading. The uncommitted edit to the perf implementer prompt, removing the
 shadow-check feature guidance, was the user's and is committed at their
 direction (e6866e1).
+
+## Iteration 13 - autonomous, algorithmic lens, search-neutral only (proposals gathered while the lite grader is fixed)
+
+Profile edb9e2f.md. Search-neutral mechanisms only, since no search-affecting
+candidate can get its lite reading until the grader fix lands; release builds
+only, per the user. Guards scale by R = 3.97, the summed self of exec_plan,
+random_range and the NodeIndex collect, which no candidate touches.
+
+### Proposals
+
+- frame-slots-by-liveness: the CFG compiler gives every temp its own slot and
+  never reuses one; frames average 17.47 slots, 91 percent of them defaults
+  nobody reads (31,318 of 34,410 per run). A compile-time liveness pass per
+  function colors local slots, keeping parameters in place and giving slots
+  read before any write (the for-in sentinel) their own color. Counter band
+  on frame.slots_built per run [1.6, 2.6]; runs per second [1.02, 1.035] for
+  regression. The largest and riskiest.
+- recovery-placebo-walk-skipped-without-quick-fire: walk_recovery_placebo
+  (1.59 self, 2.90 inclusive) ranks on all 1,789 decisions per run while a
+  quick-fire candidate exists in 2.1; without one its outputs are known
+  constants. Band [1.02, 1.035]. Flagged by the proposer: the placebo was
+  built as a cost-matched control, so removing its cost may be the search
+  loop owner's call.
+- trace-payload-escaped-in-one-pass: parameters are formatted into scratch
+  and then scanned again by format_escaped_str (1.61 self); escaping while
+  writing gives the same bytes. Band [1.012, 1.02].
+- As one composite the wall bands compose to [1.053, 1.093].
+
+Judging runs in parallel with the grader fix; building waits until
+grid-ordered-release-pool-2 is decided.
