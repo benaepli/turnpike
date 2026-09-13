@@ -1,0 +1,88 @@
+{
+ "name": "value-traffic-composite",
+ "createdAtIso": "2026-09-13T10:00:11.577Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.061,
+   "max": 1.146
+  },
+  "counter": "frame.default_slots_filled",
+  "argument": "Composite of three parts, none of which permutes a container the search reads or moves an RNG draw. (1) Under NoHashing a leaf's signature is computed when the value is hashed instead of when it is built; Hash for Value is its only NoHashing reader on the explore path and returns the same bits for every value, so every imbl key lands in the same trie position and every iteration order is unchanged; frames are filled with the same values in the same slots by one trusted extend. (2) Read-only operands borrow the slot value instead of cloning it; evaluation and error order are unchanged and no env is written while a borrow is alive. (3) The channel table, log and trace vectors and Print strings are presized from the previous run on the same thread; capacity is unobservable in content and the channel table is only read by key on the explore path. A one-thread identity run at session_seed 1000 over 3,008 runs showed 0 differing rows in executions, logs, traces and runs, the same stall_cap_runs.csv hash, and no pre-existing dump leaf differing except a clock."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/value-traffic-composite/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:value-traffic-composite"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7725d9f87dc15e40d551a9b7a86c3ce7267cf91a",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/7725d9f87dc1-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-13T10:04:16.663Z",
+   "seed": 1000,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-13T10:08:22.071Z",
+   "seed": 1001,
+   "wallSec": 245,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-13T10:12:27.627Z",
+   "seed": 1002,
+   "wallSec": 245,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-13T10:17:05.550Z",
+   "seed": 1003,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-13T10:21:11.099Z",
+   "seed": 1004,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-13T10:25:16.900Z",
+   "seed": 1005,
+   "wallSec": 245,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}

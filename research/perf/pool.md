@@ -514,7 +514,7 @@ rounds of clock each:
 
 ## value-construction-without-work
 
-- category: allocation | origin: proposer | status: implemented as part of value-traffic-composite
+- category: allocation | origin: proposer | status: merged as part of value-traffic-composite
 - declarations: search-neutral, shared saving
 - judge: expectedGain 7, expectedCost 0, net 7 (rewritten at judging)
 - title: Leaf signatures computed at hash time under NoHashing, and call
@@ -546,7 +546,7 @@ rounds of clock each:
 
 ## eval-borrows-operands
 
-- category: allocation | origin: proposer | status: implemented as part of value-traffic-composite
+- category: allocation | origin: proposer | status: merged as part of value-traffic-composite
 - declarations: search-neutral, shared saving
 - judge: expectedGain 5, expectedCost 2 (exec.rs), net 3; admitted only
   inside the composite
@@ -567,7 +567,7 @@ rounds of clock each:
 
 ## per-run-buffers-sized-once
 
-- category: allocation | origin: proposer | status: implemented as part of value-traffic-composite
+- category: allocation | origin: proposer | status: merged as part of value-traffic-composite
 - declarations: search-neutral, shared saving
 - judge: expectedGain 5, expectedCost 2 (exec.rs Print), net 3; admitted
   only inside the composite, hint rewritten
@@ -595,7 +595,7 @@ rounds of clock each:
 
 ## value-traffic-composite
 
-- category: combined | origin: operator-agent (selection) | status: implemented, grading
+- category: combined | origin: operator-agent (selection) | status: merged (autonomous) - spur b1fb646; primary 1.1005 [1.0385, 1.1663] over 6 rounds; relocation guard fired as written and departed from; post-merge baseline cleared its revert line
 - components: value-construction-without-work, eval-borrows-operands,
   per-run-buffers-sized-once, built as one commit by the operator's decision
   in autonomous mode

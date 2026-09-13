@@ -1653,3 +1653,230 @@ parts touch disjoint code with their own counters and profile observables.
 The composite's lower edge clears the floor only narrowly; a reading that
 lands between 1.03 and 1.07 buys a layout control before the decision.
 Grader counter: frame.default_slots_filled.
+
+### Review of the diff
+
+The diff matches the admitted composite and stays in spur-core; super.patch
+carries only the gitlink; no config field, no template edit, no treatment
+bit. Checked by reading:
+
+- Frame fill keeps the old slot order - Unit for parameters the caller did
+  not push, then the declared defaults, then Unit - and builds each value in
+  place with with_sig, as the judge's rewrite required, not by cloning a
+  prebuilt value. Under EAGER the frame signature is folded per slot as
+  before.
+- Hash for Value under NoHashing hashes compute_sig_leaf_only(kind), the
+  value construction used to store; the implementer's tests compare it with
+  the eager signature over every kind and compare imbl iteration order
+  against a map keyed by the stored signature, through inserts and
+  removals.
+- Operand borrows are only at read-only positions; each arm keeps its eval,
+  check, eval order; MapErase drops two clone/drop pairs; Unwrap and
+  Coalesce use (**v).clone(); SafeFind and SafeTupleAccess read the inner
+  value in place.
+- Hints are the previous run's final lengths on the thread, capped at 4,096
+  and 8,192; `channels_created` reads channels.len() at run end, exact
+  because ids are never reused and nothing is removed.
+- default_slots_filled is computed at fold time as slots_built minus
+  params_filled, so the sum identity is exact by construction rather than
+  by measurement - it confirms wiring, not the mechanism.
+- Cost the change adds: the operand and leaf-hash counters tick a
+  thread-local cell per call with no stats switch check, and the fold drains
+  eight cells per run. Small against what they count, and not free.
+
+Implementer's checks: 499 tests pass, eval tests unmodified,
+value_stays_narrow 40; one-thread identity smoke at session_seed 1000 over
+3,008 runs with 0 differing rows in executions (1,108,862), logs
+(3,383,871), traces (3,702,656) and runs, the same stall_cap_runs.csv hash,
+and only a clock leaf differing among 4,567 pre-existing dump leaves.
+30-thread smoke per run: default_slots_filled 37,122 (predicted 29,000 to
+34,000, a miss upward, slots_built itself 40,815 on this smoke),
+params_filled 3,692, leaf_hashes_deferred 4,568 (inside 1,000 to 5,000),
+handles_not_cloned 8,835 (predicted 2,000 to 6,000, a miss upward),
+scalars_not_cloned 14,047, channel_table_grows 0.53, channels_created 1,614
+(predicted 800 to 1,200, a miss upward), log_vec_grows 0.90,
+trace_vec_grows 1.20 (above the judged at most 1.0; not a falsifier, which
+is above 2.0 for the channel table only), print_content.presized equal to
+log rows exactly.
+
+### Rounds 1 to 3
+
+Per-round runs per second, candidate over baseline: 1.0313, 1.1129,
+1.1821; mean 1.1071, interval [0.9341, 1.3120], not separated, band
+[1.061, 1.146] inside, advice inconclusive. Microseconds per run 1.0414,
+1.0853, 1.1479; steps per run 1.0416, 1.0264, 0.9642. The mean is outside
+the 1.03 to 1.07 zone that was to buy a layout control first, so rounds 4
+to 6 were bought.
+
+Counters read by hand off the candidate's dump, per run, rounds 1 to 3:
+
+- frame.default_slots_filled 34,942, 31,606, 30,365 (predicted 29,000 to
+  34,000); params_filled 3,432, 3,110, 2,990 (1,400 to 6,000); the sum
+  equals slots_built in every round, by construction.
+- value_sig.leaf_hashes_deferred 4,180, 3,830, 3,697 (1,000 to 5,000).
+- eval_borrow.handles_not_cloned 8,610, 7,790, 7,505, above the predicted
+  2,000 to 6,000 - more borrows than priced; the falsifier was below 1,000.
+  scalars_not_cloned 13,505, 12,226, 11,761 (5,000 to 15,000).
+- run_buffers.channel_table_grows 0.52, 0.46, 0.46 (at most 1.0);
+  channels_created 1,447, 1,321, 1,273, above the predicted 800 to 1,200;
+  log_vec_grows 0.80, 0.75, 0.74; trace_vec_grows 1.03, 0.99, 0.98, on the
+  judged at-most-1.0 line.
+- print_content.presized 728, 660, 636 per run; equality with log rows was
+  checked exactly on the smokes.
+- stats_local.folds 1.00.
+
+Neutrality at three rounds flags the aos and grid arm shares. Per round the
+aos share reads 14.53, 16.70, 16.77 percent on the candidate against 16.29,
+16.85, 16.72 on the baseline - one outlying first round, then level. The
+grid share reads 13.22, 14.89, 14.33 against 13.71, 13.91, 13.83, mixed in
+sign. That is a different pattern from iteration 6's consistent half-point
+shift, and again read against a spread of only three session rounds.
+
+### Six rounds, finished
+
+Rounds 4 to 6 read 1.0384, 1.0914, 1.1555. Final: mean 1.1005, sd 0.0553,
+interval [1.0385, 1.1663], separated from round 5 with the lower edge
+rising (1.0170, then 1.0385), band [1.061, 1.146] inside, advice gain.
+Microseconds per run 1.0805, interval [1.0293, 1.1343]. Steps per run
+1.0199, interval [0.9741, 1.0679]: candidate runs were if anything slightly
+longer, so the runs-per-second ratio does not owe its size to shorter runs.
+Baseline for 84b7ab5: nine rounds cached (three post-merge, six in session),
+3,706.4 runs per second, spread 0.0348.
+
+Two blockers. The structural one: the declared counter is new to the
+candidate. And the aos arm share, 15.82 percent on the candidate against
+16.51, a gap of 0.69 points against an allowance of 0.66. Per round,
+candidate minus baseline in points: -1.76, -0.16, +0.05, -1.07, -1.65,
++0.40. Three rounds with a large gap and three near zero. That is not the
+steady shift a change to the search would make; it is when the wall-slice
+allocator's boundaries happen to fall, the same allocator effect iterations
+5 and 6 recorded. The one-thread identity smoke, where allocation does not
+depend on speed, showed identical run rows, arms and variants included.
+
+Counters in rounds 4 to 6, per run: default_slots_filled 36,327, 35,015,
+32,838; params_filled 3,587, 3,444, 3,261; leaf_hashes_deferred 4,420,
+4,207, 4,083; handles_not_cloned 8,846, 8,579, 7,977; scalars_not_cloned
+13,935, 13,466, 12,574; channel_table_grows 0.50, 0.51, 0.45;
+channels_created 1,532, 1,455, 1,414; log_vec_grows 0.79, 0.79, 0.75;
+trace_vec_grows 1.02, 1.02, 1.00; print_content.presized 754, 727, 686.
+The sum identity held in every round. Against the frozen predictions:
+default_slots_filled read above 34,000 in two of six rounds,
+handles_not_cloned and channels_created above their ranges in all six, and
+trace_vec_grows on or just above the judged 1.0 line. None of these is a
+falsifier. The channel table's falsifier, above 2.0, did not fire.
+
+### The independent observables: the candidate profile
+
+research/perf/profiles/84b7ab5-cand-value-traffic-composite.md against
+84b7ab5.md, 60 s at 30 threads. Self and inclusive shares.
+
+value-construction-without-work:
+- Value::new self 3.78 and EcoVec<Value>::reserve self 1.77: both below the
+  cutoff; FrameBuilder::finish self 2.36 to 1.93. The three summed fell
+  from 7.91 to at most about 3.9 at this cutoff. Frozen: at most 3.5 -
+  neither confirmed nor refuted by the cutoff.
+- Relocation guard: eval + execute_common_label + build_frame self 13.96 to
+  15.70, up 1.74. Frozen: up at most 1.5. **Fired as written.**
+- ValueKind::clone self does not rise: 1.38 to 0.75. Held.
+
+eval-borrows-operands:
+- ValueKind::clone self down at least 0.25: down 0.63. Held.
+- drop_glue<Value> + drop_glue<ValueKind> + EcoVec<Value>::drop self down at
+  least 0.5: 5.23 to 5.07, down 0.16. Missed (an expected observable, not
+  in the falsifier list).
+
+per-run-buffers-sized-once:
+- (ChannelId, ChannelState) reserve_rehash line absent (from 1.15
+  inclusive). Held.
+- RawVecInner::finish_grow inclusive down at least 1.0: 3.84 to 1.57. Held.
+- But malloc inclusive rose 6.60 to 8.52 while realloc fell 3.48 to 1.65:
+  realloc plus malloc inclusive is 10.08 against 10.17. The growth cost the
+  observable guarded left finish_grow and reappeared as up-front
+  allocation of the presized buffers - iteration 2's lesson, met by the
+  letter of the observable and not by its intent.
+
+**Calibrating the guard.** Shares are of samples, so removing work inflates
+every untouched symbol. Untouched simulation-thread self: the scheduler,
+plan engine and RNG lines (schedule_runnable, select_within_queue,
+walk_recovery_placebo, score_with_terms, random_range, get_ready_events,
+exec_plan) 8.41 to 8.83, x1.05; adding the SipHash, name-lookup and
+NodeIndex collect lines, 11.39 to 12.73, x1.12. Parquet writer lines
+x1.05 to x1.07. At x1.05 to x1.12 the guarded 13.96 would read 14.66 to
+15.63 with nothing relocated; 15.70 sits 0.07 to 1.04 points above that. The
+guard did not show a relocation clearly and did not clear one. The judge
+wrote it as a raw share difference with no correction for this inflation.
+Part of any excess is expected from the diff itself: about 22,000
+thread-local counter ticks per run inlined into eval_operand and Hash,
+noted in the review before the rounds.
+
+### Decision: merged, with a revert criterion registered before its check
+
+Departure, in writing, from three readings: the relocation guard fired as
+written; the lower edge of the primary, 1.0385, lies inside the 0.05
+layout floor; and the aos arm share sits 0.03 points outside its allowance.
+
+For merging: runs per second 1.1005 [1.0385, 1.1663] and microseconds
+per run 1.0805 [1.0293, 1.1343] both separate over six rounds; steps per
+run 1.02, so it is not shorter runs; the one-thread identity run is exact
+on all four tables; the value-construction targets fell by at least 4
+points; the operand-borrow part moved its clone line; the guard's excess
+over measured inflation is 0.07 to 1.04 points; and the aos gap reads
+-1.76, -0.16, +0.05, -1.07, -1.65, +0.40 points by round, which is the
+allocator's slice timing, not a steady change to the search.
+
+Against, recorded: the attribution is muddier than iteration 6. The buffer
+presizing part's allocator saving moved into malloc and may be close to
+zero; the drop glue did not move; which part paid is not recoverable from
+this session. No layout control was bought: the configured floor would
+have to be above 0.10 for the mean to fall inside it, and layout-control-e3
+measured a half-width of 0.045.
+
+**Revert criterion, fixed before the post-merge baseline is measured.** The
+merge is reverted if the fresh baseline at the merged spur commit reads
+below 3,817 runs per second over three rounds, which is +3 percent over the
+3,706.4 cached for 84b7ab5 across nine rounds. That reading is not
+interleaved and carries the floor's noise, which is why the line sits at
++3 percent and not at the graded 1.10.
+
+### Post-merge baseline: the merge stands
+
+Merged: spur b1fb646, superproject 9602ac9. The fresh baseline at b1fb646
+reads 4,304.3 runs per second over three rounds (4,411.9, 4,460.1,
+4,041.0), spread 0.0533, against 3,706.4 for 84b7ab5 - plus 16.1 percent,
+above the registered revert line of 3,817. Ledger row appended with ratio
+1.1005. The implementer worktree and the candidate export were removed.
+
+### Direction review after the merge
+
+Digest for the user: iteration 7 merged a composite of three allocation
+mechanisms at 1.10 over six rounds (post-merge check plus 16 percent). The
+merge departed from a fired profile guard and a lower edge inside the
+floor, with a revert criterion registered first. Cumulative on this loop's
+graded workload since call-frame-one-pass, 1.0634 x 1.3217 x 1.1727 x
+1.1005, about 1.81.
+
+**Are the costs attacked still the largest ones explainable?** The frame
+symbols and the per-value signature work are gone, and ValueKind::clone is
+halved. What remains in the interpreter is eval and execute_common_label
+self (about 16 points together), store, drop glue that did not move, and
+malloc (8.5 inclusive), which now carries the presized buffers. The next
+profile, of b1fb646, decides the directive.
+
+**Has the steering paid for itself?** Partly. The self-time pricing rule
+worked: every part's target symbols fell. Its weakness showed in the
+judge's guard, written as a raw share difference, which a large enough
+saving trips on its own. A guard on shares needs a stated inflation
+reference, and the loop's rules do not require one; recorded here for the
+user, since the skill and prompts are not the loop's to change.
+
+**What the next directives should pull toward.**
+
+- Allocation that moved rather than vanished: malloc inclusive rose 1.9
+  points with the presized buffers. Whether up-front capacity pays at all
+  on this workload is an open question; an ablation of that part alone is
+  the instrument if it is ever worth a round.
+- The drop glue on Value and ValueKind (about 3.4 self) and EcoVec drop:
+  frames die whole at return, and this iteration left that untouched.
+- call-targets-indexed, still proposed at net 3.
+- The simulation threads' idle third (grid batch stragglers), search-
+  affecting, still owing per-batch off-CPU evidence.
