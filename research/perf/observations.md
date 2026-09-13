@@ -3037,11 +3037,21 @@ and depth>=8 at the 0.25 margin must read held; the per-second depth>=8
 rung is description; the panel is not run, being blind to GridArm, and that
 is recorded as the panel note the blocker asks for.
 
-### Implementer prompt changed at the user's direction
+### User direction, recorded mid-reading
 
-A check that compares a change against a reference - a shadow of the old
-computation, a second evaluator - now goes behind a cargo feature such as
-`shadow-check` instead of `debug_assertions`, and its smoke runs on a release
-build with the feature on; the graded `cand-spur` is built without it. The
-debug-build shadow smokes of iterations 10 and 12 ran up to 50 minutes of
-wall for a check a release build runs at graded speed.
+The user asked for two things during grid-ordered-release-pool-2's lite
+reading:
+
+- Remove the pool's shadow logic - the cfg(debug_assertions) sequential
+  Assigner checked against every batch, and its shadow_batches_checked and
+  shadow_mismatches counters - since correctness is already verified (0
+  mismatches over 10,006 and 9,728 batches). Not now: the binary under the
+  lite reading contains it, and changing the code would invalidate the
+  reading. At the iteration boundary, if the pool merges, an agent removes it
+  in a follow-up commit, keeping the unit tests that compare the pool against
+  a sequential reference and confirming with the spur-core tests and a
+  release-build one-thread identity run that release behaviour is unchanged.
+  If the pool closes, the shadow logic never enters the tree.
+- Build release only. Judges and implementers are no longer asked for
+  debug-only instrumentation or debug-build smokes; exactness is checked with
+  unit tests and release-build identity runs.
