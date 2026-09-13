@@ -265,3 +265,133 @@ rounds of clock each:
   vector half is untouched by this finding and remains the only live
   fragment.
 
+
+## call-frame-one-pass
+
+- category: redundant work per step | origin: proposer | status: merged
+- declarations: search-neutral, shared saving
+- title: Build call frames in one pass and drop the duplicate entry frame
+- outcome: merged at the user's direction on split evidence, superproject
+  66ed777, spur 17e74ad. Six rounds, mean 1.0634, interval [0.9884, 1.1442];
+  frame.entry_frame_copies 1281 per run on an instrumented baseline against
+  0 on the candidate. Full record in observations.md iteration 4 and
+  decisions.jsonl.
+
+## thread-local-stats-blocks
+
+- category: contention and parallelism | origin: proposer | status: awaiting-approval
+- declarations: search-neutral, shared saving
+- judge: expectedGain 7, expectedCost 0, net 7 (cost becomes 2 if the
+  TERMINATION counters, which the grader and the reward read, are converted;
+  they must not be)
+- plan: research/perf/plans/thread-local-stats-blocks.md
+- title: Per-thread counter blocks, added into the global counters once per run
+- description: on this config every scheduling step makes at least 14
+  unconditional Relaxed fetch_add writes (lock-prefixed) to the same
+  static AtomicU64 counters from all 30 worker threads: SA_STEPS,
+  SA_STEPS_TOTAL, six preference-consultation writes from three
+  route_by_terms sites, ES_QUEUE_AUDIT, SR_NO_WEIGHTED_PREDICATE,
+  MA_DECISIONS, RWP_DECISIONS, RWP_EVALUATED, ES_CANDIDATE_MASK, plus
+  conditional ones (MA_CONTESTED on about 43 percent of steps, ES_RANKING_PASS,
+  crash anchor offers, timer admission, delivery buckets, record_timer and
+  its TIMER_EFFECTS mutex). This is true sharing: one counter bounced
+  between cores every step. Move the hot counters into a per-thread block
+  folded into the globals at the run-end hook beside flush_frame_stats, the
+  pattern FRAME_RUN already uses, with begin_run as the idempotent backstop.
+- verified at judging: stats true on the graded config; the writes exist
+  and are unconditional as listed; no release-build mid-run reader of any
+  converted counter (readers are slice-boundary snapshot/delta, the dump and
+  tests); timer_context CELL_ learner atomics stay global; TIMER_KEY_CAP 4096
+  never reached. One mid-run reader found: a debug_assert in
+  record_run_termination (util_stats.rs:2912) reads SA_STEPS_TOTAL inside
+  exec_plan, so the fold must precede it or the assert must read local plus
+  global.
+- red-team recorded: by the audit_multiplier_authority control (same call
+  rate, about 1.4 writes, 1.13 inclusive) one contended write costs about
+  0.3 to 0.8 points, so the writes explain 0.6 to 1.6 of
+  walk_recovery_placebo's 3.84 self, not the proposed 2.9; the total of 5 to
+  9 points still follows from 16 to 20 writes per step.
+- counters: stats_local.folded_increments (per run, predicted 25,000 to
+  55,000), stats_local.folds (per run, predicted 1.00 within 1 percent).
+- band: [1.05, 1.20] on cross-binary runs per second (rewritten at judging
+  from [1.08, 1.25]).
+- treatment bit: none; VARIANT_BITS is full and a shared saving cannot use
+  the within-binary contrast.
+- independent observable: in a profile of the candidate binary,
+  walk_recovery_placebo self falls by at least 1.0 point, and the summed self
+  of schedule_runnable (all specializations), select_within_queue,
+  walk_recovery_placebo and audit_multiplier_authority falls by at least 4
+  points.
+- falsifier: the rps interval lies entirely below 1.05; or the spread check
+  reads outside the baseline's own spread on steps per run, end reasons or
+  per-arm counts; or walk_recovery_placebo self does not fall by at least
+  1.0 point; or stats_local.folds per run is not 1 within 1 percent; or the
+  dump's integer leaves per run or timer_effects.by_key length differ from
+  the baseline's beyond the round spread.
+- cost clause: steps per run, end reasons and per-arm counts hold their
+  distributions; runs per second does not separate downward; no dump field
+  changes name, shape or content.
+
+## exec-plan-borrows-program
+
+- category: allocation | origin: proposer | status: proposed
+- declarations: search-neutral, shared saving
+- judge: expectedGain 6, expectedCost 0, net 6
+- title: exec_plan borrows the Program instead of deep-cloning it per run
+- description: exec_plan takes program by value (path.rs:474) and
+  run_single_simulation passes program.clone() (explorer.rs:1111), once per
+  run on the graded path; the body only reads it. Take &Program.
+- verified at judging: body read-only; the two Program clones are the only
+  ones in simulator and CLI; all of Program::clone's 1.65 inclusive is the
+  graded site. The drop share is not checkable.
+- counter: run_setup.program_clones_avoided, predicted 1.00 per run
+  (rewritten at judging from a constant vertex count that could not fail).
+- band: [1.015, 1.04], below the floor alone; composes with the next two.
+- independent observable: Program::clone absent from the candidate profile.
+- falsifier: rps interval entirely below 1.015; spread check outside the
+  baseline's spread; malloc inclusive rises.
+
+## fx-hashed-call-and-timeline-lookups
+
+- category: redundant work per step | origin: proposer | status: proposed
+- declarations: search-neutral, private saving (read cross-binary; no bit)
+- judge: expectedGain 6, expectedCost 0 after rewrite (2 as proposed), net 6
+- title: Fx-hash the call-target maps and the feedback timeline sets, and
+  insert the constant timeline key once
+- description: rpc and func_name_to_id are std RandomState maps probed on
+  every interpreted call (exec.rs:169-177, 224-232); hash_one<NameId> 1.15
+  inclusive is those lookups. LocalTimeline::note_delivery SipHash-inserts
+  the one fixed Constant-granularity tuple once per distinct prior handler
+  (insert<TimelineTuple> 2.22 inclusive under note_delivery 2.74). Make
+  rustc-hash non-optional, switch those maps to Fx, insert the constant key
+  once.
+- rewritten at judging: drop the exec.rs role-id change and the exec.rs
+  call_targets counter (both cost 2, little saving); keep
+  timeline.constant_inserts_skipped; serialize_nameid_map needs a generic
+  hasher; the neutral argument adds that the per_dest_seen float sum at
+  feedback.rs:361-372 is unreachable on this config and was already
+  randomly ordered elsewhere; attribution about 3 points, not 3.5.
+- band: [1.03, 1.07], below the floor alone.
+- falsifier: rps interval entirely below 1.03; spread check outside the
+  baseline's spread; constant_inserts_skipped reads 0; Sip13 write
+  inclusive does not fall.
+
+## serialize-history-inline
+
+- category: contention and parallelism | origin: proposer | status: proposed
+- declarations: search-neutral, shared saving
+- judge: expectedGain 4, expectedCost 2 (history.rs; payload_json is the
+  column porcupine parses), net 2
+- title: Serialize a run's history on its own thread without nested rayon
+  jobs or JSON trees
+- description: serialize_history (history.rs:209-231) runs a nested
+  par_iter inside a worker of a saturated pool once per run and builds a
+  serde_json Value tree per operation.
+- rewritten at judging: use a streaming Serialize impl through
+  serde_json::to_string (or ship only par_iter to iter) rather than a hand
+  writer; compare sorted (run_id, row, payload_json) tuples or a one-thread
+  run, not file bytes. The claim on steal and epoch traffic is unsupported:
+  the grid and AOS par_iters produce it too.
+- band: [1.015, 1.05], below the floor alone. As a composite with the two
+  entries above: [1.06, 1.17], cost 2, and a combined reading cannot say
+  which part paid.

@@ -668,3 +668,79 @@ hair, so the grader cannot certify the effect at its own confidence. The
 merge is a judgment that the mechanism evidence and the round-4 separation
 outweigh a criterion known to be broken, not a claim that the primary
 separated.
+
+## Iteration 5 - new epoch, direction review, contention lens, paused before implementation
+
+Preflight: spur-research-loop inactive, no grader measuring, branch
+research/lite, spur gitlink 292c15b, tree clean, baseline binary current,
+selftest zero failures, call-graph profile present for 292c15b. The user
+asked for this session to run as moderated: stop for sign-off before
+anything is implemented.
+
+### What changed since iteration 4
+
+Two things move the ground under every earlier reading. The call-frame-one-pass
+merge moved the tree. Commit 66d0979 moved the toolchain: frame pointers are
+forced for every build run from the project root, the baseline cache
+identity now hashes the applicable cargo config, separation reads the
+interval alone without dominance, and the grader's profile records
+frame-pointer call graphs with an inclusive section. The earlier layout
+floor was measured under different build flags, so a new layout control is
+due before the first candidate of this epoch. Its second build of 292c15b
+is at tmp/loop/perf/layout-control-e3 and its session layout-control-e3 is
+registered with no rounds bought; the rounds are held while subagents read
+the tree, since a grep-heavy neighbour reads several percent on the clock.
+
+### Direction review
+
+Triggered by the merge, the profile changing shape, and the new epoch.
+
+**Are the costs being attacked still the largest ones explainable?** The
+inclusive profile answers what iteration 3 could only argue. schedule_runnable
+is about 75 percent inclusive across its three RNG specializations and exec,
+the interpreter, about 43. Roughly 30 percent of wall is therefore the
+scheduler's decision and observation work outside interpretation, the
+largest block on the profile and the one iteration 4 named as the structural
+question. Next, serialization and the writer path near 10 percent, then a
+per-run Program clone at 1.65 and SipHash near 3.3.
+
+**Has the steering paid for itself?** The attribution requirement added in
+iteration 3 produced the loop's only merge, and it was sharpened again here:
+every hypothesis must use the inclusive section, state its fraction of a
+symbol and the symbol's other callers. The ambition floor from iteration 4
+held: the proposer declared sub-floor bands honestly and named what they
+compose with.
+
+**Do the next directives pull back to mechanism level?** Lens on rotation,
+contention and parallelism, with a focus directive at the scheduler's
+per-step cost and the serialization path, and the scope ruling that trace,
+history and emit_ output stay identical in content.
+
+### Proposals and judging
+
+Four hypotheses; the proposer also recorded what it checked and set aside:
+allowed_timers lookups are off the graded path (strict_timers false), the
+timer_context learner atomics are read mid-run and must stay global, and
+moving serialization onto the writer threads frees no core on 32 hardware
+threads running 30 workers and 4 writers.
+
+- thread-local-stats-blocks, gain 7 cost 0. At least 14 unconditional
+  lock-prefixed fetch_add writes per step to the same global counters from
+  all 30 threads; true sharing rather than false sharing. Verified at
+  judging: the writes, the flags, no release-build mid-run reader. One
+  debug_assert reads SA_STEPS_TOTAL mid-run and fixes the fold point. The
+  judge's red-team used audit_multiplier_authority as a control - same call
+  rate, about 1.4 writes, 1.13 inclusive - and put one contended write near
+  0.3 to 0.8 points, which cuts the proposed walk_recovery_placebo
+  attribution from 2.9 to 0.6-1.6 points and the band from [1.08, 1.25] to
+  [1.05, 1.20]. The total still follows from 16 to 20 writes per step.
+- exec-plan-borrows-program, gain 6 cost 0, band [1.015, 1.04].
+- fx-hashed-call-and-timeline-lookups, gain 6 cost 0 after rewrite (the
+  exec.rs parts removed), band [1.03, 1.07].
+- serialize-history-inline, gain 4 cost 2: payload_json is the column
+  porcupine parses, and the steal-traffic half of the claim is unsupported.
+
+Top by net: thread-local-stats-blocks, admitted as awaiting-approval with a
+plan. The other three are kept as a possible composite, band [1.06, 1.17],
+cost 2 with serialize-history-inline in it; without it the two survivors
+compose to 1.045 at the low edge, under the floor.
