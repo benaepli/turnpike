@@ -2025,3 +2025,48 @@ evaluation, and the simulation threads' idle third from grid batch
 stragglers, where the first question is whether a neutral form exists at
 all. Tree unchanged at spur b1fb646; cumulative since call-frame-one-pass
 about 1.81.
+
+## Iteration 9 - autonomous, redundant-work lens, structural directives
+
+Tree unchanged at spur b1fb646; profile b1fb646.md; preflight carried in
+session.
+
+### Proposals
+
+Priced at 1 point about 52 us per run. The dispatch block is 25.52 points:
+15.75 on the label side (execute_common_label, exec, exec_sync_inner,
+store) and 10.26 on the expression side (eval, eval_operand). No counter
+measures labels per run; the proposer estimated 25,000 to 40,000 with a
+floor near 9,000.
+
+- compiled-expr-operands: after compile_program each Expr gets a compiled
+  form whose children are pre-classified (local slot, node slot, literal,
+  subtree), with leaves read inline and fused forms for the common compares,
+  int arithmetic, field reads, len and exists; each arm mirrors eval's
+  order, errors and counter events; an enum, not closures; Expr and Label
+  untouched. 1.5 to 3.5 points, band [1.015, 1.035].
+- predecoded-label-ops: a per-vertex Vec of decoded ops run in exec's own
+  loop, removing the 15-argument call, the 48-byte return, the Label and
+  Instr matches and the out-of-line store; vertices, pcs, effect order and
+  Env::writes unchanged. 3.5 to 6.5 points, band [1.035, 1.065].
+  lookups-dense rides here.
+- grid-ordered-release-pool, declared search-affecting. The proposer's
+  answer to the dependency question: grid inputs are not fixed before
+  their batch. A slot's parent depends on earlier batches' admissions, a
+  fresh run's config index depends on earlier empty-corpus fallbacks, the
+  process-global learners are read at run start and merged at run end, and
+  wall slices hand a faster arm more runs. The mechanism starts a batch's
+  fresh runs early when the corpus's remaining child count covers all of
+  its slots, and releases slot runs only after earlier fresh runs are
+  admitted in batch order, at most four batches ahead. Priced from grid
+  busy share 0.596 (2.82 ms idle per grid run), a straggler model and an
+  SMT contention discount: band [1.07, 1.21], with frozen arm-share moves.
+- compiled-interpreter: the two A parts plus lookups-dense, band [1.084,
+  1.156], lower edge clear of the floor; guard on the dispatch block against
+  the untouched-scheduler reference R.
+
+Set aside: closures per node, stack bytecode (it would bring back the clones
+and drops iteration 7 removed), fusing multi-label f-string prints (it would
+skip temp writes and CFG edges; about 686 prints per run with 3 to 4
+allocations each stays a lead), precomputed field-key hashes, an AOS pool,
+changing batch_size (a config change), oversubscription.
