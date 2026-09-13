@@ -2800,3 +2800,23 @@ falsifier keeps the next reading honest.
 - integer-columns-delta-encoded is buildable but low priority while the
   writers have 2x headroom; it becomes relevant again if the pool pushes them
   back past about 80 percent busy.
+
+## Iteration 12 - autonomous, grid-ordered-release-pool-2
+
+Preflight carried in session: spur-research-loop inactive, branch
+research/lite, spur gitlink edb9e2f, tree clean after 5653259, baseline
+rebuilt at edb9e2f with a fresh cache (5,186.6 runs per second, writers 0 s
+blocked). No layout control, same build config hash. Profile of edb9e2f
+taken at the start of the iteration.
+
+No proposal round. The largest cost the loop can explain is again the
+simulation threads' idle time behind grid batch stragglers, which the closed
+grid-ordered-release-pool already measured (about 2.8 ms idle per grid run
+before, 0.6 ms with the pool) and whose mechanism held every exactness check.
+It was closed on writer backpressure; iteration 11 removed that ceiling. Per
+iteration 11's ruling it returns only as a new candidate,
+grid-ordered-release-pool-2, whose declarations, band and a
+blocked_ns-per-run writer falsifier are frozen by a judge on edb9e2f now,
+before any rebuild or smoke. The judge also checks whether the kept patch
+applies to edb9e2f, since iteration 11 changed explorer.rs and util_stats.rs,
+which the pool patch touches too.
