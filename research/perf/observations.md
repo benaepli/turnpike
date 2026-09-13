@@ -1905,3 +1905,50 @@ moving and at what size; the Expr and Label representation behind eval's
 self time; re-pricing call-targets-indexed; per-step scheduler collects
 only on a representation argument. Any share-based guard must name its
 inflation reference, the lesson of iteration 7.
+
+### Proposals
+
+The proposer first answered the memmove question from hand-derived type
+sizes (moderate confidence in the inline-copy threshold): Value 40 bytes,
+the eval Result 48, StepOutcome 40 to 48, LogEntry 48, TraceEntry 96, Timer
+80 - all copied inline, never through memmove. What reaches memmove: Record
+and Runnable at about 256 to 272 bytes, moved 2 to 4 times per record step
+and twice per Async; the 152-byte channel table bucket, 1,414 per run; and
+runtime-length copies in trace and print formatting. The 2.77 self points
+split roughly formatting 9,000 to 18,000 calls, the Record family 5,000 to
+9,000, channel inserts 1,400, queue shifts 1,000 to 2,000 per run.
+RuntimeError is about 40 bytes; boxing it would remove nothing. The other
+3.68 inclusive points are read as page faults on fresh buffers - inference,
+since no kernel line prints.
+
+Four hypotheses, all neutral and shared. A share-based guard now names its
+inflation reference: R, the summed self of six scheduler and plan lines no
+part touches, 4.12 on b1fb646.
+
+- call-targets-indexed, re-priced: a dense per-vertex callee table built in
+  compile_program, only the SyncCall and Async arms of exec.rs changed.
+  2.3 to 2.9 points, band [1.022, 1.030]. The NodeToString probe
+  subtraction is zero on VR, which never calls role_to_string.
+- value-without-dead-signature: under NoHashing Value.sig is written 0 and
+  never read after iteration 7, so a zero-sized sig gives 32-byte Values.
+  1.0 to 2.2 points, band [1.010, 1.025], the least certain pricing.
+- channel-table-dense: channel ids are dense per run, so a Vec indexed by
+  id replaces the hash table. 1.0 to 1.8 points, band [1.010, 1.018].
+- layout-composite: the three together, 4.3 to 6.9 points, band [1.042,
+  1.075], lower edge below the floor, stated in advance.
+
+Set aside with reasons: boxing Record (net 0.3 to 0.7 after its allocation),
+smaller Result or error types (no memmove call to remove), flattening Expr
+(no profile line prices the pointer hops), scheduler collects as inline
+arrays (0.4 to 1.0), narrowing NodeId, interning timer labels, bundling
+execute_common_label's arguments, imbl ArcK to RcK (feedback must stay
+Send).
+
+**Operator note on direction, before judging.** This round's best composite
+is smaller than the last two merges' and its lower edge sits under the
+floor. The interpreter's remaining self time is dispatch over a tree of
+Expr nodes that no single-structure change prices. What the profile does not
+show is still larger: the simulation threads' idle third. If the judged
+composite cannot be read against the floor, the next direction review
+should weigh a structural interpreter change against the search-affecting
+batch-straggler lead, rather than a fourth round of per-structure trims.
