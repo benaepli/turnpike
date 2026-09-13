@@ -2940,3 +2940,33 @@ recording as it stands: the grid arm's steps per run sit below the
 baseline's observed range [2,430, 2,672], inside only because of its spread,
 and AOS runs are shorter too - the shape of learned caps and wall slices
 responding to more runs per second.
+
+### Rounds 1 to 3, and where the runs come from
+
+Round 3 read 1.3118. Three rounds: runs per second 1.3431, interval [1.2547,
+1.4377], separated, band [1.05, 1.20] read above - a prediction missed on
+the high side, not a falsifier. Microseconds per run 0.9768: each run costs
+about 2 percent more wall, the contention term, far below the predicted grid
+1.15 to 1.35. Steps per run 0.9581, runs shorter in every round; steps per
+second therefore about 1.29.
+
+Every frozen falsifier held in every round: writer blocked 0.05, 0.00, 0.00
+us per run; grid idle 0.300, 0.288, 0.314 ms per grid run; busy share 0.923,
+0.927, 0.924 with blocking removed identical; unfilled_in_ungated_batches 0;
+AOS us per run 3,739, 3,671, 3,805 inside [3,011, 4,877] on the six cached
+baseline rounds. The voiding rule did not fire: grid 2,244, 2,213, 2,377
+steps per run inside [2,189, 2,913], and every other grid arm inside its own.
+
+Runs by arm, candidate over baseline, pooled over the three rounds: aos
+1.045, grid 1.440, grid-no-purgatory 1.519, grid-post-fault-2 1.522,
+grid-short 1.243. Each arm gets equal wall per slice, so the pool's gain
+lands on the four grid arms and AOS, which kept its batched path, stays near
+flat. That is what moved the arm shares the spread check reports
+(description for a search-affecting candidate): aos 12.84 against 16.52
+percent of runs, the grid arms up correspondingly, iterations_exhausted
+17.24 against 19.80 percent. The session rate is equal-wall arms run faster,
+not composition bought by shorter runs.
+
+Rounds 4 to 6 bought: the voiding rule and the per-round writer falsifier are
+read in every round, and the grid arm sat near its allowance edge in rounds 1
+and 2.
