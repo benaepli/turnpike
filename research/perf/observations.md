@@ -2343,3 +2343,33 @@ question a matter of one run rather than argument.
   identity run is the instrument that has resolved it twice. Recorded for the
   user: the grader could carry that check, but the grader is not this loop's
   to change.
+
+## Iteration 10 - autonomous, grid-ordered-release-pool
+
+Preflight carried in session: spur-research-loop inactive, branch
+research/lite, spur gitlink 7f607e6, tree clean at 188ecdf, baseline rebuilt
+at 7f607e6 with a fresh cache (5,012.3 runs per second). No layout control,
+same build config hash. Profile: research/perf/profiles/7f607e6.md.
+
+### The profile, and why this iteration does not propose
+
+On 7f607e6 the interpreter's decoded dispatch still leads - ceval 6.55 self,
+exec_ops 4.74 and 1.09, run_sync_ops 2.70 - followed by schedule_runnable
+across four specializations (about 8.3), allocation (_int_malloc 3.90,
+malloc 1.44, cfree 1.25), memmove 3.12 and 1.50, drop glue on Value and
+EcoVec drop (about 4.2), FrameBuilder::finish 2.04 and trace formatting
+(format_escaped_str 1.81, write_to 1.50). None of this prices the largest
+cost the loop can explain, which an on-CPU profile cannot see: the
+simulation threads' idle third behind grid batch stragglers.
+
+The pool's queued candidate, grid-ordered-release-pool, was judged at net
+4 in iteration 9 with its frozen prediction written then, so this iteration
+builds it rather than spending a proposal round. Declarations frozen at
+admission: search-affecting, shared saving, band [1.06, 1.22], primary
+counter grid_pool.worker_idle_ns (0.2 to 1.3 ms per grid run), exactness
+counters shadow_mismatches and unfilled_in_ungated_batches at 0, a one-thread
+identity run, and before any merge the lite grader's non-inferiority chunks
+recorded here, with the protocol panel noted as blind to GridArm. The
+utilization it was priced on (grid busy share 0.596) was measured on b1fb646;
+the compiled interpreter shortened runs since, which changes the straggler
+distribution but not the frozen prediction.
