@@ -2013,3 +2013,15 @@ answer, cheaply got, but not a candidate.
   idle workers with the next runs changes only admission timing; if not,
   it is search-affecting and owes the search loop's reading. A mechanism
   that needs a utilization counter adds it in the same change.
+
+**Digest for the user (iteration 8).** No candidate was graded. The data
+layout round answered its question - memmove is mostly formatting and the
+256-byte Record family, not the eval Result - and produced three small,
+verified trims whose best composite band, [1.032, 1.049], sits under the
+floor; they wait in the pool as the rider lookups-dense. The loop now
+steers at two structural leads instead of a fourth round of trims: compiling
+expressions once per program in place of re-walking Expr trees per
+evaluation, and the simulation threads' idle third from grid batch
+stragglers, where the first question is whether a neutral form exists at
+all. Tree unchanged at spur b1fb646; cumulative since call-frame-one-pass
+about 1.81.
