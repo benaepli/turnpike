@@ -2897,3 +2897,19 @@ us per run; busy share by arm grid 0.824, grid-short 0.935, grid-no-purgatory
 under the predicted 1.15 to 1.35 contention term. The grid arm's steps per
 run read 2,385 against the baseline's 2,430 to 2,672 - an ungraded smoke, but
 the voiding rule's observable, read in every round from here.
+
+### Review of the rebased diff
+
+Reviewed as a delta against the kept patch, which iteration 10 reviewed in
+full: the changed lines differ only by grid_pool.writer_blocked_ns -
+run_slice reads the session's history_writer blocked total before and after
+the pool and records the difference, a getter exposes HW_BLOCKED_NS, and the
+new field is carried through GridPoolSession, GridPoolStats, the reset list,
+the dump and the completeness test, with doc comments stating what busy share
+with blocking removed is. Only one arm runs per slice, so the per-slice
+difference belongs wholly to that grid arm's pool. No other change to the
+mechanism.
+
+Session started: grid-ordered-release-pool-2, search-affecting, shared,
+cross-binary primary, band [1.05, 1.20], counter grid_pool.worker_idle_ns
+(new to the candidate, so read by hand), search loop inactive.
