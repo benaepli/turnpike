@@ -2240,7 +2240,7 @@ The parser reproduces the judged baseline figures exactly: dispatch block
   hash_one<&String> 1.08, hash_one<&NameId> 1.62 and HashMap<NameId,
   FunctionInfo>::get 1.30 inclusive - are all below the reporting cutoff of
   about 1.0. The frozen threshold is below 0.2 each, which this cutoff
-  cannot confirm or refute; recorded as down at least 0.6 to 0.6 points
-  each, not as the threshold met.
+  cannot confirm or refute; recorded as down by at least 0.08 to 0.62
+  points each (baseline minus the cutoff), not as the threshold met.
 - Sip13 write self 2.06 is below the cutoff; frozen at most 1.1 x r = 1.29.
   Held by the cutoff.
