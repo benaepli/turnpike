@@ -2723,3 +2723,36 @@ the aos arm share, 17.14 against 16.53 (allowance 0.17). It is the learned-cap
 signature that cleared at six rounds on lookups-and-format-once and needed a
 caps-engaged identity run on compiled-interpreter. Rounds 4 to 6 bought
 before deciding whether that run is needed.
+
+### Six rounds, finished
+
+Rounds 4 to 6 read 1.7963, 1.7081, 1.6658 on the primary. Final: mean
+1.7257, sd 0.0292, interval [1.6736, 1.7793], separated, band [1.15, 1.40]
+read above, advice gain, no blockers. At six rounds every one of the eleven
+neutrality rows sits inside the baseline's spread; the stall_cap_reached and
+aos flags of round 3 cleared as the baseline's own spread was measured.
+Runs per second 1.0738, interval [1.0420, 1.1066]: separated upward, where
+the prediction expected [1.01, 1.05] and only asked that it not separate
+downward. Microseconds per run 1.0499; steps per run 0.9981. Baseline for
+7f607e6: nine rounds cached, 4,955.6 runs per second, spread 0.0308.
+
+By hand, rounds 4 to 6: commands 1.0000 per run; text_buffers_allocated
+0.0215, 0.0223, 0.0225 and dropped_oversize 0.0211, 0.0220, 0.0221 per run;
+candidate blocked 0 s and 0 full-queue sends, baseline blocked 0.31 s (650
+sends), 0.19 s (365) and 0 s.
+
+Every frozen falsifier held: primary interval clears 1.15; spread check
+inside; text_buffers_allocated and dropped_oversize under 0.05 per run in
+every round; identity exact; output bytes per run 1.0000 in [0.97, 1.03];
+peak RSS 1.0437x at most 1.05x; runs per second not separating downward.
+Predictions missed, recorded as such: the primary above its band, the two
+buffer counters above their predicted 0.01, and runs per second above its
+expected range.
+
+### Decision: merged, with a revert criterion registered before its check
+
+No departure from any frozen falsifier or blocker. The primary is a counter
+and the clock can only block, so the revert line is set on regression, not
+on gain: the merge is reverted if the fresh baseline at the merged spur
+commit reads below 4,807 runs per second over three rounds, 0.97x the
+4,955.6 cached for 7f607e6.
