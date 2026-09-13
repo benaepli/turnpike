@@ -2244,3 +2244,55 @@ The parser reproduces the judged baseline figures exactly: dispatch block
   points each (baseline minus the cutoff), not as the threshold met.
 - Sip13 write self 2.06 is below the cutoff; frozen at most 1.1 x r = 1.29.
   Held by the cutoff.
+
+### One thread, caps engaged: identical
+
+Bought after the six rounds, before any decision, exactly as iteration 5 did:
+general_vr.json with session_seed 1000, slices of 20,000 runs, one round,
+RAYON_NUM_THREADS=1, 100,000 runs per side, baseline b1fb646 against the
+candidate binary. Result file: tmp/loop/perf/identity-caps/result.md.
+
+- Both caps engaged on both sides with identical figures: stall_cap 22,514
+  stops over 70,260 treated runs, cap_max_scope 899, run_cap 2 recomputes,
+  3,143 probes and 987 completions.
+- runs 100,000 rows, executions 24,094,053 (payload included), logs
+  76,197,352, traces 86,370,102: 0 rows in either direction of EXCEPT ALL on
+  every column except the runs table's two clock columns. logs and traces
+  exhausted a 13 GB duckdb limit whole and were compared the same way in ten
+  run-id ranges of 10,000.
+- End reasons identical: deadlock 19, iterations_exhausted 30,030,
+  learned_cap_reached 18,308, plan_complete 29,129, stall_cap_reached 22,514.
+  Sum of steps_used 219,951,576 on both.
+- Utilization dump: 6,983 baseline leaves all present; the candidate adds
+  only the 10 new counter leaves; two differ, history_writer.busy_ns (clock)
+  and run_buffers.channel_table_grows (disclosed). Campaign report: 25
+  differing leaves, all clocks, busy_ns or the disclosed grow counter, plus
+  the new counters under each arm.
+- stall_cap_runs.csv: the same sha256 on both sides.
+
+The change does not alter what the explorer searches, on the cap path
+included. The three rows the 30-thread spread check flagged - more stall-cap
+stops, fewer exhausted runs, a higher grid arm share - are the learned caps
+responding to runs finishing sooner, which is the concurrency effect
+iteration 5 isolated the same way.
+
+### Decision: merged, with a revert criterion registered before its check
+
+Departure, in writing, from one frozen falsifier: the spread check on end
+reasons and per-arm counts fired as written (iterations_exhausted,
+stall_cap_reached, grid arm share). The reason is the caps-engaged
+one-thread identity run above, which is the instrument that separates a
+change to the search from a response to throughput on this workload, and
+which reads identical. Every other frozen falsifier held: primary 1.1972
+[1.1191, 1.2808] clears 1.08; microseconds per run 1.1718 [1.1095, 1.2375];
+legacy_labels and legacy_evals 0 in every round; label_execs 31,421 to
+35,214; leaf_operands_inline above the eval_borrow sum; call_targets.fallback
+and lookup_misses 0; dense_inserts equal to channels_created; the dispatch
+block guard 19.00 against 24.63. The four lookup lines sit below the
+profile's cutoff, which cannot confirm their frozen below-0.2 thresholds;
+that is recorded, not waived.
+
+Revert criterion, fixed before the post-merge baseline is measured: the
+merge is reverted if the fresh baseline at the merged spur commit reads
+below 4,293 runs per second over three rounds, +3 percent over the 4,167.8
+cached for b1fb646 across nine rounds.
