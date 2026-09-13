@@ -2628,3 +2628,37 @@ second read cross-binary for regression only, since the writer ceiling binds
 only lightly on today's tree. Owed before any round: one-thread identity on
 the four tables and porcupine exit codes; by hand, output bytes per run in
 [0.97, 1.03] and peak RSS at most 1.05x.
+
+### The implementation, and three readings against the frozen prediction
+
+text-rows-born-contiguous: 1,820 patch lines plus a new text_buffer.rs (270
+lines), in spur-core (simulator.rs, exec.rs and its test, state.rs,
+explorer.rs, history.rs, path.rs, util_stats.rs, the completeness test);
+super.patch only the gitlink. The implementer's checks:
+
+- One-thread identity against 7f607e6 (seed 1000, 3,008 runs): executions
+  1,167,064 rows, logs 3,377,240, traces 3,701,447 and runs 3,008 identical
+  both ways; porcupine exit 0 on both; the same stall_cap_runs.csv hash; no
+  utilization leaf differing outside clocks - queue_full_sends and
+  blocked_ns equal on this workload. Output bytes per run 1.0000 on
+  executions, logs and traces (runs 1.0007 from the wall columns). Peak RSS
+  0.984x.
+- 30-thread smoke, 45 s per binary, counters only: busy_ns 346.5 us per run
+  against 577.5 on an unpaired baseline session; blocked_ns and
+  queue_full_sends 0 on both; commands 1.000 per run;
+  text_buffers_allocated 0.025, recycled 3.976, dropped_oversize 0.024 per
+  run. Peak RSS 996,896 kB against 901,432 kB, 1.106x.
+- On the identity workload text_buffers_allocated read 0.117 and
+  dropped_oversize 0.066 per run: VR's trace payload text per run has a
+  median of 15 KB and a maximum of 8.4 MB, and 121 of 3,008 runs exceed the
+  1 MB recycling cap the judge froze.
+
+Against the frozen falsifiers. text_buffers_allocated and dropped_oversize
+are frozen per run "in every round", which is the graded 30-thread workload:
+there they read 0.025 and 0.024, under the 0.05 falsifiers, while
+allocations miss their predicted 0.01. Peak RSS is frozen as one 30-thread
+60 s smoke per binary at most 1.05x; the implementer's pair ran 45 s and
+read 1.106x, near the specified measurement but not it, with a plausible
+cause that is exactly what the clause guards - recycled buffers keeping
+their largest capacity. It is re-measured now as frozen, one 60 s run per
+binary in sequence, before any grading round.
