@@ -2100,3 +2100,59 @@ Top by net with the grid pool, and ahead of it because it needs nothing
 outside this loop to merge. Band [1.08, 1.15], lower edge clear of the floor.
 grid-ordered-release-pool is the next candidate after this one's session,
 with its owed reading written into the pool.
+
+### Review of the diff
+
+compiled-interpreter, 2,018 patch lines plus three new files (compiled.rs
+481 lines, compiled_eval.rs 470, its test 406). Stays in spur-core;
+super.patch carries only the gitlink; no config field, no template edit, no
+treatment bit. Checked against the legacy arms by reading:
+
+- Assign, Cond and Return: kept positions clone the slot value as eval's
+  Var arm does; read-only positions record the same borrowed-operand event
+  as eval_operand; CondLocal and CondNode record it too.
+- Fused forms: NotEquals evaluates as Not(EqualsEquals); FieldGet as Find
+  with a string-literal key, including the type error on a list.
+- SyncCall: callee, is_sync check, then arguments, as the legacy arm. Async:
+  target, arguments, channel id allocation and insert, store, callee lookup,
+  frame, link sequence, send ordinal, priority draw, purgatory - the legacy
+  order, so no draw or id allocation moves. An unresolved callee falls back
+  to the name maps with the same error.
+- Record-only operations reached from a sync function return the same
+  UnsupportedSyncInstruction text, built from the label's Debug form.
+- The first-delivery timeline note compares against a role id resolved at
+  decode instead of scanning roles by name.
+- ChannelTable indexes by id and checks the stored id on lookup; insert_new
+  panics in release builds if an id arrives out of order, a guard on the
+  density the iteration 8 judge verified.
+- Interpreter counts go into a stack-local tally flushed once per exec or
+  exec_sync_on_node call; the per-operand borrowed tick already existed.
+
+Implementer's checks: all spur-core tests pass; the all-variant differential
+test covers the 44 Expr variants under both hash policies in kept and
+read-only positions, comparing value, signature, error text and Debug form,
+borrowed versus owned, and counter deltas; three new exec tests compare
+the two loops across calls, loops, channels and the error cases. One-thread
+identity smokes against b1fb646 are exact on VR (3,008 runs), Mencius_opt1_2
+(2,160) and SDPaxos (2,160) - SDPaxos chosen for IsVariant, Variant,
+VariantPayload and NodeToString - with the same stall_cap_runs.csv hashes
+and no pre-existing dump leaf differing except a clock and the disclosed
+run_buffers.channel_table_grows. 30-thread smoke per run: label_execs
+38,347, legacy counters 0, leaf_operands_inline 55,249, tree_evals 15,746,
+call_targets.indexed 2,323 (0.973 of frame.calls), fallback 0,
+lookup_misses 0, dense_inserts equal to channels_created exactly.
+
+Two readings carried into grading. channel_table_grows reads 0.83 on the
+smoke against the disclosed 0.40 to 0.70: a prediction miss, not in the
+falsifier list, because exact-capacity growth from the previous run's
+length grows at least once whenever a run is longer than the last. And the
+frozen spread-check falsifier on steps, end reasons and per-arm counts,
+which every candidate large enough to matter has tripped through the
+allocator's response to throughput; it is read as frozen.
+
+Operator slip at start, no effect on the session: the first `start` for
+compiled-interpreter was guarded by `pgrep -f "lite/grader.ts"`, which
+matched its own shell, so the chain stopped before the grader ran and
+nothing was written. Rerun with a bracketed pattern; search loop inactive,
+no search-loop grader running; session registered with the frozen
+declarations, band [1.08, 1.15] and counter compiled_ops.label_execs.
