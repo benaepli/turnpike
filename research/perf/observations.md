@@ -2403,3 +2403,52 @@ recorded baseline's stratified depth>=8 chunk cv charges the cross-binary
 rung with no separable effect below 4.0 percent at the 4-chunk cap, so the
 lite session is read for regression and the per-run deep guards, not for a
 gain.
+
+### Review of the diff
+
+grid-ordered-release-pool, 1,538 patch lines, no untracked files, all in
+spur-core (campaign.rs, explorer.rs AOS timing, replay_corpus.rs,
+util_stats.rs, the export completeness test); super.patch carries only the
+gitlink. Checked by reading:
+
+- Assignment exactness. The grid cursor and corpus move into an Assigner.
+  A batch is issued covered when the corpus's remaining children, less the
+  slots reserved by unreleased batches, cover its own slots; only then are
+  its fresh runs assigned at issue. An uncovered batch is issued only once
+  every earlier batch is admitted and is released whole on the spot, so
+  every unreleased batch is covered and fresh runs take cursor values in
+  batch then position order, exactly as sequential batches would, while a
+  covered batch's slots cannot find the corpus empty and so never advance
+  the cursor.
+- Admission exactness. Slots are drawn only after every earlier batch's
+  admissions are applied; a batch's admissions are applied in position order
+  once its fresh runs have finished. Corpus::remaining_children never falls
+  on admit - at capacity the dropped parent's remainder is at most
+  CHILDREN_PER_PARENT, which the new parent replaces - and its test drives
+  2,000 mixed draws and admissions.
+- Slice semantics. SliceLimit::next_batch reproduces the old loop's order of
+  checks (spent, cancelled, remaining), so a runs-budget slice still issues
+  exactly its runs and StrategyArm (AOS) keeps its batched step. The pool
+  drains before run_slice returns, so no slice has runs of two arms in
+  flight.
+- Tests: the pool against a sequential reference on a synthetic arm with
+  out-of-order completions, on a full corpus and on one that runs empty,
+  with cursor, admission sequence, remaining children and run ids compared
+  after every slice; one worker starts runs in id order; slice-end drain;
+  a disagreeing shadow is counted.
+- Counters: grid_pool.* per slice (not on the hot path), the debug-only
+  shadow check on every batch, and batched_* leaves timing today's
+  whole-batch idle on the AOS path.
+
+Two notes. The AOS path adds one shared-atomic fetch_add per AOS job to sum
+job wall - per run, not per step, but a contended write all the same. And
+the coordinator blocks on a channel while jobs run, which is safe only
+because the campaign slice loop runs on the main thread rather than on a
+pool worker; a caller that ran run_slice from inside the pool would idle a
+worker.
+
+Implementer's checks so far: spur-core tests pass; the one-thread identity
+run against 7f607e6 is exact on runs, executions, logs and traces, the
+stall_cap_runs.csv hash and every pre-existing leaf, with only grid_pool
+leaves added. The 30-thread debug shadow smoke (3,000 s wall budget) and the
+release smoke are still to come.
