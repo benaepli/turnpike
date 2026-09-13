@@ -1081,3 +1081,65 @@ moves the search" from "the change is fast".
 
 Recommendation: merge, departing from the grader's blocker, on the written
 reason above. Grader session state: research/perf/state/thread-local-stats-blocks.json.
+
+### Merged
+
+The user chose to merge on the split evidence. Superproject a0572ff, spur
+a702eef. spur.patch applied cleanly; super.patch carried only the gitlink.
+The baseline was rebuilt and a fresh cache measured for the moved tree:
+3,064.8 runs per second over three rounds, spread 0.0378, against 2,569.6
+on the pre-merge cache of the same frame-pointer identity family - plus
+19.3 percent, an independent reading in the graded direction, smaller than
+the interleaved 1.32 and close to the 1.22 estimate at equal steps.
+
+The ledger row in research/lite/epoch-baseline.json carries ratio 1.3217
+and the warning that measuredRps is comparable with neither the search
+loop's rows nor call-frame-one-pass's, which predates forced frame pointers.
+
+The implementer's worktree, its branch, the candidate export and the
+determinism outputs (about 20 GB) were removed; the round records and the
+candidate profile are committed.
+
+### Direction review after the merge
+
+**Are the costs being attacked still the largest ones explainable?** No
+longer the same ones. In the candidate profile the four scheduler symbols
+fell from 19.95 to 7.02 points of self time and the interpreter now leads:
+eval 6.60 self, exec about 54 inclusive, execute_common_label 4.40,
+Value::new 2.92, allocation (_int_malloc 3.48, malloc 1.38, cfree 1.29) and
+SipHash 3.16 next. The serialization path - format_escaped_str 1.92,
+Value::write_to 1.88 - is unchanged. The tree has moved, so the next
+iteration re-profiles a702eef before proposing.
+
+**Has the steering paid for itself?** Yes, and the lesson is specific. The
+contention lens came up on rotation, and the attribution requirement made
+the proposer price inlined atomics that no flat profile could show; the
+call-graph profile added in 66d0979 is what made that attribution
+checkable. The judge's red-team cut the attribution by half on a control
+that was reasonable and wrong: one contended write per step costs little,
+fourteen on the same few lines from thirty threads cost a third of the
+scheduler.
+
+**What the next directives should pull toward.** Three leads, all at
+mechanism level:
+
+- Remaining shared writes on the hot path. This change converted only
+  counters with no mid-run reader. TERMINATION and the timer_context and
+  learner atomics stay global, and every learner read mid-run by all workers
+  is a shared line. Whether any of those is written per step is the next
+  contention question, and the one-thread identity check is the instrument
+  that keeps such a change honest.
+- The pool's surviving composite: exec-plan-borrows-program,
+  fx-hashed-call-and-timeline-lookups and serialize-history-inline. Their
+  shares grew relative to the smaller total and should be re-priced on the
+  new profile before admission, not carried over.
+- The interpreter, now the largest block, which no candidate has attacked
+  directly since call-frame-one-pass.
+
+**Harness finding, repeated for the user because it will recur.** Every
+future candidate large enough to matter will trip the neutrality spread
+check on this workload, because the learned caps and the wall-slice
+allocator respond to throughput. This iteration cleared it with an
+equal-run-count comparison and a one-thread identity run with the caps
+engaged. Neither exists in the grader, and the grader is not this loop's to
+change.

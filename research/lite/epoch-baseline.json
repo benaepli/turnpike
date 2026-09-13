@@ -309,6 +309,22 @@
    "cacheFile": "research/perf/baselines/e3f602c256a1-30-f9daa01b-120.json",
    "measuredAtIso": "2026-09-12T07:22:59.842548Z",
    "note": "merged by the perf loop, not the search loop. WARNING on measuredRps: this figure is NOT comparable with the rows above it. Those were measured on the search loop's workload at a 300 second wall through cacheFile research/lite/baselines/...-300-g870d4c11-s3d907a50.json; this one is the perf loop's campaign workload at a 120 second wall through a different cache identity (spurTree e3f602c256a1). Reading 2516.7 above against 2491.6 here as a regression would be wrong - they are different workloads. The ratio field is the like-for-like number: 1.0634, the graded cross-binary primary over six rounds. Graded verdict was no-gain and the merge departs from it on operator judgment at the user's direction: per-round 1.0490 1.0320 1.0980 1.1373 0.9454 1.1317, five of six above one, separated true with lo 1.0051 at round 4 before round 5 destroyed dominance permanently. Mechanism verified against an instrumented baseline binary: entry_frame_copies 1281 per run before, 0 after. An independent check agrees with the direction: the post-merge baseline reads 2491.6 against the pre-merge perf baseline of 2300.5 on the SAME perf identity family, about plus 8 percent. Note also that research/perf/baselines/ is now gitignored - the caches are regenerable and one had reached 285 MB, over GitHub's file size limit."
+  },
+  {
+   "name": "thread-local-stats-blocks",
+   "commit": "a0572ff",
+   "spurCommit": "a702eef",
+   "ratio": 1.3217,
+   "cumulative": 1.508937125753757,
+   "measuredRps": 3064.79764251316,
+   "measuredRpsChunks": [
+    2968.2,
+    3032.8,
+    3193.4
+   ],
+   "cacheFile": "research/perf/baselines/ac0be080068b-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-13T03:53:41.263553Z",
+   "note": "merged by the perf loop, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711), so it is comparable with neither the search loop's rows nor the call-frame-one-pass row above, which was measured before frame pointers were forced. The ratio field is the like-for-like number: 1.3217, the graded cross-binary primary over three rounds, interval [1.1878, 1.4706], separated. Merged on split evidence at the user's direction: the grader's spread check flagged five search observables, and one-thread runs with the learned caps engaged over 100,000 runs showed the change leaves the search byte-identical; the shift at 30 threads is the learned caps and wall-slice allocation reacting to throughput. On the graded workload runs are 7.5 percent shorter for that reason, so about 1.22 of the ratio is cost removed at equal steps. Independent check: the post-merge baseline reads 3064.8 against 2569.6 for the pre-merge baseline on the same frame-pointer identity family, plus 19.3 percent."
   }
  ]
 }

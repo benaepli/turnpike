@@ -279,7 +279,7 @@ rounds of clock each:
 
 ## thread-local-stats-blocks
 
-- category: contention and parallelism | origin: proposer | status: graded (3 rounds), decision pending - primary 1.3217 separated, neutral declaration flagged by the spread check; determinism diagnostics in observations.md iteration 5
+- category: contention and parallelism | origin: proposer | status: merged (user, on split evidence) - superproject a0572ff, spur a702eef; primary 1.3217 [1.1878, 1.4706] over 3 rounds; neutral declaration flagged by the spread check and cleared by the one-thread identity runs in observations.md iteration 5
 - declarations: search-neutral, shared saving
 - judge: expectedGain 7, expectedCost 0, net 7 (cost becomes 2 if the
   TERMINATION counters, which the grader and the reward read, are converted;
