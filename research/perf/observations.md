@@ -3036,3 +3036,12 @@ for edb9e2f), read against the live v3 rule: per-run deep guards on depth>=6
 and depth>=8 at the 0.25 margin must read held; the per-second depth>=8
 rung is description; the panel is not run, being blind to GridArm, and that
 is recorded as the panel note the blocker asks for.
+
+### Implementer prompt changed at the user's direction
+
+A check that compares a change against a reference - a shadow of the old
+computation, a second evaluator - now goes behind a cargo feature such as
+`shadow-check` instead of `debug_assertions`, and its smoke runs on a release
+build with the feature on; the graded `cand-spur` is built without it. The
+debug-build shadow smokes of iterations 10 and 12 ran up to 50 minutes of
+wall for a check a release build runs at graded speed.

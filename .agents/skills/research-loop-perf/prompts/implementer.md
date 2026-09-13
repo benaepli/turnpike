@@ -30,6 +30,11 @@
 - Build: `cargo build --release --manifest-path spur/Cargo.toml --bin spur`,
   always from the repository root and never with a working directory inside
   `spur/`. Run `cargo test -p spur-core` if spur-core logic changed.
+- A check that compares the change against a reference (a shadow of the old
+  computation, a second evaluator) goes behind a cargo feature such as
+  `shadow-check`, not `debug_assertions`. Run its smoke on a release build
+  with the feature on; `cand-spur`, the binary the grader measures, is built
+  without it.
 - A short smoke run to confirm the change works and the counter moves is
   fine, writing to `tmp/loop/<name>`; its numbers are discarded. **No
   measurement of your own** - no A/B, no timing comparison, no seed sweep.
