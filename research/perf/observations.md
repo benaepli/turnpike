@@ -1143,3 +1143,130 @@ allocator respond to throughput. This iteration cleared it with an
 equal-run-count comparison and a one-thread identity run with the caps
 engaged. Neither exists in the grader, and the grader is not this loop's to
 change.
+
+## Operator measurement - history writer headroom, no candidate
+
+The question put to this loop from outside it: at about 2,400 Mencius runs
+per second, how close is the explorer to an I/O bottleneck, and can the
+parquet writer do more with the same writer threads. Measured 2026-09-12 on
+spur a702eef, 30 rayon threads, so four writer threads
+(`writer_thread_count` is threads / 8 rounded up). Output lands on btrfs
+over a two-drive NVMe mirror, snappy-compressed.
+
+### The writers, read on real sessions
+
+Writer thread CPU was sampled from /proc per thread while ordinary explorer
+sessions ran, one session at a time on an idle host.
+
+| workload | runs/s | writer CPU per run | busy share per writer | other threads busy | bytes per run |
+|---|---|---|---|---|---|
+| Mencius_opt1_2, mencius_nocrash.json, 48,000 runs | 2,580 | 453 us | 27.6% | about 93% | 6.9 KB |
+| VR general_vr campaign, 40 s, 122,820 runs | 3,058 | 508 us | 37.8% | about 60% | 18.1 KB |
+
+Disk is nowhere near a limit: 16.6 MB/s for Mencius and 50 MB/s for VR.
+The writers are the nearest ceiling, and it is CPU, with roughly 3.6x
+(Mencius) and 2.6x (VR) headroom before four writers saturate. The older
+profile at 292c15b put writer threads at about half busy; the tree has
+moved since. Free space is the limit a long session reaches first: about
+200 GB an hour at the VR rate.
+
+### Three writer-side changes, measured before proposing any
+
+A replay bench re-encodes one writer's real output files through the
+current writer and through each change: 4,000 runs, four producer threads
+standing in for simulation threads (they allocate each run's rows as owned
+strings, as `serialize_history` and friends hand them over), one writer
+thread timed on its own thread clock, output to a byte counter, three
+interleaved repetitions, medians. Spread across repetitions is under 2
+percent except one repetition of the payload row. Rows per run: Mencius
+1,803 executions, 36 logs, 710 traces; VR 307, 775, 807.
+
+| variant | Mencius writer us/run | Mencius producer us/run | Mencius MB | VR writer us/run | VR producer us/run | VR MB |
+|---|---|---|---|---|---|---|
+| current (one batch per run and table) | 347 | 104 | 43.7 | 251 | 77 | 73.9 |
+| accumulate 32 runs per write, Arrow builders | 377 | 113 | 43.9 | 275 | 84 | 74.1 |
+| accumulate 256 runs per write | 402 | 105 | 43.7 | 281 | 81 | 74.1 |
+| dictionary and statistics off on payload and content | 338 | 104 | 90.4 | 243 | 72 | 82.5 |
+| dictionary off on every column | 288 | 97 | 160.9 | 215 | 74 | 122.9 |
+| arrays built on the producer thread | 257 | 229 | 43.7 | 210 | 173 | 74.0 |
+| producer-built, payload dictionary off | 248 | 231 | 90.6 | 197 | 176 | 82.6 |
+| producer-built, concatenated 256 runs per write | 265 | 243 | 90.7 | 193 | 196 | 82.6 |
+
+The replay reads low against real sessions - real writer CPU is 1.3x the
+replay on Mencius and 2.0x on VR, which is the kernel copy into the page
+cache and contention with thirty busy simulation threads that the replay
+does not have. The ranking between variants is what the replay is for.
+
+**Accumulating runs is slower, not faster.** Appending value by value
+through Arrow builders costs more than the per-call overhead of
+`ArrowWriter::write` it removes.
+
+**The dictionary is earning its keep.** Payload strings repeat heavily;
+turning the dictionary off saves 3 to 17 percent of writer CPU and grows the
+output 1.1x to 3.7x, against a free-space limit that is already the nearer
+one.
+
+**Producer-built arrays is the one mechanism that works, and it moves cost
+onto the bottleneck.** Writer CPU falls 17 to 26 percent; simulation threads
+pay 96 to 124 us more per run, about 1 to 1.6 percent of a run's thread time
+(11.4 ms per Mencius run, 6.1 ms per VR run). With writers at a quarter to
+a third busy that is a net loss today. It is the change to reach for only
+once writers read above about 80 percent busy.
+
+None of the three is filed as a candidate.
+
+### What this points at
+
+- The logging cost that reaches throughput is on the simulation threads,
+  not the writers: Mencius carries 1,803 history rows per run, each
+  serialized to a JSON string there. That is serialize-history-inline,
+  already in the pool, and it should be re-priced on a fresh profile.
+- The VR campaign's non-writer threads used about 745 of about 1,236
+  available thread-seconds while the writers sat at 38 percent, so the idle
+  time is not writer backpressure. Not investigated; a lead, not a finding.
+- The writers' busy share is now worth watching as a number, not a one-off
+  /proc read: a writer ceiling would otherwise show only as throughput that
+  stops rising, with nothing in the dump to say why.
+
+### The counter, and what the CPU reading missed
+
+A `history_writer` block is added to the utilization dump, on a detached
+spur worktree off a702eef, not merged. `busy_ns` is the writer threads' wall
+time from taking a command off the queue to finishing it, recorded only
+while stats are on. `queue_full_sends` and `blocked_ns` count and time sends
+from simulation threads that found the queue full; only such a send reads
+the clock, so the common path pays nothing. The perf grader can name
+`history_writer.busy_ns` as a counter, and the campaign's per-slice delta
+carries it with no further wiring. The spur-core suite passes, including the
+export completeness test.
+
+Read on the VR campaign, 40 s, twice with the counter binary:
+
+| instrument beside the counter | runs/s | counter busy per writer | writer CPU | writer run-queue wait | queue_full_sends |
+|---|---|---|---|---|---|
+| /proc thread CPU | 2,798 | 53.5% | 64.8 s | - | 0 |
+| /proc schedstat | 3,012 | 54.3% | 66.2 s | 21.3 s | 0 |
+
+The counter reads 1.3x the CPU time, and schedstat accounts for all of the
+gap: 87.1 s busy is 66.2 s on a core plus 21.3 s runnable and waiting for
+one, within 0.5 s. The writers spend no measurable time blocked in the
+kernel on file writes, so the disk adds nothing to their cost. The quarter
+of their busy time spent waiting is oversubscription: thirty simulation
+threads, four writers and the main thread on 32 logical CPUs. Busy wall time
+is the reading that decides backpressure, so the headroom before four
+writers saturate on VR is about 1.8x, not the 2.6x the CPU reading gave.
+Across the four VR sessions of this entry, two on each binary, throughput
+read 3,058, 2,746, 2,798 and 3,012 runs/s; the counter shows no cost at
+that resolution.
+
+Two more things the same sessions settle:
+
+- The simulation threads used 736 CPU-seconds with only 28.8 s of run-queue
+  wait and no full-queue sends, so their idle third on the campaign is
+  neither preemption nor writer backpressure. The lead above stands, now
+  with two causes ruled out.
+- Stats are not free on every workload. Mencius_opt1_2 with `stats=true`
+  ran 703 runs/s against 2,580 without, and writer CPU per run rose 2.6x
+  (1,181 us against 453), so stats change what a Mencius run is. The counter
+  therefore cannot read the stats-off Mencius session this entry opened
+  with; only its CPU reading stands there. Not investigated.
