@@ -2820,3 +2820,38 @@ blocked_ns-per-run writer falsifier are frozen by a judge on edb9e2f now,
 before any rebuild or smoke. The judge also checks whether the kept patch
 applies to edb9e2f, since iteration 11 changed explorer.rs and util_stats.rs,
 which the pool patch touches too.
+
+### The profile of edb9e2f
+
+research/perf/profiles/edb9e2f.md. The writer merge shows where expected:
+parquet writer threads 8.79 percent of samples (11.32 on 7f607e6),
+_int_malloc self 2.49 (3.90). The decoded interpreter still leads -
+ceval 7.06 self, exec_ops 5.14, run_sync_ops 2.83 - with schedule_runnable
+across specializations about 9.3, memmove 3.20, drop glue and EcoVec drop
+about 4.4, FrameBuilder::finish 2.16 and format_escaped_str 1.61.
+
+### Judging grid-ordered-release-pool-2
+
+Admitted at gain 7, cost 2, net 5. The kept patch applies to edb9e2f with no
+conflicts. Writer headroom plausibly absorbs the pool: today's grid busy
+share is 0.607 to 0.623, so 2.06 to 2.28 ms idle per grid run remains, the
+largest cost the loop can explain; the old smoke's 0.894 busy share counted
+252 s of blocking as busy and splits into 0.719 productive, 0.106 idle and
+0.175 blocked; with 29 instead of about 20 running threads on 16 cores the
+judge models a per-thread slowdown of 1.18 to 1.32, recomposing runs per
+second to 1.03 to 1.21 and writer utilization to 54 to 72 percent with the
+pool on, against 86 percent and 805 us blocked per run in the old smoke.
+
+Frozen: search-affecting, shared, primary cross-binary runs per second band
+[1.05, 1.20]; a writer falsifier of blocked_ns above 50 us per run - about
+1.2 percent of simulation-thread time, a tenth of the band's centre and below
+what the cross-binary rate could separate - chosen from the goal's intent
+before any reading of this build exists; a pre-round 30-thread 120 s smoke
+gate; a voiding rule on grid steps per run; and the lite grader's per-run deep
+guards before any merge.
+
+### Decision: build grid-ordered-release-pool-2
+
+The implementer rebases the kept patch on edb9e2f, rebuilds, and runs the
+one-thread identity, the debug shadow smoke and the pre-round smoke gate
+before any round is bought.

@@ -818,3 +818,52 @@ rounds of clock each:
   breaks directory-wide read_parquet) and a memory clause; its claim of under
   0.001 full sends per run on today's tree is false (0.0041 on round 5).
   Its primary would be cross-binary runs per second, clearing 0.05.
+
+## grid-ordered-release-pool-2
+
+- category: contention and parallelism | origin: operator-agent (re-admission of grid-ordered-release-pool) | status: implemented, grading (iteration 12)
+- declarations: search-affecting, shared saving; no treatment bit
+- judge: expectedGain 7, expectedCost 2 (campaign slice loop, per-slice
+  deltas and per-arm run attribution the grader reads), net 5
+- mechanism: grid-ordered-release-pool's ordered-release pool, rebased on
+  edb9e2f (git apply --check clean; explorer.rs, util_stats.rs and the
+  completeness test hunks offset only). The rebase keeps iteration 11's
+  history_writer counters beside grid_pool, never holds a run's text
+  buffers in the pool, keeps the AOS batched path, and reads busy share
+  beside blocked time because the pool times the whole job including the
+  writer send while runs.wall_us excludes it.
+- held exactly: every run's assignment and the corpus draw and admission
+  order. Moves: which learner updates a starting run sees, and with it steps
+  per run, end reasons and per-arm counts.
+- utilization on edb9e2f: grid busy share 0.607 to 0.623 (2.06 to 2.28 ms
+  idle per grid run); the old smoke's 0.894 was 0.719 productive, 0.106 idle
+  and 0.175 blocked; contention on 16 cores recomposes runs per second to
+  1.03 to 1.21, writers 54 to 72 percent busy with the pool on.
+- primary: cross-binary runs per second against edb9e2f (5,186.6), band
+  [1.05, 1.20].
+- counters: grid_pool.worker_idle_ns per grid run 0.2 to 1.0 ms (falsifier
+  above 1.3); busy share 0.80 to 0.95, read beside the blocking-removed share
+  (falsifier below 0.75); capacity_gated_batches 4 to 35 percent;
+  unfilled_in_ungated_batches 0 (falsifier above 0); fresh_ahead_launched 30
+  to 50 percent of grid runs; shadow_mismatches 0 in debug over at least
+  1,000 batches per grid arm (falsifier above 0); AOS us per run within
+  baseline spread x 2 (falsifier outside); grid us per run up 1.15 to 1.35;
+  text_buffers_allocated at most 0.05 per run.
+- writer falsifier: history_writer.blocked_ns above 50 us per run in the
+  pre-round smoke or in any single round. queue_full_sends and the spread
+  check are description only.
+- pre-round gate: one 30-thread release smoke at the graded 120 s budget;
+  any falsifier firing there closes the candidate without rounds.
+- voiding rule: any grid arm's steps per run outside baseline spread x 2
+  voids the wall reading - neither credited nor refuting; decided by the
+  operator.
+- before any build is trusted: one-thread identity on edb9e2f (four tables,
+  stall-cap CSV hash, every existing counter outside clocks; new grid_pool
+  counters exempt) and the debug shadow smoke.
+- before any merge: the lite grader under v3, 2 to 4 cross-binary chunks, per-run
+  deep guards on depth>=6 and depth>=8 at the 0.25 margin reading held; the
+  per-second rung as description; the panel recorded as blind to GridArm.
+- order: rebase, identity, debug shadow, smoke gate, perf rounds 3 to 6,
+  lite chunks only if the primary lands in band and nothing is voided, log,
+  decide.
+- full record: tmp/loop/perf/it12-judgment.md.
