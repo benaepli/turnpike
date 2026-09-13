@@ -2913,3 +2913,30 @@ mechanism.
 Session started: grid-ordered-release-pool-2, search-affecting, shared,
 cross-binary primary, band [1.05, 1.20], counter grid_pool.worker_idle_ns
 (new to the candidate, so read by hand), search loop inactive.
+
+### Rounds 1 and 2, and the basis of the per-arm allowances
+
+Cross-binary runs per second 1.3345 and 1.3841 (candidate 7,018 and 7,015,
+baseline 5,259 and 5,068); mean 1.3591, interval [1.0777, 1.7139].
+Microseconds per run 0.9679 and 0.9993; steps per run 0.9721 and 0.9365.
+AOS share of runs 12.7 percent against 16.65 on round 1.
+
+Frozen falsifiers, both rounds: history_writer.blocked_ns 0.05 and 0.00 us
+per run (limit 50); grid idle 0.300 and 0.288 ms per grid run (limit 1.3);
+busy share 0.923 and 0.927, identical with blocking removed (floor 0.75);
+unfilled_in_ungated_batches 0; gated 5.6 and 5.9 percent; fresh ahead 44.5 and
+44.2 percent; queue_full_sends 38 and 0. All held.
+
+The per-arm allowances for the voiding rule and the AOS falsifier are the
+baseline's round spread, read over every cached baseline round for edb9e2f -
+five so far, three from the post-merge measurement and two from this session
+- as range widened by that spread. A first reading built from this session's
+two baseline rounds alone put grid and grid-short steps per run and AOS
+microseconds per run outside; on the five cached rounds all of them sit
+inside: grid 2,244 and 2,213 in [2,189, 2,913], grid-short 1,227 and 1,205 in
+[1,173, 1,297], AOS us 3,739 and 3,671 in [3,307, 4,284]. The basis is fixed
+here, before round 3, from the frozen wording, not from the readings. Worth
+recording as it stands: the grid arm's steps per run sit below the
+baseline's observed range [2,430, 2,672], inside only because of its spread,
+and AOS runs are shorter too - the shape of learned caps and wall slices
+responding to more runs per second.
