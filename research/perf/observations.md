@@ -2543,3 +2543,53 @@ percent busy. The writers are near that now, and the grid pool is waiting on
 it. Writer thread count is a code constant tied to rayon threads (threads / 8
 rounded up); more writers oversubscribe 32 logical CPUs, so a count change is
 a contention question, not a free lever.
+
+## Iteration 11 - autonomous, contention lens, the writer path
+
+Tree unchanged at spur 7f607e6; profile 7f607e6.md; preflight carried in
+session.
+
+### Proposals
+
+Priced from the writer-thread lines of the profile and the
+history_writer counters on disk. Today's tree (compiled-interpreter
+candidate rounds): 4,910 runs per second, 582 us of writer busy per run,
+0.23 s blocked per 120 s round. The grid pool's release smoke: 5,206 runs
+per second, 657 us writer busy per run (3.42 of 4 writers busy), 805 us per
+run blocked on simulation threads. Writer samples are 11.32 percent of the
+profile: frees about 20 percent of that, memmove 17, Int64 dictionary
+interning 11.7, byte-array encoding 29.
+
+- text-rows-born-contiguous: each run's text columns (trace payload, log
+  content, executions payload and action) are written into one byte buffer
+  with end offsets instead of about 2,200 separate Strings, the writer
+  builds StringArrays without copying, and the buffers come back through a
+  bounded free list so nothing large is freed across threads. Riders: the
+  run row travels in the Write command, schemas built once. Unlike the
+  measured producer-built arrays it copies no text on the producer, so
+  simulation threads get cheaper too (about 1,900 fewer allocations per
+  run). Writer busy per run 582 to 415-505 us, counter band [1.15, 1.40];
+  runs per second alone [1.01, 1.05].
+- integer-columns-delta-encoded: dictionary off and DELTA_BINARY_PACKED on
+  the counter-like integer columns (run_id, seq_num, step, unique_id,
+  trace_id, schedulable_count, causal_operation_id). Writer busy 25-55 us
+  less per run, output 0.85 to 0.97 of today; combined with the first,
+  counter band [1.19, 1.50].
+- caller-runs-overflow-encode: a simulation thread that finds the queue full
+  encodes the oldest queued run itself if a helper slot is free. Only
+  meaningful beside the grid pool; build only if the first two plus the pool
+  still block 30 s or more per 60 s.
+- Recommended: the first two together, graded on writer busy per run; then
+  the grid pool as a composite on top, runs per second [1.09, 1.25].
+
+Set aside: partial producer-built arrays or per-thread builder reuse,
+accumulating runs per write (measured slower), a larger queue (absorbs
+bursts, not a saturated rate), more writer threads (oversubscription),
+dictionary off on strings (output 1.1x to 3.7x), statistics off, compression
+changes, the function_name Arc, moving JSON formatting onto writers, a parquet
+path without Arrow.
+
+The proposer also suggested relaxing the grid pool's frozen falsifier from
+queue_full_sends 0 to blocked time at most 80 s per 60 s. That is a rewrite
+of a frozen prediction after the fact; the judge is asked whether it is
+admissible or whether the pool must be re-admitted as a new candidate.
