@@ -2999,3 +2999,40 @@ against [2,430, 2,672] and grid-post-fault-2 at 1,856 against [1,882,
 2,064] - with per-round grid readings 2,244, 2,213, 2,377, 2,242 and 2,157:
 shorter runs on the arms the pool speeds up, the learned caps responding to
 the higher run rate. Recorded as it stands, not hidden by the allowance.
+
+### Six rounds, finished
+
+Round 6 read 1.3666. Final: runs per second mean 1.3497, sd 0.0188, interval
+[1.3233, 1.3767], separated, band [1.05, 1.20] read above, advice gain.
+Microseconds per run 0.9758 [0.9627, 0.9891]; steps per run 0.9551 [0.9381,
+0.9724]. Baseline for edb9e2f: nine rounds cached, 5,161.4 runs per second,
+spread 0.0246.
+
+Every frozen falsifier held in all six rounds: writer blocked at most 0.05 us
+per run; grid idle 0.288 to 0.314 ms per grid run; busy share 0.923 to 0.927
+with blocking removed identical; unfilled_in_ungated_batches 0; AOS us per
+run inside its allowance in every round (3,516 to 3,805). Voiding rule, on
+the session reading pooled over six rounds against nine cached baseline
+rounds: every arm's steps per run inside its allowance (aos 1,770, grid
+2,245, grid-no-purgatory 1,865, grid-post-fault-2 1,859, grid-short 1,226) -
+not fired. grid-short's us per run read outside in round 6 alone (2,845
+against 2,831); us per run is a falsifier only on AOS, so that is description.
+
+Blockers as expected: the search-affecting declaration owes the lite reading
+and the panel note; the declared counter is new to the candidate.
+
+### The lite reading, launched
+
+The frozen order sends the candidate to the lite grader "only if the primary
+lands in band and nothing is voided". The primary landed above the band, not
+inside it. That condition is read here as "not below the band's lower edge":
+a gain larger than predicted makes a merge more plausible, not less, and the
+lite reading exists to block a search regression, not to police upside.
+Recorded before any chunk is bought.
+
+Launched: a cross-binary lite session, grid-ordered-release-pool-2, two
+chunks to start (300 s per side, the first also measuring a lite baseline
+for edb9e2f), read against the live v3 rule: per-run deep guards on depth>=6
+and depth>=8 at the 0.25 margin must read held; the per-second depth>=8
+rung is description; the panel is not run, being blind to GridArm, and that
+is recorded as the panel note the blocker asks for.

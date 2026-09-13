@@ -1,0 +1,88 @@
+{
+ "name": "grid-ordered-release-pool-2",
+ "createdAtIso": "2026-09-13T16:12:55.938Z",
+ "note": "",
+ "declaration": {
+  "search": "affecting",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.05,
+   "max": 1.2
+  },
+  "counter": "grid_pool.worker_idle_ns",
+  "argument": "Search-affecting by declaration: every run's assignment and the corpus draw and admission order are held exactly, but runs now start while earlier batches are still running, so which learner merges a starting run sees can move, and with it steps per run, end reasons and per-arm counts. Owes the lite grader's per-run deep-rung guards before any merge."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/grid-ordered-release-pool-2/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:grid-ordered-release-pool-2"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "44d7a485b3046373b5e426fc00634e97172b5be8",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/44d7a485b304-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-13T16:17:03.055Z",
+   "seed": 1000,
+   "wallSec": 246,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-13T16:21:10.239Z",
+   "seed": 1001,
+   "wallSec": 246,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-13T16:25:17.508Z",
+   "seed": 1002,
+   "wallSec": 246,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-13T16:30:12.321Z",
+   "seed": 1003,
+   "wallSec": 247,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-13T16:34:20.012Z",
+   "seed": 1004,
+   "wallSec": 247,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-13T16:38:27.725Z",
+   "seed": 1005,
+   "wallSec": 246,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}
