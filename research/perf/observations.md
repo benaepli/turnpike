@@ -1558,3 +1558,32 @@ above the interleaved 1.17 as the non-interleaved check was last time too.
 Ledger row appended to research/lite/epoch-baseline.json with ratio 1.1727.
 The candidate export was removed; round records, both profiles and the
 judgment's content (copied into this log and the pool) are what is kept.
+
+## Iteration 7 - autonomous, allocation lens, profile 84b7ab5
+
+Preflight carried from iteration 6 in the same session: spur-research-loop
+inactive, no search-loop grader running, branch research/lite, spur gitlink
+84b7ab5, tree clean after d97a821, baseline binary rebuilt at 84b7ab5 with a
+fresh cache (3,782.0 runs per second). Selftest was run this session. No
+layout control: same build config hash as layout-control-e3, reason as in
+iteration 6. Profile: research/perf/profiles/84b7ab5.md.
+
+### The profile, read before proposing
+
+The interpreter's value machinery is now the largest block and has no
+candidate against it. Self time: eval 8.28, execute_common_label 5.33,
+Value::new 3.78, store 2.72, FrameBuilder::finish 2.36, drop glue on Value
+and ValueKind 3.61, EcoVec reserve, drop, make_unique and grow 4.92,
+ValueKind::clone 1.38, with _int_malloc 3.11, memmove 2.99, malloc 1.18 and
+cfree 1.05 underneath - about 30 points of self time before the scheduler.
+Next: trace text formatting (Value::write_to 3.79 inclusive,
+trace_payload 3.49, format_escaped_str 1.91), the ChannelId hash map (insert
+1.97, RawTable 1.15), and the call-target name lookups call-targets-indexed
+covers (String to NameId get 1.58, hash_one<NameId> 1.34). Parquet writer
+threads read 9.36 inclusive, unchanged in kind.
+
+Lens: allocation and memory traffic. Focus directive: the value machinery
+above, priced from self time and per-run counts, not from inclusive shares
+under Value::new or ValueKind::clone, whose frame-pointer attribution the
+iteration 6 judge showed unreliable; plus the unpriced contended refcount
+writes on shared literal and trace-name buffers.
