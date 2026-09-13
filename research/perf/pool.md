@@ -713,7 +713,7 @@ rounds of clock each:
 
 ## grid-ordered-release-pool
 
-- category: contention and parallelism | origin: proposer | status: closed without rounds (iteration 10) on its writer-backpressure falsifier - mechanism exact, blocked by parquet writer capacity; patch kept at research/perf/patches/grid-ordered-release-pool.spur.patch; reopen once writers have headroom
+- category: contention and parallelism | origin: proposer | status: closed without rounds (iteration 10) on its writer-backpressure falsifier - mechanism exact, blocked by parquet writer capacity; patch kept at research/perf/patches/grid-ordered-release-pool.spur.patch; reopen once writers have headroom - not by loosening its frozen falsifier after the fact: it returns as a new candidate (grid-ordered-release-pool-2) with its own declarations, band and a blocked_ns-per-run falsifier, frozen after text-rows-born-contiguous is graded
 - declarations: search-affecting, shared saving
 - judge: expectedGain 6, expectedCost 2 (campaign slice loop the grader
   reads), net 4
@@ -759,3 +759,62 @@ rounds of clock each:
   write was slower; turning dictionaries off grew output 1.1x to 3.7x.
 - what reopens: grid-ordered-release-pool, once history_writer.queue_full_sends
   reads 0 at the candidate's throughput.
+
+## text-rows-born-contiguous
+
+- category: allocation and memory traffic (writer path) | origin: proposer | status: implemented, grading (iteration 11)
+- declarations: search-neutral, shared saving
+- judge: expectedGain 6, expectedCost 2 (history.rs, exec.rs), net 4
+- title: Each run's text columns written into one recycled buffer with end
+  offsets, turned into StringArrays without copying
+- mechanism: trace payload, log content and the executions payload and
+  action columns are written contiguously per run instead of as about 2,200
+  separate Strings; the writer builds arrays zero-copy (arrow/parquet 58:
+  Buffer::from_vec, into_vec, new_unchecked, into_parts) and returns the
+  buffers through a bounded free list, so large buffers are never freed
+  across threads; the run row travels in the Write command; schemas built
+  once.
+- rewritten at judging: the free list holds at most 64 whole buffer sets and
+  drops any buffer over 1 MB; offset vectors stay on the writer; the busy
+  timer stops only after recycling or dropping; queue_full_sends is not
+  comparable across the change (one send per run instead of two), only
+  blocked_ns is. Allocations saved about 1,570 to 1,680 per run (the 614
+  executions allocations claimed were about 354).
+- verified at judging: writer profile lines as claimed (writer_loop 11.32,
+  intern 1.33, writer cfree 2.23, Vec<PersistableTrace>::drop 1.41); busy per
+  run 583 us on 7f607e6 with the counter on both sides of every round; every
+  reader sorts explicitly, so read-back content is identical; the earlier
+  replay bench measured a similar writer-side saving (251 to 210 us, 1.195).
+- primary: counter history_writer.busy_ns per run, band [1.15, 1.40], paired
+  against 7f607e6; runs per second read cross-binary for regression only
+  (expected [1.01, 1.05]).
+- counters added: history_writer.commands, text_buffers_allocated (under
+  0.01 per run once warm), text_buffers_recycled,
+  text_buffers_dropped_oversize.
+- owed before rounds: one-thread identity on runs, executions, logs and
+  traces read back ordered, plus porcupine exit codes; by hand, output bytes
+  per run within [0.97, 1.03] and peak RSS at most 1.05x.
+- full record: tmp/loop/perf/it11-judgment.md.
+
+## integer-columns-delta-encoded
+
+- category: data layout (writer path) | origin: proposer | status: proposed - second commit after text-rows-born-contiguous, graded alone on the merged tree
+- declarations: search-neutral, shared saving
+- judge: expectedGain 4, expectedCost 2 (history.rs), net 2
+- verified: parquet 58 supports per-column dictionary off with
+  DELTA_BINARY_PACKED; go-duckdb v2.4.3 (porcupine, traceanalyzer) and the
+  arrow-rs debug reader read it; no reader depends on dictionary pages or
+  loses statistics. The earlier dictionary-off replay caps the saving.
+- primary: history_writer.busy_ns per run, band rewritten to [1.03, 1.08];
+  owes a parquet_metadata check that the encoding changed and output bytes
+  per run in [0.85, 0.98].
+
+## caller-runs-overflow-encode
+
+- category: contention and parallelism (writer path) | origin: proposer | status: parked - build only if a merged tree still blocks 30 s or more per 60 s
+- judge: expectedGain 3, expectedCost 2, net 1
+- findings: encoding in helper slots keeps rows together per run and cross-run
+  order is already arbitrary; missing a shutdown clause (an unfinished file
+  breaks directory-wide read_parquet) and a memory clause; its claim of under
+  0.001 full sends per run on today's tree is false (0.0041 on round 5).
+  Its primary would be cross-binary runs per second, clearing 0.05.

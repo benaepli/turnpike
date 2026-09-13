@@ -2593,3 +2593,38 @@ The proposer also suggested relaxing the grid pool's frozen falsifier from
 queue_full_sends 0 to blocked time at most 80 s per 60 s. That is a rewrite
 of a frozen prediction after the fact; the judge is asked whether it is
 admissible or whether the pool must be re-admitted as a new candidate.
+
+### Judging
+
+- text-rows-born-contiguous: gain 6, cost 2 (history.rs, exec.rs), net 4.
+  Zero-copy array construction verified against the arrow and parquet 58 APIs
+  in Cargo.lock; every reader sorts explicitly, so read-back is identical;
+  writer profile lines as claimed. False as priced: executions allocations
+  (354 per run, not 614), so about 1,600 allocations saved, not 1,900; and
+  spur-cli has no parquet dependency (the arrow-rs reader is
+  spur-core/src/debug.rs). The earlier replay bench already measured a
+  comparable writer-side saving, 1.195. Rewritten: a 64-set free list with a
+  1 MB oversize drop, offsets kept on the writer, the busy timer ending after
+  recycling. Two instrument notes: queue_full_sends halves per run by
+  construction (one send instead of two), so only blocked_ns compares across
+  the change; blocked_ns cannot be a ratio primary because baseline rounds
+  read 0.
+- integer-columns-delta-encoded: gain 4, cost 2, net 2. Supported and read
+  back by every reader; saving capped by the old dictionary-off replay; band
+  cut to [1.03, 1.08]; a second commit graded alone after the first merges.
+- caller-runs-overflow-encode: gain 3, cost 2, net 1, parked. Missing a
+  shutdown clause for helper-slot files and a memory clause; its
+  near-zero-sends premise is false on today's tree.
+- The grid pool: relaxing its frozen falsifier from queue_full_sends 0 to a
+  blocked-time threshold chosen after the reading is not admissible. It
+  returns, if at all, as a new candidate with its own declarations, frozen
+  after this iteration's grade has measured writer busy per run.
+
+### Decision: build text-rows-born-contiguous
+
+Top by net and first in the judge's order. Search-neutral, shared, counter
+primary history_writer.busy_ns per run with band [1.15, 1.40]; runs per
+second read cross-binary for regression only, since the writer ceiling binds
+only lightly on today's tree. Owed before any round: one-thread identity on
+the four tables and porcupine exit codes; by hand, output bytes per run in
+[0.97, 1.03] and peak RSS at most 1.05x.
