@@ -1952,3 +1952,64 @@ show is still larger: the simulation threads' idle third. If the judged
 composite cannot be read against the floor, the next direction review
 should weigh a structural interpreter change against the search-affecting
 batch-straggler lead, rather than a fourth round of per-structure trims.
+
+### Judging
+
+- call-targets-indexed: gain 7, cost 2, net 5. Verified sound: both maps are
+  immutable after compile, labels reaching execute_common_label are
+  references into cfg.graph, client ops, Init, recovery and re-delivery
+  never reach the two arms, VR never produces NodeToString, frame.calls
+  2,086.1 per run. path.rs:616-622 keeps 40 to 60 lookups per run.
+- channel-table-dense: gain 5, cost 0, rewritten. Emulating hashbrown's
+  capacity sequence to keep channel_table_grows equal would make that leaf
+  identical by construction and prove nothing; the rewrite uses natural Vec
+  growth, predicts the leaf's new value and exempts it from the identity
+  comparison in advance.
+- value-without-dead-signature: gain 3, cost 0, held. The dead-field claim
+  holds; the pricing rested on 280 KB of fresh frame memory per run, false
+  since frames are reused from warm allocator chunks, which iteration 4
+  already recorded. Band cut to [1.004, 1.012].
+- The composite: [1.032, 1.049] for the two admitted parts, [1.036, 1.061]
+  with all three. Both lower edges sit under the floor, and a six-round
+  interval here runs about plus or minus 0.06. Judged not worth a session
+  alone; recommended as a rider on a larger interpreter change.
+
+### Decision: no session this iteration; direction review now
+
+The two admitted parts go into the pool as lookups-dense, a rider, and no
+rounds are bought. Reason: the goal's instrument cannot read a band that
+lies entirely under its floor, a six-round session would most likely end
+no-gain, and "never spend a round on a measurement alone" applies to a
+session whose only possible verdict is a floor reading. This is a close in
+effect for this iteration, not a refutation: nothing was built or measured.
+
+### Direction review
+
+Triggered by a round whose best candidate cannot be read.
+
+**Are the costs attacked still the largest explainable?** No. Three
+iterations of per-structure trims (6, 7, 8) have taken the interpreter's
+allocation and copy stories apart; what remains is about 23 points of
+dispatch self in eval and execute_common_label, spent walking Expr trees
+and matching Labels, and a trim of any one structure prices under the
+floor. The largest cost visible anywhere is still off the profile: the
+simulation threads' idle third.
+
+**Has the steering paid for itself?** Iterations 6 and 7 merged at 1.17 and
+1.10. Iteration 8 steered at memmove and dispatch and found that the moves
+are small and the dispatch is not priced by any single structure - a real
+answer, cheaply got, but not a candidate.
+
+**Next directives**, at mechanism level:
+
+- A structural change to how expressions execute: compile each Label's Expr
+  tree once per program into a form that runs without re-walking the tree
+  and re-matching nodes per evaluation (closures, a flat register form, or
+  fused operations for the node shapes VR uses most), keeping vertex ids,
+  pcs and every observable value identical. lookups-dense can ride along.
+- The batch stragglers, with the neutrality question answered in writing
+  first: whether grid runs' inputs depend on anything a completed batch
+  changes. If assignment is a pure function of run id and config, filling
+  idle workers with the next runs changes only admission timing; if not,
+  it is search-affecting and owes the search loop's reading. A mechanism
+  that needs a utilization counter adds it in the same change.

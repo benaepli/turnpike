@@ -353,7 +353,7 @@ rounds of clock each:
 
 ## fx-hashed-call-and-timeline-lookups
 
-- category: redundant work per step | origin: proposer | status: proposed in part - the timeline half is absorbed into run-invariant-lookups-once (iteration 6); the call-map half stays and competes with call-targets-indexed, which removes the same cost
+- category: redundant work per step | origin: proposer | status: closed - the timeline half merged in lookups-and-format-once (iteration 6); the call-map half absorbed into call-targets-indexed and lookups-dense (iteration 8)
 - declarations: search-neutral, private saving (read cross-binary; no bit)
 - judge: expectedGain 6, expectedCost 0 after rewrite (2 as proposed), net 6
 - title: Fx-hash the call-target maps and the feedback timeline sets, and
@@ -487,7 +487,7 @@ rounds of clock each:
 
 ## call-targets-indexed
 
-- category: redundant work | origin: proposer | status: proposed
+- category: redundant work | origin: proposer | status: re-priced in iteration 8 and carried inside lookups-dense
 - declarations: search-neutral, shared saving
 - judge: expectedGain 5, expectedCost 2 (exec.rs), net 3
 - title: Resolve call targets to a dense index once at compile time
@@ -620,3 +620,55 @@ rounds of clock each:
   on a refuted verdict the part whose profile observable did not move is
   the one closed. A reading between 1.03 and 1.07 buys a layout control
   before deciding.
+
+## lookups-dense
+
+- category: data layout | origin: proposer | status: proposed as a rider - not graded alone
+- components: call-targets-indexed (re-priced) and channel-table-dense
+  (rewritten), judged in iteration 8
+- declarations: search-neutral, shared saving
+- judge: expectedGain 6, expectedCost 2 (exec.rs), net 4
+- call-targets-indexed: a dense per-vertex callee table built in
+  compile_program; only the SyncCall and Async arms of exec.rs change;
+  unresolved names fall back to the maps. Verified: both maps are SipHash
+  std maps never changed after compile; every label reaching
+  execute_common_label is a reference into cfg.graph; VR never produces the
+  NodeToString probe; frame.calls 2,086.1 per run; about 73 ns per
+  resolution. path.rs:616-622 keeps 40 to 60 map lookups per run. The
+  is_sync check must still run when the table answers. 2.3 to 2.9 points,
+  band [1.022, 1.030]. Counters call_targets.indexed (0.95 to 1.00 of
+  frame.calls per run), call_targets.fallback (0).
+- channel-table-dense, as rewritten: ids start at 0 per run and increase by
+  one, nothing removes a channel, the only iteration is the order-free XOR
+  in State::signature; an exact-capacity Vec with natural growth replaces
+  ChannelMap, keeping the table-full check, so run_buffers.channel_table_grows
+  changes value (predicted 0.40 to 0.70 per run) and is exempted from the
+  identity comparison, disclosed in advance. capacity() and the exec test's
+  keys()/get() need their counterparts. 1.0 to 1.8 points, band [1.010,
+  1.018]. Counters channel_table.lookups, lookup_misses (0), dense_inserts
+  (equal to channels created).
+- composite band [1.032, 1.049], entirely below the 0.05 floor: judged not
+  worth a session of its own on the wall. Guards read against R, the summed
+  self of six untouched scheduler and plan lines (4.12 on b1fb646).
+- how to use it: ride along with a larger interpreter change, each part
+  keeping its counters and its guard against R; a layout control before
+  any merge whose reading lies between 1.00 and 1.08.
+- full record: tmp/loop/perf/it8-judgment.md, copied into observations.md
+  iteration 8.
+
+## value-without-dead-signature
+
+- category: data layout | origin: proposer | status: proposed, held - owes a measured price before building
+- declarations: search-neutral, shared saving
+- judge: expectedGain 3, expectedCost 0, net 3
+- title: Zero-sized Value signature under NoHashing, 32-byte values
+- verified: under NoHashing nothing reads Value.sig after iteration 7; a
+  zero-sized sig leaves WithHashing at 40 bytes and every serialized form
+  unchanged; no output path Debug-prints a Value; one test reads a NoHashing
+  sig field directly.
+- false claim that sank the pricing: 280 KB of fresh frame memory per run
+  left unwritten - frames are freed on return and reused from the same
+  allocator chunks, already cache-hot (iteration 4, observations.md
+  598-605).
+- band rewritten to [1.004, 1.012]; frame.slot_bytes dropped as a counter,
+  being slots_built times 32.
