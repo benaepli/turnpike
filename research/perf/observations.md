@@ -3147,3 +3147,18 @@ random_range and the NodeIndex collect, which no candidate touches.
 
 Judging runs in parallel with the grader fix; building waits until
 grid-ordered-release-pool-2 is decided.
+
+### Grader fix landed; lite reading for grid-ordered-release-pool-2 relaunched
+
+The fix is committed as 0f147a4. The root cause went one layer deeper than
+the crash: node's execFile truncates overflowed output to exactly maxBuffer
+characters and still joins it, so a 512 MiB buffer is 24 characters past
+V8's string limit and the overflow path itself threw. The runs table is now
+written to a file and parsed one row at a time; evaluations read the seven
+columns they use plus full rows for violating runs; an unreadable table
+fails the evaluation instead of yielding an empty one. On a 293,580-run
+session every computed result matched the old code exactly; both selftests
+pass. The full table is 408.7 bytes a row and would have crossed the limit
+at 1.31M rows, which today's ~1.5M-run chunks do. The session record and
+the lite baseline cache were untouched; the crashed chunk's output is kept
+as crashed-chunk-1.json and two chunks were relaunched.
