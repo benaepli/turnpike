@@ -2855,3 +2855,45 @@ guards before any merge.
 The implementer rebases the kept patch on edb9e2f, rebuilds, and runs the
 one-thread identity, the debug shadow smoke and the pre-round smoke gate
 before any round is bought.
+
+### The rebuild, the identity run, the shadow smoke and the pre-round gate
+
+The kept patch applied at edb9e2f with offsets only, and every rebase
+obligation held without edits: iteration 11's history_writer leaves sit
+beside grid_pool and both completeness tests pass; the per-run write keeps its
+single send; the pool hands back only GridOutcome, never a run's rows or text
+buffers; AOS keeps its batched path. One addition: grid_pool.writer_blocked_ns,
+the history_writer blocked time during each grid pool, so busy share can be
+read with blocking removed from the dump alone; in the debug smoke it equals
+the grid arms' history_writer.blocked_ns exactly. All spur-core tests pass.
+
+- One-thread identity against edb9e2f (seed 1000, 3,008 runs): runs,
+  executions (1,108,862), logs (3,383,871) and traces (3,702,656) identical
+  both ways; the same stall_cap_runs.csv hash; no utilization leaf differing
+  outside clocks. One per-arm campaign leaf differed
+  (arms[1].text_buffers_recycled 2,391 against 2,387); a second baseline run
+  differed from the first on the same leaf and read 2,387, so it is writer
+  timing at slice edges, not the change.
+- Debug shadow smoke, 30 threads, two slices per arm: shadow_mismatches 0 over
+  9,728 grid batches; unfilled_in_ungated_batches 0; gated 7.1 percent (grid
+  20.8, grid-short 9.9, the other two one batch each); fresh-ahead 44.4
+  percent.
+
+Pre-round smoke gate, release, 30 threads, general_vr.json at the graded 120
+s budget, 822,480 runs:
+
+| reading | value | frozen falsifier | |
+|---|---|---|---|
+| history_writer.blocked_ns per run | 0 us | above 50 us | held |
+| grid_pool.worker_idle_ns per grid run | 0.301 ms | above 1.3 ms | held |
+| busy share / blocking removed | 0.925 / 0.925 | below 0.75 | held |
+| unfilled_in_ungated_batches | 0 | above 0 | held |
+| AOS us per run | 3,698.6 (baseline 3,633 to 3,959) | outside | held |
+
+Description: gated 5.9 percent; fresh-ahead 44.4 percent;
+text_buffers_allocated 0.0237 per run; queue_full_sends 0; writer busy 399.5
+us per run; busy share by arm grid 0.824, grid-short 0.935, grid-no-purgatory
+0.971, grid-post-fault-2 0.972. Grid us per run rose about 1.04 to 1.10,
+under the predicted 1.15 to 1.35 contention term. The grid arm's steps per
+run read 2,385 against the baseline's 2,430 to 2,672 - an ungraded smoke, but
+the voiding rule's observable, read in every round from here.
