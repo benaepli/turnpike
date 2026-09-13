@@ -3,9 +3,9 @@
 // record (schemas.ts).
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { CampaignJson, CampaignMetrics, Evaluation, FidelityName, LadderMetrics, PorcupineJson, RunRow, TraceGradeJson, UtilStats, VariantMetrics } from "./schemas.js";
+import type { CampaignJson, CampaignMetrics, Evaluation, FidelityName, LadderMetrics, PorcupineJson, RunEvalRow, RunRow, TraceGradeJson, UtilStats, VariantMetrics } from "./schemas.js";
 import type { Policy } from "./policy.js";
-import { ROOT, cleanupDir, explore, freeDiskGb, grade, materializeConfig, porcupine, readCampaignSibling, readSessionSibling, readUtilizationSibling, resolveRoot, run, runsTable, templateHasCampaign } from "./runners.js";
+import { ROOT, cleanupDir, explore, freeDiskGb, grade, materializeConfig, porcupine, readCampaignSibling, readSessionSibling, readUtilizationSibling, resolveRoot, run, runEvalTable, templateHasCampaign } from "./runners.js";
 
 export interface EvalContext {
   policy: Policy;
@@ -42,7 +42,7 @@ const ZERO_METRICS: LadderMetrics = {
 // Per-arm ladder counts: every graded run's depth and every verdict joined
 // to the arm that issued the run. The session's own ladder is the union.
 export function campaignMetrics(
-  report: CampaignJson, rows: RunRow[], runDepths: Array<[number, number]>, violatingRunIds: number[],
+  report: CampaignJson, rows: RunEvalRow[], runDepths: Array<[number, number]>, violatingRunIds: number[],
 ): CampaignMetrics {
   const depthOf = new Map<number, number>();
   for (const [id, d] of runDepths) depthOf.set(id, d);
@@ -129,7 +129,7 @@ function assembleMetrics(
 // match. Every arm's cells are kept; which arms count toward a rate is the
 // reader's decision, and the arm is part of the key so it can make it.
 export function variantMetrics(
-  rows: RunRow[], runDepths: Array<[number, number]>, violatingRunIds: number[],
+  rows: RunEvalRow[], runDepths: Array<[number, number]>, violatingRunIds: number[],
 ): VariantMetrics[] {
   const depthOf = new Map<number, number>();
   for (const [id, d] of runDepths) depthOf.set(id, d);
@@ -302,7 +302,7 @@ export function combinedTimeline(d: RunDump): string {
 // timeline from the simulator's own debugger.
 async function preserveViolations(
   ctx: EvalContext, evalId: string, outputDir: string, configPath: string,
-  violatingIds: number[], porc: PorcupineJson | null, rows: RunRow[],
+  violatingIds: number[], porc: PorcupineJson | null, rows: RunEvalRow[], violatingRows: RunRow[],
 ): Promise<void> {
   const keep = path.join(ROOT, "research", "logs", "violations", evalId);
   try {
@@ -313,7 +313,7 @@ async function preserveViolations(
       if (fs.existsSync(src)) fs.copyFileSync(src, path.join(keep, f));
     }
     const ids = new Set(violatingIds);
-    fs.writeFileSync(path.join(keep, "violating_runs.json"), JSON.stringify(rows.filter((r) => ids.has(r.run_id)), null, 2));
+    fs.writeFileSync(path.join(keep, "violating_runs.json"), JSON.stringify(violatingRows, null, 2));
     for (const id of violatingIds.slice(0, PRESERVED_VIOLATIONS_MAX)) {
       // The grader reads one run through a run_id predicate; a debugger that
       // materialises the corpus cannot be used on a session this size.
@@ -406,15 +406,22 @@ export async function runOneEvaluation(
     });
     const metrics = assembleMetrics(porc.parsed, gr.parsed, exposureMs, porc.cmd.wallMs, gr.cmd.wallMs);
     const violatingIds = porc.parsed?.violating_run_ids ?? [];
-    let rows: RunRow[] = [];
-    if (campaignReport !== null || violatingIds.length > 0) rows = await runsTable(outputDir);
+    let rows: RunEvalRow[] = [];
+    let violatingRows: RunRow[] = [];
+    let runsTableError: string | null = null;
+    if (campaignReport !== null || violatingIds.length > 0) {
+      const table = await runEvalTable(outputDir, new Set(violatingIds));
+      rows = table.rows;
+      violatingRows = table.fullRows;
+      runsTableError = table.error;
+    }
     if (campaignReport !== null) {
       const depths = (gr.parsed?.grade_dags?.[0]?.run_depths ?? []) as Array<[number, number]>;
       metrics.campaign = campaignMetrics(campaignReport, rows, depths, violatingIds);
       metrics.variants = variantMetrics(rows, depths, violatingIds);
     }
     if (violatingIds.length > 0) {
-      await preserveViolations(ctx, base.id, outputDir, configPath, violatingIds, porc.parsed, rows);
+      await preserveViolations(ctx, base.id, outputDir, configPath, violatingIds, porc.parsed, rows, violatingRows);
     }
     const gradeDegenerate = gr.parsed === null || (metrics.runs > 0 && metrics.gradedRuns === 0);
     // A rung rate is its count over the session's exposure, never over the
@@ -426,16 +433,18 @@ export async function runOneEvaluation(
       ? (gr.parsed?.grade_dags ?? []).filter((d) => d.sampled || d.budget_exhausted)
       : [];
     const identity = checkRunIdentity(rows, violatingIds, gr.parsed?.runs_meta ?? null, porc.parsed?.total_runs ?? null);
-    const ok = porc.parsed !== null && !gradeDegenerate && truncatedDags.length === 0 && identity === null;
+    const ok = porc.parsed !== null && !gradeDegenerate && truncatedDags.length === 0 && runsTableError === null && identity === null;
     const error = ok
       ? null
       : porc.parsed === null
-        ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""})`
+        ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""}${porc.cmd.outputTooLarge ? ", output too large" : ""})`
         : gradeDegenerate
-          ? `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""})`
+          ? `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""}${gr.cmd.outputTooLarge ? ", output too large" : ""})`
           : truncatedDags.length > 0
             ? `truncated grading: ${truncatedDags.map((d) => `${d.config_path} graded ${d.graded_runs} of ${d.available_runs}${d.budget_exhausted ? " (budget exhausted)" : ""}${d.sampled ? " (sampled)" : ""}`).join("; ")}`
-            : identity;
+            : runsTableError !== null
+              ? `runs table: ${runsTableError}`
+              : identity;
     console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s exposure=${Math.round(exposureMs / 1000)}s${session?.budgetHit ? " (budget hit)" : ""}${(exploreRes.suspendedMs ?? 0) > 0 ? ` (suspended ${Math.round((exploreRes.suspendedMs ?? 0) / 1000)}s)` : ""} porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
     if (!ok) {
       try {
@@ -480,7 +489,7 @@ export function aggregateViolations(evals: Evaluation[]): { succ: number; n: num
  *  counts runs-table rows and the checker counts distinct ids, so the two
  *  totals disagree when that happens. Returns the defect, or null. */
 export function checkRunIdentity(
-  rows: RunRow[], violatingIds: number[], runsMeta: { present: boolean; runs: number } | null, checkerTotal: number | null,
+  rows: RunEvalRow[], violatingIds: number[], runsMeta: { present: boolean; runs: number } | null, checkerTotal: number | null,
 ): string | null {
   const seen = new Set<number>();
   const dup = new Set<number>();

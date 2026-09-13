@@ -2,11 +2,12 @@
 // spawned via execFile (argv array, never a shell string) with a hard
 // timeout that SIGKILLs. Nonzero exit is a *result*, not an exception -
 // only spawn failures (ENOENT, EACCES, ...) throw.
+import { constants as bufferConstants } from "node:buffer";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
-import { CampaignJson, TraceGradeJson, PorcupineJson, RunRow, RunVariantRow, SessionSummary } from "./schemas.js";
+import { CampaignJson, TraceGradeJson, PorcupineJson, RunEvalRow, RunRow, RunVariantRow, SessionSummary } from "./schemas.js";
 
 import { ROOT } from "./paths.js";
 
@@ -20,6 +21,11 @@ export function resolveRoot(p: string): string {
 }
 
 const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024; // 64 MB
+// execFile joins the buffered output into one string, and on overflow the
+// truncated output is exactly maxBuffer long. A buffer above V8's string
+// limit therefore throws inside node's exit handler, outside any caller's
+// reach, so no buffer may exceed the limit.
+const MAX_STRING = bufferConstants.MAX_STRING_LENGTH;
 
 // Durations are measured with performance.now() (CLOCK_MONOTONIC: does not
 // advance while the machine is suspended). suspendedMs = wall - active, so an
@@ -32,6 +38,8 @@ export interface CmdResult {
   stderr: string;
   wallMs: number;
   timedOut: boolean;
+  // The child was killed because its output passed the buffer.
+  outputTooLarge?: boolean;
 }
 
 export interface RunOpts {
@@ -64,7 +72,7 @@ export function run(cmd: string, args: string[], opts: RunOpts): Promise<CmdResu
         env: opts.env ?? process.env,
         timeout: opts.timeoutMs,
         killSignal: "SIGKILL",
-        maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
+        maxBuffer: Math.min(opts.maxBuffer ?? DEFAULT_MAX_BUFFER, MAX_STRING),
         encoding: "utf8",
       },
       (error, stdout, stderr) => {
@@ -84,7 +92,7 @@ export function run(cmd: string, args: string[], opts: RunOpts): Promise<CmdResu
         // maxBuffer overflow: child was killed, but this is an output-size
         // failure, not a timeout.
         if (err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-          resolve({ ok: false, exitCode: null, stdout, stderr, wallMs, timedOut: false });
+          resolve({ ok: false, exitCode: null, stdout, stderr, wallMs, timedOut: false, outputTooLarge: true });
           return;
         }
         // Spawn failure (ENOENT, EACCES, ...): errno-style string code with
@@ -216,28 +224,208 @@ export function readCampaignSibling(outputDir: string): CampaignJson | null {
   return null;
 }
 
-/** The explorer's runs table, one row per run, via `traceanalyzer -runs`. */
-export async function runsTable(inputDir: string, timeoutMs = 300_000): Promise<RunRow[]> {
-  const cmd = await run(
-    path.join(ROOT, "traceanalyzer", "main"),
-    ["-input", inputDir, "-runs"],
-    { timeoutMs, cwd: ROOT, maxBuffer: 512 * 1024 * 1024 },
-  );
-  const parsed = parseJsonWith(z.array(RunRow), cmd.stdout);
-  return parsed ?? [];
+/** Splits a JSON array of objects, fed in byte chunks of any size, into its
+ *  top-level objects, so a table of any length is parsed one row at a time
+ *  and never held as a single string. Throws on anything that is not an
+ *  array of objects; `end` throws when the array is incomplete. */
+export class JsonObjectArrayScanner {
+  private state: "before" | "between" | "after" = "before";
+  private depth = 0;
+  private inString = false;
+  private escaped = false;
+  private carry: Buffer[] = [];
+  private expectValue = true;
+
+  constructor(private readonly onObject: (value: unknown) => void) {}
+
+  push(chunk: Buffer): void {
+    let start = this.depth > 0 ? 0 : -1;
+    for (let i = 0; i < chunk.length; i++) {
+      const b = chunk[i]!;
+      if (this.depth > 0) {
+        if (this.inString) {
+          if (this.escaped) this.escaped = false;
+          else if (b === 0x5c) this.escaped = true;
+          else if (b === 0x22) this.inString = false;
+          continue;
+        }
+        if (b === 0x22) this.inString = true;
+        else if (b === 0x7b || b === 0x5b) this.depth++;
+        else if (b === 0x7d || b === 0x5d) {
+          this.depth--;
+          if (this.depth === 0) {
+            const piece = chunk.subarray(start, i + 1);
+            const bytes = this.carry.length > 0 ? Buffer.concat([...this.carry, piece]) : piece;
+            this.carry = [];
+            start = -1;
+            this.onObject(JSON.parse(bytes.toString("utf8")));
+          }
+        }
+        continue;
+      }
+      if (b === 0x20 || b === 0x0a || b === 0x0d || b === 0x09) continue;
+      if (this.state === "before") {
+        if (b !== 0x5b) throw new Error(`expected '[' at the start of the table, got byte ${b}`);
+        this.state = "between";
+        this.expectValue = true;
+        continue;
+      }
+      if (this.state === "after") throw new Error(`unexpected byte ${b} after the end of the table`);
+      if (b === 0x7b && this.expectValue) {
+        this.depth = 1;
+        start = i;
+        this.expectValue = false;
+        continue;
+      }
+      if (b === 0x2c && !this.expectValue) {
+        this.expectValue = true;
+        continue;
+      }
+      if (b === 0x5d) {
+        this.state = "after";
+        continue;
+      }
+      throw new Error(`unexpected byte ${b} in the table`);
+    }
+    if (this.depth > 0) this.carry.push(Buffer.from(chunk.subarray(start)));
+  }
+
+  end(): void {
+    if (this.state !== "after") throw new Error("the table ended before its closing ']'");
+  }
 }
 
-/** The runs table projected to run id and tag bitfield. Roughly 30 bytes a
- *  row, so a corpus of millions of runs stays under the buffer and V8's
- *  string limit where the full table would not. */
+export function selfTestRunsTableScanner(): string[] {
+  const f: string[] = [];
+  const rows = [
+    { run_id: 1, arm: "grid", end_reason: "plan_complete", variant: 0 },
+    { run_id: 22, arm: "a{b}[c]\\\"d", end_reason: "deadlock", variant: 9 },
+    { run_id: 333, arm: "\u00e9\u4e2d", end_reason: "", variant: 1 },
+  ];
+  const text = Buffer.from(`[${rows.map((r) => JSON.stringify(r)).join(",")}]\n`, "utf8");
+  const scan = (buf: Buffer, size: number): { out: unknown[]; error: string | null } => {
+    const out: unknown[] = [];
+    const s = new JsonObjectArrayScanner((v) => out.push(v));
+    try {
+      for (let i = 0; i < buf.length; i += size) s.push(buf.subarray(i, i + size));
+      s.end();
+      return { out, error: null };
+    } catch (e) {
+      return { out, error: String(e) };
+    }
+  };
+  for (const size of [1, 2, 3, 7, 64, text.length]) {
+    const r = scan(text, size);
+    if (r.error !== null || JSON.stringify(r.out) !== JSON.stringify(rows)) f.push(`scanner at chunk size ${size} must return every row intact, got ${JSON.stringify(r)}`);
+  }
+  if (scan(Buffer.from("[]\n"), 1).out.length !== 0 || scan(Buffer.from("[]\n"), 1).error !== null) f.push("an empty table is zero rows, not an error");
+  if (scan(text.subarray(0, text.length - 30), 5).error === null) f.push("a truncated table must be an error");
+  if (scan(text.subarray(0, text.length - 2), 5).error === null) f.push("a table without its closing bracket must be an error");
+  if (scan(Buffer.from("{\"run_id\":1}"), 4).error === null) f.push("output that is not an array must be an error");
+  return f;
+}
+
+export interface RunsTableRead {
+  rows: number;
+  // Null when every row was read and accepted.
+  error: string | null;
+}
+
+/**
+ * Stream `traceanalyzer -runs` (optionally projected to `columns`) and hand
+ * each row to `onRow`, which may throw to reject it. The output goes to a
+ * file beside `inputDir` and is parsed from there, so the table's size is
+ * bounded by disk, not by a string or a buffer. Every failure, including an
+ * incomplete table, is returned as `error`; only a spawn failure rejects.
+ */
+export async function readRunsTable(
+  inputDir: string, columns: readonly string[] | null, onRow: (row: unknown) => void, timeoutMs = 300_000,
+): Promise<RunsTableRead> {
+  const outPath = `${inputDir}.runs-table.json`;
+  const args = ["-input", inputDir, "-runs"];
+  if (columns !== null) args.push("-runs-columns", columns.join(","));
+  let fd: number;
+  try {
+    fd = fs.openSync(outPath, "w");
+  } catch (e) {
+    return { rows: 0, error: `cannot open ${outPath}: ${String(e)}` };
+  }
+  try {
+    const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; timedOut: boolean; stderr: string }>((resolve, reject) => {
+      const child = spawn(path.join(ROOT, "traceanalyzer", "main"), args, { cwd: ROOT, stdio: ["ignore", fd, "pipe"] });
+      let stderr = "";
+      child.stderr?.setEncoding("utf8");
+      child.stderr?.on("data", (d: string) => { stderr = (stderr + d).slice(-4096); });
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs);
+      child.on("error", (e) => { clearTimeout(timer); reject(e); });
+      child.on("close", (code, signal) => { clearTimeout(timer); resolve({ code, signal, timedOut, stderr }); });
+    });
+    fs.closeSync(fd);
+    fd = -1;
+    if (exit.timedOut) return { rows: 0, error: `traceanalyzer -runs timed out after ${timeoutMs} ms` };
+    if (exit.code !== 0) {
+      return { rows: 0, error: `traceanalyzer -runs failed (exit ${String(exit.code)}${exit.signal !== null ? `, signal ${exit.signal}` : ""}): ${exit.stderr.trim().slice(-400)}` };
+    }
+    let rows = 0;
+    const scanner = new JsonObjectArrayScanner((value) => {
+      onRow(value);
+      rows++;
+    });
+    try {
+      for await (const chunk of fs.createReadStream(outPath, { highWaterMark: 1 << 20 })) scanner.push(chunk as Buffer);
+      scanner.end();
+    } catch (e) {
+      return { rows, error: `runs table unreadable after ${rows} row(s): ${e instanceof Error ? e.message : String(e)}` };
+    }
+    return { rows, error: null };
+  } finally {
+    if (fd >= 0) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+    fs.rmSync(outPath, { force: true });
+  }
+}
+
+function parseRow<T>(schema: z.ZodType<T>, value: unknown, rows: { length: number }): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw new Error(`row ${rows.length} does not match the runs table schema: ${parsed.error.message.slice(0, 300)}`);
+  return parsed.data;
+}
+
+/** The explorer's runs table, one row per run, via `traceanalyzer -runs`.
+ *  Empty when the table cannot be read in full. */
+export async function runsTable(inputDir: string, timeoutMs = 300_000): Promise<RunRow[]> {
+  const rows: RunRow[] = [];
+  const read = await readRunsTable(inputDir, null, (v) => { rows.push(parseRow(RunRow, v, rows)); }, timeoutMs);
+  return read.error === null ? rows : [];
+}
+
+// The runs-table columns an evaluation reads (RunEvalRow).
+export const RUN_EVAL_COLUMNS = ["run_id", "arm", "variant", "steps_used", "wall_us", "end_reason", "session_offset_ms"] as const;
+
+/** The runs table projected to the columns an evaluation reads, plus the
+ *  full row of each run in `fullRowIds` (in run id order), for evidence.
+ *  On any failure the rows are empty and `error` says why. */
+export async function runEvalTable(
+  inputDir: string, fullRowIds: ReadonlySet<number>, timeoutMs = 300_000,
+): Promise<{ rows: RunEvalRow[]; fullRows: RunRow[]; error: string | null }> {
+  const rows: RunEvalRow[] = [];
+  const fullRows: RunRow[] = [];
+  const columns = fullRowIds.size > 0 ? null : RUN_EVAL_COLUMNS;
+  const read = await readRunsTable(inputDir, columns, (v) => {
+    const row = parseRow(RunEvalRow, v, rows);
+    if (fullRowIds.has(row.run_id)) fullRows.push(parseRow(RunRow, v, rows));
+    rows.push(row);
+  }, timeoutMs);
+  return read.error === null ? { rows, fullRows, error: null } : { rows: [], fullRows: [], error: read.error };
+}
+
+/** The runs table projected to run id and tag bitfield, the shape a corpus
+ *  of millions of runs is kept in. Empty when the table cannot be read in
+ *  full. */
 export async function runVariantTable(inputDir: string, timeoutMs = 300_000): Promise<RunVariantRow[]> {
-  const cmd = await run(
-    path.join(ROOT, "traceanalyzer", "main"),
-    ["-input", inputDir, "-runs", "-runs-columns", "run_id,variant"],
-    { timeoutMs, cwd: ROOT, maxBuffer: 512 * 1024 * 1024 },
-  );
-  const parsed = parseJsonWith(z.array(RunVariantRow), cmd.stdout);
-  return parsed ?? [];
+  const rows: RunVariantRow[] = [];
+  const read = await readRunsTable(inputDir, ["run_id", "variant"], (v) => { rows.push(parseRow(RunVariantRow, v, rows)); }, timeoutMs);
+  return read.error === null ? rows : [];
 }
 
 // Time past the wall before the explorer is killed: in-flight runs finish,

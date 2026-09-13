@@ -227,6 +227,19 @@ export const RunRow = z.object({
 });
 export type RunRow = z.infer<typeof RunRow>;
 
+// The runs-table columns an evaluation reads, as `traceanalyzer -runs
+// -runs-columns` prints them; a full RunRow satisfies it.
+export const RunEvalRow = z.object({
+  run_id: z.number(),
+  arm: z.string(),
+  variant: z.number().default(0),
+  steps_used: z.number(),
+  wall_us: z.number(),
+  end_reason: z.string(),
+  session_offset_ms: z.number(),
+});
+export type RunEvalRow = z.infer<typeof RunEvalRow>;
+
 // The runs table projected to run id and tag bitfield, as `traceanalyzer
 // -runs -runs-columns run_id,variant` prints it. A corpus of millions of
 // runs fits in memory in this shape where the full row does not.

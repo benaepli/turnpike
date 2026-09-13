@@ -47,7 +47,7 @@ import {
   variantContrasts,
   type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
 } from "../orchestrator/src/decide.js";
-import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot, runVariantTable } from "../orchestrator/src/runners.js";
+import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot, runVariantTable, selfTestRunsTableScanner } from "../orchestrator/src/runners.js";
 import { selfTestPosteriors, selfTestStats } from "../orchestrator/src/stats.js";
 import { Evaluation, SeqState, type RunRow, type RunVariantRow, type VariantMetrics } from "../orchestrator/src/schemas.js";
 import { RECORDED_DECLARATIONS, recordedRuleVersionFor } from "./declarations.js";
@@ -1163,7 +1163,7 @@ async function cmdFreezeEpoch(flags: Map<string, string>): Promise<void> {
 async function cmdSelftest(): Promise<void> {
   const cfg = liteConfig();
   const policy = policyFor(cfg);
-  const failures: string[] = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestRunIdentity()];
+  const failures: string[] = [...selfTestStats(), ...selfTestPosteriors(), ...selfTestRunIdentity(), ...selfTestRunsTableScanner()];
 
   // The gate-consistency suite runs on live baseline figures where a cache
   // graded on the current oracle ladder exists, so its assertions follow the
