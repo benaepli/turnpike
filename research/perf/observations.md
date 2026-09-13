@@ -2392,3 +2392,14 @@ without the campaign block, so GridArm never executes there; if run, it is
 recorded as blind to this mechanism, not as clearance. The prediction's
 band, counters and falsifiers are otherwise unchanged; only the rung names
 are brought to the rule that will actually be computed.
+
+Lite grader preflight, for the owed reading: `selftest` zero failures, rule
+internal-primary-v3, primary rung depth>=8, grader version
+ta:a32cc37+porc:ebf06c5+oracle:390ec49e, overdispersion charged 1.3. No lite
+baseline cache exists for spur 7f607e6 (7f56e2e0eeb5-...-s3d907a50.json), so
+the first chunk of a lite session measures one at about twice the wall. The
+selftest's own warning bounds what cross-binary lite chunks can show: the
+recorded baseline's stratified depth>=8 chunk cv charges the cross-binary
+rung with no separable effect below 4.0 percent at the 4-chunk cap, so the
+lite session is read for regression and the per-run deep guards, not for a
+gain.
