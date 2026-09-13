@@ -2756,3 +2756,47 @@ and the clock can only block, so the revert line is set on regression, not
 on gain: the merge is reverted if the fresh baseline at the merged spur
 commit reads below 4,807 runs per second over three rounds, 0.97x the
 4,955.6 cached for 7f607e6.
+
+### Post-merge baseline: the merge stands
+
+Merged: spur edb9e2f, superproject a2f111d. The fresh baseline at edb9e2f
+reads 5,186.6 runs per second over three rounds (5,302.5, 4,970.1, 5,287.2),
+spread 0.0362, against 4,955.6 for 7f607e6 - plus 4.7 percent, above the
+registered revert line of 4,807. Its writers: 339.7, 348.6 and 336.5 us busy
+per run, 0 s blocked and 0 full-queue sends in every round - about 44 percent
+of four writers, against about 72 percent before the merge. Ledger row
+appended; its ratio field carries the session's runs-per-second
+confirmation, 1.0738, because the ledger multiplies runs per second.
+
+### Direction review after the merge
+
+Digest for the user: iteration 11 merged the writer-side change the grid
+pool was waiting on: each run's text now travels to the parquet writers in
+recycled contiguous buffers turned into arrays without copying. Writer time
+per run fell 1.73 times (583 to 338 us), runs per second rose 1.07, and the
+writers went from filling their queue to about 44 percent busy with no
+blocking. No falsifier departed from. Cumulative since call-frame-one-pass:
+1.0634 x 1.3217 x 1.1727 x 1.1005 x 1.1972 x 1.0738, about 2.33.
+
+**Are the costs attacked still the largest explainable?** The writer ceiling
+that closed grid-ordered-release-pool is gone for now, which makes the
+simulation threads' idle time behind grid batch stragglers the largest cost
+the loop can explain again - about 2.8 ms idle per grid run, measured by the
+pool's own counters. The profile of edb9e2f is taken for the on-CPU side.
+
+**Has the steering paid for itself?** Yes. Iteration 10's close on its own
+writer falsifier turned into this iteration's merge; the judge's insistence
+that the pool return as a new candidate rather than by loosening that
+falsifier keeps the next reading honest.
+
+**Next directives.**
+
+- grid-ordered-release-pool returns as a new candidate,
+  grid-ordered-release-pool-2, on edb9e2f: its declarations and band frozen
+  by a judge now, with a blocked_ns-per-run falsifier in place of
+  queue_full_sends 0, before any build or smoke. Search-affecting as before,
+  so it still owes the lite grader's per-run deep-rung guards before a merge.
+  Its patch applies to campaign.rs, which this iteration did not touch.
+- integer-columns-delta-encoded is buildable but low priority while the
+  writers have 2x headroom; it becomes relevant again if the pool pushes them
+  back past about 80 percent busy.

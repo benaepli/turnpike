@@ -748,7 +748,7 @@ rounds of clock each:
 
 ## writer-capacity (direction, not yet a hypothesis)
 
-- category: contention and parallelism | origin: operator-agent | status: direction for iteration 11
+- category: contention and parallelism | origin: operator-agent | status: addressed by text-rows-born-contiguous (iteration 11); writers on edb9e2f about 340 us busy per run, 0 s blocked
 - the ceiling: at about 5,000 runs per second on 7f607e6 the four parquet
   writers are about 72 percent busy and already fill their queue in 5 of 6
   grading rounds; grid-ordered-release-pool's release smoke blocked
@@ -762,7 +762,7 @@ rounds of clock each:
 
 ## text-rows-born-contiguous
 
-- category: allocation and memory traffic (writer path) | origin: proposer | status: implemented, grading (iteration 11)
+- category: allocation and memory traffic (writer path) | origin: proposer | status: merged (autonomous) - spur edb9e2f, superproject a2f111d; busy_ns per run 1.7257 [1.6736, 1.7793] over 6 rounds, runs per second 1.0738; no departures; post-merge baseline cleared its revert line
 - declarations: search-neutral, shared saving
 - judge: expectedGain 6, expectedCost 2 (history.rs, exec.rs), net 4
 - title: Each run's text columns written into one recycled buffer with end
@@ -798,7 +798,7 @@ rounds of clock each:
 
 ## integer-columns-delta-encoded
 
-- category: data layout (writer path) | origin: proposer | status: proposed - second commit after text-rows-born-contiguous, graded alone on the merged tree
+- category: data layout (writer path) | origin: proposer | status: proposed - buildable now on edb9e2f, graded alone; lower priority while writers read about 44 percent busy
 - declarations: search-neutral, shared saving
 - judge: expectedGain 4, expectedCost 2 (history.rs), net 2
 - verified: parquet 58 supports per-column dictionary off with

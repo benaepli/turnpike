@@ -1,0 +1,88 @@
+{
+ "name": "text-rows-born-contiguous",
+ "createdAtIso": "2026-09-13T14:52:16.505Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "counter",
+  "treatment": null,
+  "band": {
+   "min": 1.15,
+   "max": 1.4
+  },
+  "counter": "history_writer.busy_ns",
+  "argument": "Only how each run's text columns are held and handed to the parquet writers changes: text is appended to one per-run buffer per column with row end offsets instead of one String per cell, the writer builds its Arrow string arrays from those buffers without copying and returns the storage to a bounded free list, and the run row travels in the same queue command. The writers read nothing the search uses, and no value, row, order, RNG draw or container the explorer reads changes. A one-thread identity run at a fixed run count showed 0 differing rows in executions, logs, traces and runs, the same stall_cap_runs.csv hash, equal porcupine exit codes, no pre-existing utilization leaf differing outside clocks, and output bytes per run 1.0000."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/text-rows-born-contiguous/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:text-rows-born-contiguous"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "7f56e2e0eeb59f3c4ef1d49a91d41eedb9a9531d",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/7f56e2e0eeb5-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-13T14:56:22.671Z",
+   "seed": 1000,
+   "wallSec": 246,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-13T15:00:28.989Z",
+   "seed": 1001,
+   "wallSec": 246,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-13T15:04:35.418Z",
+   "seed": 1002,
+   "wallSec": 246,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-13T15:09:25.913Z",
+   "seed": 1003,
+   "wallSec": 246,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-13T15:13:32.687Z",
+   "seed": 1004,
+   "wallSec": 246,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-13T15:17:39.509Z",
+   "seed": 1005,
+   "wallSec": 246,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}

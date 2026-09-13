@@ -373,6 +373,22 @@
    "cacheFile": "research/perf/baselines/7f56e2e0eeb5-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-13T13:03:48.361Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The ratio field is the like-for-like number: 1.1972, the graded cross-binary primary over six rounds, interval [1.1191, 1.2808], separated, band [1.08, 1.15] read inside; microseconds per run 1.1718 [1.1095, 1.2375]. Merged departing from the frozen spread-check falsifier (iterations_exhausted, stall_cap_reached and grid arm share outside the baseline's spread at 30 threads) on a one-thread identity run over 100,000 runs with both learned caps engaged that read identical on every table, end reason, cap figure and dump leaf apart from clocks and disclosed counters. Revert criterion registered before the check: below 4,293 runs per second. Post-merge baseline 5012.3 against 4,167.8 for b1fb646, plus 20.3 percent: the merge stands. Components: labels and expressions decoded once per program and run in their own loop, dense call-target table, channel table indexed by id."
+  },
+  {
+   "name": "text-rows-born-contiguous",
+   "commit": "a2f111d",
+   "spurCommit": "edb9e2f",
+   "ratio": 1.0738,
+   "cumulative": 2.503445976141008,
+   "measuredRps": 5186.6159423115,
+   "measuredRpsChunks": [
+    5302.5,
+    4970.1,
+    5287.2
+   ],
+   "cacheFile": "research/perf/baselines/44d7a485b304-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-13T15:25:21.967Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The graded primary was a counter, history_writer.busy_ns per run, baseline over candidate 1.7257 [1.6736, 1.7793] over six rounds; the ratio field here is the cross-binary runs-per-second confirmation from the same session, 1.0738 [1.0420, 1.1066], because the ledger multiplies runs per second. No blockers, no departures. Revert criterion registered before the check: below 4,807 runs per second. Post-merge baseline 5186.6 against 4,955.6 for 7f607e6, plus 4.7 percent: the merge stands. Writers on the merged tree: about 340 us busy per run, 0 s blocked, 0 full-queue sends."
   }
  ]
 }
