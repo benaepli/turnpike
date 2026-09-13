@@ -672,3 +672,76 @@ rounds of clock each:
   598-605).
 - band rewritten to [1.004, 1.012]; frame.slot_bytes dropped as a counter,
   being slots_built times 32.
+
+## compiled-interpreter
+
+- category: redundant work | origin: proposer | status: implemented, grading (iteration 9)
+- components: compiled-expr-operands (expressions compiled once per program
+  into an operand-resolved form), predecoded-label-ops (labels decoded once
+  per program and run in exec's own loop), lookups-dense (rider)
+- declarations: search-neutral, shared saving
+- judge: expectedGain 6, expectedCost 2 (exec.rs), net 4; parts H1 net 2,
+  H2 net 3, admitted only together
+- band: [1.08, 1.15] cross-binary runs per second, rewritten at judging from
+  [1.084, 1.156] to remove 0.5 point of double counting on each edge (both
+  parts claimed the call cost of leaf expressions a label evaluates
+  directly).
+- verified at judging: Expr has 44 variants, every non-variable child calls
+  eval out of line; no Program mutation after compile_program; no expression
+  depends on run state; Label::Cond is built only over temps; the order
+  constraints to mirror exactly (Find key after the collection match, And/Or
+  short-circuit, Coalesce default only on None, KeyExists key first); every
+  label execution site (exec from scheduler.rs:1698 and 2295,
+  exec_sync_on_node from explorer.rs:811 and 872, path.rs:344,
+  scheduler.rs:2209, SyncCall re-entry at exec.rs:192); draw points stay in
+  their arms.
+- counters: compiled_ops.label_execs (grader counter; 20,000 to 50,000 per
+  run, refuted below 9,000), compiled_ops.legacy_labels 0,
+  compiled_expr.leaf_operands_inline, compiled_expr.tree_evals,
+  compiled_expr.legacy_evals 0, the lookups-dense counters; legacy counters
+  count in release builds.
+- equivalence obligations added at judging: a test that evaluates every Expr
+  variant through both evaluators comparing value, error and counter deltas;
+  one-thread identity smokes on VR and on a second spec; exec unit tests'
+  Program builder edited and a test path that reaches the new loop.
+- guard: the whole dispatch block plus every new compiled symbol reads at
+  most 21.01 x r, where r is the summed self of the six untouched scheduler
+  and plan lines over its 4.12 on b1fb646; per-part guards attribute only;
+  the NameId to FunctionInfo map line is added as a guard.
+- full record: tmp/loop/perf/it9-judgment.md, copied into observations.md
+  iteration 9.
+
+## grid-ordered-release-pool
+
+- category: contention and parallelism | origin: proposer | status: proposed, second in line - graded after compiled-interpreter
+- declarations: search-affecting, shared saving
+- judge: expectedGain 6, expectedCost 2 (campaign slice loop the grader
+  reads), net 4
+- mechanism: grid batches keep size 60 and their ids; a batch's fresh runs
+  start early when the corpus's remaining child count, net of slot draws
+  reserved by up to four earlier batches, covers all its slots and the
+  previous batch's grid cursor is fixed; slot runs are drawn in order after
+  earlier fresh runs are admitted in batch order; in_place_scope, at most
+  four batches ahead, drained at slice end; AOS keeps its batched path.
+- dependency answer, confirmed: run id, seeds, variant bits and slot-or-fresh
+  are pure functions of run id; assignment depends only on earlier batches'
+  fresh outcomes; learners are read at run start and merged mid-run, so the
+  search moves even with ordered release.
+- utilization, reproduced: busy share 0.585 (grid 0.596), 2.82 ms idle per
+  grid run. 8.3 percent of slot draws found the corpus empty, so gated
+  batches are common; SMT contention gives a per-thread slowdown of 1.21 to
+  1.43 on 16 cores.
+- band: [1.06, 1.22]. counters: grid_pool.worker_idle_ns 0.2 to 1.3 ms per
+  grid run (falsifier above 1.6), busy share 0.78 to 0.96 (falsifier below
+  0.75), gated batches 5 to 45 percent per arm, AOS share of runs 13.8 to
+  16.2 percent, an unfilled draw in an ungated batch reads 0; steps-per-run
+  guard added (learned caps changing run length voids the wall reading).
+- owed before any merge: the lite grader's non-inferiority reading - 2 to 4
+  paired 300 s chunks, cross-binary, depth>=4 and h2 at the 25 percent
+  relative margin, read per run - logged in observations.md; the protocol
+  panel runs without the campaign block, so GridArm never executes there and
+  it is uninformative for this candidate, not clearance. Only with
+  spur-research-loop stopped and never beside the perf grader; through the
+  research-loop-lite skill's grader, without editing research/lite/.
+- order: a debug shadow-assignment smoke reading gated batches per arm, then
+  the perf grade, then the lite chunks if the perf reading lands in band.

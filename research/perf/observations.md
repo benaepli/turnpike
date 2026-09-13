@@ -2070,3 +2070,33 @@ and drops iteration 7 removed), fusing multi-label f-string prints (it would
 skip temp writes and CFG edges; about 686 prints per run with 3 to 4
 allocations each stays a lead), precomputed field-key hashes, an AOS pool,
 changing batch_size (a config change), oversubscription.
+
+### Judging
+
+- compiled-interpreter (the two A parts plus lookups-dense): gain 6, cost 2,
+  net 4, first session. The evaluator's structure, the absence of Program
+  mutation after compile, every label execution site and the order
+  constraints to mirror were verified. False as written: "exec unit tests
+  pass unmodified" (their Program builder lists every field). Weakest
+  evidence: most of store's 2.60 is Env::set's body, which stays; H1's 5 to 8
+  ns per leaf is unmeasured. The judge added an all-variant dual-evaluator
+  equivalence test, a second-spec identity smoke and release-build legacy
+  counters, since a legacy count of 0 proves coverage and not equality.
+  Band trimmed to [1.08, 1.15] for double counting between the parts. One
+  correction to the shared arithmetic: a point is 42 to 47 us per run on
+  round 5, not 52.
+- grid-ordered-release-pool: gain 6, cost 2, net 4, second. The dependency
+  answer and the utilization arithmetic reproduced exactly; gated batches
+  are common (8.3 percent of slot draws found the corpus empty) and SMT
+  contention was underestimated, so a falsifier on grid microseconds per
+  run was removed and the band moved to [1.06, 1.22]. It stays in this
+  loop, declared affecting, and owes the lite grader's non-inferiority
+  reading before a merge; the protocol panel never runs GridArm.
+- Neither part alone of the compiled interpreter was admitted.
+
+### Decision: build compiled-interpreter
+
+Top by net with the grid pool, and ahead of it because it needs nothing
+outside this loop to merge. Band [1.08, 1.15], lower edge clear of the floor.
+grid-ordered-release-pool is the next candidate after this one's session,
+with its owed reading written into the pool.
