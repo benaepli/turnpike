@@ -3055,3 +3055,48 @@ reading:
 - Build release only. Judges and implementers are no longer asked for
   debug-only instrumentation or debug-build smokes; exactness is checked with
   unit tests and release-build identity runs.
+
+### The lite reading could not be taken: a harness limit
+
+The first lite chunk crashed on the baseline side after its 300 s explore
+finished (explore done 10:44, crash 10:52): `RangeError: Invalid string
+length` in node's child_process exit handler. The explore itself was sound -
+23 GB of tables, campaign and utilization reports written.
+
+Cause, read from research/orchestrator/src/runners.ts: `runsTable()` runs
+`traceanalyzer -runs`, which writes the whole runs table - one JSON row per
+run, every column - to stdout, and `run()` buffers that stdout into a single
+string under a 512 MiB maxBuffer. 512 MiB is 536,870,912 bytes; V8's maximum
+string length is 536,870,888 characters. A 300 s lite chunk at today's
+throughput holds about 1.5 million runs even on the baseline side, and at a
+few hundred bytes a row the table passes V8's limit, so the join throws
+instead of returning. The comment on the neighbouring `runVariantTable()`
+already records that the full table would not stay under V8's string limit
+at millions of runs. Porcupine is not the cause: it runs under the 64 MB
+default buffer, whose overflow is handled.
+
+This is the perf loop's own success reaching the search loop's instrument:
+the lite grader was sized for about half today's runs per chunk. The fix
+belongs in research/orchestrator (project only the columns the lite reading
+needs, or stream the table) and is not this loop's to make. Until it is
+fixed, the lite grader cannot grade any chunk on this tree, so no
+search-affecting perf candidate can receive its owed reading, and the search
+loop's own grader will fail the same way.
+
+Cleanup: the chunk's 23 GB eval directory and its sibling files under
+tmp/loop/ were removed (the grader crashed before its own cleanup). The lite
+session record research/lite/state/grid-ordered-release-pool-2* is left as
+the grader wrote it, since research/lite/ is not this loop's to edit.
+
+### Decision: held
+
+grid-ordered-release-pool-2 is held, not closed and not merged. Its perf
+reading is complete and every frozen falsifier held, but the goal requires
+the search loop's non-inferiority reading before a search-affecting merge,
+and that reading cannot be produced now. Computing per-run deep-rung rates by
+hand outside the lite grader would not be the search loop's reading, so it is
+not substituted. The rebased patch is kept at
+research/perf/patches/grid-ordered-release-pool-2.spur.patch; the candidate
+binary stays in tmp/loop/perf/grid-ordered-release-pool-2/ for the lite
+reading once the grader is fixed. The shadow-logic removal the user asked for
+stays scheduled for the boundary at which the pool merges.

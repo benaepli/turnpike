@@ -821,7 +821,7 @@ rounds of clock each:
 
 ## grid-ordered-release-pool-2
 
-- category: contention and parallelism | origin: operator-agent (re-admission of grid-ordered-release-pool) | status: implemented, grading (iteration 12)
+- category: contention and parallelism | origin: operator-agent (re-admission of grid-ordered-release-pool) | status: held (iteration 12) - perf reading 1.3497 [1.3233, 1.3767] over 6 rounds with every frozen falsifier held and the voiding rule not fired; the owed lite reading cannot be taken because the lite grader crashes at today's throughput (runsTable stdout past V8's string limit); patch kept at research/perf/patches/grid-ordered-release-pool-2.spur.patch; merges only after the lite reading exists
 - declarations: search-affecting, shared saving; no treatment bit
 - judge: expectedGain 7, expectedCost 2 (campaign slice loop, per-slice
   deltas and per-arm run attribution the grader reads), net 5
