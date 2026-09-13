@@ -20,7 +20,8 @@
 //   finish   --name <slug>
 //   baseline --base-bin <path> --rounds <n> [--base-template <path>]
 //            [--base-spur <dir>]
-//   profile  [--binary <path>] [--wall-sec <n>]
+//   profile  [--binary <path>] [--wall-sec <n>] [--name <slug>]
+//            [--spur <dir>] [--call-graph fp|none] [--force]
 //   selftest
 //
 // Every ratio this grader prints is a speedup: above one means the candidate
@@ -113,12 +114,29 @@ function spurLabelOf(spurDir: string): string {
   }
 }
 
+// Cargo merges every .cargo/config.toml from the directory it runs in up to
+// the filesystem root, and a spur checkout is built from its parent
+// directory. Those files carry flags that change the binary without changing
+// the source tree.
+function buildConfigShaOf(spurDir: string): string {
+  const found: string[] = [];
+  for (let dir = path.dirname(path.resolve(spurDir)); ; dir = path.dirname(dir)) {
+    for (const name of ["config.toml", "config"]) {
+      const file = path.join(dir, ".cargo", name);
+      if (fs.existsSync(file)) found.push(fs.readFileSync(file, "utf8"));
+    }
+    if (path.dirname(dir) === dir) break;
+  }
+  return sha256(found.join("\n"));
+}
+
 // What makes two baseline measurements the same quantity: the spur tree the
-// binary was built from, the content of the campaign template, the spec, the
-// thread count and the wall budget. A depth scale plays no part here, so
-// there is no analyzer term.
+// binary was built from, the build configuration it was built under, the
+// content of the campaign template, the spec, the thread count and the wall
+// budget. A depth scale plays no part here, so there is no analyzer term.
 interface BaselineIdentity {
   spurTree: string;
+  buildConfigSha: string;
   campaignSha: string;
   specSha: string;
   rayonThreads: number;
@@ -128,6 +146,7 @@ interface BaselineIdentity {
 function identityFor(baseSpurDir: string, campaignTemplate: string, cfg: PerfConfig): BaselineIdentity {
   return {
     spurTree: spurTreeOf(baseSpurDir),
+    buildConfigSha: buildConfigShaOf(baseSpurDir),
     campaignSha: sha256(fs.readFileSync(campaignTemplate, "utf8")),
     specSha: sha256(fs.readFileSync(resolveRoot(cfg.spec), "utf8")),
     rayonThreads: cfg.budgets.rayonThreads,
@@ -137,13 +156,13 @@ function identityFor(baseSpurDir: string, campaignTemplate: string, cfg: PerfCon
 
 function identityKey(id: BaselineIdentity): string {
   return [
-    id.spurTree.slice(0, 12), id.campaignSha.slice(0, 8), id.specSha.slice(0, 8),
+    id.spurTree.slice(0, 12), id.buildConfigSha.slice(0, 8), id.campaignSha.slice(0, 8), id.specSha.slice(0, 8),
     id.rayonThreads, id.campaignWallSec,
   ].join("|");
 }
 
 function cacheFileFor(id: BaselineIdentity): string {
-  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.campaignSha.slice(0, 8)}-${id.campaignWallSec}.json`);
+  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.campaignSha.slice(0, 8)}-${id.campaignWallSec}-b${id.buildConfigSha.slice(0, 8)}.json`);
 }
 
 interface BaselineCache {
@@ -465,8 +484,9 @@ export interface Ratio {
   sd: number;
   lo: number;
   hi: number;
-  // Every round on the same side of one: the reading the rounds agree on,
-  // independent of any distributional assumption.
+  // Every round on the same side of one. Reported beside the interval, never
+  // required by it: once two rounds straddle one no later round can restore
+  // it, so requiring it would let each extra round only ever lose a verdict.
   dominant: boolean;
 }
 
@@ -499,10 +519,10 @@ function sdOf(xs: number[]): number {
   return Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / (xs.length - 1));
 }
 
-/** A reading separates when the rounds agree on its direction and the effect
- *  clears the floor the instrument owes. */
+/** A reading separates when the effect clears the floor the instrument owes
+ *  and its interval excludes one. */
 export function separates(r: Ratio, floor: number): boolean {
-  return r.dominant && Math.abs(r.mean - 1) >= floor && (r.lo > 1 || r.hi < 1);
+  return Math.abs(r.mean - 1) >= floor && (r.lo > 1 || r.hi < 1);
 }
 
 function bandReadingOf(r: Ratio, band: { min: number; max: number } | null): string | null {
@@ -1077,7 +1097,17 @@ const PROFILE_TAIL_MS = 120_000;
 // The reporter's floor on a symbol's share, in percent.
 const PROFILE_PERCENT_LIMIT = 1;
 
-interface ProfileSnapshot { ok: boolean; text: string; demangled: boolean }
+// Walking every sampled call stack for inclusive time takes far longer than
+// ranking self time.
+const PROFILE_REPORT_MS = 600_000;
+
+interface ProfileSnapshot {
+  ok: boolean;
+  text: string;
+  inclusive: string | null;
+  largestInclusive: { percent: number; symbol: string } | null;
+  demangled: boolean;
+}
 
 // perf does not demangle Rust v0 symbols; rustfilt does. Without it the
 // report keeps mangled names, which is worse to read but still ranked.
@@ -1098,18 +1128,37 @@ function paranoidLevel(): number | null {
   }
 }
 
-/** A flat sampled profile of the workload rounds are measured on. The
- *  configuration comes from the same builder `round` uses, so the profile and
- *  the measurement cannot name different work. */
-async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number): Promise<ProfileSnapshot> {
+/** A report's symbol rows and column header, without the reporter's preamble. */
+function reportLines(report: string): string {
+  return report.split("\n").filter((l) => !l.startsWith("#") || l.includes("Overhead") || l.includes("Children")).join("\n");
+}
+
+/** The first row of a report sorted by inclusive share. Every whole stack
+ *  passes through a thread's entry point, so this share is near total when
+ *  the stacks resolved. */
+function largestInclusiveOf(report: string): { percent: number; symbol: string } | null {
+  for (const line of report.split("\n")) {
+    const m = /^\s*([\d.]+)%\s+[\d.]+%\s+.*?\[[.k]\]\s+(.+)$/.exec(line);
+    if (m !== null) return { percent: Number(m[1] ?? "0"), symbol: (m[2] ?? "").trim() };
+  }
+  return null;
+}
+
+/** A sampled profile of the workload rounds are measured on: self time
+ *  always, inclusive time when call stacks are recorded. The configuration
+ *  comes from the same builder `round` uses, so the profile and the
+ *  measurement cannot name different work. Stacks are walked by frame
+ *  pointer, which the build configuration keeps in every binary. */
+async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number, callGraph: boolean): Promise<ProfileSnapshot> {
   const dir = path.join(WORK_DIR, "profile");
   const configPath = `${dir}.config.json`;
   const perfData = `${dir}.perf.data`;
+  const failed = (text: string, demangled = false): ProfileSnapshot => ({ ok: false, text, inclusive: null, largestInclusive: null, demangled });
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   workloadConfig(resolveRoot(cfg.campaignTemplate), configPath, PROFILE_SEED, wallSec);
   try {
     const rec = await run("perf", [
-      "record", "-F", String(PROFILE_HZ), "-o", perfData, "--",
+      "record", "-F", String(PROFILE_HZ), ...(callGraph ? ["--call-graph", "fp"] : []), "-o", perfData, "--",
       binary, "explore", "-e", "campaign", "--config", configPath, "-y", "--output-dir", dir,
       resolveRoot(cfg.spec),
     ], {
@@ -1120,27 +1169,47 @@ async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number): 
     // A nonzero exit that still left samples behind is reportable; nothing
     // written is not, and a killed recorder is the usual way that happens.
     if (!fs.existsSync(perfData)) {
-      return { ok: false, text: `perf record wrote no samples${rec.timedOut ? " before the cap" : ""}: ${rec.stderr.slice(-400)}`, demangled: false };
+      return failed(`perf record wrote no samples${rec.timedOut ? " before the cap" : ""}: ${rec.stderr.slice(-400)}`);
     }
-    // No call graph is recorded: the report is ranked by self time, so
-    // collected stacks would be written and discarded.
     const rep = await run("perf", [
       "report", "--stdio", "--percent-limit", String(PROFILE_PERCENT_LIMIT),
       "--no-children", "--no-inline", "-g", "none", "-i", perfData,
-    ], { timeoutMs: 120_000, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
-    if (!rep.ok) return { ok: false, text: `perf report failed: ${rep.stderr.slice(-400)}`, demangled: false };
-    const { text, demangled } = demangle(rep.stdout);
-    const lines = text.split("\n").filter((l) => !l.startsWith("#") || l.includes("Overhead"));
-    if (lines.filter((l) => l.trim().length > 0 && !l.startsWith("#")).length === 0) {
-      return { ok: false, text: "perf report carries no symbol above the cutoff", demangled };
+    ], { timeoutMs: PROFILE_REPORT_MS, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
+    if (!rep.ok) return failed(`perf report failed: ${rep.stderr.slice(-400)}`);
+    const flat = demangle(rep.stdout);
+    const text = reportLines(flat.text);
+    if (text.split("\n").filter((l) => l.trim().length > 0 && !l.startsWith("#")).length === 0) {
+      return failed("perf report carries no symbol above the cutoff", flat.demangled);
     }
-    return { ok: true, text: lines.join("\n"), demangled };
+    if (!callGraph) return { ok: true, text, inclusive: null, largestInclusive: null, demangled: flat.demangled };
+    const inc = await run("perf", [
+      "report", "--stdio", "--percent-limit", String(PROFILE_PERCENT_LIMIT),
+      "--children", "--no-inline", "-g", "none", "-i", perfData,
+    ], { timeoutMs: PROFILE_REPORT_MS, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
+    if (!inc.ok) return failed(`perf report of inclusive time failed: ${inc.stderr.slice(-400)}`, flat.demangled);
+    const inclusive = reportLines(demangle(inc.stdout).text);
+    return { ok: true, text, inclusive, largestInclusive: largestInclusiveOf(inclusive), demangled: flat.demangled };
   } finally {
     fs.rmSync(perfData, { force: true });
     fs.rmSync(configPath, { force: true });
     try { cleanupDir(dir); } catch { /* the directory may never have been created */ }
     for (const sib of [".session.json", ".utilization.json", ".campaign.json", ".log"]) fs.rmSync(`${dir}${sib}`, { force: true });
   }
+}
+
+// A profile is named after the checkout its binary was built in, so two
+// binaries never share a file. A binary copied out of its checkout carries no
+// such link and must be named; its tree label is then the main tree's, the
+// commit a candidate is built on.
+function profileLabelOf(binary: string, spurFlag: string | undefined, name: string | undefined): string {
+  const checkout = path.resolve(spurFlag ?? path.join(binary, "..", "..", ".."));
+  const isCheckout = fs.existsSync(path.join(checkout, "Cargo.toml"));
+  if (spurFlag !== undefined && !isCheckout) throw new Error(`--spur ${checkout} does not look like a spur checkout (no Cargo.toml)`);
+  if (!isCheckout && name === undefined) {
+    throw new Error(`${binary} is not inside a spur checkout; pass --name <slug>, and --spur <dir> if it was not built on the main tree`);
+  }
+  const tree = spurLabelOf(isCheckout ? checkout : path.join(ROOT, "spur"));
+  return name === undefined ? tree : `${tree}-${name}`;
 }
 
 async function cmdProfile(flags: Map<string, string>): Promise<void> {
@@ -1151,34 +1220,59 @@ async function cmdProfile(flags: Map<string, string>): Promise<void> {
   if (!fs.existsSync(binary)) throw new Error(`${binary} does not exist; build it first`);
   const wallSec = Number(flags.get("wall-sec") ?? cfg.budgets.profileWallSec);
   if (!Number.isFinite(wallSec) || wallSec <= 0) throw new Error(`--wall-sec must be a positive number of seconds, got ${flags.get("wall-sec")}`);
+  const callGraphMode = flags.get("call-graph") ?? "fp";
+  if (callGraphMode !== "fp" && callGraphMode !== "none") throw new Error(`--call-graph must be fp or none, got ${callGraphMode}`);
+  const name = flags.get("name");
+  if (name !== undefined && !/^[a-z0-9][a-z0-9-]{1,60}$/.test(name)) throw new Error(`--name must be a kebab-case slug, got ${name}`);
+  const label = profileLabelOf(binary, flags.get("spur"), name);
+  const file = path.join(PROFILE_DIR, `${label}.md`);
+  if (fs.existsSync(file) && flags.get("force") !== "true") {
+    throw new Error(`${path.relative(ROOT, file)} already exists; pass --name to label a different binary, or --force to replace it`);
+  }
   const paranoid = paranoidLevel();
   if (paranoid !== null && paranoid > 2) {
     throw new Error(`kernel.perf_event_paranoid is ${paranoid}; perf record needs 2 or lower (sysctl -w kernel.perf_event_paranoid=1)`);
   }
-  const label = spurLabelOf(path.join(ROOT, "spur"));
-  const snap = await recordProfile(cfg, binary, wallSec);
+  const snap = await recordProfile(cfg, binary, wallSec, callGraphMode === "fp");
   if (!snap.ok) {
     emit({ phase: "error", file: null, spur: label, ok: false, detail: snap.text });
     process.exitCode = 1;
     return;
   }
   fs.mkdirSync(PROFILE_DIR, { recursive: true });
-  const file = path.join(PROFILE_DIR, `${label}.md`);
+  const largest = snap.largestInclusive;
   fs.writeFileSync(file, [
     `# Profile: spur ${label}`,
     "",
-    `Workload: ${cfg.campaignTemplate} under the campaign explorer on ${cfg.spec}, ${cfg.budgets.rayonThreads} threads, ${wallSec}s.`,
-    "Flat sampled profile, self time, symbols above the reporter's cutoff.",
+    `Binary: ${path.relative(ROOT, binary)}. Workload: ${cfg.campaignTemplate} under the campaign explorer on ${cfg.spec}, ${cfg.budgets.rayonThreads} threads, ${wallSec}s.`,
     snap.demangled ? "" : "Symbols are mangled: rustfilt is not on PATH.",
+    "",
+    "## Self time",
+    "",
+    "Flat sampled profile, symbols above the reporter's cutoff.",
     "",
     "```",
     snap.text.trimEnd(),
     "```",
     "",
+    ...(snap.inclusive === null ? [] : [
+      "## Inclusive time",
+      "",
+      "Each symbol's share includes everything it calls, read from frame-pointer call stacks. An inlined callee has no frame of its own and is counted in its caller.",
+      largest === null
+        ? "No row carries an inclusive share, so the call stacks did not resolve."
+        : `Largest inclusive share: ${largest.percent}% in ${largest.symbol}. A share well below total means broken stacks, and the rows under it are then unreliable.`,
+      "",
+      "```",
+      snap.inclusive.trimEnd(),
+      "```",
+      "",
+    ]),
   ].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n"));
   emit({
-    phase: "finished", file: path.relative(ROOT, file), spur: label, ok: true,
-    wallSec, threads: cfg.budgets.rayonThreads, demangled: snap.demangled, lines: snap.text.split("\n").length,
+    phase: "finished", file: path.relative(ROOT, file), spur: label, ok: true, binary: path.relative(ROOT, binary),
+    wallSec, threads: cfg.budgets.rayonThreads, callGraph: callGraphMode, largestInclusive: largest,
+    demangled: snap.demangled, lines: snap.text.split("\n").length,
   });
 }
 
@@ -1233,6 +1327,7 @@ async function cmdSelftest(): Promise<void> {
   check(Math.abs(doubling.mean - 2) < 1e-12 && doubling.dominant, `three doublings must read two and be dominant, got ${doubling.mean}`);
   const mixed = ratioOf([0.9, 1.1, 1.0]);
   check(!mixed.dominant, "ratios straddling one are not dominant");
+  check(separates(ratioOf([1.2, 1.25, 0.99, 1.22, 1.23, 1.21]), 0.05), "a clear move with one round across one separates on its interval");
   check(Math.abs(ratioOf([1, 4]).mean - 2) < 1e-12, "the mean of ratios is geometric");
   check(!separates(ratioOf([1.001, 1.002, 1.0015]), 0.01), "a move under the floor does not separate");
   check(separates(ratioOf([1.2, 1.22, 1.18]), 0.01), "an agreed move well clear of the floor separates");
@@ -1276,7 +1371,7 @@ async function cmdSelftest(): Promise<void> {
     declaration: { search: "neutral", sharing: "private", primary: "within-binary", treatment: { bit: 1024, name: "stallCap" }, band: { min: 1.1, max: 1.4 }, counter: "alloc.count", argument: "the cap is a per-run budget no random draw is consumed from" },
     cand: { bin: "", template: "", spec: cfg.spec, spurLabel: "" },
     base: { bin: "", template: "", spurDir: "" },
-    identity: { spurTree: "t", campaignSha: "c", specSha: "s", rayonThreads: 1, campaignWallSec: 1 },
+    identity: { spurTree: "t", buildConfigSha: "b", campaignSha: "c", specSha: "s", rayonThreads: 1, campaignWallSec: 1 },
     cacheFile: path.join(BASELINE_DIR, "selftest-absent.json"),
     limits: { campaignWallSec: 1, minRounds: cfg.budgets.minRounds, maxRounds: cfg.budgets.maxRounds, rayonThreads: 1 },
     rounds: [], finished: false,
@@ -1350,11 +1445,24 @@ async function cmdSelftest(): Promise<void> {
 
   // The baseline cache identity: what makes two measurements the same
   // quantity, and nothing else.
-  const idA: BaselineIdentity = { spurTree: "aaaaaaaaaaaa", campaignSha: "cccccccc", specSha: "ssssssss", rayonThreads: 30, campaignWallSec: 120 };
+  const idA: BaselineIdentity = { spurTree: "aaaaaaaaaaaa", buildConfigSha: "bbbbbbbb", campaignSha: "cccccccc", specSha: "ssssssss", rayonThreads: 30, campaignWallSec: 120 };
   check(identityKey(idA) === identityKey({ ...idA }), "an identity is its own key");
   check(identityKey(idA) !== identityKey({ ...idA, rayonThreads: 29 }), "a different thread count is a different quantity");
   check(identityKey(idA) !== identityKey({ ...idA, specSha: "tttttttt" }), "a different spec is a different quantity");
   check(cacheFileFor(idA) !== cacheFileFor({ ...idA, campaignWallSec: 240 }), "a different campaign wall budget writes a different cache file");
+  check(identityKey(idA) !== identityKey({ ...idA, buildConfigSha: "ffffffff" }), "a different build configuration is a different quantity");
+  check(cacheFileFor(idA) !== cacheFileFor({ ...idA, buildConfigSha: "ffffffff" }), "a different build configuration writes a different cache file");
+
+  // Profile names: one file per binary, and a binary with no checkout of its
+  // own is named by its caller.
+  const mainBinary = path.join(ROOT, "spur", "target", "release", "spur");
+  check(profileLabelOf(mainBinary, undefined, undefined) === spurLabelOf(path.join(ROOT, "spur")), "a binary inside the main checkout is named after that checkout");
+  check(profileLabelOf(mainBinary, undefined, "cand-x").endsWith("-cand-x"), "a named profile carries its name");
+  let unnamedRefused = false;
+  try { profileLabelOf(path.join(WORK_DIR, "x", "cand-spur"), undefined, undefined); } catch { unnamedRefused = true; }
+  check(unnamedRefused, "a binary outside any checkout must be named");
+  const inclusiveFixture = ["# Children      Self  Command  Shared Object  Symbol", "    84.27%     0.00%  spur     spur           [.] main", "    10.00%    10.00%  spur     spur           [.] eval"].join("\n");
+  check(largestInclusiveOf(inclusiveFixture)?.percent === 84.27, "the largest inclusive share is the first row of a children-sorted report");
 
   // Configuration and tools.
   for (const [label, p] of [

@@ -1,0 +1,7 @@
+# Frame pointers stay on in every build so a sampled profile can walk call
+# stacks cheaply. Cargo reads this file for any build run from the project
+# root, including both sides of a graded comparison, and the perf grader keys
+# its baseline cache on the content of this file. A RUSTFLAGS environment
+# variable replaces these flags entirely.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "force-frame-pointers=yes"]

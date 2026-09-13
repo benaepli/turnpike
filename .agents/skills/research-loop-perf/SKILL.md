@@ -180,8 +180,16 @@ is the frozen band on the primary, as a speedup ratio.
 
 Every ratio the grader prints is a speedup. It enforces the round bounds
 from `perf.json` and prints after every round what `finish` would say now.
-Buy another round while it could change your decision. Before the first
-candidate of an epoch, and whenever the toolchain moves, run a layout
+Buy another round while it could change your decision. Separation is read
+on the interval alone and re-read after every round, so a session that
+separated once and drifted back is weaker evidence than one that stayed
+separated; weigh that yourself. To profile a candidate binary, name it:
+
+```
+npx tsx ../perf/grader.ts profile --binary ../../tmp/loop/perf/<name>/cand-spur --name cand-<name>
+```
+
+Before the first candidate of an epoch, and whenever the toolchain moves, run a layout
 control: build the baseline commit a second time in a separate directory and
 grade it against the first. It must print a floor, not a gain; if it prints
 a gain, the floor in `perf.json` is wrong and nothing else measured against
