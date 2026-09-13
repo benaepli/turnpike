@@ -1880,3 +1880,28 @@ user, since the skill and prompts are not the loop's to change.
 - call-targets-indexed, still proposed at net 3.
 - The simulation threads' idle third (grid batch stragglers), search-
   affecting, still owing per-batch off-CPU evidence.
+
+## Iteration 8 - autonomous, data layout lens, profile b1fb646
+
+Preflight carried in session: spur-research-loop inactive, no search-loop
+grader, branch research/lite, spur gitlink b1fb646, tree clean at eb58de4,
+baseline rebuilt at b1fb646 with a fresh cache (4,304.3 runs per second). No
+layout control, same build config hash. Profile: research/perf/profiles/b1fb646.md.
+
+### The profile, read before proposing
+
+The interpreter's dispatch is the largest block and no longer carries an
+allocation story: eval 9.77 self, execute_common_label 5.72, 1.20 and 1.09
+across specializations, exec 2.70, store 2.60 - about 23 points. Next,
+memmove at 2.77 and 1.29 self, 6.45 inclusive: something large is copied on
+the hot path. Allocation and frees remain (malloc 8.40 inclusive, EcoVec
+drop 6.64 inclusive, drop glue about 3.4 self, imbl map insert 3.68
+inclusive). Call-target and name lookups sum to about 4.5 inclusive
+(String to NameId get 1.61, hash_one<NameId> 1.62, NameId to FunctionInfo
+get 1.30). Trace formatting about 4; scheduler self about 7.
+
+Lens: data layout and representation. Focus directive: what memmove is
+moving and at what size; the Expr and Label representation behind eval's
+self time; re-pricing call-targets-indexed; per-step scheduler collects
+only on a representation argument. Any share-based guard must name its
+inflation reference, the lesson of iteration 7.
