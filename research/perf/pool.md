@@ -487,7 +487,7 @@ rounds of clock each:
 
 ## call-targets-indexed
 
-- category: redundant work | origin: proposer | status: re-priced in iteration 8 and carried inside lookups-dense
+- category: redundant work | origin: proposer | status: merged inside compiled-interpreter via lookups-dense (iteration 9)
 - declarations: search-neutral, shared saving
 - judge: expectedGain 5, expectedCost 2 (exec.rs), net 3
 - title: Resolve call targets to a dense index once at compile time
@@ -623,7 +623,7 @@ rounds of clock each:
 
 ## lookups-dense
 
-- category: data layout | origin: proposer | status: proposed as a rider - not graded alone
+- category: data layout | origin: proposer | status: merged inside compiled-interpreter (iteration 9)
 - components: call-targets-indexed (re-priced) and channel-table-dense
   (rewritten), judged in iteration 8
 - declarations: search-neutral, shared saving
@@ -675,7 +675,7 @@ rounds of clock each:
 
 ## compiled-interpreter
 
-- category: redundant work | origin: proposer | status: implemented, grading (iteration 9)
+- category: redundant work | origin: proposer | status: merged (autonomous) - spur 7f607e6, superproject 7209003; primary 1.1972 [1.1191, 1.2808] over 6 rounds; spread-check falsifier departed from on a caps-engaged one-thread identity run that read identical; post-merge baseline cleared its revert line
 - components: compiled-expr-operands (expressions compiled once per program
   into an operand-resolved form), predecoded-label-ops (labels decoded once
   per program and run in exec's own loop), lookups-dense (rider)

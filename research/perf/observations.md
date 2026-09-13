@@ -2296,3 +2296,50 @@ Revert criterion, fixed before the post-merge baseline is measured: the
 merge is reverted if the fresh baseline at the merged spur commit reads
 below 4,293 runs per second over three rounds, +3 percent over the 4,167.8
 cached for b1fb646 across nine rounds.
+
+### Post-merge baseline: the merge stands
+
+Merged: spur 7f607e6, superproject 7209003. The fresh baseline at 7f607e6
+reads 5,012.3 runs per second over three rounds (5,151.5, 4,715.9, 5,169.5),
+spread 0.0512, against 4,167.8 for b1fb646 - plus 20.3 percent, above the
+registered revert line of 4,293. Ledger row appended with ratio 1.1972.
+The implementer worktree and the candidate export were removed; the
+identity run's result, dumps, campaign reports and stall-cap tables are kept
+under tmp/loop/perf/identity-caps/ and summarized above.
+
+### Direction review after the merge
+
+Digest for the user: iteration 9 merged the compiled interpreter at 1.20
+over six rounds (post-merge check plus 20 percent), carrying the dense
+call-target and channel tables with it. It departed from a frozen spread-check
+falsifier on a one-thread, caps-engaged identity run over 100,000 runs that
+read identical. Cumulative on this loop's graded workload since
+call-frame-one-pass: 1.0634 x 1.3217 x 1.1727 x 1.1005 x 1.1972, about 2.17.
+
+**Are the costs attacked still the largest explainable?** The dispatch block
+fell from 26.01 to 19.00 self and its shape changed: ceval 6.37, exec_ops
+about 6.8, run_sync_ops about 3.8. Allocation (_int_malloc 3.95 self,
+memmove 3.22 and 1.47), drop glue and EcoVec drop, trace formatting and the
+scheduler are next. The profile of 7f607e6 decides the next directive.
+
+**Has the steering paid for itself?** Yes. Iteration 8's decision not to
+spend a session on trims under the floor, and to steer at a structural
+change instead, produced the largest merge since thread-local-stats-blocks.
+The judge's equivalence obligations (an all-variant differential test,
+identity on a second spec) cost little and made the later neutrality
+question a matter of one run rather than argument.
+
+**What the next directives should pull toward.**
+
+- grid-ordered-release-pool, queued at net 4: the simulation threads' idle
+  third, declared search-affecting, with its shadow-assignment smoke, perf
+  grade and the lite grader's non-inferiority chunks written into the pool.
+  It is the largest cost visible anywhere and the next candidate.
+- The compiled evaluator's own cost: ceval now carries 6.37 self; value
+  construction and drop in its arms, and the per-evaluation Result plumbing,
+  are the candidates to price on the new profile.
+- The spread check has now flagged every candidate above about 10 percent on
+  this workload through the learned caps; the caps-engaged one-thread
+  identity run is the instrument that has resolved it twice. Recorded for the
+  user: the grader could carry that check, but the grader is not this loop's
+  to change.
