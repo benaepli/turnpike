@@ -3100,3 +3100,20 @@ research/perf/patches/grid-ordered-release-pool-2.spur.patch; the candidate
 binary stays in tmp/loop/perf/grid-ordered-release-pool-2/ for the lite
 reading once the grader is fixed. The shadow-logic removal the user asked for
 stays scheduled for the boundary at which the pool merges.
+
+### User direction: fix the grader, then return to the pool
+
+The user rejected holding grid-ordered-release-pool-2 behind the harness
+fault and authorized fixing the lite grader's runs-table read directly,
+including edits to research/orchestrator/ that this loop's skill otherwise
+forbids. A fresh agent is making the fix in the main tree, uncommitted:
+project only the runs-table columns the evaluation reads (or stream the table
+from a file), and make an output-too-large condition a handled evaluation
+failure rather than an uncaught exception. It verifies with both graders'
+selftests, the orchestrator's tests and a 60 s campaign output compared on
+the old and new paths, without running a lite chunk itself. After review and
+commit, the lite chunks for grid-ordered-release-pool-2 are re-run and the
+pool is decided on them; the "held" decision above is superseded by that
+reading. The uncommitted edit to the perf implementer prompt, removing the
+shadow-check feature guidance, was the user's and is committed at their
+direction (e6866e1).
