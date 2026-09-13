@@ -279,7 +279,7 @@ rounds of clock each:
 
 ## thread-local-stats-blocks
 
-- category: contention and parallelism | origin: proposer | status: awaiting-approval
+- category: contention and parallelism | origin: proposer | status: approved (user, fold pattern as planned; declarations frozen)
 - declarations: search-neutral, shared saving
 - judge: expectedGain 7, expectedCost 0, net 7 (cost becomes 2 if the
   TERMINATION counters, which the grader and the reward read, are converted;

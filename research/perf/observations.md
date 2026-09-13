@@ -744,3 +744,34 @@ Top by net: thread-local-stats-blocks, admitted as awaiting-approval with a
 plan. The other three are kept as a possible composite, band [1.06, 1.17],
 cost 2 with serialize-history-inline in it; without it the two survivors
 compose to 1.045 at the low edge, under the floor.
+
+### Approval
+
+The user approved thread-local-stats-blocks as planned, fold pattern, over
+the shard variant, the composite and holding. Both declarations froze at
+approval: search-neutral, shared, band [1.05, 1.20] on cross-binary runs
+per second, counter stats_local.folded_increments. The implementer is held
+until layout-control-e3 finishes, since a compile or a tree-reading
+subagent beside it would inflate the floor it exists to measure.
+
+### The layout floor, re-measured under frame pointers
+
+Session layout-control-e3, six rounds, a second build of 292c15b at
+tmp/loop/perf/layout-control-e3 against the main-tree build, both under
+the frame-pointer toolchain, declared search-neutral, private, primary
+cross-binary.
+
+Per-round 1.0588, 0.9259, 0.9684, 0.9960, 0.9871, 0.9814. Mean 0.9855,
+sd 0.0435, interval [0.9415, 1.0316], not separated, verdict no-gain, zero
+blockers, every neutrality row inside the baseline's spread. It printed a
+floor and not a gain. The interval's half-width of about 0.045 sits just
+under the configured layoutFloor of 0.05, so the floor stands and nothing
+in perf.json changes; it has no spare margin, and a gain read against it
+this epoch owes a lower edge clearly above it.
+
+The baseline cache for the new identity (43b3adf4fd88, cargo config hash
+b813e711) now holds six rounds at 2569.6 runs per second with a
+round-to-round spread of 0.0341. Against the 2491.6 recorded after the
+call-frame-one-pass merge under the old flags, this is not a reading of
+what frame pointers cost: the two caches were measured under different
+identities on different days, and the difference sits inside the spread.
