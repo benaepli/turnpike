@@ -1587,3 +1587,69 @@ above, priced from self time and per-run counts, not from inclusive shares
 under Value::new or ValueKind::clone, whose frame-pointer attribution the
 iteration 6 judge showed unreliable; plus the unpriced contended refcount
 writes on shared literal and trace-name buffers.
+
+### Proposals
+
+Four hypotheses, priced from self lines and per-run counts off the
+lookups-and-format-once round-5 dump (the 84b7ab5 tree): frame.calls 2,023
+and frame.slots_built 35,385 per run, 1,839 steps, 1,123 log rows, 1,230
+trace rows.
+
+- value-construction-without-work: under NoHashing, Value::new still
+  computes a leaf signature for every value, FxHashing every byte of every
+  string, and its only NoHashing reader is Hash for Value; move it to hash
+  time. Fill frames with one trusted extend instead of a Value::new and an
+  outlined EcoVec::reserve per slot. 5.1 to 6.2 points, band [1.04, 1.08].
+- eval-borrows-operands: read-only operands borrow the slot value instead of
+  cloning and dropping it. 0.9 to 2.5 points, band [1.01, 1.035].
+- per-run-buffers-sized-once: presize the channel table (about 9 to 10
+  rehashes per run today), the log and trace vectors, and each Print
+  string. 2.3 to 3.3 points, band [1.02, 1.05].
+- value-traffic-composite: the three as one commit, band [1.071, 1.174].
+
+Two corrections to the record. Every VR println interpolates an int and
+try_to_expr rejects IntToString, so VR's prints are 8 to 10 labels with
+temps each; iteration 6's judge was right about pure chains and wrong to
+imply VR's prints are among them. And the literal EcoString refcount lead is
+mostly empty: every VR field name is 13 bytes or shorter and stored inline.
+The trace function_name Arc was priced at 0.4 to 0.7 points at most and set
+aside.
+
+### Judging
+
+No candidate scored 0 and none was cut; two were rewritten.
+
+- value-construction-without-work: gain 7, cost 0. Verified that Hash for
+  Value is the only NoHashing reader of sig on the explore path, that imbl
+  keeps hash bits per entry so trie layout and iteration order cannot move,
+  and that extend_from_trusted exists. Red team: an inlined struct literal
+  makes Value::new vanish whatever it saves, so "Value::new self at most
+  1.0" could not fail; the observable was rewritten as the three frame
+  symbols' summed self falling from 7.91 to at most 3.5, with the
+  interpreter's own self rising by at most 1.5 as a relocation guard.
+  Slots built include parameter slots, so the count was overstated; band
+  [1.035, 1.07].
+- eval-borrows-operands: gain 5, cost 2 (exec.rs). Positions verified as
+  read-only; the counts are not checkable before building. Band [1.01,
+  1.035]. Admitted only inside the composite.
+- per-run-buffers-sized-once: gain 5, cost 2. The proposed high-water-mark
+  hint was rewritten to the previous run's length with caps (4,096 channel
+  entries, 8,192 log and trace entries): a thread that once saw a long run
+  would otherwise keep a table of several MB whose gets miss L2 in every
+  later run, a cost that travels. Band [1.015, 1.035].
+- value-traffic-composite: gain 6, cost 2, band [1.061, 1.146] recomposed.
+
+A further correction: "every VR println interpolates an int" is false as
+stated - VR.spur:159 and 163 interpolate nothing and 596 only a string. No
+priced mechanism rested on it.
+
+### Decision: build the composite
+
+value-traffic-composite, search-neutral, shared, band [1.061, 1.146].
+Departure from "pick the top candidate", same reason as iteration 6: the
+top part alone has a lower edge of 1.035 against the 0.05 floor, the other
+two cannot be read alone, the user prefers fewer and larger rounds, and the
+parts touch disjoint code with their own counters and profile observables.
+The composite's lower edge clears the floor only narrowly; a reading that
+lands between 1.03 and 1.07 buys a layout control before the decision.
+Grader counter: frame.default_slots_filled.

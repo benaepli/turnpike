@@ -511,3 +511,112 @@ rounds of clock each:
   refcount writes on shared literal buffers and on the trace
   function_name Arc<str> cloned on every trace row (exec.rs:428, 461, 476),
   neither priced anywhere.
+
+## value-construction-without-work
+
+- category: allocation | origin: proposer | status: implemented as part of value-traffic-composite
+- declarations: search-neutral, shared saving
+- judge: expectedGain 7, expectedCost 0, net 7 (rewritten at judging)
+- title: Leaf signatures computed at hash time under NoHashing, and call
+  frames filled in place without constructors or per-slot reserve
+- mechanism: under !H::EAGER, Value::new stores sig 0 and Hash for Value
+  computes the leaf signature from the kind (compute_sig_leaf_only), so hash
+  bits are unchanged; FrameBuilder::finish and build_frame fill slots with
+  one trusted extend, each default built in place, never by clone.
+- verified at judging: Hash for Value is the only NoHashing reader of sig on
+  the explore path; with_sig's one non-test caller writes 0; imbl stores
+  hash bits per entry, so layout and iteration order are unchanged;
+  extend_from_trusted exists in ecow 0.2.6; frames are unique and exactly
+  sized; Unit and Nil are the only defaults. Overstated as proposed: slots
+  include parameter slots and SyncCall pushes one at a time.
+- counters: frame.default_slots_filled 29,000 to 34,000 per run (primary);
+  frame.params_filled 1,400 to 6,000, the two summing exactly to
+  frame.slots_built; value_sig.leaf_hashes_deferred 1,000 to 5,000.
+- band: [1.035, 1.07] cross-binary runs per second, lower edge below the
+  floor, stated in advance.
+- independent observable: Value::new + FrameBuilder::finish +
+  EcoVec<Value>::reserve self falls from 7.91 to at most 3.5; eval +
+  execute_common_label + build_frame self rises by at most 1.5 over 13.96
+  (relocation guard); ValueKind::clone self does not rise.
+- falsifier: rps interval entirely below 1.035; spread check outside the
+  baseline's spread; one-thread identity run differs in any cell; the slot
+  sum identity breaks; leaf_hashes_deferred reads 0; any profile check fails.
+- full record: tmp/loop/perf/it7-judgment.md, copied into observations.md
+  iteration 7.
+
+## eval-borrows-operands
+
+- category: allocation | origin: proposer | status: implemented as part of value-traffic-composite
+- declarations: search-neutral, shared saving
+- judge: expectedGain 5, expectedCost 2 (exec.rs), net 3; admitted only
+  inside the composite
+- title: Borrow slot values that eval only reads, instead of cloning and
+  dropping them
+- verified at judging: every listed position only reads its operand; imbl
+  without takes &self; (**v).clone() equals unwrap_or_clone on a shared Arc;
+  evaluation and error order unchanged if each arm keeps eval, check, eval.
+  Per-run counts unverifiable.
+- counters: eval_borrow.handles_not_cloned 2,000 to 6,000 per run;
+  eval_borrow.scalars_not_cloned 5,000 to 15,000.
+- band: [1.01, 1.035], entirely below the floor.
+- independent observable: ValueKind::clone self falls by at least 0.25 (from
+  1.38); drop_glue<Value> + drop_glue<ValueKind> + EcoVec<Value>::drop self
+  falls by at least 0.5 (from 5.23).
+- falsifier: handles_not_cloned below 1,000 per run; ValueKind::clone self
+  does not fall; identity run differs.
+
+## per-run-buffers-sized-once
+
+- category: allocation | origin: proposer | status: implemented as part of value-traffic-composite
+- declarations: search-neutral, shared saving
+- judge: expectedGain 5, expectedCost 2 (exec.rs Print), net 3; admitted
+  only inside the composite, hint rewritten
+- title: Size the channel table, the log and trace vectors, and each Print
+  line once instead of growing them
+- rewritten at judging: the capacity hint is the previous run's final length
+  on the thread, capped at 4,096 channel entries and 8,192 log and trace
+  entries - not a high-water mark, which after one long run would keep a
+  multi-MB table whose sparse gets miss L2 on every later run.
+- verified at judging: channels starts empty each run, is filled only at
+  exec.rs:222, 282, 300 and never removed; its only iteration is inside
+  State::signature; the reserve_rehash line is typed to ChannelMap; logs
+  and traces are taken with mem::take per run; Print grows from empty with
+  one malloc and two reallocs; exec.rs:334 is the only log caller.
+- counters: run_buffers.channel_table_grows at most 1.0 per run;
+  run_buffers.channels_created 800 to 1,200; run_buffers.log_vec_grows and
+  trace_vec_grows at most 1.0 each; print_content.presized equal to log
+  rows per run exactly.
+- band: [1.015, 1.035].
+- independent observable: the (ChannelId, ChannelState) reserve_rehash line
+  absent (from 1.15 inclusive); RawVecInner::finish_grow inclusive down at
+  least 1.0 (from 3.84).
+- falsifier: channel_table_grows above 2.0 per run; presized unequal to log
+  rows; finish_grow does not fall; identity run differs.
+
+## value-traffic-composite
+
+- category: combined | origin: operator-agent (selection) | status: implemented, grading
+- components: value-construction-without-work, eval-borrows-operands,
+  per-run-buffers-sized-once, built as one commit by the operator's decision
+  in autonomous mode
+- declarations: search-neutral, shared saving
+- judge: expectedGain 6, expectedCost 2, net 4
+- band: [1.061, 1.146] cross-binary runs per second, composed from the
+  judged part bands: 1.035 x 1.01 x 1.015 and 1.07 x 1.035 x 1.035.
+- counter passed to the grader: frame.default_slots_filled; the other parts'
+  counters read off the dump by hand. No counter aggregates over two parts.
+- falsifier: rps interval entirely below 1.061; spread check outside the
+  baseline's spread; identity run differs anywhere; any part's counter or
+  profile falsifier fires.
+- cost clause: steps per run, end reasons and per-arm counts hold; trace,
+  log and history bytes identical; no existing dump field changes;
+  value_stays_narrow still 40; eval tests pass unmodified; peak resident
+  memory per thread rises by no more than one run's table and buffers at the
+  caps.
+- why combined: the top part alone has a lower edge of 1.035 against a 0.05
+  floor and the other two are floor-bound; the user prefers fewer, larger
+  rounds; the parts touch disjoint code with disjoint counters. Known
+  limitation recorded before any round: the wall cannot say which part paid;
+  on a refuted verdict the part whose profile observable did not move is
+  the one closed. A reading between 1.03 and 1.07 buys a layout control
+  before deciding.
