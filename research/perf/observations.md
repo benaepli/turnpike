@@ -775,3 +775,192 @@ round-to-round spread of 0.0341. Against the 2491.6 recorded after the
 call-frame-one-pass merge under the old flags, this is not a reading of
 what frame pointers cost: the two caches were measured under different
 identities on different days, and the difference sits inside the spread.
+
+### The implementation, and a session that ended under it
+
+The implementer's first session ended before its test run and export
+finished. It was resumed with its worktree and transcript intact; nothing
+was lost, and the binary it exported was built after its last source edit.
+
+The diff was read against the plan before any round was bought, and matches
+it: a `bump` helper that writes the running thread's block while a run is
+active and the session counter otherwise; 35 scalar pairs plus the delivery,
+acceptance-distance, flip and streak arrays enumerated in one
+`for_each_slot`; the fold as the first statement of `record_run_termination`
+after its enabled check and before the debug_assert; `begin_run` and
+`snapshot` folding as backstops; a generation counter advanced by
+`set_enabled` so a block left from an earlier session is dropped rather
+than folded; the timer effect table kept per thread with the same cap rule
+and merged under one lock per run. TERMINATION, the timer_context learner
+atomics and every once-per-run record stay global. Two files in spur-core,
+no superproject change: super.patch carries only the gitlink.
+
+Checks, all before grading:
+
+- `cargo test -p spur-core` under RUST_MIN_STACK: 26 test binaries, all
+  passing, including 451 library tests and the export completeness test
+  extended for the new section.
+- A 20-second release smoke on the graded config with the wall budget
+  lowered in a copy: stats_local.folds 38,160 over 38,160 runs, exactly one
+  per run; folded_increments 2,000,105,320, about 52,400 per run, inside the
+  predicted 25,000 to 55,000 and near its top.
+- The same smoke with the baseline binary: flattened utilization key sets
+  equal apart from the two stats_local keys; timer_effects.by_key 24 keys on
+  both, far from the 4096 cap, so the disclosed admission-order edge cannot
+  fire on this workload.
+
+52,400 writes per run is the size of the traffic this change takes off the
+shared counters, measured before the clock is read. At the baseline's 2,570
+runs per second that is about 135 million lock-prefixed increments per
+second to a few dozen shared cache lines, across 30 threads.
+
+Session thread-local-stats-blocks started with the frozen declarations and
+the plan's neutral argument, against the six-round baseline cache for this
+identity.
+
+Deviations the implementer reported, none touching the frozen prediction:
+writes to the per-thread timer effect map are not counted in
+folded_increments, so the counter slightly undercounts the traffic moved; a
+stale block dropped at a session reset adds to neither new counter; the
+recovery placebo's flag loop became four conditionals. The debug-build
+smoke was skipped on a stated reason that holds: tests/steer_authority_wiring.rs
+runs a real explorer session in the debug test build with steer_audit on,
+which reaches the moved debug_assert, and it passed.
+
+### Three rounds: a large gain, and the neutral declaration flagged
+
+After round 3 the primary reads 1.3217, per-round 1.3884, 1.2826, 1.2965,
+interval [1.1878, 1.4706], separated, above the frozen band's lower edge
+and its interval overlapping the band's top. Microseconds per run 1.5243.
+Candidate 3,239, 3,151 and 3,180 runs per second against the baseline's
+2,333, 2,456 and 2,453 in the same rounds. stats_local.folded_increments
+reads 32,322 per run on the graded workload.
+
+Two blockers stand. The structural one: the counter is absent from the
+baseline's dump, as predicted at admission. The one that matters: five
+observables read outside the baseline's own spread at round 3, which by the
+skill's rule refutes the neutral declaration and closes the candidate.
+
+- steps per run 1,842.7 against 1,992.3, allowance 92.7
+- end reason iterations_exhausted 0.2240 against 0.2426, allowance 0.0184
+- end reason stall_cap_reached 0.3185 against 0.3090, allowance 0.0078
+- arm share grid 0.1457 against 0.1371, allowance 0.0042
+- arm share grid-short 0.3098 against 0.3248, allowance 0.0032
+
+The rule is applied only after the cause is known, because two causes fit
+and they predict different things. A mid-run reader of a converted counter
+would mean the mechanism changes the search, and the declaration is refuted
+by the change itself. The other cause is the workload: the campaign
+allocates round-robin by wall slice (min_slice_sec 20), so an arm's share
+of runs is its relative throughput, and its stall and run caps are learned
+across runs. A per-step saving speeds long runs more than short ones - grid
+and grid-no-purgatory gained share, grid-short, capped at 1,500
+iterations, lost it - and learners fed a third more runs in the same wall
+end runs sooner, which is iterations_exhausted falling and
+stall_cap_reached rising. On that reading the spread check measures the
+speedup, and no change this large could pass it.
+
+The two are separated by an experiment, not an argument: the campaign's
+deterministic_slice_runs mode sizes slices in runs, independent of the
+clock. Both binaries run the graded config with only that mode switched on,
+the baseline twice as a control on reproducibility at 30 threads. No
+further round is bought until it answers.
+
+**Operator error, recorded.** The first deterministic comparison omitted
+`session_seed`, which the grader sets on every round, so each session drew
+its own workload and schedule seeds and the baseline control differed from
+itself on all 15,000 runs. That comparison says nothing about the candidate
+and is discarded. It was re-run with session_seed 1000, once at 30 threads
+(slices of 1,500 runs, two rounds per arm) and once at one thread (slices of
+300 runs), the baseline twice in each, so a control that still differs
+from itself separates thread nondeterminism from the candidate.
+
+### What the determinism runs show, and what they cannot
+
+With session_seed fixed, the 30-thread campaign is still not reproducible run
+for run: the baseline differs from itself on 8,750 of 15,000 rows, mostly in
+max_inert_streak, with identical workload and schedule seeds. The candidate
+differs from the baseline on 8,971, the same order. Row identity is not
+available as evidence at the graded thread count; the one-thread trio is
+running for that.
+
+At equal run counts the 30-thread distributions agree. Overall
+iterations_exhausted 0.7285 and 0.7231 on the two baselines against 0.7245
+on the candidate; plan_complete 0.2714 and 0.2768 against 0.2755; steps per
+run 3,849 and 3,833 against 3,833. Every overall statistic sits inside the
+baseline's own gap.
+
+That comparison does not test what the grader flagged. It shows no
+stall_cap_reached and no learned_cap_reached at all, and the graded
+workload ends 31 and 18 percent of its runs on them. Reading stall_cap.rs
+and run_cap.rs explains why, and supplies the mechanism the throughput
+reading needed:
+
+- Both caps are learners that take effect only after a scope has 200
+  completed probes. run_cap makes one run in 32 a probe, and only probes
+  whose plan completes feed it. 15,000 runs over five arms give a scope
+  about 25 completed probes, so neither cap ever switched on in the short
+  deterministic runs.
+- Both recompute only at doubling checkpoints (200, 400, 800, ...) and are,
+  in their own words, "a deterministic function of the sample sequence".
+  They are a function of how many runs have completed, not of wall time.
+- In a wall-budgeted round, a binary that completes a third more runs
+  therefore turns its caps on sooner and reaches later checkpoints within
+  the same 120 seconds, so a larger share of its runs is cut by them. That
+  is stall_cap_reached rising, iterations_exhausted falling and steps per
+  run falling. With round-robin allocation by wall slice, arm shares follow
+  each arm's relative throughput. All five flags follow.
+- Neither learner reads a counter this change converts: both write through
+  record_* and set_*_learned and consult only enabled().
+
+This is still an argument. The experiment that decides it is an equal-run-count
+comparison long enough for the caps to engage: slices of 25,000 runs, two
+rounds per arm, 250,000 runs per session at 30 threads, the baseline twice
+and the candidate once. If the candidate's end reasons, cap end reasons
+included, sit inside the baseline's own gap at equal runs, the neutral
+declaration holds for the mechanism, and the grader's spread check on this
+wall-budgeted workload is measuring the speedup.
+
+**One thread: byte-identical.** With session_seed 1000 at RAYON_NUM_THREADS=1,
+slices of 300 runs, 3,040 runs per session, the baseline reproduced itself
+exactly - 0 of 3,040 run rows differing on every non-clock column, 0 of
+4,556 utilization leaves, 0 of 3,119 campaign report leaves, and an
+identical stall_cap_runs.csv. The candidate matches the baseline on all of
+it: 0 rows, 0 utilization leaves apart from the two added stats_local keys,
+0 campaign leaves, the same stall_cap_runs.csv hash. Where the explorer is
+reproducible, the change alters nothing it searches or records. The caps do
+not engage at 3,040 runs either, so this clears the mechanism and leaves the
+cap path to the 250,000-run comparison.
+
+**30 threads, equal runs, caps engaged: steps shorter, cap end reasons at
+the edge.** Slices of 25,000 runs, two rounds per arm, 250,040 runs per
+session, session_seed 1000; baseline twice (111 s, 111 s), candidate once
+(87 s). Both caps engaged on all three: run_cap 6 recomputes over 2 scopes,
+stall_cap about 81,000 to 83,000 stops.
+
+Overall end reasons against the two baselines: learned_cap_reached 0.2049
+against 0.1989 and 0.2083, inside; plan_complete 0.2664 against 0.2768 and
+0.2651, inside; stall_cap_reached 0.3334 against 0.3251 and 0.3295, outside
+by 0.0039 on a baseline gap of 0.0044; iterations_exhausted 0.1951 against
+0.1989 and 0.1968, outside by 0.0018 on a gap of 0.0021. Steps per run 2,010
+against 2,088 and 2,126: outside by 78 on a gap of 38. By arm the shortfall
+sits in grid (2,948 against 3,157 and 3,111), grid-no-purgatory (1,836
+against 1,979 and 2,035) and grid-post-fault-2 (1,914 against 1,989 and
+2,037); aos and grid-short sit inside their gaps.
+
+Equal run counts did not remove the effect at 30 threads, and its direction
+is the graded one: more stall stops, fewer exhausted runs, shorter runs. A
+two-sample baseline gap is a weak spread estimate, but three grid arms moving
+the same way is not nothing. Two readings survive. The learned caps are read
+mid-run by concurrent workers, and when a checkpoint is crossed relative to
+other runs' starts depends on relative run speed; a per-step saving speeds
+long probes more than short runs, which would engage caps earlier in run
+order at equal totals. Or the change moves the search on the cap path, which
+the byte-identical one-thread result did not exercise because its caps never
+engaged.
+
+The one-thread run separates them: sequential runs cross every checkpoint at
+the same point in run order whatever their speed. Slices of 20,000 runs,
+one round, 100,000 runs, of which 80,000 fall in the default-budget scope -
+enough for its caps to engage and recompute. One thread is reproducible
+(shown above), so baseline and candidate run once each.
