@@ -1,0 +1,67 @@
+{
+ "name": "thread-local-stats-blocks",
+ "createdAtIso": "2026-09-13T03:07:12.028Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.05,
+   "max": 1.2
+  },
+  "counter": "stats_local.folded_increments",
+  "argument": "The change moves where about 105 observation-only utilization counters accumulate during a run: into a block owned by the running thread, folded into the same process-wide totals when the run ends (and at the next run's start as a backstop). No counter it touches is read by scheduling, arm selection, run or stall caps, fault timing or the campaign reward; those read the termination tallies, which stay live, or learner state that is not converted. Every snapshot is taken between slices after all runs have joined, and the snapshot folds the calling thread's block first, so every dumped total is the same sum. No random draw, candidate set, ranking or event order changes; only when a count reaches the shared total."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/thread-local-stats-blocks/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:thread-local-stats-blocks"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "43b3adf4fd8856bc599d4bbf022b88a4d3f0b7c4",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/43b3adf4fd88-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-13T03:11:41.880Z",
+   "seed": 1000,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-13T03:15:46.764Z",
+   "seed": 1001,
+   "wallSec": 244,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-13T03:19:51.665Z",
+   "seed": 1002,
+   "wallSec": 244,
+   "anomaly": null
+  }
+ ],
+ "finished": false
+}

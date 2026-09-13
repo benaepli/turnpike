@@ -964,3 +964,120 @@ the same point in run order whatever their speed. Slices of 20,000 runs,
 one round, 100,000 runs, of which 80,000 fall in the default-budget scope -
 enough for its caps to engage and recompute. One thread is reproducible
 (shown above), so baseline and candidate run once each.
+
+**One thread, caps engaged: byte-identical. The mechanism is neutral.**
+100,000 runs each, session_seed 1000, slices of 20,000 runs, both caps
+engaged on both sides (stall_cap 22,514 stops over 70,260 treated runs,
+run_cap 2 recomputes, cap_max_scope 899 on both). The candidate against the
+baseline: 0 of 100,000 run rows differing on every non-clock column;
+identical end-reason counts, including stall_cap_reached 22,514 and
+learned_cap_reached 18,308; 0 of 6,963 utilization leaves apart from the
+two stats_local keys; 0 of 3,089 campaign leaves; the same
+stall_cap_runs.csv hash.
+
+So the change does not alter what the explorer searches, on the cap path
+included. The shift the grader's spread check read at 30 threads, and the
+smaller one that survived at equal run counts, come from concurrency: the
+learned caps are read mid-run by every worker, so when a run sees a
+recomputed cap depends on how fast the other workers' probes finish, and
+this change makes them finish sooner.
+
+One more reading from the same pair, informal because the two sessions ran
+side by side on a busy host: at one thread the candidate took 383 s against
+the baseline's 380 s. A saving that is cache-line contention between
+threads must vanish when there is one thread, and it does. At 30 threads
+the same binary reads 1.32. That is the sharing declaration confirmed by
+the shape of the effect, not only argued.
+
+### The independent observable: the candidate profile
+
+research/perf/profiles/292c15b-cand-thread-local-stats-blocks.md, 60 s at 30
+threads, frame-pointer call graph, largest inclusive share 91.47 percent
+(93.95 on the baseline), against 292c15b.md.
+
+Self time, baseline to candidate:
+
+- walk_recovery_placebo 3.84 to 0.82, down 3.02 points. The frozen
+  observable asked for at least 1.0. The judge's red-team cut the proposer's
+  2.9-point attribution to 0.6-1.6 points on the audit_multiplier_authority
+  control; the proposer's figure was the better one.
+- schedule_runnable, all specializations, 12.80 to 5.65; select_within_queue
+  2.88 to 0.55; audit_multiplier_authority 0.43 to below the cutoff.
+- The four summed, 19.95 to 7.02, down 12.93 points. The frozen observable
+  asked for at least 4.
+- fold_run_counters does not appear above the cutoff, as the plan predicted.
+- The interpreter's shares rise - eval 4.93 to 6.60, exec inclusive 42.7 to
+  54.5 - which is what removing a third of the scheduler's cost does to the
+  remaining shares; they are shares of a profile, not times.
+
+This is the clearest attribution the loop has recorded. Iteration 2 withdrew
+"atomics taxing the treatment" because no atomic symbol showed above the
+cutoff; inlined lock-prefixed increments on bounced cache lines were
+charged to their callers all along, and removing them took 13 points of
+self time out of four scheduler functions.
+
+### Every frozen falsifier, read
+
+- Primary interval entirely below 1.05: no. 1.3217, interval [1.1878,
+  1.4706], separated at three rounds; every round above 1.28.
+- stats_local.folds 1.00 per run within 1 percent: 389,220 over 389,220,
+  378,360 over 378,360, 382,020 over 382,020 runs in the three rounds.
+  folded_increments 31,177, 33,038 and 32,751 per run, inside the predicted
+  25,000 to 55,000.
+- walk_recovery_placebo self down at least 1.0 point: down 3.02. The four
+  scheduler symbols down at least 4 points: down 12.93.
+- Dump integer leaves and timer_effects.by_key length: identical to the
+  baseline on the one-thread runs, byte for byte.
+- The spread check on steps per run, end reasons and arm shares: outside
+  the baseline's spread on five observables. This is the one that stands.
+
+### Filed for the user: split evidence
+
+The rule says a neutral declaration that reads outside the baseline's spread
+closes the candidate. Applied literally it closes this one. The evidence
+says the rule is reading something other than what it was written to guard:
+
+- The mechanism does not change the search. At one thread, with the learned
+  caps engaged over 100,000 runs, candidate and baseline produce identical
+  run rows, end reasons, utilization dump, campaign report and stall cap
+  table.
+- The flagged shift is a property of this workload under concurrency. Both
+  caps are learned from completed runs and read mid-run by all 30 workers,
+  and the campaign allocates by wall slice. A binary that finishes runs a
+  third faster engages its caps earlier and has its arm shares follow its
+  throughput. Every one of the five flags moves in the direction that
+  predicts, and a smaller version of the shift survives at equal run counts
+  at 30 threads, where only concurrency timing differs.
+- The gain is contention removed, by every instrument available: the
+  counter confirms the traffic moved (about 32,000 writes per run), the
+  profile shows 13 points of scheduler self time gone, and at one thread,
+  where there is no contention to remove, the two binaries take the same
+  time.
+
+What argues against, recorded honestly:
+
+- On the graded workload the explorer does run differently with this
+  binary: runs are 7.5 percent shorter (1,843 against 1,992 steps) because
+  caps engage sooner. Part of the 1.32 is therefore bought by shorter runs.
+  Discounting it, 1.3217 x 0.9249 is about 1.22 runs per second at equal
+  steps - still above the band's upper edge.
+- That shift is not free for the search loop: any faster binary would push
+  the learned caps harder on this workload, and whether that helps or hurts
+  bug-finding is the search loop's non-inferiority question, not this
+  loop's. It is also not specific to this candidate.
+- Three rounds, not six. More rounds cannot change the decision: the
+  interval's lower edge is already 1.19, and the neutrality flag is
+  systematic, so it will not clear with rounds.
+
+**Harness finding for the user.** The neutrality spread check compares a
+wall-budgeted campaign whose caps and allocation are functions of completed
+runs. On that workload it cannot certify any candidate large enough to
+matter: a real speedup moves the observables it guards through the learners,
+whatever the change does to the search. call-frame-one-pass, at about 6
+percent, stayed inside the spread; this one, at 32 percent, cannot. The skill
+and the grader are not this loop's to change. An equal-run-count reading, or
+the one-thread identity check run here, is what would separate "the change
+moves the search" from "the change is fast".
+
+Recommendation: merge, departing from the grader's blocker, on the written
+reason above. Grader session state: research/perf/state/thread-local-stats-blocks.json.
