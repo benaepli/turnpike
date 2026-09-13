@@ -2695,3 +2695,31 @@ cost is 42 MB. And runs.wall_us is now computed before the single send, so it
 no longer includes time a run spends blocked on a full queue; a
 microseconds-per-run reading is flattered wherever the baseline blocks,
 which here is 0.14 s per 60 s. The primary is the counter.
+
+### Rounds 1 to 3
+
+Primary, history_writer.busy_ns per run, baseline over candidate: 1.7775,
+1.7185, 1.6915; mean 1.7288, interval [1.6233, 1.8411], separated, band
+[1.15, 1.40] read above - the whole interval clears the band's upper edge.
+A prediction missed on the high side, not a falsifier (the falsifier is an
+interval entirely below 1.15). Per round, candidate 332.5, 338.6, 336.4 us
+against baseline 591.1, 581.9, 569.0 us. The replay bench's 1.195 was the
+writer's text copy alone; the graded workload adds the cross-thread frees
+and per-cell array construction the bench did not charge.
+
+Runs per second, confirmation only: 1.0889, 1.1127, 1.0558; mean 1.0855,
+interval [1.0167, 1.1590] - not separating downward, and above its expected
+[1.01, 1.05]. Microseconds per run 1.0601; steps per run 0.9840.
+
+By hand, every round: history_writer.commands 1.0000 per run;
+text_buffers_allocated 0.0210, 0.0206, 0.0232 and dropped_oversize 0.0206,
+0.0202, 0.0229 per run, under their 0.05 falsifiers and above the predicted
+0.01; candidate blocked_ns 0 and queue_full_sends 0 in every round, while the
+baseline blocked 1.56 s (3,550 sends), 0.06 s (124) and 0 s.
+
+One frozen falsifier stands as written: the spread check flags
+stall_cap_reached, 34.87 against 34.24 percent (allowance 0.34 points), and
+the aos arm share, 17.14 against 16.53 (allowance 0.17). It is the learned-cap
+signature that cleared at six rounds on lookups-and-format-once and needed a
+caps-engaged identity run on compiled-interpreter. Rounds 4 to 6 bought
+before deciding whether that run is needed.
