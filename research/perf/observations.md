@@ -2452,3 +2452,20 @@ run against 7f607e6 is exact on runs, executions, logs and traces, the
 stall_cap_runs.csv hash and every pre-existing leaf, with only grid_pool
 leaves added. The 30-thread debug shadow smoke (3,000 s wall budget) and the
 release smoke are still to come.
+
+### The debug shadow smoke
+
+A debug build at 30 threads on the campaign workload, stopped with Ctrl+C
+after two slices per arm (ten slices, each 140 s), which also exercised
+cancellation: the in-flight runs drained and every report was written.
+
+- grid_pool.shadow_mismatches 0 over 10,006 grid batches, each checked run by
+  run against a sequential one-batch-at-a-time assignment. Frozen: 0,
+  over at least 1,000 batches per grid arm. Held.
+- grid_pool.unfilled_in_ungated_batches 0. Frozen: 0. Held.
+- grid_pool.capacity_gated_batches 6.9 percent overall: grid 18.2 percent,
+  grid-short 10.8, grid-no-purgatory and grid-post-fault-2 one batch each.
+  Frozen: 5 to 45 percent, concentrated in the arms carrying unfilled slots.
+  Held, and concentrated exactly there.
+- grid_pool.fresh_ahead_launched 43.7 percent of grid runs. Frozen: 25 to
+  50 percent. Held.
