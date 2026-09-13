@@ -2219,3 +2219,28 @@ engage, so they do not reach the cap path. The same caps-engaged run is
 bought now, after the candidate profile, before any decision: config
 general_vr.json with session_seed 1000, slices of 20,000 runs, one round,
 one thread.
+
+### The independent observable: the candidate profile
+
+research/perf/profiles/b1fb646-cand-compiled-interpreter.md against
+b1fb646.md, read with one parser over the inclusive section's self column.
+The parser reproduces the judged baseline figures exactly: dispatch block
+26.01, R 4.12, Sip13 write self 2.06.
+
+- The dispatch block - execute_common_label, exec and exec_sync_inner in
+  every specialization, eval, eval_operand, store, plus every new compiled
+  symbol (ceval, exec_ops, run_sync_ops, run_async_op, the trace ops, and
+  the legacy names still present) - reads 19.00 self. R on the candidate is
+  4.83, so r = 1.172 and the frozen limit 21.01 x r is 24.63. **Held**,
+  and it holds uncorrected too: 26.01 to 19.00. The top of it is now ceval
+  6.37, exec_ops 4.79 + 1.06 + 0.95 and run_sync_ops 2.67 + 0.58 + 0.54.
+- r = 1.172 equals the graded microseconds per run, 1.1718: two independent
+  instruments agreeing on how much work left the profile.
+- The four lookup lines - HashMap<String, NameId>::get 1.61,
+  hash_one<&String> 1.08, hash_one<&NameId> 1.62 and HashMap<NameId,
+  FunctionInfo>::get 1.30 inclusive - are all below the reporting cutoff of
+  about 1.0. The frozen threshold is below 0.2 each, which this cutoff
+  cannot confirm or refute; recorded as down at least 0.6 to 0.6 points
+  each, not as the threshold met.
+- Sip13 write self 2.06 is below the cutoff; frozen at most 1.1 x r = 1.29.
+  Held by the cutoff.
