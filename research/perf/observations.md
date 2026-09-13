@@ -2373,3 +2373,22 @@ recorded here, with the protocol panel noted as blind to GridArm. The
 utilization it was priced on (grid busy share 0.596) was measured on b1fb646;
 the compiled interpreter shortened runs since, which changes the straggler
 distribution but not the frozen prediction.
+
+### The lite reading this candidate owes, restated against the live rule
+
+The iteration 9 judge wrote the owed non-inferiority reading as "depth>=4
+and h2 at the 25 percent relative margin, per run". Those rungs belong to
+the lite grader's retired v1 rule. The live rule is internal-primary-v3
+(research/orchestrator/src/decide.ts): primary depth>=8 events per
+explore-second, advance rungs depth>=8, 9 and 10, and deep guards depth>=6
+and depth>=8 read per run against DEEP_RUNG_MARGIN = 0.25 with a posterior
+reading of held, unresolved or regressed. That per-run deep guard is the
+reading the judge's clause was written to require - runs getting shallower
+while the per-second rate is bought with throughput - so it is the reading
+recorded here before any merge, taken from the lite grader's own `finish`
+on a cross-binary session (no treatment bit exists for this mechanism).
+h2 per run is recorded beside it as description. The protocol panel runs
+without the campaign block, so GridArm never executes there; if run, it is
+recorded as blind to this mechanism, not as clearance. The prediction's
+band, counters and falsifiers are otherwise unchanged; only the rung names
+are brought to the rule that will actually be computed.
