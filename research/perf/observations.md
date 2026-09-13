@@ -2156,3 +2156,37 @@ matched its own shell, so the chain stopped before the grader ran and
 nothing was written. Rerun with a bracketed pattern; search loop inactive,
 no search-loop grader running; session registered with the frozen
 declarations, band [1.08, 1.15] and counter compiled_ops.label_execs.
+
+### Rounds 1 to 3
+
+Per-round runs per second, candidate over baseline: 1.1517, 1.0982,
+1.1908; mean 1.1463, interval [1.0362, 1.2681], separated, band [1.08,
+1.15] inside, advice gain. Microseconds per run 1.1413, 1.1011, 1.1720;
+mean 1.1378, interval [1.0527, 1.2297]. Steps per run 0.9981, 1.0354,
+0.9550; mean 0.9956. Baseline for b1fb646: six rounds cached, 4,269.0 runs
+per second, spread 0.0390. Rounds 4 to 6 bought: the lower edge sits inside
+the floor and the neutrality rows below could clear or persist.
+
+Counters read by hand off the candidate's dump, per run, rounds 1 to 3:
+
+- compiled_ops.label_execs 33,195, 35,214, 31,421 (20,000 to 50,000);
+  legacy_labels 0 in every round.
+- compiled_expr.leaf_operands_inline 47,878, 50,773, 45,258, above the
+  eval_borrow sum in every round (20,234, 21,456, 19,356); tree_evals
+  13,728, 14,546, 13,104 (8,000 to 25,000); legacy_evals 0.
+- call_targets.indexed 1,980, 2,104, 1,837, that is 0.976, 0.976, 0.974 of
+  frame.calls (0.95 to 1.00); fallback 0.
+- channel_table.lookup_misses 0; dense_inserts equal to
+  run_buffers.channels_created exactly (1,363, 1,451, 1,255); lookups
+  2,119, 2,255, 1,939.
+- run_buffers.channel_table_grows 0.75, 0.77, 0.75, above the disclosed
+  0.40 to 0.70 - a prediction miss, not in the falsifier list.
+
+Every counter falsifier held. Two neutrality rows flagged at three rounds.
+Grid arm share, candidate over baseline in points: +0.84, +0.32, +1.21
+(15.17, 14.68, 15.30 percent against 14.33, 14.36, 14.09) - consistent in
+sign, like iteration 6's shift and opposite in direction. iterations_exhausted
+share: -1.81, +0.86, -2.10 points - mixed in sign. These rows come under the
+frozen spread-check falsifier, which every candidate large enough to matter
+has tripped through the wall-slice allocator's response to throughput; a
+consistent grid shift that survives six rounds owes a written decision.
