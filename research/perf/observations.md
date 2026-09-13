@@ -2469,3 +2469,77 @@ cancellation: the in-flight runs drained and every report was written.
   Held, and concentrated exactly there.
 - grid_pool.fresh_ahead_launched 43.7 percent of grid runs. Frozen: 25 to
   50 percent. Held.
+
+### The release smoke, and a falsifier that fires on counts
+
+The implementer's 30-thread release smoke (60 s wall on general_vr.json)
+read the mechanism inside every utilization prediction: grid_pool idle
+0.583 ms per grid run (per arm: grid 1.65, grid-short 0.31,
+grid-no-purgatory 0.77, grid-post-fault-2 0.07; predicted 0.2 to 1.3 in
+total), busy share 0.894 (predicted 0.78 to 0.96), 15.2 percent of grid
+batches gated, 38.5 percent of grid runs launched ahead,
+unfilled_in_ungated_batches 0. The AOS batched path in the same binary read
+2.99 ms idle per run at busy share 0.568, the whole-batch barrier the grid
+arms no longer have.
+
+It also read history_writer.queue_full_sends 275,050 and blocked_ns 252 s.
+The frozen falsifier says queue_full_sends stays 0. Read against the grading
+rounds already on disk:
+
+- compiled-interpreter's baseline side (b1fb646, about 4,200 runs per
+  second): 0 full-queue sends in all six rounds, writers about 300 s busy per
+  120 s round.
+- compiled-interpreter's candidate side, which is today's tree (about 5,000
+  runs per second): full-queue sends in 5 of 6 rounds (358, 543, 19, 180,
+  2,367), blocked up to 0.9 s, writers about 345 s busy per round - about 72
+  percent of four writers' 480 s.
+- Earlier sessions (lookups-and-format-once, value-traffic-composite): 0.
+
+So the parquet writers became the ceiling at the last merge, and the grid
+pool drives past it: 252 s blocked over 30 threads in 60 s is about 14
+percent of simulation-thread time spent waiting for queue room. The
+falsifier's premise, that the baseline sends none, is stale, but the
+reading it exists to catch is exactly this one: freed worker time that
+cannot become runs because the writers cannot take them.
+
+### Decision: closed without rounds
+
+The frozen falsifier fires by counts in a way no grading round can reverse:
+a round cannot bring 275,050 full-queue sends to 0, so no round could change
+the decision, and none were bought. Not a refutation of the mechanism, which
+held every exactness prediction (identity exact; 0 shadow mismatches over
+10,006 batches; 0 unfilled draws in ungated batches) and every utilization
+prediction; a refutation of the band as reachable on today's writer
+capacity. The lite reading it owed is moot. Patch kept at
+research/perf/patches/grid-ordered-release-pool.spur.patch; the smoke dumps
+are under tmp/loop/perf/grid-ordered-release-pool/keep/.
+
+### Direction review
+
+Digest for the user: iteration 10 built the grid batch-straggler pool, the
+largest cost the loop could explain. It works - exact assignment, idle time
+cut from about 2.8 ms to 0.6 ms per grid run - but its own falsifier caught
+that the parquet writers are now the ceiling: today's tree already fills the
+writer queue at about 5,000 runs per second, and the pool made simulation
+threads wait 252 s in a 60 s run for queue room. Closed, patch kept. Tree
+unchanged at spur 7f607e6; cumulative since call-frame-one-pass about 2.17.
+
+**Are the costs attacked still the largest explainable?** No. Throughput on
+this workload is now bounded by the four parquet writer threads, not by
+simulation-thread work: at the next merge's throughput the writers saturate,
+so any further simulation-side saving will read partly as blocked time.
+
+**Has the steering paid for itself?** Yes. The frozen falsifier on writer
+backpressure, added by the iteration 9 judge from the writer headroom
+measurement, stopped a session that would have read a diluted gain and hid
+its cause.
+
+**Next directives.** A writer-side mechanism that raises writer capacity per
+run without moving the cost onto simulation threads. The earlier replay
+bench found producer-built arrays cut writer CPU 17 to 26 percent for about
+100 us per run on simulation threads - a net loss then, with writers at a
+quarter to a third busy, and the change the note said to reach for above 80
+percent busy. The writers are near that now, and the grid pool is waiting on
+it. Writer thread count is a code constant tied to rayon threads (threads / 8
+rounded up); more writers oversubscribe 32 logical CPUs, so a count change is
+a contention question, not a free lever.

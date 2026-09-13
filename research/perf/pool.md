@@ -713,7 +713,7 @@ rounds of clock each:
 
 ## grid-ordered-release-pool
 
-- category: contention and parallelism | origin: proposer | status: proposed, second in line - graded after compiled-interpreter
+- category: contention and parallelism | origin: proposer | status: closed without rounds (iteration 10) on its writer-backpressure falsifier - mechanism exact, blocked by parquet writer capacity; patch kept at research/perf/patches/grid-ordered-release-pool.spur.patch; reopen once writers have headroom
 - declarations: search-affecting, shared saving
 - judge: expectedGain 6, expectedCost 2 (campaign slice loop the grader
   reads), net 4
@@ -745,3 +745,17 @@ rounds of clock each:
   research-loop-lite skill's grader, without editing research/lite/.
 - order: a debug shadow-assignment smoke reading gated batches per arm, then
   the perf grade, then the lite chunks if the perf reading lands in band.
+
+## writer-capacity (direction, not yet a hypothesis)
+
+- category: contention and parallelism | origin: operator-agent | status: direction for iteration 11
+- the ceiling: at about 5,000 runs per second on 7f607e6 the four parquet
+  writers are about 72 percent busy and already fill their queue in 5 of 6
+  grading rounds; grid-ordered-release-pool's release smoke blocked
+  simulation threads for 252 s in 60 s on a full queue.
+- measured before (observations.md, history writer headroom, spur a702eef):
+  arrays built on the producer thread cut writer CPU 17 to 26 percent and
+  add about 100 us per run on simulation threads; accumulating runs per
+  write was slower; turning dictionaries off grew output 1.1x to 3.7x.
+- what reopens: grid-ordered-release-pool, once history_writer.queue_full_sends
+  reads 0 at the candidate's throughput.
