@@ -2662,3 +2662,36 @@ read 1.106x, near the specified measurement but not it, with a plausible
 cause that is exactly what the clause guards - recycled buffers keeping
 their largest capacity. It is re-measured now as frozen, one 60 s run per
 binary in sequence, before any grading round.
+
+### Peak RSS as frozen, and the review
+
+One 30-thread, 60 s campaign run per binary in sequence under /usr/bin/time
+-v (tmp/loop/perf/rss-trbc/): baseline peak RSS 968,476 kB, candidate
+1,010,796 kB, 1.0437x. Frozen: at most 1.05x. **Held.** The 45 s pair's
+1.106x rested on a baseline that peaked at 901,432 kB. The same runs' dumps:
+candidate history_writer.busy_ns 337.3 us per run against 670.9 on the
+baseline (unpaired, not a graded reading), blocked 0 s against 0.14 s,
+queue_full_sends 0 against 278; text_buffers_allocated 0.0249,
+recycled 3.976, dropped_oversize 0.0241 per run, both falsifier counters
+under 0.05; commands exactly 1.0 per run.
+
+Review of the diff (1,820 patch lines plus text_buffer.rs, 270 lines): each
+row's text is appended to the run's buffer and the row records where it
+ends, starting where the previous row ended; the set is taken from a
+64-slot ArrayQueue at run start and returned by the writer after the
+RecordBatch and every row structure are dropped, with the busy timer ending
+after that. string_column checks in release builds that offsets never
+decrease, lie on character boundaries and fit i32, and the buffers accept
+only &str and serde_json output, so new_unchecked's UTF-8 and offset
+requirements hold. The dispatch payload copy for TraceEnter is taken from
+the buffer before the row is recorded. Tests compare written parquet
+column data against arrays built one string per cell across all four tables,
+including empty tables and non-ASCII text.
+
+Two notes. The memory bound is loose in the worst case: 64 free sets, 128
+queued runs and 30 in-flight runs, each up to four buffers near 1 MB, could
+hold several hundred MB for a spec with very large texts; on VR the measured
+cost is 42 MB. And runs.wall_us is now computed before the single send, so it
+no longer includes time a run spends blocked on a full queue; a
+microseconds-per-run reading is flattered wherever the baseline blocks,
+which here is 0.14 s per 60 s. The primary is the counter.
