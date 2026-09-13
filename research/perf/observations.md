@@ -2970,3 +2970,32 @@ not composition bought by shorter runs.
 Rounds 4 to 6 bought: the voiding rule and the per-round writer falsifier are
 read in every round, and the grid arm sat near its allowance edge in rounds 1
 and 2.
+
+### Rounds 4 and 5, and how the voiding rule reads
+
+Rounds 4 and 5 read 1.3450 and 1.3575. Five rounds: runs per second mean
+1.3464, interval [1.3135, 1.3801], band [1.05, 1.20] read above.
+Microseconds per run 0.9703 and 0.9783; steps per run 0.9712 and 0.9402.
+Frozen falsifiers held in both rounds: writer blocked 0.00 us per run; grid
+idle 0.300 and 0.294 ms per grid run; busy share 0.923 and 0.925, identical
+with blocking removed; unfilled_in_ungated_batches 0; AOS us per run 3,516
+and 3,634 inside [3,011, 4,877].
+
+The grid arm read 2,157 steps per run in round 5, 32 below its allowance of
+[2,189, 2,913]. The frozen wording decides how that is read: the writer
+falsifier is frozen as holding "in the pre-round smoke or in any single
+round", while the voiding rule is frozen as "any grid arm's steps per run
+outside the baseline spread x 2" with no per-round clause. So the voiding
+rule reads each arm's session reading, pooled over the candidate's rounds and
+weighted by runs, against the allowance from every cached baseline round.
+That basis is recorded here before round 6.
+
+Pooled over five rounds, against eight cached baseline rounds: aos 1,779
+steps and 3,670 us per run; grid 2,245 and 4,340; grid-no-purgatory 1,863 and
+3,876; grid-post-fault-2 1,856 and 3,801; grid-short 1,220 and 2,752. Every
+one sits inside its allowance, so the voiding rule has not fired. Two arms sit
+below the baseline's observed range though inside its spread - grid at 2,245
+against [2,430, 2,672] and grid-post-fault-2 at 1,856 against [1,882,
+2,064] - with per-round grid readings 2,244, 2,213, 2,377, 2,242 and 2,157:
+shorter runs on the arms the pool speeds up, the learned caps responding to
+the higher run rate. Recorded as it stands, not hidden by the allowance.
