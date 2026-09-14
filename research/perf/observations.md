@@ -3291,3 +3291,63 @@ session total equal, which a same-binary pair also shows. Two debug_assert!
 drain invariants in run_ordered_release stay: they are invariant checks, not
 a second model. No other shadow checks exist in spur. The perf baseline
 cache for the moved tree is measured at the next start.
+
+### frame-slots-and-trace-escape: implementer report and review before grading
+
+Built on 911e265 while the shadow removal ran; the patch applies unchanged on
+5df7084 and the graded candidate binary is rebuilt there, so both sides
+share the tree apart from the candidate's change.
+
+Review of the diff. The frame_layout pass matches the rewritten prediction
+and is stricter in four places, all conservative: a write also interferes
+with every slot the same label reads after it (TraceEnter stores the trace
+id before formatting parameters, so def-against-live-out alone would let the
+id overwrite a parameter dead after that label); liveness is per successor
+edge, so the for-in binding dies only toward the body; every label the
+function emitted is renumbered, not just reachable ones; a function with any
+out-of-range slot or successor is left as declared. Entry-live slots
+(parameters included) interfere pairwise, so a colour carries at most one
+entry-live default. The use/def walks match every Label, Instr and Expr
+variant with no wildcard. The independent forward checker caught a real bug
+in the implementer's first version (the for-in iterator slot renumbered
+twice) that the mutation test alone would not have. write_to now forwards
+to one write_text definition over a TextSink with structure and content
+entry points; the trace sink escapes content through a 256-entry table
+matching serde_json's compact escaper, and TraceScratch is gone.
+
+Checks (release only): spur-core 480 lib tests and every integration test
+pass; the checker passes over the 13 bin/spur specs that parse (CRAQ.spur
+fails to parse on both binaries); the mutation test rejects the dead-store
+colouring; 2,048 generated payload cases match json_string_array; no
+compiler/cfg/test.rs expectation edited. One-thread identity against the
+main binary on VR (3,008 runs) and Mencius (regression_mencius.json, 2,160
+runs): runs, executions, logs and traces identical both ways, same
+stall_cap_runs.csv hashes; frame.calls and params_filled identical. VR:
+slots_built per run 65,208.1 to 15,809.0 (4.12, above the [1.6, 2.6] band
+on this fixed-count config), program slots 655 to 124 (0.189, under 0.62).
+Mencius 2.66, 667 to 185. payloads_streamed + enter_payload_reused ==
+rows_logged == traces rows on both specs.
+
+Departure, written before any round: the identity falsifier "no leaf differs
+outside the disclosed ones" fired on two families, and neither refutes the
+candidate.
+- history_writer.text_buffers_allocated / dropped_oversize / recycled (VR
+  227 to 154, 199 to 122, 11,833 to 11,910): these count writer-side buffer
+  capacity events, not anything a run or the search observes. The old
+  json_string_array reserved text + 2 + 4n before writing, which seeded
+  capacities that crossed the 1 MiB recycle limit more often; the streamed
+  writer reserves nothing. Trace bytes are identical. A disclosure the
+  prediction missed, favourable in direction.
+- stats_local.folded_increments: a count of counter writes, which the two new
+  trace_format counters raise by construction. Mencius rises by exactly
+  payloads_streamed + rows_logged; VR rises 36,096 less, exactly 12 per run
+  over 3,008 runs, a per-run counting convention rather than any change in
+  what runs do.
+The grid_pool shadow leaves present on the candidate side came from its
+911e265 base and are gone in the rebuilt binary.
+
+Grading as frozen: counter primary frame.slots_built per run, baseline over
+candidate, band [1.6, 2.6]; runs per second cross-binary composed
+[1.032, 1.056], below the floor, read for regression only; H3's counters by
+hand in every round; a candidate profile against 911e265's R = 3.69 for both
+parts' guards.
