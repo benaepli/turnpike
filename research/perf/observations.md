@@ -5754,3 +5754,24 @@ Review:
   85af34d was fetched from the main tree's spur. Nothing was downloaded.
 
 Ruling: both commits match the judgment; profiles of A and A+B are recording.
+
+### plan-bookkeeping-answered-on-change: profile reading (autonomous)
+
+Profile research/perf/profiles/85af34d-cand-plan-bookkeeping.md against
+85af34d.md (reader tmp/loop/perf/guards21.py, reproducing every reference
+figure: P 1.57, K 1.16, E 3.17, malloc + cfree 2.25, sched 12.13). r = 12.96 /
+12.13 = 1.068; placebo 1.026 of reference, inside [0.9, 1.1].
+- G1 P: Vec<NodeIndex> from_iter, Vec<(NodeIndex, &PlannedEvent)> from_iter
+  and get_ready_events all absent from both tables (each below 0.3); limit
+  0.32. The bound (under 0.9) does not decide it.
+- G2 K: Sip13 write 0.36 read; hash_one<&NameId> and HashMap<usize, &str>::get
+  absent (each below 0.3); limit 0.76. The bound (under 0.96) does not decide it.
+- G3 E: exec_plan 3.17 to 2.69 raw, at most 3.71 - held; no new PlanEngine
+  line at or above 0.3. The saving did not reappear in exec_plan.
+- G4 P + K + E: at most 2.69 + 0.36 + 0.9 + 0.6 = 4.55 even at the bounds,
+  against 4.81 - held.
+- G5 malloc + cfree 2.16 against at most 2.51 - held.
+
+Ruling: G1 and G2 go to one low-cutoff profile of the same binary
+(--percent-limit 0.05), read only for the rows of P and K, after the A+B
+profile finishes; G3-G5 stand as read here. A fired G1 or G2 there closes A.
