@@ -1276,3 +1276,59 @@ rounds of clock each:
   rounds on the surviving stack, composite band [1.020, 1.058], regression
   only, each part's counters by hand. The wall cannot separate upward at this
   size, so any fired guard closes that part.
+
+## struct-values-as-shaped-slices
+
+- category: data layout | origin: proposer | status: admitted (iteration 20) - building as commit A of struct-slices-and-borrowed-records
+- mechanism: ValueKind::Struct(&'static StructShape, EcoVec<Value>) for
+  string-keyed map literals whose key set occupies distinct root slots of the
+  imbl node (so every insertion order iterates and later updates identically);
+  field reads resolve through the shape; store, erase, for-in, Eq, Ord, both
+  signature policies, write_to, JSON and a hand-written Debug produce exactly
+  the Map form's output, materializing a Map where needed.
+- verified by the judge: ceval:207 is 1.95 points (23.1 percent of ceval);
+  every VR key set gives one order under all insertion orders and distinct
+  root slots; porcupine reads map values as an ordered pair list, traceanalyzer
+  reads no maps; decoded_evaluation_matches_eval_* compare Debug text, so Debug
+  must print Struct as Map; value_sig.leaf_hashes_deferred exists (3,905 per
+  run) and is grader-pairable.
+- primary: --counter value_sig.leaf_hashes_deferred, baseline over candidate
+  [9.0, 16.0]; wall [1.030, 1.060] regression only; registered departure: if
+  only a relocation sub-limit fires, merge requires upward separation within
+  six rounds.
+- guards (flat 0.3 report, r = R_cand / 18.90): ceval 8.44 falls at least 1.0
+  x r; make_mut + compute_sig + Iter::next + drop_slow at most 0.90 x r;
+  allocator 4.31 falls at least 0.2 x r; memmove 6.32 falls at least 0.1 x r;
+  relocation family 34.74 falls at least 1.2 x r with sub-limits on clone,
+  drops and the exec loops.
+- declarations: search-neutral, shared saving. Judge net 6 (gain 8, cost 2).
+- full record: tmp/loop/perf/it20-judgment.md (H1).
+
+## delivered-record-borrowed-through-exec
+
+- category: data layout | origin: proposer | status: admitted (iteration 20) - commit B of struct-slices-and-borrowed-records, on top of struct-values-as-shaped-slices
+- mechanism: schedule_runnable owns the delivered record for the step; exec
+  and exec_ops take &mut Record and return its disposition (park, requeue,
+  finish), applied immediately; the queue layout is unchanged, answering why
+  runnable-one-word-record's scheduler guard fired (the walks read link_seq,
+  pc, node, origin_node, entry_pc, priority of every queued record).
+- verified by the judge: 248-byte memcpy at scheduler.rs:1334, 1547, 1598,
+  1766 and exec.rs:855 in the release objdump, none elided; the park copy
+  credit removed. Same cost as delivered-record-not-copied, different
+  mechanism.
+- grading: deciding falsifier that the named copies are gone in objdump and
+  the 248/240-byte copy count falls by at least 4; incremental profile guards
+  against A (memmove falls at least 0.8 x r2; scheduler family and exec loops
+  each at most +0.30; their sum with memmove falls at least 0.5 x r2);
+  band [1.006, 1.014], no departure path.
+- declarations: search-neutral, shared (unsure). Judge net 3 (gain 5, cost 2).
+- full record: tmp/loop/perf/it20-judgment.md (H2).
+
+## struct-slices-and-borrowed-records
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 20) - building
+- one branch from c9c54fc: commit A (H1), commit B (H2); tests and one-thread
+  identity on each; A profiled against the flat 0.3 report, B against A's
+  profile plus the objdump check; a part whose guard fires is reverted before
+  rounds; three rounds against c9c54fc (six only under A's departure rule),
+  wall band [1.036, 1.075] with B, [1.030, 1.060] without.

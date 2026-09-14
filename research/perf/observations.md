@@ -5374,3 +5374,21 @@ scheduler guard.
   (1.32 points of memmove) and half the park copy. Counters show only the
   path, not the copies, so it is proposed as a second commit on H1 read by
   incremental profile; band [1.008, 1.016].
+
+### Judgment (tmp/loop/perf/it20-judgment.md)
+
+Both admitted with rewrites; nothing scored 0. H1 net 6 (gain 8, cost 2 for
+exec.rs for-in arms and history.rs JSON): the judge reproduced the ceval line
+split and the order claim, and tightened the decode rule to distinct root
+slots after finding imbl 6.1 packs colliding keys into the next free slot in
+small roots. Counter primary leaf_hashes_deferred baseline over candidate
+[9.0, 16.0] (census at seed 1001 implies 11.6); ratio bands widened; the exact
+identity now counts every avoided key hash. H2 net 3: all five 248-byte copies
+present in objdump, park credit removed, band [1.006, 1.014]; graded by the
+standing rule with an objdump falsifier and no departure path.
+
+Selection (autonomous): build both as one stack, A then B, per the judge's
+sequence. H1 carries the largest priced saving in the loop since
+eligible-lists; H2 rides because its wall band cannot be read alone and its
+decisive check (the copies gone, the scheduler walks not moved) is readable on
+an incremental profile.
