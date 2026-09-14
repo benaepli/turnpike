@@ -5814,3 +5814,21 @@ Low-cutoff profile research/perf/profiles/85af34d-cand-plan-bookkeeping-low-cuto
   0.00 -> G2 0.46 at most 0.76 - held (the removable lookup share is gone;
   what remains is the lookup work paid elsewhere, as the judge estimated).
 Every H1 guard holds on A. A+B's low-cutoff profile is recording.
+
+### known-valid-text-and-literals-without-placeholders: cost rows settled; rounds registered (autonomous)
+
+Low-cutoff profile research/perf/profiles/85af34d-cand-plan-bookkeeping-and-known-valid-text-low-cutoff.md
+(--percent-limit 0.05, the A+B binary), read only for the registered rows with
+r = 1.092 from the A+B profile: from_utf8 0.00 at most 0.109 - held;
+EcoVec<Value>::from_elem 0.00 at most 0.109 - held; P 0.00 at most 0.328 -
+held; K 0.49 (hash_one<&NameId> 0.16, Sip13 write 0.33) at most 0.775 - held.
+Every guard of both parts holds; nothing is reverted.
+
+Rounds: three cross-binary rounds of the A+B binary against 85af34d, launched
+as one run and read together; no extension, no departure. Primary runs per
+second, band [1.021, 1.041], regression only. Merge requires: no downward
+separation; in every round scans + scans_skipped = steps_total, scans_empty 0,
+deliver lookups 0, scans per run [0.95, 18], scans / steps_total [0.0005,
+0.015], literals_in_order + literals_permuted = literals, literals / frame.calls
+within 0.375 +/- 0.01, str_from_off_boundary 0; the spread check inside or its
+standing exemption.
