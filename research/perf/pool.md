@@ -1185,7 +1185,7 @@ rounds of clock each:
 
 ## timer-bias-read-at-the-split
 
-- category: algorithmic | origin: proposer | status: admitted (iteration 18) - re-priced alone on 11a720c after the probe counters closed (judge addendum, net 6): it now also skips about 0.74 record_timer_context_bias calls per step (1.48 shared writes, about 80 percent of the timer-bias writes), priced 1.75-3.4 points; building alone
+- category: algorithmic | origin: proposer | status: merged (autonomous, placebo referral read by the user) - spur c9c54fc, superproject 34394a6; scheduler family down 4.10 with no relocation into exec_plan; runs per second 1.0251; counters in band; post-merge baseline 8,120.3 cleared its revert line of 7,624; lite-log note on biased_steps written (a30af54)
 - verified: multiplier() a pure read; the head-timer find side-effect-free on
   a timer queue; one roll then try_select on both paths, so draws match;
   neutral. biased_steps is the declared firing counter of the merged lite

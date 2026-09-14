@@ -5015,3 +5015,19 @@ Revert criterion, fixed before the post-merge baseline is measured: the
 merge is reverted if the fresh baseline at the merged spur commit reads below
 7624 runs per second over three rounds, 0.97x the 7860.6 cached for 11a720c
 over 18 rounds.
+
+### Post-merge baseline: the merge stands
+
+Merged: spur c9c54fc, superproject 34394a6; lite-log note a30af54. The fresh
+baseline at c9c54fc reads 8,120.3 runs per second over three rounds (8,238.0,
+7,947.9, 8,175.0), spread 0.0188, against 7,860.6 cached for 11a720c over 18
+rounds - plus 3.3 percent, above the registered revert line of 7,624.
+biased_steps per step 0.185-0.190 on the merged tree, the redefined counter as
+predicted. Writers 367-381 us busy per run, blocked 0, full-queue sends 2, 0,
+0. Ledger row appended with ratio 1.0251; cumulative 3.777.
+
+Iteration 18 closes with one merge (timer-bias-read-at-the-split), one close
+(scheduler-probe-counters-folded-per-run, 0.0024 short of its registered
+upward separation, patch kept and eligible to return), and one held
+(unweighted-steer-counters-derived-at-fold, waiting for a returned probe-
+counter candidate). Iteration 19 profiles c9c54fc.

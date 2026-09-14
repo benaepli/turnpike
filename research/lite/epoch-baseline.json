@@ -437,6 +437,22 @@
    "cacheFile": "research/perf/baselines/2d021a55f2c1-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-14T07:39:50.733755Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The ratio field is the graded cross-binary runs per second, 1.0145 [0.9486, 1.0849] over three rounds, read for regression only; counters exact every round and every profile guard held on its own commit; neutrality rows outside the spread covered by an identical caps-engaged one-thread identity of 100,000 runs on a superset of the change. A walk_recovery_placebo profile reading below its described band was put to the user, who chose to merge. Revert criterion registered before the check: below 7,295 runs per second. Post-merge baseline 8017.4 against 7,521.3 cached for 45517fd over 15 rounds, plus 6.6 percent: the merge stands."
+  },
+  {
+   "name": "timer-bias-read-at-the-split",
+   "commit": "34394a6",
+   "spurCommit": "c9c54fc",
+   "ratio": 1.0251,
+   "cumulative": 3.7767776238700836,
+   "measuredRps": 8120.313040074088,
+   "measuredRpsChunks": [
+    8238.0,
+    7947.9,
+    8175.0
+   ],
+   "cacheFile": "research/perf/baselines/1e5a89f133ec-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-14T14:23:54.170949Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The ratio field is the graded cross-binary runs per second, 1.0251 [0.9906, 1.0608] over three rounds, read for regression only; the merge rests on its plain-cycles profile guards (scheduler family down 4.10 points, scheduler family plus exec_plan down 4.40, exec_plan itself down) and exact counters. Neutrality rows outside the spread covered by an identical caps-engaged one-thread identity of 100,000 runs. A placebo reading outside its described band was put to the user, who chose to merge; the redefinition of timer_context.biased_steps was noted in research/lite/observations.md at the user's authorization. Revert criterion registered before the check: below 7,624 runs per second. Post-merge baseline 8120.3 against 7,860.6 cached for 11a720c over 18 rounds, plus 3.3 percent: the merge stands."
   }
  ]
 }
