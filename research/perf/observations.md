@@ -4297,3 +4297,33 @@ regression only, counters by hand. Identity: VR and Mencius identical on
 commit A; the caps-engaged run on the composite covers its code. Its placebo
 reading is below the described band, so a merge waits for the user's reading
 of that referral.
+
+### eligible-lists-known-from-queue-info: three rounds (autonomous)
+
+Seeds 1000-1002 against 45517fd, the eligible lists alone (commit A):
+- cross-binary runs per second 1.0465, 1.0011, 0.9965; mean 1.0145
+  [0.9486, 1.0849], not separated; microseconds per run 1.0151. Regression
+  reading held.
+- counters every round: eligible_known + eligible_built equals
+  recovery_weight_placebo.decisions and multiplier_authority.decisions to
+  the unit (1,684,190,627 / 1,689,640,535 / 1,683,961,518); decisions over
+  built 38.7, 40.4, 40.2 (at least 3); eligible_built_long 855, 852, 1,221
+  (0.002-0.003 percent of built). Writers blocked 0.
+- neutrality: steps per run 1,833.0 against 1,730.4 (allowed 77.1) and
+  grid-no-purgatory arm share 0.2054 against 0.2120 (allowed 0.0021) read
+  outside the baseline's spread; every end-reason row inside. The frozen
+  falsifier exempts this case where an identical caps-engaged run covers the
+  code: the 100,000-run caps-engaged identity on the composite, whose code is
+  a superset of this commit, read identical on every table, end reason and
+  cap figure, which the judgment names as covering this commit. Recorded all
+  the same: the steps-per-run shift (+5.9 percent) is larger than the
+  throughput responses seen before, and it arrives with a smaller runs-per-
+  second change than they had.
+- profile guards (read before rounds) all held.
+
+Reading: merge-eligible under the standing rule - counters exact and in band,
+identity identical, every guard held, no downward separation, neutrality
+covered by the caps-engaged run. Not merged yet: the frozen prediction sends a
+walk_recovery_placebo reading outside [1.49, 2.09] x r to the search loop's
+owner before any merge, and this commit's profile read 1.34 x r (1.79 to
+1.42 self, code untouched). Put to the user.

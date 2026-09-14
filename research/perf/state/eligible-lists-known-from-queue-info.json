@@ -1,0 +1,67 @@
+{
+ "name": "eligible-lists-known-from-queue-info",
+ "createdAtIso": "2026-09-14T07:16:57.175Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.01,
+   "max": 1.025
+  },
+  "counter": null,
+  "argument": "Only whether the scheduler filters a chosen queue a second time changes. When the eligibility count taken for queue selection admitted every runnable of the chosen queue, and the queue holds at most 128, selection is handed the indices 0..len from a static table; otherwise the list is built with the same filter at exact capacity; the per-node size list lives in a buffer reused across steps. The count and the filter use the identical predicate with no state change between them, so the indices and their order are the same. No draw, selection, container order, value, row or anything the search reads changes. One-thread identity against the baseline binary on VR (3,008 runs) and Mencius (2,160 runs): runs, executions, logs and traces identical both ways, same stall_cap_runs.csv hashes, equal end reasons; a caps-engaged 100,000-run identity on a superset of this change read identical; eligible_known + eligible_built equals recovery_weight_placebo.decisions exactly."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/eligible-lists-and-owned-slots/cand-spur-h1",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:eligible-lists-known-from-queue-info"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "f5d551492f0481fd430b4d5c0529af93705dcea6",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/f5d551492f04-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-14T07:21:08.136Z",
+   "seed": 1000,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-14T07:25:19.412Z",
+   "seed": 1001,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-14T07:29:30.658Z",
+   "seed": 1002,
+   "wallSec": 250,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}
