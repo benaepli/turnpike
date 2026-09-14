@@ -5802,3 +5802,15 @@ from_elem and the rows of P and K, after A's low-cutoff profile finishes.
 Every other guard stands as read. A fired H2 G1 reverts parts (a) and (b), a
 fired H2 G2 reverts part (c), a fired H1 G1 or G2 on either profile closes A
 and parks B.
+
+### plan-bookkeeping-answered-on-change: G1 and G2 settled (autonomous)
+
+Low-cutoff profile research/perf/profiles/85af34d-cand-plan-bookkeeping-low-cutoff.md
+(--percent-limit 0.05, same binary), read only for the rows of P and K with r =
+1.068 from A's profile:
+- P: Vec<NodeIndex> from_iter 0.00, Vec<(NodeIndex, &PlannedEvent)> from_iter
+  0.00, get_ready_events 0.00 -> G1 0.00 at most 0.32 - held.
+- K: hash_one<&NameId> 0.14, Sip13 write 0.32, HashMap<usize, &str>::get
+  0.00 -> G2 0.46 at most 0.76 - held (the removable lookup share is gone;
+  what remains is the lookup work paid elsewhere, as the judge estimated).
+Every H1 guard holds on A. A+B's low-cutoff profile is recording.
