@@ -485,6 +485,22 @@
    "cacheFile": "research/perf/baselines/20f24aa58dda-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-14T20:13:41.191819Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. Two spur commits: plan-bookkeeping-answered-on-change and known-valid-text-and-literals-without-placeholders. The ratio field is the graded cross-binary runs per second, 1.0607 [0.9635, 1.1677] over three rounds, read for regression only; the merge rests on its plain-cycles profile guards (plan collect family 1.57 to 0.00, lookup family 1.16 to 0.46, exec_plan down; from_utf8 and from_elem to 0.00, drop_glue<Value> down 0.67, ceval within its relocation limit) and exact counters. Arm shares outside the spread covered by an identical caps-engaged one-thread identity of 100,000 runs. Revert criterion registered before the check: below 8,414.6 runs per second. Post-merge baseline 9015.2 against 8,674.9 cached for 85af34d, plus 3.9 percent: the merge stands. A follow-up spur commit 0b0004e restores a displaced test gate and changes no release code."
+  },
+  {
+   "name": "writer-headroom-and-program-text",
+   "commit": "34bac84",
+   "spurCommit": "c302525",
+   "ratio": 0.9957,
+   "cumulative": 4.270012653540327,
+   "measuredRps": 8858.32443204203,
+   "measuredRpsChunks": [
+    8901.4,
+    9002.2,
+    8671.4
+   ],
+   "cacheFile": "research/perf/baselines/29ef5ad93da2-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-14T22:59:37.412190Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. Four spur commits: parquet 58.0.0 vendored with a patch file, integer-dictionary-keys-by-value, page-statistics-from-first-in-page-keys, and part A of program-text-without-shared-refcounts (part B closed). The ratio field is the graded cross-binary runs per second, 0.9957 [0.8566, 1.1573] over three rounds, read for regression only: this merge buys writer headroom, not wall time, and the merge rests on writer busy ns per row 1.267 (history_writer.busy_ns primary 1.2661 [1.1197, 1.4317], separated), writers 64-66 percent busy with no blocking against 82-83 percent, byte-identical output, and profile guards. Revert criterion registered before the check: below 8,744.7 runs per second. Post-merge baseline 8858.3 against 9,015.2 cached for 2da4e1a: the merge stands."
   }
  ]
 }

@@ -6330,3 +6330,33 @@ Revert criterion, registered before the post-merge baseline is read: the fresh
 post-merge baseline reads below 8,744.7 runs per second (0.97 of the 9,015.2
 cached for 2da4e1a; the tree moved to 0b0004e by a change to test code only).
 The writer headroom itself is read on the next graded rounds' baseline side.
+
+### Post-merge baseline: the writer merge stands
+
+Fresh baseline cache for the merged tree (research/perf/baselines/29ef5ad93da2-30-f9daa01b-120-bb813e711.json):
+8,901.4, 9,002.2, 8,671.4, mean 8,858.3 runs per second, spread 0.019. The
+revert line was 8,744.7. Against the 9,015.2 cached for 2da4e1a it reads 1.7
+percent lower, inside the baseline's own round-to-round spread and consistent
+with the graded 0.9957 [0.8566, 1.1573]: the merge was expected to move writer
+headroom, not wall time. Ledger row appended with the graded runs-per-second
+ratio 0.9957, cumulative 4.270; the note records that the merge rests on the
+writer reading.
+
+Digest, iteration 22: contention lens, writer path. The proposer measured the
+writer command (238 ns per row, integer dictionary interning the largest
+single cost) and the lock-prefixed instruction census of simulation threads;
+a session restart interrupted it after both recordings and it resumed from
+scratch files. The judge ruled a saving that buys writer headroom admissible
+when the writers are trending to their limit, admitted a vendored parquet
+58.0.0 with a patch file, and rewrote three claims. One five-commit stack:
+integer dictionary keys by value and page statistics from new keys merged
+(writer total 11.51 to 9.44 raw, busy per row 1.267, writers 82-83 to 64-66
+percent busy with blocking gone, output bytes identical); trace names as
+static strings merged (lock sites 0.686 to 0.000); thread-private long
+literals closed (the per-thread table cost what the shared count did). Tree
+now spur c302525, 8,858.3 runs per second. Lessons: a lock census needs the
+candidate's binary name and demangled symbols, and an empty census is a
+failed run, never a pass; a registration that copies one part's band for a
+stack must be corrected openly before deciding; moving a shared reference
+count to thread-local copies pays a lookup that can cost as much as the
+contention it removes.
