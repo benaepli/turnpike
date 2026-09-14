@@ -5648,3 +5648,39 @@ the next directives stay at mechanism level. Iteration 21 takes the
 redundant-work lens with a focus on the two new per-step lines and on the
 drops that moved into field vectors; writer capacity is recorded as the next
 likely ceiling and left to the contention lens. Pool pruning: nothing to drop.
+
+## Iteration 21 - autonomous, redundant-work lens, profile 85af34d
+
+Lens: redundant work per step. Focus directive from the direction review: the
+Vec<NodeIndex> collect (0.95) and __ieee754_log_fma (0.78) lines, and the value
+drops that moved into field vectors.
+
+### Proposals (tmp/loop/perf/it21-proposals.md)
+
+One 60 s plain-cycles caller recording on the 85af34d binary (matches
+85af34d.md within 0.11 on every symbol checked).
+- Focus answers: the NodeIndex collect is get_ready_events rescanning the plan
+  status map every step, though its answer changes only when an event
+  completes. __ieee754_log_fma is the Beta(0.5, 0.5) priority draw per RPC send
+  (77 percent) and per SetTimer (21 percent); it feeds the scheduler's choice,
+  so it is not redundant and has no bit-identical cheaper form. The EcoVec drop
+  rise is the same drop events under a new symbol (AssignLocal's share 0.20 to
+  0.65 while drop_glue<ValueKind> fell), not repeated work.
+- H1 plan-bookkeeping-answered-on-change: PlanEngine keeps a Ready count and a
+  not-Completed count; the ready scan is skipped when nothing is ready,
+  is_complete reads the count, and the delivery-name lookup at path.rs:1094
+  runs only with a pending delivery. Counter plan_ready.scans /
+  steer_authority.steps_total [0.0005, 0.015], scans + skipped = steps exactly.
+  Wall [1.015, 1.030] regression only, priced 1.7-2.3 points. Guards: plan
+  collect/scan rows 1.57 to at most 0.30 x r; lookup rows 1.16 fall at least
+  0.45 x r; relocation exec_plan 3.17 rise at most 0.30 x r (where
+  plan-engine-dense-status's saving reappeared, +1.38); net of the three 5.90
+  fall at least 1.4 x r; malloc + cfree rise at most 0.10 x r.
+- H2 known-valid-text-and-literals-without-placeholders, a second commit on H1:
+  no UTF-8 re-check on TextBuffer::str_from and Decimal::as_str, and struct
+  literals built without placeholder Units. Alone [1.009, 1.013], unreadable;
+  with H1 [1.024, 1.043]. Guards: from_utf8 0.54 to at most 0.10 x r;
+  from_elem 0.60 to at most 0.10 x r; relocation ceval, write_to, malloc; net
+  11.58 fall at least 0.6 x r.
+- Flagged, not proposed: the node-env handle pair per segment (about 1.4
+  points) is the closed node-env-detached-per-segment mechanism.
