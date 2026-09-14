@@ -1,0 +1,2221 @@
+diff --git a/spur-core/src/compiler/cfg/compiled.rs b/spur-core/src/compiler/cfg/compiled.rs
+index fb30b85..38c5e45 100644
+--- a/spur-core/src/compiler/cfg/compiled.rs
++++ b/spur-core/src/compiler/cfg/compiled.rs
+@@ -7,6 +7,7 @@
+ use super::ir::{Expr, FunctionInfo, Instr, Label, Lhs, Program, VarSlot, Vertex};
+ use crate::analysis::resolver::NameId;
+ use crate::analysis::type_id::TypeId;
++use crate::simulator::{StructShape, struct_shape};
+ use ecow::EcoString;
+ use std::sync::Arc;
+ 
+@@ -39,6 +40,9 @@ pub enum CExpr {
+     /// `Not(EqualsEquals(a, b))`.
+     NotEquals(Opnd, Opnd),
+     Map(Vec<(Opnd, Opnd)>),
++    /// `Map` whose keys are the distinct string literals of a struct shape:
++    /// each value with the field position it fills, in source order.
++    StructLit(&'static StructShape, Vec<(usize, Opnd)>),
+     List(Vec<Opnd>),
+     ListPrepend(Opnd, Opnd),
+     ListAppend(Opnd, Opnd),
+@@ -425,6 +429,24 @@ fn o(expr: &Expr) -> Opnd {
+     opnd(expr)
+ }
+ 
++/// A map literal whose keys are all string literals and form a struct shape.
++fn struct_literal(kv: &[(Expr, Expr)]) -> Option<CExpr> {
++    let names = kv
++        .iter()
++        .map(|(k, _)| match k {
++            Expr::String(s) => Some(s.clone()),
++            _ => None,
++        })
++        .collect::<Option<Vec<EcoString>>>()?;
++    let shape = struct_shape(&names)?;
++    let fields = kv
++        .iter()
++        .zip(&names)
++        .map(|((_, v), name)| (shape.position(name).expect("a shape holds its own keys"), o(v)))
++        .collect();
++    Some(CExpr::StructLit(shape, fields))
++}
++
+ /// Decodes an expression that is not a slot or a literal.
+ fn tree(expr: &Expr) -> CExpr {
+     match expr {
+@@ -442,7 +464,8 @@ fn tree(expr: &Expr) -> CExpr {
+         Expr::And(a, b) => CExpr::And(o(a), o(b)),
+         Expr::Or(a, b) => CExpr::Or(o(a), o(b)),
+         Expr::EqualsEquals(a, b) => CExpr::EqualsEquals(o(a), o(b)),
+-        Expr::Map(kv) => CExpr::Map(kv.iter().map(|(k, v)| (o(k), o(v))).collect()),
++        Expr::Map(kv) => struct_literal(kv)
++            .unwrap_or_else(|| CExpr::Map(kv.iter().map(|(k, v)| (o(k), o(v))).collect())),
+         Expr::List(es) => CExpr::List(es.iter().map(o).collect()),
+         Expr::ListPrepend(a, b) => CExpr::ListPrepend(o(a), o(b)),
+         Expr::ListAppend(a, b) => CExpr::ListAppend(o(a), o(b)),
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index 51f8f15..d8db869 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -1,6 +1,7 @@
+ pub mod arm_selector;
+ pub mod config_override;
+ mod core;
++pub(crate) use self::core::values::{StructShape, struct_shape};
+ pub mod client_anchor;
+ pub mod crash_phase;
+ mod coverage;
+diff --git a/spur-core/src/simulator/core/compiled_eval.rs b/spur-core/src/simulator/core/compiled_eval.rs
+index 9f918b1..4d88feb 100644
+--- a/spur-core/src/simulator/core/compiled_eval.rs
++++ b/spur-core/src/simulator/core/compiled_eval.rs
+@@ -7,7 +7,9 @@ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::{CExpr, Opnd};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::{Operand, update_collection};
+-use crate::simulator::core::values::{Decimal, Env, Value, ValueKind, ValueMap, ValueSeq};
++use crate::simulator::core::values::{
++    Decimal, Env, Value, ValueKind, ValueMap, ValueSeq, struct_get, struct_to_map,
++};
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::util_stats::{self, InterpreterTally};
+ use ecow::EcoString;
+@@ -208,6 +210,24 @@ pub fn ceval<H: HashPolicy>(
+             }
+             Ok(Value::<H>::map(m))
+         }
++        CExpr::StructLit(shape, fields) => {
++            let mut vals = ValueSeq::<H>::from_elem(Value::<H>::unit(), fields.len());
++            let slots = vals.make_mut();
++            for (done, (pos, v)) in fields.iter().enumerate() {
++                t.leaf_operands_inline += 1;
++                match cvalue(l, n, v, r, t) {
++                    Ok(val) => slots[*pos] = val,
++                    Err(e) => {
++                        if !H::EAGER {
++                            util_stats::record_struct_literal_failed(done as u64);
++                        }
++                        return Err(e);
++                    }
++                }
++            }
++            util_stats::record_struct_literal(if H::EAGER { 0 } else { fields.len() as u64 });
++            Ok(Value::<H>::struct_of(shape, vals))
++        }
+         CExpr::Find(col, key) => {
+             let col_val = coperand(l, n, col, r, t)?;
+             match &col_val.kind {
+@@ -215,6 +235,12 @@ pub fn ceval<H: HashPolicy>(
+                     let k = coperand(l, n, key, r, t)?;
+                     m.get(&*k).cloned().ok_or(RuntimeError::KeyNotFound)
+                 }
++                ValueKind::Struct(shape, fields) => {
++                    let k = coperand(l, n, key, r, t)?;
++                    struct_get(shape, fields, &k, true)
++                        .cloned()
++                        .ok_or(RuntimeError::KeyNotFound)
++                }
+                 ValueKind::List(list) => {
+                     let idx = coperand(l, n, key, r, t)?.as_int()? as usize;
+                     list.get(idx).cloned().ok_or(RuntimeError::IndexOutOfBounds {
+@@ -235,6 +261,16 @@ pub fn ceval<H: HashPolicy>(
+                     let k = Value::<H>::string(name.clone());
+                     m.get(&k).cloned().ok_or(RuntimeError::KeyNotFound)
+                 }
++                ValueKind::Struct(shape, fields) => {
++                    t.leaf_operands_inline += 1;
++                    if !H::EAGER {
++                        util_stats::record_struct_field_read();
++                    }
++                    shape
++                        .position(name)
++                        .map(|i| fields[i].clone())
++                        .ok_or(RuntimeError::KeyNotFound)
++                }
+                 ValueKind::List(list) => {
+                     t.leaf_operands_inline += 1;
+                     let idx = Value::<H>::string(name.clone()).as_int()? as usize;
+@@ -281,11 +317,17 @@ pub fn ceval<H: HashPolicy>(
+         CExpr::KeyExists(key, map) => {
+             let k = coperand(l, n, key, r, t)?;
+             let m = coperand(l, n, map, r, t)?;
++            if let ValueKind::Struct(shape, fields) = &m.kind {
++                return Ok(Value::<H>::bool(struct_get(shape, fields, &k, false).is_some()));
++            }
+             Ok(Value::<H>::bool(m.as_map()?.contains_key(&*k)))
+         }
+         CExpr::MapErase(key, map) => {
+             let k = coperand(l, n, key, r, t)?;
+             let m = coperand(l, n, map, r, t)?;
++            if let ValueKind::Struct(shape, fields) = &m.kind {
++                return Ok(Value::<H>::map(struct_to_map(shape, fields).without(&*k)));
++            }
+             Ok(Value::<H>::map(m.as_map()?.without(&*k)))
+         }
+         CExpr::ListLen(list) => {
+@@ -293,6 +335,7 @@ pub fn ceval<H: HashPolicy>(
+             match &list_val.kind {
+                 ValueKind::List(v) => Ok(Value::<H>::int(v.len() as i64)),
+                 ValueKind::Map(m) => Ok(Value::<H>::int(m.len() as i64)),
++                ValueKind::Struct(shape, _) => Ok(Value::<H>::int(shape.len() as i64)),
+                 _ => Err(RuntimeError::NotACollection {
+                     got: list_val.type_name(),
+                 }),
+@@ -416,6 +459,12 @@ pub fn ceval<H: HashPolicy>(
+                                 m.get(&*key_val).cloned().ok_or(RuntimeError::KeyNotFound)?;
+                             Ok(Value::<H>::option_some(result))
+                         }
++                        ValueKind::Struct(shape, fields) => {
++                            let result = struct_get(shape, fields, &key_val, false)
++                                .cloned()
++                                .ok_or(RuntimeError::KeyNotFound)?;
++                            Ok(Value::<H>::option_some(result))
++                        }
+                         ValueKind::List(list) => {
+                             let idx = key_val.as_int()? as usize;
+                             let result =
+diff --git a/spur-core/src/simulator/core/compiled_eval/test.rs b/spur-core/src/simulator/core/compiled_eval/test.rs
+index d048e78..83f2816 100644
+--- a/spur-core/src/simulator/core/compiled_eval/test.rs
++++ b/spur-core/src/simulator/core/compiled_eval/test.rs
+@@ -392,6 +392,90 @@ fn not_equals_and_string_field_reads_decode_to_their_fused_forms() {
+     assert!(matches!(field, Opnd::Tree(ref t) if matches!(**t, CExpr::FieldGet(Opnd::Node(1), _))));
+ }
+ 
++fn events_between(a: [u64; 3], b: [u64; 3]) -> Vec<u64> {
++    (0..3).map(|i| b[i].wrapping_sub(a[i])).collect()
++}
++
++fn vr_literal(set: &[&str]) -> Expr {
++    Expr::Map(
++        set.iter()
++            .enumerate()
++            .map(|(i, k)| {
++                let v = if i % 2 == 0 { local(i as u32) } else { Expr::Int(i as i64) };
++                (s(k), v)
++            })
++            .collect(),
++    )
++}
++
++fn is_struct_literal(e: &Expr) -> bool {
++    matches!(opnd(e), Opnd::Tree(ref t) if matches!(**t, CExpr::StructLit(_, _)))
++}
++
++fn struct_literals_evaluate_like_eval<H: HashPolicy>() {
++    use crate::simulator::core::values::struct_tests::VR_KEY_SETS;
++    let l = local_env::<H>();
++    let n = node_env::<H>();
++    let roles = HashMap::new();
++    for set in VR_KEY_SETS {
++        let lit = vr_literal(set);
++        let read = Expr::Find(b(&lit), b(&s(set[set.len() - 1])));
++        let missing = Expr::Find(b(&lit), b(&s("missing")));
++        for e in [lit, read, missing] {
++            let decoded = opnd(&e);
++            let before = util_stats::pending_evaluator_events();
++            let legacy = eval(&l, &n, &e, &roles);
++            let mid = util_stats::pending_evaluator_events();
++            let mut t = InterpreterTally::new();
++            let compiled = cvalue(&l, &n, &decoded, &roles, &mut t);
++            let after = util_stats::pending_evaluator_events();
++            assert_eq!(outcome(&legacy), outcome(&compiled), "{e:?}");
++            if let (Ok(a), Ok(c)) = (&legacy, &compiled) {
++                assert!(a == c && a.sig == c.sig, "{e:?}");
++            }
++            assert_eq!(events_between(before, mid), events_between(mid, after), "{e:?}");
++        }
++    }
++}
++
++#[test]
++fn struct_shaped_map_literals_decode_to_struct_literals() {
++    use crate::simulator::core::values::struct_shape;
++    use crate::simulator::core::values::struct_tests::VR_KEY_SETS;
++    for set in VR_KEY_SETS {
++        assert!(is_struct_literal(&vr_literal(set)), "{set:?}");
++    }
++
++    let names: Vec<String> = (0..64).map(|i| format!("k{i}")).collect();
++    let (i, j) = (1..names.len())
++        .find_map(|j| {
++            (0..j)
++                .find(|&i| struct_shape(&[names[i].as_str().into(), names[j].as_str().into()]).is_none())
++                .map(|i| (i, j))
++        })
++        .expect("two of 64 names share one of 32 home slots");
++    let (first, second) = (names[i].as_str(), names[j].as_str());
++    let order = |x: &str, y: &str| {
++        let mut m = ValueMap::<NoHashing>::new();
++        m.insert(Value::string(x.into()), Value::unit());
++        m.insert(Value::string(y.into()), Value::unit());
++        m.iter().map(|(k, _)| k.to_string()).collect::<Vec<_>>()
++    };
++    assert_ne!(order(first, second), order(second, first), "the key set is order sensitive");
++    let shared_slot = vr_literal(&[first, second]);
++    assert!(matches!(opnd(&shared_slot), Opnd::Tree(ref t) if matches!(**t, CExpr::Map(_))));
++
++    assert!(!is_struct_literal(&vr_literal(&["x", "x"])));
++    let sixteen: Vec<String> = (0..16).map(|i| format!("wide_{i}")).collect();
++    let sixteen: Vec<&str> = sixteen.iter().map(|k| k.as_str()).collect();
++    assert!(!is_struct_literal(&vr_literal(&sixteen)));
++    assert!(!is_struct_literal(&Expr::Map(vec![])));
++    assert!(!is_struct_literal(&Expr::Map(vec![(Expr::Int(1), Expr::Int(2))])));
++
++    struct_literals_evaluate_like_eval::<WithHashing>();
++    struct_literals_evaluate_like_eval::<NoHashing>();
++}
++
+ #[test]
+ fn slot_and_literal_operands_are_read_without_entering_the_tree_evaluator() {
+     let l = local_env::<NoHashing>();
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index d0ac1ea..d3e9393 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -2,7 +2,7 @@ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::{Expr, FunctionInfo, Lhs, SlotDefault, VarSlot};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::values::{
+-    Decimal, Env, Value, ValueKind, ValueMap, ValueSeq, hash_map_entry,
++    Decimal, Env, Value, ValueKind, ValueMap, ValueSeq, hash_map_entry, struct_get, struct_to_map,
+ };
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::util_stats;
+@@ -206,6 +206,24 @@ pub(crate) fn update_collection<H: HashPolicy>(
+ ) -> Result<Value<H>, RuntimeError> {
+     use ValueKind::*;
+     match col.kind {
++        Struct(shape, mut fields) => {
++            let known = match &key.kind {
++                String(name) => shape.position(name),
++                _ => None,
++            };
++            let Some(i) = known else {
++                let map = struct_to_map(shape, &fields);
++                return update_collection(Value::<H>::with_sig(Map(map), col.sig), key, val);
++            };
++            let new_sig = if H::EAGER {
++                col.sig ^ hash_map_entry(key.sig, fields[i].sig) ^ hash_map_entry(key.sig, val.sig)
++            } else {
++                util_stats::record_struct_other_lookups(1);
++                0
++            };
++            fields.make_mut()[i] = val;
++            Ok(Value::<H>::with_sig(Struct(shape, fields), new_sig))
++        }
+         Map(m) => {
+             let new_sig = if H::EAGER {
+                 let mut s = col.sig;
+@@ -358,6 +376,12 @@ pub fn eval<H: HashPolicy>(
+                     let k = eval_operand(local_env, node_env, key, role_names)?;
+                     m.get(&*k).cloned().ok_or(RuntimeError::KeyNotFound)
+                 }
++                ValueKind::Struct(shape, fields) => {
++                    let k = eval_operand(local_env, node_env, key, role_names)?;
++                    struct_get(shape, fields, &k, true)
++                        .cloned()
++                        .ok_or(RuntimeError::KeyNotFound)
++                }
+                 ValueKind::List(l) => {
+                     let idx =
+                         eval_operand(local_env, node_env, key, role_names)?.as_int()? as usize;
+@@ -416,11 +440,17 @@ pub fn eval<H: HashPolicy>(
+         Expr::KeyExists(key, map) => {
+             let k = eval_operand(local_env, node_env, key, role_names)?;
+             let m = eval_operand(local_env, node_env, map, role_names)?;
++            if let ValueKind::Struct(shape, fields) = &m.kind {
++                return Ok(Value::<H>::bool(struct_get(shape, fields, &k, false).is_some()));
++            }
+             Ok(Value::<H>::bool(m.as_map()?.contains_key(&*k)))
+         }
+         Expr::MapErase(key, map) => {
+             let k = eval_operand(local_env, node_env, key, role_names)?;
+             let m = eval_operand(local_env, node_env, map, role_names)?;
++            if let ValueKind::Struct(shape, fields) = &m.kind {
++                return Ok(Value::<H>::map(struct_to_map(shape, fields).without(&*k)));
++            }
+             Ok(Value::<H>::map(m.as_map()?.without(&*k)))
+         }
+         Expr::ListLen(list) => {
+@@ -428,6 +458,7 @@ pub fn eval<H: HashPolicy>(
+             match &list_val.kind {
+                 ValueKind::List(l) => Ok(Value::<H>::int(l.len() as i64)),
+                 ValueKind::Map(m) => Ok(Value::<H>::int(m.len() as i64)),
++                ValueKind::Struct(shape, _) => Ok(Value::<H>::int(shape.len() as i64)),
+                 _ => Err(RuntimeError::NotACollection {
+                     got: list_val.type_name(),
+                 }),
+@@ -553,6 +584,12 @@ pub fn eval<H: HashPolicy>(
+                             let result = m.get(&*key_val).cloned().ok_or(RuntimeError::KeyNotFound)?;
+                             Ok(Value::<H>::option_some(result))
+                         }
++                        ValueKind::Struct(shape, fields) => {
++                            let result = struct_get(shape, fields, &key_val, false)
++                                .cloned()
++                                .ok_or(RuntimeError::KeyNotFound)?;
++                            Ok(Value::<H>::option_some(result))
++                        }
+                         ValueKind::List(l) => {
+                             let idx = key_val.as_int()? as usize;
+                             let result = l.get(idx).cloned().ok_or(RuntimeError::IndexOutOfBounds {
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index b42d3e5..e15b8e5 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -2,7 +2,7 @@ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::compiled::{
+     AsyncOp, Dest, ForLoopInOp, Op, TraceDispatchOp, TraceEnterOp, TraceExitOp,
+ };
+-use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Program, VarSlot};
++use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Lhs, Program, VarSlot};
+ use crate::simulator::core::compiled_eval::{borrowed, coperand, cvalue};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::{
+@@ -443,6 +443,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                     current
+                 }
+             };
++            let col_val = col_val.into_map_form();
+ 
+             match col_val.kind {
+                 ValueKind::List(l) => {
+@@ -632,20 +633,20 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+-    mut record: Record<H>,
++    record: &mut Record<H>,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+     purgatory_config: &PurgatoryConfig,
+     rng: &mut impl StreamRng,
+-) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
++) -> Result<RecordOutcome<H>, RuntimeError> {
+     let causal_operation_id = record.causal_operation_id;
+     let mut pending_trace_id = record.trace_id;
+     // The payload moves out rather than being copied: only the entry row
+     // reads it, so a record stored again after that row carries none, and a
+     // re-delivery of it formats its entry row from the parameters.
+     let mut pending_trace_payload = record.trace_payload.take();
+-    let mut local_env = record.env;
++    let mut local_env = std::mem::take(&mut record.env);
+     let mut node_env = state.nodes[record.node.index].clone();
+ 
+     let mut prev_pc = record.pc;
+@@ -700,8 +701,8 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                 StepOutcome::Return(val) => {
+                     let node_id = record.node;
+                     state.nodes[node_id.index] = node_env;
+-                    let result = record.continuation.call(state, val);
+-                    return Ok(result);
++                    let continuation = std::mem::replace(&mut record.continuation, Continuation::Recover);
++                    return Ok(RecordOutcome::Finished(continuation.call(state, val)));
+                 }
+             }
+         }
+@@ -769,18 +770,16 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                     let node_id = record.node;
+                     record.env = local_env;
+                     record.pc = *next; // When woke, proceed to next
+-                    chan.push_waiting_reader(record, lhs.clone());
+                     state.nodes[node_id.index] = node_env;
+-                    return Ok(None); // Stop execution
++                    return Ok(RecordOutcome::Parked(cid, lhs.clone()));
+                 }
+             }
+             Label::Pause(next) => {
+                 let node_id = record.node;
+                 record.env = local_env;
+                 record.pc = *next;
+-                state.push_to_local(node_id.index, Runnable::Record(record));
+                 state.nodes[node_id.index] = node_env;
+-                return Ok(None); // Yield
++                return Ok(RecordOutcome::Requeued);
+             }
+             Label::SpinAwait(expr, next) => {
+                 if legacy_operand(&local_env, &node_env, expr, &program.id_to_name)?.as_bool()? {
+@@ -788,9 +787,8 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                 } else {
+                     let node_id = record.node;
+                     record.env = local_env;
+-                    state.push_to_local(node_id.index, Runnable::Record(record));
+                     state.nodes[node_id.index] = node_env;
+-                    return Ok(None); // Yield
++                    return Ok(RecordOutcome::Requeued);
+                 }
+             }
+             Label::Instr(_, _)
+@@ -823,6 +821,20 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+     }
+ }
+ 
++/// Where a record goes once a segment of it has run. The record itself stays
++/// with its owner, which must apply the outcome with `settle_record` before
++/// anything else reads the queues or the channel: running the segment left
++/// the record exactly as the destination must hold it.
++pub enum RecordOutcome<H: HashPolicy> {
++    /// Blocked reading this channel of its own node; `Lhs` receives the value.
++    Parked(ChannelId, Lhs),
++    /// Yielded; it goes back to its node's local queue.
++    Requeued,
++    /// Returned; carries what its continuation produced.
++    Finished(Option<ClientOpResult<H>>),
++}
++
++/// Runs a record owned as `Runnable::Record` and applies the outcome.
+ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+@@ -834,8 +846,52 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+     purgatory_config: &PurgatoryConfig,
+     rng: &mut impl StreamRng,
+ ) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
+-    if !program.compiled.covers(program.cfg.graph.len()) {
+-        return exec_legacy::<H, L, F>(
++    let mut runnable = Runnable::Record(record);
++    let Runnable::Record(r) = &mut runnable else {
++        unreachable!()
++    };
++    let outcome = exec_record::<H, L, F>(
++        state,
++        logger,
++        program,
++        r,
++        snapshot,
++        feedback,
++        policy,
++        purgatory_config,
++        rng,
++    )?;
++    Ok(settle_record(state, &mut runnable, outcome))
++}
++
++/// Runs one segment of a record in place, until it returns or yields.
++pub fn exec_record<H: HashPolicy, L: Logger, F: Feedback>(
++    state: &mut State<H>,
++    logger: &mut L,
++    program: &Program,
++    record: &mut Record<H>,
++    snapshot: &F::Snapshot,
++    feedback: &mut F::Local,
++    policy: &SchedulePolicy,
++    purgatory_config: &PurgatoryConfig,
++    rng: &mut impl StreamRng,
++) -> Result<RecordOutcome<H>, RuntimeError> {
++    util_stats::record_exec_borrowed();
++    let result = if !program.compiled.covers(program.cfg.graph.len()) {
++        exec_legacy::<H, L, F>(
++            state,
++            logger,
++            program,
++            record,
++            snapshot,
++            feedback,
++            policy,
++            purgatory_config,
++            rng,
++        )
++    } else {
++        let mut tally = InterpreterTally::new();
++        let result = exec_ops::<H, L, F>(
+             state,
+             logger,
+             program,
+@@ -845,25 +901,52 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+             policy,
+             purgatory_config,
+             rng,
++            &mut tally,
+         );
++        tally.flush();
++        result
++    };
++    if result.is_err() {
++        util_stats::record_exec_errored();
+     }
+-    let mut tally = InterpreterTally::new();
+-    let result = exec_ops::<H, L, F>(
+-        state,
+-        logger,
+-        program,
+-        record,
+-        snapshot,
+-        feedback,
+-        policy,
+-        purgatory_config,
+-        rng,
+-        &mut tally,
+-    );
+-    tally.flush();
+     result
+ }
+ 
++/// Moves a record that `exec_record` ran to where its outcome sends it.
++/// `runnable` must be the `Runnable::Record` holding that record; afterwards
++/// it holds a runnable with nothing to drop. The record is never passed by
++/// value: a parked or requeued record is copied once, from `runnable` into
++/// its destination, and a finished one is dropped where it lies.
++#[inline]
++pub fn settle_record<H: HashPolicy>(
++    state: &mut State<H>,
++    runnable: &mut Runnable<H>,
++    outcome: RecordOutcome<H>,
++) -> Option<ClientOpResult<H>> {
++    match outcome {
++        RecordOutcome::Parked(cid, lhs) => {
++            util_stats::record_exec_parked();
++            state.channels.found_mut(cid).park_record(runnable, lhs);
++            util_stats::record_exec_park_single_copy();
++            None
++        }
++        RecordOutcome::Requeued => {
++            util_stats::record_exec_requeued();
++            let node_index = match runnable {
++                Runnable::Record(record) => record.node.index,
++                _ => unreachable!("only a record runs a segment"),
++            };
++            state.requeue_local(node_index, runnable);
++            None
++        }
++        RecordOutcome::Finished(result) => {
++            util_stats::record_exec_finished();
++            *runnable = Runnable::Heal { priority: 0.0 };
++            result
++        }
++    }
++}
++
+ /// What an operation left the loop to do.
+ enum Flow<H: HashPolicy> {
+     Next(usize),
+@@ -1239,6 +1322,7 @@ fn run_for_loop_in<H: HashPolicy>(
+             current
+         }
+     };
++    let col_val = col_val.into_map_form();
+ 
+     match col_val.kind {
+         ValueKind::List(l) => {
+@@ -1460,21 +1544,21 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+-    mut record: Record<H>,
++    record: &mut Record<H>,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+     purgatory_config: &PurgatoryConfig,
+     rng: &mut impl StreamRng,
+     t: &mut InterpreterTally,
+-) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
++) -> Result<RecordOutcome<H>, RuntimeError> {
+     let causal_operation_id = record.causal_operation_id;
+     let mut pending_trace_id = record.trace_id;
+     // The payload moves out rather than being copied: only the entry row
+     // reads it, so a record stored again after that row carries none, and a
+     // re-delivery of it formats its entry row from the parameters.
+     let mut pending_trace_payload = record.trace_payload.take();
+-    let mut local_env = record.env;
++    let mut local_env = std::mem::take(&mut record.env);
+     let mut node_env = state.nodes[record.node.index].clone();
+ 
+     let mut prev_pc = record.pc;
+@@ -1557,18 +1641,16 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                     let node_id = record.node;
+                     record.env = local_env;
+                     record.pc = recv.next as usize;
+-                    chan.push_waiting_reader(record, recv.lhs.clone());
+                     state.nodes[node_id.index] = node_env;
+-                    return Ok(None);
++                    return Ok(RecordOutcome::Parked(cid, recv.lhs.clone()));
+                 }
+             }
+             Op::Pause(next) => {
+                 let node_id = record.node;
+                 record.env = local_env;
+                 record.pc = *next as usize;
+-                state.push_to_local(node_id.index, Runnable::Record(record));
+                 state.nodes[node_id.index] = node_env;
+-                return Ok(None);
++                return Ok(RecordOutcome::Requeued);
+             }
+             Op::SpinAwait { cond, next } => {
+                 if coperand(&local_env, &node_env, cond, names, t)?.as_bool()? {
+@@ -1576,9 +1658,8 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 } else {
+                     let node_id = record.node;
+                     record.env = local_env;
+-                    state.push_to_local(node_id.index, Runnable::Record(record));
+                     state.nodes[node_id.index] = node_env;
+-                    return Ok(None);
++                    return Ok(RecordOutcome::Requeued);
+                 }
+             }
+             op => match run_common_op::<H, L, F>(
+@@ -1603,7 +1684,8 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 Flow::Return(val) => {
+                     let node_id = record.node;
+                     state.nodes[node_id.index] = node_env;
+-                    return Ok(record.continuation.call(state, val));
++                    let continuation = std::mem::replace(&mut record.continuation, Continuation::Recover);
++                    return Ok(RecordOutcome::Finished(continuation.call(state, val)));
+                 }
+                 Flow::RecordOnly => {
+                     unreachable!("channel and yield operations are matched before the shared ones")
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index d9952cf..fe0ed1b 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -1,7 +1,7 @@
+ use crate::compiler::cfg::{Program, Vertex};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::build_frame;
+-use crate::simulator::core::exec::{exec, exec_sync_on_node};
++use crate::simulator::core::exec::{exec, exec_record, exec_sync_on_node, settle_record};
+ use crate::simulator::core::partition::{activate_partition, heal_partition};
+ use crate::simulator::core::queue_selector::{
+     QueueInfo, QueueSelection, QueueSelector, TimerBiasUse, WithinQueueSelector,
+@@ -1331,7 +1331,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+     };
+ 
+-    let (runnable, chosen_slot, chosen_mask) = match selection {
++    let mut runnable: Runnable<H>;
++    let chosen_slot;
++    let chosen_mask;
++    match selection {
+         QueueSelection::Local(node_idx) => {
+             let queue = &state.local_queues[node_idx];
+             let admitted = info.local_queue_sizes.get(node_idx).copied().unwrap_or(0);
+@@ -1352,11 +1355,9 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            (
+-                state.take_local(node_idx, idx),
+-                QueueSlot::Local(node_idx, idx),
+-                mask,
+-            )
++            runnable = state.take_local(node_idx, idx);
++            chosen_slot = QueueSlot::Local(node_idx, idx);
++            chosen_mask = mask;
+         }
+         QueueSelection::Network => {
+             let queue = &state.network_queue;
+@@ -1390,7 +1391,9 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             } else {
+                 drawn_mask
+             };
+-            (state.take_network(idx), QueueSlot::Network(idx), mask)
++            runnable = state.take_network(idx);
++            chosen_slot = QueueSlot::Network(idx);
++            chosen_mask = mask;
+         }
+         QueueSelection::Timer => {
+             let queue = &state.timer_queue;
+@@ -1427,9 +1430,11 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            (state.timer_queue.remove(idx), QueueSlot::Timer(idx), mask)
++            runnable = state.timer_queue.remove(idx);
++            chosen_slot = QueueSlot::Timer(idx);
++            chosen_mask = mask;
+         }
+-    };
++    }
+ 
+     if let Some(a) = &audit {
+         util_stats::record_steer_authority(a.expressed, a.outcome(Some(chosen_slot)));
+@@ -1544,8 +1549,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 Ok(ScheduleResult::None)
+             }
+         }
+-        other => {
+-            let (src_node, dest_node) = match &other {
++        _ => {
++            let (src_node, dest_node) = match &runnable {
+                 Runnable::Record(r) => (r.origin_node, r.node),
+                 Runnable::ChannelSend {
+                     origin_node,
+@@ -1556,7 +1561,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             };
+ 
+             if state.crash_info.currently_crashed.contains(&dest_node) {
+-                if let Runnable::Record(r) = other
++                if let Runnable::Record(r) = runnable
+                     && src_node != dest_node {
+                         let mut r = r;
+                         r.reset(program);
+@@ -1566,7 +1571,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             }
+ 
+             if state.partition_info.is_blocked(src_node, dest_node) {
+-                match other {
++                match runnable {
+                     Runnable::Record(r) => {
+                         let mut r = r;
+                         r.reset(program);
+@@ -1594,7 +1599,34 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 return Ok(ScheduleResult::None);
+             }
+ 
+-            match other {
++            if let Runnable::ChannelSend {
++                channel, message, ..
++            } = runnable
++            {
++                if let Some(chan) = state.channels.get_mut(&channel) {
++                    match chan.pop_waiting_reader() {
++                        None => chan.buffer.push_back(message),
++                        Some((mut reader, lhs)) => {
++                            let node_index = reader.node.index;
++                            let mut r_node_env = state.nodes[node_index].clone();
++                            if let Err(e) = crate::simulator::core::eval::store(
++                                &lhs,
++                                message,
++                                &mut reader.env,
++                                &mut r_node_env,
++                            ) {
++                                log::warn!("Store failed in remote channel delivery: {}", e);
++                            }
++                            state.nodes[node_index] = r_node_env;
++                            reader.timer_entry = None;
++                            state.push_to_local(node_index, Runnable::Record(reader));
++                        }
++                    }
++                }
++                return Ok(ScheduleResult::None);
++            }
++
++            match &mut runnable {
+                 Runnable::Record(r) => {
+                     let record_entry_pc = r.entry_pc;
+                     let record_origin = r.origin_node;
+@@ -1759,7 +1791,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     } else if timer_entry {
+                         state.note_handler_entry(record_dest.index, HandlerTrigger::Timer);
+                     }
+-                    let result = exec::<H, L, F>(
++                    let outcome = exec_record::<H, L, F>(
+                         state,
+                         logger,
+                         program,
+@@ -1770,6 +1802,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         purgatory_config,
+                         rng,
+                     )?;
++                    let result = settle_record(state, &mut runnable, outcome);
+                     let acted = state.node_state_token(record_dest) != token_before;
+                     if message_entry {
+                         note_ghost_release_entry(
+@@ -1820,31 +1853,6 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         }),
+                     }
+                 }
+-                Runnable::ChannelSend {
+-                    channel, message, ..
+-                } => {
+-                    if let Some(chan) = state.channels.get_mut(&channel) {
+-                        match chan.pop_waiting_reader() {
+-                            None => chan.buffer.push_back(message),
+-                            Some((mut reader, lhs)) => {
+-                                let node_index = reader.node.index;
+-                                let mut r_node_env = state.nodes[node_index].clone();
+-                                if let Err(e) = crate::simulator::core::eval::store(
+-                                    &lhs,
+-                                    message,
+-                                    &mut reader.env,
+-                                    &mut r_node_env,
+-                                ) {
+-                                    log::warn!("Store failed in remote channel delivery: {}", e);
+-                                }
+-                                state.nodes[node_index] = r_node_env;
+-                                reader.timer_entry = None;
+-                                state.push_to_local(node_index, Runnable::Record(reader));
+-                            }
+-                        }
+-                    }
+-                    Ok(ScheduleResult::None)
+-                }
+                 _ => unreachable!(),
+             }
+         }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 2d087fa..15bc6bd 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -90,6 +90,13 @@ impl<H: HashPolicy> ChannelTable<H> {
+         self.ids.iter()
+     }
+ 
++    /// The channel an earlier counted lookup of `id` found, with nothing
++    /// inserted since. Not counted: it stands for that lookup.
++    #[inline]
++    pub fn found_mut(&mut self, id: ChannelId) -> &mut ChannelState<H> {
++        &mut self.states[id.id]
++    }
++
+     /// Appends an empty channel. `id.id` must equal the current length.
+     #[inline]
+     pub fn insert_new(&mut self, id: ChannelId) {
+@@ -456,8 +463,29 @@ impl<H: HashPolicy> ChannelState<H> {
+         }
+     }
+ 
+-    pub fn push_waiting_reader(&mut self, record: Record<H>, lhs: Lhs) {
+-        self.waiting_readers.push_back(Arc::new((record, lhs)));
++    /// Parks the record `slot` holds as this channel's newest waiting reader,
++    /// copying its bytes straight into the new reader entry. `slot` is left
++    /// holding a runnable with nothing to drop.
++    pub fn park_record(&mut self, slot: &mut Runnable<H>, lhs: Lhs) {
++        let Runnable::Record(record) = slot else {
++            panic!("only a record waits on a channel");
++        };
++        let source: *const Record<H> = record;
++        let mut entry = Arc::<(Record<H>, Lhs)>::new_uninit();
++        let storage = Arc::get_mut(&mut entry)
++            .expect("a new reader entry is not shared")
++            .as_mut_ptr();
++        // SAFETY: `source` points to an initialized record owned by `slot`.
++        // Its bytes are copied into the entry's fresh storage and `slot` is
++        // then overwritten without being dropped, so the record has exactly
++        // one owner. Both fields of the entry are written before the entry is
++        // treated as initialized.
++        unsafe {
++            std::ptr::copy_nonoverlapping(source, std::ptr::addr_of_mut!((*storage).0), 1);
++            std::ptr::addr_of_mut!((*storage).1).write(lhs);
++            std::ptr::write(slot, Runnable::Heal { priority: 0.0 });
++            self.waiting_readers.push_back(entry.assume_init());
++        }
+     }
+ 
+     /// Takes the longest-waiting reader, copying it only when the channel
+@@ -1163,6 +1191,7 @@ impl<H: HashPolicy> State<H> {
+ 
+     /// Remove and return the network queue entry at `idx`, keeping the
+     /// ledger exact.
++    #[inline]
+     pub fn take_network(&mut self, idx: usize) -> Runnable<H> {
+         let r = self.network_queue.remove(idx);
+         self.flight_leave(&r);
+@@ -1504,6 +1533,27 @@ impl<H: HashPolicy> State<H> {
+         self.local_queues[node_index].push(runnable);
+     }
+ 
++    /// Moves the runnable `slot` holds onto the end of `node_index`'s local
++    /// queue, copying its bytes straight into the queue's storage. `slot` is
++    /// left holding a runnable with nothing to drop.
++    pub fn requeue_local(&mut self, node_index: usize, slot: &mut Runnable<H>) {
++        let queue = &mut self.local_queues[node_index];
++        queue.reserve(1);
++        // SAFETY: room for one more element was reserved, so the first unused
++        // position is valid for a write. The runnable's bytes are copied there
++        // before the length covers it, and `slot` is then overwritten without
++        // being dropped, so the runnable has exactly one owner.
++        unsafe {
++            std::ptr::copy_nonoverlapping(
++                slot as *const Runnable<H>,
++                queue.as_mut_ptr().add(queue.len()),
++                1,
++            );
++            queue.set_len(queue.len() + 1);
++            std::ptr::write(slot, Runnable::Heal { priority: 0.0 });
++        }
++    }
++
+     /// True when all queue groups and purgatory are empty.
+     pub fn all_queues_empty(&self) -> bool {
+         self.network_queue.is_empty()
+@@ -1734,6 +1784,15 @@ mod layout_tests {
+         );
+     }
+ 
++    /// Queue walks read a queued record's fields inline in the queue buffer,
++    /// and a delivered record runs in the runnable the queue gave up. Both
++    /// rely on the record living inline in its runnable at this width.
++    #[test]
++    fn runnable_holds_its_record_inline() {
++        assert_eq!(std::mem::size_of::<Record<WithHashing>>(), 248);
++        assert_eq!(std::mem::size_of::<Runnable<WithHashing>>(), 248);
++    }
++
+     /// A hash-array-mapped trie allocates one node per branch at the full
+     /// branching factor of 32 entries, whatever the occupancy, so a wide entry
+     /// puts every node above the allocator's 1032-byte fast path. Channels are
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index b364268..4ef5fab 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -36,12 +36,204 @@ pub type ValueMap<H> =
+ /// order the spec wrote, so nothing a spec observes depends on the layout.
+ pub type ValueSeq<H> = EcoVec<Value<H>>;
+ 
++/// Width of the root node of a `ValueMap`: a key's home slot there is its
++/// key hash masked to this many buckets.
++const MAP_ROOT_WIDTH: u32 = 32;
++
++/// Most keys a struct shape may have. A root node holding fewer than half
++/// its width keeps every entry at the slot it was inserted into.
++const STRUCT_MAX_FIELDS: usize = 15;
++
++/// The key set of a map literal whose keys are distinct string literals,
++/// stored as a slice of field values instead of a hash map.
++///
++/// Every name's home slot in the root node of a `ValueMap` differs from every
++/// other name's, so a map holding exactly these keys keeps each entry at its
++/// home slot whatever order the keys were inserted in. Such a map iterates in
++/// ascending home slot, the order `names` and a struct's fields are kept in,
++/// and a map rebuilt from the fields is node for node the map the literal
++/// would have built, including under later inserts and removals.
++#[derive(Debug, PartialEq)]
++pub struct StructShape {
++    names: Box<[EcoString]>,
++    /// Signature of each name as a string value; equal under both policies.
++    key_sigs: Box<[u64]>,
++    /// Field positions in ascending name order.
++    sorted: Box<[usize]>,
++    /// The map signature term for this many entries.
++    sig_prefix: u64,
++}
++
++impl StructShape {
++    #[inline]
++    pub fn len(&self) -> usize {
++        self.names.len()
++    }
++
++    pub fn names(&self) -> &[EcoString] {
++        &self.names
++    }
++
++    /// Position of the field called `name`.
++    #[inline]
++    pub fn position(&self, name: &str) -> Option<usize> {
++        self.names.iter().position(|n| n.as_str() == name)
++    }
++}
++
++struct ShapeTables {
++    shapes: Vec<&'static StructShape>,
++    /// Sorted key lists of literals that could not be stored as structs.
++    kept_as_maps: Vec<Vec<EcoString>>,
++}
++
++static SHAPE_TABLES: std::sync::Mutex<ShapeTables> = std::sync::Mutex::new(ShapeTables {
++    shapes: Vec::new(),
++    kept_as_maps: Vec::new(),
++});
++
++/// The shape of a map literal with these keys, in source order, or `None`
++/// when the literal must stay a map: no keys, more than `STRUCT_MAX_FIELDS`,
++/// a repeated key, or two keys sharing a home slot. Shapes are interned once
++/// per process by key set, so equal key sets share one shape.
++pub fn struct_shape(names: &[EcoString]) -> Option<&'static StructShape> {
++    if names.is_empty() {
++        return None;
++    }
++    let mut sorted_names: Vec<EcoString> = names.to_vec();
++    sorted_names.sort();
++    let mut tables = SHAPE_TABLES.lock().unwrap_or_else(|p| p.into_inner());
++    if let Some(shape) = tables.shapes.iter().find(|s| {
++        s.len() == sorted_names.len()
++            && s.sorted.iter().zip(&sorted_names).all(|(&i, n)| s.names[i] == *n)
++    }) {
++        return Some(shape);
++    }
++    let distinct = sorted_names.windows(2).all(|w| w[0] != w[1]);
++    let mut slotted: Vec<(u32, EcoString, u64)> = sorted_names
++        .iter()
++        .map(|n| {
++            let sig = Value::<crate::simulator::hash_utils::NoHashing>::compute_sig(&ValueKind::String(n.clone()));
++            let mut h = FxHasher::default();
++            sig.hash(&mut h);
++            ((h.finish() as u32) & (MAP_ROOT_WIDTH - 1), n.clone(), sig)
++        })
++        .collect();
++    slotted.sort_by_key(|(slot, _, _)| *slot);
++    let slots_distinct = slotted.windows(2).all(|w| w[0].0 != w[1].0);
++    if !distinct || !slots_distinct || names.len() > STRUCT_MAX_FIELDS {
++        if !tables.kept_as_maps.contains(&sorted_names) {
++            tables.kept_as_maps.push(sorted_names);
++        }
++        return None;
++    }
++    let names: Box<[EcoString]> = slotted.iter().map(|(_, n, _)| n.clone()).collect();
++    let mut sorted: Vec<usize> = (0..names.len()).collect();
++    sorted.sort_by(|&a, &b| names[a].cmp(&names[b]));
++    let mut h = FxHasher::default();
++    9u8.hash(&mut h);
++    names.len().hash(&mut h);
++    let shape: &'static StructShape = Box::leak(Box::new(StructShape {
++        key_sigs: slotted.iter().map(|(_, _, sig)| *sig).collect(),
++        names,
++        sorted: sorted.into_boxed_slice(),
++        sig_prefix: h.finish(),
++    }));
++    tables.shapes.push(shape);
++    Some(shape)
++}
++
++/// Distinct key sets of map literals with string literal keys that stay maps.
++pub fn struct_shapes_kept_as_maps() -> u64 {
++    SHAPE_TABLES
++        .lock()
++        .map(|t| t.kept_as_maps.len() as u64)
++        .unwrap_or_else(|p| p.into_inner().kept_as_maps.len() as u64)
++}
++
++/// Key hashes that inserting `count` distinct keys into an empty
++/// `std::collections::HashSet` performs, counting the rehash of every entry
++/// when the table grows. The map equality of `ValueMap` fills such a set.
++fn set_insert_key_hashes(count: usize) -> u64 {
++    static TABLE: std::sync::OnceLock<[u64; STRUCT_MAX_FIELDS + 1]> = std::sync::OnceLock::new();
++    let table = TABLE.get_or_init(|| {
++        struct Probe<'a>(usize, &'a std::cell::Cell<u64>);
++        impl PartialEq for Probe<'_> {
++            fn eq(&self, other: &Self) -> bool {
++                self.0 == other.0
++            }
++        }
++        impl Eq for Probe<'_> {}
++        impl Hash for Probe<'_> {
++            fn hash<Ha: Hasher>(&self, state: &mut Ha) {
++                self.1.set(self.1.get() + 1);
++                self.0.hash(state);
++            }
++        }
++        let calls = std::cell::Cell::new(0u64);
++        let mut set = std::collections::HashSet::new();
++        let mut table = [0u64; STRUCT_MAX_FIELDS + 1];
++        for (i, entry) in table.iter_mut().enumerate().skip(1) {
++            set.insert(Probe(i, &calls));
++            *entry = calls.get();
++        }
++        table
++    });
++    table[count]
++}
++
++/// The map a struct stands for, built by inserting its fields in order.
++/// Each insert hashes a string key, which the counters record as a fallback.
++pub fn struct_to_map<H: HashPolicy>(shape: &StructShape, fields: &ValueSeq<H>) -> ValueMap<H> {
++    util_stats::record_struct_fallback(if H::EAGER { 0 } else { shape.len() as u64 });
++    let mut m = ValueMap::<H>::new();
++    for (name, v) in shape.names.iter().zip(fields.iter()) {
++        m.insert(Value::<H>::string(name.clone()), v.clone());
++    }
++    m
++}
++
++/// The field a struct holds under `key`, as looking `key` up in the map it
++/// stands for finds it. A leaf key would have been hashed there; that hash
++/// is recorded as a field read when `field_read` is set and the key is a
++/// string, and as another lookup otherwise.
++#[inline]
++pub fn struct_get<'a, H: HashPolicy>(
++    shape: &StructShape,
++    fields: &'a ValueSeq<H>,
++    key: &Value<H>,
++    field_read: bool,
++) -> Option<&'a Value<H>> {
++    match &key.kind {
++        ValueKind::String(name) => {
++            if !H::EAGER {
++                if field_read {
++                    util_stats::record_struct_field_read();
++                } else {
++                    util_stats::record_struct_other_lookups(1);
++                }
++            }
++            shape.position(name).map(|i| &fields[i])
++        }
++        kind => {
++            if !H::EAGER && !kind.is_composite() {
++                util_stats::record_struct_other_lookups(1);
++            }
++            None
++        }
++    }
++}
++
+ /// The inner representation of a value, without cached signature.
+-#[derive(Clone, Debug)]
++#[derive(Clone)]
+ pub enum ValueKind<H: HashPolicy> {
+     Int(i64),
+     Bool(bool),
+     Map(ValueMap<H>),
++    /// A map whose key set is `StructShape`: the value of each key, in the
++    /// shape's field order. Every observation of it - equality, ordering,
++    /// signature, hash, text, JSON and debug output - is that of the map.
++    Struct(&'static StructShape, ValueSeq<H>),
+     List(ValueSeq<H>),
+     Option(Option<Arc<Value<H>>>),
+     Channel(ChannelId),
+@@ -56,6 +248,47 @@ pub enum ValueKind<H: HashPolicy> {
+     Variant(u32, EcoString, Option<Arc<Value<H>>>), // (enum_id, variant_name, payload)
+ }
+ 
++/// The entries of a struct, printed the way the map it stands for prints.
++struct StructEntries<'a, H: HashPolicy>(&'a StructShape, &'a ValueSeq<H>);
++
++impl<H: HashPolicy> std::fmt::Debug for StructEntries<'_, H> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        let mut d = f.debug_map();
++        for (name, v) in self.0.names.iter().zip(self.1.iter()) {
++            d.entry(&Value::<H>::string(name.clone()), v);
++        }
++        d.finish()
++    }
++}
++
++/// Prints what a derived `Debug` prints, except that a struct prints as the
++/// `Map` it stands for.
++impl<H: HashPolicy> std::fmt::Debug for ValueKind<H> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        use ValueKind::*;
++        match self {
++            Int(i) => f.debug_tuple("Int").field(i).finish(),
++            Bool(b) => f.debug_tuple("Bool").field(b).finish(),
++            Map(m) => f.debug_tuple("Map").field(m).finish(),
++            Struct(shape, fields) => f.debug_tuple("Map").field(&StructEntries(shape, fields)).finish(),
++            List(l) => f.debug_tuple("List").field(l).finish(),
++            Option(o) => f.debug_tuple("Option").field(o).finish(),
++            Channel(c) => f.debug_tuple("Channel").field(c).finish(),
++            Node(n) => f.debug_tuple("Node").field(n).finish(),
++            FifoLink(link_id, peer) => f.debug_tuple("FifoLink").field(link_id).field(peer).finish(),
++            String(s) => f.debug_tuple("String").field(s).finish(),
++            Unit => f.write_str("Unit"),
++            Tuple(t) => f.debug_tuple("Tuple").field(t).finish(),
++            Variant(enum_id, name, payload) => f
++                .debug_tuple("Variant")
++                .field(enum_id)
++                .field(name)
++                .field(payload)
++                .finish(),
++        }
++    }
++}
++
+ #[derive(Clone, Debug)]
+ pub struct Value<H: HashPolicy> {
+     pub kind: ValueKind<H>,
+@@ -102,6 +335,7 @@ impl<H: HashPolicy> Value<H> {
+             | ValueKind::Tuple(_)
+             | ValueKind::List(_)
+             | ValueKind::Map(_)
++            | ValueKind::Struct(_, _)
+             | ValueKind::Variant(_, _, _) => 0,
+         }
+     }
+@@ -184,6 +418,13 @@ impl<H: HashPolicy> Value<H> {
+                 }
+                 sig
+             }
++            ValueKind::Struct(shape, fields) => {
++                let mut sig = shape.sig_prefix;
++                for (k, v) in shape.key_sigs.iter().zip(fields.iter()) {
++                    sig ^= hash_map_entry(*k, v.sig);
++                }
++                sig
++            }
+             ValueKind::Variant(enum_id, name, payload) => {
+                 let mut h = FxHasher::default();
+                 10u8.hash(&mut h); // discriminant
+@@ -272,6 +513,26 @@ impl<H: HashPolicy> Value<H> {
+         Self::new(ValueKind::Variant(enum_id, name, payload))
+     }
+ 
++    /// A struct of `shape`; `fields` must hold one value per field, in the
++    /// shape's field order.
++    #[inline]
++    pub fn struct_of(shape: &'static StructShape, fields: ValueSeq<H>) -> Self {
++        debug_assert_eq!(shape.len(), fields.len());
++        Self::new(ValueKind::Struct(shape, fields))
++    }
++
++    /// The value with a struct turned into the map it stands for; any other
++    /// value is returned unchanged.
++    #[inline]
++    pub fn into_map_form(self) -> Self {
++        match self.kind {
++            ValueKind::Struct(shape, fields) => {
++                Self::with_sig(ValueKind::Map(struct_to_map(shape, &fields)), self.sig)
++            }
++            kind => Self::with_sig(kind, self.sig),
++        }
++    }
++
+     /// Create a Value with a pre-computed signature (for incremental updates)
+     #[inline]
+     pub fn with_sig(kind: ValueKind<H>, sig: u64) -> Self {
+@@ -296,6 +557,12 @@ impl<H: HashPolicy> PartialEq for Value<H> {
+             (Tuple(a), Tuple(b)) => a == b,
+             (List(a), List(b)) => a == b,
+             (Map(a), Map(b)) => a == b,
++            (Struct(sa, fa), Struct(sb, fb)) if std::ptr::eq(*sa, *sb) => struct_fields_eq(fa, fb),
++            (Struct(sa, fa), Map(b)) => sa.len() == b.len() && struct_to_map(sa, fa) == *b,
++            (Map(a), Struct(sb, fb)) => a.len() == sb.len() && *a == struct_to_map(sb, fb),
++            (Struct(sa, fa), Struct(sb, fb)) => {
++                sa.len() == sb.len() && struct_to_map(sa, fa) == struct_to_map(sb, fb)
++            }
+             (Channel(a), Channel(b)) => a == b,
+             (FifoLink(la, pa), FifoLink(lb, pb)) => la == lb && pa == pb,
+             (Variant(id_a, name_a, p_a), Variant(id_b, name_b, p_b)) => {
+@@ -305,6 +572,45 @@ impl<H: HashPolicy> PartialEq for Value<H> {
+         }
+     }
+ }
++
++/// Equality of two structs of one shape, with the key hashes the equality of
++/// the maps they stand for performs recorded as other lookups. That equality
++/// walks the left map in order; for each entry it looks the key up in the
++/// right map, stops at the first differing value, and otherwise adds the key
++/// to a set. Once every entry matched, it looks each right key up in the set.
++fn struct_fields_eq<H: HashPolicy>(a: &ValueSeq<H>, b: &ValueSeq<H>) -> bool {
++    for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
++        if x != y {
++            if !H::EAGER {
++                util_stats::record_struct_other_lookups(i as u64 + 1 + set_insert_key_hashes(i));
++            }
++            return false;
++        }
++    }
++    if !H::EAGER {
++        let n = a.len();
++        util_stats::record_struct_other_lookups(2 * n as u64 + set_insert_key_hashes(n));
++    }
++    true
++}
++
++/// The entries of a map or a struct as `(key, value)` pairs in ascending key
++/// order.
++fn sorted_entries<H: HashPolicy>(v: &Value<H>) -> Vec<(Value<H>, &Value<H>)> {
++    match &v.kind {
++        ValueKind::Map(m) => {
++            let mut out: Vec<_> = m.iter().map(|(k, v)| (k.clone(), v)).collect();
++            out.sort_by(|x, y| x.0.cmp(&y.0));
++            out
++        }
++        ValueKind::Struct(shape, fields) => shape
++            .sorted
++            .iter()
++            .map(|&i| (Value::<H>::string(shape.names[i].clone()), &fields[i]))
++            .collect(),
++        _ => Vec::new(),
++    }
++}
+ impl<H: HashPolicy> Eq for Value<H> {}
+ impl<H: HashPolicy> PartialOrd for Value<H> {
+     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+@@ -332,6 +638,18 @@ impl<H: HashPolicy> Ord for Value<H> {
+                 b_vec.sort_by(|x, y| x.0.cmp(y.0));
+                 a_vec.cmp(&b_vec)
+             }
++            (Struct(sa, fa), Struct(sb, fb)) if std::ptr::eq(*sa, *sb) => {
++                for &i in sa.sorted.iter() {
++                    match fa[i].cmp(&fb[i]) {
++                        Ordering::Equal => {}
++                        other => return other,
++                    }
++                }
++                Ordering::Equal
++            }
++            (Struct(_, _) | Map(_), Struct(_, _) | Map(_)) => {
++                sorted_entries(self).cmp(&sorted_entries(other))
++            }
+             (Channel(a), Channel(b)) => a.cmp(b),
+             (FifoLink(la, pa), FifoLink(lb, pb)) => (la, pa).cmp(&(lb, pb)),
+             (Variant(id_a, name_a, p_a), Variant(id_b, name_b, p_b)) => {
+@@ -354,8 +672,8 @@ impl<H: HashPolicy> Ord for Value<H> {
+             (_, Tuple(_)) => Ordering::Greater,
+             (List(_), _) => Ordering::Less,
+             (_, List(_)) => Ordering::Greater,
+-            (Map(_), _) => Ordering::Less,
+-            (_, Map(_)) => Ordering::Greater,
++            (Map(_) | Struct(_, _), _) => Ordering::Less,
++            (_, Map(_) | Struct(_, _)) => Ordering::Greater,
+             (Channel(_), _) => Ordering::Less,
+             (_, Channel(_)) => Ordering::Greater,
+             (FifoLink(_, _), _) => Ordering::Less,
+@@ -392,6 +710,7 @@ impl<H: HashPolicy> ValueKind<H> {
+                 | ValueKind::Tuple(_)
+                 | ValueKind::List(_)
+                 | ValueKind::Map(_)
++                | ValueKind::Struct(_, _)
+                 | ValueKind::Variant(_, _, _)
+         )
+     }
+@@ -512,6 +831,19 @@ impl<H: HashPolicy> Value<H> {
+                 }
+                 out.write_str(" }")
+             }
++            Struct(shape, fields) => {
++                out.write_str("{ ")?;
++                for (i, (name, v)) in shape.names.iter().zip(fields.iter()).enumerate() {
++                    if i > 0 {
++                        out.write_str(", ")?;
++                    }
++                    out.write_char('"')?;
++                    out.write_str(name)?;
++                    out.write_str("\": ")?;
++                    v.write_to(out)?;
++                }
++                out.write_str(" }")
++            }
+             Variant(_, name, None) => out.write_str(name),
+             Variant(_, name, Some(payload)) => {
+                 out.write_str(name)?;
+@@ -535,7 +867,7 @@ impl<H: HashPolicy> Value<H> {
+         match &self.kind {
+             Int(_) => "int",
+             Bool(_) => "bool",
+-            Map(_) => "map",
++            Map(_) | Struct(_, _) => "map",
+             List(_) => "list",
+             Option(_) => "option",
+             Channel(_) => "channel",
+@@ -824,6 +1156,7 @@ mod tests {
+                     }
+                     write!(f, " }}")
+                 }
++                Struct(_, _) => write!(f, "{}", Reference(&self.0.clone().into_map_form())),
+                 Variant(_, name, None) => write!(f, "{}", name),
+                 Variant(_, name, Some(payload)) => write!(f, "{}({})", name, Reference(payload)),
+             }
+@@ -1193,6 +1526,305 @@ mod lazy_signature_tests {
+     }
+ }
+ 
++#[cfg(test)]
++pub(crate) mod struct_tests {
++    use super::*;
++    use crate::analysis::resolver::NameId;
++    use crate::simulator::core::eval::{Operand, update_collection};
++    use crate::simulator::hash_utils::{NoHashing, WithHashing};
++    use std::collections::hash_map::DefaultHasher;
++
++    /// The key sets of the structs the VR specification builds.
++    pub(crate) const VR_KEY_SETS: [&[&str]; 6] = [
++        &["kind", "key", "uid"],
++        &["view", "op"],
++        &["log", "normal_view", "op_number", "commit_number"],
++        &["is_primary", "key", "value", "primary"],
++        &["request", "commit_number"],
++        &["view", "nonce", "log", "op_number", "commit_number", "sender"],
++    ];
++
++    fn names(set: &[&str]) -> Vec<EcoString> {
++        set.iter().map(|k| EcoString::from(*k)).collect()
++    }
++
++    /// Admitted key sets drawn from a fixed pseudo-random sequence, of every
++    /// size a shape allows.
++    pub(crate) fn generated_key_sets() -> Vec<Vec<String>> {
++        let mut state = 0x2545_f491_4f6c_dd1du64;
++        let mut next = move |bound: u64| {
++            state ^= state << 13;
++            state ^= state >> 7;
++            state ^= state << 17;
++            state % bound
++        };
++        let mut out: Vec<Vec<String>> = Vec::new();
++        let mut per_size = [0usize; STRUCT_MAX_FIELDS + 1];
++        for _ in 0..20_000 {
++            let size = 1 + next(STRUCT_MAX_FIELDS as u64) as usize;
++            if per_size[size] >= 4 {
++                continue;
++            }
++            let mut set: Vec<String> = Vec::new();
++            while set.len() < size {
++                let name = format!("field_{}", next(400));
++                if !set.contains(&name) {
++                    set.push(name);
++                }
++            }
++            let ns: Vec<EcoString> = set.iter().map(|s| EcoString::from(s.as_str())).collect();
++            if struct_shape(&ns).is_some() {
++                per_size[size] += 1;
++                out.push(set);
++            }
++        }
++        assert!(per_size[1..].iter().all(|&c| c > 0), "every size is generated: {per_size:?}");
++        out
++    }
++
++    /// Field values of several kinds for each key, varied by `seed`. A nested
++    /// struct appears as a struct in the first list and as its map in the
++    /// second.
++    fn field_values<H: HashPolicy>(n: usize, seed: usize) -> (Vec<Value<H>>, Vec<Value<H>>) {
++        let mut as_struct = Vec::new();
++        let mut as_map = Vec::new();
++        for i in 0..n {
++            let (s, m) = match (i + seed) % 8 {
++                0 => {
++                    let v = Value::<H>::int((i * 31 + seed) as i64);
++                    (v.clone(), v)
++                }
++                1 => {
++                    let v = Value::<H>::string(EcoString::from(format!("v{}", (i + seed) % 3)));
++                    (v.clone(), v)
++                }
++                2 => {
++                    let v = Value::<H>::list((0..(seed % 3)).map(|j| Value::<H>::int(j as i64)).collect());
++                    (v.clone(), v)
++                }
++                3 => struct_and_map::<H, _>(VR_KEY_SETS[1], seed / 2),
++                4 => {
++                    let v = Value::<H>::option_some(Value::<H>::bool(seed % 2 == 0));
++                    (v.clone(), v)
++                }
++                5 => {
++                    let v = Value::<H>::tuple([Value::<H>::int(i as i64), Value::<H>::unit()].into_iter().collect());
++                    (v.clone(), v)
++                }
++                6 => {
++                    let mut m = ValueMap::<H>::new();
++                    m.insert(Value::<H>::int(seed as i64 % 2), Value::<H>::string("x".into()));
++                    let v = Value::<H>::map(m);
++                    (v.clone(), v)
++                }
++                _ => {
++                    let v = Value::<H>::node(NodeId {
++                        role: NameId(0),
++                        index: seed % 3,
++                    });
++                    (v.clone(), v)
++                }
++            };
++            as_struct.push(s);
++            as_map.push(m);
++        }
++        (as_struct, as_map)
++    }
++
++    /// A struct of the key set and the map its literal builds, inserting the
++    /// keys in the order given.
++    pub(crate) fn struct_and_map<H: HashPolicy, S: AsRef<str>>(set: &[S], seed: usize) -> (Value<H>, Value<H>) {
++        let ns: Vec<EcoString> = set.iter().map(|k| EcoString::from(k.as_ref())).collect();
++        let shape = struct_shape(&ns).expect("admitted key set");
++        let (sv, mv) = field_values::<H>(ns.len(), seed);
++        let mut m = ValueMap::<H>::new();
++        let mut fields = vec![Value::<H>::unit(); ns.len()];
++        for ((k, s), v) in ns.iter().zip(sv).zip(mv) {
++            m.insert(Value::<H>::string(k.clone()), v);
++            fields[shape.position(k).unwrap()] = s;
++        }
++        (Value::<H>::struct_of(shape, fields.into_iter().collect()), Value::<H>::map(m))
++    }
++
++    fn key_hash_events() -> u64 {
++        util_stats::pending_evaluator_events()[2]
++    }
++
++    fn std_hash<T: Hash>(t: &T) -> u64 {
++        let mut h = DefaultHasher::new();
++        t.hash(&mut h);
++        h.finish()
++    }
++
++    fn fx_hash<T: Hash>(t: &T) -> u64 {
++        let mut h = FxHasher::default();
++        t.hash(&mut h);
++        h.finish()
++    }
++
++    fn entries<H: HashPolicy>(m: &ValueMap<H>) -> String {
++        m.iter().map(|(k, v)| format!("{k:?}={v:?};")).collect()
++    }
++
++    fn cases<H: HashPolicy>() -> Vec<(Value<H>, Value<H>)> {
++        let mut out = Vec::new();
++        let generated = generated_key_sets();
++        for seed in 0..4 {
++            for set in VR_KEY_SETS {
++                out.push(struct_and_map::<H, _>(set, seed));
++                let mut reversed = set.to_vec();
++                reversed.reverse();
++                out.push(struct_and_map::<H, _>(&reversed, seed));
++            }
++            for set in generated.iter().step_by(3) {
++                out.push(struct_and_map::<H, _>(set, seed));
++            }
++        }
++        out
++    }
++
++    #[test]
++    fn vr_key_sets_are_admitted_in_map_iteration_order() {
++        for set in VR_KEY_SETS {
++            let shape = struct_shape(&names(set)).expect("VR key set is a shape");
++            let mut forward = ValueMap::<NoHashing>::new();
++            let mut backward = ValueMap::<NoHashing>::new();
++            for k in set {
++                forward.insert(Value::string(EcoString::from(*k)), Value::unit());
++            }
++            for k in set.iter().rev() {
++                backward.insert(Value::string(EcoString::from(*k)), Value::unit());
++            }
++            let order: Vec<String> = shape.names().iter().map(|n| n.to_string()).collect();
++            let f: Vec<String> = forward.iter().map(|(k, _)| k.to_string().trim_matches('"').to_string()).collect();
++            let b: Vec<String> = backward.iter().map(|(k, _)| k.to_string().trim_matches('"').to_string()).collect();
++            assert_eq!(order, f, "{set:?}");
++            assert_eq!(order, b, "{set:?}");
++            assert!(std::ptr::eq(shape, struct_shape(&names(set)).unwrap()));
++        }
++        assert_eq!(
++            struct_shape(&names(&["kind", "key", "uid"])).map(|s| s as *const _),
++            struct_shape(&names(&["uid", "kind", "key"])).map(|s| s as *const _)
++        );
++        assert!(struct_shape(&names(&["a", "a"])).is_none());
++        assert!(struct_shape(&[]).is_none());
++    }
++
++    fn check_single<H: HashPolicy>(s: &Value<H>, m: &Value<H>) {
++        assert!(matches!(s.kind, ValueKind::Struct(_, _)));
++        assert_eq!(s.sig, m.sig, "{m:?}");
++        assert_eq!(fx_hash(s), fx_hash(m), "{m:?}");
++        assert_eq!(std_hash(s), std_hash(m), "{m:?}");
++        assert_eq!(s.to_string(), m.to_string());
++        assert_eq!(format!("{s:?}"), format!("{m:?}"));
++        assert_eq!(format!("{s:#?}"), format!("{m:#?}"));
++        assert_eq!(s.type_name(), m.type_name());
++        assert!(s == m && m == s && *s == s.clone());
++        assert_eq!(s.cmp(m), Ordering::Equal);
++        let ValueKind::Struct(shape, fields) = &s.kind else { unreachable!() };
++        let ValueKind::Map(map) = &m.kind else { unreachable!() };
++        let mut rebuilt = struct_to_map(shape, fields);
++        let mut reference = map.clone();
++        assert_eq!(entries(&rebuilt), entries(&reference));
++        assert_eq!(format!("{rebuilt:?}"), format!("{reference:?}"));
++        for i in 0..24 {
++            let k = Value::<H>::string(EcoString::from(format!("extra_{i}")));
++            rebuilt.insert(k.clone(), Value::<H>::int(i));
++            reference.insert(k, Value::<H>::int(i));
++            assert_eq!(entries(&rebuilt), entries(&reference), "insert {i}");
++        }
++        for name in shape.names() {
++            let k = Value::<H>::string(name.clone());
++            let mut a = struct_to_map(shape, fields);
++            let mut b = map.clone();
++            a.remove(&k);
++            b.remove(&k);
++            assert_eq!(entries(&a), entries(&b), "remove {name}");
++            rebuilt.remove(&k);
++            reference.remove(&k);
++            assert_eq!(entries(&rebuilt), entries(&reference), "remove {name} after inserts");
++        }
++        for (i, name) in shape.names().iter().enumerate() {
++            for key in [Value::<H>::string(name.clone()), Value::<H>::string("not_a_field".into()), Value::<H>::int(3)] {
++                let replacement = Value::<H>::int(1000 + i as i64);
++                let before = key_hash_events();
++                let a = update_collection(s.clone(), Operand::Borrowed(&key), replacement.clone());
++                let mid = key_hash_events();
++                let b = update_collection(m.clone(), Operand::Borrowed(&key), replacement);
++                let after = key_hash_events();
++                let (a, b) = (a.unwrap(), b.unwrap());
++                assert_eq!(mid.wrapping_sub(before), after.wrapping_sub(mid), "store {key:?}");
++                assert_eq!(format!("{a:?}"), format!("{b:?}"));
++                assert_eq!(a.sig, b.sig);
++                assert!(a == b);
++            }
++        }
++    }
++
++    fn check_pair<H: HashPolicy>(a: &(Value<H>, Value<H>), b: &(Value<H>, Value<H>)) {
++        let expected_eq = a.1 == b.1;
++        let expected_ord = a.1.cmp(&b.1);
++        for (x, y) in [(&a.0, &b.0), (&a.0, &b.1), (&a.1, &b.0)] {
++            let before = key_hash_events();
++            let _ = a.1 == b.1;
++            let mid = key_hash_events();
++            let eq = *x == *y;
++            let after = key_hash_events();
++            assert_eq!(eq, expected_eq, "{x:?} == {y:?}");
++            assert_eq!(mid.wrapping_sub(before), after.wrapping_sub(mid), "hash events of {x:?} == {y:?}");
++            assert_eq!(x.cmp(y), expected_ord, "{x:?} cmp {y:?}");
++        }
++    }
++
++    fn check_all<H: HashPolicy>() {
++        let cases = cases::<H>();
++        for (s, m) in &cases {
++            check_single(s, m);
++        }
++        for a in &cases {
++            for b in &cases {
++                check_pair(a, b);
++            }
++        }
++    }
++
++    #[test]
++    fn structs_observe_as_their_maps_with_eager_signatures() {
++        check_all::<WithHashing>();
++    }
++
++    #[test]
++    fn structs_observe_as_their_maps_with_deferred_signatures() {
++        check_all::<NoHashing>();
++    }
++
++    #[test]
++    fn equal_structs_differing_in_one_field_count_the_map_equality_hashes() {
++        for set in VR_KEY_SETS.iter().copied().chain([&["field_1"][..]]) {
++            let n = set.len();
++            for differ in 0..=n {
++                let (s, m) = struct_and_map::<NoHashing, _>(set, 1);
++                let ValueKind::Struct(shape, fields) = &s.kind else { unreachable!() };
++                let mut other_fields = fields.clone();
++                let mut other_map = m.as_map().unwrap().clone();
++                if differ < n {
++                    other_fields.make_mut()[differ] = Value::int(-1);
++                    other_map.insert(Value::string(shape.names()[differ].clone()), Value::int(-1));
++                }
++                let t = Value::<NoHashing>::struct_of(shape, other_fields);
++                let u = Value::<NoHashing>::map(other_map);
++                let before = key_hash_events();
++                let expected = m == u;
++                let mid = key_hash_events();
++                let got = s == t;
++                let after = key_hash_events();
++                assert_eq!(expected, got);
++                assert_eq!(mid - before, after - mid, "{set:?} differing at {differ}");
++            }
++        }
++    }
++}
++
+ #[cfg(test)]
+ mod layout_tests {
+     use super::*;
+diff --git a/spur-core/src/simulator/history.rs b/spur-core/src/simulator/history.rs
+index 8ee64a8..eaa196d 100644
+--- a/spur-core/src/simulator/history.rs
++++ b/spur-core/src/simulator/history.rs
+@@ -13,7 +13,7 @@ use parquet::arrow::ArrowWriter;
+ use parquet::basic::Compression;
+ use parquet::file::properties::WriterProperties;
+ use crate::simulator::core::state::NodeId;
+-use crate::simulator::core::values::ValueMap;
++use crate::simulator::core::values::{StructShape, ValueMap};
+ use crate::simulator::hash_utils::HashPolicy;
+ use serde::ser::{Serialize, SerializeMap, Serializer};
+ #[cfg(test)]
+@@ -169,6 +169,18 @@ fn json_of_value<H: crate::simulator::hash_utils::HashPolicy>(v: &Value<H>) -> J
+             "value": json_pairs
+             })
+         }
++        ValueKind::Struct(shape, fields) => {
++            let json_pairs: Vec<JsonValue> = shape
++                .names()
++                .iter()
++                .zip(fields.iter())
++                .map(|(name, v)| json!([json_of_value(&Value::<H>::string(name.clone())), json_of_value(v)]))
++                .collect();
++            json!({
++            "type": "VMap",
++            "value": json_pairs
++            })
++        }
+         ValueKind::Option(opt) => {
+             let value_json = match opt {
+                 Some(inner) => json_of_value(inner),
+@@ -263,6 +275,33 @@ impl<H: HashPolicy> Serialize for MapJson<'_, H> {
+     }
+ }
+ 
++/// A struct written as the entry pairs of the map it stands for.
++struct StructJson<'a, H: HashPolicy>(&'a StructShape, &'a [Value<H>]);
++
++/// A string key written as `ValueJson` writes a string value.
++struct StringKeyJson<'a>(&'a str);
++
++impl Serialize for StringKeyJson<'_> {
++    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
++        let mut m = serializer.serialize_map(Some(2))?;
++        m.serialize_entry("type", "VString")?;
++        m.serialize_entry("value", self.0)?;
++        m.end()
++    }
++}
++
++impl<H: HashPolicy> Serialize for StructJson<'_, H> {
++    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
++        serializer.collect_seq(
++            self.0
++                .names()
++                .iter()
++                .zip(self.1.iter())
++                .map(|(name, v)| (StringKeyJson(name.as_str()), ValueJson(v))),
++        )
++    }
++}
++
+ impl Serialize for ChannelJson {
+     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+         let mut m = serializer.serialize_map(Some(2))?;
+@@ -329,6 +368,10 @@ impl<H: HashPolicy> Serialize for ValueJson<'_, H> {
+                 m.serialize_entry("type", "VMap")?;
+                 m.serialize_entry("value", &MapJson(map))?;
+             }
++            ValueKind::Struct(shape, fields) => {
++                m.serialize_entry("type", "VMap")?;
++                m.serialize_entry("value", &StructJson(shape, fields.as_slice()))?;
++            }
+             ValueKind::Option(opt) => {
+                 m.serialize_entry("type", "VOption")?;
+                 m.serialize_entry("value", &opt.as_deref().map(ValueJson))?;
+@@ -1684,4 +1727,33 @@ mod payload_json_tests {
+         check::<NoHashing>();
+         check::<WithHashing>();
+     }
++
++    fn check_structs<H: HashPolicy>() {
++        use crate::simulator::core::values::struct_tests::{
++            VR_KEY_SETS, generated_key_sets, struct_and_map,
++        };
++        let mut sets: Vec<Vec<String>> = VR_KEY_SETS
++            .iter()
++            .map(|set| set.iter().map(|k| k.to_string()).collect())
++            .collect();
++        sets.extend(generated_key_sets());
++        for seed in 0..4 {
++            let mut structs = Vec::new();
++            let mut maps = Vec::new();
++            for set in &sets {
++                let (s, m) = struct_and_map::<H, _>(set, seed);
++                assert_eq!(json_of_value(&s), json_of_value(&m));
++                assert_eq!(payload_to_json_string(std::slice::from_ref(&s)), tree_text(std::slice::from_ref(&m)));
++                structs.push(s);
++                maps.push(m);
++            }
++            assert_eq!(payload_to_json_string(&structs), tree_text(&maps));
++        }
++    }
++
++    #[test]
++    fn struct_payloads_are_byte_identical_to_their_maps() {
++        check_structs::<NoHashing>();
++        check_structs::<WithHashing>();
++    }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index ee9808b..d5e0929 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -99,6 +99,18 @@ static FRAME_ENTRY_COPIES: AtomicU64 = AtomicU64::new(0);
+ static FRAME_DEFAULT_SLOTS_FILLED: AtomicU64 = AtomicU64::new(0);
+ static FRAME_PARAMS_FILLED: AtomicU64 = AtomicU64::new(0);
+ static VALUE_SIG_LEAF_HASHES_DEFERRED: AtomicU64 = AtomicU64::new(0);
++static VALUE_STRUCT_LITERALS: AtomicU64 = AtomicU64::new(0);
++static VALUE_STRUCT_LITERAL_ENTRIES: AtomicU64 = AtomicU64::new(0);
++static VALUE_STRUCT_FIELD_READS: AtomicU64 = AtomicU64::new(0);
++static VALUE_STRUCT_OTHER_LOOKUPS: AtomicU64 = AtomicU64::new(0);
++static VALUE_STRUCT_FALLBACKS: AtomicU64 = AtomicU64::new(0);
++static VALUE_STRUCT_FALLBACK_KEY_HASHES: AtomicU64 = AtomicU64::new(0);
++static RECORD_EXEC_BORROWED: AtomicU64 = AtomicU64::new(0);
++static RECORD_EXEC_PARKED: AtomicU64 = AtomicU64::new(0);
++static RECORD_EXEC_REQUEUED: AtomicU64 = AtomicU64::new(0);
++static RECORD_EXEC_FINISHED: AtomicU64 = AtomicU64::new(0);
++static RECORD_EXEC_ERRORED: AtomicU64 = AtomicU64::new(0);
++static RECORD_EXEC_PARK_SINGLE_COPY: AtomicU64 = AtomicU64::new(0);
+ static EVAL_BORROW_HANDLES_NOT_CLONED: AtomicU64 = AtomicU64::new(0);
+ static EVAL_BORROW_SCALARS_NOT_CLONED: AtomicU64 = AtomicU64::new(0);
+ static RUN_BUFFERS_CHANNEL_TABLE_GROWS: AtomicU64 = AtomicU64::new(0);
+@@ -874,6 +886,18 @@ pub fn set_enabled(on: bool) {
+             &FRAME_DEFAULT_SLOTS_FILLED,
+             &FRAME_PARAMS_FILLED,
+             &VALUE_SIG_LEAF_HASHES_DEFERRED,
++            &VALUE_STRUCT_LITERALS,
++            &VALUE_STRUCT_LITERAL_ENTRIES,
++            &VALUE_STRUCT_FIELD_READS,
++            &VALUE_STRUCT_OTHER_LOOKUPS,
++            &VALUE_STRUCT_FALLBACKS,
++            &VALUE_STRUCT_FALLBACK_KEY_HASHES,
++            &RECORD_EXEC_BORROWED,
++            &RECORD_EXEC_PARKED,
++            &RECORD_EXEC_REQUEUED,
++            &RECORD_EXEC_FINISHED,
++            &RECORD_EXEC_ERRORED,
++            &RECORD_EXEC_PARK_SINGLE_COPY,
+             &EVAL_BORROW_HANDLES_NOT_CLONED,
+             &EVAL_BORROW_SCALARS_NOT_CLONED,
+             &RUN_BUFFERS_CHANNEL_TABLE_GROWS,
+@@ -1958,6 +1982,18 @@ thread_local! {
+     /// Interpreter counts written without a stats switch check, one cell
+     /// each, drained into the session totals where the frame counts fold.
+     static LEAF_HASHES_DEFERRED_RUN: Cell<u64> = const { Cell::new(0) };
++    static STRUCT_LITERALS_RUN: Cell<u64> = const { Cell::new(0) };
++    static STRUCT_LITERAL_ENTRIES_RUN: Cell<u64> = const { Cell::new(0) };
++    static STRUCT_FIELD_READS_RUN: Cell<u64> = const { Cell::new(0) };
++    static STRUCT_OTHER_LOOKUPS_RUN: Cell<u64> = const { Cell::new(0) };
++    static STRUCT_FALLBACKS_RUN: Cell<u64> = const { Cell::new(0) };
++    static STRUCT_FALLBACK_KEY_HASHES_RUN: Cell<u64> = const { Cell::new(0) };
++    static EXEC_BORROWED_RUN: Cell<u64> = const { Cell::new(0) };
++    static EXEC_PARKED_RUN: Cell<u64> = const { Cell::new(0) };
++    static EXEC_REQUEUED_RUN: Cell<u64> = const { Cell::new(0) };
++    static EXEC_FINISHED_RUN: Cell<u64> = const { Cell::new(0) };
++    static EXEC_ERRORED_RUN: Cell<u64> = const { Cell::new(0) };
++    static EXEC_PARK_SINGLE_COPY_RUN: Cell<u64> = const { Cell::new(0) };
+     static HANDLES_NOT_CLONED_RUN: Cell<u64> = const { Cell::new(0) };
+     static SCALARS_NOT_CLONED_RUN: Cell<u64> = const { Cell::new(0) };
+     static CHANNEL_TABLE_GROWS_RUN: Cell<u64> = const { Cell::new(0) };
+@@ -5573,6 +5609,71 @@ impl ValueSigStats {
+     }
+ }
+ 
++/// Map literals with distinct string keys stored as field slices.
++/// `key_hashes_avoided` is the sum of `literal_entries`, `field_reads` and
++/// `other_lookups`: the deferred leaf hashes the map form of those values
++/// would have recorded and the struct form did not. `fallback_key_hashes` are
++/// the deferred leaf hashes spent turning `fallbacks` structs back into maps.
++/// The hash leaves count under the deferred signature policy only.
++/// `shapes_kept_as_maps` counts distinct key sets of such literals that had
++/// to stay maps.
++#[derive(Serialize, Debug)]
++pub struct ValueStructStats {
++    pub literals: u64,
++    pub key_hashes_avoided: u64,
++    pub literal_entries: u64,
++    pub field_reads: u64,
++    pub other_lookups: u64,
++    pub fallbacks: u64,
++    pub fallback_key_hashes: u64,
++    pub shapes_kept_as_maps: u64,
++}
++
++impl ValueStructStats {
++    fn read() -> Self {
++        let literal_entries = VALUE_STRUCT_LITERAL_ENTRIES.load(Ordering::Relaxed);
++        let field_reads = VALUE_STRUCT_FIELD_READS.load(Ordering::Relaxed);
++        let other_lookups = VALUE_STRUCT_OTHER_LOOKUPS.load(Ordering::Relaxed);
++        Self {
++            literals: VALUE_STRUCT_LITERALS.load(Ordering::Relaxed),
++            key_hashes_avoided: literal_entries + field_reads + other_lookups,
++            literal_entries,
++            field_reads,
++            other_lookups,
++            fallbacks: VALUE_STRUCT_FALLBACKS.load(Ordering::Relaxed),
++            fallback_key_hashes: VALUE_STRUCT_FALLBACK_KEY_HASHES.load(Ordering::Relaxed),
++            shapes_kept_as_maps: crate::simulator::core::values::struct_shapes_kept_as_maps(),
++        }
++    }
++}
++
++/// Record segments run with the record borrowed from the runnable that held
++/// it, by where each ended: `borrowed` is `parked + requeued + finished +
++/// errored` for every run. `park_single_copy` counts parked records moved
++/// into their channel once, straight from that runnable.
++#[derive(Serialize, Debug)]
++pub struct RecordExecStats {
++    pub borrowed: u64,
++    pub parked: u64,
++    pub requeued: u64,
++    pub finished: u64,
++    pub errored: u64,
++    pub park_single_copy: u64,
++}
++
++impl RecordExecStats {
++    fn read() -> Self {
++        Self {
++            borrowed: RECORD_EXEC_BORROWED.load(Ordering::Relaxed),
++            parked: RECORD_EXEC_PARKED.load(Ordering::Relaxed),
++            requeued: RECORD_EXEC_REQUEUED.load(Ordering::Relaxed),
++            finished: RECORD_EXEC_FINISHED.load(Ordering::Relaxed),
++            errored: RECORD_EXEC_ERRORED.load(Ordering::Relaxed),
++            park_single_copy: RECORD_EXEC_PARK_SINGLE_COPY.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// Variable operands the evaluator read in place instead of copying.
+ /// `handles_not_cloned` counts lists, maps, strings, options, tuples and
+ /// variants, whose copy touches a reference count or string bytes;
+@@ -6005,6 +6106,85 @@ pub fn record_leaf_hash_deferred() {
+     tick(&LEAF_HASHES_DEFERRED_RUN);
+ }
+ 
++#[inline]
++fn add_to_cell(cell: &'static std::thread::LocalKey<Cell<u64>>, n: u64) {
++    cell.with(|c| c.set(c.get() + n));
++}
++
++/// A map literal was built as a struct. `key_hashes` is the number of key
++/// hashes its map form would have recorded as deferred leaf hashes.
++#[inline]
++pub fn record_struct_literal(key_hashes: u64) {
++    tick(&STRUCT_LITERALS_RUN);
++    add_to_cell(&STRUCT_LITERAL_ENTRIES_RUN, key_hashes);
++}
++
++/// A map literal built as a struct failed while its fields were evaluated,
++/// after the map form would have recorded `key_hashes` deferred leaf hashes.
++#[inline]
++pub fn record_struct_literal_failed(key_hashes: u64) {
++    add_to_cell(&STRUCT_LITERAL_ENTRIES_RUN, key_hashes);
++}
++
++/// A string key was read from a struct where its map form would have
++/// recorded one deferred leaf hash.
++#[inline]
++pub fn record_struct_field_read() {
++    tick(&STRUCT_FIELD_READS_RUN);
++}
++
++/// A struct operation other than a literal or a field read skipped
++/// `key_hashes` deferred leaf hashes its map form would have recorded.
++#[inline]
++pub fn record_struct_other_lookups(key_hashes: u64) {
++    add_to_cell(&STRUCT_OTHER_LOOKUPS_RUN, key_hashes);
++}
++
++/// A struct was turned into the map it stands for, recording `key_hashes`
++/// deferred leaf hashes its source value never paid.
++#[inline]
++pub fn record_struct_fallback(key_hashes: u64) {
++    tick(&STRUCT_FALLBACKS_RUN);
++    add_to_cell(&STRUCT_FALLBACK_KEY_HASHES_RUN, key_hashes);
++}
++
++/// A segment of a record started running with the record borrowed from its
++/// owner.
++#[inline]
++pub fn record_exec_borrowed() {
++    tick(&EXEC_BORROWED_RUN);
++}
++
++/// A borrowed record's segment ended blocked on a channel.
++#[inline]
++pub fn record_exec_parked() {
++    tick(&EXEC_PARKED_RUN);
++}
++
++/// A parked record was moved from its owner into the channel's reader queue.
++#[inline]
++pub fn record_exec_park_single_copy() {
++    tick(&EXEC_PARK_SINGLE_COPY_RUN);
++}
++
++/// A borrowed record's segment yielded and the record was queued again.
++#[inline]
++pub fn record_exec_requeued() {
++    tick(&EXEC_REQUEUED_RUN);
++}
++
++/// A borrowed record's segment returned through its continuation.
++#[inline]
++pub fn record_exec_finished() {
++    tick(&EXEC_FINISHED_RUN);
++}
++
++/// A borrowed record's segment ended in a runtime error.
++#[inline]
++pub fn record_exec_errored() {
++    tick(&EXEC_ERRORED_RUN);
++}
++
+ /// The evaluator read a variable operand in place. `handle` is true when the
+ /// value's copy would have touched a reference count or string bytes.
+ #[inline]
+@@ -6102,10 +6282,24 @@ pub fn pending_interpreter_tally() -> InterpreterTally {
+ /// hashed with a deferred signature.
+ #[cfg(test)]
+ pub(crate) fn pending_evaluator_events() -> [u64; 3] {
++    // The third event is the deferred leaf hashes the evaluation would have
++    // recorded had every struct been its map: hashes a struct skipped are
++    // added back and hashes spent turning a struct into a map are taken out.
++    let skipped = [
++        &STRUCT_LITERAL_ENTRIES_RUN,
++        &STRUCT_FIELD_READS_RUN,
++        &STRUCT_OTHER_LOOKUPS_RUN,
++    ]
++    .map(|cell| cell.with(|c| c.get()))
++    .iter()
++    .fold(0u64, |a, b| a.wrapping_add(*b));
+     [
+         HANDLES_NOT_CLONED_RUN.with(|c| c.get()),
+         SCALARS_NOT_CLONED_RUN.with(|c| c.get()),
+-        LEAF_HASHES_DEFERRED_RUN.with(|c| c.get()),
++        LEAF_HASHES_DEFERRED_RUN
++            .with(|c| c.get())
++            .wrapping_add(skipped)
++            .wrapping_sub(STRUCT_FALLBACK_KEY_HASHES_RUN.with(|c| c.get())),
+     ]
+ }
+ 
+@@ -6157,6 +6351,18 @@ pub fn flush_frame_stats() {
+     // even when stats are off and a later session never inherits them.
+     let drained = [
+         (&LEAF_HASHES_DEFERRED_RUN, &VALUE_SIG_LEAF_HASHES_DEFERRED),
++        (&STRUCT_LITERALS_RUN, &VALUE_STRUCT_LITERALS),
++        (&STRUCT_LITERAL_ENTRIES_RUN, &VALUE_STRUCT_LITERAL_ENTRIES),
++        (&STRUCT_FIELD_READS_RUN, &VALUE_STRUCT_FIELD_READS),
++        (&STRUCT_OTHER_LOOKUPS_RUN, &VALUE_STRUCT_OTHER_LOOKUPS),
++        (&STRUCT_FALLBACKS_RUN, &VALUE_STRUCT_FALLBACKS),
++        (&STRUCT_FALLBACK_KEY_HASHES_RUN, &VALUE_STRUCT_FALLBACK_KEY_HASHES),
++        (&EXEC_BORROWED_RUN, &RECORD_EXEC_BORROWED),
++        (&EXEC_PARKED_RUN, &RECORD_EXEC_PARKED),
++        (&EXEC_REQUEUED_RUN, &RECORD_EXEC_REQUEUED),
++        (&EXEC_FINISHED_RUN, &RECORD_EXEC_FINISHED),
++        (&EXEC_ERRORED_RUN, &RECORD_EXEC_ERRORED),
++        (&EXEC_PARK_SINGLE_COPY_RUN, &RECORD_EXEC_PARK_SINGLE_COPY),
+         (&HANDLES_NOT_CLONED_RUN, &EVAL_BORROW_HANDLES_NOT_CLONED),
+         (&SCALARS_NOT_CLONED_RUN, &EVAL_BORROW_SCALARS_NOT_CLONED),
+         (&CHANNEL_TABLE_GROWS_RUN, &RUN_BUFFERS_CHANNEL_TABLE_GROWS),
+@@ -7331,6 +7537,8 @@ pub struct UtilizationSnapshot {
+     pub frame: FrameStats,
+     pub frame_layout: FrameLayoutStats,
+     pub value_sig: ValueSigStats,
++    pub value_struct: ValueStructStats,
++    pub record_exec: RecordExecStats,
+     pub eval_borrow: EvalBorrowStats,
+     pub run_buffers: RunBufferStats,
+     pub print_content: PrintContentStats,
+@@ -7561,6 +7769,8 @@ pub fn snapshot() -> UtilizationSnapshot {
+         frame: FrameStats::read(),
+         frame_layout: FrameLayoutStats::read(),
+         value_sig: ValueSigStats::read(),
++        value_struct: ValueStructStats::read(),
++        record_exec: RecordExecStats::read(),
+         eval_borrow: EvalBorrowStats::read(),
+         run_buffers: RunBufferStats::read(),
+         print_content: PrintContentStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index f35a5bd..b20e8c0 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, ValueStructStats, RecordExecStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1313,6 +1313,72 @@ fn value_sig_leaves(prefix: &str, v: &ValueSigStats) -> Vec<(String, Value)> {
+     vec![leaf(prefix, "leaf_hashes_deferred", *leaf_hashes_deferred)]
+ }
+ 
++fn value_struct(m: &mut Marks) -> ValueStructStats {
++    ValueStructStats {
++        literals: m.int(),
++        key_hashes_avoided: m.int(),
++        literal_entries: m.int(),
++        field_reads: m.int(),
++        other_lookups: m.int(),
++        fallbacks: m.int(),
++        fallback_key_hashes: m.int(),
++        shapes_kept_as_maps: m.int(),
++    }
++}
++
++fn value_struct_leaves(prefix: &str, v: &ValueStructStats) -> Vec<(String, Value)> {
++    let ValueStructStats {
++        literals,
++        key_hashes_avoided,
++        literal_entries,
++        field_reads,
++        other_lookups,
++        fallbacks,
++        fallback_key_hashes,
++        shapes_kept_as_maps,
++    } = v;
++    vec![
++        leaf(prefix, "literals", *literals),
++        leaf(prefix, "key_hashes_avoided", *key_hashes_avoided),
++        leaf(prefix, "literal_entries", *literal_entries),
++        leaf(prefix, "field_reads", *field_reads),
++        leaf(prefix, "other_lookups", *other_lookups),
++        leaf(prefix, "fallbacks", *fallbacks),
++        leaf(prefix, "fallback_key_hashes", *fallback_key_hashes),
++        leaf(prefix, "shapes_kept_as_maps", *shapes_kept_as_maps),
++    ]
++}
++
++fn record_exec(m: &mut Marks) -> RecordExecStats {
++    RecordExecStats {
++        borrowed: m.int(),
++        parked: m.int(),
++        requeued: m.int(),
++        finished: m.int(),
++        errored: m.int(),
++        park_single_copy: m.int(),
++    }
++}
++
++fn record_exec_leaves(prefix: &str, r: &RecordExecStats) -> Vec<(String, Value)> {
++    let RecordExecStats {
++        borrowed,
++        parked,
++        requeued,
++        finished,
++        errored,
++        park_single_copy,
++    } = r;
++    vec![
++        leaf(prefix, "borrowed", *borrowed),
++        leaf(prefix, "parked", *parked),
++        leaf(prefix, "requeued", *requeued),
++        leaf(prefix, "finished", *finished),
++        leaf(prefix, "errored", *errored),
++        leaf(prefix, "park_single_copy", *park_single_copy),
++    ]
++}
++
+ fn eval_borrow(m: &mut Marks) -> EvalBorrowStats {
+     EvalBorrowStats {
+         handles_not_cloned: m.int(),
+@@ -2292,6 +2358,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         frame: _,
+         frame_layout: _,
+         value_sig: _,
++        value_struct: _,
++        record_exec: _,
+         eval_borrow: _,
+         run_buffers: _,
+         print_content: _,
+@@ -2351,6 +2419,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "frame",
+         "frame_layout",
+         "value_sig",
++        "value_struct",
++        "record_exec",
+         "eval_borrow",
+         "run_buffers",
+         "print_content",
+@@ -2444,6 +2514,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.frame = frame(&mut m);
+     s.frame_layout = frame_layout(&mut m);
+     s.value_sig = value_sig(&mut m);
++    s.value_struct = value_struct(&mut m);
++    s.record_exec = record_exec(&mut m);
+     s.eval_borrow = eval_borrow(&mut m);
+     s.run_buffers = run_buffers(&mut m);
+     s.print_content = print_content(&mut m);
+@@ -2483,6 +2555,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(frame_leaves("frame", &s.frame));
+     expected.extend(frame_layout_leaves("frame_layout", &s.frame_layout));
+     expected.extend(value_sig_leaves("value_sig", &s.value_sig));
++    expected.extend(value_struct_leaves("value_struct", &s.value_struct));
++    expected.extend(record_exec_leaves("record_exec", &s.record_exec));
+     expected.extend(eval_borrow_leaves("eval_borrow", &s.eval_borrow));
+     expected.extend(run_buffers_leaves("run_buffers", &s.run_buffers));
+     expected.extend(print_content_leaves("print_content", &s.print_content));
+@@ -2547,6 +2621,8 @@ fn every_counter_field_reaches_the_written_json() {
+         "frame",
+         "frame_layout",
+         "value_sig",
++        "value_struct",
++        "record_exec",
+         "eval_borrow",
+         "run_buffers",
+         "print_content",

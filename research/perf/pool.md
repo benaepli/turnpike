@@ -1306,7 +1306,7 @@ rounds of clock each:
 
 ## delivered-record-borrowed-through-exec
 
-- category: data layout | origin: proposer | status: admitted (iteration 20) - commit B of struct-slices-and-borrowed-records, on top of struct-values-as-shaped-slices
+- category: data layout | origin: proposer | status: closed (iteration 20) - incremental profile over A: memmove fell 1.76 x r2 but the scheduler family rose to 13.56 against at most 12.53, the exec loops to 14.77 against 14.37, and scheduler + loops + memmove rose 0.26 x r2 against a fall of at least 0.5 (also pop_waiting_reader and malloc + cfree); the copy cost relocated; patch kept as research/perf/patches/delivered-record-borrowed-through-exec.AB.patch
 - mechanism: schedule_runnable owns the delivered record for the step; exec
   and exec_ops take &mut Record and return its disposition (park, requeue,
   finish), applied immediately; the queue layout is unchanged, answering why

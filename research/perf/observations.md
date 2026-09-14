@@ -5508,3 +5508,32 @@ closed on G1 alone and a departure is registered now, before any round:
 - G2 is settled by one low-cutoff profile of the same binary
   (--percent-limit 0.05), read only for the four G2 rows and make_mut. G1 and
   every other guard stay as read above. G2 above 0.95 closes A before rounds.
+
+### delivered-record-borrowed-through-exec: profile reading and decision (autonomous)
+
+Profile c9c54fc-cand-struct-slices-and-borrowed-records.md against A's
+profile, r2 = 6.16 / 6.10 = 1.010 (every exec_plan instance,
+format_escaped_str, the parquet Int64 interner).
+- G1 memmove 6.46 to 4.75, fall 1.76 x r2 (at least 0.8) - held: the copies
+  are gone, as objdump said.
+- G2a scheduler family 12.11 to 13.56 against at most 12.53 - FIRED (+1.45 raw).
+- G2b exec_ops + run_sync_ops + run_async_op + exec_record + settle_record
+  13.93 to 14.77 against at most 14.37 - FIRED (exec_record 0.30 and
+  settle_record 0.18 are new lines; exec_ops +0.21).
+- G2c F + loops + memmove 32.50 to 33.08, a rise of 0.26 x r2 against a fall
+  of at least 0.5 - FIRED: the net of the three is up, not down.
+- G3a pop_waiting_reader 0.48 to 0.56 against at most 0.53 - FIRED.
+- G3b malloc + cfree -0.30 x r2 against within 0.10 - FIRED (cfree 0.66 to
+  0.35).
+- park_record 0.47 is a new line. Placebo 1.089 of reference.
+
+Decision: B closed. The removed copies were real (1.71 raw points of
+memmove) but the scheduler family rose by nearly as much, and the new exec and
+park lines take the rest: the cost moved, as boxing's did in iteration 15. The
+likely carrier is schedule_runnable holding the 248-byte runnable across the
+whole record arm, so the queue walks and the delivery path now run against a
+larger live frame; unverified, and no longer needed to decide. B's band cannot
+separate upward; there is no departure path. Patch kept as
+research/perf/patches/delivered-record-borrowed-through-exec.AB.patch. Nothing
+sits above B. A goes to rounds alone, band [1.030, 1.060], under its
+registered departure, once G2 is settled.
