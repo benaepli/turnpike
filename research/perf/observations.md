@@ -5053,3 +5053,37 @@ a fresh plain-cycles caller attribution on c9c54fc of the Value clone and drop
 family, memmove (DWARF), the allocator, GenericNode make_mut and make_unique,
 including which Value kinds are cloned and whether each clone is for a read,
 a store, or a message or frame. Proposer input, not a graded round.
+
+### Caller attribution on c9c54fc (research/perf/profiles/c9c54fc-attribution.md)
+
+Plain-cycles frame-pointer recording (matches c9c54fc.md within 0.09 on every
+symbol) and a plain-cycles DWARF recording for memmove. Generic instances
+merged: ValueKind::clone 3.07 (the flat line shows 1.95), drop_glue<ValueKind>
+3.79, _int_free_chunk 0.96.
+- ValueKind::clone 3.07: about 45 percent an atomic increment on an imbl map
+  root (mostly Spur structs, which lower to maps), 13 percent list and tuple
+  refcounts, under 1 percent strings, the rest dispatch and scalars. By site:
+  stores 42 percent (slot-to-slot AssignLocal 28, node-env copy-on-write 9);
+  frames, messages and returns 41 percent (Op::Return 13 - cloned out of a
+  frame that is dropped right after; async RPC arguments cloned twice, into
+  arg_vals / initial_args at exec.rs:1164 and again into the callee frame by
+  build_frame at eval.rs:194, 20; SyncCall arguments 5; Send 3); reads 11
+  percent (list and field projection 7, trace payload formatting 4).
+- drop_glue<ValueKind> 3.79: two thirds the old value overwritten by
+  AssignLocal (exec.rs:949), 42 percent heap strings and 25 percent maps.
+- EcoVec<Value> drop 2.56: 94 percent the refcount test and decrement;
+  node-env writebacks 40 percent, record and frame drops at exec_ops return
+  and SyncCall end 44 percent.
+- imbl make_mut 1.35: the per-node uniqueness check, 87 percent under map and
+  struct literals (compiled_eval.rs:207); each literal root is a 2,848-byte
+  node allocated and copied from the stack, beyond tcache.
+- memmove on spur threads 6.27: Record and Runnable moved by value 56 percent
+  (3.49 points - the RPC push, reader park and unpark, Vec::remove in the
+  queues, three moves in schedule_runnable and one into exec); trace text
+  12-15 percent; HAMT nodes 8; strings 5. Parquet writer another 1.22.
+- malloc: map and struct literals 26 percent, string + 13-15, call frames and
+  argument vectors about 17 (SyncCall 7, async frame 6, arg_vals 5), Store
+  8-9, trace Box 6-7, TimerFired payload and format! 9-10.
+- against 45517fd: the scheduler's per-step Vecs are gone (realloc 0.56 to
+  0.11), confirming the eligible-lists merge; literals and strings are larger
+  shares of malloc as a consequence.
