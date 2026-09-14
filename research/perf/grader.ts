@@ -1157,8 +1157,11 @@ async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number, c
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   workloadConfig(resolveRoot(cfg.campaignTemplate), configPath, PROFILE_SEED, wallSec);
   try {
+    // Plain cycles, not perf's default precise event: on this host the precise
+    // event takes the call stack after the sampled instruction has moved on,
+    // so inclusive shares and callers would describe whatever ran next.
     const rec = await run("perf", [
-      "record", "-F", String(PROFILE_HZ), ...(callGraph ? ["--call-graph", "fp"] : []), "-o", perfData, "--",
+      "record", "-e", "cycles", "-F", String(PROFILE_HZ), ...(callGraph ? ["--call-graph", "fp"] : []), "-o", perfData, "--",
       binary, "explore", "-e", "campaign", "--config", configPath, "-y", "--output-dir", dir,
       resolveRoot(cfg.spec),
     ], {
@@ -1244,7 +1247,7 @@ async function cmdProfile(flags: Map<string, string>): Promise<void> {
   fs.writeFileSync(file, [
     `# Profile: spur ${label}`,
     "",
-    `Binary: ${path.relative(ROOT, binary)}. Workload: ${cfg.campaignTemplate} under the campaign explorer on ${cfg.spec}, ${cfg.budgets.rayonThreads} threads, ${wallSec}s.`,
+    `Binary: ${path.relative(ROOT, binary)}. Workload: ${cfg.campaignTemplate} under the campaign explorer on ${cfg.spec}, ${cfg.budgets.rayonThreads} threads, ${wallSec}s. Event: cycles.`,
     snap.demangled ? "" : "Symbols are mangled: rustfilt is not on PATH.",
     "",
     "## Self time",
