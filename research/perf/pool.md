@@ -1390,7 +1390,7 @@ rounds of clock each:
 
 ## integer-dictionary-keys-by-value
 
-- category: contention and parallelism (writer path) | origin: proposer | status: admitted (iteration 22) - building as commit 2 of writer-headroom-and-program-text, on the unmodified vendored parquet 58.0.0 (commit 1)
+- category: contention and parallelism (writer path) | origin: proposer | status: merged (iteration 22, autonomous) - 34bac84 (spur 39428ba on the vendored parquet ea14328); every guard held (Int64 and Int32 interners 2.07 to 0.000 on a low-cutoff profile, writer total 11.51 to 10.11); graded in the stack: busy ns per row 1.267, writers 64-66 percent busy with no blocking, runs per second 0.9957 [0.8566, 1.1573]
 - mechanism: in a vendored parquet 58.0.0, integer dictionary keys come from a
   last-value memo and a direct table for values in [-1, 65,535) (indexed by
   value + 1) instead of hashing; values outside take the hash path; output
@@ -1420,7 +1420,7 @@ rounds of clock each:
 
 ## page-statistics-from-first-in-page-keys
 
-- category: contention and parallelism (writer path) | origin: proposer | status: admitted (iteration 22) - commit 3 of writer-headroom-and-program-text, on H1
+- category: contention and parallelism (writer path) | origin: proposer | status: merged (iteration 22, autonomous) - 34bac84 (spur ec5aa7a); every guard held (writer memcmp 0.95 to 0.54, the gather copy 0.110 to 0.000 on a low-cutoff profile, incremental writer total down 0.84 x r_w); str_stats compared per cell 0.33 and gather copies skipped 0.93 every round
 - mechanism: while a string column's dictionary is active, page min/max are
   compared only for keys new to the page (a per-page bitset cleared on every
   page flush, including the one inside dictionary fallback); contiguous
@@ -1438,7 +1438,7 @@ rounds of clock each:
 
 ## program-text-without-shared-refcounts
 
-- category: contention and parallelism | origin: proposer | status: part B closed (iteration 22) - on its incremental profile the interpreter net missed by 0.05, new thread-local and program_text rows read 0.64 against at most 0.15, the decrement side 8.05 against 7.21 and the allocator 3.05 against 2.87; the per-thread literal table costs about what the shared count did; part A (trace names as &'static str) held every guard and is graded in the stack; full-stack patch kept
+- category: contention and parallelism | origin: proposer | status: part A merged, part B closed (iteration 22, autonomous) - A (trace names as &'static str) merged in 34bac84 (spur c302525): trace functions 1.37 to 0.58, writer_loop 0.72 to 0.50, the trace-name lock sites 0.686 to 0.000 on the census; B closed on its incremental profile (interpreter net missed by 0.05, new thread-local and program_text rows 0.64 against at most 0.15, decrement side 8.05 against 7.21, allocator 3.05 against 2.87); full-stack patch kept
 - mechanism: (A) trace function names as &'static str from a compile-time
   interner, leaked at most once per distinct name per process; (B) string
   literals over 15 bytes cloned from a per-thread copy keyed by a per-build
@@ -1463,7 +1463,7 @@ rounds of clock each:
 
 ## writer-headroom-and-program-text
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 22) - building
+- category: combined | origin: operator-agent (selection) | status: merged in part (iteration 22, autonomous) - 34bac84; vendor, H1, H3 and H2 part A merged as four spur commits after three rounds; H2 part B closed on its incremental profile
 - one branch from 0b0004e: (1) unmodified vendored parquet 58.0.0 with the
   patch entry and workspace exclude, (2) H1, (3) H3, (4) H2-A, (5) H2-B.
   Byte identity of every parquet file plus one-thread table identity on each
