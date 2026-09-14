@@ -4577,3 +4577,21 @@ Next: the lite session, two cross-binary chunks to start under v3 (the
 first also measuring a lite baseline for 11a720c), deep guards per run on
 depth>=6 and depth>=8 at the 0.25 margin, the frozen AOS-arm hand reading
 beside it, and the panel recorded as blind to the campaign arms.
+
+### aos-draw-ahead-pool: lite chunk 1 (of at least 2)
+
+Cross-binary lite session under internal-primary-v3, the first chunk also
+measuring the lite baseline for 11a720c. After chunk 1 (240 s of exposure a
+side, 0 violations, throughput 1.031):
+- depth>=8 events per explore-second 0.9485, separated below the baseline at
+  z 2.7 (-5.14 percent, beyond the 5 percent layout floor); depth>=6 0.9668.
+- if stopped now the rule reads close ("depth>=8 per second separated below
+  the baseline"); canStillAdvance false.
+
+A plausible mechanism, recorded before chunk 2 reads: the lite grader
+excludes AOS runs from its per-second rate (decide.ts RATE_EXCLUDED_ARM_MODES)
+and the pool moves worker time from grid runs to AOS runs (AOS share of runs
+0.131 to 0.181 in the perf rounds), so the grid runs the rate counts fall even
+while total runs per second rise. The pool buys runs the search objective does
+not count at the cost of runs it does. Chunk 2 (the grader's minimum) runs
+before any decision.
