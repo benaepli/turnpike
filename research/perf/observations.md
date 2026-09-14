@@ -4472,3 +4472,58 @@ only history_writer text-buffer and per-arm command counts, which a second
 baseline-against-baseline run shows move by writer timing alone.
 
 Graded in its own session after aos-draw-ahead-pool is decided.
+
+### aos-draw-ahead-pool: implementer report and review before grading
+
+Built on 11a720c: campaign.rs AosArm on run_aos_release (AOS_LOOKAHEAD_BATCHES
+= 2) behind a small AosPlan trait; Completion and CompletionSender generic
+over the outcome, the grid pool changed only in type parameters; explorer.rs
+AosExplorer::split into a runner half (envelope, global state, weights) and a
+controller half (ctrl_rng, bandit, scenario tuples, population, seeded);
+util_stats AosPoolSession writing the existing batched_ leaves once per slice
+over the slice's pool wall, plus aos_pool.drawn_ahead_batches,
+gated_seed_batches and uncredited_at_draw_sum. AosExplorer::step, standalone
+-e aos and Mode C unchanged.
+
+Review of the diff. Each wake credits finished batches in batch order, then
+position order, with one recompute per batch; then draws only while
+in_flight + ready < workers and at most two batches are uncredited; then
+starts runs oldest batch first in position order. At one worker a draw needs
+in_flight = ready = 0, so the previous batch is launched, finished and
+credited first - drawn_ahead is 0 by construction. seeding() reads credited
+state: a seed batch waits while any batch is uncredited (counted once per
+wait) and seeded flips only in finish_batch, so population is non-empty
+whenever a non-seed draw calls select_parent. A completion's batch index
+cannot fall behind front_seq, since front_seq advances only past fully
+finished batches. next_batch issues whole batches, as StrategyArm does. The
+runner and controller borrows are disjoint by construction.
+
+Checks (release): 483 lib tests plus every integration file. New tests: at
+one worker the pool's draw / credit / close sequence equals whole batches with
+starts in id order; against AosExplorer::step on the kv fixture the random
+stream state, bandit q and p bits, population, seeded flag and run counter
+are equal after every slice; at 30 workers staleness never exceeds 2
+recomputes and 120 insertions, a seed batch is never drawn ahead, credits in
+id order, gated_seed_batches exactly 1; the drain leaves everything credited;
+a 600-run slice at batch 32 gives 608 runs at 1 and 30 workers. Identity
+against 11a720c: VR 3,008, Mencius 2,160 (regression only; not a campaign
+arm) and caps-engaged 100,000 identical on every table both ways, stall_cap
+hashes equal, end reasons, per-arm runs and cap figures equal,
+drawn_ahead_batches 0. Other leaves: only writer-timing text-buffer counts.
+At one thread batched_worker_idle_ns rises as disclosed (the coordinator's
+draw and credit time now counts inside capacity).
+
+Pre-round smoke gate, 30 threads, 120 s, seed 1000 (963,360 runs): AOS busy
+share 0.924 (below 0.78 falsifies: held); batched_worker_idle_ns 57.0 us per
+row against the cache's 305-314 (about 5.4x; primary below 2.3 falsifies:
+held); AOS runs per AOS pool-second 7,354 against 5,356-5,830 (below 1.10x
+falsifies: held); AOS us per run 3,709 against 2,929-3,190 (above 1.40x
+falsifies: held, about 1.16-1.27x); writers blocked 0; drawn_ahead 98.5
+percent of batches (description band 55-95, above); uncredited at draw 1.644
+per batch (inside); gated seed batches 1. Per-arm share: aos 0.183. The
+exported binary was rebuilt after test- and comment-only edits; its .text and
+.rodata are byte-identical to the identity build.
+
+Grading next: plain-cycles candidate profile (running), three or more rounds
+on the primary batched_worker_idle_ns per row, then the lite reading with the
+frozen AOS-arm hand reading if the primary is not below 2.3.
