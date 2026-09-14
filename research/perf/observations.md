@@ -5474,3 +5474,37 @@ Rulings:
   identity per expression); equality counting reproducing imbl's hash events.
 
 Profiles of A and A+B now, at the 0.3 percent cutoff.
+
+### struct-values-as-shaped-slices: profile reading and departure, registered before rounds (autonomous)
+
+Profile research/perf/profiles/c9c54fc-cand-struct-slices.md against
+attribution-c9c54fc/fp-flat-0.3.txt (reader tmp/loop/perf/guards20.py, which
+reproduces every reference figure: ceval 8.44, G2 2.46, allocator 4.31,
+memmove 6.32, G5 34.74, R 18.90, F 11.29). r = 19.92 / 18.90 = 1.054.
+- G1 ceval 8.44 to 7.93 raw, fall 0.92 x r against at least 1.0 - FIRED by 0.08.
+- G2 make_mut, compute_sig, hamt Iter::next and GenericNode drop_slow all
+  absent from both tables at the 0.3 cutoff (each below 0.3); the bound, under
+  1.2, does not settle "at most 0.90 x r = 0.95" - unresolved.
+- G3 allocator fall 0.81 x r (at least 0.2), held. G4 memmove fall 0.19 x r
+  (at least 0.1), held. G5 total fall 1.86 x r (at least 1.2), held.
+- G5a clone 3.28 against at most 3.38, G5b drops without drop_slow 7.32
+  against 7.63 (EcoVec<Value> drop 2.56 to 3.91, drop_glue<Value> 0.71 to
+  1.13, drop_glue<ValueKind> 3.78 to 2.28: struct field vectors now carry the
+  drops the HAMT nodes did), G5c loops 13.93 against 14.72 - all held.
+- Observable make_mut below 0.3, at most 0.42 - held.
+- Placebo 0.896 of reference, just outside [0.9, 1.1]: referred to the user
+  before any merge.
+
+Ruling (autonomous). The judgment closes A on any fired guard other than a
+relocation sub-limit. G1 missed by 0.08 x r; it is the guard that says the
+saving lands where priced, while every cost guard held with margin (the
+relocation total fell 1.86 against 1.2, the allocator 0.81 against 0.2) and
+the mechanism's own lines vanished. Under the user's standing no-hard-vetoes
+direction and the loop's standing departure rule (iteration 18), A is not
+closed on G1 alone and a departure is registered now, before any round:
+- A merges only if runs per second separates upward (interval lower edge
+  above 1.0) within six rounds, with every counter in band in every round;
+  otherwise it closes.
+- G2 is settled by one low-cutoff profile of the same binary
+  (--percent-limit 0.05), read only for the four G2 rows and make_mut. G1 and
+  every other guard stay as read above. G2 above 0.95 closes A before rounds.
