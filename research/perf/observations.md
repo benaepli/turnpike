@@ -5004,3 +5004,14 @@ wide); selections and draws are unchanged. The firing floor of
 timer-admission-context-odds-probe still clears by about four orders; chunk
 records before and after this commit are not comparable on these three
 leaves."
+
+### timer-bias-read-at-the-split: user reading and merge
+
+The user read the placebo referral and chose to merge, and authorized this
+loop to append the drafted note to research/lite/observations.md for this
+merge only (research/lite/ is otherwise outside what this loop edits).
+
+Revert criterion, fixed before the post-merge baseline is measured: the
+merge is reverted if the fresh baseline at the merged spur commit reads below
+7624 runs per second over three rounds, 0.97x the 7860.6 cached for 11a720c
+over 18 rounds.
