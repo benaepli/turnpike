@@ -5431,3 +5431,46 @@ partition checks. Layout test pins Record and Runnable at 248 bytes.
 Ruling: both mechanisms match the judgment; no finding blocks profiling.
 Waiting on the implementer's final identity comparison for caps-B3 before
 profiles, so nothing else runs beside the profile recordings.
+
+### struct-slices-and-borrowed-records: implementer report and rulings before profiling (autonomous)
+
+Tests 530 at A, 531 at B, all passing (the decoded-versus-eval tests of both
+policies unmodified). One-thread identity against c9c54fc on both commits -
+VR 3,008, Mencius 2,160, crash-heavy 1,800, caps-engaged 100,000 - identical
+on all four tables both ways, end reasons, steps, stall_cap hash, cap figures,
+runs_failed 0.
+
+Counters (VR / crash / caps): leaf_hashes_deferred baseline over candidate
+11.81 / 16.11 / 11.08 against [9.0, 16.0]; literals per frame call 0.369 /
+0.370 / 0.374; entries per literal 3.578 / 3.577 / 3.560; field reads per frame
+call 0.400 / 0.380 / 0.418; struct share 0.915 / 0.938 / 0.910; fallbacks and
+shapes kept as maps 0. The leaf-hash identity (baseline - candidate =
+key_hashes_avoided - fallback_key_hashes) and borrowed = parked + requeued +
+finished + errored are exact on every run. borrowed per frame call 0.796 /
+0.858 / 0.820, parked per borrowed 0.502 / 0.549 / 0.491, in band. Mencius
+reads outside the VR bands (0.012 literals per frame call, one key set kept as
+a map), as a different spec does; the bands are VR's, the graded workload's.
+
+objdump of the graded instance: every named 248-byte copy gone
+(scheduler.rs:1334, 1547, 1598, 1766, exec.rs:855, both take_local copies);
+0xf8/0xf0 copies across schedule_runnable plus exec 27 to 16, against a fall
+of at least 4.
+
+Rulings:
+- The judgment's "no new 248-byte copy in the disposition code": park_record
+  holds one 0xf8 copy where push_waiting_reader held a 0xf8 and a 0x118, and
+  requeue_local one 0xf8 where the by-value push path copied; each replaces
+  copies the baseline made on the same path. Held.
+- history_writer.text_buffers_allocated differs (caps 4,092 to 4,150 at A and
+  4,080 at AB; VR 227 to 231). It is the writer's buffer pool, driven by
+  wall timing on the writer thread; iteration 19's identity dumps read 4,170
+  base against 4,076-4,080 for three unrelated candidates. Description, not an
+  identity cell.
+- Unsafe in B (park_record, requeue_local): each copies one owned value out of
+  a slot and overwrites the slot with Runnable::Heal without a drop; reviewed,
+  sound as written.
+- Deviations accepted: the test helper that reports leaf hashes as the map form
+  would (lets the decoded-versus-eval tests stay unmodified and check the
+  identity per expression); equality counting reproducing imbl's hash events.
+
+Profiles of A and A+B now, at the 0.3 percent cutoff.
