@@ -4943,3 +4943,31 @@ read in the graded rounds.
 
 Grading: plain-cycles candidate profile (G1-G4 and the placebo), then three
 rounds, cross-binary [1.012, 1.035] regression only, counters by hand.
+
+### timer-bias-read-at-the-split: candidate profile
+
+Profile 11a720c-cand-timer-bias-at-split.md (plain cycles) against
+11a720c.md; R_all 28.70 to 30.22, r = 1.053. F read conservatively, including
+the new queue_selector closure rows, so work moved into the selector counts
+against the saving.
+- G1 F 13.60 to 10.22, a fall of 4.10 = 3.89 x r, at least 1.2 (expected
+  [1.6, 3.4], read above): held. Rows 3.30 / 1.48 / 1.15 / 1.10 / 1.04 /
+  1.01 plus 0.67 and 0.47 from the inclusive table.
+- G2 schedule_runnable RecordRng 6.45 to 3.30, a fall of 3.32 x r, at least
+  0.9: held.
+- G3 F plus exec_plan RecordRng 15.64 to 12.07, a fall of 4.40 = 4.18 x r,
+  at least 1.0: held.
+- G4 exec_plan RecordRng 2.04 to 1.85, at most 2.65: held (it fell).
+- walk_recovery_placebo 1.44 to 1.83, 1.207 of 1.44 x r against [0.9, 1.1]:
+  referred to the user before any merge. This row has now read about 1.2
+  times its reference under three changes that do not touch it (the AOS pool,
+  the probe counters, this one), each of which shrank or reshaped the
+  scheduler's share - consistent with share inflation of an untouched line
+  rather than a change to the walk.
+- description: memmove 6.00 to 6.33, exec_ops 7.96 to 8.12, ceval 7.96 to
+  8.38, malloc 2.14 to 2.25.
+
+The probe counters' exec_plan move (+0.35) does not recur here (-0.19 on a
+change to the same scheduler code), which leans toward that move having been
+build layout. Rounds running: runs per second [1.012, 1.035] regression
+only; biased_steps per step and promoted / biased_steps read by hand.
