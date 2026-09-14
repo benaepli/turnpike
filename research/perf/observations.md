@@ -6030,3 +6030,25 @@ H2 r_sim 14.96). Conventions fixed now, before any candidate profile exists:
   the grader's profile command deletes. It is taken on one separate 60 s
   frame-pointer recording of the stage-5 binary with the proposer's
   lockcensus script, after the stage profiles.
+
+### program-text-without-shared-refcounts: lock census reference, registered before any candidate census (autonomous)
+
+The judge verified the census figures site by site on the proposer's
+recording: trace-name side 0.686 (run_trace_dispatch+0x173 0.217,
+run_trace_enter+0x553 0.178, run_trace_exit+0x4ed 0.102, and the Arc<str> drop
+inside drop_glue<PersistableTrace> on writer threads, writer_loop+0x4389
+0.189) and literal increment side 0.738 (exec_ops+0x3b8a 0.447, run_sync_ops
++0x245b 0.088, ceval+0x4fc2 0.203). That recording's perf.data is gone, so
+those figures are the frozen reference. Re-resolving the proposer's census
+output with its own resolver reads 0.319 and 0.535: that resolver matches rows
+by symbol names truncated to 90 characters with generics stripped, leaves rows
+ambiguous across generic instances unresolved (run_trace_enter, ceval), and
+misses the writer-thread drop. It is not used.
+
+For the candidate, the census copy in tmp/loop/perf/it22-census/ prints each
+row's full raw symbol, and the resolver looks that symbol up exactly before
+addr2line, so no row is ambiguous. The observable is read on the stage-5
+recording against the frozen absolute bounds: trace-name sites at most 0.05,
+literal sites at most 0.15, simulation-thread census total at most 11.10 x
+r_sim - 1.0. Unresolved rows are reported; if they could carry a named site,
+the census is re-run rather than read.
