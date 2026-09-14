@@ -5392,3 +5392,42 @@ sequence. H1 carries the largest priced saving in the loop since
 eligible-lists; H2 rides because its wall band cannot be read alone and its
 decisive check (the copies gone, the scheduler walks not moved) is readable on
 an incremental profile.
+
+### struct-slices-and-borrowed-records: review of A and B (autonomous)
+
+Commits on c9c54fc in the implementer's spur clone: A 5fb9627, B 489c3a3;
+exported spur-A.patch and spur-AB.patch match them byte for byte.
+
+A: CExpr::StructLit is decoded only for a map literal whose keys are all
+string literals, distinct, at most 15, with distinct home slots in the imbl
+root under the key's signature hash; shapes are interned once per process by
+key set (a mutex taken at decode only). Fields are evaluated in source order
+into their shape positions. ValueKind::Struct has an arm in every consumer:
+compiled and legacy Find, FieldGet, KeyExists and MapErase (each ahead of its
+as_map call), ListLen, Option-returning finds, update_collection (a field store
+updates in place with the Map's incremental signature; any other key
+materializes the Map), both for-in paths (into_map_form before the match),
+PartialEq and Ord (same-shape fast paths, mixed forms through the map or its
+sorted entries), compute_sig (shape prefix XOR entry terms), write_to,
+type_name, both JSON writers in history.rs, and a hand-written Debug that
+prints Struct as Map and every other variant as the derive did. Nothing
+outside spur-core matches ValueKind::Map or calls as_map. Tests compare every
+struct with the map its literal builds, under both hash policies, over the
+six VR key sets, their reversals and generated sets of every size: signature,
+Fx and std hashes, Display, Debug and pretty Debug, equality, ordering, the
+rebuilt map node for node under 24 inserts and every removal, stores, and the
+key-hash counts of stores and equality; JSON payloads byte-identical.
+
+B: exec_record runs a record in place (&mut Record) and returns Parked,
+Requeued or Finished; settle_record applies it immediately at both callers
+(exec and schedule_runnable). park_record copies the record once into
+Arc::new_uninit storage and requeue_local once into the local queue's spare
+capacity, each leaving Runnable::Heal behind without a drop; push_to_local is a
+plain push, so no bookkeeping is skipped. On park the node env is written back
+before the park rather than after it; nothing reads the channel between. The
+ChannelSend arm moved ahead of the record arm, after the same crash and
+partition checks. Layout test pins Record and Runnable at 248 bytes.
+
+Ruling: both mechanisms match the judgment; no finding blocks profiling.
+Waiting on the implementer's final identity comparison for caps-B3 before
+profiles, so nothing else runs beside the profile recordings.
