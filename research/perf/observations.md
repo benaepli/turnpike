@@ -3698,3 +3698,27 @@ Graded as frozen: cross-binary runs per second, band [1.04, 1.10], below the
 0.05 floor, read for regression only; counters by hand every round; a
 candidate profile for the guards (make_unique for the node env part, the
 Value drop family composite-only, one relocation guard at 1.5 x r).
+
+### node-env-and-in-place-updates: three rounds
+
+Seeds 1000-1002 against the 45517fd baseline (six cached rounds, spread
+0.029):
+- cross-binary runs per second 0.9924, 1.0480, 0.9599; mean 0.9994
+  [0.8951, 1.1159], not separated; band [1.04, 1.10] not reached. Round 2
+  is the noisy one (candidate 6,915 against 7,204). Microseconds per run
+  1.0006, steps per run 0.9916.
+- counters per run, every round inside its band: written_segments 187.2,
+  188.9, 197.5 [130, 450]; map_in_place_node 207.0, 209.5, 219.1 and
+  map_in_place_local 0 [60, 400]; list_in_place 69.7, 70.2, 72.4
+  [15, 200] with shared at push 0.057 of them (at most 0.3);
+  shared_at_write 0; error_exits 0; frame.entry_frame_copies 0 both sides.
+  The mechanism fires exactly as described.
+- blockers: plan_complete end-reason share outside the baseline's spread
+  (0.2756 against 0.2651, allowed 0.0097); and the grader's note that a
+  shared saving with no per-run counter primary reads the wall as
+  confirmation only - known at declaration, since the new counters cannot
+  pair against a baseline that lacks them.
+- advice inconclusive; another round could still separate it.
+
+Buying rounds 4-6 after the candidate profile, which settles whether
+make_unique left and where its cost went.

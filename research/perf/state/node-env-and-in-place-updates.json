@@ -1,0 +1,67 @@
+{
+ "name": "node-env-and-in-place-updates",
+ "createdAtIso": "2026-09-14T03:49:04.998Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.04,
+   "max": 1.1
+  },
+  "counter": null,
+  "argument": "Only who holds a node's environment during a segment and whether a collection is copied before an update that replaces it change. The node environment is moved out of the state for the segment and put back on every exit, with a placeholder answering sig and writes; an assignment whose right side stores into, appends to or erases from the collection its own destination slot holds updates that collection in place after the same operands are evaluated in the same order with the same errors, and a collection held elsewhere is still copied. No draw, container order, value, row or anything the search reads changes. One-thread identity against the baseline binary on VR (3,008 runs), Mencius (2,160 runs) and a caps-engaged VR run of 100,000 runs: runs, executions, logs and traces identical both ways, same stall_cap_runs.csv hashes, equal end reasons and cap figures, only clock and new counter leaves differing."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/node-env-and-in-place-updates/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:node-env-and-in-place-updates"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "f5d551492f0481fd430b4d5c0529af93705dcea6",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/f5d551492f04-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-14T03:53:14.756Z",
+   "seed": 1000,
+   "wallSec": 249,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-14T03:57:24.576Z",
+   "seed": 1001,
+   "wallSec": 249,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-14T04:01:34.142Z",
+   "seed": 1002,
+   "wallSec": 249,
+   "anomaly": null
+  }
+ ],
+ "finished": false
+}
