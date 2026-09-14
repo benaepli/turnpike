@@ -5557,3 +5557,30 @@ field reads / frame.calls [0.35, 0.47], struct share [0.89, 0.94]); fallbacks
 and fallback_key_hashes 0; the spread check inside or its exemption
 (throughput-dependent shares with exact one-thread identity); then the
 placebo referral (0.896 on the first profile) to the user.
+
+### struct-values-as-shaped-slices: six rounds (autonomous)
+
+Read once, after all six were in.
+- Primary, value_sig.leaf_hashes_deferred per run baseline over candidate:
+  10.99, 10.06, 10.23, 10.21, 10.16, 10.18; mean 10.30 [9.96, 10.66], inside
+  [9.0, 16.0], separated.
+- Runs per second: 1.1358, 1.0355, 1.0932, 1.0505, 1.0653, 1.0460; mean
+  1.0705 [1.0324, 1.1100] - separates upward, as the departure requires. It
+  sits above the priced band [1.030, 1.060], which was for regression only;
+  round 1 (base 7,636.8, the slowest baseline round) carries part of that.
+  Microseconds per run 1.0746 [1.0339, 1.1169]; steps per run 0.9846 [0.951,
+  1.019], holding.
+- Counters, every round in band: literals / frame.calls 0.371-0.380 [0.32,
+  0.43]; entries / literal 3.545-3.551 [3.45, 3.70]; field reads / frame.calls
+  0.430-0.437 [0.35, 0.47]; struct share 0.897-0.904 [0.89, 0.94]; fallbacks,
+  fallback_key_hashes and shapes kept as maps 0; other lookups 0.
+- Spread check: learned_cap_reached share 0.2048 against 0.1978 (allowed
+  0.0064) outside. Throughput-dependent: learned caps adapt within a
+  wall-budgeted campaign, and the caps-engaged one-thread identity of 100,000
+  runs was identical on every table and cap figure. Standing exemption applies.
+
+Ruling: every merge condition of the registered departure holds - upward
+separation within six rounds, every counter in band every round, identity
+exact, G2 settled, every guard but G1 held, the spread exemption. The placebo
+read 0.896 of its reference on A's profile, outside [0.9, 1.1]; referred to
+the user before merge.
