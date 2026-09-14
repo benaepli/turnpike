@@ -6360,3 +6360,30 @@ failed run, never a pass; a registration that copies one part's band for a
 stack must be corrected openly before deciding; moving a shared reference
 count to thread-local copies pays a lookup that can cost as much as the
 contention it removes.
+
+## Direction review after the writer merge (autonomous)
+
+Called for by the merge. Fresh plain-cycles profile research/perf/profiles/c302525.md
+(0.3 percent cutoff). The vendored parquet is not a workspace member (cargo
+metadata lists spur-ast, spur-core, spur-liquid, spur-cli, spur-lsp, xtask and
+spur-bench; `exclude = ["vendor"]` and the patch entry are in spur/Cargo.toml).
+- Writers: parquet-writer total (inclusive) 11.51 on 0b0004e to 8.69; the
+  integer interners are gone; snappy 1.05, writer memmove 1.22 and Int64
+  write_slice 0.88 lead what is left.
+- Simulation threads, r = 21.43 / 20.81 = 1.030 against 0b0004e.md:
+  interpreter family 23.65 raw (ceval 8.64, exec loops 15.01), scheduler
+  family 14.68 (schedule_runnable 4.54 + 1.52 + 1.39 + 0.86, queue-size fold
+  1.88, score_with_terms 1.16, select_within_queue 0.88), memmove 7.28 (7.07 x
+  r against 6.83), EcoVec<Value> drop 4.12, value drops 7.44, clone 3.53,
+  exec_plan 2.13, allocator 3.43.
+
+Verdict: with the writer path relieved, the next limits are on simulation
+threads again. The scheduler family is the largest family after the
+interpreter, and the Record and Runnable copies inside memmove have now
+defeated two ownership changes (boxing, borrowing), each moving cost into the
+scheduler's per-step walks. Iteration 23 takes the algorithmic lens: what the
+scheduler recomputes each step over every queued runnable (FIFO and
+reservation checks, steering scores, queue-size folds, within-queue
+selection) that could be maintained at enqueue and dequeue with identical
+draws, and a caller attribution of simulation-thread memmove before any
+proposal on it. Pool: nothing pruned.
