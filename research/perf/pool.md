@@ -939,7 +939,7 @@ rounds of clock each:
 
 ## node-env-detached-per-segment
 
-- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 14) - built first as part of node-env-and-in-place-updates
+- category: allocation and memory traffic | origin: proposer | status: closed (iteration 14, autonomous) on its frozen make_unique guard - 2.03 to 1.69 with shared_at_write 0 every round, so most of make_unique is not the node env copy-on-write; patch kept inside research/perf/patches/node-env-and-in-place-updates.spur.patch
 - mechanism: the node env is moved out of state.nodes[i] for the segment,
   leaving a placeholder that keeps sig and writes; every exit, error exits
   included, writes it back; the clone path stays under H::EAGER.
@@ -959,7 +959,7 @@ rounds of clock each:
 
 ## collection-self-updates-in-place
 
-- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 14) - only with or after node-env-detached-per-segment; built as part of node-env-and-in-place-updates
+- category: allocation and memory traffic | origin: proposer | status: closed (iteration 14, autonomous) on its frozen guards - GenericNode make_mut inclusive 1.56 (at most 0.83), insert inclusive fell 0.79 (at least 1.04); reserve held; the ops fire as counted
 - mechanism: decoded ops for x = x[k] := v, append and erase into the same
   slot evaluate key and value first, keep error order, take the value out,
   update in place and store once; a collection still shared elsewhere keeps
@@ -975,7 +975,7 @@ rounds of clock each:
 
 ## node-env-and-in-place-updates
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 14) - building
+- category: combined | origin: operator-agent (selection) | status: closed (iteration 14, autonomous) - runs per second 0.9994 [0.8951, 1.1159] over 3 rounds, counters in band, identity identical; H1 and H2 profile guards fired, closed by the attribution rule
 - primary: cross-binary runs per second, band [1.04, 1.10], below the 0.05
   floor so read for regression only; counters by hand every round; a
   candidate profile for the guards (make_unique for H1 alone, the Value drop
@@ -988,7 +988,7 @@ rounds of clock each:
 
 ## integer-columns-delta-encoded (iteration 14 re-pricing)
 
-- status: admitted (iteration 14) - building in parallel; graded as its own commit after node-env-and-in-place-updates
+- status: admitted (iteration 14) - built and reviewed; grading on 45517fd after node-env-and-in-place-updates closed
 - band tightened to history_writer.busy_ns per run [1.04, 1.14] (the earlier
   replay bench caps the saving near the top edge; the delta encoder's cost
   is unmeasured); writers about 72 percent busy, full-queue sends 0/29/31,
