@@ -1438,7 +1438,7 @@ rounds of clock each:
 
 ## program-text-without-shared-refcounts
 
-- category: contention and parallelism | origin: proposer | status: admitted (iteration 22) - commits 4 (A) and 5 (B) of writer-headroom-and-program-text
+- category: contention and parallelism | origin: proposer | status: part B closed (iteration 22) - on its incremental profile the interpreter net missed by 0.05, new thread-local and program_text rows read 0.64 against at most 0.15, the decrement side 8.05 against 7.21 and the allocator 3.05 against 2.87; the per-thread literal table costs about what the shared count did; part A (trace names as &'static str) held every guard and is graded in the stack; full-stack patch kept
 - mechanism: (A) trace function names as &'static str from a compile-time
   interner, leaked at most once per distinct name per process; (B) string
   literals over 15 bytes cloned from a per-thread copy keyed by a per-build

@@ -6159,3 +6159,32 @@ flush_data_page, flush_bit_packed_run).
 - Description: r_sim's two lines moved apart (scheduler family 13.15 to 14.36
   raw, placebo 1.93 to 1.90). A touches neither, so the spread is profile
   noise; every A guard also holds with r_sim taken as 1.0.
+
+### program-text-without-shared-refcounts part B: stage 5 profile reading and decision (autonomous)
+
+Profile research/perf/profiles/0b0004e-cand-writer-and-program-text.md
+against the stage-4 profile; r_sim = 15.44 / 16.26 = 0.950.
+- G3-B interpreter net: ceval 8.78 to 8.14, exec_ops family 8.84 to 8.39,
+  run_sync_ops family 4.50 to 4.17 - 22.12 to 20.70, at most 20.65 - FIRED by
+  0.05.
+- G4-B new thread-local or program_text rows: 0.00 to 0.64, at most 0.15 -
+  FIRED; TraceScratch 0.28 at most 0.33, held. The per-thread literal table's
+  lookup and first touch cost about as much as the shared reference count it
+  replaced.
+- G5-B decrement side: EcoVec<Value> drop 4.09 to 4.23, drop_glue<ValueKind>
+  2.96 to 3.41, drop_glue<Value> 0.44 to 0.41 - 7.49 to 8.05, at most 7.21 -
+  FIRED.
+- G6 allocator 2.92 to 3.05, at most 2.87 - FIRED on B's profile (held on
+  A's).
+
+Decision: part B closed and reverted before rounds, under the frozen rule (G3
+to G5 revert B; G6 read on B's own profile). Its band cannot separate upward,
+so there is no departure path. Part A stands: every A guard held on its own
+profile. The graded stack is commits 1-4 (cand-spur-4). Consequences, fixed
+before anything is read: H2-A's lock census moves to the stage-4 binary (the
+trace-name sites are A's; the literal sites were B's and are no longer read);
+the stage-4 low-cutoff profile is dropped, since no absent row decides an A
+guard; the stage-2 and stage-3 low-cutoff profiles run as registered. The
+running job was replaced accordingly without interrupting the stage-2
+low-cutoff profile. Patch of the full stack including B kept as
+research/perf/patches/program-text-without-shared-refcounts.stack-to-B.patch.
