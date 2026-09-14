@@ -4174,3 +4174,26 @@ Set aside: map-literal templates (the first field write copies the 2.8 KB
 root anyway; ceiling about 0.1), an inline refcount check keeping EcoVec
 (unsound without patching ecow), queue sizes maintained across steps (the
 answers change every step; queue-eligibility-from-counters read no gain).
+
+### Judgment (autonomous)
+
+eligible-lists-known-from-queue-info net 6, slot-buffers-owned-per-segment
+net 3 (mechanism and prediction rewritten), the two as one change net 3 and
+built; delivered-record-not-copied net 1, kept in the pool unbuilt because
+no grader primary can read it. Nothing scored 0. Corrections are in the pool
+entries; the full record is tmp/loop/perf/it16-judgment.md.
+
+Ruling on the merge criterion the judge asked for. The standing rule applies:
+a merge rests on the counters, identity, every frozen guard held, and no
+downward separation of runs per second. Iteration 15's "runs per second must
+separate upward" was the price of a departure from fired relocation guards,
+not a new standing rule; it applies again only where a guard fires and a
+departure is taken. Without that distinction nothing whose saving sits
+inside the round-to-round spread could merge, and a reading below the floor
+with every guard held is exactly the case the counter-and-guard rule was
+written for. Placebo readings outside [1.49, 2.09] x r go to the user before
+any merge, as before.
+
+Build: the eligible lists then the owned slots, two commits; identity on
+both and caps-engaged on the composite; two plain-cycles profiles; three
+rounds.

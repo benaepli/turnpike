@@ -1052,3 +1052,55 @@ rounds of clock each:
   read the first and H1's the difference.
 - wall bands below the 0.05 floor, regression only; merge rests on counters,
   identity, every guard and no downward separation.
+
+## eligible-lists-known-from-queue-info
+
+- category: redundant work | origin: proposer | status: admitted (iteration 16) - built first, as part of eligible-lists-and-owned-slots
+- mechanism: when the count pass shows every element of the chosen queue
+  eligible, selection borrows a static identity slice instead of filtering
+  again into a fresh Vec; past the slice's length, today's code; otherwise
+  an exact-capacity collect; local_queue_sizes in a buffer reused across
+  steps.
+- verified by the judge: not a repeat of queue-eligibility-from-counters
+  (that skipped the count and still collected every step); exact - same
+  predicate, no state change between passes, the one in-predicate counter
+  fires only on rejected elements; the fast path fires on at least 77
+  percent of selections on the graded config. Rewritten: counter band
+  [3, inf); counters after the empty-list check so known + built =
+  recovery_weight_placebo.decisions exactly; allocator guard on malloc +
+  cfree + _int_free_chunk at most 3.73 x r; scheduler family at most
+  13.11 x r + 0.15 (the queue-sizes collect can reappear inside
+  schedule_runnable).
+- declarations: search-neutral, shared saving.
+- full record: tmp/loop/perf/it16-judgment.md (H1).
+
+## slot-buffers-owned-per-segment
+
+- category: redundant work | origin: proposer | status: admitted (iteration 16) - built on top of the eligible lists, as part of eligible-lists-and-owned-slots
+- mechanism: Env slots an owned buffer behind a private type whose Clone
+  counts copies; each segment moves its node's environment out and back
+  (moved_out == put_back every run); crash_node's held records moved, not
+  cloned; the closed node-env patch's detach reused without its
+  clone-under-EAGER branch.
+- verified: no State clone outside tests; Record 248 to 256 bytes (about
+  0.11 memmove); the refcount check goes without a new branch. False as
+  proposed: the at-most-5-copies falsifier would fire on crash_node's clones
+  (fixed in the mechanism); "no make_unique in the binary" cannot hold
+  because list storage shares the type (check restricted to Env write
+  sites). All but 0.3-0.5 of its 1.6-2.2 points is the saving the closed
+  node-env patch already tried.
+- declarations: search-neutral, shared saving.
+- full record: tmp/loop/perf/it16-judgment.md (H3).
+
+## eligible-lists-and-owned-slots
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 16) - building
+- two commits, the eligible lists then the owned slots; identity on both
+  (VR, Mencius) and caps-engaged on the composite; profiles of the lists
+  alone and of the composite, a part whose guard fires closing before any
+  round; three cross-binary rounds, regression only, counters by hand; a
+  part whose own falsifier fires closes and the other stands.
+
+## delivered-record-not-copied
+
+- category: redundant work | origin: proposer | status: proposed, not built (iteration 16) - cannot be graded as its own commit: no per-run counter can see a compiler-emitted copy and a profile line is not a grader primary; the exec.rs:855 copy already happens on a moved parameter, so inlining exec may only move it; judge net 1
