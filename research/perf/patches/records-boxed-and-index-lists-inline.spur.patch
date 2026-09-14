@@ -1,0 +1,1602 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 2d76895..2d59249 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2326,6 +2326,7 @@ dependencies = [
+  "rustc-hash",
+  "serde",
+  "serde_json",
++ "smallvec",
+  "spur-ast",
+  "spur-liquid",
+  "thiserror",
+diff --git a/spur-core/Cargo.toml b/spur-core/Cargo.toml
+index 8f43e4d..fa11e37 100644
+--- a/spur-core/Cargo.toml
++++ b/spur-core/Cargo.toml
+@@ -22,6 +22,7 @@ simulator = [
+     "dep:ctrlc",
+     "dep:csv",
+     "dep:rustc-hash",
++    "dep:smallvec",
+ ]
+ 
+ [dependencies]
+@@ -52,6 +53,7 @@ petgraph = { version = "0.8.3", optional = true }
+ ctrlc = { version = "3.4", optional = true }
+ csv = { version = "1.4.0", optional = true }
+ rustc-hash = { version = "2", optional = true }
++smallvec = { version = "1.15.1", optional = true }
+ 
+ [dev-dependencies]
+ pretty_assertions = "1.4.1"
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index b42d3e5..822cc4d 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -9,8 +9,8 @@ use crate::simulator::core::eval::{
+     FrameBuilder, Operand, build_frame, eval, eval_operand, set_local, store,
+ };
+ use crate::simulator::core::state::{
+-    ClientOpResult, Continuation, LogEntry, Logger, NodeId, PurgatoryConfig, Record,
+-    Runnable, RunnableCategory, SchedulePolicy, State, Timer, TraceEntry, TraceKind,
++    ChannelSend, ClientOpResult, Continuation, LogEntry, Logger, NodeId, PurgatoryConfig,
++    Record, Runnable, RunnableCategory, SchedulePolicy, State, Timer, TraceEntry, TraceKind,
+ };
+ use crate::simulator::core::values::{ChannelId, Env, Value, ValueKind, ValueSeq};
+ use ecow::EcoVec;
+@@ -304,7 +304,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+ 
+                 let send_ordinal = state.next_send_ordinal(node_id);
+                 let drawn_priority = policy.sample(rng, RunnableCategory::Record);
+-                let mut new_record = Record {
++                let mut new_record = Box::new(Record {
+                     pc: func_info.entry,
+                     node: target_node,
+                     origin_node: node_id,
+@@ -323,15 +323,16 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                     timer_entry: None,
+                     send_ordinal,
+                     receiver_token_at_send: state.node_state_token(target_node),
+-                };
++                });
++                util_stats::record_async_record_box();
+ 
+                 match purgatory_hold_steps(state, purgatory_config, target_node, rng) {
+                     Some(duration) => {
+                         let release_step = state.crash_info.current_step + duration;
+                         new_record.bias.insert(DeliveryBias::DELAYED);
+-                        state.delay_runnable(release_step, Runnable::Record(new_record));
++                        state.delay_runnable(release_step, Runnable::record(new_record));
+                     }
+-                    None => state.push_runnable(Runnable::Record(new_record)),
++                    None => state.push_runnable(Runnable::record(new_record)),
+                 }
+                 Ok(Some(StepOutcome::Continue(*next)))
+             }
+@@ -342,6 +343,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                 id: state.alloc_channel_id(),
+             };
+             state.insert_channel(cid);
++            util_stats::record_make_channel();
+             store(lhs, Value::channel(cid), local_env, node_env)?;
+             Ok(Some(StepOutcome::Continue(*next)))
+         }
+@@ -371,7 +373,8 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                 priority: policy.sample(rng, RunnableCategory::Timer),
+                 label: label.clone(),
+             };
+-            state.push_runnable(Runnable::Timer(timer));
++            util_stats::record_timer_box();
++            state.push_runnable(Runnable::Timer(Box::new(timer)));
+             Ok(Some(StepOutcome::Continue(*next)))
+         }
+         Label::UniqueId(lhs, next) => {
+@@ -632,7 +635,7 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+-    mut record: Record<H>,
++    mut record: Box<Record<H>>,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+@@ -645,7 +648,7 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+     // reads it, so a record stored again after that row carries none, and a
+     // re-delivery of it formats its entry row from the parameters.
+     let mut pending_trace_payload = record.trace_payload.take();
+-    let mut local_env = record.env;
++    let mut local_env = std::mem::take(&mut record.env);
+     let mut node_env = state.nodes[record.node.index].clone();
+ 
+     let mut prev_pc = record.pc;
+@@ -712,14 +715,15 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                     .as_channel()?;
+                 let val = legacy_eval(&local_env, &node_env, val_expr, &program.id_to_name)?;
+                 if cid.node != record.node {
+-                    let cs = Runnable::ChannelSend {
++                    let cs = Runnable::ChannelSend(Box::new(ChannelSend {
+                         target: cid.node,
+                         channel: cid,
+                         message: val,
+                         origin_node: record.node,
+                         pc: *next,
+                         priority: policy.sample(rng, RunnableCategory::ChannelSend),
+-                    };
++                    }));
++                    util_stats::record_channel_send_box();
+                     match purgatory_hold_steps(state, purgatory_config, cid.node, rng) {
+                         Some(duration) => {
+                             let release_step = state.crash_info.current_step + duration;
+@@ -743,7 +747,7 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                             let mut r_node_env = state.nodes[node_index].clone();
+                             store(&lhs, val, &mut reader.env, &mut r_node_env)?;
+                             state.nodes[node_index] = r_node_env;
+-                            state.push_to_local(node_index, Runnable::Record(reader));
++                            state.push_to_local(node_index, Runnable::record(reader));
+                         }
+                     }
+                     record.pc = *next;
+@@ -778,7 +782,7 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                 let node_id = record.node;
+                 record.env = local_env;
+                 record.pc = *next;
+-                state.push_to_local(node_id.index, Runnable::Record(record));
++                state.push_to_local(node_id.index, Runnable::record(record));
+                 state.nodes[node_id.index] = node_env;
+                 return Ok(None); // Yield
+             }
+@@ -788,7 +792,7 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                 } else {
+                     let node_id = record.node;
+                     record.env = local_env;
+-                    state.push_to_local(node_id.index, Runnable::Record(record));
++                    state.push_to_local(node_id.index, Runnable::record(record));
+                     state.nodes[node_id.index] = node_env;
+                     return Ok(None); // Yield
+                 }
+@@ -827,7 +831,7 @@ pub fn exec<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+-    record: Record<H>,
++    record: Box<Record<H>>,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+@@ -1019,6 +1023,7 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+                 id: state.alloc_channel_id(),
+             };
+             state.insert_channel(cid);
++            util_stats::record_make_channel();
+             store_dest(*dest, Value::channel(cid), local_env, node_env);
+             Ok(Flow::Next(*next as usize))
+         }
+@@ -1045,7 +1050,8 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+                 priority: policy.sample(rng, RunnableCategory::Timer),
+                 label: label.clone(),
+             };
+-            state.push_runnable(Runnable::Timer(timer));
++            util_stats::record_timer_box();
++            state.push_runnable(Runnable::Timer(Box::new(timer)));
+             Ok(Flow::Next(*next as usize))
+         }
+         Op::UniqueId { dest, next } => {
+@@ -1185,7 +1191,7 @@ fn run_async_op<H: HashPolicy>(
+ 
+     let send_ordinal = state.next_send_ordinal(node_id);
+     let drawn_priority = policy.sample(rng, RunnableCategory::Record);
+-    let mut new_record = Record {
++    let mut new_record = Box::new(Record {
+         pc: func_info.entry,
+         node: target_node,
+         origin_node: node_id,
+@@ -1204,15 +1210,16 @@ fn run_async_op<H: HashPolicy>(
+         timer_entry: None,
+         send_ordinal,
+         receiver_token_at_send: state.node_state_token(target_node),
+-    };
++    });
++    util_stats::record_async_record_box();
+ 
+     match purgatory_hold_steps(state, purgatory_config, target_node, rng) {
+         Some(duration) => {
+             let release_step = state.crash_info.current_step + duration;
+             new_record.bias.insert(DeliveryBias::DELAYED);
+-            state.delay_runnable(release_step, Runnable::Record(new_record));
++            state.delay_runnable(release_step, Runnable::record(new_record));
+         }
+-        None => state.push_runnable(Runnable::Record(new_record)),
++        None => state.push_runnable(Runnable::record(new_record)),
+     }
+     Ok(call.next as usize)
+ }
+@@ -1460,7 +1467,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+-    mut record: Record<H>,
++    mut record: Box<Record<H>>,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+@@ -1474,7 +1481,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     // reads it, so a record stored again after that row carries none, and a
+     // re-delivery of it formats its entry row from the parameters.
+     let mut pending_trace_payload = record.trace_payload.take();
+-    let mut local_env = record.env;
++    let mut local_env = std::mem::take(&mut record.env);
+     let mut node_env = state.nodes[record.node.index].clone();
+ 
+     let mut prev_pc = record.pc;
+@@ -1504,14 +1511,15 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 let val = cvalue(&local_env, &node_env, &send.value, names, t)?;
+                 let next = send.next as usize;
+                 if cid.node != record.node {
+-                    let cs = Runnable::ChannelSend {
++                    let cs = Runnable::ChannelSend(Box::new(ChannelSend {
+                         target: cid.node,
+                         channel: cid,
+                         message: val,
+                         origin_node: record.node,
+                         pc: next,
+                         priority: policy.sample(rng, RunnableCategory::ChannelSend),
+-                    };
++                    }));
++                    util_stats::record_channel_send_box();
+                     match purgatory_hold_steps(state, purgatory_config, cid.node, rng) {
+                         Some(duration) => {
+                             let release_step = state.crash_info.current_step + duration;
+@@ -1533,7 +1541,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                             let mut r_node_env = state.nodes[node_index].clone();
+                             store(&lhs, val, &mut reader.env, &mut r_node_env)?;
+                             state.nodes[node_index] = r_node_env;
+-                            state.push_to_local(node_index, Runnable::Record(reader));
++                            state.push_to_local(node_index, Runnable::record(reader));
+                         }
+                     }
+                     record.pc = next;
+@@ -1566,7 +1574,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 let node_id = record.node;
+                 record.env = local_env;
+                 record.pc = *next as usize;
+-                state.push_to_local(node_id.index, Runnable::Record(record));
++                state.push_to_local(node_id.index, Runnable::record(record));
+                 state.nodes[node_id.index] = node_env;
+                 return Ok(None);
+             }
+@@ -1576,7 +1584,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 } else {
+                     let node_id = record.node;
+                     record.env = local_env;
+-                    state.push_to_local(node_id.index, Runnable::Record(record));
++                    state.push_to_local(node_id.index, Runnable::record(record));
+                     state.nodes[node_id.index] = node_env;
+                     return Ok(None);
+                 }
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 16eaffd..0d16d03 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -149,7 +149,7 @@ impl Logger for TestLogger {
+     }
+ }
+ 
+-fn make_record(pc: usize, local_slots: usize) -> Record<WithHashing> {
++fn make_record(pc: usize, local_slots: usize) -> Box<Record<WithHashing>> {
+     make_record_with_cont(pc, local_slots, Continuation::Recover)
+ }
+ 
+@@ -157,13 +157,13 @@ fn make_record_with_cont(
+     pc: usize,
+     local_slots: usize,
+     continuation: Continuation<WithHashing>,
+-) -> Record<WithHashing> {
++) -> Box<Record<WithHashing>> {
+     let nid = NodeId {
+         role: NameId(0),
+         index: 0,
+     };
+     let env = Env::<WithHashing>::with_slots(local_slots);
+-    Record {
++    Box::new(Record {
+         pc,
+         node: nid,
+         origin_node: nid,
+@@ -182,7 +182,7 @@ fn make_record_with_cont(
+         receiver_token_at_send: 0,
+         bias: crate::simulator::util_stats::DeliveryBias::NONE,
+         timer_entry: None,
+-    }
++    })
+ }
+ 
+ #[test]
+diff --git a/spur-core/src/simulator/core/partition.rs b/spur-core/src/simulator/core/partition.rs
+index 92878ff..69432a9 100644
+--- a/spur-core/src/simulator/core/partition.rs
++++ b/spur-core/src/simulator/core/partition.rs
+@@ -1,5 +1,6 @@
+ use crate::compiler::cfg::Vertex;
+-use crate::simulator::core::state::{NodeId, Record, Runnable};
++use crate::simulator::core::state::{ChannelSend, NodeId, Record, Runnable};
++use crate::simulator::util_stats;
+ use crate::simulator::core::values::{ChannelId, Value};
+ use crate::simulator::hash_utils::HashPolicy;
+ use imbl::{OrdSet, Vector};
+@@ -119,7 +120,7 @@ impl PartitionType {
+ pub enum QueuedMessage<H: HashPolicy> {
+     Record {
+         dest: NodeId,
+-        record: Record<H>,
++        record: Box<Record<H>>,
+     },
+     ChannelSend {
+         dest: NodeId,
+@@ -193,7 +194,7 @@ impl<H: HashPolicy> PartitionInfo<H> {
+     }
+ 
+     /// Buffer a Record that's blocked by the partition.
+-    pub fn buffer_record(&mut self, dest: NodeId, record: Record<H>) {
++    pub fn buffer_record(&mut self, dest: NodeId, record: Box<Record<H>>) {
+         self.queued_messages
+             .push_back(QueuedMessage::Record { dest, record });
+     }
+@@ -241,26 +242,24 @@ pub fn activate_partition<H: HashPolicy>(
+             {
+                 state.flight_leave(&task);
+                 state.net_leave(&task);
+-                let mut r = r.clone();
++                let Runnable::Record(queued) = task else {
++                    unreachable!()
++                };
++                let mut r = queued.into_record();
+                 r.reset(program);
+                 state.partition_info.buffer_record(r.node, r);
+             }
+-            Runnable::ChannelSend {
+-                origin_node,
+-                target,
+-                channel,
+-                message,
+-                pc,
+-                priority,
+-            } if state.partition_info.is_blocked(*origin_node, *target) => {
++            Runnable::ChannelSend(cs)
++                if state.partition_info.is_blocked(cs.origin_node, cs.target) =>
++            {
+                 state.flight_leave(&task);
+                 state.partition_info.buffer_channel_send(
+-                    *target,
+-                    *channel,
+-                    message.clone(),
+-                    *origin_node,
+-                    *pc,
+-                    *priority,
++                    cs.target,
++                    cs.channel,
++                    cs.message.clone(),
++                    cs.origin_node,
++                    cs.pc,
++                    cs.priority,
+                 );
+             }
+             _ => state.network_queue.push(task),
+@@ -284,7 +283,7 @@ pub fn heal_partition<H: HashPolicy>(state: &mut crate::simulator::core::state::
+                 if state.crash_info.currently_crashed.contains(&dest) {
+                     state.crash_info.queued_messages.push_back((dest, record));
+                 } else {
+-                    state.push_runnable(Runnable::Record(record));
++                    state.push_runnable(Runnable::record(record));
+                 }
+             }
+             QueuedMessage::ChannelSend {
+@@ -296,14 +295,15 @@ pub fn heal_partition<H: HashPolicy>(state: &mut crate::simulator::core::state::
+                 priority,
+             } => {
+                 if !state.crash_info.currently_crashed.contains(&dest) {
+-                    state.push_runnable(Runnable::ChannelSend {
++                    util_stats::record_channel_send_box();
++                    state.push_runnable(Runnable::ChannelSend(Box::new(ChannelSend {
+                         target: dest,
+                         channel,
+                         message,
+                         origin_node,
+                         pc,
+                         priority,
+-                    });
++                    })));
+                 }
+             }
+         }
+diff --git a/spur-core/src/simulator/core/queue_selector.rs b/spur-core/src/simulator/core/queue_selector.rs
+index fa0e852..24c44d7 100644
+--- a/spur-core/src/simulator/core/queue_selector.rs
++++ b/spur-core/src/simulator/core/queue_selector.rs
+@@ -1,5 +1,6 @@
+ use rand::Rng;
+ use serde::{Deserialize, Serialize};
++use smallvec::SmallVec;
+ 
+ #[derive(Debug, Clone, Copy)]
+ pub enum QueueSelection {
+@@ -8,9 +9,16 @@ pub enum QueueSelection {
+     Timer,
+ }
+ 
++/// Inline room for the per-node queue size list: three servers plus one
++/// client per client operation, for up to twelve operations. A run with more
++/// nodes keeps the same sizes, in the same order, on the heap.
++pub const LOCAL_QUEUE_SIZES_INLINE: usize = 15;
++
++pub type LocalQueueSizes = SmallVec<[usize; LOCAL_QUEUE_SIZES_INLINE]>;
++
+ #[derive(Debug)]
+ pub struct QueueInfo {
+-    pub local_queue_sizes: Vec<usize>,
++    pub local_queue_sizes: LocalQueueSizes,
+     pub network_queue_size: usize,
+     pub timer_queue_size: usize,
+     #[allow(dead_code)]
+@@ -318,7 +326,7 @@ mod tests {
+ 
+     fn contested_info() -> QueueInfo {
+         QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: smallvec::smallvec![1],
+             network_queue_size: 1,
+             timer_queue_size: 1,
+             step: 0,
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index 473dc6f..a6dbd34 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -7,7 +7,7 @@ use crate::simulator::core::queue_selector::{
+     QueueInfo, QueueSelection, QueueSelector, WithinQueueSelector,
+ };
+ use crate::simulator::core::state::{
+-    Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, Record, ReplayCut, Runnable,
++    ChannelSend, Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, Record, ReplayCut, Runnable,
+     RunnableCategory, SchedulePolicy, ScheduleResult, State,
+ };
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+@@ -30,6 +30,14 @@ use crate::simulator::util_stats::DeliveryBias;
+ use imbl::OrdSet;
+ use log::warn;
+ use rand::Rng;
++use smallvec::SmallVec;
++
++/// Inline room for a queue's eligible index list. At this capacity the list
++/// is 128 bytes, which the compiler copies inline; a longer list keeps the
++/// same indices, in the same order, on the heap.
++const ELIGIBLE_INLINE: usize = 14;
++
++type EligibleList = SmallVec<[usize; ELIGIBLE_INLINE]>;
+ 
+ /// A resolved deliver reservation. Runnables matching this are excluded from scheduling
+ /// until the deliver's DAG dependencies are met.
+@@ -1197,6 +1205,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         timer_queue_size,
+         step: state.crash_info.current_step,
+     };
++    util_stats::record_queue_info_build(info.local_queue_sizes.spilled());
+ 
+     let record_unscheduled = |audit: &Option<SteerPreference>| {
+         if let Some(a) = audit {
+@@ -1271,9 +1280,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     let (runnable, chosen_slot, chosen_mask) = match selection {
+         QueueSelection::Local(node_idx) => {
+             let queue = &state.local_queues[node_idx];
+-            let eligible: Vec<usize> = (0..queue.len())
++            let eligible: EligibleList = (0..queue.len())
+                 .filter(|&i| !is_ineligible(&queue[i]))
+                 .collect();
++            util_stats::record_eligible_list_built(eligible.spilled());
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+@@ -1296,9 +1306,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+         QueueSelection::Network => {
+             let queue = &state.network_queue;
+-            let eligible: Vec<usize> = (0..queue.len())
++            let eligible: EligibleList = (0..queue.len())
+                 .filter(|&i| !is_ineligible(&queue[i]))
+                 .collect();
++            util_stats::record_eligible_list_built(eligible.spilled());
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+@@ -1329,7 +1340,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+         QueueSelection::Timer => {
+             let queue = &state.timer_queue;
+-            let eligible: Vec<usize> = if strict_timers {
++            let eligible: EligibleList = if strict_timers {
+                 (0..queue.len())
+                     .filter(|&i| {
+                         if is_ineligible(&queue[i]) {
+@@ -1349,6 +1360,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     .filter(|&i| !is_ineligible(&queue[i]))
+                     .collect()
+             };
++            util_stats::record_eligible_list_built(eligible.spilled());
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+@@ -1434,8 +1446,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             Ok(ScheduleResult::Recover { node_id })
+         }
+         Runnable::Partition { partition_type, .. } => {
+-            activate_partition(state, program, partition_type.clone());
+-            Ok(ScheduleResult::Partition { partition_type })
++            activate_partition(state, program, (*partition_type).clone());
++            Ok(ScheduleResult::Partition {
++                partition_type: *partition_type,
++            })
+         }
+         Runnable::Heal { .. } => {
+             heal_partition(state);
+@@ -1463,7 +1477,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         }
+                         state.nodes[node_index] = r_node_env;
+                         reader.timer_entry = Some(reader.pc);
+-                        state.push_to_local(node_index, Runnable::Record(reader));
++                        state.push_to_local(node_index, Runnable::record(reader));
+                     }
+                 }
+             }
+@@ -1483,18 +1497,14 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         other => {
+             let (src_node, dest_node) = match &other {
+                 Runnable::Record(r) => (r.origin_node, r.node),
+-                Runnable::ChannelSend {
+-                    origin_node,
+-                    target,
+-                    ..
+-                } => (*origin_node, *target),
++                Runnable::ChannelSend(cs) => (cs.origin_node, cs.target),
+                 _ => unreachable!(),
+             };
+ 
+             if state.crash_info.currently_crashed.contains(&dest_node) {
+                 if let Runnable::Record(r) = other
+                     && src_node != dest_node {
+-                        let mut r = r;
++                        let mut r = r.into_record();
+                         r.reset(program);
+                         state.crash_info.queued_messages.push_back((dest_node, r));
+                     }
+@@ -1504,18 +1514,19 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             if state.partition_info.is_blocked(src_node, dest_node) {
+                 match other {
+                     Runnable::Record(r) => {
+-                        let mut r = r;
++                        let mut r = r.into_record();
+                         r.reset(program);
+                         state.partition_info.buffer_record(dest_node, r);
+                     }
+-                    Runnable::ChannelSend {
+-                        channel,
+-                        message,
+-                        origin_node,
+-                        pc,
+-                        priority,
+-                        ..
+-                    } => {
++                    Runnable::ChannelSend(cs) => {
++                        let ChannelSend {
++                            channel,
++                            message,
++                            origin_node,
++                            pc,
++                            priority,
++                            ..
++                        } = *cs;
+                         state.partition_info.buffer_channel_send(
+                             dest_node,
+                             channel,
+@@ -1531,7 +1542,8 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             }
+ 
+             match other {
+-                Runnable::Record(r) => {
++                Runnable::Record(queued) => {
++                    let r = queued.into_record();
+                     let record_entry_pc = r.entry_pc;
+                     let record_origin = r.origin_node;
+                     let record_dest = r.node;
+@@ -1756,9 +1768,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                         }),
+                     }
+                 }
+-                Runnable::ChannelSend {
+-                    channel, message, ..
+-                } => {
++                Runnable::ChannelSend(cs) => {
++                    let ChannelSend {
++                        channel, message, ..
++                    } = *cs;
+                     if let Some(chan) = state.channels.get_mut(&channel) {
+                         match chan.pop_waiting_reader() {
+                             None => chan.buffer.push_back(message),
+@@ -1775,7 +1788,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                                 }
+                                 state.nodes[node_index] = r_node_env;
+                                 reader.timer_entry = None;
+-                                state.push_to_local(node_index, Runnable::Record(reader));
++                                state.push_to_local(node_index, Runnable::record(reader));
+                             }
+                         }
+                     }
+@@ -2062,7 +2075,7 @@ fn crash_node<H: HashPolicy>(state: &mut State<H>, program: &Program, node_id: N
+         }
+         if let Runnable::Record(record) = task
+             && record.origin_node != record.node {
+-                let mut record = record;
++                let mut record = record.into_record();
+                 record.reset(program);
+                 held += 1;
+                 state
+@@ -2082,7 +2095,10 @@ fn crash_node<H: HashPolicy>(state: &mut State<H>, program: &Program, node_id: N
+                 state.flight_leave(&task);
+                 state.net_leave(&task);
+                 if r.origin_node != r.node {
+-                    let mut r = r.clone();
++                    let Runnable::Record(queued) = task else {
++                        unreachable!()
++                    };
++                    let mut r = queued.into_record();
+                     r.reset(program);
+                     held += 1;
+                     state.crash_info.queued_messages.push_back((node_id, r));
+@@ -2090,7 +2106,7 @@ fn crash_node<H: HashPolicy>(state: &mut State<H>, program: &Program, node_id: N
+                     dropped += 1;
+                 }
+             }
+-            Runnable::ChannelSend { target, .. } if *target == node_id => {
++            Runnable::ChannelSend(cs) if cs.target == node_id => {
+                 state.flight_leave(&task);
+                 dropped += 1
+             }
+@@ -2173,7 +2189,7 @@ fn recover_crashed_node<H: HashPolicy, L: Logger, F: Feedback>(
+         if dest == node_id {
+             let mut record = record;
+             record.bias.insert(DeliveryBias::RECEIVER_RESTARTED);
+-            state.push_runnable(Runnable::Record(record));
++            state.push_runnable(Runnable::record(record));
+         } else {
+             state.crash_info.queued_messages.push_back((dest, record));
+         }
+@@ -2271,7 +2287,7 @@ fn recover_node<H: HashPolicy, L: Logger, F: Feedback>(
+     let initial_args: EcoVec<Value<H>> = actuals.into_iter().collect();
+     let env = build_frame(recover_fn, &initial_args);
+ 
+-    let record = Record {
++    let record = Box::new(Record {
+         pc: recover_fn.entry,
+         node: node_id,
+         origin_node: node_id,
+@@ -2290,7 +2306,8 @@ fn recover_node<H: HashPolicy, L: Logger, F: Feedback>(
+         timer_entry: None,
+         send_ordinal: state.next_send_ordinal(node_id),
+         receiver_token_at_send: state.node_state_token(node_id),
+-    };
++    });
++    util_stats::record_other_record_box();
+ 
+     exec::<H, L, F>(
+         state,
+@@ -2314,6 +2331,36 @@ mod tests {
+     use rand::rngs::StdRng;
+     use rand::{RngCore, SeedableRng};
+ 
++    /// An eligible list holds exactly the indices a `Vec` collect of the same
++    /// filter holds, in the same order, whether it stays inline or spills,
++    /// and it spills exactly when it outgrows its inline capacity.
++    #[test]
++    fn eligible_lists_match_a_vec_collect_inline_and_spilled() {
++        for len in 0..(3 * ELIGIBLE_INLINE) {
++            for stride in 1..4 {
++                let keep = |i: &usize| i % stride == 0 || i % 5 == 3;
++                let reference: Vec<usize> = (0..len).filter(keep).collect();
++                let list: EligibleList = (0..len).filter(keep).collect();
++                assert_eq!(list.as_slice(), reference.as_slice());
++                assert_eq!(list.spilled(), reference.len() > ELIGIBLE_INLINE);
++            }
++        }
++        assert_eq!(std::mem::size_of::<EligibleList>(), 128);
++    }
++
++    /// The per-node size list keeps the sizes of every node in node order,
++    /// inline up to its capacity and on the heap past it.
++    #[test]
++    fn local_queue_size_lists_match_a_vec_collect() {
++        use crate::simulator::core::queue_selector::{LOCAL_QUEUE_SIZES_INLINE, LocalQueueSizes};
++        for nodes in 0..(2 * LOCAL_QUEUE_SIZES_INLINE) {
++            let reference: Vec<usize> = (0..nodes).map(|n| (n * 7) % 4).collect();
++            let list: LocalQueueSizes = (0..nodes).map(|n| (n * 7) % 4).collect();
++            assert_eq!(list.as_slice(), reference.as_slice());
++            assert_eq!(list.spilled(), nodes > LOCAL_QUEUE_SIZES_INLINE);
++        }
++    }
++
+     fn heal(priority: f64) -> Runnable<NoHashing> {
+         Runnable::Heal { priority }
+     }
+@@ -3376,7 +3423,7 @@ mod tests {
+         state.net_stale_records = 1;
+         state.net_requests = 1;
+         let info = QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: smallvec::smallvec![1],
+             network_queue_size: 4,
+             timer_queue_size: 0,
+             step: 0,
+@@ -3397,7 +3444,7 @@ mod tests {
+         state.send_ledger[0].recent = 1;
+         state.send_ledger[0].trigger = HandlerTrigger::Delivery;
+         let info = QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: smallvec::smallvec![1],
+             network_queue_size: 40,
+             timer_queue_size: 0,
+             step: 0,
+@@ -3635,12 +3682,12 @@ mod tests {
+             send_ordinal: state.next_send_ordinal(node(origin)),
+             receiver_token_at_send: state.node_state_token(node(dest)),
+         };
+-        state.push_runnable(Runnable::Record(rec));
++        state.push_runnable(Runnable::record(Box::new(rec)));
+         state.network_queue.len() - 1
+     }
+ 
+     fn queue_channel_send(state: &mut State<NoHashing>, origin: usize, dest: usize) -> usize {
+-        state.push_runnable(Runnable::ChannelSend {
++        state.push_runnable(Runnable::ChannelSend(Box::new(ChannelSend {
+             target: node(dest),
+             channel: crate::simulator::core::values::ChannelId {
+                 node: node(dest),
+@@ -3650,7 +3697,7 @@ mod tests {
+             origin_node: node(origin),
+             pc: 0,
+             priority: 0.5,
+-        });
++        })));
+         state.network_queue.len() - 1
+     }
+ 
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 2d087fa..704fd99 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -417,7 +417,7 @@ impl<H: HashPolicy> Hash for Record<H> {
+ #[derive(Clone, Debug)]
+ pub struct CrashInfo<H: HashPolicy> {
+     pub currently_crashed: OrdSet<NodeId>,
+-    pub queued_messages: Vector<(NodeId, Record<H>)>, // (dest_node, record)
++    pub queued_messages: Vector<(NodeId, Box<Record<H>>)>, // (dest_node, record)
+     pub current_step: i32,
+ }
+ 
+@@ -435,11 +435,12 @@ impl<H: HashPolicy> Hash for CrashInfo<H> {
+ /// value is stored into.
+ ///
+ /// Held behind a shared pointer because the persistent vector sizes its
+-/// storage by the element: with `Record` inline the element is hundreds of
+-/// bytes, so a channel holding a single blocked reader owns a multi-kilobyte
+-/// heap chunk that is reallocated and copied on every copy-on-write. At one
+-/// word the same readers fit in the vector's inline storage.
+-pub type WaitingReader<H> = Arc<(Record<H>, Lhs)>;
++/// inline storage by the element: a record pointer beside its destination is
++/// three words, which leaves room for two readers inline, and a third blocked
++/// reader would move the channel's readers into a heap chunk that is
++/// reallocated and copied on every copy-on-write. At one word six readers
++/// fit inline.
++pub type WaitingReader<H> = Arc<(Box<Record<H>>, Lhs)>;
+ 
+ #[derive(Debug, Clone, Hash)]
+ pub struct ChannelState<H: HashPolicy> {
+@@ -456,16 +457,19 @@ impl<H: HashPolicy> ChannelState<H> {
+         }
+     }
+ 
+-    pub fn push_waiting_reader(&mut self, record: Record<H>, lhs: Lhs) {
++    pub fn push_waiting_reader(&mut self, record: Box<Record<H>>, lhs: Lhs) {
+         self.waiting_readers.push_back(Arc::new((record, lhs)));
+     }
+ 
+     /// Takes the longest-waiting reader, copying it only when the channel
+     /// state it came from is still shared.
+-    pub fn pop_waiting_reader(&mut self) -> Option<(Record<H>, Lhs)> {
+-        self.waiting_readers
+-            .pop_front()
+-            .map(|entry| Arc::try_unwrap(entry).unwrap_or_else(|shared| (*shared).clone()))
++    pub fn pop_waiting_reader(&mut self) -> Option<(Box<Record<H>>, Lhs)> {
++        self.waiting_readers.pop_front().map(|entry| {
++            Arc::try_unwrap(entry).unwrap_or_else(|shared| {
++                crate::simulator::util_stats::record_other_record_box();
++                (*shared).clone()
++            })
++        })
+     }
+ }
+ 
+@@ -509,18 +513,70 @@ impl Hash for Timer {
+     }
+ }
+ 
++/// A record waiting in a run queue: the record behind one pointer, with its
++/// scheduling priority copied beside the pointer so a queue walk reads the
++/// priority without following it. Built only by `QueuedRecord::new` and never
++/// changed in place, so the copy always equals the record's own priority.
++#[derive(Debug, Clone, PartialEq)]
++pub struct QueuedRecord<H: HashPolicy> {
++    inline_priority: f64,
++    boxed: Box<Record<H>>,
++}
++
++impl<H: HashPolicy> QueuedRecord<H> {
++    #[inline]
++    pub fn new(record: Box<Record<H>>) -> Self {
++        Self {
++            inline_priority: record.priority,
++            boxed: record,
++        }
++    }
++
++    /// The record's scheduling priority, read from the copy beside the pointer.
++    #[inline]
++    pub fn priority(&self) -> f64 {
++        self.inline_priority
++    }
++
++    #[inline]
++    pub fn into_record(self) -> Box<Record<H>> {
++        self.boxed
++    }
++}
++
++impl<H: HashPolicy> std::ops::Deref for QueuedRecord<H> {
++    type Target = Record<H>;
++
++    #[inline]
++    fn deref(&self) -> &Record<H> {
++        &self.boxed
++    }
++}
++
++impl<H: HashPolicy> Hash for QueuedRecord<H> {
++    fn hash<Ha: Hasher>(&self, state: &mut Ha) {
++        self.boxed.hash(state);
++    }
++}
++
++/// A value sent to a channel on another node, waiting for delivery.
++#[derive(Debug, Clone, PartialEq)]
++pub struct ChannelSend<H: HashPolicy> {
++    pub target: NodeId,
++    pub channel: ChannelId,
++    pub message: Value<H>,
++    pub origin_node: NodeId,
++    pub pc: Vertex,
++    pub priority: f64,
++}
++
++/// A schedulable unit of work. Every variant is at most three words, so a
++/// queue push, a take and a hand-off move a few words rather than a record.
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum Runnable<H: HashPolicy> {
+-    Timer(Timer),
+-    Record(Record<H>),
+-    ChannelSend {
+-        target: NodeId,
+-        channel: ChannelId,
+-        message: Value<H>,
+-        origin_node: NodeId,
+-        pc: Vertex,
+-        priority: f64,
+-    },
++    Timer(Box<Timer>),
++    Record(QueuedRecord<H>),
++    ChannelSend(Box<ChannelSend<H>>),
+     Crash {
+         node_id: NodeId,
+         priority: f64,
+@@ -530,7 +586,7 @@ pub enum Runnable<H: HashPolicy> {
+         priority: f64,
+     },
+     Partition {
+-        partition_type: PartitionType,
++        partition_type: Box<PartitionType>,
+         priority: f64,
+     },
+     Heal {
+@@ -549,20 +605,13 @@ impl<H: HashPolicy> Hash for Runnable<H> {
+                 1u8.hash(state);
+                 r.hash(state);
+             }
+-            Runnable::ChannelSend {
+-                target,
+-                channel,
+-                message,
+-                origin_node,
+-                pc,
+-                ..
+-            } => {
++            Runnable::ChannelSend(cs) => {
+                 2u8.hash(state);
+-                target.hash(state);
+-                channel.hash(state);
+-                message.hash(state);
+-                origin_node.hash(state);
+-                pc.hash(state);
++                cs.target.hash(state);
++                cs.channel.hash(state);
++                cs.message.hash(state);
++                cs.origin_node.hash(state);
++                cs.pc.hash(state);
+             }
+             Runnable::Crash { node_id, .. } => {
+                 3u8.hash(state);
+@@ -584,13 +633,19 @@ impl<H: HashPolicy> Hash for Runnable<H> {
+ }
+ 
+ impl<H: HashPolicy> Runnable<H> {
++    /// A record queued as a runnable.
++    #[inline]
++    pub fn record(record: Box<Record<H>>) -> Self {
++        Runnable::Record(QueuedRecord::new(record))
++    }
++
+     /// Get the node this runnable belongs to, if applicable.
+     #[allow(dead_code)]
+     pub fn node(&self) -> Option<NodeId> {
+         match self {
+             Runnable::Timer(t) => Some(t.node),
+             Runnable::Record(r) => Some(r.node),
+-            Runnable::ChannelSend { target, .. } => Some(*target),
++            Runnable::ChannelSend(cs) => Some(cs.target),
+             Runnable::Crash { node_id, .. } | Runnable::Recover { node_id, .. } => Some(*node_id),
+             Runnable::Partition { .. } | Runnable::Heal { .. } => None,
+         }
+@@ -601,7 +656,7 @@ impl<H: HashPolicy> Runnable<H> {
+         match self {
+             Runnable::Timer(t) => t.pc,
+             Runnable::Record(r) => r.pc,
+-            Runnable::ChannelSend { pc, .. } => *pc,
++            Runnable::ChannelSend(cs) => cs.pc,
+             Runnable::Crash { .. } | Runnable::Recover { .. } => usize::MAX,
+             Runnable::Partition { .. } | Runnable::Heal { .. } => usize::MAX,
+         }
+@@ -618,9 +673,9 @@ impl<H: HashPolicy> Runnable<H> {
+     /// Get the scheduling priority for this runnable.
+     pub fn priority(&self) -> f64 {
+         match self {
+-            Runnable::Record(r) => r.priority,
++            Runnable::Record(r) => r.priority(),
+             Runnable::Timer(t) => t.priority,
+-            Runnable::ChannelSend { priority, .. } => *priority,
++            Runnable::ChannelSend(cs) => cs.priority,
+             Runnable::Crash { priority, .. } => *priority,
+             Runnable::Recover { priority, .. } => *priority,
+             Runnable::Partition { priority, .. } => *priority,
+@@ -989,9 +1044,7 @@ impl<H: HashPolicy> State<H> {
+     pub fn pending_deliveries_to(&self, node: NodeId) -> usize {
+         let to_node = |r: &Runnable<H>| match r {
+             Runnable::Record(rec) => rec.node == node && rec.origin_node != node,
+-            Runnable::ChannelSend {
+-                origin_node, target, ..
+-            } => *target == node && *origin_node != node,
++            Runnable::ChannelSend(cs) => cs.target == node && cs.origin_node != node,
+             _ => false,
+         };
+         self.network_queue.iter().filter(|r| to_node(r)).count()
+@@ -1131,7 +1184,7 @@ impl<H: HashPolicy> State<H> {
+     pub fn push_runnable(&mut self, runnable: Runnable<H>) {
+         match &runnable {
+             Runnable::Timer(_) => self.timer_queue.push(runnable),
+-            Runnable::ChannelSend { .. } => {
++            Runnable::ChannelSend(_) => {
+                 self.flight_enter(&runnable);
+                 self.network_queue.push(runnable)
+             }
+@@ -1186,9 +1239,7 @@ impl<H: HashPolicy> State<H> {
+     fn remote_origin(r: &Runnable<H>) -> Option<usize> {
+         match r {
+             Runnable::Record(rec) if rec.origin_node != rec.node => Some(rec.origin_node.index),
+-            Runnable::ChannelSend {
+-                origin_node, target, ..
+-            } if origin_node != target => Some(origin_node.index),
++            Runnable::ChannelSend(cs) if cs.origin_node != cs.target => Some(cs.origin_node.index),
+             _ => None,
+         }
+     }
+@@ -1688,7 +1739,7 @@ impl<H: HashPolicy> Continuation<H> {
+                             log::warn!("Store failed in async continuation: {}", e);
+                         }
+                         state.nodes[node_index] = node_env;
+-                        state.push_to_local(node_index, Runnable::Record(reader));
++                        state.push_to_local(node_index, Runnable::record(reader));
+                     }
+                 }
+                 None
+@@ -1728,12 +1779,21 @@ mod layout_tests {
+             std::mem::size_of::<usize>()
+         );
+         assert!(
+-            std::mem::size_of::<(Record<WithHashing>, Lhs)>()
+-                > 8 * std::mem::size_of::<WaitingReader<WithHashing>>(),
++            std::mem::size_of::<(Box<Record<WithHashing>>, Lhs)>()
++                > 2 * std::mem::size_of::<WaitingReader<WithHashing>>(),
+             "a reader narrow enough to sit in the vector inline no longer needs the indirection"
+         );
+     }
+ 
++    /// A queue element is at most four words, so pushes, takes and hand-offs
++    /// copy it inline instead of calling the library copy.
++    #[test]
++    fn runnable_stays_within_four_words() {
++        use crate::simulator::hash_utils::NoHashing;
++        assert!(std::mem::size_of::<Runnable<NoHashing>>() <= 32);
++        assert!(std::mem::size_of::<Runnable<WithHashing>>() <= 32);
++    }
++
+     /// A hash-array-mapped trie allocates one node per branch at the full
+     /// branching factor of 32 entries, whatever the occupancy, so a wide entry
+     /// puts every node above the allocator's 1032-byte fast path. Channels are
+@@ -1829,9 +1889,9 @@ mod ledger_tests {
+                     }
+                 }
+             }
+-            Runnable::ChannelSend {
+-                origin_node, target, ..
+-            } if origin_node != target => ledgers[origin_node.index].in_flight += 1,
++            Runnable::ChannelSend(cs) if cs.origin_node != cs.target => {
++                ledgers[cs.origin_node.index].in_flight += 1
++            }
+             _ => {}
+         };
+         for r in &state.network_queue {
+@@ -2058,8 +2118,8 @@ mod ledger_tests {
+         st.note_handler_entry(0, HandlerTrigger::Timer);
+         let r1 = record(&mut st, a, b);
+         let r2 = record(&mut st, a, b);
+-        st.push_runnable(Runnable::Record(r1));
+-        st.push_runnable(Runnable::Record(r2));
++        st.push_runnable(Runnable::record(Box::new(r1)));
++        st.push_runnable(Runnable::record(Box::new(r2)));
+         assert_eq!(st.send_ledger[0].recent, 2);
+         assert_eq!(st.crash_after_sends_term(0), Some(Term::CrashAfterTimerSends));
+         st.take_network(0);
+@@ -2068,11 +2128,11 @@ mod ledger_tests {
+         assert_eq!(st.send_ledger[0].recent, 0);
+         assert_eq!(st.crash_after_sends_term(0), None);
+         let r3 = record(&mut st, a, b);
+-        st.push_runnable(Runnable::Record(r3));
++        st.push_runnable(Runnable::record(Box::new(r3)));
+         assert_eq!(st.crash_after_sends_term(0), Some(Term::CrashAfterDeliverySends));
+         st.note_handler_entry(0, HandlerTrigger::None);
+         let r4 = record(&mut st, a, b);
+-        st.push_runnable(Runnable::Record(r4));
++        st.push_runnable(Runnable::record(Box::new(r4)));
+         assert_eq!(st.crash_after_sends_term(0), None, "sends with no trigger name no term");
+         assert_exact(&st, "after the trigger sequence");
+     }
+@@ -2107,7 +2167,7 @@ mod ledger_tests {
+         assert!(!st.request_before_stale(&req));
+         let msg = record(&mut st, a, b);
+         st.incarnations[0] += 1;
+-        st.push_runnable(Runnable::Record(msg));
++        st.push_runnable(Runnable::record(Box::new(msg)));
+         assert_eq!(st.net_stale_records, 1);
+         assert!(st.request_before_stale(&req));
+         let peer = record(&mut st, a, b);
+@@ -2128,7 +2188,7 @@ mod ledger_tests {
+         assert_eq!(st.term_mask(&crash), 0);
+         st.note_handler_entry(0, HandlerTrigger::Timer);
+         let r = record(&mut st, a, b);
+-        st.push_runnable(Runnable::Record(r));
++        st.push_runnable(Runnable::record(Box::new(r)));
+         assert_eq!(st.term_mask(&crash), 1 << Term::CrashAfterTimerSends.index());
+         let held = record(&mut st, a, b);
+         st.incarnations[0] += 1;
+@@ -2136,7 +2196,7 @@ mod ledger_tests {
+         env.set(0, Value::<NoHashing>::int(1));
+         st.nodes[1] = env;
+         assert_eq!(
+-            st.term_mask(&Runnable::Record(held)),
++            st.term_mask(&Runnable::record(Box::new(held))),
+             1 << Term::StaleLate.index()
+         );
+     }
+@@ -2151,20 +2211,20 @@ mod ledger_tests {
+         st.note_handler_entry(0, HandlerTrigger::Delivery);
+         for _ in 0..3 {
+             let r = record(&mut st, a, b);
+-            st.push_runnable(Runnable::Record(r));
++            st.push_runnable(Runnable::record(Box::new(r)));
+         }
+         let req = record(&mut st, client, a);
+-        st.push_runnable(Runnable::Record(req));
++        st.push_runnable(Runnable::record(Box::new(req)));
+         let delayed = record(&mut st, b, c);
+-        st.delay_runnable(5, Runnable::Record(delayed));
+-        st.push_runnable(Runnable::ChannelSend {
++        st.delay_runnable(5, Runnable::record(Box::new(delayed)));
++        st.push_runnable(Runnable::ChannelSend(Box::new(ChannelSend {
+             target: c,
+             channel: ChannelId { node: c, id: 0 },
+             message: Value::<NoHashing>::unit(),
+             origin_node: a,
+             pc: 0,
+             priority: 0.5,
+-        });
++        })));
+         st.push_runnable(Runnable::Crash {
+             node_id: a,
+             priority: 1.0,
+@@ -2202,6 +2262,29 @@ mod ledger_tests {
+         assert_exact(&st, "with two crashes pending");
+     }
+ 
++    /// The priority beside a queued record's pointer equals the record's own
++    /// priority bit for bit, including after the record is taken out, changed
++    /// and queued again.
++    #[test]
++    fn queued_priority_copy_equals_the_record() {
++        let mut st = state();
++        let a = node(SERVER, 0);
++        let b = node(SERVER, 1);
++        for p in [0.0, 0.5, 1.0e-300, 0.1 + 0.2, f64::MAX, -0.0] {
++            let mut r = record(&mut st, a, b);
++            r.priority = p;
++            let queued = Runnable::record(Box::new(r));
++            assert_eq!(queued.priority().to_bits(), p.to_bits());
++            let Runnable::Record(q) = queued else { unreachable!() };
++            assert_eq!(q.priority().to_bits(), q.priority.to_bits());
++            let mut back = q.into_record();
++            back.bias.insert(DeliveryBias::DELAYED);
++            back.pc += 1;
++            let again = Runnable::record(back);
++            assert_eq!(again.priority().to_bits(), p.to_bits());
++        }
++    }
++
+     #[test]
+     fn send_ordinals_count_from_the_handler_floor() {
+         let mut st = state();
+@@ -2210,8 +2293,8 @@ mod ledger_tests {
+         let early = record(&mut st, a, b);
+         st.note_handler_entry(0, HandlerTrigger::Timer);
+         let late = record(&mut st, a, b);
+-        st.push_runnable(Runnable::Record(early));
+-        st.push_runnable(Runnable::Record(late));
++        st.push_runnable(Runnable::record(Box::new(early)));
++        st.push_runnable(Runnable::record(Box::new(late)));
+         assert_eq!(st.send_ledger[0].in_flight, 2);
+         assert_eq!(st.send_ledger[0].recent, 1, "only the send after the entry counts");
+         st.take_network(0);
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 1451d86..2470214 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -261,7 +261,7 @@ fn schedule_client_op<H: HashPolicy>(
+     let send_ordinal = state.next_send_ordinal(client_node_id);
+     let receiver_token_at_send = state.node_state_token(client_node_id);
+     let drawn_priority = policy.sample(rng, RunnableCategory::Record);
+-    state.push_runnable(Runnable::Record(Record {
++    let record = Box::new(Record {
+         pc: op_func.entry,
+         node: client_node_id,
+         origin_node: client_node_id,
+@@ -284,7 +284,9 @@ fn schedule_client_op<H: HashPolicy>(
+         timer_entry: None,
+         send_ordinal,
+         receiver_token_at_send,
+-    }));
++    });
++    util_stats::record_other_record_box();
++    state.push_runnable(Runnable::record(record));
+     Ok(())
+ }
+ 
+@@ -891,8 +893,9 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                         server_role,
+                         topology.num_servers,
+                     );
++                    util_stats::record_partition_box();
+                     path_state.state.push_runnable(Runnable::Partition {
+-                        partition_type,
++                        partition_type: Box::new(partition_type),
+                         priority: policy.sample(rng, RunnableCategory::Partition),
+                     });
+                     pending_partition = Some(node_idx);
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index b94614b..e53b34e 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -153,6 +153,15 @@ static TRACE_FORMAT_ENTER_FORMATTED: AtomicU64 = AtomicU64::new(0);
+ static FRAME_LAYOUT_PROGRAM_SLOTS_BEFORE: AtomicU64 = AtomicU64::new(0);
+ static FRAME_LAYOUT_PROGRAM_SLOTS_AFTER: AtomicU64 = AtomicU64::new(0);
+ static HISTORY_FORMAT_OPS_STREAMED: AtomicU64 = AtomicU64::new(0);
++static RUNNABLE_LAYOUT_ASYNC_RECORD_BOXES: AtomicU64 = AtomicU64::new(0);
++static RUNNABLE_LAYOUT_OTHER_RECORD_BOXES: AtomicU64 = AtomicU64::new(0);
++static RUNNABLE_LAYOUT_TIMER_BOXES: AtomicU64 = AtomicU64::new(0);
++static RUNNABLE_LAYOUT_MAKE_CHANNELS: AtomicU64 = AtomicU64::new(0);
++static RUNNABLE_LAYOUT_CHANNEL_SEND_BOXES: AtomicU64 = AtomicU64::new(0);
++static RUNNABLE_LAYOUT_PARTITION_BOXES: AtomicU64 = AtomicU64::new(0);
++static STEP_SCRATCH_ELIGIBLE_LISTS_BUILT: AtomicU64 = AtomicU64::new(0);
++static STEP_SCRATCH_QUEUE_INFO_BUILDS: AtomicU64 = AtomicU64::new(0);
++static STEP_SCRATCH_HEAP_SPILLS: AtomicU64 = AtomicU64::new(0);
+ static FF_SWAPS: AtomicU64 = AtomicU64::new(0);
+ static FF_REPEAT_SWAPS: AtomicU64 = AtomicU64::new(0);
+ /// How many times a ghost was displaced before it was taken: once, twice,
+@@ -865,6 +874,15 @@ pub fn set_enabled(on: bool) {
+             &TRACE_FORMAT_ENTER_REUSED,
+             &TRACE_FORMAT_ENTER_FORMATTED,
+             &HISTORY_FORMAT_OPS_STREAMED,
++            &RUNNABLE_LAYOUT_ASYNC_RECORD_BOXES,
++            &RUNNABLE_LAYOUT_OTHER_RECORD_BOXES,
++            &RUNNABLE_LAYOUT_TIMER_BOXES,
++            &RUNNABLE_LAYOUT_MAKE_CHANNELS,
++            &RUNNABLE_LAYOUT_CHANNEL_SEND_BOXES,
++            &RUNNABLE_LAYOUT_PARTITION_BOXES,
++            &STEP_SCRATCH_ELIGIBLE_LISTS_BUILT,
++            &STEP_SCRATCH_QUEUE_INFO_BUILDS,
++            &STEP_SCRATCH_HEAP_SPILLS,
+             &FRAME_DEFAULT_SLOTS_FILLED,
+             &FRAME_PARAMS_FILLED,
+             &VALUE_SIG_LEAF_HASHES_DEFERRED,
+@@ -5850,6 +5868,54 @@ impl HistoryFormatStats {
+     }
+ }
+ 
++/// Index lists a scheduling step builds: the eligible lists a queue's
++/// candidates are drawn from, the per-node size lists the queue choice reads,
++/// and the lists of either kind that outgrew their inline storage.
++#[derive(Serialize, Debug)]
++pub struct StepScratchStats {
++    pub eligible_lists_built: u64,
++    pub queue_info_builds: u64,
++    pub heap_spills: u64,
++}
++
++impl StepScratchStats {
++    fn read() -> Self {
++        Self {
++            eligible_lists_built: STEP_SCRATCH_ELIGIBLE_LISTS_BUILT.load(Ordering::Relaxed),
++            queue_info_builds: STEP_SCRATCH_QUEUE_INFO_BUILDS.load(Ordering::Relaxed),
++            heap_spills: STEP_SCRATCH_HEAP_SPILLS.load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// Heap blocks runnables are built in: records of asynchronous calls, other
++/// records (client operations, recoveries, and copies taken from a shared
++/// waiting reader), timers, channel sends and partitions. `make_channels`
++/// counts channels made by `make()`, so records of asynchronous calls, timers
++/// and made channels together account for every channel a run creates.
++#[derive(Serialize, Debug)]
++pub struct RunnableLayoutStats {
++    pub async_record_boxes: u64,
++    pub other_record_boxes: u64,
++    pub timer_boxes: u64,
++    pub make_channels: u64,
++    pub channel_send_boxes: u64,
++    pub partition_boxes: u64,
++}
++
++impl RunnableLayoutStats {
++    fn read() -> Self {
++        Self {
++            async_record_boxes: RUNNABLE_LAYOUT_ASYNC_RECORD_BOXES.load(Ordering::Relaxed),
++            other_record_boxes: RUNNABLE_LAYOUT_OTHER_RECORD_BOXES.load(Ordering::Relaxed),
++            timer_boxes: RUNNABLE_LAYOUT_TIMER_BOXES.load(Ordering::Relaxed),
++            make_channels: RUNNABLE_LAYOUT_MAKE_CHANNELS.load(Ordering::Relaxed),
++            channel_send_boxes: RUNNABLE_LAYOUT_CHANNEL_SEND_BOXES.load(Ordering::Relaxed),
++            partition_boxes: RUNNABLE_LAYOUT_PARTITION_BOXES.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// A timeline delivery under the constant key found the key already held.
+ #[inline]
+ pub fn record_timeline_constant_short_circuit() {
+@@ -5908,6 +5974,86 @@ pub fn record_history_ops_streamed(ops: u64) {
+     bump(|b| &b.history_format_ops_streamed, &HISTORY_FORMAT_OPS_STREAMED, ops);
+ }
+ 
++/// A record of an asynchronous call was built in its own heap block.
++#[inline]
++pub fn record_async_record_box() {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.runnable_layout_async_record_boxes, &RUNNABLE_LAYOUT_ASYNC_RECORD_BOXES, 1);
++}
++
++/// A record other than an asynchronous call's was built in its own heap block.
++#[inline]
++pub fn record_other_record_box() {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.runnable_layout_other_record_boxes, &RUNNABLE_LAYOUT_OTHER_RECORD_BOXES, 1);
++}
++
++/// A timer was built in its own heap block.
++#[inline]
++pub fn record_timer_box() {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.runnable_layout_timer_boxes, &RUNNABLE_LAYOUT_TIMER_BOXES, 1);
++}
++
++/// A channel was made by `make()`.
++#[inline]
++pub fn record_make_channel() {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.runnable_layout_make_channels, &RUNNABLE_LAYOUT_MAKE_CHANNELS, 1);
++}
++
++/// A channel send was built in its own heap block.
++#[inline]
++pub fn record_channel_send_box() {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.runnable_layout_channel_send_boxes, &RUNNABLE_LAYOUT_CHANNEL_SEND_BOXES, 1);
++}
++
++/// A partition was built in its own heap block.
++#[inline]
++pub fn record_partition_box() {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.runnable_layout_partition_boxes, &RUNNABLE_LAYOUT_PARTITION_BOXES, 1);
++}
++
++/// A scheduling step built an eligible index list, and whether the list
++/// outgrew its inline storage.
++#[inline]
++pub fn record_eligible_list_built(spilled: bool) {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.step_scratch_eligible_lists_built, &STEP_SCRATCH_ELIGIBLE_LISTS_BUILT, 1);
++    if spilled {
++        bump(|b| &b.step_scratch_heap_spills, &STEP_SCRATCH_HEAP_SPILLS, 1);
++    }
++}
++
++/// A scheduling step built its per-node queue size list, and whether the
++/// list outgrew its inline storage.
++#[inline]
++pub fn record_queue_info_build(spilled: bool) {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.step_scratch_queue_info_builds, &STEP_SCRATCH_QUEUE_INFO_BUILDS, 1);
++    if spilled {
++        bump(|b| &b.step_scratch_heap_spills, &STEP_SCRATCH_HEAP_SPILLS, 1);
++    }
++}
++
+ /// One run's frame counts, held on the running thread.
+ #[derive(Clone, Copy)]
+ struct FrameTally {
+@@ -6213,6 +6359,15 @@ struct RunCounters {
+     trace_format_enter_reused: Cell<u64>,
+     trace_format_enter_formatted: Cell<u64>,
+     history_format_ops_streamed: Cell<u64>,
++    runnable_layout_async_record_boxes: Cell<u64>,
++    runnable_layout_other_record_boxes: Cell<u64>,
++    runnable_layout_timer_boxes: Cell<u64>,
++    runnable_layout_make_channels: Cell<u64>,
++    runnable_layout_channel_send_boxes: Cell<u64>,
++    runnable_layout_partition_boxes: Cell<u64>,
++    step_scratch_eligible_lists_built: Cell<u64>,
++    step_scratch_queue_info_builds: Cell<u64>,
++    step_scratch_heap_spills: Cell<u64>,
+ }
+ 
+ impl RunCounters {
+@@ -6271,6 +6426,15 @@ impl RunCounters {
+             trace_format_enter_reused: Cell::new(0),
+             trace_format_enter_formatted: Cell::new(0),
+             history_format_ops_streamed: Cell::new(0),
++            runnable_layout_async_record_boxes: Cell::new(0),
++            runnable_layout_other_record_boxes: Cell::new(0),
++            runnable_layout_timer_boxes: Cell::new(0),
++            runnable_layout_make_channels: Cell::new(0),
++            runnable_layout_channel_send_boxes: Cell::new(0),
++            runnable_layout_partition_boxes: Cell::new(0),
++            step_scratch_eligible_lists_built: Cell::new(0),
++            step_scratch_queue_info_builds: Cell::new(0),
++            step_scratch_heap_spills: Cell::new(0),
+         }
+     }
+ 
+@@ -6320,6 +6484,15 @@ impl RunCounters {
+             (&self.trace_format_enter_reused, &TRACE_FORMAT_ENTER_REUSED),
+             (&self.trace_format_enter_formatted, &TRACE_FORMAT_ENTER_FORMATTED),
+             (&self.history_format_ops_streamed, &HISTORY_FORMAT_OPS_STREAMED),
++            (&self.runnable_layout_async_record_boxes, &RUNNABLE_LAYOUT_ASYNC_RECORD_BOXES),
++            (&self.runnable_layout_other_record_boxes, &RUNNABLE_LAYOUT_OTHER_RECORD_BOXES),
++            (&self.runnable_layout_timer_boxes, &RUNNABLE_LAYOUT_TIMER_BOXES),
++            (&self.runnable_layout_make_channels, &RUNNABLE_LAYOUT_MAKE_CHANNELS),
++            (&self.runnable_layout_channel_send_boxes, &RUNNABLE_LAYOUT_CHANNEL_SEND_BOXES),
++            (&self.runnable_layout_partition_boxes, &RUNNABLE_LAYOUT_PARTITION_BOXES),
++            (&self.step_scratch_eligible_lists_built, &STEP_SCRATCH_ELIGIBLE_LISTS_BUILT),
++            (&self.step_scratch_queue_info_builds, &STEP_SCRATCH_QUEUE_INFO_BUILDS),
++            (&self.step_scratch_heap_spills, &STEP_SCRATCH_HEAP_SPILLS),
+         ] {
+             f(local, global);
+         }
+@@ -7294,6 +7467,8 @@ pub struct UtilizationSnapshot {
+     pub run_setup: RunSetupStats,
+     pub trace_format: TraceFormatStats,
+     pub history_format: HistoryFormatStats,
++    pub runnable_layout: RunnableLayoutStats,
++    pub step_scratch: StepScratchStats,
+ }
+ 
+ /// The snapshot as JSON, for readers that difference or accumulate it.
+@@ -7523,6 +7698,8 @@ pub fn snapshot() -> UtilizationSnapshot {
+         run_setup: RunSetupStats::read(),
+         trace_format: TraceFormatStats::read(),
+         history_format: HistoryFormatStats::read(),
++        runnable_layout: RunnableLayoutStats::read(),
++        step_scratch: StepScratchStats::read(),
+     }
+ }
+ 
+@@ -8376,4 +8553,27 @@ mod tests {
+         // reports none rather than declaring saturation early.
+         assert_eq!(s.saturation_run_index, 0);
+     }
++
++    #[test]
++    fn step_scratch_counts_lists_and_spills() {
++        let _serial = config_override::exclusive_session();
++        set_enabled(true);
++        let before = snapshot().step_scratch;
++        record_eligible_list_built(false);
++        record_eligible_list_built(true);
++        record_queue_info_build(false);
++        record_queue_info_build(true);
++        record_queue_info_build(false);
++        let after = snapshot().step_scratch;
++        set_enabled(false);
++        record_eligible_list_built(true);
++        assert_eq!(
++            snapshot().step_scratch.eligible_lists_built,
++            after.eligible_lists_built,
++            "a disabled session counted"
++        );
++        assert_eq!(after.eligible_lists_built - before.eligible_lists_built, 2);
++        assert_eq!(after.queue_info_builds - before.queue_info_builds, 3);
++        assert_eq!(after.heap_spills - before.heap_spills, 2);
++    }
+ }
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 0358c39..450dd5e 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, RunnableLayoutStats, StepScratchStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1586,6 +1586,57 @@ fn history_format_leaves(prefix: &str, h: &HistoryFormatStats) -> Vec<(String, V
+     vec![leaf(prefix, "ops_streamed", *ops_streamed)]
+ }
+ 
++fn runnable_layout(m: &mut Marks) -> RunnableLayoutStats {
++    RunnableLayoutStats {
++        async_record_boxes: m.int(),
++        other_record_boxes: m.int(),
++        timer_boxes: m.int(),
++        make_channels: m.int(),
++        channel_send_boxes: m.int(),
++        partition_boxes: m.int(),
++    }
++}
++
++fn runnable_layout_leaves(prefix: &str, s: &RunnableLayoutStats) -> Vec<(String, Value)> {
++    let RunnableLayoutStats {
++        async_record_boxes,
++        other_record_boxes,
++        timer_boxes,
++        make_channels,
++        channel_send_boxes,
++        partition_boxes,
++    } = s;
++    vec![
++        leaf(prefix, "async_record_boxes", *async_record_boxes),
++        leaf(prefix, "other_record_boxes", *other_record_boxes),
++        leaf(prefix, "timer_boxes", *timer_boxes),
++        leaf(prefix, "make_channels", *make_channels),
++        leaf(prefix, "channel_send_boxes", *channel_send_boxes),
++        leaf(prefix, "partition_boxes", *partition_boxes),
++    ]
++}
++
++fn step_scratch(m: &mut Marks) -> StepScratchStats {
++    StepScratchStats {
++        eligible_lists_built: m.int(),
++        queue_info_builds: m.int(),
++        heap_spills: m.int(),
++    }
++}
++
++fn step_scratch_leaves(prefix: &str, s: &StepScratchStats) -> Vec<(String, Value)> {
++    let StepScratchStats {
++        eligible_lists_built,
++        queue_info_builds,
++        heap_spills,
++    } = s;
++    vec![
++        leaf(prefix, "eligible_lists_built", *eligible_lists_built),
++        leaf(prefix, "queue_info_builds", *queue_info_builds),
++        leaf(prefix, "heap_spills", *heap_spills),
++    ]
++}
++
+ fn replay(m: &mut Marks) -> ReplayStats {
+     ReplayStats {
+         parents_admitted: m.int(),
+@@ -2292,6 +2343,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         run_setup: _,
+         trace_format: _,
+         history_format: _,
++        runnable_layout: _,
++        step_scratch: _,
+     } = s;
+     vec![
+         "rng_streams",
+@@ -2350,6 +2403,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "run_setup",
+         "trace_format",
+         "history_format",
++        "runnable_layout",
++        "step_scratch",
+     ]
+ }
+ 
+@@ -2441,6 +2496,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.run_setup = run_setup(&mut m);
+     s.trace_format = trace_format(&mut m);
+     s.history_format = history_format(&mut m);
++    s.runnable_layout = runnable_layout(&mut m);
++    s.step_scratch = step_scratch(&mut m);
+     let mut expected = steer_authority_leaves("steer_authority", &s.steer_authority);
+     expected.extend(termination_leaves("termination", &s.termination));
+     expected.extend(plan_deps_leaves("plan_deps", &s.plan_deps));
+@@ -2478,6 +2535,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(run_setup_leaves("run_setup", &s.run_setup));
+     expected.extend(trace_format_leaves("trace_format", &s.trace_format));
+     expected.extend(history_format_leaves("history_format", &s.history_format));
++    expected.extend(runnable_layout_leaves("runnable_layout", &s.runnable_layout));
++    expected.extend(step_scratch_leaves("step_scratch", &s.step_scratch));
+     (s, expected)
+ }
+ 
+@@ -2541,6 +2600,8 @@ fn every_counter_field_reaches_the_written_json() {
+         "run_setup",
+         "trace_format",
+         "history_format",
++        "runnable_layout",
++        "step_scratch",
+     ] {
+         let mut actual = BTreeMap::new();
+         leaves(&parsed[block], block, &mut actual);

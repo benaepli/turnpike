@@ -1,0 +1,432 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 2d76895..2d59249 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2326,6 +2326,7 @@ dependencies = [
+  "rustc-hash",
+  "serde",
+  "serde_json",
++ "smallvec",
+  "spur-ast",
+  "spur-liquid",
+  "thiserror",
+diff --git a/spur-core/Cargo.toml b/spur-core/Cargo.toml
+index 8f43e4d..fa11e37 100644
+--- a/spur-core/Cargo.toml
++++ b/spur-core/Cargo.toml
+@@ -22,6 +22,7 @@ simulator = [
+     "dep:ctrlc",
+     "dep:csv",
+     "dep:rustc-hash",
++    "dep:smallvec",
+ ]
+ 
+ [dependencies]
+@@ -52,6 +53,7 @@ petgraph = { version = "0.8.3", optional = true }
+ ctrlc = { version = "3.4", optional = true }
+ csv = { version = "1.4.0", optional = true }
+ rustc-hash = { version = "2", optional = true }
++smallvec = { version = "1.15.1", optional = true }
+ 
+ [dev-dependencies]
+ pretty_assertions = "1.4.1"
+diff --git a/spur-core/src/simulator/core/queue_selector.rs b/spur-core/src/simulator/core/queue_selector.rs
+index fa0e852..24c44d7 100644
+--- a/spur-core/src/simulator/core/queue_selector.rs
++++ b/spur-core/src/simulator/core/queue_selector.rs
+@@ -1,5 +1,6 @@
+ use rand::Rng;
+ use serde::{Deserialize, Serialize};
++use smallvec::SmallVec;
+ 
+ #[derive(Debug, Clone, Copy)]
+ pub enum QueueSelection {
+@@ -8,9 +9,16 @@ pub enum QueueSelection {
+     Timer,
+ }
+ 
++/// Inline room for the per-node queue size list: three servers plus one
++/// client per client operation, for up to twelve operations. A run with more
++/// nodes keeps the same sizes, in the same order, on the heap.
++pub const LOCAL_QUEUE_SIZES_INLINE: usize = 15;
++
++pub type LocalQueueSizes = SmallVec<[usize; LOCAL_QUEUE_SIZES_INLINE]>;
++
+ #[derive(Debug)]
+ pub struct QueueInfo {
+-    pub local_queue_sizes: Vec<usize>,
++    pub local_queue_sizes: LocalQueueSizes,
+     pub network_queue_size: usize,
+     pub timer_queue_size: usize,
+     #[allow(dead_code)]
+@@ -318,7 +326,7 @@ mod tests {
+ 
+     fn contested_info() -> QueueInfo {
+         QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: smallvec::smallvec![1],
+             network_queue_size: 1,
+             timer_queue_size: 1,
+             step: 0,
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index 473dc6f..cf34353 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -30,6 +30,14 @@ use crate::simulator::util_stats::DeliveryBias;
+ use imbl::OrdSet;
+ use log::warn;
+ use rand::Rng;
++use smallvec::SmallVec;
++
++/// Inline room for a queue's eligible index list. At this capacity the list
++/// is 128 bytes, which the compiler copies inline; a longer list keeps the
++/// same indices, in the same order, on the heap.
++const ELIGIBLE_INLINE: usize = 14;
++
++type EligibleList = SmallVec<[usize; ELIGIBLE_INLINE]>;
+ 
+ /// A resolved deliver reservation. Runnables matching this are excluded from scheduling
+ /// until the deliver's DAG dependencies are met.
+@@ -1197,6 +1205,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         timer_queue_size,
+         step: state.crash_info.current_step,
+     };
++    util_stats::record_queue_info_build(info.local_queue_sizes.spilled());
+ 
+     let record_unscheduled = |audit: &Option<SteerPreference>| {
+         if let Some(a) = audit {
+@@ -1271,9 +1280,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     let (runnable, chosen_slot, chosen_mask) = match selection {
+         QueueSelection::Local(node_idx) => {
+             let queue = &state.local_queues[node_idx];
+-            let eligible: Vec<usize> = (0..queue.len())
++            let eligible: EligibleList = (0..queue.len())
+                 .filter(|&i| !is_ineligible(&queue[i]))
+                 .collect();
++            util_stats::record_eligible_list_built(eligible.spilled());
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+@@ -1296,9 +1306,10 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+         QueueSelection::Network => {
+             let queue = &state.network_queue;
+-            let eligible: Vec<usize> = (0..queue.len())
++            let eligible: EligibleList = (0..queue.len())
+                 .filter(|&i| !is_ineligible(&queue[i]))
+                 .collect();
++            util_stats::record_eligible_list_built(eligible.spilled());
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+@@ -1329,7 +1340,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+         QueueSelection::Timer => {
+             let queue = &state.timer_queue;
+-            let eligible: Vec<usize> = if strict_timers {
++            let eligible: EligibleList = if strict_timers {
+                 (0..queue.len())
+                     .filter(|&i| {
+                         if is_ineligible(&queue[i]) {
+@@ -1349,6 +1360,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     .filter(|&i| !is_ineligible(&queue[i]))
+                     .collect()
+             };
++            util_stats::record_eligible_list_built(eligible.spilled());
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+@@ -2314,6 +2326,36 @@ mod tests {
+     use rand::rngs::StdRng;
+     use rand::{RngCore, SeedableRng};
+ 
++    /// An eligible list holds exactly the indices a `Vec` collect of the same
++    /// filter holds, in the same order, whether it stays inline or spills,
++    /// and it spills exactly when it outgrows its inline capacity.
++    #[test]
++    fn eligible_lists_match_a_vec_collect_inline_and_spilled() {
++        for len in 0..(3 * ELIGIBLE_INLINE) {
++            for stride in 1..4 {
++                let keep = |i: &usize| i % stride == 0 || i % 5 == 3;
++                let reference: Vec<usize> = (0..len).filter(keep).collect();
++                let list: EligibleList = (0..len).filter(keep).collect();
++                assert_eq!(list.as_slice(), reference.as_slice());
++                assert_eq!(list.spilled(), reference.len() > ELIGIBLE_INLINE);
++            }
++        }
++        assert_eq!(std::mem::size_of::<EligibleList>(), 128);
++    }
++
++    /// The per-node size list keeps the sizes of every node in node order,
++    /// inline up to its capacity and on the heap past it.
++    #[test]
++    fn local_queue_size_lists_match_a_vec_collect() {
++        use crate::simulator::core::queue_selector::{LOCAL_QUEUE_SIZES_INLINE, LocalQueueSizes};
++        for nodes in 0..(2 * LOCAL_QUEUE_SIZES_INLINE) {
++            let reference: Vec<usize> = (0..nodes).map(|n| (n * 7) % 4).collect();
++            let list: LocalQueueSizes = (0..nodes).map(|n| (n * 7) % 4).collect();
++            assert_eq!(list.as_slice(), reference.as_slice());
++            assert_eq!(list.spilled(), nodes > LOCAL_QUEUE_SIZES_INLINE);
++        }
++    }
++
+     fn heal(priority: f64) -> Runnable<NoHashing> {
+         Runnable::Heal { priority }
+     }
+@@ -3376,7 +3418,7 @@ mod tests {
+         state.net_stale_records = 1;
+         state.net_requests = 1;
+         let info = QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: smallvec::smallvec![1],
+             network_queue_size: 4,
+             timer_queue_size: 0,
+             step: 0,
+@@ -3397,7 +3439,7 @@ mod tests {
+         state.send_ledger[0].recent = 1;
+         state.send_ledger[0].trigger = HandlerTrigger::Delivery;
+         let info = QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: smallvec::smallvec![1],
+             network_queue_size: 40,
+             timer_queue_size: 0,
+             step: 0,
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index b94614b..7ec571e 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -153,6 +153,9 @@ static TRACE_FORMAT_ENTER_FORMATTED: AtomicU64 = AtomicU64::new(0);
+ static FRAME_LAYOUT_PROGRAM_SLOTS_BEFORE: AtomicU64 = AtomicU64::new(0);
+ static FRAME_LAYOUT_PROGRAM_SLOTS_AFTER: AtomicU64 = AtomicU64::new(0);
+ static HISTORY_FORMAT_OPS_STREAMED: AtomicU64 = AtomicU64::new(0);
++static STEP_SCRATCH_ELIGIBLE_LISTS_BUILT: AtomicU64 = AtomicU64::new(0);
++static STEP_SCRATCH_QUEUE_INFO_BUILDS: AtomicU64 = AtomicU64::new(0);
++static STEP_SCRATCH_HEAP_SPILLS: AtomicU64 = AtomicU64::new(0);
+ static FF_SWAPS: AtomicU64 = AtomicU64::new(0);
+ static FF_REPEAT_SWAPS: AtomicU64 = AtomicU64::new(0);
+ /// How many times a ghost was displaced before it was taken: once, twice,
+@@ -865,6 +868,9 @@ pub fn set_enabled(on: bool) {
+             &TRACE_FORMAT_ENTER_REUSED,
+             &TRACE_FORMAT_ENTER_FORMATTED,
+             &HISTORY_FORMAT_OPS_STREAMED,
++            &STEP_SCRATCH_ELIGIBLE_LISTS_BUILT,
++            &STEP_SCRATCH_QUEUE_INFO_BUILDS,
++            &STEP_SCRATCH_HEAP_SPILLS,
+             &FRAME_DEFAULT_SLOTS_FILLED,
+             &FRAME_PARAMS_FILLED,
+             &VALUE_SIG_LEAF_HASHES_DEFERRED,
+@@ -5850,6 +5856,26 @@ impl HistoryFormatStats {
+     }
+ }
+ 
++/// Index lists a scheduling step builds: the eligible lists a queue's
++/// candidates are drawn from, the per-node size lists the queue choice reads,
++/// and the lists of either kind that outgrew their inline storage.
++#[derive(Serialize, Debug)]
++pub struct StepScratchStats {
++    pub eligible_lists_built: u64,
++    pub queue_info_builds: u64,
++    pub heap_spills: u64,
++}
++
++impl StepScratchStats {
++    fn read() -> Self {
++        Self {
++            eligible_lists_built: STEP_SCRATCH_ELIGIBLE_LISTS_BUILT.load(Ordering::Relaxed),
++            queue_info_builds: STEP_SCRATCH_QUEUE_INFO_BUILDS.load(Ordering::Relaxed),
++            heap_spills: STEP_SCRATCH_HEAP_SPILLS.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// A timeline delivery under the constant key found the key already held.
+ #[inline]
+ pub fn record_timeline_constant_short_circuit() {
+@@ -5908,6 +5934,32 @@ pub fn record_history_ops_streamed(ops: u64) {
+     bump(|b| &b.history_format_ops_streamed, &HISTORY_FORMAT_OPS_STREAMED, ops);
+ }
+ 
++/// A scheduling step built an eligible index list, and whether the list
++/// outgrew its inline storage.
++#[inline]
++pub fn record_eligible_list_built(spilled: bool) {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.step_scratch_eligible_lists_built, &STEP_SCRATCH_ELIGIBLE_LISTS_BUILT, 1);
++    if spilled {
++        bump(|b| &b.step_scratch_heap_spills, &STEP_SCRATCH_HEAP_SPILLS, 1);
++    }
++}
++
++/// A scheduling step built its per-node queue size list, and whether the
++/// list outgrew its inline storage.
++#[inline]
++pub fn record_queue_info_build(spilled: bool) {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.step_scratch_queue_info_builds, &STEP_SCRATCH_QUEUE_INFO_BUILDS, 1);
++    if spilled {
++        bump(|b| &b.step_scratch_heap_spills, &STEP_SCRATCH_HEAP_SPILLS, 1);
++    }
++}
++
+ /// One run's frame counts, held on the running thread.
+ #[derive(Clone, Copy)]
+ struct FrameTally {
+@@ -6213,6 +6265,9 @@ struct RunCounters {
+     trace_format_enter_reused: Cell<u64>,
+     trace_format_enter_formatted: Cell<u64>,
+     history_format_ops_streamed: Cell<u64>,
++    step_scratch_eligible_lists_built: Cell<u64>,
++    step_scratch_queue_info_builds: Cell<u64>,
++    step_scratch_heap_spills: Cell<u64>,
+ }
+ 
+ impl RunCounters {
+@@ -6271,6 +6326,9 @@ impl RunCounters {
+             trace_format_enter_reused: Cell::new(0),
+             trace_format_enter_formatted: Cell::new(0),
+             history_format_ops_streamed: Cell::new(0),
++            step_scratch_eligible_lists_built: Cell::new(0),
++            step_scratch_queue_info_builds: Cell::new(0),
++            step_scratch_heap_spills: Cell::new(0),
+         }
+     }
+ 
+@@ -6320,6 +6378,9 @@ impl RunCounters {
+             (&self.trace_format_enter_reused, &TRACE_FORMAT_ENTER_REUSED),
+             (&self.trace_format_enter_formatted, &TRACE_FORMAT_ENTER_FORMATTED),
+             (&self.history_format_ops_streamed, &HISTORY_FORMAT_OPS_STREAMED),
++            (&self.step_scratch_eligible_lists_built, &STEP_SCRATCH_ELIGIBLE_LISTS_BUILT),
++            (&self.step_scratch_queue_info_builds, &STEP_SCRATCH_QUEUE_INFO_BUILDS),
++            (&self.step_scratch_heap_spills, &STEP_SCRATCH_HEAP_SPILLS),
+         ] {
+             f(local, global);
+         }
+@@ -7294,6 +7355,7 @@ pub struct UtilizationSnapshot {
+     pub run_setup: RunSetupStats,
+     pub trace_format: TraceFormatStats,
+     pub history_format: HistoryFormatStats,
++    pub step_scratch: StepScratchStats,
+ }
+ 
+ /// The snapshot as JSON, for readers that difference or accumulate it.
+@@ -7523,6 +7585,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         run_setup: RunSetupStats::read(),
+         trace_format: TraceFormatStats::read(),
+         history_format: HistoryFormatStats::read(),
++        step_scratch: StepScratchStats::read(),
+     }
+ }
+ 
+@@ -8376,4 +8439,27 @@ mod tests {
+         // reports none rather than declaring saturation early.
+         assert_eq!(s.saturation_run_index, 0);
+     }
++
++    #[test]
++    fn step_scratch_counts_lists_and_spills() {
++        let _serial = config_override::exclusive_session();
++        set_enabled(true);
++        let before = snapshot().step_scratch;
++        record_eligible_list_built(false);
++        record_eligible_list_built(true);
++        record_queue_info_build(false);
++        record_queue_info_build(true);
++        record_queue_info_build(false);
++        let after = snapshot().step_scratch;
++        set_enabled(false);
++        record_eligible_list_built(true);
++        assert_eq!(
++            snapshot().step_scratch.eligible_lists_built,
++            after.eligible_lists_built,
++            "a disabled session counted"
++        );
++        assert_eq!(after.eligible_lists_built - before.eligible_lists_built, 2);
++        assert_eq!(after.queue_info_builds - before.queue_info_builds, 3);
++        assert_eq!(after.heap_spills - before.heap_spills, 2);
++    }
+ }
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 0358c39..c165ba4 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, StepScratchStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1586,6 +1586,27 @@ fn history_format_leaves(prefix: &str, h: &HistoryFormatStats) -> Vec<(String, V
+     vec![leaf(prefix, "ops_streamed", *ops_streamed)]
+ }
+ 
++fn step_scratch(m: &mut Marks) -> StepScratchStats {
++    StepScratchStats {
++        eligible_lists_built: m.int(),
++        queue_info_builds: m.int(),
++        heap_spills: m.int(),
++    }
++}
++
++fn step_scratch_leaves(prefix: &str, s: &StepScratchStats) -> Vec<(String, Value)> {
++    let StepScratchStats {
++        eligible_lists_built,
++        queue_info_builds,
++        heap_spills,
++    } = s;
++    vec![
++        leaf(prefix, "eligible_lists_built", *eligible_lists_built),
++        leaf(prefix, "queue_info_builds", *queue_info_builds),
++        leaf(prefix, "heap_spills", *heap_spills),
++    ]
++}
++
+ fn replay(m: &mut Marks) -> ReplayStats {
+     ReplayStats {
+         parents_admitted: m.int(),
+@@ -2292,6 +2313,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         run_setup: _,
+         trace_format: _,
+         history_format: _,
++        step_scratch: _,
+     } = s;
+     vec![
+         "rng_streams",
+@@ -2350,6 +2372,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "run_setup",
+         "trace_format",
+         "history_format",
++        "step_scratch",
+     ]
+ }
+ 
+@@ -2441,6 +2464,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.run_setup = run_setup(&mut m);
+     s.trace_format = trace_format(&mut m);
+     s.history_format = history_format(&mut m);
++    s.step_scratch = step_scratch(&mut m);
+     let mut expected = steer_authority_leaves("steer_authority", &s.steer_authority);
+     expected.extend(termination_leaves("termination", &s.termination));
+     expected.extend(plan_deps_leaves("plan_deps", &s.plan_deps));
+@@ -2478,6 +2502,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(run_setup_leaves("run_setup", &s.run_setup));
+     expected.extend(trace_format_leaves("trace_format", &s.trace_format));
+     expected.extend(history_format_leaves("history_format", &s.history_format));
++    expected.extend(step_scratch_leaves("step_scratch", &s.step_scratch));
+     (s, expected)
+ }
+ 
+@@ -2541,6 +2566,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "run_setup",
+         "trace_format",
+         "history_format",
++        "step_scratch",
+     ] {
+         let mut actual = BTreeMap::new();
+         leaves(&parsed[block], block, &mut actual);

@@ -1001,7 +1001,7 @@ rounds of clock each:
 
 ## runnable-one-word-record
 
-- category: data layout | origin: proposer | status: admitted (iteration 15) - built as part of records-boxed-and-index-lists-inline
+- category: data layout | origin: proposer | status: closed (iteration 15, autonomous) - memmove 5.92 to 2.81 held, but the scheduler-family delta +0.85 (at most 0.6) fired and runs per second 1.0132 [0.8644, 1.1875] did not separate upward under the criterion registered before rounds; patch kept at research/perf/patches/records-boxed-and-index-lists-inline.spur.patch
 - mechanism: Record, Timer, the ChannelSend fields and the partition type
   are boxed inside Runnable (248 to 32 bytes), with an exact priority copy
   kept beside the box (nothing writes priority after the four constructors);
@@ -1027,7 +1027,7 @@ rounds of clock each:
 
 ## step-index-lists-inline
 
-- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 15) - built as part of records-boxed-and-index-lists-inline
+- category: allocation and memory traffic | origin: proposer | status: closed (iteration 15, autonomous) - scheduler family 13.28 x r (at most 13.09) and heap spills 1.48-1.68 percent of lists per round (at most 1); patch kept at research/perf/patches/step-index-lists-inline.spur.patch
 - mechanism: local_queue_sizes and the eligible lists in inline SmallVec
   storage (smallvec 1.15.1, already in Cargo.lock, no new crates), same
   indices and order; eligible lists at inline capacity 14 so a copy stays
@@ -1042,7 +1042,7 @@ rounds of clock each:
 
 ## records-boxed-and-index-lists-inline
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 15) - building
+- category: combined | origin: operator-agent (selection) | status: closed (iteration 15, autonomous) - runs per second 1.0132 [0.8644, 1.1875], not separated upward as required by the departure registered before rounds; identity identical, counter identity exact
 - two commits on one branch, the index lists first, then the boxing; the
   composite graded as one change. H1's walk guard named the collect H2
   rewrites, so the scheduler is guarded as a family (12.94 on 45517fd).

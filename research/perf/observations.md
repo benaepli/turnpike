@@ -4086,3 +4086,40 @@ inside or covered by the identical caps-engaged run. Not separated, or
 separated downward: closed, both parts, with no second session. A merge is
 further held for the user's reading of the placebo referral before it is
 committed, since the placebo is the search loop's control.
+
+### records-boxed-and-index-lists-inline: three rounds and decision (autonomous)
+
+Seeds 1000-1002 against 45517fd:
+- cross-binary runs per second 1.0101, 1.0816, 0.9519; mean 1.0132
+  [0.8644, 1.1875], not separated either way; microseconds per run 1.0150;
+  steps per run 1.0106. Every neutrality row inside the baseline's spread.
+- counters every round: the exact identity async record boxes + timer boxes
+  + make() channels = channels_created held (1,212,903,675 /
+  1,194,462,047 / 1,194,949,649); eligible_lists_built equals decisions and
+  queue_info_builds equals steps_total exactly; timer_boxes 155.5, 155.3,
+  167.2 per run [150, 320]; other_record_boxes 9.4 (at most 40). Heap spills
+  1.483, 1.638 and 1.680 percent of lists, above the 1 percent limit in every
+  round - the eligible lists outgrow 14 entries more often on the graded
+  workload than on the one-thread identity (0.19 percent).
+- writers blocked at most 0.09 us per run; full-queue sends 0, 78, 0 on the
+  candidate.
+
+Decision: closed, both parts, as registered before the rounds - runs per
+second did not separate upward. The close stands on the frozen text as well:
+H2's scheduler-family guard and spill falsifier both fired, and H1's
+scheduler-family delta fired. No second session. Patches kept at
+research/perf/patches/records-boxed-and-index-lists-inline.spur.patch
+(composite) and step-index-lists-inline.spur.patch (the lists alone).
+
+What the close teaches. The boxing did remove the moves - memmove fell by
+more than half, the largest single-line reduction a candidate has produced
+since the switch to plain cycles - but the saving did not reach the wall:
+the scheduler family and exec_ops absorbed it, consistent with a pointer
+follow per queue element on the walks the scheduler does every step. The
+placebo referral is moot with no merge; it is recorded for the user: under
+both changes walk_recovery_placebo's self share fell by a fifth to a
+quarter with its code untouched, so any future change to how queue elements
+are laid out moves the search loop's cost-matched control.
+
+Iteration 15 closes with no merge. The loop pauses here at the user's
+request.
