@@ -1472,3 +1472,72 @@ rounds of clock each:
   before rounds; one set of 3-6 rounds against 0b0004e with --primary counter
   --counter history_writer.busy_ns, busy ns per row read by hand every round,
   H2's counters by hand.
+
+## queue-eligibility-from-counters-2
+
+- category: algorithmic | origin: proposer | status: admitted (iteration 23) - building as commit A of eligibility-and-crash-scans
+- mechanism: when no reservations, FIFO links or strict timers exist (every
+  step of all five graded arms: the generator emits no Deliver, VR.spur makes
+  no fifo() call, strict_timers defaults false), only a Crash can be
+  ineligible, and only in its own node's queue; per-queue eligibility counts
+  are then queue lengths, and only a node whose pending crash is withheld (or
+  that is down on a retargeting run) has its local queue walked; the per-step
+  crashed-node Vec and link map clone go. Same counts, same draws, same order.
+- verified by the judge: the walked-node rule matches every ineligibility site
+  in scheduler.rs; dropping the Vec and clone is exact; answers the closed
+  queue-eligibility-from-counters (which still built the eligible list every
+  step): the count pass is the only full walk on 97 percent of selections.
+  The proposer's census never engaged crash holds, and neither do the VR or
+  crash-heavy identities; the caps-engaged 100,000 identity does (23,640,317
+  holds), so it is required with those leaves nonzero and identical.
+- counters: counted + walked = steer_authority.steps exactly (rewritten from
+  steps_total, which runs a few hundred above steps); general_steps 0;
+  walked at most crash-eligible steps; walked / crash-eligible [0.40, 1.00];
+  walked elements per walked step [1.0, 6.0].
+- guards (c302525.md, r = (ceval + EcoVec<Value> drop + format_escaped_str) /
+  14.23): G1 eligibility-count fold row 1.88 at most 0.60 x r; G2 scheduler
+  family at most (14.68 - 1.8) x r; G3 placebo + audit + memmove at most (9.52
+  + 0.6) x r; G4 those plus F and exec_plan at most (27.61 - 1.6) x r;
+  low-cutoff profile of commit A registered. A placebo rise counts against G3
+  and G4 with no waiver; a placebo reading outside [0.9, 1.1] x 1.87 x r is
+  referred to the user in either direction.
+- declarations: search-neutral, shared. Wall [1.012, 1.030] regression only.
+  Judge net 6 (gain 6, cost 0).
+- full record: tmp/loop/perf/it23-judgment.md (H1).
+
+## crash-scans-skipped-without-a-pending-crash
+
+- category: algorithmic | origin: proposer | status: admitted (iteration 23) - commit B of eligibility-and-crash-scans, on A; rebases on c302525 alone if A closes
+- mechanism: a count of nodes with a pending crash, moved only at the three
+  sites where a node's pending count crosses 0 and 1 (state.rs:1144, 1180,
+  scheduler.rs:2125); at zero the crash hold loop, crash defer loop,
+  crash-anchor probe and crash-census scan are skipped, each drawing nothing
+  and writing no counter or state on such steps (verified by the judge).
+- counters: skipped + crash_anchor.steps_with_crash_eligible =
+  steer_authority.steps exactly; skipped / steps [0.80, 0.88].
+- guards on its profile against A's: scheduler family falls at least 0.5 x
+  r2; exec_plan rises at most 0.2 x r2; crash_hold_mask rises at most 0.05 x
+  r2. Stack against c302525: F + placebo + audit + memmove + exec_plan at most
+  (27.61 - 2.2) x r.
+- declarations: search-neutral, shared. Alone [1.004, 1.012]; stack [1.018,
+  1.038]. Judge net 4 (gain 4, cost 0).
+- full record: tmp/loop/perf/it23-judgment.md (H2).
+
+## runnable-one-word-record-2
+
+- category: data layout | origin: proposer | status: parked (iteration 23) - judge net 1; returns only on the merged H1 + H2 tree with a profile, a guarded list of every read behind the box (pending_deliveries_to walks the network queue on about 0.19-0.21 of steps reading node and origin_node; fresh_first_dispatch scans eligible network records with stats on), and a way to tell cache misses from store-forwarding stalls
+- mechanism: Record, Timer and ChannelSend payloads behind a Box inside
+  Runnable, priority inline, ownership by value; 41 fixed-size copies
+  verified, "at most 4" a prediction.
+- full record: tmp/loop/perf/it23-judgment.md (H3).
+
+## eligibility-and-crash-scans
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 23) - building
+- one branch from c302525: commit A (H1), commit B (H2); release tests and
+  one-thread identity (VR 3,008, Mencius 2,160, crash-heavy 1,800,
+  caps-engaged 100,000 with crash holds nonzero) at A and B, parquet
+  byte-identical, exact identities; A profiled against c302525.md plus its
+  registered low-cutoff profile, B against A's profile, the stack against
+  c302525.md; a part whose guard fires is reverted before rounds; three
+  cross-binary rounds against c302525, runs per second regression only.

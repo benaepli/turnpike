@@ -6433,3 +6433,24 @@ c302525.md) and a one-thread counting build over 50.3M steps.
   its band goes to the user before merge.
 - Flagged, not proposed: about 1.5 points of shared-atomic counter writes in
   the scheduler (the closed probe counters), trace text and realloc memmove.
+
+### Judgment (tmp/loop/perf/it23-judgment.md)
+
+H1 net 6 and H2 net 4 admitted with rewrites; H3 parked (net 1). Found false:
+both counter identities were pinned to steer_authority.steps_total, which path.rs
+bumps before the empty-queue check (it ran 276-290 above steer_authority.steps
+in the last round), so both are rewritten against steer_authority.steps; and
+H3's claim that only the delivered record is read behind the box
+(pending_deliveries_to walks the network queue on about 0.19-0.21 of steps,
+fresh_first_dispatch scans eligible network records with stats on). H1's
+condition holds on every step of all five arms; its walked-node rule matches
+every ineligibility site; its census never engaged crash holds, so the
+caps-engaged identity (23.6M holds) is required. H2's four skipped loops draw
+and write nothing with no pending crash; its count moves at three sites. The
+placebo is framed without a waiver: a placebo rise counts against the
+relocation and net guards, and a reading outside its band either way is
+referred.
+
+Selection (autonomous): build A (H1) and B (H2) on one branch per the judge's
+sequence, three rounds, no extension unless a departure is registered before
+round 1.
