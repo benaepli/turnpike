@@ -5537,3 +5537,23 @@ separate upward; there is no departure path. Patch kept as
 research/perf/patches/delivered-record-borrowed-through-exec.AB.patch. Nothing
 sits above B. A goes to rounds alone, band [1.030, 1.060], under its
 registered departure, once G2 is settled.
+
+### struct-values-as-shaped-slices: G2 settled; rounds registered (autonomous)
+
+Low-cutoff profile (research/perf/profiles/c9c54fc-cand-struct-slices-low-cutoff.md,
+--percent-limit 0.05, same binary), read only for the G2 rows with r = 1.054
+from the first profile: make_mut 0.01, compute_sig 0.00, hamt Iter::next 0.00,
+GenericNode drop_slow 0.09; G2 0.10 against at most 0.95 - held; observable
+make_mut 0.01 against at most 0.42 - held. G1 and every other guard stand as
+read on the first profile.
+
+Rounds: six cross-binary rounds against c9c54fc, launched as one run and
+read only when all six are in, so the departure's "within six rounds" has no
+stopping choice. Primary --counter value_sig.leaf_hashes_deferred, baseline
+over candidate, band [9.0, 16.0]. Merge requires every one of: runs per second
+interval lower edge above 1.0 over the six; every added ratio in band in every
+round (literals / frame.calls [0.32, 0.43], entries / literal [3.45, 3.70],
+field reads / frame.calls [0.35, 0.47], struct share [0.89, 0.94]); fallbacks
+and fallback_key_hashes 0; the spread check inside or its exemption
+(throughput-dependent shares with exact one-thread identity); then the
+placebo referral (0.896 on the first profile) to the user.
