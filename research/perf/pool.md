@@ -870,7 +870,7 @@ rounds of clock each:
 
 ## frame-slots-by-liveness
 
-- category: algorithmic | origin: proposer | status: admitted (iteration 13) - built first as part of frame-slots-and-trace-escape-composite
+- category: algorithmic | origin: proposer | status: admitted (iteration 13) - composite read frame.slots_built 4.1634 [3.7072, 4.6758] over 3 rounds, profile guards held; split out of the composite after H3 closed, H1-only binary being cut; merge waits on the caps-engaged identity run (deadlock share blocker)
 - mechanism: a per-function liveness pass after compile and before
   Program::decode colors VarSlot::Local slots greedily; parameters keep
   0..param_count-1; interference is def against live-out (a store interferes
@@ -897,7 +897,7 @@ rounds of clock each:
 
 ## trace-payload-escaped-in-one-pass
 
-- category: algorithmic | origin: proposer | status: admitted (iteration 13) - built first as part of frame-slots-and-trace-escape-composite
+- category: algorithmic | origin: proposer | status: closed (iteration 13, autonomous) on its frozen summed-self guard - write_text 1.28 + push_json_string_content 1.22 = 2.50 against at most 1.97; the escape scan moved rather than went; counter identity and byte identity held; patch kept inside research/perf/patches/frame-slots-and-trace-escape.spur.patch
 - mechanism: write_to becomes one text definition generic over a sink with
   raw-text and content entry points; the trace sink writes `[`, quoted
   escaped parameters joined by `,`, `]` straight into the trace TextBuffer
@@ -919,7 +919,7 @@ rounds of clock each:
 
 ## frame-slots-and-trace-escape-composite
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 13) - build after grid-ordered-release-pool-2 is decided
+- category: combined | origin: operator-agent (selection) | status: split (iteration 13) - three rounds, primary 4.1634 above band, rps 1.0717 not separated, deadlock-share neutrality blocker; H3 closed on its guard, H1 continues alone
 - parts: frame-slots-by-liveness and trace-payload-escaped-in-one-pass;
   disjoint code, counters and guards.
 - primary: frame.slots_built per run, baseline over candidate, [1.6, 2.6],

@@ -3351,3 +3351,55 @@ candidate, band [1.6, 2.6]; runs per second cross-binary composed
 [1.032, 1.056], below the floor, read for regression only; H3's counters by
 hand in every round; a candidate profile against 911e265's R = 3.69 for both
 parts' guards.
+
+### frame-slots-and-trace-escape: three rounds, candidate profile, split
+
+Three rounds (seeds 1000-1002) against a fresh baseline for 5df7084:
+- primary frame.slots_built per run, baseline over candidate: 4.1371,
+  3.9873, 4.3750; mean 4.1634, interval [3.7072, 4.6758], separated, band
+  [1.6, 2.6] read above (candidate 8,185 slots per run against 34,080).
+- runs per second 1.0517, 1.0370, 1.1284; mean 1.0717 [0.9577, 1.1991],
+  not separated either way (regression-only reading: held). Steps per run
+  0.9729 [0.8445, 1.1209].
+- by hand, every round: payloads_streamed + enter_payload_reused ==
+  rows_logged exactly; program slots 658 to 124; text_buffers_allocated
+  and dropped_oversize per run lower; writer blocked 0, 0 and 55 ns per run.
+- blocker: campaign end reason deadlock outside the baseline's own spread
+  (2.62 against 2.07 per 10,000 runs; 3.05, 2.26, 2.54 against 2.11, 2.12,
+  1.96), every other neutrality row inside. As frozen, the caps-engaged
+  one-thread identity run (100,000 runs) is owed; it is running on the
+  composite binary.
+
+Candidate profile (5df7084-cand-frame-slots-and-trace-escape.md) against
+911e265.md; R_cand = 3.93 (exec_plan 1.81, random_range 1.24, NodeIndex
+collect 0.88), scale R_cand/3.97 = 0.990.
+- H1 FrameBuilder::finish self 0.85, at most 1.29: held.
+- H1 drops: drop_glue<Value> is no longer a symbol of its own - it is now
+  inlined into drop_glue<ValueKind>, which rose from 1.07 + 0.69 to 1.55 +
+  1.34 - so the guard is read on the whole Value drop family: 6.29 on
+  911e265 (6.70 scaled to R_cand) against 4.32, a fall of 2.38, at least
+  0.79 required: held. Reading the frozen two-symbol sum literally would
+  have credited 3.10 by a renamed symbol; the family reading is the honest
+  one. _int_malloc 2.71 to 1.61.
+- H3 format_escaped_str on the trace path: absent above the cutoff; held.
+  json_string_array and TraceScratch absent: held.
+- H3 summed self of format_escaped_str, every write_to / write_text
+  specialization and the new escape symbol: 0.00 + 1.28 + 1.22 = 2.50, at
+  most 1.97 required: FIRED. Against 911e265 (1.82 + 1.10 = 2.92, 3.11
+  scaled) the fall is 0.61 where 0.79 was required. The escape scan mostly
+  moved into push_json_string_content, as the judge's red team warned for
+  payloads that are mostly string text.
+
+Decision on H3 (autonomous): closed on its frozen falsifier, no departure.
+The guard was written for exactly this case. Composite patch kept at
+research/perf/patches/frame-slots-and-trace-escape.spur.patch.
+
+Decision on H1: continues, per the composite's attribution rule (the part
+whose guard failed is closed; the other stands on its own evidence). An
+H1-only candidate, frame-slots-by-liveness, is being cut from the composite
+on 5df7084 with release tests and a one-thread identity run where only the
+frame leaves may differ. It merges only if (a) the caps-engaged identity
+run on the composite reads identical - the composite's code is a superset
+of H1's, and H3 alone was byte-identical, so an identical reading clears
+H1's neutrality - and (b) a three-round session of the H1-only binary shows
+its counter in place and runs per second not separating downward.

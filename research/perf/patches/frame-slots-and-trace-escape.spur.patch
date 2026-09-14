@@ -1,0 +1,1917 @@
+diff --git a/spur-core/src/compiler.rs b/spur-core/src/compiler.rs
+index 184b35f..e118273 100644
+--- a/spur-core/src/compiler.rs
++++ b/spur-core/src/compiler.rs
+@@ -98,6 +98,11 @@ impl CompileResult {
+ }
+ 
+ pub fn compile(input: &str, name: &str) -> CompileResult {
++    compile_with(input, name, CfgCompiler::new())
++}
++
++/// Runs the whole pipeline with `cfg_compiler` producing the program.
++pub(crate) fn compile_with(input: &str, name: &str, cfg_compiler: CfgCompiler) -> CompileResult {
+     let mut result = CompileResult {
+         program: None,
+         pure: None,
+@@ -182,7 +187,6 @@ pub fn compile(input: &str, name: &str) -> CompileResult {
+     let _ = liquid_out; // keep the binding alive for both cfgs
+     result.pure = Some(pure);
+ 
+-    let cfg_compiler = CfgCompiler::new();
+     let program = cfg_compiler.compile_program(lowered, type_ids);
+     result.program = Some(program);
+ 
+diff --git a/spur-core/src/compiler/cfg.rs b/spur-core/src/compiler/cfg.rs
+index 2ffb340..8f1d637 100644
+--- a/spur-core/src/compiler/cfg.rs
++++ b/spur-core/src/compiler/cfg.rs
+@@ -1,4 +1,5 @@
+ pub mod compiled;
++mod frame_layout;
+ mod ir;
+ pub use compiled::{CExpr, CompiledProgram, Op, Opnd};
+ pub use ir::*;
+@@ -71,6 +72,15 @@ pub struct Compiler {
+ 
+     /// Type ID map for looking up TypeIds during compilation
+     type_ids: TypeIdMap,
++
++    /// Whether each function's local slots are renumbered so that slots never
++    /// needed at the same time share a frame position.
++    compact_frames: bool,
++
++    /// Local slot counts summed over the functions compiled so far, as
++    /// declared and as laid out.
++    slots_before: u64,
++    slots_after: u64,
+ }
+ 
+ impl Default for Compiler {
+@@ -101,7 +111,28 @@ impl Compiler {
+             max_node_slots: 1,
+             roles: Vec::new(),
+             type_ids: TypeIdMap::new(),
++            compact_frames: true,
++            slots_before: 0,
++            slots_after: 0,
++        }
++    }
++
++    /// Keeps every function's local slots as declared.
++    #[cfg(test)]
++    pub(crate) fn without_frame_compaction(mut self) -> Self {
++        self.compact_frames = false;
++        self
++    }
++
++    /// Lays out the local slots of the function whose labels start at
++    /// `first_vertex` and counts its slots before and after.
++    fn finish_function(&mut self, first_vertex: Vertex, mut info: FunctionInfo) -> FunctionInfo {
++        self.slots_before += u64::from(info.local_slot_count);
++        if self.compact_frames {
++            frame_layout::compact_function_slots(&mut self.cfg, first_vertex, &mut info);
+         }
++        self.slots_after += u64::from(info.local_slot_count);
++        info
+     }
+ 
+     /// Call when starting to compile a new role
+@@ -261,6 +292,8 @@ impl Compiler {
+             }
+         }
+ 
++        crate::simulator::util_stats::record_frame_layout(self.slots_before, self.slots_after);
++
+         let mut program = Program {
+             cfg: Cfg { graph: self.cfg },
+             rpc: self.rpc_map,
+@@ -282,6 +315,7 @@ impl Compiler {
+         inits: &[LVarInit],
+         qualified_name: String,
+     ) -> FunctionInfo {
++        let first_vertex = self.cfg.len();
+         // Begin a new function with no parameters
+         self.begin_function(&[]);
+ 
+@@ -311,7 +345,7 @@ impl Compiler {
+ 
+         let func_name_id = self.alloc_func_name_id(qualified_name);
+ 
+-        FunctionInfo {
++        let info = FunctionInfo {
+             entry,
+             name: func_name_id,
+             param_count: 0,
+@@ -319,10 +353,12 @@ impl Compiler {
+             local_defaults: self.current_local_defaults.clone(),
+             is_sync: true,
+             debug_slot_names: self.current_slot_names.clone(),
+-        }
++        };
++        self.finish_function(first_vertex, info)
+     }
+ 
+     fn compile_func_def(&mut self, func: LFuncDef) -> FunctionInfo {
++        let first_vertex = self.cfg.len();
+         // Collect parameter info: (NameId, display_name)
+         let params: Vec<(NameId, String)> = func
+             .params
+@@ -411,7 +447,7 @@ impl Compiler {
+         // Use the existing func.name NameId from the resolver, not a new one
+         self.func_name_to_id.insert(qualified_name, func.name);
+ 
+-        FunctionInfo {
++        let info = FunctionInfo {
+             entry,
+             name: func.name,
+             param_count,
+@@ -419,7 +455,8 @@ impl Compiler {
+             local_defaults: self.current_local_defaults.clone(),
+             is_sync: func.is_sync,
+             debug_slot_names: self.current_slot_names.clone(),
+-        }
++        };
++        self.finish_function(first_vertex, info)
+     }
+ 
+ 
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index b42d3e5..eaf2406 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -12,7 +12,7 @@ use crate::simulator::core::state::{
+     ClientOpResult, Continuation, LogEntry, Logger, NodeId, PurgatoryConfig, Record,
+     Runnable, RunnableCategory, SchedulePolicy, State, Timer, TraceEntry, TraceKind,
+ };
+-use crate::simulator::core::values::{ChannelId, Env, Value, ValueKind, ValueSeq};
++use crate::simulator::core::values::{ChannelId, Env, TextSink, Value, ValueKind, ValueSeq};
+ use ecow::EcoVec;
+ use rand::Rng;
+ use crate::simulator::rng::{Stream, StreamRng};
+@@ -21,49 +21,55 @@ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::text_buffer::TextBuffer;
+ use crate::simulator::util_stats;
+ use crate::simulator::util_stats::{DeliveryBias, InterpreterTally};
+-use std::cell::RefCell;
+ use std::collections::HashMap;
+ 
+-/// Scratch for building one trace payload: the parameter texts laid end to
+-/// end, and where each one ends. Kept per thread so formatting a parameter
+-/// allocates nothing after the first row on that thread.
+-#[derive(Default)]
+-struct TraceScratch {
+-    text: String,
+-    ends: Vec<usize>,
+-}
++/// Writes value text into a trace buffer as the inside of a JSON string:
++/// structure is copied, content escaped.
++struct JsonStringText<'a>(&'a mut TextBuffer);
++
++impl TextSink for JsonStringText<'_> {
++    #[inline]
++    fn structure(&mut self, s: &str) -> std::fmt::Result {
++        self.0.push_str(s);
++        Ok(())
++    }
+ 
+-thread_local! {
+-    static TRACE_SCRATCH: RefCell<TraceScratch> = RefCell::new(TraceScratch::default());
++    #[inline]
++    fn content(&mut self, s: &str) -> std::fmt::Result {
++        self.0.push_json_string_content(s);
++        Ok(())
++    }
+ }
+ 
+-/// Formats each evaluated parameter and appends the JSON array of the texts
+-/// to `out`, byte for byte what `serde_json` writes for a `Vec<String>` of
+-/// the same items. A parameter whose evaluation failed reads "<error>".
++/// Appends the JSON array of each evaluated parameter's text to `out`, byte
++/// for byte what `serde_json` writes for a `Vec<String>` of those texts. A
++/// parameter whose evaluation failed reads "<error>".
+ fn write_trace_payload<H: HashPolicy>(
+     values: impl Iterator<Item = Result<Value<H>, RuntimeError>>,
+     out: &mut TextBuffer,
+ ) {
+-    TRACE_SCRATCH.with(|scratch| {
+-        let scratch = &mut *scratch.borrow_mut();
+-        scratch.text.clear();
+-        scratch.ends.clear();
+-        for value in values {
+-            match value {
+-                Ok(v) => {
+-                    let _ = v.write_to(&mut scratch.text);
+-                }
+-                Err(_) => scratch.text.push_str("<error>"),
++    util_stats::record_trace_payload_streamed();
++    out.push_str("[");
++    for (i, value) in values.enumerate() {
++        if i > 0 {
++            out.push_str(",");
++        }
++        out.push_str("\"");
++        match value {
++            Ok(v) => {
++                let _ = v.write_text(&mut JsonStringText(out));
+             }
+-            scratch.ends.push(scratch.text.len());
++            Err(_) => out.push_str("<error>"),
+         }
+-        json_string_array(&scratch.text, &scratch.ends, out)
+-    })
++        out.push_str("\"");
++    }
++    out.push_str("]");
+ }
+ 
+ /// Appends the JSON array whose elements are the pieces of `text` ending at
+ /// each offset in `ends`, in order. `ends` must be non-decreasing and bounded
+ /// by `text.len()`, with every offset on a character boundary.
++#[cfg(test)]
+ pub(crate) fn json_string_array(text: &str, ends: &[usize], out: &mut TextBuffer) {
+     out.reserve(text.len() + 2 + 4 * ends.len());
+     out.push_str("[");
+@@ -506,6 +512,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                 }
+             }
+             let payload_end = out.len();
++            util_stats::record_trace_row_logged();
+             logger.log_trace(TraceEntry {
+                 node: node_id,
+                 function_name: func_name.clone(),
+@@ -525,6 +532,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+             let out = logger.trace_text();
+             write_trace_payload(std::iter::once(Ok(return_val)), out);
+             let payload_end = out.len();
++            util_stats::record_trace_row_logged();
+             logger.log_trace(TraceEntry {
+                 node: node_id,
+                 function_name: func_name.clone(),
+@@ -550,6 +558,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+             );
+             *pending_trace_payload = Some(Box::from(out.str_from(start)));
+             let payload_end = out.len();
++            util_stats::record_trace_row_logged();
+             logger.log_trace(TraceEntry {
+                 node: node_id,
+                 function_name: func_name.clone(),
+@@ -1315,6 +1324,7 @@ fn run_trace_enter<H: HashPolicy, L: Logger>(
+         }
+     }
+     let payload_end = out.len();
++    util_stats::record_trace_row_logged();
+     logger.log_trace(TraceEntry {
+         node: node_id,
+         function_name: te.func_name.clone(),
+@@ -1345,6 +1355,7 @@ fn run_trace_exit<H: HashPolicy, L: Logger>(
+     let out = logger.trace_text();
+     write_trace_payload(std::iter::once(Ok(return_val)), out);
+     let payload_end = out.len();
++    util_stats::record_trace_row_logged();
+     logger.log_trace(TraceEntry {
+         node: node_id,
+         function_name: tx.func_name.clone(),
+@@ -1384,6 +1395,7 @@ fn run_trace_dispatch<H: HashPolicy, L: Logger>(
+     );
+     *pending_trace_payload = Some(Box::from(out.str_from(start)));
+     let payload_end = out.len();
++    util_stats::record_trace_row_logged();
+     logger.log_trace(TraceEntry {
+         node: node_id,
+         function_name: td.func_name.clone(),
+@@ -1615,3 +1627,6 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+ 
+ #[cfg(test)]
+ mod test;
++
++#[cfg(test)]
++mod payload_test;
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index b364268..e11b90f 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -434,90 +434,120 @@ impl Decimal {
+     }
+ }
+ 
+-fn write_node_id<W: std::fmt::Write + ?Sized>(out: &mut W, n: &NodeId) -> std::fmt::Result {
+-    out.write_str("NameId(")?;
+-    out.write_str(Decimal::of_u64(n.role.0 as u64).as_str())?;
+-    out.write_str(")#")?;
+-    out.write_str(Decimal::of_u64(n.index as u64).as_str())
++/// Receives the textual form of a value in two kinds of pieces. Structure
++/// is the text around and between values - keywords, digits, brackets,
++/// separators - and never holds a quote, a backslash or a control character.
++/// Content is the text of strings, the quotes around them, and variant names,
++/// and may hold any character.
++pub trait TextSink {
++    fn structure(&mut self, s: &str) -> std::fmt::Result;
++    fn content(&mut self, s: &str) -> std::fmt::Result;
+ }
+ 
+-fn write_seq<H: HashPolicy, W: std::fmt::Write + ?Sized>(
+-    out: &mut W,
++/// Writes both kinds of piece unchanged.
++struct PlainText<'a, W: std::fmt::Write + ?Sized>(&'a mut W);
++
++impl<W: std::fmt::Write + ?Sized> TextSink for PlainText<'_, W> {
++    #[inline]
++    fn structure(&mut self, s: &str) -> std::fmt::Result {
++        self.0.write_str(s)
++    }
++
++    #[inline]
++    fn content(&mut self, s: &str) -> std::fmt::Result {
++        self.0.write_str(s)
++    }
++}
++
++fn write_node_id<S: TextSink + ?Sized>(out: &mut S, n: &NodeId) -> std::fmt::Result {
++    out.structure("NameId(")?;
++    out.structure(Decimal::of_u64(n.role.0 as u64).as_str())?;
++    out.structure(")#")?;
++    out.structure(Decimal::of_u64(n.index as u64).as_str())
++}
++
++fn write_seq<H: HashPolicy, S: TextSink + ?Sized>(
++    out: &mut S,
+     open: &str,
+     items: &ValueSeq<H>,
+     close: &str,
+ ) -> std::fmt::Result {
+-    out.write_str(open)?;
++    out.structure(open)?;
+     for (i, item) in items.iter().enumerate() {
+         if i > 0 {
+-            out.write_str(", ")?;
++            out.structure(", ")?;
+         }
+-        item.write_to(out)?;
++        item.write_text(out)?;
+     }
+-    out.write_str(close)
++    out.structure(close)
+ }
+ 
+ impl<H: HashPolicy> Value<H> {
+-    /// Appends the textual form of the value to `out`. This is the single
+-    /// definition of that text; `Display` forwards here, so appending to a
+-    /// `String` and formatting produce the same bytes.
++    /// Appends the textual form of the value to `out`. `Display` forwards
++    /// here, so appending to a `String` and formatting produce the same bytes.
+     pub fn write_to<W: std::fmt::Write + ?Sized>(&self, out: &mut W) -> std::fmt::Result {
++        self.write_text(&mut PlainText(out))
++    }
++
++    /// Writes the textual form of the value to `out` piece by piece. This is
++    /// the single definition of that text.
++    pub fn write_text<S: TextSink + ?Sized>(&self, out: &mut S) -> std::fmt::Result {
+         use ValueKind::*;
+         match &self.kind {
+-            Int(n) => out.write_str(Decimal::of_i64(*n).as_str()),
+-            Bool(true) => out.write_str("true"),
+-            Bool(false) => out.write_str("false"),
++            Int(n) => out.structure(Decimal::of_i64(*n).as_str()),
++            Bool(true) => out.structure("true"),
++            Bool(false) => out.structure("false"),
+             String(s) => {
+-                out.write_char('"')?;
+-                out.write_str(s)?;
+-                out.write_char('"')
++                out.content("\"")?;
++                out.content(s)?;
++                out.content("\"")
+             }
+             Node(n) => {
+-                out.write_str("node(")?;
++                out.structure("node(")?;
+                 write_node_id(out, n)?;
+-                out.write_char(')')
++                out.structure(")")
+             }
+-            Unit => out.write_str("()"),
+-            Option(None) => out.write_str("None"),
++            Unit => out.structure("()"),
++            Option(None) => out.structure("None"),
+             Option(Some(v)) => {
+-                out.write_str("Some(")?;
+-                v.write_to(out)?;
+-                out.write_char(')')
++                out.structure("Some(")?;
++                v.write_text(out)?;
++                out.structure(")")
+             }
+             Channel(ch) => {
+-                out.write_str("channel(")?;
++                out.structure("channel(")?;
+                 write_node_id(out, &ch.node)?;
+-                out.write_str(", ")?;
+-                out.write_str(Decimal::of_u64(ch.id as u64).as_str())?;
+-                out.write_char(')')
++                out.structure(", ")?;
++                out.structure(Decimal::of_u64(ch.id as u64).as_str())?;
++                out.structure(")")
+             }
+             FifoLink(link_id, peer) => {
+-                out.write_str("fifo_link(")?;
+-                out.write_str(Decimal::of_u64(link_id.0 as u64).as_str())?;
+-                out.write_str(", ")?;
++                out.structure("fifo_link(")?;
++                out.structure(Decimal::of_u64(link_id.0 as u64).as_str())?;
++                out.structure(", ")?;
+                 write_node_id(out, peer)?;
+-                out.write_char(')')
++                out.structure(")")
+             }
+             Tuple(items) => write_seq(out, "(", items, ")"),
+             List(items) => write_seq(out, "[", items, "]"),
+             Map(map) => {
+-                out.write_str("{ ")?;
++                out.structure("{ ")?;
+                 for (i, (k, v)) in map.iter().enumerate() {
+                     if i > 0 {
+-                        out.write_str(", ")?;
++                        out.structure(", ")?;
+                     }
+-                    k.write_to(out)?;
+-                    out.write_str(": ")?;
+-                    v.write_to(out)?;
++                    k.write_text(out)?;
++                    out.structure(": ")?;
++                    v.write_text(out)?;
+                 }
+-                out.write_str(" }")
++                out.structure(" }")
+             }
+-            Variant(_, name, None) => out.write_str(name),
++            Variant(_, name, None) => out.content(name),
+             Variant(_, name, Some(payload)) => {
+-                out.write_str(name)?;
+-                out.write_char('(')?;
+-                payload.write_to(out)?;
+-                out.write_char(')')
++                out.content(name)?;
++                out.structure("(")?;
++                payload.write_text(out)?;
++                out.structure(")")
+             }
+         }
+     }
+diff --git a/spur-core/src/simulator/text_buffer.rs b/spur-core/src/simulator/text_buffer.rs
+index c6601a0..8e3d583 100644
+--- a/spur-core/src/simulator/text_buffer.rs
++++ b/spur-core/src/simulator/text_buffer.rs
+@@ -35,10 +35,42 @@ impl TextBuffer {
+     }
+ 
+     /// Appends `s` as a JSON string literal.
++    #[cfg(test)]
+     pub fn push_json_str(&mut self, s: &str) {
+         self.push_json(s);
+     }
+ 
++    /// Appends the characters of `s` as they appear inside a JSON string
++    /// literal, without the surrounding quotes: byte for byte what
++    /// `serde_json` writes between them. Escaping maps each byte on its own
++    /// and every escaped byte is ASCII, so the text of pieces escaped one by
++    /// one equals the text of their concatenation escaped at once.
++    pub fn push_json_string_content(&mut self, s: &str) {
++        let bytes = s.as_bytes();
++        let mut start = 0;
++        for (i, &b) in bytes.iter().enumerate() {
++            let escape = JSON_ESCAPE[b as usize];
++            if escape == 0 {
++                continue;
++            }
++            self.0.extend_from_slice(&bytes[start..i]);
++            if escape == b'u' {
++                self.0.extend_from_slice(&[
++                    b'\\',
++                    b'u',
++                    b'0',
++                    b'0',
++                    HEX_DIGITS[(b >> 4) as usize],
++                    HEX_DIGITS[(b & 0xF) as usize],
++                ]);
++            } else {
++                self.0.extend_from_slice(&[b'\\', escape]);
++            }
++            start = i + 1;
++        }
++        self.0.extend_from_slice(&bytes[start..]);
++    }
++
+     /// Appends `value` as JSON text. On failure nothing is appended and the
+     /// result is false.
+     pub fn push_json<T: Serialize + ?Sized>(&mut self, value: &T) -> bool {
+@@ -90,6 +122,28 @@ impl std::fmt::Write for TextBuffer {
+     }
+ }
+ 
++const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
++
++/// For each byte: 0 when a JSON string holds it unchanged, otherwise the
++/// letter following the backslash of its escape, `u` meaning `\u00` and two
++/// lowercase hex digits. Matches `serde_json`'s compact formatter.
++static JSON_ESCAPE: [u8; 256] = {
++    let mut table = [0u8; 256];
++    let mut b = 0;
++    while b < 0x20 {
++        table[b] = b'u';
++        b += 1;
++    }
++    table[0x08] = b'b';
++    table[0x09] = b't';
++    table[0x0A] = b'n';
++    table[0x0C] = b'f';
++    table[0x0D] = b'r';
++    table[b'"' as usize] = b'"';
++    table[b'\\' as usize] = b'\\';
++    table
++};
++
+ /// Largest number of buffer sets the free list holds.
+ pub const FREE_LIST_SETS: usize = 64;
+ 
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 1c21327..2bc8f22 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -152,6 +152,10 @@ static TIMELINE_CONSTANT_INSERTS: AtomicU64 = AtomicU64::new(0);
+ static RUN_SETUP_PROGRAM_CLONES_AVOIDED: AtomicU64 = AtomicU64::new(0);
+ static TRACE_FORMAT_ENTER_REUSED: AtomicU64 = AtomicU64::new(0);
+ static TRACE_FORMAT_ENTER_FORMATTED: AtomicU64 = AtomicU64::new(0);
++static TRACE_FORMAT_PAYLOADS_STREAMED: AtomicU64 = AtomicU64::new(0);
++static TRACE_FORMAT_ROWS_LOGGED: AtomicU64 = AtomicU64::new(0);
++static FRAME_LAYOUT_PROGRAM_SLOTS_BEFORE: AtomicU64 = AtomicU64::new(0);
++static FRAME_LAYOUT_PROGRAM_SLOTS_AFTER: AtomicU64 = AtomicU64::new(0);
+ static HISTORY_FORMAT_OPS_STREAMED: AtomicU64 = AtomicU64::new(0);
+ static FF_SWAPS: AtomicU64 = AtomicU64::new(0);
+ static FF_REPEAT_SWAPS: AtomicU64 = AtomicU64::new(0);
+@@ -864,6 +868,8 @@ pub fn set_enabled(on: bool) {
+             &RUN_SETUP_PROGRAM_CLONES_AVOIDED,
+             &TRACE_FORMAT_ENTER_REUSED,
+             &TRACE_FORMAT_ENTER_FORMATTED,
++            &TRACE_FORMAT_PAYLOADS_STREAMED,
++            &TRACE_FORMAT_ROWS_LOGGED,
+             &HISTORY_FORMAT_OPS_STREAMED,
+             &FRAME_DEFAULT_SLOTS_FILLED,
+             &FRAME_PARAMS_FILLED,
+@@ -5805,11 +5811,16 @@ impl RunSetupStats {
+ 
+ /// Handler-entry trace rows whose payload text was carried over from the
+ /// dispatch that sent the record, and those formatted from the parameters.
+-/// Together they are every entry row.
++/// Together they are every entry row. `payloads_streamed` counts payloads
++/// written from the values straight into the trace text and `rows_logged`
++/// every trace row, so a payload not carried over is one streamed:
++/// `payloads_streamed + enter_payload_reused == rows_logged`.
+ #[derive(Serialize, Debug)]
+ pub struct TraceFormatStats {
+     pub enter_payload_reused: u64,
+     pub enter_payload_formatted: u64,
++    pub payloads_streamed: u64,
++    pub rows_logged: u64,
+ }
+ 
+ impl TraceFormatStats {
+@@ -5817,6 +5828,28 @@ impl TraceFormatStats {
+         Self {
+             enter_payload_reused: TRACE_FORMAT_ENTER_REUSED.load(Ordering::Relaxed),
+             enter_payload_formatted: TRACE_FORMAT_ENTER_FORMATTED.load(Ordering::Relaxed),
++            payloads_streamed: TRACE_FORMAT_PAYLOADS_STREAMED.load(Ordering::Relaxed),
++            rows_logged: TRACE_FORMAT_ROWS_LOGGED.load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// Local slots summed over the functions of the last program compiled in this
++/// process: as the compiler declared them, and as laid out after slots never
++/// needed at the same time share a position. Set at compile time, before any
++/// session enables recording, so enabling does not clear them; they are
++/// gauges and read as zero in a difference of two snapshots.
++#[derive(Serialize, Debug)]
++pub struct FrameLayoutStats {
++    pub program_slots_before: u64,
++    pub program_slots_after: u64,
++}
++
++impl FrameLayoutStats {
++    fn read() -> Self {
++        Self {
++            program_slots_before: FRAME_LAYOUT_PROGRAM_SLOTS_BEFORE.load(Ordering::Relaxed),
++            program_slots_after: FRAME_LAYOUT_PROGRAM_SLOTS_AFTER.load(Ordering::Relaxed),
+         }
+     }
+ }
+@@ -5877,6 +5910,32 @@ pub fn record_trace_enter_payload(reused: bool) {
+     }
+ }
+ 
++/// A trace payload was written from the values straight into the trace text.
++#[inline]
++pub fn record_trace_payload_streamed() {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.trace_format_payloads_streamed, &TRACE_FORMAT_PAYLOADS_STREAMED, 1);
++}
++
++/// A trace row was handed to the logger.
++#[inline]
++pub fn record_trace_row_logged() {
++    if !enabled() {
++        return;
++    }
++    bump(|b| &b.trace_format_rows_logged, &TRACE_FORMAT_ROWS_LOGGED, 1);
++}
++
++/// A program was compiled whose functions declared `before` local slots in
++/// total and were laid out in `after`. Recorded whether or not recording is
++/// enabled, since compilation precedes the session.
++pub fn record_frame_layout(before: u64, after: u64) {
++    FRAME_LAYOUT_PROGRAM_SLOTS_BEFORE.store(before, Ordering::Relaxed);
++    FRAME_LAYOUT_PROGRAM_SLOTS_AFTER.store(after, Ordering::Relaxed);
++}
++
+ /// `ops` operations had their payload written as JSON text from the values.
+ #[inline]
+ pub fn record_history_ops_streamed(ops: u64) {
+@@ -6190,6 +6249,8 @@ struct RunCounters {
+     run_setup_program_clones_avoided: Cell<u64>,
+     trace_format_enter_reused: Cell<u64>,
+     trace_format_enter_formatted: Cell<u64>,
++    trace_format_payloads_streamed: Cell<u64>,
++    trace_format_rows_logged: Cell<u64>,
+     history_format_ops_streamed: Cell<u64>,
+ }
+ 
+@@ -6248,6 +6309,8 @@ impl RunCounters {
+             run_setup_program_clones_avoided: Cell::new(0),
+             trace_format_enter_reused: Cell::new(0),
+             trace_format_enter_formatted: Cell::new(0),
++            trace_format_payloads_streamed: Cell::new(0),
++            trace_format_rows_logged: Cell::new(0),
+             history_format_ops_streamed: Cell::new(0),
+         }
+     }
+@@ -6297,6 +6360,8 @@ impl RunCounters {
+             (&self.run_setup_program_clones_avoided, &RUN_SETUP_PROGRAM_CLONES_AVOIDED),
+             (&self.trace_format_enter_reused, &TRACE_FORMAT_ENTER_REUSED),
+             (&self.trace_format_enter_formatted, &TRACE_FORMAT_ENTER_FORMATTED),
++            (&self.trace_format_payloads_streamed, &TRACE_FORMAT_PAYLOADS_STREAMED),
++            (&self.trace_format_rows_logged, &TRACE_FORMAT_ROWS_LOGGED),
+             (&self.history_format_ops_streamed, &HISTORY_FORMAT_OPS_STREAMED),
+         ] {
+             f(local, global);
+@@ -7254,6 +7319,7 @@ pub struct UtilizationSnapshot {
+     pub victim_swap: VictimSwapStats,
+     pub ghost_signal: GhostSignalStats,
+     pub frame: FrameStats,
++    pub frame_layout: FrameLayoutStats,
+     pub value_sig: ValueSigStats,
+     pub eval_borrow: EvalBorrowStats,
+     pub run_buffers: RunBufferStats,
+@@ -7482,6 +7548,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         victim_swap: VictimSwapStats::read(),
+         ghost_signal: GhostSignalStats::read(),
+         frame: FrameStats::read(),
++        frame_layout: FrameLayoutStats::read(),
+         value_sig: ValueSigStats::read(),
+         eval_borrow: EvalBorrowStats::read(),
+         run_buffers: RunBufferStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 6df5127..ce5cd69 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1261,6 +1261,24 @@ fn frame_leaves(prefix: &str, f: &FrameStats) -> Vec<(String, Value)> {
+     ]
+ }
+ 
++fn frame_layout(m: &mut Marks) -> FrameLayoutStats {
++    FrameLayoutStats {
++        program_slots_before: m.int(),
++        program_slots_after: m.int(),
++    }
++}
++
++fn frame_layout_leaves(prefix: &str, f: &FrameLayoutStats) -> Vec<(String, Value)> {
++    let FrameLayoutStats {
++        program_slots_before,
++        program_slots_after,
++    } = f;
++    vec![
++        leaf(prefix, "program_slots_before", *program_slots_before),
++        leaf(prefix, "program_slots_after", *program_slots_after),
++    ]
++}
++
+ fn value_sig(m: &mut Marks) -> ValueSigStats {
+     ValueSigStats {
+         leaf_hashes_deferred: m.int(),
+@@ -1549,6 +1567,8 @@ fn trace_format(m: &mut Marks) -> TraceFormatStats {
+     TraceFormatStats {
+         enter_payload_reused: m.int(),
+         enter_payload_formatted: m.int(),
++        payloads_streamed: m.int(),
++        rows_logged: m.int(),
+     }
+ }
+ 
+@@ -1556,10 +1576,14 @@ fn trace_format_leaves(prefix: &str, t: &TraceFormatStats) -> Vec<(String, Value
+     let TraceFormatStats {
+         enter_payload_reused,
+         enter_payload_formatted,
++        payloads_streamed,
++        rows_logged,
+     } = t;
+     vec![
+         leaf(prefix, "enter_payload_reused", *enter_payload_reused),
+         leaf(prefix, "enter_payload_formatted", *enter_payload_formatted),
++        leaf(prefix, "payloads_streamed", *payloads_streamed),
++        leaf(prefix, "rows_logged", *rows_logged),
+     ]
+ }
+ 
+@@ -2256,6 +2280,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         victim_swap: _,
+         ghost_signal: _,
+         frame: _,
++        frame_layout: _,
+         value_sig: _,
+         eval_borrow: _,
+         run_buffers: _,
+@@ -2313,6 +2338,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "victim_swap",
+         "ghost_signal",
+         "frame",
++        "frame_layout",
+         "value_sig",
+         "eval_borrow",
+         "run_buffers",
+@@ -2404,6 +2430,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.victim_swap = victim_swap(&mut m);
+     s.ghost_signal = ghost_signal(&mut m);
+     s.frame = frame(&mut m);
++    s.frame_layout = frame_layout(&mut m);
+     s.value_sig = value_sig(&mut m);
+     s.eval_borrow = eval_borrow(&mut m);
+     s.run_buffers = run_buffers(&mut m);
+@@ -2441,6 +2468,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(victim_swap_leaves("victim_swap", &s.victim_swap));
+     expected.extend(ghost_signal_leaves("ghost_signal", &s.ghost_signal));
+     expected.extend(frame_leaves("frame", &s.frame));
++    expected.extend(frame_layout_leaves("frame_layout", &s.frame_layout));
+     expected.extend(value_sig_leaves("value_sig", &s.value_sig));
+     expected.extend(eval_borrow_leaves("eval_borrow", &s.eval_borrow));
+     expected.extend(run_buffers_leaves("run_buffers", &s.run_buffers));
+@@ -2503,6 +2531,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "victim_swap",
+         "ghost_signal",
+         "frame",
++        "frame_layout",
+         "value_sig",
+         "eval_borrow",
+         "run_buffers",
+diff --git a/tmp/loop/perf/frame-slots-and-trace-escape/untracked/spur-core/src/compiler/cfg/frame_layout.rs b/spur-core/src/compiler/cfg/frame_layout.rs
+new file mode 100644
+index 0000000..55530f8
+--- /dev/null
++++ b/spur-core/src/compiler/cfg/frame_layout.rs
+@@ -0,0 +1,445 @@
++//! Local slot layout of one function. Slots whose values are never needed at
++//! the same time share one frame position, so a call frame holds fewer
++//! values without any read seeing a different value.
++//!
++//! A slot is live at a point when some path from that point reads it before
++//! writing it. Two slots may share a position only when neither is ever
++//! written while the other is live, and not both are live when the frame is
++//! built. Parameters keep their positions because callers fill them by
++//! position, and a slot read before any write keeps its declared starting
++//! value.
++
++use super::ir::{Expr, FunctionInfo, Instr, Label, Lhs, SlotDefault, VarSlot, Vertex};
++
++/// How a label touches one local slot.
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++enum Access {
++    Read,
++    /// Written before the label moves to any successor.
++    Write,
++    /// Written only on the way to the label's first successor.
++    WriteFirstEdge,
++}
++
++fn visit_lhs(lhs: &mut Lhs, access: Access, f: &mut impl FnMut(Access, &mut u32)) {
++    match lhs {
++        Lhs::Var(slot) => visit_slot(slot, access, f),
++    }
++}
++
++fn visit_slot(slot: &mut VarSlot, access: Access, f: &mut impl FnMut(Access, &mut u32)) {
++    match slot {
++        VarSlot::Local(idx, _) => f(access, idx),
++        VarSlot::Node(_, _) => {}
++    }
++}
++
++fn visit_exprs(exprs: &mut [Expr], f: &mut impl FnMut(Access, &mut u32)) {
++    for e in exprs {
++        visit_expr(e, f);
++    }
++}
++
++/// Every local slot an expression names is a read, including those behind a
++/// short-circuit, which makes the reads a superset of what evaluation touches.
++fn visit_expr(expr: &mut Expr, f: &mut impl FnMut(Access, &mut u32)) {
++    match expr {
++        Expr::Var(slot) => visit_slot(slot, Access::Read, f),
++        Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Unit | Expr::Nil => {}
++        Expr::Not(a)
++        | Expr::ListLen(a)
++        | Expr::ListAccess(a, _)
++        | Expr::TupleAccess(a, _)
++        | Expr::Unwrap(a)
++        | Expr::Some(a)
++        | Expr::IntToString(a)
++        | Expr::BoolToString(a)
++        | Expr::NodeToString(a)
++        | Expr::IsVariant(a, _)
++        | Expr::VariantPayload(a)
++        | Expr::SafeTupleAccess(a, _) => visit_expr(a, f),
++        Expr::Find(a, b)
++        | Expr::And(a, b)
++        | Expr::Or(a, b)
++        | Expr::EqualsEquals(a, b)
++        | Expr::ListPrepend(a, b)
++        | Expr::ListAppend(a, b)
++        | Expr::LessThan(a, b)
++        | Expr::LessThanEquals(a, b)
++        | Expr::GreaterThan(a, b)
++        | Expr::GreaterThanEquals(a, b)
++        | Expr::KeyExists(a, b)
++        | Expr::MapErase(a, b)
++        | Expr::Plus(a, b)
++        | Expr::Minus(a, b)
++        | Expr::Times(a, b)
++        | Expr::Div(a, b)
++        | Expr::Mod(a, b)
++        | Expr::Min(a, b)
++        | Expr::Coalesce(a, b)
++        | Expr::SafeFind(a, b) => {
++            visit_expr(a, f);
++            visit_expr(b, f);
++        }
++        Expr::ListSubsequence(a, b, c) | Expr::Store(a, b, c) => {
++            visit_expr(a, f);
++            visit_expr(b, f);
++            visit_expr(c, f);
++        }
++        Expr::Map(pairs) => {
++            for (k, v) in pairs {
++                visit_expr(k, f);
++                visit_expr(v, f);
++            }
++        }
++        Expr::List(items) | Expr::Tuple(items) => visit_exprs(items, f),
++        Expr::Variant(_, _, payload) => {
++            if let Some(p) = payload {
++                visit_expr(p, f);
++            }
++        }
++    }
++}
++
++/// Calls `f` for every local slot the label touches, in the order its
++/// execution touches them.
++fn visit_label(label: &mut Label, f: &mut impl FnMut(Access, &mut u32)) {
++    match label {
++        Label::Instr(instr, _) => match instr {
++            Instr::Assign(lhs, rhs) | Instr::Copy(lhs, rhs) => {
++                visit_expr(rhs, f);
++                visit_lhs(lhs, Access::Write, f);
++            }
++            Instr::Async(lhs, target, _, args) => {
++                visit_expr(target, f);
++                visit_exprs(args, f);
++                visit_lhs(lhs, Access::Write, f);
++            }
++            Instr::SyncCall(lhs, _, args) => {
++                visit_exprs(args, f);
++                visit_lhs(lhs, Access::Write, f);
++            }
++        },
++        Label::Pause(_) => {}
++        Label::MakeChannel(lhs, _, _) => visit_lhs(lhs, Access::Write, f),
++        Label::SetTimer(lhs, _, _) => visit_lhs(lhs, Access::Write, f),
++        Label::MakeFifoLink(lhs, peer, _) => {
++            visit_expr(peer, f);
++            visit_lhs(lhs, Access::Write, f);
++        }
++        Label::UniqueId(lhs, _) => visit_lhs(lhs, Access::Write, f),
++        Label::Send(chan, value, _) => {
++            visit_expr(chan, f);
++            visit_expr(value, f);
++        }
++        // A blocked receive stores into the same slot when it wakes, before
++        // moving on.
++        Label::Recv(lhs, chan, _) => {
++            visit_expr(chan, f);
++            visit_lhs(lhs, Access::Write, f);
++        }
++        Label::SpinAwait(cond, _) => visit_expr(cond, f),
++        Label::Return(e) => visit_expr(e, f),
++        Label::Cond(cond, _, _) => visit_expr(cond, f),
++        // The iterator slot is read, then written on both exits (the rest of
++        // the collection toward the body, Unit toward the exit); the binding
++        // is written only toward the body.
++        Label::ForLoopIn(lhs, collection, iter_slot, _, _) => {
++            visit_slot(iter_slot, Access::Read, f);
++            visit_expr(collection, f);
++            visit_slot(iter_slot, Access::Write, f);
++            visit_lhs(lhs, Access::WriteFirstEdge, f);
++        }
++        Label::Print(e, _) => visit_expr(e, f),
++        Label::PersistData(_, e, _) => visit_expr(e, f),
++        Label::RetrieveData(_, lhs, _) => visit_lhs(lhs, Access::Write, f),
++        Label::DiscardData(_) => {}
++        Label::Break(_) => {}
++        Label::Continue(_) => {}
++        Label::TraceDispatch(_, params, _) => visit_exprs(params, f),
++        // The trace id is stored before the parameters are formatted.
++        Label::TraceEnter(_, params, lhs, _) => {
++            visit_lhs(lhs, Access::Write, f);
++            visit_exprs(params, f);
++        }
++        Label::TraceExit(_, trace_id, return_value, _) => {
++            visit_expr(trace_id, f);
++            visit_expr(return_value, f);
++        }
++    }
++}
++
++/// The label's successors, the first being the one `WriteFirstEdge` applies
++/// to. A spin-await that re-runs itself writes nothing, so its self edge
++/// changes no liveness and is left out.
++fn successors(label: &Label) -> [Option<Vertex>; 2] {
++    match label {
++        Label::Instr(_, n)
++        | Label::Pause(n)
++        | Label::MakeChannel(_, _, n)
++        | Label::SetTimer(_, n, _)
++        | Label::MakeFifoLink(_, _, n)
++        | Label::UniqueId(_, n)
++        | Label::Send(_, _, n)
++        | Label::Recv(_, _, n)
++        | Label::SpinAwait(_, n)
++        | Label::Print(_, n)
++        | Label::PersistData(_, _, n)
++        | Label::RetrieveData(_, _, n)
++        | Label::DiscardData(n)
++        | Label::Break(n)
++        | Label::Continue(n)
++        | Label::TraceDispatch(_, _, n)
++        | Label::TraceEnter(_, _, _, n)
++        | Label::TraceExit(_, _, _, n) => [Some(*n), None],
++        Label::Return(_) => [None, None],
++        Label::Cond(_, then, els) => [Some(*then), Some(*els)],
++        Label::ForLoopIn(_, _, _, body, next) => [Some(*body), Some(*next)],
++    }
++}
++
++/// Fixed-width bit rows over the function's slots.
++struct Bits {
++    words: usize,
++    data: Vec<u64>,
++}
++
++impl Bits {
++    fn new(rows: usize, bits: usize) -> Self {
++        let words = bits.div_ceil(64).max(1);
++        Self {
++            words,
++            data: vec![0; rows * words],
++        }
++    }
++
++    fn row(&self, r: usize) -> &[u64] {
++        &self.data[r * self.words..(r + 1) * self.words]
++    }
++
++    fn set(&mut self, r: usize, bit: usize) {
++        self.data[r * self.words + bit / 64] |= 1 << (bit % 64);
++    }
++
++    fn get(&self, r: usize, bit: usize) -> bool {
++        self.data[r * self.words + bit / 64] & (1 << (bit % 64)) != 0
++    }
++}
++
++fn each_bit(row: &[u64], mut f: impl FnMut(usize)) {
++    for (w, &word) in row.iter().enumerate() {
++        let mut rest = word;
++        while rest != 0 {
++            let b = rest.trailing_zeros() as usize;
++            f(w * 64 + b);
++            rest &= rest - 1;
++        }
++    }
++}
++
++/// The value slot `slot` starts with when the frame is built.
++fn declared_default(info: &FunctionInfo, slot: usize) -> SlotDefault {
++    slot.checked_sub(info.param_count as usize)
++        .and_then(|i| info.local_defaults.get(i))
++        .copied()
++        .unwrap_or(SlotDefault::Unit)
++}
++
++/// Renumbers the local slots of the function whose labels are
++/// `graph[first..]`, rewriting every label in that range and the function's
++/// slot count, starting values and slot names. The function is left as it is
++/// when a label names a slot or a successor outside the function.
++pub(super) fn compact_function_slots(graph: &mut [Label], first: Vertex, info: &mut FunctionInfo) {
++    let n = info.local_slot_count as usize;
++    let params = (info.param_count as usize).min(n);
++    if first > graph.len() {
++        return;
++    }
++    let labels = &mut graph[first..];
++    let m = labels.len();
++    if n == 0 || info.entry < first || info.entry >= first + m {
++        return;
++    }
++    let entry = info.entry - first;
++
++    let mut accesses: Vec<Vec<(Access, usize)>> = Vec::with_capacity(m);
++    let mut succ: Vec<[Option<usize>; 2]> = Vec::with_capacity(m);
++    let mut reads = Bits::new(m, n);
++    let mut kill_all = Bits::new(m, n);
++    let mut kill_first = Bits::new(m, n);
++    for (v, label) in labels.iter_mut().enumerate() {
++        let mut touched = Vec::new();
++        let mut in_range = true;
++        visit_label(label, &mut |access, idx| {
++            let idx = *idx as usize;
++            if idx >= n {
++                in_range = false;
++                return;
++            }
++            touched.push((access, idx));
++        });
++        if !in_range {
++            return;
++        }
++        for &(access, idx) in &touched {
++            match access {
++                Access::Read => reads.set(v, idx),
++                Access::Write => kill_all.set(v, idx),
++                Access::WriteFirstEdge => kill_first.set(v, idx),
++            }
++        }
++        let mut edges = [None, None];
++        for (e, target) in successors(label).into_iter().enumerate() {
++            if let Some(t) = target {
++                if t < first || t >= first + m {
++                    return;
++                }
++                edges[e] = Some(t - first);
++            }
++        }
++        accesses.push(touched);
++        succ.push(edges);
++    }
++    for p in 0..params {
++        reads.set(entry, p);
++    }
++
++    let words = reads.words;
++    let mut live_in = Bits::new(m, n);
++    let mut scratch = vec![0u64; words];
++    let mut changed = true;
++    while changed {
++        changed = false;
++        for v in (0..m).rev() {
++            scratch.copy_from_slice(reads.row(v));
++            for (e, target) in succ[v].iter().enumerate() {
++                let Some(t) = *target else { continue };
++                for w in 0..words {
++                    let mut kill = kill_all.row(v)[w];
++                    if e == 0 {
++                        kill |= kill_first.row(v)[w];
++                    }
++                    scratch[w] |= live_in.row(t)[w] & !kill;
++                }
++            }
++            let row = &mut live_in.data[v * words..(v + 1) * words];
++            if row != scratch.as_slice() {
++                row.copy_from_slice(&scratch);
++                changed = true;
++            }
++        }
++    }
++
++    // A slot written at a label interferes with every slot live after the
++    // label on the edges the write reaches, and with every slot the label
++    // reads after the write.
++    let mut interferes = Bits::new(n, n);
++    let mut against = vec![0u64; words];
++    let mut read_after = vec![0u64; words];
++    for v in 0..m {
++        read_after.iter_mut().for_each(|w| *w = 0);
++        let mut written: Vec<usize> = Vec::new();
++        for &(access, idx) in accesses[v].iter().rev() {
++            match access {
++                Access::Read => read_after[idx / 64] |= 1 << (idx % 64),
++                Access::Write | Access::WriteFirstEdge => {
++                    against.copy_from_slice(&read_after);
++                    for (e, target) in succ[v].iter().enumerate() {
++                        let Some(t) = *target else { continue };
++                        if e == 0 || access == Access::Write {
++                            for w in 0..words {
++                                against[w] |= live_in.row(t)[w];
++                            }
++                        }
++                    }
++                    each_bit(&against, |x| {
++                        if x != idx {
++                            interferes.set(idx, x);
++                            interferes.set(x, idx);
++                        }
++                    });
++                    written.push(idx);
++                }
++            }
++        }
++        for &a in &written {
++            for &b in &written {
++                if a != b {
++                    interferes.set(a, b);
++                }
++            }
++        }
++    }
++    let entry_live: Vec<usize> = {
++        let mut out = Vec::new();
++        each_bit(live_in.row(entry), |x| out.push(x));
++        out
++    };
++    for &a in &entry_live {
++        for &b in &entry_live {
++            if a != b {
++                interferes.set(a, b);
++            }
++        }
++    }
++
++    let mut color = vec![usize::MAX; n];
++    for (p, c) in color.iter_mut().enumerate().take(params) {
++        *c = p;
++    }
++    let mut taken = Vec::new();
++    for s in params..n {
++        taken.clear();
++        each_bit(interferes.row(s), |x| {
++            if color[x] != usize::MAX {
++                taken.push(color[x]);
++            }
++        });
++        taken.sort_unstable();
++        let mut c = 0;
++        for &t in &taken {
++            if t == c {
++                c += 1;
++            } else if t > c {
++                break;
++            }
++        }
++        color[s] = c;
++    }
++
++    let count = color.iter().copied().max().map_or(0, |c| c + 1).max(params);
++    let mut defaults: Vec<Option<SlotDefault>> = vec![None; count];
++    let mut names: Vec<String> = vec![String::new(); count];
++    for s in 0..n {
++        let c = color[s];
++        if s >= params && (defaults[c].is_none() || live_in.get(entry, s)) {
++            defaults[c] = Some(declared_default(info, s));
++        }
++        if let Some(name) = info.debug_slot_names.get(s) {
++            if !names[c].is_empty() {
++                names[c].push('|');
++            }
++            names[c].push_str(name);
++        }
++    }
++
++    // A label may visit one field twice (the iterator slot of a for-in loop),
++    // so each visit takes its new index from the value the field had before
++    // the label was rewritten.
++    for (label, touched) in labels.iter_mut().zip(&accesses) {
++        let mut k = 0;
++        visit_label(label, &mut |_, idx| {
++            *idx = color[touched[k].1] as u32;
++            k += 1;
++        });
++    }
++    info.local_slot_count = count as u32;
++    info.local_defaults = defaults[params..]
++        .iter()
++        .map(|d| d.unwrap_or(SlotDefault::Unit))
++        .collect();
++    info.debug_slot_names = names;
++}
++
++#[cfg(test)]
++mod test;
+diff --git a/tmp/loop/perf/frame-slots-and-trace-escape/untracked/spur-core/src/compiler/cfg/frame_layout/test.rs b/spur-core/src/compiler/cfg/frame_layout/test.rs
+new file mode 100644
+index 0000000..c4b8706
+--- /dev/null
++++ b/spur-core/src/compiler/cfg/frame_layout/test.rs
+@@ -0,0 +1,498 @@
++//! Checks a slot layout against the declared one by a separate method: a
++//! forward reaching-values analysis over the laid-out program, with every
++//! store tagged by the declared slot it wrote. A read of declared slot `s` may
++//! only ever see a value stored to `s`, or the value the frame was built
++//! with when that is what `s` would hold.
++
++use crate::compiler::cfg::{
++    Compiler, Expr, FunctionInfo, Instr, Label, Lhs, Program, SlotDefault, VarSlot, Vertex,
++};
++use crate::compiler::compile_with;
++use std::collections::{BTreeSet, HashMap, VecDeque};
++use std::path::{Path, PathBuf};
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum Reach {
++    Always,
++    FirstSuccessor,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum Event {
++    Read(u32),
++    Store(u32, Reach),
++}
++
++fn subexpressions(e: &Expr) -> Vec<&Expr> {
++    match e {
++        Expr::Var(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Unit | Expr::Nil => {
++            vec![]
++        }
++        Expr::Find(a, b)
++        | Expr::And(a, b)
++        | Expr::Or(a, b)
++        | Expr::EqualsEquals(a, b)
++        | Expr::ListPrepend(a, b)
++        | Expr::ListAppend(a, b)
++        | Expr::LessThan(a, b)
++        | Expr::LessThanEquals(a, b)
++        | Expr::GreaterThan(a, b)
++        | Expr::GreaterThanEquals(a, b)
++        | Expr::KeyExists(a, b)
++        | Expr::MapErase(a, b)
++        | Expr::Plus(a, b)
++        | Expr::Minus(a, b)
++        | Expr::Times(a, b)
++        | Expr::Div(a, b)
++        | Expr::Mod(a, b)
++        | Expr::Min(a, b)
++        | Expr::Coalesce(a, b)
++        | Expr::SafeFind(a, b) => vec![&**a, &**b],
++        Expr::ListSubsequence(a, b, c) | Expr::Store(a, b, c) => vec![&**a, &**b, &**c],
++        Expr::Not(a)
++        | Expr::ListLen(a)
++        | Expr::ListAccess(a, _)
++        | Expr::TupleAccess(a, _)
++        | Expr::Unwrap(a)
++        | Expr::Some(a)
++        | Expr::IntToString(a)
++        | Expr::BoolToString(a)
++        | Expr::NodeToString(a)
++        | Expr::IsVariant(a, _)
++        | Expr::VariantPayload(a)
++        | Expr::SafeTupleAccess(a, _) => vec![&**a],
++        Expr::Map(pairs) => pairs.iter().flat_map(|(k, v)| [k, v]).collect(),
++        Expr::List(items) | Expr::Tuple(items) => items.iter().collect(),
++        Expr::Variant(_, _, payload) => payload.iter().map(|p| &**p).collect(),
++    }
++}
++
++fn reads_of(e: &Expr, out: &mut Vec<Event>) {
++    let mut stack = vec![e];
++    while let Some(e) = stack.pop() {
++        if let Expr::Var(VarSlot::Local(i, _)) = e {
++            out.push(Event::Read(*i));
++        }
++        stack.extend(subexpressions(e));
++    }
++}
++
++fn store_of(lhs: &Lhs, reach: Reach, out: &mut Vec<Event>) {
++    let Lhs::Var(slot) = lhs;
++    if let VarSlot::Local(i, _) = slot {
++        out.push(Event::Store(*i, reach));
++    }
++}
++
++/// The label's local slot events in execution order and its successors.
++fn events(label: &Label, at: Vertex) -> (Vec<Event>, Vec<Vertex>) {
++    let mut ev = Vec::new();
++    let succ = match label {
++        Label::Instr(Instr::Assign(lhs, rhs), n) | Label::Instr(Instr::Copy(lhs, rhs), n) => {
++            reads_of(rhs, &mut ev);
++            store_of(lhs, Reach::Always, &mut ev);
++            vec![*n]
++        }
++        Label::Instr(Instr::Async(lhs, target, _, args), n) => {
++            reads_of(target, &mut ev);
++            args.iter().for_each(|a| reads_of(a, &mut ev));
++            store_of(lhs, Reach::Always, &mut ev);
++            vec![*n]
++        }
++        Label::Instr(Instr::SyncCall(lhs, _, args), n) => {
++            args.iter().for_each(|a| reads_of(a, &mut ev));
++            store_of(lhs, Reach::Always, &mut ev);
++            vec![*n]
++        }
++        Label::Pause(n) | Label::DiscardData(n) | Label::Break(n) | Label::Continue(n) => vec![*n],
++        Label::MakeChannel(lhs, _, n) | Label::SetTimer(lhs, n, _) | Label::UniqueId(lhs, n) => {
++            store_of(lhs, Reach::Always, &mut ev);
++            vec![*n]
++        }
++        Label::RetrieveData(_, lhs, n) => {
++            store_of(lhs, Reach::Always, &mut ev);
++            vec![*n]
++        }
++        Label::MakeFifoLink(lhs, peer, n) => {
++            reads_of(peer, &mut ev);
++            store_of(lhs, Reach::Always, &mut ev);
++            vec![*n]
++        }
++        Label::Send(chan, value, n) => {
++            reads_of(chan, &mut ev);
++            reads_of(value, &mut ev);
++            vec![*n]
++        }
++        Label::Recv(lhs, chan, n) => {
++            reads_of(chan, &mut ev);
++            store_of(lhs, Reach::Always, &mut ev);
++            vec![*n]
++        }
++        Label::SpinAwait(cond, n) => {
++            reads_of(cond, &mut ev);
++            vec![*n, at]
++        }
++        Label::Return(e) => {
++            reads_of(e, &mut ev);
++            vec![]
++        }
++        Label::Cond(cond, then, els) => {
++            reads_of(cond, &mut ev);
++            vec![*then, *els]
++        }
++        Label::ForLoopIn(lhs, collection, iter_slot, body, next) => {
++            if let VarSlot::Local(i, _) = iter_slot {
++                ev.push(Event::Read(*i));
++            }
++            reads_of(collection, &mut ev);
++            if let VarSlot::Local(i, _) = iter_slot {
++                ev.push(Event::Store(*i, Reach::Always));
++            }
++            store_of(lhs, Reach::FirstSuccessor, &mut ev);
++            vec![*body, *next]
++        }
++        Label::Print(e, n) | Label::PersistData(_, e, n) => {
++            reads_of(e, &mut ev);
++            vec![*n]
++        }
++        Label::TraceDispatch(_, params, n) => {
++            params.iter().for_each(|p| reads_of(p, &mut ev));
++            vec![*n]
++        }
++        Label::TraceEnter(_, params, lhs, n) => {
++            store_of(lhs, Reach::Always, &mut ev);
++            params.iter().for_each(|p| reads_of(p, &mut ev));
++            vec![*n]
++        }
++        Label::TraceExit(_, trace_id, return_value, n) => {
++            reads_of(trace_id, &mut ev);
++            reads_of(return_value, &mut ev);
++            vec![*n]
++        }
++    };
++    (ev, succ)
++}
++
++/// The label's text with every local slot index blanked.
++fn shape(label: &Label) -> String {
++    let text = format!("{label:?}");
++    let mut out = String::with_capacity(text.len());
++    let mut rest = text.as_str();
++    while let Some(pos) = rest.find("Local(") {
++        out.push_str(&rest[..pos + "Local(".len()]);
++        rest = rest[pos + "Local(".len()..].trim_start_matches(|c: char| c.is_ascii_digit());
++        out.push('_');
++    }
++    out.push_str(rest);
++    out
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
++enum Held {
++    FrameStart,
++    StoredTo(u32),
++}
++
++fn default_of(info: &FunctionInfo, slot: u32) -> SlotDefault {
++    (slot as usize)
++        .checked_sub(info.param_count as usize)
++        .and_then(|i| info.local_defaults.get(i))
++        .copied()
++        .unwrap_or(SlotDefault::Unit)
++}
++
++/// Accepts the layout of `laid` when every read in it sees only values its
++/// declared slot in `declared` could hold.
++fn check_layout(
++    declared_prog: &Program,
++    declared: &FunctionInfo,
++    laid_prog: &Program,
++    laid: &FunctionInfo,
++) -> Result<(), String> {
++    if declared.entry != laid.entry || declared.param_count != laid.param_count {
++        return Err("entry or parameter count differs".into());
++    }
++    let pc = laid.param_count;
++    let colors = laid.local_slot_count as usize;
++    if laid.local_defaults.len() + pc as usize != colors {
++        return Err(format!(
++            "{} starting values for {} slots and {} parameters",
++            laid.local_defaults.len(),
++            colors,
++            pc
++        ));
++    }
++
++    let mut paired: HashMap<Vertex, (Vec<(Event, u32)>, Vec<Vertex>)> = HashMap::new();
++    let mut queue = VecDeque::from([laid.entry]);
++    while let Some(v) = queue.pop_front() {
++        if paired.contains_key(&v) {
++            continue;
++        }
++        let (d_label, l_label) = (&declared_prog.cfg.graph[v], &laid_prog.cfg.graph[v]);
++        if shape(d_label) != shape(l_label) {
++            return Err(format!("vertex {v}: labels differ beyond slot numbers"));
++        }
++        let (d_ev, d_succ) = events(d_label, v);
++        let (l_ev, l_succ) = events(l_label, v);
++        if d_succ != l_succ || d_ev.len() != l_ev.len() {
++            return Err(format!("vertex {v}: successors or events differ"));
++        }
++        let mut pairs = Vec::with_capacity(l_ev.len());
++        for (d, l) in d_ev.into_iter().zip(l_ev) {
++            let (d_slot, l_slot) = match (d, l) {
++                (Event::Read(a), Event::Read(b)) => (a, b),
++                (Event::Store(a, ra), Event::Store(b, rb)) if ra == rb => (a, b),
++                _ => return Err(format!("vertex {v}: event kinds differ")),
++            };
++            if d_slot >= declared.local_slot_count || l_slot as usize >= colors {
++                return Err(format!("vertex {v}: slot out of range"));
++            }
++            pairs.push((d, l_slot));
++        }
++        queue.extend(l_succ.iter().copied());
++        paired.insert(v, (pairs, l_succ));
++    }
++
++    let start: Vec<BTreeSet<Held>> = vec![BTreeSet::from([Held::FrameStart]); colors];
++    let mut state: HashMap<Vertex, Vec<BTreeSet<Held>>> = HashMap::from([(laid.entry, start)]);
++    let mut work = VecDeque::from([laid.entry]);
++    while let Some(v) = work.pop_front() {
++        let (pairs, succ) = &paired[&v];
++        for (edge, &target) in succ.iter().enumerate() {
++            let mut out = state[&v].clone();
++            for &(declared_event, color) in pairs {
++                if let Event::Store(slot, reach) = declared_event {
++                    if reach == Reach::Always || edge == 0 {
++                        out[color as usize] = BTreeSet::from([Held::StoredTo(slot)]);
++                    }
++                }
++            }
++            let entry = state.entry(target).or_insert_with(|| vec![BTreeSet::new(); colors]);
++            let mut grew = false;
++            for (have, add) in entry.iter_mut().zip(out) {
++                for h in add {
++                    grew |= have.insert(h);
++                }
++            }
++            if grew {
++                work.push_back(target);
++            }
++        }
++    }
++
++    for (&v, (pairs, _)) in &paired {
++        let mut held = state[&v].clone();
++        for &(declared_event, color) in pairs {
++            match declared_event {
++                Event::Store(slot, _) => {
++                    held[color as usize] = BTreeSet::from([Held::StoredTo(slot)]);
++                }
++                Event::Read(slot) => {
++                    for h in &held[color as usize] {
++                        let fine = match *h {
++                            Held::StoredTo(s) => s == slot,
++                            Held::FrameStart => {
++                                if slot < pc {
++                                    color == slot
++                                } else {
++                                    color >= pc && default_of(laid, color) == default_of(declared, slot)
++                                }
++                            }
++                        };
++                        if !fine {
++                            return Err(format!(
++                                "vertex {v}: a read of declared slot {slot} at position {color} can see {h:?}"
++                            ));
++                        }
++                    }
++                }
++            }
++        }
++    }
++    Ok(())
++}
++
++fn spec_files(dir: &Path, out: &mut Vec<PathBuf>) {
++    for entry in std::fs::read_dir(dir).expect("the spec directory is readable") {
++        let path = entry.expect("a directory entry").path();
++        if path.is_dir() {
++            spec_files(&path, out);
++        } else if path.extension().is_some_and(|e| e == "spur") {
++            out.push(path);
++        }
++    }
++}
++
++/// The program with declared slots and the program laid out, or `None` when
++/// the source compiles under neither. The layout runs after every check that
++/// can reject a program, so compiling under one and not the other is a
++/// failure.
++fn compile_both(source: &str, name: &str) -> Option<(Program, Program)> {
++    let declared =
++        compile_with(source, name, Compiler::new().without_frame_compaction()).into_program();
++    let laid = compile_with(source, name, Compiler::new()).into_program();
++    match (declared, laid) {
++        (Ok(declared), Ok(laid)) => {
++            assert_eq!(declared.cfg.graph.len(), laid.cfg.graph.len(), "{name}");
++            Some((declared, laid))
++        }
++        (Err(_), Err(_)) => None,
++        (declared, laid) => panic!(
++            "{name} compiles with declared slots: {}, laid out: {}",
++            declared.is_ok(),
++            laid.is_ok()
++        ),
++    }
++}
++
++fn on_big_stack(f: impl FnOnce() + Send + 'static) {
++    std::thread::Builder::new()
++        .stack_size(64 * 1024 * 1024)
++        .spawn(f)
++        .expect("the test thread starts")
++        .join()
++        .expect("the test thread finishes");
++}
++
++#[test]
++fn every_spec_function_layout_keeps_every_read() {
++    on_big_stack(|| {
++        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/spur");
++        let mut files = Vec::new();
++        spec_files(&root, &mut files);
++        files.sort();
++        assert!(!files.is_empty(), "no spec under {}", root.display());
++        let mut failures = Vec::new();
++        let mut skipped = 0;
++        for file in &files {
++            let name = file.display().to_string();
++            let source = std::fs::read_to_string(file).expect("the spec is readable");
++            let Some((declared, laid)) = compile_both(&source, &name) else {
++                eprintln!("{name}: compiles under neither layout, skipped");
++                skipped += 1;
++                continue;
++            };
++            let (mut before, mut after) = (0u64, 0u64);
++            let mut names: Vec<_> = declared.func_name_to_id.iter().collect();
++            names.sort();
++            for (func, id) in names {
++                let d = &declared.rpc[id];
++                let l = &laid.rpc[id];
++                before += u64::from(d.local_slot_count);
++                after += u64::from(l.local_slot_count);
++                assert!(l.local_slot_count <= d.local_slot_count, "{name} {func}");
++                if let Err(e) = check_layout(&declared, d, &laid, l) {
++                    failures.push(format!("{name} {func}: {e}"));
++                }
++            }
++            assert_eq!(declared.rpc.len(), laid.rpc.len());
++            eprintln!("{name}: {} functions, slots {before} -> {after}", declared.rpc.len());
++        }
++        assert!(skipped < files.len(), "no spec compiled");
++        assert!(failures.is_empty(), "layouts that change a read:\n{}", failures.join("\n"));
++    });
++}
++
++const LOOP_SPEC: &str = r#"
++role Node {
++    var total: int = 0;
++
++    fn Count(n: int): int {
++        for var i: int = 0; i < n; i = i + 1 {
++            total = total + i;
++        }
++        return total;
++    }
++}
++"#;
++
++/// Moves the dead store at the loop's condition entry onto the position of
++/// the loop variable in `program`.
++fn clobber_loop_variable(declared: &Program, program: &mut Program) {
++    let info = declared.get_func_by_name("Node.Count").expect("the function exists");
++    let laid_info = program.get_func_by_name("Node.Count").expect("the function exists").clone();
++    let i_declared = info
++        .debug_slot_names
++        .iter()
++        .position(|n| n == "i")
++        .expect("the loop variable has a slot") as u32;
++
++    let mut reachable = BTreeSet::new();
++    let mut preds: HashMap<Vertex, usize> = HashMap::new();
++    let mut queue = VecDeque::from([info.entry]);
++    while let Some(v) = queue.pop_front() {
++        if !reachable.insert(v) {
++            continue;
++        }
++        for s in events(&declared.cfg.graph[v], v).1 {
++            if s != v {
++                *preds.entry(s).or_default() += 1;
++                queue.push_back(s);
++            }
++        }
++    }
++    let read_slots: BTreeSet<u32> = reachable
++        .iter()
++        .flat_map(|&v| events(&declared.cfg.graph[v], v).0)
++        .filter_map(|e| match e {
++            Event::Read(s) => Some(s),
++            Event::Store(..) => None,
++        })
++        .collect();
++    let trampolines: Vec<Vertex> = reachable
++        .iter()
++        .copied()
++        .filter(|v| preds.get(v).copied().unwrap_or(0) >= 2)
++        .filter(|&v| {
++            matches!(
++                &declared.cfg.graph[v],
++                Label::Instr(Instr::Assign(Lhs::Var(VarSlot::Local(d, _)), Expr::Unit), _)
++                    if !read_slots.contains(d)
++            )
++        })
++        .collect();
++    assert_eq!(trampolines.len(), 1, "one dead store joins the loop's two entries");
++
++    let i_position = {
++        let mut found = None;
++        for &v in &reachable {
++            let d = events(&declared.cfg.graph[v], v).0;
++            let l = events(&program.cfg.graph[v], v).0;
++            for (a, b) in d.into_iter().zip(l) {
++                if let (Event::Read(x), Event::Read(y)) = (a, b) {
++                    if x == i_declared {
++                        found = Some(y);
++                    }
++                }
++            }
++        }
++        found.expect("the loop variable is read")
++    };
++    assert!(i_position < laid_info.local_slot_count);
++    match &mut program.cfg.graph[trampolines[0]] {
++        Label::Instr(Instr::Assign(Lhs::Var(VarSlot::Local(d, _)), Expr::Unit), _) => *d = i_position,
++        other => panic!("unexpected label {other:?}"),
++    }
++}
++
++#[test]
++fn the_checker_rejects_a_dead_store_on_a_live_loop_variable() {
++    on_big_stack(|| {
++        let (declared, laid) = compile_both(LOOP_SPEC, "loop.spur").expect("the loop spec compiles");
++        let info = declared.get_func_by_name("Node.Count").unwrap();
++        let laid_info = laid.get_func_by_name("Node.Count").unwrap();
++        assert_eq!(check_layout(&declared, info, &declared, info), Ok(()), "the declared layout");
++        assert_eq!(check_layout(&declared, info, &laid, laid_info), Ok(()), "the computed layout");
++
++        let mut clobbered = declared.clone();
++        clobber_loop_variable(&declared, &mut clobbered);
++        let err = check_layout(&declared, info, &clobbered, info);
++        assert!(err.is_err(), "a declared layout with the dead store moved is accepted");
++
++        let mut clobbered = laid.clone();
++        clobber_loop_variable(&declared, &mut clobbered);
++        let err = check_layout(&declared, info, &clobbered, laid_info);
++        assert!(err.is_err(), "a computed layout with the dead store moved is accepted");
++    });
++}
+diff --git a/tmp/loop/perf/frame-slots-and-trace-escape/untracked/spur-core/src/simulator/core/exec/payload_test.rs b/spur-core/src/simulator/core/exec/payload_test.rs
+new file mode 100644
+index 0000000..c7fdef0
+--- /dev/null
++++ b/spur-core/src/simulator/core/exec/payload_test.rs
+@@ -0,0 +1,171 @@
++//! The trace payload written straight from the values must be the JSON array
++//! of the values' plain text, byte for byte.
++
++use super::*;
++use crate::analysis::resolver::NameId;
++use crate::simulator::core::values::{LinkId, ValueMap};
++use crate::simulator::hash_utils::WithHashing;
++use ecow::EcoString;
++use proptest::prelude::*;
++use std::sync::Arc;
++
++type V = Value<WithHashing>;
++
++/// One parameter: a value, or `None` for a failed evaluation.
++type Piece = Option<V>;
++
++fn evaluated(pieces: &[Piece]) -> impl Iterator<Item = Result<V, RuntimeError>> + '_ {
++    pieces.iter().map(|p| {
++        p.clone().ok_or(RuntimeError::TypeError {
++            expected: "int",
++            got: "bool",
++        })
++    })
++}
++
++fn reference(pieces: &[Piece]) -> String {
++    let mut text = String::new();
++    let mut ends = Vec::new();
++    for p in pieces {
++        match p {
++            Some(v) => v.write_to(&mut text).unwrap(),
++            None => text.push_str("<error>"),
++        }
++        ends.push(text.len());
++    }
++    let mut out = TextBuffer::default();
++    out.push_str("before");
++    json_string_array(&text, &ends, &mut out);
++    out.str_from("before".len()).to_string()
++}
++
++fn streamed(pieces: &[Piece]) -> String {
++    let mut out = TextBuffer::default();
++    out.push_str("before");
++    write_trace_payload(evaluated(pieces), &mut out);
++    out.str_from("before".len()).to_string()
++}
++
++fn assert_same(pieces: &[Piece]) {
++    let expected = reference(pieces);
++    assert_eq!(streamed(pieces), expected, "{pieces:?}");
++    let as_json: Vec<String> = serde_json::from_str(&expected).expect("the payload is JSON");
++    assert_eq!(as_json.len(), pieces.len());
++}
++
++fn node(role: usize, index: usize) -> NodeId {
++    NodeId {
++        role: NameId(role),
++        index,
++    }
++}
++
++fn every_awkward_character() -> String {
++    let mut s: String = (0u8..0x20).map(char::from).collect();
++    s.push('\u{7f}');
++    s.push_str("\"\\/ plain \u{e9}\u{4e2d}\u{1f600}\u{2028}");
++    s
++}
++
++#[test]
++fn streamed_payload_matches_the_array_of_plain_texts_on_enumerated_values() {
++    let awkward = every_awkward_character();
++    let s = |t: &str| V::string(EcoString::from(t));
++    let mut map = ValueMap::<WithHashing>::default();
++    map.insert(s(&awkward), V::list(ValueSeq::from(vec![V::int(-3), s("\n")])));
++    map.insert(V::int(7), V::option_some(V::tuple(ValueSeq::from(vec![V::unit(), V::bool(true)]))));
++    let leaves: Vec<V> = vec![
++        V::int(i64::MIN),
++        V::int(0),
++        V::bool(false),
++        V::unit(),
++        s(""),
++        s(&awkward),
++        V::node(node(usize::MAX, 3)),
++        V::channel(ChannelId {
++            node: node(2, 0),
++            id: 11,
++        }),
++        V::fifo_link(LinkId(5), node(1, 2)),
++        V::option_none(),
++        V::variant(0, EcoString::from("Empty"), None),
++        V::variant(1, EcoString::from(awkward.as_str()), None),
++        V::variant(2, EcoString::from("Wrap\"\\"), Some(Arc::new(s(&awkward)))),
++        V::map(map),
++    ];
++    assert_same(&[]);
++    assert_same(&[None]);
++    assert_same(&[None, None]);
++    for leaf in &leaves {
++        assert_same(&[Some(leaf.clone())]);
++    }
++    let mut all: Vec<Piece> = leaves.iter().cloned().map(Some).collect();
++    all.insert(3, None);
++    all.push(Some(V::list(ValueSeq::from(leaves.clone()))));
++    assert_same(&all);
++    for b in 0u8..0x80 {
++        assert_same(&[Some(s(&char::from(b).to_string())), None]);
++    }
++}
++
++fn arb_char() -> impl Strategy<Value = char> {
++    prop_oneof![
++        proptest::char::range('\u{0}', '\u{7f}'),
++        Just('"'),
++        Just('\\'),
++        Just('\u{7f}'),
++        Just('\u{e9}'),
++        Just('\u{4e2d}'),
++        Just('\u{1f600}'),
++        any::<char>(),
++    ]
++}
++
++fn arb_text() -> impl Strategy<Value = String> {
++    proptest::collection::vec(arb_char(), 0..12).prop_map(|cs| cs.into_iter().collect())
++}
++
++fn arb_node() -> impl Strategy<Value = NodeId> {
++    (any::<usize>(), any::<usize>()).prop_map(|(r, i)| node(r, i))
++}
++
++fn arb_value() -> impl Strategy<Value = V> {
++    let leaf = prop_oneof![
++        any::<i64>().prop_map(V::int),
++        any::<bool>().prop_map(V::bool),
++        arb_text().prop_map(|t| V::string(EcoString::from(t))),
++        arb_node().prop_map(V::node),
++        Just(V::unit()),
++        Just(V::option_none()),
++        (arb_node(), any::<usize>()).prop_map(|(n, id)| V::channel(ChannelId { node: n, id })),
++        (any::<usize>(), arb_node()).prop_map(|(l, n)| V::fifo_link(LinkId(l), n)),
++        (any::<u32>(), arb_text()).prop_map(|(e, name)| V::variant(e, EcoString::from(name), None)),
++    ];
++    leaf.prop_recursive(4, 48, 6, |inner| {
++        prop_oneof![
++            proptest::collection::vec(inner.clone(), 0..5).prop_map(|v| V::list(ValueSeq::from(v))),
++            proptest::collection::vec(inner.clone(), 0..5).prop_map(|v| V::tuple(ValueSeq::from(v))),
++            proptest::collection::vec((inner.clone(), inner.clone()), 0..4).prop_map(|pairs| {
++                let mut m = ValueMap::<WithHashing>::default();
++                for (k, v) in pairs {
++                    m.insert(k, v);
++                }
++                V::map(m)
++            }),
++            inner.clone().prop_map(V::option_some),
++            (any::<u32>(), arb_text(), inner)
++                .prop_map(|(e, name, p)| V::variant(e, EcoString::from(name), Some(Arc::new(p)))),
++        ]
++    })
++}
++
++proptest! {
++    #![proptest_config(ProptestConfig::with_cases(2048))]
++    #[test]
++    fn streamed_payload_matches_the_array_of_plain_texts_on_generated_values(
++        pieces in proptest::collection::vec(proptest::option::weighted(0.9, arb_value()), 0..6)
++    ) {
++        let expected = reference(&pieces);
++        prop_assert_eq!(streamed(&pieces), expected);
++    }
++}
