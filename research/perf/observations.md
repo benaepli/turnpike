@@ -6284,3 +6284,49 @@ Every guard of the surviving parts holds: H1 (with G1 settled at 0.000), H3
 (with G3 settled at 0.000), the stack's writer total, and H2-A with its census.
 The graded binary is stage 4 (vendor, H1, H3, H2-A). Rounds start under the
 plan registered above.
+
+### writer-headroom-and-program-text: three rounds and decision (autonomous)
+
+Read once, after all three were in; graded binary stage 4 (vendor, H1, H3,
+H2-A).
+- Busy ns per row, baseline over candidate (rows = presized prints + streamed
+  ops + 3 x trace enter payloads): 235.6/186.8 = 1.2612, 237.6/188.0 = 1.2638,
+  240.6/188.4 = 1.2770; mean 1.2673, no round below 1.06. Grader primary
+  history_writer.busy_ns per run 1.2079, 1.2605, 1.3331, mean 1.2661 [1.1197,
+  1.4317], separated.
+- Band correction, recorded before deciding: the rounds registration above
+  copied H1's band [1.09, 1.20] for the stack. The judgment's frozen band for
+  H1 stacked with H3 is [1.13, 1.28], with the falsifier "the stack's per-row
+  interval lies entirely below 1.13". The mean 1.2673 lies inside the frozen
+  stack band and clears both lower edges; it exceeds H1's own upper edge
+  because H3's saving adds to H1's. A reading above an upper edge refutes
+  nothing.
+- Writers: baseline side 82-83 percent of four busy, 32 / 253 / 458 full-queue
+  sends, 0.02 / 0.20 / 0.46 s blocked; candidate side 64-66 percent busy, 0
+  sends, 0 s blocked in every round.
+- Runs per second 0.9473, 0.9783, 1.0651; mean 0.9957 [0.8566, 1.1573], no
+  downward separation (the judge's prediction: no wall movement at the
+  baseline's blocking level). Steps per run 1.016 [0.860, 1.200].
+- Counters by hand, every round: fast-path share 0.9991-0.9992 (at least
+  0.97); hashed values per command 6.9 (at most 250); integer dictionary
+  values per row 5.16-5.18 [4.9, 5.9]; str_stats compared per cell 0.333-0.335
+  (at most 0.60); gather copies skipped per call 0.934-0.935 (at least 0.90);
+  names interned 10, the traced functions of VR.
+- Spread check: arm shares aos (0.1299 against 0.1252) and grid-post-fault-2
+  (0.2072 against 0.2130) outside; throughput-dependent in the wall-budgeted
+  campaign, with byte identity exact on the caps-engaged one-thread session;
+  standing exemption.
+- Placebo on stage 4 against 0b0004e.md: 1.90 / 1.087 = 1.748 against 1.75,
+  inside [0.9, 1.1] of reference; no referral.
+
+Decision: merge commits 1-4 (vendored parquet 58.0.0, integer dictionary keys
+by value, page statistics from first-in-page keys, trace names as static
+strings) as four spur commits. Every guard of the merged parts held (the three
+absent-row guards settled on low-cutoff profiles), byte identity exact at
+every commit, every counter in band every round, no downward separation. Part
+B stays closed.
+
+Revert criterion, registered before the post-merge baseline is read: the fresh
+post-merge baseline reads below 8,744.7 runs per second (0.97 of the 9,015.2
+cached for 2da4e1a; the tree moved to 0b0004e by a change to test code only).
+The writer headroom itself is read on the next graded rounds' baseline side.
