@@ -5311,3 +5311,36 @@ second). Lessons: absolute per-run counter bands priced from a site census
 under-count executions by about 15 percent here and should be ratios of
 existing counters where one exists; a frame built by move still pays its
 construction in the caller.
+
+## Direction review after iteration 19 (autonomous)
+
+Called for by a run of closes: iteration 19 merged nothing (A on absolute move
+counters, B on its relocation guard, C on per-print counter bands). The tree
+has not moved (c9c54fc, 8,120.3 runs per second), so c9c54fc.md and its caller
+attribution stand; no re-profile. Goal file re-read: cost removed at equal
+search, a per-run counter as the sharper read.
+
+- Are the costs attacked still the largest explainable ones? Yes. Value
+  traffic merged about 10 points (clone 3.07, drop_glue 3.79, EcoVec drop
+  2.56), memmove on spur threads 6.3, the scheduler family about 9.3, the
+  allocator about 4.4. Iteration 19's A profile showed the value family can
+  fall (-2.14 x r) without the interpreter rising; what failed was the price,
+  not the cost.
+- Has steering narrowed the search? Iterations 18-19 steered at operand
+  traffic inside the interpreter. The attribution says most of the Value cost
+  is shaped by representation rather than by which operand clones: structs
+  lower to ValueKind::Map (no struct kind exists), so a field read hashes and
+  probes a HAMT, a struct literal allocates a 2,848-byte HAMT root and runs
+  make_mut per field (87 percent of make_mut 1.35), about 45 percent of
+  ValueKind::clone is an atomic increment on a map root, and literals are 26
+  percent of malloc.
+- Pricing lesson, carried into the directive: absolute per-run counter bands
+  priced from a site census missed by about 15 percent on executions; bands go
+  on ratios of counters the explorer already emits wherever one exists, and a
+  relocation guard names where the moved cost would land.
+
+Next: iteration 20, data layout and representation lens, focus directive the
+representation of struct-shaped values and the objects the step loop moves by
+value (Record and Runnable 3.49 points of memmove), the latter only by a
+mechanism that answers why runnable-one-word-record's scheduler guard fired.
+Pool pruning: nothing to drop; held and not-built entries keep their reasons.
