@@ -3910,3 +3910,37 @@ movement of Record and Runnable (sizes from the type definitions, which
 fields make them large, by-value moves where a box or index would move a
 word, Vec::remove shifting a queue per take), and the per-step index lists'
 storage. Every priced line cites the attribution file.
+
+### Proposals
+
+From the type definitions: Record is 248 or 256 bytes and Runnable the same
+(Record is its largest variant), so every queue push, take, park and pass
+into exec copies about 250 bytes through memmove; about 150 of them are read
+only at delivery or crash. All three candidates cite the attribution file,
+are search-neutral with a shared saving, and read the wall for regression
+only. R = 11.50 (ceval, the parquet Int64 interner, imbl GenericNode
+make_mut, format_escaped_str), which none of them touches.
+
+- runnable-one-word-record: box Record, Timer, the ChannelSend fields and
+  the partition type inside Runnable (32 bytes or less), with a priority copy
+  kept beside the box (priority is set only at creation, so the copy is
+  exact); exec and exec_ops take the box; parked readers become
+  Arc<(Box<Record>, Lhs)>. Removes 2.56-3.39 points of memmove; adds about
+  1,500 malloc/free pairs per run (0.30-0.45 points) and 0-0.5 points of
+  pointer follows; net 1.6-3.1. Band [1.015, 1.035]. Guards: memmove at most
+  3.65 x r, the two scheduler walk lines at most 3.08 x r, allocator rise at
+  most 0.7 x r, walk_recovery_placebo within [1.49, 2.09] x r (a reading
+  outside goes to the search loop's owner).
+- step-index-lists-inline: local_queue_sizes and the eligible lists in
+  inline SmallVec storage (smallvec 1.15.1, already in Cargo.lock), same
+  indices and order. malloc 0.59, _int_malloc 0.25, realloc 0.41, cfree
+  0.40-0.51; net 1.5-1.75. Band [1.012, 1.022]. Guards: realloc at most
+  0.25 x r, the scheduler's Vec<usize> collect gone, allocator at most
+  4.74 x r, overflows at most 0.05 per run.
+- the two as one commit, band [1.027, 1.058], guards separable (the index
+  lists add no memmove, the boxing adds no realloc).
+
+Both claim new call-stack evidence against the closed runnable-thin-queue
+and the scheduler half of per-step-scratch-buffers, which were closed on
+queue-walk arithmetic and IBS shares; the judge is asked to check whether
+either close was a measured refutation.
