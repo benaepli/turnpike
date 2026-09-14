@@ -4358,3 +4358,22 @@ Iteration 16 closes with one merge (eligible-lists-known-from-queue-info)
 and one close (slot-buffers-owned-per-segment); delivered-record-not-copied
 stays in the pool unbuilt. The loop continues at the user's direction:
 iteration 17 profiles 11a720c.
+
+## Iteration 17 - autonomous, contention lens, profile 11a720c
+
+Profile 11a720c.md (plain cycles). Self: ceval 7.96; schedule_runnable
+6.45, 2.15, 1.94 and the queue-size fold 1.39; memmove 6.00; exec_ops 5.48,
+1.30, 1.18; drop_glue<ValueKind> 2.94; run_sync_ops 2.58; EcoVec<Value>
+drop 2.39; malloc 2.14; exec_plan 2.04; ValueKind::clone 1.92;
+walk_recovery_placebo 1.44; format_escaped_str 1.32; Int64 interner 1.31
+(writer); GenericNode 1.24; score_with_terms 1.13 (above the cutoff for the
+first time). Writer threads 10.04 inclusive. No lock, futex or channel
+symbol above the cutoff.
+
+Lens: contention and parallelism. A cycles profile cannot see threads
+waiting without burning cycles, so the directive asks for pricing from the
+utilization counters of the 11a720c baseline cache: grid-pool idle per run,
+the batched AOS path where every worker waits for a batch's slowest run,
+writer busy share and full-queue sends at about 8,000 runs per second, and
+any barrier between arms or slices - priced in lost worker-seconds per
+wall-second. Writer-side changes only if writers are shown binding.
