@@ -5775,3 +5775,30 @@ figure: P 1.57, K 1.16, E 3.17, malloc + cfree 2.25, sched 12.13). r = 12.96 /
 Ruling: G1 and G2 go to one low-cutoff profile of the same binary
 (--percent-limit 0.05), read only for the rows of P and K, after the A+B
 profile finishes; G3-G5 stand as read here. A fired G1 or G2 there closes A.
+
+### known-valid-text-and-literals-without-placeholders: profile reading (autonomous)
+
+Profile research/perf/profiles/85af34d-cand-plan-bookkeeping-and-known-valid-text.md
+against 85af34d.md, r = 13.24 / 12.13 = 1.092; placebo 1.039.
+- H1 re-held on A+B: P absent (limit 0.33), K 0.34 with two rows absent
+  (limit 0.77), E 2.99 at most 3.79 held, P + K + E at most 4.23 at the
+  bounds against 4.91 held.
+- H2 G1 from_utf8 absent from both tables (below 0.3) against at most 0.11 -
+  not decided by the bound.
+- H2 G4 trace set 2.03 to 1.86 (run_trace_dispatch 0.36, TraceScratch with
+  0.28, write_to 0.74, Decimal::of_i64 0.48) at most 2.32 - held.
+- H2 G2 from_elem absent (below 0.3) against at most 0.11 - not decided by the
+  bound.
+- H2 G3 ceval 7.90 to 8.75 raw against at most 8.84 - held with 0.09 to spare
+  (the permute lands here); EcoVec reserve + grow 0.50 at most 0.69 - held;
+  drop_glue<Value> 1.14 to 0.47 at most 1.35 - held (the placeholder Units'
+  drops are gone).
+- H2 G5 malloc + cfree 2.29 at most 2.62 - held.
+- H2 G6 net 11.58, at most 12.18 with both absent rows at their bounds, against
+  13.31 - held.
+
+Ruling: one low-cutoff profile of the A+B binary, read only for from_utf8,
+from_elem and the rows of P and K, after A's low-cutoff profile finishes.
+Every other guard stands as read. A fired H2 G1 reverts parts (a) and (b), a
+fired H2 G2 reverts part (c), a fired H1 G1 or G2 on either profile closes A
+and parks B.
