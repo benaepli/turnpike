@@ -5256,3 +5256,23 @@ build_frame + finish) is about -0.14 x r, inside one profile's noise. Patch
 kept as spur-AB.patch (commit B over A). Nothing sits above B. Rounds run on
 A alone, band [1.008, 1.025], regression only; A's counters are read by hand
 every round, and taken above 6,500 per run closes A.
+
+### dead-slot-operands-moved: round 1 (autonomous)
+
+Runs per second 1.0101 (cand 8,067.8, base 7,986.9), inside [1.008, 1.025].
+Counters over 969,120 candidate runs (frame.calls 2,008 per run):
+- returns / frame.calls 0.9705 in [0.80, 1.00];
+- call_args / params_filled 0.9665 in [0.55, 1.00];
+- taken 7,607 per run against [3,000, 6,500] - OUT;
+- self_copies 1,533 per run against [100, 1,500] - OUT;
+- taken equals the sum of its leaves exactly (7,372,295,699); entry_frame_copies
+  0.
+
+Ruling: A's counter falsifier ("any counter outside its band", every round)
+fired, and the ruling recorded before rounds named taken above 6,500 as a
+close. A closes. The mechanism moves more than priced: the per-run bands came
+from a site census scaled by execution estimates, and executions run higher per
+frame call than the census assumed (sends and assigns alone read 1,082 per run).
+A wall reading inside the band cannot undo a frozen counter falsifier. Rounds 2
+and 3 run to completion as description, to give a returning candidate its
+counter spread; they do not reopen the decision.
