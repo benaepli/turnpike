@@ -1107,7 +1107,7 @@ rounds of clock each:
 
 ## aos-draw-ahead-pool
 
-- category: contention and parallelism | origin: proposer | status: admitted (iteration 17) - building first
+- category: contention and parallelism | origin: proposer | status: closed (iteration 17, autonomous) on the lite reading - every rung about 4 percent below the baseline per explore-second in both chunks (depth>=8 0.9578, separated below at z 2.7) while its perf counters all held; the pool moves worker time from counted grid runs to uncounted AOS runs; patch kept at research/perf/patches/aos-draw-ahead-pool.spur.patch
 - mechanism: the campaign's AOS arm on an ordered-release pool that may draw
   up to two batches ahead of the newest credited one while workers would
   otherwise idle; run ids, ctrl_rng draws (two per pick, weight-independent),
@@ -1133,7 +1133,7 @@ rounds of clock each:
 
 ## timeline-store-one-lock
 
-- category: contention and parallelism | origin: judge (split from a proposer's set-aside rider) | status: admitted (iteration 17) - building in parallel, graded in its own session after aos-draw-ahead-pool is decided
+- category: contention and parallelism | origin: judge (split from a proposer's set-aside rider) | status: admitted (iteration 17) - built and reviewed; grading (candidate profile, then three rounds)
 - mechanism: GlobalTimeline's 128-shard DashMap with one live key read-locks
   every shard and allocates an Arc per shard in snapshot(), and read-locks
   all 128 again through len() in merge(); one lock over a map instead, a

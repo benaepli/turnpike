@@ -1,0 +1,1077 @@
+diff --git a/spur-core/src/simulator/campaign.rs b/spur-core/src/simulator/campaign.rs
+index 5396bcc..35a0f0d 100644
+--- a/spur-core/src/simulator/campaign.rs
++++ b/spur-core/src/simulator/campaign.rs
+@@ -18,7 +18,7 @@ use crate::compiler::cfg::Program;
+ use crate::simulator::config_override;
+ use crate::simulator::coverage::GlobalState;
+ use crate::simulator::explorer::{
+-    AosExplorer, CurriculumExplorer, CurriculumRnrExplorer, EXPLORER_CONFIG_KEYS, ExploreSummary,
++    AosChild, AosController, AosExplorer, AosWork, CurriculumExplorer, CurriculumRnrExplorer, EXPLORER_CONFIG_KEYS, ExploreSummary,
+     ExplorerConfig, RunAttribution, SessionSummary, SingleRunConfig, StepCtx, Strategy,
+     check_top_level_keys, dispatch_feedback, run_single_simulation,
+ };
+@@ -765,29 +765,29 @@ impl<C: Clone> Batch<C> {
+ 
+ /// A finished job: its batch, its position, its outcome (`None` when the
+ /// run panicked) and its wall time on the worker.
+-struct Completion<C> {
++struct Completion<O> {
+     batch: u64,
+     pos: usize,
+-    outcome: Option<GridOutcome<C>>,
++    outcome: Option<O>,
+     wall_ns: u64,
+ }
+ 
+ /// Sends a job's completion exactly once, including when the run unwinds,
+ /// so the coordinator never waits for a job that is gone.
+-struct CompletionSender<C> {
+-    tx: mpsc::Sender<Completion<C>>,
++struct CompletionSender<O> {
++    tx: mpsc::Sender<Completion<O>>,
+     batch: u64,
+     pos: usize,
+     started: Instant,
+     sent: bool,
+ }
+ 
+-impl<C> CompletionSender<C> {
+-    fn send(mut self, outcome: GridOutcome<C>) {
++impl<O> CompletionSender<O> {
++    fn send(mut self, outcome: O) {
+         self.deliver(Some(outcome));
+     }
+ 
+-    fn deliver(&mut self, outcome: Option<GridOutcome<C>>) {
++    fn deliver(&mut self, outcome: Option<O>) {
+         self.sent = true;
+         let _ = self.tx.send(Completion {
+             batch: self.batch,
+@@ -798,7 +798,7 @@ impl<C> CompletionSender<C> {
+     }
+ }
+ 
+-impl<C> Drop for CompletionSender<C> {
++impl<O> Drop for CompletionSender<O> {
+     fn drop(&mut self) {
+         if !self.sent {
+             self.deliver(None);
+@@ -871,7 +871,7 @@ where
+     let mut ready = 0usize;
+     let mut stopped = false;
+     let pool_started = Instant::now();
+-    let (tx, rx) = mpsc::channel::<Completion<C>>();
++    let (tx, rx) = mpsc::channel::<Completion<GridOutcome<C>>>();
+ 
+     rayon::in_place_scope(|scope| {
+         loop {
+@@ -1034,6 +1034,239 @@ where
+     PoolResult { session, failed }
+ }
+ 
++/// Earlier batches that may still be uncredited when an
++/// adaptive-operator-selection batch is drawn.
++const AOS_LOOKAHEAD_BATCHES: usize = 2;
++
++/// The controller an adaptive-operator-selection pool draws work from and
++/// credits children to.
++trait AosPlan {
++    type Work: Send;
++    type Child: Send;
++    /// Whether the next batch seeds, judged on the batches credited so far.
++    fn seeding(&self) -> bool;
++    /// The next run id's work, in run id order.
++    fn draw(&mut self, seed: bool) -> Self::Work;
++    /// One finished child, in batch order and then position order.
++    fn credit(&mut self, child: Self::Child);
++    /// Closes a batch once every one of its children is credited.
++    fn finish_batch(&mut self, seed: bool);
++}
++
++impl AosPlan for AosController<'_> {
++    type Work = AosWork;
++    type Child = AosChild;
++    fn seeding(&self) -> bool {
++        AosController::seeding(self)
++    }
++    fn draw(&mut self, seed: bool) -> AosWork {
++        AosController::draw(self, seed)
++    }
++    fn credit(&mut self, child: AosChild) {
++        AosController::credit(self, child)
++    }
++    fn finish_batch(&mut self, seed: bool) {
++        AosController::finish_batch(self, seed)
++    }
++}
++
++/// The adaptive-operator-selection bandit as an arm. Its batches overlap on
++/// the pool, but every run id's work is drawn from the same random stream
++/// positions, and children are credited in the same order with one bandit
++/// recompute per batch, as when each batch runs whole before the next is
++/// drawn. Only the controller state a batch drawn ahead reads can differ.
++struct AosArm<F: Feedback> {
++    explorer: AosExplorer<F>,
++    batch_size: usize,
++}
++
++impl<F: Feedback> Arm for AosArm<F> {
++    fn run_slice(&mut self, ctx: &StepCtx, limit: &SliceLimit) -> SliceOutcome {
++        let mut cancelled = false;
++        let (runner, mut controller) = self.explorer.split();
++        let pool = run_aos_release(
++            &mut controller,
++            self.batch_size,
++            rayon::current_num_threads(),
++            ctx.run_counter,
++            |issued, batches| limit.next_batch(issued, batches, &mut cancelled),
++            &|run_id, work| runner.run(ctx, run_id, work),
++        );
++        util_stats::record_aos_pool(&pool.session);
++        SliceOutcome {
++            runs: pool.session.runs,
++            failed: pool.failed,
++            cancelled,
++        }
++    }
++
++    fn vertex_coverage(&self) -> Option<HashMap<usize, u64>> {
++        Strategy::vertex_coverage(&self.explorer)
++    }
++}
++
++/// One batch of the adaptive-operator-selection pool. Positions start in
++/// order, so `launched` is both a count and the next position to start.
++struct AosBatch<W, C> {
++    first_id: i64,
++    seed: bool,
++    works: Vec<Option<W>>,
++    children: Vec<Option<C>>,
++    launched: usize,
++    unfinished: usize,
++}
++
++struct AosPoolResult {
++    session: util_stats::AosPoolSession,
++    failed: u64,
++}
++
++/// Runs batches of `batch_size` runs on `workers` workers until
++/// `next_batch` ends the slice, then drains: when this returns, every batch
++/// it issued has finished, been credited and been closed.
++///
++/// A batch is issued whole whenever `next_batch(issued, batches)` gives
++/// `Some`, whatever limit it gives. Run ids are taken from `run_counter` a
++/// batch at a time, and nothing else may take ids while this runs. Each wake
++/// credits finished batches in batch order before it draws, and draws only
++/// while workers would otherwise go without work, so with one worker every
++/// batch is drawn after its predecessor is credited. A batch drawn while
++/// earlier batches are uncredited reads the controller as credited so far;
++/// at most `AOS_LOOKAHEAD_BATCHES` earlier batches may be uncredited then, and
++/// a seed batch is never drawn that way.
++fn run_aos_release<P, R>(
++    plan: &mut P,
++    batch_size: usize,
++    workers: usize,
++    run_counter: &AtomicI64,
++    mut next_batch: impl FnMut(u64, u64) -> Option<usize>,
++    run: &R,
++) -> AosPoolResult
++where
++    P: AosPlan,
++    R: Fn(i64, &P::Work) -> P::Child + Sync,
++{
++    let workers = workers.max(1);
++    let batch_size = batch_size.max(1);
++    let mut session = util_stats::AosPoolSession {
++        workers: workers as u64,
++        ..Default::default()
++    };
++    let mut failed = 0u64;
++    let mut window: VecDeque<AosBatch<P::Work, P::Child>> = VecDeque::new();
++    let mut front_seq = 0u64;
++    let mut in_flight = 0usize;
++    let mut ready = 0usize;
++    let mut stopped = false;
++    let mut seed_wait_counted = false;
++    let pool_started = Instant::now();
++    let (tx, rx) = mpsc::channel::<Completion<P::Child>>();
++
++    rayon::in_place_scope(|scope| {
++        loop {
++            // Credit finished batches in batch order, then position order.
++            while window.front().is_some_and(|b| b.unfinished == 0) {
++                let Some(batch) = window.pop_front() else {
++                    break;
++                };
++                front_seq += 1;
++                for child in batch.children.into_iter().flatten() {
++                    plan.credit(child);
++                }
++                plan.finish_batch(batch.seed);
++            }
++
++            // Draw batches only while workers would otherwise go without work.
++            while !stopped && in_flight + ready < workers {
++                let uncredited = window.len();
++                if uncredited > AOS_LOOKAHEAD_BATCHES {
++                    break;
++                }
++                let seed = plan.seeding();
++                if seed && uncredited > 0 {
++                    if !seed_wait_counted {
++                        session.gated_seed_batches += 1;
++                        seed_wait_counted = true;
++                    }
++                    break;
++                }
++                if next_batch(session.runs, session.batches).is_none() {
++                    stopped = true;
++                    break;
++                }
++                let first_id = run_counter.fetch_add(batch_size as i64, Ordering::Relaxed);
++                let works = (0..batch_size).map(|_| Some(plan.draw(seed))).collect();
++                if uncredited > 0 {
++                    session.drawn_ahead_batches += 1;
++                    session.uncredited_at_draw_sum += uncredited as u64;
++                }
++                seed_wait_counted = false;
++                session.runs += batch_size as u64;
++                session.batches += 1;
++                ready += batch_size;
++                window.push_back(AosBatch {
++                    first_id,
++                    seed,
++                    works,
++                    children: (0..batch_size).map(|_| None).collect(),
++                    launched: 0,
++                    unfinished: batch_size,
++                });
++            }
++
++            // Start runs oldest batch first, in position order.
++            for (i, batch) in window.iter_mut().enumerate() {
++                while in_flight < workers && batch.launched < batch.works.len() {
++                    let pos = batch.launched;
++                    batch.launched += 1;
++                    ready -= 1;
++                    let Some(work) = batch.works[pos].take() else {
++                        continue;
++                    };
++                    in_flight += 1;
++                    let run_id = batch.first_id + pos as i64;
++                    let tx = tx.clone();
++                    let seq = front_seq + i as u64;
++                    scope.spawn(move |_| {
++                        let sender = CompletionSender {
++                            tx,
++                            batch: seq,
++                            pos,
++                            started: Instant::now(),
++                            sent: false,
++                        };
++                        let child = run(run_id, &work);
++                        drop(work);
++                        sender.send(child);
++                    });
++                }
++                if in_flight >= workers {
++                    break;
++                }
++            }
++
++            if in_flight == 0 {
++                break;
++            }
++
++            let mut next = rx.recv().ok();
++            while let Some(done) = next {
++                in_flight -= 1;
++                session.job_wall_ns += done.wall_ns;
++                let batch = &mut window[(done.batch - front_seq) as usize];
++                batch.unfinished -= 1;
++                match done.outcome {
++                    Some(child) => batch.children[done.pos] = Some(child),
++                    None => failed += 1,
++                }
++                next = rx.try_recv().ok();
++            }
++        }
++    });
++    session.pool_wall_ns = pool_started.elapsed().as_nanos() as u64;
++    AosPoolResult { session, failed }
++}
++
+ struct BuiltArm {
+     spec: ArmSpec,
+     weights: CoverageConfig,
+@@ -1059,9 +1292,10 @@ fn build_arm(
+         ArmMode::CurriculumRnr => Box::new(StrategyArm::<F>(Box::new(CurriculumRnrExplorer::<F>::new(
+             cfg, block.batch_size, weights, block.curriculum_horizon_runs, arm_seed,
+         )))) as Box<dyn Arm>,
+-        ArmMode::Aos => Box::new(StrategyArm::<F>(Box::new(AosExplorer::<F>::new(
+-            cfg, block.batch_size, weights, arm_seed,
+-        )))) as Box<dyn Arm>,
++        ArmMode::Aos => Box::new(AosArm::<F> {
++            explorer: AosExplorer::<F>::new(cfg, block.batch_size, weights, arm_seed),
++            batch_size: block.batch_size,
++        }) as Box<dyn Arm>,
+     });
+     BuiltArm {
+         spec: spec.clone(),
+@@ -2039,6 +2273,393 @@ mod tests {
+         assert_eq!(synthetic.finished.load(Ordering::Relaxed), 90);
+     }
+ 
++    /// One event a synthetic adaptive-operator-selection controller saw.
++    #[derive(Clone, Debug, PartialEq, Eq)]
++    enum PlanEvent {
++        /// A position drawn: its draw index, whether it seeds, and how many
++        /// batches and children had been credited by then.
++        Draw {
++            index: u64,
++            seed: bool,
++            closed: u64,
++            credited: u64,
++        },
++        Credit(i64),
++        Close(bool),
++    }
++
++    /// A synthetic controller that seeds until its first batch closes and
++    /// logs every draw, credit and close.
++    struct SyntheticPlan {
++        seeded: bool,
++        draws: u64,
++        closed: u64,
++        credited: u64,
++        events: Vec<PlanEvent>,
++    }
++
++    impl SyntheticPlan {
++        fn new() -> Self {
++            Self {
++                seeded: false,
++                draws: 0,
++                closed: 0,
++                credited: 0,
++                events: Vec::new(),
++            }
++        }
++    }
++
++    impl AosPlan for SyntheticPlan {
++        type Work = u64;
++        type Child = i64;
++        fn seeding(&self) -> bool {
++            !self.seeded
++        }
++        fn draw(&mut self, seed: bool) -> u64 {
++            let index = self.draws;
++            self.draws += 1;
++            self.events.push(PlanEvent::Draw {
++                index,
++                seed,
++                closed: self.closed,
++                credited: self.credited,
++            });
++            index
++        }
++        fn credit(&mut self, child: i64) {
++            self.credited += 1;
++            self.events.push(PlanEvent::Credit(child));
++        }
++        fn finish_batch(&mut self, seed: bool) {
++            self.closed += 1;
++            if seed {
++                self.seeded = true;
++            }
++            self.events.push(PlanEvent::Close(seed));
++        }
++    }
++
++    /// A synthetic run: the child is the run id, the draw index must equal
++    /// the run id, and the run sleeps a hash of its id when `sleep` is set so
++    /// completions arrive out of order.
++    struct SyntheticAosRuns {
++        sleep: bool,
++        finished: std::sync::atomic::AtomicU64,
++        starts: std::sync::Mutex<Vec<i64>>,
++    }
++
++    impl SyntheticAosRuns {
++        fn new(sleep: bool) -> Self {
++            Self {
++                sleep,
++                finished: std::sync::atomic::AtomicU64::new(0),
++                starts: std::sync::Mutex::new(Vec::new()),
++            }
++        }
++
++        fn run(&self, run_id: i64, index: &u64) -> i64 {
++            self.starts.lock().unwrap().push(run_id);
++            assert_eq!(*index, run_id as u64, "work drawn out of run id order");
++            if self.sleep {
++                std::thread::sleep(std::time::Duration::from_micros(mix(run_id) % 400));
++            }
++            self.finished.fetch_add(1, Ordering::Relaxed);
++            run_id
++        }
++    }
++
++    /// Batches drawn whole, run in position order, credited in position order
++    /// and closed, one at a time.
++    fn sequential_aos_reference(
++        plan: &mut SyntheticPlan,
++        batch_size: usize,
++        run_counter: &AtomicI64,
++        mut next_batch: impl FnMut(u64, u64) -> Option<usize>,
++    ) {
++        let (mut issued, mut batches) = (0u64, 0u64);
++        while next_batch(issued, batches).is_some() {
++            let seed = plan.seeding();
++            let works: Vec<(i64, u64)> = (0..batch_size)
++                .map(|_| (run_counter.fetch_add(1, Ordering::Relaxed), plan.draw(seed)))
++                .collect();
++            for (run_id, _) in works {
++                plan.credit(run_id);
++            }
++            plan.finish_batch(seed);
++            issued += batch_size as u64;
++            batches += 1;
++        }
++    }
++
++    #[test]
++    fn aos_pool_at_one_worker_matches_whole_batches() {
++        let mut reference = SyntheticPlan::new();
++        let ref_counter = AtomicI64::new(0);
++        let mut plan = SyntheticPlan::new();
++        let counter = AtomicI64::new(0);
++        let runs = SyntheticAosRuns::new(false);
++        for _ in 0..3 {
++            sequential_aos_reference(&mut reference, 8, &ref_counter, runs_budget(203));
++            let result = run_aos_release(
++                &mut plan,
++                8,
++                1,
++                &counter,
++                runs_budget(203),
++                &|run_id, work| runs.run(run_id, work),
++            );
++            assert_eq!(plan.events, reference.events, "draws, credits and closes");
++            assert_eq!(
++                counter.load(Ordering::Relaxed),
++                ref_counter.load(Ordering::Relaxed)
++            );
++            assert_eq!(result.session.runs, 208);
++            assert_eq!(result.session.batches, 26);
++            assert_eq!(result.session.drawn_ahead_batches, 0);
++            assert_eq!(result.session.uncredited_at_draw_sum, 0);
++            assert_eq!(result.session.gated_seed_batches, 0);
++        }
++        let starts = runs.starts.into_inner().unwrap();
++        assert_eq!(starts, (0..624).collect::<Vec<i64>>());
++    }
++
++    #[test]
++    fn aos_pool_draws_at_most_two_batches_ahead() {
++        let batch_size = 60usize;
++        let mut plan = SyntheticPlan::new();
++        let counter = AtomicI64::new(0);
++        let runs = SyntheticAosRuns::new(true);
++        let mut total = util_stats::AosPoolSession::default();
++        for _ in 0..2 {
++            let twenty_batches = |_: u64, batches: u64| (batches < 20).then_some(usize::MAX);
++            let result = run_aos_release(
++                &mut plan,
++                batch_size,
++                30,
++                &counter,
++                twenty_batches,
++                &|run_id, work| runs.run(run_id, work),
++            );
++            assert_eq!(result.session.batches, 20);
++            assert_eq!(plan.closed, plan.draws / batch_size as u64, "a batch was left open");
++            total.batches += result.session.batches;
++            total.drawn_ahead_batches += result.session.drawn_ahead_batches;
++            total.gated_seed_batches += result.session.gated_seed_batches;
++            total.uncredited_at_draw_sum += result.session.uncredited_at_draw_sum;
++        }
++        let mut credits = Vec::new();
++        let mut closes = 0u64;
++        for event in &plan.events {
++            match event {
++                PlanEvent::Draw {
++                    index,
++                    seed,
++                    closed,
++                    credited,
++                } => {
++                    let batch = index / batch_size as u64;
++                    assert!(
++                        batch - closed <= AOS_LOOKAHEAD_BATCHES as u64,
++                        "draw {index} saw {closed} closed batches"
++                    );
++                    assert!(
++                        batch * batch_size as u64 - credited <= 2 * batch_size as u64,
++                        "draw {index} saw {credited} credited children"
++                    );
++                    if *seed {
++                        assert_eq!(batch, *closed, "a seed batch was drawn ahead");
++                    }
++                }
++                PlanEvent::Credit(run_id) => credits.push(*run_id),
++                PlanEvent::Close(_) => {
++                    closes += 1;
++                    assert_eq!(credits.len() as u64, closes * batch_size as u64);
++                }
++            }
++        }
++        assert_eq!(credits, (0..2400).collect::<Vec<i64>>(), "credit order");
++        assert!(total.drawn_ahead_batches > 0, "nothing was drawn ahead: {total:?}");
++        assert!(total.uncredited_at_draw_sum >= total.drawn_ahead_batches);
++        assert!(total.uncredited_at_draw_sum <= 2 * total.drawn_ahead_batches);
++        assert_eq!(total.gated_seed_batches, 1, "{total:?}");
++    }
++
++    #[test]
++    fn aos_pool_drains_with_every_batch_credited_and_closed() {
++        let nine_batches = |_: u64, batches: u64| (batches < 9).then_some(usize::MAX);
++        let mut plan = SyntheticPlan::new();
++        let counter = AtomicI64::new(0);
++        let runs = SyntheticAosRuns::new(true);
++        let result = run_aos_release(
++            &mut plan,
++            10,
++            8,
++            &counter,
++            nine_batches,
++            &|run_id, work| runs.run(run_id, work),
++        );
++        assert_eq!(result.session.runs, 90);
++        assert_eq!(result.session.batches, 9);
++        assert_eq!(result.failed, 0);
++        assert_eq!(runs.finished.load(Ordering::Relaxed), 90, "runs were left in flight");
++        assert_eq!(counter.load(Ordering::Relaxed), 90);
++        assert_eq!(plan.credited, 90, "children were left uncredited");
++        assert_eq!(plan.closed, 9, "batches were left open");
++        assert_eq!(plan.events.last(), Some(&PlanEvent::Close(false)));
++        assert!(
++            result.session.job_wall_ns <= result.session.workers * result.session.pool_wall_ns,
++            "job wall exceeds worker capacity: {:?}",
++            result.session
++        );
++        std::thread::sleep(std::time::Duration::from_millis(5));
++        assert_eq!(runs.finished.load(Ordering::Relaxed), 90);
++    }
++
++    #[test]
++    fn aos_pool_issues_whole_batches_past_the_slice_cap() {
++        let flag = AtomicBool::new(false);
++        for workers in [1, 30] {
++            let limit = SliceLimit {
++                budget: SliceBudget::Runs(600),
++                started: Instant::now(),
++                cancelled: &flag,
++            };
++            let mut cancelled = false;
++            let mut plan = SyntheticPlan::new();
++            let counter = AtomicI64::new(0);
++            let runs = SyntheticAosRuns::new(workers > 1);
++            let result = run_aos_release(
++                &mut plan,
++                32,
++                workers,
++                &counter,
++                |issued, batches| limit.next_batch(issued, batches, &mut cancelled),
++                &|run_id, work| runs.run(run_id, work),
++            );
++            assert_eq!(result.session.runs, 608, "at {workers} workers");
++            assert_eq!(result.session.batches, 19);
++            assert_eq!(counter.load(Ordering::Relaxed), 608);
++            assert_eq!(plan.credited, 608);
++            assert!(!cancelled);
++        }
++    }
++
++    /// The campaign arm's pool and `AosExplorer::step` on a real protocol:
++    /// with one worker, every batch leaves the two controllers with the same
++    /// random stream position, bandit and population, and the same run ids.
++    #[test]
++    fn aos_arm_at_one_worker_matches_step() {
++        use crate::simulator::{arm_selector, fault_timing, ghost_release, run_cap, timer_context};
++
++        const SPEC: &str = include_str!("../../tests/fixtures/kv.spur");
++        const CONFIG: &str = r#"{
++            "num_servers": {"min": 3, "max": 3},
++            "num_write_ops": {"min": 1, "max": 3},
++            "num_read_ops": {"min": 1, "max": 2},
++            "num_keys": {"min": 1, "max": 1},
++            "num_crashes": {"min": 0, "max": 1},
++            "dependency_density": [0.0],
++            "num_runs_per_config": 1,
++            "max_iterations": 400,
++            "session_seed": 77,
++            "feedback": {"mode": "timeline"}
++        }"#;
++        let _serial = config_override::exclusive_session();
++        let program = crate::compiler::compile(SPEC, "kv.spur")
++            .into_program()
++            .expect("spec compiles");
++        let config: ExplorerConfig = serde_json::from_str(CONFIG).expect("config parses");
++        let scratch = std::env::temp_dir().join("spur_aos_arm_one_worker");
++        let _ = std::fs::remove_dir_all(&scratch);
++        let attribution = RunAttribution {
++            arm: Arc::from("aos"),
++            arm_index: 0,
++            config_index: -1,
++            variant_bits: 0,
++        };
++        let one = rayon::ThreadPoolBuilder::new()
++            .num_threads(1)
++            .build()
++            .expect("one-thread pool");
++        let reset = || {
++            run_cap::reset();
++            arm_selector::reset();
++            fault_timing::reset();
++            ghost_release::reset();
++            timer_context::reset();
++        };
++        let batch_size = 8;
++        let slices: [u64; 7] = [1, 1, 1, 1, 1, 1, 20];
++
++        let mut fingerprints = Vec::new();
++        {
++            reset();
++            let dir = scratch.join("step");
++            std::fs::create_dir_all(&dir).expect("scratch");
++            let writer: Arc<dyn HistoryWriter> =
++                Arc::from(create_writer(LogBackend::Parquet, dir.to_str().unwrap()).expect("writer"));
++            let counter = AtomicI64::new(0);
++            let weights = config.feedback.weights;
++            let ctx = StepCtx {
++                program: &program,
++                writer: &writer,
++                run_counter: &counter,
++                weights: &weights,
++                session_seed: config.session_seed,
++                attribution: &attribution,
++            };
++            let mut explorer =
++                AosExplorer::<TimelineFeedback<false>>::new(config.clone(), batch_size, weights, config.session_seed);
++            for slice_runs in slices {
++                let mut issued = 0u64;
++                while issued < slice_runs {
++                    one.install(|| explorer.step(&ctx));
++                    issued += batch_size as u64;
++                }
++                fingerprints.push((explorer.controller_fingerprint(), counter.load(Ordering::Relaxed)));
++            }
++            writer.shutdown();
++        }
++
++        reset();
++        let dir = scratch.join("pool");
++        std::fs::create_dir_all(&dir).expect("scratch");
++        let writer: Arc<dyn HistoryWriter> =
++            Arc::from(create_writer(LogBackend::Parquet, dir.to_str().unwrap()).expect("writer"));
++        let counter = AtomicI64::new(0);
++        let weights = config.feedback.weights;
++        let ctx = StepCtx {
++            program: &program,
++            writer: &writer,
++            run_counter: &counter,
++            weights: &weights,
++            session_seed: config.session_seed,
++            attribution: &attribution,
++        };
++        let mut explorer =
++            AosExplorer::<TimelineFeedback<false>>::new(config.clone(), batch_size, weights, config.session_seed);
++        for (slice, slice_runs) in slices.into_iter().enumerate() {
++            let (runner, mut controller) = explorer.split();
++            let result = run_aos_release(
++                &mut controller,
++                batch_size,
++                1,
++                &counter,
++                |issued, batches| (batches == 0 || issued < slice_runs).then_some(usize::MAX),
++                &|run_id, work| runner.run(&ctx, run_id, work),
++            );
++            assert_eq!(result.session.drawn_ahead_batches, 0);
++            assert_eq!(result.session.gated_seed_batches, 0);
++            let got = (explorer.controller_fingerprint(), counter.load(Ordering::Relaxed));
++            assert_eq!(got, fingerprints[slice], "controllers differ after slice {slice}");
++        }
++        writer.shutdown();
++        let ((_, _, population, seeded), _) = &fingerprints[slices.len() - 1];
++        assert!(*seeded && population.len() > 1, "the population never grew, so the check is vacuous");
++        let _ = std::fs::remove_dir_all(&scratch);
++    }
++
+     #[test]
+     fn slice_limit_issues_a_first_batch_and_stops_on_budget_or_cancel() {
+         let flag = AtomicBool::new(false);
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index 004b367..3c4f961 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -1910,7 +1910,7 @@ impl Population {
+ }
+ 
+ /// Outcome of one controller run, before bandit credit is assigned.
+-struct AosChild {
++pub(crate) struct AosChild {
+     op: Operator,
+     workload_seed: u64,
+     individual: Option<Individual>,
+@@ -2557,6 +2557,138 @@ impl<F: Feedback> Strategy<F> for AosExplorer<F> {
+     }
+ }
+ 
++/// One position of an adaptive-operator-selection batch: a fresh random
++/// scenario when the batch seeds the population, otherwise the operator and
++/// parent drawn for it.
++pub(crate) struct AosWork(Option<(Operator, Individual)>);
++
++/// What every run of an adaptive-operator-selection batch reads, borrowed
++/// apart from the controller so runs can execute while it draws and credits.
++pub(crate) struct AosRunner<'a, F: Feedback> {
++    envelope: &'a ExplorerConfig,
++    global_state: &'a GlobalState<F>,
++    weights: &'a CoverageConfig,
++}
++
++/// The adaptive-operator-selection controller: the random stream, bandit and
++/// population that pick each run's work, and the per-scenario tuple sets that
++/// finished runs are credited against.
++pub(crate) struct AosController<'a> {
++    ctrl_rng: &'a mut SmallRng,
++    bandit: &'a mut Bandit,
++    scenario_tuples: &'a mut HashMap<u64, HashSet<TimelineTuple>>,
++    population: &'a mut Population,
++    seeded: &'a mut bool,
++}
++
++impl<F: Feedback> AosExplorer<F> {
++    pub(crate) fn split(&mut self) -> (AosRunner<'_, F>, AosController<'_>) {
++        (
++            AosRunner {
++                envelope: &self.envelope,
++                global_state: &self.global_state,
++                weights: &self.weights,
++            },
++            AosController {
++                ctrl_rng: &mut self.ctrl_rng,
++                bandit: &mut self.bandit,
++                scenario_tuples: &mut self.scenario_tuples,
++                population: &mut self.population,
++                seeded: &mut self.seeded,
++            },
++        )
++    }
++
++    /// The controller state a pick depends on, for comparing two explorers.
++    #[cfg(test)]
++    pub(crate) fn controller_fingerprint(&self) -> (SmallRng, [u64; 4], Vec<(u64, u64, u64)>, bool) {
++        (
++            self.ctrl_rng.clone(),
++            [
++                self.bandit.q[0].to_bits(),
++                self.bandit.q[1].to_bits(),
++                self.bandit.p[0].to_bits(),
++                self.bandit.p[1].to_bits(),
++            ],
++            self.population
++                .individuals
++                .iter()
++                .map(|x| (x.workload_seed, x.timeline_hash, x.score.to_bits()))
++                .collect(),
++            self.seeded,
++        )
++    }
++}
++
++impl<F: Feedback> AosRunner<'_, F> {
++    /// Runs one position with the same seeds and inputs `AosExplorer::step`
++    /// gives it.
++    pub(crate) fn run(&self, ctx: &StepCtx, run_id: i64, work: &AosWork) -> AosChild {
++        match &work.0 {
++            None => {
++                let mut cfg_rng =
++                    SmallRng::seed_from_u64(derive_seed(ctx.session_seed, run_id, CONFIG_SALT));
++                let cfg = SingleRunConfig::random(self.envelope, &mut cfg_rng);
++                run_recorded::<F>(
++                    ctx.program,
++                    ctx.writer,
++                    self.global_state,
++                    self.weights,
++                    cfg,
++                    ctx.session_seed,
++                    run_id,
++                    ctx.attribution,
++                )
++            }
++            Some((op, parent)) => run_aos_child::<F>(
++                ctx.program,
++                ctx.writer,
++                self.global_state,
++                self.weights,
++                self.envelope,
++                run_id,
++                *op,
++                parent,
++                ctx.attribution,
++            ),
++        }
++    }
++}
++
++impl AosController<'_> {
++    /// Whether the next batch seeds the population with fresh scenarios.
++    pub(crate) fn seeding(&self) -> bool {
++        !*self.seeded || self.population.individuals.is_empty()
++    }
++
++    /// The next position's work. A seed position draws nothing from the
++    /// random stream; any other position draws an operator, then a parent.
++    pub(crate) fn draw(&mut self, seed: bool) -> AosWork {
++        if seed {
++            return AosWork(None);
++        }
++        let op = self.bandit.pick(&mut *self.ctrl_rng);
++        let parent = self
++            .population
++            .select_parent(&mut *self.ctrl_rng)
++            .unwrap()
++            .clone();
++        AosWork(Some((op, parent)))
++    }
++
++    pub(crate) fn credit(&mut self, child: AosChild) {
++        aos_credit_and_insert(child, self.scenario_tuples, self.bandit, self.population);
++    }
++
++    /// Closes a batch once every one of its children is credited.
++    pub(crate) fn finish_batch(&mut self, seed: bool) {
++        self.bandit.recompute();
++        if seed {
++            *self.seeded = true;
++        }
++    }
++}
++
+ /// One unit of Mode B work: a fresh curriculum-lowered scenario to record, or a
+ /// corpus parent to refine by tape mutation.
+ enum SeedOrRefine {
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index ee9808b..674c56c 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -130,6 +130,9 @@ static GP_BATCHED_RUN_WALL_NS: AtomicU64 = AtomicU64::new(0);
+ static GP_BATCHED_POOL_WALL_NS: AtomicU64 = AtomicU64::new(0);
+ static GP_BATCHED_BATCHES: AtomicU64 = AtomicU64::new(0);
+ static GP_BATCHED_RUNS: AtomicU64 = AtomicU64::new(0);
++static AP_DRAWN_AHEAD_BATCHES: AtomicU64 = AtomicU64::new(0);
++static AP_GATED_SEED_BATCHES: AtomicU64 = AtomicU64::new(0);
++static AP_UNCREDITED_AT_DRAW_SUM: AtomicU64 = AtomicU64::new(0);
+ static GP_WRITER_BLOCKED_NS: AtomicU64 = AtomicU64::new(0);
+ static HW_BUSY_NS: AtomicU64 = AtomicU64::new(0);
+ static HW_QUEUE_FULL_SENDS: AtomicU64 = AtomicU64::new(0);
+@@ -906,6 +909,9 @@ pub fn set_enabled(on: bool) {
+             &GP_BATCHED_BATCHES,
+             &GP_BATCHED_RUNS,
+             &GP_WRITER_BLOCKED_NS,
++            &AP_DRAWN_AHEAD_BATCHES,
++            &AP_GATED_SEED_BATCHES,
++            &AP_UNCREDITED_AT_DRAW_SUM,
+         ] {
+             c.store(0, Ordering::Relaxed);
+         }
+@@ -3010,6 +3016,43 @@ pub fn record_batched_pool(workers: u64, runs: u64, pool_wall_ns: u64, job_wall_
+     GP_BATCHED_RUNS.fetch_add(runs, Ordering::Relaxed);
+ }
+ 
++/// What one campaign adaptive-operator-selection slice's pool did.
++/// `pool_wall_ns` spans the whole slice, including the time the coordinator
++/// spends drawing and crediting between completions. A batch is drawn ahead
++/// when an earlier batch was still uncredited at its draw;
++/// `uncredited_at_draw_sum` sums those earlier uncredited batches over every
++/// draw. `gated_seed_batches` counts the waits of a seed batch that could not
++/// be drawn because an earlier batch was uncredited.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct AosPoolSession {
++    pub workers: u64,
++    pub pool_wall_ns: u64,
++    pub job_wall_ns: u64,
++    pub runs: u64,
++    pub batches: u64,
++    pub drawn_ahead_batches: u64,
++    pub gated_seed_batches: u64,
++    pub uncredited_at_draw_sum: u64,
++}
++
++/// One campaign adaptive-operator-selection slice's pool drained. Its clocks
++/// and counts land in the `batched_` leaves with capacity taken over the
++/// slice's whole pool wall.
++pub fn record_aos_pool(s: &AosPoolSession) {
++    if !enabled() {
++        return;
++    }
++    let capacity = s.workers.saturating_mul(s.pool_wall_ns);
++    GP_BATCHED_WORKER_IDLE_NS.fetch_add(capacity.saturating_sub(s.job_wall_ns), Ordering::Relaxed);
++    GP_BATCHED_RUN_WALL_NS.fetch_add(s.job_wall_ns, Ordering::Relaxed);
++    GP_BATCHED_POOL_WALL_NS.fetch_add(s.pool_wall_ns, Ordering::Relaxed);
++    GP_BATCHED_BATCHES.fetch_add(s.batches, Ordering::Relaxed);
++    GP_BATCHED_RUNS.fetch_add(s.runs, Ordering::Relaxed);
++    AP_DRAWN_AHEAD_BATCHES.fetch_add(s.drawn_ahead_batches, Ordering::Relaxed);
++    AP_GATED_SEED_BATCHES.fetch_add(s.gated_seed_batches, Ordering::Relaxed);
++    AP_UNCREDITED_AT_DRAW_SUM.fetch_add(s.uncredited_at_draw_sum, Ordering::Relaxed);
++}
++
+ /// A fresh grid-arm run recorded `words` scheduling draws.
+ #[inline]
+ pub fn record_replay_tape_words(words: u64) {
+@@ -7217,10 +7260,12 @@ impl ReplayStats {
+ /// `fresh_ahead_launched` counts fresh runs started before their batch's
+ /// slots were drawn. The `batched_` leaves cover strategies that run a batch
+ /// to completion as a whole, where every worker waits for the batch's
+-/// slowest run. `writer_blocked_ns` is the part of grid `run_wall_ns`
+-/// that runs spent waiting for room in the history writer's queue, so
+-/// `(run_wall_ns - writer_blocked_ns) / (workers x pool_wall_ns)` is busy
+-/// share with that waiting removed.
++/// slowest run, and the campaign's adaptive-operator-selection arm, whose
++/// batches overlap and which records one pool per slice over its whole wall.
++/// `writer_blocked_ns` is the part of grid `run_wall_ns` that runs spent
++/// waiting for room in the history writer's queue, so `(run_wall_ns -
++/// writer_blocked_ns) / (workers x pool_wall_ns)` is busy share with that
++/// waiting removed.
+ #[derive(Serialize, Debug)]
+ pub struct GridPoolStats {
+     pub worker_idle_ns: u64,
+@@ -7262,6 +7307,26 @@ impl GridPoolStats {
+     }
+ }
+ 
++/// The campaign adaptive-operator-selection pool's draws: batches drawn while
++/// an earlier batch was uncredited, the uncredited earlier batches summed over
++/// every draw, and the waits of seed batches that may not be drawn ahead.
++#[derive(Serialize, Debug)]
++pub struct AosPoolStats {
++    pub drawn_ahead_batches: u64,
++    pub gated_seed_batches: u64,
++    pub uncredited_at_draw_sum: u64,
++}
++
++impl AosPoolStats {
++    fn read() -> Self {
++        Self {
++            drawn_ahead_batches: AP_DRAWN_AHEAD_BATCHES.load(Ordering::Relaxed),
++            gated_seed_batches: AP_GATED_SEED_BATCHES.load(Ordering::Relaxed),
++            uncredited_at_draw_sum: AP_UNCREDITED_AT_DRAW_SUM.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// The timer-context block: the learner's probe traffic, the steered rolls
+ /// that applied a learned multiplier, the rolls an unsupported selector
+ /// excluded, and a gauge of the cells currently engaged. `cells_engaged` is
+@@ -7349,6 +7414,7 @@ pub struct UtilizationSnapshot {
+     pub steer_terms: SteerTermStats,
+     pub history_writer: HistoryWriterStats,
+     pub grid_pool: GridPoolStats,
++    pub aos_pool: AosPoolStats,
+     pub timeline: TimelineStats,
+     pub run_setup: RunSetupStats,
+     pub trace_format: TraceFormatStats,
+@@ -7579,6 +7645,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         steer_terms: SteerTermStats::read(),
+         history_writer: HistoryWriterStats::read(),
+         grid_pool: GridPoolStats::read(),
++        aos_pool: AosPoolStats::read(),
+         timeline: TimelineStats::read(),
+         run_setup: RunSetupStats::read(),
+         trace_format: TraceFormatStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index f35a5bd..59befa5 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    AosPoolStats, CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1466,6 +1466,27 @@ fn grid_pool_leaves(prefix: &str, g: &GridPoolStats) -> Vec<(String, Value)> {
+     ]
+ }
+ 
++fn aos_pool(m: &mut Marks) -> AosPoolStats {
++    AosPoolStats {
++        drawn_ahead_batches: m.int(),
++        gated_seed_batches: m.int(),
++        uncredited_at_draw_sum: m.int(),
++    }
++}
++
++fn aos_pool_leaves(prefix: &str, a: &AosPoolStats) -> Vec<(String, Value)> {
++    let AosPoolStats {
++        drawn_ahead_batches,
++        gated_seed_batches,
++        uncredited_at_draw_sum,
++    } = a;
++    vec![
++        leaf(prefix, "drawn_ahead_batches", *drawn_ahead_batches),
++        leaf(prefix, "gated_seed_batches", *gated_seed_batches),
++        leaf(prefix, "uncredited_at_draw_sum", *uncredited_at_draw_sum),
++    ]
++}
++
+ fn channel_table(m: &mut Marks) -> ChannelTableStats {
+     ChannelTableStats {
+         lookups: m.int(),
+@@ -2310,6 +2331,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         steer_terms: _,
+         history_writer: _,
+         grid_pool: _,
++        aos_pool: _,
+         timeline: _,
+         run_setup: _,
+         trace_format: _,
+@@ -2369,6 +2391,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "steer_terms",
+         "history_writer",
+         "grid_pool",
++        "aos_pool",
+         "timeline",
+         "run_setup",
+         "trace_format",
+@@ -2461,6 +2484,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.plan_deps = plan_deps(&mut m);
+     s.history_writer = history_writer(&mut m);
+     s.grid_pool = grid_pool(&mut m);
++    s.aos_pool = aos_pool(&mut m);
+     s.timeline = timeline(&mut m);
+     s.run_setup = run_setup(&mut m);
+     s.trace_format = trace_format(&mut m);
+@@ -2499,6 +2523,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(timer_context_leaves("timer_context", &s.timer_context));
+     expected.extend(history_writer_leaves("history_writer", &s.history_writer));
+     expected.extend(grid_pool_leaves("grid_pool", &s.grid_pool));
++    expected.extend(aos_pool_leaves("aos_pool", &s.aos_pool));
+     expected.extend(timeline_leaves("timeline", &s.timeline));
+     expected.extend(run_setup_leaves("run_setup", &s.run_setup));
+     expected.extend(trace_format_leaves("trace_format", &s.trace_format));
+@@ -2563,6 +2588,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "timer_context",
+         "history_writer",
+         "grid_pool",
++        "aos_pool",
+         "timeline",
+         "run_setup",
+         "trace_format",

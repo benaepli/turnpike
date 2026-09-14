@@ -4595,3 +4595,34 @@ and the pool moves worker time from grid runs to AOS runs (AOS share of runs
 while total runs per second rise. The pool buys runs the search objective does
 not count at the cost of runs it does. Chunk 2 (the grader's minimum) runs
 before any decision.
+
+### aos-draw-ahead-pool: lite chunk 2 and decision (autonomous)
+
+After two chunks (480 s of exposure a side, 0 violations, throughput
+1.023), every rung per explore-second reads about 4 percent below the
+baseline in both chunks: depth>=4 0.9575, depth>=6 0.9567, depth>=8 0.9578
+(per chunk 164.5 and 165.5 events per second on the candidate), depth>=9
+0.9643, depth>=10 0.9649, pGreater near 0 on the first three. The rule
+reads human: the -4.22 percent on depth>=8 sits inside the 5 percent layout
+floor, while its own blockers name depth>=8 per second separated below at
+z 2.7, and no remaining chunk can produce a separated advance. The finish
+record (per-run deep guards) is at tmp/loop/perf/lite-aos-draw-ahead-pool/
+finish.json and its reading is appended below the decision row's reason.
+
+Decision: closed. The loss is uniform across rungs and is what the mechanism
+registered before chunk 2 predicts: worker time moves from the grid runs the
+lite per-second rate counts to the AOS runs it excludes (AOS share 0.131 to
+0.181 in the perf rounds), so deep events per explore-second fall even as
+total runs rise. Chunks 3-4 cannot reach an advance, and a 4 percent loss of
+the search objective is not a trade this loop makes for runs the objective
+does not count. Its perf counters were excellent; they measured utilization,
+not search. Patch kept.
+
+What it teaches: in this campaign, idle AOS capacity is not free capacity -
+the AOS arm's share of workers is set by its slice, and filling its idle
+workers with more AOS runs displaces nothing only if grid runs were not
+waiting for those workers. Pricing a contention change here has to follow
+where the recovered worker time goes, by arm, against what the objective
+counts.
+
+Next: timeline-store-one-lock, candidate profile then three rounds.
