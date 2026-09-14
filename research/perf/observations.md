@@ -5871,3 +5871,28 @@ code is unaffected (the function is dead and every caller is a test), so the
 post-merge baseline running on the 2da4e1a binary stands for the merge. Fixed
 in a follow-up spur commit that only moves attributes and comments; the release
 build and tests run after the baseline, so nothing compiles while it measures.
+
+### Post-merge baseline: the plan merge stands
+
+Fresh baseline cache for 2da4e1a (research/perf/baselines/20f24aa58dda-30-f9daa01b-120-bb813e711.json):
+mean 9,015.2 runs per second over three rounds, spread 0.020. The revert line
+was 8,414.6; against the 8,674.9 cached for 85af34d the tree is 3.9 percent
+faster, inside the graded interval [0.9635, 1.1677] and below its 1.0607 mean.
+Ledger row appended to research/lite/epoch-baseline.json: ratio 1.0607,
+cumulative 4.288. The release build and tests at the follow-up 0b0004e
+(test gate restored) are running before the next profile.
+
+Digest, iteration 21: redundant-work lens on 85af34d. Caller attribution
+answered the focus: the NodeIndex collect is the plan engine rescanning its
+status map every step, the log line is the Beta priority draw that feeds
+scheduling (not redundant), and the larger EcoVec drop is the same drops under
+a new symbol. Both parts merged as two spur commits after every guard held -
+four of them settled on low-cutoff profiles, since removed lines fall below
+the 0.3 cutoff and their bound alone cannot decide a tight limit - and three
+rounds at 1.0607 with no downward separation. Tree now 2da4e1a (plus the test
+gate fix 0b0004e), 9,015.2 runs per second. Lessons: a count kept at the only
+transitions that change it removed a per-step scan without moving its cost
+into exec_plan, where the earlier dense-status attempt's saving had
+reappeared; a cost guard read on a removed line needs a low-cutoff profile
+registered before it is read; an implementer's insertion can displace an
+attribute, so the release build's warning count is worth reading at merge.

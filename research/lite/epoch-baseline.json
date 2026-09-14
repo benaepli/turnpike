@@ -469,6 +469,22 @@
    "cacheFile": "research/perf/baselines/ccdb1f916cf0-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-14T18:50:35.689741Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The ratio field is the graded cross-binary runs per second, 1.0705 [1.0324, 1.1100] over six rounds, separated upward, as the departure registered before rounds required after the ceval location guard missed by 0.08 x r; the counter primary value_sig.leaf_hashes_deferred read 10.30 [9.96, 10.66] against [9.0, 16.0], every added ratio in band every round. Neutrality: the learned_cap_reached share outside the spread is covered by an identical caps-engaged one-thread identity of 100,000 runs. A placebo reading outside its described band was put to the user, who chose to merge. Revert criterion registered before the check: below 7,876.7 runs per second. Post-merge baseline 8674.9 against 8,120.3 cached for c9c54fc, plus 6.8 percent: the merge stands."
+  },
+  {
+   "name": "plan-bookkeeping-and-known-valid-text",
+   "commit": "c0a7f42",
+   "spurCommit": "2da4e1a",
+   "ratio": 1.0607,
+   "cumulative": 4.288453001446547,
+   "measuredRps": 9015.185268993635,
+   "measuredRpsChunks": [
+    8820.3,
+    9059.4,
+    9165.8
+   ],
+   "cacheFile": "research/perf/baselines/20f24aa58dda-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-14T20:13:41.191819Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. Two spur commits: plan-bookkeeping-answered-on-change and known-valid-text-and-literals-without-placeholders. The ratio field is the graded cross-binary runs per second, 1.0607 [0.9635, 1.1677] over three rounds, read for regression only; the merge rests on its plain-cycles profile guards (plan collect family 1.57 to 0.00, lookup family 1.16 to 0.46, exec_plan down; from_utf8 and from_elem to 0.00, drop_glue<Value> down 0.67, ceval within its relocation limit) and exact counters. Arm shares outside the spread covered by an identical caps-engaged one-thread identity of 100,000 runs. Revert criterion registered before the check: below 8,414.6 runs per second. Post-merge baseline 9015.2 against 8,674.9 cached for 85af34d, plus 3.9 percent: the merge stands. A follow-up spur commit 0b0004e restores a displaced test gate and changes no release code."
   }
  ]
 }
