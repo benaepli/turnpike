@@ -5896,3 +5896,32 @@ into exec_plan, where the earlier dense-status attempt's saving had
 reappeared; a cost guard read on a removed line needs a low-cutoff profile
 registered before it is read; an implementer's insertion can displace an
 attribute, so the release build's warning count is worth reading at merge.
+
+## Direction review after the plan merge (autonomous)
+
+Called for by the merge. The follow-up 0b0004e builds with the three older
+coverage.rs warnings only, and all 535 release tests pass across 26 suites.
+Fresh plain-cycles profile research/perf/profiles/0b0004e.md (0.3 percent
+cutoff), read against 85af34d.md with r = 20.81 / 19.80 = 1.051.
+- The merge landed as priced: exec_plan 3.17 to 2.88 raw, drop_glue<Value>
+  1.14 to 0.43; the plan collect and lookup lines are gone.
+- Shape now: interpreter family 23.20 raw (ceval 8.70, exec loops 14.50),
+  scheduler family 13.21, memmove 6.83, EcoVec<Value> drop 4.09, clone 3.65,
+  drop_glue<ValueKind> 3.02, allocator 3.51. Shares of untouched lines rise as
+  merged lines fall, so raw rises of 0.5-1 point on the interpreter and
+  scheduler are the normalization, not new cost.
+- Writers: 8.92 percent of samples on parquet-writer threads above the
+  cutoff (Int64 interner 1.43, memmove 1.34, snappy compress 1.07, memcmp
+  0.97, writer_loop 0.74). In iteration 21's graded rounds at 8,650-9,100 runs
+  per second the writers read 3.29-3.33 busy-seconds per wall second (82-83
+  percent of four), queue_full_sends 151-444 per round, blocked 0.14-0.56 s
+  per round, each rising with every merge; the baseline side read 79 percent.
+
+Verdict: the simulation-thread costs that remain are the interpreter and
+scheduler proper and value traffic, each attacked several times; the writer
+path is the one resource trending toward a hard limit, where a saving on the
+simulation side will start to buy blocking instead of runs. Iteration 22 takes
+the contention and parallelism lens, focused on the writer path (per-command
+work, batching, encoding, the queue) and on shared state touched by all 30
+simulation threads. Pool: grid-pool-worker-continues and
+writer-capacity remain the prior entries on this lens; nothing pruned.
