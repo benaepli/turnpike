@@ -3403,3 +3403,35 @@ run on the composite reads identical - the composite's code is a superset
 of H1's, and H3 alone was byte-identical, so an identical reading clears
 H1's neutrality - and (b) a three-round session of the H1-only binary shows
 its counter in place and runs per second not separating downward.
+
+### Caps-engaged identity run on the composite: identical
+
+One thread, general_vr.json plus session_seed 1000,
+deterministic_slice_runs 20000, deterministic_rounds 1; baseline 5df7084
+against the composite binary, both 100,000 runs, both exit 0.
+- runs (16 columns), executions (24,094,053 rows, payload included), logs
+  (76,197,352) and traces (86,370,102, payload included): 0 rows in either
+  EXCEPT ALL direction, compared in twenty run_id ranges of 5,000.
+- end reasons equal: deadlock 19 (1.9 per 10,000), iterations_exhausted
+  30,030, learned_cap_reached 18,308, plan_complete 29,129,
+  stall_cap_reached 22,514. Both caps engaged with equal figures
+  (stall_cap.stops 22,514, treated_runs 70,260; run_cap.cap_recomputes 2,
+  probes 3,143); stall_cap_runs.csv sha256 14c0d98a..., the hash the
+  compiled-interpreter identity run recorded.
+- utilization leaves: only clocks, the disclosed frame and writer-buffer
+  counters, folded_increments and the four new counters differ.
+  frame.calls 236,198,217 and params_filled 371,343,754 on both sides.
+- campaign.json: one leaf beyond those, arms[0].counters.history_writer.
+  commands 20,000 against 19,999, with the session total 100,000 on both.
+  The writer thread increments it when it takes a run from the queue and the
+  explorer snapshots per-arm deltas right after run_slice returns, so the
+  candidate's last grid run was taken between arm 0's end snapshot and arm
+  1's start. Writer-thread timing, not run content.
+
+Departure from the deadlock-share neutrality blocker, recorded: at one
+thread with both caps engaged the two binaries make identical executions and
+end in identical ways, so the 30-thread shift (2.62 against 2.07 per 10,000)
+is the faster binary moving through the learned caps and the slice
+allocation, the same throughput response compiled-interpreter showed. The
+composite's code is a superset of frame-slots-by-liveness's, so this reading
+clears the H1-only candidate's neutrality as well; H3 is closed regardless.
