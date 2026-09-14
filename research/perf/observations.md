@@ -4046,3 +4046,43 @@ under 1.
 Decision on H2 deferred until the composite profile is read, because the
 composite's attribution rule reads H1's guards as differences against this
 profile.
+
+### records-boxed-and-index-lists-inline: composite profile, H1 guards, departure registered before rounds
+
+Profile 45517fd-cand-records-boxed-and-index-lists-inline.md (plain
+cycles); R_cand = 11.68, r = 1.016.
+- H1 memmove self 5.92 to 2.81 (2.77 x r), at most 3.65: held, well
+  inside (the moves left, beyond the corrected 2.7-3.6 expectation).
+- H1 exec_ops self 7.53 to 7.97 (7.85 x r), at most 7.93: held, narrowly.
+- H1 scheduler family, composite minus index-lists-only, self rows: 14.13
+  x r minus 13.28 x r = +0.85, at most +0.6: FIRED.
+- H1 allocator family delta: composite 4.98 (malloc 2.53, _int_malloc 0.94
+  from the inclusive table, cfree 0.38, _int_free_chunk 1.13, realloc below
+  cutoff) against the index-lists-only 3.35, where _int_malloc and realloc
+  were below both tables' cutoff and read as 0 though each may be up to 1:
+  +1.61 as read, anywhere from about -0.4 to +1.6 in truth, at most +0.7:
+  unverifiable, not a clean fire.
+- composite allocator family 4.98 (4.90 x r), at most 5.08: held.
+- walk_recovery_placebo self 1.36 (1.34 x r), below its described
+  [1.49, 2.09] on both candidate profiles: referred to the search loop's
+  owner before any merge.
+- composite against 45517fd, self rows: memmove -3.11, scheduler family
+  +1.41, allocator family -0.90 (5.88 to 4.98), exec_ops +0.44, placebo
+  -0.43.
+
+Departure registered before any round (autonomous). By the frozen text any
+fired guard refutes, and the attribution rule would close both parts (H2's
+scheduler guard fired by 0.19; H1's scheduler delta by 0.25). This case
+differs from the closes of trace-payload-escaped-in-one-pass and
+node-env-detached-per-segment, where the mechanism's own central observable
+failed (the scan moved; make_unique stayed). Here the central observable -
+memmove leaving - held with room, and what fired are the allowances set
+for work relocated into the scheduler, which are proxies for net cost. The
+wall reads net cost directly, and three rounds are affordable. Criterion,
+fixed now and stricter than the frozen wall reading: the composite merges
+only if cross-binary runs per second separates UPWARD (the interval's lower
+edge above 1.0) with every other falsifier held and the neutrality check
+inside or covered by the identical caps-engaged run. Not separated, or
+separated downward: closed, both parts, with no second session. A merge is
+further held for the user's reading of the placebo referral before it is
+committed, since the placebo is the search loop's control.
