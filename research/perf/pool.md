@@ -1158,3 +1158,53 @@ rounds of clock each:
 ## worker-continues-with-aos-draw-ahead
 
 - category: combined | origin: proposer | status: not built (iteration 17) - ties the AOS pool to an engine likely to close, loses the grid change's neutrality reading inside affecting rounds, and muddies attribution; judge net 2
+
+## scheduler-probe-counters-folded-per-run
+
+- category: contention and parallelism (inside the scheduler family) | origin: proposer | status: admitted (iteration 18) - building first, alone
+- mechanism: the eight direct shared-atomic leaves the scheduler family writes
+  per step (three TIMER_CONTEXT_BIASED_* statics on one 64-byte line through
+  record_timer_context_bias, crash timing bias examined / withheld, crash
+  placement holds) move into the per-thread stats block, folded at run end.
+- verified by the judge: 0.933 biased steps per step, two writes per call;
+  crash timing 0.198 / 0.099, holds 0.213; the learner atomics are separate
+  statics on other lines; only the reset list and snapshot builders read the
+  moved statics (the campaign reward reads other leaves; slices finish every
+  run before the after-snapshot); failed and panicking runs fold as the 35
+  already-folded counters do, so identity runs must show runs_failed 0. The
+  50-90 ns contended-write calibration holds; about 1.35 ownership transfers
+  per step, not 2.38, so the expected F fall is [2.0, 5.5], not up to 9.
+- frozen: folded_increments per step, baseline over candidate, [0.875,
+  0.905] (per step, since a faster binary shortens runs); one-thread identity
+  difference equal to the eight-leaf sum exactly; F falls at least 1.5 x r
+  (plain-cycles candidate profile); exec_plan (RecordRng) self falls at least
+  0.9 x r; runs per second [1.02, 1.07]; placebo read against 1.44 x r,
+  outside [0.9, 1.1] referred.
+- declarations: search-neutral, shared saving.
+- full record: tmp/loop/perf/it18-judgment.md (H1).
+
+## timer-bias-read-at-the-split
+
+- category: algorithmic | origin: proposer | status: admitted (iteration 18) - with unweighted-steer-counters-derived-at-fold as one commit, graded on the tree the first candidate leaves
+- verified: multiplier() a pure read; the head-timer find side-effect-free on
+  a timer queue; one roll then try_select on both paths, so draws match;
+  neutral. biased_steps is the declared firing counter of the merged lite
+  mechanism timer-admission-context-odds-probe and evaluate.ts stores every
+  leaf, so the meaning change is written into research/lite/observations.md
+  before merge. Band widened to [4.6, 5.3] per grid arm (replay children),
+  [4.3, 5.6] session-wide; realistic saving 0.55-1.3 points.
+- full record: tmp/loop/perf/it18-judgment.md (H2).
+
+## unweighted-steer-counters-derived-at-fold
+
+- category: redundant work | origin: proposer | status: admitted (iteration 18) - with timer-bias-read-at-the-split as one commit
+- exactness false as proposed: route_by_terms' consultation bump runs
+  whenever the audit is enabled, including with steer_audit_always on; the
+  bump is dropped only under audit enabled, no weighted predicate and not
+  steer_audit_always. Under zero weights the derived values equal today's in
+  every round. Realistic saving 0.2-0.6 points (the bumps are already
+  thread-local).
+- combined commit frozen: biased_steps per step as above, folded_increments
+  per step [1.72, 1.85] combined, F falls at least 0.7 x r, runs per second
+  [1.005, 1.025] regression only.
+- full record: tmp/loop/perf/it18-judgment.md (H3).

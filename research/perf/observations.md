@@ -4751,3 +4751,20 @@ Set aside: incremental eligibility counts (queue-eligibility-from-counters'
 closed mechanism), a tournament score memo (at most 0.4), anything touching
 the placebo or audit_multiplier_authority (the search loop's firing
 counter).
+
+### Judgment (autonomous)
+
+scheduler-probe-counters-folded-per-run net 7, built first and alone;
+timer-bias-read-at-the-split net 5 and unweighted-steer-counters-derived-at-
+fold net 3, built as one commit on the tree the first leaves (or re-priced
+with the write saving and graded alone on 11a720c if the first closes).
+Nothing scored 0. The judge reproduced F0 = 13.60 and R_all = 28.70 from the
+plain-cycles profile, checked every per-step count in all nine cached rounds,
+and placed the statics with nm: the three biased counters share one 64-byte
+line, the learner atomics sit elsewhere, and only snapshot builders read the
+moved statics. Corrections are in the pool entries: the first candidate's
+identity scoped to its eight leaves and read per step, its expected F fall cut
+to [2.0, 5.5] (about 1.35 ownership transfers per step, not 2.38 writes); the
+timer change's counter meaning to be written into the lite log before merge;
+the steer counters' exactness fixed for steer_audit_always. None is expected
+to move walk_recovery_placebo; its share is read normalised by r.
