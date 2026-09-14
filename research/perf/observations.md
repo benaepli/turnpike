@@ -3192,3 +3192,36 @@ a fresh one with the same prompt wrote tmp/loop/perf/it13-judgment.md.
   [1.032, 1.056] for regression only.
 - value-without-dead-signature (held) is re-priced if frame-slots lands: its
   ceiling shrinks with the slot count.
+
+### grid-ordered-release-pool-2: lite reading and decision (autonomous)
+
+The lite session ran two graded chunks after the grader fix (the first call
+dropped its baseline chunk when porcupine timed out while the host had
+476 MiB free; the seed is skipped on both sides). Zed was stopped at the
+user's word before the second chunk. `finish` under internal-primary-v3,
+cross-binary (no treatment bit):
+
+- depth>=8 per explore-second 1.4389, separated at z 2.7, outside the 0.05
+  layout floor; improved depth>=8, 9, 10; regressed none.
+- deep guards per run on depth>=6 and depth>=8: unresolvedGuards empty,
+  nothing regressed - held. Per graded run by hand, depth>=8 is 1.072x and
+  depth>=6 1.063x the baseline's rate, so the per-second gain is not bought
+  with shallower runs.
+- violations 0 over 4,384,200 candidate and 3,266,640 baseline runs;
+  throughput 1.3418; exposure 1.0002.
+- adviceVerdict merge; blocker "the regression suite has not passed". Not
+  run, as frozen before any chunk: the protocol panel runs without the
+  campaign block, so GridArm never executes there. This is the panel note,
+  not a waiver.
+- advice: the ledger and the measured drift disagree by 6.5 percent; the
+  lite baseline for edb9e2f is new this session and host drift since the
+  last ledger row is the plain reading.
+
+Decision: merge. The perf reading (1.3497 [1.3233, 1.3767], every frozen
+falsifier held, voiding rule not fired) and the lite reading agree, and the
+only blocker is the one the plan named in advance.
+
+Revert criterion, fixed before the post-merge baseline is measured: the
+merge is reverted if the fresh baseline at the merged spur commit reads
+below 5,446 runs per second over three rounds, the band's lower edge 1.05x
+over the 5,186.6 cached for edb9e2f.
