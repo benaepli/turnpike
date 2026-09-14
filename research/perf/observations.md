@@ -3722,3 +3722,40 @@ Seeds 1000-1002 against the 45517fd baseline (six cached rounds, spread
 
 Buying rounds 4-6 after the candidate profile, which settles whether
 make_unique left and where its cost went.
+
+### node-env-and-in-place-updates: candidate profile and decision (autonomous)
+
+Candidate profile 45517fd-cand-node-env-and-in-place-updates.md against
+45517fd.md; R_cand = 4.09 (exec_plan 1.76, random_range 1.04, NodeIndex
+collect 1.29), r = 1.041.
+- H1 EcoVec<Value>::make_unique self 2.03 to 1.69, at most 0.42: FIRED.
+- H2 GenericNode make_mut inclusive 2.16 to 1.56, at most 0.83: FIRED.
+- H2 GenericHashMap::insert inclusive 3.72 to 3.08, a fall of 0.79 against
+  the scaled base, at least 1.04: FIRED.
+- H2 EcoVec<Value>::reserve self 0.88 to 0.07, fall at least 0.31: held.
+- Value drop family down 1.42 scaled, at least 0.52: held.
+- relocation (ceval, every exec_ops and run_sync_ops, run_self_update) no
+  rise once scaled, at most 1.56: held.
+- description: memmove 3.41 to 3.24, _int_malloc 1.68 to 1.53, cfree 1.59
+  to 1.43.
+
+Decision: closed, both parts, by the frozen attribution rule - H1's
+make_unique guard failed, and H2's own guards failed with
+map_in_place_local 0, so there is no locals-only re-grade. No departure.
+Rounds 4-6, already running, were stopped: no wall reading could change a
+decision taken on frozen falsifiers. Patch kept at
+research/perf/patches/node-env-and-in-place-updates.spur.patch.
+
+What the close teaches. With the node environment detached,
+shared_at_write read 0 in every round and identity run, yet make_unique
+still reads 1.69: most of make_unique is not the node env copy-on-write.
+The judge's "only two make_mut sites" attribution missed a source, so
+make_unique is again unexplained and must be attributed from call stacks,
+not from source reading, before anything else is priced against it. On the
+map side the in-place ops fire about 210 times per run and the root clone
+went (reserve 0.88 to 0.07, make_mut down 0.60), but insert itself stayed
+most of its inclusive cost; the priced 2.8 KB root clone was the smaller
+share. Wall 0.9994 is consistent with a saving too small to see, not with a
+regression.
+
+Next: integer-columns-delta-encoded, graded on 45517fd (unchanged tree).

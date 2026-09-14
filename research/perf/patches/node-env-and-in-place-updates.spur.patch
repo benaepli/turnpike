@@ -1,0 +1,1523 @@
+diff --git a/spur-core/src/compiler/cfg/compiled.rs b/spur-core/src/compiler/cfg/compiled.rs
+index fb30b85..20a25a1 100644
+--- a/spur-core/src/compiler/cfg/compiled.rs
++++ b/spur-core/src/compiler/cfg/compiled.rs
+@@ -153,6 +153,28 @@ pub struct RecvOp {
+     pub next: u32,
+ }
+ 
++/// How a self update changes the collection its destination slot holds.
++#[derive(Debug, Clone, PartialEq)]
++pub enum SelfUpdate {
++    /// `slot = store(slot, key, value)`.
++    Store { key: Opnd, value: Opnd },
++    /// `slot = append(slot, item)`.
++    Append { item: Opnd },
++    /// `slot = erase(key, slot)`.
++    Erase { key: Opnd },
++}
++
++/// An assignment whose right side updates the collection held by the slot
++/// it assigns. `rhs` is the whole right side, for evaluators that must build
++/// the updated value as a separate copy.
++#[derive(Debug, Clone, PartialEq)]
++pub struct SelfUpdateOp {
++    pub dest: Dest,
++    pub update: SelfUpdate,
++    pub rhs: Opnd,
++    pub next: u32,
++}
++
+ /// One vertex decoded. Vertex ids are the label's own targets.
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum Op {
+@@ -181,6 +203,7 @@ pub enum Op {
+     Recv(Box<RecvOp>),
+     Pause(u32),
+     SpinAwait { cond: Opnd, next: u32 },
++    SelfUpdate(Box<SelfUpdateOp>),
+ }
+ 
+ /// The decoded form of a whole program.
+@@ -268,18 +291,29 @@ impl Builder<'_> {
+             Label::Instr(instr, next) => {
+                 let next = vertex(*next);
+                 match instr {
+-                    Instr::Assign(lhs, rhs) | Instr::Copy(lhs, rhs) => match dest(lhs) {
+-                        Dest::Local(slot) => Op::AssignLocal {
+-                            slot,
+-                            next,
+-                            rhs: opnd(rhs),
+-                        },
+-                        Dest::Node(slot) => Op::AssignNode {
+-                            slot,
+-                            next,
+-                            rhs: opnd(rhs),
+-                        },
+-                    },
++                    Instr::Assign(lhs, rhs) | Instr::Copy(lhs, rhs) => {
++                        let dest = dest(lhs);
++                        if let Some(update) = self_update(dest, rhs) {
++                            return Op::SelfUpdate(Box::new(SelfUpdateOp {
++                                dest,
++                                update,
++                                rhs: opnd(rhs),
++                                next,
++                            }));
++                        }
++                        match dest {
++                            Dest::Local(slot) => Op::AssignLocal {
++                                slot,
++                                next,
++                                rhs: opnd(rhs),
++                            },
++                            Dest::Node(slot) => Op::AssignNode {
++                                slot,
++                                next,
++                                rhs: opnd(rhs),
++                            },
++                        }
++                    }
+                     Instr::SyncCall(lhs, name, args) => Op::SyncCall(Box::new(SyncCallOp {
+                         dest: dest(lhs),
+                         callee: self.callee(name),
+@@ -407,6 +441,35 @@ impl Builder<'_> {
+     }
+ }
+ 
++/// Whether `expr` reads the slot `dest` names. Slots of different kinds are
++/// different slots even at the same index.
++fn is_dest(dest: Dest, expr: &Expr) -> bool {
++    match (expr, dest) {
++        (Expr::Var(VarSlot::Local(idx, _)), Dest::Local(d))
++        | (Expr::Var(VarSlot::Node(idx, _)), Dest::Node(d)) => *idx == d,
++        _ => false,
++    }
++}
++
++/// The update an assignment to `dest` makes when its right side changes the
++/// collection `dest` itself holds, matched on the slot rather than the source
++/// name.
++fn self_update(dest: Dest, rhs: &Expr) -> Option<SelfUpdate> {
++    match rhs {
++        Expr::Store(col, key, value) if is_dest(dest, col) => Some(SelfUpdate::Store {
++            key: opnd(key),
++            value: opnd(value),
++        }),
++        Expr::ListAppend(list, item) if is_dest(dest, list) => {
++            Some(SelfUpdate::Append { item: opnd(item) })
++        }
++        Expr::MapErase(key, map) if is_dest(dest, map) => {
++            Some(SelfUpdate::Erase { key: opnd(key) })
++        }
++        _ => None,
++    }
++}
++
+ /// Classifies one expression position.
+ pub fn opnd(expr: &Expr) -> Opnd {
+     match expr {
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index b42d3e5..0cb2ccb 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -1,6 +1,7 @@
+ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::compiled::{
+-    AsyncOp, Dest, ForLoopInOp, Op, TraceDispatchOp, TraceEnterOp, TraceExitOp,
++    AsyncOp, Dest, ForLoopInOp, Op, SelfUpdate, SelfUpdateOp, TraceDispatchOp, TraceEnterOp,
++    TraceExitOp,
+ };
+ use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Program, VarSlot};
+ use crate::simulator::core::compiled_eval::{borrowed, coperand, cvalue};
+@@ -102,7 +103,8 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+     purgatory_config: &PurgatoryConfig,
+     rng: &mut impl StreamRng,
+ ) -> Result<Value<H>, RuntimeError> {
+-    let mut node_env = state.nodes[node_id.index].clone();
++    let mut node_env = take_node_env(state, node_id.index);
++    let entry_writes = node_env.writes;
+     let result = if program.compiled.covers(program.cfg.graph.len()) {
+         let mut tally = InterpreterTally::new();
+         let result = run_sync_ops::<H, L, F>(
+@@ -140,10 +142,26 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+             rng,
+         )
+     };
++    if !H::EAGER {
++        util_stats::record_node_env_segment(node_env.writes != entry_writes, false);
++    }
+     state.nodes[node_id.index] = node_env;
+     result
+ }
+ 
++/// The environment of node `index` for one segment, which the segment must
++/// put back. Under an eager signature policy it is a copy and the state keeps
++/// its own; otherwise it is moved out and the state holds a placeholder that
++/// answers only `sig` and `writes` until it is put back.
++#[inline(always)]
++fn take_node_env<H: HashPolicy>(state: &mut State<H>, index: usize) -> Env<H> {
++    if H::EAGER {
++        state.nodes[index].clone()
++    } else {
++        state.nodes[index].detach()
++    }
++}
++
+ /// Evaluates one expression of a label run from the graph.
+ fn legacy_eval<H: HashPolicy>(
+     local_env: &Env<H>,
+@@ -881,10 +899,21 @@ fn store_dest<H: HashPolicy>(
+ ) {
+     match dest {
+         Dest::Local(idx) => set_local(local_env, idx, val),
+-        Dest::Node(idx) => node_env.set(idx, val),
++        Dest::Node(idx) => set_node(node_env, idx, val),
+     }
+ }
+ 
++/// Write one slot of a node environment from a decoded operation. A segment
++/// holding its node's environment alone finds the slot buffer unshared; a
++/// write that does not is counted.
++#[inline(always)]
++fn set_node<H: HashPolicy>(node_env: &mut Env<H>, slot: u32, val: Value<H>) {
++    if !H::EAGER && !node_env.slots.is_unique() {
++        util_stats::record_node_env_shared_at_write();
++    }
++    node_env.set(slot, val);
++}
++
+ /// The callee of a call whose name was not resolved when the program was
+ /// decoded, with the errors the name lookup gives.
+ fn resolve_by_name<'p>(
+@@ -951,7 +980,7 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+         }
+         Op::AssignNode { slot, next, rhs } => {
+             let v = cvalue(local_env, node_env, rhs, names, t)?;
+-            node_env.set(*slot, v);
++            set_node(node_env, *slot, v);
+             Ok(Flow::Next(*next as usize))
+         }
+         Op::CondLocal { slot, then, els } => {
+@@ -1136,10 +1165,139 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+             pending_trace_payload,
+             t,
+         ))),
++        Op::SelfUpdate(op) => {
++            if H::EAGER {
++                let v = cvalue(local_env, node_env, &op.rhs, names, t)?;
++                store_dest(op.dest, v, local_env, node_env);
++            } else {
++                run_self_update(op, local_env, node_env, names, t)?;
++            }
++            Ok(Flow::Next(op.next as usize))
++        }
+         Op::Send(_) | Op::Recv(_) | Op::Pause(_) | Op::SpinAwait { .. } => Ok(Flow::RecordOnly),
+     }
+ }
+ 
++/// Moves the collection out of the slot `dest` names for an update in place,
++/// leaving Unit there without counting a write. A buffer found shared is
++/// counted as a write to that kind of slot would count it.
++#[inline(always)]
++fn take_slot<H: HashPolicy>(dest: Dest, local_env: &mut Env<H>, node_env: &mut Env<H>) -> Value<H> {
++    let (env, slot) = match dest {
++        Dest::Local(slot) => {
++            if !local_env.slots.is_unique() {
++                util_stats::record_entry_frame_copy();
++            }
++            (local_env, slot)
++        }
++        Dest::Node(slot) => {
++            if !node_env.slots.is_unique() {
++                util_stats::record_node_env_shared_at_write();
++            }
++            (node_env, slot)
++        }
++    };
++    std::mem::replace(&mut env.slots.make_mut()[slot as usize], Value::unit())
++}
++
++/// Stores the updated collection back into the slot `take_slot` emptied, as
++/// one write.
++#[inline(always)]
++fn put_slot<H: HashPolicy>(dest: Dest, val: Value<H>, local_env: &mut Env<H>, node_env: &mut Env<H>) {
++    match dest {
++        Dest::Local(slot) => local_env.set(slot, val),
++        Dest::Node(slot) => node_env.set(slot, val),
++    }
++}
++
++/// Runs a self update the way the tree evaluator runs its right side and the
++/// assignment stores it: the same operands in the same order, the same
++/// errors, the same counts and one slot write. The collection is updated
++/// where it lies once every check has passed, so it is copied only when
++/// something other than the slot also holds it.
++#[inline(never)]
++fn run_self_update<H: HashPolicy>(
++    op: &SelfUpdateOp,
++    local_env: &mut Env<H>,
++    node_env: &mut Env<H>,
++    names: &HashMap<NameId, String>,
++    t: &mut InterpreterTally,
++) -> Result<(), RuntimeError> {
++    t.tree_evals += 1;
++    let (slot, node) = match op.dest {
++        Dest::Local(slot) => (slot, false),
++        Dest::Node(slot) => (slot, true),
++    };
++    match &op.update {
++        SelfUpdate::Store { key, value } => {
++            t.leaf_operands_inline += 1;
++            let k = coperand(local_env, node_env, key, names, t)?;
++            let v = cvalue(local_env, node_env, value, names, t)?;
++            let target = if node { node_env.get(slot) } else { local_env.get(slot) };
++            match &target.kind {
++                ValueKind::Map(_) => {
++                    let k = k.into_owned();
++                    let mut col = take_slot(op.dest, local_env, node_env);
++                    if let ValueKind::Map(m) = &mut col.kind {
++                        m.insert(k, v);
++                    }
++                    put_slot(op.dest, col, local_env, node_env);
++                    util_stats::record_map_in_place(node);
++                }
++                ValueKind::List(l) => {
++                    let len = l.len();
++                    let idx = k.as_int()? as usize;
++                    if idx >= len {
++                        return Err(RuntimeError::IndexOutOfBounds { index: idx, len });
++                    }
++                    drop(k);
++                    let mut col = take_slot(op.dest, local_env, node_env);
++                    if let ValueKind::List(l) = &mut col.kind {
++                        l.make_mut()[idx] = v;
++                    }
++                    put_slot(op.dest, col, local_env, node_env);
++                    util_stats::record_list_in_place(node, false);
++                }
++                _ => {
++                    return Err(RuntimeError::NotACollection {
++                        got: target.type_name(),
++                    });
++                }
++            }
++        }
++        SelfUpdate::Append { item } => {
++            {
++                let target = if node { node_env.get(slot) } else { local_env.get(slot) };
++                borrowed(target, t).as_list()?;
++            }
++            let i = cvalue(local_env, node_env, item, names, t)?;
++            let mut col = take_slot(op.dest, local_env, node_env);
++            let mut shared = false;
++            if let ValueKind::List(l) = &mut col.kind {
++                shared = !l.is_unique();
++                l.push(i);
++            }
++            put_slot(op.dest, col, local_env, node_env);
++            util_stats::record_list_in_place(node, shared);
++        }
++        SelfUpdate::Erase { key } => {
++            let k = coperand(local_env, node_env, key, names, t)?;
++            {
++                let target = if node { node_env.get(slot) } else { local_env.get(slot) };
++                borrowed(target, t).as_map()?;
++            }
++            let k = k.into_owned();
++            let mut col = take_slot(op.dest, local_env, node_env);
++            if let ValueKind::Map(m) = &mut col.kind {
++                m.remove(&k);
++            }
++            put_slot(op.dest, col, local_env, node_env);
++            util_stats::record_map_in_place(node);
++        }
++    }
++    Ok(())
++}
++
+ #[inline(never)]
+ fn run_async_op<H: HashPolicy>(
+     call: &AsyncOp,
+@@ -1455,12 +1613,21 @@ fn run_sync_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     }
+ }
+ 
++/// How a record's segment left its operation loop.
++enum RecordExit<H: HashPolicy> {
++    /// The record was parked on a channel or queued to run again.
++    Parked,
++    /// The record returned this value to its continuation, which runs once
++    /// the node's environment is back in the state.
++    Returned(Continuation<H>, Value<H>),
++}
++
+ /// Runs a record from its decoded operations until it returns or yields.
+ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+-    mut record: Record<H>,
++    record: Record<H>,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+@@ -1468,6 +1635,53 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     rng: &mut impl StreamRng,
+     t: &mut InterpreterTally,
+ ) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
++    let node_index = record.node.index;
++    let mut node_env = take_node_env(state, node_index);
++    let entry_writes = node_env.writes;
++    let exit = run_record_ops::<H, L, F>(
++        state,
++        logger,
++        program,
++        record,
++        &mut node_env,
++        snapshot,
++        feedback,
++        policy,
++        purgatory_config,
++        rng,
++        t,
++    );
++    // A moved-out environment goes back on every exit, an error included,
++    // since the state holds only a placeholder. A copy is discarded on error,
++    // leaving the state as the segment found it.
++    if !H::EAGER {
++        util_stats::record_node_env_segment(node_env.writes != entry_writes, exit.is_err());
++        state.nodes[node_index] = node_env;
++    } else if exit.is_ok() {
++        state.nodes[node_index] = node_env;
++    }
++    match exit? {
++        RecordExit::Parked => Ok(None),
++        RecordExit::Returned(continuation, val) => Ok(continuation.call(state, val)),
++    }
++}
++
++/// The operation loop of `exec_ops`, running against the node environment
++/// the caller holds for the segment.
++#[inline(always)]
++fn run_record_ops<H: HashPolicy, L: Logger, F: Feedback>(
++    state: &mut State<H>,
++    logger: &mut L,
++    program: &Program,
++    mut record: Record<H>,
++    node_env: &mut Env<H>,
++    snapshot: &F::Snapshot,
++    feedback: &mut F::Local,
++    policy: &SchedulePolicy,
++    purgatory_config: &PurgatoryConfig,
++    rng: &mut impl StreamRng,
++    t: &mut InterpreterTally,
++) -> Result<RecordExit<H>, RuntimeError> {
+     let causal_operation_id = record.causal_operation_id;
+     let mut pending_trace_id = record.trace_id;
+     // The payload moves out rather than being copied: only the entry row
+@@ -1475,7 +1689,6 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     // re-delivery of it formats its entry row from the parameters.
+     let mut pending_trace_payload = record.trace_payload.take();
+     let mut local_env = record.env;
+-    let mut node_env = state.nodes[record.node.index].clone();
+ 
+     let mut prev_pc = record.pc;
+ 
+@@ -1500,8 +1713,8 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+ 
+         match &ops[current_pc] {
+             Op::Send(send) => {
+-                let cid = coperand(&local_env, &node_env, &send.chan, names, t)?.as_channel()?;
+-                let val = cvalue(&local_env, &node_env, &send.value, names, t)?;
++                let cid = coperand(&local_env, node_env, &send.chan, names, t)?.as_channel()?;
++                let val = cvalue(&local_env, node_env, &send.value, names, t)?;
+                 let next = send.next as usize;
+                 if cid.node != record.node {
+                     let cs = Runnable::ChannelSend {
+@@ -1540,7 +1753,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 }
+             }
+             Op::Recv(recv) => {
+-                let cid = coperand(&local_env, &node_env, &recv.chan, names, t)?.as_channel()?;
++                let cid = coperand(&local_env, node_env, &recv.chan, names, t)?.as_channel()?;
+                 if cid.node != record.node {
+                     return Err(RuntimeError::RemoteChannelRead);
+                 }
+@@ -1551,15 +1764,13 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                     .ok_or(RuntimeError::ChannelNotFound(cid.id))?;
+ 
+                 if let Some(val) = chan.buffer.pop_front() {
+-                    store_dest(recv.dest, val, &mut local_env, &mut node_env);
++                    store_dest(recv.dest, val, &mut local_env, node_env);
+                     record.pc = recv.next as usize;
+                 } else {
+-                    let node_id = record.node;
+                     record.env = local_env;
+                     record.pc = recv.next as usize;
+                     chan.push_waiting_reader(record, recv.lhs.clone());
+-                    state.nodes[node_id.index] = node_env;
+-                    return Ok(None);
++                    return Ok(RecordExit::Parked);
+                 }
+             }
+             Op::Pause(next) => {
+@@ -1567,18 +1778,16 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 record.env = local_env;
+                 record.pc = *next as usize;
+                 state.push_to_local(node_id.index, Runnable::Record(record));
+-                state.nodes[node_id.index] = node_env;
+-                return Ok(None);
++                return Ok(RecordExit::Parked);
+             }
+             Op::SpinAwait { cond, next } => {
+-                if coperand(&local_env, &node_env, cond, names, t)?.as_bool()? {
++                if coperand(&local_env, node_env, cond, names, t)?.as_bool()? {
+                     record.pc = *next as usize;
+                 } else {
+                     let node_id = record.node;
+                     record.env = local_env;
+                     state.push_to_local(node_id.index, Runnable::Record(record));
+-                    state.nodes[node_id.index] = node_env;
+-                    return Ok(None);
++                    return Ok(RecordExit::Parked);
+                 }
+             }
+             op => match run_common_op::<H, L, F>(
+@@ -1587,7 +1796,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 logger,
+                 program,
+                 &mut local_env,
+-                &mut node_env,
++                node_env,
+                 record.node,
+                 snapshot,
+                 feedback,
+@@ -1600,11 +1809,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 t,
+             )? {
+                 Flow::Next(next) => record.pc = next,
+-                Flow::Return(val) => {
+-                    let node_id = record.node;
+-                    state.nodes[node_id.index] = node_env;
+-                    return Ok(record.continuation.call(state, val));
+-                }
++                Flow::Return(val) => return Ok(RecordExit::Returned(record.continuation, val)),
+                 Flow::RecordOnly => {
+                     unreachable!("channel and yield operations are matched before the shared ones")
+                 }
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 16eaffd..7d0d445 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -4,10 +4,10 @@ use crate::compiler::cfg::{Cfg, Expr, Instr, Label, Lhs, Program, VarSlot};
+ use crate::simulator::core::state::{
+     Continuation, LogEntry, Logger, NodeId, Record, SchedulePolicy, State,
+ };
+-use crate::simulator::core::values::{Env, Value};
++use crate::simulator::core::values::{Env, Value, ValueMap};
+ use crate::simulator::coverage::{LocalCoverage, VertexMap};
+ use crate::simulator::feedback::CfgFeedback;
+-use crate::simulator::hash_utils::WithHashing;
++use crate::simulator::hash_utils::{NoHashing, WithHashing};
+ use rand::SeedableRng;
+ use rand::rngs::SmallRng;
+ use std::collections::HashMap;
+@@ -153,16 +153,16 @@ fn make_record(pc: usize, local_slots: usize) -> Record<WithHashing> {
+     make_record_with_cont(pc, local_slots, Continuation::Recover)
+ }
+ 
+-fn make_record_with_cont(
++fn make_record_with_cont<H: HashPolicy>(
+     pc: usize,
+     local_slots: usize,
+-    continuation: Continuation<WithHashing>,
+-) -> Record<WithHashing> {
++    continuation: Continuation<H>,
++) -> Record<H> {
+     let nid = NodeId {
+         role: NameId(0),
+         index: 0,
+     };
+-    let env = Env::<WithHashing>::with_slots(local_slots);
++    let env = Env::<H>::with_slots(local_slots);
+     Record {
+         pc,
+         node: nid,
+@@ -747,8 +747,8 @@ struct Observed {
+     tally: crate::simulator::util_stats::InterpreterTally,
+ }
+ 
+-fn observe(program: &Program, start: usize, slots: usize) -> Observed {
+-    let mut state = State::<WithHashing>::new(&[(NameId(0), 1)], 2);
++fn observe<H: HashPolicy>(program: &Program, start: usize, slots: usize) -> Observed {
++    let mut state = State::<H>::new(&[(NameId(0), 1)], 2);
+     let mut logger = TestLogger::new();
+     let record = make_record_with_cont(
+         start,
+@@ -762,7 +762,7 @@ fn observe(program: &Program, start: usize, slots: usize) -> Observed {
+     let mut coverage = LocalCoverage::new();
+     let events_before = util_stats::pending_evaluator_events();
+     let tally_before = util_stats::pending_interpreter_tally();
+-    let result = exec::<WithHashing, TestLogger, CfgFeedback>(
++    let result = exec::<H, TestLogger, CfgFeedback>(
+         &mut state,
+         &mut logger,
+         program,
+@@ -809,14 +809,23 @@ fn observe(program: &Program, start: usize, slots: usize) -> Observed {
+     }
+ }
+ 
+-/// Runs `program` through the decoded loop and through the label loop and
+-/// requires the same result, output, state and evaluator events.
++/// Runs `program` through the decoded loop and through the label loop, under
++/// both signature policies, and requires the same result, output, state and
++/// evaluator events. Returns the eager policy's observations.
+ fn assert_loops_agree(program: Program, start: usize, slots: usize) -> (Observed, Observed) {
+     assert!(program.compiled.covers(program.cfg.graph.len()));
+     let mut undecoded = program.clone();
+     undecoded.compiled = Default::default();
+-    let decoded = observe(&program, start, slots);
+-    let legacy = observe(&undecoded, start, slots);
++    let decoded = observe::<NoHashing>(&program, start, slots);
++    let legacy = observe::<NoHashing>(&undecoded, start, slots);
++    assert_observed_agree(&decoded, &legacy);
++    let decoded = observe::<WithHashing>(&program, start, slots);
++    let legacy = observe::<WithHashing>(&undecoded, start, slots);
++    assert_observed_agree(&decoded, &legacy);
++    (decoded, legacy)
++}
++
++fn assert_observed_agree(decoded: &Observed, legacy: &Observed) {
+     assert_eq!(decoded.result, legacy.result);
+     assert_eq!(decoded.logs, legacy.logs);
+     assert_eq!(decoded.state, legacy.state);
+@@ -826,7 +835,6 @@ fn assert_loops_agree(program: Program, start: usize, slots: usize) -> (Observed
+     assert_eq!(decoded.tally.legacy_evals, 0);
+     assert_eq!(legacy.tally.label_execs, 0);
+     assert_eq!(decoded.tally.label_execs, legacy.tally.legacy_labels);
+-    (decoded, legacy)
+ }
+ 
+ fn function(entry: usize, name: usize, params: u32, slots: u32, is_sync: bool) -> FunctionInfo {
+@@ -1030,3 +1038,555 @@ fn test_runtime_type_error() {
+         e => panic!("Expected TypeError, got {:?}", e),
+     }
+ }
++
++fn assign(lhs: VarSlot, rhs: Expr) -> Label {
++    Label::Instr(Instr::Assign(Lhs::Var(lhs), rhs), 0)
++}
++
++fn var(slot: VarSlot) -> Box<Expr> {
++    Box::new(Expr::Var(slot))
++}
++
++#[test]
++fn self_updates_decode_only_when_the_right_side_reads_the_assigned_slot() {
++    let l1 = VarSlot::Local(1, NameId(1));
++    let l1_other_name = VarSlot::Local(1, NameId(2));
++    let n1 = VarSlot::Node(1, NameId(3));
++    let int = |i| Box::new(Expr::Int(i));
++    let cases: Vec<(Label, bool)> = vec![
++        (assign(l1, Expr::Store(var(l1_other_name), int(0), int(1))), true),
++        (
++            Label::Instr(
++                Instr::Copy(Lhs::Var(l1), Expr::Store(var(l1), int(0), int(1))),
++                0,
++            ),
++            true,
++        ),
++        (assign(l1, Expr::Store(var(VarSlot::Node(1, NameId(1))), int(0), int(1))), false),
++        (assign(n1, Expr::Store(var(VarSlot::Local(1, NameId(3))), int(0), int(1))), false),
++        (assign(n1, Expr::ListAppend(var(n1), int(1))), true),
++        (assign(n1, Expr::ListAppend(var(VarSlot::Node(2, NameId(3))), int(1))), false),
++        (assign(l1, Expr::MapErase(int(1), var(l1))), true),
++        (assign(l1, Expr::MapErase(var(l1), int(1))), false),
++        (
++            assign(
++                l1,
++                Expr::Store(Box::new(Expr::Find(var(l1), int(0))), int(0), int(1)),
++            ),
++            false,
++        ),
++        (assign(l1, Expr::ListPrepend(int(1), var(l1))), false),
++    ];
++    for (label, expect_self) in cases {
++        let mut builder = TestProgramBuilder::new();
++        builder.add(label.clone());
++        let program = builder.build();
++        let is_self = matches!(program.compiled.ops[0], Op::SelfUpdate(_));
++        assert_eq!(is_self, expect_self, "{label:?}");
++    }
++}
++
++/// What running one decoded operation left behind.
++#[derive(Debug, PartialEq)]
++struct OpEffect {
++    outcome: String,
++    local: String,
++    node: String,
++    local_writes: u64,
++    node_writes: u64,
++    map_orders: Vec<Vec<String>>,
++    tally: InterpreterTally,
++    events: [u64; 3],
++    shared_at_write: u64,
++}
++
++/// What else holds the destination's contents while the operation runs.
++#[derive(Clone, Copy, Debug, PartialEq)]
++enum Hold {
++    Nothing,
++    Collection,
++    Envs,
++}
++
++fn env_of(values: Vec<Value<NoHashing>>) -> Env<NoHashing> {
++    let mut env = Env::<NoHashing>::with_slots(values.len());
++    for (i, v) in values.into_iter().enumerate() {
++        env.set(i as u32, v);
++    }
++    env
++}
++
++fn map_orders(envs: [&Env<NoHashing>; 2]) -> Vec<Vec<String>> {
++    envs.iter()
++        .flat_map(|e| e.slots.iter())
++        .filter_map(|v| match &v.kind {
++            ValueKind::Map(m) => Some(m.iter().map(|(k, v)| format!("{k:?}={v:?}")).collect()),
++            _ => None,
++        })
++        .collect()
++}
++
++/// Runs `op` on freshly built environments, each slot holding its value
++/// alone unless `hold` keeps another reference, and returns what it left
++/// with the self update counts it recorded.
++fn run_one_op(
++    op: &Op,
++    make: &dyn Fn() -> (Vec<Value<NoHashing>>, Vec<Value<NoHashing>>),
++    dest: Dest,
++    hold: Hold,
++) -> (OpEffect, [u64; 5]) {
++    let (locals, nodes) = make();
++    let mut local_env = env_of(locals);
++    let mut node_env = env_of(nodes);
++    let held: Vec<Box<dyn std::fmt::Debug>> = match hold {
++        Hold::Nothing => vec![],
++        Hold::Collection => vec![Box::new(match dest {
++            Dest::Local(s) => local_env.get(s).clone(),
++            Dest::Node(s) => node_env.get(s).clone(),
++        })],
++        Hold::Envs => vec![Box::new(local_env.slots.clone()), Box::new(node_env.slots.clone())],
++    };
++    let held_before: Vec<String> = held.iter().map(|h| format!("{h:?}")).collect();
++    let program = TestProgramBuilder::new().build_undecoded();
++    let mut state = State::<NoHashing>::new(&[(NameId(0), 1)], 2);
++    let mut logger = TestLogger::new();
++    let mut coverage = LocalCoverage::new();
++    let mut tally = InterpreterTally::new();
++    let (node_counts_before, update_before) = util_stats::pending_in_place_counts();
++    let events_before = util_stats::pending_evaluator_events();
++    let result = run_common_op::<NoHashing, TestLogger, CfgFeedback>(
++        op,
++        &mut state,
++        &mut logger,
++        &program,
++        &mut local_env,
++        &mut node_env,
++        NodeId {
++            role: NameId(0),
++            index: 0,
++        },
++        &VertexMap::new(),
++        &mut coverage,
++        &SchedulePolicy::Fixed,
++        &PurgatoryConfig::default(),
++        None,
++        &mut None,
++        &mut None,
++        &mut SmallRng::seed_from_u64(0),
++        &mut tally,
++    );
++    let events_after = util_stats::pending_evaluator_events();
++    let (node_counts_after, update_after) = util_stats::pending_in_place_counts();
++    let outcome = match result {
++        Ok(Flow::Next(n)) => format!("next {n}"),
++        Ok(Flow::Return(v)) => format!("return {v:?}"),
++        Ok(Flow::RecordOnly) => "record only".to_string(),
++        Err(e) => format!("error {e} / {e:?}"),
++    };
++    let held_after: Vec<String> = held.iter().map(|h| format!("{h:?}")).collect();
++    assert_eq!(held_before, held_after, "a reference held outside the slot changed");
++    let effect = OpEffect {
++        outcome,
++        local: format!("{:?}", local_env.slots),
++        node: format!("{:?}", node_env.slots),
++        local_writes: local_env.writes,
++        node_writes: node_env.writes,
++        map_orders: map_orders([&local_env, &node_env]),
++        tally,
++        events: std::array::from_fn(|i| events_after[i] - events_before[i]),
++        shared_at_write: node_counts_after[2] - node_counts_before[2],
++    };
++    (effect, std::array::from_fn(|i| update_after[i] - update_before[i]))
++}
++
++/// A collection or scalar of one of twelve shapes, rebuilt identically on
++/// every call. Every non-empty map holds the key 1.
++fn shaped_value(shape: usize) -> Value<NoHashing> {
++    let mut rng = SmallRng::seed_from_u64(shape as u64);
++    let map = |n: usize, strings: bool, rng: &mut SmallRng| {
++        let mut m = ValueMap::<NoHashing>::new();
++        for i in 0..n {
++            let key = if i == 0 {
++                Value::int(1)
++            } else if strings && i % 2 == 0 {
++                Value::string(format!("k{}", rng.random_range(0..300)).into())
++            } else {
++                Value::int(rng.random_range(-50..300))
++            };
++            let inner = if i % 3 == 0 {
++                let mut inner = ValueMap::<NoHashing>::new();
++                inner.insert(Value::int(i as i64), Value::bool(true));
++                Value::map(inner)
++            } else {
++                Value::int(rng.random_range(0..1000))
++            };
++            m.insert(key, inner);
++        }
++        Value::map(m)
++    };
++    let list = |n: usize, rng: &mut SmallRng| {
++        Value::list((0..n).map(|_| Value::int(rng.random_range(0..1000))).collect())
++    };
++    match shape {
++        0 => map(0, false, &mut rng),
++        1 => map(1, false, &mut rng),
++        2 => map(5, false, &mut rng),
++        3 => map(40, false, &mut rng),
++        4 => map(100, true, &mut rng),
++        5 => map(700, false, &mut rng),
++        6 => list(0, &mut rng),
++        7 => list(1, &mut rng),
++        8 => list(7, &mut rng),
++        9 => list(40, &mut rng),
++        10 => Value::int(3),
++        _ => Value::string("s".into()),
++    }
++}
++
++fn self_update_rhs(d: Expr, same0: Expr, other1: Expr, other3: Expr) -> Vec<Expr> {
++    let b = |e: Expr| Box::new(e);
++    let int = |i: i64| Box::new(Expr::Int(i));
++    let missing = || Expr::Find(b(d.clone()), int(100_000));
++    vec![
++        Expr::Store(b(d.clone()), int(1), int(9)),
++        Expr::Store(b(d.clone()), int(100_000), int(9)),
++        Expr::Store(
++            b(d.clone()),
++            b(same0.clone()),
++            b(Expr::Plus(b(Expr::Find(b(d.clone()), b(same0.clone()))), int(1))),
++        ),
++        Expr::Store(b(d.clone()), int(1), b(d.clone())),
++        Expr::Store(b(d.clone()), b(missing()), int(1)),
++        Expr::Store(b(d.clone()), b(Expr::String("k1".into())), int(1)),
++        Expr::Store(b(d.clone()), int(-1), int(1)),
++        Expr::Store(b(d.clone()), int(40), int(1)),
++        Expr::Store(
++            b(d.clone()),
++            b(Expr::Find(b(other3.clone()), int(1))),
++            b(Expr::Find(b(other3.clone()), int(1))),
++        ),
++        Expr::Store(b(d.clone()), b(d.clone()), int(1)),
++        Expr::Store(b(d.clone()), int(1), b(missing())),
++        Expr::ListAppend(b(d.clone()), int(5)),
++        Expr::ListAppend(b(d.clone()), b(d.clone())),
++        Expr::ListAppend(b(d.clone()), b(missing())),
++        Expr::ListAppend(b(d.clone()), b(other1.clone())),
++        Expr::MapErase(int(1), b(d.clone())),
++        Expr::MapErase(int(100_000), b(d.clone())),
++        Expr::MapErase(b(missing()), b(d.clone())),
++        Expr::MapErase(b(d.clone()), b(d.clone())),
++        Expr::MapErase(b(Expr::String("k1".into())), b(d.clone())),
++        Expr::MapErase(b(other3), b(d)),
++    ]
++}
++
++#[test]
++fn self_updates_in_place_match_the_tree_evaluator_and_assignment() {
++    let mut outcomes = std::collections::BTreeSet::new();
++    let mut runs = 0;
++    for dest_is_node in [false, true] {
++        let slot_of = |node: bool, i: u32, name: usize| {
++            if node {
++                VarSlot::Node(i, NameId(name))
++            } else {
++                VarSlot::Local(i, NameId(name))
++            }
++        };
++        let lhs = slot_of(dest_is_node, 1, 1);
++        let dest = if dest_is_node { Dest::Node(1) } else { Dest::Local(1) };
++        let rhs_cases = self_update_rhs(
++            Expr::Var(slot_of(dest_is_node, 1, 2)),
++            Expr::Var(slot_of(dest_is_node, 0, 3)),
++            Expr::Var(slot_of(!dest_is_node, 1, 4)),
++            Expr::Var(slot_of(!dest_is_node, 3, 5)),
++        );
++        for (case, rhs) in rhs_cases.iter().enumerate() {
++            let mut builder = TestProgramBuilder::new();
++            builder.add(Label::Instr(Instr::Assign(Lhs::Var(lhs), rhs.clone()), 0));
++            let program = builder.build();
++            let in_place = program.compiled.ops[0].clone();
++            let Op::SelfUpdate(update) = &in_place else {
++                panic!("case {case} did not decode to a self update: {in_place:?}");
++            };
++            let tree = match dest {
++                Dest::Local(slot) => Op::AssignLocal {
++                    slot,
++                    next: 0,
++                    rhs: crate::compiler::cfg::compiled::opnd(rhs),
++                },
++                Dest::Node(slot) => Op::AssignNode {
++                    slot,
++                    next: 0,
++                    rhs: crate::compiler::cfg::compiled::opnd(rhs),
++                },
++            };
++            for shape in 0..12 {
++                for other_shape in [shape, 3, 8] {
++                    let make = || {
++                        let env = |collection| {
++                            let mut lookup = ValueMap::<NoHashing>::new();
++                            lookup.insert(Value::int(1), Value::int(1));
++                            vec![
++                                Value::int(1),
++                                collection,
++                                Value::int(7),
++                                Value::map(lookup),
++                            ]
++                        };
++                        let (dest_env, other_env) =
++                            (env(shaped_value(shape)), env(shaped_value(other_shape)));
++                        if dest_is_node {
++                            (other_env, dest_env)
++                        } else {
++                            (dest_env, other_env)
++                        }
++                    };
++                    for hold in [Hold::Nothing, Hold::Collection, Hold::Envs] {
++                        let (want, tree_counts) = run_one_op(&tree, &make, dest, hold);
++                        let (got, counts) = run_one_op(&in_place, &make, dest, hold);
++                        let what = format!(
++                            "case {case} shape {shape} other {other_shape} hold {hold:?} dest {dest:?}"
++                        );
++                        assert_eq!(got, want, "{what}");
++                        assert_eq!(tree_counts, [0; 5], "{what}");
++                        runs += 1;
++                        let ok = got.outcome.starts_with("next");
++                        let is_map = shape <= 5;
++                        let kind = match (&update.update, is_map) {
++                            (SelfUpdate::Append { .. }, _) => "append",
++                            (_, true) => "map",
++                            (_, false) => "list",
++                        };
++                        let class = match got.outcome.split_once(" / ") {
++                            Some((_, debug)) => format!(
++                                "error {}",
++                                debug.split([' ', '(', '{']).next().unwrap_or("")
++                            ),
++                            None => "ok".to_string(),
++                        };
++                        outcomes.insert(format!("{kind} {class}"));
++                        let [map_local, map_node, list_local, list_node, list_shared] = counts;
++                        if !ok {
++                            assert_eq!(counts, [0; 5], "{what}");
++                            continue;
++                        }
++                        let (map, list) = if dest_is_node {
++                            (map_node + map_local * 100, list_node + list_local * 100)
++                        } else {
++                            (map_local + map_node * 100, list_local + list_node * 100)
++                        };
++                        if is_map {
++                            assert_eq!((map, list), (1, 0), "{what}");
++                        } else {
++                            assert_eq!((map, list), (0, 1), "{what}");
++                        }
++                        if matches!(update.update, SelfUpdate::Append { .. }) && case == 11 {
++                            let allocated = shape != 6;
++                            assert_eq!(
++                                list_shared,
++                                (hold != Hold::Nothing && allocated) as u64,
++                                "{what}"
++                            );
++                        }
++                        if !matches!(update.update, SelfUpdate::Append { .. }) {
++                            assert_eq!(list_shared, 0, "{what}");
++                        }
++                        if hold == Hold::Nothing {
++                            assert_eq!(got.shared_at_write, 0, "{what}");
++                        }
++                    }
++                }
++            }
++        }
++    }
++    assert!(runs > 1000);
++    for expected in [
++        "map ok",
++        "list ok",
++        "append ok",
++        "map error KeyNotFound",
++        "list error IndexOutOfBounds",
++        "list error TypeError",
++        "list error NotACollection",
++        "append error TypeError",
++        "append error IndexOutOfBounds",
++    ] {
++        assert!(outcomes.contains(expected), "no case reached {expected}: {outcomes:?}");
++    }
++}
++
++#[test]
++fn decoded_loop_matches_label_loop_across_self_updates() {
++    let mut builder = TestProgramBuilder::new();
++    let local = |i| slot(i);
++    let node = |i| node_slot(i);
++    let v = |s: VarSlot| Box::new(Expr::Var(s));
++    let int = |i| Box::new(Expr::Int(i));
++    let ret = builder.add(Label::Return(Expr::Tuple(vec![
++        Expr::Var(local(0)),
++        Expr::Var(node(0)),
++        Expr::Var(node(1)),
++    ])));
++    let list_store = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(local(0)), Expr::Store(v(local(0)), int(0), int(99))),
++        ret,
++    ));
++    let shared_store = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node(0)), Expr::Store(v(node(0)), int(7), int(70))),
++        list_store,
++    ));
++    let share = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node(1)), Expr::Var(node(0))),
++        shared_store,
++    ));
++    let erase = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node(0)), Expr::MapErase(int(2), v(node(0)))),
++        share,
++    ));
++    let loop_head = builder.add(Label::Return(Expr::Unit));
++    let back = builder.add(Label::Continue(loop_head));
++    let store = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(node(0)),
++            Expr::Store(
++                v(node(0)),
++                v(local(1)),
++                Box::new(Expr::Plus(v(local(1)), int(10))),
++            ),
++        ),
++        back,
++    ));
++    let append = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(local(0)), Expr::ListAppend(v(local(0)), v(local(1)))),
++        store,
++    ));
++    builder.labels[loop_head] = Label::ForLoopIn(
++        Lhs::Var(local(1)),
++        Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)]),
++        local(2),
++        append,
++        erase,
++    );
++    let init_map = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node(0)), Expr::Map(vec![])),
++        loop_head,
++    ));
++    let init = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(local(0)), Expr::List(vec![])),
++        init_map,
++    ));
++    let program = builder.build();
++    let self_updates = program
++        .compiled
++        .ops
++        .iter()
++        .filter(|op| matches!(op, Op::SelfUpdate(_)))
++        .count();
++    assert_eq!(self_updates, 5);
++    let (decoded, _) = assert_loops_agree(program, init, 4);
++    assert!(decoded.result.contains("Int(99)"), "{}", decoded.result);
++    assert!(decoded.result.contains("Int(70)"), "{}", decoded.result);
++}
++
++fn exec_no_hashing(
++    program: &Program,
++    state: &mut State<NoHashing>,
++    pc: usize,
++) -> Result<Option<ClientOpResult<NoHashing>>, RuntimeError> {
++    let mut logger = TestLogger::new();
++    let mut coverage = LocalCoverage::new();
++    exec::<NoHashing, TestLogger, CfgFeedback>(
++        state,
++        &mut logger,
++        program,
++        make_record_with_cont::<NoHashing>(pc, 2, Continuation::Recover),
++        &VertexMap::new(),
++        &mut coverage,
++        &SchedulePolicy::Fixed,
++        &PurgatoryConfig::default(),
++        &mut SmallRng::seed_from_u64(0),
++    )
++}
++
++#[test]
++fn a_record_segment_puts_the_node_environment_back_on_every_exit() {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(Expr::Unit));
++    let fail = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(0)),
++            Expr::Plus(Box::new(Expr::Bool(true)), Box::new(Expr::Int(5))),
++        ),
++        ret,
++    ));
++    let write_then_fail = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(0)), Expr::Int(5)),
++        fail,
++    ));
++    let pause = builder.add(Label::Pause(ret));
++    let write_then_pause = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Int(3)),
++        pause,
++    ));
++    let write_then_return = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Int(4)),
++        ret,
++    ));
++    let program = builder.build();
++
++    let mut state = State::<NoHashing>::new(&[(NameId(0), 1)], 2);
++    let writes = state.nodes[0].writes;
++    let (before, _) = util_stats::pending_in_place_counts();
++    assert!(exec_no_hashing(&program, &mut state, write_then_fail).is_err());
++    let (after, _) = util_stats::pending_in_place_counts();
++    assert_eq!(state.nodes[0].slots.len(), 2);
++    assert_eq!(state.nodes[0].get(0), &Value::<NoHashing>::int(5));
++    assert_eq!(state.nodes[0].writes, writes + 1);
++    assert_eq!(
++        std::array::from_fn::<u64, 4, _>(|i| after[i] - before[i]),
++        [1, 1, 0, 1]
++    );
++
++    let (before, _) = util_stats::pending_in_place_counts();
++    assert!(exec_no_hashing(&program, &mut state, write_then_pause).unwrap().is_none());
++    assert!(exec_no_hashing(&program, &mut state, pause).unwrap().is_none());
++    assert!(exec_no_hashing(&program, &mut state, write_then_return).unwrap().is_none());
++    let (after, _) = util_stats::pending_in_place_counts();
++    assert_eq!(state.nodes[0].slots.len(), 2);
++    assert_eq!(state.nodes[0].get(0), &Value::<NoHashing>::int(5));
++    assert_eq!(state.nodes[0].get(1), &Value::<NoHashing>::int(4));
++    assert_eq!(state.nodes[0].writes, writes + 3);
++    assert_eq!(
++        std::array::from_fn::<u64, 4, _>(|i| after[i] - before[i]),
++        [3, 2, 0, 0]
++    );
++
++    let held = state.nodes[0].clone();
++    let (before, _) = util_stats::pending_in_place_counts();
++    assert!(exec_no_hashing(&program, &mut state, write_then_return).unwrap().is_none());
++    let (after, _) = util_stats::pending_in_place_counts();
++    assert_eq!(after[2] - before[2], 1);
++    assert_eq!(held.get(1), &Value::<NoHashing>::int(4));
++    assert_eq!(held.writes, writes + 3);
++
++    let mut eager = State::<WithHashing>::new(&[(NameId(0), 1)], 2);
++    let slot_before = eager.nodes[0].get(0).clone();
++    let mut logger = TestLogger::new();
++    let mut coverage = LocalCoverage::new();
++    let (before, _) = util_stats::pending_in_place_counts();
++    let result = exec::<WithHashing, TestLogger, CfgFeedback>(
++        &mut eager,
++        &mut logger,
++        &program,
++        make_record(write_then_fail, 2),
++        &VertexMap::new(),
++        &mut coverage,
++        &SchedulePolicy::Fixed,
++        &PurgatoryConfig::default(),
++        &mut SmallRng::seed_from_u64(0),
++    );
++    let (after, _) = util_stats::pending_in_place_counts();
++    assert!(result.is_err());
++    assert_eq!(eager.nodes[0].get(0), &slot_before);
++    assert_eq!(after, before);
++}
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index b364268..a5b926b 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -713,6 +713,20 @@ impl<H: HashPolicy> Env<H> {
+         }
+     }
+ 
++    /// Moves the slots out, leaving an env that still answers `sig` and
++    /// `writes` but holds no slots. The returned env holds its slot buffer
++    /// alone, so writing a slot does not copy the buffer. Nothing may read a
++    /// slot of the emptied env before an env is put back in its place.
++    #[inline]
++    pub fn detach(&mut self) -> Env<H> {
++        Env {
++            slots: std::mem::take(&mut self.slots),
++            sig: self.sig,
++            writes: self.writes,
++            _marker: PhantomData,
++        }
++    }
++
+     #[inline(always)]
+     pub fn get(&self, slot: u32) -> &Value<H> {
+         &self.slots[slot as usize]
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index b94614b..efc5593 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -153,6 +153,15 @@ static TRACE_FORMAT_ENTER_FORMATTED: AtomicU64 = AtomicU64::new(0);
+ static FRAME_LAYOUT_PROGRAM_SLOTS_BEFORE: AtomicU64 = AtomicU64::new(0);
+ static FRAME_LAYOUT_PROGRAM_SLOTS_AFTER: AtomicU64 = AtomicU64::new(0);
+ static HISTORY_FORMAT_OPS_STREAMED: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_DETACHED: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_WRITTEN_SEGMENTS: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_SHARED_AT_WRITE: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_ERROR_EXITS: AtomicU64 = AtomicU64::new(0);
++static VALUE_UPDATE_MAP_IN_PLACE_LOCAL: AtomicU64 = AtomicU64::new(0);
++static VALUE_UPDATE_MAP_IN_PLACE_NODE: AtomicU64 = AtomicU64::new(0);
++static VALUE_UPDATE_LIST_IN_PLACE_LOCAL: AtomicU64 = AtomicU64::new(0);
++static VALUE_UPDATE_LIST_IN_PLACE_NODE: AtomicU64 = AtomicU64::new(0);
++static VALUE_UPDATE_LIST_SHARED_AT_PUSH: AtomicU64 = AtomicU64::new(0);
+ static FF_SWAPS: AtomicU64 = AtomicU64::new(0);
+ static FF_REPEAT_SWAPS: AtomicU64 = AtomicU64::new(0);
+ /// How many times a ghost was displaced before it was taken: once, twice,
+@@ -865,6 +874,15 @@ pub fn set_enabled(on: bool) {
+             &TRACE_FORMAT_ENTER_REUSED,
+             &TRACE_FORMAT_ENTER_FORMATTED,
+             &HISTORY_FORMAT_OPS_STREAMED,
++            &NODE_ENV_DETACHED,
++            &NODE_ENV_WRITTEN_SEGMENTS,
++            &NODE_ENV_SHARED_AT_WRITE,
++            &NODE_ENV_ERROR_EXITS,
++            &VALUE_UPDATE_MAP_IN_PLACE_LOCAL,
++            &VALUE_UPDATE_MAP_IN_PLACE_NODE,
++            &VALUE_UPDATE_LIST_IN_PLACE_LOCAL,
++            &VALUE_UPDATE_LIST_IN_PLACE_NODE,
++            &VALUE_UPDATE_LIST_SHARED_AT_PUSH,
+             &FRAME_DEFAULT_SLOTS_FILLED,
+             &FRAME_PARAMS_FILLED,
+             &VALUE_SIG_LEAF_HASHES_DEFERRED,
+@@ -1939,6 +1957,12 @@ thread_local! {
+     static LOG_VEC_GROWS_RUN: Cell<u64> = const { Cell::new(0) };
+     static TRACE_VEC_GROWS_RUN: Cell<u64> = const { Cell::new(0) };
+     static PRINT_PRESIZED_RUN: Cell<u64> = const { Cell::new(0) };
++    /// Node environment counts of the run executing on this thread, indexed
++    /// by the `NODE_ENV_*` positions, drained with the cells above.
++    static NODE_ENV_RUN: Cell<[u64; 4]> = const { Cell::new([0; 4]) };
++    /// Self update counts of the run executing on this thread, indexed by the
++    /// `VALUE_UPDATE_*` positions, drained with the cells above.
++    static VALUE_UPDATE_RUN: Cell<[u64; 5]> = const { Cell::new([0; 5]) };
+     /// Interpreter and channel table counts of the run executing on this
+     /// thread, added once per executed segment and drained with the cells
+     /// above.
+@@ -5509,6 +5533,58 @@ impl FrameStats {
+     }
+ }
+ 
++/// Node environments held by one executed segment. `detached` counts the
++/// segments that took their node's environment out of the state for as long
++/// as they ran, and `written_segments` those among them that wrote a node
++/// slot. `shared_at_write` counts node slot writes in such a segment that
++/// found the slot buffer shared, so the write copied it. `error_exits` counts
++/// record segments that ended in a runtime error; their node writes up to the
++/// error are kept.
++#[derive(Serialize, Debug)]
++pub struct NodeEnvStats {
++    pub detached: u64,
++    pub written_segments: u64,
++    pub shared_at_write: u64,
++    pub error_exits: u64,
++}
++
++impl NodeEnvStats {
++    fn read() -> Self {
++        Self {
++            detached: NODE_ENV_DETACHED.load(Ordering::Relaxed),
++            written_segments: NODE_ENV_WRITTEN_SEGMENTS.load(Ordering::Relaxed),
++            shared_at_write: NODE_ENV_SHARED_AT_WRITE.load(Ordering::Relaxed),
++            error_exits: NODE_ENV_ERROR_EXITS.load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// Assignments that updated the collection held by their own destination
++/// slot in place instead of building a copy: map stores and erases, and list
++/// stores and appends, split by whether the destination is a local or a node
++/// slot. `list_shared_at_push` counts the appends whose list was also held
++/// elsewhere, so the append still copied it.
++#[derive(Serialize, Debug)]
++pub struct ValueUpdateStats {
++    pub map_in_place_local: u64,
++    pub map_in_place_node: u64,
++    pub list_in_place_local: u64,
++    pub list_in_place_node: u64,
++    pub list_shared_at_push: u64,
++}
++
++impl ValueUpdateStats {
++    fn read() -> Self {
++        Self {
++            map_in_place_local: VALUE_UPDATE_MAP_IN_PLACE_LOCAL.load(Ordering::Relaxed),
++            map_in_place_node: VALUE_UPDATE_MAP_IN_PLACE_NODE.load(Ordering::Relaxed),
++            list_in_place_local: VALUE_UPDATE_LIST_IN_PLACE_LOCAL.load(Ordering::Relaxed),
++            list_in_place_node: VALUE_UPDATE_LIST_IN_PLACE_NODE.load(Ordering::Relaxed),
++            list_shared_at_push: VALUE_UPDATE_LIST_SHARED_AT_PUSH.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// Map-key hashes of leaf values whose signature was computed at hash time
+ /// rather than when the value was built.
+ #[derive(Serialize, Debug)]
+@@ -6088,6 +6164,72 @@ pub fn record_channel_table(lookups: u64, misses: u64, inserts: u64) {
+     });
+ }
+ 
++const NODE_ENV_DETACHED_AT: usize = 0;
++const NODE_ENV_WRITTEN_AT: usize = 1;
++const NODE_ENV_SHARED_AT_WRITE_AT: usize = 2;
++const NODE_ENV_ERROR_EXITS_AT: usize = 3;
++const VALUE_UPDATE_MAP_LOCAL_AT: usize = 0;
++const VALUE_UPDATE_MAP_NODE_AT: usize = 1;
++const VALUE_UPDATE_LIST_LOCAL_AT: usize = 2;
++const VALUE_UPDATE_LIST_NODE_AT: usize = 3;
++const VALUE_UPDATE_LIST_SHARED_AT: usize = 4;
++
++/// A segment ran holding its node's environment taken out of the state.
++/// `written` is true when it wrote a node slot and `error_exit` when it was a
++/// record segment that ended in a runtime error.
++#[inline]
++pub fn record_node_env_segment(written: bool, error_exit: bool) {
++    NODE_ENV_RUN.with(|c| {
++        let mut t = c.get();
++        t[NODE_ENV_DETACHED_AT] += 1;
++        t[NODE_ENV_WRITTEN_AT] += written as u64;
++        t[NODE_ENV_ERROR_EXITS_AT] += error_exit as u64;
++        c.set(t);
++    });
++}
++
++/// A node slot write in a segment holding its node's environment found the
++/// slot buffer shared, so the write copied it.
++#[cold]
++pub fn record_node_env_shared_at_write() {
++    NODE_ENV_RUN.with(|c| {
++        let mut t = c.get();
++        t[NODE_ENV_SHARED_AT_WRITE_AT] += 1;
++        c.set(t);
++    });
++}
++
++/// A map held by its destination slot was updated in place. `node` is true
++/// for a node slot.
++#[inline]
++pub fn record_map_in_place(node: bool) {
++    VALUE_UPDATE_RUN.with(|c| {
++        let mut t = c.get();
++        t[if node { VALUE_UPDATE_MAP_NODE_AT } else { VALUE_UPDATE_MAP_LOCAL_AT }] += 1;
++        c.set(t);
++    });
++}
++
++/// A list held by its destination slot was updated in place. `node` is true
++/// for a node slot, and `shared_at_push` when an append found the list also
++/// held elsewhere.
++#[inline]
++pub fn record_list_in_place(node: bool, shared_at_push: bool) {
++    VALUE_UPDATE_RUN.with(|c| {
++        let mut t = c.get();
++        t[if node { VALUE_UPDATE_LIST_NODE_AT } else { VALUE_UPDATE_LIST_LOCAL_AT }] += 1;
++        t[VALUE_UPDATE_LIST_SHARED_AT] += shared_at_push as u64;
++        c.set(t);
++    });
++}
++
++/// The running thread's node environment and self update counts not yet
++/// drained, in the `NodeEnvStats` and `ValueUpdateStats` field orders.
++#[cfg(test)]
++pub(crate) fn pending_in_place_counts() -> ([u64; 4], [u64; 5]) {
++    (NODE_ENV_RUN.with(|c| c.get()), VALUE_UPDATE_RUN.with(|c| c.get()))
++}
++
+ /// A write to a local call frame found it shared, so the write copied it.
+ #[inline]
+ pub fn record_entry_frame_copy() {
+@@ -6119,6 +6261,8 @@ pub fn flush_frame_stats() {
+     .map(|(cell, total)| (cell.with(|c| c.replace(0)), total));
+     let interp = INTERPRETER_RUN.with(|c| c.replace(InterpreterTally::new()));
+     let [lookups, misses, inserts] = CHANNEL_TABLE_RUN.with(|c| c.replace([0; 3]));
++    let node_env = NODE_ENV_RUN.with(|c| c.replace([0; 4]));
++    let value_update = VALUE_UPDATE_RUN.with(|c| c.replace([0; 5]));
+     if !enabled() {
+         return;
+     }
+@@ -6133,6 +6277,15 @@ pub fn flush_frame_stats() {
+         (lookups, &CHANNEL_TABLE_LOOKUPS),
+         (misses, &CHANNEL_TABLE_LOOKUP_MISSES),
+         (inserts, &CHANNEL_TABLE_DENSE_INSERTS),
++        (node_env[NODE_ENV_DETACHED_AT], &NODE_ENV_DETACHED),
++        (node_env[NODE_ENV_WRITTEN_AT], &NODE_ENV_WRITTEN_SEGMENTS),
++        (node_env[NODE_ENV_SHARED_AT_WRITE_AT], &NODE_ENV_SHARED_AT_WRITE),
++        (node_env[NODE_ENV_ERROR_EXITS_AT], &NODE_ENV_ERROR_EXITS),
++        (value_update[VALUE_UPDATE_MAP_LOCAL_AT], &VALUE_UPDATE_MAP_IN_PLACE_LOCAL),
++        (value_update[VALUE_UPDATE_MAP_NODE_AT], &VALUE_UPDATE_MAP_IN_PLACE_NODE),
++        (value_update[VALUE_UPDATE_LIST_LOCAL_AT], &VALUE_UPDATE_LIST_IN_PLACE_LOCAL),
++        (value_update[VALUE_UPDATE_LIST_NODE_AT], &VALUE_UPDATE_LIST_IN_PLACE_NODE),
++        (value_update[VALUE_UPDATE_LIST_SHARED_AT], &VALUE_UPDATE_LIST_SHARED_AT_PUSH),
+     ] {
+         if v != 0 {
+             total.fetch_add(v, Ordering::Relaxed);
+@@ -7270,6 +7423,8 @@ pub struct UtilizationSnapshot {
+     pub victim_swap: VictimSwapStats,
+     pub ghost_signal: GhostSignalStats,
+     pub frame: FrameStats,
++    pub node_env: NodeEnvStats,
++    pub value_update: ValueUpdateStats,
+     pub frame_layout: FrameLayoutStats,
+     pub value_sig: ValueSigStats,
+     pub eval_borrow: EvalBorrowStats,
+@@ -7499,6 +7654,8 @@ pub fn snapshot() -> UtilizationSnapshot {
+         victim_swap: VictimSwapStats::read(),
+         ghost_signal: GhostSignalStats::read(),
+         frame: FrameStats::read(),
++        node_env: NodeEnvStats::read(),
++        value_update: ValueUpdateStats::read(),
+         frame_layout: FrameLayoutStats::read(),
+         value_sig: ValueSigStats::read(),
+         eval_borrow: EvalBorrowStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 0358c39..f9b4ac8 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, NodeEnvStats, ValueUpdateStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1261,6 +1261,57 @@ fn frame_leaves(prefix: &str, f: &FrameStats) -> Vec<(String, Value)> {
+     ]
+ }
+ 
++fn node_env(m: &mut Marks) -> NodeEnvStats {
++    NodeEnvStats {
++        detached: m.int(),
++        written_segments: m.int(),
++        shared_at_write: m.int(),
++        error_exits: m.int(),
++    }
++}
++
++fn node_env_leaves(prefix: &str, n: &NodeEnvStats) -> Vec<(String, Value)> {
++    let NodeEnvStats {
++        detached,
++        written_segments,
++        shared_at_write,
++        error_exits,
++    } = n;
++    vec![
++        leaf(prefix, "detached", *detached),
++        leaf(prefix, "written_segments", *written_segments),
++        leaf(prefix, "shared_at_write", *shared_at_write),
++        leaf(prefix, "error_exits", *error_exits),
++    ]
++}
++
++fn value_update(m: &mut Marks) -> ValueUpdateStats {
++    ValueUpdateStats {
++        map_in_place_local: m.int(),
++        map_in_place_node: m.int(),
++        list_in_place_local: m.int(),
++        list_in_place_node: m.int(),
++        list_shared_at_push: m.int(),
++    }
++}
++
++fn value_update_leaves(prefix: &str, v: &ValueUpdateStats) -> Vec<(String, Value)> {
++    let ValueUpdateStats {
++        map_in_place_local,
++        map_in_place_node,
++        list_in_place_local,
++        list_in_place_node,
++        list_shared_at_push,
++    } = v;
++    vec![
++        leaf(prefix, "map_in_place_local", *map_in_place_local),
++        leaf(prefix, "map_in_place_node", *map_in_place_node),
++        leaf(prefix, "list_in_place_local", *list_in_place_local),
++        leaf(prefix, "list_in_place_node", *list_in_place_node),
++        leaf(prefix, "list_shared_at_push", *list_shared_at_push),
++    ]
++}
++
+ fn frame_layout(m: &mut Marks) -> FrameLayoutStats {
+     FrameLayoutStats {
+         program_slots_before: m.int(),
+@@ -2268,6 +2319,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         victim_swap: _,
+         ghost_signal: _,
+         frame: _,
++        node_env: _,
++        value_update: _,
+         frame_layout: _,
+         value_sig: _,
+         eval_borrow: _,
+@@ -2326,6 +2379,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "victim_swap",
+         "ghost_signal",
+         "frame",
++        "node_env",
++        "value_update",
+         "frame_layout",
+         "value_sig",
+         "eval_borrow",
+@@ -2418,6 +2473,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.victim_swap = victim_swap(&mut m);
+     s.ghost_signal = ghost_signal(&mut m);
+     s.frame = frame(&mut m);
++    s.node_env = node_env(&mut m);
++    s.value_update = value_update(&mut m);
+     s.frame_layout = frame_layout(&mut m);
+     s.value_sig = value_sig(&mut m);
+     s.eval_borrow = eval_borrow(&mut m);
+@@ -2456,6 +2513,8 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(victim_swap_leaves("victim_swap", &s.victim_swap));
+     expected.extend(ghost_signal_leaves("ghost_signal", &s.ghost_signal));
+     expected.extend(frame_leaves("frame", &s.frame));
++    expected.extend(node_env_leaves("node_env", &s.node_env));
++    expected.extend(value_update_leaves("value_update", &s.value_update));
+     expected.extend(frame_layout_leaves("frame_layout", &s.frame_layout));
+     expected.extend(value_sig_leaves("value_sig", &s.value_sig));
+     expected.extend(eval_borrow_leaves("eval_borrow", &s.eval_borrow));
+@@ -2519,6 +2578,8 @@ fn every_counter_field_reaches_the_written_json() {
+         "victim_swap",
+         "ghost_signal",
+         "frame",
++        "node_env",
++        "value_update",
+         "frame_layout",
+         "value_sig",
+         "eval_borrow",
