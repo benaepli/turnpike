@@ -5125,3 +5125,22 @@ buffer. Set aside: building the frame at delivery (not a saving), struct
 literal HAMT roots (imbl's small-chunks would reorder map iteration and change
 output bytes), Record and Runnable moves and node-env writebacks (closed, no
 new mechanism).
+
+### Judgment (autonomous)
+
+dead-slot-operands-moved net 5, rpc-frames-own-arguments-for-non-parking-
+callees net 3 (only as its second commit, where the async-argument saving
+lands), fstring-chains-appended-in-place net 4; nothing scored 0; all three
+cost 2 (exec.rs). The proposer's open items check out: nothing hashes a
+Record's env or initial_args outside tests (State::signature has no non-test
+caller - with the caveat that it hashes crash_info and channels without the
+policy mix, so a future caller running without hashing would see
+initial_args), and ecow appends in place on a uniquely owned buffer. The
+dead-slot census reproduced exactly on a fresh compile. Corrections frozen in
+the pool entries: a NoHashing decoded-versus-label test and an independent
+read-after-move checker for the moves; the string-append counters rebanded as
+ratios to print_content.presized (649 prints per run, not 280-420); the move
+skipped under hashing in both. Build: one branch, commits A, B, C; a profile
+per stage against the stage before at a 0.3 percent cutoff; a part whose guard
+fires is reverted before rounds; three rounds on the surviving stack. Not
+expected to move walk_recovery_placebo (none touches the scheduler).

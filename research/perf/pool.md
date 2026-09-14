@@ -1208,3 +1208,71 @@ rounds of clock each:
   per step [1.72, 1.85] combined, F falls at least 0.7 x r, runs per second
   [1.005, 1.025] regression only.
 - full record: tmp/loop/perf/it18-judgment.md (H3).
+
+## dead-slot-operands-moved
+
+- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 19) - building as commit A of value-moves-and-string-appends
+- mechanism: a decode-time per-function liveness pass (over labels reachable
+  from each entry, on the post-coloring graph) emits Opnd::Take at top-level
+  kept positions whose slot is dead after the op - Return, Async and SyncCall
+  arguments, Send values, assignments - moving the value out and leaving Unit;
+  under hashing a clone; self-copies left by slot coloring run as no-ops.
+- verified by the judge: census reproduced exactly (Return 25/25, Async 57/57,
+  SyncCall 24/24, 25 self-copies of 72); every later read of a moved slot
+  exact (error paths, trace rows, parked records resuming, SyncCall frames,
+  for-in slots, recovery rebuilds, debug tooling); Hash for Record reached only
+  through State::signature, which no non-test code calls. Red team: for async
+  arguments the stalled map-refcount increment moves into build_frame's second
+  clone - that part lands only with rpc-frames-own-arguments.
+- requirements: a NoHashing decoded-versus-label test (the existing one runs
+  with hashing, where a move still clones); an independent read-after-move
+  checker over every spec with a mutation it must reject.
+- guards (profile at a 0.3 percent cutoff, all generic instances summed,
+  against attribution-c9c54fc/fp-flat-0.3.txt: clone 3.06, value family 9.40,
+  interpreter family 22.12): clone falls at least 0.6 x r; value family plus
+  interpreter family falls at least 0.5 x r.
+- declarations: search-neutral, shared saving.
+- full record: tmp/loop/perf/it19-judgment.md (H1).
+
+## rpc-frames-own-arguments-for-non-parking-callees
+
+- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 19) - commit B of value-moves-and-string-appends, only on top of dead-slot-operands-moved
+- mechanism: for callees with no reachable Recv, Pause or SpinAwait, the
+  frame is built from the arguments by move, initial_args stays empty and
+  reset keeps the frame; the callee lookup moves before argument evaluation
+  (no draw, a tally only).
+- verified: every reader of initial_args and all five reset call sites; such a
+  callee runs to Return inside one exec call (no step budget, errors abort the
+  run, a sync callee that waits is an error), so every reset precedes its first
+  step and the kept frame is what initial_args would rebuild. PrepareOK, Write,
+  Read and monitor_timeouts can park; the rest cannot.
+- owed: a crash / partition re-delivery test and a crash-heavy identity.
+- full record: tmp/loop/perf/it19-judgment.md (H3).
+
+## fstring-chains-appended-in-place
+
+- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 19) - commit C of value-moves-and-string-appends
+- mechanism: an AppendLocal decoded op appends into a uniquely owned buffer
+  (ecow push_str appends in place on a unique heap buffer and copies a shared
+  one); a literal read only by the next append is folded; the move is skipped
+  under hashing.
+- verified: not a repeat of fstring-concat-once (it rewrites decoded ops, not
+  labels; VR has 61 such sites and 23 heap-sized literals); the shared-literal
+  refcount writes land on lines all 30 workers share; aliasing exact.
+  False as proposed: 280-420 prints per run - print_content.presized reads 649,
+  so the counter bands are rewritten as ratios to it (appends [2.4, 3.6],
+  folded literals [1.5, 2.4]); the in-place counter uses the buffer address
+  unchanged after push_str as its stand-in; tree-evaluation and borrow tallies
+  replicated; integer additions on their own leaf.
+- full record: tmp/loop/perf/it19-judgment.md (H2).
+
+## value-moves-and-string-appends
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 19) - building
+- one branch from c9c54fc, commits A (dead slots moved), B (RPC frames), C
+  (string appends); identity and tests on each; one plain-cycles profile per
+  stage read against the stage before at a 0.3 percent cutoff; a part whose
+  guard fires on its own profile is reverted before rounds; three cross-binary
+  rounds on the surviving stack, composite band [1.020, 1.058], regression
+  only, each part's counters by hand. The wall cannot separate upward at this
+  size, so any fired guard closes that part.
