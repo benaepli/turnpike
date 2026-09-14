@@ -3616,3 +3616,35 @@ first, integer-columns-delta-encoded net 2 as its own commit after.
 Decision: build the combination and the writer change in parallel, in two
 worktrees; grade the combination first, then the writer change on the tree
 the combination leaves.
+
+### integer-columns-delta-encoded: implementer report and review
+
+Built on 45517fd, only history.rs: open_parquet_writer takes a column list
+and sets dictionary off plus DELTA_BINARY_PACKED per column for run_id,
+seq_num, step, unique_id, trace_id, schedulable_count and
+causal_operation_id on the executions, logs and traces writers (13 column
+chunks); the runs writer keeps every dictionary; SNAPPY and statistics at
+default. A new test reads the written files with arrow-rs and asserts the
+encoding, the absent dictionary page and min/max on exactly 4, 3 and 6
+columns, and a dictionary page on every other column. Reviewed: the diff is
+that and nothing else, and applies cleanly on 45517fd.
+
+Checks (release): 522 spur-core tests pass. One-thread VR identity (3,008
+runs) against 45517fd: runs, executions (1,167,064), logs (3,377,240) and
+traces (3,701,447) identical both ways through go-duckdb; traceanalyzer
+default and -runs output identical apart from clock fields; porcupine exit 0
+and "All runs are linearizable" on both, with HTML operation order differing
+in 310 of 3,008 files - porcupine run twice on the same baseline output
+differs in 321, so that is porcupine's own ordering; spur debug combined
+byte-identical for run 2 (a crash at step 5, recover at step 6);
+stall_cap_runs.csv hash equal; utilization and campaign.json differ only in
+clocks. parquet_metadata: the 13 switched chunks read RLE,
+DELTA_BINARY_PACKED with no dictionary page and min/max present; every other
+column unchanged.
+
+Output bytes per run 28,731 to 20,196 (0.703: executions 0.441, logs 0.653,
+traces 0.742, runs 1.000), below the frozen [0.85, 1.02] - a missed
+prediction on the favourable side, not a falsifier (which is above 1.02).
+Writer busy per run at one thread 472.4 to 403.6 us (1.170), description
+only. Graded after node-env-and-in-place-updates, on the tree that change
+leaves.
