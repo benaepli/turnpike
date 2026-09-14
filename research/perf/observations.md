@@ -3882,3 +3882,31 @@ plain cycles instead, so call stacks belong to the sampled function and
 shares weight cycles. Profiles before this change are the IBS epoch; guards
 always compare a candidate profile with a baseline profile recorded the same
 way, so 45517fd is re-profiled on the new event before iteration 15.
+
+## Iteration 15 - autonomous, data layout lens, profile 45517fd on plain cycles
+
+Profile 45517fd.md re-recorded on plain cycles (the IBS version is in git
+history). Self lines: ceval 7.73; schedule_runnable 6.50 (+2.05, 1.91,
+1.13) and the Map<Iter<Vec<Runnable>>> collect 1.35, about 12.9 together;
+memmove 5.92; exec_ops 5.06 (+1.29, 1.18); drop_glue<ValueKind> 2.74;
+run_sync_ops 2.58; malloc 2.47; EcoVec<Value> drop 2.22; ValueKind::clone
+1.81 (above the cutoff for the first time under this event);
+walk_recovery_placebo 1.79; exec_plan 1.74; the parquet Int64 interner 1.28
+(writer); imbl GenericNode 1.26; format_escaped_str 1.23; _int_free_chunk
+1.22; _int_malloc 1.01. Writer threads 9.76 inclusive. random_range and
+the NodeIndex collect are below the cutoff under this event, so the old R
+lines are gone; each candidate names its own untouched plain-cycles lines.
+
+What I can explain from the attribution and a change could remove: about
+half of memmove is Record and Runnable values moved by value through
+queues, calls and Arc wrappers; a quarter of malloc, three quarters of
+realloc and about half of cfree are schedule_runnable's per-step index
+lists; two thirds of drop_glue<ValueKind> is the old value dropped when a
+local slot is overwritten; map literals built by repeated inserts carry
+most of the imbl insert cost.
+
+Lens: data layout and representation. Focus directive: the size and
+movement of Record and Runnable (sizes from the type definitions, which
+fields make them large, by-value moves where a box or index would move a
+word, Vec::remove shifting a queue per take), and the per-step index lists'
+storage. Every priced line cites the attribution file.
