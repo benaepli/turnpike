@@ -4412,3 +4412,31 @@ Proposals:
 Set aside, noted as a possible rider: GlobalTimeline on a 128-shard DashMap
 holding one live key read-locks all shards twice per run (about 257
 acquisitions of shared lock words, estimated 20-40 us per run).
+
+### Judgment (autonomous)
+
+The judge recomputed the accounting exactly and ranked: aos-draw-ahead-pool
+net 5, built first; timeline-store-one-lock net 3, split out of the rider
+into its own candidate and built in parallel; grid-pool-worker-continues net
+2, after the AOS pool; the composite not built. Notable findings:
+- the counters: grid job wall includes the writer send wait (negligible at
+  27.7 ns blocked per row); the batched_ leaves are AOS-only; the AOS pool
+  wall is per batch and leaves the serial draw and credit between batches in
+  "outside any pool", which H1's per-slice capacity will count - biasing its
+  primary against the candidate by at most about 5 percent, disclosed.
+- per-arm grid idle from the edb9e2f pool smoke: grid 17.6 percent,
+  grid-short 6.5, grid-no-purgatory 2.9, grid-post-fault-2 2.8 - so most grid
+  idle is capacity gating, and the grid dispatch round trip is at most about
+  43 percent of it. The grid change's band was rewritten down accordingly.
+- H1 corrections: one-thread batch size 32; whole batches past the slice cap
+  as today (608 runs at 600-run slices); credit before issue for zero
+  draw-ahead at one worker; one gated seed batch per session; the drain
+  credits and recomputes; the profile reference over every specialization.
+- lite grading of H1: the lite grader excludes AOS from its per-second rate
+  (decide.ts:29) and pools every arm in its per-run deep guards, so an
+  AOS-only change is diluted about eightfold and could not cross the 0.25
+  margin; an AOS-arm hand reading of depth>=6 and depth>=8 per run through
+  the same posterior test is frozen beside the grader's reading - regressed
+  refutes, unresolved goes to the user. Budget 1.5-3 hours of lite chunks.
+- H1's extra runs are AOS runs, which the lite per-second rung ignores:
+  noted for the user, not a grading issue.

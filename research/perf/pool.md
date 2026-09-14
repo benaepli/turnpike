@@ -1104,3 +1104,57 @@ rounds of clock each:
 ## delivered-record-not-copied
 
 - category: redundant work | origin: proposer | status: proposed, not built (iteration 16) - cannot be graded as its own commit: no per-run counter can see a compiler-emitted copy and a profile line is not a grader primary; the exec.rs:855 copy already happens on a moved parameter, so inlining exec may only move it; judge net 1
+
+## aos-draw-ahead-pool
+
+- category: contention and parallelism | origin: proposer | status: admitted (iteration 17) - building first
+- mechanism: the campaign's AOS arm on an ordered-release pool that may draw
+  up to two batches ahead of the newest credited one while workers would
+  otherwise idle; run ids, ctrl_rng draws (two per pick, weight-independent),
+  per-run seeds, credit order and the once-per-batch recompute held; credit
+  before issue, so nothing is drawn ahead at one worker; the seed batch never
+  ahead; whole batches past the slice cap as StrategyArm runs them today (a
+  600-run slice gives 608 AOS runs); drain credits and recomputes before
+  run_slice returns.
+- declarations: search-affecting (an ahead batch sees a bandit up to two
+  recomputes and a population up to 120 insertions stale), shared saving.
+- primary grid_pool.batched_worker_idle_ns per row, baseline over candidate,
+  [2.3, 6.5]; AOS busy share [0.82, 0.95]; AOS runs per pool-second
+  [1.20, 1.55]; runs per second [1.010, 1.070] regression only. Profile
+  reference over every specialization, R_all = 28.70.
+- owed: one-thread identity (VR, Mencius, caps-engaged 100,000) with
+  drawn_ahead 0; a 30-thread smoke gate; profile; three or more rounds; the
+  lite reading (2-4 cross-binary chunks under v3, deep guards held) plus a
+  frozen AOS-arm hand reading of depth>=6 and depth>=8 per run at the 0.25
+  margin, because the pooled guard dilutes an AOS-only change about
+  eightfold - regressed refutes, unresolved goes to the user.
+- note: its extra runs are AOS runs, which the lite per-second rung excludes.
+- full record: tmp/loop/perf/it17-judgment.md (H1).
+
+## timeline-store-one-lock
+
+- category: contention and parallelism | origin: judge (split from a proposer's set-aside rider) | status: admitted (iteration 17) - building in parallel, graded in its own session after aos-draw-ahead-pool is decided
+- mechanism: GlobalTimeline's 128-shard DashMap with one live key read-locks
+  every shard and allocates an Arc per shard in snapshot(), and read-locks
+  all 128 again through len() in merge(); one lock over a map instead, a
+  snapshot and a merge taking one lock each.
+- price about 15-40 us per run (0.5-1.3 percent); no profile line or existing
+  counter sees it. Neutral, shared. Counters exactly 1 snapshot and 1 merge
+  lock per run; runs per second [1.000, 1.013], regression only.
+- full record: tmp/loop/perf/it17-judgment.md (section 5).
+
+## grid-pool-worker-continues
+
+- category: contention and parallelism | origin: proposer | status: admitted (iteration 17) - after aos-draw-ahead-pool, preceded by a 120 s per-arm smoke on the unchanged binary
+- judge: net 2; the claim that 40-80 percent of grid idle is dispatch is
+  contradicted by the per-arm idle of the edb9e2f pool smoke (grid arm 17.6
+  percent idle, post-fault arms under 3 percent - mostly capacity gating);
+  band rewritten to [1.15, 1.75], runs per second [1.003, 1.020]; neutral
+  (it keeps which runs may overlap and every decision; it only shortens the
+  gap before a start); job wall must stop before the state lock; the unwind
+  guard must run the passes.
+- full record: tmp/loop/perf/it17-judgment.md (H2).
+
+## worker-continues-with-aos-draw-ahead
+
+- category: combined | origin: proposer | status: not built (iteration 17) - ties the AOS pool to an engine likely to close, loses the grid change's neutrality reading inside affecting rounds, and muddies attribution; judge net 2
