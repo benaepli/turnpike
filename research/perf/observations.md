@@ -4017,3 +4017,32 @@ counter block opens; session totals are intact.
 Grading as frozen: a plain-cycles profile of commit A (running), then of the
 composite, then three rounds on cross-binary runs per second, regression
 only, counters by hand every round.
+
+### records-boxed-and-index-lists-inline: index-lists-only profile, H2's own guards
+
+Profile 45517fd-cand-index-lists-inline.md (plain cycles) against
+45517fd.md; R_cand = 11.69 (ceval 7.78, Int64 interner 1.25, GenericNode
+1.26, format_escaped_str 1.40), r = 1.017. Reporter cutoff 1 percent: a
+line absent from the self table is read from the self column of the
+inclusive table when its row is there, and is otherwise only known to be
+under 1.
+- memmove self 5.92 to 6.14 (6.04 x r), at most 6.07: held, narrowly.
+- malloc + _int_malloc + cfree + _int_free_chunk: 5.34 to 2.04 + under 1 +
+  0.31 + 1.00, at most 4.35 even at the cutoff bound (4.28 x r), at most
+  4.74: held.
+- realloc 0.54 to below the inclusive cutoff, at most 0.25 x r required:
+  unverifiable from this profile (under 1 is all it shows).
+- scheduler family, above-cutoff self rows as frozen: 12.94 to 13.50
+  (6.70, 2.26, 2.04, 1.29, 1.21), 13.28 x r, at most 13.09: FIRED by 0.19.
+  With below-cutoff instances from the inclusive table the family rises 1.27
+  on the candidate against 0.70 on the baseline, so the rise is not a table
+  artefact. Mechanism: the inline collect's push loop now runs inside
+  schedule_runnable, the relocation the +0.15 allowance was set against,
+  while the allocator lines fell by about 2.
+- walk_recovery_placebo self 1.79 to 1.45, 1.43 x r, outside its described
+  [1.49, 2.09]: description, referred to the search loop's owner before any
+  merge. Its code is untouched; its cost moved under the list change alone.
+
+Decision on H2 deferred until the composite profile is read, because the
+composite's attribution rule reads H1's guards as differences against this
+profile.
