@@ -1251,7 +1251,7 @@ rounds of clock each:
 
 ## fstring-chains-appended-in-place
 
-- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 19) - commit C of value-moves-and-string-appends
+- category: allocation and memory traffic | origin: proposer | status: closed (iteration 19, autonomous) before profiling on its frozen counter bands - appends per print 2.05 (at least 2.4), in-place share 0.485 (at least 0.55), folds per print 1.22 (at least 1.5), grows 0.18 (at most 0.15), per-print ratios the graded rounds cannot move; identity identical; patch kept
 - mechanism: an AppendLocal decoded op appends into a uniquely owned buffer
   (ecow push_str appends in place on a unique heap buffer and copies a shared
   one); a literal read only by the next append is folded; the move is skipped

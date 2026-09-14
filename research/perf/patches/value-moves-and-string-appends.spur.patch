@@ -1,0 +1,2841 @@
+diff --git a/spur-core/src/compiler/cfg.rs b/spur-core/src/compiler/cfg.rs
+index 8f1d637..2aba255 100644
+--- a/spur-core/src/compiler/cfg.rs
++++ b/spur-core/src/compiler/cfg.rs
+@@ -352,6 +352,7 @@ impl Compiler {
+             local_slot_count: self.next_local_slot,
+             local_defaults: self.current_local_defaults.clone(),
+             is_sync: true,
++            may_park: true,
+             debug_slot_names: self.current_slot_names.clone(),
+         };
+         self.finish_function(first_vertex, info)
+@@ -454,6 +455,7 @@ impl Compiler {
+             local_slot_count: self.next_local_slot,
+             local_defaults: self.current_local_defaults.clone(),
+             is_sync: func.is_sync,
++            may_park: true,
+             debug_slot_names: self.current_slot_names.clone(),
+         };
+         self.finish_function(first_vertex, info)
+diff --git a/spur-core/src/compiler/cfg/compiled.rs b/spur-core/src/compiler/cfg/compiled.rs
+index fb30b85..cff1a89 100644
+--- a/spur-core/src/compiler/cfg/compiled.rs
++++ b/spur-core/src/compiler/cfg/compiled.rs
+@@ -15,6 +15,10 @@ use std::sync::Arc;
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum Opnd {
+     Local(u32),
++    /// A local slot at a position whose value the operation keeps, which no
++    /// path reads again before writing it. The operation may move the value
++    /// out and leave Unit; read anywhere else it reads like `Local`.
++    Take(u32),
+     Node(u32),
+     Int(i64),
+     Str(EcoString),
+@@ -98,6 +102,8 @@ pub struct AsyncOp {
+     pub dest: Dest,
+     pub target: Opnd,
+     pub callee: u32,
++    /// The callee's `may_park`; true when the callee did not resolve.
++    pub callee_parks: bool,
+     pub name: String,
+     pub args: Vec<Opnd>,
+     pub next: u32,
+@@ -144,6 +150,23 @@ pub struct SendOp {
+     pub next: u32,
+ }
+ 
++/// `slot = slot + other` or `slot = literal + other` where one operand was a
++/// local slot holding a string literal stored at an earlier vertex that is
++/// folded into this one.
++#[derive(Debug, Clone, PartialEq)]
++pub struct AppendLiteralOp {
++    pub slot: u32,
++    pub next: u32,
++    pub literal: EcoString,
++    /// The slot the folded store writes, which holds the literal here when
++    /// signatures are kept eagerly.
++    pub literal_slot: u32,
++    /// The operand that is not the literal.
++    pub other: u32,
++    /// Whether the literal is the left operand.
++    pub literal_first: bool,
++}
++
+ #[derive(Debug, Clone, PartialEq)]
+ pub struct RecvOp {
+     /// Kept whole because a blocked reader carries it until a value arrives.
+@@ -157,6 +180,16 @@ pub struct RecvOp {
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum Op {
+     AssignLocal { slot: u32, next: u32, rhs: Opnd },
++    /// `AssignLocal` of a local slot to itself.
++    SelfCopy { slot: u32, next: u32 },
++    /// `slot = slot + rhs` over two distinct local slots.
++    AppendLocal { slot: u32, next: u32, rhs: u32 },
++    AppendLiteral(Box<AppendLiteralOp>),
++    /// `AssignLocal` of a string literal that the one `AppendLiteral` its
++    /// value reaches reads from its own operation. The store runs only when
++    /// signatures are kept eagerly; otherwise the slot keeps its earlier
++    /// value, which no path reads before writing it.
++    LiteralStore { slot: u32, next: u32, rhs: Opnd },
+     AssignNode { slot: u32, next: u32, rhs: Opnd },
+     SyncCall(Box<SyncCallOp>),
+     Async(Box<AsyncOp>),
+@@ -199,16 +232,34 @@ impl CompiledProgram {
+     /// Decodes every vertex of `program`. Reads the program's labels, call
+     /// maps and roles, which must not change afterwards.
+     pub fn build(program: &Program) -> Self {
++        Self::build_with(program, true)
++    }
++
++    /// Decodes with every string addition left as a tree.
++    #[cfg(test)]
++    pub(crate) fn build_without_string_appends(program: &Program) -> Self {
++        Self::build_with(program, false)
++    }
++
++    fn build_with(program: &Program, string_appends: bool) -> Self {
+         let mut builder = Builder {
+             program,
+             call_functions: Vec::new(),
+             callee_index: std::collections::HashMap::new(),
++            live_after: super::frame_layout::live_after_vertices(program),
++            string_appends,
++            folds: std::collections::HashMap::new(),
++            folded_stores: std::collections::HashSet::new(),
+         };
++        if string_appends {
++            builder.plan_literal_folds();
++        }
+         let ops = program
+             .cfg
+             .graph
+             .iter()
+-            .map(|label| builder.op(label))
++            .enumerate()
++            .map(|(v, label)| builder.op(v, label))
+             .collect();
+         CompiledProgram {
+             ops,
+@@ -233,6 +284,29 @@ struct Builder<'a> {
+     program: &'a Program,
+     call_functions: Vec<FunctionInfo>,
+     callee_index: std::collections::HashMap<NameId, u32>,
++    /// Per vertex, the local slots live after it, when known.
++    live_after: Vec<Option<Vec<u64>>>,
++    string_appends: bool,
++    /// Append vertex -> (literal, slot the folded store writes).
++    folds: std::collections::HashMap<usize, (EcoString, u32)>,
++    folded_stores: std::collections::HashSet<usize>,
++}
++
++/// The longest run of labels a literal store may be folded across.
++const FOLD_REACH: usize = 16;
++
++/// `a = a + x` over two distinct local slots: `(a, x)`.
++fn append_shape(label: &Label) -> Option<(u32, u32)> {
++    if let Label::Instr(Instr::Assign(lhs, rhs) | Instr::Copy(lhs, rhs), _) = label
++        && let Lhs::Var(VarSlot::Local(a, _)) = lhs
++        && let Expr::Plus(l, r) = rhs
++        && let (Expr::Var(VarSlot::Local(la, _)), Expr::Var(VarSlot::Local(x, _))) = (&**l, &**r)
++        && la == a
++        && x != a
++    {
++        return Some((*a, *x));
++    }
++    None
+ }
+ 
+ fn vertex(v: Vertex) -> u32 {
+@@ -263,38 +337,174 @@ impl Builder<'_> {
+         idx
+     }
+ 
+-    fn op(&mut self, label: &Label) -> Op {
++    /// Finds each store of a string literal to a local slot whose value only
++    /// one later append reads. From the store, every label up to the append
++    /// has exactly one predecessor, is no function's entry, and is a store
++    /// that does not name the slot; the slot is known dead after the append.
++    /// So the append is only ever reached through the store, and the slot's
++    /// value between them is read by nothing but the append.
++    fn plan_literal_folds(&mut self) {
++        let graph = &self.program.cfg.graph;
++        let len = graph.len();
++        let mut preds = vec![0u32; len];
++        for label in graph {
++            for t in super::frame_layout::successors(label).into_iter().flatten() {
++                if t < len {
++                    preds[t] += 1;
++                }
++            }
++        }
++        let entries: std::collections::HashSet<usize> =
++            self.program.rpc.values().map(|f| f.entry).collect();
++        for (store, label) in graph.iter().enumerate() {
++            let (Label::Instr(Instr::Assign(lhs, Expr::String(literal)), next)
++            | Label::Instr(Instr::Copy(lhs, Expr::String(literal)), next)) = label
++            else {
++                continue;
++            };
++            let Lhs::Var(VarSlot::Local(t, _)) = lhs else {
++                continue;
++            };
++            let t = *t;
++            let mut cur = *next;
++            for _ in 0..FOLD_REACH {
++                if cur >= len || preds[cur] != 1 || entries.contains(&cur) {
++                    break;
++                }
++                let label = &graph[cur];
++                if let Some((a, x)) = append_shape(label)
++                    && (a == t || x == t)
++                {
++                    if self.dead_after(cur, t) && !self.folds.contains_key(&cur) {
++                        self.folds.insert(cur, (literal.clone(), t));
++                        self.folded_stores.insert(store);
++                    }
++                    break;
++                }
++                match label {
++                    Label::Instr(Instr::Assign(lhs, rhs) | Instr::Copy(lhs, rhs), n)
++                        if !matches!(lhs, Lhs::Var(VarSlot::Local(i, _)) if *i == t)
++                            && !super::frame_layout::expr_reads_local(rhs, t) =>
++                    {
++                        cur = *n;
++                    }
++                    _ => break,
++                }
++            }
++        }
++    }
++
++    /// Whether local slot `slot` is known not to be live after vertex `v`.
++    fn dead_after(&self, v: usize, slot: u32) -> bool {
++        self.live_after
++            .get(v)
++            .and_then(Option::as_ref)
++            .is_some_and(|row| {
++                row.get(slot as usize / 64)
++                    .is_some_and(|word| word & (1 << (slot % 64)) == 0)
++            })
++    }
++
++    /// A position of vertex `v` whose value the operation keeps. A local slot
++    /// dead after the vertex and named by none of `later`, the positions the
++    /// vertex evaluates after this one, decodes as a take.
++    fn kept(&self, v: usize, expr: &Expr, later: &[Expr]) -> Opnd {
++        if let Expr::Var(VarSlot::Local(slot, _)) = expr
++            && self.dead_after(v, *slot)
++            && !later
++                .iter()
++                .any(|e| super::frame_layout::expr_reads_local(e, *slot))
++        {
++            return Opnd::Take(*slot);
++        }
++        opnd(expr)
++    }
++
++    /// Call arguments of vertex `v`, evaluated in order.
++    fn kept_args(&self, v: usize, args: &[Expr]) -> Vec<Opnd> {
++        args.iter()
++            .enumerate()
++            .map(|(i, a)| self.kept(v, a, &args[i + 1..]))
++            .collect()
++    }
++
++    fn op(&mut self, v: usize, label: &Label) -> Op {
+         match label {
+             Label::Instr(instr, next) => {
+                 let next = vertex(*next);
++                if self.string_appends {
++                    if let Some((literal, literal_slot)) = self.folds.get(&v)
++                        && let Some((a, x)) = append_shape(label)
++                    {
++                        let literal_first = *literal_slot == a;
++                        return Op::AppendLiteral(Box::new(AppendLiteralOp {
++                            slot: a,
++                            next,
++                            literal: literal.clone(),
++                            literal_slot: *literal_slot,
++                            other: if literal_first { x } else { a },
++                            literal_first,
++                        }));
++                    }
++                    if let Some((a, x)) = append_shape(label) {
++                        return Op::AppendLocal {
++                            slot: a,
++                            next,
++                            rhs: x,
++                        };
++                    }
++                    if self.folded_stores.contains(&v)
++                        && let Instr::Assign(lhs, rhs) | Instr::Copy(lhs, rhs) = instr
++                        && let Dest::Local(slot) = dest(lhs)
++                    {
++                        return Op::LiteralStore {
++                            slot,
++                            next,
++                            rhs: opnd(rhs),
++                        };
++                    }
++                }
+                 match instr {
+                     Instr::Assign(lhs, rhs) | Instr::Copy(lhs, rhs) => match dest(lhs) {
++                        Dest::Local(slot)
++                            if matches!(rhs, Expr::Var(VarSlot::Local(src, _)) if *src == slot)
++                                && self.dead_after(v, slot) =>
++                        {
++                            Op::SelfCopy { slot, next }
++                        }
+                         Dest::Local(slot) => Op::AssignLocal {
+                             slot,
+                             next,
+-                            rhs: opnd(rhs),
++                            rhs: self.kept(v, rhs, &[]),
+                         },
+                         Dest::Node(slot) => Op::AssignNode {
+                             slot,
+                             next,
+-                            rhs: opnd(rhs),
++                            rhs: self.kept(v, rhs, &[]),
+                         },
+                     },
+                     Instr::SyncCall(lhs, name, args) => Op::SyncCall(Box::new(SyncCallOp {
+                         dest: dest(lhs),
+                         callee: self.callee(name),
+                         name: name.clone(),
+-                        args: args.iter().map(opnd).collect(),
+-                        next,
+-                    })),
+-                    Instr::Async(lhs, target, name, args) => Op::Async(Box::new(AsyncOp {
+-                        dest: dest(lhs),
+-                        target: opnd(target),
+-                        callee: self.callee(name),
+-                        name: name.clone(),
+-                        args: args.iter().map(opnd).collect(),
++                        args: self.kept_args(v, args),
+                         next,
+                     })),
++                    Instr::Async(lhs, target, name, args) => {
++                        let callee = self.callee(name);
++                        Op::Async(Box::new(AsyncOp {
++                            dest: dest(lhs),
++                            target: opnd(target),
++                            callee,
++                            callee_parks: self
++                                .call_functions
++                                .get(callee as usize)
++                                .map_or(true, |f| f.may_park),
++                            name: name.clone(),
++                            args: self.kept_args(v, args),
++                            next,
++                        }))
++                    }
+                 }
+             }
+             Label::Pause(next) => Op::Pause(vertex(*next)),
+@@ -318,7 +528,7 @@ impl Builder<'_> {
+             },
+             Label::Send(chan, value, next) => Op::Send(Box::new(SendOp {
+                 chan: opnd(chan),
+-                value: opnd(value),
++                value: self.kept(v, value, &[]),
+                 next: vertex(*next),
+             })),
+             Label::Recv(lhs, chan, next) => Op::Recv(Box::new(RecvOp {
+@@ -331,7 +541,7 @@ impl Builder<'_> {
+                 cond: opnd(cond),
+                 next: vertex(*next),
+             },
+-            Label::Return(expr) => Op::Return(opnd(expr)),
++            Label::Return(expr) => Op::Return(self.kept(v, expr, &[])),
+             Label::Cond(cond, then, els) => {
+                 let (then, els) = (vertex(*then), vertex(*els));
+                 match cond {
+@@ -407,6 +617,26 @@ impl Builder<'_> {
+     }
+ }
+ 
++/// Whether a Recv, Pause or SpinAwait label is reachable from `entry` in
++/// `graph`. An entry or successor outside the graph counts as one.
++pub fn may_park(graph: &[Label], entry: Vertex) -> bool {
++    let mut seen = vec![false; graph.len()];
++    let mut work = vec![entry];
++    while let Some(v) = work.pop() {
++        let Some(label) = graph.get(v) else {
++            return true;
++        };
++        if std::mem::replace(&mut seen[v], true) {
++            continue;
++        }
++        if matches!(label, Label::Recv(..) | Label::Pause(_) | Label::SpinAwait(..)) {
++            return true;
++        }
++        work.extend(super::frame_layout::successors(label).into_iter().flatten());
++    }
++    false
++}
++
+ /// Classifies one expression position.
+ pub fn opnd(expr: &Expr) -> Opnd {
+     match expr {
+@@ -479,3 +709,6 @@ fn tree(expr: &Expr) -> CExpr {
+         Expr::SafeTupleAccess(a, i) => CExpr::SafeTupleAccess(o(a), *i),
+     }
+ }
++
++#[cfg(test)]
++mod test;
+diff --git a/spur-core/src/compiler/cfg/compiled/test.rs b/spur-core/src/compiler/cfg/compiled/test.rs
+new file mode 100644
+index 0000000..34ea33b
+--- /dev/null
++++ b/spur-core/src/compiler/cfg/compiled/test.rs
+@@ -0,0 +1,646 @@
++//! Checks the moves decoding introduces by a separate method: a forward
++//! analysis over the decoded operations of every function, tracking the local
++//! slots that may hold a value moved out. No operation may read such a slot
++//! before writing it, and moves may only sit at the positions whose value the
++//! operation keeps.
++
++use super::*;
++use crate::compiler::cfg::Compiler;
++use crate::compiler::compile_with;
++use std::collections::{BTreeSet, HashMap, VecDeque};
++use std::path::{Path, PathBuf};
++
++/// One local slot event of an operation, in execution order.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum Event {
++    Read(u32),
++    /// A read that leaves the slot's value moved out.
++    Move(u32),
++    Write(u32),
++    /// A write that happens only on the way to the first successor.
++    WriteFirst(u32),
++    /// A store skipped with deferred signatures: the slot keeps a value that
++    /// the program never meant it to hold.
++    Stale(u32),
++}
++
++fn tree_events(e: &CExpr, out: &mut Vec<Event>) -> Result<(), String> {
++    let mut stack: Vec<&Opnd> = Vec::new();
++    match e {
++        CExpr::Find(a, b)
++        | CExpr::And(a, b)
++        | CExpr::Or(a, b)
++        | CExpr::EqualsEquals(a, b)
++        | CExpr::NotEquals(a, b)
++        | CExpr::ListPrepend(a, b)
++        | CExpr::ListAppend(a, b)
++        | CExpr::LessThan(a, b)
++        | CExpr::LessThanEquals(a, b)
++        | CExpr::GreaterThan(a, b)
++        | CExpr::GreaterThanEquals(a, b)
++        | CExpr::KeyExists(a, b)
++        | CExpr::MapErase(a, b)
++        | CExpr::Plus(a, b)
++        | CExpr::Minus(a, b)
++        | CExpr::Times(a, b)
++        | CExpr::Div(a, b)
++        | CExpr::Mod(a, b)
++        | CExpr::Min(a, b)
++        | CExpr::Coalesce(a, b)
++        | CExpr::SafeFind(a, b) => stack.extend([a, b]),
++        CExpr::ListSubsequence(a, b, c) | CExpr::Store(a, b, c) => stack.extend([a, b, c]),
++        CExpr::FieldGet(a, _)
++        | CExpr::Not(a)
++        | CExpr::ListLen(a)
++        | CExpr::ListAccess(a, _)
++        | CExpr::TupleAccess(a, _)
++        | CExpr::Unwrap(a)
++        | CExpr::Some(a)
++        | CExpr::IntToString(a)
++        | CExpr::BoolToString(a)
++        | CExpr::NodeToString(a)
++        | CExpr::IsVariant(a, _)
++        | CExpr::VariantPayload(a)
++        | CExpr::SafeTupleAccess(a, _) => stack.push(a),
++        CExpr::Map(pairs) => pairs.iter().for_each(|(k, v)| stack.extend([k, v])),
++        CExpr::List(items) | CExpr::Tuple(items) => stack.extend(items),
++        CExpr::Variant(_, _, payload) => stack.extend(payload),
++    }
++    for o in stack {
++        read_events(o, out)?;
++    }
++    Ok(())
++}
++
++/// Events of a position that only reads.
++fn read_events(o: &Opnd, out: &mut Vec<Event>) -> Result<(), String> {
++    match o {
++        Opnd::Local(s) => out.push(Event::Read(*s)),
++        Opnd::Take(s) => return Err(format!("a move of slot {s} at a position that only reads")),
++        Opnd::Tree(e) => tree_events(e, out)?,
++        Opnd::Node(_) | Opnd::Int(_) | Opnd::Str(_) | Opnd::Bool(_) | Opnd::Unit | Opnd::Nil => {}
++    }
++    Ok(())
++}
++
++/// Events of a position whose value the operation keeps.
++fn kept_events(o: &Opnd, out: &mut Vec<Event>) -> Result<(), String> {
++    match o {
++        Opnd::Take(s) => {
++            out.push(Event::Move(*s));
++            Ok(())
++        }
++        other => read_events(other, out),
++    }
++}
++
++fn dest_event(d: &Dest, first_only: bool, out: &mut Vec<Event>) {
++    if let Dest::Local(s) = d {
++        out.push(if first_only {
++            Event::WriteFirst(*s)
++        } else {
++            Event::Write(*s)
++        });
++    }
++}
++
++/// The operation's local slot events in execution order and its successors.
++/// A spin-await runs itself again until its condition holds.
++fn op_events(op: &Op, at: usize) -> Result<(Vec<Event>, Vec<usize>), String> {
++    let mut ev = Vec::new();
++    let n = |x: &u32| *x as usize;
++    let succ = match op {
++        Op::AssignLocal { slot, next, rhs } => {
++            kept_events(rhs, &mut ev)?;
++            ev.push(Event::Write(*slot));
++            vec![n(next)]
++        }
++        Op::SelfCopy { slot, next } => {
++            ev.push(Event::Read(*slot));
++            ev.push(Event::Write(*slot));
++            vec![n(next)]
++        }
++        Op::AppendLocal { slot, next, rhs } => {
++            ev.push(Event::Read(*slot));
++            ev.push(Event::Read(*rhs));
++            ev.push(Event::Write(*slot));
++            vec![n(next)]
++        }
++        Op::AppendLiteral(op) => {
++            ev.push(Event::Read(op.other));
++            ev.push(Event::Write(op.slot));
++            vec![n(&op.next)]
++        }
++        Op::LiteralStore { slot, next, rhs } => {
++            if !matches!(rhs, Opnd::Str(_)) {
++                return Err(format!("a folded store of {rhs:?}"));
++            }
++            ev.push(Event::Stale(*slot));
++            vec![n(next)]
++        }
++        Op::AssignNode { next, rhs, .. } => {
++            kept_events(rhs, &mut ev)?;
++            vec![n(next)]
++        }
++        Op::SyncCall(call) => {
++            for a in &call.args {
++                kept_events(a, &mut ev)?;
++            }
++            dest_event(&call.dest, false, &mut ev);
++            vec![n(&call.next)]
++        }
++        Op::Async(call) => {
++            read_events(&call.target, &mut ev)?;
++            for a in &call.args {
++                kept_events(a, &mut ev)?;
++            }
++            dest_event(&call.dest, false, &mut ev);
++            vec![n(&call.next)]
++        }
++        Op::MakeChannel { dest, next }
++        | Op::SetTimer { dest, next, .. }
++        | Op::UniqueId { dest, next }
++        | Op::RetrieveData { dest, next, .. } => {
++            dest_event(dest, false, &mut ev);
++            vec![n(next)]
++        }
++        Op::MakeFifoLink { dest, next, peer } => {
++            read_events(peer, &mut ev)?;
++            dest_event(dest, false, &mut ev);
++            vec![n(next)]
++        }
++        Op::CondLocal { slot, then, els } => {
++            ev.push(Event::Read(*slot));
++            vec![n(then), n(els)]
++        }
++        Op::CondNode { then, els, .. } => vec![n(then), n(els)],
++        Op::Cond { cond, then, els } => {
++            read_events(cond, &mut ev)?;
++            vec![n(then), n(els)]
++        }
++        Op::Return(rhs) => {
++            kept_events(rhs, &mut ev)?;
++            vec![]
++        }
++        Op::Print { value, next } | Op::PersistData { value, next, .. } => {
++            read_events(value, &mut ev)?;
++            vec![n(next)]
++        }
++        Op::Goto(next) | Op::DiscardData(next) | Op::Pause(next) => vec![n(next)],
++        Op::ForLoopIn(fl) => {
++            if let Some(s) = fl.iter_slot {
++                ev.push(Event::Read(s));
++            }
++            read_events(&fl.collection, &mut ev)?;
++            if let Some(s) = fl.iter_slot {
++                ev.push(Event::Write(s));
++            }
++            dest_event(&fl.dest, true, &mut ev);
++            vec![n(&fl.body), n(&fl.next)]
++        }
++        Op::TraceDispatch(td) => {
++            for p in &td.params {
++                read_events(p, &mut ev)?;
++            }
++            vec![n(&td.next)]
++        }
++        Op::TraceEnter(te) => {
++            dest_event(&te.dest, false, &mut ev);
++            for p in &te.params {
++                read_events(p, &mut ev)?;
++            }
++            vec![n(&te.next)]
++        }
++        Op::TraceExit(tx) => {
++            read_events(&tx.trace_id, &mut ev)?;
++            read_events(&tx.return_value, &mut ev)?;
++            vec![n(&tx.next)]
++        }
++        Op::Send(send) => {
++            read_events(&send.chan, &mut ev)?;
++            kept_events(&send.value, &mut ev)?;
++            vec![n(&send.next)]
++        }
++        Op::Recv(recv) => {
++            read_events(&recv.chan, &mut ev)?;
++            dest_event(&recv.dest, false, &mut ev);
++            vec![n(&recv.next)]
++        }
++        Op::SpinAwait { cond, next } => {
++            read_events(cond, &mut ev)?;
++            vec![n(next), at]
++        }
++    };
++    Ok((ev, succ))
++}
++
++/// Accepts the decoded operations of the function entered at `entry` when no
++/// path reads a slot between a move out of it and the next write to it.
++fn check_moves(ops: &[Op], entry: usize) -> Result<usize, String> {
++    let mut moved_in: HashMap<usize, BTreeSet<u32>> = HashMap::from([(entry, BTreeSet::new())]);
++    let mut work = VecDeque::from([entry]);
++    let mut moves = 0;
++    let mut seen = BTreeSet::new();
++    while let Some(v) = work.pop_front() {
++        let op = ops.get(v).ok_or_else(|| format!("vertex {v} is outside the program"))?;
++        let (events, succ) = op_events(op, v).map_err(|e| format!("vertex {v}: {e}"))?;
++        let mut moved = moved_in[&v].clone();
++        let mut first_only = Vec::new();
++        for event in events {
++            match event {
++                Event::Read(s) | Event::Move(s) if moved.contains(&s) => {
++                    return Err(format!("vertex {v} reads slot {s} after its value was moved out"));
++                }
++                Event::Read(_) => {}
++                Event::Move(s) | Event::Stale(s) => {
++                    if seen.insert((v, s)) {
++                        moves += 1;
++                    }
++                    moved.insert(s);
++                }
++                Event::Write(s) => {
++                    moved.remove(&s);
++                }
++                Event::WriteFirst(s) => first_only.push(s),
++            }
++        }
++        for (edge, &target) in succ.iter().enumerate() {
++            let mut out = moved.clone();
++            if edge == 0 {
++                for s in &first_only {
++                    out.remove(s);
++                }
++            }
++            let entry = moved_in.entry(target).or_default();
++            let before = entry.len();
++            entry.extend(out);
++            if entry.len() != before || !seen.contains(&(target, u32::MAX)) {
++                seen.insert((target, u32::MAX));
++                work.push_back(target);
++            }
++        }
++    }
++    Ok(moves)
++}
++
++/// Every vertex some function entry reaches through the decoded operations.
++fn reached(program: &Program) -> BTreeSet<usize> {
++    let mut out = BTreeSet::new();
++    let mut work: VecDeque<usize> = program.rpc.values().map(|f| f.entry).collect();
++    while let Some(v) = work.pop_front() {
++        if v >= program.compiled.ops.len() || !out.insert(v) {
++            continue;
++        }
++        if let Ok((_, succ)) = op_events(&program.compiled.ops[v], v) {
++            work.extend(succ);
++        }
++    }
++    out
++}
++
++fn has_move(op: &Op) -> bool {
++    matches!(op, Op::SelfCopy { .. })
++        || op_events(op, 0)
++            .map_or(true, |(ev, _)| ev.iter().any(|e| matches!(e, Event::Move(_) | Event::Stale(_))))
++}
++
++fn spec_files(dir: &Path, out: &mut Vec<PathBuf>) {
++    for entry in std::fs::read_dir(dir).expect("the spec directory is readable") {
++        let path = entry.expect("a directory entry").path();
++        if path.is_dir() {
++            spec_files(&path, out);
++        } else if path.extension().is_some_and(|e| e == "spur") {
++            out.push(path);
++        }
++    }
++}
++
++fn on_big_stack(f: impl FnOnce() + Send + 'static) {
++    std::thread::Builder::new()
++        .stack_size(64 * 1024 * 1024)
++        .spawn(f)
++        .expect("the test thread starts")
++        .join()
++        .expect("the test thread finishes");
++}
++
++/// The spec directory: `SPUR_SPEC_DIR` when set, the repository's otherwise.
++fn spec_root() -> PathBuf {
++    std::env::var_os("SPUR_SPEC_DIR")
++        .map(PathBuf::from)
++        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/spur"))
++}
++
++#[test]
++fn every_spec_reads_no_slot_after_moving_its_value_out() {
++    on_big_stack(|| {
++        let root = spec_root();
++        let mut files = Vec::new();
++        spec_files(&root, &mut files);
++        files.sort();
++        assert!(!files.is_empty(), "no spec under {}", root.display());
++        let mut failures = Vec::new();
++        let (mut compiled, mut total_moves) = (0, 0);
++        for file in &files {
++            let name = file.display().to_string();
++            let source = std::fs::read_to_string(file).expect("the spec is readable");
++            let Ok(program) = compile_with(&source, &name, Compiler::new()).into_program() else {
++                eprintln!("{name}: does not compile, skipped");
++                continue;
++            };
++            compiled += 1;
++            assert!(program.compiled.covers(program.cfg.graph.len()), "{name}");
++            let mut moves = 0;
++            let mut entries: Vec<_> = program.rpc.values().map(|f| f.entry).collect();
++            entries.sort();
++            entries.dedup();
++            for entry in entries {
++                match check_moves(&program.compiled.ops, entry) {
++                    Ok(m) => moves += m,
++                    Err(e) => failures.push(format!("{name} entry {entry}: {e}")),
++                }
++            }
++            let reach = reached(&program);
++            for (v, op) in program.compiled.ops.iter().enumerate() {
++                if !reach.contains(&v) && has_move(op) {
++                    failures.push(format!("{name}: vertex {v} is in no function but moves"));
++                }
++            }
++            let count = |f: fn(&Op) -> bool| program.compiled.ops.iter().filter(|op| f(op)).count();
++            let folded = count(|op| matches!(op, Op::AppendLiteral(_)));
++            eprintln!(
++                "{name}: {moves} move positions, {} appends, {folded} folded appends, {} folded stores",
++                count(|op| matches!(op, Op::AppendLocal { .. })),
++                count(|op| matches!(op, Op::LiteralStore { .. })),
++            );
++            if folded != count(|op| matches!(op, Op::LiteralStore { .. })) {
++                failures.push(format!("{name}: folded appends and folded stores differ in number"));
++            }
++            total_moves += moves;
++        }
++        assert!(compiled > 0, "no spec compiled");
++        assert!(total_moves > 0, "no spec decoded a move");
++        assert!(failures.is_empty(), "moves that a later read sees:\n{}", failures.join("\n"));
++    });
++}
++
++const COPY_SPEC: &str = r#"
++role Node {
++    var total: int = 0;
++
++    fn Mix(x: int, xs: list<int>): int {
++        var y: int = x;
++        var ys: list<int> = xs;
++        total = y;
++        for var i: int = 0; i < x; i = i + 1 {
++            ys = append(ys, i);
++        }
++        return x + y + len(ys) + len(xs);
++    }
++
++    fn Pass(x: int): int {
++        var z: int = Mix(x, [x]);
++        return z;
++    }
++}
++"#;
++
++/// Every position of a function's operations that keeps a value from a
++/// local slot without moving it.
++fn kept_locals(ops: &[Op], reach: &BTreeSet<usize>) -> Vec<(usize, usize)> {
++    let mut out = Vec::new();
++    for &v in reach {
++        let count = match &ops[v] {
++            Op::AssignLocal { rhs: Opnd::Local(_), .. }
++            | Op::AssignNode { rhs: Opnd::Local(_), .. }
++            | Op::Return(Opnd::Local(_)) => 1,
++            Op::SyncCall(call) => call.args.len(),
++            Op::Async(call) => call.args.len(),
++            Op::Send(send) if matches!(send.value, Opnd::Local(_)) => 1,
++            _ => 0,
++        };
++        for k in 0..count {
++            out.push((v, k));
++        }
++    }
++    out
++}
++
++/// Turns the `k`-th kept position of vertex `v` into a move when it reads a
++/// local slot, and says whether it did.
++fn force_move(op: &mut Op, k: usize) -> bool {
++    let target = match op {
++        Op::AssignLocal { rhs, .. } | Op::AssignNode { rhs, .. } | Op::Return(rhs) => rhs,
++        Op::SyncCall(call) => &mut call.args[k],
++        Op::Async(call) => &mut call.args[k],
++        Op::Send(send) => &mut send.value,
++        _ => return false,
++    };
++    match *target {
++        Opnd::Local(s) => {
++            *target = Opnd::Take(s);
++            true
++        }
++        _ => false,
++    }
++}
++
++#[test]
++fn the_checker_rejects_a_move_out_of_a_live_slot() {
++    on_big_stack(|| {
++        let program = compile_with(COPY_SPEC, "copy.spur", Compiler::new())
++            .into_program()
++            .expect("the copy spec compiles");
++        let reach = reached(&program);
++        let mut entries: Vec<_> = program.rpc.values().map(|f| f.entry).collect();
++        entries.sort();
++        entries.dedup();
++        for &entry in &entries {
++            assert!(check_moves(&program.compiled.ops, entry).is_ok(), "the decoded program");
++        }
++        let mut mutations = 0;
++        for (v, k) in kept_locals(&program.compiled.ops, &reach) {
++            let mut ops = program.compiled.ops.clone();
++            if !force_move(&mut ops[v], k) {
++                continue;
++            }
++            mutations += 1;
++            let rejected = entries.iter().any(|&entry| check_moves(&ops, entry).is_err());
++            assert!(rejected, "a move out of the live slot at vertex {v} position {k} is accepted: {:?}", ops[v]);
++        }
++        assert!(mutations > 0, "no kept position reads a live local slot");
++    });
++}
++
++#[test]
++fn a_label_in_no_function_decodes_without_moves() {
++    let labels = vec![
++        Label::Instr(
++            Instr::Assign(
++                Lhs::Var(VarSlot::Local(1, NameId(1))),
++                Expr::Var(VarSlot::Local(0, NameId(0))),
++            ),
++            1,
++        ),
++        Label::Instr(
++            Instr::Assign(
++                Lhs::Var(VarSlot::Local(1, NameId(1))),
++                Expr::Var(VarSlot::Local(1, NameId(1))),
++            ),
++            2,
++        ),
++        Label::Return(Expr::Var(VarSlot::Local(1, NameId(1)))),
++    ];
++    let mut program = Program {
++        cfg: super::super::Cfg { graph: labels },
++        rpc: std::collections::HashMap::new(),
++        func_name_to_id: std::collections::HashMap::new(),
++        id_to_name: std::collections::HashMap::new(),
++        next_name_id: 0,
++        vertex_to_span: std::collections::HashMap::new(),
++        max_node_slots: 1,
++        roles: vec![],
++        type_ids: Default::default(),
++        compiled: Default::default(),
++    };
++    program.decode();
++    assert!(program.compiled.ops.iter().all(|op| !has_move(op)), "{:?}", program.compiled.ops);
++
++    let info = FunctionInfo {
++        entry: 0,
++        name: NameId(7),
++        param_count: 1,
++        local_slot_count: 2,
++        local_defaults: vec![],
++        is_sync: true,
++        may_park: true,
++        debug_slot_names: vec![],
++    };
++    program.func_name_to_id.insert("f".to_string(), info.name);
++    program.rpc.insert(info.name, info);
++    program.decode();
++    assert_eq!(
++        program.compiled.ops,
++        vec![
++            Op::AssignLocal {
++                slot: 1,
++                next: 1,
++                rhs: Opnd::Take(0)
++            },
++            Op::SelfCopy { slot: 1, next: 2 },
++            Op::Return(Opnd::Take(1)),
++        ]
++    );
++}
++
++const PRINT_SPEC: &str = r#"
++role Node {
++    var count: int = 0;
++
++    fn Log(x: int, y: int): int {
++        println("Received a prepare for op number " + int_to_string(x) + " at view " + int_to_string(y));
++        var total: int = x + y;
++        total = total + x;
++        return total;
++    }
++}
++"#;
++
++#[test]
++fn print_chains_decode_to_appends_with_their_literals_folded() {
++    on_big_stack(|| {
++        let program = compile_with(PRINT_SPEC, "print.spur", Compiler::new())
++            .into_program()
++            .expect("the print spec compiles");
++        let ops = &program.compiled.ops;
++        let folded: Vec<&AppendLiteralOp> = ops
++            .iter()
++            .filter_map(|op| match op {
++                Op::AppendLiteral(a) => Some(&**a),
++                _ => None,
++            })
++            .collect();
++        assert!(folded.iter().any(|a| a.literal_first), "{ops:#?}");
++        assert!(folded.iter().any(|a| !a.literal_first), "{ops:#?}");
++        assert!(ops.iter().any(|op| matches!(op, Op::AppendLocal { .. })), "{ops:#?}");
++        for entry in program.rpc.values().map(|f| f.entry) {
++            assert!(check_moves(ops, entry).is_ok());
++        }
++        let unfolded = CompiledProgram::build_without_string_appends(&program);
++        assert!(!unfolded.ops.iter().any(|op| matches!(
++            op,
++            Op::AppendLocal { .. } | Op::AppendLiteral(_) | Op::LiteralStore { .. }
++        )));
++    });
++}
++
++#[test]
++fn a_literal_store_is_not_folded_across_a_function_entry() {
++    let local = |i: u32| VarSlot::Local(i, NameId(i as usize));
++    let labels = vec![
++        Label::Instr(
++            Instr::Assign(Lhs::Var(local(1)), Expr::String("a literal longer than inline".into())),
++            1,
++        ),
++        Label::Instr(Instr::Assign(Lhs::Var(local(2)), Expr::Int(1)), 2),
++        Label::Instr(
++            Instr::Assign(
++                Lhs::Var(local(1)),
++                Expr::Plus(Box::new(Expr::Var(local(1))), Box::new(Expr::Var(local(0)))),
++            ),
++            3,
++        ),
++        Label::Return(Expr::Var(local(1))),
++    ];
++    let program_with = |entry: usize| {
++        let mut program = Program {
++            cfg: super::super::Cfg {
++                graph: labels.clone(),
++            },
++            rpc: std::collections::HashMap::new(),
++            func_name_to_id: std::collections::HashMap::new(),
++            id_to_name: std::collections::HashMap::new(),
++            next_name_id: 0,
++            vertex_to_span: std::collections::HashMap::new(),
++            max_node_slots: 1,
++            roles: vec![],
++            type_ids: Default::default(),
++            compiled: Default::default(),
++        };
++        for (i, e) in [0, entry].into_iter().enumerate() {
++            let info = FunctionInfo {
++                entry: e,
++                name: NameId(20 + i),
++                param_count: 1,
++                local_slot_count: 3,
++                local_defaults: vec![],
++                is_sync: true,
++                may_park: true,
++                debug_slot_names: vec![],
++            };
++            program.func_name_to_id.insert(format!("f{i}"), info.name);
++            program.rpc.insert(info.name, info);
++        }
++        program.decode();
++        program
++    };
++    let folded = program_with(0);
++    assert!(matches!(folded.compiled.ops[0], Op::LiteralStore { .. }), "{:?}", folded.compiled.ops);
++    assert!(matches!(folded.compiled.ops[2], Op::AppendLiteral(_)));
++    let entered = program_with(1);
++    assert!(
++        !entered
++            .compiled
++            .ops
++            .iter()
++            .any(|op| matches!(op, Op::LiteralStore { .. } | Op::AppendLiteral(_))),
++        "{:?}",
++        entered.compiled.ops
++    );
++}
++
++#[test]
++fn operation_and_operand_sizes_hold() {
++    assert_eq!(std::mem::size_of::<Opnd>(), 24);
++    assert_eq!(std::mem::size_of::<Op>(), 40);
++}
+diff --git a/spur-core/src/compiler/cfg/frame_layout.rs b/spur-core/src/compiler/cfg/frame_layout.rs
+index 55530f8..3988e3a 100644
+--- a/spur-core/src/compiler/cfg/frame_layout.rs
++++ b/spur-core/src/compiler/cfg/frame_layout.rs
+@@ -9,7 +9,7 @@
+ //! position, and a slot read before any write keeps its declared starting
+ //! value.
+ 
+-use super::ir::{Expr, FunctionInfo, Instr, Label, Lhs, SlotDefault, VarSlot, Vertex};
++use super::ir::{Expr, FunctionInfo, Instr, Label, Lhs, Program, SlotDefault, VarSlot, Vertex};
+ 
+ /// How a label touches one local slot.
+ #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+@@ -172,7 +172,7 @@ fn visit_label(label: &mut Label, f: &mut impl FnMut(Access, &mut u32)) {
+ /// The label's successors, the first being the one `WriteFirstEdge` applies
+ /// to. A spin-await that re-runs itself writes nothing, so its self edge
+ /// changes no liveness and is left out.
+-fn successors(label: &Label) -> [Option<Vertex>; 2] {
++pub(super) fn successors(label: &Label) -> [Option<Vertex>; 2] {
+     match label {
+         Label::Instr(_, n)
+         | Label::Pause(n)
+@@ -441,5 +441,150 @@ pub(super) fn compact_function_slots(graph: &mut [Label], first: Vertex, info: &
+     info.debug_slot_names = names;
+ }
+ 
++/// Whether `expr` names local slot `slot` anywhere, short-circuit branches
++/// included.
++pub(super) fn expr_reads_local(expr: &Expr, slot: u32) -> bool {
++    let mut found = false;
++    visit_expr(&mut expr.clone(), &mut |_, idx| found |= *idx == slot);
++    found
++}
++
++/// For every vertex of `program`, the local slots that some path leaving the
++/// vertex reads before writing, as bit words over the slots of the function
++/// whose entry reaches the vertex. A slot the vertex itself writes is not
++/// live after it on the edges that write reaches. The row is `None` when no
++/// function entry reaches the vertex, when entries of functions with
++/// different frames reach it, or when that function names a slot or a
++/// successor outside itself: nothing is known dead there.
++pub(super) fn live_after_vertices(program: &Program) -> Vec<Option<Vec<u64>>> {
++    let graph = &program.cfg.graph;
++    let len = graph.len();
++    let mut slot_counts: std::collections::BTreeMap<Vertex, Option<u32>> =
++        std::collections::BTreeMap::new();
++    for info in program.rpc.values() {
++        slot_counts
++            .entry(info.entry)
++            .and_modify(|n| {
++                if *n != Some(info.local_slot_count) {
++                    *n = None;
++                }
++            })
++            .or_insert(Some(info.local_slot_count));
++    }
++
++    let mut claims = vec![0u8; len];
++    let mut position = vec![usize::MAX; len];
++    let mut solved: Vec<(Vec<Vertex>, Option<Bits>)> = Vec::new();
++    for (&entry, &slots) in &slot_counts {
++        if entry >= len {
++            continue;
++        }
++        let mut reach = vec![entry];
++        let mut in_range = true;
++        position[entry] = 0;
++        let mut next = 0;
++        while next < reach.len() {
++            let v = reach[next];
++            next += 1;
++            for t in successors(&graph[v]).into_iter().flatten() {
++                if t >= len {
++                    in_range = false;
++                } else if position[t] == usize::MAX {
++                    position[t] = reach.len();
++                    reach.push(t);
++                }
++            }
++        }
++        for &v in &reach {
++            claims[v] = claims[v].saturating_add(1);
++        }
++        let rows = match slots {
++            Some(n) if in_range => live_after_rows(graph, &reach, &position, n as usize),
++            _ => None,
++        };
++        for &v in &reach {
++            position[v] = usize::MAX;
++        }
++        solved.push((reach, rows));
++    }
++
++    let mut out = vec![None; len];
++    for (reach, rows) in solved {
++        let Some(rows) = rows else { continue };
++        for (i, &v) in reach.iter().enumerate() {
++            if claims[v] == 1 {
++                out[v] = Some(rows.row(i).to_vec());
++            }
++        }
++    }
++    out
++}
++
++/// Live-after rows, in the order of `reach`, of the function whose labels are
++/// `reach` (every successor of a label in it is in it, and `position` maps
++/// each to its index), with `n` local slots; `None` when a label names a slot
++/// at or beyond `n`.
++fn live_after_rows(
++    graph: &[Label],
++    reach: &[Vertex],
++    position: &[usize],
++    n: usize,
++) -> Option<Bits> {
++    let m = reach.len();
++    let mut reads = Bits::new(m, n);
++    let mut kill_all = Bits::new(m, n);
++    let mut kill_first = Bits::new(m, n);
++    let mut succ: Vec<[Option<usize>; 2]> = Vec::with_capacity(m);
++    for (i, &v) in reach.iter().enumerate() {
++        let mut in_range = true;
++        visit_label(&mut graph[v].clone(), &mut |access, idx| {
++            let idx = *idx as usize;
++            if idx >= n {
++                in_range = false;
++                return;
++            }
++            match access {
++                Access::Read => reads.set(i, idx),
++                Access::Write => kill_all.set(i, idx),
++                Access::WriteFirstEdge => kill_first.set(i, idx),
++            }
++        });
++        if !in_range {
++            return None;
++        }
++        succ.push(successors(&graph[v]).map(|t| t.map(|t| position[t])));
++    }
++
++    let words = reads.words;
++    let mut live_in = Bits::new(m, n);
++    let mut after = Bits::new(m, n);
++    let mut changed = true;
++    while changed {
++        changed = false;
++        for i in (0..m).rev() {
++            let row_after = &mut after.data[i * words..(i + 1) * words];
++            row_after.iter_mut().for_each(|w| *w = 0);
++            for (e, target) in succ[i].iter().enumerate() {
++                let Some(t) = *target else { continue };
++                for w in 0..words {
++                    let mut kill = kill_all.row(i)[w];
++                    if e == 0 {
++                        kill |= kill_first.row(i)[w];
++                    }
++                    row_after[w] |= live_in.row(t)[w] & !kill;
++                }
++            }
++            for w in 0..words {
++                let value = reads.row(i)[w] | after.data[i * words + w];
++                if live_in.data[i * words + w] != value {
++                    live_in.data[i * words + w] = value;
++                    changed = true;
++                }
++            }
++        }
++    }
++    Some(after)
++}
++
+ #[cfg(test)]
+ mod test;
+diff --git a/spur-core/src/compiler/cfg/ir.rs b/spur-core/src/compiler/cfg/ir.rs
+index b8da830..a990b5d 100644
+--- a/spur-core/src/compiler/cfg/ir.rs
++++ b/spur-core/src/compiler/cfg/ir.rs
+@@ -122,6 +122,12 @@ pub struct FunctionInfo {
+ 
+     pub is_sync: bool,
+ 
++    /// Whether a Recv, Pause or SpinAwait label is reachable from `entry`,
++    /// so a record running the function can stop before it returns. Set for
++    /// every function by `Program::decode`; true until then.
++    #[serde(skip)]
++    pub may_park: bool,
++
+     /// For debugging: maps slot index -> original variable name
+     #[serde(skip)]
+     pub debug_slot_names: Vec<String>,
+@@ -234,6 +240,9 @@ pub struct Program {
+ impl Program {
+     /// Builds the execution form of the graph from the current labels.
+     pub fn decode(&mut self) {
++        for info in self.rpc.values_mut() {
++            info.may_park = super::compiled::may_park(&self.cfg.graph, info.entry);
++        }
+         self.compiled = super::compiled::CompiledProgram::build(self);
+     }
+ 
+diff --git a/spur-core/src/simulator/core/compiled_eval.rs b/spur-core/src/simulator/core/compiled_eval.rs
+index 9f918b1..e9cb65f 100644
+--- a/spur-core/src/simulator/core/compiled_eval.rs
++++ b/spur-core/src/simulator/core/compiled_eval.rs
+@@ -35,7 +35,7 @@ pub fn coperand<'a, H: HashPolicy>(
+     t: &mut InterpreterTally,
+ ) -> Result<Operand<'a, H>, RuntimeError> {
+     match o {
+-        Opnd::Local(idx) => Ok(borrowed(local_env.get(*idx), t)),
++        Opnd::Local(idx) | Opnd::Take(idx) => Ok(borrowed(local_env.get(*idx), t)),
+         Opnd::Node(idx) => Ok(borrowed(node_env.get(*idx), t)),
+         Opnd::Int(i) => {
+             t.leaf_operands_inline += 1;
+@@ -71,7 +71,7 @@ pub fn cvalue<H: HashPolicy>(
+     t: &mut InterpreterTally,
+ ) -> Result<Value<H>, RuntimeError> {
+     match o {
+-        Opnd::Local(idx) => {
++        Opnd::Local(idx) | Opnd::Take(idx) => {
+             t.leaf_operands_inline += 1;
+             Ok(local_env.get(*idx).clone())
+         }
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index d0ac1ea..9920d73 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -1034,6 +1034,7 @@ mod tests {
+             local_slot_count: 2,
+             local_defaults: vec![SlotDefault::Nil],
+             is_sync: true,
++            may_park: true,
+             debug_slot_names: vec!["a".into(), "b".into()],
+         };
+         let args = [Value::<WithHashing>::int(5)];
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index b42d3e5..cbe9beb 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -1,9 +1,11 @@
+ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::compiled::{
+-    AsyncOp, Dest, ForLoopInOp, Op, TraceDispatchOp, TraceEnterOp, TraceExitOp,
++    AppendLiteralOp, AsyncOp, Dest, ForLoopInOp, Op, Opnd, TraceDispatchOp, TraceEnterOp,
++    TraceExitOp,
+ };
++use ecow::EcoString;
+ use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Program, VarSlot};
+-use crate::simulator::core::compiled_eval::{borrowed, coperand, cvalue};
++use crate::simulator::core::compiled_eval::{borrowed, ceval, coperand, cvalue};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::{
+     FrameBuilder, Operand, build_frame, eval, eval_operand, set_local, store,
+@@ -20,7 +22,7 @@ use crate::simulator::feedback::Feedback;
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::text_buffer::TextBuffer;
+ use crate::simulator::util_stats;
+-use crate::simulator::util_stats::{DeliveryBias, InterpreterTally};
++use crate::simulator::util_stats::{DeliveryBias, InterpreterTally, MoveSite};
+ use std::cell::RefCell;
+ use std::collections::HashMap;
+ 
+@@ -872,6 +874,257 @@ enum Flow<H: HashPolicy> {
+     RecordOnly,
+ }
+ 
++/// Moves a local slot's value out and leaves Unit. A frame that is still
++/// shared is copied first and counted, as a write to it is.
++#[inline(always)]
++fn take_local<H: HashPolicy>(local_env: &mut Env<H>, slot: u32) -> Value<H> {
++    if !local_env.slots.is_unique() {
++        util_stats::record_entry_frame_copy();
++    }
++    std::mem::replace(
++        &mut local_env.slots.make_mut()[slot as usize],
++        Value::<H>::unit(),
++    )
++}
++
++/// Evaluates a position whose value is kept, as `cvalue` does, except that a
++/// take moves the slot's value out. Taking is skipped when signatures are
++/// kept eagerly: a later write would update the frame signature against the
++/// Unit left behind instead of the value that was there.
++#[inline(always)]
++fn cvalue_kept<H: HashPolicy>(
++    local_env: &mut Env<H>,
++    node_env: &Env<H>,
++    o: &Opnd,
++    role_names: &HashMap<NameId, String>,
++    t: &mut InterpreterTally,
++    site: MoveSite,
++) -> Result<Value<H>, RuntimeError> {
++    match o {
++        Opnd::Take(idx) if !H::EAGER => {
++            t.leaf_operands_inline += 1;
++            t.record_move(site);
++            Ok(take_local(local_env, *idx))
++        }
++        Opnd::Local(idx) | Opnd::Take(idx) => {
++            t.leaf_operands_inline += 1;
++            Ok(local_env.get(*idx).clone())
++        }
++        Opnd::Node(idx) => {
++            t.leaf_operands_inline += 1;
++            Ok(node_env.get(*idx).clone())
++        }
++        Opnd::Int(i) => {
++            t.leaf_operands_inline += 1;
++            Ok(Value::<H>::int(*i))
++        }
++        Opnd::Str(s) => {
++            t.leaf_operands_inline += 1;
++            Ok(Value::<H>::string(s.clone()))
++        }
++        Opnd::Bool(b) => {
++            t.leaf_operands_inline += 1;
++            Ok(Value::<H>::bool(*b))
++        }
++        Opnd::Unit => {
++            t.leaf_operands_inline += 1;
++            Ok(Value::<H>::unit())
++        }
++        Opnd::Nil => {
++            t.leaf_operands_inline += 1;
++            Ok(Value::<H>::option_none())
++        }
++        Opnd::Tree(e) => ceval(local_env, node_env, e, role_names, t),
++    }
++}
++
++/// Bytes an `EcoString` holds without a heap buffer.
++const INLINE_STRING_BYTES: usize = 2 * std::mem::size_of::<usize>() - 1;
++
++/// Whether `s` keeps its bytes inside itself rather than in a heap buffer.
++#[inline(always)]
++fn string_is_inline(s: &EcoString) -> bool {
++    let start = s as *const EcoString as usize;
++    let bytes = s.as_ptr() as usize;
++    bytes >= start && bytes < start + std::mem::size_of::<EcoString>()
++}
++
++/// `head` followed by `tail` in a new string. A result too long to be held
++/// inline gets room to grow, so later appends to it need not reallocate.
++#[inline(always)]
++fn fresh_concat(head: &str, tail: &str) -> EcoString {
++    let needed = head.len() + tail.len();
++    let capacity = if needed > INLINE_STRING_BYTES {
++        needed.max(64)
++    } else {
++        needed
++    };
++    let mut out = EcoString::with_capacity(capacity);
++    out.push_str(head);
++    out.push_str(tail);
++    out
++}
++
++/// Appends `tail` to `s`, in `s`'s own buffer when that buffer is on the heap
++/// and owned by `s` alone.
++#[inline(always)]
++fn append_counted(s: &mut EcoString, tail: &str, t: &mut InterpreterTally) {
++    if string_is_inline(s) {
++        *s = fresh_concat(s.as_str(), tail);
++        t.appends_fresh += 1;
++        return;
++    }
++    let before = s.as_ptr();
++    s.make_mut();
++    if s.as_ptr() != before {
++        *s = fresh_concat(s.as_str(), tail);
++        t.appends_fresh += 1;
++        return;
++    }
++    s.push_str(tail);
++    if s.as_ptr() == before {
++        t.appends_in_place += 1;
++    } else {
++        t.appends_fresh += 1;
++        t.appends_grows += 1;
++    }
++}
++
++/// Moves a local slot's string out and leaves Unit. The slot must hold a
++/// string.
++#[inline(always)]
++fn take_string<H: HashPolicy>(local_env: &mut Env<H>, slot: u32) -> EcoString {
++    match take_local(local_env, slot).kind {
++        ValueKind::String(s) => s,
++        _ => unreachable!("the slot was checked to hold a string"),
++    }
++}
++
++/// `slot = first + second` over local slots, evaluated as the tree
++/// `Plus(Local(first), Local(second))` and stored as `AssignLocal` stores it.
++#[inline(never)]
++fn append_as_tree<H: HashPolicy>(
++    local_env: &mut Env<H>,
++    slot: u32,
++    first: u32,
++    second: u32,
++    t: &mut InterpreterTally,
++) -> Result<(), RuntimeError> {
++    t.tree_evals += 1;
++    let v = {
++        let v1 = borrowed(local_env.get(first), t);
++        let v2 = borrowed(local_env.get(second), t);
++        match (&v1.kind, &v2.kind) {
++            (ValueKind::Int(i1), ValueKind::Int(i2)) => Value::<H>::int(i1 + i2),
++            (ValueKind::String(s1), ValueKind::String(s2)) => {
++                let mut result = EcoString::with_capacity(s1.len() + s2.len());
++                result.push_str(s1.as_str());
++                result.push_str(s2.as_str());
++                Value::<H>::string(result)
++            }
++            _ => {
++                return Err(RuntimeError::TypeError {
++                    expected: "int or string",
++                    got: v1.type_name(),
++                });
++            }
++        }
++    };
++    set_local(local_env, slot, v);
++    Ok(())
++}
++
++/// `slot = slot + rhs` over two distinct local slots. With deferred
++/// signatures a string result is appended to the left string after moving it
++/// out of its slot, which this operation overwrites; the counts and events
++/// are those of the tree it replaces.
++#[inline(always)]
++fn run_append_local<H: HashPolicy>(
++    local_env: &mut Env<H>,
++    slot: u32,
++    rhs: u32,
++    t: &mut InterpreterTally,
++) -> Result<(), RuntimeError> {
++    if H::EAGER {
++        return append_as_tree(local_env, slot, slot, rhs, t);
++    }
++    t.tree_evals += 1;
++    let ints = {
++        let v1 = borrowed(local_env.get(slot), t);
++        let v2 = borrowed(local_env.get(rhs), t);
++        match (&v1.kind, &v2.kind) {
++            (ValueKind::Int(i1), ValueKind::Int(i2)) => Some(i1 + i2),
++            (ValueKind::String(_), ValueKind::String(_)) => None,
++            _ => {
++                return Err(RuntimeError::TypeError {
++                    expected: "int or string",
++                    got: v1.type_name(),
++                });
++            }
++        }
++    };
++    if let Some(sum) = ints {
++        set_local(local_env, slot, Value::<H>::int(sum));
++        t.appends_int += 1;
++        return Ok(());
++    }
++    let mut s = take_string(local_env, slot);
++    let ValueKind::String(tail) = &local_env.get(rhs).kind else {
++        unreachable!("the slot was checked to hold a string")
++    };
++    append_counted(&mut s, tail.as_str(), t);
++    local_env.set(slot, Value::<H>::string(s));
++    Ok(())
++}
++
++/// An addition with one operand folded from a literal store. With eager
++/// signatures the store ran and the literal is in its slot, so the addition
++/// runs as its tree; otherwise the literal is read from the operation, and
++/// the counts and events of the skipped store are recorded here.
++#[inline(never)]
++fn run_append_literal<H: HashPolicy>(
++    op: &AppendLiteralOp,
++    local_env: &mut Env<H>,
++    t: &mut InterpreterTally,
++) -> Result<(), RuntimeError> {
++    if H::EAGER {
++        let (first, second) = if op.literal_first {
++            (op.literal_slot, op.other)
++        } else {
++            (op.other, op.literal_slot)
++        };
++        return append_as_tree(local_env, op.slot, first, second, t);
++    }
++    t.tree_evals += 1;
++    t.leaf_operands_inline += 2;
++    util_stats::record_operand_borrowed(true);
++    t.literal_folds += 1;
++    let other = borrowed(local_env.get(op.other), t);
++    let other_is_string = matches!(other.kind, ValueKind::String(_));
++    if op.literal_first {
++        let ValueKind::String(tail) = &other.kind else {
++            return Err(RuntimeError::TypeError {
++                expected: "int or string",
++                got: "string",
++            });
++        };
++        let result = fresh_concat(op.literal.as_str(), tail.as_str());
++        t.appends_fresh += 1;
++        set_local(local_env, op.slot, Value::<H>::string(result));
++        return Ok(());
++    }
++    if !other_is_string {
++        return Err(RuntimeError::TypeError {
++            expected: "int or string",
++            got: other.type_name(),
++        });
++    }
++    let mut s = take_string(local_env, op.slot);
++    append_counted(&mut s, op.literal.as_str(), t);
++    local_env.set(op.slot, Value::<H>::string(s));
++    Ok(())
++}
++
+ #[inline(always)]
+ fn store_dest<H: HashPolicy>(
+     dest: Dest,
+@@ -945,12 +1198,37 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+     let names = &program.id_to_name;
+     match op {
+         Op::AssignLocal { slot, next, rhs } => {
+-            let v = cvalue(local_env, node_env, rhs, names, t)?;
++            let v = cvalue_kept(local_env, node_env, rhs, names, t, MoveSite::Assign)?;
+             set_local(local_env, *slot, v);
+             Ok(Flow::Next(*next as usize))
+         }
++        Op::SelfCopy { slot, next } => {
++            t.leaf_operands_inline += 1;
++            if H::EAGER {
++                let v = local_env.get(*slot).clone();
++                set_local(local_env, *slot, v);
++            } else {
++                t.record_move(MoveSite::SelfCopy);
++            }
++            Ok(Flow::Next(*next as usize))
++        }
++        Op::AppendLocal { slot, next, rhs } => {
++            run_append_local(local_env, *slot, *rhs, t)?;
++            Ok(Flow::Next(*next as usize))
++        }
++        Op::AppendLiteral(op) => {
++            run_append_literal(op, local_env, t)?;
++            Ok(Flow::Next(op.next as usize))
++        }
++        Op::LiteralStore { slot, next, rhs } => {
++            if H::EAGER {
++                let v = cvalue(local_env, node_env, rhs, names, t)?;
++                set_local(local_env, *slot, v);
++            }
++            Ok(Flow::Next(*next as usize))
++        }
+         Op::AssignNode { slot, next, rhs } => {
+-            let v = cvalue(local_env, node_env, rhs, names, t)?;
++            let v = cvalue_kept(local_env, node_env, rhs, names, t, MoveSite::Assign)?;
+             node_env.set(*slot, v);
+             Ok(Flow::Next(*next as usize))
+         }
+@@ -967,7 +1245,14 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+             Ok(Flow::Next(if taken { *then } else { *els } as usize))
+         }
+         Op::Goto(target) => Ok(Flow::Next(*target as usize)),
+-        Op::Return(rhs) => Ok(Flow::Return(cvalue(local_env, node_env, rhs, names, t)?)),
++        Op::Return(rhs) => Ok(Flow::Return(cvalue_kept(
++            local_env,
++            node_env,
++            rhs,
++            names,
++            t,
++            MoveSite::Return,
++        )?)),
+         Op::SyncCall(call) => {
+             let func_info = callee(program, call.callee, &call.name, t)?;
+             if !func_info.is_sync {
+@@ -975,7 +1260,7 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+             }
+             let mut builder = FrameBuilder::<H>::new(func_info);
+             for a in &call.args {
+-                builder.push(cvalue(local_env, node_env, a, names, t)?);
++                builder.push(cvalue_kept(local_env, node_env, a, names, t, MoveSite::CallArg)?);
+             }
+             let mut callee_local = builder.finish(func_info);
+             let val = run_sync_ops::<H, L, F>(
+@@ -1159,9 +1444,29 @@ fn run_async_op<H: HashPolicy>(
+     let names = &program.id_to_name;
+     let (target_node, link_id) =
+         coperand(local_env, node_env, &call.target, names, t)?.as_rpc_target()?;
+-    let mut arg_vals: EcoVec<Value<H>> = EcoVec::with_capacity(call.args.len());
+-    for a in &call.args {
+-        arg_vals.push(cvalue(local_env, node_env, a, names, t)?);
++    // A callee that cannot park runs to its return within the step that
++    // starts it, so its record is only reset before it starts, while the
++    // frame still holds the arguments: the frame is built from them and no
++    // copy of them is kept. Only a resolved callee is known not to park, and
++    // its lookup cannot fail, so looking it up first changes no error.
++    let mut arg_vals: EcoVec<Value<H>> = EcoVec::new();
++    let mut built = None;
++    if !H::EAGER && !call.callee_parks {
++        let func_info = callee(program, call.callee, &call.name, t)?;
++        let mut builder = FrameBuilder::<H>::new(func_info);
++        let params = func_info.param_count.min(func_info.local_slot_count) as usize;
++        for (i, a) in call.args.iter().enumerate() {
++            let v = cvalue_kept(local_env, node_env, a, names, t, MoveSite::CallArg)?;
++            if i < params {
++                builder.push(v);
++            }
++        }
++        built = Some((func_info, builder.finish(func_info)));
++    } else {
++        arg_vals = EcoVec::with_capacity(call.args.len());
++        for a in &call.args {
++            arg_vals.push(cvalue_kept(local_env, node_env, a, names, t, MoveSite::CallArg)?);
++        }
+     }
+ 
+     let chan_id = ChannelId {
+@@ -1172,8 +1477,17 @@ fn run_async_op<H: HashPolicy>(
+     state.insert_channel(chan_id);
+     store_dest(call.dest, Value::channel(chan_id), local_env, node_env);
+ 
+-    let func_info = callee(program, call.callee, &call.name, t)?;
+-    let callee_locals = build_frame(func_info, &arg_vals);
++    let (func_info, callee_locals) = match built {
++        Some(built) => {
++            t.async_args_owned += 1;
++            built
++        }
++        None => {
++            let func_info = callee(program, call.callee, &call.name, t)?;
++            t.async_args_kept += 1;
++            (func_info, build_frame(func_info, &arg_vals))
++        }
++    };
+ 
+     // Tag with FIFO sequence number if routed through a FIFO link.
+     // Allocates the next sender-side seq for this link.
+@@ -1501,7 +1815,8 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+         match &ops[current_pc] {
+             Op::Send(send) => {
+                 let cid = coperand(&local_env, &node_env, &send.chan, names, t)?.as_channel()?;
+-                let val = cvalue(&local_env, &node_env, &send.value, names, t)?;
++                let val =
++                    cvalue_kept(&mut local_env, &node_env, &send.value, names, t, MoveSite::Send)?;
+                 let next = send.next as usize;
+                 if cid.node != record.node {
+                     let cs = Runnable::ChannelSend {
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 16eaffd..490ae26 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -7,7 +7,7 @@ use crate::simulator::core::state::{
+ use crate::simulator::core::values::{Env, Value};
+ use crate::simulator::coverage::{LocalCoverage, VertexMap};
+ use crate::simulator::feedback::CfgFeedback;
+-use crate::simulator::hash_utils::WithHashing;
++use crate::simulator::hash_utils::{HashPolicy, NoHashing, WithHashing};
+ use rand::SeedableRng;
+ use rand::rngs::SmallRng;
+ use std::collections::HashMap;
+@@ -158,11 +158,19 @@ fn make_record_with_cont(
+     local_slots: usize,
+     continuation: Continuation<WithHashing>,
+ ) -> Record<WithHashing> {
++    make_record_for::<WithHashing>(pc, local_slots, continuation)
++}
++
++fn make_record_for<H: HashPolicy>(
++    pc: usize,
++    local_slots: usize,
++    continuation: Continuation<H>,
++) -> Record<H> {
+     let nid = NodeId {
+         role: NameId(0),
+         index: 0,
+     };
+-    let env = Env::<WithHashing>::with_slots(local_slots);
++    let env = Env::<H>::with_slots(local_slots);
+     Record {
+         pc,
+         node: nid,
+@@ -742,15 +750,18 @@ struct Observed {
+     result: String,
+     logs: Vec<String>,
+     state: String,
++    /// The node environments and, for every queued record, its vertex, node
++    /// and frame: what a later step can read.
++    reachable_state: String,
+     edges: usize,
+     events: [u64; 3],
+     tally: crate::simulator::util_stats::InterpreterTally,
+ }
+ 
+-fn observe(program: &Program, start: usize, slots: usize) -> Observed {
+-    let mut state = State::<WithHashing>::new(&[(NameId(0), 1)], 2);
++fn observe<H: HashPolicy>(program: &Program, start: usize, slots: usize) -> Observed {
++    let mut state = State::<H>::new(&[(NameId(0), 1)], 2);
+     let mut logger = TestLogger::new();
+-    let record = make_record_with_cont(
++    let record = make_record_for::<H>(
+         start,
+         slots,
+         Continuation::ClientOp {
+@@ -762,7 +773,7 @@ fn observe(program: &Program, start: usize, slots: usize) -> Observed {
+     let mut coverage = LocalCoverage::new();
+     let events_before = util_stats::pending_evaluator_events();
+     let tally_before = util_stats::pending_interpreter_tally();
+-    let result = exec::<WithHashing, TestLogger, CfgFeedback>(
++    let result = exec::<H, TestLogger, CfgFeedback>(
+         &mut state,
+         &mut logger,
+         program,
+@@ -780,16 +791,7 @@ fn observe(program: &Program, start: usize, slots: usize) -> Observed {
+         Ok(None) => "yielded".to_string(),
+         Err(e) => format!("error {e} / {e:?}"),
+     };
+-    let t = crate::simulator::util_stats::InterpreterTally {
+-        label_execs: tally_after.label_execs - tally_before.label_execs,
+-        legacy_labels: tally_after.legacy_labels - tally_before.legacy_labels,
+-        leaf_operands_inline: tally_after.leaf_operands_inline - tally_before.leaf_operands_inline,
+-        tree_evals: tally_after.tree_evals - tally_before.tree_evals,
+-        legacy_evals: tally_after.legacy_evals - tally_before.legacy_evals,
+-        call_targets_indexed: tally_after.call_targets_indexed - tally_before.call_targets_indexed,
+-        call_targets_fallback: tally_after.call_targets_fallback
+-            - tally_before.call_targets_fallback,
+-    };
++    let t = tally_after.since(tally_before);
+     Observed {
+         result,
+         logs: logger
+@@ -798,6 +800,19 @@ fn observe(program: &Program, start: usize, slots: usize) -> Observed {
+             .enumerate()
+             .map(|(i, e)| format!("{:?} {} {}", e.node, e.step, logger.content(i)))
+             .collect(),
++        reachable_state: format!(
++            "{:?} {:?}",
++            state.nodes,
++            state
++                .network_queue
++                .iter()
++                .chain(state.local_queues.iter().flatten())
++                .map(|r| match r {
++                    Runnable::Record(r) => format!("{} {:?} {:?}", r.pc, r.node, r.env),
++                    other => format!("{other:?}"),
++                })
++                .collect::<Vec<_>>()
++        ),
+         state: format!("{state:?}"),
+         edges: coverage.unique_edges(),
+         events: [
+@@ -815,8 +830,8 @@ fn assert_loops_agree(program: Program, start: usize, slots: usize) -> (Observed
+     assert!(program.compiled.covers(program.cfg.graph.len()));
+     let mut undecoded = program.clone();
+     undecoded.compiled = Default::default();
+-    let decoded = observe(&program, start, slots);
+-    let legacy = observe(&undecoded, start, slots);
++    let decoded = observe::<WithHashing>(&program, start, slots);
++    let legacy = observe::<WithHashing>(&undecoded, start, slots);
+     assert_eq!(decoded.result, legacy.result);
+     assert_eq!(decoded.logs, legacy.logs);
+     assert_eq!(decoded.state, legacy.state);
+@@ -826,6 +841,42 @@ fn assert_loops_agree(program: Program, start: usize, slots: usize) -> (Observed
+     assert_eq!(decoded.tally.legacy_evals, 0);
+     assert_eq!(legacy.tally.label_execs, 0);
+     assert_eq!(decoded.tally.label_execs, legacy.tally.legacy_labels);
++    assert_no_moves(&decoded);
++    (decoded, legacy)
++}
++
++fn assert_no_moves(o: &Observed) {
++    let t = &o.tally;
++    assert_eq!(
++        [t.moves_taken, t.moves_returns, t.moves_call_args, t.moves_sends, t.moves_assigns, t.moves_self_copies],
++        [0; 6]
++    );
++}
++
++/// Runs `program` through both loops with deferred signatures. A value moved
++/// out leaves Unit in a frame that no later step reads, so the whole state is
++/// not compared; everything a later step can read is.
++fn assert_loops_agree_deferred(program: Program, start: usize, slots: usize) -> (Observed, Observed) {
++    assert!(program.compiled.covers(program.cfg.graph.len()));
++    let mut undecoded = program.clone();
++    undecoded.compiled = Default::default();
++    let decoded = observe::<NoHashing>(&program, start, slots);
++    let legacy = observe::<NoHashing>(&undecoded, start, slots);
++    assert_eq!(decoded.result, legacy.result);
++    assert_eq!(decoded.logs, legacy.logs);
++    assert_eq!(decoded.reachable_state, legacy.reachable_state);
++    assert_eq!(decoded.edges, legacy.edges);
++    assert_eq!(decoded.events, legacy.events);
++    let (d, l) = (decoded.tally, legacy.tally);
++    assert_eq!(d.legacy_labels, 0);
++    assert_eq!(d.legacy_evals, 0);
++    assert_eq!(l.label_execs, 0);
++    assert_eq!(d.label_execs, l.legacy_labels);
++    assert_no_moves(&legacy);
++    assert_eq!(
++        d.moves_taken,
++        d.moves_returns + d.moves_call_args + d.moves_sends + d.moves_assigns + d.moves_self_copies
++    );
+     (decoded, legacy)
+ }
+ 
+@@ -837,6 +888,7 @@ fn function(entry: usize, name: usize, params: u32, slots: u32, is_sync: bool) -
+         local_slot_count: slots,
+         local_defaults: vec![],
+         is_sync,
++        may_park: true,
+         debug_slot_names: vec![],
+     }
+ }
+@@ -930,6 +982,433 @@ fn decoded_loop_matches_label_loop_across_calls_loops_and_channels() {
+     assert!(decoded.tally.leaf_operands_inline > 0);
+ }
+ 
++/// A function `main` whose every kept position reads a local slot: copies, a
++/// copy onto itself, a store to a node slot, synchronous and asynchronous call
++/// arguments, a channel send and returns, some of whose slots are read again.
++fn moving_program() -> (Program, usize) {
++    let mut builder = TestProgramBuilder::new();
++    let f_entry = builder.add(Label::Return(Expr::Var(slot(0))));
++    let h_entry = builder.add(Label::Return(Expr::Var(slot(0))));
++    let ret = builder.add(Label::Return(Expr::Var(slot(1))));
++    let print = builder.add(Label::Print(Expr::Var(slot(1)), ret));
++    let spawn = builder.add(Label::Instr(
++        Instr::Async(
++            Lhs::Var(slot(7)),
++            Expr::Var(node_slot(0)),
++            "h".to_string(),
++            vec![Expr::Var(slot(6))],
++        ),
++        print,
++    ));
++    let recv = builder.add(Label::Recv(Lhs::Var(slot(6)), Expr::Var(slot(5)), spawn));
++    let send = builder.add(Label::Send(Expr::Var(slot(5)), Expr::Var(slot(4)), recv));
++    let make = builder.add(Label::MakeChannel(Lhs::Var(slot(5)), None, send));
++    let call = builder.add(Label::Instr(
++        Instr::SyncCall(
++            Lhs::Var(slot(4)),
++            "f".to_string(),
++            vec![Expr::Var(slot(3)), Expr::Var(slot(1))],
++        ),
++        make,
++    ));
++    let to_node = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Var(slot(3))),
++        call,
++    ));
++    let self_copy = builder.add(Label::Instr(
++        Instr::Copy(Lhs::Var(slot(3)), Expr::Var(slot(3))),
++        to_node,
++    ));
++    let moved = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(slot(3)), Expr::Var(slot(2))),
++        self_copy,
++    ));
++    let list = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(2)),
++            Expr::List(vec![Expr::Var(slot(0)), Expr::Var(slot(1))]),
++        ),
++        moved,
++    ));
++    let copy = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(slot(1)), Expr::Var(slot(0))),
++        list,
++    ));
++    let init = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(slot(0)), Expr::Int(5)),
++        copy,
++    ));
++    let mut program = builder.build_undecoded();
++    register(&mut program, "f", function(f_entry, 5, 2, 2, true));
++    register(&mut program, "h", function(h_entry, 6, 1, 1, false));
++    register(&mut program, "main", function(init, 7, 0, 8, false));
++    program.decode();
++    (program, init)
++}
++
++#[test]
++fn decoded_moves_match_the_label_loop_with_deferred_signatures() {
++    let (program, init) = moving_program();
++    let (decoded, _) = assert_loops_agree(program.clone(), init, 8);
++    assert!(decoded.result.contains("Int(5)"), "{}", decoded.result);
++
++    let (decoded, _) = assert_loops_agree_deferred(program, init, 8);
++    let t = decoded.tally;
++    assert_eq!(t.moves_self_copies, 1);
++    assert_eq!(t.moves_sends, 1);
++    assert_eq!(t.moves_returns, 2);
++    assert_eq!(t.moves_call_args, 2);
++    assert_eq!(t.moves_assigns, 1);
++    assert!(decoded.result.contains("Int(5)"), "{}", decoded.result);
++    assert_eq!(decoded.logs.len(), 1);
++}
++
++/// A function `main` that builds strings the way print lines do: a literal
++/// folded as the left operand, one folded as the right operand, appends into
++/// an owned buffer, onto a shared literal and onto an inline string, and an
++/// integer addition.
++fn chain_program() -> (Program, usize) {
++    let mut builder = TestProgramBuilder::new();
++    let local = |l: &mut TestProgramBuilder, label: Label| l.add(label);
++    let assign = |dest: u32, e: Expr, next: usize| Label::Instr(Instr::Assign(Lhs::Var(slot(dest)), e), next);
++    let plus = |a: u32, b: u32| Expr::Plus(Box::new(Expr::Var(slot(a))), Box::new(Expr::Var(slot(b))));
++    let ret = local(&mut builder, Label::Return(Expr::Var(slot(4))));
++    let p3 = local(&mut builder, Label::Print(Expr::Var(slot(7)), ret));
++    let s17 = local(&mut builder, assign(4, plus(4, 0), p3));
++    let s16 = local(&mut builder, assign(4, Expr::Int(3), s17));
++    let s15 = local(&mut builder, assign(7, plus(7, 2), s16));
++    let s14 = local(
++        &mut builder,
++        assign(7, Expr::IntToString(Box::new(Expr::Var(slot(0)))), s15),
++    );
++    let p2b = local(&mut builder, Label::Print(Expr::Var(slot(3)), s14));
++    let p2 = local(&mut builder, Label::Print(Expr::Var(slot(6)), p2b));
++    let s11 = local(&mut builder, assign(6, plus(6, 2), p2));
++    let s10 = local(&mut builder, assign(6, Expr::Var(slot(3)), s11));
++    let s9 = local(
++        &mut builder,
++        assign(3, Expr::String("a literal copied before it is appended to".into()), s10),
++    );
++    let p1 = local(&mut builder, Label::Print(Expr::Var(slot(1)), s9));
++    let s7 = local(&mut builder, assign(1, plus(1, 2), p1));
++    let s6 = local(
++        &mut builder,
++        assign(2, Expr::IntToString(Box::new(Expr::Var(slot(0)))), s7),
++    );
++    let s5 = local(&mut builder, assign(1, plus(1, 5), s6));
++    let s4 = local(&mut builder, assign(5, Expr::String(" at view ".into()), s5));
++    let s3 = local(&mut builder, assign(1, plus(1, 2), s4));
++    let s2 = local(
++        &mut builder,
++        assign(2, Expr::IntToString(Box::new(Expr::Var(slot(0)))), s3),
++    );
++    let s1 = local(
++        &mut builder,
++        assign(1, Expr::String("Received a prepare for op number ".into()), s2),
++    );
++    let init = local(&mut builder, assign(0, Expr::Int(42), s1));
++    let mut program = builder.build_undecoded();
++    register(&mut program, "main", function(init, 7, 0, 8, false));
++    program.decode();
++    (program, init)
++}
++
++/// `prefix` then `addition` as the whole of `main`, where `prefix` stores
++/// slots 0, 1 and 5 and `addition` fails.
++fn failing_chain(prefix: Vec<(u32, Expr)>, addition: (u32, u32, u32)) -> (Program, usize) {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(Expr::Var(slot(1))));
++    let (dest, a, b) = addition;
++    let mut next = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(dest)),
++            Expr::Plus(Box::new(Expr::Var(slot(a))), Box::new(Expr::Var(slot(b)))),
++        ),
++        ret,
++    ));
++    for (d, e) in prefix.into_iter().rev() {
++        next = builder.add(Label::Instr(Instr::Assign(Lhs::Var(slot(d)), e), next));
++    }
++    let mut program = builder.build_undecoded();
++    register(&mut program, "main", function(next, 7, 0, 8, false));
++    program.decode();
++    (program, next)
++}
++
++fn without_string_counts(mut t: util_stats::InterpreterTally) -> util_stats::InterpreterTally {
++    t.appends_fresh = 0;
++    t.appends_in_place = 0;
++    t.appends_grows = 0;
++    t.literal_folds = 0;
++    t.appends_int = 0;
++    t
++}
++
++fn assert_no_string_counts(t: &util_stats::InterpreterTally) {
++    assert_eq!(
++        [t.appends_fresh, t.appends_in_place, t.appends_grows, t.literal_folds, t.appends_int],
++        [0; 5]
++    );
++}
++
++/// Runs `program` with its string additions decoded and left as trees, and
++/// requires every observation and count other than the addition counts to
++/// agree, then runs both loops against each other under both signature
++/// policies.
++fn assert_appends_agree(program: Program, start: usize) -> Observed {
++    let mut trees = program.clone();
++    trees.compiled = crate::compiler::cfg::CompiledProgram::build_without_string_appends(&program);
++    let decoded = observe::<NoHashing>(&program, start, 8);
++    let tree = observe::<NoHashing>(&trees, start, 8);
++    assert_eq!(decoded.result, tree.result);
++    assert_eq!(decoded.logs, tree.logs);
++    assert_eq!(decoded.reachable_state, tree.reachable_state);
++    assert_eq!(decoded.edges, tree.edges);
++    assert_eq!(decoded.events, tree.events);
++    assert_eq!(without_string_counts(decoded.tally), tree.tally);
++    assert_no_string_counts(&tree.tally);
++
++    let (eager, _) = assert_loops_agree(program.clone(), start, 8);
++    assert_no_string_counts(&eager.tally);
++    let (_, legacy) = assert_loops_agree_deferred(program, start, 8);
++    assert_no_string_counts(&legacy.tally);
++    assert_eq!(legacy.result, decoded.result);
++    decoded
++}
++
++#[test]
++fn string_additions_append_in_place_and_fold_literals_as_the_trees_they_replace() {
++    let (program, init) = chain_program();
++    let ops = &program.compiled.ops;
++    assert_eq!(ops.iter().filter(|op| matches!(op, Op::AppendLiteral(_))).count(), 2);
++    assert_eq!(ops.iter().filter(|op| matches!(op, Op::LiteralStore { .. })).count(), 2);
++    assert_eq!(ops.iter().filter(|op| matches!(op, Op::AppendLocal { .. })).count(), 4);
++
++    let decoded = assert_appends_agree(program, init);
++    let t = decoded.tally;
++    assert_eq!(t.literal_folds, 2);
++    assert_eq!(t.appends_int, 1);
++    assert_eq!(t.appends_fresh, 3);
++    assert_eq!(t.appends_in_place, 2);
++    assert_eq!(t.appends_grows, 0);
++    assert_eq!(t.appends_fresh + t.appends_in_place + t.appends_int, 6);
++    let printed = [
++        "\"Received a prepare for op number 42 at view 42\"",
++        "\"a literal copied before it is appended to42\"",
++        "\"a literal copied before it is appended to\"",
++        "\"4242\"",
++    ];
++    assert_eq!(decoded.logs.len(), printed.len());
++    for (line, text) in decoded.logs.iter().zip(printed) {
++        assert!(line.ends_with(&format!(" 0 {text}")), "{line}");
++    }
++}
++
++#[test]
++fn failing_string_additions_fail_alike_when_decoded() {
++    let (program, start) = failing_chain(
++        vec![
++            (0, Expr::Int(1)),
++            (1, Expr::String("a literal prefix longer than inline".into())),
++        ],
++        (1, 1, 0),
++    );
++    assert!(program.compiled.ops.iter().any(|op| matches!(op, Op::AppendLiteral(a) if a.literal_first)));
++    let decoded = assert_appends_agree(program, start);
++    assert!(decoded.result.contains("expected int or string, got string"), "{}", decoded.result);
++
++    let (program, start) = failing_chain(
++        vec![(1, Expr::Int(1)), (5, Expr::String(" tail".into()))],
++        (1, 1, 5),
++    );
++    assert!(program.compiled.ops.iter().any(|op| matches!(op, Op::AppendLiteral(a) if !a.literal_first)));
++    let decoded = assert_appends_agree(program, start);
++    assert!(decoded.result.contains("got int"), "{}", decoded.result);
++
++    let (program, start) = failing_chain(vec![(1, Expr::Int(1)), (5, Expr::Bool(true))], (1, 1, 5));
++    assert!(program.compiled.ops.iter().any(|op| matches!(op, Op::AppendLocal { .. })));
++    let decoded = assert_appends_agree(program, start);
++    assert!(decoded.result.contains("got int"), "{}", decoded.result);
++}
++
++/// A function `caller` that starts a record of `handle`, which cannot park,
++/// with one argument beyond its parameters, and a record of `park`, which
++/// can. Its first parameter is the receiver.
++fn spawning_program() -> (Program, usize) {
++    let mut builder = TestProgramBuilder::new();
++    let handle_entry = builder.add(Label::Return(Expr::Plus(
++        Box::new(Expr::Var(slot(0))),
++        Box::new(Expr::Var(slot(1))),
++    )));
++    let park_ret = builder.add(Label::Return(Expr::Var(slot(0))));
++    let park_entry = builder.add(Label::Pause(park_ret));
++    let done = builder.add(Label::Return(Expr::Unit));
++    let spawn_park = builder.add(Label::Instr(
++        Instr::Async(
++            Lhs::Var(slot(3)),
++            Expr::Var(slot(0)),
++            "park".to_string(),
++            vec![Expr::Var(slot(1))],
++        ),
++        done,
++    ));
++    let spawn_handle = builder.add(Label::Instr(
++        Instr::Async(
++            Lhs::Var(slot(2)),
++            Expr::Var(slot(0)),
++            "handle".to_string(),
++            vec![Expr::Var(slot(1)), Expr::Int(7), Expr::Int(8)],
++        ),
++        spawn_park,
++    ));
++    let mut program = builder.build_undecoded();
++    let mut handle = function(handle_entry, 10, 2, 3, false);
++    handle.local_defaults = vec![crate::compiler::cfg::SlotDefault::Nil];
++    register(&mut program, "handle", handle);
++    register(&mut program, "park", function(park_entry, 11, 1, 1, false));
++    register(&mut program, "caller", function(spawn_handle, 12, 2, 4, false));
++    program.decode();
++    (program, spawn_handle)
++}
++
++fn receiver() -> NodeId {
++    NodeId {
++        role: NameId(0),
++        index: 1,
++    }
++}
++
++/// The state after `caller` ran once on node 0, and the interpreter counts
++/// it added.
++fn spawned<H: HashPolicy>(program: &Program) -> (State<H>, util_stats::InterpreterTally) {
++    let mut state = State::<H>::new(&[(NameId(0), 3)], 2);
++    let mut logger = TestLogger::new();
++    let caller = program.get_func_by_name("caller").unwrap();
++    let mut record = make_record_for::<H>(caller.entry, 4, Continuation::Recover);
++    record.env = build_frame::<H>(caller, &[Value::<H>::node(receiver()), Value::<H>::int(5)]);
++    let mut coverage = LocalCoverage::new();
++    let before = util_stats::pending_interpreter_tally();
++    exec::<H, TestLogger, CfgFeedback>(
++        &mut state,
++        &mut logger,
++        program,
++        record,
++        &VertexMap::new(),
++        &mut coverage,
++        &SchedulePolicy::Fixed,
++        &PurgatoryConfig::default(),
++        &mut SmallRng::seed_from_u64(0),
++    )
++    .expect("the caller runs");
++    let tally = util_stats::pending_interpreter_tally().since(before);
++    (state, tally)
++}
++
++/// Requires every record in `records` to be at its entry with the frame its
++/// original arguments build, and returns how many there were.
++fn assert_redelivered_frames<'a, H: HashPolicy>(
++    program: &Program,
++    records: impl Iterator<Item = &'a Record<H>>,
++) -> usize {
++    let handle = program.get_func_by_name("handle").unwrap();
++    let park = program.get_func_by_name("park").unwrap();
++    let mut n = 0;
++    for r in records {
++        assert_eq!(r.pc, r.entry_pc);
++        let expected = if r.entry_func == handle.name {
++            build_frame::<H>(
++                handle,
++                &[Value::<H>::int(5), Value::<H>::int(7), Value::<H>::int(8)],
++            )
++        } else {
++            assert_eq!(r.entry_func, park.name);
++            build_frame::<H>(park, &[Value::<H>::int(5)])
++        };
++        assert_eq!(format!("{:?}", r.env), format!("{expected:?}"));
++        n += 1;
++    }
++    n
++}
++
++fn check_redelivery<H: HashPolicy>(owned: u64) {
++    let (program, _) = spawning_program();
++    assert!(!program.get_func_by_name("handle").unwrap().may_park);
++    assert!(program.get_func_by_name("park").unwrap().may_park);
++    let (state, tally) = spawned::<H>(&program);
++    let queued: Vec<&Record<H>> = state
++        .network_queue
++        .iter()
++        .filter_map(|r| match r {
++            Runnable::Record(r) => Some(r),
++            _ => None,
++        })
++        .collect();
++    assert_eq!(queued.len(), 2);
++    assert_eq!(tally.async_args_owned + tally.async_args_kept, queued.len() as u64);
++    assert_eq!(tally.async_args_owned, owned);
++    for r in &queued {
++        let parks = program.rpc[&r.entry_func].may_park;
++        assert_eq!(r.initial_args.is_empty(), owned == 1 && !parks);
++    }
++    assert_eq!(assert_redelivered_frames::<H>(&program, queued.into_iter()), 2);
++
++    let mut crashed = state.clone();
++    let resets_before = util_stats::pending_resets_frame_kept();
++    crate::simulator::core::scheduler::crash_node(&mut crashed, &program, receiver());
++    assert_eq!(util_stats::pending_resets_frame_kept() - resets_before, owned);
++    let held = crashed.crash_info.queued_messages.iter().map(|(_, r)| r);
++    assert_eq!(assert_redelivered_frames::<H>(&program, held), 2);
++
++    let mut parted = state.clone();
++    let resets_before = util_stats::pending_resets_frame_kept();
++    crate::simulator::core::partition::activate_partition(
++        &mut parted,
++        &program,
++        crate::simulator::core::partition::PartitionType::IsolateOne(receiver()),
++    );
++    assert_eq!(util_stats::pending_resets_frame_kept() - resets_before, owned);
++    assert!(parted.network_queue.is_empty());
++    crate::simulator::core::partition::heal_partition(&mut parted);
++    let released = parted.network_queue.iter().filter_map(|r| match r {
++        Runnable::Record(r) => Some(r),
++        _ => None,
++    });
++    assert_eq!(assert_redelivered_frames::<H>(&program, released), 2);
++}
++
++#[test]
++fn a_record_of_a_callee_that_cannot_park_is_redelivered_with_its_frame_after_a_crash_or_partition() {
++    check_redelivery::<NoHashing>(1);
++    check_redelivery::<WithHashing>(0);
++}
++
++#[test]
++fn owned_frames_match_the_label_loop_with_deferred_signatures() {
++    let (program, start) = spawning_program();
++    let caller = program.get_func_by_name("caller").unwrap().clone();
++    let run = |program: &Program| {
++        let (state, tally) = spawned::<NoHashing>(program);
++        let frames: Vec<String> = state
++            .network_queue
++            .iter()
++            .map(|r| match r {
++                Runnable::Record(r) => format!("{} {:?} {:?}", r.pc, r.node, r.env),
++                other => format!("{other:?}"),
++            })
++            .collect();
++        (frames, tally)
++    };
++    let mut undecoded = program.clone();
++    undecoded.compiled = Default::default();
++    let (decoded_frames, decoded) = run(&program);
++    let (legacy_frames, legacy) = run(&undecoded);
++    assert_eq!(decoded_frames, legacy_frames);
++    assert_eq!(decoded.async_args_owned, 1);
++    assert_eq!(decoded.async_args_kept, 1);
++    assert_eq!(legacy.async_args_owned + legacy.async_args_kept, 0);
++    assert_eq!(caller.entry, start);
++}
++
+ #[test]
+ fn unresolved_and_async_callees_fail_alike_on_both_loops() {
+     let mut builder = TestProgramBuilder::new();
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index d9952cf..40ae69b 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -2103,7 +2103,7 @@ fn pair_order_dispatch<H: HashPolicy>(state: &State<H>, eligible: &[usize], pick
+     }
+ }
+ 
+-fn crash_node<H: HashPolicy>(state: &mut State<H>, program: &Program, node_id: NodeId) {
++pub(crate) fn crash_node<H: HashPolicy>(state: &mut State<H>, program: &Program, node_id: NodeId) {
+     if state.crash_info.currently_crashed.contains(&node_id) {
+         warn!("Node {} is already crashed", node_id);
+         return;
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 2d087fa..2479c3b 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -391,11 +391,19 @@ pub struct Record<H: HashPolicy> {
+ }
+ 
+ impl<H: HashPolicy> Record<H> {
+-    /// Reset pc and env to their initial values for crash re-delivery.
++    /// Reset pc and env to their initial values for crash re-delivery. A
++    /// function that cannot park runs to its return within the step that
++    /// starts it, so a record of one being reset has not started and its
++    /// frame is still the one its arguments built; that frame is kept, except
++    /// with eager signatures.
+     pub fn reset(&mut self, program: &Program) {
+         self.pc = self.entry_pc;
+         if let Some(func) = program.rpc.get(&self.entry_func) {
+-            self.env = build_frame(func, &self.initial_args);
++            if !H::EAGER && !func.may_park {
++                crate::simulator::util_stats::record_reset_frame_kept();
++            } else {
++                self.env = build_frame(func, &self.initial_args);
++            }
+         }
+     }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index ee9808b..6eaa2c7 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -113,6 +113,20 @@ static COMPILED_EXPR_TREE_EVALS: AtomicU64 = AtomicU64::new(0);
+ static COMPILED_EXPR_LEGACY_EVALS: AtomicU64 = AtomicU64::new(0);
+ static CALL_TARGETS_INDEXED: AtomicU64 = AtomicU64::new(0);
+ static CALL_TARGETS_FALLBACK: AtomicU64 = AtomicU64::new(0);
++static VALUE_MOVE_TAKEN: AtomicU64 = AtomicU64::new(0);
++static VALUE_MOVE_RETURNS: AtomicU64 = AtomicU64::new(0);
++static VALUE_MOVE_CALL_ARGS: AtomicU64 = AtomicU64::new(0);
++static VALUE_MOVE_SENDS: AtomicU64 = AtomicU64::new(0);
++static VALUE_MOVE_ASSIGNS: AtomicU64 = AtomicU64::new(0);
++static VALUE_MOVE_SELF_COPIES: AtomicU64 = AtomicU64::new(0);
++static FRAME_ASYNC_ARGS_OWNED: AtomicU64 = AtomicU64::new(0);
++static FRAME_ASYNC_ARGS_KEPT: AtomicU64 = AtomicU64::new(0);
++static RECORD_RESETS_FRAME_KEPT: AtomicU64 = AtomicU64::new(0);
++static STRING_APPEND_FRESH: AtomicU64 = AtomicU64::new(0);
++static STRING_APPEND_IN_PLACE: AtomicU64 = AtomicU64::new(0);
++static STRING_APPEND_GROWS: AtomicU64 = AtomicU64::new(0);
++static STRING_APPEND_LITERAL_FOLDS: AtomicU64 = AtomicU64::new(0);
++static STRING_APPEND_INT_ADDS: AtomicU64 = AtomicU64::new(0);
+ static CHANNEL_TABLE_LOOKUPS: AtomicU64 = AtomicU64::new(0);
+ static CHANNEL_TABLE_LOOKUP_MISSES: AtomicU64 = AtomicU64::new(0);
+ static CHANNEL_TABLE_DENSE_INSERTS: AtomicU64 = AtomicU64::new(0);
+@@ -888,6 +902,20 @@ pub fn set_enabled(on: bool) {
+             &COMPILED_EXPR_LEGACY_EVALS,
+             &CALL_TARGETS_INDEXED,
+             &CALL_TARGETS_FALLBACK,
++            &VALUE_MOVE_TAKEN,
++            &VALUE_MOVE_RETURNS,
++            &VALUE_MOVE_CALL_ARGS,
++            &VALUE_MOVE_SENDS,
++            &VALUE_MOVE_ASSIGNS,
++            &VALUE_MOVE_SELF_COPIES,
++            &FRAME_ASYNC_ARGS_OWNED,
++            &FRAME_ASYNC_ARGS_KEPT,
++            &RECORD_RESETS_FRAME_KEPT,
++            &STRING_APPEND_FRESH,
++            &STRING_APPEND_IN_PLACE,
++            &STRING_APPEND_GROWS,
++            &STRING_APPEND_LITERAL_FOLDS,
++            &STRING_APPEND_INT_ADDS,
+             &CHANNEL_TABLE_LOOKUPS,
+             &CHANNEL_TABLE_LOOKUP_MISSES,
+             &CHANNEL_TABLE_DENSE_INSERTS,
+@@ -1965,6 +1993,7 @@ thread_local! {
+     static LOG_VEC_GROWS_RUN: Cell<u64> = const { Cell::new(0) };
+     static TRACE_VEC_GROWS_RUN: Cell<u64> = const { Cell::new(0) };
+     static PRINT_PRESIZED_RUN: Cell<u64> = const { Cell::new(0) };
++    static RESETS_FRAME_KEPT_RUN: Cell<u64> = const { Cell::new(0) };
+     /// Interpreter and channel table counts of the run executing on this
+     /// thread, added once per executed segment and drained with the cells
+     /// above.
+@@ -5536,7 +5565,10 @@ impl VictimSwapStats {
+ /// writes to a local frame that found it shared and therefore copied it.
+ /// `params_filled` counts slots holding a value the caller supplied and
+ /// `default_slots_filled` the slots given their declared starting value, so
+-/// the two sum to `slots_built`.
++/// the two sum to `slots_built`. `async_args_owned` counts asynchronous call
++/// records whose frame was built from the argument values with no copy of
++/// them kept, and `async_args_kept` those that kept one; the two sum to the
++/// records the decoded asynchronous call built.
+ #[derive(Serialize, Debug)]
+ pub struct FrameStats {
+     pub calls: u64,
+@@ -5544,6 +5576,8 @@ pub struct FrameStats {
+     pub entry_frame_copies: u64,
+     pub default_slots_filled: u64,
+     pub params_filled: u64,
++    pub async_args_owned: u64,
++    pub async_args_kept: u64,
+ }
+ 
+ impl FrameStats {
+@@ -5554,6 +5588,55 @@ impl FrameStats {
+             entry_frame_copies: FRAME_ENTRY_COPIES.load(Ordering::Relaxed),
+             default_slots_filled: FRAME_DEFAULT_SLOTS_FILLED.load(Ordering::Relaxed),
+             params_filled: FRAME_PARAMS_FILLED.load(Ordering::Relaxed),
++            async_args_owned: FRAME_ASYNC_ARGS_OWNED.load(Ordering::Relaxed),
++            async_args_kept: FRAME_ASYNC_ARGS_KEPT.load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// Records reset for re-delivery to a crashed or partitioned receiver that
++/// kept their frame instead of rebuilding it from their arguments.
++#[derive(Serialize, Debug)]
++pub struct RecordStats {
++    pub resets_frame_kept: u64,
++}
++
++impl RecordStats {
++    fn read() -> Self {
++        Self {
++            resets_frame_kept: RECORD_RESETS_FRAME_KEPT.load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// Decoded additions of the form `a = a + x` and their folded-literal forms,
++/// run with deferred signatures. `fresh` counts string results written to a
++/// new buffer: the left string was inline, shared, or its buffer moved while
++/// growing. `in_place` counts string results appended into the left string's
++/// own heap buffer, which is known by that buffer's address being unchanged.
++/// `grows` counts the results among `fresh` whose uniquely owned heap buffer
++/// moved while growing, and `int_adds` counts integer additions, so `fresh`,
++/// `in_place` and `int_adds` sum to the additions run. `literal_folds` counts
++/// additions that read a string literal from their own operation instead of
++/// a slot an earlier store wrote it to. All stay 0 when signatures are kept
++/// eagerly.
++#[derive(Serialize, Debug)]
++pub struct StringAppendStats {
++    pub fresh: u64,
++    pub in_place: u64,
++    pub grows: u64,
++    pub literal_folds: u64,
++    pub int_adds: u64,
++}
++
++impl StringAppendStats {
++    fn read() -> Self {
++        Self {
++            fresh: STRING_APPEND_FRESH.load(Ordering::Relaxed),
++            in_place: STRING_APPEND_IN_PLACE.load(Ordering::Relaxed),
++            grows: STRING_APPEND_GROWS.load(Ordering::Relaxed),
++            literal_folds: STRING_APPEND_LITERAL_FOLDS.load(Ordering::Relaxed),
++            int_adds: STRING_APPEND_INT_ADDS.load(Ordering::Relaxed),
+         }
+     }
+ }
+@@ -5669,6 +5752,36 @@ impl CallTargetStats {
+     }
+ }
+ 
++/// Slot values the decoded operations moved out instead of copying, because
++/// no path read the slot again before writing it. `taken` counts every move
++/// and equals the sum of the other fields: `returns` for returned values,
++/// `call_args` for synchronous and asynchronous call arguments, `sends` for
++/// channel send values, `assigns` for slot-to-slot and slot-to-node stores,
++/// and `self_copies` for copies of a slot onto itself that were skipped.
++/// All stay 0 when signatures are kept eagerly.
++#[derive(Serialize, Debug)]
++pub struct ValueMoveStats {
++    pub taken: u64,
++    pub returns: u64,
++    pub call_args: u64,
++    pub sends: u64,
++    pub assigns: u64,
++    pub self_copies: u64,
++}
++
++impl ValueMoveStats {
++    fn read() -> Self {
++        Self {
++            taken: VALUE_MOVE_TAKEN.load(Ordering::Relaxed),
++            returns: VALUE_MOVE_RETURNS.load(Ordering::Relaxed),
++            call_args: VALUE_MOVE_CALL_ARGS.load(Ordering::Relaxed),
++            sends: VALUE_MOVE_SENDS.load(Ordering::Relaxed),
++            assigns: VALUE_MOVE_ASSIGNS.load(Ordering::Relaxed),
++            self_copies: VALUE_MOVE_SELF_COPIES.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// Channel table mutable lookups, the ones that found no channel, and
+ /// channels appended, over ended runs.
+ #[derive(Serialize, Debug)]
+@@ -6046,6 +6159,18 @@ pub fn record_print_presized() {
+     tick(&PRINT_PRESIZED_RUN);
+ }
+ 
++/// A record reset for re-delivery kept its frame instead of rebuilding it.
++#[inline]
++pub fn record_reset_frame_kept() {
++    tick(&RESETS_FRAME_KEPT_RUN);
++}
++
++/// The running thread's kept-frame resets not yet drained.
++#[cfg(test)]
++pub(crate) fn pending_resets_frame_kept() -> u64 {
++    RESETS_FRAME_KEPT_RUN.with(|c| c.get())
++}
++
+ /// Interpreter counts of one executed segment, kept in a local while the
+ /// segment runs and added to the thread's run cell once when it returns.
+ #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+@@ -6057,6 +6182,30 @@ pub struct InterpreterTally {
+     pub legacy_evals: u64,
+     pub call_targets_indexed: u64,
+     pub call_targets_fallback: u64,
++    pub moves_taken: u64,
++    pub moves_returns: u64,
++    pub moves_call_args: u64,
++    pub moves_sends: u64,
++    pub moves_assigns: u64,
++    pub moves_self_copies: u64,
++    pub async_args_owned: u64,
++    pub async_args_kept: u64,
++    pub appends_fresh: u64,
++    pub appends_in_place: u64,
++    pub appends_grows: u64,
++    pub literal_folds: u64,
++    pub appends_int: u64,
++}
++
++/// Where a slot value was moved out instead of copied.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum MoveSite {
++    Return,
++    CallArg,
++    Send,
++    Assign,
++    /// A copy of a slot onto itself, skipped.
++    SelfCopy,
+ }
+ 
+ impl InterpreterTally {
+@@ -6069,6 +6218,19 @@ impl InterpreterTally {
+             legacy_evals: 0,
+             call_targets_indexed: 0,
+             call_targets_fallback: 0,
++            moves_taken: 0,
++            moves_returns: 0,
++            moves_call_args: 0,
++            moves_sends: 0,
++            moves_assigns: 0,
++            moves_self_copies: 0,
++            async_args_owned: 0,
++            async_args_kept: 0,
++            appends_fresh: 0,
++            appends_in_place: 0,
++            appends_grows: 0,
++            literal_folds: 0,
++            appends_int: 0,
+         }
+     }
+ 
+@@ -6081,6 +6243,59 @@ impl InterpreterTally {
+             legacy_evals: self.legacy_evals + o.legacy_evals,
+             call_targets_indexed: self.call_targets_indexed + o.call_targets_indexed,
+             call_targets_fallback: self.call_targets_fallback + o.call_targets_fallback,
++            moves_taken: self.moves_taken + o.moves_taken,
++            moves_returns: self.moves_returns + o.moves_returns,
++            moves_call_args: self.moves_call_args + o.moves_call_args,
++            moves_sends: self.moves_sends + o.moves_sends,
++            moves_assigns: self.moves_assigns + o.moves_assigns,
++            moves_self_copies: self.moves_self_copies + o.moves_self_copies,
++            async_args_owned: self.async_args_owned + o.async_args_owned,
++            async_args_kept: self.async_args_kept + o.async_args_kept,
++            appends_fresh: self.appends_fresh + o.appends_fresh,
++            appends_in_place: self.appends_in_place + o.appends_in_place,
++            appends_grows: self.appends_grows + o.appends_grows,
++            literal_folds: self.literal_folds + o.literal_folds,
++            appends_int: self.appends_int + o.appends_int,
++        }
++    }
++
++    /// The counts added since `earlier` was read from the same thread.
++    #[cfg(test)]
++    pub(crate) fn since(self, earlier: Self) -> Self {
++        Self {
++            label_execs: self.label_execs - earlier.label_execs,
++            legacy_labels: self.legacy_labels - earlier.legacy_labels,
++            leaf_operands_inline: self.leaf_operands_inline - earlier.leaf_operands_inline,
++            tree_evals: self.tree_evals - earlier.tree_evals,
++            legacy_evals: self.legacy_evals - earlier.legacy_evals,
++            call_targets_indexed: self.call_targets_indexed - earlier.call_targets_indexed,
++            call_targets_fallback: self.call_targets_fallback - earlier.call_targets_fallback,
++            moves_taken: self.moves_taken - earlier.moves_taken,
++            moves_returns: self.moves_returns - earlier.moves_returns,
++            moves_call_args: self.moves_call_args - earlier.moves_call_args,
++            moves_sends: self.moves_sends - earlier.moves_sends,
++            moves_assigns: self.moves_assigns - earlier.moves_assigns,
++            moves_self_copies: self.moves_self_copies - earlier.moves_self_copies,
++            async_args_owned: self.async_args_owned - earlier.async_args_owned,
++            async_args_kept: self.async_args_kept - earlier.async_args_kept,
++            appends_fresh: self.appends_fresh - earlier.appends_fresh,
++            appends_in_place: self.appends_in_place - earlier.appends_in_place,
++            appends_grows: self.appends_grows - earlier.appends_grows,
++            literal_folds: self.literal_folds - earlier.literal_folds,
++            appends_int: self.appends_int - earlier.appends_int,
++        }
++    }
++
++    /// One slot value moved out at `site`.
++    #[inline(always)]
++    pub fn record_move(&mut self, site: MoveSite) {
++        self.moves_taken += 1;
++        match site {
++            MoveSite::Return => self.moves_returns += 1,
++            MoveSite::CallArg => self.moves_call_args += 1,
++            MoveSite::Send => self.moves_sends += 1,
++            MoveSite::Assign => self.moves_assigns += 1,
++            MoveSite::SelfCopy => self.moves_self_copies += 1,
+         }
+     }
+ 
+@@ -6164,6 +6379,7 @@ pub fn flush_frame_stats() {
+         (&LOG_VEC_GROWS_RUN, &RUN_BUFFERS_LOG_VEC_GROWS),
+         (&TRACE_VEC_GROWS_RUN, &RUN_BUFFERS_TRACE_VEC_GROWS),
+         (&PRINT_PRESIZED_RUN, &PRINT_CONTENT_PRESIZED),
++        (&RESETS_FRAME_KEPT_RUN, &RECORD_RESETS_FRAME_KEPT),
+     ]
+     .map(|(cell, total)| (cell.with(|c| c.replace(0)), total));
+     let interp = INTERPRETER_RUN.with(|c| c.replace(InterpreterTally::new()));
+@@ -6179,6 +6395,19 @@ pub fn flush_frame_stats() {
+         (interp.legacy_evals, &COMPILED_EXPR_LEGACY_EVALS),
+         (interp.call_targets_indexed, &CALL_TARGETS_INDEXED),
+         (interp.call_targets_fallback, &CALL_TARGETS_FALLBACK),
++        (interp.moves_taken, &VALUE_MOVE_TAKEN),
++        (interp.moves_returns, &VALUE_MOVE_RETURNS),
++        (interp.moves_call_args, &VALUE_MOVE_CALL_ARGS),
++        (interp.moves_sends, &VALUE_MOVE_SENDS),
++        (interp.moves_assigns, &VALUE_MOVE_ASSIGNS),
++        (interp.moves_self_copies, &VALUE_MOVE_SELF_COPIES),
++        (interp.async_args_owned, &FRAME_ASYNC_ARGS_OWNED),
++        (interp.async_args_kept, &FRAME_ASYNC_ARGS_KEPT),
++        (interp.appends_fresh, &STRING_APPEND_FRESH),
++        (interp.appends_in_place, &STRING_APPEND_IN_PLACE),
++        (interp.appends_grows, &STRING_APPEND_GROWS),
++        (interp.literal_folds, &STRING_APPEND_LITERAL_FOLDS),
++        (interp.appends_int, &STRING_APPEND_INT_ADDS),
+         (lookups, &CHANNEL_TABLE_LOOKUPS),
+         (misses, &CHANNEL_TABLE_LOOKUP_MISSES),
+         (inserts, &CHANNEL_TABLE_DENSE_INSERTS),
+@@ -7337,6 +7566,9 @@ pub struct UtilizationSnapshot {
+     pub compiled_ops: CompiledOpsStats,
+     pub compiled_expr: CompiledExprStats,
+     pub call_targets: CallTargetStats,
++    pub value_move: ValueMoveStats,
++    pub record: RecordStats,
++    pub string_append: StringAppendStats,
+     pub channel_table: ChannelTableStats,
+     pub stats_local: StatsLocalStats,
+     pub fresh_first: FreshFirstStats,
+@@ -7567,6 +7799,9 @@ pub fn snapshot() -> UtilizationSnapshot {
+         compiled_ops: CompiledOpsStats::read(),
+         compiled_expr: CompiledExprStats::read(),
+         call_targets: CallTargetStats::read(),
++        value_move: ValueMoveStats::read(),
++        record: RecordStats::read(),
++        string_append: StringAppendStats::read(),
+         channel_table: ChannelTableStats::read(),
+         stats_local: StatsLocalStats::read(),
+         fresh_first: FreshFirstStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index f35a5bd..cfdad20 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, RecordStats, ReplayStats, SchedStats, StringAppendStats, ValueMoveStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1262,6 +1262,8 @@ fn frame(m: &mut Marks) -> FrameStats {
+         entry_frame_copies: m.int(),
+         default_slots_filled: m.int(),
+         params_filled: m.int(),
++        async_args_owned: m.int(),
++        async_args_kept: m.int(),
+     }
+ }
+ 
+@@ -1272,6 +1274,8 @@ fn frame_leaves(prefix: &str, f: &FrameStats) -> Vec<(String, Value)> {
+         entry_frame_copies,
+         default_slots_filled,
+         params_filled,
++        async_args_owned,
++        async_args_kept,
+     } = f;
+     vec![
+         leaf(prefix, "calls", *calls),
+@@ -1279,9 +1283,49 @@ fn frame_leaves(prefix: &str, f: &FrameStats) -> Vec<(String, Value)> {
+         leaf(prefix, "entry_frame_copies", *entry_frame_copies),
+         leaf(prefix, "default_slots_filled", *default_slots_filled),
+         leaf(prefix, "params_filled", *params_filled),
++        leaf(prefix, "async_args_owned", *async_args_owned),
++        leaf(prefix, "async_args_kept", *async_args_kept),
+     ]
+ }
+ 
++fn string_append(m: &mut Marks) -> StringAppendStats {
++    StringAppendStats {
++        fresh: m.int(),
++        in_place: m.int(),
++        grows: m.int(),
++        literal_folds: m.int(),
++        int_adds: m.int(),
++    }
++}
++
++fn string_append_leaves(prefix: &str, a: &StringAppendStats) -> Vec<(String, Value)> {
++    let StringAppendStats {
++        fresh,
++        in_place,
++        grows,
++        literal_folds,
++        int_adds,
++    } = a;
++    vec![
++        leaf(prefix, "fresh", *fresh),
++        leaf(prefix, "in_place", *in_place),
++        leaf(prefix, "grows", *grows),
++        leaf(prefix, "literal_folds", *literal_folds),
++        leaf(prefix, "int_adds", *int_adds),
++    ]
++}
++
++fn record(m: &mut Marks) -> RecordStats {
++    RecordStats {
++        resets_frame_kept: m.int(),
++    }
++}
++
++fn record_leaves(prefix: &str, r: &RecordStats) -> Vec<(String, Value)> {
++    let RecordStats { resets_frame_kept } = r;
++    vec![leaf(prefix, "resets_frame_kept", *resets_frame_kept)]
++}
++
+ fn frame_layout(m: &mut Marks) -> FrameLayoutStats {
+     FrameLayoutStats {
+         program_slots_before: m.int(),
+@@ -1394,6 +1438,36 @@ fn compiled_expr_leaves(prefix: &str, c: &CompiledExprStats) -> Vec<(String, Val
+     ]
+ }
+ 
++fn value_move(m: &mut Marks) -> ValueMoveStats {
++    ValueMoveStats {
++        taken: m.int(),
++        returns: m.int(),
++        call_args: m.int(),
++        sends: m.int(),
++        assigns: m.int(),
++        self_copies: m.int(),
++    }
++}
++
++fn value_move_leaves(prefix: &str, v: &ValueMoveStats) -> Vec<(String, Value)> {
++    let ValueMoveStats {
++        taken,
++        returns,
++        call_args,
++        sends,
++        assigns,
++        self_copies,
++    } = v;
++    vec![
++        leaf(prefix, "taken", *taken),
++        leaf(prefix, "returns", *returns),
++        leaf(prefix, "call_args", *call_args),
++        leaf(prefix, "sends", *sends),
++        leaf(prefix, "assigns", *assigns),
++        leaf(prefix, "self_copies", *self_copies),
++    ]
++}
++
+ fn call_targets(m: &mut Marks) -> CallTargetStats {
+     CallTargetStats {
+         indexed: m.int(),
+@@ -2298,6 +2372,9 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         compiled_ops: _,
+         compiled_expr: _,
+         call_targets: _,
++        value_move: _,
++        record: _,
++        string_append: _,
+         channel_table: _,
+         stats_local: _,
+         fresh_first: _,
+@@ -2357,6 +2434,9 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "compiled_ops",
+         "compiled_expr",
+         "call_targets",
++        "value_move",
++        "record",
++        "string_append",
+         "channel_table",
+         "stats_local",
+         "fresh_first",
+@@ -2450,6 +2530,9 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.compiled_ops = compiled_ops(&mut m);
+     s.compiled_expr = compiled_expr(&mut m);
+     s.call_targets = call_targets(&mut m);
++    s.value_move = value_move(&mut m);
++    s.record = record(&mut m);
++    s.string_append = string_append(&mut m);
+     s.channel_table = channel_table(&mut m);
+     s.stats_local = stats_local(&mut m);
+     s.fresh_first = fresh_first(&mut m);
+@@ -2489,6 +2572,9 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(compiled_ops_leaves("compiled_ops", &s.compiled_ops));
+     expected.extend(compiled_expr_leaves("compiled_expr", &s.compiled_expr));
+     expected.extend(call_targets_leaves("call_targets", &s.call_targets));
++    expected.extend(value_move_leaves("value_move", &s.value_move));
++    expected.extend(record_leaves("record", &s.record));
++    expected.extend(string_append_leaves("string_append", &s.string_append));
+     expected.extend(channel_table_leaves("channel_table", &s.channel_table));
+     expected.extend(stats_local_leaves("stats_local", &s.stats_local));
+     expected.extend(fresh_first_leaves("fresh_first", &s.fresh_first));
+@@ -2553,6 +2639,9 @@ fn every_counter_field_reaches_the_written_json() {
+         "compiled_ops",
+         "compiled_expr",
+         "call_targets",
++        "value_move",
++        "record",
++        "string_append",
+         "channel_table",
+         "stats_local",
+         "fresh_first",

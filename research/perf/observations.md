@@ -5144,3 +5144,50 @@ skipped under hashing in both. Build: one branch, commits A, B, C; a profile
 per stage against the stage before at a 0.3 percent cutoff; a part whose guard
 fires is reverted before rounds; three rounds on the surviving stack. Not
 expected to move walk_recovery_placebo (none touches the scheduler).
+
+### value-moves-and-string-appends: implementer report and rulings before profiling (autonomous)
+
+Three commits on c9c54fc (A dead slots moved, B RPC frames owning arguments,
+C string chains appended in place). Tests pass on each (485 lib tests at A,
+491 at C, both completeness tests); the read-after-move checker passes over
+the 26 compiling specs and rejects every kept read turned into a take in its
+mutation test. One-thread identity against c9c54fc on every commit - VR 3,008,
+Mencius 2,160, caps-engaged 100,000, plus a crash-heavy run on B and C (1,800
+runs, 4,555 crashes, 2,079 partitions) - identical on every table, end
+reason, stall_cap hash and cap figure, runs_failed 0.
+
+Counter readings on the one-thread runs (VR / caps-engaged):
+- A: returns / frame.calls 0.945 / 0.963 in [0.80, 1.00]; call_args /
+  params_filled 0.945 / 0.961 in [0.55, 1.00]; self_copies per run 2,741 /
+  1,781 against [100, 1,500]; taken per run 13,692 / 8,890 against [3,000,
+  6,500]; taken equals the sum of its leaves; entry_frame_copies 0.
+- B: owned share 0.644 / 0.639 in [0.50, 0.80] (crash-heavy 0.623);
+  frame.calls lower than A by exactly record.resets_frame_kept.
+- C: appends per print 2.05 / 2.04 against [2.4, 3.6]; absolute appends
+  2,304 / 1,555 in [1,500, 2,500]; in-place share 0.485 / 0.488 against
+  [0.55, 0.75]; folds per print 1.22 against [1.5, 2.4]; grows 0.179 / 0.176
+  against at most 0.15.
+
+Rulings, recorded before any profile:
+- C closed on its counter falsifier. Its bands that fire are per-print ratios
+  fixed by the spec's print shapes and the 64-byte fresh buffer; the
+  caps-engaged run is the graded configuration at one thread; thread count
+  and run length cannot move them. A profile and rounds would not change the
+  decision. Patch kept (research/perf/patches/value-moves-and-string-appends.
+  spur.patch, commit C).
+- A proceeds. Its two out-of-band counters are absolute per run and the
+  frozen text reads them "per run, every round"; these one-thread runs have
+  3,574-3,668 frame calls per run against about 1,943 in graded rounds, so
+  the rounds decide them (scaled, self_copies reads about 1,450, inside, and
+  taken about 7,250, above - if the rounds read taken above 6,500, A closes).
+- B proceeds. Its exact check "frame.calls, slots_built, params_filled and
+  default_slots_filled identical to A" contradicts its own mechanism - a kept
+  frame is by construction not rebuilt, and the judgment itself counts reset
+  rebuilds in frame.calls - and the difference equals
+  record.resets_frame_kept exactly on every run (VR 282,259; caps-engaged
+  3,770,943; crash-heavy 266,353; Mencius 0). It is not in B's falsifier list;
+  ruled a mis-specified check, not a fired one.
+- The stack to grade is A + B. The frozen profile reading is at a 0.3 percent
+  cutoff summing every generic instance, which the grader's profile command
+  cannot produce (its report limit is fixed at 1 percent); the grader gains a
+  --percent-limit option before these profiles are taken.
