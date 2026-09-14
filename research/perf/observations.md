@@ -5191,3 +5191,28 @@ Rulings, recorded before any profile:
   cutoff summing every generic instance, which the grader's profile command
   cannot produce (its report limit is fixed at 1 percent); the grader gains a
   --percent-limit option before these profiles are taken.
+
+### value-moves-and-string-appends: review of A and B (autonomous)
+
+A: kept(v, expr, later) emits Opnd::Take only for a local slot dead after the
+vertex (live_after_vertices, the post-coloring dataflow per function entry;
+a vertex claimed by two entries, or a function naming slots or successors
+outside itself, gets no row, so nothing is taken there) and named by none of
+the positions the vertex evaluates after it. coperand and cvalue read a Take
+as a Local, so any other path still clones; cvalue_kept moves only when not
+H::EAGER, through take_local, which counts and copies a shared frame exactly
+as set_local does. Op::SelfCopy runs as a no-op only for a self-copy whose
+slot is dead after the vertex; under eager signatures it keeps the clone and
+set. run_async_op evaluates the RPC target before the arguments (exec.rs on
+c9c54fc), so no argument take can hide a value the target reads.
+
+B: may_park is reachability of Recv, Pause or SpinAwait from the function
+entry, set for every rpc function at decode. For a resolved callee that cannot
+park, run_async_op looks the callee up first (it cannot fail when resolved),
+builds the frame from the arguments by move and leaves initial_args empty;
+Record::reset keeps the frame of a non-parking function unless signatures are
+eager. Counters async_args_owned + kept on every built record.
+
+Profiles of A and of A+B running at a 0.3 percent report cutoff (the grader's
+new --percent-limit), read against the attribution's fp-flat-0.3.txt and A's
+profile respectively.
