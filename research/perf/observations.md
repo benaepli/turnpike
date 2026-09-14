@@ -4909,3 +4909,37 @@ Written to tmp/loop/perf/it18-judgment-addendum.md by the iteration-18 judge.
   the exec_plan guard frozen as a net fall over F plus exec_plan and a wire
   set above a measured between-build spread, after a same-source profile pair
   and perf annotate on the kept binary against 11a720c.
+
+### timer-bias-read-at-the-split: implementer report and review before grading
+
+Built on 11a720c in queue_selector.rs and scheduler.rs. The selector gains
+select_timer_biased_at_split (ProbabilisticSelector: one roll; local below
+p_local; above it the bias closure is called once and p_timer_eff computed
+exactly as the eager version, then try_select; AnySelector's Preemptive keeps
+select) and select_with_timer_context, which reports whether the multiplier
+was applied, excluded or unused. In schedule_runnable the Steered and
+timer-queue-non-empty condition still guards the path; the unchanged
+head-timer find and multiplier() move into a closure that draws nothing;
+record_timer_context_bias and record_timer_context_excluded follow the
+returned use, now after the selection instead of before - a counter write
+with no draw, so nothing the search reads moves. select_timer_biased became
+cfg(test), kept as the eager reference.
+
+Checks (release): 524 tests pass, including two 50,000-step lockstep tests
+against the eager path (selection and the next random value equal every
+step; the multiplier read exactly when roll >= p_local on Probabilistic and on
+every step on Preemptive). One-thread identity against 11a720c - VR 3,008,
+Mencius 2,160, caps-engaged 100,000 - every table identical both ways,
+stall_cap_runs.csv hashes equal, end reasons and cap figures equal,
+runs_failed 0; folded_increments, steps_excluded_selector, cells_engaged,
+probe_firings and probe_acted identical in the session and every arm; only the
+three biased leaves differ, each below baseline, promoted + suppressed =
+biased_steps exactly. Biased steps per step, baseline over candidate: VR
+session 4.947 (grid arms 5.00-5.01, aos 4.67), Mencius 4.999, caps-engaged
+session 5.000 (grid arms 4.999-5.000). promoted / biased_steps reads outside
+[0.33, 0.37] on several one-thread scopes but equals the baseline's own value
+within 0.002 wherever comparable - a property of those workloads; the band is
+read in the graded rounds.
+
+Grading: plain-cycles candidate profile (G1-G4 and the placebo), then three
+rounds, cross-binary [1.012, 1.035] regression only, counters by hand.
