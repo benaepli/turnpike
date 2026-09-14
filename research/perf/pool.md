@@ -1161,7 +1161,7 @@ rounds of clock each:
 
 ## scheduler-probe-counters-folded-per-run
 
-- category: contention and parallelism (inside the scheduler family) | origin: proposer | status: admitted (iteration 18) - building first, alone
+- category: contention and parallelism (inside the scheduler family) | origin: proposer | status: closed (iteration 18, autonomous) on its exec_plan relocation guard (2.39 against at most 2.32) - scheduler family down 3.77, counter in band every round, identity identical, but runs per second 1.0252 [0.9976, 1.0537] over six rounds missed the upward separation registered before the rounds by 0.0024; patch kept at research/perf/patches/scheduler-probe-counters-folded-per-run.spur.patch; eligible to return as a new candidate with freshly frozen guards
 - mechanism: the eight direct shared-atomic leaves the scheduler family writes
   per step (three TIMER_CONTEXT_BIASED_* statics on one 64-byte line through
   record_timer_context_bias, crash timing bias examined / withheld, crash

@@ -1,0 +1,199 @@
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index ee9808b..6c3ca2e 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -2326,9 +2326,9 @@ pub fn record_crash_timing_bias(withheld: bool) {
+     if !enabled() {
+         return;
+     }
+-    CA_TIMING_BIAS_EXAMINED.fetch_add(1, Ordering::Relaxed);
++    bump(|b| &b.ca_timing_bias_examined, &CA_TIMING_BIAS_EXAMINED, 1);
+     if withheld {
+-        CA_TIMING_BIAS_WITHHELD.fetch_add(1, Ordering::Relaxed);
++        bump(|b| &b.ca_timing_bias_withheld, &CA_TIMING_BIAS_WITHHELD, 1);
+     }
+ }
+ 
+@@ -2418,7 +2418,7 @@ pub fn record_victim_crashed_hold() {
+     if !enabled() {
+         return;
+     }
+-    VS_VICTIM_CRASHED_HOLDS.fetch_add(1, Ordering::Relaxed);
++    bump(|b| &b.vs_victim_crashed_holds, &VS_VICTIM_CRASHED_HOLDS, 1);
+ }
+ 
+ /// A crash was applied on the treated or the control half to a node that
+@@ -3659,7 +3659,7 @@ pub fn record_crash_place_hold() {
+     if !enabled() {
+         return;
+     }
+-    CRASH_PLACE_HOLDS.fetch_add(1, Ordering::Relaxed);
++    bump(|b| &b.crash_place_holds, &CRASH_PLACE_HOLDS, 1);
+ }
+ 
+ /// The cell a run occupies under the ghost release: the placed runs whose
+@@ -4051,11 +4051,19 @@ pub fn record_timer_context_bias(multiplier: f64) {
+     if !enabled() {
+         return;
+     }
+-    TIMER_CONTEXT_BIASED_STEPS.fetch_add(1, Ordering::Relaxed);
++    bump(|b| &b.timer_context_biased_steps, &TIMER_CONTEXT_BIASED_STEPS, 1);
+     if multiplier > 1.0 {
+-        TIMER_CONTEXT_BIASED_STEPS_PROMOTED.fetch_add(1, Ordering::Relaxed);
++        bump(
++            |b| &b.timer_context_biased_steps_promoted,
++            &TIMER_CONTEXT_BIASED_STEPS_PROMOTED,
++            1,
++        );
+     } else if multiplier < 1.0 {
+-        TIMER_CONTEXT_BIASED_STEPS_SUPPRESSED.fetch_add(1, Ordering::Relaxed);
++        bump(
++            |b| &b.timer_context_biased_steps_suppressed,
++            &TIMER_CONTEXT_BIASED_STEPS_SUPPRESSED,
++            1,
++        );
+     }
+ }
+ 
+@@ -4066,7 +4074,11 @@ pub fn record_timer_context_excluded() {
+     if !enabled() {
+         return;
+     }
+-    TIMER_CONTEXT_STEPS_EXCLUDED_SELECTOR.fetch_add(1, Ordering::Relaxed);
++    bump(
++        |b| &b.timer_context_steps_excluded_selector,
++        &TIMER_CONTEXT_STEPS_EXCLUDED_SELECTOR,
++        1,
++    );
+ }
+ 
+ /// Gauge, not a counter: overwritten with the timer-context learner's count
+@@ -6246,6 +6258,14 @@ struct RunCounters {
+     sched_eligible_built_long: Cell<u64>,
+     ca_steps_with_crash_eligible: Cell<u64>,
+     ca_offered: Cell<u64>,
++    ca_timing_bias_examined: Cell<u64>,
++    ca_timing_bias_withheld: Cell<u64>,
++    vs_victim_crashed_holds: Cell<u64>,
++    crash_place_holds: Cell<u64>,
++    timer_context_biased_steps: Cell<u64>,
++    timer_context_biased_steps_promoted: Cell<u64>,
++    timer_context_biased_steps_suppressed: Cell<u64>,
++    timer_context_steps_excluded_selector: Cell<u64>,
+     timer_steer_evaluated: Cell<u64>,
+     timer_steer_raised: Cell<u64>,
+     timer_steer_lowered: Cell<u64>,
+@@ -6306,6 +6326,14 @@ impl RunCounters {
+             sched_eligible_built_long: Cell::new(0),
+             ca_steps_with_crash_eligible: Cell::new(0),
+             ca_offered: Cell::new(0),
++            ca_timing_bias_examined: Cell::new(0),
++            ca_timing_bias_withheld: Cell::new(0),
++            vs_victim_crashed_holds: Cell::new(0),
++            crash_place_holds: Cell::new(0),
++            timer_context_biased_steps: Cell::new(0),
++            timer_context_biased_steps_promoted: Cell::new(0),
++            timer_context_biased_steps_suppressed: Cell::new(0),
++            timer_context_steps_excluded_selector: Cell::new(0),
+             timer_steer_evaluated: Cell::new(0),
+             timer_steer_raised: Cell::new(0),
+             timer_steer_lowered: Cell::new(0),
+@@ -6365,6 +6393,23 @@ impl RunCounters {
+             (&self.sched_eligible_built_long, &SCHED_ELIGIBLE_BUILT_LONG),
+             (&self.ca_steps_with_crash_eligible, &CA_STEPS_WITH_CRASH_ELIGIBLE),
+             (&self.ca_offered, &CA_OFFERED),
++            (&self.ca_timing_bias_examined, &CA_TIMING_BIAS_EXAMINED),
++            (&self.ca_timing_bias_withheld, &CA_TIMING_BIAS_WITHHELD),
++            (&self.vs_victim_crashed_holds, &VS_VICTIM_CRASHED_HOLDS),
++            (&self.crash_place_holds, &CRASH_PLACE_HOLDS),
++            (&self.timer_context_biased_steps, &TIMER_CONTEXT_BIASED_STEPS),
++            (
++                &self.timer_context_biased_steps_promoted,
++                &TIMER_CONTEXT_BIASED_STEPS_PROMOTED,
++            ),
++            (
++                &self.timer_context_biased_steps_suppressed,
++                &TIMER_CONTEXT_BIASED_STEPS_SUPPRESSED,
++            ),
++            (
++                &self.timer_context_steps_excluded_selector,
++                &TIMER_CONTEXT_STEPS_EXCLUDED_SELECTOR,
++            ),
+             (&self.timer_steer_evaluated, &TIMER_STEER_EVALUATED),
+             (&self.timer_steer_raised, &TIMER_STEER_RAISED),
+             (&self.timer_steer_lowered, &TIMER_STEER_LOWERED),
+@@ -7837,6 +7882,74 @@ mod tests {
+         );
+     }
+ 
++    /// Scheduling-step probe counts made inside a run stay on the running
++    /// thread until the run's block folds, then read the totals a direct
++    /// session write would have given; outside a run they write the session
++    /// totals directly.
++    #[test]
++    fn scheduling_probe_counters_fold_into_the_session_totals_at_run_end() {
++        let _serial = config_override::exclusive_session();
++        set_enabled(true);
++        let session_totals = || {
++            [
++                &TIMER_CONTEXT_BIASED_STEPS,
++                &TIMER_CONTEXT_BIASED_STEPS_PROMOTED,
++                &TIMER_CONTEXT_BIASED_STEPS_SUPPRESSED,
++                &TIMER_CONTEXT_STEPS_EXCLUDED_SELECTOR,
++                &CA_TIMING_BIAS_EXAMINED,
++                &CA_TIMING_BIAS_WITHHELD,
++                &CRASH_PLACE_HOLDS,
++                &VS_VICTIM_CRASHED_HOLDS,
++            ]
++            .map(|c| c.load(Ordering::Relaxed))
++        };
++        let leaves = |s: &UtilizationSnapshot| {
++            [
++                s.timer_context.biased_steps,
++                s.timer_context.biased_steps_promoted,
++                s.timer_context.biased_steps_suppressed,
++                s.timer_context.steps_excluded_selector,
++                s.crash_anchor.timing_bias_examined,
++                s.crash_anchor.timing_bias_withheld,
++                s.crash_place.holds,
++                s.victim_swap.victim_crashed_holds,
++            ]
++        };
++        let before = snapshot();
++
++        begin_run();
++        record_timer_context_bias(2.0);
++        record_timer_context_bias(0.5);
++        record_timer_context_bias(1.0);
++        record_timer_context_excluded();
++        record_crash_timing_bias(true);
++        record_crash_timing_bias(false);
++        record_crash_place_hold();
++        record_crash_place_hold();
++        record_victim_crashed_hold();
++        let unfolded = session_totals();
++        let folded = snapshot();
++
++        record_crash_place_hold();
++        let direct = snapshot();
++        set_enabled(false);
++
++        assert_eq!(leaves(&before), [0; 8]);
++        assert_eq!(unfolded, [0; 8], "an unfinished run's counts reached the session totals");
++        let expected = [3, 1, 1, 1, 2, 1, 2, 1];
++        assert_eq!(leaves(&folded), expected);
++        assert_eq!(
++            folded.stats_local.folded_increments - before.stats_local.folded_increments,
++            expected.iter().sum::<u64>()
++        );
++        assert_eq!(folded.stats_local.folds - before.stats_local.folds, 1);
++        assert_eq!(direct.crash_place.holds, 3, "a write outside a run was not counted");
++        assert_eq!(
++            direct.stats_local.folded_increments,
++            folded.stats_local.folded_increments
++        );
++    }
++
+     #[test]
+     fn acceptance_distance_splits_by_receiver_progress() {
+         let _serial = config_override::exclusive_session();

@@ -4849,3 +4849,29 @@ rounds could move the lower edge above 1.0, so they could change the
 decision - unlike iteration 15's reading (mean 1.013, lower edge 0.864).
 Rounds 4-6 bought, recorded before any of them is read. The decision after
 six rounds is final under the same criterion.
+
+### scheduler-probe-counters-folded-per-run: six rounds and decision (autonomous)
+
+Rounds 4-6: runs per second 1.0286, 1.0322, 0.9910; per-step counter 0.8897,
+0.8884, 0.8919. Over six rounds: runs per second 1.0680, 1.0304, 1.0029,
+1.0286, 1.0322, 0.9910, mean 1.0252 [0.9976, 1.0537]; microseconds per run
+1.0284 [0.9997, 1.0580]; every neutrality row inside; grader advice no-gain
+(the primary did not separate from the 0.05 floor).
+
+Decision: closed on the fired exec_plan relocation guard, as registered
+before any round - the interval's lower edge sits 0.0024 below 1.0, so runs
+per second did not separate upward. Six rounds is the cap and the registered
+decision was final there.
+
+Recorded for the direction review and for the user: this is the closest miss
+the loop has had. The family fell by 3.77 with the instance carrying the
+writes nearly halved, the counter read in band in all six rounds, identity
+was exact, and five of six rounds read above 1.0 - the mechanism very likely
+saves about 2.5 percent. The guard that fired was an allowance of 0.2 for work
+reappearing in exec_plan, exceeded by 0.07. The patch is kept; it may return
+as a new candidate with guards frozen fresh (as grid-ordered-release-pool
+returned as pool-2), not by re-reading this one.
+
+Next, per the judgment's rule for this case: re-price timer-bias-read-at-the-
+split with the write saving it now carries (about 80 percent of the
+timer-bias writes) and grade it alone on 11a720c.

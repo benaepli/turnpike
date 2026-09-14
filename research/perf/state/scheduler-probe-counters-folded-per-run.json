@@ -61,7 +61,28 @@
    "seed": 1002,
    "wallSec": 250,
    "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-14T11:31:38.144Z",
+   "seed": 1003,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-14T11:35:50.021Z",
+   "seed": 1004,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-14T11:40:01.750Z",
+   "seed": 1005,
+   "wallSec": 250,
+   "anomaly": null
   }
  ],
- "finished": false
+ "finished": true
 }
