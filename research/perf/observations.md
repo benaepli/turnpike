@@ -6001,3 +6001,32 @@ simulation-thread families unchanged, which H1's and H3's profiles will show),
 and H2 does not move the writer primary. One set of rounds grades the stack.
 H2's no-counter blocker is cleared in writing at decision, if its guards hold,
 on the same standing as earlier shared savings graded by profile guards.
+
+### writer-headroom-and-program-text: reading conventions registered before any profile (autonomous)
+
+Reader tmp/loop/perf/guards22.py reproduces every frozen reference figure on
+0b0004e.md (Int64 + Int32 interner 2.07, relocation rows 1.60, writer memmove
+1.34, writer total 11.51 from the inclusive __GI___clone3 row, H1 r_w 3.34,
+r_sim 30.88, stack r_w 1.29, trace functions 1.25, writer_loop 0.74,
+interpreter net 21.66, decrement side 7.54, allocator 2.90, TraceScratch 0.25,
+H2 r_sim 14.96). Conventions fixed now, before any candidate profile exists:
+- H1's guards on the stage-2 profile against 0b0004e.md, as frozen; G1 on a
+  --percent-limit 0.05 profile of the stage-2 binary.
+- H3's guards on the stage-3 profile against the stage-2 profile, as frozen;
+  the stack's G4 on stage 3 against 0b0004e.md; H3's G3 (Vec<i64> from_iter)
+  on low-cutoff profiles of the stage-2 and stage-3 binaries.
+- H2 is stacked on H1 and H3, so its frozen bounds are applied to its own
+  incremental profiles with the stage before as reference: A on stage 4
+  against stage 3, B on stage 5 against stage 4, each limit taken as the
+  frozen form (ref x r - 0.35 and so on) with ref read on the previous stage.
+  r_sim stays the scheduler family plus the placebo. r_w for H2's writer_loop
+  guard is taken over snappy, ByteArrayEncoder::flush_data_page, Int64
+  flush_data_page and flush_bit_packed_run, since H1 and H3 change the
+  interners and write_gather named in H2's frozen r_w. G1-A settles on a
+  low-cutoff profile of the stage-4 binary if its absent rows decide it.
+- Writer realloc (H1 G3) is the inclusive-table total of the writer-thread
+  realloc row (0.64), as the judgment marks it.
+- H2's independent observable (the lock census) needs a perf.data file, which
+  the grader's profile command deletes. It is taken on one separate 60 s
+  frame-pointer recording of the stage-5 binary with the proposer's
+  lockcensus script, after the stage profiles.
