@@ -5276,3 +5276,12 @@ frame call than the census assumed (sends and assigns alone read 1,082 per run).
 A wall reading inside the band cannot undo a frozen counter falsifier. Rounds 2
 and 3 run to completion as description, to give a returning candidate its
 counter spread; they do not reopen the decision.
+
+### dead-slot-operands-moved: round 2 (autonomous)
+
+Runs per second 1.0049 (cand 8,235.4, base 8,195.0), below the band's 1.008
+floor (band is regression only). Counters over 989,100 candidate runs
+(frame.calls 1,944 per run): returns / calls 0.9714, call_args / params_filled
+0.9673, both in band; taken 7,366 per run - OUT again; self_copies 1,478,
+inside; sends 292 and assigns 751 per run; sum identity exact;
+entry_frame_copies 0. The closure stands.
