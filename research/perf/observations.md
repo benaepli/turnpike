@@ -3648,3 +3648,53 @@ prediction on the favourable side, not a falsifier (which is above 1.02).
 Writer busy per run at one thread 472.4 to 403.6 us (1.170), description
 only. Graded after node-env-and-in-place-updates, on the tree that change
 leaves.
+
+### node-env-and-in-place-updates: implementer report and review before grading
+
+Built on 45517fd as one change: values.rs Env::detach; compiled.rs
+Op::SelfUpdate (boxed, so Op keeps its size) decoded only when the right
+side's collection is the destination slot, matched on slot kind and index;
+exec.rs take_node_env (clone under H::EAGER, detach otherwise) in exec_ops
+and exec_sync_on_node, the loop moved into run_record_ops returning Parked
+or Returned so the environment goes back on every exit before the
+continuation runs, set_node counting shared_at_write, and run_self_update;
+util_stats node_env.* and value_update.* counters.
+
+Review of the diff. Detach leaves a placeholder with sig and writes; the
+non-eager path writes back on every exit including errors (the eager path
+keeps today's clone and discards on error). A reader touching a detached
+node's slots would index an empty buffer and panic, not read a wrong value;
+none did across the identity runs. run_self_update evaluates key and value
+first, takes owned copies of any borrowed operand, checks the collection's
+kind, then moves the collection out, updates it, stores it once; a
+collection shared elsewhere copies inside imbl or ecow as before; the tree
+tallies are bumped as the tree path bumps them (compiled_expr leaves equal
+in identity). One edge I could not close from the diff: a negative list index
+becomes a large usize and reports IndexOutOfBounds, which may word the error
+differently from the tree path; the implementer's 2,592 NoHashing
+comparisons cover error text over 21 right sides, and runtime errors write
+no rows in graded runs, so it is recorded, not blocking.
+
+Checks (release): 525 spur-core tests pass, frame_layout checker unmodified.
+Identity against 45517fd, every table both ways: VR 3,008 runs, Mencius
+2,160 runs and the caps-engaged 100,000-run VR identical, stall_cap_runs.csv
+hashes equal, end reasons equal (100,000: deadlock 19, iterations_exhausted
+30,030, learned_cap_reached 18,308, plan_complete 29,129, stall_cap_reached
+22,514), cap figures equal; leaves outside clocks and the new counters: only
+text_buffers_allocated 4,076 against 4,112 in the 100,000-run dump (writer
+timing). Counters per run, VR / caps-engaged: written_segments 324.5 /
+216.1 [130, 450]; shared_at_write 0 / 0; error_exits 0 / 0; map_in_place
+348.5 / 236.4 [60, 400], all on node slots; list_in_place 102.7 / 76.2
+[15, 200]; list shared at push 0.025 / 0.044 of list updates (at most 0.3).
+Two arms of the VR identity sit just outside the written_segments band
+(grid-short 127.0, grid-no-purgatory 454.4); the falsifier reads the session
+per round, and every arm of the 100,000-run identity is inside.
+
+Deviations accepted: error_exits counts record segments only (sync segments
+already wrote back on error); SelfUpdateOp carries the whole right side so
+the eager path runs the old assignment.
+
+Graded as frozen: cross-binary runs per second, band [1.04, 1.10], below the
+0.05 floor, read for regression only; counters by hand every round; a
+candidate profile for the guards (make_unique for the node env part, the
+Value drop family composite-only, one relocation guard at 1.5 x r).
