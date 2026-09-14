@@ -4636,3 +4636,31 @@ throughput +2.29 percent. So runs did not get shallower: the counted runs per
 second got fewer, which is the composition mechanism the close rests on.
 The lite state (research/lite/state/aos-draw-ahead-pool*) and its baseline
 cache for 11a720c are left as the grader wrote them.
+
+### timeline-store-one-lock: candidate profile, departure criterion registered before any round is read
+
+Profile 11a720c-cand-timeline-store-one-lock.md (plain cycles) against
+11a720c.md; r over R_all (every ceval, exec_ops, run_sync_ops, memmove and
+drop_glue<ValueKind> row) = 28.66 / 28.70 = 0.999.
+- GlobalTimeline::snapshot, merge and every dashmap, RwLock, futex or
+  lock_contended symbol absent above the cutoff: held - trivially, since none
+  was above it on the baseline either.
+- malloc not rising over x r: 2.14 to 2.22 (base x r 2.14): FIRES as frozen
+  text. The mechanism removes 128 malloc/free pairs per run, roughly 1 percent
+  of this workload's mallocs, a drop of a few hundredths of a share - smaller
+  than the 0.08 that moved. The guard was the only profile evidence the
+  judgment could name and it is noise-sized either way. _int_malloc 0.79 to
+  0.83, cfree 0.38 to 0.40, _int_free_chunk 0.97 to 0.90 (inclusive-table
+  self), description.
+- walk_recovery_placebo 1.44 to 1.66, 1.154 of its reference against the
+  described [0.9, 1.1]: referred to the user before any merge.
+- description: schedule_runnable family 11.93 to 12.98, ceval 7.96 to 7.88,
+  exec_plan 3.22 to 3.06, memmove 6.00 to 6.05.
+
+Departure registered before any round result is read (the rounds started
+before this profile was read; none has been looked at): by the frozen text
+the fired malloc guard refutes. By the standing departure rule stated in
+iteration 16, the candidate merges only if cross-binary runs per second
+separates UPWARD (interval lower edge above 1.0) with every other falsifier
+held, the counters exactly one snapshot and one merge per run, and the
+placebo referral read by the user. Otherwise it closes on the malloc guard.
