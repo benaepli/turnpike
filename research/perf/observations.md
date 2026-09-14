@@ -3527,3 +3527,31 @@ Iteration 13 closes: one merge (frame-slots-by-liveness), one close
 (recovery-placebo-walk-skipped-without-quick-fire, the search loop's
 control). Next: profile 45517fd, then iteration 14 with writer capacity
 back in view - integer-columns-delta-encoded re-priced on this tree.
+
+## Iteration 14 - autonomous, allocation lens, profile 45517fd
+
+Profile 45517fd.md (60 s, 30 threads). R = 3.93 (exec_plan 1.67,
+random_range 0.97, the NodeIndex collect 1.29). Largest self lines: ceval
+7.39, exec_ops 5.34 (+1.37, 1.23), schedule_runnable 4.85 (+1.79, 1.55,
+1.52), memmove 3.41, run_sync_ops 2.73, EcoVec<Value>::make_unique 2.03,
+format_escaped_str 1.73, _int_malloc 1.68, cfree 1.59,
+walk_recovery_placebo 1.59, drop_glue<ValueKind> 1.52, EcoVec<Value> drop
+1.42, the parquet Int64 interner 1.33 (writer), write_to<String> 1.28,
+malloc 1.17. Writer threads 9.75 inclusive: the byte-array encoder 4.17,
+Int64 columns 2.74. FrameBuilder::finish has left the list with the frame
+slot merge.
+
+What I can explain and a change could remove: make_unique is copy-on-write
+clones of value vectors at update sites and is now the largest value-traffic
+line; memmove still needs attributing through the call graph before anything
+is priced against it; allocator traffic is about 4.4 together; the writers
+are the throughput ceiling again, at about 72 percent busy with full-queue
+sends appearing.
+
+Lens: allocation and memory traffic. Focus directive: whether each
+make_unique clone is needed (transient refcount, clone for a read, update of
+a value about to be dropped), memmove attributed before pricing, allocator
+traffic, and the writer path (text column encoding, the Int64 dictionary
+interner); integer-columns-delta-encoded and value-without-dead-signature
+re-priced on this tree. Both declarations admissible again now that the lite
+grader reads at today's throughput. Release builds only.
