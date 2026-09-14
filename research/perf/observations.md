@@ -4327,3 +4327,16 @@ covered by the caps-engaged run. Not merged yet: the frozen prediction sends a
 walk_recovery_placebo reading outside [1.49, 2.09] x r to the search loop's
 owner before any merge, and this commit's profile read 1.34 x r (1.79 to
 1.42 self, code untouched). Put to the user.
+
+### eligible-lists-known-from-queue-info: user reading and merge
+
+The user read the placebo referral and chose to merge: the placebo and the
+recovery-weight scoring it is cost-matched to read the same slice through
+the same accessors, so the pairing holds and its absolute cost falling is a
+side effect of the scheduler getting cheaper.
+
+Revert criterion, fixed before the post-merge baseline is measured: the
+primary is regression-only and the clock can only block, so the line is set
+on regression - the merge is reverted if the fresh baseline at the merged
+spur commit reads below 7295 runs per second over three rounds, 0.97x the
+7521.3 cached for 45517fd over 15 rounds.
