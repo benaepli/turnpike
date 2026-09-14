@@ -4626,3 +4626,13 @@ where the recovered worker time goes, by arm, against what the objective
 counts.
 
 Next: timeline-store-one-lock, candidate profile then three rounds.
+
+aos-draw-ahead-pool lite finish, appended: adviceVerdict human
+("cross-binary depth>=8/s -4.22% is inside the 5% build-layout floor");
+improved none, regressed none, unresolved guards none. Per graded run the
+pooled deep guards rose - depth>=6 +1.98 percent, depth>=8 +0.71 percent -
+while per explore-second the same rungs fell 4.29 and 4.22 percent;
+throughput +2.29 percent. So runs did not get shallower: the counted runs per
+second got fewer, which is the composition mechanism the close rests on.
+The lite state (research/lite/state/aos-draw-ahead-pool*) and its baseline
+cache for 11a720c are left as the grader wrote them.
