@@ -6110,3 +6110,18 @@ Review:
   on the final commits.
 
 Ruling: every commit matches the judgment; stage profiles 2-5 are recording.
+
+### integer-dictionary-keys-by-value: stage 2 profile reading (autonomous)
+
+Profile research/perf/profiles/0b0004e-cand-int-dict-keys.md against
+0b0004e.md; r_w = 3.40 / 3.34 = 1.018, r_sim = 31.35 / 30.88 = 1.015.
+- G1 Int64 and Int32 interner rows absent from both tables (each below 0.3)
+  against at most 0.31 - the bound does not decide it; settled on the stage-2
+  low-cutoff profile registered before reading.
+- G2 relocation: Int64 write_slice 0.58 to 0.96, Int32 write_slice below the
+  cutoff, Int64 flush_data_page 0.45, flush_bit_packed_run 0.48 - 1.89 at most
+  2.38, held.
+- G3 writer memmove 1.31 at most 1.46, writer realloc (inclusive) 0.62 at most
+  0.75 - held.
+- G4 writer total 11.51 to 10.11 (a fall of 1.40 raw) at most 10.72 - held.
+- G5 format_escaped_str 1.62 at most 1.71 - held.
