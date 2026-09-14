@@ -5859,3 +5859,15 @@ separation, placebo inside its band on both profiles.
 Revert criterion, registered before the post-merge baseline is read: the
 merge is reverted if the fresh post-merge baseline reads below 8,414.6 runs
 per second (0.97 of the 8,674.9 cached for 85af34d).
+
+### Build warning after the plan merge: a displaced test gate
+
+The release rebuild at 2da4e1a reported a fourth warning,
+pending_evaluator_events never used. Commit B inserted its test helper
+pending_struct_literal_counts between that function and its doc comment and
+#[cfg(test)], so the evaluator-event helper compiled into the library unused
+and the new helper carried a doubled attribute and the wrong comment. Release
+code is unaffected (the function is dead and every caller is a test), so the
+post-merge baseline running on the 2da4e1a binary stands for the merge. Fixed
+in a follow-up spur commit that only moves attributes and comments; the release
+build and tests run after the baseline, so nothing compiles while it measures.
