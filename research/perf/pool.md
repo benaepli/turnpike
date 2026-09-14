@@ -998,3 +998,57 @@ rounds of clock each:
   default. Restored identity checks: traceanalyzer output and one spur debug
   combined run.
 - full record: tmp/loop/perf/it14-judgment.md (H3).
+
+## runnable-one-word-record
+
+- category: data layout | origin: proposer | status: admitted (iteration 15) - built as part of records-boxed-and-index-lists-inline
+- mechanism: Record, Timer, the ChannelSend fields and the partition type
+  are boxed inside Runnable (248 to 32 bytes), with an exact priority copy
+  kept beside the box (nothing writes priority after the four constructors);
+  exec and exec_ops take the box; parked readers become
+  Arc<(Box<Record>, Lhs)>; the crash path moves the record instead of
+  cloning it.
+- verified by the judge (sizes compiled from the type definitions): Record
+  and Runnable 248 bytes, about 152 cold; the nine credited memmove sites
+  move a Record or Runnable and carry 31.4 percent of memmove; the priority
+  copy cannot change a selection, draw or tie. Corrected: Vec::remove's tail
+  shift stays a memmove call; removed memmove 2.36-3.22 points; the
+  record_boxes falsifier against channels_created was wrong by construction
+  and is replaced by the exact identity async record boxes + timer boxes +
+  make() channels = channels_created; a ChannelSend box counter added; an
+  exec_ops guard added for the moved dereferences (+0.4 points).
+- placebo: the pairing holds by construction (novelty off, the placebo
+  never follows the pointer); its self-share band is description, and a
+  reading outside it goes to the search loop's owner before any merge.
+- declarations: search-neutral, shared saving. Earlier runnable-thin-queue
+  was closed on arithmetic, not measurement; this brings call-stack
+  evidence.
+- full record: tmp/loop/perf/it15-judgment.md (H1).
+
+## step-index-lists-inline
+
+- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 15) - built as part of records-boxed-and-index-lists-inline
+- mechanism: local_queue_sizes and the eligible lists in inline SmallVec
+  storage (smallvec 1.15.1, already in Cargo.lock, no new crates), same
+  indices and order; eligible lists at inline capacity 14 so a copy stays
+  within 128 bytes.
+- verified: every allocator share matches the attribution file. Corrected:
+  the from_iter guard held by construction and is replaced by memmove and
+  scheduler-family guards; the spill falsifier becomes at most 1 percent of
+  lists built.
+- declarations: search-neutral, shared saving. Earlier per-step-scratch-
+  buffers' scheduler half was closed on arithmetic, not measurement.
+- full record: tmp/loop/perf/it15-judgment.md (H2).
+
+## records-boxed-and-index-lists-inline
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 15) - building
+- two commits on one branch, the index lists first, then the boxing; the
+  composite graded as one change. H1's walk guard named the collect H2
+  rewrites, so the scheduler is guarded as a family (12.94 on 45517fd).
+- before rounds: unit tests and the exact counter identity; identity on VR
+  3,008, Mencius 2,160 and caps-engaged 100,000 runs; two plain-cycles
+  profiles, the index-lists-only commit and the composite, so H2's guards
+  read the first and H1's the difference.
+- wall bands below the 0.05 floor, regression only; merge rests on counters,
+  identity, every guard and no downward separation.

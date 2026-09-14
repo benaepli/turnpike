@@ -3944,3 +3944,25 @@ Both claim new call-stack evidence against the closed runnable-thin-queue
 and the scheduler half of per-step-scratch-buffers, which were closed on
 queue-walk arithmetic and IBS shares; the judge is asked to check whether
 either close was a measured refutation.
+
+### Judgment (autonomous)
+
+All three admitted, nothing scored 0: runnable-one-word-record net 4,
+step-index-lists-inline net 5, the two as one change net 4 and built first.
+The judge compiled the type definitions to check sizes (Record and Runnable
+248 bytes, about 152 cold, the boxed Runnable 32) and confirmed the nine
+credited memmove sites (31.4 percent of memmove), the priority copy's
+exactness, every allocator share against the attribution file, R, and that
+both earlier closes were arithmetic, not measurement. Corrections frozen:
+Vec::remove's tail shift stays a memmove call (2.36-3.22 points removed);
+the record_boxes falsifier was wrong by construction and becomes an exact
+per-run identity with channels_created; a ChannelSend box counter; the crash
+path moves instead of cloning; an exec_ops guard; the scheduler guarded as a
+family because H1's walk guard named the collect H2 rewrites; eligible lists
+at capacity 14 so their copies stay within 128 bytes; the spill falsifier at
+1 percent of lists built. The placebo pairing holds by construction; its
+share band stays description, and a reading outside it goes to the search
+loop's owner before merge.
+
+Build: two commits (index lists, then boxing), identity on the composite,
+two plain-cycles profiles for attribution, three rounds.
