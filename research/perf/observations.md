@@ -6052,3 +6052,61 @@ recording against the frozen absolute bounds: trace-name sites at most 0.05,
 literal sites at most 0.15, simulation-thread census total at most 11.10 x
 r_sim - 1.0. Unresolved rows are reported; if they could carry a named site,
 the census is re-run rather than read.
+
+### writer-headroom-and-program-text: implementer report, review and rulings (autonomous)
+
+Commits in the implementer's spur clone on 0b0004e: 1 3c952fc (parquet 58.0.0
+vendored unmodified, workspace exclude, patch entry), 2 d52a81a (H1), 3
+ccac28e (H3), 4 0cab3ad (H2-A), 5 9156a32 (H2-B); spur-1..5.patch match them
+byte for byte. The vendored tree at commit 5 differs from the registry copy
+only in dict_encoder.rs, interner.rs, byte_array.rs, encoder.rs and lib.rs,
+plus the new write_tally.rs; vendor/parquet.patch (381 lines at commit 3)
+equals git diff of vendor/parquet. Release tests 535 pass at commits 2-5;
+release builds show only the three coverage.rs warnings.
+
+Identity: on VR 3,008, Mencius 2,160, crash-heavy 1,800 and caps-engaged
+100,000, at every code commit, every executions, logs and traces parquet file
+is byte-identical to the baseline's (15 files each on caps); the runs file
+differs only in wall_us and session_offset_ms; the table comparer agrees on
+every table (caps: 24.1M execution, 76.2M log, 86.4M trace rows); end reasons,
+steps, stall_cap hash, runs_completed and runs_failed identical; at commits 4
+and 5 the text column digests are identical. Dump leaves: only the new
+counters, the writer-timing text buffer leaves, and one per-arm campaign slice
+on caps at commit 4 (arms[1].history_writer.commands 20,000 to 20,001 with the
+session total identical: a command counted into the neighbouring arm's slice
+by writer timing).
+
+Counters (VR / crash / Mencius / caps): fast-path share 0.9998 / 0.9998 /
+0.9998 / 0.9995 (at least 0.97); hashed per command 2.88 / 2.87 / 2.87 / 5.08
+(at most 250); integer values per proxy row 5.24 / 5.18 / 5.31 / 5.19 [4.9,
+5.9]; str_stats compared per cell 0.364 / 0.311 / 0.005 / 0.329 (at most
+0.60); gather skipped per call 0.929 / 0.932 / 0.957 / 0.933 (at least 0.90);
+literal clones per presized print 1.340 / 1.303 / 1.000 / 1.333 [0.8, 1.6];
+literal tables built 1; names interned equal to the traced functions (10, 6).
+
+Review:
+- H1: put_integers routes a value by value only: [-1, 65,535) through a
+  per-encoder table pushing straight into the interner's storage (the added
+  storage_mut), everything else through intern, so no value is found through
+  both and keys keep first-appearance order; a repeat of the last value reuses
+  its key. The encoder is never reset in place: flush_dict_page takes and
+  consumes it, and each column writer builds a new one, so the table and memo
+  cannot hold stale keys.
+- H3: with a live dictionary and no geo statistics, min and max are folded
+  only for keys new to the buffered page; the bitset's words are cleared at
+  every data page flush, and fallback happens only at a page boundary
+  (flush_dict_page errors with buffered indices), after which the dictionary
+  is gone and every cell is compared again. Contiguous gathers write the source
+  slice.
+- H2-A: trace names interned once per process under a mutex at compile time;
+  labels, ops, TraceEntry and PersistableTrace hold &'static str.
+- H2-B: literals over 15 bytes decode to Opnd::LongStr with a generation from
+  a process counter and a slot; coperand and cvalue, the only Opnd string
+  consumers, clone the thread's copy, rebuilt when the generation changes; the
+  table keeps one reference, so appends to a clone still copy. opnd() outside
+  a build keeps literals shared.
+- Two self-found bugs were fixed before export (new counters missing from the
+  session reset list; every function's name interned); all runs were redone
+  on the final commits.
+
+Ruling: every commit matches the judgment; stage profiles 2-5 are recording.
