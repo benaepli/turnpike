@@ -1055,7 +1055,7 @@ rounds of clock each:
 
 ## eligible-lists-known-from-queue-info
 
-- category: redundant work | origin: proposer | status: admitted (iteration 16) - built first, as part of eligible-lists-and-owned-slots
+- category: redundant work | origin: proposer | status: admitted (iteration 16) - every profile guard held on its own commit; grading alone (three rounds); placebo 1.34 x r below its described band, referred to the user before any merge
 - mechanism: when the count pass shows every element of the chosen queue
   eligible, selection borrows a static identity slice instead of filtering
   again into a fresh Vec; past the slice's length, today's code; otherwise
@@ -1076,7 +1076,7 @@ rounds of clock each:
 
 ## slot-buffers-owned-per-segment
 
-- category: redundant work | origin: proposer | status: admitted (iteration 16) - built on top of the eligible lists, as part of eligible-lists-and-owned-slots
+- category: redundant work | origin: proposer | status: closed (iteration 16, autonomous) before rounds on its frozen scheduler-family guard (+1.67 over the lists-only profile, allowance 0.2) with every other guard held (make_unique gone, Value drop family down 1.90); patch kept at research/perf/patches/eligible-lists-and-owned-slots.spur.patch
 - mechanism: Env slots an owned buffer behind a private type whose Clone
   counts copies; each segment moves its node's environment out and back
   (moved_out == put_back every run); crash_node's held records moved, not
@@ -1094,7 +1094,7 @@ rounds of clock each:
 
 ## eligible-lists-and-owned-slots
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 16) - building
+- category: combined | origin: operator-agent (selection) | status: split (iteration 16) - owned slot buffers closed on their scheduler guard before rounds; the eligible lists graded alone on commit A
 - two commits, the eligible lists then the owned slots; identity on both
   (VR, Mencius) and caps-engaged on the composite; profiles of the lists
   alone and of the composite, a part whose guard fires closing before any

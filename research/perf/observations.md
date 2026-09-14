@@ -4250,3 +4250,50 @@ frame.entry_frame_copies is 0 by construction; Env.slots is pub(crate).
 Grading: profile of commit A (running), then of the composite, a part whose
 own guard fires closing before any round; three rounds on cross-binary runs
 per second under the standing rule.
+
+### eligible-lists-and-owned-slots: profiles and decisions before rounds (autonomous)
+
+Reading rule as frozen: a row from the self table, or below the cutoff from
+the inclusive table's self column; a row absent from both is bounded
+[0, 1.0); a guard holds if its upper bound meets it and fires if its lower
+bound breaks it. The two families the judgment named by total were
+reconstructed on 45517fd before use: R3 = Int64 interner 1.28 + GenericNode
+1.26 + format_escaped_str 1.23 + exec_plan (RecordRng) 1.74 = 5.51, and the
+interpreter family = every exec_ops and run_sync_ops row = 11.42.
+
+Eligible lists alone (45517fd-cand-eligible-lists-known.md), r = 1.058:
+- allocator malloc + cfree + _int_free_chunk 2.15 + 0.39 + 0.92 = 3.46
+  (3.27 x r), at most 3.73: held.
+- scheduler family: the frozen rows sum to 12.28 with the SpecFromIter row
+  gone (bounded under 1), upper bound 13.28, at most 13.11 x r + 0.15 =
+  14.02: held; the family fell, as the mechanism predicts.
+- Map<Iter<Vec<Runnable>>> fold 1.38 (1.30 x r) within [1.05, 1.65]: held.
+- walk_recovery_placebo 1.42 (1.34 x r), below its described [1.49, 2.09]:
+  referred to the user before any merge.
+
+Composite (45517fd-cand-eligible-lists-and-owned-slots.md), R3 r = 1.040:
+- make_unique absent from both tables; objdump 1 call site, the list store:
+  held.
+- Value drop family 4.96 to 3.26 (drop_glue<ValueKind> 2.52, EcoVec<Value>
+  drop 0.74), a fall of 1.90 against at least 0.62: held.
+- interpreter family 11.84, at most 12.28: held. memmove 6.17, at most
+  6.47: held. Allocator 3.48, at most 4.50, and +0.02 over the lists-only
+  profile, at most +0.1: held.
+- scheduler family 13.40 (7.34, 2.32, 2.20, 1.54) against the lists-only
+  11.73, at most 11.73 x r + 0.2 = 11.73: FIRED by 1.67.
+- placebo 1.93 (1.86 x r3, 2.01 against R), inside its band.
+
+Decisions. slot-buffers-owned-per-segment: closed before rounds on its frozen
+scheduler-family guard, no departure. Its central observables held -
+make_unique is gone and the Value drop family fell by 1.90 - but the
+scheduler rose by 1.67 and the interpreter family by about 0.4, which is the
+node-env-detached-per-segment pattern again: the drops leave and the
+scheduler and interpreter take the time back. Unlike iteration 15 nothing
+here predicts a wall gain, so there is no ground for a departure. Patch kept.
+eligible-lists-known-from-queue-info: every frozen guard held on its own
+commit, so by the attribution rule it is graded alone on commit A
+(cand-spur-h1): three rounds, cross-binary runs per second [1.010, 1.025]
+regression only, counters by hand. Identity: VR and Mencius identical on
+commit A; the caps-engaged run on the composite covers its code. Its placebo
+reading is below the described band, so a merge waits for the user's reading
+of that referral.

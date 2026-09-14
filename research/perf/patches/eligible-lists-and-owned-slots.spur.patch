@@ -1,0 +1,1668 @@
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index d0ac1ea..e33aba5 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -6,7 +6,7 @@ use crate::simulator::core::values::{
+ };
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::util_stats;
+-use ecow::{EcoString, EcoVec};
++use ecow::EcoString;
+ use std::collections::HashMap;
+ use rustc_hash::FxHasher;
+ use std::hash::{Hash, Hasher};
+@@ -87,13 +87,9 @@ pub fn store_slot<H: HashPolicy>(
+     }
+ }
+ 
+-/// Write one slot of a local call frame. A frame that is still shared when
+-/// it is written is copied by the write, which is counted here.
++/// Write one slot of a local call frame.
+ #[inline(always)]
+ pub fn set_local<H: HashPolicy>(local_env: &mut Env<H>, slot: u32, val: Value<H>) {
+-    if !local_env.slots.is_unique() {
+-        util_stats::record_entry_frame_copy();
+-    }
+     local_env.set(slot, val);
+ }
+ 
+@@ -115,14 +111,14 @@ pub fn store<H: HashPolicy>(
+ /// values, then `finish` appends the declared starting value of every
+ /// remaining slot. The buffer is sized once and each slot written once.
+ pub struct FrameBuilder<H: HashPolicy> {
+-    slots: EcoVec<Value<H>>,
++    slots: Vec<Value<H>>,
+     sig: u64,
+ }
+ 
+ impl<H: HashPolicy> FrameBuilder<H> {
+     pub fn new(func: &FunctionInfo) -> Self {
+         Self {
+-            slots: EcoVec::with_capacity(func.local_slot_count as usize),
++            slots: Vec::with_capacity(func.local_slot_count as usize),
+             sig: 0,
+         }
+     }
+@@ -171,8 +167,7 @@ impl<H: HashPolicy> FrameBuilder<H> {
+                 }
+                 value
+             });
+-            // SAFETY: a mapped range reports its exact length.
+-            unsafe { self.slots.extend_from_trusted(fill) };
++            self.slots.extend(fill);
+             self.sig = sig;
+         }
+         util_stats::record_frame_build(total as u64, start.min(total) as u64);
+@@ -193,8 +188,7 @@ pub fn build_frame<H: HashPolicy>(func: &FunctionInfo, args: &[Value<H>]) -> Env
+         }
+         arg.clone()
+     });
+-    // SAFETY: an enumerated slice iterator reports its exact length.
+-    unsafe { builder.slots.extend_from_trusted(copied) };
++    builder.slots.extend(copied);
+     builder.sig = sig;
+     builder.finish(func)
+ }
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index b42d3e5..e313e71 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -102,7 +102,7 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+     purgatory_config: &PurgatoryConfig,
+     rng: &mut impl StreamRng,
+ ) -> Result<Value<H>, RuntimeError> {
+-    let mut node_env = state.nodes[node_id.index].clone();
++    let mut node_env = take_node_env(state, node_id.index);
+     let result = if program.compiled.covers(program.cfg.graph.len()) {
+         let mut tally = InterpreterTally::new();
+         let result = run_sync_ops::<H, L, F>(
+@@ -140,10 +140,49 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+             rng,
+         )
+     };
+-    state.nodes[node_id.index] = node_env;
++    put_node_env(state, node_id.index, node_env);
+     result
+ }
+ 
++/// Moves the environment of node `index` out of the state for one segment.
++/// Until `put_node_env` returns it, the state holds a placeholder that
++/// answers only `sig` and `writes`.
++#[inline(always)]
++fn take_node_env<H: HashPolicy>(state: &mut State<H>, index: usize) -> Env<H> {
++    util_stats::record_node_env_moved_out();
++    state.nodes[index].detach()
++}
++
++/// Returns a node environment taken by `take_node_env` to the state.
++#[inline(always)]
++fn put_node_env<H: HashPolicy>(state: &mut State<H>, index: usize, env: Env<H>) {
++    util_stats::record_node_env_put_back();
++    state.nodes[index] = env;
++}
++
++/// How a record's segment left its loop.
++enum RecordExit<H: HashPolicy> {
++    /// The record was parked on a channel or queued to run again.
++    Parked,
++    /// The record returned this value to its continuation, which runs once
++    /// the node's environment is back in the state.
++    Returned(Continuation<H>, Value<H>),
++}
++
++/// Ends a record segment whose node environment is already back in the
++/// state. The environment goes back on every exit, an error included, since
++/// the state holds only a placeholder while the segment runs.
++#[inline(always)]
++fn finish_segment<H: HashPolicy>(
++    state: &mut State<H>,
++    exit: Result<RecordExit<H>, RuntimeError>,
++) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
++    match exit? {
++        RecordExit::Parked => Ok(None),
++        RecordExit::Returned(continuation, val) => Ok(continuation.call(state, val)),
++    }
++}
++
+ /// Evaluates one expression of a label run from the graph.
+ fn legacy_eval<H: HashPolicy>(
+     local_env: &Env<H>,
+@@ -632,13 +671,46 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+-    mut record: Record<H>,
++    record: Record<H>,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+     purgatory_config: &PurgatoryConfig,
+     rng: &mut impl StreamRng,
+ ) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
++    let node_index = record.node.index;
++    let mut node_env = take_node_env(state, node_index);
++    let exit = run_legacy_labels::<H, L, F>(
++        state,
++        logger,
++        program,
++        record,
++        &mut node_env,
++        snapshot,
++        feedback,
++        policy,
++        purgatory_config,
++        rng,
++    );
++    put_node_env(state, node_index, node_env);
++    finish_segment(state, exit)
++}
++
++/// The label loop of `exec_legacy`, running against the node environment
++/// the caller holds for the segment.
++#[inline(always)]
++fn run_legacy_labels<H: HashPolicy, L: Logger, F: Feedback>(
++    state: &mut State<H>,
++    logger: &mut L,
++    program: &Program,
++    mut record: Record<H>,
++    node_env: &mut Env<H>,
++    snapshot: &F::Snapshot,
++    feedback: &mut F::Local,
++    policy: &SchedulePolicy,
++    purgatory_config: &PurgatoryConfig,
++    rng: &mut impl StreamRng,
++) -> Result<RecordExit<H>, RuntimeError> {
+     let causal_operation_id = record.causal_operation_id;
+     let mut pending_trace_id = record.trace_id;
+     // The payload moves out rather than being copied: only the entry row
+@@ -646,7 +718,6 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+     // re-delivery of it formats its entry row from the parameters.
+     let mut pending_trace_payload = record.trace_payload.take();
+     let mut local_env = record.env;
+-    let mut node_env = state.nodes[record.node.index].clone();
+ 
+     let mut prev_pc = record.pc;
+ 
+@@ -681,7 +752,7 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+             logger,
+             program,
+             &mut local_env,
+-            &mut node_env,
++            node_env,
+             record.node,
+             snapshot,
+             feedback,
+@@ -698,19 +769,16 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                     continue;
+                 }
+                 StepOutcome::Return(val) => {
+-                    let node_id = record.node;
+-                    state.nodes[node_id.index] = node_env;
+-                    let result = record.continuation.call(state, val);
+-                    return Ok(result);
++                    return Ok(RecordExit::Returned(record.continuation, val));
+                 }
+             }
+         }
+ 
+         match label {
+             Label::Send(chan_expr, val_expr, next) => {
+-                let cid = legacy_operand(&local_env, &node_env, chan_expr, &program.id_to_name)?
++                let cid = legacy_operand(&local_env, node_env, chan_expr, &program.id_to_name)?
+                     .as_channel()?;
+-                let val = legacy_eval(&local_env, &node_env, val_expr, &program.id_to_name)?;
++                let val = legacy_eval(&local_env, node_env, val_expr, &program.id_to_name)?;
+                 if cid.node != record.node {
+                     let cs = Runnable::ChannelSend {
+                         target: cid.node,
+@@ -740,9 +808,7 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                         None => chan.buffer.push_back(val),
+                         Some((mut reader, lhs)) => {
+                             let node_index = reader.node.index;
+-                            let mut r_node_env = state.nodes[node_index].clone();
+-                            store(&lhs, val, &mut reader.env, &mut r_node_env)?;
+-                            state.nodes[node_index] = r_node_env;
++                            store(&lhs, val, &mut reader.env, &mut state.nodes[node_index])?;
+                             state.push_to_local(node_index, Runnable::Record(reader));
+                         }
+                     }
+@@ -750,7 +816,7 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                 }
+             }
+             Label::Recv(lhs, chan_expr, next) => {
+-                let cid = legacy_operand(&local_env, &node_env, chan_expr, &program.id_to_name)?
++                let cid = legacy_operand(&local_env, node_env, chan_expr, &program.id_to_name)?
+                     .as_channel()?;
+                 if cid.node != record.node {
+                     return Err(RuntimeError::RemoteChannelRead);
+@@ -762,16 +828,14 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                     .ok_or(RuntimeError::ChannelNotFound(cid.id))?;
+ 
+                 if let Some(val) = chan.buffer.pop_front() {
+-                    store(lhs, val, &mut local_env, &mut node_env)?;
++                    store(lhs, val, &mut local_env, node_env)?;
+                     record.pc = *next;
+                 } else {
+                     // Block Reader
+-                    let node_id = record.node;
+                     record.env = local_env;
+                     record.pc = *next; // When woke, proceed to next
+                     chan.push_waiting_reader(record, lhs.clone());
+-                    state.nodes[node_id.index] = node_env;
+-                    return Ok(None); // Stop execution
++                    return Ok(RecordExit::Parked);
+                 }
+             }
+             Label::Pause(next) => {
+@@ -779,18 +843,16 @@ fn exec_legacy<H: HashPolicy, L: Logger, F: Feedback>(
+                 record.env = local_env;
+                 record.pc = *next;
+                 state.push_to_local(node_id.index, Runnable::Record(record));
+-                state.nodes[node_id.index] = node_env;
+-                return Ok(None); // Yield
++                return Ok(RecordExit::Parked);
+             }
+             Label::SpinAwait(expr, next) => {
+-                if legacy_operand(&local_env, &node_env, expr, &program.id_to_name)?.as_bool()? {
++                if legacy_operand(&local_env, node_env, expr, &program.id_to_name)?.as_bool()? {
+                     record.pc = *next;
+                 } else {
+                     let node_id = record.node;
+                     record.env = local_env;
+                     state.push_to_local(node_id.index, Runnable::Record(record));
+-                    state.nodes[node_id.index] = node_env;
+-                    return Ok(None); // Yield
++                    return Ok(RecordExit::Parked);
+                 }
+             }
+             Label::Instr(_, _)
+@@ -1460,7 +1522,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+-    mut record: Record<H>,
++    record: Record<H>,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+@@ -1468,6 +1530,41 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     rng: &mut impl StreamRng,
+     t: &mut InterpreterTally,
+ ) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
++    let node_index = record.node.index;
++    let mut node_env = take_node_env(state, node_index);
++    let exit = run_record_ops::<H, L, F>(
++        state,
++        logger,
++        program,
++        record,
++        &mut node_env,
++        snapshot,
++        feedback,
++        policy,
++        purgatory_config,
++        rng,
++        t,
++    );
++    put_node_env(state, node_index, node_env);
++    finish_segment(state, exit)
++}
++
++/// The operation loop of `exec_ops`, running against the node environment
++/// the caller holds for the segment.
++#[inline(always)]
++fn run_record_ops<H: HashPolicy, L: Logger, F: Feedback>(
++    state: &mut State<H>,
++    logger: &mut L,
++    program: &Program,
++    mut record: Record<H>,
++    node_env: &mut Env<H>,
++    snapshot: &F::Snapshot,
++    feedback: &mut F::Local,
++    policy: &SchedulePolicy,
++    purgatory_config: &PurgatoryConfig,
++    rng: &mut impl StreamRng,
++    t: &mut InterpreterTally,
++) -> Result<RecordExit<H>, RuntimeError> {
+     let causal_operation_id = record.causal_operation_id;
+     let mut pending_trace_id = record.trace_id;
+     // The payload moves out rather than being copied: only the entry row
+@@ -1475,7 +1572,6 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     // re-delivery of it formats its entry row from the parameters.
+     let mut pending_trace_payload = record.trace_payload.take();
+     let mut local_env = record.env;
+-    let mut node_env = state.nodes[record.node.index].clone();
+ 
+     let mut prev_pc = record.pc;
+ 
+@@ -1500,8 +1596,8 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+ 
+         match &ops[current_pc] {
+             Op::Send(send) => {
+-                let cid = coperand(&local_env, &node_env, &send.chan, names, t)?.as_channel()?;
+-                let val = cvalue(&local_env, &node_env, &send.value, names, t)?;
++                let cid = coperand(&local_env, node_env, &send.chan, names, t)?.as_channel()?;
++                let val = cvalue(&local_env, node_env, &send.value, names, t)?;
+                 let next = send.next as usize;
+                 if cid.node != record.node {
+                     let cs = Runnable::ChannelSend {
+@@ -1530,9 +1626,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                         None => chan.buffer.push_back(val),
+                         Some((mut reader, lhs)) => {
+                             let node_index = reader.node.index;
+-                            let mut r_node_env = state.nodes[node_index].clone();
+-                            store(&lhs, val, &mut reader.env, &mut r_node_env)?;
+-                            state.nodes[node_index] = r_node_env;
++                            store(&lhs, val, &mut reader.env, &mut state.nodes[node_index])?;
+                             state.push_to_local(node_index, Runnable::Record(reader));
+                         }
+                     }
+@@ -1540,7 +1634,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 }
+             }
+             Op::Recv(recv) => {
+-                let cid = coperand(&local_env, &node_env, &recv.chan, names, t)?.as_channel()?;
++                let cid = coperand(&local_env, node_env, &recv.chan, names, t)?.as_channel()?;
+                 if cid.node != record.node {
+                     return Err(RuntimeError::RemoteChannelRead);
+                 }
+@@ -1551,15 +1645,13 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                     .ok_or(RuntimeError::ChannelNotFound(cid.id))?;
+ 
+                 if let Some(val) = chan.buffer.pop_front() {
+-                    store_dest(recv.dest, val, &mut local_env, &mut node_env);
++                    store_dest(recv.dest, val, &mut local_env, node_env);
+                     record.pc = recv.next as usize;
+                 } else {
+-                    let node_id = record.node;
+                     record.env = local_env;
+                     record.pc = recv.next as usize;
+                     chan.push_waiting_reader(record, recv.lhs.clone());
+-                    state.nodes[node_id.index] = node_env;
+-                    return Ok(None);
++                    return Ok(RecordExit::Parked);
+                 }
+             }
+             Op::Pause(next) => {
+@@ -1567,18 +1659,16 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 record.env = local_env;
+                 record.pc = *next as usize;
+                 state.push_to_local(node_id.index, Runnable::Record(record));
+-                state.nodes[node_id.index] = node_env;
+-                return Ok(None);
++                return Ok(RecordExit::Parked);
+             }
+             Op::SpinAwait { cond, next } => {
+-                if coperand(&local_env, &node_env, cond, names, t)?.as_bool()? {
++                if coperand(&local_env, node_env, cond, names, t)?.as_bool()? {
+                     record.pc = *next as usize;
+                 } else {
+                     let node_id = record.node;
+                     record.env = local_env;
+                     state.push_to_local(node_id.index, Runnable::Record(record));
+-                    state.nodes[node_id.index] = node_env;
+-                    return Ok(None);
++                    return Ok(RecordExit::Parked);
+                 }
+             }
+             op => match run_common_op::<H, L, F>(
+@@ -1587,7 +1677,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 logger,
+                 program,
+                 &mut local_env,
+-                &mut node_env,
++                node_env,
+                 record.node,
+                 snapshot,
+                 feedback,
+@@ -1600,11 +1690,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 t,
+             )? {
+                 Flow::Next(next) => record.pc = next,
+-                Flow::Return(val) => {
+-                    let node_id = record.node;
+-                    state.nodes[node_id.index] = node_env;
+-                    return Ok(record.continuation.call(state, val));
+-                }
++                Flow::Return(val) => return Ok(RecordExit::Returned(record.continuation, val)),
+                 Flow::RecordOnly => {
+                     unreachable!("channel and yield operations are matched before the shared ones")
+                 }
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 16eaffd..b1fd2cc 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -1030,3 +1030,161 @@ fn test_runtime_type_error() {
+         e => panic!("Expected TypeError, got {:?}", e),
+     }
+ }
++
++fn node_zero_record<H: HashPolicy>(pc: usize, local_slots: usize) -> Record<H> {
++    let nid = NodeId {
++        role: NameId(0),
++        index: 0,
++    };
++    Record {
++        pc,
++        node: nid,
++        origin_node: nid,
++        continuation: Continuation::Recover,
++        entry_pc: pc,
++        initial_args: ecow::EcoVec::new(),
++        entry_func: NameId(0),
++        env: Env::<H>::with_slots(local_slots),
++        priority: 0.5,
++        causal_operation_id: None,
++        trace_id: None,
++        trace_payload: None,
++        link_seq: None,
++        origin_incarnation: 0,
++        send_ordinal: 0,
++        receiver_token_at_send: 0,
++        bias: crate::simulator::util_stats::DeliveryBias::NONE,
++        timer_entry: None,
++    }
++}
++
++/// The difference of two readings of the buffer copy, move out and put back
++/// counts.
++fn env_counts_since(before: [u64; 3]) -> [u64; 3] {
++    let after = util_stats::pending_env_counts();
++    std::array::from_fn(|i| after[i] - before[i])
++}
++
++/// A program whose record segments leave by an error after a node write, by
++/// a pause with and without a node write, and by a return after one.
++struct SegmentExits {
++    program: Program,
++    write_then_fail: usize,
++    pause: usize,
++    write_then_pause: usize,
++    write_then_return: usize,
++}
++
++fn segment_exits() -> SegmentExits {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(Expr::Unit));
++    let fail = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(0)),
++            Expr::Plus(Box::new(Expr::Bool(true)), Box::new(Expr::Int(5))),
++        ),
++        ret,
++    ));
++    let write_then_fail = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(0)), Expr::Int(5)),
++        fail,
++    ));
++    let pause = builder.add(Label::Pause(ret));
++    let write_then_pause = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Int(3)),
++        pause,
++    ));
++    let write_then_return = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Int(4)),
++        ret,
++    ));
++    SegmentExits {
++        program: builder.build(),
++        write_then_fail,
++        pause,
++        write_then_pause,
++        write_then_return,
++    }
++}
++
++fn assert_segments_put_the_node_environment_back<H: HashPolicy>(
++    program: &Program,
++    exits: &SegmentExits,
++) {
++    let run = |state: &mut State<H>, pc: usize| {
++        let before = util_stats::pending_env_counts();
++        let mut logger = TestLogger::new();
++        let mut coverage = LocalCoverage::new();
++        let result = exec::<H, TestLogger, CfgFeedback>(
++            state,
++            &mut logger,
++            program,
++            node_zero_record::<H>(pc, 2),
++            &VertexMap::new(),
++            &mut coverage,
++            &SchedulePolicy::Fixed,
++            &PurgatoryConfig::default(),
++            &mut SmallRng::seed_from_u64(0),
++        );
++        (result.map(|r| r.is_none()), env_counts_since(before))
++    };
++    let mut state = State::<H>::new(&[(NameId(0), 1)], 2);
++    let writes = state.nodes[0].writes;
++
++    let (result, counts) = run(&mut state, exits.write_then_fail);
++    assert!(result.is_err());
++    assert_eq!(counts, [0, 1, 1]);
++    assert_eq!(state.nodes[0].len(), 2);
++    assert_eq!(state.nodes[0].get(0), &Value::<H>::int(5), "a write before the error is kept");
++    assert_eq!(state.nodes[0].writes, writes + 1);
++
++    for pc in [exits.write_then_pause, exits.pause, exits.write_then_return] {
++        let (result, counts) = run(&mut state, pc);
++        assert_eq!(result.ok(), Some(true));
++        assert_eq!(counts, [0, 1, 1]);
++        assert_eq!(state.nodes[0].len(), 2);
++    }
++    assert_eq!(state.local_queues[0].len(), 2, "each pause queued its record");
++    assert_eq!(state.nodes[0].get(0), &Value::<H>::int(5));
++    assert_eq!(state.nodes[0].get(1), &Value::<H>::int(4));
++    assert_eq!(state.nodes[0].writes, writes + 3);
++
++    state.nodes[0].set(1, Value::<H>::int(0));
++    let before = util_stats::pending_env_counts();
++    let mut logger = TestLogger::new();
++    let mut coverage = LocalCoverage::new();
++    let mut frame = Env::<H>::with_slots(1);
++    let result = exec_sync_on_node::<H, TestLogger, CfgFeedback>(
++        &mut state,
++        &mut logger,
++        program,
++        &mut frame,
++        NodeId {
++            role: NameId(0),
++            index: 0,
++        },
++        exits.write_then_return,
++        &VertexMap::new(),
++        &mut coverage,
++        &SchedulePolicy::Fixed,
++        &PurgatoryConfig::default(),
++        &mut SmallRng::seed_from_u64(0),
++    );
++    assert!(result.is_ok());
++    assert_eq!(env_counts_since(before), [0, 1, 1]);
++    assert_eq!(state.nodes[0].len(), 2);
++    assert_eq!(state.nodes[0].get(1), &Value::<H>::int(4));
++}
++
++#[test]
++fn a_segment_moves_its_node_environment_out_and_back_on_every_exit() {
++    let exits = segment_exits();
++    let mut undecoded = exits.program.clone();
++    undecoded.compiled = Default::default();
++    for program in [&exits.program, &undecoded] {
++        assert_segments_put_the_node_environment_back::<crate::simulator::hash_utils::NoHashing>(
++            program, &exits,
++        );
++        assert_segments_put_the_node_environment_back::<WithHashing>(program, &exits);
++    }
++}
+diff --git a/spur-core/src/simulator/core/partition.rs b/spur-core/src/simulator/core/partition.rs
+index 92878ff..e9d5fcd 100644
+--- a/spur-core/src/simulator/core/partition.rs
++++ b/spur-core/src/simulator/core/partition.rs
+@@ -241,7 +241,9 @@ pub fn activate_partition<H: HashPolicy>(
+             {
+                 state.flight_leave(&task);
+                 state.net_leave(&task);
+-                let mut r = r.clone();
++                let Runnable::Record(mut r) = task else {
++                    unreachable!("the arm matched a record")
++                };
+                 r.reset(program);
+                 state.partition_info.buffer_record(r.node, r);
+             }
+diff --git a/spur-core/src/simulator/core/queue_selector.rs b/spur-core/src/simulator/core/queue_selector.rs
+index fa0e852..b7103a9 100644
+--- a/spur-core/src/simulator/core/queue_selector.rs
++++ b/spur-core/src/simulator/core/queue_selector.rs
+@@ -8,16 +8,18 @@ pub enum QueueSelection {
+     Timer,
+ }
+ 
++/// Eligible runnables per queue. `local_queue_sizes` is borrowed from a
++/// buffer the caller reuses across steps.
+ #[derive(Debug)]
+-pub struct QueueInfo {
+-    pub local_queue_sizes: Vec<usize>,
++pub struct QueueInfo<'a> {
++    pub local_queue_sizes: &'a [usize],
+     pub network_queue_size: usize,
+     pub timer_queue_size: usize,
+     #[allow(dead_code)]
+     pub step: i32,
+ }
+ 
+-impl QueueInfo {
++impl QueueInfo<'_> {
+     fn total_local(&self) -> usize {
+         self.local_queue_sizes.iter().sum()
+     }
+@@ -316,9 +318,9 @@ mod tests {
+     use rand::rngs::StdRng;
+     use rand::SeedableRng;
+ 
+-    fn contested_info() -> QueueInfo {
++    fn contested_info() -> QueueInfo<'static> {
+         QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: &[1],
+             network_queue_size: 1,
+             timer_queue_size: 1,
+             step: 0,
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index 473dc6f..6002386 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -467,6 +467,65 @@ fn audit_steer_preference<H: HashPolicy, F: Feedback>(
+     }
+ }
+ 
++/// Every index below its length, lent as the eligible list of a queue whose
++/// eligibility pass admitted all of its runnables.
++static IDENTITY_INDICES: [usize; 128] = {
++    let mut indices = [0usize; 128];
++    let mut i = 0;
++    while i < indices.len() {
++        indices[i] = i;
++        i += 1;
++    }
++    indices
++};
++
++/// The eligible indices of one queue, in queue order.
++enum EligibleList {
++    /// Every index below the queue length.
++    Known(usize),
++    /// The indices a filter over the queue kept.
++    Built(Vec<usize>),
++}
++
++impl EligibleList {
++    /// The eligible list of a queue holding `len` runnables, of which the
++    /// eligibility pass that sized the queue for selection admitted
++    /// `admitted`. `keep` must be that same predicate taken by index, and
++    /// nothing it reads may have changed since that pass: a queue admitted
++    /// in full is then known to keep every index without a second pass.
++    #[inline(always)]
++    fn new(len: usize, admitted: usize, keep: impl FnMut(&usize) -> bool) -> Self {
++        if admitted == len && len <= IDENTITY_INDICES.len() {
++            EligibleList::Known(len)
++        } else {
++            let mut built = Vec::with_capacity(admitted);
++            built.extend((0..len).filter(keep));
++            EligibleList::Built(built)
++        }
++    }
++
++    #[inline(always)]
++    fn as_slice(&self) -> &[usize] {
++        match self {
++            EligibleList::Known(len) => &IDENTITY_INDICES[..*len],
++            EligibleList::Built(built) => built,
++        }
++    }
++}
++
++/// Counts how the non-empty eligible list of a queue holding `len`
++/// runnables, `admitted` of them eligible, was obtained.
++#[inline(always)]
++fn record_eligible_list(len: usize, admitted: usize) {
++    if util_stats::enabled() {
++        let full = admitted == len;
++        util_stats::record_eligible_list(
++            full && len <= IDENTITY_INDICES.len(),
++            full && len > IDENTITY_INDICES.len(),
++        );
++    }
++}
++
+ /// Select an eligible item from a single queue, returning its index and
+ /// the predicates true of it.
+ ///
+@@ -1043,6 +1102,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     partial_fanout_crash_bias: f64,
+     timer_ctx_mode: timer_context::RunMode,
+     reservations: &[Reservation],
++    local_queue_sizes: &mut Vec<usize>,
+     rng: &mut impl StreamRng,
+ ) -> Result<ScheduleResult<H>, RuntimeError> {
+     if state.all_queues_empty() {
+@@ -1187,12 +1247,15 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         state.timer_queue.iter().filter(|r| !is_ineligible(r)).count()
+     };
+ 
+-    let info = QueueInfo {
+-        local_queue_sizes: state
++    local_queue_sizes.clear();
++    local_queue_sizes.extend(
++        state
+             .local_queues
+             .iter()
+-            .map(|q| q.iter().filter(|r| !is_ineligible(r)).count())
+-            .collect(),
++            .map(|q| q.iter().filter(|r| !is_ineligible(r)).count()),
++    );
++    let info = QueueInfo {
++        local_queue_sizes,
+         network_queue_size: state.network_queue.iter().filter(|r| !is_ineligible(r)).count(),
+         timer_queue_size,
+         step: state.crash_info.current_step,
+@@ -1271,16 +1334,17 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+     let (runnable, chosen_slot, chosen_mask) = match selection {
+         QueueSelection::Local(node_idx) => {
+             let queue = &state.local_queues[node_idx];
+-            let eligible: Vec<usize> = (0..queue.len())
+-                .filter(|&i| !is_ineligible(&queue[i]))
+-                .collect();
++            let admitted = info.local_queue_sizes.get(node_idx).copied().unwrap_or(0);
++            let eligible = EligibleList::new(queue.len(), admitted, |&i| !is_ineligible(&queue[i]));
++            let eligible = eligible.as_slice();
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+             }
++            record_eligible_list(queue.len(), admitted);
+             let (idx, mask) = select_within_queue::<H, F>(
+                 queue,
+-                &eligible,
++                eligible,
+                 feedback,
+                 snapshot,
+                 state,
+@@ -1296,16 +1360,17 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+         QueueSelection::Network => {
+             let queue = &state.network_queue;
+-            let eligible: Vec<usize> = (0..queue.len())
+-                .filter(|&i| !is_ineligible(&queue[i]))
+-                .collect();
++            let admitted = info.network_queue_size;
++            let eligible = EligibleList::new(queue.len(), admitted, |&i| !is_ineligible(&queue[i]));
++            let eligible = eligible.as_slice();
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+             }
++            record_eligible_list(queue.len(), admitted);
+             let (drawn, drawn_mask) = select_within_queue::<H, F>(
+                 queue,
+-                &eligible,
++                eligible,
+                 feedback,
+                 snapshot,
+                 state,
+@@ -1313,9 +1378,9 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            let idx = fresh_first_dispatch(state, &eligible, drawn);
+-            let idx = pair_order_dispatch(state, &eligible, idx);
+-            observe_rush_dispatch(state, &eligible, idx);
++            let idx = fresh_first_dispatch(state, eligible, drawn);
++            let idx = pair_order_dispatch(state, eligible, idx);
++            observe_rush_dispatch(state, eligible, idx);
+             let delivered_op = state.network_queue[idx].causal_operation_id();
+             note_first_delivery(state, delivered_op);
+             // The mask names the predicates true of the record the step
+@@ -1329,33 +1394,32 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+         QueueSelection::Timer => {
+             let queue = &state.timer_queue;
+-            let eligible: Vec<usize> = if strict_timers {
+-                (0..queue.len())
+-                    .filter(|&i| {
+-                        if is_ineligible(&queue[i]) {
+-                            return false;
+-                        }
+-                        if let Runnable::Timer(t) = &queue[i] {
+-                            t.label.as_ref().is_none_or(|l| {
+-                                state.allowed_timers.contains(&(t.node.index, l.clone()))
+-                            })
+-                        } else {
+-                            true
+-                        }
+-                    })
+-                    .collect()
++            let admitted = info.timer_queue_size;
++            let eligible = if strict_timers {
++                EligibleList::new(queue.len(), admitted, |&i| {
++                    if is_ineligible(&queue[i]) {
++                        return false;
++                    }
++                    if let Runnable::Timer(t) = &queue[i] {
++                        t.label.as_ref().is_none_or(|l| {
++                            state.allowed_timers.contains(&(t.node.index, l.clone()))
++                        })
++                    } else {
++                        true
++                    }
++                })
+             } else {
+-                (0..queue.len())
+-                    .filter(|&i| !is_ineligible(&queue[i]))
+-                    .collect()
++                EligibleList::new(queue.len(), admitted, |&i| !is_ineligible(&queue[i]))
+             };
++            let eligible = eligible.as_slice();
+             if eligible.is_empty() {
+                 record_unscheduled(&audit);
+                 return Ok(ScheduleResult::None);
+             }
++            record_eligible_list(queue.len(), admitted);
+             let (idx, mask) = select_within_queue::<H, F>(
+                 queue,
+-                &eligible,
++                eligible,
+                 feedback,
+                 snapshot,
+                 state,
+@@ -1452,16 +1516,14 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                     None => chan.buffer.push_back(Value::<H>::unit()),
+                     Some((mut reader, lhs)) => {
+                         let node_index = reader.node.index;
+-                        let mut r_node_env = state.nodes[node_index].clone();
+                         if let Err(e) = crate::simulator::core::eval::store(
+                             &lhs,
+                             Value::<H>::unit(),
+                             &mut reader.env,
+-                            &mut r_node_env,
++                            &mut state.nodes[node_index],
+                         ) {
+                             log::warn!("Store failed in timer completion: {}", e);
+                         }
+-                        state.nodes[node_index] = r_node_env;
+                         reader.timer_entry = Some(reader.pc);
+                         state.push_to_local(node_index, Runnable::Record(reader));
+                     }
+@@ -1764,16 +1826,14 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                             None => chan.buffer.push_back(message),
+                             Some((mut reader, lhs)) => {
+                                 let node_index = reader.node.index;
+-                                let mut r_node_env = state.nodes[node_index].clone();
+                                 if let Err(e) = crate::simulator::core::eval::store(
+                                     &lhs,
+                                     message,
+                                     &mut reader.env,
+-                                    &mut r_node_env,
++                                    &mut state.nodes[node_index],
+                                 ) {
+                                     log::warn!("Store failed in remote channel delivery: {}", e);
+                                 }
+-                                state.nodes[node_index] = r_node_env;
+                                 reader.timer_entry = None;
+                                 state.push_to_local(node_index, Runnable::Record(reader));
+                             }
+@@ -2082,7 +2142,9 @@ fn crash_node<H: HashPolicy>(state: &mut State<H>, program: &Program, node_id: N
+                 state.flight_leave(&task);
+                 state.net_leave(&task);
+                 if r.origin_node != r.node {
+-                    let mut r = r.clone();
++                    let Runnable::Record(mut r) = task else {
++                        unreachable!("the arm matched a record")
++                    };
+                     r.reset(program);
+                     held += 1;
+                     state.crash_info.queued_messages.push_back((node_id, r));
+@@ -3376,7 +3438,7 @@ mod tests {
+         state.net_stale_records = 1;
+         state.net_requests = 1;
+         let info = QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: &[1],
+             network_queue_size: 4,
+             timer_queue_size: 0,
+             step: 0,
+@@ -3397,7 +3459,7 @@ mod tests {
+         state.send_ledger[0].recent = 1;
+         state.send_ledger[0].trigger = HandlerTrigger::Delivery;
+         let info = QueueInfo {
+-            local_queue_sizes: vec![1],
++            local_queue_sizes: &[1],
+             network_queue_size: 40,
+             timer_queue_size: 0,
+             step: 0,
+@@ -3965,4 +4027,76 @@ mod tests {
+             assert_eq!(idx, 0);
+         }
+     }
++
++    /// The lent list equals the filtered list for every queue length,
++    /// including lengths past the lendable range, and is lent exactly when
++    /// the queue was admitted in full within that range.
++    #[test]
++    fn eligible_list_matches_the_filtered_queue_at_every_length() {
++        let mut rng = StdRng::seed_from_u64(17);
++        let range = IDENTITY_INDICES.len();
++        let mut lent = 0;
++        let mut long = 0;
++        for len in 0..=(3 * range) {
++            for density in [0u64, 1, 8, 64] {
++                let rejected: Vec<bool> = (0..len)
++                    .map(|_| density != 0 && rng.next_u64() % density == 0)
++                    .collect();
++                let keep = |&i: &usize| !rejected[i];
++                let reference: Vec<usize> = (0..len).filter(keep).collect();
++                let admitted = rejected.iter().filter(|r| !**r).count();
++                let list = EligibleList::new(len, admitted, keep);
++                assert_eq!(list.as_slice(), &reference[..], "len {len} density {density}");
++                let full = admitted == len;
++                match &list {
++                    EligibleList::Known(n) => {
++                        assert!(full && len <= range, "len {len} lent while not admitted in full");
++                        assert_eq!(*n, len);
++                        lent += 1;
++                    }
++                    EligibleList::Built(built) => {
++                        assert!(!full || len > range, "len {len} built while lendable");
++                        assert!(built.capacity() >= admitted);
++                        if full {
++                            long += 1;
++                        }
++                    }
++                }
++            }
++        }
++        assert!(lent > range && long > range, "lent {lent}, long {long}");
++    }
++
++    /// A crash holds the records queued to the crashed node by moving them
++    /// out of the network queue, so no slot buffer is copied and each held
++    /// record keeps its own environment.
++    #[test]
++    fn a_crash_holds_queued_records_without_copying_their_environments() {
++        let mut state = State::<NoHashing>::new(&[(ROLE, 3)], 1);
++        queue_record(&mut state, 0, 1, 0, 0.5);
++        queue_record(&mut state, 2, 1, 0, 0.25);
++        queue_record(&mut state, 1, 2, 0, 0.75);
++        for r in state.network_queue.iter_mut() {
++            if let Runnable::Record(r) = r {
++                r.env.set(0, Value::<NoHashing>::int(10 + r.origin_node.index as i64));
++            }
++        }
++        let copies = util_stats::pending_env_counts()[0];
++        crash_node(&mut state, &Program::default(), node(1));
++        assert_eq!(util_stats::pending_env_counts()[0], copies, "a held record was copied");
++        let held: Vec<(usize, usize, Value<NoHashing>, f64)> = state
++            .crash_info
++            .queued_messages
++            .iter()
++            .map(|(dest, r)| (dest.index, r.origin_node.index, r.env.get(0).clone(), r.priority))
++            .collect();
++        assert_eq!(
++            held,
++            vec![
++                (1, 0, Value::<NoHashing>::int(10), 0.5),
++                (1, 2, Value::<NoHashing>::int(12), 0.25),
++            ]
++        );
++        assert_eq!(state.network_queue.len(), 1);
++    }
+ }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 2d087fa..1b36bf8 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -1089,14 +1089,11 @@ impl<H: HashPolicy> State<H> {
+         self.incarnations.get(index).copied().unwrap_or(0)
+     }
+ 
+-    /// A value that changes whenever `node`'s persistent state is written.
+-    /// Slot storage is copy-on-write and the caller's copy is shared with this
+-    /// one, so the first write after a read moves the allocation.
+-    #[inline]
+     /// Observation handle for "was this node written". Compare two values
+     /// taken around a step: unequal means the node's env was written. A raw
+-    /// slots pointer cannot answer this, since `EcoVec` shares its buffer
+-    /// across clones and reallocates only when copy-on-write fires.
++    /// slots pointer cannot answer this, since a write in place leaves the
++    /// buffer where it is.
++    #[inline]
+     pub fn node_state_token(&self, node: NodeId) -> u64 {
+         self.nodes[node.index].writes
+     }
+@@ -1683,11 +1680,10 @@ impl<H: HashPolicy> Continuation<H> {
+                     None => chan.buffer.push_back(val),
+                     Some((mut reader, lhs)) => {
+                         let node_index = reader.node.index;
+-                        let mut node_env = state.nodes[node_index].clone();
+-                        if let Err(e) = store(&lhs, val, &mut reader.env, &mut node_env) {
++                        if let Err(e) = store(&lhs, val, &mut reader.env, &mut state.nodes[node_index])
++                        {
+                             log::warn!("Store failed in async continuation: {}", e);
+                         }
+-                        state.nodes[node_index] = node_env;
+                         state.push_to_local(node_index, Runnable::Record(reader));
+                     }
+                 }
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index b364268..b1c33b6 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -642,17 +642,52 @@ impl<H: HashPolicy> PartialEq for Env<H> {
+ 
+ impl<H: HashPolicy> Eq for Env<H> {}
+ 
+-/// Slot storage for an environment.
+-///
+-/// `EcoVec` is a copy-on-write vector behind a single allocation whose length is
+-/// exactly the slot count. Cloning an `Env` (which happens on every record
+-/// enqueue, node-env read-modify-write and crash re-delivery) is a refcount
+-/// bump, and the first write after a clone copies only `len` slots.
+-type Slots<H> = EcoVec<Value<H>>;
++/// Slot storage for an environment: a buffer owned by exactly one
++/// environment, whose length is the slot count. A slot write never asks
++/// whether the buffer is shared, since it cannot be. Cloning copies every
++/// slot, and each copy of a non-empty buffer is counted, so no copy goes
++/// unseen.
++pub(crate) struct Slots<H: HashPolicy>(Vec<Value<H>>);
++
++impl<H: HashPolicy> Clone for Slots<H> {
++    fn clone(&self) -> Self {
++        if !self.0.is_empty() {
++            util_stats::record_env_buffer_copy();
++        }
++        Slots(self.0.clone())
++    }
++}
++
++impl<H: HashPolicy> Default for Slots<H> {
++    fn default() -> Self {
++        Slots(Vec::new())
++    }
++}
++
++impl<H: HashPolicy> PartialEq for Slots<H> {
++    fn eq(&self, other: &Self) -> bool {
++        self.0 == other.0
++    }
++}
++
++impl<H: HashPolicy> std::fmt::Debug for Slots<H> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        self.0.fmt(f)
++    }
++}
++
++impl<H: HashPolicy> std::ops::Deref for Slots<H> {
++    type Target = [Value<H>];
++
++    #[inline(always)]
++    fn deref(&self) -> &[Value<H>] {
++        &self.0
++    }
++}
+ 
+ #[derive(Clone, Debug)]
+ pub struct Env<H: HashPolicy> {
+-    pub slots: Slots<H>,
++    pub(crate) slots: Slots<H>,
+     pub sig: u64,
+     /// Counts calls to `set`, so a caller can tell whether this env was
+     /// written between two observations. Monotone and never reset, so wrap
+@@ -672,7 +707,7 @@ impl<H: HashPolicy> Hash for Env<H> {
+ impl<H: HashPolicy> Default for Env<H> {
+     fn default() -> Self {
+         Self {
+-            slots: Slots::new(),
++            slots: Slots::default(),
+             sig: 0,
+             writes: 0,
+             _marker: PhantomData,
+@@ -683,9 +718,9 @@ impl<H: HashPolicy> Default for Env<H> {
+ impl<H: HashPolicy> Env<H> {
+     /// Wrap slots that are already laid out, with the signature they carry.
+     /// The signature must be the one `set` would have produced for them.
+-    pub fn from_slots(slots: Slots<H>, sig: u64) -> Self {
++    pub fn from_slots(slots: Vec<Value<H>>, sig: u64) -> Self {
+         Self {
+-            slots,
++            slots: Slots(slots),
+             sig,
+             writes: 0,
+             _marker: PhantomData,
+@@ -694,8 +729,7 @@ impl<H: HashPolicy> Env<H> {
+ 
+     /// Create an environment with `n` slots, all initialized to Unit
+     pub fn with_slots(n: usize) -> Self {
+-        // Single exact-size allocation; no per-element push/grow.
+-        let slots: Slots<H> = EcoVec::from_elem(Value::<H>::unit(), n);
++        let slots = Slots(vec![Value::<H>::unit(); n]);
+ 
+         let mut sig = 0u64;
+         if H::EAGER {
+@@ -713,6 +747,19 @@ impl<H: HashPolicy> Env<H> {
+         }
+     }
+ 
++    /// Moves the slot buffer out, leaving an environment that still answers
++    /// `sig` and `writes` but holds no slots. Nothing may read a slot of the
++    /// emptied environment before the returned one is put back in its place.
++    #[inline]
++    pub fn detach(&mut self) -> Env<H> {
++        Env {
++            slots: std::mem::take(&mut self.slots),
++            sig: self.sig,
++            writes: self.writes,
++            _marker: PhantomData,
++        }
++    }
++
+     #[inline(always)]
+     pub fn get(&self, slot: u32) -> &Value<H> {
+         &self.slots[slot as usize]
+@@ -722,12 +769,13 @@ impl<H: HashPolicy> Env<H> {
+     pub fn set(&mut self, slot: u32, value: Value<H>) {
+         self.writes = self.writes.wrapping_add(1);
+         let idx = slot as usize;
+-        if idx >= self.slots.len() {
++        let slots = &mut self.slots.0;
++        if idx >= slots.len() {
+             // Extending requires recomputing signature
+-            let old_len = self.slots.len();
+-            self.slots.reserve(idx + 1 - old_len);
+-            while self.slots.len() < idx {
+-                self.slots.push(Value::<H>::unit());
++            let old_len = slots.len();
++            slots.reserve(idx + 1 - old_len);
++            while slots.len() < idx {
++                slots.push(Value::<H>::unit());
+             }
+             if H::EAGER {
+                 let unit_sig = Value::<H>::unit().sig;
+@@ -736,14 +784,13 @@ impl<H: HashPolicy> Env<H> {
+                 }
+                 self.sig ^= H::mix(value.sig, slot);
+             }
+-            self.slots.push(value);
++            slots.push(value);
+         } else {
+             if H::EAGER {
+-                let old_sig = self.slots[idx].sig;
++                let old_sig = slots[idx].sig;
+                 self.sig = H::update_env_sig(self.sig, old_sig, value.sig, slot);
+             }
+-            // Copy-on-write: clones exactly `len` slots iff this env is shared.
+-            self.slots.make_mut()[idx] = value;
++            slots[idx] = value;
+         }
+     }
+ 
+@@ -756,11 +803,12 @@ impl<H: HashPolicy> Env<H> {
+     /// Ensure we have at least `n` slots
+     #[allow(dead_code)]
+     pub fn ensure_slots(&mut self, n: usize) {
+-        if self.slots.len() < n {
+-            let old_len = self.slots.len();
+-            self.slots.reserve(n - old_len);
+-            while self.slots.len() < n {
+-                self.slots.push(Value::<H>::unit());
++        let slots = &mut self.slots.0;
++        if slots.len() < n {
++            let old_len = slots.len();
++            slots.reserve(n - old_len);
++            while slots.len() < n {
++                slots.push(Value::<H>::unit());
+             }
+             if H::EAGER {
+                 let unit_sig = Value::<H>::unit().sig;
+@@ -1248,3 +1296,33 @@ mod acted_token_tests {
+         assert_eq!(env.writes, after_first + 1);
+     }
+ }
++
++#[cfg(test)]
++mod slot_buffer_tests {
++    use super::*;
++    use crate::simulator::hash_utils::NoHashing;
++
++    #[test]
++    fn only_a_clone_copies_a_slot_buffer_and_each_copy_is_counted() {
++        let copies = || util_stats::pending_env_counts()[0];
++        let before = copies();
++        let mut env = Env::<NoHashing>::with_slots(3);
++        env.set(1, Value::<NoHashing>::int(4));
++        env.set(5, Value::<NoHashing>::int(6));
++        let empty = Env::<NoHashing>::default();
++        assert_eq!(copies(), before, "building and writing copy nothing");
++
++        let copy = env.clone();
++        let _ = empty.clone();
++        assert_eq!(copies(), before + 1, "one copy of a non-empty buffer");
++        assert_eq!(copy, env);
++
++        let (writes, sig) = (env.writes, env.sig);
++        let detached = env.detach();
++        assert_eq!(copies(), before + 1, "a detach moves the buffer");
++        assert_eq!(detached, copy);
++        assert_eq!(env.len(), 0);
++        assert_eq!((env.writes, env.sig), (writes, sig));
++        assert_eq!((detached.writes, detached.sig), (writes, sig));
++    }
++}
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 1451d86..46e1e47 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -680,6 +680,9 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+         .map(|(id, _)| *id)
+         .ok_or_else(|| RuntimeError::RoleNotFound("Node".to_string()))?;
+ 
++    // Eligible runnables per local queue, rewritten by every scheduling step.
++    let mut local_queue_sizes: Vec<usize> = Vec::new();
++
+     for step in 0..effective_cap {
+         if engine.is_complete() {
+             info!("Plan {} completed in {} steps", run_id, step);
+@@ -958,6 +961,7 @@ pub fn exec_plan<H: HashPolicy, F: Feedback>(
+                 partial_fanout_crash_bias,
+                 timer_ctx_mode,
+                 &reservations,
++                &mut local_queue_sizes,
+                 rng,
+             )?;
+ 
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index b94614b..22e42df 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -96,6 +96,9 @@ static GS_FIRED_RUNS: AtomicU64 = AtomicU64::new(0);
+ static FRAME_CALLS: AtomicU64 = AtomicU64::new(0);
+ static FRAME_SLOTS_BUILT: AtomicU64 = AtomicU64::new(0);
+ static FRAME_ENTRY_COPIES: AtomicU64 = AtomicU64::new(0);
++static ENV_BUFFER_COPIES: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_MOVED_OUT: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_PUT_BACK: AtomicU64 = AtomicU64::new(0);
+ static FRAME_DEFAULT_SLOTS_FILLED: AtomicU64 = AtomicU64::new(0);
+ static FRAME_PARAMS_FILLED: AtomicU64 = AtomicU64::new(0);
+ static VALUE_SIG_LEAF_HASHES_DEFERRED: AtomicU64 = AtomicU64::new(0);
+@@ -432,6 +435,9 @@ static MA_FLIPPED_CONFIGURED: AtomicU64 = AtomicU64::new(0);
+ static MA_CONFIGURED_SUM: AtomicU64 = AtomicU64::new(0);
+ static RWP_ENABLED: AtomicBool = AtomicBool::new(false);
+ static RWP_DECISIONS: AtomicU64 = AtomicU64::new(0);
++static SCHED_ELIGIBLE_KNOWN: AtomicU64 = AtomicU64::new(0);
++static SCHED_ELIGIBLE_BUILT: AtomicU64 = AtomicU64::new(0);
++static SCHED_ELIGIBLE_BUILT_LONG: AtomicU64 = AtomicU64::new(0);
+ static RWP_EVALUATED: AtomicU64 = AtomicU64::new(0);
+ static RWP_PRESENT: AtomicU64 = AtomicU64::new(0);
+ static RWP_CONTESTED: AtomicU64 = AtomicU64::new(0);
+@@ -850,6 +856,12 @@ pub fn set_enabled(on: bool) {
+             &RWP_CONTESTED,
+             &RWP_WON,
+             &RWP_FLIPPED,
++            &SCHED_ELIGIBLE_KNOWN,
++            &SCHED_ELIGIBLE_BUILT,
++            &SCHED_ELIGIBLE_BUILT_LONG,
++            &ENV_BUFFER_COPIES,
++            &NODE_ENV_MOVED_OUT,
++            &NODE_ENV_PUT_BACK,
+             &STATS_LOCAL_FOLDS,
+             &STATS_LOCAL_FOLDED_INCREMENTS,
+             &HW_BUSY_NS,
+@@ -1385,6 +1397,26 @@ pub fn record_recovery_placebo(
+     }
+ }
+ 
++/// One scheduling step handed a non-empty eligible list to within-queue
++/// selection. `known` means the list was every index of a queue the
++/// eligibility pass admitted in full, so no list was built; otherwise a list
++/// was built by filtering the queue, and `long` means only because the queue
++/// was admitted in full but is longer than the lendable index range.
++#[inline]
++pub fn record_eligible_list(known: bool, long: bool) {
++    if !enabled() {
++        return;
++    }
++    if known {
++        bump(|b| &b.sched_eligible_known, &SCHED_ELIGIBLE_KNOWN, 1);
++    } else {
++        bump(|b| &b.sched_eligible_built, &SCHED_ELIGIBLE_BUILT, 1);
++        if long {
++            bump(|b| &b.sched_eligible_built_long, &SCHED_ELIGIBLE_BUILT_LONG, 1);
++        }
++    }
++}
++
+ /// One within-queue selection was seen by the multiplier-authority probe.
+ /// `contested` means more than one candidate was eligible, `quick_fire_present`
+ /// that at least one of them is a candidate the multiplier applies to. Only a
+@@ -1944,6 +1976,10 @@ thread_local! {
+     /// above.
+     static INTERPRETER_RUN: Cell<InterpreterTally> = const { Cell::new(InterpreterTally::new()) };
+     static CHANNEL_TABLE_RUN: Cell<[u64; 3]> = const { Cell::new([0; 3]) };
++    /// Environment buffer copies and node environment moves of the run
++    /// executing on this thread, indexed by the `ENV_*_AT` positions and
++    /// drained with the cells above.
++    static ENV_RUN: Cell<[u64; 3]> = const { Cell::new([0; 3]) };
+     /// Counters written at every scheduling step, delivery or timer firing
+     /// of the run executing on this thread, folded into the session totals
+     /// once the run ends. Each counter is its own cell so a write touches
+@@ -4894,6 +4930,29 @@ impl RecoveryPlaceboStats {
+     }
+ }
+ 
++/// How the scheduler obtained the eligible list of each queue it selected
++/// within. `eligible_known` counts lists that were every index of a queue
++/// admitted in full, lent without building; `eligible_built` counts lists
++/// built by filtering the queue, and `eligible_built_long` the built lists of
++/// queues admitted in full but longer than the lendable index range. Known
++/// plus built is the number of within-queue selections.
++#[derive(Serialize, Debug)]
++pub struct SchedStats {
++    pub eligible_known: u64,
++    pub eligible_built: u64,
++    pub eligible_built_long: u64,
++}
++
++impl SchedStats {
++    fn read() -> Self {
++        Self {
++            eligible_known: SCHED_ELIGIBLE_KNOWN.load(Ordering::Relaxed),
++            eligible_built: SCHED_ELIGIBLE_BUILT.load(Ordering::Relaxed),
++            eligible_built_long: SCHED_ELIGIBLE_BUILT_LONG.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// The learned-run-cap block: probe traffic, completions the cap would have
+ /// cut off, and gauges of what the learner currently holds.
+ #[derive(Serialize)]
+@@ -5509,6 +5568,40 @@ impl FrameStats {
+     }
+ }
+ 
++/// Environment slot buffers copied. Each environment owns its buffer, so a
++/// copy happens only where an environment is cloned; `buffer_copies` counts
++/// the clones of buffers holding at least one slot.
++#[derive(Serialize, Debug)]
++pub struct EnvStats {
++    pub buffer_copies: u64,
++}
++
++impl EnvStats {
++    fn read() -> Self {
++        Self {
++            buffer_copies: ENV_BUFFER_COPIES.load(Ordering::Relaxed),
++        }
++    }
++}
++
++/// Node environments moved out of the state for the length of one segment
++/// and put back when it ended. Every exit puts the environment back, so the
++/// two are equal.
++#[derive(Serialize, Debug)]
++pub struct NodeEnvStats {
++    pub moved_out: u64,
++    pub put_back: u64,
++}
++
++impl NodeEnvStats {
++    fn read() -> Self {
++        Self {
++            moved_out: NODE_ENV_MOVED_OUT.load(Ordering::Relaxed),
++            put_back: NODE_ENV_PUT_BACK.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// Map-key hashes of leaf values whose signature was computed at hash time
+ /// rather than when the value was built.
+ #[derive(Serialize, Debug)]
+@@ -6101,6 +6194,44 @@ pub fn record_entry_frame_copy() {
+     });
+ }
+ 
++const ENV_BUFFER_COPIES_AT: usize = 0;
++const ENV_MOVED_OUT_AT: usize = 1;
++const ENV_PUT_BACK_AT: usize = 2;
++
++#[inline(always)]
++fn bump_env_run(at: usize) {
++    ENV_RUN.with(|c| {
++        let mut t = c.get();
++        t[at] += 1;
++        c.set(t);
++    });
++}
++
++/// An environment slot buffer holding at least one slot was copied.
++#[inline]
++pub fn record_env_buffer_copy() {
++    bump_env_run(ENV_BUFFER_COPIES_AT);
++}
++
++/// A segment moved its node's environment out of the state.
++#[inline]
++pub fn record_node_env_moved_out() {
++    bump_env_run(ENV_MOVED_OUT_AT);
++}
++
++/// A segment put its node's environment back into the state.
++#[inline]
++pub fn record_node_env_put_back() {
++    bump_env_run(ENV_PUT_BACK_AT);
++}
++
++/// The running thread's buffer copies, node environment moves out and puts
++/// back not yet drained, in that order.
++#[cfg(test)]
++pub(crate) fn pending_env_counts() -> [u64; 3] {
++    ENV_RUN.with(|c| c.get())
++}
++
+ /// Fold the running thread's frame counts into the session totals. Called
+ /// where a run ends, so the totals are exact once every run has ended.
+ pub fn flush_frame_stats() {
+@@ -6119,6 +6250,7 @@ pub fn flush_frame_stats() {
+     .map(|(cell, total)| (cell.with(|c| c.replace(0)), total));
+     let interp = INTERPRETER_RUN.with(|c| c.replace(InterpreterTally::new()));
+     let [lookups, misses, inserts] = CHANNEL_TABLE_RUN.with(|c| c.replace([0; 3]));
++    let env = ENV_RUN.with(|c| c.replace([0; 3]));
+     if !enabled() {
+         return;
+     }
+@@ -6133,6 +6265,9 @@ pub fn flush_frame_stats() {
+         (lookups, &CHANNEL_TABLE_LOOKUPS),
+         (misses, &CHANNEL_TABLE_LOOKUP_MISSES),
+         (inserts, &CHANNEL_TABLE_DENSE_INSERTS),
++        (env[ENV_BUFFER_COPIES_AT], &ENV_BUFFER_COPIES),
++        (env[ENV_MOVED_OUT_AT], &NODE_ENV_MOVED_OUT),
++        (env[ENV_PUT_BACK_AT], &NODE_ENV_PUT_BACK),
+     ] {
+         if v != 0 {
+             total.fetch_add(v, Ordering::Relaxed);
+@@ -6192,6 +6327,9 @@ struct RunCounters {
+     rwp_contested: Cell<u64>,
+     rwp_won: Cell<u64>,
+     rwp_flipped: Cell<u64>,
++    sched_eligible_known: Cell<u64>,
++    sched_eligible_built: Cell<u64>,
++    sched_eligible_built_long: Cell<u64>,
+     ca_steps_with_crash_eligible: Cell<u64>,
+     ca_offered: Cell<u64>,
+     timer_steer_evaluated: Cell<u64>,
+@@ -6249,6 +6387,9 @@ impl RunCounters {
+             rwp_contested: Cell::new(0),
+             rwp_won: Cell::new(0),
+             rwp_flipped: Cell::new(0),
++            sched_eligible_known: Cell::new(0),
++            sched_eligible_built: Cell::new(0),
++            sched_eligible_built_long: Cell::new(0),
+             ca_steps_with_crash_eligible: Cell::new(0),
+             ca_offered: Cell::new(0),
+             timer_steer_evaluated: Cell::new(0),
+@@ -6305,6 +6446,9 @@ impl RunCounters {
+             (&self.rwp_contested, &RWP_CONTESTED),
+             (&self.rwp_won, &RWP_WON),
+             (&self.rwp_flipped, &RWP_FLIPPED),
++            (&self.sched_eligible_known, &SCHED_ELIGIBLE_KNOWN),
++            (&self.sched_eligible_built, &SCHED_ELIGIBLE_BUILT),
++            (&self.sched_eligible_built_long, &SCHED_ELIGIBLE_BUILT_LONG),
+             (&self.ca_steps_with_crash_eligible, &CA_STEPS_WITH_CRASH_ELIGIBLE),
+             (&self.ca_offered, &CA_OFFERED),
+             (&self.timer_steer_evaluated, &TIMER_STEER_EVALUATED),
+@@ -7245,6 +7389,7 @@ pub struct UtilizationSnapshot {
+     pub steer_reach: SteerReachStats,
+     pub multiplier_authority: MultiplierAuthorityStats,
+     pub recovery_weight_placebo: RecoveryPlaceboStats,
++    pub sched: SchedStats,
+     pub purgatory: PurgatoryStats,
+     pub aos: AosStats,
+     pub dedup: DedupStats,
+@@ -7270,6 +7415,8 @@ pub struct UtilizationSnapshot {
+     pub victim_swap: VictimSwapStats,
+     pub ghost_signal: GhostSignalStats,
+     pub frame: FrameStats,
++    pub env: EnvStats,
++    pub node_env: NodeEnvStats,
+     pub frame_layout: FrameLayoutStats,
+     pub value_sig: ValueSigStats,
+     pub eval_borrow: EvalBorrowStats,
+@@ -7403,6 +7550,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         },
+         multiplier_authority: MultiplierAuthorityStats::read(),
+         recovery_weight_placebo: RecoveryPlaceboStats::read(),
++        sched: SchedStats::read(),
+         purgatory: PurgatoryStats {
+             delayed_sends: PURGATORY_DELAYED_SENDS.load(Ordering::Relaxed),
+             holds_down_receiver: PURGATORY_HOLDS_DOWN_RECEIVER.load(Ordering::Relaxed),
+@@ -7499,6 +7647,8 @@ pub fn snapshot() -> UtilizationSnapshot {
+         victim_swap: VictimSwapStats::read(),
+         ghost_signal: GhostSignalStats::read(),
+         frame: FrameStats::read(),
++        env: EnvStats::read(),
++        node_env: NodeEnvStats::read(),
+         frame_layout: FrameLayoutStats::read(),
+         value_sig: ValueSigStats::read(),
+         eval_borrow: EvalBorrowStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 0358c39..e464a45 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EnvStats, EvalBorrowStats, FrameLayoutStats, FrameStats, NodeEnvStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1234,6 +1234,53 @@ fn ghost_signal_leaves(prefix: &str, g: &GhostSignalStats) -> Vec<(String, Value
+     vec![leaf(prefix, "fired_runs", *fired_runs)]
+ }
+ 
++fn sched(m: &mut Marks) -> SchedStats {
++    SchedStats {
++        eligible_known: m.int(),
++        eligible_built: m.int(),
++        eligible_built_long: m.int(),
++    }
++}
++
++fn sched_leaves(prefix: &str, s: &SchedStats) -> Vec<(String, Value)> {
++    let SchedStats {
++        eligible_known,
++        eligible_built,
++        eligible_built_long,
++    } = s;
++    vec![
++        leaf(prefix, "eligible_known", *eligible_known),
++        leaf(prefix, "eligible_built", *eligible_built),
++        leaf(prefix, "eligible_built_long", *eligible_built_long),
++    ]
++}
++
++fn env(m: &mut Marks) -> EnvStats {
++    EnvStats {
++        buffer_copies: m.int(),
++    }
++}
++
++fn env_leaves(prefix: &str, e: &EnvStats) -> Vec<(String, Value)> {
++    let EnvStats { buffer_copies } = e;
++    vec![leaf(prefix, "buffer_copies", *buffer_copies)]
++}
++
++fn node_env(m: &mut Marks) -> NodeEnvStats {
++    NodeEnvStats {
++        moved_out: m.int(),
++        put_back: m.int(),
++    }
++}
++
++fn node_env_leaves(prefix: &str, n: &NodeEnvStats) -> Vec<(String, Value)> {
++    let NodeEnvStats { moved_out, put_back } = n;
++    vec![
++        leaf(prefix, "moved_out", *moved_out),
++        leaf(prefix, "put_back", *put_back),
++    ]
++}
++
+ fn frame(m: &mut Marks) -> FrameStats {
+     FrameStats {
+         calls: m.int(),
+@@ -2243,6 +2290,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         steer_reach: _,
+         multiplier_authority: _,
+         recovery_weight_placebo: _,
++        sched: _,
+         purgatory: _,
+         aos: _,
+         dedup: _,
+@@ -2268,6 +2316,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         victim_swap: _,
+         ghost_signal: _,
+         frame: _,
++        env: _,
++        node_env: _,
+         frame_layout: _,
+         value_sig: _,
+         eval_borrow: _,
+@@ -2301,6 +2351,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "steer_reach",
+         "multiplier_authority",
+         "recovery_weight_placebo",
++        "sched",
+         "purgatory",
+         "aos",
+         "dedup",
+@@ -2326,6 +2377,8 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "victim_swap",
+         "ghost_signal",
+         "frame",
++        "env",
++        "node_env",
+         "frame_layout",
+         "value_sig",
+         "eval_borrow",
+@@ -2417,7 +2470,10 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.crash_phase = crash_phase(&mut m);
+     s.victim_swap = victim_swap(&mut m);
+     s.ghost_signal = ghost_signal(&mut m);
++    s.sched = sched(&mut m);
+     s.frame = frame(&mut m);
++    s.env = env(&mut m);
++    s.node_env = node_env(&mut m);
+     s.frame_layout = frame_layout(&mut m);
+     s.value_sig = value_sig(&mut m);
+     s.eval_borrow = eval_borrow(&mut m);
+@@ -2455,7 +2511,10 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(crash_phase_leaves("crash_phase", &s.crash_phase));
+     expected.extend(victim_swap_leaves("victim_swap", &s.victim_swap));
+     expected.extend(ghost_signal_leaves("ghost_signal", &s.ghost_signal));
++    expected.extend(sched_leaves("sched", &s.sched));
+     expected.extend(frame_leaves("frame", &s.frame));
++    expected.extend(env_leaves("env", &s.env));
++    expected.extend(node_env_leaves("node_env", &s.node_env));
+     expected.extend(frame_layout_leaves("frame_layout", &s.frame_layout));
+     expected.extend(value_sig_leaves("value_sig", &s.value_sig));
+     expected.extend(eval_borrow_leaves("eval_borrow", &s.eval_borrow));
+@@ -2518,7 +2577,10 @@ fn every_counter_field_reaches_the_written_json() {
+         "crash_phase",
+         "victim_swap",
+         "ghost_signal",
++        "sched",
+         "frame",
++        "env",
++        "node_env",
+         "frame_layout",
+         "value_sig",
+         "eval_borrow",
