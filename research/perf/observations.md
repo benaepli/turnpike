@@ -5972,3 +5972,32 @@ second, writer rows within 0.1 of 0b0004e.md) and one scheduling view
   writer growth memmove; the action column's cardinality; that the compiled
   program is one structure shared for the session; the vendoring claims (grep
   only, no build).
+
+### Judgment (tmp/loop/perf/it22-judgment.md)
+
+All three admitted with rewrites. H1 net 4: vendoring is needed (no public
+path; a producer-side dictionary array re-interns and changes bytes), the
+unmodified vendor builds offline and writes byte-identical files; the fast
+path was widened to [-1, 65,535) because unique_id and client_id reach -1. On
+merging a saving that does not move wall time: admissible - four writers
+saturate near 10,700 runs per second, blocking rises with every merge and
+falls only on a comparison's faster side; the merge rests on busy ns per row
+read by hand, byte identity, guards and no downward separation, with
+history_writer.busy_ns as a primary that can only refute. H2 net 3: the lock
+census is sound; literal figure corrected to 0.738; keying by program address
+replaced by a per-build generation; the thread-local guard rewritten as a net
+guard over ceval, exec_ops and run_sync_ops; its band cannot separate and no
+counter can be its primary. H3 net 2: every string cell is compared twice
+today; statistics byte-identical when the per-page bitset clears at every
+flush; the gather skip sound.
+
+Selection (autonomous): the judge sequenced H2 on its own branch after the
+writer stack. Under the standing direction of fewer, larger rounds, all three
+go on one branch from 0b0004e as five commits (vendor, H1, H3, H2-A, H2-B).
+H1 and H3 touch only writer threads and H2 only simulation threads, so each
+part's guards stay readable on its incremental profile against the stage
+before (H2's frozen 0b0004e numbers transfer: the writer commits leave the
+simulation-thread families unchanged, which H1's and H3's profiles will show),
+and H2 does not move the writer primary. One set of rounds grades the stack.
+H2's no-counter blocker is cleared in writing at decision, if its guards hold,
+on the same standing as earlier shared savings graded by profile guards.

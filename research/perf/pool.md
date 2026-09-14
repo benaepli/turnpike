@@ -1387,3 +1387,88 @@ rounds of clock each:
   against A's profile with H1's guards re-checked; a part whose guard fires
   is reverted before rounds; three cross-binary rounds against 85af34d, no
   extension; composite band [1.021, 1.041].
+
+## integer-dictionary-keys-by-value
+
+- category: contention and parallelism (writer path) | origin: proposer | status: admitted (iteration 22) - building as commit 2 of writer-headroom-and-program-text, on the unmodified vendored parquet 58.0.0 (commit 1)
+- mechanism: in a vendored parquet 58.0.0, integer dictionary keys come from a
+  last-value memo and a direct table for values in [-1, 65,535) (indexed by
+  value + 1) instead of hashing; values outside take the hash path; output
+  bytes identical.
+- verified by the judge: the interner, value encoders and gather copy are not
+  reachable through the public API; an arrow dictionary array built on the
+  producer side re-interns and changes bytes; the unmodified vendor builds
+  offline with a two-line Cargo.lock change and byte-identical executions,
+  logs and traces files on VR 3,008; unique_id and client_id reach -1 (range
+  rewritten). Conditions: diff kept as a patch file, vendored tree equal to the
+  registry copy outside patched files, `exclude = ["vendor"]` in the workspace.
+- primary: --counter history_writer.busy_ns (refutes only; varied 3.4 percent
+  between paired rounds on identical writers); busy ns per row, baseline over
+  candidate [1.09, 1.20] read by hand every round; fast-path share at least
+  0.97; at most 250 hashed values per command; runs per second [0.995, 1.02]
+  regression only.
+- guards (0b0004e.md, writer rows with r_w over untouched writer lines):
+  interner rows 2.07 at most 0.30 x r_w (low-cutoff profile registered);
+  relocation rows 1.60 rise at most +0.75; writer total 11.51 at most 11.51 x
+  r_w - 1.0.
+- merge rests on: busy ns per row in band, byte identity, guards, no downward
+  separation. Worth merging without wall movement: four writers saturate near
+  10,700 runs per second (about 84 percent busy at 9,000), blocking rises with
+  every merge and falls only on the faster side of a comparison.
+- declarations: search-neutral, shared. Judge net 4 (gain 6, cost 2).
+- full record: tmp/loop/perf/it22-judgment.md (H1).
+
+## page-statistics-from-first-in-page-keys
+
+- category: contention and parallelism (writer path) | origin: proposer | status: admitted (iteration 22) - commit 3 of writer-headroom-and-program-text, on H1
+- mechanism: while a string column's dictionary is active, page min/max are
+  compared only for keys new to the page (a per-page bitset cleared on every
+  page flush, including the one inside dictionary fallback); contiguous
+  primitive columns skip the gather copy; output bytes identical.
+- verified by the judge: every string cell is compared twice for page min/max
+  today; statistics, chunk statistics, column index and 64-byte truncation
+  identical under the rule; all four string columns non-nullable; fallback
+  happens at a page boundary; the gather skip is sound. Size rests on an
+  unmeasured cardinality mix (no evidence credit).
+- band: H1 + H3 busy ns per row [1.13, 1.28]; H3's own share [1.04, 1.07] on
+  its incremental profile; counters str_stats_compared / str_stats_cells
+  [0.35, 0.60], gather_copies_skipped.
+- declarations: search-neutral, shared. Judge net 2 (gain 4, cost 2).
+- full record: tmp/loop/perf/it22-judgment.md (H3).
+
+## program-text-without-shared-refcounts
+
+- category: contention and parallelism | origin: proposer | status: admitted (iteration 22) - commits 4 (A) and 5 (B) of writer-headroom-and-program-text
+- mechanism: (A) trace function names as &'static str from a compile-time
+  interner, leaked at most once per distinct name per process; (B) string
+  literals over 15 bytes cloned from a per-thread copy keyed by a per-build
+  generation number (not the program's address).
+- verified by the judge: the lock-census method (samples on the instruction
+  after a lock prefix) is sound; trace-name contention 0.686 at every site;
+  the literal figure is 0.738 (ceval+0x5ca0 is an EcoVec clone); B's cost
+  moves into a thread-local lookup inlined into ceval, exec_ops and
+  run_sync_ops, so its guard is a net guard over those families. Not a repeat
+  of format-once-on-simulation-threads or trace-payload-escaped-in-one-pass;
+  takes up fstring-concat-once's open lead.
+- counters: literal clones per presized print [0.8, 1.6]; literal tables built
+  at most rayon threads + 2 per session.
+- guards (0b0004e.md, r over the scheduler family): trace functions 1.25 at
+  most 1.25 x r - 0.35; ceval + exec_ops + run_sync_ops 21.66 at most 21.66 x
+  r - 0.35.
+- band: runs per second [1.005, 1.02], cannot separate; no counter primary
+  exists, so the grader's shared-saving blocker stands and needs written
+  clearance before merge.
+- declarations: search-neutral, shared. Judge net 3 (gain 5, cost 2).
+- full record: tmp/loop/perf/it22-judgment.md (H2).
+
+## writer-headroom-and-program-text
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 22) - building
+- one branch from 0b0004e: (1) unmodified vendored parquet 58.0.0 with the
+  patch entry and workspace exclude, (2) H1, (3) H3, (4) H2-A, (5) H2-B.
+  Byte identity of every parquet file plus one-thread table identity on each
+  code commit; a plain profile per stage read against the stage before, with
+  the registered low-cutoff profiles; a part whose guard fires is reverted
+  before rounds; one set of 3-6 rounds against 0b0004e with --primary counter
+  --counter history_writer.busy_ns, busy ns per row read by hand every round,
+  H2's counters by hand.
