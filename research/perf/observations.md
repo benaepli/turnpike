@@ -5031,3 +5031,25 @@ Iteration 18 closes with one merge (timer-bias-read-at-the-split), one close
 upward separation, patch kept and eligible to return), and one held
 (unweighted-steer-counters-derived-at-fold, waiting for a returned probe-
 counter candidate). Iteration 19 profiles c9c54fc.
+
+## Iteration 19 - autonomous, allocation lens, profile c9c54fc
+
+Profile c9c54fc.md (plain cycles). Self: ceval 8.35; memmove 6.37; exec_ops
+5.46 (+1.37, 1.27); schedule_runnable 3.44 (+1.13, 1.04, 1.01), the
+queue-size fold 1.53 and score_with_terms 1.12 - the scheduler family about
+9.3, down from about 13.6 before the timer split; drop_glue<ValueKind> 3.05;
+run_sync_ops 2.80; EcoVec<Value> drop 2.49; malloc 2.19; ValueKind::clone
+1.99; exec_plan 1.81; walk_recovery_placebo 1.80; format_escaped_str 1.42;
+Int64 interner 1.35 (writer); GenericNode 1.34; run_async_op 1.10.
+Inclusive-self below the cutoff: make_unique 0.78, _int_malloc 0.88,
+_int_free_chunk 0.96, cfree 0.39.
+
+The largest explainable family is now Value traffic - clone 1.99, drop_glue
+3.05, EcoVec drop 2.49, about 7.5 together - with memmove and the allocator
+beside it. ValueKind::clone has never been attributed (it was below the cutoff
+when the 45517fd attribution ran), and the prices of iterations 14-17 closed
+when they rested on stale or source-read attribution. So before the proposer,
+a fresh plain-cycles caller attribution on c9c54fc of the Value clone and drop
+family, memmove (DWARF), the allocator, GenericNode make_mut and make_unique,
+including which Value kinds are cloned and whether each clone is for a read,
+a store, or a message or frame. Proposer input, not a graded round.
