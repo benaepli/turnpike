@@ -988,7 +988,7 @@ rounds of clock each:
 
 ## integer-columns-delta-encoded (iteration 14 re-pricing)
 
-- status: admitted (iteration 14) - built and reviewed; grading on 45517fd after node-env-and-in-place-updates closed
+- status: closed (iteration 14, autonomous) on its frozen falsifier - runs per second 0.9786 [0.9737, 0.9835] separated downward while busy_ns per run read 1.1855 [1.1623, 1.2091] above band and writers were not binding (blocked 0); output bytes per run 0.703; patch kept at research/perf/patches/integer-columns-delta-encoded.spur.patch; returns as a new candidate only once writers block, with a layout control
 - band tightened to history_writer.busy_ns per run [1.04, 1.14] (the earlier
   replay bench caps the saving near the top edge; the delta encoder's cost
   is unmeasured); writers about 72 percent busy, full-queue sends 0/29/31,

@@ -3759,3 +3759,38 @@ share. Wall 0.9994 is consistent with a saving too small to see, not with a
 regression.
 
 Next: integer-columns-delta-encoded, graded on 45517fd (unchanged tree).
+
+### integer-columns-delta-encoded: three rounds and decision (autonomous)
+
+Seeds 1000-1002 against 45517fd:
+- primary history_writer.busy_ns per run, baseline over candidate 1.1801,
+  1.1800, 1.1964; mean 1.1855 [1.1623, 1.2091], separated, band
+  [1.04, 1.14] read above (319.3 against 378.5 us per run). No blockers;
+  every neutrality row inside the baseline's spread.
+- writers blocked 0 us per run and 0 full-queue sends in every round on both
+  sides: the writers were not binding in any of these rounds.
+- runs per second 0.9766, 0.9805, 0.9787; mean 0.9786 [0.9737, 0.9835],
+  separated downward with a round-to-round sd of 0.002. Microseconds per run
+  0.9733 [0.9673, 0.9794]; steps per run 1.0180 [0.9933, 1.0434].
+
+Decision: closed on the frozen falsifier "runs per second separates
+downward", no departure. The loss is inside the 0.05 cross-binary layout
+floor, and steps per run rising 1.8 percent accounts for most of it (per-step
+time about 0.991), so layout or run-mix noise are plausible readings. But the
+frozen text makes no floor exemption, no layout control isolates this binary,
+and with the writers not binding the change cannot buy wall time today.
+Merging a measured 2 percent loss for a future ceiling is not a trade this
+loop makes on a counter primary where the clock can only block.
+
+What it proved, for later: writer CPU per run down 18.5 percent and output
+bytes per run 0.703 (executions 0.441, logs 0.653, traces 0.742), with every
+table and every reader identical. The smaller output is a real saving on
+disk - the lite grader's chunk directories run to tens of GB - which is not
+this loop's goal; recorded here for the user. Patch kept at
+research/perf/patches/integer-columns-delta-encoded.spur.patch. It returns
+as a new candidate with its own declarations only when writers block, graded
+then beside a layout control.
+
+Iteration 14 closes with no merge: node-env-and-in-place-updates closed on
+its frozen profile guards, integer-columns-delta-encoded on its frozen wall
+falsifier.

@@ -1,0 +1,147 @@
+diff --git a/spur-core/src/simulator/history.rs b/spur-core/src/simulator/history.rs
+index 8ee64a8..40425a0 100644
+--- a/spur-core/src/simulator/history.rs
++++ b/spur-core/src/simulator/history.rs
+@@ -10,7 +10,8 @@ use arrow::record_batch::RecordBatch;
+ use crossbeam::channel::{self, Receiver, Sender};
+ use log::error;
+ use parquet::arrow::ArrowWriter;
+-use parquet::basic::Compression;
++use parquet::basic::{Compression, Encoding};
++use parquet::schema::types::ColumnPath;
+ use parquet::file::properties::WriterProperties;
+ use crate::simulator::core::state::NodeId;
+ use crate::simulator::core::values::ValueMap;
+@@ -862,16 +863,35 @@ fn writer_thread_count() -> usize {
+     rayon::current_num_threads().div_ceil(8).max(1)
+ }
+ 
++/// Integer columns of the executions, logs and traces tables written with
++/// DELTA_BINARY_PACKED and no dictionary. Statistics stay at the default so
++/// readers keep min/max per row group and page.
++const DELTA_ENCODED_COLUMNS: [&str; 7] = [
++    "run_id",
++    "seq_num",
++    "step",
++    "unique_id",
++    "trace_id",
++    "schedulable_count",
++    "causal_operation_id",
++];
++
+ /// Helper: creates a new ArrowWriter for the given path and schema.
++/// `delta_columns` names the columns written with DELTA_BINARY_PACKED instead
++/// of a dictionary; a name the schema does not carry has no effect.
+ fn open_parquet_writer(
+     path: &Path,
+     schema: Arc<Schema>,
++    delta_columns: &[&str],
+ ) -> Result<ArrowWriter<File>, Box<dyn Error>> {
+     let file = File::create(path)?;
+-    let props = WriterProperties::builder()
+-        .set_compression(Compression::SNAPPY)
+-        .build();
+-    Ok(ArrowWriter::try_new(file, schema, Some(props))?)
++    let mut builder = WriterProperties::builder().set_compression(Compression::SNAPPY);
++    for &column in delta_columns {
++        builder = builder
++            .set_column_dictionary_enabled(ColumnPath::from(column), false)
++            .set_column_encoding(ColumnPath::from(column), Encoding::DELTA_BINARY_PACKED);
++    }
++    Ok(ArrowWriter::try_new(file, schema, Some(builder.build()))?)
+ }
+ 
+ /// Batch numbers are shared across writers: writer `index` owns
+@@ -911,10 +931,10 @@ impl OpenBatch {
+         Ok(Self {
+             number,
+             schemas: schemas.clone(),
+-            executions: open_parquet_writer(&dirs.executions.join(&name), schemas.executions.clone())?,
+-            logs: open_parquet_writer(&dirs.logs.join(&name), schemas.logs.clone())?,
+-            traces: open_parquet_writer(&dirs.traces.join(&name), schemas.traces.clone())?,
+-            runs: open_parquet_writer(&dirs.runs.join(&name), schemas.runs.clone())?,
++            executions: open_parquet_writer(&dirs.executions.join(&name), schemas.executions.clone(), &DELTA_ENCODED_COLUMNS)?,
++            logs: open_parquet_writer(&dirs.logs.join(&name), schemas.logs.clone(), &DELTA_ENCODED_COLUMNS)?,
++            traces: open_parquet_writer(&dirs.traces.join(&name), schemas.traces.clone(), &DELTA_ENCODED_COLUMNS)?,
++            runs: open_parquet_writer(&dirs.runs.join(&name), schemas.runs.clone(), &[])?,
+             pending_runs: Vec::with_capacity(RUNS_FLUSH_ROWS),
+         })
+     }
+@@ -1332,10 +1352,10 @@ mod parquet_writer_tests {
+     /// write them.
+     fn write_reference(dir: &Path, runs: &[(i64, &[(&str, &str)], &[&str], &[&str])]) {
+         let schemas = Schemas::new();
+-        let mut executions = open_parquet_writer(&dir.join("executions.parquet"), schemas.executions.clone()).unwrap();
+-        let mut logs = open_parquet_writer(&dir.join("logs.parquet"), schemas.logs.clone()).unwrap();
+-        let mut traces = open_parquet_writer(&dir.join("traces.parquet"), schemas.traces.clone()).unwrap();
+-        let mut runs_writer = open_parquet_writer(&dir.join("runs.parquet"), schemas.runs.clone()).unwrap();
++        let mut executions = open_parquet_writer(&dir.join("executions.parquet"), schemas.executions.clone(), &DELTA_ENCODED_COLUMNS).unwrap();
++        let mut logs = open_parquet_writer(&dir.join("logs.parquet"), schemas.logs.clone(), &DELTA_ENCODED_COLUMNS).unwrap();
++        let mut traces = open_parquet_writer(&dir.join("traces.parquet"), schemas.traces.clone(), &DELTA_ENCODED_COLUMNS).unwrap();
++        let mut runs_writer = open_parquet_writer(&dir.join("runs.parquet"), schemas.runs.clone(), &[]).unwrap();
+         let mut run_records = Vec::new();
+         for &(run_id, ops, contents, payloads) in runs {
+             let rows = run_rows(ops, contents, payloads);
+@@ -1446,7 +1466,7 @@ mod parquet_writer_tests {
+         let dir = std::env::temp_dir().join(format!("spur-history-release-test-{}", std::process::id()));
+         std::fs::create_dir_all(&dir).unwrap();
+         let schemas = Schemas::new();
+-        let mut writer = open_parquet_writer(&dir.join("executions.parquet"), schemas.executions.clone()).unwrap();
++        let mut writer = open_parquet_writer(&dir.join("executions.parquet"), schemas.executions.clone(), &DELTA_ENCODED_COLUMNS).unwrap();
+         let mut rows = run_rows(&[("a", "[]"), ("\u{e9}", "")], &[], &[]);
+         let (action_capacity, payload_capacity) = (rows.text.action.capacity(), rows.text.op_payload.capacity());
+         let mut scratch = OffsetScratch::default();
+@@ -1523,6 +1543,53 @@ mod parquet_writer_tests {
+         let _ = std::fs::remove_dir_all(&dir);
+     }
+ 
++    #[test]
++    fn event_integer_columns_are_delta_encoded_without_a_dictionary_and_keep_statistics() {
++        let dir = std::env::temp_dir().join(format!("spur-history-encoding-test-{}", std::process::id()));
++        let _ = std::fs::remove_dir_all(&dir);
++        let writer = ParquetWriter::spawn(&dir, 1, 20).unwrap();
++        for run_id in 0..3 {
++            writer.write(
++                run_rows(&[("Write", "{}"); 4], &["a", "b", "c"], &["{}"; 4]),
++                run_record(run_id, 4),
++            );
++        }
++        writer.shutdown();
++
++        for table in ["executions", "logs", "traces", "runs"] {
++            let path = dir.join(table).join(batch_filename(1));
++            let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&path).unwrap()).unwrap();
++            let metadata = builder.metadata().clone();
++            let mut delta_columns = 0;
++            for column in metadata.row_group(0).columns() {
++                let name = column.column_path().string();
++                let encodings: Vec<Encoding> = column.encodings().collect();
++                let dictionary = encodings
++                    .iter()
++                    .any(|e| matches!(e, Encoding::RLE_DICTIONARY | Encoding::PLAIN_DICTIONARY));
++                if table != "runs" && DELTA_ENCODED_COLUMNS.contains(&name.as_str()) {
++                    delta_columns += 1;
++                    assert!(encodings.contains(&Encoding::DELTA_BINARY_PACKED), "{table}.{name}: {encodings:?}");
++                    assert!(!dictionary, "{table}.{name}: {encodings:?}");
++                    assert_eq!(column.dictionary_page_offset(), None, "{table}.{name} has a dictionary page");
++                    let stats = column.statistics().unwrap_or_else(|| panic!("{table}.{name} has no statistics"));
++                    assert!(stats.min_bytes_opt().is_some() && stats.max_bytes_opt().is_some(), "{table}.{name} min/max");
++                } else {
++                    assert!(dictionary, "{table}.{name}: {encodings:?}");
++                    assert!(column.dictionary_page_offset().is_some(), "{table}.{name} lost its dictionary page");
++                }
++            }
++            let expected = match table {
++                "executions" => 4,
++                "logs" => 3,
++                "traces" => 6,
++                _ => 0,
++            };
++            assert_eq!(delta_columns, expected, "{table}: delta-encoded column count");
++        }
++        let _ = std::fs::remove_dir_all(&dir);
++    }
++
+     #[test]
+     fn writer_busy_time_and_full_queue_waits_are_counted() {
+         let _serial = crate::simulator::config_override::exclusive_session();
