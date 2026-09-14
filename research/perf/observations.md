@@ -5595,3 +5595,29 @@ Revert criterion, registered before the post-merge baseline is read: the
 merge is reverted if the fresh post-merge baseline reads below 7,876.7 runs
 per second (0.97 of the 8,120.3 cached for c9c54fc), the ratio the previous
 merge used.
+
+### Post-merge baseline: the merge stands
+
+Fresh baseline cache for 85af34d (research/perf/baselines/ccdb1f916cf0-30-f9daa01b-120-bb813e711.json):
+8,472.1, 8,806.8, 8,745.8, mean 8,674.9 runs per second, spread 0.021. The
+revert line was 7,876.7; against the 8,120.3 cached for c9c54fc the tree is
+6.8 percent faster, consistent with the graded 1.0705. Ledger row appended to
+research/lite/epoch-baseline.json: ratio 1.0705, cumulative 4.043. The build
+warnings (three unused methods in coverage.rs) predate the merge.
+
+Digest, iteration 20: data layout lens, struct representation focus. Two
+parts built as one stack on c9c54fc. B (delivered record borrowed through
+exec) removed its copies - memmove fell 1.76 points - but the scheduler family
+and the new exec and park lines rose by more, and it closed with no departure
+path; boxing and borrowing the record have now both moved the same cost into
+the scheduler. A (struct values as shaped slices) removed the HAMT work of
+struct literals and field reads (G2 2.46 to 0.10, allocator down 0.81 x r),
+missed its ceval location guard by 0.08 x r, went to six rounds under a
+departure registered before them, and separated upward at 1.0705 [1.032,
+1.110]; placebo referred, user chose merge. Tree now 85af34d, 8,674.9 runs
+per second. Lessons: a representation change that removes a whole data
+structure's work beat four iterations of operand-level savings; a guard on
+where a saving lands (G1) is weaker evidence than guards on the costs
+themselves, and upward separation is the right arbiter when the band allows
+it; the Record/Runnable copies are not removable by moving ownership alone.
+A direction review follows on a fresh profile of 85af34d.

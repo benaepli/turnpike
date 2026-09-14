@@ -453,6 +453,22 @@
    "cacheFile": "research/perf/baselines/1e5a89f133ec-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-14T14:23:54.170949Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The ratio field is the graded cross-binary runs per second, 1.0251 [0.9906, 1.0608] over three rounds, read for regression only; the merge rests on its plain-cycles profile guards (scheduler family down 4.10 points, scheduler family plus exec_plan down 4.40, exec_plan itself down) and exact counters. Neutrality rows outside the spread covered by an identical caps-engaged one-thread identity of 100,000 runs. A placebo reading outside its described band was put to the user, who chose to merge; the redefinition of timer_context.biased_steps was noted in research/lite/observations.md at the user's authorization. Revert criterion registered before the check: below 7,624 runs per second. Post-merge baseline 8120.3 against 7,860.6 cached for 11a720c over 18 rounds, plus 3.3 percent: the merge stands."
+  },
+  {
+   "name": "struct-values-as-shaped-slices",
+   "commit": "215290a",
+   "spurCommit": "85af34d",
+   "ratio": 1.0705,
+   "cumulative": 4.043040446352925,
+   "measuredRps": 8674.88545422518,
+   "measuredRpsChunks": [
+    8472.1,
+    8806.8,
+    8745.8
+   ],
+   "cacheFile": "research/perf/baselines/ccdb1f916cf0-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-14T18:50:35.689741Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The ratio field is the graded cross-binary runs per second, 1.0705 [1.0324, 1.1100] over six rounds, separated upward, as the departure registered before rounds required after the ceval location guard missed by 0.08 x r; the counter primary value_sig.leaf_hashes_deferred read 10.30 [9.96, 10.66] against [9.0, 16.0], every added ratio in band every round. Neutrality: the learned_cap_reached share outside the spread is covered by an identical caps-engaged one-thread identity of 100,000 runs. A placebo reading outside its described band was put to the user, who chose to merge. Revert criterion registered before the check: below 7,876.7 runs per second. Post-merge baseline 8674.9 against 8,120.3 cached for c9c54fc, plus 6.8 percent: the merge stands."
   }
  ]
 }
