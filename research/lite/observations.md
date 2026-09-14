@@ -9469,3 +9469,16 @@ skill's bit-registration instruction conflicts with its absolute ban on
 editing research/orchestrator: this launch honors the ban, reusing only
 inactive registered bits with their existing names recorded as aliases.
 Changing that rule remains the user's responsibility.
+
+## Note from the perf loop: timer_context biased-step counters redefined (spur c9c54fc)
+
+Written by the perf loop at the user's authorization. From spur c9c54fc
+(superproject 34394a6, perf candidate timer-bias-read-at-the-split),
+timer_context.biased_steps, biased_steps_promoted and biased_steps_suppressed
+count only Probabilistic selections whose roll reached the local/other split
+(roll >= p_local), where the timer-context multiplier is compared; before,
+they counted every steered step with an eligible timer. They read about 5
+times smaller on grid arms (4.3-5.6 session wide); selections and draws are
+unchanged. The firing floor of timer-admission-context-odds-probe still
+clears by about four orders; chunk records before and after this commit are
+not comparable on these three leaves.
