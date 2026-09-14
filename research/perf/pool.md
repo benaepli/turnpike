@@ -1236,7 +1236,7 @@ rounds of clock each:
 
 ## rpc-frames-own-arguments-for-non-parking-callees
 
-- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 19) - commit B of value-moves-and-string-appends, only on top of dead-slot-operands-moved
+- category: allocation and memory traffic | origin: proposer | status: closed (iteration 19) - relocation guard G4 fired on its incremental profile over A: run_async_op + FrameBuilder::finish self +0.38 x r against at most +0.3, I +0.73 x r; patch kept as research/perf/patches/rpc-frames-own-arguments-for-non-parking-callees.AB.patch
 - mechanism: for callees with no reachable Recv, Pause or SpinAwait, the
   frame is built from the arguments by move, initial_args stays empty and
   reset keeps the frame; the callee lookup moves before argument evaluation
