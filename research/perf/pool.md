@@ -939,7 +939,7 @@ rounds of clock each:
 
 ## node-env-detached-per-segment
 
-- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 13 judging, iteration 14) - built first as part of node-env-and-in-place-updates
+- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 14) - built first as part of node-env-and-in-place-updates
 - mechanism: the node env is moved out of state.nodes[i] for the segment,
   leaving a placeholder that keeps sig and writes; every exit, error exits
   included, writes it back; the clone path stays under H::EAGER.
