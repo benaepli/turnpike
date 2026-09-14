@@ -6231,3 +6231,21 @@ reverts), rounds run as follows, fixed now:
   per second, and the spread check inside or its standing exemption;
 - writer busy share, full-queue sends and blocked seconds recorded both sides
   every round as description.
+
+### program-text-without-shared-refcounts part A: first census failed on a tooling fault; rerun registered (autonomous)
+
+The census recording of the stage-4 binary completed (record 0, census 0) but
+produced no groups: its output is the header line alone, and the site sums of
+0.000 are an empty pipeline, not a reading. Cause: the census script, copied
+from the proposer's, counts a sample as a simulation-thread spur sample only
+when the thread command equals "spur" and the object path ends in "/spur"; the
+candidate runs as cand-spur-4, so every simulation-thread sample was dropped
+before any lock site was looked for (the same naming trap as iteration 19's
+guard parser). The perf.data and script text had already been deleted.
+
+Fix: the census now takes the binary's file name from CENSUS_BIN, matching the
+thread command on its first 15 bytes (the kernel's limit) and the object path
+on the full name. The census is recorded again on the stage-4 binary (tag
+stage4b), read against the same frozen bounds: trace-name sites at most 0.05,
+simulation-thread census total at most 11.10 x 1.087 - 1.0 = 11.06, with an
+empty or header-only output treated as a failed run, never as a pass.
