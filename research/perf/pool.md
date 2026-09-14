@@ -1279,7 +1279,7 @@ rounds of clock each:
 
 ## struct-values-as-shaped-slices
 
-- category: data layout | origin: proposer | status: admitted (iteration 20) - building as commit A of struct-slices-and-borrowed-records
+- category: data layout | origin: proposer | status: merged (iteration 20, autonomous) - 215290a (spur 85af34d); runs per second 1.0705 [1.0324, 1.1100] over six rounds, separated upward under the departure registered after G1 missed by 0.08 x r; counter primary 10.30 [9.96, 10.66]; every ratio in band every round; placebo referred, user chose merge
 - mechanism: ValueKind::Struct(&'static StructShape, EcoVec<Value>) for
   string-keyed map literals whose key set occupies distinct root slots of the
   imbl node (so every insertion order iterates and later updates identically);
@@ -1326,7 +1326,7 @@ rounds of clock each:
 
 ## struct-slices-and-borrowed-records
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 20) - building
+- category: combined | origin: operator-agent (selection) | status: closed in part (iteration 20) - A (struct-values-as-shaped-slices) merged; B (delivered-record-borrowed-through-exec) closed on its incremental profile, the copy cost relocating into the scheduler
 - one branch from c9c54fc: commit A (H1), commit B (H2); tests and one-thread
   identity on each; A profiled against the flat 0.3 report, B against A's
   profile plus the objdump check; a part whose guard fires is reverted before
