@@ -4709,3 +4709,15 @@ queue, scoring and term evaluation, audits and probes that run under stats)
 have answers that change rarely - with the scheduler family itself as the
 guarded line, so relocation within it cannot count as a saving. No new
 profile is needed; 11a720c.md and the 45517fd attribution stand.
+
+## Iteration 18 - autonomous, algorithmic lens, profile 11a720c
+
+Tree unchanged at 11a720c; 11a720c.md (plain cycles) and the 45517fd
+caller attribution stand as inputs. Lens: algorithmic. Focus directive, from
+the direction review: schedule_runnable's family treated as one line - its
+saving counted only as the fall of the whole family's self, guarded on the
+family - with a per-step map of what the scheduler computes and which answers
+change rarely between steps (eligibility over untouched queues, term scoring
+the enabled terms cannot distinguish, stats audits and probes, values that
+depend only on state the chosen runnable changed). Probes the search loop
+uses as controls are out of bounds, as is walk_recovery_placebo.
