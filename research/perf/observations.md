@@ -5701,3 +5701,56 @@ runs per second is the primary, regression only, no departure.
 
 Selection (autonomous): build both as one stack, A then B, per the judge's
 sequence; three rounds, no extension.
+
+### plan-bookkeeping-and-known-valid-text: implementer report, review and rulings (autonomous)
+
+Commits in the implementer's spur clone on 85af34d: A 81625b0
+(plan-bookkeeping-answered-on-change), B 8749a4c (known-valid text and struct
+literals without placeholders); spur-A.patch and spur-AB.patch match them byte
+for byte. Tests (release) 533 at A, 535 at B, all passing.
+
+Identity, one thread, both commits against 85af34d: VR 3,008, Mencius 2,160,
+crash-heavy 1,800, caps-engaged 100,000 - all four tables identical both ways,
+end reasons, steps, stall_cap hash and runs_failed identical; at B the log,
+trace and execution text columns are byte-identical by digest. Dump leaves:
+only the new counters, plus history_writer.text_buffers_allocated (caps 4,112
+to 4,080) and, in campaign.json, text_buffers_recycled, both writer-timing
+leaves.
+
+Counters (VR / crash / caps, same at A and B): scans + scans_skipped =
+steps_total exact; scans_empty 0 and deliver lookups 0; scans per run 5.56 /
+7.34 / 5.67 in [0.95, 18]; scans / steps_total 0.00164 / 0.00129 / 0.00258 in
+[0.0005, 0.015]; planned_events_outstanding_sum equal to the baseline;
+literals_in_order + literals_permuted = literals exact; str_from_off_boundary
+0; literals / frame.calls 0.3686 / 0.3704 / 0.3738 within 0.375 +/- 0.01.
+
+Review:
+- A: PlanEngine keeps ready and open counts, set at construction from the
+  statuses; get_ready_events returns early at ready 0 and zeroes it after
+  releasing; mark_event_completed decrements open (and ready when the event
+  was Ready) only on a status change, and a successor made Ready increments
+  ready; is_complete reads open == 0; mark_as_ready (dead) is deleted. In
+  exec_plan the clone collect runs only when has_ready, returning the same
+  empty Vec otherwise; reservations are empty without deliver events, as the
+  filter over an empty map was; the entry_to_name lookup runs only with a
+  ready deliver, and with none ready the following find over ready_delivers
+  matched nothing, so skipping the pure lookup changes no state. Randomized
+  tests drive generated plans with crashes and partitions, hand-built timer
+  and deliver plans, repeated completions and early ends, checking both
+  counts, has_ready, is_complete and the released set against a reference
+  scan. Counters are tallied in a per-run struct recorded on drop.
+- B: (a) str_from checks the character boundary and converts unchecked; (b)
+  Decimal::as_str converts unchecked; both SAFETY comments state invariants the
+  judge verified (whole-string appends and truncation to earlier lengths;
+  ASCII digits and sign). No debug assertion. Release tests compare str_from
+  with the checked conversion at every offset, including after a failed JSON
+  append, and sweep Decimal at every power-of-two and power-of-ten edge. (c)
+  struct literals push evaluated fields in source order into with_capacity(n)
+  and, when a position differs, place them by a cycle sort over a fixed
+  15-entry index array; safe Rust, and an evaluation error drops the pushed
+  values. The in-order share on VR is under 1.4 percent, so nearly every
+  literal pays the permute: G3's ceval limit is the guard on that.
+- Seeding: the implementer's submodule update tried the network and failed;
+  85af34d was fetched from the main tree's spur. Nothing was downloaded.
+
+Ruling: both commits match the judgment; profiles of A and A+B are recording.
