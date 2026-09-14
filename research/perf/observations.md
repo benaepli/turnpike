@@ -4440,3 +4440,35 @@ into its own candidate and built in parallel; grid-pool-worker-continues net
   refutes, unresolved goes to the user. Budget 1.5-3 hours of lite chunks.
 - H1's extra runs are AOS runs, which the lite per-second rung ignores:
   noted for the user, not a grading issue.
+
+### timeline-store-one-lock: implementer report and review
+
+Built on 11a720c in feedback.rs, util_stats.rs and the completeness test:
+GlobalTimeline's DashMap<TimelineTuple, u64> becomes
+RwLock<HashMap<TimelineTuple, u64, FxBuildHasher>> with the total still an
+atomic. snapshot() takes one read lock and collects into the std HashMap
+TimelineSnap already holds (read only through contains_key and get, so no
+order is observable); merge() takes one write lock across the run's tuples
+and reads the live key count before releasing; decay() retains and recomputes
+the total under the write lock. dashmap stays a dependency (arm_selector,
+coverage, fault_timing, run_cap, ghost_release, stall_cap, spur-lsp).
+Counters timeline_store.snapshots and timeline_store.merges, plain session
+atomics under enabled() so folded_increments does not move.
+
+Review of the diff: matches the report. One cost to watch: a merge now holds
+the write lock across all of a run's tuples, so run-start snapshots on other
+threads wait for it, where the old store took a shard lock per tuple. With one
+live key the increments are short; std RwLock on Linux gives waiting writers
+priority, so merges are not starved. The rounds read the net.
+
+Checks (release): 523 spur-core tests pass, including a reference test of 400
+random merges with decays 0.5, 0.9, 0.0 and 1.0 against a copy of the old
+sharded store, comparing snapshot maps and totals after every merge. One-
+thread identity against 11a720c: VR 3,008 and Mencius 2,160 runs, runs /
+executions / logs / traces identical both ways, end reasons equal,
+stall_cap_runs.csv hashes equal. snapshots = merges = runs on VR (1 per run,
+per arm too); 0 on Mencius, whose config has no feedback block. Other leaves:
+only history_writer text-buffer and per-arm command counts, which a second
+baseline-against-baseline run shows move by writer timing alone.
+
+Graded in its own session after aos-draw-ahead-pool is decided.
