@@ -4145,3 +4145,32 @@ the line in place):
   a decode-time template or a one-pass build.
 Every price cites the attribution and states where the removed work could
 reappear, with a guard on that relocation.
+
+### Proposals
+
+All search-neutral, shared, priced from the attribution with a relocation
+guard; runs per second is regression-only for every one (none clears the
+0.05 floor or the round-to-round spread of about 6 percent on this tree).
+- eligible-lists-known-from-queue-info (net 1.3-2.1, [1.010, 1.025]): the
+  scheduler re-filters the chosen queue into a fresh Vec with the predicate
+  its count pass just applied; when the count equals the queue length the
+  selection borrows a static identity slice, otherwise the list is collected
+  at exact capacity; local_queue_sizes moves into a buffer reused across
+  steps. Counter sched.eligible_built; guards: allocator lines down at least
+  0.9 x r, scheduler family not rising. Placebo likely to move (disclosed).
+- delivered-record-not-copied (net 0.5-1.1): the four by-value hand-offs of
+  a delivered Record (scheduler.rs:1271, 1483, 1702, exec.rs:855; 17.5
+  percent of memmove) replaced by one take and a direct bind with exec
+  inlined. No per-run counter can see it; primary would be the memmove line
+  plus an objdump count.
+- slot-buffers-owned-per-segment (net 1.7-2.3): Env slots become an owned
+  Vec<Value>, each segment detaching its node's environment and writing it
+  back, so every refcount check and make_unique itself go (the reason
+  node-env-detached-per-segment closed). Record grows 8 bytes; a Record
+  clone becomes a deep copy. Counter env.buffer_copies at most 5 per run
+  (about 190 today); hard guard: no make_unique call in the binary.
+- the three as one change, [1.030, 1.060], guards separable.
+Set aside: map-literal templates (the first field write copies the 2.8 KB
+root anyway; ceiling about 0.1), an inline refcount check keeping EcoVec
+(unsound without patching ecow), queue sizes maintained across steps (the
+answers change every step; queue-eligibility-from-counters read no gain).
