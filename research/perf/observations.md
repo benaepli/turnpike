@@ -5621,3 +5621,30 @@ where a saving lands (G1) is weaker evidence than guards on the costs
 themselves, and upward separation is the right arbiter when the band allows
 it; the Record/Runnable copies are not removable by moving ownership alone.
 A direction review follows on a fresh profile of 85af34d.
+
+## Direction review after the struct merge (autonomous)
+
+Called for by the merge. Fresh plain-cycles profile of 85af34d
+(research/perf/profiles/85af34d.md, 0.3 percent cutoff), read against c9c54fc's
+flat report with r = 19.80 / 18.90 = 1.048.
+- The merge landed where priced: the HAMT family (make_mut, compute_sig,
+  Iter::next, drop_slow) gone from 2.46; allocator 4.31 to 3.49; ceval 8.44 to
+  7.90. Value drops moved into the field vectors: EcoVec<Value> drop 2.56 to
+  3.87 (now the largest value line), drop_glue<Value> 0.71 to 1.14,
+  drop_glue<ValueKind> 3.78 to 2.29; clone 3.06 to 3.29 merged.
+- Shape now: ceval 7.90, memmove 6.44, exec_ops 8.48 merged, scheduler family
+  12.13, EcoVec drop 3.87, run_sync_ops 3.98, exec_plan 3.17, clone 3.29.
+- New lines above 0.7 on simulation threads: a Vec<petgraph::NodeIndex>
+  collect (0.95) and __ieee754_log_fma (0.78), neither attributed; both look
+  like per-step work whose answer may be known earlier. EcoVec make_unique
+  0.76.
+- Writers: 3.14-3.21 busy-seconds per wall second across the six graded
+  rounds (about 79 percent of four), full-queue sends in every candidate
+  round, blocking at most 0.21 s per round. The writer path is again close to
+  the ceiling; snappy compress 1.07 and memcmp 0.97 lead the writer threads.
+
+Verdict: the representation lens paid where operand-level savings did not, so
+the next directives stay at mechanism level. Iteration 21 takes the
+redundant-work lens with a focus on the two new per-step lines and on the
+drops that moved into field vectors; writer capacity is recorded as the next
+likely ceiling and left to the contention lens. Pool pruning: nothing to drop.
