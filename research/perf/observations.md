@@ -3273,3 +3273,21 @@ the last four merges came from four different lenses.
 Running: the grid pool's shadow logic removed in its own worktree (release
 tests and a one-thread identity run against 911e265), and the
 frame-slots-and-trace-escape composite built in another, on 911e265.
+
+### Grid pool shadow check removed (user direction)
+
+Merged as spur 5df7084 on top of 911e265, not graded: the removed code was
+compiled only in debug builds, so the release binary's behaviour is the
+same by construction. Checked in a worktree with release builds only:
+spur-core tests pass (475 lib tests, both completeness tests, the four
+ordered_release tests; the drain test rewritten to compare against the
+sequential reference, the shadow-disagreement test deleted); no new warnings;
+one-thread identity against 911e265 (VR, seed 1000, 600-run slices, one
+round, 3,008 runs) identical on runs, executions (1,167,064), logs
+(3,377,240) and traces (3,701,447) both ways, same stall_cap_runs.csv hash;
+only the two shadow leaves are absent (0 in the release baseline); the
+per-arm split of history_writer.text_buffers_recycled moved by 4 with the
+session total equal, which a same-binary pair also shows. Two debug_assert!
+drain invariants in run_ordered_release stay: they are invariant checks, not
+a second model. No other shadow checks exist in spur. The perf baseline
+cache for the moved tree is measured at the next start.
