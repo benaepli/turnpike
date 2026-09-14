@@ -6199,3 +6199,14 @@ with r_w = 1.018 from the stage-2 profile:
 - H3's G3 reference on the H1 binary: Vec<i64> from_iter (the gather copy)
   0.110, near the 0.12 the judge cited; H3 must bring it to at most 0.03 x r_w
   on its own low-cutoff profile, which is recording.
+
+### page-statistics-from-first-in-page-keys: G3 settled (autonomous)
+
+Low-cutoff profile research/perf/profiles/0b0004e-cand-int-dict-keys-and-page-stats-low-cutoff.md
+(--percent-limit 0.05, the stage-3 binary), read only for the registered row
+with r_w = 1.018: Vec<i64> from_iter (the gather copy) 0.110 on the H1 binary
+to 0.000 - at most 0.0305, held. The 0.030 row beside it is
+PrimitiveArray<Int64Type>::from(Vec<i64>), a different symbol that neither
+guard names. Every H3 guard holds; every writer-side guard of the stack now
+holds. H2-A's lock census on the stage-4 binary is recording, and decides
+whether the graded binary is stage 4 or stage 3.
