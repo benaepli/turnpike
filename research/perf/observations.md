@@ -3826,3 +3826,59 @@ directive will require every priced line to cite that attribution. The
 writer path is parked until writers block (0 blocked in the last six
 rounds on 45517fd). Steering has not narrowed into one function: the
 closes span values, the node env, trace formatting and the writer.
+
+### Caller attribution on 45517fd (research/perf/profiles/45517fd-attribution.md)
+
+Recorded on the graded workload: one grader-shaped 60 s recording (matches
+45517fd.md within about 0.1 on every line), one plain-cycles frame-pointer
+recording and one plain-cycles DWARF recording at 49 Hz.
+
+Grader finding. The grader records with perf's default event, which on this
+Ryzen is cycles:P served by IBS: the sampled address is exact, but the call
+stack is taken after the CPU has moved on. The sampled function is absent
+from its own stack for 89 percent of make_unique samples, 93 percent of
+drop_glue<ValueKind> and about 80 percent of malloc and cfree. So every
+inclusive share and caller reading taken from a grader profile so far
+mostly describes whatever ran next. The two events also weight time
+differently: under plain cycles memmove reads 5.9 (3.4 under IBS), malloc
+2.5 (1.2), make_unique 0.6 (2.0). Guards read from IBS profiles have
+undercounted memmove and the allocator and overcounted small, frequent
+functions. The closes of node-env-detached-per-segment and
+collection-self-updates-in-place stand - their guards read like against
+like, both profiles IBS - but their pricing was built on unreliable
+inclusive shares.
+
+Where the costs come from:
+- make_unique: Env::set's make_mut on every slot write (values.rs:746),
+  70 percent from AssignNode (exec.rs:954), 21 percent AssignLocal; of its
+  precise samples 67 percent is the entry and refcount check, 21 percent the
+  return on an already-unique buffer, 10 percent an actual copy.
+- imbl insert: 76-78 percent map literals (CExpr::Map built by repeated
+  inserts, compiled_eval.rs:207), Store 21-24 percent; the cost is
+  allocating hash-map nodes.
+- memmove (DWARF, 91 percent of it in the top 30 call sites): about 48
+  percent moving Record and Runnable values through queues and calls
+  (push_runnable per RPC exec.rs:1215, Arc::new((record, lhs)) in
+  push_waiting_reader state.rs:460, the record argument into exec_ops
+  exec.rs:855, Vec::remove in take_local / take_network state.rs:1176 and
+  1167, moves in schedule_runnable scheduler.rs:1271, 1483, 1702); 14
+  percent the parquet writer; about 11 percent trace payload text; 7 percent
+  map inserts; 4 percent string building.
+- malloc / realloc: a quarter of malloc and three quarters of realloc are
+  schedule_runnable's per-step index lists (eligible at scheduler.rs:1276,
+  1301, 1350; local_queue_sizes at 1195); a fifth map literals; 15 percent
+  call frames and argument vectors; 10 percent string +; 8 percent Store; 8
+  percent trace and history payload boxes.
+- cfree: about 47 percent the scheduler temporaries (scheduler.rs:1788,
+  1329, 1296); the rest frames dropped at exec_ops exit and SyncCall end and
+  overwritten local values; end-of-run teardown 17 percent inclusive.
+- drop_glue<ValueKind>: two thirds the old value dropped when AssignLocal
+  overwrites a slot. EcoVec<Value> drop: 41 percent node-env writebacks, 43
+  percent frame drops.
+
+Grader decision (autonomous): research/perf/grader.ts is the loop's own
+file. Its profile command records the default precise event; it will record
+plain cycles instead, so call stacks belong to the sampled function and
+shares weight cycles. Profiles before this change are the IBS epoch; guards
+always compare a candidate profile with a baseline profile recorded the same
+way, so 45517fd is re-profiled on the new event before iteration 15.
