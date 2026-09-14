@@ -389,6 +389,22 @@
    "cacheFile": "research/perf/baselines/44d7a485b304-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-13T15:25:21.967Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The graded primary was a counter, history_writer.busy_ns per run, baseline over candidate 1.7257 [1.6736, 1.7793] over six rounds; the ratio field here is the cross-binary runs-per-second confirmation from the same session, 1.0738 [1.0420, 1.1066], because the ledger multiplies runs per second. No blockers, no departures. Revert criterion registered before the check: below 4,807 runs per second. Post-merge baseline 5186.6 against 4,955.6 for 7f607e6, plus 4.7 percent: the merge stands. Writers on the merged tree: about 340 us busy per run, 0 s blocked, 0 full-queue sends."
+  },
+  {
+   "name": "grid-ordered-release-pool-2",
+   "commit": "1501315",
+   "spurCommit": "911e265",
+   "ratio": 1.3497,
+   "cumulative": 3.3789010339975185,
+   "measuredRps": 7142.315800202366,
+   "measuredRpsChunks": [
+    7044.9,
+    7264.4,
+    7117.6
+   ],
+   "cacheFile": "research/perf/baselines/405fc2d72de2-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-14T02:00:00.000Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The ratio field is the graded cross-binary primary, runs per second over six rounds, 1.3497 [1.3233, 1.3767], separated, band [1.05, 1.20] read above; every frozen falsifier held and the voiding rule did not fire. Search-affecting: the lite grader (internal-primary-v3, cross-binary, two chunks) read depth>=8 per explore-second 1.4389 at z 2.7 with the per-run deep guards on depth>=6 and depth>=8 held and no violations over 4,384,200 runs; the regression-suite blocker was recorded as the panel note, the panel never running GridArm. Revert criterion registered before the check: below 5,446 runs per second. Post-merge baseline 7142.3 against 5,186.6 for edb9e2f, plus 37.7 percent: the merge stands. Components: grid arms run through an ordered-release worker pool with fresh runs launched ahead while the corpus' remaining children cover the free slots; assignment, draw and admission order exact."
   }
  ]
 }

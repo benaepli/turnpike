@@ -3225,3 +3225,18 @@ Revert criterion, fixed before the post-merge baseline is measured: the
 merge is reverted if the fresh baseline at the merged spur commit reads
 below 5,446 runs per second over three rounds, the band's lower edge 1.05x
 over the 5,186.6 cached for edb9e2f.
+
+### Post-merge baseline: the merge stands
+
+Merged: spur 911e265, superproject 1501315. The fresh baseline at 911e265
+reads 7,142.3 runs per second over three rounds (7,044.9, 7,264.4, 7,117.6),
+spread 0.0157, against 5,186.6 for edb9e2f - plus 37.7 percent, above the
+registered revert line of 5,446. Grid idle 0.28 to 0.30 ms per grid run.
+Writers: 391.1, 373.9 and 381.1 us busy per run, 0 s blocked and 0
+full-queue sends - about 68 percent of four writers at this rate, up from 44
+percent on edb9e2f, so writer capacity is again within reach of the
+ceiling. Ledger row appended with ratio 1.3497; cumulative 3.379.
+
+Next, in order: a profile of 911e265 (running before any build), the
+direction review it feeds, the grid pool's shadow logic removed per the
+user, and the frame-slots and trace-escape composite built.
