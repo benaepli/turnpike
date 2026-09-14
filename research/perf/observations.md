@@ -3162,3 +3162,33 @@ pass. The full table is 408.7 bytes a row and would have crossed the limit
 at 1.31M rows, which today's ~1.5M-run chunks do. The session record and
 the lite baseline cache were untouched; the crashed chunk's output is kept
 as crashed-chunk-1.json and two chunks were relaunched.
+
+### Iteration 13 judgment (autonomous)
+
+The first judge was lost with the previous session before writing anything;
+a fresh one with the same prompt wrote tmp/loop/perf/it13-judgment.md.
+
+- frame-slots-by-liveness: net 4, admitted with its rule rewritten. As
+  proposed, "no two variables sharing a color are live at the same vertex"
+  misses dead stores, which this compiler emits, so a written-never-read
+  temp could take a live loop variable's color and overwrite it each
+  iteration; the proposed unit test would have passed that coloring. The
+  frozen prediction now uses def-against-live-out interference, an
+  exhaustive use/def match, an independent forward reaching-definitions
+  checker over every bin/spur spec and a mutation test it must reject. The
+  91 percent figure shows slots filled with defaults, not slots unread.
+- trace-payload-escaped-in-one-pass: net 3, admitted. The mechanism needs a
+  content-aware sink, since a plain adapter cannot tell string contents from
+  structural text; part of format_escaped_str belongs to the executions
+  payload and stays, so a summed-self guard stops a moved scan counting as
+  removed.
+- recovery-placebo-walk-skipped-without-quick-fire: closed at judging, my
+  decision. The skip is exact, but the walk's cost is what the placebo exists
+  to charge, and the search loop still runs it as a cost-matched control.
+  For the user: if that control is retired, the saving is the placebo
+  switched off or deleted - a search-loop decision, not a perf candidate.
+- Built next, after grid-ordered-release-pool-2 is decided: the H1+H3
+  composite on frame.slots_built per run [1.6, 2.6], runs per second
+  [1.032, 1.056] for regression only.
+- value-without-dead-signature (held) is re-priced if frame-slots lands: its
+  ceiling shrinks with the slot count.

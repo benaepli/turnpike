@@ -867,3 +867,72 @@ rounds of clock each:
   lite chunks only if the primary lands in band and nothing is voided, log,
   decide.
 - full record: tmp/loop/perf/it12-judgment.md.
+
+## frame-slots-by-liveness
+
+- category: algorithmic | origin: proposer | status: admitted (iteration 13) - built first as part of frame-slots-and-trace-escape-composite
+- mechanism: a per-function liveness pass after compile and before
+  Program::decode colors VarSlot::Local slots greedily; parameters keep
+  0..param_count-1; interference is def against live-out (a store interferes
+  with every slot live after it, so dead stores cannot take a live slot's
+  color); entry-live non-parameter slots keep their declared defaults and
+  never share a color; the use/def extraction matches every Label and Instr
+  variant with no wildcard.
+- declarations: search-neutral, shared saving, no treatment bit.
+- exactness: an independent forward reaching-definitions checker in a unit
+  test over every function of every bin/spur spec, plus a mutation test the
+  checker must reject (a dead-store dummy on a live loop variable's color);
+  one-thread identity runs on VR and a second spec, exempt leaves only
+  frame.slots_built and frame.default_slots_filled.
+- disclosed by construction: `spur compile` program.json slot indices,
+  local_slot_count and local_defaults change; `_tmp{N}` names stop matching
+  slot numbers; dead temps drop at slot reuse.
+- counters: frame.slots_built per run baseline over candidate [1.6, 2.6]
+  (primary); new frame_layout.program_slots_before/after, after/before at
+  most 0.62 on VR.
+- profile guards (scaled by R = 3.97): FrameBuilder::finish self at most 1.3;
+  EcoVec<Value>::drop + drop_glue<Value> self down at least 0.8 from 4.34.
+- wall: runs per second [1.02, 1.035], regression only.
+- full record: tmp/loop/perf/it13-judgment.md (H1).
+
+## trace-payload-escaped-in-one-pass
+
+- category: algorithmic | origin: proposer | status: admitted (iteration 13) - built first as part of frame-slots-and-trace-escape-composite
+- mechanism: write_to becomes one text definition generic over a sink with
+  raw-text and content entry points; the trace sink writes `[`, quoted
+  escaped parameters joined by `,`, `]` straight into the trace TextBuffer
+  with a table matching serde_json's compact escaper; TraceScratch leaves the
+  path. A single-sink adapter that escapes every chunk does not meet the
+  prediction.
+- declarations: search-neutral, shared saving, no treatment bit.
+- exactness: a generated-value unit test against json_string_array over
+  write_to (quotes, backslashes, 0x00-0x1F, 0x7F, multi-byte UTF-8, the
+  error piece); values.rs write_to tests unmodified; traces table
+  byte-identical in the identity run.
+- counters: new trace_format.payloads_streamed and trace_format.rows_logged;
+  payloads_streamed + enter_payload_reused == rows_logged in every round.
+- profile guards (scaled by R): format_escaped_str self at most 0.6; summed
+  self of format_escaped_str, every write_to specialization and any new
+  escape symbol at most 1.99.
+- wall: runs per second [1.012, 1.02], regression only.
+- full record: tmp/loop/perf/it13-judgment.md (H3).
+
+## frame-slots-and-trace-escape-composite
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 13) - build after grid-ordered-release-pool-2 is decided
+- parts: frame-slots-by-liveness and trace-payload-escaped-in-one-pass;
+  disjoint code, counters and guards.
+- primary: frame.slots_built per run, baseline over candidate, [1.6, 2.6],
+  paired. Runs per second cross-binary composed [1.032, 1.056], below the
+  0.05 floor, read for regression only - stated before any round.
+- falsifier: any part's falsifier, or the composite rps interval separating
+  downward. Attribution: the part whose counter or guard did not move is
+  closed; a regression with both guards moved is split and re-graded.
+- order: pass and checker, sink split and escape test, identity runs, perf
+  rounds with a candidate profile; merge rests on counters, identity, guards
+  and no downward separation, with a revert line registered before the
+  post-merge baseline.
+
+## recovery-placebo-walk-skipped-without-quick-fire
+
+- category: algorithmic | origin: proposer | status: closed at judging (autonomous) - the walk's cost is the cost-matched control the search loop built (a55aa02) and keeps on in its graded workload; skipping it changes that control, which is not this loop's to change. Verification stands (exact, draws nothing) if the user retires the control; the saving would then be taken by switching the placebo off or deleting it, not by this skip.
