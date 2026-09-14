@@ -5925,3 +5925,50 @@ the contention and parallelism lens, focused on the writer path (per-command
 work, batching, encoding, the queue) and on shared state touched by all 30
 simulation threads. Pool: grid-pool-worker-continues and
 writer-capacity remain the prior entries on this lens; nothing pruned.
+
+## Iteration 22 - autonomous, contention lens, profile 0b0004e
+
+Lens: contention and parallelism. Focus directive from the direction review:
+the history writer path (82-83 percent busy, blocking rising) and shared state
+touched by all 30 simulation threads. The proposer's run was interrupted by a
+session restart after both recordings and resumed from its scratch; no third
+recording was taken.
+
+### Proposals (tmp/loop/perf/it22-proposals.md)
+
+Measurements on the 0b0004e binary: one 60 s caller recording (8,496 runs per
+second, writer rows within 0.1 of 0b0004e.md) and one scheduling view
+(/proc schedstat).
+- Writers are on-CPU 0.834 per thread and wait for a CPU 9.8 percent of the
+  time; the host was 8.7 percent idle, so busy_ns is mostly real work. A
+  writer spends 378 us per run, 239 ns per row; per row it varies 0.6 percent
+  between rounds against 5.8 percent per run.
+- Writer samples 11.58 points: traces 6.39, logs 2.48, executions 1.14.
+  Largest single costs: Int64 dictionary interning 2.10, snappy 1.10,
+  byte-array dictionaries about 0.98, string page statistics (memcmp) 0.72.
+- Blocking is under 0.02 percent of simulation-thread time, so a writer saving
+  is not expected to move wall time now; it reads as blocked_ns and busy share.
+- Shared state, by samples just after lock-prefixed instructions: the trace
+  function-name Arc 0.69 points and program-owned heap string literals over 15
+  bytes 0.76 on the increment side are real contention; shared statics still
+  written per step about 1.09 (the closed scheduler probe counters' leaves,
+  flagged, not re-proposed); no allocator arena lock; the rayon epoch pin 0.16;
+  the large refcount rows are per-run state (cache misses, not contention).
+- H1 integer-dictionary-keys-by-value: in a vendored parquet 58.0.0, integer
+  dictionary keys come from a last-value memo and a direct table below 65,536
+  instead of hashing; output bytes identical. Primary busy ns per row,
+  baseline over candidate [1.09, 1.20]; runs per second [0.99, 1.02]
+  regression only; fast-path share at least 0.97.
+- H2 program-text-without-shared-refcounts: trace names as &'static str from
+  a compile-time interner; long string literals cloned from a per-thread copy.
+  Runs per second [1.008, 1.025] regression only; private_literal_clones per
+  presized print [0.8, 1.6]; the lock-census counts at the removed sites fall
+  from 0.69 to at most 0.05 and from 0.76 to at most 0.15.
+- H3 page-statistics-from-first-in-page-keys, a second commit on H1: string
+  page min/max compares only values new to the page while the dictionary is
+  active, and contiguous primitive columns skip the gather copy; output bytes
+  identical. H1 + H3 busy per row [1.13, 1.28].
+- Unverified: where the literal decrement lands; the caller of 0.57 points of
+  writer growth memmove; the action column's cardinality; that the compiled
+  program is one structure shared for the session; the vendoring claims (grep
+  only, no build).
