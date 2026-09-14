@@ -6249,3 +6249,18 @@ on the full name. The census is recorded again on the stage-4 binary (tag
 stage4b), read against the same frozen bounds: trace-name sites at most 0.05,
 simulation-thread census total at most 11.10 x 1.087 - 1.0 = 11.06, with an
 empty or header-only output treated as a failed run, never as a pass.
+
+### program-text-without-shared-refcounts part A: second census fault found and fixed (autonomous)
+
+The rerun (tag stage4b) was empty too, with a good recording (316,199
+samples). A 10 s debugging recording of the same binary, kept whole, found
+the second fault: perf script prints Rust symbols in mangled v0 form, while
+the census looks functions up by their nm | rustfilt names, so no sample
+matched a function and no lock site could be found. The proposer's baseline
+census had read a demangled dump. With the dump piped through rustfilt, the
+census on the debugging recording finds lock sites as expected (simulation
+threads 10.58, writer threads 0.079, EcoVec<Value> drop 4.04 at the top). The
+debugging recording is not read for the observable. census-run.sh now pipes
+perf script through rustfilt and records the dump and census sizes before
+deleting the bulk; the census is recorded again on the stage-4 binary (tag
+stage4c) and read against the frozen bounds registered above.
