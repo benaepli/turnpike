@@ -5832,3 +5832,30 @@ deliver lookups 0, scans per run [0.95, 18], scans / steps_total [0.0005,
 0.015], literals_in_order + literals_permuted = literals, literals / frame.calls
 within 0.375 +/- 0.01, str_from_off_boundary 0; the spread check inside or its
 standing exemption.
+
+### plan-bookkeeping-and-known-valid-text: three rounds and decision (autonomous)
+
+Read once, after all three were in.
+- Runs per second 1.0310, 1.0442, 1.1085; mean 1.0607 [0.9635, 1.1677], not
+  separated, inside the band [1.021, 1.041] read for regression only; no
+  downward separation. Microseconds per run 1.0634 [0.962, 1.175]; steps per
+  run 0.969 [0.850, 1.106].
+- Counters, every round: scans + scans_skipped = steer_authority.steps_total
+  exactly; scans_empty 0; deliver lookups 0; scans per run 6.07, 6.07, 6.08
+  in [0.95, 18]; events released per run 11.56-11.61; scans / steps_total
+  0.00335, 0.00362, 0.00362 in [0.0005, 0.015]; literals_in_order +
+  literals_permuted = literals exactly; literals / frame.calls 0.3771, 0.3734,
+  0.3728 within 0.375 +/- 0.01; str_from_off_boundary 0.
+- Spread check: arm shares aos (0.1237 against 0.1304) and grid-no-purgatory
+  (0.2107 against 0.2065) outside. Arm choice in the wall-budgeted campaign
+  follows run completion timing, and the caps-engaged one-thread identity of
+  100,000 runs was identical on every table; standing exemption applies.
+
+Decision: merge A and B as two spur commits. Every frozen guard held on both
+profiles (G1 and G2 of both parts settled on low-cutoff profiles), identity
+exact on four runs per commit, every counter in band every round, no downward
+separation, placebo inside its band on both profiles.
+
+Revert criterion, registered before the post-merge baseline is read: the
+merge is reverted if the fresh post-merge baseline reads below 8,414.6 runs
+per second (0.97 of the 8,674.9 cached for 85af34d).
