@@ -4797,3 +4797,36 @@ per second [1.02, 1.07] (the frozen counter is read per step, which the grader
 cannot pair, so it is read by hand: folded_increments per step, baseline over
 candidate, [0.875, 0.905]); F falls at least 1.5 x r; exec_plan (RecordRng)
 self falls at least 0.9 x r.
+
+### scheduler-probe-counters-folded-per-run: candidate profile, departure criterion registered before any round is read
+
+Profile 11a720c-cand-probe-counters-folded.md (plain cycles) against
+11a720c.md; R_all 28.70 on the baseline (reproduces), 29.75 on the
+candidate, r = 1.037. Frozen text read from tmp/loop/perf/it18-judgment.md
+(my pool entry had transcribed the second guard as exec_plan; the judgment's
+second guard is the schedule_runnable RecordRng instance, and exec_plan is
+the relocation guard).
+- F (every schedule_runnable instance, the queue-size fold, score_with_terms,
+  select_within_queue) 13.60 to 10.33, a fall of 3.77 = 3.63 x r, at least
+  1.5 and expected [2.0, 5.5]: held. Rows 6.45 / 2.15 / 1.94 / 1.39 / 1.13 /
+  0.54 to 3.64 / 1.55 / 1.20 / 1.10 / 1.08 / 1.08 / 0.68.
+- schedule_runnable RecordRng self 6.45 to 3.64, a fall of 3.05 = 2.94 x r,
+  at least 0.9: held.
+- exec_plan RecordRng self 2.04 to 2.39, at most 2.04 x r + 0.2 = 2.32:
+  FIRED by 0.07.
+- fold_run_counters and record_run_termination absent above the self cutoff: held.
+- walk_recovery_placebo 1.44 to 1.80, 1.206 of 1.44 x r against [0.9, 1.1]:
+  referred to the user before any merge.
+- description: memmove 6.00 to 6.07, exec_ops 7.96 to 8.03, ceval 7.96 to
+  8.34, malloc 2.14 to 2.22.
+
+Departure registered before any round result is read (the rounds started
+with the profile; none has been looked at). By the frozen text the fired
+exec_plan relocation guard refutes. The central observables held with room -
+the family fell by more than twice its floor and the instance carrying the
+moved writes nearly halved - and what fired is a relocation allowance
+exceeded by 0.07 against a 3.77 fall. By the standing rule the candidate
+merges only if cross-binary runs per second separates UPWARD (interval lower
+edge above 1.0), with the per-step counter in [0.875, 0.905] in every round,
+every other falsifier held, and the placebo referral read by the user.
+Otherwise it closes on the exec_plan guard.
