@@ -5285,3 +5285,29 @@ floor (band is regression only). Counters over 989,100 candidate runs
 0.9673, both in band; taken 7,366 per run - OUT again; self_copies 1,478,
 inside; sends 292 and assigns 751 per run; sum identity exact;
 entry_frame_copies 0. The closure stands.
+
+### dead-slot-operands-moved: round 3 and decision (autonomous)
+
+Round 3: runs per second 0.9621 (cand 8,113.6, base 8,433.0, the fastest
+baseline round of the session's six). Three-round mean 0.9922 [0.928, 1.060],
+not separated. Counters over 974,580 runs: taken 7,447 per run - OUT;
+self_copies 1,491; returns / calls 0.9703; call_args / params 0.9663; sum
+identity exact; entry_frame_copies 0. The grader also lists end-reason and arm
+shares outside the baseline's own spread; one-thread identity was exact, so
+these are the throughput-dependent shares of a campaign, read as description.
+
+Decision: closed on the counter falsifier (taken above band in all three
+rounds). The profile read a real value-family saving (-2.14 x r) with the
+interpreter lines falling too, but the wall reading does not separate, and the
+frozen counter bands were the price. Patch kept. A returning candidate would
+carry bands from these rounds (taken about 7,350-7,650, self_copies about
+1,470-1,540 per run at about 1,950-2,010 frame calls) and be priced afresh.
+
+Digest, iteration 19: three parts built as one stack on c9c54fc; C closed on
+per-print counter bands before profiling, B on its relocation guard (the
+build_frame saving reappeared in run_async_op and finish), A on its absolute
+move counters. Nothing merged; the tree stays at c9c54fc (8,120.3 runs per
+second). Lessons: absolute per-run counter bands priced from a site census
+under-count executions by about 15 percent here and should be ratios of
+existing counters where one exists; a frame built by move still pays its
+construction in the caller.

@@ -1211,7 +1211,7 @@ rounds of clock each:
 
 ## dead-slot-operands-moved
 
-- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 19) - building as commit A of value-moves-and-string-appends
+- category: allocation and memory traffic | origin: proposer | status: closed (iteration 19) - counter falsifier: value_move.taken 7,607 / 7,366 / 7,447 per run against [3,000, 6,500] in all three rounds (self_copies 1,533 in round 1 against at most 1,500); profile guards held; runs per second 1.0101, 1.0049, 0.9621, not separated; patch kept as research/perf/patches/dead-slot-operands-moved.A.patch; may return re-priced from these rounds
 - mechanism: a decode-time per-function liveness pass (over labels reachable
   from each entry, on the post-coloring graph) emits Opnd::Take at top-level
   kept positions whose slot is dead after the op - Return, Async and SyncCall
