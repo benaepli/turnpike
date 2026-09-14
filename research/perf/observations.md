@@ -4527,3 +4527,25 @@ exported binary was rebuilt after test- and comment-only edits; its .text and
 Grading next: plain-cycles candidate profile (running), three or more rounds
 on the primary batched_worker_idle_ns per row, then the lite reading with the
 frozen AOS-arm hand reading if the primary is not below 2.3.
+
+### aos-draw-ahead-pool: candidate profile
+
+Profile 11a720c-cand-aos-draw-ahead-pool.md (plain cycles) against
+11a720c.md. R_all over every specialization of ceval, exec_ops, run_sync_ops,
+memmove and drop_glue<ValueKind>: 28.70 on the baseline (reproduces the
+frozen figure), 28.23 on the candidate, r = 0.984.
+- new pool symbols self at most 0.30 x r: nothing above the cutoff (the
+  pool's spawn wrapper and AosRunner appear only in the inclusive table at
+  0.00 self): held.
+- no std Mutex, futex, lock_contended, parking_lot or rayon sleep symbol in
+  either table: held.
+- description: ceval 7.96 to 7.59, exec_ops 7.96 to 7.70, run_sync_ops 3.84
+  to 3.92, memmove 6.00 to 6.17, drop_glue<ValueKind> 2.94 to 2.85,
+  schedule_runnable family 11.93 to 12.47, malloc 2.14 to 2.16.
+- walk_recovery_placebo 1.44 to 1.72, 1.21 times its reference against the
+  described [0.9, 1.1]: referred to the user before any merge. A plausible
+  reading is the run mix - AOS runs rise from about 13 to about 18 percent of
+  the session - rather than any change to the walk, whose code is untouched.
+
+Rounds running (primary grid_pool.batched_worker_idle_ns per row, band
+[2.3, 6.5]).
