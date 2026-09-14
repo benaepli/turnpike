@@ -4721,3 +4721,33 @@ change rarely between steps (eligibility over untouched queues, term scoring
 the enabled terms cannot distinguish, stats audits and probes, values that
 depend only on state the chosen runnable changed). Probes the search loop
 uses as controls are out of bounds, as is walk_recovery_placebo.
+
+### Proposals
+
+Per-step map of the scheduler family F on 11a720c (1,757 steps and 3,180 us
+per run; one profile point about 20 ns per step): F0 = 13.60 self
+(schedule_runnable 6.45, 2.15, 1.94; queue-size fold 1.39; score_with_terms
+1.13; select_within_queue 0.54), about 276 ns per step. Every steer weight is
+0 in general_vr.json, novelty off, Tournament k=10, strict_timers off on
+explore runs. Finding: about 2.38 direct shared-atomic counter writes per
+step remain in the family - 1.865 to three adjacent statics through
+record_timer_context_bias (util_stats.rs:735-737, about 26 million increments
+per second from 30 threads), 0.297 crash timing bias, 0.212 crash placement
+holds - all added after thread-local-stats-blocks and bypassing the per-thread
+block.
+- scheduler-probe-counters-folded-per-run: those writes into the per-thread
+  block, folded at run end; folded_increments per run baseline over candidate
+  [0.875, 0.905] with an exact one-thread difference; F falls by at least
+  2.0 x r; runs per second [1.02, 1.10]; priced 3.0-10.6 points from the
+  thread-local-stats-blocks contended-write calibration.
+- timer-bias-read-at-the-split: the timer multiplier computed only when the
+  local-or-other roll is at or above p_local, with the same draws in the same
+  order; biased_steps per run [4.85, 5.15] per grid arm; F falls by at least
+  0.6 x r over the first; 1.0-1.7 points.
+- unweighted-steer-counters-derived-at-fold: ten per-step counter bumps whose
+  values are session constants under zero weights become two per-run cells
+  expanded at fold, values exact; 0.6-1.2 points.
+Set aside: incremental eligibility counts (queue-eligibility-from-counters'
+closed mechanism), a tournament score memo (at most 0.4), anything touching
+the placebo or audit_multiplier_authority (the search loop's firing
+counter).
