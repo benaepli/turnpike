@@ -4549,3 +4549,31 @@ frozen figure), 28.23 on the candidate, r = 0.984.
 
 Rounds running (primary grid_pool.batched_worker_idle_ns per row, band
 [2.3, 6.5]).
+
+### aos-draw-ahead-pool: three rounds
+
+Seeds 1000-1002 against 11a720c:
+- primary grid_pool.batched_worker_idle_ns per row, baseline over candidate
+  7.1747, 6.5997, 6.1020; mean 6.611 [5.406, 8.084], separated, band
+  [2.3, 6.5] read inside (mean at the upper edge): 316.5 / 313.2 / 331.6 us
+  per row to 44.1 / 47.5 / 54.3.
+- falsifiers, every round: AOS busy share 0.943, 0.936, 0.931 (below 0.78
+  falsifies: held); AOS runs per AOS pool-second 1.303, 1.327, 1.501 times
+  the baseline (below 1.10: held); AOS us per run 1.242, 1.216, 1.062 times
+  (above 1.40: held); writers blocked at most 0.085 us per row (above 50:
+  held), full-queue sends 0, 39, 82.
+- drawn ahead 99.5, 99.2, 99.2 percent of batches (description 55-95,
+  above); uncredited at draw 1.72, 1.76, 1.69 per batch (inside); one gated
+  seed batch per session.
+- runs per second 1.0030, 1.0190, 1.0241; mean 1.0153 [0.9882, 1.0431], not
+  separated (regression reading held). Microseconds per run 0.933, the mix
+  moving toward longer AOS runs; AOS share of runs 0.131 to 0.181; grid idle
+  per row unchanged (231.7 / 226.8 / 249.9 to 228.3 / 215.0 / 226.3).
+- neutrality rows (plan_complete share, four arm shares) outside the spread:
+  description for a search-affecting declaration.
+- blocker: the owed lite reading and the protocol panel note.
+
+Next: the lite session, two cross-binary chunks to start under v3 (the
+first also measuring a lite baseline for 11a720c), deep guards per run on
+depth>=6 and depth>=8 at the 0.25 margin, the frozen AOS-arm hand reading
+beside it, and the panel recorded as blind to the campaign arms.
