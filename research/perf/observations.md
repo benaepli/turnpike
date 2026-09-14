@@ -5584,3 +5584,14 @@ separation within six rounds, every counter in band every round, identity
 exact, G2 settled, every guard but G1 held, the spread exemption. The placebo
 read 0.896 of its reference on A's profile, outside [0.9, 1.1]; referred to
 the user before merge.
+
+### struct-values-as-shaped-slices: merge decision (autonomous, placebo referred)
+
+The placebo reading (0.896 of reference on A's profile, 1.089 on the A+B
+profile of the same struct code) was put to the user, who chose to merge.
+Merging commit A alone on c9c54fc (spur-A.patch; B stays closed).
+
+Revert criterion, registered before the post-merge baseline is read: the
+merge is reverted if the fresh post-merge baseline reads below 7,876.7 runs
+per second (0.97 of the 8,120.3 cached for c9c54fc), the ratio the previous
+merge used.
