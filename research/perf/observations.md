@@ -3794,3 +3794,35 @@ then beside a layout control.
 Iteration 14 closes with no merge: node-env-and-in-place-updates closed on
 its frozen profile guards, integer-columns-delta-encoded on its frozen wall
 falsifier.
+
+### Direction review after iteration 14 (autonomous)
+
+Iterations 13 and 14 together: one merge (frame-slots-by-liveness, plus
+the grid pool before it), four closes on frozen falsifiers
+(trace-payload-escaped-in-one-pass, node-env-detached-per-segment,
+collection-self-updates-in-place, integer-columns-delta-encoded) and one
+close at judging (the recovery placebo skip). Tree unchanged at 45517fd,
+7,669.9 runs per second, cumulative 3.632.
+
+What the closes share. Three of the four were priced by attributing profile
+lines through source reading - which function "must" reach make_unique,
+which part of insert "is" the root clone, which writer line "is" the
+interner - and the frozen guards then showed the attribution wrong or the
+line unbound. The mechanisms worked exactly as built (counters in band,
+identity identical every time); the prices did not. The fourth
+(integer-columns-delta-encoded) removed real writer work, but the writers
+were not binding and the clock separated 2 percent downward.
+
+Verdict: the largest costs are still the ones being attacked -
+schedule_runnable's family (about 11.6), ceval (7.4), exec_ops (7.9 across
+specializations), memmove (3.4), allocator traffic (about 4.4),
+make_unique (2.0) - but pricing against them now needs caller attribution
+from call stacks, not source reading. Before iteration 15's proposer, a
+caller attribution of make_unique, memmove (via dwarf unwinding, since
+glibc has no frame pointers), the allocator lines, the Value drop family
+and the imbl map insert is being recorded on the graded workload; it is
+proposer input like a profile, not a graded round. Iteration 15's focus
+directive will require every priced line to cite that attribution. The
+writer path is parked until writers block (0 blocked in the last six
+rounds on 45517fd). Steering has not narrowed into one function: the
+closes span values, the node env, trace formatting and the writer.
