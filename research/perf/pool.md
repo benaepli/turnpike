@@ -936,3 +936,65 @@ rounds of clock each:
 ## recovery-placebo-walk-skipped-without-quick-fire
 
 - category: algorithmic | origin: proposer | status: closed at judging (autonomous) - the walk's cost is the cost-matched control the search loop built (a55aa02) and keeps on in its graded workload; skipping it changes that control, which is not this loop's to change. Verification stands (exact, draws nothing) if the user retires the control; the saving would then be taken by switching the placebo off or deleting it, not by this skip.
+
+## node-env-detached-per-segment
+
+- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 13 judging, iteration 14) - built first as part of node-env-and-in-place-updates
+- mechanism: the node env is moved out of state.nodes[i] for the segment,
+  leaving a placeholder that keeps sig and writes; every exit, error exits
+  included, writes it back; the clone path stays under H::EAGER.
+- verified by the judge: make_unique 2.03 can only be the node env
+  copy-on-write on this tree (two make_mut sites, VR stores into maps only,
+  frame.entry_frame_copies 0); every mid-segment reader audited (self-send
+  writes at exec.rs:1206, same-node wake at exec.rs:1533, signature only
+  under hashing, async continuation after writeback); the error-path
+  difference is unobservable because a failed run writes no row
+  (explorer.rs:1129 vs 1168). Answers the question exec-node-env-in-place
+  was closed on. Corrected price 3.1-3.4 points.
+- counters: node_env.written_segments, shared_at_write (must be 0);
+  error_exits description only (the grader cannot pair a baseline-absent
+  counter).
+- declarations: search-neutral, shared saving.
+- full record: tmp/loop/perf/it14-judgment.md (H1).
+
+## collection-self-updates-in-place
+
+- category: allocation and memory traffic | origin: proposer | status: admitted (iteration 14) - only with or after node-env-detached-per-segment; built as part of node-env-and-in-place-updates
+- mechanism: decoded ops for x = x[k] := v, append and erase into the same
+  slot evaluate key and value first, keep error order, take the value out,
+  update in place and store once; a collection still shared elsewhere keeps
+  its copy. The decoder compares slot kind as well as index (after
+  frame-slots-by-liveness a temp can share the target's slot).
+- verified: label shapes (cfg.rs:693-696, 1028-1031), evaluation order,
+  error kinds, aliasing; the imbl root is a 32-wide node of about 2.8 KB
+  (layout arithmetic). Weak: without the node-env change there is almost no
+  saving; struct literals also allocate roots.
+- counters: value_update in-place map and list, split local and node slots.
+- declarations: search-neutral, shared saving.
+- full record: tmp/loop/perf/it14-judgment.md (H2).
+
+## node-env-and-in-place-updates
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 14) - building
+- primary: cross-binary runs per second, band [1.04, 1.10], below the 0.05
+  floor so read for regression only; counters by hand every round; a
+  candidate profile for the guards (make_unique for H1 alone, the Value drop
+  family composite-only, one merged relocation guard at 1.5 x r, r =
+  R_cand/3.93).
+- before any round: one-thread identity on VR (3,008 runs), Mencius, and the
+  caps-engaged 100,000-run identity.
+- merge rests on counters in band, shared_at_write 0, identical identity,
+  every guard held and no downward separation.
+
+## integer-columns-delta-encoded (iteration 14 re-pricing)
+
+- status: admitted (iteration 14) - building in parallel; graded as its own commit after node-env-and-in-place-updates
+- band tightened to history_writer.busy_ns per run [1.04, 1.14] (the earlier
+  replay bench caps the saving near the top edge; the delta encoder's cost
+  is unmeasured); writers about 72 percent busy, full-queue sends 0/29/31,
+  blocked at most 0.07 us per run, so not binding today.
+- readers verified: porcupine and traceanalyzer through DuckDB 1.4
+  (go-duckdb v2.4.3), spur debug through arrow-rs parquet 58; statistics at
+  default. Restored identity checks: traceanalyzer output and one spur debug
+  combined run.
+- full record: tmp/loop/perf/it14-judgment.md (H3).

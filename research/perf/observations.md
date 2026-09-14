@@ -3587,3 +3587,32 @@ grader reads at today's throughput. Release builds only.
 - memmove (3.41) could not be attributed: glibc keeps no frame pointer, so
   nothing is priced against it. value-without-dead-signature stays held
   (frame memory now 66 KB per run from 272 KB).
+
+### Judgment (autonomous)
+
+The judge admitted all three and the combination, nothing scored 0:
+node-env-detached-per-segment net 4, collection-self-updates-in-place net 3
+(only with or after the first), the two as one commit net 4 and built
+first, integer-columns-delta-encoded net 2 as its own commit after.
+
+- node-env-detached-per-segment: the central claim holds - make_unique can
+  only be the node env copy-on-write on this tree - which is the question
+  exec-node-env-in-place was closed on. Two supporting claims were false
+  (grow's 1.26 inclusive cannot sit under make_unique's 0.80 of children;
+  make_unique read 1.37, not below the cutoff, on 69c488c); corrected price
+  3.1-3.4 points. The disclosed error-path difference is unobservable: a
+  failed run writes no row. error_exits is description only, since the
+  grader blocks on a counter absent from the baseline.
+- collection-self-updates-in-place: exact as rewritten; the decoder must
+  compare slot kind, because frame slots now let a temp share the target's
+  index.
+- The combination: counters split by local and node slot, the Value drop
+  guard composite-only, one relocation guard; runs per second [1.04, 1.10],
+  regression only; identity on VR, Mencius and caps-engaged before rounds.
+- integer-columns-delta-encoded: band tightened to [1.04, 1.14] on
+  busy_ns; writers not binding today; traceanalyzer and spur debug identity
+  restored.
+
+Decision: build the combination and the writer change in parallel, in two
+worktrees; grade the combination first, then the writer change on the tree
+the combination leaves.
