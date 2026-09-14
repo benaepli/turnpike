@@ -4340,3 +4340,21 @@ primary is regression-only and the clock can only block, so the line is set
 on regression - the merge is reverted if the fresh baseline at the merged
 spur commit reads below 7295 runs per second over three rounds, 0.97x the
 7521.3 cached for 45517fd over 15 rounds.
+
+### Post-merge baseline: the merge stands
+
+Merged: spur 11a720c, superproject 1089040. The fresh baseline at 11a720c
+reads 8,017.4 runs per second over three rounds (7,914.9, 8,136.4, 8,000.9),
+spread 0.0139, against 7,521.3 cached for 45517fd over 15 rounds - plus 6.6
+percent, above the registered revert line of 7,295. Against the 7,669.9
+measured right after frame-slots-by-liveness merged it is plus 4.5 percent;
+the 15-round cache includes rounds from later sessions, so part of the
+difference is session-to-session host drift. Writers 356.6-376.5 us busy per
+run, blocked at most 0.03 us, full-queue sends 0, 8, 28. Known over built
+eligible lists about 37 per round. Ledger row appended with ratio 1.0145;
+cumulative 3.684.
+
+Iteration 16 closes with one merge (eligible-lists-known-from-queue-info)
+and one close (slot-buffers-owned-per-segment); delivered-record-not-copied
+stays in the pool unbuilt. The loop continues at the user's direction:
+iteration 17 profiles 11a720c.

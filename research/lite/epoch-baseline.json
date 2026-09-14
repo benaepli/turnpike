@@ -421,6 +421,22 @@
    "cacheFile": "research/perf/baselines/f5d551492f04-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-14T02:45:31.289866Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The graded primary was a counter, frame.slots_built per run, baseline over candidate 4.1563 [3.9922, 4.3272] over three rounds; the ratio field is the cross-binary runs-per-second reading from the same session, 1.0748 [1.0252, 1.1268], because the ledger multiplies runs per second. Search-neutral; the grid-short arm share neutrality blocker was departed from on a caps-engaged one-thread identity run of 100,000 runs on a superset of this change that read identical on every table, end reason and cap figure. Split from the frame-slots-and-trace-escape composite, whose trace part closed on its own profile guard. Revert criterion registered before the check: below 6,789 runs per second. Post-merge baseline 7669.9 against 6,999.4 for 5df7084 (the shadow removal, not graded, release behaviour unchanged), plus 9.6 percent: the merge stands."
+  },
+  {
+   "name": "eligible-lists-known-from-queue-info",
+   "commit": "1089040",
+   "spurCommit": "11a720c",
+   "ratio": 1.0145,
+   "cumulative": 3.68430165239497,
+   "measuredRps": 8017.411625598629,
+   "measuredRpsChunks": [
+    7914.9,
+    8136.4,
+    8000.9
+   ],
+   "cacheFile": "research/perf/baselines/2d021a55f2c1-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-14T07:39:50.733755Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. The ratio field is the graded cross-binary runs per second, 1.0145 [0.9486, 1.0849] over three rounds, read for regression only; counters exact every round and every profile guard held on its own commit; neutrality rows outside the spread covered by an identical caps-engaged one-thread identity of 100,000 runs on a superset of the change. A walk_recovery_placebo profile reading below its described band was put to the user, who chose to merge. Revert criterion registered before the check: below 7,295 runs per second. Post-merge baseline 8017.4 against 7,521.3 cached for 45517fd over 15 rounds, plus 6.6 percent: the merge stands."
   }
  ]
 }

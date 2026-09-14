@@ -1055,7 +1055,7 @@ rounds of clock each:
 
 ## eligible-lists-known-from-queue-info
 
-- category: redundant work | origin: proposer | status: admitted (iteration 16) - every profile guard held on its own commit; grading alone (three rounds); placebo 1.34 x r below its described band, referred to the user before any merge
+- category: redundant work | origin: proposer | status: merged (autonomous, placebo referral read by the user) - spur 11a720c, superproject 1089040; runs per second 1.0145 [0.9486, 1.0849] over 3 rounds, counters exact, guards held; post-merge baseline 8,017.4 cleared its revert line of 7,295; patch also at research/perf/patches/eligible-lists-known-from-queue-info.spur.patch
 - mechanism: when the count pass shows every element of the chosen queue
   eligible, selection borrows a static identity slice instead of filtering
   again into a fresh Vec; past the slice's length, today's code; otherwise
