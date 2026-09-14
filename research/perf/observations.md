@@ -5344,3 +5344,33 @@ representation of struct-shaped values and the objects the step loop moves by
 value (Record and Runnable 3.49 points of memmove), the latter only by a
 mechanism that answers why runnable-one-word-record's scheduler guard fired.
 Pool pruning: nothing to drop; held and not-built entries keep their reasons.
+
+## Iteration 20 - autonomous, data layout lens, profile c9c54fc
+
+Lens: data layout and representation. Focus directive from the direction
+review: the representation of struct-shaped values; second, Record and
+Runnable moved by value, only with an answer to runnable-one-word-record's
+scheduler guard.
+
+### Proposals (tmp/loop/perf/it20-proposals.md)
+
+- H1 struct-values-as-shaped-slices: ValueKind::Struct(&'static StructShape,
+  EcoVec<Value>) for string-keyed map literals whose key set iterates in one
+  order in imbl regardless of insertion; every consumer (store, erase, for-in,
+  Eq, Ord, both signature policies, write_to, JSON, Debug, type_name) produces
+  the Map form's output, materializing a Map where needed. Counter primary
+  value_sig.leaf_hashes_deferred baseline over candidate [9.0, 16.0], with
+  exact identity baseline - candidate = literal_entries + field_reads on
+  one-thread runs; ratio bands on literals, entries and field reads per frame
+  call; priced 4.0-4.85 points, wall [1.030, 1.060] regression only. Census on
+  a one-thread counting binary: 0.365-0.380 literals per frame call, 3.56-3.58
+  fields each, 0.40-0.42 field reads per frame call; the literal insert line is
+  1.95 of ceval's 8.44 by line attribution.
+- H2 delivered-record-borrowed-through-exec: the boxing guard fired because
+  the scheduler walks read link_seq, entry_pc, node and origin_node (offsets
+  16 and 152-184) of every queued record each step, which boxing turned into a
+  pointer load; the queue layout stays and schedule_runnable owns the record
+  for the step, exec and exec_ops taking &mut Record, removing five copies
+  (1.32 points of memmove) and half the park copy. Counters show only the
+  path, not the copies, so it is proposed as a second commit on H1 read by
+  incremental profile; band [1.008, 1.016].
