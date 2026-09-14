@@ -6454,3 +6454,11 @@ referred.
 Selection (autonomous): build A (H1) and B (H2) on one branch per the judge's
 sequence, three rounds, no extension unless a departure is registered before
 round 1.
+
+### Operator note: pause after iteration 23
+
+The user asked the loop to pause at the end of this iteration. Iteration 23
+(eligibility from counters, crash scans skipped) runs to its decision and log;
+no iteration 24 is started. The guard reader tmp/loop/perf/guards23.py
+reproduces every frozen reference figure on c302525.md (r lines 14.23, fold
+rows 1.88, scheduler family 14.68, placebo + audit + memmove 9.52, net 27.61).
