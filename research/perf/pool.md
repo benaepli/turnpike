@@ -1185,7 +1185,7 @@ rounds of clock each:
 
 ## timer-bias-read-at-the-split
 
-- category: algorithmic | origin: proposer | status: admitted (iteration 18) - with unweighted-steer-counters-derived-at-fold as one commit, graded on the tree the first candidate leaves
+- category: algorithmic | origin: proposer | status: admitted (iteration 18) - re-priced alone on 11a720c after the probe counters closed (judge addendum, net 6): it now also skips about 0.74 record_timer_context_bias calls per step (1.48 shared writes, about 80 percent of the timer-bias writes), priced 1.75-3.4 points; building alone
 - verified: multiplier() a pure read; the head-timer find side-effect-free on
   a timer queue; one roll then try_select on both paths, so draws match;
   neutral. biased_steps is the declared firing counter of the merged lite
@@ -1197,7 +1197,7 @@ rounds of clock each:
 
 ## unweighted-steer-counters-derived-at-fold
 
-- category: redundant work | origin: proposer | status: admitted (iteration 18) - with timer-bias-read-at-the-split as one commit
+- category: redundant work | origin: proposer | status: held (iteration 18) - waits to ride with a returned scheduler-probe-counters-folded-per-run (both read through the folded_increments identity); alone it has no readable guard at 0.2-0.6 points
 - exactness false as proposed: route_by_terms' consultation bump runs
   whenever the audit is enabled, including with steer_audit_always on; the
   bump is dropped only under audit enabled, no weighted predicate and not

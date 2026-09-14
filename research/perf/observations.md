@@ -4875,3 +4875,37 @@ returned as pool-2), not by re-reading this one.
 Next, per the judgment's rule for this case: re-price timer-bias-read-at-the-
 split with the write saving it now carries (about 80 percent of the
 timer-bias writes) and grade it alone on 11a720c.
+
+### Judge addendum after the probe counters closed
+
+Written to tmp/loop/perf/it18-judgment-addendum.md by the iteration-18 judge.
+- timer-bias-read-at-the-split alone on 11a720c, net 6. Verified from source:
+  the multiplier's only consumer is the local-or-other comparison
+  (scheduler.rs:1314-1321), which on the Probabilistic path calls
+  record_timer_context_bias (two direct fetch_add on one line); under the
+  change that call moves inside the branch taken only when roll >= p_local.
+  biased_steps per step read 0.910-0.943 across 21 measurements with
+  promoted + suppressed equal to it in every one; about 0.20 of steps kept on
+  grid arms, 0.20-0.22 session-wide. Priced 1.2-2.1 points for the writes
+  (calibrated on the probe counters' own result, 1.6-2.8 points per
+  cache-line transfer) plus 0.55-1.3 for the compute. The wall cannot confirm
+  it at a six-round half-width of 0.028, so any fired guard closes it.
+- frozen: identity identical except the three biased leaves, each at or below
+  baseline, folded_increments and every probe counter identical, promoted +
+  suppressed = biased_steps; biased_steps per step baseline over candidate
+  session [4.3, 5.6], grid arms [4.6, 5.3], promoted / biased_steps in [0.33,
+  0.37]; G1 F falls at least 1.2 x r; G2 schedule_runnable RecordRng falls at
+  least 0.9 x r; G3 F plus exec_plan RecordRng (15.64) falls at least 1.0 x r
+  (relocation counted against the saving); G4 exec_plan RecordRng at most
+  2.04 x r + 0.5; runs per second [1.012, 1.035] regression only; placebo
+  described, referral outside [0.9, 1.1]; the lite-log note on biased_steps'
+  changed meaning written before merge.
+- exec_plan's +0.35 under the probe counters: probably layout (on builds not
+  touching exec_plan's source it moved +0.20 and -0.11; the patch adds
+  nanoseconds there), but not shown - no same-source profile pair from
+  separate builds exists.
+- unweighted-steer-counters-derived-at-fold waits for a returned probe-counter
+  candidate. The closed probe counters may return only as a new candidate with
+  the exec_plan guard frozen as a net fall over F plus exec_plan and a wire
+  set above a measured between-build spread, after a same-source profile pair
+  and perf annotate on the kept binary against 11a720c.
