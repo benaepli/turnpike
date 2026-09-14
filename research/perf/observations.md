@@ -5216,3 +5216,43 @@ eager. Counters async_args_owned + kept on every built record.
 Profiles of A and of A+B running at a 0.3 percent report cutoff (the grader's
 new --percent-limit), read against the attribution's fp-flat-0.3.txt and A's
 profile respectively.
+
+### value-moves-and-string-appends: profile readings (autonomous)
+
+Profiles at 0.3 percent cutoff, every generic instance summed
+(research/perf/profiles/c9c54fc-cand-dead-slots-moved.md and
+c9c54fc-cand-dead-slots-and-rpc-frames.md; reader tmp/loop/perf/guards19.py).
+r is taken over the untouched family (every schedule_runnable instance, the
+queue-size fold, score_with_terms, every exec_plan instance, the placebo,
+format_escaped_str, the parquet Int64 interner); the reference reads I 22.12
+and V 9.40, matching the frozen figures.
+
+A against attribution-c9c54fc/fp-flat-0.3.txt, r = 1.046. All held.
+- G1 ValueKind::clone merged 3.06 -> 1.64 x r (-1.42; needed -0.6).
+- G2 V merged 9.40 -> 7.26 x r (-2.14; needed -0.8): clone -1.42,
+  drop_glue<ValueKind> -0.63, EcoVec<Value> drop -0.08.
+- G3 I 22.12 -> 21.17 x r (-0.95; allowed +0.5): ceval -0.54, run_sync_ops
+  -0.37, exec_ops -0.32, run_async_op +0.28.
+- G4 V + I -3.09 x r (needed -0.5).
+- Description: schedule_runnable +0.14, exec_plan +0.18, build_frame self
+  -0.03, FrameBuilder::finish +0.12, memmove +0.01, malloc +0.15. Placebo
+  1.81 -> 1.67 x r (0.92 of reference, inside [0.9, 1.1]).
+
+B against A's profile, r = 0.989. G4 fired; B is reverted before rounds.
+- G1 build_frame inclusive 1.78 -> 0.51 x r (held; needed -0.4).
+- G2 EcoVec<Value> drop -0.21 x r (held; needed -0.12).
+- G3 ValueKind::clone merged -0.38 x r (held; needed -0.1).
+- G4 run_async_op (three instances) + FrameBuilder::finish self 2.43 ->
+  2.81 x r, +0.38 against at most +0.3. FIRED. build_frame self fell 0.54
+  and about 70 percent of it reappears in run_async_op and finish, the
+  relocation the guard was frozen for; I as a whole rose 0.73 x r
+  (run_async_op +0.26, run_sync_ops +0.27, exec_ops +0.12), so V's -0.45 is
+  not a net saving on this profile.
+- G5 malloc self 2.38 -> 2.24 x r (held).
+
+Decision: B closed on G4. The judgment gives no departure path at B's size
+([1.004, 1.010] cannot separate upward), and the net of its lines (V + I +
+build_frame + finish) is about -0.14 x r, inside one profile's noise. Patch
+kept as spur-AB.patch (commit B over A). Nothing sits above B. Rounds run on
+A alone, band [1.008, 1.025], regression only; A's counters are read by hand
+every round, and taken above 6,500 per run closes A.
