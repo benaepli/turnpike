@@ -4377,3 +4377,38 @@ the batched AOS path where every worker waits for a batch's slowest run,
 writer busy share and full-queue sends at about 8,000 runs per second, and
 any barrier between arms or slices - priced in lost worker-seconds per
 wall-second. Writer-side changes only if writers are shown binding.
+
+### Wall-time accounting and proposals
+
+Accounting from the 11a720c baseline counters (three 120 s rounds, 30
+workers, 4 writers), in worker-seconds (ws) per round:
+- grid pools 80 percent of the session: 228.0 ws idle, 7.9 percent of
+  capacity, 274 us per grid run.
+- AOS batched path 19.6 percent of the session: 299.6 ws idle, 42.5 percent
+  of AOS capacity - 12.7 of 30 workers idle on average during AOS slices,
+  each 60-run batch holding the pool 10.3-11.2 ms against 5.9-6.5 ms of job
+  wall per worker.
+- outside any pool (slice boundaries, setup): 16.4 ws, 0.45 percent.
+- in all, 544 ws per round not running, 15.1 percent of thread wall, 4.53
+  workers per wall-second.
+- writers 72.5-74.5 percent busy, blocked at most 27.7 ns per row: not
+  binding. CPU demand about 30.6 of 32 logical CPUs in grid slices, about
+  20.2 in AOS slices.
+
+Proposals:
+- aos-draw-ahead-pool (search-affecting): the campaign's AOS arm runs on an
+  ordered-release pool that may draw up to two batches ahead of the newest
+  credited one while workers would otherwise idle; run ids, draw order, per-run
+  seeds, credit order and the once-per-batch bandit recompute are held, and at
+  one worker nothing is drawn ahead, so the one-thread schedule is today's.
+  Primary batched_worker_idle_ns per row [2.3, 6.5]; runs per second
+  1.010-1.062, regression only; owes the lite reading.
+- grid-pool-worker-continues (declared neutral, flagged): a completing job
+  applies its completion and the pool's passes under a mutex and takes the
+  next run itself, instead of waking the main thread per completion; every
+  decision is the same code in the same order. Primary worker_idle_ns per row
+  [1.6, 5.0]; runs per second [1.01, 1.04].
+- the two on one worker-continuing engine, affecting, [1.02, 1.10].
+Set aside, noted as a possible rider: GlobalTimeline on a 128-shard DashMap
+holding one live key read-locks all shards twice per run (about 257
+acquisitions of shared lock words, estimated 20-40 us per run).
