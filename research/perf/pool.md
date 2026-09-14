@@ -1332,3 +1332,58 @@ rounds of clock each:
   profile plus the objdump check; a part whose guard fires is reverted before
   rounds; three rounds against c9c54fc (six only under A's departure rule),
   wall band [1.036, 1.075] with B, [1.030, 1.060] without.
+
+## plan-bookkeeping-answered-on-change
+
+- category: redundant work | origin: proposer | status: admitted (iteration 21) - building as commit A of plan-bookkeeping-and-known-valid-text
+- mechanism: PlanEngine keeps a Ready count and a not-Completed count, exact
+  under every transition once the dead mark_as_ready is removed; the per-step
+  get_ready_events scan runs only when something is ready (same sort as
+  today, same empty Vec otherwise), is_complete reads the count, and the
+  delivery-name lookup at path.rs:1094 runs only with a pending delivery
+  (never on this workload: the generator emits no Deliver or AllowTimer).
+- verified by the judge: the Vec<NodeIndex> collect is get_ready_events (97.4
+  percent from plan.rs:91); at most 18 plan nodes per run; no draw or order
+  changes; steer_authority.steps_total exists (steps_used_sum + deadlocks).
+  Reopens plan-engine-dense-status only in part: that commit also carried the
+  node-env change, so its exec_plan rise was never pinned on the plan engine;
+  G3 and G4 settle it.
+- counters: exact scans + scans_skipped = steps_total, scans_empty 0,
+  plan_deliver.lookups 0; scans / runs [0.95, 18]; scans / steps_total
+  [0.0005, 0.015].
+- guards (85af34d.md, r = scheduler family / 12.13): collect family 1.57 at
+  most 0.30 x r; lookup family 1.16 at most 0.71 x r; exec_plan 3.17 at most
+  3.47 x r; the three 5.90 at most 4.50 x r; malloc + cfree 2.25 at most 2.35 x r.
+- declarations: search-neutral, shared. Wall [1.015, 1.030], regression only,
+  no departure. Judge net 5 (gain 7, cost 2: release order and PlanComplete).
+- full record: tmp/loop/perf/it21-judgment.md (H1).
+
+## known-valid-text-and-literals-without-placeholders
+
+- category: redundant work | origin: proposer | status: admitted (iteration 21) - commit B of plan-bookkeeping-and-known-valid-text, on H1; parked if H1 closes
+- mechanism: (a) TextBuffer::str_from and (b) Decimal::as_str skip the UTF-8
+  re-check on text valid by construction (documented unsafe, no debug
+  assertion; release-built equivalence tests); (c) struct literals built in
+  safe Rust without placeholder Units (with_capacity and in-place permute, or
+  an Option buffer), sound when a field evaluation fails midway.
+- counters: literals_in_order + literals_permuted = value_struct.literals;
+  str_from_off_boundary 0; literals / frame.calls 0.375 +/- 0.01.
+- guards on A+B against A: from_utf8 0.54 at most 0.10 x r and trace/write_to
+  set 2.03 at most 2.13 x r (revert a, b); from_elem 0.60 at most 0.10 x r,
+  ceval 7.90 at most 8.10 x r, EcoVec reserve + grow 0.48 at most 0.63 x r,
+  drop_glue<Value> 1.14 at most 1.24 x r (revert c); malloc + cfree at most
+  2.40 x r and net 12.69 at most 12.19 x r (revert all of B).
+- declarations: search-neutral, shared. Alone [1.006, 1.011]; composite with
+  A [1.021, 1.041]. Judge net 2 (gain 4, cost 2: text reaches Arrow arrays
+  built unchecked and payload columns).
+- full record: tmp/loop/perf/it21-judgment.md (H2).
+
+## plan-bookkeeping-and-known-valid-text
+
+- category: combined | origin: operator-agent (selection) | status: admitted (iteration 21) - building
+- one branch from 85af34d: commit A (H1), commit B (H2); tests and one-thread
+  identity on each (VR 3,008, Mencius 2,160, crash-heavy, caps-engaged
+  100,000; B also trace and log bytes); A profiled against 85af34d.md, A+B
+  against A's profile with H1's guards re-checked; a part whose guard fires
+  is reverted before rounds; three cross-binary rounds against 85af34d, no
+  extension; composite band [1.021, 1.041].

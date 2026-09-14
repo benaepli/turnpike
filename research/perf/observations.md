@@ -5684,3 +5684,20 @@ One 60 s plain-cycles caller recording on the 85af34d binary (matches
   11.58 fall at least 0.6 x r.
 - Flagged, not proposed: the node-env handle pair per segment (about 1.4
   points) is the closed node-env-detached-per-segment mechanism.
+
+### Judgment (tmp/loop/perf/it21-judgment.md)
+
+Both admitted with rewrites; nothing scored 0. H1 net 5 (cost 2: release
+order sets operation ids and client-node assignment; is_complete sets the
+PlanComplete end reason): counts exact under every transition once the dead
+mark_as_ready goes; at most 18 plan nodes per run (the generator emits no
+Deliver or AllowTimer); no draw or order changes; r re-based on the full
+scheduler family (12.13). H2 net 2 (cost 2: unchecked text reaches Arrow
+arrays built with new_unchecked and payload columns): invariants hold by
+construction; unsafe needed for (a) and (b), no debug assertion under the
+release-only rule; (c) only in safe Rust; 0.6-0.9 points, at the minimum
+effect. No new counter can be the grader's primary (absent on the baseline):
+runs per second is the primary, regression only, no departure.
+
+Selection (autonomous): build both as one stack, A then B, per the judge's
+sequence; three rounds, no extension.
