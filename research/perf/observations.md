@@ -3966,3 +3966,54 @@ loop's owner before merge.
 
 Build: two commits (index lists, then boxing), identity on the composite,
 two plain-cycles profiles for attribution, three rounds.
+
+### records-boxed-and-index-lists-inline: implementer report and review before grading
+
+Two commits on 45517fd: A, the index lists (smallvec 1.15.1 as a direct
+dependency under the simulator feature, Cargo.lock gaining only the name in
+spur-core's list, no new package; eligible lists SmallVec<[usize; 14]>,
+128 bytes asserted; local_queue_sizes SmallVec<[usize; 15]>, 136 bytes by
+arithmetic, so its copies may stay a library call, which the memmove guard
+decides); B, the boxing on top (Runnable at most 32 bytes asserted for both
+hash policies, Record unchanged at 248; QueuedRecord { inline_priority,
+boxed }; Timer, ChannelSend and PartitionType boxed; parked readers
+Arc<(Box<Record>, Lhs)>; the crash queue and the partition queue hold
+Box<Record>).
+
+Review of the diff. QueuedRecord is built only by new and exposes only a
+read-only Deref, with no DerefMut, so code mutating a queued record in place
+would no longer compile and the priority copy cannot drift - by
+construction, not by audit. Records leave and re-enter queues through
+into_record and new; the crash path and activate_partition move the record
+instead of cloning it; a shared waiting-reader pop clones the box and counts
+it; exec_legacy and exec_ops take the env out with mem::take and put it back
+before re-queueing; every creation site (async calls in both interpreters,
+client ops, recovery, timers, channel sends, partitions) boxes once with a
+counter. The eligible lists collect the same filter into inline storage in
+the same order, tested against a Vec reference inline and spilled.
+
+Checks (release): 524 tests at A, 526 at B. Identity, every table both ways:
+VR 3,008 runs for A and for B, Mencius 2,160 and the caps-engaged 100,000
+for B - identical, stall_cap_runs.csv hashes equal, end reasons equal
+(100,000: deadlock 19, iterations_exhausted 30,030, learned_cap_reached
+18,308, plan_complete 29,129, stall_cap_reached 22,514), cap figures equal.
+Leaves outside clocks, folded_increments and the new counters differ only
+in writer timing (the baseline side of the 100,000-run identity blocked
+877.8 ms with one full-queue send; the candidate none).
+
+Counters: the exact identity async record boxes + timer boxes + make()
+channels = channels_created held on every run and every arm;
+eligible_lists_built equals decisions exactly; other_record_boxes 8.4-8.8 per
+run (at most 40); channel_send_boxes and partition_boxes 0. Watched, read
+per round: timer_boxes 377.8 per run on the 3,008-run VR identity and 230.9
+on the 100,000-run one against [150, 320], with three arms of the latter
+outside; heap spills 0.19 and 0.90 percent of lists (at most 1 percent), with
+three arms of the 100,000-run identity between 1.43 and 2.03 percent. The
+bands were set on grader rounds, whose runs are shorter, so the rounds
+decide. folded_increments falls short by exactly 3 per run with the boxing
+counters, which the implementer places in the servers' Init before a run's
+counter block opens; session totals are intact.
+
+Grading as frozen: a plain-cycles profile of commit A (running), then of the
+composite, then three rounds on cross-binary runs per second, regression
+only, counters by hand every round.
