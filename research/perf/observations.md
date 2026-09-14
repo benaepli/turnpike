@@ -3435,3 +3435,35 @@ is the faster binary moving through the learned caps and the slice
 allocation, the same throughput response compiled-interpreter showed. The
 composite's code is a superset of frame-slots-by-liveness's, so this reading
 clears the H1-only candidate's neutrality as well; H3 is closed regardless.
+
+### frame-slots-by-liveness: cut from the composite, reviewed, graded alone
+
+The H1-only patch was cut on 5df7084 and checked byte for byte against the
+composite: frame_layout.rs identical, the compiler.rs and cfg.rs hunks
+identical, util_stats.rs and the completeness test carry only the two
+frame_layout gauges and their leaves; no values.rs, exec.rs or text_buffer.rs
+change. One test-only adaptation: the checker's label-shape comparison now
+also blanks TypeId digits, because assign_type_ids numbers types in hash map
+order and two compilations of the current VR.spur (RecoverInit's
+persist_data / retrieve_data carry a TypeId) numbered one type 0 and 4. The
+composite's implementer had run the checker against a worktree checkout of
+bin/spur holding 10 specs and an older VR.spur; the split ran it over all 26
+specs that compile (CRAQ does not compile on the baseline either).
+
+Checks, release only: spur-core 521 tests pass, including the checker over
+26 specs and the dead-store mutation test. One-thread identity on VR (3,008
+runs) against 5df7084: runs, executions (1,167,064), logs (3,377,240) and
+traces (3,701,447) identical both ways, same stall_cap_runs.csv hash; only
+frame.slots_built (65,264.5 to 15,816.9 per run, 4.13) and
+default_slots_filled differ, plus the new frame_layout leaves (658 to 124);
+history_writer.text_buffers_* and stats_local.folded_increments now
+identical, confirming those moved only with H3. frame.calls and
+params_filled identical.
+
+Graded as a new session with the frozen declarations (counter primary
+frame.slots_built, band [1.6, 2.6], search-neutral, shared saving; runs per
+second [1.02, 1.035] regression only), three rounds. Merge rests on the
+counter, no downward separation in runs per second, the composite's profile
+guards for H1 (read on the whole Value drop family) and the caps-engaged
+identity reading, with a revert line registered before the post-merge
+baseline.
