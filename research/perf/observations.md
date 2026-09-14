@@ -3555,3 +3555,35 @@ traffic, and the writer path (text column encoding, the Int64 dictionary
 interner); integer-columns-delta-encoded and value-without-dead-signature
 re-priced on this tree. Both declarations admissible again now that the lite
 grader reads at today's throughput. Release builds only.
+
+### Proposals
+
+- node-env-detached-per-segment: make_unique (2.03 self) is the node env's
+  copy-on-write. exec_ops (exec.rs:1478) and exec_sync_on_node (exec.rs:105)
+  clone state.nodes[i], so the first node write in a segment copies all 20
+  slots and the writeback frees the old buffer; frame.entry_frame_copies
+  reads 0 on both sides, and the only other reach (eval.rs:252, a store into
+  a list) VR never does. The share has grown steadily as other costs left
+  (1.11 to 2.03). Moves the env out of the node for the segment, leaving a
+  placeholder with sig and writes; the clone path stays under H::EAGER.
+  Neutral, shared. New node_env.written_segments [130, 450] per run,
+  shared_at_write and error_exits exactly 0. Discloses that a runtime error
+  inside a segment would keep the node's partial writes. Runs per second
+  [1.02, 1.05], regression only. Offered as the new evidence the closed
+  exec-node-env-in-place entry asked for.
+- collection-self-updates-in-place (needs the first): x = x[k] := v,
+  append and erase compile to one label, and ceval clones the collection out
+  of its slot first, so the update always sees it shared - a map update
+  clones a 2.8 KB imbl root through _int_malloc (GenericNode::make_mut 2.16
+  inclusive), a list push takes reserve's copy branch. New decoded ops
+  evaluate key and value first, keep the error order, take the value out,
+  update in place, store once. Neutral, shared. value_update.map_in_place
+  [60, 400] and list_in_place [15, 200] per run; runs per second
+  [1.02, 1.05], regression only. Together with the first, [1.04, 1.10].
+- integer-columns-delta-encoded, re-priced: dictionary off and
+  DELTA_BINARY_PACKED on seven integer columns; history_writer.busy_ns per
+  run [1.05, 1.15], runs per second [1.00, 1.02] regression only, output
+  bytes per run [0.85, 1.02], a parquet_metadata encoding check.
+- memmove (3.41) could not be attributed: glibc keeps no frame pointer, so
+  nothing is priced against it. value-without-dead-signature stays held
+  (frame memory now 66 KB per run from 272 KB).
