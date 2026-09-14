@@ -4197,3 +4197,56 @@ any merge, as before.
 Build: the eligible lists then the owned slots, two commits; identity on
 both and caps-engaged on the composite; two plain-cycles profiles; three
 rounds.
+
+User direction, recorded: keep running iterations until told to stop again
+(the pause after iteration 15 and the one-more-iteration limit are lifted).
+
+### eligible-lists-and-owned-slots: implementer report and review before grading
+
+Two commits on 45517fd. A (eligible lists): EligibleList lends a static
+0..128 index slice when the queue's admitted count equals its length and the
+length is at most 128, and otherwise builds with the same filter at exact
+capacity; local_queue_sizes lives in a buffer owned by exec_plan, cleared
+and extended each step; counters sched.eligible_known, eligible_built and
+eligible_built_long after the empty-list check. B (owned slots): Slots is a
+crate-private Vec<Value> wrapper whose Clone is the only copy path and
+counts env.buffer_copies; Env::detach without a clone-under-EAGER branch;
+record, sync and legacy segments move the node env out and put it back on
+every exit (node_env.moved_out / put_back); the four wake sites store in
+place; crash_node's network path and activate_partition move records
+instead of cloning.
+
+Review of the diff. The fast path trusts that the admitted count used the
+filter's predicate: true for local and network queues, and for the timer
+queue under strict_timers too - timer_queue_size is counted with the same
+allowed_timers check (scheduler.rs:1169), so the lent list is exact with
+strict timers on. A wake site storing into state.nodes[i] for the node that
+is mid-segment writes into the placeholder, which put-back overwrites; the
+old code wrote into a stale clone that segment end overwrote the same way,
+so the behaviour is unchanged. FrameBuilder builds a Vec; set_local no
+longer asks whether a frame is shared (it cannot be).
+
+Checks (release): tests pass at A (478 unit plus integration) and B (481).
+objdump: direct calls to EcoVec<Value<NoHashing>>::make_unique 591 sites in
+85 functions on 45517fd, 1 on the composite (eval::update_collection, the
+list store). Identity against 45517fd, every table both ways: VR 3,008 and
+Mencius 2,160 on both binaries, caps-engaged 100,000 on the composite -
+identical, stall_cap_runs.csv hashes equal, end reasons and cap figures
+equal, frame.* identical. Leaves outside clocks and new counters: only
+stats_local.folded_increments, rising by exactly the new sched bumps.
+Counters: known + built = recovery_weight_placebo.decisions =
+multiplier_authority.decisions exactly, per arm, on VR and caps-engaged;
+decisions / eligible_built 4,775 (VR) and 78.0 (caps-engaged), band at
+least 3; eligible_built_long 0 and 24 (0.0009 percent of built);
+env.buffer_copies 0 per run; moved_out = put_back exactly, per arm.
+moved_out per run 2,933 and 1,949 against [1,400, 1,800]: these identity
+runs are longer (3,389 and 2,200 steps per run against about 1,727 in graded
+rounds) and moved_out per step (0.865, 0.886) matches iteration 14's 0.915;
+not a falsifier, the rounds decide. Deviations accepted: exec_legacy moves
+and puts back too; a failed record segment keeps partial node writes under
+both hash policies (unobservable - a failed run writes no row);
+frame.entry_frame_copies is 0 by construction; Env.slots is pub(crate).
+
+Grading: profile of commit A (running), then of the composite, a part whose
+own guard fires closing before any round; three rounds on cross-binary runs
+per second under the standing rule.
