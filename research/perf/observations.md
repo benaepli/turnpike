@@ -6140,3 +6140,22 @@ H3 against the stage-2 profile, r_w = 2.27 / 2.23 = 1.018:
   0.3 falsifier - not refuted.
 The stack against 0b0004e.md, r_w = 1.38 / 1.29 = 1.070: G4 writer total
 11.51 to 9.44 at most 10.91 - held.
+
+### program-text-without-shared-refcounts part A: stage 4 profile reading (autonomous)
+
+Profile research/perf/profiles/0b0004e-cand-writer-and-trace-names.md against
+the stage-3 profile; r_sim = 16.26 / 15.08 = 1.078 (scheduler family plus
+placebo), r_w = 2.18 / 2.27 = 0.960 (snappy, ByteArrayEncoder and Int64
+flush_data_page, flush_bit_packed_run).
+- G1-A trace functions: run_trace_dispatch 0.40 to 0.08, run_trace_enter
+  0.46 to 0.21, run_trace_exit 0.51 to 0.29 (rows below the cutoff read from
+  the inclusive table's self column, none absent) - 1.37 to 0.58, at most
+  1.13, held; the bound does not decide it, so the stage-4 low-cutoff profile
+  is description.
+- G2-A writer_loop self 0.72 to 0.50, at most 0.57 - held (the writer threads
+  no longer decrement the name's reference count).
+- G6 allocator (malloc + cfree + _int_malloc) 2.89 to 2.92, at most 3.22 -
+  held.
+- Description: r_sim's two lines moved apart (scheduler family 13.15 to 14.36
+  raw, placebo 1.93 to 1.90). A touches neither, so the spread is profile
+  noise; every A guard also holds with r_sim taken as 1.0.
