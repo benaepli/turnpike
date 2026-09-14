@@ -6125,3 +6125,18 @@ Profile research/perf/profiles/0b0004e-cand-int-dict-keys.md against
   0.75 - held.
 - G4 writer total 11.51 to 10.11 (a fall of 1.40 raw) at most 10.72 - held.
 - G5 format_escaped_str 1.62 at most 1.71 - held.
+
+### page-statistics-from-first-in-page-keys: stage 3 profile reading (autonomous)
+
+Profile research/perf/profiles/0b0004e-cand-int-dict-keys-and-page-stats.md.
+H3 against the stage-2 profile, r_w = 2.27 / 2.23 = 1.018:
+- G1 writer __memcmp 0.95 to 0.54, at most 0.63 - held.
+- G2 ByteArrayEncoder::write_gather 0.75 to 0.56 at most 0.81, Interner
+  <ByteArrayStorage> 0.62 to 0.64 at most 0.73 - held.
+- G3 Vec<i64> from_iter absent from both tables (below 0.3) against at most
+  0.03 - the bound does not decide it; settled on the registered low-cutoff
+  profiles of the stage-2 and stage-3 binaries.
+- Incremental writer total 10.11 to 9.44, a fall of 0.84 x r_w against the
+  0.3 falsifier - not refuted.
+The stack against 0b0004e.md, r_w = 1.38 / 1.29 = 1.070: G4 writer total
+11.51 to 9.44 at most 10.91 - held.
