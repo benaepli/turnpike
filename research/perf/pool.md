@@ -1335,7 +1335,7 @@ rounds of clock each:
 
 ## plan-bookkeeping-answered-on-change
 
-- category: redundant work | origin: proposer | status: admitted (iteration 21) - building as commit A of plan-bookkeeping-and-known-valid-text
+- category: redundant work | origin: proposer | status: merged (iteration 21, autonomous) - c0a7f42 (spur c72bc78); every guard held (collect family 1.57 to 0.00 and lookup family 1.16 to 0.46 on a low-cutoff profile, exec_plan 3.17 to 2.69 raw); graded with B: runs per second 1.0607 [0.9635, 1.1677], no downward separation, counters exact every round
 - mechanism: PlanEngine keeps a Ready count and a not-Completed count, exact
   under every transition once the dead mark_as_ready is removed; the per-step
   get_ready_events scan runs only when something is ready (same sort as
@@ -1360,7 +1360,7 @@ rounds of clock each:
 
 ## known-valid-text-and-literals-without-placeholders
 
-- category: redundant work | origin: proposer | status: admitted (iteration 21) - commit B of plan-bookkeeping-and-known-valid-text, on H1; parked if H1 closes
+- category: redundant work | origin: proposer | status: merged (iteration 21, autonomous) - c0a7f42 (spur 2da4e1a); every guard held (from_utf8 0.54 and from_elem 0.60 to 0.00 on a low-cutoff profile, drop_glue<Value> 1.14 to 0.47, ceval 8.75 against 8.84); graded with A, counters exact every round
 - mechanism: (a) TextBuffer::str_from and (b) Decimal::as_str skip the UTF-8
   re-check on text valid by construction (documented unsafe, no debug
   assertion; release-built equivalence tests); (c) struct literals built in
@@ -1380,7 +1380,7 @@ rounds of clock each:
 
 ## plan-bookkeeping-and-known-valid-text
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 21) - building
+- category: combined | origin: operator-agent (selection) | status: merged (iteration 21, autonomous) - c0a7f42; both parts merged as two spur commits after three rounds at 1.0607 [0.9635, 1.1677]
 - one branch from 85af34d: commit A (H1), commit B (H2); tests and one-thread
   identity on each (VR 3,008, Mencius 2,160, crash-heavy, caps-engaged
   100,000; B also trace and log bytes); A profiled against 85af34d.md, A+B
