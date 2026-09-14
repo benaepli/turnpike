@@ -3240,3 +3240,36 @@ ceiling. Ledger row appended with ratio 1.3497; cumulative 3.379.
 Next, in order: a profile of 911e265 (running before any build), the
 direction review it feeds, the grid pool's shadow logic removed per the
 user, and the frame-slots and trace-escape composite built.
+
+### Direction review after grid-ordered-release-pool-2 (autonomous)
+
+Profile 911e265.md (60 s, 30 threads, frame pointers). The shape did not
+change; the grid pool moved time from idle into the same simulation lines.
+Largest self lines: ceval 7.22, exec_ops 4.96 (+1.28, 1.16), schedule_runnable
+4.19 (+1.97, 1.55, 1.34), memmove 3.09, _int_malloc 2.71, run_sync_ops 2.56,
+drop_glue<Value> 2.45, EcoVec<Value> drop 2.08, FrameBuilder::finish 2.02,
+make_unique 1.86, format_escaped_str 1.82, exec_plan 1.68,
+walk_recovery_placebo 1.30, parquet Int64 interner 1.23 (writer thread),
+write_to<String> 1.10, random_range 1.10. Writer threads 9.05 percent
+inclusive, the Int64 dictionary interner now the largest writer self line.
+
+Share-inflation reference on 911e265: R = 3.69 (exec_plan 1.68, random_range
+1.10, the NodeIndex collect 0.91), against 3.97 on edb9e2f. The composite's
+frozen guards are written as x R_cand/3.97 against edb9e2f's shares; on this
+tree they are read as x R_cand/3.69 against the same frozen share figures
+scaled by 3.69/3.97, which is the prediction's own normalisation, not a new
+threshold.
+
+Verdict: stay on course. The admitted composite attacks FrameBuilder::finish,
+the two Value drop lines and make_unique (8.41 together) and the trace escape
+pair (2.92), still the largest costs with a stated mechanism. The scheduler
+family remains the largest single cost; its queue-walk forms are closed, and
+only a non-walk argument is worth steering toward. Writers are 68 percent
+busy and the Int64 interner is visible: integer-columns-delta-encoded (pool,
+low priority while writers read 44 percent) moves up and is re-priced on this
+tree next iteration. Steering has not narrowed the search into one function:
+the last four merges came from four different lenses.
+
+Running: the grid pool's shadow logic removed in its own worktree (release
+tests and a one-thread identity run against 911e265), and the
+frame-slots-and-trace-escape composite built in another, on 911e265.
