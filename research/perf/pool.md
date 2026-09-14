@@ -821,7 +821,7 @@ rounds of clock each:
 
 ## grid-ordered-release-pool-2
 
-- category: contention and parallelism | origin: operator-agent (re-admission of grid-ordered-release-pool) | status: merged (autonomous) - spur 911e265, superproject 1501315; runs per second 1.3497 [1.3233, 1.3767] over 6 rounds, every frozen falsifier held; lite depth>=8/s 1.4389 with per-run deep guards held; post-merge baseline 7,142.3 cleared its revert line of 5,446; shadow logic to be removed per the user
+- category: contention and parallelism | origin: operator-agent (re-admission of grid-ordered-release-pool) | status: merged (autonomous) - spur 911e265, superproject 1501315; runs per second 1.3497 [1.3233, 1.3767] over 6 rounds, every frozen falsifier held; lite depth>=8/s 1.4389 with per-run deep guards held; post-merge baseline 7,142.3 cleared its revert line of 5,446; shadow logic removed per the user (spur 5df7084)
 - declarations: search-affecting, shared saving; no treatment bit
 - judge: expectedGain 7, expectedCost 2 (campaign slice loop, per-slice
   deltas and per-arm run attribution the grader reads), net 5
@@ -870,7 +870,7 @@ rounds of clock each:
 
 ## frame-slots-by-liveness
 
-- category: algorithmic | origin: proposer | status: admitted (iteration 13) - composite read frame.slots_built 4.1634 [3.7072, 4.6758] over 3 rounds, profile guards held; split out of the composite after H3 closed, H1-only binary being cut; merge waits on the caps-engaged identity run (deadlock share blocker)
+- category: algorithmic | origin: proposer | status: merged (autonomous) - spur 45517fd, superproject fa48f64; frame.slots_built per run 4.1563 [3.9922, 4.3272] over 3 rounds, runs per second 1.0748; neutrality blocker departed from on a caps-engaged identity run that read identical; post-merge baseline 7,669.9 cleared its revert line of 6,789
 - mechanism: a per-function liveness pass after compile and before
   Program::decode colors VarSlot::Local slots greedily; parameters keep
   0..param_count-1; interference is def against live-out (a store interferes
@@ -919,7 +919,7 @@ rounds of clock each:
 
 ## frame-slots-and-trace-escape-composite
 
-- category: combined | origin: operator-agent (selection) | status: split (iteration 13) - three rounds, primary 4.1634 above band, rps 1.0717 not separated, deadlock-share neutrality blocker; H3 closed on its guard, H1 continues alone
+- category: combined | origin: operator-agent (selection) | status: split (iteration 13) - three rounds, primary 4.1634 above band, rps 1.0717 not separated, deadlock-share neutrality blocker; H3 closed on its guard, H1 merged alone as frame-slots-by-liveness
 - parts: frame-slots-by-liveness and trace-payload-escaped-in-one-pass;
   disjoint code, counters and guards.
 - primary: frame.slots_built per run, baseline over candidate, [1.6, 2.6],

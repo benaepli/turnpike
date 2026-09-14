@@ -3510,3 +3510,20 @@ primary is a counter and the clock can only block, so the line is set on
 regression - the merge is reverted if the fresh baseline at the merged spur
 commit reads below 6,789 runs per second over three rounds, 0.97x the
 6,999.4 cached for 5df7084 over six rounds.
+
+### Post-merge baseline: the merge stands
+
+Merged: spur 45517fd, superproject fa48f64. The fresh baseline at 45517fd
+reads 7,669.9 runs per second over three rounds (7,585.7, 7,731.5, 7,692.5),
+spread 0.0098, against 6,999.4 for 5df7084 - plus 9.6 percent, above the
+registered revert line of 6,789. frame.slots_built about 8,100 per run.
+Writers 378.2, 370.3 and 370.1 us busy per run - about 72 percent of four
+at this rate - with full-queue sends 0, 29 and 31 and blocked at most 0.07
+us per run: the writers are again within reach of the ceiling. Ledger row
+appended with ratio 1.0748; cumulative 3.632.
+
+Iteration 13 closes: one merge (frame-slots-by-liveness), one close
+(trace-payload-escaped-in-one-pass, on its guard), one close at judging
+(recovery-placebo-walk-skipped-without-quick-fire, the search loop's
+control). Next: profile 45517fd, then iteration 14 with writer capacity
+back in view - integer-columns-delta-encoded re-priced on this tree.
