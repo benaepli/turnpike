@@ -4123,3 +4123,25 @@ are laid out moves the search loop's cost-matched control.
 
 Iteration 15 closes with no merge. The loop pauses here at the user's
 request.
+
+## Iteration 16 - autonomous, redundant-work lens, profile 45517fd on plain cycles (one more iteration at the user's request)
+
+The user asked for one more iteration after the pause; the loop pauses again
+when it closes. Tree unchanged at 45517fd, so its plain-cycles profile and
+caller attribution stand as the proposer's inputs; no new profile.
+
+Lens: redundant work per step. Focus directive, from the attribution and
+what iterations 14 and 15 taught (mechanisms that removed a line saw the
+work relocate into the scheduler or exec_ops, or left the dominant part of
+the line in place):
+- Env::set's make_mut on every slot write - most of make_unique is the
+  refcount check on an already-unique buffer, not copying; whether
+  uniqueness can be established once per segment or frame.
+- schedule_runnable's per-step recomputation - queue sizes and eligibility
+  recomputed every step over queues no event touched; incremental
+  maintenance rather than a new representation, and not a rewrite of how
+  selection walks.
+- map literals built by repeated inserts (76-78 percent of imbl insert) -
+  a decode-time template or a one-pass build.
+Every price cites the attribution and states where the removed work could
+reappear, with a guard on that relocation.
