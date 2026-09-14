@@ -6188,3 +6188,14 @@ guard; the stage-2 and stage-3 low-cutoff profiles run as registered. The
 running job was replaced accordingly without interrupting the stage-2
 low-cutoff profile. Patch of the full stack including B kept as
 research/perf/patches/program-text-without-shared-refcounts.stack-to-B.patch.
+
+### integer-dictionary-keys-by-value: G1 settled (autonomous)
+
+Low-cutoff profile research/perf/profiles/0b0004e-cand-int-dict-keys-low-cutoff.md
+(--percent-limit 0.05, the stage-2 binary), read only for the registered rows
+with r_w = 1.018 from the stage-2 profile:
+- G1 Interner<KeyStorage<Int64>> 0.000 and Interner<KeyStorage<Int32>> 0.000
+  -> 0.000 at most 0.305 - held. Every H1 guard holds.
+- H3's G3 reference on the H1 binary: Vec<i64> from_iter (the gather copy)
+  0.110, near the 0.12 the judge cited; H3 must bring it to at most 0.03 x r_w
+  on its own low-cutoff profile, which is recording.
