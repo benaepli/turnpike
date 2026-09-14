@@ -4768,3 +4768,32 @@ to [2.0, 5.5] (about 1.35 ownership transfers per step, not 2.38 writes); the
 timer change's counter meaning to be written into the lite log before merge;
 the steer counters' exactness fixed for steer_audit_always. None is expected
 to move walk_recovery_placebo; its share is read normalised by r.
+
+### scheduler-probe-counters-folded-per-run: implementer report and review before grading
+
+Built on 11a720c in util_stats.rs only: eight Cell slots added to RunCounters
+and paired with their session statics in for_each_slot, and eight fetch_add
+calls replaced by bump - record_timer_context_bias (BIASED_STEPS, PROMOTED,
+SUPPRESSED), record_timer_context_excluded (STEPS_EXCLUDED_SELECTOR),
+record_crash_timing_bias (EXAMINED, WITHHELD), record_crash_place_hold and
+record_victim_crashed_hold. Reviewed: that and a unit test (an unfinished
+run's statics read 0; after the fold the leaves read the expected totals and
+folded_increments rises by their sum; a write outside a run goes straight to
+the session total), nothing else.
+
+Checks (release): 523 spur-core tests pass. Binary check through the GOT and
+.rela.dyn: on 11a720c all 24 schedule_runnable instances load the three
+TIMER_CONTEXT_BIASED_* statics; on the candidate none does (thread-local
+increments, a locked increment only on the inactive-block branch). One-thread
+identity against 11a720c - VR 3,008, Mencius 2,160, caps-engaged 100,000 -
+runs, executions, logs and traces identical both ways, stall_cap_runs.csv
+hashes equal, end reasons and cap figures equal, runs_failed 0; the eight
+leaves identical in the session dump and every campaign arm; folded_increments
+higher by exactly the eight-leaf sum (14,459,978; 16,965,930; 424,487,529),
+per arm too. Other leaves: clocks and writer-timing buffer counts only.
+
+Grading: plain-cycles candidate profile, then three rounds on cross-binary runs
+per second [1.02, 1.07] (the frozen counter is read per step, which the grader
+cannot pair, so it is read by hand: folded_increments per step, baseline over
+candidate, [0.875, 0.905]); F falls at least 1.5 x r; exec_plan (RecordRng)
+self falls at least 0.9 x r.
