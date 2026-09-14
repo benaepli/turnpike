@@ -6387,3 +6387,49 @@ reservation checks, steering scores, queue-size folds, within-queue
 selection) that could be maintained at enqueue and dequeue with identical
 draws, and a caller attribution of simulation-thread memmove before any
 proposal on it. Pool: nothing pruned.
+
+## Iteration 23 - autonomous, algorithmic lens, profile c302525
+
+Lens: algorithmic. Focus directive from the direction review: what the
+scheduler recomputes each step over every queued runnable, and a caller
+attribution of simulation-thread memmove before any proposal on it.
+
+### Proposals (tmp/loop/perf/it23-proposals.md)
+
+One 60 s recording of the c302525 binary (flat rows within 0.15 of
+c302525.md) and a one-thread counting build over 50.3M steps.
+- Scheduler family by source line: the per-queue eligibility count passes
+  about 3.2 points; four per-step loops over every node's crash bookkeeping
+  about 1.3.
+- memmove callers, recovered from the call instruction before each return
+  address: Record and Runnable copies about 4.7 of 7.17 points (66 percent);
+  schedule_runnable 1.93, run_async_op 0.83, push_waiting_reader 0.69, exec
+  0.59. The libc disassembly places the hot samples just after the first loads
+  from the source: the cost is a stalled first read of the record, which moves
+  to whatever reads the record next - the reason boxing and borrowing both
+  relocated (split between cache misses and store forwarding unverified).
+- Census: counts answered from the pending-crash count disagreed with today's
+  walk on 0 steps; the chosen queue holds 32 percent of queued elements; that
+  one-thread session never engaged crash holds, so graded shares come from the
+  30-thread dump (a crash pending on 16.9 percent of steps).
+- H1 queue-eligibility-from-counters-2: eligibility counts become queue
+  lengths when only a Crash can be ineligible (no reservations, FIFO links or
+  strict timers); only a node whose pending crash is withheld, or that is down
+  on a retargeting run, has its local queue walked; the per-step crashed-node
+  Vec and link map clone go. Alone [1.012, 1.030]. Counted + walked steps =
+  steps_total exactly; walked per step [0.08, 0.175].
+- H2 crash-scans-skipped-without-a-pending-crash: a count of nodes with a
+  pending crash; at zero, skip the crash hold loop, defer loop, crash-anchor
+  probe and census scan, each already a no-op drawing nothing there. Alone
+  [1.004, 1.012]; with H1 [1.018, 1.038]. Skipped + steps_with_crash_eligible
+  = steps_total exactly.
+- H3 runnable-one-word-record-2: the boxed Runnable layout with ownership by
+  value; the scheduler rise that closed boxing came from the per-step walks
+  H1 removes, and borrowing's relocation cannot arise by value. Over H1 + H2
+  [1.008, 1.020]; full stack [1.028, 1.058]. Box identity exact; fixed-size
+  copies 41 to at most 4 by objdump.
+- H1 is expected to raise walk_recovery_placebo's share (it becomes the chosen
+  queue's first reader); relocation guard G3 bounds it, and a reading outside
+  its band goes to the user before merge.
+- Flagged, not proposed: about 1.5 points of shared-atomic counter writes in
+  the scheduler (the closed probe counters), trace text and realloc memmove.
