@@ -4971,3 +4971,36 @@ The probe counters' exec_plan move (+0.35) does not recur here (-0.19 on a
 change to the same scheduler code), which leans toward that move having been
 build layout. Rounds running: runs per second [1.012, 1.035] regression
 only; biased_steps per step and promoted / biased_steps read by hand.
+
+### timer-bias-read-at-the-split: three rounds (autonomous)
+
+Seeds 1000-1002 against 11a720c:
+- runs per second 1.0272, 1.0102, 1.0382; mean 1.0251 [0.9906, 1.0608], not
+  separated downward (regression reading held); microseconds per run 1.0287.
+- counters every round: biased_steps per step 0.9407 / 0.9407 / 0.9083 to
+  0.1878 / 0.1866 / 0.1901, baseline over candidate 5.009, 5.041, 4.777 in
+  [4.3, 5.6]; promoted / biased_steps 0.361, 0.363, 0.343 in [0.33, 0.37];
+  promoted + suppressed = biased_steps exactly; folded_increments per step
+  unchanged (19.20 / 19.23 / 19.16 against 19.22 / 19.21 / 19.18).
+- neutrality: deadlock share (allowed 9.07e-06 from three baseline rounds) and
+  plan_complete share outside the baseline's spread, every other row inside.
+  Covered by the frozen exemption: this candidate's own caps-engaged
+  one-thread identity (100,000 runs) read identical on every table, end
+  reason and cap figure.
+- profile guards G1-G4 held (F down 4.10, F plus exec_plan down 4.40).
+
+Reading: merge-eligible under the standing rule. Two items stand before a
+merge, both for the user: the walk_recovery_placebo referral (1.207 of its
+reference), and the note the judgment requires in the search loop's log.
+
+Drafted note for research/lite/observations.md (not written there: research/
+lite/ is the search loop's and outside what this loop may edit): "From spur
+<merge commit>, timer_context.biased_steps, biased_steps_promoted and
+biased_steps_suppressed count only Probabilistic selections whose roll
+reached the local/other split (roll >= p_local), where the timer-context
+multiplier is compared; before, they counted every steered step with an
+eligible timer. They read about 5 times smaller on grid arms (4.3-5.6 session
+wide); selections and draws are unchanged. The firing floor of
+timer-admission-context-odds-probe still clears by about four orders; chunk
+records before and after this commit are not comparable on these three
+leaves."

@@ -1,0 +1,67 @@
+{
+ "name": "timer-bias-read-at-the-split",
+ "createdAtIso": "2026-09-14T12:01:29.373Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.012,
+   "max": 1.035
+  },
+  "counter": null,
+  "argument": "Only when the timer-context multiplier is read and recorded on a Probabilistic local-or-other selection changes: it is computed after the roll and only when the roll is at or above p_local, the only case where it is compared, instead of before every roll. multiplier() is a pure read and the head-timer find has no side effects on a timer queue; the roll and try_select consume the same draws in the same order, so every selection is identical. Preemptive selection keeps the eager read. No draw, value, row or anything the search reads changes. One-thread identity against the baseline binary on VR (3,008 runs), Mencius (2,160 runs) and a caps-engaged VR session of 100,000 runs: every table identical both ways, same stall_cap_runs.csv hashes, equal end reasons and cap figures, runs_failed 0; only the three timer_context biased leaves differ, each below baseline, with promoted + suppressed = biased_steps."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/timer-bias-read-at-the-split/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:timer-bias-read-at-the-split"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "2d021a55f2c1b58046829269cf80a2fa2825466b",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/2d021a55f2c1-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-14T12:05:41.096Z",
+   "seed": 1000,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-14T12:09:52.934Z",
+   "seed": 1001,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-14T12:14:04.323Z",
+   "seed": 1002,
+   "wallSec": 250,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}
