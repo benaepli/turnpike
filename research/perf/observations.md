@@ -3467,3 +3467,46 @@ counter, no downward separation in runs per second, the composite's profile
 guards for H1 (read on the whole Value drop family) and the caps-engaged
 identity reading, with a revert line registered before the post-merge
 baseline.
+
+### frame-slots-by-liveness: three rounds and decision (autonomous)
+
+Three rounds (seeds 1000-1002; round 0's first attempt was killed by the
+host's low-memory killer mid-round and relaunched detached, nothing
+recorded from it):
+- primary frame.slots_built per run, baseline over candidate: 4.0836,
+  4.2158, 4.1708; mean 4.1563 [3.9922, 4.3272], separated, band [1.6, 2.6]
+  read above (8,210 against 34,124 per run).
+- runs per second 1.0538, 1.0945, 1.0765; mean 1.0748 [1.0252, 1.1268],
+  separated upward, above its expected [1.02, 1.035]; microseconds per run
+  1.0712 [1.0304, 1.1137]; steps per run 0.9798 [0.9168, 1.0470]. H1 alone
+  reads faster than the composite (1.0717), consistent with H3 having paid
+  for its own counters and moved rather than removed its scan.
+- by hand: program slots 658 to 124 every round; frame.calls and
+  params_filled per run track the run mix (the one-thread identity has them
+  equal); writers blocked 0, busy per run 1 to 5 percent lower.
+- blocker: campaign arm share grid-short outside the baseline's own spread
+  (0.2790 against 0.2878, allowed 0.0065). The deadlock row that flagged on
+  the composite reads inside here (2.44 against 2.24 per 10,000, allowed
+  0.58).
+
+Departure from the neutrality blocker, recorded: the two sessions of this
+mechanism flag different rows, each inside in the other session, which is
+the pattern of a faster binary moving through slice allocation and the
+learned caps rather than of a change in what runs do. The caps-engaged
+one-thread identity run on a superset of this code (100,000 runs) read
+identical on every table, end reason and cap figure; the H1-only one-thread
+identity read identical with only the frame leaves differing. The H1 profile
+guards read on the composite's candidate profile stand for H1 alone, since
+H3 touches neither FrameBuilder nor the Value drop path: finish self 0.85 at
+most 1.29, the Value drop family down 2.38 where 0.79 was required.
+
+Decision: merge. The counter moved as the mechanism predicts (above band:
+the prediction's frames were priced at 1,970 calls per run and 17.5 slots
+per frame; the layout packs 658 declared slots into 124), runs per second
+agrees and separates upward, identity holds, both H1 guards held.
+
+Revert criterion, fixed before the post-merge baseline is measured: the
+primary is a counter and the clock can only block, so the line is set on
+regression - the merge is reverted if the fresh baseline at the merged spur
+commit reads below 6,789 runs per second over three rounds, 0.97x the
+6,999.4 cached for 5df7084 over six rounds.

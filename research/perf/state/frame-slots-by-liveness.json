@@ -1,0 +1,67 @@
+{
+ "name": "frame-slots-by-liveness",
+ "createdAtIso": "2026-09-14T02:23:01.440Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "counter",
+  "treatment": null,
+  "band": {
+   "min": 1.6,
+   "max": 2.6
+  },
+  "counter": "frame.slots_built",
+  "argument": "Only where each function's local values sit in the call frame changes. Local slots whose values are never needed at the same time share a frame position, chosen at compile time by backward liveness with def-against-live-out interference, parameters and entry-live defaults kept; every read returns the value it returns today. No draw, container order, value, row or anything the search reads changes. An independent forward reaching-definitions checker passes over every function of 26 bin/spur specs and rejects a dead-store mutation. One-thread identity on VR (3,008 runs) against the baseline binary: runs, executions, logs and traces identical both ways, same stall_cap_runs.csv hash, frame.calls and params_filled identical, only frame.slots_built and default_slots_filled differing. A caps-engaged one-thread identity run of 100,000 runs on a superset of this change read identical on every table, end reason and cap figure."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/frame-slots-by-liveness/cand-spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:frame-slots-by-liveness"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "3f1a653f8e9aba070d007c506218582ad3bb0710",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/3f1a653f8e9a-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-14T02:27:56.760Z",
+   "seed": 1000,
+   "wallSec": 249,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-14T02:32:06.933Z",
+   "seed": 1001,
+   "wallSec": 249,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-14T02:36:16.981Z",
+   "seed": 1002,
+   "wallSec": 249,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}
