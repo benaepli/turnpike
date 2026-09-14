@@ -6264,3 +6264,23 @@ debugging recording is not read for the observable. census-run.sh now pipes
 perf script through rustfilt and records the dump and census sizes before
 deleting the bulk; the census is recorded again on the stage-4 binary (tag
 stage4c) and read against the frozen bounds registered above.
+
+### program-text-without-shared-refcounts part A: lock census reading (autonomous)
+
+Census of the stage-4 binary, tag stage4c (a 1.61 GB demangled dump, census
+output 82 KB, 2,333 resolved lines, none unresolved):
+- trace-name sites (Arc<str> clones at exec.rs 1322, 1352 and 1391 and the
+  drop inside drop_glue<PersistableTrace>) 0.000 against at most 0.05 - held.
+  The only lock-following rows left in the trace functions are
+  run_trace_enter+0x472 at 0.004 and writer_loop rows of at most 0.002 each,
+  none at a name clone or drop.
+- simulation-thread census total 10.808 against at most 11.06 - held; writer
+  threads 0.098.
+- literal sites 0.534 are part B's sites, reverted with it, and are not read;
+  they show only that the census resolves the long-literal clones that still
+  exist.
+
+Every guard of the surviving parts holds: H1 (with G1 settled at 0.000), H3
+(with G3 settled at 0.000), the stack's writer total, and H2-A with its census.
+The graded binary is stage 4 (vendor, H1, H3, H2-A). Rounds start under the
+plan registered above.
