@@ -5087,3 +5087,41 @@ merged: ValueKind::clone 3.07 (the flat line shows 1.95), drop_glue<ValueKind>
 - against 45517fd: the scheduler's per-step Vecs are gone (realloc 0.56 to
   0.11), confirming the eligible-lists merge; literals and strings are larger
   shares of malloc as a consequence.
+
+### Proposals
+
+From a site census of VR compiled with the c9c54fc binary and liveness
+recomputed on the compacted program (sites, not executions). All three are
+search-neutral with a shared saving, the counter as primary and the wall below
+the floor; guarded on the interpreter family I = 22.12 (every exec_ops and
+run_sync_ops instance, ceval, run_async_op), r over R = 15.65 of untouched
+lines.
+- dead-slot-operands-moved (net 1.0-1.9 points, [1.008, 1.025]): every
+  Return reads a dead slot (25 of 25); every Async (57) and SyncCall (24)
+  argument is dead after or overwritten by the op's own store; 25 of 72
+  slot-to-slot copies copy a slot onto itself after coloring (where the Map
+  clone share sits), 7 more are dead. A decode-time pass emits Opnd::Take at
+  kept top-level positions, moving the value out and leaving Unit (still a
+  clone under WithHashing); self-copies run as no-ops. Price discounted 30-50
+  percent on the Map part (the stalled imbl-root increment may move to the
+  node's next reader). Primary returns taken / frame.calls [0.80, 1.00].
+- fstring-chains-appended-in-place (net 1.1-1.5 points, [1.008, 1.022]):
+  println lowers to a = a + x chains (all 58 local-plus-local string
+  additions); each 4-piece chain makes three buffers, clones shared literals
+  and frees two intermediates. A new AppendLocal op appends in place on a
+  uniquely owned buffer; a literal read only by the next append is folded.
+  Removes about three of four heap-string decrements at the slot overwrite
+  plus two of three allocations. Appends per run [700, 1,300], in-place
+  share [0.55, 0.75], log and trace bytes identical.
+- rpc-frames-own-arguments-for-non-parking-callees (net 0.5-0.75, too small
+  alone, proposed to ride with the first): initial_args is read only by
+  Record::reset and Hash for Record; a callee with no reachable Recv, Pause or
+  SpinAwait runs to Return in one exec call, so any reset of its record comes
+  before its first step; for such callees the frame is built from the
+  arguments by move with an empty initial_args, and reset keeps the frame.
+Open items flagged for the judge: that no NoHashing path hashes a Record's env
+or initial_args, and that ecow's push_str appends in place on a uniquely owned
+buffer. Set aside: building the frame at delivery (not a saving), struct
+literal HAMT roots (imbl's small-chunks would reorder map iteration and change
+output bytes), Record and Runnable moves and node-env writebacks (closed, no
+new mechanism).
