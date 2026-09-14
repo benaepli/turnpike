@@ -4830,3 +4830,22 @@ merges only if cross-binary runs per second separates UPWARD (interval lower
 edge above 1.0), with the per-step counter in [0.875, 0.905] in every round,
 every other falsifier held, and the placebo referral read by the user.
 Otherwise it closes on the exec_plan guard.
+
+### scheduler-probe-counters-folded-per-run: three rounds, three more bought
+
+Seeds 1000-1002 against 11a720c:
+- runs per second 1.0680, 1.0304, 1.0029; mean 1.0334 [0.9555, 1.1177], not
+  separated upward; microseconds per run 1.0366; steps per run 0.9843.
+- per-step counter folded_increments / steps_used, baseline over candidate:
+  0.8884, 0.8885, 0.8898, inside [0.875, 0.905] every round (19.19-19.22 to
+  21.56-21.63 per step).
+- every neutrality row inside the baseline's spread; the only blocker is the
+  grader's note that a shared saving with no per-run counter primary reads
+  the wall as confirmation.
+
+The registered criterion needs upward separation and fixed no round count;
+the session allows six rounds. At a mean of 1.033 and this spread, three more
+rounds could move the lower edge above 1.0, so they could change the
+decision - unlike iteration 15's reading (mean 1.013, lower edge 0.864).
+Rounds 4-6 bought, recorded before any of them is read. The decision after
+six rounds is final under the same criterion.
