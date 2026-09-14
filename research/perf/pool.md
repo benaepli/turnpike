@@ -1268,7 +1268,7 @@ rounds of clock each:
 
 ## value-moves-and-string-appends
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 19) - building
+- category: combined | origin: operator-agent (selection) | status: closed (iteration 19) - C closed on per-print counter bands before profiling, B on its relocation guard G4 over A, A on value_move.taken above band in all three rounds (runs per second 1.0101, 1.0049, 0.9621, not separated); nothing merged; patches kept for A, A+B and A+B+C
 - one branch from c9c54fc, commits A (dead slots moved), B (RPC frames), C
   (string appends); identity and tests on each; one plain-cycles profile per
   stage read against the stage before at a 0.3 percent cutoff; a part whose
