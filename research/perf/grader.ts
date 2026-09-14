@@ -1149,7 +1149,7 @@ function largestInclusiveOf(report: string): { percent: number; symbol: string }
  *  comes from the same builder `round` uses, so the profile and the
  *  measurement cannot name different work. Stacks are walked by frame
  *  pointer, which the build configuration keeps in every binary. */
-async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number, callGraph: boolean): Promise<ProfileSnapshot> {
+async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number, callGraph: boolean, percentLimit: number): Promise<ProfileSnapshot> {
   const dir = path.join(WORK_DIR, "profile");
   const configPath = `${dir}.config.json`;
   const perfData = `${dir}.perf.data`;
@@ -1175,7 +1175,7 @@ async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number, c
       return failed(`perf record wrote no samples${rec.timedOut ? " before the cap" : ""}: ${rec.stderr.slice(-400)}`);
     }
     const rep = await run("perf", [
-      "report", "--stdio", "--percent-limit", String(PROFILE_PERCENT_LIMIT),
+      "report", "--stdio", "--percent-limit", String(percentLimit),
       "--no-children", "--no-inline", "-g", "none", "-i", perfData,
     ], { timeoutMs: PROFILE_REPORT_MS, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
     if (!rep.ok) return failed(`perf report failed: ${rep.stderr.slice(-400)}`);
@@ -1186,7 +1186,7 @@ async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number, c
     }
     if (!callGraph) return { ok: true, text, inclusive: null, largestInclusive: null, demangled: flat.demangled };
     const inc = await run("perf", [
-      "report", "--stdio", "--percent-limit", String(PROFILE_PERCENT_LIMIT),
+      "report", "--stdio", "--percent-limit", String(percentLimit),
       "--children", "--no-inline", "-g", "none", "-i", perfData,
     ], { timeoutMs: PROFILE_REPORT_MS, cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
     if (!inc.ok) return failed(`perf report of inclusive time failed: ${inc.stderr.slice(-400)}`, flat.demangled);
@@ -1224,6 +1224,8 @@ async function cmdProfile(flags: Map<string, string>): Promise<void> {
   const wallSec = Number(flags.get("wall-sec") ?? cfg.budgets.profileWallSec);
   if (!Number.isFinite(wallSec) || wallSec <= 0) throw new Error(`--wall-sec must be a positive number of seconds, got ${flags.get("wall-sec")}`);
   const callGraphMode = flags.get("call-graph") ?? "fp";
+  const percentLimit = Number(flags.get("percent-limit") ?? PROFILE_PERCENT_LIMIT);
+  if (!Number.isFinite(percentLimit) || percentLimit <= 0 || percentLimit > 100) throw new Error(`--percent-limit must be a percentage in (0, 100], got ${flags.get("percent-limit")}`);
   if (callGraphMode !== "fp" && callGraphMode !== "none") throw new Error(`--call-graph must be fp or none, got ${callGraphMode}`);
   const name = flags.get("name");
   if (name !== undefined && !/^[a-z0-9][a-z0-9-]{1,60}$/.test(name)) throw new Error(`--name must be a kebab-case slug, got ${name}`);
@@ -1236,7 +1238,7 @@ async function cmdProfile(flags: Map<string, string>): Promise<void> {
   if (paranoid !== null && paranoid > 2) {
     throw new Error(`kernel.perf_event_paranoid is ${paranoid}; perf record needs 2 or lower (sysctl -w kernel.perf_event_paranoid=1)`);
   }
-  const snap = await recordProfile(cfg, binary, wallSec, callGraphMode === "fp");
+  const snap = await recordProfile(cfg, binary, wallSec, callGraphMode === "fp", percentLimit);
   if (!snap.ok) {
     emit({ phase: "error", file: null, spur: label, ok: false, detail: snap.text });
     process.exitCode = 1;
@@ -1247,7 +1249,7 @@ async function cmdProfile(flags: Map<string, string>): Promise<void> {
   fs.writeFileSync(file, [
     `# Profile: spur ${label}`,
     "",
-    `Binary: ${path.relative(ROOT, binary)}. Workload: ${cfg.campaignTemplate} under the campaign explorer on ${cfg.spec}, ${cfg.budgets.rayonThreads} threads, ${wallSec}s. Event: cycles.`,
+    `Binary: ${path.relative(ROOT, binary)}. Workload: ${cfg.campaignTemplate} under the campaign explorer on ${cfg.spec}, ${cfg.budgets.rayonThreads} threads, ${wallSec}s. Event: cycles. Report cutoff: ${percentLimit} percent.`,
     snap.demangled ? "" : "Symbols are mangled: rustfilt is not on PATH.",
     "",
     "## Self time",
