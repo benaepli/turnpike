@@ -6210,3 +6210,24 @@ PrimitiveArray<Int64Type>::from(Vec<i64>), a different symbol that neither
 guard names. Every H3 guard holds; every writer-side guard of the stack now
 holds. H2-A's lock census on the stage-4 binary is recording, and decides
 whether the graded binary is stage 4 or stage 3.
+
+### writer-headroom-and-program-text: rounds registered before the census is read (autonomous)
+
+Whichever binary the census leaves graded (stage 4, or stage 3 if H2-A
+reverts), rounds run as follows, fixed now:
+- three cross-binary rounds against 0b0004e, launched as one run and read
+  together; no extension (no departure is registered for any part);
+- grader primary --counter history_writer.busy_ns, band [1.09, 1.20], which
+  can only refute: runs per second differs between the sides, and busy ns per
+  run follows steps and rows per run;
+- the merge rests on busy ns per row, baseline over candidate, read by hand
+  every round (rows = print_content.presized + history_format.ops_streamed +
+  3 x trace_format enter payloads), in [1.09, 1.20] as a mean with no round
+  below 1.06; plus every counter band by hand every round (fast-path share at
+  least 0.97, hashed per command at most 250, integer values per row [4.9,
+  5.9], str_stats compared per cell at most 0.60, gather skipped per call at
+  least 0.90; names interned equal to the traced functions if stage 4), byte
+  identity already exact, every guard held, no downward separation of runs
+  per second, and the spread check inside or its standing exemption;
+- writer busy share, full-queue sends and blocked seconds recorded both sides
+  every round as description.
