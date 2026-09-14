@@ -1133,7 +1133,7 @@ rounds of clock each:
 
 ## timeline-store-one-lock
 
-- category: contention and parallelism | origin: judge (split from a proposer's set-aside rider) | status: admitted (iteration 17) - built and reviewed; grading (candidate profile, then three rounds)
+- category: contention and parallelism | origin: judge (split from a proposer's set-aside rider) | status: closed (iteration 17, autonomous) on its malloc guard - runs per second 0.9815 [0.9355, 1.0298] did not separate upward as the departure registered before the rounds required; counters exact, identity identical; patch kept at research/perf/patches/timeline-store-one-lock.spur.patch
 - mechanism: GlobalTimeline's 128-shard DashMap with one live key read-locks
   every shard and allocates an Arc per shard in snapshot(), and read-locks
   all 128 again through len() in merge(); one lock over a map instead, a
@@ -1145,7 +1145,7 @@ rounds of clock each:
 
 ## grid-pool-worker-continues
 
-- category: contention and parallelism | origin: proposer | status: admitted (iteration 17) - after aos-draw-ahead-pool, preceded by a 120 s per-arm smoke on the unchanged binary
+- category: contention and parallelism | origin: proposer | status: proposed, not built (iteration 17, autonomous) - ceiling about 1 percent after the judge's rewrite, below the round spread; most grid idle is capacity gating per the per-arm evidence; revisit only if per-arm idle on the current tree shows the dispatch round trip dominant
 - judge: net 2; the claim that 40-80 percent of grid idle is dispatch is
   contradicted by the per-arm idle of the edb9e2f pool smoke (grid arm 17.6
   percent idle, post-fault arms under 3 percent - mostly capacity gating);

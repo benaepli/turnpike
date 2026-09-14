@@ -4664,3 +4664,48 @@ iteration 16, the candidate merges only if cross-binary runs per second
 separates UPWARD (interval lower edge above 1.0) with every other falsifier
 held, the counters exactly one snapshot and one merge per run, and the
 placebo referral read by the user. Otherwise it closes on the malloc guard.
+
+### timeline-store-one-lock: three rounds and decision (autonomous)
+
+Seeds 1000-1002 against 11a720c: runs per second 0.9602, 0.9886, 0.9960;
+mean 0.9815 [0.9355, 1.0298], not separated upward. Counters exactly one
+snapshot and one merge per run every round. Neutrality: grid, grid-short and
+grid-no-purgatory arm shares outside the spread (moot with the close).
+Decision: closed on the fired malloc guard, as the criterion registered
+before the rounds were read required. Patch kept.
+
+grid-pool-worker-continues: not built, left in the pool - ceiling about 1
+percent after the judge's rewrite, below the round spread, and most grid idle
+is capacity gating rather than the dispatch round trip it removes.
+
+Iteration 17 closes with no merge: aos-draw-ahead-pool closed on its lite
+reading, timeline-store-one-lock on its malloc guard, grid-pool-worker-
+continues and the composite not built.
+
+### Direction review after iteration 17 (autonomous)
+
+Iterations 14-17: one merge (eligible-lists-known-from-queue-info, plus
+frame-slots-by-liveness in 13), eight closes. Tree 11a720c, 8,017.4 runs per
+second, cumulative 3.684.
+
+What the closes share, now that caller attribution and plain-cycles profiles
+exist. Every mechanism built did what it was built to do - identity
+identical, counters exact - and three patterns ate the saving:
+- relocation: work removed from one line reappeared in schedule_runnable or
+  exec_ops (node-env-detached, collection updates, boxed records, inline
+  lists, owned slots). The scheduler family has absorbed every nearby
+  saving.
+- unbound cost: removing work where the resource was not the limit (integer
+  columns while writers were idle; the timeline store's allocations).
+- the wrong runs: recovering worker time for runs the search objective does
+  not count (the AOS pool).
+
+The largest costs are unchanged in kind: schedule_runnable's family about
+12, ceval about 8, exec_ops about 8, memmove about 6. Per-line savings around
+them keep relocating into the scheduler. Direction for iteration 18
+(algorithmic lens): attack what the scheduler computes per step as a whole -
+which parts of schedule_runnable's per-step work (eligibility counts per
+queue, scoring and term evaluation, audits and probes that run under stats)
+have answers that change rarely - with the scheduler family itself as the
+guarded line, so relocation within it cannot count as a saving. No new
+profile is needed; 11a720c.md and the 45517fd attribution stand.

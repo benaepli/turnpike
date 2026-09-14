@@ -1,0 +1,346 @@
+diff --git a/spur-core/src/simulator/feedback.rs b/spur-core/src/simulator/feedback.rs
+index 6a74bb9..f7ef17b 100644
+--- a/spur-core/src/simulator/feedback.rs
++++ b/spur-core/src/simulator/feedback.rs
+@@ -12,10 +12,11 @@ use crate::simulator::core::{NodeId, Runnable};
+ use crate::simulator::coverage::{GlobalCoverage, LocalCoverage, VertexMap};
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::util_stats;
+-use dashmap::DashMap;
++use rustc_hash::FxBuildHasher;
+ use serde::{Deserialize, Serialize};
+ use std::collections::{HashMap, HashSet};
+ use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::{PoisonError, RwLock};
+ 
+ fn default_timeline_weight() -> f64 {
+     0.8
+@@ -303,17 +304,25 @@ impl TimelineSnap {
+     }
+ }
+ 
+-/// Global timeline store, shared across runs.
++/// Global timeline store, shared across runs. The live key set is small, so
++/// one lock over the whole map is cheaper than a sharded map: a snapshot and a
++/// merge each acquire it exactly once.
+ #[derive(Debug, Default)]
+ pub struct GlobalTimeline {
+-    counts: DashMap<TimelineTuple, u64>,
++    counts: RwLock<HashMap<TimelineTuple, u64, FxBuildHasher>>,
+     total: AtomicU64,
+ }
+ 
+ impl GlobalTimeline {
+     pub fn snapshot(&self) -> TimelineSnap {
+-        let counts: HashMap<TimelineTuple, u64> =
+-            self.counts.iter().map(|e| (*e.key(), *e.value())).collect();
++        util_stats::record_timeline_store_snapshot();
++        let counts: HashMap<TimelineTuple, u64> = self
++            .counts
++            .read()
++            .unwrap_or_else(PoisonError::into_inner)
++            .iter()
++            .map(|(k, v)| (*k, *v))
++            .collect();
+         TimelineSnap {
+             counts,
+             total: self.total.load(Ordering::Relaxed),
+@@ -321,16 +330,21 @@ impl GlobalTimeline {
+     }
+ 
+     pub fn merge(&self, local: &LocalTimeline) {
++        util_stats::record_timeline_store_merge();
+         // `decay` drops keys that reach zero, so a zero count can only mean the
+         // entry was just created.
+         let mut new_keys = 0u64;
+-        for t in &local.tuples {
+-            let mut count = self.counts.entry(*t).or_default();
+-            if *count == 0 {
+-                new_keys += 1;
++        let distinct_keys_live = {
++            let mut counts = self.counts.write().unwrap_or_else(PoisonError::into_inner);
++            for t in &local.tuples {
++                let count = counts.entry(*t).or_default();
++                if *count == 0 {
++                    new_keys += 1;
++                }
++                *count += 1;
+             }
+-            *count += 1;
+-        }
++            counts.len() as u64
++        };
+         let _ = self
+             .total
+             .fetch_add(local.tuples.len() as u64, Ordering::Relaxed);
+@@ -338,7 +352,7 @@ impl GlobalTimeline {
+             util_stats::record_timeline_keys(
+                 local.tuples.len() as u64,
+                 new_keys,
+-                self.counts.len() as u64,
++                distinct_keys_live,
+             );
+         }
+     }
+@@ -346,11 +360,12 @@ impl GlobalTimeline {
+     /// Scale all tuple counts by factor.
+     pub fn decay(&self, factor: f64) {
+         let factor = factor.clamp(0.0, 1.0);
+-        self.counts.retain(|_, c| {
++        let mut counts = self.counts.write().unwrap_or_else(PoisonError::into_inner);
++        counts.retain(|_, c| {
+             *c = ((*c as f64) * factor).floor() as u64;
+             *c > 0
+         });
+-        let new_total: u64 = self.counts.iter().map(|e| *e.value()).sum();
++        let new_total: u64 = counts.values().sum();
+         self.total.store(new_total, Ordering::Relaxed);
+     }
+ }
+@@ -684,6 +699,7 @@ impl<const STEER: bool> Feedback for FullFeedback<STEER> {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use dashmap::DashMap;
+ 
+     fn node(index: usize) -> NodeId {
+         NodeId {
+@@ -692,6 +708,79 @@ mod tests {
+         }
+     }
+ 
++    /// A sharded concurrent map with the same merge and decay rules as
++    /// `GlobalTimeline`, used as the reference its snapshots must match.
++    #[derive(Default)]
++    struct ShardedTimeline {
++        counts: DashMap<TimelineTuple, u64>,
++        total: AtomicU64,
++    }
++
++    impl ShardedTimeline {
++        fn snapshot(&self) -> TimelineSnap {
++            TimelineSnap {
++                counts: self.counts.iter().map(|e| (*e.key(), *e.value())).collect(),
++                total: self.total.load(Ordering::Relaxed),
++            }
++        }
++
++        fn merge(&self, local: &LocalTimeline) {
++            for t in &local.tuples {
++                *self.counts.entry(*t).or_default() += 1;
++            }
++            self.total
++                .fetch_add(local.tuples.len() as u64, Ordering::Relaxed);
++        }
++
++        fn decay(&self, factor: f64) {
++            let factor = factor.clamp(0.0, 1.0);
++            self.counts.retain(|_, c| {
++                *c = ((*c as f64) * factor).floor() as u64;
++                *c > 0
++            });
++            let new_total: u64 = self.counts.iter().map(|e| *e.value()).sum();
++            self.total.store(new_total, Ordering::Relaxed);
++        }
++    }
++
++    #[test]
++    fn single_lock_store_snapshots_match_the_sharded_store() {
++        let store = GlobalTimeline::default();
++        let reference = ShardedTimeline::default();
++        let mut state = 0x9e37_79b9_7f4a_7c15u64;
++        let mut draw = |bound: u64| {
++            state = state
++                .wrapping_mul(6_364_136_223_846_793_005)
++                .wrapping_add(1_442_695_040_888_963_407);
++            (state >> 33) % bound
++        };
++        for run in 0..400 {
++            let mut tl = LocalTimeline::default();
++            if run % 3 == 0 {
++                tl.set_granularity(TimelineKeyGranularity::Fine);
++            }
++            for _ in 0..draw(12) {
++                let dest = node(draw(3) as usize);
++                if draw(10) == 0 {
++                    tl.note_recovery(dest);
++                }
++                tl.note_delivery(dest, draw(8) as usize);
++            }
++            store.merge(&tl);
++            reference.merge(&tl);
++            if run % 50 == 49 {
++                let factor = [0.5, 0.9, 0.0, 1.0][(run / 50) % 4];
++                store.decay(factor);
++                reference.decay(factor);
++            }
++            let got = store.snapshot();
++            let want = reference.snapshot();
++            assert_eq!(got.counts, want.counts, "counts differ after run {run}");
++            assert_eq!(got.total, want.total, "totals differ after run {run}");
++        }
++        assert!(!store.snapshot().counts.is_empty());
++    }
++
+     #[test]
+     fn distinct_prior_pairing_equals_all_pairs() {
+         // Ordered delivery sequence [a, b, a, c] on one node.
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index ee9808b..cccae67 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -147,6 +147,8 @@ static STATS_LOCAL_FOLDS: AtomicU64 = AtomicU64::new(0);
+ static STATS_LOCAL_FOLDED_INCREMENTS: AtomicU64 = AtomicU64::new(0);
+ static TIMELINE_CONSTANT_SHORT_CIRCUITS: AtomicU64 = AtomicU64::new(0);
+ static TIMELINE_CONSTANT_INSERTS: AtomicU64 = AtomicU64::new(0);
++static TIMELINE_STORE_SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
++static TIMELINE_STORE_MERGES: AtomicU64 = AtomicU64::new(0);
+ static RUN_SETUP_PROGRAM_CLONES_AVOIDED: AtomicU64 = AtomicU64::new(0);
+ static TRACE_FORMAT_ENTER_REUSED: AtomicU64 = AtomicU64::new(0);
+ static TRACE_FORMAT_ENTER_FORMATTED: AtomicU64 = AtomicU64::new(0);
+@@ -867,6 +869,8 @@ pub fn set_enabled(on: bool) {
+             &HW_TEXT_BUFFERS_DROPPED_OVERSIZE,
+             &TIMELINE_CONSTANT_SHORT_CIRCUITS,
+             &TIMELINE_CONSTANT_INSERTS,
++            &TIMELINE_STORE_SNAPSHOTS,
++            &TIMELINE_STORE_MERGES,
+             &RUN_SETUP_PROGRAM_CLONES_AVOIDED,
+             &TRACE_FORMAT_ENTER_REUSED,
+             &TRACE_FORMAT_ENTER_FORMATTED,
+@@ -5831,6 +5835,45 @@ impl TimelineStats {
+     }
+ }
+ 
++/// One read of the shared timeline store, taken under a single lock.
++/// Counted on the session total rather than a run's counter block, so it does
++/// not add to the folded increments.
++#[inline]
++pub fn record_timeline_store_snapshot() {
++    if !enabled() {
++        return;
++    }
++    TIMELINE_STORE_SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
++}
++
++/// One run's keys folded into the shared timeline store under a single lock.
++/// Counted on the session total like `record_timeline_store_snapshot`.
++#[inline]
++pub fn record_timeline_store_merge() {
++    if !enabled() {
++        return;
++    }
++    TIMELINE_STORE_MERGES.fetch_add(1, Ordering::Relaxed);
++}
++
++/// Acquisitions of the shared timeline store's lock: `snapshots` reads taken
++/// at run start and `merges` writes at run end, one each per run that uses
++/// timeline feedback.
++#[derive(Serialize, Debug)]
++pub struct TimelineStoreStats {
++    pub snapshots: u64,
++    pub merges: u64,
++}
++
++impl TimelineStoreStats {
++    fn read() -> Self {
++        Self {
++            snapshots: TIMELINE_STORE_SNAPSHOTS.load(Ordering::Relaxed),
++            merges: TIMELINE_STORE_MERGES.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// Plan executions that read the session's compiled program in place
+ /// rather than from a copy of it.
+ #[derive(Serialize, Debug)]
+@@ -7350,6 +7393,7 @@ pub struct UtilizationSnapshot {
+     pub history_writer: HistoryWriterStats,
+     pub grid_pool: GridPoolStats,
+     pub timeline: TimelineStats,
++    pub timeline_store: TimelineStoreStats,
+     pub run_setup: RunSetupStats,
+     pub trace_format: TraceFormatStats,
+     pub history_format: HistoryFormatStats,
+@@ -7580,6 +7624,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         history_writer: HistoryWriterStats::read(),
+         grid_pool: GridPoolStats::read(),
+         timeline: TimelineStats::read(),
++        timeline_store: TimelineStoreStats::read(),
+         run_setup: RunSetupStats::read(),
+         trace_format: TraceFormatStats::read(),
+         history_format: HistoryFormatStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index f35a5bd..579c583 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, RunBufferStats, ValueSigStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TimelineStats, TimelineStoreStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1565,6 +1565,21 @@ fn timeline_leaves(prefix: &str, t: &TimelineStats) -> Vec<(String, Value)> {
+     ]
+ }
+ 
++fn timeline_store(m: &mut Marks) -> TimelineStoreStats {
++    TimelineStoreStats {
++        snapshots: m.int(),
++        merges: m.int(),
++    }
++}
++
++fn timeline_store_leaves(prefix: &str, t: &TimelineStoreStats) -> Vec<(String, Value)> {
++    let TimelineStoreStats { snapshots, merges } = t;
++    vec![
++        leaf(prefix, "snapshots", *snapshots),
++        leaf(prefix, "merges", *merges),
++    ]
++}
++
+ fn run_setup(m: &mut Marks) -> RunSetupStats {
+     RunSetupStats {
+         program_clones_avoided: m.int(),
+@@ -2311,6 +2326,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         history_writer: _,
+         grid_pool: _,
+         timeline: _,
++        timeline_store: _,
+         run_setup: _,
+         trace_format: _,
+         history_format: _,
+@@ -2370,6 +2386,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "history_writer",
+         "grid_pool",
+         "timeline",
++        "timeline_store",
+         "run_setup",
+         "trace_format",
+         "history_format",
+@@ -2462,6 +2479,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.history_writer = history_writer(&mut m);
+     s.grid_pool = grid_pool(&mut m);
+     s.timeline = timeline(&mut m);
++    s.timeline_store = timeline_store(&mut m);
+     s.run_setup = run_setup(&mut m);
+     s.trace_format = trace_format(&mut m);
+     s.history_format = history_format(&mut m);
+@@ -2500,6 +2518,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(history_writer_leaves("history_writer", &s.history_writer));
+     expected.extend(grid_pool_leaves("grid_pool", &s.grid_pool));
+     expected.extend(timeline_leaves("timeline", &s.timeline));
++    expected.extend(timeline_store_leaves("timeline_store", &s.timeline_store));
+     expected.extend(run_setup_leaves("run_setup", &s.run_setup));
+     expected.extend(trace_format_leaves("trace_format", &s.trace_format));
+     expected.extend(history_format_leaves("history_format", &s.history_format));
+@@ -2564,6 +2583,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "history_writer",
+         "grid_pool",
+         "timeline",
++        "timeline_store",
+         "run_setup",
+         "trace_format",
+         "history_format",
