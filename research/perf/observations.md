@@ -8361,3 +8361,46 @@ signal could not be told from a no-op), the stack ruled inadmissible on a
 counter that sees only half of it, H2 parked behind the user's case, and the
 placebo referral found not to fire under a corrected r. Tree unchanged at spur
 3b53d0a.
+
+## Iteration 31 - autonomous, algorithmic lens, profile 3b53d0a
+
+Lens: algorithmic. Focus directive from the direction review: synchronous
+calls, primary frame.calls, evaluation order and error text exact.
+
+### Proposals (tmp/loop/perf/it31-proposals.md)
+
+- Census, VR 3,008 runs: 1,999 synchronous calls per run out of 57,897 label
+  executions, 20,541 label executions (35.5 percent) inside callees;
+  primary_of 1,189.6 calls (2 slots, 4 labels each), NewEntry 538.6 (8 slots,
+  15.4 labels), enter_view_change 112.7 (28 labels), apply_committed_entries
+  83.6 (recursive), enter_normal_mode 74.3 (42 labels). No synchronous callee
+  holds a Send, Recv, Pause, SpinAwait or SetTimer, so every call qualifies.
+- H1 sync-calls-run-in-the-caller-frame: at decode each eligible call becomes
+  Op::InlineCall, the callee's operations are copied after the graph, the
+  callee's slots go on the caller's frame above its own
+  (FunctionInfo.inline_slots is capacity only, not serialized), and
+  Op::InlineReturn stores the value and cuts the frame back; a set-aside stack
+  gives the callee a clean pending trace state; loops whose feedback records
+  transitions run the graph's own operations. Removed per call: the frame
+  allocation and free, FrameBuilder::finish, the callee lookup and the call
+  into run_sync_ops; every evaluation, store, label execution and error kept
+  in order. SetTimer excluded from copies (a timer keeps its successor vertex).
+- Identity byte-exact on VR 3,008, crash-heavy 1,800, Mencius 2,160, SDPaxos
+  2,160 and caps-engaged 100,000 (executions 6a2903fd4e6c15b4, logs
+  b0ae4c506c283269, traces 9c2fedf30f9d3adf, stall caps 14c0d98a63e24528 on
+  both sides); frame.calls(base) - frame.calls(cand) = call_targets.indexed
+  difference = compiled_ops.calls_inlined exactly; label_execs, tree_evals,
+  leaf_operands_inline equal. Purgatory session not run.
+- One-thread ABBA x4 against 3b53d0a built at the prototype's checkout path:
+  0.9858 and 0.9797 (controls 0.9967 and 1.0011), about 105 cycles per inlined
+  call; primary_of only 0.9949. The proposer reports the main-tree binary as a
+  slow layout (worktree builds of the same source read 1.1-1.8 percent below
+  it).
+- 30-thread profile research/perf/profiles/3b53d0a-proto-sync-calls-inline-low-cutoff.md:
+  r 0.9891 over 30 untouched rows (scheduler rows 0.87-0.97, writer rows
+  1.01-1.16); run_sync_ops and FrameBuilder::finish below the cutoff (calls
+  family -2.74 unscaled), exec_ops +2.51 and the new helpers +2.01; broad
+  family -0.44 unscaled, +0.11 at r, inside r's spread.
+- Priced and not proposed: straight-line chains run as one operation (1.0221
+  alone, 1.0162 over inline, slower); arguments moved and specialized frames
+  under 0.1 point.
