@@ -6518,3 +6518,26 @@ Rulings:
   by the judge), one decrement helper.
 
 Profiles of A, A+B and the registered low-cutoff profile of A are recording.
+
+### eligibility-and-crash-scans: rounds registered before any profile is read (autonomous)
+
+Whichever parts the profiles leave standing (A + B, or A alone, or B rebased
+alone if A closes), rounds run as follows, fixed now:
+- three cross-binary rounds against c302525, launched as one run and read
+  together; no extension (no departure is registered);
+- grader primary cross-binary runs per second, band [1.018, 1.038] for the
+  stack ([1.012, 1.030] for A alone, [1.004, 1.012] for B alone), regression
+  only: the merge requires no downward separation, not upward;
+- every round, by hand: counted + walked = steer_authority.steps exactly,
+  general_steps 0, walked at most crash-eligible steps, walked / crash-eligible
+  [0.40, 1.00], walked elements per walked step [1.0, 6.0]; with B,
+  skipped + crash_anchor.steps_with_crash_eligible = steer_authority.steps
+  exactly and skipped / steps [0.80, 0.88];
+- the independent observable sched.eligible_built /
+  recovery_weight_placebo.decisions and crash_place.holds per run recorded both
+  sides as description;
+- the spread check inside, or its standing exemption for throughput-dependent
+  shares with exact one-thread identity;
+- the placebo referral on the stack profile, either direction, read by the
+  user before any merge if outside [0.9, 1.1] x 1.87 x r.
+The loop pauses after this iteration's decision and log, at the user's request.
