@@ -7438,3 +7438,59 @@ Ledger row appended to research/lite/epoch-baseline.json: ratio 1.0310 (the
 graded cross-binary runs per second), cumulative 4.768. Post-merge profiles
 of b20ee37 (1 percent and 0.3 percent cutoffs) are being taken for the
 direction review.
+
+## Direction review after the stores-skipped merge (autonomous)
+
+Called for by the merge. Profiles research/perf/profiles/b20ee37.md and
+b20ee37-base-b20ee37-low-cutoff.md (0.3 percent). Against
+9340a2e-base-9340a2e-low-cutoff.md, r = 11.03 / 10.46 = 1.0545, families
+(self, spur-command rows) raw and against base x r:
+- interpreter 27.22 to 25.72 (-2.98 x r): exec_ops 6.43 to 5.56, ceval 9.29 to
+  9.68 (now the largest row by itself);
+- value 14.08 to 12.84 (-2.01 x r): clone 3.90 to 3.22, EcoVec<Value> drop
+  4.51 to 3.99, drop glue 3.38 to 3.05;
+- scheduler 11.64 to 12.48, memmove 7.29 to 7.69, writers 7.17 to 7.57,
+  allocator 4.60 to 4.71, trace and history text 2.95 to 3.16, exec_plan 2.93
+  to 2.94 - each within 0.2 of base x r: nothing relocated;
+- rng and sampling 1.64 to 1.12 (-0.61 x r, rows crossing the cutoff).
+
+Verdict. The merge removed cost where the mechanism acts. The largest
+explainable costs on b20ee37 are the tree evaluator (ceval 9.68, about 7.5
+tree evaluations per step), the rest of the interpreter (exec_ops 5.56,
+run_sync_ops 2.72), the value family 12.8, the scheduler 12.5 and memmove 7.7.
+Iteration 27 takes the algorithmic lens on the tree evaluator: what the trees
+ceval evaluates compute, and whether a cheaper route gives the same answer
+(specialized shapes decoded once, intermediate results that need not be
+materialized as Values, checks decided at decode). Departure from rotation,
+which would give contention and parallelism next: the last two contention
+outings found a heat-bound host and a relieved writer path, nothing in this
+profile shows contention cost rising, and a contention saving cannot be priced
+by the one-thread instrument that carried this merge. Conditions carried
+forward: price on a one-thread ABBA read with a fresh identical-source
+control; location guards from a 30-thread prototype profile; a
+construction-defined work counter as the primary, with the wall only able to
+block. New condition from temps-moved-into-consumers: price the
+implementation-faithful form (every check and counter the frozen mechanism
+will carry), since B's prototype priced 1.4 percent and its implementation
+kept at most 0.5. Steering audit: the size-first directive paid (a 4.4
+percent one-thread change merged on a counter primary); the size bar for
+proposals drops to what the counter instrument can merge, about 3 percent of
+one-thread cycles with identity exact. Pool: register-ops-written-in-place
+overlaps the fused-temp and return rules (judge, iteration 26) and must be
+re-priced over b20ee37 before it can return; nothing dropped.
+
+Digest, iteration 26: redundant-work lens on the interpreter, size first.
+A census of executed vertices found about 21,600 of 57,900 per VR run
+rewritable (dead Unit and slot stores, self-copies, one-read temps, cloned
+returns); the liveness that colors slots already proved them dead. The judge
+verified every non-test reader of frame slots, fixed the return-by-move's
+uniqueness bypass, set a construction-defined counter
+(compiled_expr.leaf_operands_inline) as the primary and re-derived 30-thread
+guards to be robust to r. Built as two commits with identity exact on five
+sessions and an independent read-after-skip checker. One-thread cycles: stack
+0.9532 and A 0.9562 against a fresh control 1.0010; B over A 0.9954 missed its
+gate, so B closed. A graded six rounds: counter 1.1796 [1.1442, 1.2160], zero
+blockers, runs per second 1.0310 [1.0009, 1.0620]; merged as spur b20ee37 with
+the equal-work band not applied (narrower than the baseline's own variation).
+Post-merge baseline 10,015.2 runs per second, 4.2 percent over 9340a2e;
+ledger cumulative 4.768.
