@@ -7494,3 +7494,41 @@ blockers, runs per second 1.0310 [1.0009, 1.0620]; merged as spur b20ee37 with
 the equal-work band not applied (narrower than the baseline's own variation).
 Post-merge baseline 10,015.2 runs per second, 4.2 percent over 9340a2e;
 ledger cumulative 4.768.
+
+## Iteration 27 - autonomous, algorithmic lens, profile b20ee37
+
+Lens: algorithmic. Focus directive from the direction review: the tree
+evaluator (ceval 9.68), priced on the implementation-faithful form.
+
+### Proposals (tmp/loop/perf/it27-proposals.md)
+
+- Census (instrumented throwaway build, VR 3,008 runs, one thread): 57,897
+  label executions and 23,801 tree evaluations per run; string building for
+  println dominates (Plus over strings 2,304, IntToString 1,507,
+  Plus(literal, slot) 539), each println a chain of up to 14 vertices ending
+  in a Print, 1,123 prints per run; Node.primary_of is 1,190 of 1,999
+  synchronous calls per run; 5,467 bool temps read by the next CondLocal.
+  One-thread annotation: ceval's self time is loads stalled behind out-of-line
+  clones and string allocation, not dispatch.
+- H2 print-chains-written-into-the-log: at decode, a println chain whose stores
+  all go to slots dead after the Print folds into Op::PrintParts (literal,
+  string-slot and decimal pieces); the chain's stores become StoreSkipped and
+  the op writes the same bytes into the log text with no intermediate string.
+  Vertex ids, transitions and label_execs unchanged; a type error in a chain
+  is raised at the Print vertex. One-thread ABBA x4 over b20ee37: 0.9648,
+  0.9509, 0.9518, 0.9609, mean 0.9571; fresh identical-source controls 1.0061
+  and 1.0085. 30-thread prototype profile
+  research/perf/profiles/b20ee37-proto-print-chains-low-cutoff.md, r 1.0544:
+  ceval 9.68 to 7.33 (-2.88 x r), drop_glue<ValueKind> 3.05 to 1.65,
+  interpreter + value -3.90 x r, exec_ops +0.15 x r. Identity exact on VR;
+  tree_evals ratio 1.2295, stores_skipped +7,104 per run, label_execs and
+  frame.calls equal. Primary counter compiled_expr.tree_evals [1.17, 1.29],
+  per label execution [1.20, 1.26]; runs per second [1.02, 1.07] block only.
+- Not proposed: H1 leaf-calls-on-a-stack-frame (leaf callees on a four-Value
+  stack frame, identity exact) read 1.0201 over base, slower - the frame setup
+  and second dispatch loop cost more than the heap frame; substituting
+  primary_of's body as one tree read 0.9729 but moves evaluation order and
+  drops label executions (ceiling only). Leads below the floor: jumping past
+  StoreSkipped vertices about 1.3 percent, struct literals placed at decode
+  0.3, interned field ids 0.4, borrowed string literals (1,505 atomic count
+  pairs per run, a contention cost a one-thread read cannot price).
