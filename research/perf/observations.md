@@ -7815,3 +7815,40 @@ reserve, allocator) and memmove's remaining callers.
   percent; dispatch payload as a range into the trace text 0.4; waiting reader
   without its box about 1; collapsing the Record move chain inside
   schedule_runnable, the one form of that attack not yet tried.
+
+### Judgment (tmp/loop/perf/it28-judgment.md)
+
+H3 frames-and-node-env-held-once net 4 (A net 3, B net 2; cost 2, exec.rs),
+recommended, graded cross-binary. Primary: the grader blocks on any named
+counter one side lacks; no existing leaf counts allocations, frame buffers,
+argument sequences or node-env copies (between base and A + B only
+frame.calls, slots_built, params_filled and default_slots_filled move, by
+exactly the frames reset keeps); frame.calls sees about 2.6 percent of frames
+and none of the pool, held arguments or detach, so it is not a valid primary.
+H3 is graded on cross-binary runs per second, band [1.03, 1.10], merge only on
+upward separation from the 0.05 floor, and the judge states in advance that a
+real 3-5 percent saving reads no-gain. Soundness by structure: a record goes
+back to a queue only when it parks, which the never-yield bit excludes; every
+reset site sees a record that never ran; the pool is per run; write tokens
+and sig are exact at every read. Owed: every part gated on !H::EAGER and
+frame_pool out of Debug and Hash (the loops-agree tests compare Debug state
+under WithHashing). Evidence reproduces (r 1.0236, untouched rows imply about
+1.032); corrections: 1.21 of the allocator's 1.44 unscaled fall is cutoff
+crossings, ceval +0.54 and drop glue +0.27 x r were unnamed relocation, the
+proposed relocation guard fails the prototype below r 0.9815, the pessimistic
+bias claim is unsupported (a fresh identical build read +0.42 percent). False:
+make_unique "all node env" (Env::set's make_mut reaches make_unique on local
+writes too). Dedupe: H1's argument half is rpc-frames-own-arguments-for-non-parking-callees
+(closed iteration 19 on a relocation guard), which G2 now guards at family
+level. Leads noted in the pool: timer-firings-without-heap-strings and
+waiting-reader-without-a-box.
+
+Selection (autonomous): build H3 as commits A and B. Reason: a 4.9 percent
+one-thread saving sits near print-chains' 6.0, which read 1.1021 on the wall,
+so upward separation is plausible; the cost of finding out is one
+implementation and six rounds. Declined, with reason: the judge's flagged
+option of a counter-only commit landing the new counters in the baseline
+before grading. That is a round spent on measurement alone, which the loop
+does not buy; a mechanism that needs a new counter adds it in its own change.
+If H3 reads no-gain it is held with its patch kept, as stated at admission.
+Merge basis as frozen.

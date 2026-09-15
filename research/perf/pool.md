@@ -1808,3 +1808,59 @@ rounds of clock each:
 ## leaf-calls-on-a-stack-frame
 
 - category: algorithmic | origin: proposer | status: not admitted (iteration 27) - priced slower: 1.0201 over b20ee37, 1.0190 over a slice-signature build; the stack frame's setup and second dispatch loop cost more than the heap frame
+
+## frames-and-node-env-held-once
+
+- category: allocation and memory traffic | origin: proposer | status: admitted, building (iteration 28, autonomous)
+- mechanism: commit A (frames-and-arguments-held-once): a decode-time
+  never-yield bit per function entry; State::frame_pool of up to 32 cleared
+  unique buffers (SyncCall frames recycled after the call, handler frames when
+  the record returns); async sends to a never-yield callee evaluate arguments
+  into a pooled buffer and keep no initial_args; Record::reset keeps such a
+  frame; all under !H::EAGER, frame_pool out of Debug and Hash. Commit B
+  (node-env-detached-per-segment, re-opened): under !H::EAGER, Env::detach in
+  exec_ops and exec_sync_on_node, written back on every exit including errors
+  before the continuation runs.
+- evidence: census (LD_PRELOAD, VR 3,008 runs) 11,550 allocations per run,
+  about 4,850 of them removable; one-thread ABBA A 0.9711, B over A 0.9808, A +
+  B 0.9509, control 1.0042; 30-thread prototype profile r 1.0236 (untouched
+  rows imply about 1.032): value family -3.36 x r, EcoVec<Value> drop -2.22,
+  allocator -1.55 (0.54 guaranteed, the rest cutoff crossings), frame build
+  -0.97, make_unique -0.52; relocation run_async_op +0.63, Continuation::call
+  +0.50, ceval +0.54, drop glue +0.27.
+- verified by the judge: exec_ops consumes a record and requeues it only when
+  it parks, which the never-yield bit excludes; a sync callee that yields
+  raises an error; every one of five reset sites sees a record that never ran;
+  the pool is per run; write tokens and sig stay exact at every read;
+  shared_at_write 0 by construction. False: "every EcoVec<Value> make_unique is
+  the node env" (Env::set's make_mut calls make_unique on local writes too).
+  H1's argument half is the mechanism rpc-frames-own-arguments-for-non-parking-callees
+  closed on in iteration 19 (relocation guard); the frame pool and the whole-A
+  pricing are new.
+- primary: cross-binary runs per second, band [1.03, 1.10]; frame.calls
+  [1.010, 1.040] named as a check that the reset keep fired, not a credit. No
+  existing leaf counts allocations, frame buffers, argument sequences or
+  node-env copies. Stated in advance: a real 3-5 percent saving reads no-gain
+  on the 0.05 floor and is held with its patch kept.
+- gates before round 1: G1a one-thread cycles A + B at most 0.960 and at least
+  3 x a fresh control's |1 - mean|; G1b B over A at most 0.990; G2 30-thread
+  guards (guards28.py) value family 9.00 r, EcoVec<Value> drop 3.20 r,
+  make_unique 0.60 r, frame build 1.35 r, allocator 4.20 r, relocation family
+  16.45 r, ceval 8.40 r, drop glue 2.80 r, big family 47.00 r, memmove 8.80 r;
+  G3 five-session identity with frame.calls(base) - frame.calls(cand) =
+  resets_kept_frame exact and shared_at_write 0; G4 release tests (re-delivery
+  at five reset sites, never-yield bit, pool, detach writeback).
+- merge: G1-G4 held, grader gain with zero blockers over six rounds (runs per
+  second separated upward from 0.05), per-round hand checks in band, identity
+  exact; the only blocker that may be cleared in writing is frame.calls "did
+  not move" with resets kept above 0 and runs per second separated.
+- declarations: search-neutral, shared, no bit. Judge net 4 (gain 6, cost 2).
+- full record: tmp/loop/perf/it28-judgment.md.
+
+## timer-firings-without-heap-strings
+
+- category: allocation | origin: proposer | status: lead (iteration 28) - about 1,500 allocations per VR run and 1.05 one-thread allocator points; returns with a one-thread ABBA of at least 1 percent and identical history bytes
+
+## waiting-reader-without-a-box
+
+- category: allocation | origin: proposer | status: lead (iteration 28) - 1,465 boxes per VR run and 1.59 one-thread memmove points; returns with a one-thread ABBA of at least 1 percent and an answer to record-bodies-in-a-recycled-slab
