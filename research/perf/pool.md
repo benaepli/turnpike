@@ -1761,7 +1761,7 @@ rounds of clock each:
 
 ## print-chains-written-into-the-log
 
-- category: algorithmic | origin: proposer | status: admitted, building (iteration 27, autonomous)
+- category: algorithmic | origin: proposer | status: merged (iteration 27, autonomous) - superproject c2497c5; counter tree_evals 1.2522 [1.2332, 1.2714] over six rounds, runs per second 1.1021 [1.0790, 1.1258] separated; G1 0.9401 (control 1.0098), G2 held at r 1.0689, G3 exact, G4 passed; blocked_ns clause exceeded with writer cost per run unchanged
 - mechanism: at decode (Rewrites::On), a println chain - the maximal backward
   run of AssignLocal and StoreSkipped vertices ending in Print(Local(t)), every
   vertex after the first with one predecessor counting function entries - is

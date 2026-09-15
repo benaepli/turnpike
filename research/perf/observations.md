@@ -7560,3 +7560,134 @@ clones).
 Selection (autonomous): build H2 as one commit on b20ee37. Merge basis as
 frozen: G1-G4 held, grader gain with zero blockers, per-round checks in band,
 identity exact. A fresh identical-source layout control is built for G1.
+
+### print-chains-written-into-the-log: implementer report and operator review (autonomous)
+
+Export tmp/loop/perf/print-chains-written-into-the-log/: cand-spur, spur.patch
+(1,332 lines, 8 files, applies on the main tree's spur), super.patch (gitlink
+marker only). The identity sessions ran on the build before a one-line doc
+comment edit; .text and .rodata of that build and cand-spur are byte-identical
+(debuginfo differs), and the gates measure cand-spur.
+G4: release suite exit 0 (lib 500); check.rs extended with StoreFolded and
+PrintParts arms and check_folded_prints (own predecessor count with entries,
+pieces re-derived from the labels, piece slots unchanged from the chain head,
+folded and target slots poisoned after the Print, orphan StoreFolded
+rejected), rewrite_allowed extended; four mutations rejected; the byte test
+(10 decimal pieces with 0, -1, i64::MIN, i64::MAX; empty, non-ASCII, quote and
+backslash strings; node-slot pieces) and the failing-chain test (IntToString
+of a string, literal + int, int + literal, first failing store wins, later
+store failure, node-slot failure, right-nested chains) pass against
+Rewrites::Off; a right-nested single store is refused at decode.
+G3 on VR, crash-heavy, Mencius, SDPaxos and caps-engaged: executions, logs,
+traces parquet and stall caps byte-identical, runs tables identical except
+wall columns (caps compared in 10,000-run chunks), end reasons equal,
+runs_failed 0 = 0, crash holds 23,640,317 both sides; label_execs,
+frame.calls, stores_skipped, presized and entry_frame_copies equal;
+tree_evals(base) - tree_evals(cand) = print_trees_folded exactly on every
+session (VR 71,593,285 - 58,249,510 = 13,343,775; caps 295,896,144). VR: tree
+drop 4,436.1 per run (at least 4,310), stores_folded per label 0.1226 in
+[0.119, 0.126]; prints_fused / presized VR 3,318,291 / 3,377,240. program.json
+identical (VR with the two persist TypeId leaves masked, which vary between
+two base compiles).
+Deviations accepted: a 256-piece cap; "contains a tree" read as the folded
+stores holding a tree; two extra refusals needed for soundness and checker
+agreement (every check must reach the target's pieces; the suffix may not write
+a slot a piece reads); the suffix starts at an AssignLocal; prints_fused and
+print_trees_folded tick only after the checks pass, so the tree identity holds
+on runs that do not fail (all sessions had none).
+
+Operator review of the non-test diff: predecessors counts graph edges, the
+spin-await self edge and function entries, and the chain walk stops at any
+vertex with more than one way in or a predecessor that is not a store, so
+nothing enters or yields inside a chain; ChainFold evaluates operands left
+before right with each check after its operands, and fold_suffix refuses a
+suffix whose checks are out of piece order or incomplete, whose folded slots
+or target are live after the Print, or which writes a slot a piece reads (a
+later write would change what the Print reads); print_parts checks every piece
+before writing, raising the left or right operand's error text, so a failed
+check leaves the log text unchanged as base does when the chain errors before
+its Print, then reserves the exact length and writes the quoted pieces; the
+counters tick after success. The diff matches the frozen mechanism and stays in
+spur/.
+
+### print-chains-written-into-the-log: G1 held
+
+One-thread cycles on the VR 3,008 identity session, four ABBA pairs per
+contrast, scripts tmp/loop/perf/print-chains-gates/abba.sh and read.py (raw
+lines cycles.txt). Fresh identical-source layout control of b20ee37 built in
+.claude/worktrees/lc-e7.
+- Control over b20ee37: 1.0079, 1.0038, 1.0132, 1.0142; mean 1.0098, |1 -
+  mean| 0.0098 (a build layout about 1 percent slower, in line with the
+  judge's +0.6 to +0.85).
+- G1, candidate over b20ee37: 0.9359, 0.9483, 0.9362, 0.9401; mean 0.9401, at
+  most 0.966 and effect 0.0599 against 3 x 0.0098 - held.
+The implementation removes 6.0 percent of one-thread cycles against the
+prototype's 4.3: the prototype read each string piece twice and built eight
+Decimals per print, as the judge said, so it bounded the cost from above.
+
+### print-chains-written-into-the-log: G2 held; six rounds started
+
+Profile research/perf/profiles/b20ee37-cand-print-chains-written-into-the-log-low-cutoff.md
+(30 threads, 60 s, 0.3 percent), reader tmp/loop/perf/print-chains-gates/g2.py
+(reproduces the judge's base figures 9.68, 3.05, 1.38, 8.45, 50.16, 12.40 and
+prototype figures 7.33, 1.65, 0.39, 9.06, 47.97, 12.06). r = 11.79 / 11.03 =
+1.0689, inside [0.95, 1.15].
+- G2a ceval 7.26, at most 8.40 x r = 8.98 - held (unscaled 9.68 to 7.26);
+- G2b drop_glue<ValueKind> 1.56, at most 2.40 x r = 2.57 - held (3.05 to 1.56);
+- G2c EcoVec<u8> + Decimal::of_i64 0.39, at most 0.95 x r = 1.02 - held
+  (1.38 to 0.39);
+- G2d exec_ops 8.37, at most 9.50 x r = 10.15 - held;
+- G2e interpreter + value + memmove + allocator 48.01, at most 48.90 x r =
+  52.27 - held (50.16 to 48.01 unscaled);
+- G2f memmove + allocator 12.69, at most 12.60 x r = 13.47 - held; unscaled it
+  reads 0.29 above base's 12.40 and 0.09 above the unscaled limit, which the
+  frozen guard does not use.
+G1 held, G3 and G4 held. Grading session print-chains-written-into-the-log:
+cand-spur against spur/target/release/spur (b20ee37), search neutral, sharing
+shared, primary counter compiled_expr.tree_evals, band [1.17, 1.31], six rounds.
+
+### print-chains-written-into-the-log: six rounds read; merged (autonomous)
+
+Session research/perf/state/print-chains-written-into-the-log.json, cand-spur
+against b20ee37, cross-binary campaign rounds, both sides measured each round.
+- Primary counter compiled_expr.tree_evals, baseline over candidate per run:
+  1.2295, 1.2380, 1.2617, 1.2669, 1.2423, 1.2753; mean 1.2522 [1.2332,
+  1.2714], separated, band [1.17, 1.31] inside. Grader advice gain, zero
+  blockers.
+- Frozen per-round checks, every round in band: tree_evals per label, baseline
+  over candidate, 1.2384, 1.2377, 1.2241, 1.2329, 1.2379, 1.2304 [1.20, 1.28]
+  (judge's campaign-mix center 1.2405); mix-free sum on the candidate 0.4151,
+  0.4155, 0.4161, 0.4151, 0.4162, 0.4159 [0.410, 0.420]; stores_folded per
+  label 0.1272-0.1285 [0.116, 0.141]; prints_fused below presized every round;
+  folded trees per print 4.05-4.09.
+- Runs per second 1.0732, 1.0904, 1.1277, 1.1139, 1.0856, 1.1232; mean 1.1021
+  [1.0790, 1.1258], separated upward from the 0.05 floor. Microseconds per run
+  1.1062 [1.0801, 1.1328]; steps per run 0.9755 [0.9403, 1.0120].
+- Spread check: seven rows outside after round 1, four after round 2, the
+  deadlock end-reason share alone after round 3 (0.000226 against 0.000262,
+  allowed 0.000033), none after rounds 4, 5 and 6.
+- history_writer: blocked_ns base 73, 0, 13, 0, 8, 34 ms, candidate 209, 234,
+  101, 193, 190, 193 ms per 120 s round; queue_full_sends base 0-65, candidate
+  109-272; busy base 338-350 s, candidate 373-380 s, per run about 296 and 294
+  microseconds.
+
+Decision (autonomous): merge. Frozen merge basis held: G1-G4 held, grader gain
+with zero blockers, per-round checks in band every round, identity exact. One
+departure, written here: the cost clause "history_writer.blocked_ns stays
+within the baseline's own round values" is exceeded in every round. Writer
+busy time per run is unchanged (about 294 against 296 microseconds), so the
+change adds no writer work per run; the blocking rises because the candidate
+produces about 10 percent more runs per second into four writers now near 78
+percent busy. At most 0.23 s per round summed over simulation threads is
+under 0.01 percent of their time, and runs per second, which carries it,
+separated upward. This departure is made after the readings; it is recorded as
+a finding for the direction review: writer headroom is shrinking again.
+
+Merged: spur 3b53d0a (Print chains written straight into the log), superproject
+c2497c5.
+
+Revert criterion, registered before the post-merge baseline is read: the
+fresh baseline for the merged tree reads below 9,546.5 runs per second (0.97
+of the 9,841.7 cached for b20ee37 over nine rounds), measured by
+tmp/loop/perf/postmerge-print-chains.sh (rebuild, then grader baseline
+--rounds 3).
