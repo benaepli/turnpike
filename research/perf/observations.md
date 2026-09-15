@@ -8068,3 +8068,190 @@ blocks are covered by refcount-observable tests, six-session identity and the
 census gate. Merge basis as frozen; either commit's one-thread gate firing
 closes H2 before rounds. delivered-record-not-copied marked absorbed in the
 pool.
+
+### record-moves-and-frames-held-once: implementer report and operator review (autonomous)
+
+Export tmp/loop/perf/record-moves-and-frames-held-once/: cand-A-spur (commit A,
+the kept patch unchanged), cand-spur (A + B), spur-A.patch, spur.patch
+(applies on the main tree's spur), spur-B-over-A.patch. G4: full release suite
+passed (lib 514, every integration binary), with nine new tests
+(remove_record against Vec::remove with refcounts, push_record_into against
+Vec::push, ledger equality of push and take, park round trip against the label
+loop, deliver_to_channel with no reader, unique reader across all three entry
+kinds, shared reader, failing strict and lenient stores). G3 on VR,
+crash-heavy, Mencius, SDPaxos, caps-engaged and purgatory VR (A on purgatory
+only; its other five are on record from iteration 28): parquet bytes and
+sha256 manifests identical, tables EXCEPT ALL empty both ways, end reasons
+equal, runs_failed 0 = 0, crash holds 23,640,317 on caps; equal-work leaves
+equal; frame.calls(base) - frame.calls(cand) = resets_kept_frame exactly on
+every session; coverage above 0 and equal on both sides (crash-heavy 2,079
+Partition and 1,781 Heal rows; purgatory.delayed_sends 585,112; Mencius
+515,038 link dispatches). G5 census, VR 3,008 per run, base against A + B:
+record-sized memcpy 40,608.4 to 10,910.1 (at most 12,000), memmove calls
+4,855.3 to 6,312.3 (at most 6,600), allocations 11,549.5 to 7,041.0 (at most
+10,000), all memcpy 81,897 to 52,193; the remaining delivery-path copy is
+local into exec_ops, 2,919 per run. Lock-prefixed instructions on the record
+paths (static): base 2,849, A + B 2,603. Peak RSS base 139,128 kB, A + B
+138,848 (one reading).
+Deviations accepted: push_record_into keeps its raw write (safe Vec::push read
+12,463 record-sized copies, above the G5 limit, as the ruling allowed); the
+park and the wake read uniqueness from strong_count == 1 and weak_count == 0
+and write through Arc::as_ptr instead of Arc::get_mut, whose compare-and-swap
+added lock-prefixed operations against the cost clause, which adds a fifth
+unsafe block (the delivery borrow); a test seam passes the store into
+deliver_with_store so failing stores can be exercised; tests compare records
+by Debug text; recsize.py counts 232-288 bytes; the optional timer fold not
+done.
+
+Operator audit of the five unsafe blocks: the park writes both tuple fields
+into a fresh Arc::new_uninit through addr_of_mut and calls assume_init with
+nothing that can unwind between (the Lhs is cloned first); remove_record
+checks index and variant before its single read, shifts the tail and sets
+the length with nothing that can unwind, under &mut; push_record_into writes
+once into reserved capacity then sets the length; the delivery borrow is sound
+without the compare-and-swap because the Arc is owned locally after
+pop_front, one strong owner means no other thread holds a handle to clone,
+and zero weak references with no Weak anywhere in spur-core means nothing can
+upgrade, while a shared entry takes the copy path; the move-out reads the
+record once into a reserved slot, drops the Lhs in place and frees the
+allocation as Arc<MaybeUninit<(Record, Lhs)>>, whose size and alignment
+Arc::from_raw requires to match. The strict-failure return drops the reader
+through the Arc before any raw handling, matching base. Every block carries a
+SAFETY comment stating its invariant. The diff matches the frozen mechanism
+with the two deviations above and stays in spur/.
+
+### record-moves-and-frames-held-once: G1a and G1b held
+
+One-thread cycles on the VR 3,008 identity session, four ABBA pairs per
+contrast, scripts tmp/loop/perf/it29-gates/abba.sh and read.py (raw lines
+cycles.txt). Fresh identical-source layout control of 3b53d0a built in
+.claude/worktrees/lc-e9.
+- Control over 3b53d0a: 0.9996, 0.9992, 0.9989, 1.0042; mean 1.0005, |1 -
+  mean| 0.0005 (the tightest layout sample so far).
+- G1a, A + B over 3b53d0a: 0.9132, 0.9196, 0.9147, 0.9141; mean 0.9154, at
+  most 0.935 and effect 0.0846 against 3 x 0.0005 - held.
+- G1b, B over A, paired directly: 0.9376, 0.9195, 0.9355, 0.9316; mean
+  0.9310, at most 0.960 - held.
+The implementation removes 8.5 percent of one-thread cycles against the
+prototype's 7.9, and commit B alone 6.9 over A against its prototype's 5.65:
+the raw push write kept the census copy count down, and dropping
+Arc::get_mut's compare-and-swap removed the atomics the prototype added.
+G2 (30-thread profile) next; the judge measured 71 percent of the removed
+rows reappearing at 30 threads on the prototype.
+
+### record-moves-and-frames-held-once: G2 held; six rounds started
+
+Profile research/perf/profiles/3b53d0a-cand-record-moves-and-frames-held-once-low-cutoff.md
+(A + B, 30 threads, 60 s, 0.3 percent), reader tmp/loop/perf/it29-gates/g2.py
+(the judge's stack_guards.py with the profile paths as arguments; reproduces
+the prototype's figures). r over rows neither commit touches = 7.61 / 7.25 =
+1.0497, inside [0.95, 1.10]. Against base x r: memmove 8.06 to 4.91 (-3.55),
+chain family 19.32 to 21.53 (+1.25), memmove + chain 27.38 to 26.44 (-2.30),
+next-reader walks 7.08 to 6.96 (-0.47), allocator 4.57 to 3.53 (-1.27), value
+11.07 to 10.54 (-1.08), ceval 7.27 to 7.79 (+0.16), frame build 1.69 to 0.72
+(-1.05), broad 51.98 to 49.02 (-5.54).
+Guards: G2a memmove 4.91 at most 5.67; G2b chain 21.53 at most 24.98; G2c
+memmove + chain 26.44 at most 30.34; G2d walks 6.96 at most 7.98; G2e
+allocator 3.53 at most 4.09; G2f value 10.54 at most 10.71 (the narrowest);
+G2g ceval 7.79 at most 8.29; G2h broad 49.02 at most 54.48 - all held.
+The implementation relocates far less than the prototype did at 30 threads
+(broad -5.54 against the prototype's -1.09 x r; chain +1.25 against +3.83),
+and the saving rows fall unscaled as well.
+Grading session record-moves-and-frames-held-once: cand-spur against
+spur/target/release/spur (3b53d0a), search neutral, sharing shared, primary
+cross-binary runs per second, band [1.03, 1.11], counter frame.calls as the
+commit A check, six rounds.
+
+### record-moves-and-frames-held-once: six rounds read; held at no-gain (autonomous)
+
+Session research/perf/state/record-moves-and-frames-held-once.json, cand-spur
+against 3b53d0a, cross-binary campaign rounds.
+- Runs per second 1.0043, 1.0114, 1.0299, 1.0319, 1.0251, 1.0343; mean 1.0228
+  [1.0100, 1.0357], not separated from the 0.05 floor. Grader advice no-gain.
+  Microseconds per run 1.0230 [1.0105, 1.0357]; steps per run 1.0261
+  [1.0110, 1.0414], separated upward (the candidate's runs are longer).
+- Pooled per arm over six rounds, base over candidate microseconds per step:
+  grid 1.0558, grid-no-purgatory 1.0564, grid-post-fault-2 1.0588, grid-short
+  1.0405, aos 1.0275; candidate over base steps per run 1.0314, 1.0469,
+  1.0384, 1.0016, 1.0117. End reasons: stall_cap_reached share falls,
+  plan_complete and iterations_exhausted rise. The caps adapt within the
+  wall-budgeted campaign, so a faster binary runs further before a cap ends a
+  run.
+- Spread check: ten rows outside after round 1, then 7, 3, 2, 3, and after
+  round 6 plan_complete alone. One-thread identity is exact on six sessions
+  including caps-engaged, so these are the throughput-dependent shares the
+  standing exemption covers.
+- Commit A hand checks: args_held_in_frame / async_frames 0.637-0.642 and
+  buffers_allocated 62.7-65.9 per run in band every round; resets_kept_frame
+  above 0 every round; frame.calls baseline over candidate per run 0.9678-1.0057
+  (outside [1.010, 1.040] in all six) and per label 1.0061-1.0151 (outside in
+  three), tracking steps per run.
+
+Decision (autonomous): held, verdict no-gain, not refuted - the outcome stated
+at admission. No merge: the frozen basis requires runs per second separated
+upward from the 0.05 floor. Not refuted: the interval is not entirely below
+1.03. No departure: reading a 2.3 percent wall gain as sufficient after the
+readings would be post hoc. Patches kept:
+research/perf/patches/record-moves-and-frames-held-once.spur.patch (A + B on
+3b53d0a) and record-moves-collapsed-over-frames-A.spur.patch (B over A); commit
+A is also kept from iteration 28. One-thread cycles 0.9154 (8.5 percent), G2
+broad family -5.54 x r, per-step cost at 30 threads 3-6 percent lower, identity
+exact on six sessions.
+
+### Case for the user, extended: runs per second under-reads savings the campaign turns into longer runs
+
+Added to the case above. record-moves-and-frames-held-once removed 8.5 percent
+of one-thread cycles and about 5.5 percent of per-step cost on the grid arms at
+30 threads, with identity exact; the wall-budgeted campaign converted part of
+it into longer runs (steps per run 1.0261 [1.011, 1.041]) through caps that
+adapt to throughput, and runs per second read 1.0228. The two earlier merges
+moved steps per run the other way (0.987, 0.976) and read higher on the wall
+than their one-thread prices suggested. With runs per second as the
+cross-binary primary, a cost-removal change is credited or discounted by how
+the campaign's caps react to its speed, which the goal file names as the
+reason microseconds per run and steps per run are read separately and neither
+is clean when the search moves. Options for the user to weigh, beside the
+counter options above: a fixed-work workload (a fixed run count or cap-frozen
+campaign) for cross-binary cost readings; or microseconds per step per arm as
+description beside runs per second. The loop's rules are not changed here.
+
+## Direction review after record-moves-and-frames-held-once (autonomous)
+
+Called for by two iterations without a merge. The tree has not moved (spur
+3b53d0a). What the two say together: the largest costs left in the profile -
+memmove, the value family, the allocator - are paid in work no existing leaf
+counts, and their savings, however exact, reach the grader only through runs
+per second, which floors them at 0.05 and which the campaign's adaptive caps
+dilute. The two merges this session were priced on existing work counters
+(leaf_operands_inline, tree_evals).
+
+Verdict. Iteration 30 takes the redundant-work lens (rotation after layout),
+focus directive: the scheduler family on 3b53d0a (schedule_runnable rows 5.4,
+walk_recovery_placebo 2.37, score_with_terms 1.54, the eligible_counts fold
+1.57, select_within_queue, rng sampling 1.78; about 13.8 in all) - work
+repeated per step that is already known per run, per queue change or per
+decision. Condition: the primary is an existing utilization leaf both binaries
+emit that counts the work not done (the sched.*, steer_authority.*,
+crash_anchor.* and recovery_weight_placebo.* blocks are candidates to read),
+or the saving must separate on the wall by itself; draw order must be
+untouched. Conditions carried forward: census first; implementation-faithful
+prototype on a one-thread ABBA with a fresh control; location guards from a
+30-thread prototype profile. Steering audit: the last three directives aimed
+at the largest costs and found real savings; the instrument could grade two of
+five. This directive trades size for gradability until the user rules on the
+case above. Pool: record-moves-and-frames-held-once held with patches kept;
+frames-and-node-env-held-once commit A kept; nothing dropped.
+
+Digest, iteration 29: data layout lens on the Record move chain. A census
+traced about 26 moves per network request's lifecycle down to 7 in a prototype
+that reads each record once out of its slot, writes sends once, and completes
+woken readers in place; composed with iteration 28's kept frames commit A it
+priced 7.9 percent. The judge audited five unsafe blocks, found a purgatory
+path no identity config exercised, rebased r on untouched rows, predicted most
+of the saving would relocate at 30 threads, and set a cross-binary primary with
+no-gain stated as the likely outcome. Built as two commits; identity exact on
+six sessions with partitions, purgatory and links covered; census 40,608 to
+10,910 record-sized copies per run; G1a 0.9154, G1b 0.9310, G2 held with far
+less relocation than the prototype (broad -5.54 x r). Six rounds read runs per
+second 1.0228 [1.0100, 1.0357] with steps per run 1.0261: held at no-gain,
+patches kept. Tree unchanged at spur 3b53d0a.

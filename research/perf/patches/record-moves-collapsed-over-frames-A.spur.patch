@@ -1,0 +1,1720 @@
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index e806a39..a6cfff2 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -3,15 +3,16 @@ use crate::compiler::cfg::compiled::{
+     AsyncOp, Dest, ForLoopInOp, Op, PieceSource, PrintPart, TraceDispatchOp, TraceEnterOp,
+     TraceExitOp,
+ };
+-use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Program, VarSlot};
++use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Lhs, Program, VarSlot};
+ use crate::simulator::core::compiled_eval::{borrowed, coperand, cvalue};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::{
+     FrameBuilder, Operand, build_frame, build_frame_in, eval, eval_operand, set_local, store,
+ };
+ use crate::simulator::core::state::{
+-    ClientOpResult, Continuation, LogEntry, Logger, NodeId, PurgatoryConfig, Record,
++    ClientOpResult, Continuation, LogEntry, Logger, NodeId, PurgatoryConfig, ReaderEntry, Record,
+     Runnable, RunnableCategory, SchedulePolicy, State, Timer, TraceEntry, TraceKind,
++    deliver_to_channel,
+ };
+ use crate::simulator::core::values::{ChannelId, Decimal, Env, Value, ValueKind, ValueSeq};
+ use ecow::EcoVec;
+@@ -23,6 +24,7 @@ use crate::simulator::text_buffer::TextBuffer;
+ use crate::simulator::util_stats;
+ use crate::simulator::util_stats::{DeliveryBias, InterpreterTally};
+ use std::cell::RefCell;
++use std::sync::Arc;
+ use std::collections::HashMap;
+ 
+ /// Scratch for building one trace payload: the parameter texts laid end to
+@@ -1310,7 +1312,11 @@ fn run_async_op<H: HashPolicy>(
+ 
+     let send_ordinal = state.next_send_ordinal(node_id);
+     let drawn_priority = policy.sample(rng, RunnableCategory::Record);
+-    let mut new_record = Record {
++    let priority = state.record_priority(causal_operation_id, drawn_priority);
++    let origin_incarnation = state.incarnation(node_id);
++    let receiver_token_at_send = state.node_state_token(target_node);
++    let hold = purgatory_hold_steps(state, purgatory_config, target_node, rng);
++    let new_record = Record {
+         pc: func_info.entry,
+         node: target_node,
+         origin_node: node_id,
+@@ -1319,25 +1325,28 @@ fn run_async_op<H: HashPolicy>(
+         initial_args: arg_vals,
+         entry_func: func_info.name,
+         env: callee_locals,
+-        priority: state.record_priority(causal_operation_id, drawn_priority),
++        priority,
+         causal_operation_id,
+         trace_id: pending_trace_id.take(),
+         trace_payload: pending_trace_payload.take(),
+         link_seq,
+-        origin_incarnation: state.incarnation(node_id),
+-        bias: DeliveryBias::NONE,
++        origin_incarnation,
++        bias: if hold.is_some() {
++            DeliveryBias::DELAYED
++        } else {
++            DeliveryBias::NONE
++        },
+         timer_entry: None,
+         send_ordinal,
+-        receiver_token_at_send: state.node_state_token(target_node),
++        receiver_token_at_send,
+     };
+ 
+-    match purgatory_hold_steps(state, purgatory_config, target_node, rng) {
++    match hold {
+         Some(duration) => {
+             let release_step = state.crash_info.current_step + duration;
+-            new_record.bias.insert(DeliveryBias::DELAYED);
+             state.delay_runnable(release_step, Runnable::Record(new_record));
+         }
+-        None => state.push_runnable(Runnable::Record(new_record)),
++        None => state.push_record(new_record),
+     }
+     Ok(call.next as usize)
+ }
+@@ -1582,7 +1591,9 @@ fn run_sync_ops<H: HashPolicy, L: Logger, F: Feedback>(
+ }
+ 
+ /// Runs a record from its decoded operations until it returns or yields.
+-fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
++/// A caller that holds the record in a local passes it here directly: each
++/// by-value hop through another function copies the record.
++pub(crate) fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+@@ -1652,16 +1663,14 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                         .get_mut(&cid)
+                         .ok_or(RuntimeError::ChannelNotFound(cid.id))?;
+ 
+-                    match chan.pop_waiting_reader() {
+-                        None => chan.buffer.push_back(val),
+-                        Some((mut reader, lhs)) => {
+-                            let node_index = reader.node.index;
+-                            let mut r_node_env = state.nodes[node_index].clone();
+-                            store(&lhs, val, &mut reader.env, &mut r_node_env)?;
+-                            state.nodes[node_index] = r_node_env;
+-                            state.push_to_local(node_index, Runnable::Record(reader));
+-                        }
+-                    }
++                    deliver_to_channel(
++                        chan,
++                        &mut state.nodes,
++                        &mut state.local_queues,
++                        val,
++                        ReaderEntry::Unchanged,
++                        true,
++                    )?;
+                     record.pc = next;
+                 }
+             }
+@@ -1683,7 +1692,31 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                     let node_id = record.node;
+                     record.env = local_env;
+                     record.pc = recv.next as usize;
+-                    chan.push_waiting_reader(record, recv.lhs.clone());
++                    // The record is written straight into its entry rather than
++                    // passed on by value, so it is copied once.
++                    // The pointer is taken without `Arc::get_mut`, whose
++                    // uniqueness check is an atomic compare-and-swap.
++                    let lhs = recv.lhs.clone();
++                    let entry = Arc::<(Record<H>, Lhs)>::new_uninit();
++                    let slot = Arc::as_ptr(&entry)
++                        .cast_mut()
++                        .cast::<(Record<H>, Lhs)>();
++                    // SAFETY: the allocation was just made and `entry` is its
++                    // only owner, so no reference to its contents exists and
++                    // `slot`, derived from the allocation pointer rather than
++                    // from a shared reference, may write it. `MaybeUninit<T>`
++                    // has the layout of `T`, so `slot` addresses the whole
++                    // uninitialized tuple. `addr_of_mut!` forms no reference to
++                    // an uninitialized field. Both fields are written before
++                    // `assume_init`, and the two writes are plain moves, so
++                    // nothing can unwind between the first write and
++                    // `assume_init` and leave the record written but unowned.
++                    let entry = unsafe {
++                        std::ptr::write(std::ptr::addr_of_mut!((*slot).0), record);
++                        std::ptr::write(std::ptr::addr_of_mut!((*slot).1), lhs);
++                        entry.assume_init()
++                    };
++                    chan.waiting_readers.push_back(entry);
+                     state.nodes[node_id.index] = node_env;
+                     return Ok(None);
+                 }
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 4565270..ba4a053 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -2000,3 +2000,62 @@ fn pooled_frames_equal_fresh_frames_in_every_spec() {
+         .join()
+         .expect("the test thread finishes");
+ }
++
++/// A record the decoded loop parks on an empty channel comes back out of its
++/// waiting entry equal to the record and destination the label loop parks,
++/// and it holds its values exactly once.
++#[test]
++fn a_parked_record_round_trips_through_its_waiting_entry() {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(Expr::Unit));
++    let recv = builder.add(Label::Recv(Lhs::Var(slot(1)), Expr::Var(slot(0)), ret));
++    let make = builder.add(Label::MakeChannel(Lhs::Var(slot(0)), Some(1), recv));
++    let program = builder.build();
++    assert!(program.compiled.covers(program.cfg.graph.len()));
++    let mut undecoded = program.clone();
++    undecoded.compiled = Default::default();
++
++    let park = |program: &Program, payload: &ValueSeq<WithHashing>| {
++        let mut state = State::<WithHashing>::new(&[(NameId(0), 1)], 2);
++        let mut logger = TestLogger::new();
++        let mut record = make_record(make, 3);
++        record.env.set(2, Value::list(payload.clone()));
++        let mut coverage = LocalCoverage::new();
++        let result = exec::<WithHashing, TestLogger, CfgFeedback>(
++            &mut state,
++            &mut logger,
++            program,
++            record,
++            &VertexMap::new(),
++            &mut coverage,
++            &SchedulePolicy::Fixed,
++            &PurgatoryConfig::default(),
++            &mut SmallRng::seed_from_u64(0),
++        );
++        assert!(matches!(result, Ok(None)), "the record parks");
++        let cid = *state.channels.keys().next().expect("one channel");
++        let chan = state.channels.get_mut(&cid).expect("the channel exists");
++        assert_eq!(chan.waiting_readers.len(), 1);
++        let entry = chan.pop_waiting_reader().expect("one reader waits");
++        assert!(chan.waiting_readers.is_empty());
++        entry
++    };
++
++    let mut decoded_payload: ValueSeq<WithHashing> = ecow::EcoVec::new();
++    decoded_payload.push(Value::int(4));
++    let mut legacy_payload = decoded_payload.clone();
++    legacy_payload.make_mut();
++    let (decoded, decoded_lhs) = park(&program, &decoded_payload);
++    let (legacy, legacy_lhs) = park(&undecoded, &legacy_payload);
++    assert_eq!(format!("{:?}", decoded), format!("{:?}", legacy));
++    assert_eq!(decoded_lhs, legacy_lhs);
++    assert_eq!(decoded_lhs, Lhs::Var(slot(1)));
++    assert_eq!(decoded.pc, ret);
++    assert_eq!(decoded.env.get(2), &Value::list(decoded_payload.clone()));
++
++    drop((legacy, legacy_lhs));
++    assert!(legacy_payload.is_unique());
++    assert!(!decoded_payload.is_unique(), "the parked record still holds its payload");
++    drop(decoded);
++    assert!(decoded_payload.is_unique(), "the parked record dropped its payload exactly once");
++}
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index 7fe9b80..a036a68 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -1,14 +1,15 @@
+ use crate::compiler::cfg::{Program, Vertex};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::build_frame;
+-use crate::simulator::core::exec::{exec, exec_sync_on_node};
++use crate::simulator::core::exec::{exec, exec_ops, exec_sync_on_node};
+ use crate::simulator::core::partition::{activate_partition, heal_partition};
+ use crate::simulator::core::queue_selector::{
+     QueueInfo, QueueSelection, QueueSelector, TimerBiasUse, WithinQueueSelector,
+     select_with_timer_context,
+ };
+ use crate::simulator::core::state::{
+-    Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, Record, ReplayCut, Runnable,
++    Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, ReaderEntry, Record, ReplayCut,
++    Runnable, deliver_to_channel,
+     RunnableCategory, SchedulePolicy, ScheduleResult, State,
+ };
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+@@ -27,7 +28,7 @@ use crate::simulator::path::TopologyInfo;
+ use crate::simulator::rng::{Stream, StreamRng};
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats;
+-use crate::simulator::util_stats::DeliveryBias;
++use crate::simulator::util_stats::{DeliveryBias, InterpreterTally};
+ use imbl::OrdSet;
+ use log::warn;
+ use rand::Rng;
+@@ -1454,7 +1455,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+     };
+ 
+-    let (runnable, chosen_slot, chosen_mask) = match selection {
++    let (chosen_slot, chosen_mask) = match selection {
+         QueueSelection::Local(node_idx) => {
+             let queue = &state.local_queues[node_idx];
+             let admitted = info.local_queue_sizes.get(node_idx).copied().unwrap_or(0);
+@@ -1475,11 +1476,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            (
+-                state.take_local(node_idx, idx),
+-                QueueSlot::Local(node_idx, idx),
+-                mask,
+-            )
++            (QueueSlot::Local(node_idx, idx), mask)
+         }
+         QueueSelection::Network => {
+             let queue = &state.network_queue;
+@@ -1513,7 +1510,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             } else {
+                 drawn_mask
+             };
+-            (state.take_network(idx), QueueSlot::Network(idx), mask)
++            (QueueSlot::Network(idx), mask)
+         }
+         QueueSelection::Timer => {
+             let queue = &state.timer_queue;
+@@ -1550,7 +1547,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            (state.timer_queue.remove(idx), QueueSlot::Timer(idx), mask)
++            (QueueSlot::Timer(idx), mask)
+         }
+     };
+ 
+@@ -1565,6 +1562,292 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         util_stats::record_timer_admission(matches!(chosen_slot, QueueSlot::Timer(_)));
+     }
+ 
++    // A record goes from its queue slot straight into the interpreter: the
++    // queue walks above read it in place, and nothing between the take and
++    // `exec_ops` holds it by value.
++    let queued_record = match chosen_slot {
++        QueueSlot::Local(node_idx, idx) => {
++            matches!(state.local_queues[node_idx][idx], Runnable::Record(_))
++        }
++        QueueSlot::Network(idx) => matches!(state.network_queue[idx], Runnable::Record(_)),
++        QueueSlot::Timer(_) => false,
++    };
++    if queued_record {
++        let r = match chosen_slot {
++            QueueSlot::Local(node_idx, idx) => state.take_local_record(node_idx, idx),
++            QueueSlot::Network(idx) => state.take_network_record(idx),
++            QueueSlot::Timer(_) => unreachable!("the timer queue holds only timers"),
++        };
++        let (src_node, dest_node) = (r.origin_node, r.node);
++        if state.crash_info.currently_crashed.contains(&dest_node) {
++            if src_node != dest_node {
++                let mut r = r;
++                r.reset(program);
++                state.crash_info.queued_messages.push_back((dest_node, r));
++            }
++            return Ok(ScheduleResult::None);
++        }
++        if state.partition_info.is_blocked(src_node, dest_node) {
++            let mut r = r;
++            r.reset(program);
++            state.partition_info.buffer_record(dest_node, r);
++            return Ok(ScheduleResult::None);
++        }
++        let record_entry_pc = r.entry_pc;
++        let record_origin = r.origin_node;
++        let record_dest = r.node;
++        let record_sent_at = r.origin_incarnation;
++        let record_pc = r.pc;
++        let record_cause = r.causal_operation_id;
++        let record_ordinal = r.send_ordinal;
++        let record_bias = r.bias;
++        let record_timer_entry = r.timer_entry;
++        let record_link_seq = r.link_seq;
++        // Bump the link's deliver counter so the next FIFO message
++        // in this link becomes schedulable.
++        if let Some((link_id, seq)) = record_link_seq {
++            state.link_deliver_seq.insert(link_id, seq + 1);
++        }
++        // Measure the effect of a message on its receiver: only a
++        // first entry into a handler for a message from another
++        // node counts, not the continuations it is re-queued as.
++        let message_entry = record_origin != record_dest && record_pc == record_entry_pc;
++        let entry_step = state.crash_info.current_step;
++        // Read at every entry, not only on probes: the compare
++        // after the segment is the progress mark the stall clock
++        // takes, and the token every probe compares against.
++        let token_before = state.node_state_token(record_dest);
++        // Whether a ghost reached a destination that had already
++        // heard from the sender's current incarnation, read off
++        // the per-destination table before this entry is added.
++        // The table is kept on every run: the overtaken-ghost
++        // reward reads it.
++        let mut overtaken_at_restarted = false;
++        if message_entry {
++            let current = state.incarnation(record_origin);
++            if record_sent_at != current {
++                let overtaken = state.fresh_first.heard_from(
++                    record_dest.index,
++                    record_origin.index,
++                    current,
++                );
++                overtaken_at_restarted = state.overtaken_ghost_at_restarted(
++                    record_origin,
++                    record_sent_at,
++                    record_dest,
++                );
++                util_stats::record_fresh_first_ghost_entry(
++                    state.fresh_first.enabled,
++                    overtaken,
++                    state.incarnation(record_dest) > 0,
++                );
++            }
++            state.note_entry_at_absorber(
++                record_origin,
++                record_sent_at,
++                record_dest,
++                entry_step,
++            );
++            let servers = topology.num_servers.max(0) as usize;
++            if record_dest.index < servers
++                && state.client_anchor.caused_post_fault(record_cause)
++            {
++                state.note_post_fault_request_entry(record_dest.index, entry_step, servers);
++            }
++            state.fresh_first.note_entry(
++                record_dest.index,
++                record_origin.index,
++                record_sent_at,
++            );
++        }
++        // Whether a message entry from a sender that has crashed
++        // at least once has a sibling of its class - same sender,
++        // same destination, same sending incarnation - already
++        // entered or still in the network queue, and whether a
++        // queued sibling carries a lower send ordinal. Read on
++        // census runs only, and the queue only when the sender's
++        // ledger says it holds a remote record of the sender at
++        // all.
++        if message_entry
++            && state.pair_order.census
++            && (state.incarnation(record_origin) > 0
++                || state.crash_info.currently_crashed.contains(&record_origin))
++        {
++            let entered_before = state.pair_order.note_entry(
++                record_origin.index,
++                record_dest.index,
++                record_sent_at,
++            );
++            let queued = state
++                .send_ledger
++                .get(record_origin.index)
++                .is_some_and(|l| l.net_records > 0);
++            let scanned: &[Runnable<H>] = if queued { &state.network_queue } else { &[] };
++            let siblings = scanned.iter().filter_map(|q| match q {
++                Runnable::Record(s)
++                    if s.origin_node == record_origin
++                        && s.node == record_dest
++                        && s.origin_incarnation == record_sent_at =>
++                {
++                    Some(s.send_ordinal)
++                }
++                _ => None,
++            });
++            if let Some(inverted) =
++                pair_order::classify_entry(siblings, record_ordinal, entered_before)
++            {
++                util_stats::record_pair_order_entry(
++                    state.pair_order.enabled,
++                    state.fault_crossing(record_origin, record_sent_at),
++                    inverted,
++                );
++            }
++        }
++        // A delivery from a sender that is down, or that restarted
++        // since sending, marks its receiver as having absorbed
++        // state from an incarnation that no longer exists.
++        let ghost = (message_entry
++            && state.fault_crossing(record_origin, record_sent_at))
++        .then_some(token_before);
++        if ghost.is_some()
++            && !state.retarget.signal_counted
++            && state
++                .send_ledger
++                .get(record_dest.index)
++                .is_some_and(|l| l.crash_pending > 0)
++        {
++            state.retarget.signal_counted = true;
++            state.replay_cut = Some(ReplayCut {
++                step: entry_step,
++                tape_pos: rng.position(),
++            });
++            util_stats::record_ghost_signal_run();
++        }
++        let probe = (util_stats::acted_fraction_enabled() && message_entry).then(|| {
++            let mut bias = record_bias;
++            if record_sent_at != state.incarnation(record_origin) {
++                bias.insert(DeliveryBias::SENDER_RESTARTED);
++            }
++            (bias, state.entries_since_restart(record_dest.index))
++        });
++        // The segment a timer firing woke, measured the same way
++        // as a delivery: the token counts state writes, so a
++        // segment that only sends reads as inert.
++        let timer_entry = record_timer_entry == Some(record_pc);
++        let timer_probe = (util_stats::acted_fraction_enabled() && timer_entry).then(|| {
++            let pending = state.pending_deliveries_to(record_dest);
++            let inflight = pending > 0;
++            let key = util_stats::TimerKey::new(
++                record_pc,
++                inflight,
++                state.incarnation(record_dest),
++                state.timer_inert_streak(record_dest.index, record_pc),
++            );
++            let ledger = state
++                .send_ledger
++                .get(record_dest.index)
++                .copied()
++                .unwrap_or_default();
++            let cell = timer_context::cell_key(
++                pending,
++                ledger.in_flight,
++                state.max_timer_inert_streak(record_dest.index),
++                state.incarnation(record_dest) > 0
++                    && state.entries_since_restart(record_dest.index) < 8,
++            );
++            (record_pc, key, inflight, cell)
++        });
++        if message_entry {
++            state.note_handler_entry(record_dest.index, HandlerTrigger::Delivery);
++        } else if timer_entry {
++            state.note_handler_entry(record_dest.index, HandlerTrigger::Timer);
++        }
++        let result = if program.compiled.covers(program.cfg.graph.len()) {
++            let mut tally = InterpreterTally::new();
++            let result = exec_ops::<H, L, F>(
++                state,
++                logger,
++                program,
++                r,
++                snapshot,
++                feedback,
++                policy,
++                purgatory_config,
++                rng,
++                &mut tally,
++            );
++            tally.flush();
++            result
++        } else {
++            exec::<H, L, F>(
++                state,
++                logger,
++                program,
++                r,
++                snapshot,
++                feedback,
++                policy,
++                purgatory_config,
++                rng,
++            )
++        }?;
++        let acted = state.node_state_token(record_dest) != token_before;
++        if message_entry {
++            note_ghost_release_entry(
++                state,
++                record_origin,
++                record_sent_at,
++                record_dest,
++                entry_step,
++                acted,
++                topology.num_servers.max(0) as usize,
++            );
++        }
++        if let Some(before) = ghost {
++            state.note_ghost_delivery(record_dest.index, entry_step, before);
++            if acted {
++                state.last_acted_ghost_step = entry_step;
++            }
++            // A dead-incarnation record is a ghost, so the
++            // token taken for the mark serves the reward too.
++            if overtaken_at_restarted && acted {
++                state.overtaken_ghost_acted = true;
++            }
++        }
++        if let Some((bias, distance)) = probe {
++            util_stats::record_delivery(bias, acted, distance);
++            util_stats::record_term_acted(chosen_mask, acted);
++        }
++        if let Some((pc, key, inflight, cell)) = timer_probe {
++            state.note_timer_effect(record_dest.index, pc, inflight, acted);
++            util_stats::record_timer(key, acted);
++            // Only steer-off probe runs feed the learner, so the
++            // learned rates carry no imprint of the bias.
++            if timer_ctx_mode == timer_context::RunMode::Probe {
++                timer_context::record_firing(cell, acted);
++            }
++        }
++        if message_entry {
++            util_stats::record_message_entry(record_dest.index, entry_step);
++        }
++        return match result {
++            Some(client_op) => Ok(ScheduleResult::ClientOp(client_op)),
++            None => Ok(ScheduleResult::RecordExecuted {
++                entry_pc: record_entry_pc,
++                origin_node: record_origin,
++                dest_node: record_dest,
++                acted,
++                timer_entry,
++            }),
++        };
++    }
++
++    let runnable = match chosen_slot {
++        QueueSlot::Local(node_idx, idx) => state.take_local(node_idx, idx),
++        QueueSlot::Network(idx) => state.take_network(idx),
++        QueueSlot::Timer(idx) => state.timer_queue.remove(idx),
++    };
++
+     match runnable {
+         Runnable::Crash { node_id, .. } => {
+             // Every census of what a crash lands on reads the node the crash
+@@ -1634,25 +1917,17 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             }
+             let token_before = state.node_state_token(timer.node);
+ 
+-            if let Some(chan) = state.channels.get_mut(&timer.channel) {
+-                match chan.pop_waiting_reader() {
+-                    None => chan.buffer.push_back(Value::<H>::unit()),
+-                    Some((mut reader, lhs)) => {
+-                        let node_index = reader.node.index;
+-                        let mut r_node_env = state.nodes[node_index].clone();
+-                        if let Err(e) = crate::simulator::core::eval::store(
+-                            &lhs,
+-                            Value::<H>::unit(),
+-                            &mut reader.env,
+-                            &mut r_node_env,
+-                        ) {
+-                            log::warn!("Store failed in timer completion: {}", e);
+-                        }
+-                        state.nodes[node_index] = r_node_env;
+-                        reader.timer_entry = Some(reader.pc);
+-                        state.push_to_local(node_index, Runnable::Record(reader));
+-                    }
+-                }
++            if let Some(chan) = state.channels.get_mut(&timer.channel)
++                && let Err(e) = deliver_to_channel(
++                    chan,
++                    &mut state.nodes,
++                    &mut state.local_queues,
++                    Value::<H>::unit(),
++                    ReaderEntry::TimerFired,
++                    false,
++                )
++            {
++                log::warn!("Store failed in timer completion: {}", e);
+             }
+             if let Some(label) = timer.label {
+                 state
+@@ -1667,310 +1942,43 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 Ok(ScheduleResult::None)
+             }
+         }
+-        other => {
+-            let (src_node, dest_node) = match &other {
+-                Runnable::Record(r) => (r.origin_node, r.node),
+-                Runnable::ChannelSend {
+-                    origin_node,
+-                    target,
+-                    ..
+-                } => (*origin_node, *target),
+-                _ => unreachable!(),
+-            };
+-
+-            if state.crash_info.currently_crashed.contains(&dest_node) {
+-                if let Runnable::Record(r) = other
+-                    && src_node != dest_node {
+-                        let mut r = r;
+-                        r.reset(program);
+-                        state.crash_info.queued_messages.push_back((dest_node, r));
+-                    }
++        Runnable::ChannelSend {
++            target,
++            channel,
++            message,
++            origin_node,
++            pc,
++            priority,
++        } => {
++            if state.crash_info.currently_crashed.contains(&target) {
+                 return Ok(ScheduleResult::None);
+             }
+-
+-            if state.partition_info.is_blocked(src_node, dest_node) {
+-                match other {
+-                    Runnable::Record(r) => {
+-                        let mut r = r;
+-                        r.reset(program);
+-                        state.partition_info.buffer_record(dest_node, r);
+-                    }
+-                    Runnable::ChannelSend {
+-                        channel,
+-                        message,
+-                        origin_node,
+-                        pc,
+-                        priority,
+-                        ..
+-                    } => {
+-                        state.partition_info.buffer_channel_send(
+-                            dest_node,
+-                            channel,
+-                            message,
+-                            origin_node,
+-                            pc,
+-                            priority,
+-                        );
+-                    }
+-                    _ => unreachable!(),
+-                }
++            if state.partition_info.is_blocked(origin_node, target) {
++                state.partition_info.buffer_channel_send(
++                    target,
++                    channel,
++                    message,
++                    origin_node,
++                    pc,
++                    priority,
++                );
+                 return Ok(ScheduleResult::None);
+             }
+-
+-            match other {
+-                Runnable::Record(r) => {
+-                    let record_entry_pc = r.entry_pc;
+-                    let record_origin = r.origin_node;
+-                    let record_dest = r.node;
+-                    let record_sent_at = r.origin_incarnation;
+-                    // Bump the link's deliver counter so the next FIFO message
+-                    // in this link becomes schedulable.
+-                    if let Some((link_id, seq)) = r.link_seq {
+-                        state.link_deliver_seq.insert(link_id, seq + 1);
+-                    }
+-                    // Measure the effect of a message on its receiver: only a
+-                    // first entry into a handler for a message from another
+-                    // node counts, not the continuations it is re-queued as.
+-                    let message_entry = record_origin != record_dest && r.pc == record_entry_pc;
+-                    let entry_step = state.crash_info.current_step;
+-                    // Read at every entry, not only on probes: the compare
+-                    // after the segment is the progress mark the stall clock
+-                    // takes, and the token every probe compares against.
+-                    let token_before = state.node_state_token(record_dest);
+-                    // Whether a ghost reached a destination that had already
+-                    // heard from the sender's current incarnation, read off
+-                    // the per-destination table before this entry is added.
+-                    // The table is kept on every run: the overtaken-ghost
+-                    // reward reads it.
+-                    let mut overtaken_at_restarted = false;
+-                    if message_entry {
+-                        let current = state.incarnation(record_origin);
+-                        if r.origin_incarnation != current {
+-                            let overtaken = state.fresh_first.heard_from(
+-                                record_dest.index,
+-                                record_origin.index,
+-                                current,
+-                            );
+-                            overtaken_at_restarted = state.overtaken_ghost_at_restarted(
+-                                record_origin,
+-                                r.origin_incarnation,
+-                                record_dest,
+-                            );
+-                            util_stats::record_fresh_first_ghost_entry(
+-                                state.fresh_first.enabled,
+-                                overtaken,
+-                                state.incarnation(record_dest) > 0,
+-                            );
+-                        }
+-                        state.note_entry_at_absorber(
+-                            record_origin,
+-                            r.origin_incarnation,
+-                            record_dest,
+-                            entry_step,
+-                        );
+-                        let servers = topology.num_servers.max(0) as usize;
+-                        if record_dest.index < servers
+-                            && state.client_anchor.caused_post_fault(r.causal_operation_id)
+-                        {
+-                            state.note_post_fault_request_entry(record_dest.index, entry_step, servers);
+-                        }
+-                        state.fresh_first.note_entry(
+-                            record_dest.index,
+-                            record_origin.index,
+-                            r.origin_incarnation,
+-                        );
+-                    }
+-                    // Whether a message entry from a sender that has crashed
+-                    // at least once has a sibling of its class - same sender,
+-                    // same destination, same sending incarnation - already
+-                    // entered or still in the network queue, and whether a
+-                    // queued sibling carries a lower send ordinal. Read on
+-                    // census runs only, and the queue only when the sender's
+-                    // ledger says it holds a remote record of the sender at
+-                    // all.
+-                    if message_entry
+-                        && state.pair_order.census
+-                        && (state.incarnation(record_origin) > 0
+-                            || state.crash_info.currently_crashed.contains(&record_origin))
+-                    {
+-                        let entered_before = state.pair_order.note_entry(
+-                            record_origin.index,
+-                            record_dest.index,
+-                            r.origin_incarnation,
+-                        );
+-                        let queued = state
+-                            .send_ledger
+-                            .get(record_origin.index)
+-                            .is_some_and(|l| l.net_records > 0);
+-                        let scanned: &[Runnable<H>] = if queued { &state.network_queue } else { &[] };
+-                        let siblings = scanned.iter().filter_map(|q| match q {
+-                            Runnable::Record(s)
+-                                if s.origin_node == record_origin
+-                                    && s.node == record_dest
+-                                    && s.origin_incarnation == r.origin_incarnation =>
+-                            {
+-                                Some(s.send_ordinal)
+-                            }
+-                            _ => None,
+-                        });
+-                        if let Some(inverted) =
+-                            pair_order::classify_entry(siblings, r.send_ordinal, entered_before)
+-                        {
+-                            util_stats::record_pair_order_entry(
+-                                state.pair_order.enabled,
+-                                state.fault_crossing(record_origin, r.origin_incarnation),
+-                                inverted,
+-                            );
+-                        }
+-                    }
+-                    // A delivery from a sender that is down, or that restarted
+-                    // since sending, marks its receiver as having absorbed
+-                    // state from an incarnation that no longer exists.
+-                    let ghost = (message_entry
+-                        && state.fault_crossing(record_origin, r.origin_incarnation))
+-                    .then_some(token_before);
+-                    if ghost.is_some()
+-                        && !state.retarget.signal_counted
+-                        && state
+-                            .send_ledger
+-                            .get(record_dest.index)
+-                            .is_some_and(|l| l.crash_pending > 0)
+-                    {
+-                        state.retarget.signal_counted = true;
+-                        state.replay_cut = Some(ReplayCut {
+-                            step: entry_step,
+-                            tape_pos: rng.position(),
+-                        });
+-                        util_stats::record_ghost_signal_run();
+-                    }
+-                    let probe = (util_stats::acted_fraction_enabled() && message_entry).then(|| {
+-                        let mut bias = r.bias;
+-                        if r.origin_incarnation != state.incarnation(record_origin) {
+-                            bias.insert(DeliveryBias::SENDER_RESTARTED);
+-                        }
+-                        (bias, state.entries_since_restart(record_dest.index))
+-                    });
+-                    // The segment a timer firing woke, measured the same way
+-                    // as a delivery: the token counts state writes, so a
+-                    // segment that only sends reads as inert.
+-                    let timer_entry = r.timer_entry == Some(r.pc);
+-                    let timer_probe = (util_stats::acted_fraction_enabled() && timer_entry).then(|| {
+-                        let pending = state.pending_deliveries_to(record_dest);
+-                        let inflight = pending > 0;
+-                        let key = util_stats::TimerKey::new(
+-                            r.pc,
+-                            inflight,
+-                            state.incarnation(record_dest),
+-                            state.timer_inert_streak(record_dest.index, r.pc),
+-                        );
+-                        let ledger = state
+-                            .send_ledger
+-                            .get(record_dest.index)
+-                            .copied()
+-                            .unwrap_or_default();
+-                        let cell = timer_context::cell_key(
+-                            pending,
+-                            ledger.in_flight,
+-                            state.max_timer_inert_streak(record_dest.index),
+-                            state.incarnation(record_dest) > 0
+-                                && state.entries_since_restart(record_dest.index) < 8,
+-                        );
+-                        (r.pc, key, inflight, cell)
+-                    });
+-                    if message_entry {
+-                        state.note_handler_entry(record_dest.index, HandlerTrigger::Delivery);
+-                    } else if timer_entry {
+-                        state.note_handler_entry(record_dest.index, HandlerTrigger::Timer);
+-                    }
+-                    let result = exec::<H, L, F>(
+-                        state,
+-                        logger,
+-                        program,
+-                        r,
+-                        snapshot,
+-                        feedback,
+-                        policy,
+-                        purgatory_config,
+-                        rng,
+-                    )?;
+-                    let acted = state.node_state_token(record_dest) != token_before;
+-                    if message_entry {
+-                        note_ghost_release_entry(
+-                            state,
+-                            record_origin,
+-                            record_sent_at,
+-                            record_dest,
+-                            entry_step,
+-                            acted,
+-                            topology.num_servers.max(0) as usize,
+-                        );
+-                    }
+-                    if let Some(before) = ghost {
+-                        state.note_ghost_delivery(record_dest.index, entry_step, before);
+-                        if acted {
+-                            state.last_acted_ghost_step = entry_step;
+-                        }
+-                        // A dead-incarnation record is a ghost, so the
+-                        // token taken for the mark serves the reward too.
+-                        if overtaken_at_restarted && acted {
+-                            state.overtaken_ghost_acted = true;
+-                        }
+-                    }
+-                    if let Some((bias, distance)) = probe {
+-                        util_stats::record_delivery(bias, acted, distance);
+-                        util_stats::record_term_acted(chosen_mask, acted);
+-                    }
+-                    if let Some((pc, key, inflight, cell)) = timer_probe {
+-                        state.note_timer_effect(record_dest.index, pc, inflight, acted);
+-                        util_stats::record_timer(key, acted);
+-                        // Only steer-off probe runs feed the learner, so the
+-                        // learned rates carry no imprint of the bias.
+-                        if timer_ctx_mode == timer_context::RunMode::Probe {
+-                            timer_context::record_firing(cell, acted);
+-                        }
+-                    }
+-                    if message_entry {
+-                        util_stats::record_message_entry(record_dest.index, entry_step);
+-                    }
+-                    match result {
+-                        Some(client_op) => Ok(ScheduleResult::ClientOp(client_op)),
+-                        None => Ok(ScheduleResult::RecordExecuted {
+-                            entry_pc: record_entry_pc,
+-                            origin_node: record_origin,
+-                            dest_node: record_dest,
+-                            acted,
+-                            timer_entry,
+-                        }),
+-                    }
+-                }
+-                Runnable::ChannelSend {
+-                    channel, message, ..
+-                } => {
+-                    if let Some(chan) = state.channels.get_mut(&channel) {
+-                        match chan.pop_waiting_reader() {
+-                            None => chan.buffer.push_back(message),
+-                            Some((mut reader, lhs)) => {
+-                                let node_index = reader.node.index;
+-                                let mut r_node_env = state.nodes[node_index].clone();
+-                                if let Err(e) = crate::simulator::core::eval::store(
+-                                    &lhs,
+-                                    message,
+-                                    &mut reader.env,
+-                                    &mut r_node_env,
+-                                ) {
+-                                    log::warn!("Store failed in remote channel delivery: {}", e);
+-                                }
+-                                state.nodes[node_index] = r_node_env;
+-                                reader.timer_entry = None;
+-                                state.push_to_local(node_index, Runnable::Record(reader));
+-                            }
+-                        }
+-                    }
+-                    Ok(ScheduleResult::None)
+-                }
+-                _ => unreachable!(),
++            if let Some(chan) = state.channels.get_mut(&channel)
++                && let Err(e) = deliver_to_channel(
++                    chan,
++                    &mut state.nodes,
++                    &mut state.local_queues,
++                    message,
++                    ReaderEntry::Cleared,
++                    false,
++                )
++            {
++                log::warn!("Store failed in remote channel delivery: {}", e);
+             }
++            Ok(ScheduleResult::None)
+         }
++        Runnable::Record(_) => unreachable!("records are delivered above"),
+     }
+ }
+ 
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index fa09c0c..bef49e0 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -1,6 +1,7 @@
+ use crate::analysis::resolver::NameId;
+ use crate::analysis::type_id::TypeId;
+ use crate::compiler::cfg::{Lhs, Program, Vertex};
++use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::{build_frame, store};
+ use crate::simulator::core::partition::{PartitionInfo, PartitionType};
+ use crate::simulator::core::steer_terms::Term;
+@@ -522,6 +523,145 @@ impl<H: HashPolicy> ChannelState<H> {
+     }
+ }
+ 
++/// Removes the record at `idx` of `queue`, keeping the order of the rest,
++/// with the record read once out of its slot. The entry must be a record.
++#[inline]
++fn remove_record<H: HashPolicy>(queue: &mut Vec<Runnable<H>>, idx: usize) -> Record<H> {
++    let len = queue.len();
++    let Runnable::Record(rec) = &queue[idx] else {
++        unreachable!("remove_record on an entry that is not a record")
++    };
++    let src: *const Record<H> = rec;
++    // SAFETY: the indexing above proved `idx < len` and the pattern proved the
++    // entry at `idx` is a record, both before anything is read. The record is
++    // read exactly once, then the tail is shifted down over its slot and the
++    // length drops by one, so the returned value is its only owner and no
++    // entry is dropped twice or lost. Between the read and `set_len` there is
++    // only pointer arithmetic and a copy, which cannot unwind. `&mut queue`
++    // rules out any live reference into the buffer, and the pointer taken from
++    // the shared borrow is not used after the mutable pointer is taken.
++    unsafe {
++        let r = std::ptr::read(src);
++        let p = queue.as_mut_ptr().add(idx);
++        std::ptr::copy(p.add(1), p, len - idx - 1);
++        queue.set_len(len - 1);
++        r
++    }
++}
++
++/// Appends `record` to `queue` with room reserved first, so the record is
++/// written once, into its slot: `Vec::push` takes the wrapped entry by value
++/// and copies it once more.
++#[inline(always)]
++fn push_record_into<H: HashPolicy>(queue: &mut Vec<Runnable<H>>, record: Record<H>) {
++    queue.reserve(1);
++    let len = queue.len();
++    // SAFETY: `reserve(1)` guarantees capacity for at least `len + 1` entries,
++    // so the slot at `len` lies inside the allocation and holds no live entry.
++    // The entry is written exactly once into that slot and `set_len` then makes
++    // it part of the queue, so it is owned only by the queue. Nothing between
++    // `reserve` and `set_len` can unwind: a failed reservation panics or aborts
++    // before the write, and the write and `set_len` cannot fail.
++    unsafe {
++        std::ptr::write(queue.as_mut_ptr().add(len), Runnable::Record(record));
++        queue.set_len(len + 1);
++    }
++}
++
++/// What a woken reader's `timer_entry` is set to.
++pub enum ReaderEntry {
++    Unchanged,
++    TimerFired,
++    Cleared,
++}
++
++/// Gives `val` to the longest-waiting reader of `chan` and queues that reader
++/// on its node's local queue, or buffers `val` when no reader waits. The
++/// reader is changed where it waits and moved once, into the queue. With
++/// `strict`, a failed store returns its error before the node env is written
++/// back or the reader is queued, and the reader is dropped; otherwise the
++/// reader is queued and the error is returned after.
++#[inline]
++pub fn deliver_to_channel<H: HashPolicy>(
++    chan: &mut ChannelState<H>,
++    nodes: &mut [Env<H>],
++    local_queues: &mut [Vec<Runnable<H>>],
++    val: Value<H>,
++    entry: ReaderEntry,
++    strict: bool,
++) -> Result<(), RuntimeError> {
++    deliver_with_store(chan, nodes, local_queues, val, entry, strict, store)
++}
++
++/// `deliver_to_channel` with the store passed in, so a failing store can be
++/// exercised: the production store never fails.
++#[inline(always)]
++fn deliver_with_store<H: HashPolicy, S>(
++    chan: &mut ChannelState<H>,
++    nodes: &mut [Env<H>],
++    local_queues: &mut [Vec<Runnable<H>>],
++    val: Value<H>,
++    entry: ReaderEntry,
++    strict: bool,
++    store: S,
++) -> Result<(), RuntimeError>
++where
++    S: FnOnce(&Lhs, Value<H>, &mut Env<H>, &mut Env<H>) -> Result<(), RuntimeError>,
++{
++    let Some(mut waiting) = chan.waiting_readers.pop_front() else {
++        chan.buffer.push_back(val);
++        return Ok(());
++    };
++    // Uniqueness is read from the two counts rather than through
++    // `Arc::get_mut`, whose check is an atomic compare-and-swap: the caller
++    // holds the only handle it counts, so no other thread can add one.
++    if Arc::strong_count(&waiting) != 1 || Arc::weak_count(&waiting) != 0 {
++        waiting = Arc::new((*waiting).clone());
++    }
++    // SAFETY: `waiting` is owned here and its counts read one strong owner and
++    // no weak one, or it is a fresh copy, so no other handle can reach the
++    // entry and none can be made while this borrow lives. The pointer comes
++    // from the allocation, not from a shared reference, so it may be written.
++    let (reader, lhs) = unsafe { &mut *Arc::as_ptr(&waiting).cast_mut() };
++    let node_index = reader.node.index;
++    let mut node_env = nodes[node_index].clone();
++    let stored = store(lhs, val, &mut reader.env, &mut node_env);
++    if strict && stored.is_err() {
++        return stored;
++    }
++    nodes[node_index] = node_env;
++    match entry {
++        ReaderEntry::Unchanged => {}
++        ReaderEntry::TimerFired => reader.timer_entry = Some(reader.pc),
++        ReaderEntry::Cleared => reader.timer_entry = None,
++    }
++    let queue = &mut local_queues[node_index];
++    queue.reserve(1);
++    let raw = Arc::into_raw(waiting);
++    // SAFETY: the counts read one strong owner and no weak one above (or the
++    // entry was replaced by a fresh copy), and nothing since has cloned it, so
++    // the allocation has exactly one strong owner and no weak one when it is
++    // turned into a raw pointer. Room for one more queue entry was reserved before that, and
++    // between `into_raw` and `from_raw` there is only a read, pointer writes,
++    // `set_len` and the in-place drop of `Lhs`, which has no drop glue, so
++    // nothing can unwind while the allocation is held raw. The record is read
++    // exactly once, into the reserved slot, which `set_len` then makes part of
++    // the queue. `Lhs` is dropped in place, and the allocation is then freed
++    // as `Arc<MaybeUninit<_>>`, which has the same size and alignment and
++    // drops no field, so neither field is dropped twice.
++    unsafe {
++        let len = queue.len();
++        std::ptr::write(
++            queue.as_mut_ptr().add(len),
++            Runnable::Record(std::ptr::read(std::ptr::addr_of!((*raw).0))),
++        );
++        queue.set_len(len + 1);
++        std::ptr::drop_in_place(std::ptr::addr_of!((*raw).1).cast_mut());
++        drop(Arc::from_raw(raw.cast::<std::mem::MaybeUninit<(Record<H>, Lhs)>>()));
++    }
++    stored
++}
++
+ #[derive(Clone, Debug, PartialEq)]
+ pub enum OpKind {
+     Invocation,
+@@ -1270,6 +1410,40 @@ impl<H: HashPolicy> State<H> {
+         r
+     }
+ 
++    /// Remove the record at `idx` of the network queue and return it, keeping
++    /// the ledger exact. The entry must be a record.
++    #[inline]
++    pub fn take_network_record(&mut self, idx: usize) -> Record<H> {
++        let Runnable::Record(rec) = &self.network_queue[idx] else {
++            unreachable!("take_network_record on an entry that is not a record")
++        };
++        let (origin, node, ordinal, sent_at) =
++            (rec.origin_node, rec.node, rec.send_ordinal, rec.origin_incarnation);
++        self.record_leaves_flight(origin, node, ordinal);
++        self.record_leaves_network(origin, node, sent_at);
++        remove_record(&mut self.network_queue, idx)
++    }
++
++    /// Remove the record at `idx` of `node`'s local queue and return it. The
++    /// entry must be a record.
++    #[inline]
++    pub fn take_local_record(&mut self, node: usize, idx: usize) -> Record<H> {
++        remove_record(&mut self.local_queues[node], idx)
++    }
++
++    /// Queue a record on the queue `push_runnable` would route it to, keeping
++    /// the ledger exact.
++    #[inline]
++    pub fn push_record(&mut self, record: Record<H>) {
++        if record.origin_node == record.node {
++            push_record_into(&mut self.local_queues[record.node.index], record);
++        } else {
++            self.record_enters_flight(record.origin_node, record.node, record.send_ordinal);
++            self.record_enters_network(record.origin_node, record.node, record.origin_incarnation);
++            push_record_into(&mut self.network_queue, record);
++        }
++    }
++
+     /// Remove and return the entry at `idx` of `node`'s local queue, keeping
+     /// the ledger exact.
+     pub fn take_local(&mut self, node: usize, idx: usize) -> Runnable<H> {
+@@ -1311,25 +1485,47 @@ impl<H: HashPolicy> State<H> {
+ 
+     /// A remote message became undelivered: queued or held by a delay.
+     pub fn flight_enter(&mut self, r: &Runnable<H>) {
++        if let Runnable::Record(rec) = r {
++            self.record_enters_flight(rec.origin_node, rec.node, rec.send_ordinal);
++            return;
++        }
+         let Some(origin) = Self::remote_origin(r) else { return };
+         let Some(l) = self.send_ledger.get_mut(origin) else { return };
+         l.in_flight += 1;
+-        if let Runnable::Record(rec) = r
+-            && rec.send_ordinal >= l.floor
+-        {
+-            l.recent += 1;
+-        }
+     }
+ 
+     /// A remote message stopped being undelivered: delivered, dropped, or
+     /// set aside by a crash or a partition.
+     pub fn flight_leave(&mut self, r: &Runnable<H>) {
++        if let Runnable::Record(rec) = r {
++            self.record_leaves_flight(rec.origin_node, rec.node, rec.send_ordinal);
++            return;
++        }
+         let Some(origin) = Self::remote_origin(r) else { return };
+         let Some(l) = self.send_ledger.get_mut(origin) else { return };
+         l.in_flight = l.in_flight.saturating_sub(1);
+-        if let Runnable::Record(rec) = r
+-            && rec.send_ordinal >= l.floor
+-        {
++    }
++
++    #[inline]
++    fn record_enters_flight(&mut self, origin: NodeId, node: NodeId, send_ordinal: u32) {
++        if origin == node {
++            return;
++        }
++        let Some(l) = self.send_ledger.get_mut(origin.index) else { return };
++        l.in_flight += 1;
++        if send_ordinal >= l.floor {
++            l.recent += 1;
++        }
++    }
++
++    #[inline]
++    fn record_leaves_flight(&mut self, origin: NodeId, node: NodeId, send_ordinal: u32) {
++        if origin == node {
++            return;
++        }
++        let Some(l) = self.send_ledger.get_mut(origin.index) else { return };
++        l.in_flight = l.in_flight.saturating_sub(1);
++        if send_ordinal >= l.floor {
+             l.recent = l.recent.saturating_sub(1);
+         }
+     }
+@@ -1337,37 +1533,47 @@ impl<H: HashPolicy> State<H> {
+     /// A remote record entered the network queue.
+     pub fn net_enter(&mut self, r: &Runnable<H>) {
+         let Runnable::Record(rec) = r else { return };
+-        if rec.origin_node == rec.node {
++        self.record_enters_network(rec.origin_node, rec.node, rec.origin_incarnation);
++    }
++
++    /// A remote record left the network queue.
++    pub fn net_leave(&mut self, r: &Runnable<H>) {
++        let Runnable::Record(rec) = r else { return };
++        self.record_leaves_network(rec.origin_node, rec.node, rec.origin_incarnation);
++    }
++
++    #[inline]
++    fn record_enters_network(&mut self, origin: NodeId, node: NodeId, sent_at: u32) {
++        if origin == node {
+             return;
+         }
+-        let fresh = rec.origin_incarnation == self.incarnation(rec.origin_node);
+-        let Some(l) = self.send_ledger.get_mut(rec.origin_node.index) else { return };
++        let fresh = sent_at == self.incarnation(origin);
++        let Some(l) = self.send_ledger.get_mut(origin.index) else { return };
+         l.net_records += 1;
+         if fresh {
+             l.net_fresh += 1;
+         } else {
+             self.net_stale_records += 1;
+         }
+-        if rec.origin_node.role != rec.node.role {
++        if origin.role != node.role {
+             self.net_requests += 1;
+         }
+     }
+ 
+-    /// A remote record left the network queue.
+-    pub fn net_leave(&mut self, r: &Runnable<H>) {
+-        let Runnable::Record(rec) = r else { return };
+-        if rec.origin_node == rec.node {
++    #[inline]
++    fn record_leaves_network(&mut self, origin: NodeId, node: NodeId, sent_at: u32) {
++        if origin == node {
+             return;
+         }
+-        let fresh = rec.origin_incarnation == self.incarnation(rec.origin_node);
+-        let Some(l) = self.send_ledger.get_mut(rec.origin_node.index) else { return };
++        let fresh = sent_at == self.incarnation(origin);
++        let Some(l) = self.send_ledger.get_mut(origin.index) else { return };
+         l.net_records = l.net_records.saturating_sub(1);
+         if fresh {
+             l.net_fresh = l.net_fresh.saturating_sub(1);
+         } else {
+             self.net_stale_records = self.net_stale_records.saturating_sub(1);
+         }
+-        if rec.origin_node.role != rec.node.role {
++        if origin.role != node.role {
+             self.net_requests = self.net_requests.saturating_sub(1);
+         }
+     }
+@@ -1800,17 +2006,15 @@ impl<H: HashPolicy> Continuation<H> {
+                         return None;
+                     }
+                 };
+-                match chan.pop_waiting_reader() {
+-                    None => chan.buffer.push_back(val),
+-                    Some((mut reader, lhs)) => {
+-                        let node_index = reader.node.index;
+-                        let mut node_env = state.nodes[node_index].clone();
+-                        if let Err(e) = store(&lhs, val, &mut reader.env, &mut node_env) {
+-                            log::warn!("Store failed in async continuation: {}", e);
+-                        }
+-                        state.nodes[node_index] = node_env;
+-                        state.push_to_local(node_index, Runnable::Record(reader));
+-                    }
++                if let Err(e) = deliver_to_channel(
++                    chan,
++                    &mut state.nodes,
++                    &mut state.local_queues,
++                    val,
++                    ReaderEntry::Unchanged,
++                    false,
++                ) {
++                    log::warn!("Store failed in async continuation: {}", e);
+                 }
+                 None
+             }
+@@ -2344,4 +2548,419 @@ mod ledger_tests {
+         assert_eq!(st.send_ledger[0].recent, 1, "removing the early send leaves recent alone");
+         assert_exact(&st, "after removing the early send");
+     }
++
++    /// Queueing a record through `push_record` and taking it through
++    /// `take_network_record` or `take_local_record` leaves the same queues and
++    /// ledger as `push_runnable` and `take_network` or `take_local`, for local,
++    /// fresh remote and stale remote records.
++    #[test]
++    fn record_moves_keep_the_ledger_of_push_and_take() {
++        let a = node(SERVER, 0);
++        let b = node(SERVER, 1);
++        let c = node(SERVER, 2);
++        let client = node(CLIENT, 3);
++        let mut ours = state();
++        let mut theirs = state();
++        let same = |ours: &State<NoHashing>, theirs: &State<NoHashing>, when: &str| {
++            assert_eq!(format!("{:?}", ours.network_queue), format!("{:?}", theirs.network_queue), "network queue {when}");
++            assert_eq!(format!("{:?}", ours.local_queues), format!("{:?}", theirs.local_queues), "local queues {when}");
++            assert_eq!(ours.send_ledger, theirs.send_ledger, "ledger {when}");
++            assert_eq!(ours.net_stale_records, theirs.net_stale_records, "stale {when}");
++            assert_eq!(ours.net_requests, theirs.net_requests, "requests {when}");
++            assert_exact(ours, when);
++        };
++        for st in [&mut ours, &mut theirs] {
++            st.note_handler_entry(0, HandlerTrigger::Delivery);
++        }
++        let pairs = [(a, a), (a, b), (client, a), (b, c), (a, c), (c, c)];
++        for (origin, dest) in pairs {
++            let r = record(&mut ours, origin, dest);
++            ours.push_record(r);
++            let r = record(&mut theirs, origin, dest);
++            theirs.push_runnable(Runnable::Record(r));
++        }
++        same(&ours, &theirs, "after fresh pushes");
++        let stale_ours = record(&mut ours, a, b);
++        let stale_theirs = record(&mut theirs, a, b);
++        for st in [&mut ours, &mut theirs] {
++            st.incarnations[0] += 1;
++            st.note_incarnation_bump(0);
++        }
++        ours.push_record(stale_ours);
++        theirs.push_runnable(Runnable::Record(stale_theirs));
++        let fresh_ours = record(&mut ours, a, c);
++        ours.push_record(fresh_ours);
++        let fresh_theirs = record(&mut theirs, a, c);
++        theirs.push_runnable(Runnable::Record(fresh_theirs));
++        same(&ours, &theirs, "after stale and fresh pushes past a restart");
++        assert!(ours.net_stale_records > 0, "the session holds a stale record");
++
++        for idx in [1, 0, 3, 0] {
++            let got = ours.take_network_record(idx);
++            let Runnable::Record(want) = theirs.take_network(idx) else {
++                panic!("the network queue holds only records here")
++            };
++            assert_eq!(format!("{:?}", got), format!("{:?}", want));
++            same(&ours, &theirs, "after a network take");
++        }
++        while !ours.network_queue.is_empty() {
++            let got = ours.take_network_record(0);
++            let Runnable::Record(want) = theirs.take_network(0) else {
++                panic!("the network queue holds only records here")
++            };
++            assert_eq!(format!("{:?}", got), format!("{:?}", want));
++            same(&ours, &theirs, "after draining the network queue");
++        }
++        for n in [0, 2] {
++            let got = ours.take_local_record(n, 0);
++            let Runnable::Record(want) = theirs.take_local(n, 0) else {
++                panic!("the local queue holds only records here")
++            };
++            assert_eq!(format!("{:?}", got), format!("{:?}", want));
++            same(&ours, &theirs, "after a local take");
++        }
++    }
++}
++
++#[cfg(test)]
++mod record_move_tests {
++    use super::*;
++    use crate::compiler::cfg::VarSlot;
++    use crate::simulator::hash_utils::NoHashing;
++
++    type V = Value<NoHashing>;
++    type Seq = EcoVec<V>;
++
++    fn node(index: usize) -> NodeId {
++        NodeId {
++            role: NameId(0),
++            index,
++        }
++    }
++
++    /// A payload whose reference count the test observes through the handle
++    /// it keeps: the handle is unique exactly when no record holds a copy.
++    fn handle(tag: i64) -> Seq {
++        let mut seq = Seq::new();
++        seq.push(V::int(tag));
++        seq
++    }
++
++    fn record(dest: usize, pc: usize, payload: &Seq) -> Record<NoHashing> {
++        let mut env = Env::<NoHashing>::with_slots(2);
++        env.set(0, V::list(payload.clone()));
++        Record {
++            pc,
++            node: node(dest),
++            origin_node: node(dest),
++            continuation: Continuation::Recover,
++            entry_pc: pc,
++            initial_args: EcoVec::new(),
++            entry_func: NameId(0),
++            env,
++            priority: 0.5,
++            causal_operation_id: None,
++            trace_id: None,
++            trace_payload: None,
++            link_seq: None,
++            origin_incarnation: 0,
++            bias: DeliveryBias::NONE,
++            timer_entry: Some(3),
++            send_ordinal: pc as u32,
++            receiver_token_at_send: 0,
++        }
++    }
++
++    fn mixed_queue(payload: &Seq) -> Vec<Runnable<NoHashing>> {
++        vec![
++            Runnable::Record(record(0, 10, payload)),
++            Runnable::Crash {
++                node_id: node(0),
++                priority: 1.0,
++            },
++            Runnable::Record(record(0, 11, payload)),
++            Runnable::Recover {
++                node_id: node(0),
++                priority: 1.0,
++            },
++            Runnable::Record(record(0, 12, payload)),
++        ]
++    }
++
++    #[test]
++    fn remove_record_matches_vec_remove_and_drops_each_record_once() {
++        for idx in [0, 2, 4] {
++            let mut ours_payload = handle(1);
++            let mut theirs_payload = handle(1);
++            let mut ours = mixed_queue(&ours_payload);
++            let mut theirs = mixed_queue(&theirs_payload);
++            let got = remove_record(&mut ours, idx);
++            let Runnable::Record(want) = theirs.remove(idx) else {
++                panic!("index {idx} holds a record")
++            };
++            assert_eq!(format!("{:?}", got), format!("{:?}", want), "returned record at index {idx}");
++            assert_eq!(format!("{:?}", ours), format!("{:?}", theirs), "remaining order at index {idx}");
++            drop(ours);
++            assert!(
++                !ours_payload.is_unique(),
++                "the removed record still holds its payload at index {idx}"
++            );
++            drop(got);
++            assert!(
++                ours_payload.is_unique(),
++                "every record dropped its payload exactly once at index {idx}"
++            );
++            drop((theirs, want));
++            assert!(theirs_payload.is_unique());
++        }
++    }
++
++    /// Appending past capacity, at capacity and into spare room leaves the
++    /// queue `Vec::push` leaves, and each record is dropped exactly once.
++    #[test]
++    fn push_record_into_matches_vec_push_and_drops_each_record_once() {
++        for spare in [0, 1, 4] {
++            let mut ours_payload = handle(6);
++            let mut theirs_payload = handle(6);
++            let mut ours: Vec<Runnable<NoHashing>> = Vec::with_capacity(spare);
++            let mut theirs: Vec<Runnable<NoHashing>> = Vec::with_capacity(spare);
++            for pc in 0..6 {
++                push_record_into(&mut ours, record(0, pc, &ours_payload));
++                theirs.push(Runnable::Record(record(0, pc, &theirs_payload)));
++                ours.push(Runnable::Crash {
++                    node_id: node(0),
++                    priority: 1.0,
++                });
++                theirs.push(Runnable::Crash {
++                    node_id: node(0),
++                    priority: 1.0,
++                });
++            }
++            assert_eq!(
++                format!("{:?}", ours),
++                format!("{:?}", theirs),
++                "queue with {spare} spare"
++            );
++            let last = remove_record(&mut ours, 10);
++            drop(ours);
++            assert!(!ours_payload.is_unique(), "the last record still holds its payload");
++            drop(last);
++            assert!(
++                ours_payload.is_unique(),
++                "every pushed record dropped its payload exactly once with {spare} spare"
++            );
++            drop(theirs);
++            assert!(theirs_payload.is_unique());
++        }
++    }
++
++    fn local(slot: u32) -> Lhs {
++        Lhs::Var(VarSlot::Local(slot, NameId(slot as usize)))
++    }
++
++    fn node_lhs(slot: u32) -> Lhs {
++        Lhs::Var(VarSlot::Node(slot, NameId(100 + slot as usize)))
++    }
++
++    struct World {
++        chan: ChannelState<NoHashing>,
++        nodes: Vec<Env<NoHashing>>,
++        queues: Vec<Vec<Runnable<NoHashing>>>,
++    }
++
++    fn world() -> World {
++        World {
++            chan: ChannelState::new(),
++            nodes: vec![Env::with_slots(2), Env::with_slots(2)],
++            queues: vec![Vec::new(), Vec::new()],
++        }
++    }
++
++    /// The wake by value, which the in-place delivery must match: take the
++    /// reader out, store into it, write the node env back, set its timer entry
++    /// and queue it.
++    fn wake_by_pop(w: &mut World, val: V, entry: ReaderEntry) {
++        match w.chan.pop_waiting_reader() {
++            None => w.chan.buffer.push_back(val),
++            Some((mut reader, lhs)) => {
++                let node_index = reader.node.index;
++                let mut node_env = w.nodes[node_index].clone();
++                store(&lhs, val, &mut reader.env, &mut node_env).expect("store succeeds");
++                w.nodes[node_index] = node_env;
++                match entry {
++                    ReaderEntry::Unchanged => {}
++                    ReaderEntry::TimerFired => reader.timer_entry = Some(reader.pc),
++                    ReaderEntry::Cleared => reader.timer_entry = None,
++                }
++                w.queues[node_index].push(Runnable::Record(reader));
++            }
++        }
++    }
++
++    fn deliver(w: &mut World, val: V, entry: ReaderEntry, strict: bool) -> Result<(), RuntimeError> {
++        deliver_to_channel(&mut w.chan, &mut w.nodes, &mut w.queues, val, entry, strict)
++    }
++
++    fn assert_same(ours: &World, theirs: &World, when: &str) {
++        assert_eq!(ours.chan.buffer, theirs.chan.buffer, "buffer {when}");
++        assert_eq!(
++            ours.chan.waiting_readers.len(),
++            theirs.chan.waiting_readers.len(),
++            "waiting readers {when}"
++        );
++        for (o, t) in ours.chan.waiting_readers.iter().zip(theirs.chan.waiting_readers.iter()) {
++            assert_eq!(format!("{:?}", **o), format!("{:?}", **t), "waiting reader {when}");
++        }
++        assert_eq!(ours.nodes, theirs.nodes, "node envs {when}");
++        assert_eq!(format!("{:?}", ours.queues), format!("{:?}", theirs.queues), "local queues {when}");
++    }
++
++    #[test]
++    fn delivery_with_no_reader_buffers_the_value() {
++        let mut ours = world();
++        let mut theirs = world();
++        assert!(deliver(&mut ours, V::int(5), ReaderEntry::Unchanged, true).is_ok());
++        wake_by_pop(&mut theirs, V::int(5), ReaderEntry::Unchanged);
++        assert_same(&ours, &theirs, "with no reader");
++        assert_eq!(ours.chan.buffer.len(), 1);
++        assert!(ours.queues.iter().all(|q| q.is_empty()));
++    }
++
++    #[test]
++    fn delivery_to_a_unique_reader_stores_and_queues_it_as_the_pop_did() {
++        let entries: [(&str, fn() -> ReaderEntry); 3] = [
++            ("unchanged", || ReaderEntry::Unchanged),
++            ("timer fired", || ReaderEntry::TimerFired),
++            ("cleared", || ReaderEntry::Cleared),
++        ];
++        for (kind, entry) in entries {
++            for (strict, lhs) in [(true, local(1)), (false, node_lhs(1))] {
++                let mut ours_payload = handle(2);
++                let mut theirs_payload = handle(2);
++                let mut ours = world();
++                let mut theirs = world();
++                ours.chan.push_waiting_reader(record(1, 20, &ours_payload), lhs.clone());
++                ours.chan.push_waiting_reader(record(0, 21, &ours_payload), local(1));
++                theirs.chan.push_waiting_reader(record(1, 20, &theirs_payload), lhs.clone());
++                theirs.chan.push_waiting_reader(record(0, 21, &theirs_payload), local(1));
++                assert!(deliver(&mut ours, V::int(9), entry(), strict).is_ok());
++                wake_by_pop(&mut theirs, V::int(9), entry());
++                assert_same(&ours, &theirs, kind);
++                let Runnable::Record(woken) = &ours.queues[1][0] else {
++                    panic!("the woken reader is queued on its node")
++                };
++                let expected_entry = match entry() {
++                    ReaderEntry::Unchanged => Some(3),
++                    ReaderEntry::TimerFired => Some(20),
++                    ReaderEntry::Cleared => None,
++                };
++                assert_eq!(woken.timer_entry, expected_entry, "timer entry when {kind}");
++                match lhs {
++                    Lhs::Var(VarSlot::Local(..)) => assert_eq!(woken.env.get(1), &V::int(9)),
++                    Lhs::Var(VarSlot::Node(..)) => assert_eq!(ours.nodes[1].get(1), &V::int(9)),
++                }
++                drop(ours);
++                assert!(ours_payload.is_unique(), "no reader leaked or dropped twice when {kind}");
++                drop(theirs);
++                assert!(theirs_payload.is_unique());
++            }
++        }
++    }
++
++    /// A reader whose channel state is still shared with a copy is cloned
++    /// before it is changed: the copy's reader keeps its value.
++    #[test]
++    fn delivery_to_a_shared_reader_changes_only_its_own_copy() {
++        let mut payload = handle(3);
++        let mut ours = world();
++        ours.chan.push_waiting_reader(record(1, 30, &payload), local(1));
++        let copy = ours.chan.clone();
++        let before = (*copy.waiting_readers[0]).clone();
++        let mut theirs = World {
++            chan: copy.clone(),
++            nodes: ours.nodes.clone(),
++            queues: ours.queues.clone(),
++        };
++        assert!(deliver(&mut ours, V::int(4), ReaderEntry::Cleared, true).is_ok());
++        wake_by_pop(&mut theirs, V::int(4), ReaderEntry::Cleared);
++        assert_same(&ours, &theirs, "from a shared entry");
++        assert_eq!(copy.waiting_readers.len(), 1);
++        assert_eq!(format!("{:?}", *copy.waiting_readers[0]), format!("{:?}", before), "the copy's reader is unchanged");
++        assert_eq!(copy.waiting_readers[0].0.env.get(1), &V::unit());
++        drop((ours, theirs, before));
++        assert!(!payload.is_unique(), "the copy still holds its reader");
++        drop(copy);
++        assert!(payload.is_unique(), "every reader dropped its payload exactly once");
++    }
++
++    fn failing_store(
++        _: &Lhs,
++        _: V,
++        local_env: &mut Env<NoHashing>,
++        node_env: &mut Env<NoHashing>,
++    ) -> Result<(), RuntimeError> {
++        local_env.set(1, V::int(70));
++        node_env.set(0, V::int(77));
++        Err(RuntimeError::RemoteChannelRead)
++    }
++
++    /// A strict delivery whose store fails returns the error before the node
++    /// env is written back or the reader is queued, and drops the reader.
++    #[test]
++    fn a_failing_strict_delivery_drops_the_reader_and_writes_nothing_back() {
++        let mut payload = handle(4);
++        let mut w = world();
++        w.chan.push_waiting_reader(record(1, 40, &payload), local(1));
++        let nodes_before = w.nodes.clone();
++        let result = deliver_with_store(
++            &mut w.chan,
++            &mut w.nodes,
++            &mut w.queues,
++            V::int(1),
++            ReaderEntry::TimerFired,
++            true,
++            failing_store,
++        );
++        assert!(matches!(result, Err(RuntimeError::RemoteChannelRead)));
++        assert_eq!(w.nodes, nodes_before, "the node env is not written back");
++        assert!(w.queues.iter().all(|q| q.is_empty()), "the reader is not queued");
++        assert!(w.chan.waiting_readers.is_empty(), "the reader was taken");
++        assert!(w.chan.buffer.is_empty());
++        assert!(payload.is_unique(), "the dropped reader released its payload");
++    }
++
++    /// A non-strict delivery whose store fails still writes the node env back
++    /// and queues the reader, then returns the error.
++    #[test]
++    fn a_failing_lenient_delivery_queues_the_reader_and_returns_the_error() {
++        for (kind, entry, expected) in [
++            ("unchanged", ReaderEntry::Unchanged, Some(3)),
++            ("timer fired", ReaderEntry::TimerFired, Some(50)),
++            ("cleared", ReaderEntry::Cleared, None),
++        ] {
++            let mut payload = handle(5);
++            let mut w = world();
++            w.chan.push_waiting_reader(record(1, 50, &payload), local(1));
++            let result = deliver_with_store(
++                &mut w.chan,
++                &mut w.nodes,
++                &mut w.queues,
++                V::int(1),
++                entry,
++                false,
++                failing_store,
++            );
++            assert!(matches!(result, Err(RuntimeError::RemoteChannelRead)), "{kind}");
++            assert_eq!(w.nodes[1].get(0), &V::int(77), "node env written back when {kind}");
++            assert_eq!(w.queues[1].len(), 1, "reader queued when {kind}");
++            let Runnable::Record(woken) = &w.queues[1][0] else {
++                panic!("the queued entry is the reader")
++            };
++            assert_eq!(woken.env.get(1), &V::int(70));
++            assert_eq!(woken.timer_entry, expected, "timer entry when {kind}");
++            assert!(w.chan.waiting_readers.is_empty());
++            drop(w);
++            assert!(payload.is_unique(), "no reader leaked or dropped twice when {kind}");
++        }
++    }
+ }

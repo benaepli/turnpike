@@ -1867,7 +1867,7 @@ rounds of clock each:
 
 ## record-moves-and-frames-held-once
 
-- category: data layout and representation | origin: proposer | status: admitted, building (iteration 29, autonomous)
+- category: data layout and representation | origin: proposer | status: held, no-gain (iteration 29, autonomous) - runs per second 1.0228 [1.0100, 1.0357] over six rounds, steps per run 1.0261 [1.0110, 1.0414]; one-thread cycles 0.9154, B over A 0.9310, G2 held (broad -5.54 x r), identity exact on six sessions, census 40,608 to 10,910 record-sized copies per run; patches research/perf/patches/record-moves-and-frames-held-once.spur.patch and record-moves-collapsed-over-frames-A.spur.patch
 - mechanism: commit A is frames-and-arguments-held-once exactly as implemented
   in iteration 28 (research/perf/patches/frames-and-node-env-held-once-A.spur.patch).
   Commit B (record-moves-collapsed) on A: schedule_runnable picks a slot and
@@ -1914,5 +1914,5 @@ rounds of clock each:
 
 ## record-moves-collapsed
 
-- category: data layout | origin: proposer | status: commit B of record-moves-and-frames-held-once only (iteration 29) - its 30-thread net is about 2 percent, so alone it cannot clear the floor
+- category: data layout | origin: proposer | status: held with record-moves-and-frames-held-once (iteration 29) - B over A 0.9310 at one thread; patch research/perf/patches/record-moves-collapsed-over-frames-A.spur.patch
 - declarations: search-neutral, shared. Judge net 3 (gain 5, cost 2).

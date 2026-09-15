@@ -1,0 +1,2796 @@
+diff --git a/spur-core/src/compiler/cfg/compiled.rs b/spur-core/src/compiler/cfg/compiled.rs
+index 752c271..678ac64 100644
+--- a/spur-core/src/compiler/cfg/compiled.rs
++++ b/spur-core/src/compiler/cfg/compiled.rs
+@@ -244,6 +244,11 @@ pub struct CompiledProgram {
+     pub call_functions: Vec<FunctionInfo>,
+     /// The role named "Node", if the program declares one.
+     pub server_role: Option<NameId>,
++    /// One bit per vertex, set at the entry of every function of
++    /// `Program::rpc` whose own graph reaches no receive, pause or
++    /// spin-await. A record entered there runs to its return, or fails, in
++    /// the step that delivers it.
++    pub never_yield_entries: Vec<u64>,
+ }
+ 
+ impl CompiledProgram {
+@@ -293,6 +298,7 @@ impl CompiledProgram {
+                 .iter()
+                 .find(|(_, n)| n == "Node")
+                 .map(|(id, _)| *id),
++            never_yield_entries: never_yield_entries(program),
+         }
+     }
+ 
+@@ -302,6 +308,56 @@ impl CompiledProgram {
+     pub fn covers(&self, program_len: usize) -> bool {
+         !self.ops.is_empty() && self.ops.len() == program_len
+     }
++
++    /// Whether a record entered at vertex `entry` can never yield.
++    #[inline]
++    pub fn never_yields(&self, entry: usize) -> bool {
++        self.never_yield_entries
++            .get(entry / 64)
++            .is_some_and(|word| (word >> (entry % 64)) & 1 == 1)
++    }
++}
++
++/// The never-yield entry bits of `program`, one word per 64 vertices. The
++/// walk follows each function's own graph from its entry and does not enter
++/// callees: a synchronous callee that reaches a yield fails the run instead
++/// of yielding, and an asynchronous callee runs as a record of its own. A
++/// successor outside the graph counts as a yield.
++fn never_yield_entries(program: &Program) -> Vec<u64> {
++    let graph = &program.cfg.graph;
++    let mut bits = vec![0u64; graph.len().div_ceil(64)];
++    let mut seen = vec![false; graph.len()];
++    let mut stack: Vec<Vertex> = Vec::new();
++    for func in program.rpc.values() {
++        if func.entry >= graph.len() {
++            continue;
++        }
++        seen.iter_mut().for_each(|s| *s = false);
++        stack.clear();
++        stack.push(func.entry);
++        let mut yields = false;
++        while let Some(v) = stack.pop() {
++            if v >= graph.len() {
++                yields = true;
++                break;
++            }
++            if seen[v] {
++                continue;
++            }
++            seen[v] = true;
++            match &graph[v] {
++                Label::Recv(..) | Label::Pause(..) | Label::SpinAwait(..) => {
++                    yields = true;
++                    break;
++                }
++                label => stack.extend(super::frame_layout::successors(label).into_iter().flatten()),
++            }
++        }
++        if !yields {
++            bits[func.entry / 64] |= 1u64 << (func.entry % 64);
++        }
++    }
++    bits
+ }
+ 
+ struct Builder<'a> {
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index d3e9393..6177cb5 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -127,6 +127,26 @@ impl<H: HashPolicy> FrameBuilder<H> {
+         }
+     }
+ 
++    /// A builder writing into `slots`, which must be empty.
++    #[inline]
++    pub fn with_buffer(slots: EcoVec<Value<H>>) -> Self {
++        Self { slots, sig: 0 }
++    }
++
++    /// A builder whose first slots already hold `args`, in parameter order.
++    /// `args` must not be longer than the function's parameter count or its
++    /// slot count.
++    #[inline]
++    pub fn from_args(args: EcoVec<Value<H>>) -> Self {
++        let mut sig = 0;
++        if H::EAGER {
++            for (i, arg) in args.iter().enumerate() {
++                sig ^= H::mix(arg.sig, i as u32);
++            }
++        }
++        Self { slots: args, sig }
++    }
++
+     #[inline]
+     pub fn push(&mut self, value: Value<H>) {
+         if H::EAGER {
+@@ -181,8 +201,23 @@ impl<H: HashPolicy> FrameBuilder<H> {
+ }
+ 
+ /// The local call frame for `func` with `args` in its parameter slots.
++#[inline]
+ pub fn build_frame<H: HashPolicy>(func: &FunctionInfo, args: &[Value<H>]) -> Env<H> {
+-    let mut builder = FrameBuilder::<H>::new(func);
++    build_frame_in(
++        EcoVec::with_capacity(func.local_slot_count as usize),
++        func,
++        args,
++    )
++}
++
++/// The local call frame for `func` with `args` in its parameter slots,
++/// written into `slots`, which must be empty.
++pub fn build_frame_in<H: HashPolicy>(
++    slots: EcoVec<Value<H>>,
++    func: &FunctionInfo,
++    args: &[Value<H>],
++) -> Env<H> {
++    let mut builder = FrameBuilder::<H>::with_buffer(slots);
+     let params = (func.param_count as usize)
+         .min(func.local_slot_count as usize)
+         .min(args.len());
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index 7f5b4bc..a6cfff2 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -3,15 +3,16 @@ use crate::compiler::cfg::compiled::{
+     AsyncOp, Dest, ForLoopInOp, Op, PieceSource, PrintPart, TraceDispatchOp, TraceEnterOp,
+     TraceExitOp,
+ };
+-use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Program, VarSlot};
++use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Lhs, Program, VarSlot};
+ use crate::simulator::core::compiled_eval::{borrowed, coperand, cvalue};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::{
+-    FrameBuilder, Operand, build_frame, eval, eval_operand, set_local, store,
++    FrameBuilder, Operand, build_frame, build_frame_in, eval, eval_operand, set_local, store,
+ };
+ use crate::simulator::core::state::{
+-    ClientOpResult, Continuation, LogEntry, Logger, NodeId, PurgatoryConfig, Record,
++    ClientOpResult, Continuation, LogEntry, Logger, NodeId, PurgatoryConfig, ReaderEntry, Record,
+     Runnable, RunnableCategory, SchedulePolicy, State, Timer, TraceEntry, TraceKind,
++    deliver_to_channel,
+ };
+ use crate::simulator::core::values::{ChannelId, Decimal, Env, Value, ValueKind, ValueSeq};
+ use ecow::EcoVec;
+@@ -23,6 +24,7 @@ use crate::simulator::text_buffer::TextBuffer;
+ use crate::simulator::util_stats;
+ use crate::simulator::util_stats::{DeliveryBias, InterpreterTally};
+ use std::cell::RefCell;
++use std::sync::Arc;
+ use std::collections::HashMap;
+ 
+ /// Scratch for building one trace payload: the parameter texts laid end to
+@@ -1062,7 +1064,11 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+             if !func_info.is_sync {
+                 return Err(RuntimeError::SyncCallToAsyncFunction(call.name.clone()));
+             }
+-            let mut builder = FrameBuilder::<H>::new(func_info);
++            let mut builder = if H::EAGER {
++                FrameBuilder::<H>::new(func_info)
++            } else {
++                FrameBuilder::<H>::with_buffer(state.frame_buffer(func_info.local_slot_count as usize))
++            };
+             for a in &call.args {
+                 builder.push(cvalue(local_env, node_env, a, names, t)?);
+             }
+@@ -1083,6 +1089,9 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+                 rng,
+                 t,
+             )?;
++            if !H::EAGER {
++                state.recycle_frame(callee_local.slots);
++            }
+             store_dest(call.dest, val, local_env, node_env);
+             Ok(Flow::Next(call.next as usize))
+         }
+@@ -1248,7 +1257,28 @@ fn run_async_op<H: HashPolicy>(
+     let names = &program.id_to_name;
+     let (target_node, link_id) =
+         coperand(local_env, node_env, &call.target, names, t)?.as_rpc_target()?;
+-    let mut arg_vals: EcoVec<Value<H>> = EcoVec::with_capacity(call.args.len());
++    // A callee that never yields is reset only before it runs, so no
++    // re-delivery needs its arguments apart from its frame: they are
++    // evaluated straight into the frame's buffer and the record keeps no
++    // second sequence of them. The lookup here counts nothing; the counted
++    // lookup stays below, where its errors are raised.
++    let held_slots = if H::EAGER {
++        None
++    } else {
++        program
++            .compiled
++            .call_functions
++            .get(call.callee as usize)
++            .filter(|f| {
++                call.args.len() <= f.param_count.min(f.local_slot_count) as usize
++                    && program.compiled.never_yields(f.entry)
++            })
++            .map(|f| f.local_slot_count as usize)
++    };
++    let mut arg_vals: EcoVec<Value<H>> = match held_slots {
++        Some(slots) => state.frame_buffer(slots),
++        None => EcoVec::with_capacity(call.args.len()),
++    };
+     for a in &call.args {
+         arg_vals.push(cvalue(local_env, node_env, a, names, t)?);
+     }
+@@ -1262,7 +1292,15 @@ fn run_async_op<H: HashPolicy>(
+     store_dest(call.dest, Value::channel(chan_id), local_env, node_env);
+ 
+     let func_info = callee(program, call.callee, &call.name, t)?;
+-    let callee_locals = build_frame(func_info, &arg_vals);
++    util_stats::record_async_frame(held_slots.is_some());
++    let (callee_locals, arg_vals) = match held_slots {
++        Some(_) => (FrameBuilder::from_args(arg_vals).finish(func_info), EcoVec::new()),
++        None if H::EAGER => (build_frame(func_info, &arg_vals), arg_vals),
++        None => {
++            let slots = state.frame_buffer(func_info.local_slot_count as usize);
++            (build_frame_in(slots, func_info, &arg_vals), arg_vals)
++        }
++    };
+ 
+     // Tag with FIFO sequence number if routed through a FIFO link.
+     // Allocates the next sender-side seq for this link.
+@@ -1274,7 +1312,11 @@ fn run_async_op<H: HashPolicy>(
+ 
+     let send_ordinal = state.next_send_ordinal(node_id);
+     let drawn_priority = policy.sample(rng, RunnableCategory::Record);
+-    let mut new_record = Record {
++    let priority = state.record_priority(causal_operation_id, drawn_priority);
++    let origin_incarnation = state.incarnation(node_id);
++    let receiver_token_at_send = state.node_state_token(target_node);
++    let hold = purgatory_hold_steps(state, purgatory_config, target_node, rng);
++    let new_record = Record {
+         pc: func_info.entry,
+         node: target_node,
+         origin_node: node_id,
+@@ -1283,25 +1325,28 @@ fn run_async_op<H: HashPolicy>(
+         initial_args: arg_vals,
+         entry_func: func_info.name,
+         env: callee_locals,
+-        priority: state.record_priority(causal_operation_id, drawn_priority),
++        priority,
+         causal_operation_id,
+         trace_id: pending_trace_id.take(),
+         trace_payload: pending_trace_payload.take(),
+         link_seq,
+-        origin_incarnation: state.incarnation(node_id),
+-        bias: DeliveryBias::NONE,
++        origin_incarnation,
++        bias: if hold.is_some() {
++            DeliveryBias::DELAYED
++        } else {
++            DeliveryBias::NONE
++        },
+         timer_entry: None,
+         send_ordinal,
+-        receiver_token_at_send: state.node_state_token(target_node),
++        receiver_token_at_send,
+     };
+ 
+-    match purgatory_hold_steps(state, purgatory_config, target_node, rng) {
++    match hold {
+         Some(duration) => {
+             let release_step = state.crash_info.current_step + duration;
+-            new_record.bias.insert(DeliveryBias::DELAYED);
+             state.delay_runnable(release_step, Runnable::Record(new_record));
+         }
+-        None => state.push_runnable(Runnable::Record(new_record)),
++        None => state.push_record(new_record),
+     }
+     Ok(call.next as usize)
+ }
+@@ -1546,7 +1591,9 @@ fn run_sync_ops<H: HashPolicy, L: Logger, F: Feedback>(
+ }
+ 
+ /// Runs a record from its decoded operations until it returns or yields.
+-fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
++/// A caller that holds the record in a local passes it here directly: each
++/// by-value hop through another function copies the record.
++pub(crate) fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+@@ -1616,16 +1663,14 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                         .get_mut(&cid)
+                         .ok_or(RuntimeError::ChannelNotFound(cid.id))?;
+ 
+-                    match chan.pop_waiting_reader() {
+-                        None => chan.buffer.push_back(val),
+-                        Some((mut reader, lhs)) => {
+-                            let node_index = reader.node.index;
+-                            let mut r_node_env = state.nodes[node_index].clone();
+-                            store(&lhs, val, &mut reader.env, &mut r_node_env)?;
+-                            state.nodes[node_index] = r_node_env;
+-                            state.push_to_local(node_index, Runnable::Record(reader));
+-                        }
+-                    }
++                    deliver_to_channel(
++                        chan,
++                        &mut state.nodes,
++                        &mut state.local_queues,
++                        val,
++                        ReaderEntry::Unchanged,
++                        true,
++                    )?;
+                     record.pc = next;
+                 }
+             }
+@@ -1647,7 +1692,31 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                     let node_id = record.node;
+                     record.env = local_env;
+                     record.pc = recv.next as usize;
+-                    chan.push_waiting_reader(record, recv.lhs.clone());
++                    // The record is written straight into its entry rather than
++                    // passed on by value, so it is copied once.
++                    // The pointer is taken without `Arc::get_mut`, whose
++                    // uniqueness check is an atomic compare-and-swap.
++                    let lhs = recv.lhs.clone();
++                    let entry = Arc::<(Record<H>, Lhs)>::new_uninit();
++                    let slot = Arc::as_ptr(&entry)
++                        .cast_mut()
++                        .cast::<(Record<H>, Lhs)>();
++                    // SAFETY: the allocation was just made and `entry` is its
++                    // only owner, so no reference to its contents exists and
++                    // `slot`, derived from the allocation pointer rather than
++                    // from a shared reference, may write it. `MaybeUninit<T>`
++                    // has the layout of `T`, so `slot` addresses the whole
++                    // uninitialized tuple. `addr_of_mut!` forms no reference to
++                    // an uninitialized field. Both fields are written before
++                    // `assume_init`, and the two writes are plain moves, so
++                    // nothing can unwind between the first write and
++                    // `assume_init` and leave the record written but unowned.
++                    let entry = unsafe {
++                        std::ptr::write(std::ptr::addr_of_mut!((*slot).0), record);
++                        std::ptr::write(std::ptr::addr_of_mut!((*slot).1), lhs);
++                        entry.assume_init()
++                    };
++                    chan.waiting_readers.push_back(entry);
+                     state.nodes[node_id.index] = node_env;
+                     return Ok(None);
+                 }
+@@ -1693,6 +1762,9 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 Flow::Return(val) => {
+                     let node_id = record.node;
+                     state.nodes[node_id.index] = node_env;
++                    if !H::EAGER {
++                        state.recycle_frame(local_env.slots);
++                    }
+                     return Ok(record.continuation.call(state, val));
+                 }
+                 Flow::RecordOnly => {
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index c8d4bec..ba4a053 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -1748,3 +1748,314 @@ fn unread_stores_are_skipped_and_everything_observable_matches() {
+     assert_eq!(plain.stores_skipped, 1);
+     assert_eq!(hashed.stores_skipped, 1);
+ }
++
++fn run_on_one_node<H: HashPolicy>(
++    program: &Program,
++    record: Record<H>,
++) -> (Result<Option<ClientOpResult<H>>, RuntimeError>, State<H>) {
++    let mut state = State::<H>::new(&[(NameId(0), 1)], 2);
++    let mut logger = TestLogger::new();
++    let mut coverage = LocalCoverage::new();
++    let result = exec::<H, TestLogger, CfgFeedback>(
++        &mut state,
++        &mut logger,
++        program,
++        record,
++        &VertexMap::new(),
++        &mut coverage,
++        &SchedulePolicy::Fixed,
++        &PurgatoryConfig::default(),
++        &mut SmallRng::seed_from_u64(0),
++    );
++    (result, state)
++}
++
++/// A receive reached only through a branch or a loop body marks its function
++/// as yielding, the same shapes without one do not, and a call does not
++/// carry its callee's receive into the caller. Both decodes agree.
++#[test]
++fn a_function_yields_when_any_path_reaches_a_receive() {
++    let mut builder = TestProgramBuilder::new();
++    let branch_ret = builder.add(Label::Return(Expr::Unit));
++    let branch_recv = builder.add(Label::Recv(Lhs::Var(slot(1)), Expr::Var(slot(0)), branch_ret));
++    let branch = builder.add(Label::Cond(Expr::Var(slot(2)), branch_ret, branch_recv));
++
++    let loop_ret = builder.add(Label::Return(Expr::Unit));
++    let loop_head = builder.add(Label::Return(Expr::Unit));
++    let loop_back = builder.add(Label::Continue(loop_head));
++    let loop_recv = builder.add(Label::Recv(Lhs::Var(slot(1)), Expr::Var(slot(0)), loop_back));
++    builder.labels[loop_head] = Label::ForLoopIn(
++        Lhs::Var(slot(3)),
++        Expr::List(vec![Expr::Int(1)]),
++        slot(4),
++        loop_recv,
++        loop_ret,
++    );
++
++    let quiet_ret = builder.add(Label::Return(Expr::Unit));
++    let quiet_head = builder.add(Label::Return(Expr::Unit));
++    let quiet_back = builder.add(Label::Continue(quiet_head));
++    let quiet_print = builder.add(Label::Print(Expr::Var(slot(3)), quiet_back));
++    builder.labels[quiet_head] = Label::ForLoopIn(
++        Lhs::Var(slot(3)),
++        Expr::List(vec![Expr::Int(1)]),
++        slot(4),
++        quiet_print,
++        quiet_ret,
++    );
++    let quiet = builder.add(Label::Cond(Expr::Bool(true), quiet_head, quiet_ret));
++
++    let sync_ret = builder.add(Label::Return(Expr::Unit));
++    let sync_recv = builder.add(Label::Recv(Lhs::Var(slot(1)), Expr::Var(slot(0)), sync_ret));
++    let sync_entry = builder.add(Label::MakeChannel(Lhs::Var(slot(0)), None, sync_recv));
++    let caller_ret = builder.add(Label::Return(Expr::Var(slot(0))));
++    let caller = builder.add(Label::Instr(
++        Instr::SyncCall(Lhs::Var(slot(0)), "s".to_string(), vec![]),
++        caller_ret,
++    ));
++
++    let mut program = builder.build_undecoded();
++    register(&mut program, "branch", function(branch, 20, 0, 3, false));
++    register(&mut program, "loop", function(loop_head, 21, 0, 5, false));
++    register(&mut program, "quiet", function(quiet, 22, 0, 5, false));
++    register(&mut program, "s", function(sync_entry, 23, 0, 2, true));
++    register(&mut program, "caller", function(caller, 24, 0, 1, false));
++    program.decode();
++
++    let c = &program.compiled;
++    assert!(!c.never_yields(branch), "a receive in a branch");
++    assert!(!c.never_yields(loop_head), "a receive in a loop body");
++    assert!(c.never_yields(quiet), "a branch and a loop with no receive");
++    assert!(!c.never_yields(sync_entry), "the sync callee's own graph receives");
++    assert!(c.never_yields(caller), "a call does not enter its callee");
++    assert!(!c.never_yields(quiet_print), "a vertex that is no entry");
++    assert!(!c.never_yields(c.ops.len() + 64), "a vertex past the graph");
++    let off = CompiledProgram::build_with(&program, Rewrites::Off);
++    assert_eq!(off.never_yield_entries, c.never_yield_entries);
++}
++
++/// A sync function that reaches a receive fails the run with the sync
++/// instruction error on either hash policy, so a never-yield caller cannot
++/// yield through it.
++#[test]
++fn a_sync_callee_that_receives_fails_the_never_yield_caller() {
++    let mut builder = TestProgramBuilder::new();
++    let sync_ret = builder.add(Label::Return(Expr::Unit));
++    let sync_recv = builder.add(Label::Recv(Lhs::Var(slot(1)), Expr::Var(slot(0)), sync_ret));
++    let sync_entry = builder.add(Label::MakeChannel(Lhs::Var(slot(0)), None, sync_recv));
++    let caller_ret = builder.add(Label::Return(Expr::Var(slot(0))));
++    let caller = builder.add(Label::Instr(
++        Instr::SyncCall(Lhs::Var(slot(0)), "s".to_string(), vec![]),
++        caller_ret,
++    ));
++    let mut program = builder.build_undecoded();
++    register(&mut program, "s", function(sync_entry, 23, 0, 2, true));
++    register(&mut program, "caller", function(caller, 24, 0, 1, false));
++    program.decode();
++    assert!(program.compiled.never_yields(caller));
++
++    let (plain, _) = run_on_one_node::<NoHashing>(&program, make_record_for(caller, 1, Continuation::Recover));
++    let (hashed, _) =
++        run_on_one_node::<WithHashing>(&program, make_record_for(caller, 1, Continuation::Recover));
++    for result in [plain.map(|_| ()), hashed.map(|_| ())] {
++        match result {
++            Err(RuntimeError::UnsupportedSyncInstruction(text)) => {
++                assert!(text.starts_with("Recv("), "{text}")
++            }
++            other => panic!("expected the sync instruction error, got {other:?}"),
++        }
++    }
++}
++
++/// A finished frame's buffer is kept only when nothing else holds it, comes
++/// back empty with its capacity, is taken only when large enough, and a full
++/// pool keeps no more. A clone of the state starts with an empty pool and the
++/// pool's debug text shows nothing it holds.
++#[test]
++fn a_shared_frame_buffer_is_not_kept() {
++    let mut state = State::<NoHashing>::new(&[(NameId(0), 1)], 2);
++    let mut slots: EcoVec<Value<NoHashing>> = EcoVec::with_capacity(6);
++    slots.push(Value::int(1));
++    slots.push(Value::int(2));
++    let holder = slots.clone();
++    state.recycle_frame(slots);
++    assert_eq!(state.frame_pool.len(), 0);
++    assert_eq!(holder.as_slice(), &[Value::int(1), Value::int(2)]);
++
++    state.recycle_frame(holder);
++    assert_eq!(state.frame_pool.len(), 1);
++    let taken = state.frame_buffer(4);
++    assert!(taken.is_empty());
++    assert!(taken.capacity() >= 6);
++    assert!(state.frame_pool.is_empty());
++
++    let mut small: EcoVec<Value<NoHashing>> = EcoVec::with_capacity(2);
++    small.push(Value::unit());
++    state.recycle_frame(small);
++    assert_eq!(state.frame_pool.len(), 1);
++    let large = state.frame_buffer(64);
++    assert!(large.is_empty() && large.capacity() >= 64);
++    assert_eq!(state.frame_pool.len(), 1, "a buffer too small is left in the pool");
++    assert!(state.frame_buffer(0).capacity() == 0);
++    assert_eq!(state.frame_pool.len(), 1);
++
++    for _ in 0..40 {
++        let mut b: EcoVec<Value<NoHashing>> = EcoVec::with_capacity(3);
++        b.push(Value::unit());
++        state.recycle_frame(b);
++    }
++    assert_eq!(state.frame_pool.len(), 32);
++    state.recycle_frame(EcoVec::new());
++    assert_eq!(state.frame_pool.len(), 32);
++
++    assert!(state.clone().frame_pool.is_empty());
++    assert_eq!(format!("{:?}", state.frame_pool), "FramePool");
++}
++
++fn spec_paths(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
++    for entry in std::fs::read_dir(dir).expect("the spec directory is readable") {
++        let path = entry.expect("a directory entry").path();
++        if path.is_dir() {
++            spec_paths(&path, out);
++        } else if path.extension().is_some_and(|e| e == "spur") {
++            out.push(path);
++        }
++    }
++}
++
++/// Whether frames for `func` built into kept buffers larger than they need,
++/// with every argument count up to the parameter count, equal fresh frames
++/// slot by slot, in signature and in write count.
++fn pooled_frames_match<H: HashPolicy>(func: &FunctionInfo) -> bool {
++    let slots = func.local_slot_count as usize;
++    let params = (func.param_count as usize).min(slots);
++    let mut state = State::<H>::new(&[(NameId(0), 1)], 2);
++    let refill = |state: &mut State<H>| {
++        let mut junk: EcoVec<Value<H>> = EcoVec::with_capacity(slots + 7);
++        for i in 0..slots + 7 {
++            junk.push(Value::int(-(i as i64)));
++        }
++        state.recycle_frame(junk);
++    };
++    (0..=params).all(|given| {
++        let args: Vec<Value<H>> = (0..given).map(|i| Value::int(i as i64 + 1)).collect();
++        let fresh = build_frame::<H>(func, &args);
++        refill(&mut state);
++        let pooled = build_frame_in(state.frame_buffer(slots), func, &args);
++        refill(&mut state);
++        let mut held = state.frame_buffer(slots);
++        for a in &args {
++            held.push(a.clone());
++        }
++        let held = FrameBuilder::<H>::from_args(held).finish(func);
++        [pooled, held].iter().all(|f| {
++            f.slots.len() == fresh.slots.len()
++                && *f == fresh
++                && f.sig == fresh.sig
++                && f.writes == fresh.writes
++        })
++    })
++}
++
++/// For every function of every spec that compiles, a frame written into a
++/// kept buffer and a frame whose arguments were pushed into one equal a
++/// fresh frame, on either hash policy.
++#[test]
++fn pooled_frames_equal_fresh_frames_in_every_spec() {
++    std::thread::Builder::new()
++        .stack_size(64 * 1024 * 1024)
++        .spawn(|| {
++            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/spur");
++            let mut files = Vec::new();
++            spec_paths(&root, &mut files);
++            files.sort();
++            let (mut compiled, mut functions) = (0, 0);
++            let mut failures = Vec::new();
++            for file in &files {
++                let name = file.display().to_string();
++                let source = std::fs::read_to_string(file).expect("the spec is readable");
++                let Ok(program) = crate::compiler::compile_with(
++                    &source,
++                    &name,
++                    crate::compiler::cfg::Compiler::new(),
++                )
++                .into_program() else {
++                    continue;
++                };
++                compiled += 1;
++                let mut funcs: Vec<_> = program.func_name_to_id.iter().collect();
++                funcs.sort();
++                for (func_name, id) in funcs {
++                    let func = &program.rpc[id];
++                    functions += 1;
++                    if !pooled_frames_match::<NoHashing>(func) || !pooled_frames_match::<WithHashing>(func) {
++                        failures.push(format!("{name} {func_name}"));
++                    }
++                }
++            }
++            assert!(compiled > 0 && functions > 0, "no spec compiled");
++            assert!(failures.is_empty(), "pooled frames differ:\n{}", failures.join("\n"));
++        })
++        .expect("the test thread starts")
++        .join()
++        .expect("the test thread finishes");
++}
++
++/// A record the decoded loop parks on an empty channel comes back out of its
++/// waiting entry equal to the record and destination the label loop parks,
++/// and it holds its values exactly once.
++#[test]
++fn a_parked_record_round_trips_through_its_waiting_entry() {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(Expr::Unit));
++    let recv = builder.add(Label::Recv(Lhs::Var(slot(1)), Expr::Var(slot(0)), ret));
++    let make = builder.add(Label::MakeChannel(Lhs::Var(slot(0)), Some(1), recv));
++    let program = builder.build();
++    assert!(program.compiled.covers(program.cfg.graph.len()));
++    let mut undecoded = program.clone();
++    undecoded.compiled = Default::default();
++
++    let park = |program: &Program, payload: &ValueSeq<WithHashing>| {
++        let mut state = State::<WithHashing>::new(&[(NameId(0), 1)], 2);
++        let mut logger = TestLogger::new();
++        let mut record = make_record(make, 3);
++        record.env.set(2, Value::list(payload.clone()));
++        let mut coverage = LocalCoverage::new();
++        let result = exec::<WithHashing, TestLogger, CfgFeedback>(
++            &mut state,
++            &mut logger,
++            program,
++            record,
++            &VertexMap::new(),
++            &mut coverage,
++            &SchedulePolicy::Fixed,
++            &PurgatoryConfig::default(),
++            &mut SmallRng::seed_from_u64(0),
++        );
++        assert!(matches!(result, Ok(None)), "the record parks");
++        let cid = *state.channels.keys().next().expect("one channel");
++        let chan = state.channels.get_mut(&cid).expect("the channel exists");
++        assert_eq!(chan.waiting_readers.len(), 1);
++        let entry = chan.pop_waiting_reader().expect("one reader waits");
++        assert!(chan.waiting_readers.is_empty());
++        entry
++    };
++
++    let mut decoded_payload: ValueSeq<WithHashing> = ecow::EcoVec::new();
++    decoded_payload.push(Value::int(4));
++    let mut legacy_payload = decoded_payload.clone();
++    legacy_payload.make_mut();
++    let (decoded, decoded_lhs) = park(&program, &decoded_payload);
++    let (legacy, legacy_lhs) = park(&undecoded, &legacy_payload);
++    assert_eq!(format!("{:?}", decoded), format!("{:?}", legacy));
++    assert_eq!(decoded_lhs, legacy_lhs);
++    assert_eq!(decoded_lhs, Lhs::Var(slot(1)));
++    assert_eq!(decoded.pc, ret);
++    assert_eq!(decoded.env.get(2), &Value::list(decoded_payload.clone()));
++
++    drop((legacy, legacy_lhs));
++    assert!(legacy_payload.is_unique());
++    assert!(!decoded_payload.is_unique(), "the parked record still holds its payload");
++    drop(decoded);
++    assert!(decoded_payload.is_unique(), "the parked record dropped its payload exactly once");
++}
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f458a89..a036a68 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -1,14 +1,15 @@
+ use crate::compiler::cfg::{Program, Vertex};
+ use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::build_frame;
+-use crate::simulator::core::exec::{exec, exec_sync_on_node};
++use crate::simulator::core::exec::{exec, exec_ops, exec_sync_on_node};
+ use crate::simulator::core::partition::{activate_partition, heal_partition};
+ use crate::simulator::core::queue_selector::{
+     QueueInfo, QueueSelection, QueueSelector, TimerBiasUse, WithinQueueSelector,
+     select_with_timer_context,
+ };
+ use crate::simulator::core::state::{
+-    Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, Record, ReplayCut, Runnable,
++    Continuation, HandlerTrigger, Logger, NodeId, PurgatoryConfig, ReaderEntry, Record, ReplayCut,
++    Runnable, deliver_to_channel,
+     RunnableCategory, SchedulePolicy, ScheduleResult, State,
+ };
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
+@@ -27,7 +28,7 @@ use crate::simulator::path::TopologyInfo;
+ use crate::simulator::rng::{Stream, StreamRng};
+ use crate::simulator::timer_context;
+ use crate::simulator::util_stats;
+-use crate::simulator::util_stats::DeliveryBias;
++use crate::simulator::util_stats::{DeliveryBias, InterpreterTally};
+ use imbl::OrdSet;
+ use log::warn;
+ use rand::Rng;
+@@ -1454,7 +1455,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         }
+     };
+ 
+-    let (runnable, chosen_slot, chosen_mask) = match selection {
++    let (chosen_slot, chosen_mask) = match selection {
+         QueueSelection::Local(node_idx) => {
+             let queue = &state.local_queues[node_idx];
+             let admitted = info.local_queue_sizes.get(node_idx).copied().unwrap_or(0);
+@@ -1475,11 +1476,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            (
+-                state.take_local(node_idx, idx),
+-                QueueSlot::Local(node_idx, idx),
+-                mask,
+-            )
++            (QueueSlot::Local(node_idx, idx), mask)
+         }
+         QueueSelection::Network => {
+             let queue = &state.network_queue;
+@@ -1513,7 +1510,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             } else {
+                 drawn_mask
+             };
+-            (state.take_network(idx), QueueSlot::Network(idx), mask)
++            (QueueSlot::Network(idx), mask)
+         }
+         QueueSelection::Timer => {
+             let queue = &state.timer_queue;
+@@ -1550,7 +1547,7 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 within_queue,
+                 rng,
+             );
+-            (state.timer_queue.remove(idx), QueueSlot::Timer(idx), mask)
++            (QueueSlot::Timer(idx), mask)
+         }
+     };
+ 
+@@ -1565,6 +1562,292 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+         util_stats::record_timer_admission(matches!(chosen_slot, QueueSlot::Timer(_)));
+     }
+ 
++    // A record goes from its queue slot straight into the interpreter: the
++    // queue walks above read it in place, and nothing between the take and
++    // `exec_ops` holds it by value.
++    let queued_record = match chosen_slot {
++        QueueSlot::Local(node_idx, idx) => {
++            matches!(state.local_queues[node_idx][idx], Runnable::Record(_))
++        }
++        QueueSlot::Network(idx) => matches!(state.network_queue[idx], Runnable::Record(_)),
++        QueueSlot::Timer(_) => false,
++    };
++    if queued_record {
++        let r = match chosen_slot {
++            QueueSlot::Local(node_idx, idx) => state.take_local_record(node_idx, idx),
++            QueueSlot::Network(idx) => state.take_network_record(idx),
++            QueueSlot::Timer(_) => unreachable!("the timer queue holds only timers"),
++        };
++        let (src_node, dest_node) = (r.origin_node, r.node);
++        if state.crash_info.currently_crashed.contains(&dest_node) {
++            if src_node != dest_node {
++                let mut r = r;
++                r.reset(program);
++                state.crash_info.queued_messages.push_back((dest_node, r));
++            }
++            return Ok(ScheduleResult::None);
++        }
++        if state.partition_info.is_blocked(src_node, dest_node) {
++            let mut r = r;
++            r.reset(program);
++            state.partition_info.buffer_record(dest_node, r);
++            return Ok(ScheduleResult::None);
++        }
++        let record_entry_pc = r.entry_pc;
++        let record_origin = r.origin_node;
++        let record_dest = r.node;
++        let record_sent_at = r.origin_incarnation;
++        let record_pc = r.pc;
++        let record_cause = r.causal_operation_id;
++        let record_ordinal = r.send_ordinal;
++        let record_bias = r.bias;
++        let record_timer_entry = r.timer_entry;
++        let record_link_seq = r.link_seq;
++        // Bump the link's deliver counter so the next FIFO message
++        // in this link becomes schedulable.
++        if let Some((link_id, seq)) = record_link_seq {
++            state.link_deliver_seq.insert(link_id, seq + 1);
++        }
++        // Measure the effect of a message on its receiver: only a
++        // first entry into a handler for a message from another
++        // node counts, not the continuations it is re-queued as.
++        let message_entry = record_origin != record_dest && record_pc == record_entry_pc;
++        let entry_step = state.crash_info.current_step;
++        // Read at every entry, not only on probes: the compare
++        // after the segment is the progress mark the stall clock
++        // takes, and the token every probe compares against.
++        let token_before = state.node_state_token(record_dest);
++        // Whether a ghost reached a destination that had already
++        // heard from the sender's current incarnation, read off
++        // the per-destination table before this entry is added.
++        // The table is kept on every run: the overtaken-ghost
++        // reward reads it.
++        let mut overtaken_at_restarted = false;
++        if message_entry {
++            let current = state.incarnation(record_origin);
++            if record_sent_at != current {
++                let overtaken = state.fresh_first.heard_from(
++                    record_dest.index,
++                    record_origin.index,
++                    current,
++                );
++                overtaken_at_restarted = state.overtaken_ghost_at_restarted(
++                    record_origin,
++                    record_sent_at,
++                    record_dest,
++                );
++                util_stats::record_fresh_first_ghost_entry(
++                    state.fresh_first.enabled,
++                    overtaken,
++                    state.incarnation(record_dest) > 0,
++                );
++            }
++            state.note_entry_at_absorber(
++                record_origin,
++                record_sent_at,
++                record_dest,
++                entry_step,
++            );
++            let servers = topology.num_servers.max(0) as usize;
++            if record_dest.index < servers
++                && state.client_anchor.caused_post_fault(record_cause)
++            {
++                state.note_post_fault_request_entry(record_dest.index, entry_step, servers);
++            }
++            state.fresh_first.note_entry(
++                record_dest.index,
++                record_origin.index,
++                record_sent_at,
++            );
++        }
++        // Whether a message entry from a sender that has crashed
++        // at least once has a sibling of its class - same sender,
++        // same destination, same sending incarnation - already
++        // entered or still in the network queue, and whether a
++        // queued sibling carries a lower send ordinal. Read on
++        // census runs only, and the queue only when the sender's
++        // ledger says it holds a remote record of the sender at
++        // all.
++        if message_entry
++            && state.pair_order.census
++            && (state.incarnation(record_origin) > 0
++                || state.crash_info.currently_crashed.contains(&record_origin))
++        {
++            let entered_before = state.pair_order.note_entry(
++                record_origin.index,
++                record_dest.index,
++                record_sent_at,
++            );
++            let queued = state
++                .send_ledger
++                .get(record_origin.index)
++                .is_some_and(|l| l.net_records > 0);
++            let scanned: &[Runnable<H>] = if queued { &state.network_queue } else { &[] };
++            let siblings = scanned.iter().filter_map(|q| match q {
++                Runnable::Record(s)
++                    if s.origin_node == record_origin
++                        && s.node == record_dest
++                        && s.origin_incarnation == record_sent_at =>
++                {
++                    Some(s.send_ordinal)
++                }
++                _ => None,
++            });
++            if let Some(inverted) =
++                pair_order::classify_entry(siblings, record_ordinal, entered_before)
++            {
++                util_stats::record_pair_order_entry(
++                    state.pair_order.enabled,
++                    state.fault_crossing(record_origin, record_sent_at),
++                    inverted,
++                );
++            }
++        }
++        // A delivery from a sender that is down, or that restarted
++        // since sending, marks its receiver as having absorbed
++        // state from an incarnation that no longer exists.
++        let ghost = (message_entry
++            && state.fault_crossing(record_origin, record_sent_at))
++        .then_some(token_before);
++        if ghost.is_some()
++            && !state.retarget.signal_counted
++            && state
++                .send_ledger
++                .get(record_dest.index)
++                .is_some_and(|l| l.crash_pending > 0)
++        {
++            state.retarget.signal_counted = true;
++            state.replay_cut = Some(ReplayCut {
++                step: entry_step,
++                tape_pos: rng.position(),
++            });
++            util_stats::record_ghost_signal_run();
++        }
++        let probe = (util_stats::acted_fraction_enabled() && message_entry).then(|| {
++            let mut bias = record_bias;
++            if record_sent_at != state.incarnation(record_origin) {
++                bias.insert(DeliveryBias::SENDER_RESTARTED);
++            }
++            (bias, state.entries_since_restart(record_dest.index))
++        });
++        // The segment a timer firing woke, measured the same way
++        // as a delivery: the token counts state writes, so a
++        // segment that only sends reads as inert.
++        let timer_entry = record_timer_entry == Some(record_pc);
++        let timer_probe = (util_stats::acted_fraction_enabled() && timer_entry).then(|| {
++            let pending = state.pending_deliveries_to(record_dest);
++            let inflight = pending > 0;
++            let key = util_stats::TimerKey::new(
++                record_pc,
++                inflight,
++                state.incarnation(record_dest),
++                state.timer_inert_streak(record_dest.index, record_pc),
++            );
++            let ledger = state
++                .send_ledger
++                .get(record_dest.index)
++                .copied()
++                .unwrap_or_default();
++            let cell = timer_context::cell_key(
++                pending,
++                ledger.in_flight,
++                state.max_timer_inert_streak(record_dest.index),
++                state.incarnation(record_dest) > 0
++                    && state.entries_since_restart(record_dest.index) < 8,
++            );
++            (record_pc, key, inflight, cell)
++        });
++        if message_entry {
++            state.note_handler_entry(record_dest.index, HandlerTrigger::Delivery);
++        } else if timer_entry {
++            state.note_handler_entry(record_dest.index, HandlerTrigger::Timer);
++        }
++        let result = if program.compiled.covers(program.cfg.graph.len()) {
++            let mut tally = InterpreterTally::new();
++            let result = exec_ops::<H, L, F>(
++                state,
++                logger,
++                program,
++                r,
++                snapshot,
++                feedback,
++                policy,
++                purgatory_config,
++                rng,
++                &mut tally,
++            );
++            tally.flush();
++            result
++        } else {
++            exec::<H, L, F>(
++                state,
++                logger,
++                program,
++                r,
++                snapshot,
++                feedback,
++                policy,
++                purgatory_config,
++                rng,
++            )
++        }?;
++        let acted = state.node_state_token(record_dest) != token_before;
++        if message_entry {
++            note_ghost_release_entry(
++                state,
++                record_origin,
++                record_sent_at,
++                record_dest,
++                entry_step,
++                acted,
++                topology.num_servers.max(0) as usize,
++            );
++        }
++        if let Some(before) = ghost {
++            state.note_ghost_delivery(record_dest.index, entry_step, before);
++            if acted {
++                state.last_acted_ghost_step = entry_step;
++            }
++            // A dead-incarnation record is a ghost, so the
++            // token taken for the mark serves the reward too.
++            if overtaken_at_restarted && acted {
++                state.overtaken_ghost_acted = true;
++            }
++        }
++        if let Some((bias, distance)) = probe {
++            util_stats::record_delivery(bias, acted, distance);
++            util_stats::record_term_acted(chosen_mask, acted);
++        }
++        if let Some((pc, key, inflight, cell)) = timer_probe {
++            state.note_timer_effect(record_dest.index, pc, inflight, acted);
++            util_stats::record_timer(key, acted);
++            // Only steer-off probe runs feed the learner, so the
++            // learned rates carry no imprint of the bias.
++            if timer_ctx_mode == timer_context::RunMode::Probe {
++                timer_context::record_firing(cell, acted);
++            }
++        }
++        if message_entry {
++            util_stats::record_message_entry(record_dest.index, entry_step);
++        }
++        return match result {
++            Some(client_op) => Ok(ScheduleResult::ClientOp(client_op)),
++            None => Ok(ScheduleResult::RecordExecuted {
++                entry_pc: record_entry_pc,
++                origin_node: record_origin,
++                dest_node: record_dest,
++                acted,
++                timer_entry,
++            }),
++        };
++    }
++
++    let runnable = match chosen_slot {
++        QueueSlot::Local(node_idx, idx) => state.take_local(node_idx, idx),
++        QueueSlot::Network(idx) => state.take_network(idx),
++        QueueSlot::Timer(idx) => state.timer_queue.remove(idx),
++    };
++
+     match runnable {
+         Runnable::Crash { node_id, .. } => {
+             // Every census of what a crash lands on reads the node the crash
+@@ -1634,25 +1917,17 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+             }
+             let token_before = state.node_state_token(timer.node);
+ 
+-            if let Some(chan) = state.channels.get_mut(&timer.channel) {
+-                match chan.pop_waiting_reader() {
+-                    None => chan.buffer.push_back(Value::<H>::unit()),
+-                    Some((mut reader, lhs)) => {
+-                        let node_index = reader.node.index;
+-                        let mut r_node_env = state.nodes[node_index].clone();
+-                        if let Err(e) = crate::simulator::core::eval::store(
+-                            &lhs,
+-                            Value::<H>::unit(),
+-                            &mut reader.env,
+-                            &mut r_node_env,
+-                        ) {
+-                            log::warn!("Store failed in timer completion: {}", e);
+-                        }
+-                        state.nodes[node_index] = r_node_env;
+-                        reader.timer_entry = Some(reader.pc);
+-                        state.push_to_local(node_index, Runnable::Record(reader));
+-                    }
+-                }
++            if let Some(chan) = state.channels.get_mut(&timer.channel)
++                && let Err(e) = deliver_to_channel(
++                    chan,
++                    &mut state.nodes,
++                    &mut state.local_queues,
++                    Value::<H>::unit(),
++                    ReaderEntry::TimerFired,
++                    false,
++                )
++            {
++                log::warn!("Store failed in timer completion: {}", e);
+             }
+             if let Some(label) = timer.label {
+                 state
+@@ -1667,310 +1942,43 @@ pub fn schedule_runnable<H: HashPolicy, L: Logger, Q: QueueSelector, F: Feedback
+                 Ok(ScheduleResult::None)
+             }
+         }
+-        other => {
+-            let (src_node, dest_node) = match &other {
+-                Runnable::Record(r) => (r.origin_node, r.node),
+-                Runnable::ChannelSend {
+-                    origin_node,
+-                    target,
+-                    ..
+-                } => (*origin_node, *target),
+-                _ => unreachable!(),
+-            };
+-
+-            if state.crash_info.currently_crashed.contains(&dest_node) {
+-                if let Runnable::Record(r) = other
+-                    && src_node != dest_node {
+-                        let mut r = r;
+-                        r.reset(program);
+-                        state.crash_info.queued_messages.push_back((dest_node, r));
+-                    }
++        Runnable::ChannelSend {
++            target,
++            channel,
++            message,
++            origin_node,
++            pc,
++            priority,
++        } => {
++            if state.crash_info.currently_crashed.contains(&target) {
+                 return Ok(ScheduleResult::None);
+             }
+-
+-            if state.partition_info.is_blocked(src_node, dest_node) {
+-                match other {
+-                    Runnable::Record(r) => {
+-                        let mut r = r;
+-                        r.reset(program);
+-                        state.partition_info.buffer_record(dest_node, r);
+-                    }
+-                    Runnable::ChannelSend {
+-                        channel,
+-                        message,
+-                        origin_node,
+-                        pc,
+-                        priority,
+-                        ..
+-                    } => {
+-                        state.partition_info.buffer_channel_send(
+-                            dest_node,
+-                            channel,
+-                            message,
+-                            origin_node,
+-                            pc,
+-                            priority,
+-                        );
+-                    }
+-                    _ => unreachable!(),
+-                }
++            if state.partition_info.is_blocked(origin_node, target) {
++                state.partition_info.buffer_channel_send(
++                    target,
++                    channel,
++                    message,
++                    origin_node,
++                    pc,
++                    priority,
++                );
+                 return Ok(ScheduleResult::None);
+             }
+-
+-            match other {
+-                Runnable::Record(r) => {
+-                    let record_entry_pc = r.entry_pc;
+-                    let record_origin = r.origin_node;
+-                    let record_dest = r.node;
+-                    let record_sent_at = r.origin_incarnation;
+-                    // Bump the link's deliver counter so the next FIFO message
+-                    // in this link becomes schedulable.
+-                    if let Some((link_id, seq)) = r.link_seq {
+-                        state.link_deliver_seq.insert(link_id, seq + 1);
+-                    }
+-                    // Measure the effect of a message on its receiver: only a
+-                    // first entry into a handler for a message from another
+-                    // node counts, not the continuations it is re-queued as.
+-                    let message_entry = record_origin != record_dest && r.pc == record_entry_pc;
+-                    let entry_step = state.crash_info.current_step;
+-                    // Read at every entry, not only on probes: the compare
+-                    // after the segment is the progress mark the stall clock
+-                    // takes, and the token every probe compares against.
+-                    let token_before = state.node_state_token(record_dest);
+-                    // Whether a ghost reached a destination that had already
+-                    // heard from the sender's current incarnation, read off
+-                    // the per-destination table before this entry is added.
+-                    // The table is kept on every run: the overtaken-ghost
+-                    // reward reads it.
+-                    let mut overtaken_at_restarted = false;
+-                    if message_entry {
+-                        let current = state.incarnation(record_origin);
+-                        if r.origin_incarnation != current {
+-                            let overtaken = state.fresh_first.heard_from(
+-                                record_dest.index,
+-                                record_origin.index,
+-                                current,
+-                            );
+-                            overtaken_at_restarted = state.overtaken_ghost_at_restarted(
+-                                record_origin,
+-                                r.origin_incarnation,
+-                                record_dest,
+-                            );
+-                            util_stats::record_fresh_first_ghost_entry(
+-                                state.fresh_first.enabled,
+-                                overtaken,
+-                                state.incarnation(record_dest) > 0,
+-                            );
+-                        }
+-                        state.note_entry_at_absorber(
+-                            record_origin,
+-                            r.origin_incarnation,
+-                            record_dest,
+-                            entry_step,
+-                        );
+-                        let servers = topology.num_servers.max(0) as usize;
+-                        if record_dest.index < servers
+-                            && state.client_anchor.caused_post_fault(r.causal_operation_id)
+-                        {
+-                            state.note_post_fault_request_entry(record_dest.index, entry_step, servers);
+-                        }
+-                        state.fresh_first.note_entry(
+-                            record_dest.index,
+-                            record_origin.index,
+-                            r.origin_incarnation,
+-                        );
+-                    }
+-                    // Whether a message entry from a sender that has crashed
+-                    // at least once has a sibling of its class - same sender,
+-                    // same destination, same sending incarnation - already
+-                    // entered or still in the network queue, and whether a
+-                    // queued sibling carries a lower send ordinal. Read on
+-                    // census runs only, and the queue only when the sender's
+-                    // ledger says it holds a remote record of the sender at
+-                    // all.
+-                    if message_entry
+-                        && state.pair_order.census
+-                        && (state.incarnation(record_origin) > 0
+-                            || state.crash_info.currently_crashed.contains(&record_origin))
+-                    {
+-                        let entered_before = state.pair_order.note_entry(
+-                            record_origin.index,
+-                            record_dest.index,
+-                            r.origin_incarnation,
+-                        );
+-                        let queued = state
+-                            .send_ledger
+-                            .get(record_origin.index)
+-                            .is_some_and(|l| l.net_records > 0);
+-                        let scanned: &[Runnable<H>] = if queued { &state.network_queue } else { &[] };
+-                        let siblings = scanned.iter().filter_map(|q| match q {
+-                            Runnable::Record(s)
+-                                if s.origin_node == record_origin
+-                                    && s.node == record_dest
+-                                    && s.origin_incarnation == r.origin_incarnation =>
+-                            {
+-                                Some(s.send_ordinal)
+-                            }
+-                            _ => None,
+-                        });
+-                        if let Some(inverted) =
+-                            pair_order::classify_entry(siblings, r.send_ordinal, entered_before)
+-                        {
+-                            util_stats::record_pair_order_entry(
+-                                state.pair_order.enabled,
+-                                state.fault_crossing(record_origin, r.origin_incarnation),
+-                                inverted,
+-                            );
+-                        }
+-                    }
+-                    // A delivery from a sender that is down, or that restarted
+-                    // since sending, marks its receiver as having absorbed
+-                    // state from an incarnation that no longer exists.
+-                    let ghost = (message_entry
+-                        && state.fault_crossing(record_origin, r.origin_incarnation))
+-                    .then_some(token_before);
+-                    if ghost.is_some()
+-                        && !state.retarget.signal_counted
+-                        && state
+-                            .send_ledger
+-                            .get(record_dest.index)
+-                            .is_some_and(|l| l.crash_pending > 0)
+-                    {
+-                        state.retarget.signal_counted = true;
+-                        state.replay_cut = Some(ReplayCut {
+-                            step: entry_step,
+-                            tape_pos: rng.position(),
+-                        });
+-                        util_stats::record_ghost_signal_run();
+-                    }
+-                    let probe = (util_stats::acted_fraction_enabled() && message_entry).then(|| {
+-                        let mut bias = r.bias;
+-                        if r.origin_incarnation != state.incarnation(record_origin) {
+-                            bias.insert(DeliveryBias::SENDER_RESTARTED);
+-                        }
+-                        (bias, state.entries_since_restart(record_dest.index))
+-                    });
+-                    // The segment a timer firing woke, measured the same way
+-                    // as a delivery: the token counts state writes, so a
+-                    // segment that only sends reads as inert.
+-                    let timer_entry = r.timer_entry == Some(r.pc);
+-                    let timer_probe = (util_stats::acted_fraction_enabled() && timer_entry).then(|| {
+-                        let pending = state.pending_deliveries_to(record_dest);
+-                        let inflight = pending > 0;
+-                        let key = util_stats::TimerKey::new(
+-                            r.pc,
+-                            inflight,
+-                            state.incarnation(record_dest),
+-                            state.timer_inert_streak(record_dest.index, r.pc),
+-                        );
+-                        let ledger = state
+-                            .send_ledger
+-                            .get(record_dest.index)
+-                            .copied()
+-                            .unwrap_or_default();
+-                        let cell = timer_context::cell_key(
+-                            pending,
+-                            ledger.in_flight,
+-                            state.max_timer_inert_streak(record_dest.index),
+-                            state.incarnation(record_dest) > 0
+-                                && state.entries_since_restart(record_dest.index) < 8,
+-                        );
+-                        (r.pc, key, inflight, cell)
+-                    });
+-                    if message_entry {
+-                        state.note_handler_entry(record_dest.index, HandlerTrigger::Delivery);
+-                    } else if timer_entry {
+-                        state.note_handler_entry(record_dest.index, HandlerTrigger::Timer);
+-                    }
+-                    let result = exec::<H, L, F>(
+-                        state,
+-                        logger,
+-                        program,
+-                        r,
+-                        snapshot,
+-                        feedback,
+-                        policy,
+-                        purgatory_config,
+-                        rng,
+-                    )?;
+-                    let acted = state.node_state_token(record_dest) != token_before;
+-                    if message_entry {
+-                        note_ghost_release_entry(
+-                            state,
+-                            record_origin,
+-                            record_sent_at,
+-                            record_dest,
+-                            entry_step,
+-                            acted,
+-                            topology.num_servers.max(0) as usize,
+-                        );
+-                    }
+-                    if let Some(before) = ghost {
+-                        state.note_ghost_delivery(record_dest.index, entry_step, before);
+-                        if acted {
+-                            state.last_acted_ghost_step = entry_step;
+-                        }
+-                        // A dead-incarnation record is a ghost, so the
+-                        // token taken for the mark serves the reward too.
+-                        if overtaken_at_restarted && acted {
+-                            state.overtaken_ghost_acted = true;
+-                        }
+-                    }
+-                    if let Some((bias, distance)) = probe {
+-                        util_stats::record_delivery(bias, acted, distance);
+-                        util_stats::record_term_acted(chosen_mask, acted);
+-                    }
+-                    if let Some((pc, key, inflight, cell)) = timer_probe {
+-                        state.note_timer_effect(record_dest.index, pc, inflight, acted);
+-                        util_stats::record_timer(key, acted);
+-                        // Only steer-off probe runs feed the learner, so the
+-                        // learned rates carry no imprint of the bias.
+-                        if timer_ctx_mode == timer_context::RunMode::Probe {
+-                            timer_context::record_firing(cell, acted);
+-                        }
+-                    }
+-                    if message_entry {
+-                        util_stats::record_message_entry(record_dest.index, entry_step);
+-                    }
+-                    match result {
+-                        Some(client_op) => Ok(ScheduleResult::ClientOp(client_op)),
+-                        None => Ok(ScheduleResult::RecordExecuted {
+-                            entry_pc: record_entry_pc,
+-                            origin_node: record_origin,
+-                            dest_node: record_dest,
+-                            acted,
+-                            timer_entry,
+-                        }),
+-                    }
+-                }
+-                Runnable::ChannelSend {
+-                    channel, message, ..
+-                } => {
+-                    if let Some(chan) = state.channels.get_mut(&channel) {
+-                        match chan.pop_waiting_reader() {
+-                            None => chan.buffer.push_back(message),
+-                            Some((mut reader, lhs)) => {
+-                                let node_index = reader.node.index;
+-                                let mut r_node_env = state.nodes[node_index].clone();
+-                                if let Err(e) = crate::simulator::core::eval::store(
+-                                    &lhs,
+-                                    message,
+-                                    &mut reader.env,
+-                                    &mut r_node_env,
+-                                ) {
+-                                    log::warn!("Store failed in remote channel delivery: {}", e);
+-                                }
+-                                state.nodes[node_index] = r_node_env;
+-                                reader.timer_entry = None;
+-                                state.push_to_local(node_index, Runnable::Record(reader));
+-                            }
+-                        }
+-                    }
+-                    Ok(ScheduleResult::None)
+-                }
+-                _ => unreachable!(),
++            if let Some(chan) = state.channels.get_mut(&channel)
++                && let Err(e) = deliver_to_channel(
++                    chan,
++                    &mut state.nodes,
++                    &mut state.local_queues,
++                    message,
++                    ReaderEntry::Cleared,
++                    false,
++                )
++            {
++                log::warn!("Store failed in remote channel delivery: {}", e);
+             }
++            Ok(ScheduleResult::None)
+         }
++        Runnable::Record(_) => unreachable!("records are delivered above"),
+     }
+ }
+ 
+@@ -4489,4 +4497,265 @@ mod tests {
+         }
+         assert!(rises > 0 && falls > 0, "rises {rises} falls {falls}");
+     }
++
++    const NEVER_YIELDS: crate::analysis::resolver::NameId = crate::analysis::resolver::NameId(10);
++    const PAUSES: crate::analysis::resolver::NameId = crate::analysis::resolver::NameId(11);
++    const SENDER: crate::analysis::resolver::NameId = crate::analysis::resolver::NameId(12);
++
++    /// A program whose sender, run on node 0, sends `f(7, true)` and then
++    /// `g(9)` to node 1. `f` never yields and has a declared nil local; `g`
++    /// pauses once.
++    fn redelivery_program() -> Program {
++        use crate::analysis::resolver::NameId;
++        use crate::compiler::cfg::{Cfg, Expr, FunctionInfo, Instr, Label, Lhs, SlotDefault, VarSlot};
++        let local = |i: u32| VarSlot::Local(i, NameId(100 + i as usize));
++        let graph = vec![
++            Label::Return(Expr::Var(local(0))),
++            Label::Pause(2),
++            Label::Return(Expr::Var(local(0))),
++            Label::Instr(
++                Instr::Async(
++                    Lhs::Var(local(0)),
++                    Expr::Var(local(2)),
++                    "f".to_string(),
++                    vec![Expr::Int(7), Expr::Bool(true)],
++                ),
++                4,
++            ),
++            Label::Instr(
++                Instr::Async(
++                    Lhs::Var(local(1)),
++                    Expr::Var(local(2)),
++                    "g".to_string(),
++                    vec![Expr::Int(9)],
++                ),
++                5,
++            ),
++            Label::Return(Expr::Unit),
++        ];
++        let info = |entry: usize, name: NameId, params: u32, slots: u32, defaults: Vec<SlotDefault>| {
++            FunctionInfo {
++                entry,
++                name,
++                param_count: params,
++                local_slot_count: slots,
++                local_defaults: defaults,
++                is_sync: false,
++                debug_slot_names: vec![],
++            }
++        };
++        let mut program = Program {
++            cfg: Cfg { graph },
++            max_node_slots: 3,
++            ..Program::default()
++        };
++        for (qualified, f) in [
++            ("f", info(0, NEVER_YIELDS, 2, 4, vec![SlotDefault::Nil])),
++            ("g", info(1, PAUSES, 1, 3, vec![])),
++            ("sender", info(3, SENDER, 0, 3, vec![])),
++        ] {
++            program.func_name_to_id.insert(qualified.to_string(), f.name);
++            program.rpc.insert(f.name, f);
++        }
++        program.decode();
++        program
++    }
++
++    /// Two nodes, with the sender's two records on the network queue. The
++    /// yielding record is given a later pc and a written frame, as a record
++    /// that ran and was put back would have.
++    fn state_with_sent_records(program: &Program) -> State<NoHashing> {
++        let mut state = State::<NoHashing>::new(&[(ROLE, 2)], 3);
++        let sender = &program.rpc[&SENDER];
++        let mut env = build_frame::<NoHashing>(sender, &[]);
++        env.set(2, Value::node(node(1)));
++        let record = Record {
++            pc: sender.entry,
++            node: node(0),
++            origin_node: node(0),
++            continuation: Continuation::Recover,
++            entry_pc: sender.entry,
++            initial_args: EcoVec::new(),
++            entry_func: SENDER,
++            env,
++            priority: 0.5,
++            causal_operation_id: None,
++            trace_id: None,
++            trace_payload: None,
++            link_seq: None,
++            origin_incarnation: 0,
++            bias: DeliveryBias::NONE,
++            timer_entry: None,
++            send_ordinal: 0,
++            receiver_token_at_send: 0,
++        };
++        let mut logs = crate::simulator::path::Logs::default();
++        let result = exec::<NoHashing, _, NoFeedback>(
++            &mut state,
++            &mut logs,
++            program,
++            record,
++            &(),
++            &mut (),
++            &SchedulePolicy::Fixed,
++            &PurgatoryConfig::default(),
++            &mut StdRng::seed_from_u64(3),
++        );
++        assert!(matches!(result, Ok(None)), "{result:?}");
++        assert_eq!(state.network_queue.len(), 2);
++        for r in state.network_queue.iter_mut() {
++            if let Runnable::Record(r) = r
++                && r.entry_func == PAUSES
++            {
++                r.pc = 2;
++                r.env.set(0, Value::int(-1));
++            }
++        }
++        state
++    }
++
++    /// The slot buffer address of the never-yield record's frame.
++    fn never_yield_frame_address(state: &State<NoHashing>) -> *const Value<NoHashing> {
++        state
++            .network_queue
++            .iter()
++            .find_map(|r| match r {
++                Runnable::Record(r) if r.entry_func == NEVER_YIELDS => Some(r.env.slots.as_ptr()),
++                _ => None,
++            })
++            .expect("the never-yield record is queued")
++    }
++
++    /// Every held record is at its entry with the frame its arguments build.
++    /// The never-yield record holds no argument sequence and kept the slot
++    /// buffer it was sent with; the yielding one was rebuilt from its
++    /// arguments.
++    fn assert_reset_frames(
++        program: &Program,
++        held: Vec<Record<NoHashing>>,
++        sent_frame: *const Value<NoHashing>,
++        site: &str,
++    ) {
++        assert_eq!(held.len(), 2, "{site}");
++        for r in held {
++            assert_eq!(r.pc, r.entry_pc, "{site}");
++            let (func, args) = if r.entry_func == NEVER_YIELDS {
++                assert!(r.initial_args.is_empty(), "{site}");
++                assert_eq!(r.env.slots.as_ptr(), sent_frame, "{site}: the frame was rebuilt");
++                (&program.rpc[&NEVER_YIELDS], vec![Value::int(7), Value::bool(true)])
++            } else {
++                assert_eq!(r.initial_args.as_slice(), &[Value::int(9)], "{site}");
++                (&program.rpc[&PAUSES], vec![Value::int(9)])
++            };
++            let fresh = build_frame::<NoHashing>(func, &args);
++            assert_eq!(r.env, fresh, "{site}");
++            assert_eq!(r.env.slots.len(), fresh.slots.len(), "{site}");
++            assert_eq!(r.env.sig, fresh.sig, "{site}");
++            assert_eq!(r.env.writes, fresh.writes, "{site}");
++        }
++    }
++
++    fn crash_held(state: &State<NoHashing>) -> Vec<Record<NoHashing>> {
++        state.crash_info.queued_messages.iter().map(|(_, r)| r.clone()).collect()
++    }
++
++    fn partition_held(state: &State<NoHashing>) -> Vec<Record<NoHashing>> {
++        state
++            .partition_info
++            .queued_messages
++            .iter()
++            .filter_map(|m| match m {
++                crate::simulator::core::partition::QueuedMessage::Record { record, .. } => {
++                    Some(record.clone())
++                }
++                _ => None,
++            })
++            .collect()
++    }
++
++    fn deliver_all(state: &mut State<NoHashing>, program: &Program) {
++        let mut logs = crate::simulator::path::Logs::default();
++        let mut rng = StdRng::seed_from_u64(8);
++        for _ in 0..8 {
++            if state.network_queue.is_empty() {
++                return;
++            }
++            schedule_runnable::<NoHashing, _, _, NoFeedback>(
++                state,
++                &mut logs,
++                program,
++                &(),
++                &mut (),
++                &TopologyInfo {
++                    topology: Topology::Full,
++                    num_servers: 2,
++                },
++                &GlobalState::<NoFeedback>::new(),
++                &SchedulePolicy::Fixed,
++                false,
++                &mut crate::simulator::core::queue_selector::ProbabilisticSelector {
++                    p_local: 0.0,
++                    p_timer: 0.0,
++                },
++                &crate::simulator::core::queue_selector::WithinQueueSelector::default(),
++                &ResolvedTerms::default(),
++                &PurgatoryConfig::default(),
++                0.0,
++                timer_context::RunMode::Probe,
++                &[],
++                &mut Vec::new(),
++                &mut rng,
++            )
++            .expect("a held delivery does not fail");
++        }
++        panic!("the network queue did not drain");
++    }
++
++    /// At each of the five places a record is reset for re-delivery - a
++    /// crashed destination at delivery, a partitioned pair at delivery, a
++    /// crashed node's local queue, a crashed node's network filter and a
++    /// partition's activation - a never-yield record keeps the frame it was
++    /// sent with, which equals a rebuild in every slot, in signature and in
++    /// write count, and a yielding record is rebuilt from its arguments.
++    #[test]
++    fn a_never_yield_record_keeps_its_frame_at_every_reset() {
++        let program = redelivery_program();
++        assert!(program.compiled.never_yields(0));
++        assert!(!program.compiled.never_yields(1));
++
++        let mut state = state_with_sent_records(&program);
++        let sent = never_yield_frame_address(&state);
++        state.crash_info.currently_crashed.insert(node(1));
++        deliver_all(&mut state, &program);
++        assert_reset_frames(&program, crash_held(&state), sent, "crashed destination at delivery");
++
++        let mut state = state_with_sent_records(&program);
++        let sent = never_yield_frame_address(&state);
++        state.partition_info.active = Some(crate::simulator::core::partition::PartitionType::IsolateOne(node(1)));
++        deliver_all(&mut state, &program);
++        assert_reset_frames(&program, partition_held(&state), sent, "partitioned at delivery");
++
++        let mut state = state_with_sent_records(&program);
++        let sent = never_yield_frame_address(&state);
++        for _ in 0..2 {
++            let r = state.take_network(0);
++            state.local_queues[1].push(r);
++        }
++        crash_node(&mut state, &program, node(1));
++        assert_reset_frames(&program, crash_held(&state), sent, "crashed node's local queue");
++
++        let mut state = state_with_sent_records(&program);
++        let sent = never_yield_frame_address(&state);
++        crash_node(&mut state, &program, node(1));
++        assert_reset_frames(&program, crash_held(&state), sent, "crashed node's network filter");
++
++        let mut state = state_with_sent_records(&program);
++        let sent = never_yield_frame_address(&state);
++        activate_partition(
++            &mut state,
++            &program,
++            crate::simulator::core::partition::PartitionType::IsolateOne(node(1)),
++        );
++        assert_reset_frames(&program, partition_held(&state), sent, "partition activation");
++    }
+ }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 722f5b3..bef49e0 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -1,6 +1,7 @@
+ use crate::analysis::resolver::NameId;
+ use crate::analysis::type_id::TypeId;
+ use crate::compiler::cfg::{Lhs, Program, Vertex};
++use crate::simulator::core::error::RuntimeError;
+ use crate::simulator::core::eval::{build_frame, store};
+ use crate::simulator::core::partition::{PartitionInfo, PartitionType};
+ use crate::simulator::core::steer_terms::Term;
+@@ -394,6 +395,15 @@ impl<H: HashPolicy> Record<H> {
+     /// Reset pc and env to their initial values for crash re-delivery.
+     pub fn reset(&mut self, program: &Program) {
+         self.pc = self.entry_pc;
++        // A record of a function that never yields leaves the step that runs
++        // it only by returning or failing the run, so a reset always finds
++        // it unrun and its frame still the one it was built with. Such a
++        // record is sent with its arguments held only in that frame.
++        if !H::EAGER && self.initial_args.is_empty() && program.compiled.never_yields(self.entry_pc)
++        {
++            crate::simulator::util_stats::record_reset_frame_kept();
++            return;
++        }
+         if let Some(func) = program.rpc.get(&self.entry_func) {
+             self.env = build_frame(func, &self.initial_args);
+         }
+@@ -441,6 +451,50 @@ impl<H: HashPolicy> Hash for CrashInfo<H> {
+ /// word the same readers fit in the vector's inline storage.
+ pub type WaitingReader<H> = Arc<(Record<H>, Lhs)>;
+ 
++/// Most finished frame buffers a run keeps for later frames.
++const FRAME_POOL_CAP: usize = 32;
++/// How many of the most recently kept buffers a frame looks through.
++const FRAME_POOL_PROBE: usize = 4;
++
++/// Emptied slot buffers of finished call frames, kept for later frames of the
++/// same run. Every buffer is empty and held by the pool alone, and only its
++/// capacity is read, so nothing that runs can tell which buffer a frame got:
++/// `Debug` shows no contents and a clone starts empty.
++pub struct FramePool<H: HashPolicy> {
++    buffers: Vec<EcoVec<Value<H>>>,
++}
++
++impl<H: HashPolicy> Default for FramePool<H> {
++    fn default() -> Self {
++        Self {
++            buffers: Vec::new(),
++        }
++    }
++}
++
++impl<H: HashPolicy> Clone for FramePool<H> {
++    fn clone(&self) -> Self {
++        Self::default()
++    }
++}
++
++impl<H: HashPolicy> std::fmt::Debug for FramePool<H> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.write_str("FramePool")
++    }
++}
++
++impl<H: HashPolicy> FramePool<H> {
++    /// How many buffers the pool holds.
++    pub fn len(&self) -> usize {
++        self.buffers.len()
++    }
++
++    pub fn is_empty(&self) -> bool {
++        self.buffers.is_empty()
++    }
++}
++
+ #[derive(Debug, Clone, Hash)]
+ pub struct ChannelState<H: HashPolicy> {
+     pub buffer: Vector<Value<H>>,
+@@ -469,6 +523,145 @@ impl<H: HashPolicy> ChannelState<H> {
+     }
+ }
+ 
++/// Removes the record at `idx` of `queue`, keeping the order of the rest,
++/// with the record read once out of its slot. The entry must be a record.
++#[inline]
++fn remove_record<H: HashPolicy>(queue: &mut Vec<Runnable<H>>, idx: usize) -> Record<H> {
++    let len = queue.len();
++    let Runnable::Record(rec) = &queue[idx] else {
++        unreachable!("remove_record on an entry that is not a record")
++    };
++    let src: *const Record<H> = rec;
++    // SAFETY: the indexing above proved `idx < len` and the pattern proved the
++    // entry at `idx` is a record, both before anything is read. The record is
++    // read exactly once, then the tail is shifted down over its slot and the
++    // length drops by one, so the returned value is its only owner and no
++    // entry is dropped twice or lost. Between the read and `set_len` there is
++    // only pointer arithmetic and a copy, which cannot unwind. `&mut queue`
++    // rules out any live reference into the buffer, and the pointer taken from
++    // the shared borrow is not used after the mutable pointer is taken.
++    unsafe {
++        let r = std::ptr::read(src);
++        let p = queue.as_mut_ptr().add(idx);
++        std::ptr::copy(p.add(1), p, len - idx - 1);
++        queue.set_len(len - 1);
++        r
++    }
++}
++
++/// Appends `record` to `queue` with room reserved first, so the record is
++/// written once, into its slot: `Vec::push` takes the wrapped entry by value
++/// and copies it once more.
++#[inline(always)]
++fn push_record_into<H: HashPolicy>(queue: &mut Vec<Runnable<H>>, record: Record<H>) {
++    queue.reserve(1);
++    let len = queue.len();
++    // SAFETY: `reserve(1)` guarantees capacity for at least `len + 1` entries,
++    // so the slot at `len` lies inside the allocation and holds no live entry.
++    // The entry is written exactly once into that slot and `set_len` then makes
++    // it part of the queue, so it is owned only by the queue. Nothing between
++    // `reserve` and `set_len` can unwind: a failed reservation panics or aborts
++    // before the write, and the write and `set_len` cannot fail.
++    unsafe {
++        std::ptr::write(queue.as_mut_ptr().add(len), Runnable::Record(record));
++        queue.set_len(len + 1);
++    }
++}
++
++/// What a woken reader's `timer_entry` is set to.
++pub enum ReaderEntry {
++    Unchanged,
++    TimerFired,
++    Cleared,
++}
++
++/// Gives `val` to the longest-waiting reader of `chan` and queues that reader
++/// on its node's local queue, or buffers `val` when no reader waits. The
++/// reader is changed where it waits and moved once, into the queue. With
++/// `strict`, a failed store returns its error before the node env is written
++/// back or the reader is queued, and the reader is dropped; otherwise the
++/// reader is queued and the error is returned after.
++#[inline]
++pub fn deliver_to_channel<H: HashPolicy>(
++    chan: &mut ChannelState<H>,
++    nodes: &mut [Env<H>],
++    local_queues: &mut [Vec<Runnable<H>>],
++    val: Value<H>,
++    entry: ReaderEntry,
++    strict: bool,
++) -> Result<(), RuntimeError> {
++    deliver_with_store(chan, nodes, local_queues, val, entry, strict, store)
++}
++
++/// `deliver_to_channel` with the store passed in, so a failing store can be
++/// exercised: the production store never fails.
++#[inline(always)]
++fn deliver_with_store<H: HashPolicy, S>(
++    chan: &mut ChannelState<H>,
++    nodes: &mut [Env<H>],
++    local_queues: &mut [Vec<Runnable<H>>],
++    val: Value<H>,
++    entry: ReaderEntry,
++    strict: bool,
++    store: S,
++) -> Result<(), RuntimeError>
++where
++    S: FnOnce(&Lhs, Value<H>, &mut Env<H>, &mut Env<H>) -> Result<(), RuntimeError>,
++{
++    let Some(mut waiting) = chan.waiting_readers.pop_front() else {
++        chan.buffer.push_back(val);
++        return Ok(());
++    };
++    // Uniqueness is read from the two counts rather than through
++    // `Arc::get_mut`, whose check is an atomic compare-and-swap: the caller
++    // holds the only handle it counts, so no other thread can add one.
++    if Arc::strong_count(&waiting) != 1 || Arc::weak_count(&waiting) != 0 {
++        waiting = Arc::new((*waiting).clone());
++    }
++    // SAFETY: `waiting` is owned here and its counts read one strong owner and
++    // no weak one, or it is a fresh copy, so no other handle can reach the
++    // entry and none can be made while this borrow lives. The pointer comes
++    // from the allocation, not from a shared reference, so it may be written.
++    let (reader, lhs) = unsafe { &mut *Arc::as_ptr(&waiting).cast_mut() };
++    let node_index = reader.node.index;
++    let mut node_env = nodes[node_index].clone();
++    let stored = store(lhs, val, &mut reader.env, &mut node_env);
++    if strict && stored.is_err() {
++        return stored;
++    }
++    nodes[node_index] = node_env;
++    match entry {
++        ReaderEntry::Unchanged => {}
++        ReaderEntry::TimerFired => reader.timer_entry = Some(reader.pc),
++        ReaderEntry::Cleared => reader.timer_entry = None,
++    }
++    let queue = &mut local_queues[node_index];
++    queue.reserve(1);
++    let raw = Arc::into_raw(waiting);
++    // SAFETY: the counts read one strong owner and no weak one above (or the
++    // entry was replaced by a fresh copy), and nothing since has cloned it, so
++    // the allocation has exactly one strong owner and no weak one when it is
++    // turned into a raw pointer. Room for one more queue entry was reserved before that, and
++    // between `into_raw` and `from_raw` there is only a read, pointer writes,
++    // `set_len` and the in-place drop of `Lhs`, which has no drop glue, so
++    // nothing can unwind while the allocation is held raw. The record is read
++    // exactly once, into the reserved slot, which `set_len` then makes part of
++    // the queue. `Lhs` is dropped in place, and the allocation is then freed
++    // as `Arc<MaybeUninit<_>>`, which has the same size and alignment and
++    // drops no field, so neither field is dropped twice.
++    unsafe {
++        let len = queue.len();
++        std::ptr::write(
++            queue.as_mut_ptr().add(len),
++            Runnable::Record(std::ptr::read(std::ptr::addr_of!((*raw).0))),
++        );
++        queue.set_len(len + 1);
++        std::ptr::drop_in_place(std::ptr::addr_of!((*raw).1).cast_mut());
++        drop(Arc::from_raw(raw.cast::<std::mem::MaybeUninit<(Record<H>, Lhs)>>()));
++    }
++    stored
++}
++
+ #[derive(Clone, Debug, PartialEq)]
+ pub enum OpKind {
+     Invocation,
+@@ -673,6 +866,9 @@ pub struct State<H: HashPolicy> {
+     // created them; a `State` is never cloned or snapshotted, so plain `Vec`s
+     // are the right representation.
+     pub nodes: Vec<Env<H>>, // Index is node_id.index
++    /// Slot buffers of finished frames for later frames of this run.
++    /// Excluded from `signature()`.
++    pub frame_pool: FramePool<H>,
+     /// How many times each node has come back from a crash, indexed like
+     /// `nodes`. Observation only: excluded from `signature()` so it cannot
+     /// change deduplication or scheduling.
+@@ -933,6 +1129,7 @@ impl<H: HashPolicy> State<H> {
+         let num_nodes = nodes.len();
+         Self {
+             nodes,
++            frame_pool: FramePool::default(),
+             incarnations: vec![0; num_nodes],
+             local_queues: (0..num_nodes).map(|_| Vec::new()).collect(),
+             network_queue: Vec::new(),
+@@ -1119,6 +1316,39 @@ impl<H: HashPolicy> State<H> {
+         self.channels.insert_new(id);
+     }
+ 
++    /// An empty slot buffer with room for `capacity` values: one of the most
++    /// recently kept buffers of finished frames when one is large enough,
++    /// and a new allocation otherwise.
++    #[inline]
++    pub fn frame_buffer(&mut self, capacity: usize) -> EcoVec<Value<H>> {
++        if capacity == 0 {
++            return EcoVec::new();
++        }
++        let pool = &mut self.frame_pool.buffers;
++        let n = pool.len();
++        for i in (n.saturating_sub(FRAME_POOL_PROBE)..n).rev() {
++            if pool[i].capacity() >= capacity {
++                crate::simulator::util_stats::record_frame_buffer(true);
++                return pool.swap_remove(i);
++            }
++        }
++        crate::simulator::util_stats::record_frame_buffer(false);
++        EcoVec::with_capacity(capacity)
++    }
++
++    /// Keeps the slot buffer of a finished frame for a later frame, dropping
++    /// its values. A buffer another value still shares, or one arriving when
++    /// the pool is full, is dropped as a whole instead.
++    #[inline]
++    pub fn recycle_frame(&mut self, mut slots: EcoVec<Value<H>>) {
++        let pool = &mut self.frame_pool.buffers;
++        if slots.capacity() != 0 && pool.len() < FRAME_POOL_CAP && slots.is_unique() {
++            slots.clear();
++            pool.push(slots);
++            crate::simulator::util_stats::record_frame_recycled();
++        }
++    }
++
+     pub fn alloc_channel_id(&mut self) -> usize {
+         let id = self.next_channel_id;
+         self.next_channel_id += 1;
+@@ -1180,6 +1410,40 @@ impl<H: HashPolicy> State<H> {
+         r
+     }
+ 
++    /// Remove the record at `idx` of the network queue and return it, keeping
++    /// the ledger exact. The entry must be a record.
++    #[inline]
++    pub fn take_network_record(&mut self, idx: usize) -> Record<H> {
++        let Runnable::Record(rec) = &self.network_queue[idx] else {
++            unreachable!("take_network_record on an entry that is not a record")
++        };
++        let (origin, node, ordinal, sent_at) =
++            (rec.origin_node, rec.node, rec.send_ordinal, rec.origin_incarnation);
++        self.record_leaves_flight(origin, node, ordinal);
++        self.record_leaves_network(origin, node, sent_at);
++        remove_record(&mut self.network_queue, idx)
++    }
++
++    /// Remove the record at `idx` of `node`'s local queue and return it. The
++    /// entry must be a record.
++    #[inline]
++    pub fn take_local_record(&mut self, node: usize, idx: usize) -> Record<H> {
++        remove_record(&mut self.local_queues[node], idx)
++    }
++
++    /// Queue a record on the queue `push_runnable` would route it to, keeping
++    /// the ledger exact.
++    #[inline]
++    pub fn push_record(&mut self, record: Record<H>) {
++        if record.origin_node == record.node {
++            push_record_into(&mut self.local_queues[record.node.index], record);
++        } else {
++            self.record_enters_flight(record.origin_node, record.node, record.send_ordinal);
++            self.record_enters_network(record.origin_node, record.node, record.origin_incarnation);
++            push_record_into(&mut self.network_queue, record);
++        }
++    }
++
+     /// Remove and return the entry at `idx` of `node`'s local queue, keeping
+     /// the ledger exact.
+     pub fn take_local(&mut self, node: usize, idx: usize) -> Runnable<H> {
+@@ -1221,25 +1485,47 @@ impl<H: HashPolicy> State<H> {
+ 
+     /// A remote message became undelivered: queued or held by a delay.
+     pub fn flight_enter(&mut self, r: &Runnable<H>) {
++        if let Runnable::Record(rec) = r {
++            self.record_enters_flight(rec.origin_node, rec.node, rec.send_ordinal);
++            return;
++        }
+         let Some(origin) = Self::remote_origin(r) else { return };
+         let Some(l) = self.send_ledger.get_mut(origin) else { return };
+         l.in_flight += 1;
+-        if let Runnable::Record(rec) = r
+-            && rec.send_ordinal >= l.floor
+-        {
+-            l.recent += 1;
+-        }
+     }
+ 
+     /// A remote message stopped being undelivered: delivered, dropped, or
+     /// set aside by a crash or a partition.
+     pub fn flight_leave(&mut self, r: &Runnable<H>) {
++        if let Runnable::Record(rec) = r {
++            self.record_leaves_flight(rec.origin_node, rec.node, rec.send_ordinal);
++            return;
++        }
+         let Some(origin) = Self::remote_origin(r) else { return };
+         let Some(l) = self.send_ledger.get_mut(origin) else { return };
+         l.in_flight = l.in_flight.saturating_sub(1);
+-        if let Runnable::Record(rec) = r
+-            && rec.send_ordinal >= l.floor
+-        {
++    }
++
++    #[inline]
++    fn record_enters_flight(&mut self, origin: NodeId, node: NodeId, send_ordinal: u32) {
++        if origin == node {
++            return;
++        }
++        let Some(l) = self.send_ledger.get_mut(origin.index) else { return };
++        l.in_flight += 1;
++        if send_ordinal >= l.floor {
++            l.recent += 1;
++        }
++    }
++
++    #[inline]
++    fn record_leaves_flight(&mut self, origin: NodeId, node: NodeId, send_ordinal: u32) {
++        if origin == node {
++            return;
++        }
++        let Some(l) = self.send_ledger.get_mut(origin.index) else { return };
++        l.in_flight = l.in_flight.saturating_sub(1);
++        if send_ordinal >= l.floor {
+             l.recent = l.recent.saturating_sub(1);
+         }
+     }
+@@ -1247,37 +1533,47 @@ impl<H: HashPolicy> State<H> {
+     /// A remote record entered the network queue.
+     pub fn net_enter(&mut self, r: &Runnable<H>) {
+         let Runnable::Record(rec) = r else { return };
+-        if rec.origin_node == rec.node {
++        self.record_enters_network(rec.origin_node, rec.node, rec.origin_incarnation);
++    }
++
++    /// A remote record left the network queue.
++    pub fn net_leave(&mut self, r: &Runnable<H>) {
++        let Runnable::Record(rec) = r else { return };
++        self.record_leaves_network(rec.origin_node, rec.node, rec.origin_incarnation);
++    }
++
++    #[inline]
++    fn record_enters_network(&mut self, origin: NodeId, node: NodeId, sent_at: u32) {
++        if origin == node {
+             return;
+         }
+-        let fresh = rec.origin_incarnation == self.incarnation(rec.origin_node);
+-        let Some(l) = self.send_ledger.get_mut(rec.origin_node.index) else { return };
++        let fresh = sent_at == self.incarnation(origin);
++        let Some(l) = self.send_ledger.get_mut(origin.index) else { return };
+         l.net_records += 1;
+         if fresh {
+             l.net_fresh += 1;
+         } else {
+             self.net_stale_records += 1;
+         }
+-        if rec.origin_node.role != rec.node.role {
++        if origin.role != node.role {
+             self.net_requests += 1;
+         }
+     }
+ 
+-    /// A remote record left the network queue.
+-    pub fn net_leave(&mut self, r: &Runnable<H>) {
+-        let Runnable::Record(rec) = r else { return };
+-        if rec.origin_node == rec.node {
++    #[inline]
++    fn record_leaves_network(&mut self, origin: NodeId, node: NodeId, sent_at: u32) {
++        if origin == node {
+             return;
+         }
+-        let fresh = rec.origin_incarnation == self.incarnation(rec.origin_node);
+-        let Some(l) = self.send_ledger.get_mut(rec.origin_node.index) else { return };
++        let fresh = sent_at == self.incarnation(origin);
++        let Some(l) = self.send_ledger.get_mut(origin.index) else { return };
+         l.net_records = l.net_records.saturating_sub(1);
+         if fresh {
+             l.net_fresh = l.net_fresh.saturating_sub(1);
+         } else {
+             self.net_stale_records = self.net_stale_records.saturating_sub(1);
+         }
+-        if rec.origin_node.role != rec.node.role {
++        if origin.role != node.role {
+             self.net_requests = self.net_requests.saturating_sub(1);
+         }
+     }
+@@ -1710,17 +2006,15 @@ impl<H: HashPolicy> Continuation<H> {
+                         return None;
+                     }
+                 };
+-                match chan.pop_waiting_reader() {
+-                    None => chan.buffer.push_back(val),
+-                    Some((mut reader, lhs)) => {
+-                        let node_index = reader.node.index;
+-                        let mut node_env = state.nodes[node_index].clone();
+-                        if let Err(e) = store(&lhs, val, &mut reader.env, &mut node_env) {
+-                            log::warn!("Store failed in async continuation: {}", e);
+-                        }
+-                        state.nodes[node_index] = node_env;
+-                        state.push_to_local(node_index, Runnable::Record(reader));
+-                    }
++                if let Err(e) = deliver_to_channel(
++                    chan,
++                    &mut state.nodes,
++                    &mut state.local_queues,
++                    val,
++                    ReaderEntry::Unchanged,
++                    false,
++                ) {
++                    log::warn!("Store failed in async continuation: {}", e);
+                 }
+                 None
+             }
+@@ -2254,4 +2548,419 @@ mod ledger_tests {
+         assert_eq!(st.send_ledger[0].recent, 1, "removing the early send leaves recent alone");
+         assert_exact(&st, "after removing the early send");
+     }
++
++    /// Queueing a record through `push_record` and taking it through
++    /// `take_network_record` or `take_local_record` leaves the same queues and
++    /// ledger as `push_runnable` and `take_network` or `take_local`, for local,
++    /// fresh remote and stale remote records.
++    #[test]
++    fn record_moves_keep_the_ledger_of_push_and_take() {
++        let a = node(SERVER, 0);
++        let b = node(SERVER, 1);
++        let c = node(SERVER, 2);
++        let client = node(CLIENT, 3);
++        let mut ours = state();
++        let mut theirs = state();
++        let same = |ours: &State<NoHashing>, theirs: &State<NoHashing>, when: &str| {
++            assert_eq!(format!("{:?}", ours.network_queue), format!("{:?}", theirs.network_queue), "network queue {when}");
++            assert_eq!(format!("{:?}", ours.local_queues), format!("{:?}", theirs.local_queues), "local queues {when}");
++            assert_eq!(ours.send_ledger, theirs.send_ledger, "ledger {when}");
++            assert_eq!(ours.net_stale_records, theirs.net_stale_records, "stale {when}");
++            assert_eq!(ours.net_requests, theirs.net_requests, "requests {when}");
++            assert_exact(ours, when);
++        };
++        for st in [&mut ours, &mut theirs] {
++            st.note_handler_entry(0, HandlerTrigger::Delivery);
++        }
++        let pairs = [(a, a), (a, b), (client, a), (b, c), (a, c), (c, c)];
++        for (origin, dest) in pairs {
++            let r = record(&mut ours, origin, dest);
++            ours.push_record(r);
++            let r = record(&mut theirs, origin, dest);
++            theirs.push_runnable(Runnable::Record(r));
++        }
++        same(&ours, &theirs, "after fresh pushes");
++        let stale_ours = record(&mut ours, a, b);
++        let stale_theirs = record(&mut theirs, a, b);
++        for st in [&mut ours, &mut theirs] {
++            st.incarnations[0] += 1;
++            st.note_incarnation_bump(0);
++        }
++        ours.push_record(stale_ours);
++        theirs.push_runnable(Runnable::Record(stale_theirs));
++        let fresh_ours = record(&mut ours, a, c);
++        ours.push_record(fresh_ours);
++        let fresh_theirs = record(&mut theirs, a, c);
++        theirs.push_runnable(Runnable::Record(fresh_theirs));
++        same(&ours, &theirs, "after stale and fresh pushes past a restart");
++        assert!(ours.net_stale_records > 0, "the session holds a stale record");
++
++        for idx in [1, 0, 3, 0] {
++            let got = ours.take_network_record(idx);
++            let Runnable::Record(want) = theirs.take_network(idx) else {
++                panic!("the network queue holds only records here")
++            };
++            assert_eq!(format!("{:?}", got), format!("{:?}", want));
++            same(&ours, &theirs, "after a network take");
++        }
++        while !ours.network_queue.is_empty() {
++            let got = ours.take_network_record(0);
++            let Runnable::Record(want) = theirs.take_network(0) else {
++                panic!("the network queue holds only records here")
++            };
++            assert_eq!(format!("{:?}", got), format!("{:?}", want));
++            same(&ours, &theirs, "after draining the network queue");
++        }
++        for n in [0, 2] {
++            let got = ours.take_local_record(n, 0);
++            let Runnable::Record(want) = theirs.take_local(n, 0) else {
++                panic!("the local queue holds only records here")
++            };
++            assert_eq!(format!("{:?}", got), format!("{:?}", want));
++            same(&ours, &theirs, "after a local take");
++        }
++    }
++}
++
++#[cfg(test)]
++mod record_move_tests {
++    use super::*;
++    use crate::compiler::cfg::VarSlot;
++    use crate::simulator::hash_utils::NoHashing;
++
++    type V = Value<NoHashing>;
++    type Seq = EcoVec<V>;
++
++    fn node(index: usize) -> NodeId {
++        NodeId {
++            role: NameId(0),
++            index,
++        }
++    }
++
++    /// A payload whose reference count the test observes through the handle
++    /// it keeps: the handle is unique exactly when no record holds a copy.
++    fn handle(tag: i64) -> Seq {
++        let mut seq = Seq::new();
++        seq.push(V::int(tag));
++        seq
++    }
++
++    fn record(dest: usize, pc: usize, payload: &Seq) -> Record<NoHashing> {
++        let mut env = Env::<NoHashing>::with_slots(2);
++        env.set(0, V::list(payload.clone()));
++        Record {
++            pc,
++            node: node(dest),
++            origin_node: node(dest),
++            continuation: Continuation::Recover,
++            entry_pc: pc,
++            initial_args: EcoVec::new(),
++            entry_func: NameId(0),
++            env,
++            priority: 0.5,
++            causal_operation_id: None,
++            trace_id: None,
++            trace_payload: None,
++            link_seq: None,
++            origin_incarnation: 0,
++            bias: DeliveryBias::NONE,
++            timer_entry: Some(3),
++            send_ordinal: pc as u32,
++            receiver_token_at_send: 0,
++        }
++    }
++
++    fn mixed_queue(payload: &Seq) -> Vec<Runnable<NoHashing>> {
++        vec![
++            Runnable::Record(record(0, 10, payload)),
++            Runnable::Crash {
++                node_id: node(0),
++                priority: 1.0,
++            },
++            Runnable::Record(record(0, 11, payload)),
++            Runnable::Recover {
++                node_id: node(0),
++                priority: 1.0,
++            },
++            Runnable::Record(record(0, 12, payload)),
++        ]
++    }
++
++    #[test]
++    fn remove_record_matches_vec_remove_and_drops_each_record_once() {
++        for idx in [0, 2, 4] {
++            let mut ours_payload = handle(1);
++            let mut theirs_payload = handle(1);
++            let mut ours = mixed_queue(&ours_payload);
++            let mut theirs = mixed_queue(&theirs_payload);
++            let got = remove_record(&mut ours, idx);
++            let Runnable::Record(want) = theirs.remove(idx) else {
++                panic!("index {idx} holds a record")
++            };
++            assert_eq!(format!("{:?}", got), format!("{:?}", want), "returned record at index {idx}");
++            assert_eq!(format!("{:?}", ours), format!("{:?}", theirs), "remaining order at index {idx}");
++            drop(ours);
++            assert!(
++                !ours_payload.is_unique(),
++                "the removed record still holds its payload at index {idx}"
++            );
++            drop(got);
++            assert!(
++                ours_payload.is_unique(),
++                "every record dropped its payload exactly once at index {idx}"
++            );
++            drop((theirs, want));
++            assert!(theirs_payload.is_unique());
++        }
++    }
++
++    /// Appending past capacity, at capacity and into spare room leaves the
++    /// queue `Vec::push` leaves, and each record is dropped exactly once.
++    #[test]
++    fn push_record_into_matches_vec_push_and_drops_each_record_once() {
++        for spare in [0, 1, 4] {
++            let mut ours_payload = handle(6);
++            let mut theirs_payload = handle(6);
++            let mut ours: Vec<Runnable<NoHashing>> = Vec::with_capacity(spare);
++            let mut theirs: Vec<Runnable<NoHashing>> = Vec::with_capacity(spare);
++            for pc in 0..6 {
++                push_record_into(&mut ours, record(0, pc, &ours_payload));
++                theirs.push(Runnable::Record(record(0, pc, &theirs_payload)));
++                ours.push(Runnable::Crash {
++                    node_id: node(0),
++                    priority: 1.0,
++                });
++                theirs.push(Runnable::Crash {
++                    node_id: node(0),
++                    priority: 1.0,
++                });
++            }
++            assert_eq!(
++                format!("{:?}", ours),
++                format!("{:?}", theirs),
++                "queue with {spare} spare"
++            );
++            let last = remove_record(&mut ours, 10);
++            drop(ours);
++            assert!(!ours_payload.is_unique(), "the last record still holds its payload");
++            drop(last);
++            assert!(
++                ours_payload.is_unique(),
++                "every pushed record dropped its payload exactly once with {spare} spare"
++            );
++            drop(theirs);
++            assert!(theirs_payload.is_unique());
++        }
++    }
++
++    fn local(slot: u32) -> Lhs {
++        Lhs::Var(VarSlot::Local(slot, NameId(slot as usize)))
++    }
++
++    fn node_lhs(slot: u32) -> Lhs {
++        Lhs::Var(VarSlot::Node(slot, NameId(100 + slot as usize)))
++    }
++
++    struct World {
++        chan: ChannelState<NoHashing>,
++        nodes: Vec<Env<NoHashing>>,
++        queues: Vec<Vec<Runnable<NoHashing>>>,
++    }
++
++    fn world() -> World {
++        World {
++            chan: ChannelState::new(),
++            nodes: vec![Env::with_slots(2), Env::with_slots(2)],
++            queues: vec![Vec::new(), Vec::new()],
++        }
++    }
++
++    /// The wake by value, which the in-place delivery must match: take the
++    /// reader out, store into it, write the node env back, set its timer entry
++    /// and queue it.
++    fn wake_by_pop(w: &mut World, val: V, entry: ReaderEntry) {
++        match w.chan.pop_waiting_reader() {
++            None => w.chan.buffer.push_back(val),
++            Some((mut reader, lhs)) => {
++                let node_index = reader.node.index;
++                let mut node_env = w.nodes[node_index].clone();
++                store(&lhs, val, &mut reader.env, &mut node_env).expect("store succeeds");
++                w.nodes[node_index] = node_env;
++                match entry {
++                    ReaderEntry::Unchanged => {}
++                    ReaderEntry::TimerFired => reader.timer_entry = Some(reader.pc),
++                    ReaderEntry::Cleared => reader.timer_entry = None,
++                }
++                w.queues[node_index].push(Runnable::Record(reader));
++            }
++        }
++    }
++
++    fn deliver(w: &mut World, val: V, entry: ReaderEntry, strict: bool) -> Result<(), RuntimeError> {
++        deliver_to_channel(&mut w.chan, &mut w.nodes, &mut w.queues, val, entry, strict)
++    }
++
++    fn assert_same(ours: &World, theirs: &World, when: &str) {
++        assert_eq!(ours.chan.buffer, theirs.chan.buffer, "buffer {when}");
++        assert_eq!(
++            ours.chan.waiting_readers.len(),
++            theirs.chan.waiting_readers.len(),
++            "waiting readers {when}"
++        );
++        for (o, t) in ours.chan.waiting_readers.iter().zip(theirs.chan.waiting_readers.iter()) {
++            assert_eq!(format!("{:?}", **o), format!("{:?}", **t), "waiting reader {when}");
++        }
++        assert_eq!(ours.nodes, theirs.nodes, "node envs {when}");
++        assert_eq!(format!("{:?}", ours.queues), format!("{:?}", theirs.queues), "local queues {when}");
++    }
++
++    #[test]
++    fn delivery_with_no_reader_buffers_the_value() {
++        let mut ours = world();
++        let mut theirs = world();
++        assert!(deliver(&mut ours, V::int(5), ReaderEntry::Unchanged, true).is_ok());
++        wake_by_pop(&mut theirs, V::int(5), ReaderEntry::Unchanged);
++        assert_same(&ours, &theirs, "with no reader");
++        assert_eq!(ours.chan.buffer.len(), 1);
++        assert!(ours.queues.iter().all(|q| q.is_empty()));
++    }
++
++    #[test]
++    fn delivery_to_a_unique_reader_stores_and_queues_it_as_the_pop_did() {
++        let entries: [(&str, fn() -> ReaderEntry); 3] = [
++            ("unchanged", || ReaderEntry::Unchanged),
++            ("timer fired", || ReaderEntry::TimerFired),
++            ("cleared", || ReaderEntry::Cleared),
++        ];
++        for (kind, entry) in entries {
++            for (strict, lhs) in [(true, local(1)), (false, node_lhs(1))] {
++                let mut ours_payload = handle(2);
++                let mut theirs_payload = handle(2);
++                let mut ours = world();
++                let mut theirs = world();
++                ours.chan.push_waiting_reader(record(1, 20, &ours_payload), lhs.clone());
++                ours.chan.push_waiting_reader(record(0, 21, &ours_payload), local(1));
++                theirs.chan.push_waiting_reader(record(1, 20, &theirs_payload), lhs.clone());
++                theirs.chan.push_waiting_reader(record(0, 21, &theirs_payload), local(1));
++                assert!(deliver(&mut ours, V::int(9), entry(), strict).is_ok());
++                wake_by_pop(&mut theirs, V::int(9), entry());
++                assert_same(&ours, &theirs, kind);
++                let Runnable::Record(woken) = &ours.queues[1][0] else {
++                    panic!("the woken reader is queued on its node")
++                };
++                let expected_entry = match entry() {
++                    ReaderEntry::Unchanged => Some(3),
++                    ReaderEntry::TimerFired => Some(20),
++                    ReaderEntry::Cleared => None,
++                };
++                assert_eq!(woken.timer_entry, expected_entry, "timer entry when {kind}");
++                match lhs {
++                    Lhs::Var(VarSlot::Local(..)) => assert_eq!(woken.env.get(1), &V::int(9)),
++                    Lhs::Var(VarSlot::Node(..)) => assert_eq!(ours.nodes[1].get(1), &V::int(9)),
++                }
++                drop(ours);
++                assert!(ours_payload.is_unique(), "no reader leaked or dropped twice when {kind}");
++                drop(theirs);
++                assert!(theirs_payload.is_unique());
++            }
++        }
++    }
++
++    /// A reader whose channel state is still shared with a copy is cloned
++    /// before it is changed: the copy's reader keeps its value.
++    #[test]
++    fn delivery_to_a_shared_reader_changes_only_its_own_copy() {
++        let mut payload = handle(3);
++        let mut ours = world();
++        ours.chan.push_waiting_reader(record(1, 30, &payload), local(1));
++        let copy = ours.chan.clone();
++        let before = (*copy.waiting_readers[0]).clone();
++        let mut theirs = World {
++            chan: copy.clone(),
++            nodes: ours.nodes.clone(),
++            queues: ours.queues.clone(),
++        };
++        assert!(deliver(&mut ours, V::int(4), ReaderEntry::Cleared, true).is_ok());
++        wake_by_pop(&mut theirs, V::int(4), ReaderEntry::Cleared);
++        assert_same(&ours, &theirs, "from a shared entry");
++        assert_eq!(copy.waiting_readers.len(), 1);
++        assert_eq!(format!("{:?}", *copy.waiting_readers[0]), format!("{:?}", before), "the copy's reader is unchanged");
++        assert_eq!(copy.waiting_readers[0].0.env.get(1), &V::unit());
++        drop((ours, theirs, before));
++        assert!(!payload.is_unique(), "the copy still holds its reader");
++        drop(copy);
++        assert!(payload.is_unique(), "every reader dropped its payload exactly once");
++    }
++
++    fn failing_store(
++        _: &Lhs,
++        _: V,
++        local_env: &mut Env<NoHashing>,
++        node_env: &mut Env<NoHashing>,
++    ) -> Result<(), RuntimeError> {
++        local_env.set(1, V::int(70));
++        node_env.set(0, V::int(77));
++        Err(RuntimeError::RemoteChannelRead)
++    }
++
++    /// A strict delivery whose store fails returns the error before the node
++    /// env is written back or the reader is queued, and drops the reader.
++    #[test]
++    fn a_failing_strict_delivery_drops_the_reader_and_writes_nothing_back() {
++        let mut payload = handle(4);
++        let mut w = world();
++        w.chan.push_waiting_reader(record(1, 40, &payload), local(1));
++        let nodes_before = w.nodes.clone();
++        let result = deliver_with_store(
++            &mut w.chan,
++            &mut w.nodes,
++            &mut w.queues,
++            V::int(1),
++            ReaderEntry::TimerFired,
++            true,
++            failing_store,
++        );
++        assert!(matches!(result, Err(RuntimeError::RemoteChannelRead)));
++        assert_eq!(w.nodes, nodes_before, "the node env is not written back");
++        assert!(w.queues.iter().all(|q| q.is_empty()), "the reader is not queued");
++        assert!(w.chan.waiting_readers.is_empty(), "the reader was taken");
++        assert!(w.chan.buffer.is_empty());
++        assert!(payload.is_unique(), "the dropped reader released its payload");
++    }
++
++    /// A non-strict delivery whose store fails still writes the node env back
++    /// and queues the reader, then returns the error.
++    #[test]
++    fn a_failing_lenient_delivery_queues_the_reader_and_returns_the_error() {
++        for (kind, entry, expected) in [
++            ("unchanged", ReaderEntry::Unchanged, Some(3)),
++            ("timer fired", ReaderEntry::TimerFired, Some(50)),
++            ("cleared", ReaderEntry::Cleared, None),
++        ] {
++            let mut payload = handle(5);
++            let mut w = world();
++            w.chan.push_waiting_reader(record(1, 50, &payload), local(1));
++            let result = deliver_with_store(
++                &mut w.chan,
++                &mut w.nodes,
++                &mut w.queues,
++                V::int(1),
++                entry,
++                false,
++                failing_store,
++            );
++            assert!(matches!(result, Err(RuntimeError::RemoteChannelRead)), "{kind}");
++            assert_eq!(w.nodes[1].get(0), &V::int(77), "node env written back when {kind}");
++            assert_eq!(w.queues[1].len(), 1, "reader queued when {kind}");
++            let Runnable::Record(woken) = &w.queues[1][0] else {
++                panic!("the queued entry is the reader")
++            };
++            assert_eq!(woken.env.get(1), &V::int(70));
++            assert_eq!(woken.timer_entry, expected, "timer entry when {kind}");
++            assert!(w.chan.waiting_readers.is_empty());
++            drop(w);
++            assert!(payload.is_unique(), "no reader leaked or dropped twice when {kind}");
++        }
++    }
+ }
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index b02e53d..908cf3d 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -98,6 +98,12 @@ static FRAME_SLOTS_BUILT: AtomicU64 = AtomicU64::new(0);
+ static FRAME_ENTRY_COPIES: AtomicU64 = AtomicU64::new(0);
+ static FRAME_DEFAULT_SLOTS_FILLED: AtomicU64 = AtomicU64::new(0);
+ static FRAME_PARAMS_FILLED: AtomicU64 = AtomicU64::new(0);
++static FRAME_BUFFERS_REUSED: AtomicU64 = AtomicU64::new(0);
++static FRAME_BUFFERS_ALLOCATED: AtomicU64 = AtomicU64::new(0);
++static FRAME_BUFFERS_RECYCLED: AtomicU64 = AtomicU64::new(0);
++static FRAME_ARGS_HELD_IN_FRAME: AtomicU64 = AtomicU64::new(0);
++static FRAME_RESETS_KEPT_FRAME: AtomicU64 = AtomicU64::new(0);
++static FRAME_ASYNC_FRAMES: AtomicU64 = AtomicU64::new(0);
+ static VALUE_SIG_LEAF_HASHES_DEFERRED: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_LITERALS: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_LITERALS_IN_ORDER: AtomicU64 = AtomicU64::new(0);
+@@ -920,6 +926,12 @@ pub fn set_enabled(on: bool) {
+             &HISTORY_FORMAT_OPS_STREAMED,
+             &FRAME_DEFAULT_SLOTS_FILLED,
+             &FRAME_PARAMS_FILLED,
++            &FRAME_BUFFERS_REUSED,
++            &FRAME_BUFFERS_ALLOCATED,
++            &FRAME_BUFFERS_RECYCLED,
++            &FRAME_ARGS_HELD_IN_FRAME,
++            &FRAME_RESETS_KEPT_FRAME,
++            &FRAME_ASYNC_FRAMES,
+             &VALUE_SIG_LEAF_HASHES_DEFERRED,
+             &VALUE_STRUCT_LITERALS,
+             &VALUE_STRUCT_LITERALS_IN_ORDER,
+@@ -5688,6 +5700,20 @@ pub struct FrameStats {
+     pub entry_frame_copies: u64,
+     pub default_slots_filled: u64,
+     pub params_filled: u64,
++    /// Nonempty frame slot buffers taken from a finished frame of the run.
++    pub buffers_reused: u64,
++    /// Nonempty frame slot buffers allocated because no kept buffer was
++    /// large enough.
++    pub buffers_allocated: u64,
++    /// Finished frame buffers kept for a later frame.
++    pub buffers_recycled: u64,
++    /// Asynchronous sends whose arguments are held only in the callee frame.
++    pub args_held_in_frame: u64,
++    /// Re-deliveries that kept a record's frame instead of rebuilding it.
++    pub resets_kept_frame: u64,
++    /// Callee frames built by asynchronous sends, holding their arguments
++    /// or not.
++    pub async_frames: u64,
+ }
+ 
+ impl FrameStats {
+@@ -5698,6 +5724,12 @@ impl FrameStats {
+             entry_frame_copies: FRAME_ENTRY_COPIES.load(Ordering::Relaxed),
+             default_slots_filled: FRAME_DEFAULT_SLOTS_FILLED.load(Ordering::Relaxed),
+             params_filled: FRAME_PARAMS_FILLED.load(Ordering::Relaxed),
++            buffers_reused: FRAME_BUFFERS_REUSED.load(Ordering::Relaxed),
++            buffers_allocated: FRAME_BUFFERS_ALLOCATED.load(Ordering::Relaxed),
++            buffers_recycled: FRAME_BUFFERS_RECYCLED.load(Ordering::Relaxed),
++            args_held_in_frame: FRAME_ARGS_HELD_IN_FRAME.load(Ordering::Relaxed),
++            resets_kept_frame: FRAME_RESETS_KEPT_FRAME.load(Ordering::Relaxed),
++            async_frames: FRAME_ASYNC_FRAMES.load(Ordering::Relaxed),
+         }
+     }
+ }
+@@ -6343,6 +6375,12 @@ struct FrameTally {
+     slots_built: u64,
+     entry_frame_copies: u64,
+     params_filled: u64,
++    buffers_reused: u64,
++    buffers_allocated: u64,
++    buffers_recycled: u64,
++    args_held_in_frame: u64,
++    resets_kept_frame: u64,
++    async_frames: u64,
+ }
+ 
+ impl FrameTally {
+@@ -6352,6 +6390,12 @@ impl FrameTally {
+             slots_built: 0,
+             entry_frame_copies: 0,
+             params_filled: 0,
++            buffers_reused: 0,
++            buffers_allocated: 0,
++            buffers_recycled: 0,
++            args_held_in_frame: 0,
++            resets_kept_frame: 0,
++            async_frames: 0,
+         }
+     }
+ }
+@@ -6615,6 +6659,62 @@ pub fn record_entry_frame_copy() {
+     });
+ }
+ 
++/// A frame took a nonempty slot buffer from a finished frame when `reused`,
++/// and allocated one otherwise.
++#[inline]
++pub fn record_frame_buffer(reused: bool) {
++    if !enabled() {
++        return;
++    }
++    FRAME_RUN.with(|f| {
++        let mut t = f.get();
++        t.buffers_reused += u64::from(reused);
++        t.buffers_allocated += u64::from(!reused);
++        f.set(t);
++    });
++}
++
++/// A finished frame's buffer was kept for a later frame.
++#[inline]
++pub fn record_frame_recycled() {
++    if !enabled() {
++        return;
++    }
++    FRAME_RUN.with(|f| {
++        let mut t = f.get();
++        t.buffers_recycled += 1;
++        f.set(t);
++    });
++}
++
++/// An asynchronous send built its callee frame, holding its arguments only
++/// in that frame when `held`.
++#[inline]
++pub fn record_async_frame(held: bool) {
++    if !enabled() {
++        return;
++    }
++    FRAME_RUN.with(|f| {
++        let mut t = f.get();
++        t.async_frames += 1;
++        t.args_held_in_frame += u64::from(held);
++        f.set(t);
++    });
++}
++
++/// A re-delivery kept the record's frame instead of rebuilding it.
++#[inline]
++pub fn record_reset_frame_kept() {
++    if !enabled() {
++        return;
++    }
++    FRAME_RUN.with(|f| {
++        let mut t = f.get();
++        t.resets_kept_frame += 1;
++        f.set(t);
++    });
++}
++
+ /// Fold the running thread's frame counts into the session totals. Called
+ /// where a run ends, so the totals are exact once every run has ended.
+ pub fn flush_frame_stats() {
+@@ -6679,6 +6779,18 @@ pub fn flush_frame_stats() {
+     if t.entry_frame_copies != 0 {
+         FRAME_ENTRY_COPIES.fetch_add(t.entry_frame_copies, Ordering::Relaxed);
+     }
++    for (v, total) in [
++        (t.buffers_reused, &FRAME_BUFFERS_REUSED),
++        (t.buffers_allocated, &FRAME_BUFFERS_ALLOCATED),
++        (t.buffers_recycled, &FRAME_BUFFERS_RECYCLED),
++        (t.args_held_in_frame, &FRAME_ARGS_HELD_IN_FRAME),
++        (t.resets_kept_frame, &FRAME_RESETS_KEPT_FRAME),
++        (t.async_frames, &FRAME_ASYNC_FRAMES),
++    ] {
++        if v != 0 {
++            total.fetch_add(v, Ordering::Relaxed);
++        }
++    }
+ }
+ 
+ /// One run's counters, held on the running thread. While `active` is false
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 0f3813f..6bec475 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -1277,6 +1277,12 @@ fn frame(m: &mut Marks) -> FrameStats {
+         entry_frame_copies: m.int(),
+         default_slots_filled: m.int(),
+         params_filled: m.int(),
++        buffers_reused: m.int(),
++        buffers_allocated: m.int(),
++        buffers_recycled: m.int(),
++        args_held_in_frame: m.int(),
++        resets_kept_frame: m.int(),
++        async_frames: m.int(),
+     }
+ }
+ 
+@@ -1287,6 +1293,12 @@ fn frame_leaves(prefix: &str, f: &FrameStats) -> Vec<(String, Value)> {
+         entry_frame_copies,
+         default_slots_filled,
+         params_filled,
++        buffers_reused,
++        buffers_allocated,
++        buffers_recycled,
++        args_held_in_frame,
++        resets_kept_frame,
++        async_frames,
+     } = f;
+     vec![
+         leaf(prefix, "calls", *calls),
+@@ -1294,6 +1306,12 @@ fn frame_leaves(prefix: &str, f: &FrameStats) -> Vec<(String, Value)> {
+         leaf(prefix, "entry_frame_copies", *entry_frame_copies),
+         leaf(prefix, "default_slots_filled", *default_slots_filled),
+         leaf(prefix, "params_filled", *params_filled),
++        leaf(prefix, "buffers_reused", *buffers_reused),
++        leaf(prefix, "buffers_allocated", *buffers_allocated),
++        leaf(prefix, "buffers_recycled", *buffers_recycled),
++        leaf(prefix, "args_held_in_frame", *args_held_in_frame),
++        leaf(prefix, "resets_kept_frame", *resets_kept_frame),
++        leaf(prefix, "async_frames", *async_frames),
+     ]
+ }
+ 
