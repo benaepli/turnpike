@@ -533,6 +533,22 @@
    "cacheFile": "research/perf/baselines/a64de75f477e-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-15T07:57:59.432168Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. One spur commit: stores-skipped-at-decode (commit A of stores-skipped-and-temps-moved; commit B closed at its one-thread cycles gate). Graded on the counter primary compiled_expr.leaf_operands_inline, baseline over candidate 1.1796 [1.1442, 1.2160] over six rounds with zero blockers; the ratio field is the graded cross-binary runs per second, 1.0310 [1.0009, 1.0620], inside the 0.05 floor. One-thread cycles of the stack 0.9532 against a fresh layout control at 1.0010, commit A 0.9562; identity exact on five sessions. Revert criterion registered before the check: below 9,320.4 runs per second. Post-merge baseline against 9,608.6 cached for 9340a2e over 18 rounds: the merge stands."
+  },
+  {
+   "name": "print-chains-written-into-the-log",
+   "commit": "c2497c5",
+   "spurCommit": "3b53d0a",
+   "ratio": 1.1021,
+   "cumulative": 5.255056448858173,
+   "measuredRps": 10646.466666666667,
+   "measuredRpsChunks": [
+    10702.1,
+    10805.2,
+    10432.1
+   ],
+   "cacheFile": "research/perf/baselines/a4b8852dd52f-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-15T09:55:51.895137Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. One spur commit: print-chains-written-into-the-log. Graded on the counter primary compiled_expr.tree_evals, baseline over candidate 1.2522 [1.2332, 1.2714] over six rounds with zero blockers; the ratio field is the graded cross-binary runs per second, 1.1021 [1.0790, 1.1258], separated upward from the 0.05 floor. One-thread cycles 0.9401 against a fresh layout control at 1.0098; identity exact on five sessions. history_writer.blocked_ns exceeded the baseline's round values with writer cost per run unchanged. Revert criterion registered before the check: below 9,546.5 runs per second. Post-merge baseline against 9,841.7 cached for b20ee37: the merge stands."
   }
  ]
 }

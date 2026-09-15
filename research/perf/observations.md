@@ -7691,3 +7691,14 @@ fresh baseline for the merged tree reads below 9,546.5 runs per second (0.97
 of the 9,841.7 cached for b20ee37 over nine rounds), measured by
 tmp/loop/perf/postmerge-print-chains.sh (rebuild, then grader baseline
 --rounds 3).
+
+### Post-merge baseline: the print-chains merge stands
+
+Rebuilt baseline at spur 3b53d0a, fresh cache
+research/perf/baselines/a4b8852dd52f-30-f9daa01b-120-bb813e711.json: mean
+10,646.5 runs per second over three rounds, spread 0.018. The revert line was
+9,546.5; against the 9,841.7 cached for b20ee37 over nine rounds the tree reads
+8.2 percent faster (inside the graded [1.0790, 1.1258]), and 6.3 percent over
+b20ee37's own post-merge baseline of 10,015.2. Ledger row appended to
+research/lite/epoch-baseline.json: ratio 1.1021, cumulative 5.255. Post-merge
+profiles of 3b53d0a are being taken for the direction review.
