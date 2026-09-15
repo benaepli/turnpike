@@ -6641,3 +6641,36 @@ with every counter in band in every round and identity exact.
 Revert criterion, registered before the post-merge baseline is read: the fresh
 post-merge baseline reads below 8,592.6 runs per second (0.97 of the 8,858.3
 cached for c302525).
+
+### Post-merge baseline: the eligibility merge stands
+
+Fresh baseline cache for the merged tree (research/perf/baselines/4892343a4716-30-f9daa01b-120-bb813e711.json):
+9,227.6, 9,806.8, 10,018.7, mean 9,684.4 runs per second, spread 0.042. The
+revert line was 8,592.6; against the 8,858.3 cached for c302525 the tree is
+9.3 percent faster, inside the graded interval [1.0435, 1.1242]. The round
+spread is wider than the recent 0.018-0.024; the next graded session measures
+its own baseline spread. Ledger row appended: ratio 1.0831, cumulative 4.625.
+
+Digest, iteration 23: algorithmic lens on c302525. Caller attribution put the
+scheduler's per-step eligibility count passes at about 3.2 points and its
+per-node crash loops at about 1.3, and showed simulation-thread memmove is a
+stalled first read of each record that moves to the next reader - why boxing
+and borrowing had both relocated. The judge rewrote both counter identities
+(steps_total runs a few hundred above steps), required the caps-engaged
+identity that engages crash holds, and parked the boxed-record retry. Both
+admitted parts merged as two spur commits: eligibility counts answered from
+queue lengths when only a crash can be ineligible, and crash scans skipped
+when no crash is pending. A's location guard matched its own replacement loop;
+a departure registered before any round read the old count pass at 0.000 on a
+low-cutoff profile and required upward separation, which six rounds gave at
+1.0831 [1.0435, 1.1242]. Scheduler family 14.68 to 8.81 raw. Tree now spur
+9340a2e, 9,684.4 runs per second. Lessons: a guard written as symbol text
+cannot tell a removed loop from its replacement, so a location guard should
+name the owning closure or source line; a census that never engages the path a
+change alters proves nothing about it, and the identity run must engage it;
+the memmove stall follows the first reader of a record, so ownership changes
+move it rather than remove it.
+
+The loop pauses here at the user's request; no iteration 24 is started. The
+pool's parked runnable-one-word-record-2 would return only on this tree with a
+fresh profile and a guarded list of every read behind the box.
