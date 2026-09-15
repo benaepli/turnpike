@@ -7997,3 +7997,40 @@ floor. Built as two commits with identity exact on five sessions and every
 frame identity exact; one-thread cycles 0.9667 for the stack (at most 0.960)
 and 0.9933 for B over A (at most 0.990) - both gates fired, closed before
 rounds, patches kept, commit A a rider. Tree unchanged at spur 3b53d0a.
+
+## Iteration 29 - autonomous, data layout lens, profile 3b53d0a
+
+Lens: data layout and representation. Focus directive from the direction
+review: the Record move chain, size to separate on the wall or a composition
+with the kept frames commit A.
+
+### Proposals (tmp/loop/perf/it29-proposals.md)
+
+- Census (iteration 28's LD_PRELOAD hook, VR 3,008 runs, one thread):
+  record-sized copies per run 40,608 on a fresh identical-source build, 10,908
+  on the prototype; memcpy calls 81,897 to 52,191. One network request sent,
+  run, parked once, woken and run again: about 26 moves in base, 7 in the
+  prototype (send 3 to 1, take and run 6.6 to 2, park 3 to 1, wake 7 to 1). The
+  remaining copy on the run path (local into exec_ops, 2,919 per run) could go
+  only by borrowing, which closed as delivered-record-borrowed-through-exec.
+- H1 record-moves-collapsed: selection returns a slot and the record is read
+  once into a local that exec_ops receives; sends are written once into the
+  queue slot; a parked record is written into an uninitialized Arc entry; a new
+  deliver_to_channel stores into the waiting reader in place and moves it once
+  into the local queue; four small unsafe blocks. One-thread ABBA 0.9435 over
+  base (sessions 0.9423 and 0.9447), layout control 1.0076, every pair below
+  the lowest control pair. Band [1.02, 1.08] cross-binary.
+- H2 record-moves-and-frames-held-once (kept commit A + H1, recommended):
+  0.9213 in the same ABBA session (A 0.9732 x H1 0.9435 = 0.918). Band [1.04,
+  1.11] cross-binary.
+- Neutrality: queue order, selection indices, draw order and ledger values
+  unchanged; identity exact for H1 and H2 on VR, crash-heavy and Mencius (four
+  tables both ways, stall caps); partitions not exercised.
+- Relocation, the main risk: one thread, memmove, pop_waiting_reader and
+  take_network lose 6.1 points and about 2.9 reappear in exec_ops and
+  deliver_to_channel. 30-thread prototype profiles
+  research/perf/profiles/3b53d0a-proto-record-moves-low-cutoff.md and
+  3b53d0a-proto-record-moves-with-frames-low-cutoff.md: H1 memmove -3.59 x r,
+  schedule_runnable and exec_ops +1.99 x r, net -1.60 x r; H2's broad family
+  nets -1.53 x r. The wall is expected in the lower half of both bands.
+  Frozen one-thread gates proposed: H1 at most 0.955, H2 at most 0.935.
