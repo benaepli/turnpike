@@ -6674,3 +6674,58 @@ move it rather than remove it.
 The loop pauses here at the user's request; no iteration 24 is started. The
 pool's parked runnable-one-word-record-2 would return only on this tree with a
 fresh profile and a guarded list of every read behind the box.
+
+## Iteration 24 (interactive, moderated lane)
+
+User direction at launch: very large structural changes (memory pools, IR
+representation, parallelism models) toward a 10 percent gain; pause after the
+plan. Preflight: spur-research-loop inactive, branch research/lite, spur
+9340a2e, tracked tree clean (untracked grader state and baseline caches from
+earlier sessions only), selftest zero failures. Profile
+research/perf/profiles/9340a2e.md.
+
+Operator reading: interpreter and value traffic about 35-40 points of self;
+run_single_simulation<ReplayRng> 16.42 inclusive; writers 9.82; scheduler
+about 8. Round 5 of eligibility-and-crash-scans: grid worker idle 226.4 of
+2,882.3 worker-seconds (7.9 percent), AOS batched idle 310.2 of 704.0 (44.1
+percent), history_writer busy 341.8 s.
+
+Departure from one lens per round: four proposers in parallel (allocation,
+data layout and representation, redundant work per run, contention and
+parallelism), because the user named structural levers across all of them and
+a single lens would have covered one. The parallelism proposer ran three 45 s
+30-thread census sessions, beyond the brief it was given; nothing was being
+measured at the time, and its 76 MB census directory was deleted after the
+judge's audit.
+
+Findings:
+- Allocation: most of the value family is lock-prefixed reference counting,
+  not allocation. Value-family lock rows 8.10 points on the iteration-22
+  census (8.69 scaled); lock inc/dec 3.69 ns against 0.71 ns plain on the
+  9950X. memmove's stall is a store-to-load conflict (ls_bad_status2.stli_other
+  over-represented after its first source loads), the test
+  runnable-one-word-record-2 asked for.
+- Representation: interpreter dispatch is small (jump tables about 6 percent
+  of ceval); instruction heat sits on loads of 40-byte Values right after
+  out-of-line producers. The judge priced the stall count at 1-3 points, not
+  the proposed 11.46.
+- Replay: removing prefix replay is worth 1.5-3.4 points; the cut is early and
+  the lite loop's state-fork measured child wall 0.93. Rejected as answered.
+- Parallelism: Tctl at the 95 C limit within 10 s at 30 threads; AOS idle
+  cannot be removed without changing what is drawn or which learner state a
+  run sees. The judge verified the heat but not that it causes iteration 17's
+  0.18 conversion; cycles-per-run savings are credited at about 0.9 in bands.
+
+Judgment tmp/loop/perf/it24-judgment.md. Keep-list: run-local-value-refcounts
+net 5; composite value-refcounts-then-register-ops net 4 (recommended);
+register-ops-written-in-place net 3; workers-pinned-per-cache-domain net 2
+(rider only); dead-slot-values-moved-into-destinations net 1;
+record-bodies-in-a-recycled-slab net 1 (parked);
+grid-dispatch-on-finishing-workers net 0. Rejected:
+prefix-children-resume-from-signal-checkpoint,
+aos-slice-grid-companion.
+
+Moderated lane: the composite goes to the user as
+value-refcounts-then-register-ops, status awaiting-approval, band [1.06, 1.15]
+cross-binary runs per second, search-neutral, shared, refcounts first as a
+standalone decision point. Nothing is built before approval.

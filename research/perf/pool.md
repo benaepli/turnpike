@@ -1541,3 +1541,113 @@ rounds of clock each:
   registered low-cutoff profile, B against A's profile, the stack against
   c302525.md; a part whose guard fires is reverted before rounds; three
   cross-binary rounds against c302525, runs per second regression only.
+
+## run-local-value-refcounts
+
+- category: allocation and memory traffic | origin: proposer | status: proposed (iteration 24, interactive) - part of value-refcounts-then-register-ops
+- mechanism: (A) ecow's EcoVec forked into spur-core with a plain, non-atomic
+  count and no Send/Sync, used for Value sequences and env slots; (B) the
+  string type forked the same way with immortal program literals (clone and
+  drop compare, never write; uniqueness answers false as today), ValueMap and
+  ChannelState vectors on imbl RcK, Option/Variant payloads and WaitingReader
+  on Rc. A run's Values never leave its thread (verified by the judge:
+  RunResult, AosChild, Individual, Seed, GridOutcome, history commands,
+  RuntimeError, GlobalState, learner maps, util_stats hold none).
+- verified by the judge: lock census E2 reproduces (Value family 8.10 points
+  on c302525, 8.69 scaled); lock inc/dec 3.69 ns against 0.71 ns plain on this
+  host; imbl 6.1.0 exports RcK with order and hashing unchanged; literal
+  immortality keeps copy decisions. False: the proposer's 80.16 denominator
+  (sim threads are 89.98). Literal set must also cover FieldGet names,
+  Variant/IsVariant names in decoded form and ir.rs, ir.rs Expr::String,
+  StructShape statics; the unsafe Sync names its invariant; a 30-thread
+  release test asserts literal headers stay immortal.
+- counters: value_refs.literal_clones = value_refs.literal_drops exactly,
+  folded after State and PathState drop, [200, 20,000] per run;
+  value_refs.shared_string_copies equal to baseline on identity sessions.
+- band: runs per second [1.04, 1.07] for A + B; A alone [1.03, 1.05]; a
+  reading in [1.03, 1.07] buys a layout control before deciding.
+- observables: lock census Value-family rows at most 0.30 and total down at
+  least 6.5 x r; one-thread sim-thread cycles per run on VR 3,008 at most 0.96.
+- guards (r = scheduler reference 9.49 on 9340a2e.md, 0.3-cutoff profiles):
+  G1 sequence drop falls at least 2.4 x r; G2 interpreter + value + allocator
+  + memmove + pop_waiting_reader falls at least 3.5 x r.
+- declarations: search-neutral, shared. Judge net 5 (gain 7, cost 2).
+- full record: tmp/loop/perf/it24-judgment.md (1).
+
+## register-ops-written-in-place
+
+- category: data layout and representation | origin: proposer | status: proposed (iteration 24, interactive) - part of value-refcounts-then-register-ops; build only on top of run-local-value-refcounts
+- mechanism: the decoded form (Op, CExpr, Opnd, ceval, run_common_op) replaced
+  by flat register code: one op per vertex (vertex ids, pc transitions and
+  label_execs unchanged), expression trees as post-order ranges of Copy
+  instructions in ceval's order, a per-thread scratch with an unboxed i64 lane
+  and a Value lane, heap temporaries moved into consumers, results written
+  into their destination, errors out of band.
+- verified by the judge: stall shapes at exec_ops 0x71679a and 0x715c04 in
+  annotation; 11.46-point handoff arithmetic. Not supported in size: the
+  proposer's own stli count (7.5e-4 per sim cycle) explains about 1-3 points.
+  Ordering hole: Find's key would run before the collection kind check; a
+  kind-guard instruction is required. compiled_expr.tree_evals is kept, not
+  retired.
+- counters: label_execs per steer_authority.steps [0.97, 1.03];
+  register_ops.vertex_ops = label_execs exactly; tree_evals equal to baseline
+  on identity; results_in_place / label_execs [0.55, 0.90];
+  scalar_lane_nodes / tree_evals [0.20, 0.60]; slow_path_nodes 0 on VR.
+- band: runs per second [1.02, 1.08], alone or over A + B.
+- observables: one-thread stli_other per label from 0.211 to at most 0.10;
+  one-thread cycles per run at most 0.98 over its base.
+- guards: interpreter family + new symbols fall at least 1.5 x r; net family
+  at least 2.0 x r; memmove and value family each rise at most 0.4 x r.
+- declarations: search-neutral, shared. Judge net 3 (gain 5, cost 2).
+- full record: tmp/loop/perf/it24-judgment.md (2).
+
+## value-refcounts-then-register-ops
+
+- category: combined | origin: user (direction: structural changes toward 10 percent) | status: awaiting-approval (iteration 24, interactive)
+- plan: research/perf/plans/value-refcounts-then-register-ops.md
+- one branch from 9340a2e: commit A and B (run-local-value-refcounts), commit
+  C (register-ops-written-in-place). Before building, a 0.3-cutoff profile and
+  lock census of 9340a2e. Release tests and four-session one-thread identity
+  (VR 3,008, crash-heavy 1,800, Mencius 2,160, caps-engaged 100,000 with crash
+  holds nonzero) at each commit; A + B profiled against 9340a2e, C against A +
+  B; a part whose own guard or observable fires is reverted before rounds.
+- band: cross-binary runs per second [1.06, 1.15], central about 1.10;
+  one-thread cycles per run of the stack at most 0.94 over 9340a2e.
+- rounds: 3 cross-binary against 9340a2e with a layout control built first;
+  6 only under a departure registered before round 1.
+- falsifier: interval entirely below 1.06, any part's own falsifier, or any
+  identity difference; on a refuted verdict the part whose observable did not
+  move is closed.
+- declarations: search-neutral, shared. Judge net 4 (gain 6, cost 2).
+
+## workers-pinned-per-cache-domain
+
+- category: contention and parallelism | origin: proposer | status: proposed (iteration 24) - rider only, never its own session
+- mechanism: an explicit rayon pool whose start handler pins worker i to L3
+  domain i mod D (15 per domain here), free to move within it; writers and
+  coordinator unpinned.
+- counters: placement.pinned_workers 30; placement.runs_crossed_domain 0.
+- band: us per run [1.005, 1.030], regression only; instructions per cycle at
+  least 1.008; run-queue wait per warm grid run at most 1.1 x baseline.
+- declarations: search-neutral, shared. Judge net 2 (gain 2, cost 0).
+
+## dead-slot-values-moved-into-destinations
+
+- category: data layout | origin: proposer | status: proposed, not recommended (iteration 24) - 0.9-1.3 of its 1.2-2.0 points double-count run-local-value-refcounts
+- mechanism: iteration 19's liveness moves dead local operands into their
+  destination in the register code.
+- band: over ranks 1 + 2 runs per second [1.003, 1.010], regression only.
+- declarations: search-neutral, shared. Judge net 1 (gain 3, cost 2).
+
+## record-bodies-in-a-recycled-slab
+
+- category: allocation | origin: proposer | status: parked (iteration 24) - returns only with a field-by-field per-step read list against the 62 Runnable::Record( sites and a one-thread stli count of at least 3e-4 blocked forwards per cycle in memmove
+- mechanism: Record split into a ~100-byte key and a body in a per-thread
+  recycled slab; queues carry key plus u32 slot index.
+- band: [1.005, 1.025], regression only.
+- declarations: search-neutral, shared. Judge net 1 (gain 3, cost 2).
+
+## grid-dispatch-on-finishing-workers
+
+- category: contention and parallelism | origin: proposer | status: not built (iteration 24) - net 0; grid-pool-worker-continues stands; buys utilization, not cycles, on a heat-bound host
+- declarations: search-neutral, shared. Judge net 0 (gain 2, cost 2).
