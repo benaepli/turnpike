@@ -517,6 +517,22 @@
    "cacheFile": "research/perf/baselines/4892343a4716-30-f9daa01b-120-bb813e711.json",
    "measuredAtIso": "2026-09-15T00:57:10.421413Z",
    "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. Two spur commits: queue-eligibility-from-counters-2 and crash-scans-skipped-without-a-pending-crash. The ratio field is the graded cross-binary runs per second, 1.0831 [1.0435, 1.1242] over six rounds, separated upward under a departure registered before rounds (A's G1 matched the change's own replacement loop; the old count pass read 0.000 on a low-cutoff profile). Scheduler family 14.68 to 8.81 raw; counters exact every round. End-reason shares outside the spread covered by an identical caps-engaged one-thread identity with crash holds engaged. Revert criterion registered before the check: below 8,592.6 runs per second. Post-merge baseline 9684.4 against 8,858.3 cached for c302525, plus 9.3 percent: the merge stands."
+  },
+  {
+   "name": "stores-skipped-at-decode",
+   "commit": "359bdeb",
+   "spurCommit": "b20ee37",
+   "ratio": 1.031,
+   "cumulative": 4.768221076906063,
+   "measuredRps": 10015.166666666666,
+   "measuredRpsChunks": [
+    9862.7,
+    9978.7,
+    10204.1
+   ],
+   "cacheFile": "research/perf/baselines/a64de75f477e-30-f9daa01b-120-bb813e711.json",
+   "measuredAtIso": "2026-09-15T07:57:59.432168Z",
+   "note": "merged by the perf loop in autonomous mode, not the search loop. measuredRps is the perf loop's campaign workload at a 120 second wall under the frame-pointer toolchain (cargo config hash b813e711); comparable with the perf rows above, not with the search loop's rows. One spur commit: stores-skipped-at-decode (commit A of stores-skipped-and-temps-moved; commit B closed at its one-thread cycles gate). Graded on the counter primary compiled_expr.leaf_operands_inline, baseline over candidate 1.1796 [1.1442, 1.2160] over six rounds with zero blockers; the ratio field is the graded cross-binary runs per second, 1.0310 [1.0009, 1.0620], inside the 0.05 floor. One-thread cycles of the stack 0.9532 against a fresh layout control at 1.0010, commit A 0.9562; identity exact on five sessions. Revert criterion registered before the check: below 9,320.4 runs per second. Post-merge baseline against 9,608.6 cached for 9340a2e over 18 rounds: the merge stands."
   }
  ]
 }

@@ -7426,3 +7426,15 @@ fresh baseline for the merged tree reads below 9,320.4 runs per second (0.97
 of the 9,608.6 cached for 9340a2e over 18 rounds), measured by
 tmp/loop/perf/postmerge-stores-skipped.sh (rebuild, then grader baseline
 --rounds 3).
+
+### Post-merge baseline: the stores-skipped merge stands
+
+Rebuilt baseline at spur b20ee37 (24 s incremental), fresh cache
+research/perf/baselines/a64de75f477e-30-f9daa01b-120-bb813e711.json: 9,862.7,
+9,978.7, 10,204.1, mean 10,015.2 runs per second, spread 0.017. The revert
+line was 9,320.4; against the 9,608.6 cached for 9340a2e over 18 rounds the
+tree reads 4.2 percent faster, inside the graded interval [1.0009, 1.0620].
+Ledger row appended to research/lite/epoch-baseline.json: ratio 1.0310 (the
+graded cross-binary runs per second), cumulative 4.768. Post-merge profiles
+of b20ee37 (1 percent and 0.3 percent cutoffs) are being taken for the
+direction review.
