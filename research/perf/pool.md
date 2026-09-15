@@ -1475,7 +1475,7 @@ rounds of clock each:
 
 ## queue-eligibility-from-counters-2
 
-- category: algorithmic | origin: proposer | status: admitted (iteration 23) - building as commit A of eligibility-and-crash-scans
+- category: algorithmic | origin: proposer | status: merged (iteration 23, autonomous) - 7fad78b (spur c5ca8bf); scheduler family 14.68 to 9.75 raw on its own profile, the old count pass 0.000 on its low-cutoff profile; G1's symbol-text pattern matched the change's own per-node map (1.47) and a departure registered before rounds required upward separation, which six rounds gave: runs per second 1.0831 [1.0435, 1.1242]
 - mechanism: when no reservations, FIFO links or strict timers exist (every
   step of all five graded arms: the generator emits no Deliver, VR.spur makes
   no fifo() call, strict_timers defaults false), only a Crash can be
@@ -1507,7 +1507,7 @@ rounds of clock each:
 
 ## crash-scans-skipped-without-a-pending-crash
 
-- category: algorithmic | origin: proposer | status: admitted (iteration 23) - commit B of eligibility-and-crash-scans, on A; rebases on c302525 alone if A closes
+- category: algorithmic | origin: proposer | status: merged (iteration 23, autonomous) - 7fad78b (spur 9340a2e); scheduler family 9.75 to 8.81 on its profile against A, exec_plan and crash_hold_mask held; skipped share 0.816-0.829 and the exact identity every round
 - mechanism: a count of nodes with a pending crash, moved only at the three
   sites where a node's pending count crosses 0 and 1 (state.rs:1144, 1180,
   scheduler.rs:2125); at zero the crash hold loop, crash defer loop,
@@ -1533,7 +1533,7 @@ rounds of clock each:
 
 ## eligibility-and-crash-scans
 
-- category: combined | origin: operator-agent (selection) | status: admitted (iteration 23) - building
+- category: combined | origin: operator-agent (selection) | status: merged (iteration 23, autonomous) - 7fad78b; both parts merged as two spur commits after six rounds at 1.0831 [1.0435, 1.1242]
 - one branch from c302525: commit A (H1), commit B (H2); release tests and
   one-thread identity (VR 3,008, Mencius 2,160, crash-heavy 1,800,
   caps-engaged 100,000 with crash holds nonzero) at A and B, parquet
