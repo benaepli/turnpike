@@ -6729,3 +6729,150 @@ Moderated lane: the composite goes to the user as
 value-refcounts-then-register-ops, status awaiting-approval, band [1.06, 1.15]
 cross-binary runs per second, search-neutral, shared, refcounts first as a
 standalone decision point. Nothing is built before approval.
+
+### value-refcounts-then-register-ops: approved; pre-build readings
+
+The user approved the plan as written ("Go ahead and try it"); both
+declarations froze at approval: search-neutral, shared, no treatment bit.
+Implementer started on commits A and B only; C waits for the A + B decision.
+
+Pre-build readings on 9340a2e, quiet host:
+- Low-cutoff profile research/perf/profiles/9340a2e-base-9340a2e-low-cutoff.md
+  (0.3 percent). Scheduler reference r_base (schedule_runnable instances +
+  walk_recovery_placebo + score_with_terms + eligible_counts fold) 10.46; G1
+  sequence drop 4.51; G2 family (interpreter 25.36 + value family 13.13 +
+  allocator 3.86 + memmove 7.29 + pop_waiting_reader 0.52) 50.16.
+- Lock census tmp/loop/perf/it22-census/locksites-base-9340a2e.txt, grouped
+  by protected object with tmp/loop/perf/it22-census/objsum.py (reproduces the
+  judge's 8.11 on stage4c): sequences 6.692, strings 2.488, stats counters
+  2.162, std Arc on values 0.698, imbl 0.479, concurrency libraries 0.344,
+  other 0.120; simulation-thread total 12.983; Value family 10.357. The
+  falsifier reads the candidate's Value family at most 0.30 and the total down
+  at least 6.5 x r.
+
+### value-refcounts-then-register-ops: A + B built; review and one departure
+
+Implementer export tmp/loop/perf/value-refcounts-then-register-ops/ (worktree
+kept for commit C). Commits A and B: release tests pass (522 lib tests at B,
+the 30-thread literal test at 10.2M iterations, export completeness); five
+one-thread identity sessions byte-identical at A and at B (executions, logs,
+traces parquet; runs table differs only in wall_us and session_offset_ms;
+stall_cap_runs.csv and 7 text digests identical; crash holds 23,640,317 both
+sides on caps-engaged). No Value crosses a thread outside tests. Forked lines:
+local_vec.rs 1,535, local_str.rs 906, with tests.
+
+Operator review of spur-AB.patch and the forks: the tracked diff is a type
+switch (EcoVec, EcoString, Arc, imbl DefaultSharedPtr to LocalVec, LocalStr,
+Rc, RcK) plus the value_refs counters folded after drop(path_state) at both
+run sites. The count is a Cell behind inc_ref, dec_ref and is_unique_count;
+an immortal header is only read; LocalVec is neither Send nor Sync by a
+compile-time probe; SharedLiteral clone is a bitwise copy of inline text or an
+immortal header, and its unsafe Send/Sync carries the invariant. Deviations
+reported: re-export path, copy counter in LocalVec's copy branches, header
+writes also in Header::new/new_immortal via reallocate (sole owner or fresh),
+test-only additions. The whole-workspace build fails in spur-liquid's build
+script on the base as well; spur-cli, spur-lsp and spur-bench
+(--no-default-features) build. program.json is not byte-deterministic on
+9340a2e itself (map key order; one type id on VR); distributions match.
+
+Counters at B: literal clones = drops exactly on every session; per run VR
+1,505, crash-heavy 1,967, SDPaxos 4,852, caps-engaged 1,016, Mencius 35.4;
+shared_string_copies 0 on both sides.
+
+Departure (interactive, operator): Mencius's 35.4 literal clones per run is
+below the frozen [200, 20,000]. The band is read on the graded workload (VR
+campaign, every round) and on the VR identity session, not on every identity
+session. Reason: the count measures how much literal text over 15 bytes a
+spec clones, which is a property of the spec, not of whether the mechanism
+runs; the mechanism's own check, clones equal drops exactly, holds on all
+five sessions including Mencius. A VR round outside the band still refutes.
+
+### layout-control-e4: the floor holds
+
+A second build of 9340a2e (tmp/loop/perf/layout-control-e4, same build config
+hash b813e711, 172 crates compiled) graded against spur/target/release/spur
+for six cross-binary rounds on a quiet host, reusing the cached baseline for
+spur tree 4892343a4716. Runs per second 0.9717, 0.9885, 1.0381, 0.9848,
+0.9782, 0.9758; mean 0.9893 [0.9643, 1.0149], half-width 0.025; not
+separated; verdict no-gain, no blockers. Baseline spread over nine rounds
+0.033. The floor for this epoch stays at max(0.05, 0.025) = 0.05.
+
+### value-refcounts-then-register-ops: A + B profile guards
+
+Profile research/perf/profiles/9340a2e-cand-ab-low-cutoff.md (0.3 percent)
+against 9340a2e-base-9340a2e-low-cutoff.md, reader
+tmp/loop/perf/value-refcounts-then-register-ops/guards.py. r = scheduler
+reference 10.84 / 10.46 = 1.036.
+- G1 sequence drop (EcoVec<Value> drop, or the fork's): 4.51 x r = 4.67 to
+  0.96; falls 3.71, at least 2.49 required - held.
+- G2 interpreter + value + allocator + memmove + pop_waiting_reader: 50.16 x r
+  = 51.98 to 48.06; falls 3.92, at least 3.63 required - held, narrowly.
+- Description: value family 13.61 to 8.41 (fork rows 1.17, 0.96, 0.48 and
+  LocalVec<u8, true>::reserve 0.30 included); interpreter 26.28 to 26.91 (the
+  inlining the plan predicted); allocator 4.00 to 4.72; memmove 7.55 to 8.02;
+  pop_waiting_reader 0.54 to 0.00.
+
+### value-refcounts-then-register-ops: A + B census and cycles gates; filed for the user
+
+Lock census of cand-ab-spur (tmp/loop/perf/it22-census/locksites-cand-ab.txt,
+objsum.py): simulation-thread lock rows 12.983 to 2.628; Value family 10.357
+to 0.105 (sequences and strings gone; std Arc on values 0.072, imbl 0.033);
+what remains is stats counters 2.092 and concurrency libraries 0.330. Gates:
+Value family at most 0.30 - held; total falls 10.36, at least 6.5 x 1.036 =
+6.73 required - held.
+
+One-thread simulation-thread cycles on the VR 3,008 identity session (perf
+record -F 999, comm spur side only, writers excluded; identical work both
+sides): first pair base 40.957e9 / ab 40.202e9 = 0.9816 (base first); three
+alternating pairs 0.9693, 0.9692, 0.9759. Four-pair means 40.948e9 against
+39.883e9 = 0.974. Gate at most 0.96 - FIRED, on every pair.
+
+Reading: at one thread the mechanism removes about 2.6 percent of simulation
+cycles. The judge's derivation (8.69 lock points x 0.81 x (1 - c)) predicted
+3.9-6.0 points on 30-thread profile shares; the one-thread read cannot see the
+cross-thread cache-line traffic on literal headers, which the sharing
+declaration names, but the gate was frozen knowing that. Every other pre-round
+gate held (identity, clones = drops, census, G1, G2, the 30-thread literal
+test). Under plan 9.4 a fired pre-round gate refutes A + B and C is not built.
+Split evidence (mechanism counters moved fully, a frozen observable fired):
+filed for the user in interactive mode before any A + B round.
+
+### value-refcounts-then-register-ops: A + B census and cycles gates
+
+Lock census of cand-ab-spur (tmp/loop/perf/it22-census/locksites-cand-ab.txt,
+objsum.py): Value family 10.357 to 0.105, at most 0.30 - held; simulation
+total 12.983 to 2.628, falls 10.36, at least 6.5 x 1.036 = 6.73 - held. What
+remains is stats counters 2.092 and concurrency libraries 0.330.
+
+One-thread simulation-thread cycles on the VR 3,008-run identity session
+(RAYON_NUM_THREADS=1, perf record -F 999, period summed over the spur
+command, writers and dot excluded), candidate over base: 0.9816 (base run
+first), then three alternating pairs 0.9693, 0.9692, 0.9759; mean of four
+0.974, all above the frozen 0.96. The falsifier fires on every read. The
+saving at one thread is about 2.5-3 percent of simulation cycles, against
+the 4-6 points the band was built on.
+
+Reading: the census collapse and both profile guards say the mechanism ran as
+claimed; the one-thread observable says an uncontended lock-prefixed count
+costs less per clone and drop than the 30-thread census priced it, or that
+part of the census heat was cross-thread traffic on literal headers, which a
+one-thread session cannot show. Under the plan's pre-round rule A + B is
+refuted and C is not built. Split evidence (mechanism observables held, a
+frozen falsifier fired, the wall unread): filed for the user before any
+round.
+
+### value-refcounts-ab: departure registered before round 1 (user)
+
+The user chose to buy the A + B rounds despite the one-thread cycles gate.
+Registered before any round, stricter than the frozen band rather than looser:
+- The 0.96 cycles miss stays recorded as a refuted sub-prediction; the band
+  [1.04, 1.07] is not moved.
+- A + B merges only on the grader's adviceVerdict gain (the runs-per-second
+  interval separated upward from the 0.05 floor), with literal clones = drops
+  and literal clones per VR campaign run in [200, 20,000] in every round, and
+  the spread check read under the standing throughput exemption only.
+- Three rounds. Rounds 4-6 are bought only if after round 3 the mean lies in
+  [1.03, 1.07] and the interval is not entirely below 1.04; otherwise finish
+  at three.
+- An interval entirely below 1.04, or downward separation, closes
+  run-local-value-refcounts. Whether C is built is decided after the reading.

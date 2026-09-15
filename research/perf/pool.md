@@ -1603,7 +1603,7 @@ rounds of clock each:
 
 ## value-refcounts-then-register-ops
 
-- category: combined | origin: user (direction: structural changes toward 10 percent) | status: awaiting-approval (iteration 24, interactive)
+- category: combined | origin: user (direction: structural changes toward 10 percent) | status: approved by the user; A + B built, pre-round cycles gate fired (0.974 against at most 0.96), filed for the user (iteration 24, interactive)
 - plan: research/perf/plans/value-refcounts-then-register-ops.md
 - one branch from 9340a2e: commit A and B (run-local-value-refcounts), commit
   C (register-ops-written-in-place). Before building, a 0.3-cutoff profile and
