@@ -7145,3 +7145,62 @@ symbols. A pre-round guard on a 30-thread profile should be derived from a
 reader of the changed type. Tooling: the binary's command name is its file
 name (cand-spur, lc-spur), so a filter on the command "spur" reads zero for
 every candidate; match names ending in "spur".
+
+## Direction review after iteration 25 (autonomous)
+
+Called for by two closes in a row on the value unit. The tree has not moved
+(spur 9340a2e); research/perf/profiles/9340a2e.md and its 0.3-cutoff sibling
+stand.
+
+What the two closes say. run-local-value-refcounts removed 2.6 percent of
+one-thread cycles and read 1.009 [0.954, 1.067] on the wall;
+value-in-three-words removed 4.4 percent (ABBA, control 0.9988) and its
+30-thread profile put the saving in interpreter and frame rows rather than the
+clone rows the one-thread profile named. Both are identity-exact and both
+patches are kept. Neither could merge: a saving under about 5 percent cannot
+separate on a 0.05 floor, and a location guard derived at one thread misreads
+where cost falls at 30. The floor is not the problem to solve; the size of
+what the loop attacks is.
+
+Host facts checked. 32 hardware threads (16 cores, SMT); rayon 30 plus 4
+writers. value-refcounts-ab round 1: writers busy 339-347 s per 120 s round
+(about 2.85 cores), grid workers idle 224-225 s (1.9 cores), AOS batched idle
+301-306 s (2.5 cores). The writers do not displace simulation work, which
+already idles more than they use, and iteration 24 judged the AOS idle
+unremovable at equal search. Writer cost reaches throughput only through
+package heat.
+
+Composition check. value-refcounts-ab.spur.patch applies on 9340a2e;
+value-in-three-words.spur.patch over it conflicts in seven files (values.rs,
+util_stats.rs, eval.rs, compiled_eval.rs, compiled.rs, simulator.rs, the
+export test). They compose with a rebase, not mechanically.
+
+Verdict. Iteration 26 takes the redundant-work lens (rotation after layout),
+focus directive the interpreter family (ceval 9.29, exec_ops 9.78, run_sync_ops
+4.42, run_async_op 1.87, build_frame and FrameBuilder about 1.5): what is
+computed per label execution, per operand or per frame that is already known
+per program, per vertex or per run. Two conditions on proposals: argue a saving
+of at least about 6 percent of simulation cycles, or say how the candidate
+composes with the kept value patches to reach it; and derive any location guard
+from a 30-thread profile of a prototype (the grader's profile command on the
+prototype binary), priced by a one-thread ABBA cycles read with a layout
+control. Steering audit: the last two directives both narrowed onto the value
+type and both closed on size; this one moves to the interpreter's control flow
+and asks for size first. Pool: value-in-three-words and
+run-local-value-refcounts stay closed with patches kept as riders;
+register-ops-written-in-place stays unbuilt (its size argument is weaker after
+iteration 25 showed the result handoff is not a width cost); nothing dropped.
+
+Digest, iteration 25: data layout lens on the Value unit. The proposer priced
+narrowing Value from 40 to 24 bytes (dropping the always-zero stored
+signature, packing struct shapes, channels, links and variant names) at 3.3
+percent of one-thread cycles, and found that record copies hold no Values and
+that the result handoff is not a width cost. The judge rejected thread CPU
+time as a counter primary, set the primary to cross-binary runs per second with
+a band inside the floor, and moved the evidence to pre-round gates. Built as
+two commits with release tests and identity exact on five sessions at both;
+one-thread cycles 0.9564 for the stack against a 0.9988 layout control, A
+0.9908, B over A 0.9714. The 30-thread profile gate on the clone family fired
+(3.82 against at most 3.33): at 30 threads the saving shows in interpreter and
+frame rows. Closed without rounds under the basis registered before the build;
+patches kept. Tree unchanged at spur 9340a2e.
