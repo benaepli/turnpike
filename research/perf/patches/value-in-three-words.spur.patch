@@ -1,0 +1,1328 @@
+diff --git a/spur-core/src/compiler/cfg/compiled.rs b/spur-core/src/compiler/cfg/compiled.rs
+index 0690745..2ea514c 100644
+--- a/spur-core/src/compiler/cfg/compiled.rs
++++ b/spur-core/src/compiler/cfg/compiled.rs
+@@ -7,7 +7,7 @@
+ use super::ir::{Expr, FunctionInfo, Instr, Label, Lhs, Program, VarSlot, Vertex};
+ use crate::analysis::resolver::NameId;
+ use crate::analysis::type_id::TypeId;
+-use crate::simulator::{StructShape, struct_shape};
++use crate::simulator::{StructShape, VariantName, struct_shape};
+ use ecow::EcoString;
+ 
+ /// A child expression position. Slots and literals are read in place by the
+@@ -69,8 +69,8 @@ pub enum CExpr {
+     IntToString(Opnd),
+     BoolToString(Opnd),
+     NodeToString(Opnd),
+-    Variant(u32, EcoString, Option<Opnd>),
+-    IsVariant(Opnd, EcoString),
++    Variant(u32, VariantName, Option<Opnd>),
++    IsVariant(Opnd, VariantName),
+     VariantPayload(Opnd),
+     SafeFind(Opnd, Opnd),
+     SafeTupleAccess(Opnd, usize),
+@@ -493,9 +493,9 @@ fn tree(expr: &Expr) -> CExpr {
+         Expr::BoolToString(a) => CExpr::BoolToString(o(a)),
+         Expr::NodeToString(a) => CExpr::NodeToString(o(a)),
+         Expr::Variant(enum_id, name, payload) => {
+-            CExpr::Variant(*enum_id, name.clone(), payload.as_deref().map(o))
++            CExpr::Variant(*enum_id, VariantName::intern(name), payload.as_deref().map(o))
+         }
+-        Expr::IsVariant(a, name) => CExpr::IsVariant(o(a), name.clone()),
++        Expr::IsVariant(a, name) => CExpr::IsVariant(o(a), VariantName::intern(name)),
+         Expr::VariantPayload(a) => CExpr::VariantPayload(o(a)),
+         Expr::SafeFind(a, b) => CExpr::SafeFind(o(a), o(b)),
+         Expr::SafeTupleAccess(a, i) => CExpr::SafeTupleAccess(o(a), *i),
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index d8db869..b8d728b 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -1,7 +1,7 @@
+ pub mod arm_selector;
+ pub mod config_override;
+ mod core;
+-pub(crate) use self::core::values::{StructShape, struct_shape};
++pub(crate) use self::core::values::{StructShape, VariantName, struct_shape};
+ pub mod client_anchor;
+ pub mod crash_phase;
+ mod coverage;
+diff --git a/spur-core/src/simulator/core/compiled_eval.rs b/spur-core/src/simulator/core/compiled_eval.rs
+index b29ceb9..492ac09 100644
+--- a/spur-core/src/simulator/core/compiled_eval.rs
++++ b/spur-core/src/simulator/core/compiled_eval.rs
+@@ -454,7 +454,7 @@ pub fn ceval<H: HashPolicy>(
+                 .map(|p| cvalue(l, n, p, r, t))
+                 .transpose()?
+                 .map(Arc::new);
+-            Ok(Value::<H>::variant(*enum_id, name.clone(), payload_val))
++            Ok(Value::<H>::variant_named(*enum_id, *name, payload_val))
+         }
+         CExpr::IsVariant(e, name) => {
+             let val = coperand(l, n, e, r, t)?;
+diff --git a/spur-core/src/simulator/core/compiled_eval/test.rs b/spur-core/src/simulator/core/compiled_eval/test.rs
+index 28e31d7..70172d8 100644
+--- a/spur-core/src/simulator/core/compiled_eval/test.rs
++++ b/spur-core/src/simulator/core/compiled_eval/test.rs
+@@ -315,7 +315,7 @@ fn check_all<H: HashPolicy>() -> (usize, Coverage) {
+         let after = util_stats::pending_evaluator_events();
+         assert_eq!(outcome(&legacy), outcome(&compiled), "kept value of {e:?}");
+         if let (Ok(a), Ok(c)) = (&legacy, &compiled) {
+-            assert!(a == c && a.sig == c.sig, "kept value of {e:?}");
++            assert!(a == c && a.sig() == c.sig(), "kept value of {e:?}");
+         }
+         let legacy_events: Vec<u64> = (0..3).map(|i| mid[i] - before[i]).collect();
+         let compiled_events: Vec<u64> = (0..3).map(|i| after[i] - mid[i]).collect();
+@@ -431,7 +431,7 @@ fn struct_literals_evaluate_like_eval<H: HashPolicy>() {
+             let after = util_stats::pending_evaluator_events();
+             assert_eq!(outcome(&legacy), outcome(&compiled), "{e:?}");
+             if let (Ok(a), Ok(c)) = (&legacy, &compiled) {
+-                assert!(a == c && a.sig == c.sig, "{e:?}");
++                assert!(a == c && a.sig() == c.sig(), "{e:?}");
+             }
+             assert_eq!(events_between(before, mid), events_between(mid, after), "{e:?}");
+         }
+@@ -512,7 +512,7 @@ fn struct_literals_count_their_field_order<H: HashPolicy>() {
+             let after = util_stats::pending_struct_literal_counts();
+             let a = legacy.expect("the literal evaluates");
+             let c = compiled.expect("the literal evaluates");
+-            assert!(a == c && a.sig == c.sig, "{keys:?}");
++            assert!(a == c && a.sig() == c.sig(), "{keys:?}");
+             assert_eq!(
+                 [after[0] - before[0], after[1] - before[1], after[2] - before[2]],
+                 [1, in_order as u64, !in_order as u64],
+diff --git a/spur-core/src/simulator/core/error.rs b/spur-core/src/simulator/core/error.rs
+index eabb00c..5d65603 100644
+--- a/spur-core/src/simulator/core/error.rs
++++ b/spur-core/src/simulator/core/error.rs
+@@ -68,4 +68,7 @@ pub enum RuntimeError {
+ 
+     #[error("persist type mismatch: stored type_id {stored}, expected type_id {expected}")]
+     PersistTypeMismatch { stored: u32, expected: u32 },
++
++    #[error("node of role {role} at index {index} does not fit in 32 bits")]
++    NodeDoesNotPack { role: usize, index: usize },
+ }
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index d3e9393..b7878b5 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -130,7 +130,7 @@ impl<H: HashPolicy> FrameBuilder<H> {
+     #[inline]
+     pub fn push(&mut self, value: Value<H>) {
+         if H::EAGER {
+-            self.sig ^= H::mix(value.sig, self.slots.len() as u32);
++            self.sig ^= H::mix(value.sig(), self.slots.len() as u32);
+         }
+         self.slots.push(value);
+     }
+@@ -149,7 +149,7 @@ impl<H: HashPolicy> FrameBuilder<H> {
+                 .min(total.saturating_sub(defaults_start));
+         if start < total {
+             let (unit_sig, nil_sig) = if H::EAGER {
+-                (Value::<H>::unit().sig, Value::<H>::option_none().sig)
++                (Value::<H>::unit().sig(), Value::<H>::option_none().sig())
+             } else {
+                 (0, 0)
+             };
+@@ -167,7 +167,7 @@ impl<H: HashPolicy> FrameBuilder<H> {
+                     }
+                 };
+                 if H::EAGER {
+-                    sig ^= H::mix(value.sig, i as u32);
++                    sig ^= H::mix(value.sig(), i as u32);
+                 }
+                 value
+             });
+@@ -189,7 +189,7 @@ pub fn build_frame<H: HashPolicy>(func: &FunctionInfo, args: &[Value<H>]) -> Env
+     let mut sig = builder.sig;
+     let copied = args[..params].iter().enumerate().map(|(i, arg)| {
+         if H::EAGER {
+-            sig ^= H::mix(arg.sig, i as u32);
++            sig ^= H::mix(arg.sig(), i as u32);
+         }
+         arg.clone()
+     });
+@@ -205,6 +205,7 @@ pub(crate) fn update_collection<H: HashPolicy>(
+     val: Value<H>,
+ ) -> Result<Value<H>, RuntimeError> {
+     use ValueKind::*;
++    let col_sig = col.sig();
+     match col.kind {
+         Struct(shape, mut fields) => {
+             let known = match &key.kind {
+@@ -212,11 +213,11 @@ pub(crate) fn update_collection<H: HashPolicy>(
+                 _ => None,
+             };
+             let Some(i) = known else {
+-                let map = struct_to_map(shape, &fields);
+-                return update_collection(Value::<H>::with_sig(Map(map), col.sig), key, val);
++                let map = struct_to_map(&shape, &fields);
++                return update_collection(Value::<H>::with_sig(Map(map), col_sig), key, val);
+             };
+             let new_sig = if H::EAGER {
+-                col.sig ^ hash_map_entry(key.sig, fields[i].sig) ^ hash_map_entry(key.sig, val.sig)
++                col_sig ^ hash_map_entry(key.sig(), fields[i].sig()) ^ hash_map_entry(key.sig(), val.sig())
+             } else {
+                 util_stats::record_struct_other_lookups(1);
+                 0
+@@ -226,11 +227,11 @@ pub(crate) fn update_collection<H: HashPolicy>(
+         }
+         Map(m) => {
+             let new_sig = if H::EAGER {
+-                let mut s = col.sig;
++                let mut s = col_sig;
+ 
+                 // Remove the old entry's contribution (if it exists)
+                 if let Some(old_val) = m.get(&key) {
+-                    let old_entry_hash = hash_map_entry(key.sig, old_val.sig);
++                    let old_entry_hash = hash_map_entry(key.sig(), old_val.sig());
+                     s ^= old_entry_hash; // XOR removes it
+                 // length stays the same when replacing, so no change needed
+                 } else {
+@@ -248,7 +249,7 @@ pub(crate) fn update_collection<H: HashPolicy>(
+                 }
+ 
+                 // Add the new entry's contribution
+-                let new_entry_hash = hash_map_entry(key.sig, val.sig);
++                let new_entry_hash = hash_map_entry(key.sig(), val.sig());
+                 s ^= new_entry_hash;
+                 s
+             } else {
+@@ -550,13 +551,15 @@ pub fn eval<H: HashPolicy>(
+                 .map(|p| eval(local_env, node_env, p, role_names))
+                 .transpose()?
+                 .map(Arc::new);
+-            Ok(Value::<H>::variant(*enum_id, name.clone(), payload_val))
++            util_stats::record_variant_runtime_intern();
++            let name = crate::simulator::core::values::VariantName::intern(name);
++            Ok(Value::<H>::variant_named(*enum_id, name, payload_val))
+         }
+         Expr::IsVariant(expr, name) => {
+             let val = eval_operand(local_env, node_env, expr, role_names)?;
+             match &val.kind {
+                 ValueKind::Variant(_, variant_name, _) => {
+-                    Ok(Value::<H>::bool(variant_name == name))
++                    Ok(Value::<H>::bool(variant_name.resolve() == name))
+                 }
+                 _ => Ok(Value::<H>::bool(false)),
+             }
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 7431f7a..f92e6d1 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -1070,9 +1070,15 @@ impl<H: HashPolicy> State<H> {
+     }
+ 
+     /// Dynamically add a new node with the given role.
+-    /// Returns the NodeId of the newly created node.
+-    pub fn add_node(&mut self, role: NameId, node_slot_count: usize) -> NodeId {
++    /// Returns the NodeId of the newly created node, or an error when its
++    /// role id or index does not fit the four bytes a channel value keeps.
++    pub fn add_node(
++        &mut self,
++        role: NameId,
++        node_slot_count: usize,
++    ) -> Result<NodeId, crate::simulator::core::error::RuntimeError> {
+         let index = self.nodes.len();
++        crate::simulator::core::values::check_node_packs(role, index)?;
+         let node_id = NodeId { role, index };
+         let mut env = Env::<H>::with_slots(node_slot_count);
+         env.set(0, Value::<H>::node(node_id)); // Slot 0 = self
+@@ -1082,7 +1088,7 @@ impl<H: HashPolicy> State<H> {
+         self.send_ledger.push(SendLedger::default());
+         self.crash_hold_until.push(0);
+         self.crash_phase.push_node();
+-        node_id
++        Ok(node_id)
+     }
+ 
+     /// How many times `node` has recovered from a crash so far.
+@@ -1621,7 +1627,7 @@ impl<H: HashPolicy> State<H> {
+ 
+         // Persisted data: Order-independent XOR
+         for (&node_idx, (tid, val)) in self.persisted_data.iter() {
+-            h ^= H::mix(compute_hash(&(node_idx, tid.0)), 2000) ^ H::mix(val.sig, 2001);
++            h ^= H::mix(compute_hash(&(node_idx, tid.0)), 2000) ^ H::mix(val.sig(), 2001);
+         }
+ 
+         // Purgatory
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index 1a6d521..61e846f 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -9,6 +9,7 @@ use std::hash::BuildHasherDefault;
+ use std::hash::{Hash, Hasher};
+ use std::marker::PhantomData;
+ use std::sync::Arc;
++use std::sync::atomic::{AtomicPtr, Ordering as AtomicOrdering};
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+ pub struct ChannelId {
+@@ -55,6 +56,8 @@ pub(crate) const STRUCT_MAX_FIELDS: usize = 15;
+ /// would have built, including under later inserts and removals.
+ #[derive(Debug, PartialEq)]
+ pub struct StructShape {
++    /// Position in `SHAPE_BY_ID`.
++    id: u32,
+     names: Box<[EcoString]>,
+     /// Signature of each name as a string value; equal under both policies.
+     key_sigs: Box<[u64]>,
+@@ -79,6 +82,175 @@ impl StructShape {
+     pub fn position(&self, name: &str) -> Option<usize> {
+         self.names.iter().position(|n| n.as_str() == name)
+     }
++
++    #[inline(always)]
++    pub fn shape_ref(&self) -> ShapeRef {
++        ShapeRef(self.id)
++    }
++}
++
++/// Most distinct struct shapes one process may intern.
++const SHAPE_SLOTS: usize = 4096;
++
++/// Every interned shape by id. A slot is written once, before its shape is
++/// returned from `struct_shape`, and never again, so reads take no lock.
++static SHAPE_BY_ID: [AtomicPtr<StructShape>; SHAPE_SLOTS] =
++    [const { AtomicPtr::new(std::ptr::null_mut()) }; SHAPE_SLOTS];
++
++/// An interned struct shape named by its id, four bytes wide. Two refs are
++/// equal exactly when they name the same shape, because shapes are interned
++/// by key set.
++#[derive(Clone, Copy, PartialEq, Eq)]
++pub struct ShapeRef(u32);
++
++impl ShapeRef {
++    #[inline(always)]
++    pub fn get(self) -> &'static StructShape {
++        // SAFETY: a ShapeRef is made only by `StructShape::shape_ref`, and
++        // every StructShape is an interned shape whose id is below
++        // SHAPE_SLOTS and whose slot was filled with a leaked, never-freed
++        // box before the shape was returned.
++        unsafe { &*SHAPE_BY_ID.get_unchecked(self.0 as usize).load(AtomicOrdering::Relaxed) }
++    }
++}
++
++impl std::ops::Deref for ShapeRef {
++    type Target = StructShape;
++    #[inline(always)]
++    fn deref(&self) -> &StructShape {
++        self.get()
++    }
++}
++
++impl std::fmt::Debug for ShapeRef {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        std::fmt::Debug::fmt(self.get(), f)
++    }
++}
++
++/// A channel id in two words. Every node's role id and index are below 2^32
++/// (`check_node_packs` refuses a topology where they are not), so packing
++/// loses nothing. The field order makes the derived order that of `ChannelId`.
++#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
++pub struct PackedChannel {
++    role: u32,
++    index: u32,
++    id: u64,
++}
++
++impl PackedChannel {
++    #[inline(always)]
++    pub fn pack(c: ChannelId) -> Self {
++        Self {
++            role: c.node.role.0 as u32,
++            index: c.node.index as u32,
++            id: c.id as u64,
++        }
++    }
++
++    #[inline(always)]
++    pub fn get(self) -> ChannelId {
++        ChannelId {
++            node: NodeId {
++                role: spur_ast::name::NameId(self.role as usize),
++                index: self.index as usize,
++            },
++            id: self.id as usize,
++        }
++    }
++}
++
++/// A FIFO link and its peer in two words, under the same bound on role ids
++/// and indexes as `PackedChannel`. The field order makes the derived order
++/// that of `(LinkId, NodeId)`.
++#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
++pub struct PackedLink {
++    link: u64,
++    role: u32,
++    index: u32,
++}
++
++impl PackedLink {
++    #[inline(always)]
++    pub fn pack(link_id: LinkId, peer: NodeId) -> Self {
++        Self {
++            link: link_id.0 as u64,
++            role: peer.role.0 as u32,
++            index: peer.index as u32,
++        }
++    }
++
++    #[inline(always)]
++    pub fn get(self) -> (LinkId, NodeId) {
++        (
++            LinkId(self.link as usize),
++            NodeId {
++                role: spur_ast::name::NameId(self.role as usize),
++                index: self.index as usize,
++            },
++        )
++    }
++}
++
++/// Whether a node's role id and index fit the four bytes channel and link
++/// values keep of each. A failure is counted, and the caller must not build
++/// the node.
++pub fn check_node_packs(role: spur_ast::name::NameId, index: usize) -> Result<(), RuntimeError> {
++    if role.0 <= u32::MAX as usize && index <= u32::MAX as usize {
++        Ok(())
++    } else {
++        util_stats::record_topology_pack_failure();
++        Err(RuntimeError::NodeDoesNotPack { role: role.0, index })
++    }
++}
++
++/// Most distinct variant names one process may intern.
++const VARIANT_NAME_SLOTS: usize = 4096;
++
++/// Every interned variant name by id. A slot is written once, before its id
++/// is returned from `VariantName::intern`, and never again, so reads take no
++/// lock.
++static VARIANT_NAME_BY_ID: [AtomicPtr<EcoString>; VARIANT_NAME_SLOTS] =
++    [const { AtomicPtr::new(std::ptr::null_mut()) }; VARIANT_NAME_SLOTS];
++
++/// Interned variant names in id order, searched by text when interning.
++static VARIANT_NAMES: std::sync::Mutex<Vec<&'static EcoString>> = std::sync::Mutex::new(Vec::new());
++
++/// A variant name interned once per process by its text, so two names are
++/// equal exactly when their ids are. Ordering, hashing and text use the
++/// resolved string.
++#[derive(Clone, Copy, PartialEq, Eq)]
++pub struct VariantName(u32);
++
++impl VariantName {
++    /// The id of `name`, added to the table when it is new. Takes a lock;
++    /// resolving an id does not.
++    pub fn intern(name: &str) -> Self {
++        let mut names = VARIANT_NAMES.lock().unwrap_or_else(|p| p.into_inner());
++        if let Some(i) = names.iter().position(|n| n.as_str() == name) {
++            return VariantName(i as u32);
++        }
++        let id = names.len();
++        assert!(id < VARIANT_NAME_SLOTS, "more than {VARIANT_NAME_SLOTS} distinct variant names");
++        let leaked: &'static EcoString = Box::leak(Box::new(EcoString::from(name)));
++        VARIANT_NAME_BY_ID[id].store(leaked as *const EcoString as *mut EcoString, AtomicOrdering::Relaxed);
++        names.push(leaked);
++        VariantName(id as u32)
++    }
++
++    #[inline(always)]
++    pub fn resolve(self) -> &'static EcoString {
++        // SAFETY: a VariantName is made only by `intern`, which returns an id
++        // below VARIANT_NAME_SLOTS after filling its slot with a leaked,
++        // never-freed string.
++        unsafe { &*VARIANT_NAME_BY_ID.get_unchecked(self.0 as usize).load(AtomicOrdering::Relaxed) }
++    }
++}
++
++impl std::fmt::Debug for VariantName {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        std::fmt::Debug::fmt(self.resolve(), f)
++    }
+ }
+ 
+ struct ShapeTables {
+@@ -94,7 +266,8 @@ static SHAPE_TABLES: std::sync::Mutex<ShapeTables> = std::sync::Mutex::new(Shape
+ 
+ /// The shape of a map literal with these keys, in source order, or `None`
+ /// when the literal must stay a map: no keys, more than `STRUCT_MAX_FIELDS`,
+-/// a repeated key, or two keys sharing a home slot. Shapes are interned once
++/// a repeated key, two keys sharing a home slot, or `SHAPE_SLOTS` shapes
++/// already interned. Shapes are interned once
+ /// per process by key set, so equal key sets share one shape.
+ pub fn struct_shape(names: &[EcoString]) -> Option<&'static StructShape> {
+     if names.is_empty() {
+@@ -130,15 +303,21 @@ pub fn struct_shape(names: &[EcoString]) -> Option<&'static StructShape> {
+     let names: Box<[EcoString]> = slotted.iter().map(|(_, n, _)| n.clone()).collect();
+     let mut sorted: Vec<usize> = (0..names.len()).collect();
+     sorted.sort_by(|&a, &b| names[a].cmp(&names[b]));
++    let id = tables.shapes.len();
++    if id >= SHAPE_SLOTS {
++        return None;
++    }
+     let mut h = FxHasher::default();
+     9u8.hash(&mut h);
+     names.len().hash(&mut h);
+     let shape: &'static StructShape = Box::leak(Box::new(StructShape {
++        id: id as u32,
+         key_sigs: slotted.iter().map(|(_, _, sig)| *sig).collect(),
+         names,
+         sorted: sorted.into_boxed_slice(),
+         sig_prefix: h.finish(),
+     }));
++    SHAPE_BY_ID[id].store(shape as *const StructShape as *mut StructShape, AtomicOrdering::Relaxed);
+     tables.shapes.push(shape);
+     Some(shape)
+ }
+@@ -233,19 +412,19 @@ pub enum ValueKind<H: HashPolicy> {
+     /// A map whose key set is `StructShape`: the value of each key, in the
+     /// shape's field order. Every observation of it - equality, ordering,
+     /// signature, hash, text, JSON and debug output - is that of the map.
+-    Struct(&'static StructShape, ValueSeq<H>),
++    Struct(ShapeRef, ValueSeq<H>),
+     List(ValueSeq<H>),
+     Option(Option<Arc<Value<H>>>),
+-    Channel(ChannelId),
++    Channel(PackedChannel),
+     Node(NodeId),
+     /// FIFO RPC link: `(link_id, peer)`. Pair the per-link sequence identity
+     /// with the peer node so RPCs through the link route deterministically
+     /// even after sender crash + recovery.
+-    FifoLink(LinkId, NodeId),
++    FifoLink(PackedLink),
+     String(EcoString),
+     Unit,
+     Tuple(ValueSeq<H>),
+-    Variant(u32, EcoString, Option<Arc<Value<H>>>), // (enum_id, variant_name, payload)
++    Variant(u32, VariantName, Option<Arc<Value<H>>>), // (enum_id, variant_name, payload)
+ }
+ 
+ /// The entries of a struct, printed the way the map it stands for prints.
+@@ -273,9 +452,12 @@ impl<H: HashPolicy> std::fmt::Debug for ValueKind<H> {
+             Struct(shape, fields) => f.debug_tuple("Map").field(&StructEntries(shape, fields)).finish(),
+             List(l) => f.debug_tuple("List").field(l).finish(),
+             Option(o) => f.debug_tuple("Option").field(o).finish(),
+-            Channel(c) => f.debug_tuple("Channel").field(c).finish(),
++            Channel(c) => f.debug_tuple("Channel").field(&c.get()).finish(),
+             Node(n) => f.debug_tuple("Node").field(n).finish(),
+-            FifoLink(link_id, peer) => f.debug_tuple("FifoLink").field(link_id).field(peer).finish(),
++            FifoLink(l) => {
++                let (link_id, peer) = l.get();
++                f.debug_tuple("FifoLink").field(&link_id).field(&peer).finish()
++            }
+             String(s) => f.debug_tuple("String").field(s).finish(),
+             Unit => f.write_str("Unit"),
+             Tuple(t) => f.debug_tuple("Tuple").field(t).finish(),
+@@ -292,7 +474,7 @@ impl<H: HashPolicy> std::fmt::Debug for ValueKind<H> {
+ #[derive(Clone, Debug)]
+ pub struct Value<H: HashPolicy> {
+     pub kind: ValueKind<H>,
+-    pub sig: u64,
++    pub sig: H::Sig,
+     _marker: PhantomData<H>,
+ }
+ 
+@@ -313,7 +495,7 @@ impl<H: HashPolicy> Value<H> {
+         let sig = if H::EAGER { Self::compute_sig(&kind) } else { 0 };
+         Self {
+             kind,
+-            sig,
++            sig: H::sig_from_bits(sig),
+             _marker: PhantomData,
+         }
+     }
+@@ -329,7 +511,7 @@ impl<H: HashPolicy> Value<H> {
+             | ValueKind::String(_)
+             | ValueKind::Node(_)
+             | ValueKind::Channel(_)
+-            | ValueKind::FifoLink(_, _)
++            | ValueKind::FifoLink(_)
+             | ValueKind::Unit => Self::compute_sig(kind),
+             ValueKind::Option(_)
+             | ValueKind::Tuple(_)
+@@ -355,11 +537,13 @@ impl<H: HashPolicy> Value<H> {
+                     ^ mix((n.index as u64).wrapping_mul(HASH_PRIME), 103)
+             }
+             ValueKind::Channel(c) => {
++                let c = c.get();
+                 mix((c.node.role.0 as u64).wrapping_mul(HASH_PRIME), 5)
+                     ^ mix((c.node.index as u64).wrapping_mul(HASH_PRIME), 105)
+                     ^ mix((c.id as u64).wrapping_mul(HASH_PRIME), 205)
+             }
+-            ValueKind::FifoLink(link_id, peer) => {
++            ValueKind::FifoLink(l) => {
++                let (link_id, peer) = l.get();
+                 mix((link_id.0 as u64).wrapping_mul(HASH_PRIME), 11)
+                     ^ mix((peer.role.0 as u64).wrapping_mul(HASH_PRIME), 111)
+                     ^ mix((peer.index as u64).wrapping_mul(HASH_PRIME), 211)
+@@ -376,7 +560,7 @@ impl<H: HashPolicy> Value<H> {
+                     None => 0u8.hash(&mut h),
+                     Some(v) => {
+                         1u8.hash(&mut h);
+-                        v.sig.hash(&mut h);
++                        v.sig().hash(&mut h);
+                     }
+                 }
+                 h.finish()
+@@ -389,7 +573,7 @@ impl<H: HashPolicy> Value<H> {
+                 v.len().hash(&mut h);
+                 sig ^= h.finish();
+                 for (i, val) in v.iter().enumerate() {
+-                    sig ^= mix(val.sig, i as u32);
++                    sig ^= mix(val.sig(), i as u32);
+                 }
+                 sig
+             }
+@@ -401,7 +585,7 @@ impl<H: HashPolicy> Value<H> {
+                 v.len().hash(&mut h);
+                 sig ^= h.finish();
+                 for (i, val) in v.iter().enumerate() {
+-                    sig ^= mix(val.sig, i as u32);
++                    sig ^= mix(val.sig(), i as u32);
+                 }
+                 sig
+             }
+@@ -414,14 +598,14 @@ impl<H: HashPolicy> Value<H> {
+                 sig ^= h.finish();
+                 for (k, v) in m.iter() {
+                     // Use hash_map_entry for consistent entry hashing
+-                    sig ^= hash_map_entry(k.sig, v.sig);
++                    sig ^= hash_map_entry(k.sig(), v.sig());
+                 }
+                 sig
+             }
+             ValueKind::Struct(shape, fields) => {
+                 let mut sig = shape.sig_prefix;
+                 for (k, v) in shape.key_sigs.iter().zip(fields.iter()) {
+-                    sig ^= hash_map_entry(*k, v.sig);
++                    sig ^= hash_map_entry(*k, v.sig());
+                 }
+                 sig
+             }
+@@ -429,12 +613,12 @@ impl<H: HashPolicy> Value<H> {
+                 let mut h = FxHasher::default();
+                 10u8.hash(&mut h); // discriminant
+                 enum_id.hash(&mut h);
+-                name.hash(&mut h);
++                name.resolve().hash(&mut h);
+                 match payload {
+                     None => 0u8.hash(&mut h),
+                     Some(v) => {
+                         1u8.hash(&mut h);
+-                        v.sig.hash(&mut h);
++                        v.sig().hash(&mut h);
+                     }
+                 }
+                 h.finish()
+@@ -470,12 +654,12 @@ impl<H: HashPolicy> Value<H> {
+ 
+     #[inline]
+     pub fn channel(c: ChannelId) -> Self {
+-        Self::new(ValueKind::Channel(c))
++        Self::new(ValueKind::Channel(PackedChannel::pack(c)))
+     }
+ 
+     #[inline]
+     pub fn fifo_link(link_id: LinkId, peer: NodeId) -> Self {
+-        Self::new(ValueKind::FifoLink(link_id, peer))
++        Self::new(ValueKind::FifoLink(PackedLink::pack(link_id, peer)))
+     }
+ 
+     #[inline]
+@@ -508,17 +692,23 @@ impl<H: HashPolicy> Value<H> {
+         Self::new(ValueKind::Map(m))
+     }
+ 
++    /// A variant named by text; interning the name takes a lock.
+     #[inline]
+     pub fn variant(enum_id: u32, name: EcoString, payload: Option<Arc<Value<H>>>) -> Self {
++        Self::new(ValueKind::Variant(enum_id, VariantName::intern(&name), payload))
++    }
++
++    #[inline]
++    pub fn variant_named(enum_id: u32, name: VariantName, payload: Option<Arc<Value<H>>>) -> Self {
+         Self::new(ValueKind::Variant(enum_id, name, payload))
+     }
+ 
+     /// A struct of `shape`; `fields` must hold one value per field, in the
+     /// shape's field order.
+     #[inline]
+-    pub fn struct_of(shape: &'static StructShape, fields: ValueSeq<H>) -> Self {
++    pub fn struct_of(shape: &StructShape, fields: ValueSeq<H>) -> Self {
+         debug_assert_eq!(shape.len(), fields.len());
+-        Self::new(ValueKind::Struct(shape, fields))
++        Self::new(ValueKind::Struct(shape.shape_ref(), fields))
+     }
+ 
+     /// The value with a struct turned into the map it stands for; any other
+@@ -527,9 +717,9 @@ impl<H: HashPolicy> Value<H> {
+     pub fn into_map_form(self) -> Self {
+         match self.kind {
+             ValueKind::Struct(shape, fields) => {
+-                Self::with_sig(ValueKind::Map(struct_to_map(shape, &fields)), self.sig)
++                Self::with_sig(ValueKind::Map(struct_to_map(&shape, &fields)), H::sig_bits(self.sig))
+             }
+-            kind => Self::with_sig(kind, self.sig),
++            kind => Self::with_sig(kind, H::sig_bits(self.sig)),
+         }
+     }
+ 
+@@ -538,10 +728,16 @@ impl<H: HashPolicy> Value<H> {
+     pub fn with_sig(kind: ValueKind<H>, sig: u64) -> Self {
+         Self {
+             kind,
+-            sig,
++            sig: H::sig_from_bits(sig),
+             _marker: PhantomData,
+         }
+     }
++
++    /// The stored signature; 0 under a policy that keeps none.
++    #[inline(always)]
++    pub fn sig(&self) -> u64 {
++        H::sig_bits(self.sig)
++    }
+ }
+ 
+ impl<H: HashPolicy> PartialEq for Value<H> {
+@@ -557,14 +753,14 @@ impl<H: HashPolicy> PartialEq for Value<H> {
+             (Tuple(a), Tuple(b)) => a == b,
+             (List(a), List(b)) => a == b,
+             (Map(a), Map(b)) => a == b,
+-            (Struct(sa, fa), Struct(sb, fb)) if std::ptr::eq(*sa, *sb) => struct_fields_eq(fa, fb),
++            (Struct(sa, fa), Struct(sb, fb)) if sa == sb => struct_fields_eq(fa, fb),
+             (Struct(sa, fa), Map(b)) => sa.len() == b.len() && struct_to_map(sa, fa) == *b,
+             (Map(a), Struct(sb, fb)) => a.len() == sb.len() && *a == struct_to_map(sb, fb),
+             (Struct(sa, fa), Struct(sb, fb)) => {
+                 sa.len() == sb.len() && struct_to_map(sa, fa) == struct_to_map(sb, fb)
+             }
+             (Channel(a), Channel(b)) => a == b,
+-            (FifoLink(la, pa), FifoLink(lb, pb)) => la == lb && pa == pb,
++            (FifoLink(a), FifoLink(b)) => a == b,
+             (Variant(id_a, name_a, p_a), Variant(id_b, name_b, p_b)) => {
+                 id_a == id_b && name_a == name_b && p_a == p_b
+             }
+@@ -638,7 +834,7 @@ impl<H: HashPolicy> Ord for Value<H> {
+                 b_vec.sort_by(|x, y| x.0.cmp(y.0));
+                 a_vec.cmp(&b_vec)
+             }
+-            (Struct(sa, fa), Struct(sb, fb)) if std::ptr::eq(*sa, *sb) => {
++            (Struct(sa, fa), Struct(sb, fb)) if sa == sb => {
+                 for &i in sa.sorted.iter() {
+                     match fa[i].cmp(&fb[i]) {
+                         Ordering::Equal => {}
+@@ -651,10 +847,17 @@ impl<H: HashPolicy> Ord for Value<H> {
+                 sorted_entries(self).cmp(&sorted_entries(other))
+             }
+             (Channel(a), Channel(b)) => a.cmp(b),
+-            (FifoLink(la, pa), FifoLink(lb, pb)) => (la, pa).cmp(&(lb, pb)),
+-            (Variant(id_a, name_a, p_a), Variant(id_b, name_b, p_b)) => {
+-                (id_a, name_a, p_a).cmp(&(id_b, name_b, p_b))
+-            }
++            (FifoLink(a), FifoLink(b)) => a.cmp(b),
++            (Variant(id_a, name_a, p_a), Variant(id_b, name_b, p_b)) => id_a
++                .cmp(id_b)
++                .then_with(|| {
++                    if name_a == name_b {
++                        Ordering::Equal
++                    } else {
++                        name_a.resolve().cmp(name_b.resolve())
++                    }
++                })
++                .then_with(|| p_a.cmp(p_b)),
+             // Cross-type comparisons (simple deterministic ordering)
+             (Int(_), _) => Ordering::Less,
+             (_, Int(_)) => Ordering::Greater,
+@@ -676,8 +879,8 @@ impl<H: HashPolicy> Ord for Value<H> {
+             (_, Map(_) | Struct(_, _)) => Ordering::Greater,
+             (Channel(_), _) => Ordering::Less,
+             (_, Channel(_)) => Ordering::Greater,
+-            (FifoLink(_, _), _) => Ordering::Less,
+-            (_, FifoLink(_, _)) => Ordering::Greater,
++            (FifoLink(_), _) => Ordering::Less,
++            (_, FifoLink(_)) => Ordering::Greater,
+         }
+     }
+ }
+@@ -689,7 +892,7 @@ impl<H: HashPolicy> Hash for Value<H> {
+     #[inline]
+     fn hash<Ha: Hasher>(&self, state: &mut Ha) {
+         if H::EAGER {
+-            self.sig.hash(state);
++            self.sig().hash(state);
+         } else {
+             let sig = Self::compute_sig_leaf_only(&self.kind);
+             if !self.kind.is_composite() {
+@@ -806,17 +1009,19 @@ impl<H: HashPolicy> Value<H> {
+                 out.write_char(')')
+             }
+             Channel(ch) => {
++                let ch = ch.get();
+                 out.write_str("channel(")?;
+                 write_node_id(out, &ch.node)?;
+                 out.write_str(", ")?;
+                 out.write_str(Decimal::of_u64(ch.id as u64).as_str())?;
+                 out.write_char(')')
+             }
+-            FifoLink(link_id, peer) => {
++            FifoLink(l) => {
++                let (link_id, peer) = l.get();
+                 out.write_str("fifo_link(")?;
+                 out.write_str(Decimal::of_u64(link_id.0 as u64).as_str())?;
+                 out.write_str(", ")?;
+-                write_node_id(out, peer)?;
++                write_node_id(out, &peer)?;
+                 out.write_char(')')
+             }
+             Tuple(items) => write_seq(out, "(", items, ")"),
+@@ -846,9 +1051,9 @@ impl<H: HashPolicy> Value<H> {
+                 }
+                 out.write_str(" }")
+             }
+-            Variant(_, name, None) => out.write_str(name),
++            Variant(_, name, None) => out.write_str(name.resolve()),
+             Variant(_, name, Some(payload)) => {
+-                out.write_str(name)?;
++                out.write_str(name.resolve())?;
+                 out.write_char('(')?;
+                 payload.write_to(out)?;
+                 out.write_char(')')
+@@ -873,7 +1078,7 @@ impl<H: HashPolicy> Value<H> {
+             List(_) => "list",
+             Option(_) => "option",
+             Channel(_) => "channel",
+-            FifoLink(_, _) => "fifo_link",
++            FifoLink(_) => "fifo_link",
+             Node(_) => "node",
+             String(_) => "string",
+             Unit => "unit",
+@@ -918,7 +1123,10 @@ impl<H: HashPolicy> Value<H> {
+     pub fn as_rpc_target(&self) -> Result<(NodeId, Option<LinkId>), RuntimeError> {
+         match &self.kind {
+             ValueKind::Node(n) => Ok((*n, None)),
+-            ValueKind::FifoLink(link_id, peer) => Ok((*peer, Some(*link_id))),
++            ValueKind::FifoLink(l) => {
++                let (link_id, peer) = l.get();
++                Ok((peer, Some(link_id)))
++            }
+             _ => Err(RuntimeError::TypeError {
+                 expected: "node or fifo_link",
+                 got: self.type_name(),
+@@ -947,7 +1155,7 @@ impl<H: HashPolicy> Value<H> {
+     }
+     pub fn as_channel(&self) -> Result<ChannelId, RuntimeError> {
+         if let ValueKind::Channel(c) = &self.kind {
+-            Ok(*c)
++            Ok(c.get())
+         } else {
+             Err(RuntimeError::TypeError {
+                 expected: "channel",
+@@ -958,7 +1166,7 @@ impl<H: HashPolicy> Value<H> {
+ 
+     pub fn as_variant(&self) -> Result<(u32, &EcoString, Option<&Arc<Value<H>>>), RuntimeError> {
+         if let ValueKind::Variant(id, name, payload) = &self.kind {
+-            Ok((*id, name, payload.as_ref()))
++            Ok((*id, name.resolve(), payload.as_ref()))
+         } else {
+             Err(RuntimeError::TypeError {
+                 expected: "variant",
+@@ -1033,7 +1241,7 @@ impl<H: HashPolicy> Env<H> {
+ 
+         let mut sig = 0u64;
+         if H::EAGER {
+-            let unit_sig = Value::<H>::unit().sig;
++            let unit_sig = Value::<H>::unit().sig();
+             for i in 0..n {
+                 sig ^= H::mix(unit_sig, i as u32);
+             }
+@@ -1064,17 +1272,17 @@ impl<H: HashPolicy> Env<H> {
+                 self.slots.push(Value::<H>::unit());
+             }
+             if H::EAGER {
+-                let unit_sig = Value::<H>::unit().sig;
++                let unit_sig = Value::<H>::unit().sig();
+                 for i in old_len..idx {
+                     self.sig ^= H::mix(unit_sig, i as u32);
+                 }
+-                self.sig ^= H::mix(value.sig, slot);
++                self.sig ^= H::mix(value.sig(), slot);
+             }
+             self.slots.push(value);
+         } else {
+             if H::EAGER {
+-                let old_sig = self.slots[idx].sig;
+-                self.sig = H::update_env_sig(self.sig, old_sig, value.sig, slot);
++                let old_sig = self.slots[idx].sig();
++                self.sig = H::update_env_sig(self.sig, old_sig, value.sig(), slot);
+             }
+             // Copy-on-write: clones exactly `len` slots iff this env is shared.
+             self.slots.make_mut()[idx] = value;
+@@ -1097,7 +1305,7 @@ impl<H: HashPolicy> Env<H> {
+                 self.slots.push(Value::<H>::unit());
+             }
+             if H::EAGER {
+-                let unit_sig = Value::<H>::unit().sig;
++                let unit_sig = Value::<H>::unit().sig();
+                 for i in old_len..n {
+                     self.sig ^= H::mix(unit_sig, i as u32);
+                 }
+@@ -1126,8 +1334,14 @@ mod tests {
+                 Unit => write!(f, "()"),
+                 Option(None) => write!(f, "None"),
+                 Option(Some(v)) => write!(f, "Some({})", Reference(v)),
+-                Channel(ch) => write!(f, "channel({}, {})", ch.node, ch.id),
+-                FifoLink(link_id, peer) => write!(f, "fifo_link({}, {})", link_id.0, peer),
++                Channel(ch) => {
++                    let ch = ch.get();
++                    write!(f, "channel({}, {})", ch.node, ch.id)
++                }
++                FifoLink(l) => {
++                    let (link_id, peer) = l.get();
++                    write!(f, "fifo_link({}, {})", link_id.0, peer)
++                }
+                 Tuple(items) => {
+                     write!(f, "(")?;
+                     for (i, item) in items.iter().enumerate() {
+@@ -1159,8 +1373,8 @@ mod tests {
+                     write!(f, " }}")
+                 }
+                 Struct(_, _) => write!(f, "{}", Reference(&self.0.clone().into_map_form())),
+-                Variant(_, name, None) => write!(f, "{}", name),
+-                Variant(_, name, Some(payload)) => write!(f, "{}({})", name, Reference(payload)),
++                Variant(_, name, None) => write!(f, "{}", name.resolve()),
++                Variant(_, name, Some(payload)) => write!(f, "{}({})", name.resolve(), Reference(payload)),
+             }
+         }
+     }
+@@ -1376,13 +1590,13 @@ mod tests {
+             let v_clone = v.clone();
+             prop_assert_eq!(&v, &v_clone);
+             prop_assert_eq!(calculate_hash(&v), calculate_hash(&v_clone));
+-            prop_assert_eq!(v.sig, v_clone.sig);
++            prop_assert_eq!(v.sig(), v_clone.sig());
+         }
+ 
+         #[test]
+         fn test_value_structural_equality(v1 in arb_value()) {
+             let v_clone = v1.clone();
+-            prop_assert_eq!(v1.sig, v_clone.sig);
++            prop_assert_eq!(v1.sig(), v_clone.sig());
+         }
+ 
+         #[test]
+@@ -1488,12 +1702,12 @@ mod lazy_signature_tests {
+         for (l, e) in lazy.iter().zip(&eager) {
+             // A leaf-only signature stored at construction was the leaf's
+             // full signature, which does not depend on any other value.
+-            let stored = if l.kind.is_composite() { 0 } else { e.sig };
++            let stored = if l.kind.is_composite() { 0 } else { e.sig() };
+             assert_eq!(stored, Value::<NoHashing>::compute_sig_leaf_only(&l.kind), "{l:?}");
+             assert_eq!(fx_hash(l), fx_hash(&stored), "{l:?}");
+-            assert_eq!(l.sig, 0, "{l:?}");
+-            assert_eq!(e.sig, Value::<WithHashing>::compute_sig(&e.kind), "{e:?}");
+-            assert_eq!(fx_hash(e), fx_hash(&e.sig), "{e:?}");
++            assert_eq!(l.sig(), 0, "{l:?}");
++            assert_eq!(e.sig(), Value::<WithHashing>::compute_sig(&e.kind), "{e:?}");
++            assert_eq!(fx_hash(e), fx_hash(&e.sig()), "{e:?}");
+         }
+     }
+ 
+@@ -1727,7 +1941,7 @@ pub(crate) mod struct_tests {
+ 
+     fn check_single<H: HashPolicy>(s: &Value<H>, m: &Value<H>) {
+         assert!(matches!(s.kind, ValueKind::Struct(_, _)));
+-        assert_eq!(s.sig, m.sig, "{m:?}");
++        assert_eq!(s.sig(), m.sig(), "{m:?}");
+         assert_eq!(fx_hash(s), fx_hash(m), "{m:?}");
+         assert_eq!(std_hash(s), std_hash(m), "{m:?}");
+         assert_eq!(s.to_string(), m.to_string());
+@@ -1770,7 +1984,7 @@ pub(crate) mod struct_tests {
+                 let (a, b) = (a.unwrap(), b.unwrap());
+                 assert_eq!(mid.wrapping_sub(before), after.wrapping_sub(mid), "store {key:?}");
+                 assert_eq!(format!("{a:?}"), format!("{b:?}"));
+-                assert_eq!(a.sig, b.sig);
++                assert_eq!(a.sig(), b.sig());
+                 assert!(a == b);
+             }
+         }
+@@ -1851,11 +2065,14 @@ mod layout_tests {
+     /// storing a collection inline widens all of them at once.
+     #[test]
+     fn value_stays_narrow() {
+-        assert_eq!(std::mem::size_of::<Value<WithHashing>>(), 40);
++        assert_eq!(std::mem::size_of::<Value<WithHashing>>(), 32);
+         assert_eq!(std::mem::size_of::<ValueSeq<WithHashing>>(), 16);
+     }
+ }
+ 
++const _: () = assert!(std::mem::size_of::<Value<crate::simulator::hash_utils::NoHashing>>() == 24);
++const _: () = assert!(std::mem::size_of::<ValueKind<crate::simulator::hash_utils::NoHashing>>() == 24);
++
+ #[cfg(test)]
+ mod acted_token_tests {
+     use super::*;
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index 004b367..bccab7b 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -791,6 +791,7 @@ fn initialize_state<H: crate::simulator::hash_utils::HashPolicy, L: Logger, F: F
+         .find(|(_, name)| name == "Node")
+         .map(|(id, _)| *id)
+         .ok_or_else(|| RuntimeError::RoleNotFound("Node".to_string()))?;
++    crate::simulator::core::values::check_node_packs(server_role, num_servers.saturating_sub(1))?;
+ 
+     let role_node_counts = vec![(server_role, num_servers)];
+     let mut state = State::<H>::with_channel_capacity(
+diff --git a/spur-core/src/simulator/hash_utils.rs b/spur-core/src/simulator/hash_utils.rs
+index 8748e26..a0243a9 100644
+--- a/spur-core/src/simulator/hash_utils.rs
++++ b/spur-core/src/simulator/hash_utils.rs
+@@ -48,6 +48,16 @@ pub trait HashPolicy: 'static + Clone + std::fmt::Debug + Send + Sync + Hash {
+     /// Update Env signature when a slot changes.
+     /// Typically XORs out old value signature and XORs in new value signature.
+     fn update_env_sig(old_sig: u64, old_val_sig: u64, new_val_sig: u64, slot: u32) -> u64;
++
++    /// Storage of a value's signature: the bits when signatures are kept,
++    /// nothing when every stored signature would be 0.
++    type Sig: Copy + Default + std::fmt::Debug + Send + Sync + 'static;
++
++    /// The signature bits held in `sig`; 0 when none are kept.
++    fn sig_bits(sig: Self::Sig) -> u64;
++
++    /// Storage for `bits`; under a policy that keeps none the bits must be 0.
++    fn sig_from_bits(bits: u64) -> Self::Sig;
+ }
+ 
+ /// Full hashing implementation - computes actual signatures.
+@@ -63,6 +73,17 @@ pub struct NoHashing;
+ 
+ impl HashPolicy for WithHashing {
+     const EAGER: bool = true;
++    type Sig = u64;
++
++    #[inline(always)]
++    fn sig_bits(sig: u64) -> u64 {
++        sig
++    }
++
++    #[inline(always)]
++    fn sig_from_bits(bits: u64) -> u64 {
++        bits
++    }
+ 
+     #[inline]
+     fn mix(sig: u64, pos: u32) -> u64 {
+@@ -77,6 +98,15 @@ impl HashPolicy for WithHashing {
+ 
+ impl HashPolicy for NoHashing {
+     const EAGER: bool = false;
++    type Sig = ();
++
++    #[inline(always)]
++    fn sig_bits(_sig: ()) -> u64 {
++        0
++    }
++
++    #[inline(always)]
++    fn sig_from_bits(_bits: u64) {}
+ 
+     #[inline]
+     fn mix(_sig: u64, _pos: u32) -> u64 {
+diff --git a/spur-core/src/simulator/history.rs b/spur-core/src/simulator/history.rs
+index bc18640..32ced30 100644
+--- a/spur-core/src/simulator/history.rs
++++ b/spur-core/src/simulator/history.rs
+@@ -151,14 +151,20 @@ fn json_of_value<H: crate::simulator::hash_utils::HashPolicy>(v: &Value<H>) -> J
+         "type": "VNode",
+         "value": n
+         }),
+-        ValueKind::Channel(ChannelId { node, id }) => json!({
+-        "type": "VChannel",
+-        "value": { "node": node, "id": id }
+-        }),
+-        ValueKind::FifoLink(link_id, peer) => json!({
+-        "type": "VFifoLink",
+-        "value": { "link_id": link_id.0, "peer": peer }
+-        }),
++        ValueKind::Channel(c) => {
++            let ChannelId { node, id } = c.get();
++            json!({
++            "type": "VChannel",
++            "value": { "node": node, "id": id }
++            })
++        }
++        ValueKind::FifoLink(l) => {
++            let (link_id, peer) = l.get();
++            json!({
++            "type": "VFifoLink",
++            "value": { "link_id": link_id.0, "peer": peer }
++            })
++        }
+         ValueKind::Map(m) => {
+             let json_pairs: Vec<JsonValue> = m
+                 .iter()
+@@ -210,6 +216,7 @@ fn json_of_value<H: crate::simulator::hash_utils::HashPolicy>(v: &Value<H>) -> J
+             })
+         }
+         ValueKind::Variant(enum_id, name, payload) => {
++            let name = name.resolve();
+             let payload_json = match payload {
+                 Some(inner) => json_of_value(inner),
+                 None => JsonValue::Null,
+@@ -352,15 +359,16 @@ impl<H: HashPolicy> Serialize for ValueJson<'_, H> {
+             }
+             ValueKind::Channel(c) => {
+                 m.serialize_entry("type", "VChannel")?;
+-                m.serialize_entry("value", &ChannelJson(*c))?;
++                m.serialize_entry("value", &ChannelJson(c.get()))?;
+             }
+-            ValueKind::FifoLink(link_id, peer) => {
++            ValueKind::FifoLink(l) => {
++                let (link_id, peer) = l.get();
+                 m.serialize_entry("type", "VFifoLink")?;
+                 m.serialize_entry(
+                     "value",
+                     &FifoLinkJson {
+                         link_id: link_id.0,
+-                        peer: *peer,
++                        peer,
+                     },
+                 )?;
+             }
+@@ -389,6 +397,7 @@ impl<H: HashPolicy> Serialize for ValueJson<'_, H> {
+                 m.serialize_entry("value", &SeqJson(t.as_slice()))?;
+             }
+             ValueKind::Variant(enum_id, name, payload) => {
++                let name = name.resolve();
+                 m.serialize_entry("type", "VVariant")?;
+                 m.serialize_entry(
+                     "value",
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 29311d7..39e8998 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -135,11 +135,11 @@ impl ClientPool {
+ 
+     /// Get a client node: reuses a free one or creates a new one.
+     /// Returns (NodeId, bool) where the boolean is true if the node was newly created.
+-    pub fn get<H: HashPolicy>(&mut self, state: &mut State<H>) -> (NodeId, bool) {
++    pub fn get<H: HashPolicy>(&mut self, state: &mut State<H>) -> Result<(NodeId, bool), RuntimeError> {
+         if let Some(node_id) = self.free_clients.pop() {
+-            (node_id, false)
++            Ok((node_id, false))
+         } else {
+-            (state.add_node(self.client_role, self.node_slot_count), true)
++            Ok((state.add_node(self.client_role, self.node_slot_count)?, true))
+         }
+     }
+ 
+@@ -353,7 +353,7 @@ fn invoke_client_request<H: HashPolicy, F: Feedback>(
+     }
+ 
+     // Get a client node from the pool (creates one if needed)
+-    let (client_node_id, is_new) = path_state.client_pool.get(&mut path_state.state);
++    let (client_node_id, is_new) = path_state.client_pool.get(&mut path_state.state)?;
+ 
+     if is_new && let Some(init_fn) = program.get_func_by_name("ClientInterface.BASE_NODE_INIT") {
+         let mut env = build_frame::<H>(init_fn, &[]);
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 7819b7b..a877f79 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -108,6 +108,10 @@ static VALUE_STRUCT_FIELD_READS: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_OTHER_LOOKUPS: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_FALLBACK_KEY_HASHES: AtomicU64 = AtomicU64::new(0);
++/// Width of one spec value, set when a session enables recording.
++static VALUE_LAYOUT_VALUE_BYTES: AtomicU64 = AtomicU64::new(0);
++static VALUE_LAYOUT_TOPOLOGY_PACK_FAILURES: AtomicU64 = AtomicU64::new(0);
++static VALUE_LAYOUT_VARIANT_RUNTIME_INTERNS: AtomicU64 = AtomicU64::new(0);
+ static PLAN_READY_SCANS: AtomicU64 = AtomicU64::new(0);
+ static PLAN_READY_SCANS_SKIPPED: AtomicU64 = AtomicU64::new(0);
+ static PLAN_READY_SCANS_EMPTY: AtomicU64 = AtomicU64::new(0);
+@@ -783,6 +787,11 @@ pub fn set_enabled(on: bool) {
+     if on {
+         STATS_GENERATION.fetch_add(1, Ordering::Relaxed);
+         fold_run_counters();
++        VALUE_LAYOUT_VALUE_BYTES.store(
++            std::mem::size_of::<crate::simulator::core::values::Value<crate::simulator::hash_utils::NoHashing>>()
++                as u64,
++            Ordering::Relaxed,
++        );
+         for c in [
+             &STEER_EVALUATIONS,
+             &STEER_DIVERGENT_PICKS,
+@@ -926,6 +935,8 @@ pub fn set_enabled(on: bool) {
+             &VALUE_STRUCT_OTHER_LOOKUPS,
+             &VALUE_STRUCT_FALLBACKS,
+             &VALUE_STRUCT_FALLBACK_KEY_HASHES,
++            &VALUE_LAYOUT_TOPOLOGY_PACK_FAILURES,
++            &VALUE_LAYOUT_VARIANT_RUNTIME_INTERNS,
+             &PLAN_READY_SCANS,
+             &PLAN_READY_SCANS_SKIPPED,
+             &PLAN_READY_SCANS_EMPTY,
+@@ -2072,6 +2083,7 @@ thread_local! {
+     static STRUCT_OTHER_LOOKUPS_RUN: Cell<u64> = const { Cell::new(0) };
+     static STRUCT_FALLBACKS_RUN: Cell<u64> = const { Cell::new(0) };
+     static STRUCT_FALLBACK_KEY_HASHES_RUN: Cell<u64> = const { Cell::new(0) };
++    static VARIANT_RUNTIME_INTERNS_RUN: Cell<u64> = const { Cell::new(0) };
+     static HANDLES_NOT_CLONED_RUN: Cell<u64> = const { Cell::new(0) };
+     static SCALARS_NOT_CLONED_RUN: Cell<u64> = const { Cell::new(0) };
+     static CHANNEL_TABLE_GROWS_RUN: Cell<u64> = const { Cell::new(0) };
+@@ -5858,6 +5870,29 @@ impl ValueStructStats {
+     }
+ }
+ 
++/// Layout of spec values. `value_bytes` is the width of one value under the
++/// signature policy the explorer runs with. `topology_pack_failures` counts
++/// nodes refused because their role id or index does not fit in the four
++/// bytes a channel or link value keeps of each. `variant_runtime_interns`
++/// counts variant names interned while an expression was evaluated rather
++/// than when the program was decoded.
++#[derive(Serialize, Debug)]
++pub struct ValueLayoutStats {
++    pub value_bytes: u64,
++    pub topology_pack_failures: u64,
++    pub variant_runtime_interns: u64,
++}
++
++impl ValueLayoutStats {
++    fn read() -> Self {
++        Self {
++            value_bytes: VALUE_LAYOUT_VALUE_BYTES.load(Ordering::Relaxed),
++            topology_pack_failures: VALUE_LAYOUT_TOPOLOGY_PACK_FAILURES.load(Ordering::Relaxed),
++            variant_runtime_interns: VALUE_LAYOUT_VARIANT_RUNTIME_INTERNS.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// Variable operands the evaluator read in place instead of copying.
+ /// `handles_not_cloned` counts lists, maps, strings, options, tuples and
+ /// variants, whose copy touches a reference count or string bytes;
+@@ -6411,6 +6446,19 @@ pub fn record_struct_fallback(key_hashes: u64) {
+     add_to_cell(&STRUCT_FALLBACK_KEY_HASHES_RUN, key_hashes);
+ }
+ 
++/// A variant name was interned while an expression was evaluated rather than
++/// when the program was decoded.
++#[inline]
++pub fn record_variant_runtime_intern() {
++    tick(&VARIANT_RUNTIME_INTERNS_RUN);
++}
++
++/// A node was refused because its role id or index does not fit in four
++/// bytes.
++pub fn record_topology_pack_failure() {
++    VALUE_LAYOUT_TOPOLOGY_PACK_FAILURES.fetch_add(1, Ordering::Relaxed);
++}
++
+ /// The evaluator read a variable operand in place. `handle` is true when the
+ /// value's copy would have touched a reference count or string bytes.
+ #[inline]
+@@ -6597,6 +6645,7 @@ pub fn flush_frame_stats() {
+         (&STRUCT_OTHER_LOOKUPS_RUN, &VALUE_STRUCT_OTHER_LOOKUPS),
+         (&STRUCT_FALLBACKS_RUN, &VALUE_STRUCT_FALLBACKS),
+         (&STRUCT_FALLBACK_KEY_HASHES_RUN, &VALUE_STRUCT_FALLBACK_KEY_HASHES),
++        (&VARIANT_RUNTIME_INTERNS_RUN, &VALUE_LAYOUT_VARIANT_RUNTIME_INTERNS),
+         (&HANDLES_NOT_CLONED_RUN, &EVAL_BORROW_HANDLES_NOT_CLONED),
+         (&SCALARS_NOT_CLONED_RUN, &EVAL_BORROW_SCALARS_NOT_CLONED),
+         (&CHANNEL_TABLE_GROWS_RUN, &RUN_BUFFERS_CHANNEL_TABLE_GROWS),
+@@ -7805,6 +7854,7 @@ pub struct UtilizationSnapshot {
+     pub frame_layout: FrameLayoutStats,
+     pub value_sig: ValueSigStats,
+     pub value_struct: ValueStructStats,
++    pub value_layout: ValueLayoutStats,
+     pub plan_ready: PlanReadyStats,
+     pub plan_deliver: PlanDeliverStats,
+     pub text_buffer: TextBufferStats,
+@@ -8040,6 +8090,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         frame_layout: FrameLayoutStats::read(),
+         value_sig: ValueSigStats::read(),
+         value_struct: ValueStructStats::read(),
++        value_layout: ValueLayoutStats::read(),
+         plan_ready: PlanReadyStats::read(),
+         plan_deliver: PlanDeliverStats::read(),
+         text_buffer: TextBufferStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9f1387b..7a92f69 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, ProgramTextStats, RunBufferStats, ValueSigStats, ValueStructStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TextBufferStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDeliverStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, PlanReadyStats, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, ProgramTextStats, RunBufferStats, ValueLayoutStats, ValueSigStats, ValueStructStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TextBufferStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDeliverStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, PlanReadyStats, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1328,6 +1328,27 @@ fn value_sig_leaves(prefix: &str, v: &ValueSigStats) -> Vec<(String, Value)> {
+     vec![leaf(prefix, "leaf_hashes_deferred", *leaf_hashes_deferred)]
+ }
+ 
++fn value_layout(m: &mut Marks) -> ValueLayoutStats {
++    ValueLayoutStats {
++        value_bytes: m.int(),
++        topology_pack_failures: m.int(),
++        variant_runtime_interns: m.int(),
++    }
++}
++
++fn value_layout_leaves(prefix: &str, v: &ValueLayoutStats) -> Vec<(String, Value)> {
++    let ValueLayoutStats {
++        value_bytes,
++        topology_pack_failures,
++        variant_runtime_interns,
++    } = v;
++    vec![
++        leaf(prefix, "value_bytes", *value_bytes),
++        leaf(prefix, "topology_pack_failures", *topology_pack_failures),
++        leaf(prefix, "variant_runtime_interns", *variant_runtime_interns),
++    ]
++}
++
+ fn value_struct(m: &mut Marks) -> ValueStructStats {
+     ValueStructStats {
+         literals: m.int(),
+@@ -2437,6 +2458,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         frame_layout: _,
+         value_sig: _,
+         value_struct: _,
++        value_layout: _,
+         eval_borrow: _,
+         run_buffers: _,
+         print_content: _,
+@@ -2501,6 +2523,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "frame_layout",
+         "value_sig",
+         "value_struct",
++        "value_layout",
+         "eval_borrow",
+         "run_buffers",
+         "print_content",
+@@ -2599,6 +2622,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.frame_layout = frame_layout(&mut m);
+     s.value_sig = value_sig(&mut m);
+     s.value_struct = value_struct(&mut m);
++    s.value_layout = value_layout(&mut m);
+     s.eval_borrow = eval_borrow(&mut m);
+     s.run_buffers = run_buffers(&mut m);
+     s.print_content = print_content(&mut m);
+@@ -2643,6 +2667,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(frame_layout_leaves("frame_layout", &s.frame_layout));
+     expected.extend(value_sig_leaves("value_sig", &s.value_sig));
+     expected.extend(value_struct_leaves("value_struct", &s.value_struct));
++    expected.extend(value_layout_leaves("value_layout", &s.value_layout));
+     expected.extend(eval_borrow_leaves("eval_borrow", &s.eval_borrow));
+     expected.extend(run_buffers_leaves("run_buffers", &s.run_buffers));
+     expected.extend(print_content_leaves("print_content", &s.print_content));
+@@ -2712,6 +2737,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "frame_layout",
+         "value_sig",
+         "value_struct",
++        "value_layout",
+         "eval_borrow",
+         "run_buffers",
+         "print_content",

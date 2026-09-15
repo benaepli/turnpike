@@ -7038,3 +7038,110 @@ measure its price on a sharper instrument than the wall, and the shared
 footprint part that instrument cannot see can only add to it; the wall is
 kept as the guard against a 30-thread cost the one-thread read misses. The
 same basis would not be applied to a change that is not byte-identical.
+
+### value-in-three-words: implementer report and operator review (autonomous)
+
+Export tmp/loop/perf/value-in-three-words/: cand-A-spur, spur-A.patch (397
+lines), cand-spur, spur.patch, spur-B-over-A.patch (971 lines). Release tests
+pass at A and at B (26 test binaries, 493 library tests); the only test edits
+are .sig to .sig() and the WithHashing width assertion (40 to 32).
+One-thread identity against 9340a2e at A and at B on VR 3,008, crash-heavy
+1,800, Mencius 2,160, SDPaxos 2,160 and caps-engaged 100,000: executions,
+logs and traces parquet byte-identical; runs tables differ only in wall_us
+and session_offset_ms; stall_cap_runs.csv and end-reason digests equal; dump
+leaves differ only in writer timing and the new value_layout block; crash
+holds 23,640,317 both sides on caps. value_layout at B on all five:
+value_bytes 24, topology_pack_failures 0, variant_runtime_interns 0.
+program.json: VR varies between compiles on 9340a2e itself in two persist
+TypeId leaves; with those masked and keys sorted, one digest per spec across
+base, A and B (VR, Mencius, SDPaxos). G3 held.
+
+Operator review of both patches. A: HashPolicy::Sig is () under NoHashing,
+every reader goes through sig(), update_collection reads the signature
+before the match moves the kind, a const assert holds 32 bytes. B: Struct
+carries ShapeRef(u32) resolved through SHAPE_BY_ID, written once inside
+struct_shape before the shape is returned; Channel and FifoLink pack with
+field orders that derive the old orders; Variant carries VariantName(u32),
+equality by id, ordering by enum id then resolved text only when ids differ
+(equal ids imply equal text, so the order is unchanged), signature and hash
+bits over the resolved text; the history.rs JSON arms unpack before
+serializing. Table reads are relaxed atomic loads (no lock prefix); the
+intern mutex is taken at compile time only; the text-taking Value::variant is
+now called only from tests, and compiled IsVariant compares ids. Node role
+and index are checked in initialize_state and State::add_node, which now
+returns Result through ClientPool::get. Deviations accepted: 4096-slot shape
+and name tables (a 4097th shape stays a map, whose observations are the
+same; a 4097th variant name panics at compile time), the check at node
+creation rather than in constructors, value_bytes written at set_enabled
+as a session leaf, the NodeDoesNotPack error variant, struct_of taking
+&StructShape. The diff matches the hypothesis, stays in spur/, touches no
+template.
+
+### value-in-three-words: G1 and G2 held
+
+One-thread cycles on the VR 3,008 identity session (RAYON_NUM_THREADS=1,
+perf record -F 999 -e cycles, period summed over the binary's own command;
+parquet-writer, dot and perf-exec excluded), four pairs each in ABBA order,
+scripts tmp/loop/perf/value-in-three-words-gates/abba.sh and read.py, raw
+lines cycles.txt. A fresh identical-source layout control of 9340a2e was
+built in .claude/worktrees/lc-e5.
+- Control, second build over 9340a2e: 1.0011, 0.9859, 1.0105, 0.9975; mean
+  0.9988, |1 - mean| 0.0012 (per-pair spread about 1.4 percent).
+- G1, B over 9340a2e: 0.9644, 0.9563, 0.9447, 0.9602; mean 0.9564. At most
+  0.978 and 1 - mean 0.0436 against 3 x 0.0012 - held.
+- G2, A over 9340a2e: 0.9935, 0.9799, 0.9981, 0.9918; mean 0.9908, at most
+  0.992 - held, narrowly; A alone sits inside the control's per-pair spread.
+- G2, B over A, paired directly: 0.9737, 0.9734, 0.9705, 0.9682; mean
+  0.9714, at most 0.990 - held.
+
+Reading: the stack removes about 4.4 percent of one-thread simulation cycles,
+more than the Arc-form prototype's 3.3 (0.967); the interned name id and the
+packed forms carry most of it (B over A 2.9 percent), the dropped signature
+about 0.9. First launch of the reader summed only the command named "spur"
+and read zero for the other binaries, whose command names are their file
+names; the logged per-command sums were re-read with every command ending in
+"spur", nothing re-run.
+
+### value-in-three-words: G4 fired; closed (autonomous)
+
+Profile research/perf/profiles/9340a2e-cand-value-in-three-words-low-cutoff.md
+(B, 30 threads, 60 s, 0.3 percent) against 9340a2e-base-9340a2e-low-cutoff.md,
+reader tmp/loop/perf/value-in-three-words-gates/g4.py, which reproduces the
+frozen base figures (r 10.46, clone 3.90, drops 7.68). r = 10.56 / 10.46 =
+1.0096.
+- G4 clone family (every Value or ValueKind Clone row) 3.90 to 3.82, at most
+  3.3 x r = 3.33 - FIRED; it fell 0.12 against the base scaled to 3.94.
+- G4 drop rows (largest row of each, the frozen definition) 7.68 to 7.47, rise
+  at most 0.40 x r - held; all instances 8.41 to 8.16.
+- Description, families against base x r: interpreter 27.16 to 25.49 (-1.67:
+  ceval -0.58, build_frame -0.43, exec_ops -0.55, FrameBuilder::finish
+  -0.17); value drop -0.33; clone -0.12; memmove 7.36 to 7.35; scheduler and
+  other rows up by share inflation, with State::pending_deliveries_to,
+  Value PartialEq and crash_hold_mask crossing the cutoff at 0.32-0.33.
+
+Decision (autonomous): close, refuted on G4, no rounds bought. The merge basis
+registered before the build required G1-G4 held, and the frozen falsifier
+names the clone family. The miss is 0.49 against about 0.1 of profile noise.
+At 30 threads the saving does not sit where the one-thread profile put it
+(clone 4.85 to 3.53); what the 30-thread profile shows falling is frames and
+interpreter loads. That reading is plausible, but moving the location guard
+to those rows after seeing this sample is reading post hoc, and a band inside
+the floor leaves the wall unable to catch a wrong story. The only stricter
+path, upward separation over six rounds, was declared unreachable at
+admission, and iteration 24's 2.6 percent one-thread saving read 1.009 over
+three rounds. Split evidence recorded: G1 0.9564 against a 0.9988 control,
+G2 and G3 held, identity exact on five sessions at both commits.
+
+Patches kept: research/perf/patches/value-in-three-words.spur.patch (A + B on
+9340a2e) and value-in-three-words-A.spur.patch. The change is identity-exact
+and cheap to carry: it may return as a rider inside a larger candidate whose
+own reading clears the floor, or with a fresh frozen prediction whose location
+guard names the frame-building and interpreter rows, read on a new profile.
+
+Lessons: a location guard derived from a one-thread profile names where cost
+falls at one thread; at 30 threads the same saving landed in different
+symbols. A pre-round guard on a 30-thread profile should be derived from a
+30-thread prototype profile, or name a family broad enough to cover every
+reader of the changed type. Tooling: the binary's command name is its file
+name (cand-spur, lc-spur), so a filter on the command "spur" reads zero for
+every candidate; match names ending in "spur".

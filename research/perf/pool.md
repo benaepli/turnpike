@@ -1654,7 +1654,7 @@ rounds of clock each:
 
 ## value-in-three-words
 
-- category: data layout and representation | origin: proposer | status: admitted, building (iteration 25, autonomous)
+- category: data layout and representation | origin: proposer | status: closed (iteration 25, autonomous) - refuted on G4: clone family 3.90 to 3.82 against at most 3.33; G1 0.9564 (control 0.9988), G2 A 0.9908, B over A 0.9714, G3 identity exact; at 30 threads the saving shows in the interpreter and frame rows (-1.67); no rounds; patches research/perf/patches/value-in-three-words.spur.patch and value-in-three-words-A.spur.patch; returns only as a rider or with a fresh prediction read on a new profile
 - mechanism: commit A (value-signature-storage-dropped): HashPolicy::Sig is
   () under NoHashing, Value<NoHashing> 32 bytes, readers call Value::sig().
   Commit B (wide-value-payloads-in-two-words): Struct as a u32 shape id,
@@ -1691,12 +1691,12 @@ rounds of clock each:
 
 ## value-signature-storage-dropped
 
-- category: data layout | origin: proposer | status: commit A of value-in-three-words; a rider on its own, never its own session
+- category: data layout | origin: proposer | status: closed with value-in-three-words (iteration 25) - G2 A 0.9908 held narrowly; patch research/perf/patches/value-in-three-words-A.spur.patch; rider only
 - declarations: search-neutral, shared. Judge net 4 (gain 4, cost 0).
 
 ## wide-value-payloads-in-two-words
 
-- category: data layout | origin: proposer | status: commit B of value-in-three-words only
+- category: data layout | origin: proposer | status: closed with value-in-three-words (iteration 25) - B over A 0.9714 held; G4 clone guard fired on the stack
 - declarations: search-neutral, shared. Judge net 2 (gain 4, cost 2) - rewrites the Channel, FifoLink and Variant arms of history.rs JSON.
 
 ## runtime-error-behind-one-pointer

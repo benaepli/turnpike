@@ -1,0 +1,397 @@
+diff --git a/spur-core/src/simulator/core/compiled_eval/test.rs b/spur-core/src/simulator/core/compiled_eval/test.rs
+index 28e31d7..70172d8 100644
+--- a/spur-core/src/simulator/core/compiled_eval/test.rs
++++ b/spur-core/src/simulator/core/compiled_eval/test.rs
+@@ -315,7 +315,7 @@ fn check_all<H: HashPolicy>() -> (usize, Coverage) {
+         let after = util_stats::pending_evaluator_events();
+         assert_eq!(outcome(&legacy), outcome(&compiled), "kept value of {e:?}");
+         if let (Ok(a), Ok(c)) = (&legacy, &compiled) {
+-            assert!(a == c && a.sig == c.sig, "kept value of {e:?}");
++            assert!(a == c && a.sig() == c.sig(), "kept value of {e:?}");
+         }
+         let legacy_events: Vec<u64> = (0..3).map(|i| mid[i] - before[i]).collect();
+         let compiled_events: Vec<u64> = (0..3).map(|i| after[i] - mid[i]).collect();
+@@ -431,7 +431,7 @@ fn struct_literals_evaluate_like_eval<H: HashPolicy>() {
+             let after = util_stats::pending_evaluator_events();
+             assert_eq!(outcome(&legacy), outcome(&compiled), "{e:?}");
+             if let (Ok(a), Ok(c)) = (&legacy, &compiled) {
+-                assert!(a == c && a.sig == c.sig, "{e:?}");
++                assert!(a == c && a.sig() == c.sig(), "{e:?}");
+             }
+             assert_eq!(events_between(before, mid), events_between(mid, after), "{e:?}");
+         }
+@@ -512,7 +512,7 @@ fn struct_literals_count_their_field_order<H: HashPolicy>() {
+             let after = util_stats::pending_struct_literal_counts();
+             let a = legacy.expect("the literal evaluates");
+             let c = compiled.expect("the literal evaluates");
+-            assert!(a == c && a.sig == c.sig, "{keys:?}");
++            assert!(a == c && a.sig() == c.sig(), "{keys:?}");
+             assert_eq!(
+                 [after[0] - before[0], after[1] - before[1], after[2] - before[2]],
+                 [1, in_order as u64, !in_order as u64],
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index d3e9393..5bc8044 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -130,7 +130,7 @@ impl<H: HashPolicy> FrameBuilder<H> {
+     #[inline]
+     pub fn push(&mut self, value: Value<H>) {
+         if H::EAGER {
+-            self.sig ^= H::mix(value.sig, self.slots.len() as u32);
++            self.sig ^= H::mix(value.sig(), self.slots.len() as u32);
+         }
+         self.slots.push(value);
+     }
+@@ -149,7 +149,7 @@ impl<H: HashPolicy> FrameBuilder<H> {
+                 .min(total.saturating_sub(defaults_start));
+         if start < total {
+             let (unit_sig, nil_sig) = if H::EAGER {
+-                (Value::<H>::unit().sig, Value::<H>::option_none().sig)
++                (Value::<H>::unit().sig(), Value::<H>::option_none().sig())
+             } else {
+                 (0, 0)
+             };
+@@ -167,7 +167,7 @@ impl<H: HashPolicy> FrameBuilder<H> {
+                     }
+                 };
+                 if H::EAGER {
+-                    sig ^= H::mix(value.sig, i as u32);
++                    sig ^= H::mix(value.sig(), i as u32);
+                 }
+                 value
+             });
+@@ -189,7 +189,7 @@ pub fn build_frame<H: HashPolicy>(func: &FunctionInfo, args: &[Value<H>]) -> Env
+     let mut sig = builder.sig;
+     let copied = args[..params].iter().enumerate().map(|(i, arg)| {
+         if H::EAGER {
+-            sig ^= H::mix(arg.sig, i as u32);
++            sig ^= H::mix(arg.sig(), i as u32);
+         }
+         arg.clone()
+     });
+@@ -205,6 +205,7 @@ pub(crate) fn update_collection<H: HashPolicy>(
+     val: Value<H>,
+ ) -> Result<Value<H>, RuntimeError> {
+     use ValueKind::*;
++    let col_sig = col.sig();
+     match col.kind {
+         Struct(shape, mut fields) => {
+             let known = match &key.kind {
+@@ -213,10 +214,10 @@ pub(crate) fn update_collection<H: HashPolicy>(
+             };
+             let Some(i) = known else {
+                 let map = struct_to_map(shape, &fields);
+-                return update_collection(Value::<H>::with_sig(Map(map), col.sig), key, val);
++                return update_collection(Value::<H>::with_sig(Map(map), col_sig), key, val);
+             };
+             let new_sig = if H::EAGER {
+-                col.sig ^ hash_map_entry(key.sig, fields[i].sig) ^ hash_map_entry(key.sig, val.sig)
++                col_sig ^ hash_map_entry(key.sig(), fields[i].sig()) ^ hash_map_entry(key.sig(), val.sig())
+             } else {
+                 util_stats::record_struct_other_lookups(1);
+                 0
+@@ -226,11 +227,11 @@ pub(crate) fn update_collection<H: HashPolicy>(
+         }
+         Map(m) => {
+             let new_sig = if H::EAGER {
+-                let mut s = col.sig;
++                let mut s = col_sig;
+ 
+                 // Remove the old entry's contribution (if it exists)
+                 if let Some(old_val) = m.get(&key) {
+-                    let old_entry_hash = hash_map_entry(key.sig, old_val.sig);
++                    let old_entry_hash = hash_map_entry(key.sig(), old_val.sig());
+                     s ^= old_entry_hash; // XOR removes it
+                 // length stays the same when replacing, so no change needed
+                 } else {
+@@ -248,7 +249,7 @@ pub(crate) fn update_collection<H: HashPolicy>(
+                 }
+ 
+                 // Add the new entry's contribution
+-                let new_entry_hash = hash_map_entry(key.sig, val.sig);
++                let new_entry_hash = hash_map_entry(key.sig(), val.sig());
+                 s ^= new_entry_hash;
+                 s
+             } else {
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 7431f7a..428c154 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -1621,7 +1621,7 @@ impl<H: HashPolicy> State<H> {
+ 
+         // Persisted data: Order-independent XOR
+         for (&node_idx, (tid, val)) in self.persisted_data.iter() {
+-            h ^= H::mix(compute_hash(&(node_idx, tid.0)), 2000) ^ H::mix(val.sig, 2001);
++            h ^= H::mix(compute_hash(&(node_idx, tid.0)), 2000) ^ H::mix(val.sig(), 2001);
+         }
+ 
+         // Purgatory
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index 1a6d521..bc7a7c6 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -292,7 +292,7 @@ impl<H: HashPolicy> std::fmt::Debug for ValueKind<H> {
+ #[derive(Clone, Debug)]
+ pub struct Value<H: HashPolicy> {
+     pub kind: ValueKind<H>,
+-    pub sig: u64,
++    pub sig: H::Sig,
+     _marker: PhantomData<H>,
+ }
+ 
+@@ -313,7 +313,7 @@ impl<H: HashPolicy> Value<H> {
+         let sig = if H::EAGER { Self::compute_sig(&kind) } else { 0 };
+         Self {
+             kind,
+-            sig,
++            sig: H::sig_from_bits(sig),
+             _marker: PhantomData,
+         }
+     }
+@@ -376,7 +376,7 @@ impl<H: HashPolicy> Value<H> {
+                     None => 0u8.hash(&mut h),
+                     Some(v) => {
+                         1u8.hash(&mut h);
+-                        v.sig.hash(&mut h);
++                        v.sig().hash(&mut h);
+                     }
+                 }
+                 h.finish()
+@@ -389,7 +389,7 @@ impl<H: HashPolicy> Value<H> {
+                 v.len().hash(&mut h);
+                 sig ^= h.finish();
+                 for (i, val) in v.iter().enumerate() {
+-                    sig ^= mix(val.sig, i as u32);
++                    sig ^= mix(val.sig(), i as u32);
+                 }
+                 sig
+             }
+@@ -401,7 +401,7 @@ impl<H: HashPolicy> Value<H> {
+                 v.len().hash(&mut h);
+                 sig ^= h.finish();
+                 for (i, val) in v.iter().enumerate() {
+-                    sig ^= mix(val.sig, i as u32);
++                    sig ^= mix(val.sig(), i as u32);
+                 }
+                 sig
+             }
+@@ -414,14 +414,14 @@ impl<H: HashPolicy> Value<H> {
+                 sig ^= h.finish();
+                 for (k, v) in m.iter() {
+                     // Use hash_map_entry for consistent entry hashing
+-                    sig ^= hash_map_entry(k.sig, v.sig);
++                    sig ^= hash_map_entry(k.sig(), v.sig());
+                 }
+                 sig
+             }
+             ValueKind::Struct(shape, fields) => {
+                 let mut sig = shape.sig_prefix;
+                 for (k, v) in shape.key_sigs.iter().zip(fields.iter()) {
+-                    sig ^= hash_map_entry(*k, v.sig);
++                    sig ^= hash_map_entry(*k, v.sig());
+                 }
+                 sig
+             }
+@@ -434,7 +434,7 @@ impl<H: HashPolicy> Value<H> {
+                     None => 0u8.hash(&mut h),
+                     Some(v) => {
+                         1u8.hash(&mut h);
+-                        v.sig.hash(&mut h);
++                        v.sig().hash(&mut h);
+                     }
+                 }
+                 h.finish()
+@@ -527,9 +527,9 @@ impl<H: HashPolicy> Value<H> {
+     pub fn into_map_form(self) -> Self {
+         match self.kind {
+             ValueKind::Struct(shape, fields) => {
+-                Self::with_sig(ValueKind::Map(struct_to_map(shape, &fields)), self.sig)
++                Self::with_sig(ValueKind::Map(struct_to_map(shape, &fields)), H::sig_bits(self.sig))
+             }
+-            kind => Self::with_sig(kind, self.sig),
++            kind => Self::with_sig(kind, H::sig_bits(self.sig)),
+         }
+     }
+ 
+@@ -538,10 +538,16 @@ impl<H: HashPolicy> Value<H> {
+     pub fn with_sig(kind: ValueKind<H>, sig: u64) -> Self {
+         Self {
+             kind,
+-            sig,
++            sig: H::sig_from_bits(sig),
+             _marker: PhantomData,
+         }
+     }
++
++    /// The stored signature; 0 under a policy that keeps none.
++    #[inline(always)]
++    pub fn sig(&self) -> u64 {
++        H::sig_bits(self.sig)
++    }
+ }
+ 
+ impl<H: HashPolicy> PartialEq for Value<H> {
+@@ -689,7 +695,7 @@ impl<H: HashPolicy> Hash for Value<H> {
+     #[inline]
+     fn hash<Ha: Hasher>(&self, state: &mut Ha) {
+         if H::EAGER {
+-            self.sig.hash(state);
++            self.sig().hash(state);
+         } else {
+             let sig = Self::compute_sig_leaf_only(&self.kind);
+             if !self.kind.is_composite() {
+@@ -1033,7 +1039,7 @@ impl<H: HashPolicy> Env<H> {
+ 
+         let mut sig = 0u64;
+         if H::EAGER {
+-            let unit_sig = Value::<H>::unit().sig;
++            let unit_sig = Value::<H>::unit().sig();
+             for i in 0..n {
+                 sig ^= H::mix(unit_sig, i as u32);
+             }
+@@ -1064,17 +1070,17 @@ impl<H: HashPolicy> Env<H> {
+                 self.slots.push(Value::<H>::unit());
+             }
+             if H::EAGER {
+-                let unit_sig = Value::<H>::unit().sig;
++                let unit_sig = Value::<H>::unit().sig();
+                 for i in old_len..idx {
+                     self.sig ^= H::mix(unit_sig, i as u32);
+                 }
+-                self.sig ^= H::mix(value.sig, slot);
++                self.sig ^= H::mix(value.sig(), slot);
+             }
+             self.slots.push(value);
+         } else {
+             if H::EAGER {
+-                let old_sig = self.slots[idx].sig;
+-                self.sig = H::update_env_sig(self.sig, old_sig, value.sig, slot);
++                let old_sig = self.slots[idx].sig();
++                self.sig = H::update_env_sig(self.sig, old_sig, value.sig(), slot);
+             }
+             // Copy-on-write: clones exactly `len` slots iff this env is shared.
+             self.slots.make_mut()[idx] = value;
+@@ -1097,7 +1103,7 @@ impl<H: HashPolicy> Env<H> {
+                 self.slots.push(Value::<H>::unit());
+             }
+             if H::EAGER {
+-                let unit_sig = Value::<H>::unit().sig;
++                let unit_sig = Value::<H>::unit().sig();
+                 for i in old_len..n {
+                     self.sig ^= H::mix(unit_sig, i as u32);
+                 }
+@@ -1376,13 +1382,13 @@ mod tests {
+             let v_clone = v.clone();
+             prop_assert_eq!(&v, &v_clone);
+             prop_assert_eq!(calculate_hash(&v), calculate_hash(&v_clone));
+-            prop_assert_eq!(v.sig, v_clone.sig);
++            prop_assert_eq!(v.sig(), v_clone.sig());
+         }
+ 
+         #[test]
+         fn test_value_structural_equality(v1 in arb_value()) {
+             let v_clone = v1.clone();
+-            prop_assert_eq!(v1.sig, v_clone.sig);
++            prop_assert_eq!(v1.sig(), v_clone.sig());
+         }
+ 
+         #[test]
+@@ -1488,12 +1494,12 @@ mod lazy_signature_tests {
+         for (l, e) in lazy.iter().zip(&eager) {
+             // A leaf-only signature stored at construction was the leaf's
+             // full signature, which does not depend on any other value.
+-            let stored = if l.kind.is_composite() { 0 } else { e.sig };
++            let stored = if l.kind.is_composite() { 0 } else { e.sig() };
+             assert_eq!(stored, Value::<NoHashing>::compute_sig_leaf_only(&l.kind), "{l:?}");
+             assert_eq!(fx_hash(l), fx_hash(&stored), "{l:?}");
+-            assert_eq!(l.sig, 0, "{l:?}");
+-            assert_eq!(e.sig, Value::<WithHashing>::compute_sig(&e.kind), "{e:?}");
+-            assert_eq!(fx_hash(e), fx_hash(&e.sig), "{e:?}");
++            assert_eq!(l.sig(), 0, "{l:?}");
++            assert_eq!(e.sig(), Value::<WithHashing>::compute_sig(&e.kind), "{e:?}");
++            assert_eq!(fx_hash(e), fx_hash(&e.sig()), "{e:?}");
+         }
+     }
+ 
+@@ -1727,7 +1733,7 @@ pub(crate) mod struct_tests {
+ 
+     fn check_single<H: HashPolicy>(s: &Value<H>, m: &Value<H>) {
+         assert!(matches!(s.kind, ValueKind::Struct(_, _)));
+-        assert_eq!(s.sig, m.sig, "{m:?}");
++        assert_eq!(s.sig(), m.sig(), "{m:?}");
+         assert_eq!(fx_hash(s), fx_hash(m), "{m:?}");
+         assert_eq!(std_hash(s), std_hash(m), "{m:?}");
+         assert_eq!(s.to_string(), m.to_string());
+@@ -1770,7 +1776,7 @@ pub(crate) mod struct_tests {
+                 let (a, b) = (a.unwrap(), b.unwrap());
+                 assert_eq!(mid.wrapping_sub(before), after.wrapping_sub(mid), "store {key:?}");
+                 assert_eq!(format!("{a:?}"), format!("{b:?}"));
+-                assert_eq!(a.sig, b.sig);
++                assert_eq!(a.sig(), b.sig());
+                 assert!(a == b);
+             }
+         }
+@@ -1856,6 +1862,8 @@ mod layout_tests {
+     }
+ }
+ 
++const _: () = assert!(std::mem::size_of::<Value<crate::simulator::hash_utils::NoHashing>>() == 32);
++
+ #[cfg(test)]
+ mod acted_token_tests {
+     use super::*;
+diff --git a/spur-core/src/simulator/hash_utils.rs b/spur-core/src/simulator/hash_utils.rs
+index 8748e26..a0243a9 100644
+--- a/spur-core/src/simulator/hash_utils.rs
++++ b/spur-core/src/simulator/hash_utils.rs
+@@ -48,6 +48,16 @@ pub trait HashPolicy: 'static + Clone + std::fmt::Debug + Send + Sync + Hash {
+     /// Update Env signature when a slot changes.
+     /// Typically XORs out old value signature and XORs in new value signature.
+     fn update_env_sig(old_sig: u64, old_val_sig: u64, new_val_sig: u64, slot: u32) -> u64;
++
++    /// Storage of a value's signature: the bits when signatures are kept,
++    /// nothing when every stored signature would be 0.
++    type Sig: Copy + Default + std::fmt::Debug + Send + Sync + 'static;
++
++    /// The signature bits held in `sig`; 0 when none are kept.
++    fn sig_bits(sig: Self::Sig) -> u64;
++
++    /// Storage for `bits`; under a policy that keeps none the bits must be 0.
++    fn sig_from_bits(bits: u64) -> Self::Sig;
+ }
+ 
+ /// Full hashing implementation - computes actual signatures.
+@@ -63,6 +73,17 @@ pub struct NoHashing;
+ 
+ impl HashPolicy for WithHashing {
+     const EAGER: bool = true;
++    type Sig = u64;
++
++    #[inline(always)]
++    fn sig_bits(sig: u64) -> u64 {
++        sig
++    }
++
++    #[inline(always)]
++    fn sig_from_bits(bits: u64) -> u64 {
++        bits
++    }
+ 
+     #[inline]
+     fn mix(sig: u64, pos: u32) -> u64 {
+@@ -77,6 +98,15 @@ impl HashPolicy for WithHashing {
+ 
+ impl HashPolicy for NoHashing {
+     const EAGER: bool = false;
++    type Sig = ();
++
++    #[inline(always)]
++    fn sig_bits(_sig: ()) -> u64 {
++        0
++    }
++
++    #[inline(always)]
++    fn sig_from_bits(_bits: u64) {}
+ 
+     #[inline]
+     fn mix(_sig: u64, _pos: u32) -> u64 {
