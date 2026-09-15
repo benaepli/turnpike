@@ -6610,3 +6610,34 @@ Low-cutoff profile research/perf/profiles/c302525-cand-eligibility-from-counters
 The first departure condition holds. Rounds start: six cross-binary rounds of
 the A+B binary against c302525, read together; A merges only on upward
 separation of runs per second with every counter in band in every round.
+
+### eligibility-and-crash-scans: six rounds and decision (autonomous)
+
+Read once, after all six were in; graded binary A + B.
+- Runs per second 1.0725, 1.1268, 1.0594, 1.1243, 1.0907, 1.0283; mean
+  1.0831 [1.0435, 1.1242] - separated upward, the departure's second
+  condition. Above the stack band [1.018, 1.038], which was read for
+  regression only; an upper-edge excess refutes nothing. Microseconds per run
+  1.0909 [1.0515, 1.1317]; steps per run 0.9889 [0.9492, 1.0301].
+- Counters every round: counted + walked = steer_authority.steps exactly;
+  general_steps 0; walked at most crash-eligible; walked / crash-eligible
+  0.991 [0.40, 1.00]; walked elements per walked step 1.64-1.66 [1, 6];
+  skipped + steps_with_crash_eligible = steer_authority.steps exactly;
+  skipped / steps 0.816-0.829 [0.80, 0.88]. Description: eligible_built per
+  placebo decision 0.026-0.028 both sides; crash holds per run 368-396 base,
+  372-392 candidate.
+- Spread check: end reasons iterations_exhausted (0.1675 against 0.1745) and
+  learned_cap_reached (0.2017 against 0.1974) outside; throughput-dependent in
+  the wall-budgeted campaign, with byte identity exact on the caps-engaged
+  one-thread session with crash holds engaged; standing exemption.
+- Placebo on the stack profile 0.952 of reference; no referral.
+
+Decision: merge A and B as two spur commits. Every guard held except A's G1,
+whose frozen text matched the change's own replacement loop; under the
+departure registered before any round, the old count pass read 0.000 on the
+low-cutoff profile and runs per second separated upward within six rounds,
+with every counter in band in every round and identity exact.
+
+Revert criterion, registered before the post-merge baseline is read: the fresh
+post-merge baseline reads below 8,592.6 runs per second (0.97 of the 8,858.3
+cached for c302525).
