@@ -8295,3 +8295,69 @@ primary.
 - Leads not proposed: local-queue sizes maintained at enqueue and dequeue (1-1.5
   points), pending deliveries counted per destination (at most 0.4), inlining
   timeline_steer_bias.
+
+### Judgment (tmp/loop/perf/it30-judgment.md): nothing admitted
+
+H1 per-step-probe-counters-derived-at-fold held (net 3): folded_increments is
+a valid construction-defined count and the derivation is exact in source, but
+each removed write costs about 4 cycles (1.52 percent at one thread) and the
+30-thread prototype shows no scheduler-family fall at r 1.007 or below; guards
+loose enough to pass the prototype at r 0.98 pass an identical-source no-op by
+0.7-2.1 points, more than H1's whole expected 30-thread size, so they could
+not falsify. Return conditions written into the pool. Ruling on H3: a counter
+that prices one commit cannot be the primary for a unit whose other commit it
+does not see while runs per second only blocks; H3 not admissible. H2's skips
+are neutral (no draw, counter or state behind the discarded score; the route
+call records one consultation and returns before any draw; no Recover reaches
+the network or timer queues in production) but it has only runs per second,
+whose floor its band sits under: parked behind the user's case. The placebo
+referral does not fire: the 0.875 came from a seven-row r inflated by Beta
+sampling and random_range; over 32 untouched rows r is 0.979-0.987 and the
+placebo reads 0.909-0.935, inside [0.9, 1.1]. False or misleading: every
+scheduler block written through bump; the placebo referral expected to fire;
+G2 limits that pass the prototype only at r of at least 1.026; three of four
+identities written by the derivation itself; a schedule_runnable family that
+counted two rows twice; A + B 0.9656 as a measurement.
+
+Decision (autonomous): nothing built this iteration. Pool updated.
+
+## Direction review after iteration 30 (autonomous)
+
+Called for by three iterations without a merge (28 closed, 29 held, 30
+nothing admitted). The tree has not moved (spur 3b53d0a).
+
+What the three say together. The largest costs left (memmove, the value
+family, the allocator, record moves) are paid in work no existing leaf counts,
+and savings there read diluted on runs per second; both cases are with the
+user. Scheduler work that an existing counter does price turned out small
+(counter writes at about 4 cycles each). The two merges this session came
+from the interpreter, whose work is counted by label_execs,
+leaf_operands_inline, tree_evals and frame.calls.
+
+Verdict. Iteration 31 takes the algorithmic lens (departure from rotation,
+which gives contention next: a contention saving has no counter and no
+one-thread price, the combination the user's cases concern), focus directive:
+synchronous calls. The iteration-27 census counted 1,999 synchronous calls per
+VR run, 1,190 of them Node.primary_of; substituting its body into the caller
+as one tree priced 0.9729 but moved evaluation order (ListLen past Find's
+check) and dropped label executions, and leaf calls on a stack frame priced
+1.02 (slower). What is untried is removing call and frame work at decode while
+keeping every evaluation, its order and its error text exact, with frame.calls
+- emitted by both binaries - falling by exactly the calls not made. Conditions
+carried forward: census first; implementation-faithful prototype on a
+one-thread ABBA with a fresh control; location guards from a 30-thread
+prototype profile with r over at least 25 untouched rows; about 3 percent of
+one-thread cycles. Steering audit: the gradability directive of iteration 30
+found the priced scheduler work small; this one returns to the family that
+merged twice, on a counter that already exists.
+
+Digest, iteration 30: redundant-work lens on the scheduler with an existing
+counter as primary. A census found 20.7 probe-counter writes per step (13.1
+derivable per run), 8.0 queue sizes rebuilt per step (0.9 changing), and
+discarded scores and scans. Probe counters derived at fold priced 1.5 percent
+on a valid counter; the unread scoring and scans 2.0 percent with no counter.
+The judge admitted nothing: H1 held with return conditions (its 30-thread
+signal could not be told from a no-op), the stack ruled inadmissible on a
+counter that sees only half of it, H2 parked behind the user's case, and the
+placebo referral found not to fire under a corrected r. Tree unchanged at spur
+3b53d0a.

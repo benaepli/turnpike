@@ -1916,3 +1916,43 @@ rounds of clock each:
 
 - category: data layout | origin: proposer | status: held with record-moves-and-frames-held-once (iteration 29) - B over A 0.9310 at one thread; patch research/perf/patches/record-moves-collapsed-over-frames-A.spur.patch
 - declarations: search-neutral, shared. Judge net 3 (gain 5, cost 2).
+
+## per-step-probe-counters-derived-at-fold
+
+- category: redundant work per step | origin: proposer | status: held (iteration 30) - re-proposes unweighted-steer-counters-derived-at-fold with new evidence; judge net 3, not built
+- mechanism: the scheduler's per-step probe counter writes stop on an active
+  run block and the same values are added at fold (derivation 8S + 4D + C - E
+  + T reproduces the prototype's 133,836,828 exactly).
+- evidence: stats_local.folded_increments 20.70 to 7.57 per VR step; baseline
+  caches 21.14-21.26 per step, 12.97-12.99 derivable (ratio about 2.57);
+  one-thread ABBA 0.9848 over base (control 0.9957); about 4 cycles per removed
+  write. 30-thread A + B prototype shows no scheduler-family fall at r 1.007 or
+  below.
+- verified by the judge: folded_increments is a valid construction-defined
+  count; derived values match base on failed, cut and stale-generation runs
+  (a mid-step panic is off by a few counts); the steer_audit_always defect of
+  iteration 18 is fixed. Three of the four proposed identities are written by
+  the derivation itself. False: "every scheduler block is written through
+  bump" (timer_context.biased_steps, crash_anchor.timing_bias_* and
+  steer_authority.audited are direct fetch_add).
+- returns if any one holds: the user adopts a one-thread cycles or other
+  fixed-work primary for identity-exact changes; an A-only 30-thread profile
+  beside a same-source rebuild shows the family falling by at least 0.6 x r
+  beyond that pair's spread (r over at least 25 untouched rows, Beta and
+  random_range excluded); or it rides as commit A with a candidate whose own
+  counter prices most of the unit. Owed on return: identity on VR,
+  crash-heavy, Mencius, caps-engaged, a steer_audit_always session, a
+  weighted-term session and a multiplier-audit-off session; runs table EXCEPT
+  ALL; the active-against-inactive unit test.
+- declarations: search-neutral, shared. Judge net 3 (gain 3, cost 0).
+- full record: tmp/loop/perf/it30-judgment.md.
+
+## unread-scoring-and-scans-skipped
+
+- category: redundant work per step | origin: proposer | status: parked (iteration 30) - neutral skips verified (discarded single-candidate score, route_by_terms without a weighted predicate, the audit's quick-fire scan on network and timer queues); about 2.0 percent over H1 at one thread with no counter both binaries emit; waits on the user's case on counterless savings
+- declarations: search-neutral, shared. Judge net 2 (gain 2, cost 0).
+
+## probe-counters-and-unread-scoring
+
+- category: combined | origin: proposer | status: not admitted (iteration 30) - a counter that prices commit A cannot be the primary for A + B while runs per second only blocks; the stack price 0.9656 was a product of two sessions (cross-session 0.968-0.969)
+- declarations: search-neutral, shared. Judge net 2.
