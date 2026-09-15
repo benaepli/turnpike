@@ -1544,7 +1544,7 @@ rounds of clock each:
 
 ## run-local-value-refcounts
 
-- category: allocation and memory traffic | origin: proposer | status: proposed (iteration 24, interactive) - part of value-refcounts-then-register-ops
+- category: allocation and memory traffic | origin: proposer | status: closed (iteration 24, interactive, user) - value-refcounts-ab: runs per second 1.0091 [0.9544, 1.0671] over 3 rounds, no gain; one-thread cycles 0.969-0.982 against at most 0.96 (fired on every read); census Value family 10.36 to 0.105 and G1, G2 held; patch research/perf/patches/value-refcounts-ab.spur.patch
 - mechanism: (A) ecow's EcoVec forked into spur-core with a plain, non-atomic
   count and no Send/Sync, used for Value sequences and env slots; (B) the
   string type forked the same way with immortal program literals (clone and
@@ -1576,7 +1576,7 @@ rounds of clock each:
 
 ## register-ops-written-in-place
 
-- category: data layout and representation | origin: proposer | status: proposed (iteration 24, interactive) - part of value-refcounts-then-register-ops; build only on top of run-local-value-refcounts
+- category: data layout and representation | origin: proposer | status: proposed, not built (iteration 24) - the composite closed before C; returns only as its own candidate on its own evidence, and its size argument (1-3 points from the stall count) must be re-argued first
 - mechanism: the decoded form (Op, CExpr, Opnd, ceval, run_common_op) replaced
   by flat register code: one op per vertex (vertex ids, pc transitions and
   label_execs unchanged), expression trees as post-order ranges of Copy
@@ -1603,7 +1603,7 @@ rounds of clock each:
 
 ## value-refcounts-then-register-ops
 
-- category: combined | origin: user (direction: structural changes toward 10 percent) | status: approved by the user; A + B built, pre-round cycles gate fired (0.974 against at most 0.96), filed for the user (iteration 24, interactive)
+- category: combined | origin: user (direction: structural changes toward 10 percent) | status: closed (iteration 24, interactive, user) - A + B read 1.0091 [0.9544, 1.0671] and missed its one-thread cycles gate; C not built
 - plan: research/perf/plans/value-refcounts-then-register-ops.md
 - one branch from 9340a2e: commit A and B (run-local-value-refcounts), commit
   C (register-ops-written-in-place). Before building, a 0.3-cutoff profile and

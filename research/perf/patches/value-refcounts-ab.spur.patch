@@ -1,0 +1,3891 @@
+diff --git a/spur-core/src/compiler/cfg.rs b/spur-core/src/compiler/cfg.rs
+index 0d6a904..e6198e4 100644
+--- a/spur-core/src/compiler/cfg.rs
++++ b/spur-core/src/compiler/cfg.rs
+@@ -13,7 +13,7 @@ use crate::compiler::lowered::{
+     LUserFuncCall, LVarInit,
+ };
+ use crate::parser::Span;
+-use ecow::EcoString;
++use crate::simulator::SharedLiteral;
+ use std::collections::HashMap;
+ use trace_names::intern_trace_name;
+ 
+@@ -1158,7 +1158,7 @@ impl Compiler {
+                     |v| Expr::TupleAccess(v, i))
+             }
+             LExprKind::FieldAccess(e, field_id) => {
+-                let field = EcoString::from(self.id_to_name[field_id].as_str());
++                let field = SharedLiteral::intern(self.id_to_name[field_id].as_str());
+                 self.compile_unary(e, target, next_vertex, ctx,
+                     |v| Expr::Find(v, Box::new(Expr::String(field))))
+             }
+@@ -1170,7 +1170,7 @@ impl Compiler {
+                 self.compile_unary(e, target, next_vertex, ctx, Expr::Some)
+             }
+             LExprKind::SafeFieldAccess(e, field_id) => {
+-                let field = EcoString::from(self.id_to_name[field_id].as_str());
++                let field = SharedLiteral::intern(self.id_to_name[field_id].as_str());
+                 self.compile_unary(e, target, next_vertex, ctx,
+                     |v| Expr::SafeFind(v, Box::new(Expr::String(field))))
+             }
+@@ -1188,7 +1188,7 @@ impl Compiler {
+                 let (tmps, simple_exprs) = self.compile_temp_list(val_exprs.len());
+                 let final_pairs = field_ids
+                     .into_iter()
+-                    .map(|fid| Expr::String(EcoString::from(self.id_to_name[&fid].as_str())))
++                    .map(|fid| Expr::String(SharedLiteral::intern(self.id_to_name[&fid].as_str())))
+                     .zip(simple_exprs)
+                     .collect();
+                 let final_expr = Expr::Map(final_pairs);
+@@ -1199,13 +1199,13 @@ impl Compiler {
+ 
+             LExprKind::VariantLit(enum_id, variant_id, Some(payload_expr)) => {
+                 let eid = enum_id.0 as u32;
+-                let vname = EcoString::from(self.id_to_name[variant_id].as_str());
++                let vname = SharedLiteral::intern(self.id_to_name[variant_id].as_str());
+                 self.compile_unary(payload_expr, target, next_vertex, ctx,
+                     |v| Expr::Variant(eid, vname, Some(v)))
+             }
+ 
+             LExprKind::IsVariant(e, _enum_id, variant_id) => {
+-                let vname = EcoString::from(self.id_to_name[variant_id].as_str());
++                let vname = SharedLiteral::intern(self.id_to_name[variant_id].as_str());
+                 self.compile_unary(e, target, next_vertex, ctx,
+                     |v| Expr::IsVariant(v, vname))
+             }
+@@ -1484,7 +1484,7 @@ impl Compiler {
+         Some(match &expr.kind {
+             LExprKind::Var(id, _name) => Expr::Var(self.resolve_slot(*id)),
+             LExprKind::IntLit(i) => Expr::Int(*i),
+-            LExprKind::StringLit(s) => Expr::String(EcoString::from(s.as_str())),
++            LExprKind::StringLit(s) => Expr::String(SharedLiteral::intern(s.as_str())),
+             LExprKind::BoolLit(b) => Expr::Bool(*b),
+             LExprKind::NilLit => Expr::Nil,
+             LExprKind::BinOp(op, l, r) => {
+@@ -1566,14 +1566,14 @@ impl Compiler {
+             }
+             LExprKind::FieldAccess(target, field_id) => Expr::Find(
+                 Box::new(self.try_to_expr(target)?),
+-                Box::new(Expr::String(EcoString::from(self.id_to_name[field_id].as_str()))),
++                Box::new(Expr::String(SharedLiteral::intern(self.id_to_name[field_id].as_str()))),
+             ),
+             LExprKind::MakeIter(_) | LExprKind::IterIsDone(_) | LExprKind::IterNext(_) => return None,
+             LExprKind::UnwrapOptional(e) => Expr::Unwrap(Box::new(self.try_to_expr(e)?)),
+             LExprKind::WrapInOptional(e) => Expr::Some(Box::new(self.try_to_expr(e)?)),
+             LExprKind::SafeFieldAccess(target, field_id) => Expr::SafeFind(
+                 Box::new(self.try_to_expr(target)?),
+-                Box::new(Expr::String(EcoString::from(self.id_to_name[field_id].as_str()))),
++                Box::new(Expr::String(SharedLiteral::intern(self.id_to_name[field_id].as_str()))),
+             ),
+             LExprKind::SafeIndex(target, index) => Expr::SafeFind(
+                 Box::new(self.try_to_expr(target)?),
+@@ -1586,7 +1586,7 @@ impl Compiler {
+                 let mut out = Vec::with_capacity(fields.len());
+                 for (field_id, val) in fields {
+                     out.push((
+-                        Expr::String(EcoString::from(self.id_to_name[field_id].as_str())),
++                        Expr::String(SharedLiteral::intern(self.id_to_name[field_id].as_str())),
+                         self.try_to_expr(val)?,
+                     ));
+                 }
+@@ -1594,12 +1594,12 @@ impl Compiler {
+             }
+             LExprKind::VariantLit(enum_id, variant_id, None) => Expr::Variant(
+                 enum_id.0 as u32,
+-                EcoString::from(self.id_to_name[variant_id].as_str()),
++                SharedLiteral::intern(self.id_to_name[variant_id].as_str()),
+                 None,
+             ),
+             LExprKind::IsVariant(e, _enum_id, variant_id) => Expr::IsVariant(
+                 Box::new(self.try_to_expr(e)?),
+-                EcoString::from(self.id_to_name[variant_id].as_str()),
++                SharedLiteral::intern(self.id_to_name[variant_id].as_str()),
+             ),
+             LExprKind::VariantPayload(e) => Expr::VariantPayload(Box::new(self.try_to_expr(e)?)),
+ 
+diff --git a/spur-core/src/compiler/cfg/compiled.rs b/spur-core/src/compiler/cfg/compiled.rs
+index 0690745..39a4130 100644
+--- a/spur-core/src/compiler/cfg/compiled.rs
++++ b/spur-core/src/compiler/cfg/compiled.rs
+@@ -8,7 +8,7 @@ use super::ir::{Expr, FunctionInfo, Instr, Label, Lhs, Program, VarSlot, Vertex}
+ use crate::analysis::resolver::NameId;
+ use crate::analysis::type_id::TypeId;
+ use crate::simulator::{StructShape, struct_shape};
+-use ecow::EcoString;
++use crate::simulator::SharedLiteral;
+ 
+ /// A child expression position. Slots and literals are read in place by the
+ /// parent; only `Tree` enters the tree evaluator.
+@@ -17,7 +17,7 @@ pub enum Opnd {
+     Local(u32),
+     Node(u32),
+     Int(i64),
+-    Str(EcoString),
++    Str(SharedLiteral),
+     Bool(bool),
+     Unit,
+     Nil,
+@@ -31,7 +31,7 @@ pub enum Opnd {
+ pub enum CExpr {
+     Find(Opnd, Opnd),
+     /// `Find` whose key is a string literal.
+-    FieldGet(Opnd, EcoString),
++    FieldGet(Opnd, SharedLiteral),
+     Not(Opnd),
+     And(Opnd, Opnd),
+     Or(Opnd, Opnd),
+@@ -69,8 +69,8 @@ pub enum CExpr {
+     IntToString(Opnd),
+     BoolToString(Opnd),
+     NodeToString(Opnd),
+-    Variant(u32, EcoString, Option<Opnd>),
+-    IsVariant(Opnd, EcoString),
++    Variant(u32, SharedLiteral, Option<Opnd>),
++    IsVariant(Opnd, SharedLiteral),
+     VariantPayload(Opnd),
+     SafeFind(Opnd, Opnd),
+     SafeTupleAccess(Opnd, usize),
+@@ -436,7 +436,7 @@ fn struct_literal(kv: &[(Expr, Expr)]) -> Option<CExpr> {
+             Expr::String(s) => Some(s.clone()),
+             _ => None,
+         })
+-        .collect::<Option<Vec<EcoString>>>()?;
++        .collect::<Option<Vec<SharedLiteral>>>()?;
+     let shape = struct_shape(&names)?;
+     let fields = kv
+         .iter()
+diff --git a/spur-core/src/compiler/cfg/ir.rs b/spur-core/src/compiler/cfg/ir.rs
+index 3d61151..0aba208 100644
+--- a/spur-core/src/compiler/cfg/ir.rs
++++ b/spur-core/src/compiler/cfg/ir.rs
+@@ -1,7 +1,7 @@
+ use crate::analysis::resolver::NameId;
+ use crate::analysis::type_id::{TypeId, TypeIdMap};
+ use crate::parser::{BinOp, Span};
+-use ecow::EcoString;
++use crate::simulator::SharedLiteral;
+ use serde::ser::SerializeMap;
+ use serde::{Serialize, Serializer};
+ use std::collections::HashMap;
+@@ -47,7 +47,7 @@ pub enum Expr {
+     ListPrepend(Box<Expr>, Box<Expr>),
+     ListAppend(Box<Expr>, Box<Expr>),
+     ListSubsequence(Box<Expr>, Box<Expr>, Box<Expr>),
+-    String(EcoString),
++    String(SharedLiteral),
+     LessThan(Box<Expr>, Box<Expr>),
+     LessThanEquals(Box<Expr>, Box<Expr>),
+     GreaterThan(Box<Expr>, Box<Expr>),
+@@ -74,8 +74,8 @@ pub enum Expr {
+     BoolToString(Box<Expr>),
+     NodeToString(Box<Expr>),
+     // Variant operations
+-    Variant(u32, EcoString, Option<Box<Expr>>), // (enum_id, variant_name, payload)
+-    IsVariant(Box<Expr>, EcoString),            // Check if value is a specific variant
++    Variant(u32, SharedLiteral, Option<Box<Expr>>), // (enum_id, variant_name, payload)
++    IsVariant(Box<Expr>, SharedLiteral),            // Check if value is a specific variant
+     VariantPayload(Box<Expr>),                  // Extract payload from variant
+     // Safe navigation: nil-check then access, wrapping result in Option
+     SafeFind(Box<Expr>, Box<Expr>),
+diff --git a/spur-core/src/simulator.rs b/spur-core/src/simulator.rs
+index d8db869..6e15933 100644
+--- a/spur-core/src/simulator.rs
++++ b/spur-core/src/simulator.rs
+@@ -1,6 +1,7 @@
+ pub mod arm_selector;
+ pub mod config_override;
+ mod core;
++pub use core::local_str::SharedLiteral;
+ pub(crate) use self::core::values::{StructShape, struct_shape};
+ pub mod client_anchor;
+ pub mod crash_phase;
+diff --git a/spur-core/src/simulator/core.rs b/spur-core/src/simulator/core.rs
+index 3869f2e..d93114b 100644
+--- a/spur-core/src/simulator/core.rs
++++ b/spur-core/src/simulator/core.rs
+@@ -1,4 +1,6 @@
+ pub mod error;
++pub mod local_str;
++pub mod local_vec;
+ pub mod values;
+ pub mod state;
+ pub mod eval;
+diff --git a/spur-core/src/simulator/core/compiled_eval.rs b/spur-core/src/simulator/core/compiled_eval.rs
+index b29ceb9..91866b7 100644
+--- a/spur-core/src/simulator/core/compiled_eval.rs
++++ b/spur-core/src/simulator/core/compiled_eval.rs
+@@ -13,9 +13,9 @@ use crate::simulator::core::values::{
+ };
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::util_stats::{self, InterpreterTally};
+-use ecow::EcoString;
++use crate::simulator::core::local_str::LocalStr;
+ use std::collections::HashMap;
+-use std::sync::Arc;
++use std::rc::Rc;
+ 
+ /// Moves each field value from its evaluation index to its shape position.
+ /// `fields[i].0` is the shape position of the value at index `i`, and the
+@@ -64,7 +64,7 @@ pub fn coperand<'a, H: HashPolicy>(
+         }
+         Opnd::Str(s) => {
+             t.leaf_operands_inline += 1;
+-            Ok(Operand::Owned(Value::<H>::string(s.clone())))
++            Ok(Operand::Owned(Value::<H>::literal(s)))
+         }
+         Opnd::Bool(b) => {
+             t.leaf_operands_inline += 1;
+@@ -106,7 +106,7 @@ pub fn cvalue<H: HashPolicy>(
+         }
+         Opnd::Str(s) => {
+             t.leaf_operands_inline += 1;
+-            Ok(Value::<H>::string(s.clone()))
++            Ok(Value::<H>::literal(s))
+         }
+         Opnd::Bool(b) => {
+             t.leaf_operands_inline += 1;
+@@ -143,7 +143,7 @@ pub fn ceval<H: HashPolicy>(
+             match (&v1.kind, &v2.kind) {
+                 (ValueKind::Int(i1), ValueKind::Int(i2)) => Ok(Value::<H>::int(i1 + i2)),
+                 (ValueKind::String(s1), ValueKind::String(s2)) => {
+-                    let mut result = EcoString::with_capacity(s1.len() + s2.len());
++                    let mut result = LocalStr::with_capacity(s1.len() + s2.len());
+                     result.push_str(s1.as_str());
+                     result.push_str(s2.as_str());
+                     Ok(Value::<H>::string(result))
+@@ -286,7 +286,7 @@ pub fn ceval<H: HashPolicy>(
+             match &col_val.kind {
+                 ValueKind::Map(m) => {
+                     t.leaf_operands_inline += 1;
+-                    let k = Value::<H>::string(name.clone());
++                    let k = Value::<H>::literal(name);
+                     m.get(&k).cloned().ok_or(RuntimeError::KeyNotFound)
+                 }
+                 ValueKind::Struct(shape, fields) => {
+@@ -301,7 +301,7 @@ pub fn ceval<H: HashPolicy>(
+                 }
+                 ValueKind::List(list) => {
+                     t.leaf_operands_inline += 1;
+-                    let idx = Value::<H>::string(name.clone()).as_int()? as usize;
++                    let idx = Value::<H>::literal(name).as_int()? as usize;
+                     list.get(idx).cloned().ok_or(RuntimeError::IndexOutOfBounds {
+                         index: idx,
+                         len: list.len(),
+@@ -426,9 +426,9 @@ pub fn ceval<H: HashPolicy>(
+         }
+         CExpr::IntToString(e) => {
+             let i = coperand(l, n, e, r, t)?.as_int()?;
+-            Ok(Value::<H>::string(EcoString::from(Decimal::of_i64(i).as_str())))
++            Ok(Value::<H>::string(LocalStr::from(Decimal::of_i64(i).as_str())))
+         }
+-        CExpr::BoolToString(e) => Ok(Value::<H>::string(EcoString::from(
++        CExpr::BoolToString(e) => Ok(Value::<H>::string(LocalStr::from(
+             coperand(l, n, e, r, t)?.as_bool()?.to_string(),
+         ))),
+         CExpr::NodeToString(e) => {
+@@ -437,7 +437,7 @@ pub fn ceval<H: HashPolicy>(
+                 .get(&node_id.role)
+                 .map(|s| s.as_str())
+                 .unwrap_or("Unknown");
+-            Ok(Value::<H>::string(EcoString::from(format!(
++            Ok(Value::<H>::string(LocalStr::from(format!(
+                 "{}[{}]",
+                 role_name, node_id.index
+             ))))
+@@ -453,8 +453,8 @@ pub fn ceval<H: HashPolicy>(
+                 .as_ref()
+                 .map(|p| cvalue(l, n, p, r, t))
+                 .transpose()?
+-                .map(Arc::new);
+-            Ok(Value::<H>::variant(*enum_id, name.clone(), payload_val))
++                .map(Rc::new);
++            Ok(Value::<H>::variant(*enum_id, name.to_local(), payload_val))
+         }
+         CExpr::IsVariant(e, name) => {
+             let val = coperand(l, n, e, r, t)?;
+diff --git a/spur-core/src/simulator/core/compiled_eval/test.rs b/spur-core/src/simulator/core/compiled_eval/test.rs
+index 28e31d7..ba7ef54 100644
+--- a/spur-core/src/simulator/core/compiled_eval/test.rs
++++ b/spur-core/src/simulator/core/compiled_eval/test.rs
+@@ -122,7 +122,7 @@ fn local_env<H: HashPolicy>() -> Env<H> {
+         tuple.clone(),
+         Value::<H>::option_some(Value::<H>::int(5)),
+         Value::<H>::option_none(),
+-        Value::<H>::variant(0, "V".into(), Some(Arc::new(Value::<H>::int(9)))),
++        Value::<H>::variant(0, "V".into(), Some(Rc::new(Value::<H>::int(9)))),
+         Value::<H>::variant(0, "W".into(), None),
+         Value::<H>::node(server),
+         Value::<H>::unit(),
+@@ -494,7 +494,7 @@ fn struct_literals_count_their_field_order<H: HashPolicy>() {
+     let roles = HashMap::new();
+     let (mut in_order_seen, mut permuted_seen) = (0, 0);
+     for set in VR_KEY_SETS {
+-        let names: Vec<EcoString> = set.iter().map(|k| EcoString::from(*k)).collect();
++        let names: Vec<crate::simulator::core::local_str::SharedLiteral> = set.iter().map(|k| crate::simulator::core::local_str::SharedLiteral::intern(k)).collect();
+         let shape = struct_shape(&names).expect("a VR key set is a struct shape");
+         let mut sorted: Vec<&str> = set.to_vec();
+         sorted.sort_by_key(|k| shape.position(k));
+diff --git a/spur-core/src/simulator/core/eval.rs b/spur-core/src/simulator/core/eval.rs
+index d3e9393..a9c0478 100644
+--- a/spur-core/src/simulator/core/eval.rs
++++ b/spur-core/src/simulator/core/eval.rs
+@@ -1,16 +1,17 @@
+ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::{Expr, FunctionInfo, Lhs, SlotDefault, VarSlot};
+ use crate::simulator::core::error::RuntimeError;
++use crate::simulator::core::local_vec::LocalVec;
+ use crate::simulator::core::values::{
+     Decimal, Env, Value, ValueKind, ValueMap, ValueSeq, hash_map_entry, struct_get, struct_to_map,
+ };
+ use crate::simulator::hash_utils::HashPolicy;
+ use crate::simulator::util_stats;
+-use ecow::{EcoString, EcoVec};
++use crate::simulator::core::local_str::LocalStr;
+ use std::collections::HashMap;
+ use rustc_hash::FxHasher;
+ use std::hash::{Hash, Hasher};
+-use std::sync::Arc;
++use std::rc::Rc;
+ 
+ #[inline(always)]
+ pub fn load<H: HashPolicy>(slot: VarSlot, local_env: &Env<H>, node_env: &Env<H>) -> Value<H> {
+@@ -115,14 +116,14 @@ pub fn store<H: HashPolicy>(
+ /// values, then `finish` appends the declared starting value of every
+ /// remaining slot. The buffer is sized once and each slot written once.
+ pub struct FrameBuilder<H: HashPolicy> {
+-    slots: EcoVec<Value<H>>,
++    slots: LocalVec<Value<H>>,
+     sig: u64,
+ }
+ 
+ impl<H: HashPolicy> FrameBuilder<H> {
+     pub fn new(func: &FunctionInfo) -> Self {
+         Self {
+-            slots: EcoVec::with_capacity(func.local_slot_count as usize),
++            slots: LocalVec::with_capacity(func.local_slot_count as usize),
+             sig: 0,
+         }
+     }
+@@ -285,7 +286,7 @@ pub fn eval<H: HashPolicy>(
+     match expr {
+         Expr::Int(i) => Ok(Value::<H>::int(*i)),
+         Expr::Bool(b) => Ok(Value::<H>::bool(*b)),
+-        Expr::String(s) => Ok(Value::<H>::string(s.clone())),
++        Expr::String(s) => Ok(Value::<H>::literal(s)),
+         Expr::Unit => Ok(Value::<H>::unit()),
+         Expr::Nil => Ok(Value::<H>::option_none()),
+         Expr::Var(s) => Ok(load(*s, local_env, node_env)),
+@@ -296,7 +297,7 @@ pub fn eval<H: HashPolicy>(
+             match (&v1.kind, &v2.kind) {
+                 (ValueKind::Int(i1), ValueKind::Int(i2)) => Ok(Value::<H>::int(i1 + i2)),
+                 (ValueKind::String(s1), ValueKind::String(s2)) => {
+-                    let mut result = EcoString::with_capacity(s1.len() + s2.len());
++                    let mut result = LocalStr::with_capacity(s1.len() + s2.len());
+                     result.push_str(s1.as_str());
+                     result.push_str(s2.as_str());
+                     Ok(Value::<H>::string(result))
+@@ -521,9 +522,9 @@ pub fn eval<H: HashPolicy>(
+         }
+         Expr::IntToString(e) => {
+             let n = eval_operand(local_env, node_env, e, role_names)?.as_int()?;
+-            Ok(Value::<H>::string(EcoString::from(Decimal::of_i64(n).as_str())))
++            Ok(Value::<H>::string(LocalStr::from(Decimal::of_i64(n).as_str())))
+         }
+-        Expr::BoolToString(e) => Ok(Value::<H>::string(EcoString::from(
++        Expr::BoolToString(e) => Ok(Value::<H>::string(LocalStr::from(
+             eval_operand(local_env, node_env, e, role_names)?
+                 .as_bool()?
+                 .to_string(),
+@@ -534,7 +535,7 @@ pub fn eval<H: HashPolicy>(
+                 .get(&node_id.role)
+                 .map(|s| s.as_str())
+                 .unwrap_or("Unknown");
+-            Ok(Value::<H>::string(EcoString::from(format!(
++            Ok(Value::<H>::string(LocalStr::from(format!(
+                 "{}[{}]",
+                 role_name, node_id.index
+             ))))
+@@ -549,8 +550,8 @@ pub fn eval<H: HashPolicy>(
+                 .as_ref()
+                 .map(|p| eval(local_env, node_env, p, role_names))
+                 .transpose()?
+-                .map(Arc::new);
+-            Ok(Value::<H>::variant(*enum_id, name.clone(), payload_val))
++                .map(Rc::new);
++            Ok(Value::<H>::variant(*enum_id, name.to_local(), payload_val))
+         }
+         Expr::IsVariant(expr, name) => {
+             let val = eval_operand(local_env, node_env, expr, role_names)?;
+@@ -645,6 +646,7 @@ mod tests {
+     use crate::analysis::resolver::NameId;
+     use crate::simulator::core::state::NodeId;
+     use crate::simulator::hash_utils::WithHashing;
++    use crate::simulator::core::local_str::SharedLiteral;
+ 
+     fn dummy_slot(idx: u32) -> VarSlot {
+         VarSlot::Local(idx, NameId(0))
+@@ -715,31 +717,31 @@ mod tests {
+         let roles = HashMap::new();
+ 
+         // Basic concatenation
+-        let s1 = Box::new(Expr::String(EcoString::from("hello")));
+-        let s2 = Box::new(Expr::String(EcoString::from("world")));
++        let s1 = Box::new(Expr::String(SharedLiteral::intern("hello")));
++        let s2 = Box::new(Expr::String(SharedLiteral::intern("world")));
+         assert_eq!(
+             eval(&env, &env, &Expr::Plus(s1, s2), &roles).unwrap(),
+-            Value::<WithHashing>::string(EcoString::from("helloworld"))
++            Value::<WithHashing>::string(LocalStr::from("helloworld"))
+         );
+ 
+         // Concatenation with spaces
+-        let s3 = Box::new(Expr::String(EcoString::from("hello ")));
+-        let s4 = Box::new(Expr::String(EcoString::from("world")));
++        let s3 = Box::new(Expr::String(SharedLiteral::intern("hello ")));
++        let s4 = Box::new(Expr::String(SharedLiteral::intern("world")));
+         assert_eq!(
+             eval(&env, &env, &Expr::Plus(s3, s4), &roles).unwrap(),
+-            Value::<WithHashing>::string(EcoString::from("hello world"))
++            Value::<WithHashing>::string(LocalStr::from("hello world"))
+         );
+ 
+         // Empty strings
+-        let s5 = Box::new(Expr::String(EcoString::from("")));
+-        let s6 = Box::new(Expr::String(EcoString::from("test")));
++        let s5 = Box::new(Expr::String(SharedLiteral::intern("")));
++        let s6 = Box::new(Expr::String(SharedLiteral::intern("test")));
+         assert_eq!(
+             eval(&env, &env, &Expr::Plus(s5.clone(), s6.clone()), &roles).unwrap(),
+-            Value::<WithHashing>::string(EcoString::from("test"))
++            Value::<WithHashing>::string(LocalStr::from("test"))
+         );
+         assert_eq!(
+             eval(&env, &env, &Expr::Plus(s6, s5), &roles).unwrap(),
+-            Value::<WithHashing>::string(EcoString::from("test"))
++            Value::<WithHashing>::string(LocalStr::from("test"))
+         );
+     }
+ 
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index eb58451..24e7a23 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -12,8 +12,8 @@ use crate::simulator::core::state::{
+     ClientOpResult, Continuation, LogEntry, Logger, NodeId, PurgatoryConfig, Record,
+     Runnable, RunnableCategory, SchedulePolicy, State, Timer, TraceEntry, TraceKind,
+ };
++use crate::simulator::core::local_vec::LocalVec;
+ use crate::simulator::core::values::{ChannelId, Env, Value, ValueKind, ValueSeq};
+-use ecow::EcoVec;
+ use rand::Rng;
+ use crate::simulator::rng::{Stream, StreamRng};
+ use crate::simulator::feedback::Feedback;
+@@ -271,7 +271,7 @@ fn execute_common_label<H: HashPolicy, L: Logger, F: Feedback>(
+                 let (target_node, link_id) =
+                     legacy_operand(local_env, node_env, node_expr, &program.id_to_name)?
+                         .as_rpc_target()?;
+-                let mut arg_vals: EcoVec<Value<H>> = EcoVec::with_capacity(args.len());
++                let mut arg_vals: LocalVec<Value<H>> = LocalVec::with_capacity(args.len());
+                 for a in args {
+                     arg_vals.push(legacy_eval(local_env, node_env, a, &program.id_to_name)?);
+                 }
+@@ -1160,7 +1160,7 @@ fn run_async_op<H: HashPolicy>(
+     let names = &program.id_to_name;
+     let (target_node, link_id) =
+         coperand(local_env, node_env, &call.target, names, t)?.as_rpc_target()?;
+-    let mut arg_vals: EcoVec<Value<H>> = EcoVec::with_capacity(call.args.len());
++    let mut arg_vals: LocalVec<Value<H>> = LocalVec::with_capacity(call.args.len());
+     for a in &call.args {
+         arg_vals.push(cvalue(local_env, node_env, a, names, t)?);
+     }
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 16eaffd..0aecec6 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -169,7 +169,7 @@ fn make_record_with_cont(
+         origin_node: nid,
+         continuation,
+         entry_pc: pc,
+-        initial_args: ecow::EcoVec::new(),
++        initial_args: crate::simulator::core::local_vec::LocalVec::new(),
+         entry_func: NameId(0),
+         env,
+         priority: 0.5,
+diff --git a/spur-core/src/simulator/core/scheduler.rs b/spur-core/src/simulator/core/scheduler.rs
+index f458a89..055a877 100644
+--- a/spur-core/src/simulator/core/scheduler.rs
++++ b/spur-core/src/simulator/core/scheduler.rs
+@@ -12,8 +12,8 @@ use crate::simulator::core::state::{
+     RunnableCategory, SchedulePolicy, ScheduleResult, State,
+ };
+ use crate::simulator::core::steer_terms::{ResolvedTerms, Term, TERMS};
++use crate::simulator::core::local_vec::LocalVec;
+ use crate::simulator::core::values::{Env, Value};
+-use ecow::EcoVec;
+ use crate::simulator::crash_phase;
+ use crate::simulator::fresh_first;
+ use crate::simulator::ghost_absorber;
+@@ -2453,7 +2453,7 @@ fn recover_node<H: HashPolicy, L: Logger, F: Feedback>(
+         ],
+     };
+ 
+-    let initial_args: EcoVec<Value<H>> = actuals.into_iter().collect();
++    let initial_args: LocalVec<Value<H>> = actuals.into_iter().collect();
+     let env = build_frame(recover_fn, &initial_args);
+ 
+     let record = Record {
+@@ -3806,7 +3806,7 @@ mod tests {
+             origin_node: node(origin),
+             continuation: Continuation::Recover,
+             entry_pc: 0,
+-            initial_args: EcoVec::new(),
++            initial_args: LocalVec::new(),
+             entry_func: crate::analysis::resolver::NameId(0),
+             env,
+             priority,
+@@ -4203,7 +4203,7 @@ mod tests {
+             origin_node: node(origin),
+             continuation: Continuation::Recover,
+             entry_pc,
+-            initial_args: EcoVec::new(),
++            initial_args: LocalVec::new(),
+             entry_func: crate::analysis::resolver::NameId(0),
+             env: Env::<NoHashing>::with_slots(1),
+             priority: 0.5,
+diff --git a/spur-core/src/simulator/core/state.rs b/spur-core/src/simulator/core/state.rs
+index 7431f7a..10498f5 100644
+--- a/spur-core/src/simulator/core/state.rs
++++ b/spur-core/src/simulator/core/state.rs
+@@ -2,6 +2,7 @@ use crate::analysis::resolver::NameId;
+ use crate::analysis::type_id::TypeId;
+ use crate::compiler::cfg::{Lhs, Program, Vertex};
+ use crate::simulator::core::eval::{build_frame, store};
++use crate::simulator::core::local_vec::LocalVec;
+ use crate::simulator::core::partition::{PartitionInfo, PartitionType};
+ use crate::simulator::core::steer_terms::Term;
+ use crate::simulator::core::values::{ChannelId, Env, LinkId, Value};
+@@ -14,13 +15,13 @@ use crate::simulator::ghost_release;
+ use crate::simulator::hash_utils::{HashPolicy, compute_hash};
+ use crate::simulator::rng::{Stream, StreamRng};
+ use crate::simulator::util_stats::DeliveryBias;
+-use ecow::EcoVec;
+-use imbl::{HashMap as ImHashMap, OrdSet, Vector};
++use imbl::shared_ptr::RcK;
++use imbl::{GenericVector, HashMap as ImHashMap, OrdSet, Vector};
+ use rand_distr::{Beta, Distribution};
+ use serde::{Deserialize, Serialize};
+ use std::collections::HashSet;
+ use std::hash::{Hash, Hasher};
+-use std::sync::Arc;
++use std::rc::Rc;
+ 
+ /// Channel storage indexed by channel id. Ids are allocated from 0 within a
+ /// run, one per insert, and nothing is removed, so an id is its channel's
+@@ -351,7 +352,7 @@ pub struct Record<H: HashPolicy> {
+     pub entry_pc: Vertex,
+     /// Argument values the entry frame was built from, so crash re-delivery
+     /// can rebuild that frame instead of carrying a second copy of it.
+-    pub initial_args: EcoVec<Value<H>>,
++    pub initial_args: LocalVec<Value<H>>,
+     /// The function whose frame `initial_args` fills. Always a key of
+     /// `Program::rpc`, since it is taken from a function read out of it.
+     pub entry_func: NameId,
+@@ -439,25 +440,30 @@ impl<H: HashPolicy> Hash for CrashInfo<H> {
+ /// bytes, so a channel holding a single blocked reader owns a multi-kilobyte
+ /// heap chunk that is reallocated and copied on every copy-on-write. At one
+ /// word the same readers fit in the vector's inline storage.
+-pub type WaitingReader<H> = Arc<(Record<H>, Lhs)>;
++///
++/// The count is not atomic, so a reader never leaves the thread of its run.
++pub type WaitingReader<H> = Rc<(Record<H>, Lhs)>;
+ 
++/// Buffered values and blocked readers of one channel. Both vectors share
++/// nodes through counts that are not atomic, so a channel never leaves the
++/// thread of its run.
+ #[derive(Debug, Clone, Hash)]
+ pub struct ChannelState<H: HashPolicy> {
+-    pub buffer: Vector<Value<H>>,
++    pub buffer: GenericVector<Value<H>, RcK>,
+     // We move Record out of Runnable and into Waiting.
+-    pub waiting_readers: Vector<WaitingReader<H>>,
++    pub waiting_readers: GenericVector<WaitingReader<H>, RcK>,
+ }
+ 
+ impl<H: HashPolicy> ChannelState<H> {
+     pub fn new() -> Self {
+         Self {
+-            buffer: Vector::new(),
+-            waiting_readers: Vector::new(),
++            buffer: GenericVector::new(),
++            waiting_readers: GenericVector::new(),
+         }
+     }
+ 
+     pub fn push_waiting_reader(&mut self, record: Record<H>, lhs: Lhs) {
+-        self.waiting_readers.push_back(Arc::new((record, lhs)));
++        self.waiting_readers.push_back(Rc::new((record, lhs)));
+     }
+ 
+     /// Takes the longest-waiting reader, copying it only when the channel
+@@ -465,7 +471,7 @@ impl<H: HashPolicy> ChannelState<H> {
+     pub fn pop_waiting_reader(&mut self) -> Option<(Record<H>, Lhs)> {
+         self.waiting_readers
+             .pop_front()
+-            .map(|entry| Arc::try_unwrap(entry).unwrap_or_else(|shared| (*shared).clone()))
++            .map(|entry| Rc::try_unwrap(entry).unwrap_or_else(|shared| (*shared).clone()))
+     }
+ }
+ 
+@@ -1102,7 +1108,7 @@ impl<H: HashPolicy> State<H> {
+     #[inline]
+     /// Observation handle for "was this node written". Compare two values
+     /// taken around a step: unequal means the node's env was written. A raw
+-    /// slots pointer cannot answer this, since `EcoVec` shares its buffer
++    /// slots pointer cannot answer this, since `LocalVec` shares its buffer
+     /// across clones and reallocates only when copy-on-write fires.
+     pub fn node_state_token(&self, node: NodeId) -> u64 {
+         self.nodes[node.index].writes
+@@ -1804,7 +1810,7 @@ mod ledger_tests {
+             origin_node: origin,
+             continuation: Continuation::Recover,
+             entry_pc: 0,
+-            initial_args: ecow::EcoVec::new(),
++            initial_args: LocalVec::new(),
+             entry_func: NameId(0),
+             env,
+             priority: 0.5,
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index 1a6d521..d2e2146 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -1,14 +1,15 @@
+ use crate::simulator::core::error::RuntimeError;
++use crate::simulator::core::local_vec::LocalVec;
+ use crate::simulator::core::state::NodeId;
+ use crate::simulator::hash_utils::{HashPolicy, mix};
+ use crate::simulator::util_stats;
+-use ecow::{EcoString, EcoVec};
++use crate::simulator::core::local_str::{LocalStr, SharedLiteral};
+ use std::cmp::Ordering;
+ use rustc_hash::FxHasher;
+ use std::hash::BuildHasherDefault;
+ use std::hash::{Hash, Hasher};
+ use std::marker::PhantomData;
+-use std::sync::Arc;
++use std::rc::Rc;
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+ pub struct ChannelId {
+@@ -22,19 +23,22 @@ pub struct LinkId(pub usize);
+ /// Map storage of a spec value. The hasher carries no per-process seed, so
+ /// the order a spec sees when it iterates or takes the head of a map is a
+ /// function of the entries alone, and two sessions at one seed replay the
+-/// same schedule.
++/// same schedule. Nodes are shared through counts that are not atomic, so a
++/// map must never leave the thread of the run that built it.
+ pub type ValueMap<H> =
+-    imbl::GenericHashMap<Value<H>, Value<H>, BuildHasherDefault<FxHasher>, imbl::shared_ptr::DefaultSharedPtr>;
++    imbl::GenericHashMap<Value<H>, Value<H>, BuildHasherDefault<FxHasher>, imbl::shared_ptr::RcK>;
+ 
+ /// Sequence storage of a spec value.
+ ///
+-/// `EcoVec` is a copy-on-write vector behind one allocation sized to the
++/// `LocalVec` is a copy-on-write vector behind one allocation sized to the
+ /// element count, so a short list costs bytes proportional to its length
+ /// rather than a fixed branching-factor block, and it is two words wide so it
+-/// does not set the size of `Value`. Cloning is a refcount bump; the first
+-/// write after a clone copies `len` elements. Element order is the sequence
+-/// order the spec wrote, so nothing a spec observes depends on the layout.
+-pub type ValueSeq<H> = EcoVec<Value<H>>;
++/// does not set the size of `Value`. Cloning adds one to a count that is not
++/// atomic, so a sequence must never leave the thread of the run that built
++/// it; the first write after a clone copies `len` elements. Element order is
++/// the sequence order the spec wrote, so nothing a spec observes depends on
++/// the layout.
++pub type ValueSeq<H> = LocalVec<Value<H>>;
+ 
+ /// Width of the root node of a `ValueMap`: a key's home slot there is its
+ /// key hash masked to this many buckets.
+@@ -55,7 +59,7 @@ pub(crate) const STRUCT_MAX_FIELDS: usize = 15;
+ /// would have built, including under later inserts and removals.
+ #[derive(Debug, PartialEq)]
+ pub struct StructShape {
+-    names: Box<[EcoString]>,
++    names: Box<[SharedLiteral]>,
+     /// Signature of each name as a string value; equal under both policies.
+     key_sigs: Box<[u64]>,
+     /// Field positions in ascending name order.
+@@ -70,7 +74,7 @@ impl StructShape {
+         self.names.len()
+     }
+ 
+-    pub fn names(&self) -> &[EcoString] {
++    pub fn names(&self) -> &[SharedLiteral] {
+         &self.names
+     }
+ 
+@@ -84,7 +88,7 @@ impl StructShape {
+ struct ShapeTables {
+     shapes: Vec<&'static StructShape>,
+     /// Sorted key lists of literals that could not be stored as structs.
+-    kept_as_maps: Vec<Vec<EcoString>>,
++    kept_as_maps: Vec<Vec<SharedLiteral>>,
+ }
+ 
+ static SHAPE_TABLES: std::sync::Mutex<ShapeTables> = std::sync::Mutex::new(ShapeTables {
+@@ -96,11 +100,11 @@ static SHAPE_TABLES: std::sync::Mutex<ShapeTables> = std::sync::Mutex::new(Shape
+ /// when the literal must stay a map: no keys, more than `STRUCT_MAX_FIELDS`,
+ /// a repeated key, or two keys sharing a home slot. Shapes are interned once
+ /// per process by key set, so equal key sets share one shape.
+-pub fn struct_shape(names: &[EcoString]) -> Option<&'static StructShape> {
++pub fn struct_shape(names: &[SharedLiteral]) -> Option<&'static StructShape> {
+     if names.is_empty() {
+         return None;
+     }
+-    let mut sorted_names: Vec<EcoString> = names.to_vec();
++    let mut sorted_names: Vec<SharedLiteral> = names.to_vec();
+     sorted_names.sort();
+     let mut tables = SHAPE_TABLES.lock().unwrap_or_else(|p| p.into_inner());
+     if let Some(shape) = tables.shapes.iter().find(|s| {
+@@ -110,10 +114,10 @@ pub fn struct_shape(names: &[EcoString]) -> Option<&'static StructShape> {
+         return Some(shape);
+     }
+     let distinct = sorted_names.windows(2).all(|w| w[0] != w[1]);
+-    let mut slotted: Vec<(u32, EcoString, u64)> = sorted_names
++    let mut slotted: Vec<(u32, SharedLiteral, u64)> = sorted_names
+         .iter()
+         .map(|n| {
+-            let sig = Value::<crate::simulator::hash_utils::NoHashing>::compute_sig(&ValueKind::String(n.clone()));
++            let sig = Value::<crate::simulator::hash_utils::NoHashing>::compute_sig(&ValueKind::String(n.to_local()));
+             let mut h = FxHasher::default();
+             sig.hash(&mut h);
+             ((h.finish() as u32) & (MAP_ROOT_WIDTH - 1), n.clone(), sig)
+@@ -127,7 +131,7 @@ pub fn struct_shape(names: &[EcoString]) -> Option<&'static StructShape> {
+         }
+         return None;
+     }
+-    let names: Box<[EcoString]> = slotted.iter().map(|(_, n, _)| n.clone()).collect();
++    let names: Box<[SharedLiteral]> = slotted.iter().map(|(_, n, _)| n.clone()).collect();
+     let mut sorted: Vec<usize> = (0..names.len()).collect();
+     sorted.sort_by(|&a, &b| names[a].cmp(&names[b]));
+     let mut h = FxHasher::default();
+@@ -188,7 +192,7 @@ pub fn struct_to_map<H: HashPolicy>(shape: &StructShape, fields: &ValueSeq<H>) -
+     util_stats::record_struct_fallback(if H::EAGER { 0 } else { shape.len() as u64 });
+     let mut m = ValueMap::<H>::new();
+     for (name, v) in shape.names.iter().zip(fields.iter()) {
+-        m.insert(Value::<H>::string(name.clone()), v.clone());
++        m.insert(Value::<H>::literal(name), v.clone());
+     }
+     m
+ }
+@@ -235,17 +239,17 @@ pub enum ValueKind<H: HashPolicy> {
+     /// signature, hash, text, JSON and debug output - is that of the map.
+     Struct(&'static StructShape, ValueSeq<H>),
+     List(ValueSeq<H>),
+-    Option(Option<Arc<Value<H>>>),
++    Option(Option<Rc<Value<H>>>),
+     Channel(ChannelId),
+     Node(NodeId),
+     /// FIFO RPC link: `(link_id, peer)`. Pair the per-link sequence identity
+     /// with the peer node so RPCs through the link route deterministically
+     /// even after sender crash + recovery.
+     FifoLink(LinkId, NodeId),
+-    String(EcoString),
++    String(LocalStr),
+     Unit,
+     Tuple(ValueSeq<H>),
+-    Variant(u32, EcoString, Option<Arc<Value<H>>>), // (enum_id, variant_name, payload)
++    Variant(u32, LocalStr, Option<Rc<Value<H>>>), // (enum_id, variant_name, payload)
+ }
+ 
+ /// The entries of a struct, printed the way the map it stands for prints.
+@@ -255,7 +259,7 @@ impl<H: HashPolicy> std::fmt::Debug for StructEntries<'_, H> {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         let mut d = f.debug_map();
+         for (name, v) in self.0.names.iter().zip(self.1.iter()) {
+-            d.entry(&Value::<H>::string(name.clone()), v);
++            d.entry(&Value::<H>::literal(name), v);
+         }
+         d.finish()
+     }
+@@ -454,10 +458,17 @@ impl<H: HashPolicy> Value<H> {
+     }
+ 
+     #[inline]
+-    pub fn string(s: EcoString) -> Self {
++    pub fn string(s: LocalStr) -> Self {
+         Self::new(ValueKind::String(s))
+     }
+ 
++    /// The string value of a program literal. It shares the literal's
++    /// immortal header when the text is too long to be inline.
++    #[inline]
++    pub fn literal(lit: &SharedLiteral) -> Self {
++        Self::string(lit.to_local())
++    }
++
+     #[inline]
+     pub fn node(n: NodeId) -> Self {
+         Self::new(ValueKind::Node(n))
+@@ -479,13 +490,13 @@ impl<H: HashPolicy> Value<H> {
+     }
+ 
+     #[inline]
+-    pub fn option(o: Option<Arc<Value<H>>>) -> Self {
++    pub fn option(o: Option<Rc<Value<H>>>) -> Self {
+         Self::new(ValueKind::Option(o))
+     }
+ 
+     #[inline]
+     pub fn option_some(v: Value<H>) -> Self {
+-        Self::new(ValueKind::Option(Some(Arc::new(v))))
++        Self::new(ValueKind::Option(Some(Rc::new(v))))
+     }
+ 
+     #[inline]
+@@ -509,7 +520,7 @@ impl<H: HashPolicy> Value<H> {
+     }
+ 
+     #[inline]
+-    pub fn variant(enum_id: u32, name: EcoString, payload: Option<Arc<Value<H>>>) -> Self {
++    pub fn variant(enum_id: u32, name: LocalStr, payload: Option<Rc<Value<H>>>) -> Self {
+         Self::new(ValueKind::Variant(enum_id, name, payload))
+     }
+ 
+@@ -606,7 +617,7 @@ fn sorted_entries<H: HashPolicy>(v: &Value<H>) -> Vec<(Value<H>, &Value<H>)> {
+         ValueKind::Struct(shape, fields) => shape
+             .sorted
+             .iter()
+-            .map(|&i| (Value::<H>::string(shape.names[i].clone()), &fields[i]))
++            .map(|&i| (Value::<H>::literal(&shape.names[i]), &fields[i]))
+             .collect(),
+         _ => Vec::new(),
+     }
+@@ -956,7 +967,7 @@ impl<H: HashPolicy> Value<H> {
+         }
+     }
+ 
+-    pub fn as_variant(&self) -> Result<(u32, &EcoString, Option<&Arc<Value<H>>>), RuntimeError> {
++    pub fn as_variant(&self) -> Result<(u32, &LocalStr, Option<&Rc<Value<H>>>), RuntimeError> {
+         if let ValueKind::Variant(id, name, payload) = &self.kind {
+             Ok((*id, name, payload.as_ref()))
+         } else {
+@@ -978,11 +989,12 @@ impl<H: HashPolicy> Eq for Env<H> {}
+ 
+ /// Slot storage for an environment.
+ ///
+-/// `EcoVec` is a copy-on-write vector behind a single allocation whose length is
+-/// exactly the slot count. Cloning an `Env` (which happens on every record
+-/// enqueue, node-env read-modify-write and crash re-delivery) is a refcount
+-/// bump, and the first write after a clone copies only `len` slots.
+-type Slots<H> = EcoVec<Value<H>>;
++/// `LocalVec` is a copy-on-write vector behind a single allocation whose length
++/// is exactly the slot count. Cloning an `Env` (which happens on every record
++/// enqueue, node-env read-modify-write and crash re-delivery) adds one to a
++/// count that is not atomic, and the first write after a clone copies only
++/// `len` slots.
++type Slots<H> = LocalVec<Value<H>>;
+ 
+ #[derive(Clone, Debug)]
+ pub struct Env<H: HashPolicy> {
+@@ -1029,7 +1041,7 @@ impl<H: HashPolicy> Env<H> {
+     /// Create an environment with `n` slots, all initialized to Unit
+     pub fn with_slots(n: usize) -> Self {
+         // Single exact-size allocation; no per-element push/grow.
+-        let slots: Slots<H> = EcoVec::from_elem(Value::<H>::unit(), n);
++        let slots: Slots<H> = LocalVec::from_elem(Value::<H>::unit(), n);
+ 
+         let mut sig = 0u64;
+         if H::EAGER {
+@@ -1219,7 +1231,7 @@ mod tests {
+             role: NameId(role),
+             index,
+         };
+-        let s = |t: &str| V::string(EcoString::from(t));
++        let s = |t: &str| V::string(LocalStr::from(t));
+         let seq = |items: Vec<V>| ValueSeq::from(items);
+         let map = |entries: Vec<(V, V)>| {
+             let mut m = ValueMap::<WithHashing>::default();
+@@ -1258,8 +1270,8 @@ mod tests {
+             V::fifo_link(LinkId(0), node(2, 5)),
+             V::fifo_link(LinkId(usize::MAX), node(1, 0)),
+             V::option_none(),
+-            V::variant(0, EcoString::from("Empty"), None),
+-            V::variant(1, EcoString::from("Prepare"), Some(Arc::new(V::int(3)))),
++            V::variant(0, LocalStr::from("Empty"), None),
++            V::variant(1, LocalStr::from("Prepare"), Some(Rc::new(V::int(3)))),
+         ];
+         let mut cases: Vec<V> = leaves.clone();
+         cases.push(V::option_some(V::option_some(s("x"))));
+@@ -1283,16 +1295,16 @@ mod tests {
+         ]));
+         cases.push(V::variant(
+             2,
+-            EcoString::from("Commit"),
+-            Some(Arc::new(V::tuple(seq(vec![
++            LocalStr::from("Commit"),
++            Some(Rc::new(V::tuple(seq(vec![
+                 V::int(1),
+                 map(vec![(s("k"), V::list(seq(leaves.clone())))]),
+             ])))),
+         ));
+         cases.push(V::variant(
+             3,
+-            EcoString::from("Wrap"),
+-            Some(Arc::new(V::variant(0, EcoString::from("Empty"), None))),
++            LocalStr::from("Wrap"),
++            Some(Rc::new(V::variant(0, LocalStr::from("Empty"), None))),
+         ));
+         for v in &cases {
+             assert_text_matches_reference(v);
+@@ -1337,7 +1349,7 @@ mod tests {
+         let leaf = prop_oneof![
+             any::<i64>().prop_map(Value::<WithHashing>::int),
+             any::<bool>().prop_map(Value::<WithHashing>::bool),
+-            any::<String>().prop_map(|s| Value::<WithHashing>::string(EcoString::from(s))),
++            any::<String>().prop_map(|s| Value::<WithHashing>::string(LocalStr::from(s))),
+             arb_node_id().prop_map(Value::<WithHashing>::node),
+             Just(Value::<WithHashing>::unit()),
+             arb_channel_id().prop_map(Value::<WithHashing>::channel),
+@@ -1437,13 +1449,13 @@ mod lazy_signature_tests {
+             role: NameId(role),
+             index,
+         };
+-        let s = |t: &str| Value::<H>::string(EcoString::from(t));
++        let s = |t: &str| Value::<H>::string(LocalStr::from(t));
+         let mut inner = ValueMap::<H>::default();
+         inner.insert(s("k"), Value::<H>::int(1));
+         inner.insert(Value::<H>::int(2), s("a string longer than fifteen bytes"));
+         let mut outer = ValueMap::<H>::default();
+         outer.insert(s("nested"), Value::<H>::map(inner.clone()));
+-        outer.insert(Value::<H>::node(node(0, 1)), Value::<H>::list(EcoVec::new()));
++        outer.insert(Value::<H>::node(node(0, 1)), Value::<H>::list(LocalVec::new()));
+         vec![
+             Value::<H>::int(0),
+             Value::<H>::int(-7),
+@@ -1471,10 +1483,10 @@ mod lazy_signature_tests {
+             Value::<H>::option_none(),
+             Value::<H>::option_some(Value::<H>::int(4)),
+             Value::<H>::option_some(s("a string longer than fifteen bytes")),
+-            Value::<H>::variant(0, EcoString::from("Empty"), None),
+-            Value::<H>::variant(1, EcoString::from("Prepare"), Some(Arc::new(Value::<H>::int(3)))),
+-            Value::<H>::tuple(EcoVec::from([Value::<H>::int(1), s("t")])),
+-            Value::<H>::list(EcoVec::from([Value::<H>::unit(), Value::<H>::map(inner.clone())])),
++            Value::<H>::variant(0, LocalStr::from("Empty"), None),
++            Value::<H>::variant(1, LocalStr::from("Prepare"), Some(Rc::new(Value::<H>::int(3)))),
++            Value::<H>::tuple(LocalVec::from([Value::<H>::int(1), s("t")])),
++            Value::<H>::list(LocalVec::from([Value::<H>::unit(), Value::<H>::map(inner.clone())])),
+             Value::<H>::map(inner),
+             Value::<H>::map(outer),
+         ]
+@@ -1515,7 +1527,7 @@ mod lazy_signature_tests {
+             StoredSigKey,
+             usize,
+             BuildHasherDefault<FxHasher>,
+-            imbl::shared_ptr::DefaultSharedPtr,
++            imbl::shared_ptr::RcK,
+         > = imbl::GenericHashMap::default();
+         for round in 0..3usize {
+             for (i, k) in keys.iter().enumerate() {
+@@ -1559,8 +1571,8 @@ pub(crate) mod struct_tests {
+         &["view", "nonce", "log", "op_number", "commit_number", "sender"],
+     ];
+ 
+-    fn names(set: &[&str]) -> Vec<EcoString> {
+-        set.iter().map(|k| EcoString::from(*k)).collect()
++    fn names(set: &[&str]) -> Vec<SharedLiteral> {
++        set.iter().map(|k| SharedLiteral::intern(k)).collect()
+     }
+ 
+     /// Admitted key sets drawn from a fixed pseudo-random sequence, of every
+@@ -1587,7 +1599,7 @@ pub(crate) mod struct_tests {
+                     set.push(name);
+                 }
+             }
+-            let ns: Vec<EcoString> = set.iter().map(|s| EcoString::from(s.as_str())).collect();
++            let ns: Vec<SharedLiteral> = set.iter().map(|s| SharedLiteral::intern(s)).collect();
+             if struct_shape(&ns).is_some() {
+                 per_size[size] += 1;
+                 out.push(set);
+@@ -1610,7 +1622,7 @@ pub(crate) mod struct_tests {
+                     (v.clone(), v)
+                 }
+                 1 => {
+-                    let v = Value::<H>::string(EcoString::from(format!("v{}", (i + seed) % 3)));
++                    let v = Value::<H>::string(LocalStr::from(format!("v{}", (i + seed) % 3)));
+                     (v.clone(), v)
+                 }
+                 2 => {
+@@ -1649,13 +1661,13 @@ pub(crate) mod struct_tests {
+     /// A struct of the key set and the map its literal builds, inserting the
+     /// keys in the order given.
+     pub(crate) fn struct_and_map<H: HashPolicy, S: AsRef<str>>(set: &[S], seed: usize) -> (Value<H>, Value<H>) {
+-        let ns: Vec<EcoString> = set.iter().map(|k| EcoString::from(k.as_ref())).collect();
++        let ns: Vec<SharedLiteral> = set.iter().map(|k| SharedLiteral::intern(k.as_ref())).collect();
+         let shape = struct_shape(&ns).expect("admitted key set");
+         let (sv, mv) = field_values::<H>(ns.len(), seed);
+         let mut m = ValueMap::<H>::new();
+         let mut fields = vec![Value::<H>::unit(); ns.len()];
+         for ((k, s), v) in ns.iter().zip(sv).zip(mv) {
+-            m.insert(Value::<H>::string(k.clone()), v);
++            m.insert(Value::<H>::literal(k), v);
+             fields[shape.position(k).unwrap()] = s;
+         }
+         (Value::<H>::struct_of(shape, fields.into_iter().collect()), Value::<H>::map(m))
+@@ -1705,10 +1717,10 @@ pub(crate) mod struct_tests {
+             let mut forward = ValueMap::<NoHashing>::new();
+             let mut backward = ValueMap::<NoHashing>::new();
+             for k in set {
+-                forward.insert(Value::string(EcoString::from(*k)), Value::unit());
++                forward.insert(Value::string(LocalStr::from(*k)), Value::unit());
+             }
+             for k in set.iter().rev() {
+-                backward.insert(Value::string(EcoString::from(*k)), Value::unit());
++                backward.insert(Value::string(LocalStr::from(*k)), Value::unit());
+             }
+             let order: Vec<String> = shape.names().iter().map(|n| n.to_string()).collect();
+             let f: Vec<String> = forward.iter().map(|(k, _)| k.to_string().trim_matches('"').to_string()).collect();
+@@ -1743,13 +1755,13 @@ pub(crate) mod struct_tests {
+         assert_eq!(entries(&rebuilt), entries(&reference));
+         assert_eq!(format!("{rebuilt:?}"), format!("{reference:?}"));
+         for i in 0..24 {
+-            let k = Value::<H>::string(EcoString::from(format!("extra_{i}")));
++            let k = Value::<H>::string(LocalStr::from(format!("extra_{i}")));
+             rebuilt.insert(k.clone(), Value::<H>::int(i));
+             reference.insert(k, Value::<H>::int(i));
+             assert_eq!(entries(&rebuilt), entries(&reference), "insert {i}");
+         }
+         for name in shape.names() {
+-            let k = Value::<H>::string(name.clone());
++            let k = Value::<H>::literal(name);
+             let mut a = struct_to_map(shape, fields);
+             let mut b = map.clone();
+             a.remove(&k);
+@@ -1760,7 +1772,7 @@ pub(crate) mod struct_tests {
+             assert_eq!(entries(&rebuilt), entries(&reference), "remove {name} after inserts");
+         }
+         for (i, name) in shape.names().iter().enumerate() {
+-            for key in [Value::<H>::string(name.clone()), Value::<H>::string("not_a_field".into()), Value::<H>::int(3)] {
++            for key in [Value::<H>::literal(name), Value::<H>::string("not_a_field".into()), Value::<H>::int(3)] {
+                 let replacement = Value::<H>::int(1000 + i as i64);
+                 let before = key_hash_events();
+                 let a = update_collection(s.clone(), Operand::Borrowed(&key), replacement.clone());
+@@ -1824,7 +1836,7 @@ pub(crate) mod struct_tests {
+                 let mut other_map = m.as_map().unwrap().clone();
+                 if differ < n {
+                     other_fields.make_mut()[differ] = Value::int(-1);
+-                    other_map.insert(Value::string(shape.names()[differ].clone()), Value::int(-1));
++                    other_map.insert(Value::literal(&shape.names()[differ]), Value::int(-1));
+                 }
+                 let t = Value::<NoHashing>::struct_of(shape, other_fields);
+                 let u = Value::<NoHashing>::map(other_map);
+diff --git a/spur-core/src/simulator/explorer.rs b/spur-core/src/simulator/explorer.rs
+index 004b367..4c47e66 100644
+--- a/spur-core/src/simulator/explorer.rs
++++ b/spur-core/src/simulator/explorer.rs
+@@ -1179,12 +1179,17 @@ pub fn run_single_simulation<F: Feedback, S: RngSource>(
+         path_state.state.crash_hold_drawn,
+     ));
+ 
++    // Literal counts are folded once the run's values are all dropped.
++    let cut = path_state.state.replay_cut;
++    drop(path_state);
++    util_stats::flush_value_refs();
++
+     Ok(RunResult {
+         score: plan_score,
+         recording,
+         tuples,
+         outcome,
+-        cut: path_state.state.replay_cut,
++        cut,
+     })
+ }
+ 
+@@ -1490,6 +1495,10 @@ fn run_single_plan<F: Feedback>(
+         path_state.state.crash_hold_drawn,
+     ));
+ 
++    // Literal counts are folded once the run's values are all dropped.
++    drop(path_state);
++    util_stats::flush_value_refs();
++
+     Ok(plan_score)
+ }
+ 
+diff --git a/spur-core/src/simulator/history.rs b/spur-core/src/simulator/history.rs
+index bc18640..787b77d 100644
+--- a/spur-core/src/simulator/history.rs
++++ b/spur-core/src/simulator/history.rs
+@@ -145,7 +145,7 @@ fn json_of_value<H: crate::simulator::hash_utils::HashPolicy>(v: &Value<H>) -> J
+         }),
+         ValueKind::String(s) => json!({
+         "type": "VString",
+-        "value": s
++        "value": s.as_str()
+         }),
+         ValueKind::Node(n) => json!({
+         "type": "VNode",
+@@ -174,7 +174,7 @@ fn json_of_value<H: crate::simulator::hash_utils::HashPolicy>(v: &Value<H>) -> J
+                 .names()
+                 .iter()
+                 .zip(fields.iter())
+-                .map(|(name, v)| json!([json_of_value(&Value::<H>::string(name.clone())), json_of_value(v)]))
++                .map(|(name, v)| json!([json_of_value(&Value::<H>::literal(name)), json_of_value(v)]))
+                 .collect();
+             json!({
+             "type": "VMap",
+@@ -1714,7 +1714,7 @@ mod payload_json_tests {
+         let variant = Value::variant(
+             12,
+             "With\"Payload".into(),
+-            Some(std::sync::Arc::new(Value::tuple(ValueSeq::from([
++            Some(std::rc::Rc::new(Value::tuple(ValueSeq::from([
+                 nested_map.clone(),
+                 Value::option_some(Value::option_some(chan.clone())),
+             ])))),
+diff --git a/spur-core/src/simulator/path.rs b/spur-core/src/simulator/path.rs
+index 29311d7..0680c12 100644
+--- a/spur-core/src/simulator/path.rs
++++ b/spur-core/src/simulator/path.rs
+@@ -29,7 +29,8 @@ use crate::simulator::util_stats::{
+     self, DeliveryBias, RunEnd, RunExtension, RunTermination, StallCapCell, StallReleaseCell,
+     StallReleaseRun, StallReleaseSettlement,
+ };
+-use ecow::{EcoString, EcoVec};
++use crate::simulator::core::local_str::LocalStr;
++use crate::simulator::core::local_vec::LocalVec;
+ use log::{info, warn};
+ use petgraph::graph::NodeIndex;
+ use std::collections::{BTreeSet, HashMap, HashSet};
+@@ -216,7 +217,7 @@ fn schedule_client_op<H: HashPolicy>(
+                     role: server_role,
+                     index: *target as usize,
+                 }),
+-                Value::<H>::string(EcoString::from(key.as_str())),
++                Value::<H>::string(LocalStr::from(key.as_str())),
+                 Value::<H>::int(op_id as i64),
+             ],
+         ),
+@@ -227,7 +228,7 @@ fn schedule_client_op<H: HashPolicy>(
+                     role: server_role,
+                     index: *target as usize,
+                 }),
+-                Value::<H>::string(EcoString::from(key.as_str())),
++                Value::<H>::string(LocalStr::from(key.as_str())),
+             ],
+         ),
+         ClientOpSpec::Rmw(target, key) => (
+@@ -237,7 +238,7 @@ fn schedule_client_op<H: HashPolicy>(
+                     role: server_role,
+                     index: *target as usize,
+                 }),
+-                Value::<H>::string(EcoString::from(key.as_str())),
++                Value::<H>::string(LocalStr::from(key.as_str())),
+                 Value::<H>::int(op_id as i64),
+             ],
+         ),
+@@ -246,7 +247,7 @@ fn schedule_client_op<H: HashPolicy>(
+     let op_func = prog
+         .get_func_by_name(op_name)
+         .ok_or_else(|| RuntimeError::MissingRequiredFunction(op_name.to_string()))?;
+-    let initial_args: EcoVec<Value<H>> = actuals.iter().cloned().collect();
++    let initial_args: LocalVec<Value<H>> = actuals.iter().cloned().collect();
+     let env = build_frame(op_func, &initial_args);
+ 
+     history.push(Operation {
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 7819b7b..48de771 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -108,6 +108,9 @@ static VALUE_STRUCT_FIELD_READS: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_OTHER_LOOKUPS: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_FALLBACK_KEY_HASHES: AtomicU64 = AtomicU64::new(0);
++static VALUE_REFS_LITERAL_CLONES: AtomicU64 = AtomicU64::new(0);
++static VALUE_REFS_LITERAL_DROPS: AtomicU64 = AtomicU64::new(0);
++static VALUE_REFS_SHARED_STRING_COPIES: AtomicU64 = AtomicU64::new(0);
+ static PLAN_READY_SCANS: AtomicU64 = AtomicU64::new(0);
+ static PLAN_READY_SCANS_SKIPPED: AtomicU64 = AtomicU64::new(0);
+ static PLAN_READY_SCANS_EMPTY: AtomicU64 = AtomicU64::new(0);
+@@ -926,6 +929,9 @@ pub fn set_enabled(on: bool) {
+             &VALUE_STRUCT_OTHER_LOOKUPS,
+             &VALUE_STRUCT_FALLBACKS,
+             &VALUE_STRUCT_FALLBACK_KEY_HASHES,
++            &VALUE_REFS_LITERAL_CLONES,
++            &VALUE_REFS_LITERAL_DROPS,
++            &VALUE_REFS_SHARED_STRING_COPIES,
+             &PLAN_READY_SCANS,
+             &PLAN_READY_SCANS_SKIPPED,
+             &PLAN_READY_SCANS_EMPTY,
+@@ -2079,6 +2085,12 @@ thread_local! {
+     static LOG_VEC_GROWS_RUN: Cell<u64> = const { Cell::new(0) };
+     static TRACE_VEC_GROWS_RUN: Cell<u64> = const { Cell::new(0) };
+     static PRINT_PRESIZED_RUN: Cell<u64> = const { Cell::new(0) };
++    /// Clones and drops of immortal literal headers and copies of shared
++    /// strings on this thread, written without a stats switch check and
++    /// drained by `flush_value_refs` once the run's values are dropped.
++    static LITERAL_CLONES_RUN: Cell<u64> = const { Cell::new(0) };
++    static LITERAL_DROPS_RUN: Cell<u64> = const { Cell::new(0) };
++    static SHARED_STRING_COPIES_RUN: Cell<u64> = const { Cell::new(0) };
+     /// Interpreter and channel table counts of the run executing on this
+     /// thread, added once per executed segment and drained with the cells
+     /// above.
+@@ -2146,6 +2158,7 @@ pub fn begin_run() {
+     }
+     finish_run();
+     flush_frame_stats();
++    flush_value_refs();
+     fold_run_counters();
+     RUN_COUNTERS.with(|b| {
+         b.generation.set(STATS_GENERATION.load(Ordering::Relaxed));
+@@ -5858,6 +5871,28 @@ impl ValueStructStats {
+     }
+ }
+ 
++/// Program literal strings and copies of shared strings. `literal_clones`
++/// and `literal_drops` count clones and drops of immortal literal headers;
++/// a run's counts are folded only after all of its values are dropped, so
++/// the two totals are equal. `shared_string_copies` counts copy-on-write
++/// copies of strings whose storage was shared.
++#[derive(Serialize, Debug)]
++pub struct ValueRefsStats {
++    pub literal_clones: u64,
++    pub literal_drops: u64,
++    pub shared_string_copies: u64,
++}
++
++impl ValueRefsStats {
++    fn read() -> Self {
++        Self {
++            literal_clones: VALUE_REFS_LITERAL_CLONES.load(Ordering::Relaxed),
++            literal_drops: VALUE_REFS_LITERAL_DROPS.load(Ordering::Relaxed),
++            shared_string_copies: VALUE_REFS_SHARED_STRING_COPIES.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// Variable operands the evaluator read in place instead of copying.
+ /// `handles_not_cloned` counts lists, maps, strings, options, tuples and
+ /// variants, whose copy touches a reference count or string bytes;
+@@ -6582,6 +6617,61 @@ pub fn record_entry_frame_copy() {
+     });
+ }
+ 
++/// Counts a clone of an immortal literal header on this thread.
++#[cold]
++#[inline(never)]
++pub fn record_literal_clone() {
++    LITERAL_CLONES_RUN.with(|c| c.set(c.get() + 1));
++}
++
++/// Counts a drop of an immortal literal header on this thread.
++#[cold]
++#[inline(never)]
++pub fn record_literal_drop() {
++    LITERAL_DROPS_RUN.with(|c| c.set(c.get() + 1));
++}
++
++/// Counts a copy-on-write copy of a shared string on this thread.
++#[cold]
++#[inline(never)]
++pub fn record_shared_string_copy() {
++    SHARED_STRING_COPIES_RUN.with(|c| c.set(c.get() + 1));
++}
++
++/// Fold this thread's literal clones, literal drops and shared string copies
++/// into the session totals. A run's counts are complete only once all of its
++/// values are dropped, so a run's fold must come after its state is dropped.
++/// The cells are drained even when stats are off, so a later session never
++/// inherits them.
++pub fn flush_value_refs() {
++    let clones = LITERAL_CLONES_RUN.with(|c| c.replace(0));
++    let drops = LITERAL_DROPS_RUN.with(|c| c.replace(0));
++    let copies = SHARED_STRING_COPIES_RUN.with(|c| c.replace(0));
++    if !enabled() {
++        return;
++    }
++    for (v, total) in [
++        (clones, &VALUE_REFS_LITERAL_CLONES),
++        (drops, &VALUE_REFS_LITERAL_DROPS),
++        (copies, &VALUE_REFS_SHARED_STRING_COPIES),
++    ] {
++        if v != 0 {
++            total.fetch_add(v, Ordering::Relaxed);
++        }
++    }
++}
++
++/// This thread's literal clones, literal drops and shared string copies that
++/// are not yet folded.
++#[cfg(test)]
++pub(crate) fn pending_value_refs() -> [u64; 3] {
++    [
++        LITERAL_CLONES_RUN.with(|c| c.get()),
++        LITERAL_DROPS_RUN.with(|c| c.get()),
++        SHARED_STRING_COPIES_RUN.with(|c| c.get()),
++    ]
++}
++
+ /// Fold the running thread's frame counts into the session totals. Called
+ /// where a run ends, so the totals are exact once every run has ended.
+ pub fn flush_frame_stats() {
+@@ -7805,6 +7895,7 @@ pub struct UtilizationSnapshot {
+     pub frame_layout: FrameLayoutStats,
+     pub value_sig: ValueSigStats,
+     pub value_struct: ValueStructStats,
++    pub value_refs: ValueRefsStats,
+     pub plan_ready: PlanReadyStats,
+     pub plan_deliver: PlanDeliverStats,
+     pub text_buffer: TextBufferStats,
+@@ -7900,6 +7991,7 @@ pub fn add(acc: &mut serde_json::Value, delta: &serde_json::Value) {
+ }
+ 
+ pub fn snapshot() -> UtilizationSnapshot {
++    flush_value_refs();
+     fold_run_counters();
+     UtilizationSnapshot {
+         rng_streams: RngStreamStats {
+@@ -8040,6 +8132,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         frame_layout: FrameLayoutStats::read(),
+         value_sig: ValueSigStats::read(),
+         value_struct: ValueStructStats::read(),
++        value_refs: ValueRefsStats::read(),
+         plan_ready: PlanReadyStats::read(),
+         plan_deliver: PlanDeliverStats::read(),
+         text_buffer: TextBufferStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 9f1387b..dbcb3ed 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -22,7 +22,7 @@ use spur_core::simulator::util_stats::{
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+     CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, ProgramTextStats, RunBufferStats, ValueSigStats, ValueStructStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TextBufferStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDeliverStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, PlanReadyStats, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+-    TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
++    TimerContextStats, UtilizationSnapshot, ValueRefsStats, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+ use std::collections::BTreeMap;
+@@ -1370,6 +1370,27 @@ fn value_struct_leaves(prefix: &str, v: &ValueStructStats) -> Vec<(String, Value
+     ]
+ }
+ 
++fn value_refs(m: &mut Marks) -> ValueRefsStats {
++    ValueRefsStats {
++        literal_clones: m.int(),
++        literal_drops: m.int(),
++        shared_string_copies: m.int(),
++    }
++}
++
++fn value_refs_leaves(prefix: &str, v: &ValueRefsStats) -> Vec<(String, Value)> {
++    let ValueRefsStats {
++        literal_clones,
++        literal_drops,
++        shared_string_copies,
++    } = v;
++    vec![
++        leaf(prefix, "literal_clones", *literal_clones),
++        leaf(prefix, "literal_drops", *literal_drops),
++        leaf(prefix, "shared_string_copies", *shared_string_copies),
++    ]
++}
++
+ fn eval_borrow(m: &mut Marks) -> EvalBorrowStats {
+     EvalBorrowStats {
+         handles_not_cloned: m.int(),
+@@ -2437,6 +2458,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         frame_layout: _,
+         value_sig: _,
+         value_struct: _,
++        value_refs: _,
+         eval_borrow: _,
+         run_buffers: _,
+         print_content: _,
+@@ -2501,6 +2523,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "frame_layout",
+         "value_sig",
+         "value_struct",
++        "value_refs",
+         "eval_borrow",
+         "run_buffers",
+         "print_content",
+@@ -2599,6 +2622,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.frame_layout = frame_layout(&mut m);
+     s.value_sig = value_sig(&mut m);
+     s.value_struct = value_struct(&mut m);
++    s.value_refs = value_refs(&mut m);
+     s.eval_borrow = eval_borrow(&mut m);
+     s.run_buffers = run_buffers(&mut m);
+     s.print_content = print_content(&mut m);
+@@ -2643,6 +2667,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(frame_layout_leaves("frame_layout", &s.frame_layout));
+     expected.extend(value_sig_leaves("value_sig", &s.value_sig));
+     expected.extend(value_struct_leaves("value_struct", &s.value_struct));
++    expected.extend(value_refs_leaves("value_refs", &s.value_refs));
+     expected.extend(eval_borrow_leaves("eval_borrow", &s.eval_borrow));
+     expected.extend(run_buffers_leaves("run_buffers", &s.run_buffers));
+     expected.extend(print_content_leaves("print_content", &s.print_content));
+@@ -2712,6 +2737,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "frame_layout",
+         "value_sig",
+         "value_struct",
++        "value_refs",
+         "eval_borrow",
+         "run_buffers",
+         "print_content",
+diff --git a/tmp/loop/perf/value-refcounts-then-register-ops/untracked-AB/spur-core/src/simulator/core/local_vec.rs b/spur-core/src/simulator/core/local_vec.rs
+new file mode 100644
+index 0000000..8db98e8
+--- /dev/null
++++ b/spur-core/src/simulator/core/local_vec.rs
+@@ -0,0 +1,1535 @@
++//! A copy-on-write vector whose reference count is a plain integer.
++//!
++//! Derived from the ecow crate, version 0.2.6, file src/vec.rs. Copyright the
++//! ecow authors; licensed under the MIT license or the Apache License,
++//! Version 2.0, at the user's option.
++//!
++//! The vector and its allocation header have the same layout as that crate's
++//! vector, so every allocation has the same size and alignment. Because the
++//! count is not atomic, a vector and all of its clones must stay on the
++//! thread that created them; the type is neither `Send` nor `Sync`.
++//!
++//! A vector whose `IMMORTAL_ALLOWED` parameter is true may instead hold an
++//! immortal header: one that is never freed and whose count is never
++//! written, so clones on any thread share it. Only string storage sets the
++//! parameter.
++
++use std::alloc::Layout;
++use std::array;
++use std::borrow::Borrow;
++use std::cmp::Ordering;
++use std::fmt::{self, Debug, Formatter};
++use std::hash::{Hash, Hasher};
++use std::marker::PhantomData;
++use std::mem;
++use std::ops::Deref;
++use std::ptr::{self, NonNull};
++
++use header::Header;
++#[cfg(test)]
++pub(crate) use header::IMMORTAL as IMMORTAL_COUNT;
++
++mod header {
++    use crate::simulator::util_stats;
++    use std::cell::Cell;
++
++    /// The count of an immortal header. An ordinary count aborts before it
++    /// could reach this value.
++    pub(crate) const IMMORTAL: usize = usize::MAX;
++
++    /// The start of a backing allocation, followed by padding if needed and
++    /// then the elements. The count can only be read or written through the
++    /// methods of this type.
++    pub(super) struct Header {
++        /// Starts at 1 and reaches 0 only when the last vector sharing the
++        /// allocation is dropped, or is `IMMORTAL` for the life of the process.
++        refs: Cell<usize>,
++        /// The number of elements the allocation can hold. May only change
++        /// while the count is 1.
++        ///
++        /// Invariant: `capacity <= isize::MAX`.
++        pub(super) capacity: usize,
++    }
++
++    impl Header {
++        /// A header for a new allocation owned by one vector.
++        #[inline]
++        pub(super) const fn new(capacity: usize) -> Self {
++            Self {
++                refs: Cell::new(1),
++                capacity,
++            }
++        }
++
++        /// A header for an allocation that is never freed. Only a vector whose
++        /// `IMMORTAL_ALLOWED` parameter is true may hold it.
++        #[inline]
++        pub(super) const fn new_immortal(capacity: usize) -> Self {
++            Self {
++                refs: Cell::new(IMMORTAL),
++                capacity,
++            }
++        }
++
++        /// Adds one owner. An immortal header is only read.
++        #[inline]
++        pub(super) fn inc_ref<const IMMORTAL_ALLOWED: bool>(&self) {
++            let prev = self.refs.get();
++            if IMMORTAL_ALLOWED && prev == IMMORTAL {
++                util_stats::record_literal_clone();
++                return;
++            }
++            if prev > isize::MAX as usize {
++                super::ref_count_overflow();
++            }
++            self.refs.set(prev + 1);
++        }
++
++        /// Removes one owner; true when none is left. An immortal header is
++        /// only read and always has owners left.
++        #[inline]
++        pub(super) fn dec_ref<const IMMORTAL_ALLOWED: bool>(&self) -> bool {
++            let prev = self.refs.get();
++            if IMMORTAL_ALLOWED && prev == IMMORTAL {
++                util_stats::record_literal_drop();
++                return false;
++            }
++            self.refs.set(prev - 1);
++            prev == 1
++        }
++
++        /// Whether exactly one vector owns the allocation. Never true of an
++        /// immortal header.
++        #[inline]
++        pub(super) fn is_unique_count(&self) -> bool {
++            self.refs.get() == 1
++        }
++
++        #[cfg(test)]
++        pub(super) fn count(&self) -> usize {
++            self.refs.get()
++        }
++    }
++}
++
++/// A vector with clone-on-write semantics.
++///
++/// Two words wide: a pointer to the first element and a length. The pointer
++/// is null-pointer optimized. The allocation holds the reference count and
++/// the capacity ahead of the elements.
++#[repr(C)]
++pub struct LocalVec<T, const IMMORTAL_ALLOWED: bool = false> {
++    /// `Self::dangling()` when the vector is unallocated. Otherwise it points
++    /// `Self::offset()` bytes after the start of a valid allocation and
++    /// header, at the first element, aligned to the larger of the header's and
++    /// `T`'s alignment. It is valid for `len` reads and `capacity` writes of
++    /// `T`. The elements may only be accessed mutably while the count is 1.
++    ptr: NonNull<T>,
++    /// Invariant: `len <= capacity`.
++    len: usize,
++    /// The raw pointer type keeps the vector neither `Send` nor `Sync` whatever
++    /// type `ptr` has.
++    phantom: PhantomData<(T, *const ())>,
++}
++
++impl<T, const I: bool> LocalVec<T, I> {
++    /// An empty vector. Does not allocate.
++    #[inline]
++    pub const fn new() -> Self {
++        Self {
++            ptr: Self::dangling(),
++            len: 0,
++            phantom: PhantomData,
++        }
++    }
++
++    /// An empty vector with room for at least `capacity` elements.
++    #[inline]
++    pub fn with_capacity(capacity: usize) -> Self {
++        let mut vec = Self::new();
++        if capacity > 0 {
++            // Safety: the count of a new vector is 1 and its capacity is 0,
++            // which is below the target.
++            unsafe {
++                vec.grow(capacity);
++            }
++        }
++        vec
++    }
++
++    #[inline]
++    pub const fn is_empty(&self) -> bool {
++        self.len == 0
++    }
++
++    #[inline]
++    pub const fn len(&self) -> usize {
++        self.len
++    }
++
++    /// How many elements the allocation can hold. Pushing may still allocate
++    /// below this when the allocation is shared.
++    #[inline]
++    pub fn capacity(&self) -> usize {
++        self.header().map_or(0, |header| header.capacity)
++    }
++
++    #[inline]
++    pub fn as_slice(&self) -> &[T] {
++        // Safety:
++        // - `data()` is non-null, aligned and valid for `len` reads.
++        // - `len <= capacity <= isize::MAX`.
++        // - No vector can mutate the elements while this borrow lives: `self`
++        //   is borrowed, and any other owner sees a count above 1.
++        unsafe { std::slice::from_raw_parts(self.data(), self.len) }
++    }
++
++    /// Removes all elements. A shared allocation is left to its other owners.
++    pub fn clear(&mut self) {
++        if self.is_empty() {
++            return;
++        }
++
++        if !self.is_unique() {
++            *self = Self::new();
++            return;
++        }
++
++        unsafe {
++            let prev = self.len;
++            // The length is zeroed first so a panicking element drop leaks
++            // instead of dropping twice.
++            self.len = 0;
++
++            // Safety: the allocation is owned by this vector alone and
++            // `data_mut()` is valid for `prev <= capacity` writes.
++            ptr::drop_in_place(ptr::slice_from_raw_parts_mut(self.data_mut(), prev));
++        }
++    }
++}
++
++impl<T: Clone, const I: bool> LocalVec<T, I> {
++    /// A vector of `n` clones of `value`.
++    pub fn from_elem(value: T, n: usize) -> Self {
++        let mut vec = Self::with_capacity(n);
++        for _ in 0..n {
++            // Safety: `with_capacity(n)` reserved room for `n` elements.
++            unsafe { vec.push_unchecked(value.clone()) }
++        }
++        vec
++    }
++
++    /// The elements as a mutable slice, copying them first when the
++    /// allocation is shared.
++    pub fn make_mut(&mut self) -> &mut [T] {
++        self.make_unique();
++
++        // Safety: the count is 1 after `make_unique`.
++        unsafe { std::slice::from_raw_parts_mut(self.data_mut(), self.len) }
++    }
++
++    /// Appends `value`, copying the elements first when the allocation is
++    /// shared.
++    #[inline]
++    pub fn push(&mut self, value: T) {
++        self.reserve((self.len == self.capacity()) as usize);
++
++        // Safety: `reserve` made the count 1 and left room for one element.
++        unsafe {
++            self.push_unchecked(value);
++        }
++    }
++
++    /// Appends without reallocating. The caller must ensure the count is 1 and
++    /// `len < capacity`.
++    #[inline]
++    unsafe fn push_unchecked(&mut self, value: T) {
++        debug_assert!(self.is_unique());
++        debug_assert!(self.len < self.capacity());
++
++        unsafe {
++            // Safety: `data_mut()` is valid for `capacity` writes and the
++            // caller guarantees `len < capacity`.
++            ptr::write(self.data_mut().add(self.len), value);
++            self.len += 1;
++        }
++    }
++
++    /// Removes and returns the last element, copying the elements first when
++    /// the allocation is shared.
++    #[inline]
++    pub fn pop(&mut self) -> Option<T> {
++        if self.is_empty() {
++            return None;
++        }
++
++        self.make_unique();
++
++        unsafe {
++            self.len -= 1;
++            // Safety: the count is 1 and `data() + len` is within the old
++            // length.
++            Some(ptr::read(self.data().add(self.len)))
++        }
++    }
++
++    /// Inserts `value` at `index`, shifting later elements right. Panics if
++    /// `index > len`.
++    pub fn insert(&mut self, index: usize, value: T) {
++        if index > self.len {
++            out_of_bounds(index, self.len);
++        }
++
++        self.reserve((self.len == self.capacity()) as usize);
++
++        unsafe {
++            // Safety: the count is 1 after `reserve`, `index <= len < capacity`,
++            // so `at` is valid for `len - index` reads and `at + 1` for as
++            // many writes.
++            let at = self.data_mut().add(index);
++            ptr::copy(at, at.add(1), self.len - index);
++            ptr::write(at, value);
++            self.len += 1;
++        }
++    }
++
++    /// Removes and returns the element at `index`, shifting later elements
++    /// left. Panics if `index >= len`.
++    pub fn remove(&mut self, index: usize) -> T {
++        if index >= self.len {
++            out_of_bounds(index, self.len);
++        }
++
++        self.make_unique();
++
++        unsafe {
++            // Safety: the count is 1 and `index < len`, so `at` is valid for
++            // one read and `at + 1` for `len - index - 1` reads.
++            let at = self.data_mut().add(index);
++            let value = ptr::read(at);
++            ptr::copy(at.add(1), at, self.len - index - 1);
++            self.len -= 1;
++            value
++        }
++    }
++
++    /// Keeps only the elements for which `f` returns true. Copies a shared
++    /// allocation even when every element is kept.
++    pub fn retain<F>(&mut self, mut f: F)
++    where
++        F: FnMut(&mut T) -> bool,
++    {
++        let len = self.len;
++        let values = self.make_mut();
++
++        let mut del = 0;
++        for i in 0..len {
++            if !f(&mut values[i]) {
++                del += 1;
++            } else if del > 0 {
++                values.swap(i - del, i);
++            }
++        }
++
++        if del > 0 {
++            self.truncate(len - del);
++        }
++    }
++
++    /// Keeps the first `target` elements. A shared allocation is copied only
++    /// when `target < len`.
++    pub fn truncate(&mut self, target: usize) {
++        if target >= self.len {
++            return;
++        }
++
++        if !self.is_unique() {
++            Self::note_shared_copy();
++            // Safety: `target < len`.
++            *self = Self::from(unsafe { self.get_unchecked(..target) });
++            return;
++        }
++
++        let rest = self.len - target;
++        unsafe {
++            self.len = target;
++
++            // Safety: the count is 1 and `data_mut() + target` is valid for
++            // `rest` elements that are still initialized.
++            ptr::drop_in_place(ptr::slice_from_raw_parts_mut(
++                self.data_mut().add(target),
++                rest,
++            ));
++        }
++    }
++
++    /// Leaves the vector with count 1 and room for `additional` more elements.
++    pub fn reserve(&mut self, additional: usize) {
++        let capacity = self.capacity();
++        let mut target = capacity;
++
++        if additional > capacity - self.len {
++            // At least the requested room, at least double the capacity, and
++            // at least the minimum capacity.
++            target = self
++                .len
++                .checked_add(additional)
++                .unwrap_or_else(|| capacity_overflow())
++                .max(2 * capacity)
++                .max(Self::min_cap());
++        }
++
++        if !self.is_unique() {
++            Self::note_shared_copy();
++            let mut vec = Self::with_capacity(target);
++            vec.extend(self.iter().cloned());
++            *self = vec;
++        } else if target > capacity {
++            // Safety: the count is 1 and `target > capacity`.
++            unsafe {
++                self.grow(target);
++            }
++        }
++    }
++
++    /// Appends clones of every element of `slice`.
++    pub fn extend_from_slice(&mut self, slice: &[T]) {
++        if slice.is_empty() {
++            return;
++        }
++
++        self.reserve(slice.len());
++
++        for value in slice {
++            // Safety: `reserve` made the count 1 and left room for
++            // `slice.len()` elements.
++            unsafe {
++                self.push_unchecked(value.clone());
++            }
++        }
++    }
++
++    /// Appends every element of an iterator whose `len` is exact.
++    ///
++    /// # Safety
++    /// `ExactSizeIterator::len` must return the exact number of elements the
++    /// iterator yields.
++    pub unsafe fn extend_from_trusted<It>(&mut self, iter: It)
++    where
++        It: IntoIterator<Item = T>,
++        It::IntoIter: ExactSizeIterator,
++    {
++        let iter = iter.into_iter();
++        let count = iter.len();
++
++        if count == 0 {
++            return;
++        }
++
++        self.reserve(count);
++
++        for value in iter {
++            // Safety: `reserve` made the count 1 and left room for `count`
++            // elements, which the caller guarantees is exact.
++            unsafe {
++                self.push_unchecked(value);
++            }
++        }
++    }
++
++    /// Leaves the vector the only owner of its allocation. May change the
++    /// capacity.
++    fn make_unique(&mut self) {
++        if !self.is_unique() {
++            Self::note_shared_copy();
++            *self = Self::from(self.as_slice());
++        }
++    }
++
++    /// Counts a copy of a shared allocation. Only string storage allows
++    /// immortal headers, so only copies of shared strings are counted.
++    #[inline]
++    fn note_shared_copy() {
++        if I {
++            crate::simulator::util_stats::record_shared_string_copy();
++        }
++    }
++}
++
++impl<T: Copy> LocalVec<T, true> {
++    /// A vector of the elements of `slice` behind an immortal header. The
++    /// capacity is the one `From<&[T]>` gives the same slice, so a copy made
++    /// from this vector is sized as a copy of an ordinary one would be.
++    pub(crate) fn immortal_from_slice(slice: &[T]) -> Self {
++        let mut vec = Self::new();
++        if slice.is_empty() {
++            return vec;
++        }
++        let target = slice.len().max(Self::min_cap());
++        // Safety: the vector is unallocated and `target > 0`.
++        unsafe {
++            vec.reallocate(target, true);
++        }
++        // Safety: the allocation was just created for `target >= slice.len()`
++        // elements, no other vector can see it yet, and it does not overlap
++        // `slice`.
++        unsafe {
++            ptr::copy_nonoverlapping(slice.as_ptr(), vec.data_mut(), slice.len());
++        }
++        vec.len = slice.len();
++        vec
++    }
++}
++
++impl<const I: bool> LocalVec<u8, I> {
++    /// Appends a copy of `bytes`, copying the vector first when it is shared.
++    #[inline]
++    pub(crate) fn extend_from_byte_slice(&mut self, bytes: &[u8]) {
++        if bytes.is_empty() {
++            return;
++        }
++
++        self.reserve(bytes.len());
++
++        // Safety: `reserve` made the count 1 and left room for `bytes.len()`
++        // more elements, and the destination cannot overlap `bytes` because
++        // `self` is borrowed mutably.
++        unsafe {
++            ptr::copy_nonoverlapping(bytes.as_ptr(), self.data_mut().add(self.len), bytes.len());
++        }
++
++        self.len += bytes.len();
++    }
++}
++
++impl<T, const I: bool> LocalVec<T, I> {
++    /// Grows the capacity to at least `target`.
++    ///
++    /// The caller must ensure the count is 1 and `target > capacity`.
++    unsafe fn grow(&mut self, target: usize) {
++        debug_assert!(self.is_unique());
++        debug_assert!(target > self.capacity());
++
++        // Safety: guaranteed by the caller.
++        unsafe {
++            self.reallocate(target, false);
++        }
++    }
++
++    /// Allocates or reallocates storage for at least `target` elements and
++    /// writes a new header, immortal when `immortal` is set.
++    ///
++    /// The caller must ensure `target > capacity` and that no other vector
++    /// owns the allocation. An immortal header may only be written to a
++    /// vector that is unallocated and whose parameter allows it.
++    unsafe fn reallocate(&mut self, mut target: usize, immortal: bool) {
++        debug_assert!(!immortal || (I && !self.is_allocated()));
++
++        if target > isize::MAX as usize {
++            capacity_overflow();
++        }
++
++        if mem::size_of::<T>() == 0 {
++            target = isize::MAX as usize;
++        }
++
++        let layout = Self::layout(target);
++        let allocation = if !self.is_allocated() {
++            // Safety: the layout has non-zero size because `target > 0`.
++            unsafe { std::alloc::alloc(layout) }
++        } else {
++            // Safety: the block was allocated with the layout of the current
++            // capacity, and `Self::size(target)` is non-zero and does not
++            // overflow `isize::MAX` when rounded up to the alignment.
++            unsafe {
++                std::alloc::realloc(
++                    self.allocation_mut(),
++                    Self::layout(self.capacity()),
++                    Self::size(target),
++                )
++            }
++        };
++
++        if allocation.is_null() {
++            std::alloc::handle_alloc_error(layout);
++        }
++
++        // Safety: the allocation is non-null and valid for `Self::size(target)`
++        // bytes, which exceeds `Self::offset()`.
++        unsafe {
++            self.ptr = NonNull::new_unchecked(allocation.add(Self::offset()).cast());
++        }
++        debug_assert_ne!(self.ptr, Self::dangling());
++
++        let header = if immortal {
++            Header::new_immortal(target)
++        } else {
++            Header::new(target)
++        };
++        // Safety: the allocation is valid for a write of the header. On a
++        // reallocation the header written holds count 1, which the caller
++        // guarantees was the count before.
++        unsafe {
++            ptr::write(allocation.cast::<Header>(), header);
++        }
++    }
++
++    #[inline]
++    fn is_allocated(&self) -> bool {
++        !ptr::eq(self.ptr.as_ptr(), Self::dangling().as_ptr())
++    }
++
++    /// The start of the backing allocation. Only valid when allocated.
++    #[inline]
++    unsafe fn allocation(&self) -> *const u8 {
++        debug_assert!(self.is_allocated());
++        unsafe { self.ptr.as_ptr().cast::<u8>().sub(Self::offset()) }
++    }
++
++    /// The start of the backing allocation, mutably. Only valid when
++    /// allocated.
++    #[inline]
++    unsafe fn allocation_mut(&mut self) -> *mut u8 {
++        debug_assert!(self.is_allocated());
++        unsafe { self.ptr.as_ptr().cast::<u8>().sub(Self::offset()) }
++    }
++
++    #[inline]
++    fn header(&self) -> Option<&Header> {
++        // Safety: an allocated vector always has a valid header.
++        self.is_allocated()
++            .then(|| unsafe { &*self.allocation().cast::<Header>() })
++    }
++
++    /// Non-null, aligned and valid for `len` reads of `T`.
++    #[inline]
++    fn data(&self) -> *const T {
++        self.ptr.as_ptr()
++    }
++
++    /// Valid for `capacity` writes of `T`. Only valid while the count is 1,
++    /// or while the allocation is being filled before any other vector can
++    /// see it.
++    #[inline]
++    unsafe fn data_mut(&mut self) -> *mut T {
++        self.ptr.as_ptr()
++    }
++
++    #[inline]
++    fn layout(capacity: usize) -> Layout {
++        // Safety: `Self::size` does not overflow `isize::MAX` when rounded up
++        // to `Self::align()`, which is a valid alignment.
++        unsafe { Layout::from_size_align_unchecked(Self::size(capacity), Self::align()) }
++    }
++
++    /// Always `> 0`, and `<= isize::MAX` when rounded up to `Self::align()`.
++    #[inline]
++    fn size(capacity: usize) -> usize {
++        mem::size_of::<T>()
++            .checked_mul(capacity)
++            .and_then(|size| Self::offset().checked_add(size))
++            .filter(|&size| size < isize::MAX as usize - Self::align())
++            .unwrap_or_else(|| capacity_overflow())
++    }
++
++    #[inline]
++    const fn align() -> usize {
++        max(mem::align_of::<Header>(), mem::align_of::<T>())
++    }
++
++    /// Always `> 0`: `ptr - offset` is the header.
++    #[inline]
++    const fn offset() -> usize {
++        max(mem::size_of::<Header>(), Self::align())
++    }
++
++    /// The pointer of an unallocated vector. It has no provenance and must not
++    /// be read, written or offset, but it is aligned, so it can back empty
++    /// slices. No allocated element pointer equals it, because elements start
++    /// `Self::offset()` bytes into an allocation that cannot start at 0.
++    #[inline]
++    const fn dangling() -> NonNull<T> {
++        unsafe {
++            #[allow(clippy::useless_transmute)]
++            let ptr = mem::transmute::<usize, *mut T>(Self::offset());
++            // Safety: `Self::offset()` is never 0.
++            NonNull::new_unchecked(ptr)
++        }
++    }
++
++    /// The smallest non-zero capacity.
++    #[inline]
++    const fn min_cap() -> usize {
++        if mem::size_of::<T>() == 1 {
++            8
++        } else if mem::size_of::<T>() <= 32 {
++            4
++        } else {
++            1
++        }
++    }
++
++    /// Whether no other vector shares the allocation. Takes `&mut self` so
++    /// the answer cannot go stale before the caller mutates.
++    #[inline]
++    pub fn is_unique(&mut self) -> bool {
++        self.header().map_or(true, |header| header.is_unique_count())
++    }
++
++    #[cfg(test)]
++    pub(crate) fn ref_count(&self) -> usize {
++        self.header().map_or(0, |header| header.count())
++    }
++}
++
++impl<T: Clone, const I: bool> Clone for LocalVec<T, I> {
++    #[inline]
++    fn clone(&self) -> Self {
++        if let Some(header) = self.header() {
++            header.inc_ref::<I>();
++        }
++
++        Self {
++            ptr: self.ptr,
++            len: self.len,
++            phantom: PhantomData,
++        }
++    }
++}
++
++impl<T, const I: bool> Drop for LocalVec<T, I> {
++    fn drop(&mut self) {
++        if self.header().map_or(true, |header| !header.dec_ref::<I>()) {
++            return;
++        }
++
++        // Frees the allocation even if an element drop panics.
++        struct Dealloc(*mut u8, Layout);
++
++        impl Drop for Dealloc {
++            fn drop(&mut self) {
++                // Safety: the pointer and layout describe the allocation.
++                unsafe {
++                    std::alloc::dealloc(self.0, self.1);
++                }
++            }
++        }
++
++        // Safety: the vector has a header, so the allocation has the layout
++        // of the current capacity.
++        let _dealloc = unsafe { Dealloc(self.allocation_mut(), Self::layout(self.capacity())) };
++
++        // Safety: no other vector owns the allocation.
++        unsafe {
++            ptr::drop_in_place(ptr::slice_from_raw_parts_mut(self.data_mut(), self.len));
++        }
++    }
++}
++
++impl<T, const I: bool> Deref for LocalVec<T, I> {
++    type Target = [T];
++
++    #[inline]
++    fn deref(&self) -> &Self::Target {
++        self.as_slice()
++    }
++}
++
++impl<T, const I: bool> Borrow<[T]> for LocalVec<T, I> {
++    #[inline]
++    fn borrow(&self) -> &[T] {
++        self.as_slice()
++    }
++}
++
++impl<T, const I: bool> AsRef<[T]> for LocalVec<T, I> {
++    #[inline]
++    fn as_ref(&self) -> &[T] {
++        self.as_slice()
++    }
++}
++
++impl<T, const I: bool> Default for LocalVec<T, I> {
++    #[inline]
++    fn default() -> Self {
++        Self::new()
++    }
++}
++
++/// Formats exactly as the slice does.
++impl<T: Debug, const I: bool> Debug for LocalVec<T, I> {
++    #[inline]
++    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
++        self.as_slice().fmt(f)
++    }
++}
++
++/// Hashes exactly as the slice does, so hash-keyed containers place a vector
++/// where they place its slice.
++impl<T: Hash, const I: bool> Hash for LocalVec<T, I> {
++    #[inline]
++    fn hash<H: Hasher>(&self, state: &mut H) {
++        self.as_slice().hash(state);
++    }
++}
++
++impl<T: Eq, const I: bool> Eq for LocalVec<T, I> {}
++
++impl<T: PartialEq, const I: bool> PartialEq for LocalVec<T, I> {
++    #[inline]
++    fn eq(&self, other: &Self) -> bool {
++        self.as_slice() == other.as_slice()
++    }
++}
++
++impl<T: PartialEq, const I: bool> PartialEq<[T]> for LocalVec<T, I> {
++    #[inline]
++    fn eq(&self, other: &[T]) -> bool {
++        self.as_slice() == other
++    }
++}
++
++impl<T: PartialEq, const I: bool> PartialEq<&[T]> for LocalVec<T, I> {
++    #[inline]
++    fn eq(&self, other: &&[T]) -> bool {
++        self.as_slice() == *other
++    }
++}
++
++impl<T: PartialEq, const I: bool, const N: usize> PartialEq<[T; N]> for LocalVec<T, I> {
++    #[inline]
++    fn eq(&self, other: &[T; N]) -> bool {
++        self.as_slice() == other
++    }
++}
++
++impl<T: PartialEq, const I: bool, const N: usize> PartialEq<&[T; N]> for LocalVec<T, I> {
++    #[inline]
++    fn eq(&self, other: &&[T; N]) -> bool {
++        self.as_slice() == *other
++    }
++}
++
++impl<T: PartialEq, const I: bool> PartialEq<Vec<T>> for LocalVec<T, I> {
++    #[inline]
++    fn eq(&self, other: &Vec<T>) -> bool {
++        self.as_slice() == other
++    }
++}
++
++impl<T: PartialEq, const I: bool> PartialEq<LocalVec<T, I>> for [T] {
++    #[inline]
++    fn eq(&self, other: &LocalVec<T, I>) -> bool {
++        self == other.as_slice()
++    }
++}
++
++impl<T: PartialEq, const I: bool, const N: usize> PartialEq<LocalVec<T, I>> for [T; N] {
++    #[inline]
++    fn eq(&self, other: &LocalVec<T, I>) -> bool {
++        self == other.as_slice()
++    }
++}
++
++impl<T: PartialEq, const I: bool> PartialEq<LocalVec<T, I>> for Vec<T> {
++    #[inline]
++    fn eq(&self, other: &LocalVec<T, I>) -> bool {
++        self == other.as_slice()
++    }
++}
++
++impl<T: Ord, const I: bool> Ord for LocalVec<T, I> {
++    #[inline]
++    fn cmp(&self, other: &Self) -> Ordering {
++        self.as_slice().cmp(other.as_slice())
++    }
++}
++
++impl<T: PartialOrd, const I: bool> PartialOrd for LocalVec<T, I> {
++    #[inline]
++    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
++        self.as_slice().partial_cmp(other.as_slice())
++    }
++}
++
++impl<T: Clone, const I: bool> From<&[T]> for LocalVec<T, I> {
++    fn from(slice: &[T]) -> Self {
++        let mut vec = Self::new();
++        vec.extend_from_slice(slice);
++        vec
++    }
++}
++
++impl<T: Clone, const I: bool, const N: usize> From<[T; N]> for LocalVec<T, I> {
++    fn from(array: [T; N]) -> Self {
++        let mut vec = Self::new();
++        // Safety: an array's iterator reports its exact length.
++        unsafe {
++            vec.extend_from_trusted(array);
++        }
++        vec
++    }
++}
++
++impl<T: Clone, const I: bool> From<Vec<T>> for LocalVec<T, I> {
++    /// Moves the elements of `other` into a new allocation.
++    fn from(mut other: Vec<T>) -> Self {
++        let len = other.len();
++        let mut vec = Self::with_capacity(len);
++        unsafe {
++            // The source length is zeroed first so its elements are owned by
++            // the new vector alone.
++            other.set_len(0);
++
++            // Safety: the source is valid for `len` reads, the destination was
++            // just allocated for `len` writes, and they do not overlap.
++            ptr::copy_nonoverlapping(other.as_ptr(), vec.data_mut(), len);
++            vec.len = len;
++        }
++        vec
++    }
++}
++
++impl<T: Clone, const I: bool, const N: usize> TryFrom<LocalVec<T, I>> for [T; N] {
++    type Error = LocalVec<T, I>;
++
++    fn try_from(mut vec: LocalVec<T, I>) -> Result<Self, Self::Error> {
++        if vec.len() != N {
++            return Err(vec);
++        }
++
++        Ok(if vec.is_unique() {
++            // The length is zeroed so the vector's drop does not drop the
++            // moved elements.
++            vec.len = 0;
++
++            // Safety: the allocation is owned alone and valid for `N` reads.
++            unsafe { ptr::read(vec.data() as *const [T; N]) }
++        } else {
++            // Safety: the length is `N`.
++            unsafe { array::from_fn(|i| vec.get_unchecked(i).clone()) }
++        })
++    }
++}
++
++impl<T: Clone, const I: bool> FromIterator<T> for LocalVec<T, I> {
++    fn from_iter<It: IntoIterator<Item = T>>(iter: It) -> Self {
++        let iter = iter.into_iter();
++        let hint = iter.size_hint().0;
++        let mut vec = Self::with_capacity(hint);
++        vec.extend(iter);
++        vec
++    }
++}
++
++impl<T: Clone, const I: bool> Extend<T> for LocalVec<T, I> {
++    fn extend<It>(&mut self, iter: It)
++    where
++        It: IntoIterator<Item = T>,
++    {
++        let iter = iter.into_iter();
++        let hint = iter.size_hint().0;
++        if hint > 0 {
++            self.reserve(hint);
++        }
++        for value in iter {
++            self.push(value);
++        }
++    }
++}
++
++impl<'a, T, const I: bool> IntoIterator for &'a LocalVec<T, I> {
++    type IntoIter = std::slice::Iter<'a, T>;
++    type Item = &'a T;
++
++    #[inline]
++    fn into_iter(self) -> Self::IntoIter {
++        self.as_slice().iter()
++    }
++}
++
++impl<T: Clone, const I: bool> IntoIterator for LocalVec<T, I> {
++    type IntoIter = IntoIter<T, I>;
++    type Item = T;
++
++    #[inline]
++    fn into_iter(mut self) -> Self::IntoIter {
++        IntoIter {
++            unique: self.is_unique(),
++            front: 0,
++            back: self.len,
++            vec: self,
++        }
++    }
++}
++
++/// An owned iterator over a [`LocalVec`]. Moves the elements out when the
++/// vector owned its allocation alone, and clones them otherwise.
++pub struct IntoIter<T, const I: bool = false> {
++    vec: LocalVec<T, I>,
++    /// Whether the vector owned its allocation alone.
++    unique: bool,
++    /// Elements taken from the front. When `unique`, these are moved out and
++    /// must not be dropped again.
++    ///
++    /// Invariant: `front <= back`.
++    front: usize,
++    /// End of the elements not yet taken from the back. When `unique`, those
++    /// past it are moved out and must not be dropped again.
++    ///
++    /// Invariant: `back <= len`.
++    back: usize,
++}
++
++impl<T, const I: bool> IntoIter<T, I> {
++    /// The elements not yet yielded.
++    #[inline]
++    pub fn as_slice(&self) -> &[T] {
++        // Safety: `front <= back <= len`, so `data() + front` is valid for
++        // `back - front` reads.
++        unsafe {
++            std::slice::from_raw_parts(self.vec.data().add(self.front), self.back - self.front)
++        }
++    }
++}
++
++impl<T: Clone, const I: bool> Iterator for IntoIter<T, I> {
++    type Item = T;
++
++    #[inline]
++    fn next(&mut self) -> Option<Self::Item> {
++        (self.front < self.back).then(|| {
++            let prev = self.front;
++            self.front += 1;
++            if self.unique {
++                // Safety: the allocation is owned alone, `prev < back <= len`,
++                // and the element is never dropped again.
++                unsafe { ptr::read(self.vec.data().add(prev)) }
++            } else {
++                // Safety: `prev < back <= len`.
++                unsafe { self.vec.get_unchecked(prev).clone() }
++            }
++        })
++    }
++
++    #[inline]
++    fn size_hint(&self) -> (usize, Option<usize>) {
++        let len = self.back - self.front;
++        (len, Some(len))
++    }
++
++    #[inline]
++    fn count(self) -> usize {
++        self.len()
++    }
++}
++
++impl<T: Clone, const I: bool> DoubleEndedIterator for IntoIter<T, I> {
++    #[inline]
++    fn next_back(&mut self) -> Option<Self::Item> {
++        (self.back > self.front).then(|| {
++            self.back -= 1;
++            if self.unique {
++                // Safety: the allocation is owned alone, `back < len`, and the
++                // element is never dropped again.
++                unsafe { ptr::read(self.vec.data().add(self.back)) }
++            } else {
++                // Safety: `back < len`.
++                unsafe { self.vec.get_unchecked(self.back).clone() }
++            }
++        })
++    }
++}
++
++impl<T: Clone, const I: bool> ExactSizeIterator for IntoIter<T, I> {}
++
++impl<T, const I: bool> Drop for IntoIter<T, I> {
++    fn drop(&mut self) {
++        if !self.unique || !self.vec.is_allocated() {
++            return;
++        }
++
++        unsafe {
++            // The length is zeroed first so the vector's drop cannot drop an
++            // element twice if an element drop panics.
++            self.vec.len = 0;
++
++            // Safety: the allocation is owned alone; only the elements between
++            // `front` and `back` are still initialized.
++            ptr::drop_in_place(ptr::slice_from_raw_parts_mut(
++                self.vec.data_mut().add(self.front),
++                self.back - self.front,
++            ));
++        }
++    }
++}
++
++impl<T: Debug, const I: bool> Debug for IntoIter<T, I> {
++    #[inline]
++    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
++        f.debug_tuple("IntoIter").field(&self.as_slice()).finish()
++    }
++}
++
++/// Fails to compile if `LocalVec` is ever `Send` or `Sync`: each probe is
++/// ambiguous exactly when the auto trait holds.
++#[allow(dead_code)]
++const _: () = {
++    trait AmbiguousIfSend<A> {
++        fn probe() {}
++    }
++    impl<T: ?Sized> AmbiguousIfSend<()> for T {}
++    impl<T: ?Sized + Send> AmbiguousIfSend<u8> for T {}
++
++    trait AmbiguousIfSync<A> {
++        fn probe() {}
++    }
++    impl<T: ?Sized> AmbiguousIfSync<()> for T {}
++    impl<T: ?Sized + Sync> AmbiguousIfSync<u8> for T {}
++
++    fn assert_neither_send_nor_sync() {
++        let _ = <LocalVec<u8> as AmbiguousIfSend<_>>::probe;
++        let _ = <LocalVec<u8> as AmbiguousIfSync<_>>::probe;
++        let _ = <LocalVec<u8, true> as AmbiguousIfSend<_>>::probe;
++        let _ = <LocalVec<u8, true> as AmbiguousIfSync<_>>::probe;
++    }
++};
++
++#[cold]
++fn capacity_overflow() -> ! {
++    panic!("capacity overflow");
++}
++
++#[cold]
++fn ref_count_overflow() -> ! {
++    panic!("reference count overflow");
++}
++
++#[cold]
++fn out_of_bounds(index: usize, len: usize) -> ! {
++    panic!("index is out bounds (index: {index}, len: {len})");
++}
++
++/// `std::cmp::max::<usize>` usable in `const` contexts.
++#[inline]
++const fn max(x: usize, y: usize) -> usize {
++    if x > y { x } else { y }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{IMMORTAL_COUNT, LocalVec};
++    use crate::simulator::util_stats;
++    use std::rc::Rc;
++    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
++
++    fn v<T>(value: T) -> Box<T> {
++        Box::new(value)
++    }
++
++    #[test]
++    fn layout_matches_a_slice() {
++        let word = std::mem::size_of::<usize>();
++        assert_eq!(std::mem::size_of::<LocalVec<u8>>(), 2 * word);
++        assert_eq!(std::mem::size_of::<Option<LocalVec<u8>>>(), 2 * word);
++        assert_eq!(std::mem::size_of::<LocalVec<u8, true>>(), 2 * word);
++    }
++
++    #[test]
++    fn construction() {
++        assert_eq!(LocalVec::<()>::default(), &[]);
++        assert_eq!(LocalVec::<()>::from(vec![(); 100]), vec![(); 100]);
++        assert_eq!(LocalVec::<Box<i32>>::from_elem(v(1), 3), vec![v(1); 3]);
++        assert_eq!(LocalVec::<u8>::new().ref_count(), 0);
++    }
++
++    #[test]
++    fn clones_and_drops_move_the_count() {
++        let first = LocalVec::<i32>::from([1, 2, 3]);
++        assert_eq!(first.ref_count(), 1);
++        let second = first.clone();
++        let third = second.clone();
++        assert_eq!(first.ref_count(), 3);
++        assert_eq!(first.as_ptr(), third.as_ptr());
++        drop(second);
++        assert_eq!(first.ref_count(), 2);
++        drop(third);
++        assert_eq!(first.ref_count(), 1);
++    }
++
++    #[test]
++    fn from_vec_moves_without_cloning() {
++        let x = Rc::new(());
++        let v = vec![x.clone()];
++        assert_eq!(Rc::strong_count(&x), 2);
++
++        let vec = LocalVec::<Rc<()>>::from(v);
++        assert_eq!(Rc::strong_count(&x), 2);
++        assert_eq!(vec.len(), 1);
++        assert!(Rc::ptr_eq(&x, &vec[0]));
++
++        drop(vec);
++        assert_eq!(Rc::strong_count(&x), 1);
++    }
++
++    #[test]
++    fn with_capacity_does_not_reallocate_within_capacity() {
++        let mut vec = LocalVec::<i32>::with_capacity(3);
++        assert_eq!(vec.capacity(), 3);
++        let ptr = vec.as_ptr();
++        vec.push(1);
++        vec.push(2);
++        vec.push(3);
++        assert_eq!(ptr, vec.as_ptr());
++        vec.push(4);
++        assert_eq!(vec, [1, 2, 3, 4]);
++    }
++
++    #[test]
++    #[should_panic(expected = "capacity overflow")]
++    fn with_capacity_overflow_panics() {
++        LocalVec::<u8>::with_capacity(usize::MAX);
++    }
++
++    #[test]
++    fn clear_leaves_other_owners_intact() {
++        let mut first = LocalVec::<String>::with_capacity(3);
++        assert!(first.is_empty());
++        first.push("hi".to_string());
++        assert_eq!(first.len(), 1);
++        let second = first.clone();
++        first.clear();
++        assert!(first.is_empty());
++        first.clear();
++        assert!(first.is_empty());
++        assert_eq!(second, ["hi".to_string()]);
++        assert_eq!(second.ref_count(), 1);
++    }
++
++    #[test]
++    fn make_mut_copies_only_when_shared() {
++        let mut first = LocalVec::<i32>::from([4, -3, 11, 6, 10]);
++        let ptr = first.as_ptr();
++        first.make_mut()[1] -= 1;
++        assert_eq!(ptr, first.as_ptr());
++        let second = first.clone();
++        first.make_mut().sort();
++        assert_ne!(ptr, first.as_ptr());
++        assert_eq!(ptr, second.as_ptr());
++        assert_eq!(first, [-4, 4, 6, 10, 11]);
++        assert_eq!(second, [4, -4, 11, 6, 10]);
++        assert_eq!(first.ref_count(), 1);
++        assert_eq!(second.ref_count(), 1);
++    }
++
++    #[test]
++    fn push_copies_a_shared_allocation() {
++        let mut first = LocalVec::<i32>::new();
++        first.push(1);
++        first.push(2);
++        first.push(3);
++        let mut second = first.clone();
++        let third = second.clone();
++        let _ = third.clone();
++        second.push(4);
++        assert_eq!(first, [1, 2, 3]);
++        assert_eq!(second, [1, 2, 3, 4]);
++        assert_eq!(third, [1, 2, 3]);
++        assert_ne!(first.as_ptr(), second.as_ptr());
++        assert_eq!(first.as_ptr(), third.as_ptr());
++        assert_eq!(first.ref_count(), 2);
++        assert_eq!(second.ref_count(), 1);
++    }
++
++    #[test]
++    fn reserve_and_grow_under_sharing() {
++        let mut first = LocalVec::<Box<i32>>::from([v(1), v(2)]);
++        let second = first.clone();
++        first.reserve(10);
++        assert!(first.capacity() >= 12);
++        assert_ne!(first.as_ptr(), second.as_ptr());
++        assert_eq!(first, second);
++        assert_eq!(first.ref_count(), 1);
++        assert_eq!(second.ref_count(), 1);
++
++        let mut unique = LocalVec::<Box<i32>>::from([v(1)]);
++        let cap = unique.capacity();
++        unique.reserve(cap * 4);
++        assert!(unique.capacity() >= cap * 4 + 1);
++        assert_eq!(unique, [v(1)]);
++        assert_eq!(unique.ref_count(), 1);
++    }
++
++    #[test]
++    fn pop_insert_remove_truncate() {
++        let mut first = LocalVec::<Box<&str>>::new();
++        assert_eq!(first.pop(), None);
++        first.push(v("a"));
++        let ptr = first.as_ptr();
++        assert_eq!(first.pop(), Some(v("a")));
++        first.push(v("b"));
++        assert_eq!(ptr, first.as_ptr());
++        let second = first.clone();
++        assert_eq!(first.pop(), Some(v("b")));
++        assert_eq!(first, []);
++        assert_eq!(second, [v("b")]);
++
++        let mut a = LocalVec::<&str>::new();
++        a.insert(0, "okay");
++        a.insert(0, "reverse");
++        let mut b = a.clone();
++        a.insert(2, "a");
++        a.insert(1, "b");
++        b.insert(2, "last");
++        assert_eq!(a, ["reverse", "b", "okay", "a"]);
++        assert_eq!(b, ["reverse", "okay", "last"]);
++
++        let mut c = LocalVec::<Box<i32>>::with_capacity(4);
++        c.extend_from_slice(&[v(2), v(4), v(1)]);
++        let d = c.clone();
++        assert_eq!(c.remove(1), v(4));
++        assert_eq!(c, [v(2), v(1)]);
++        assert_eq!(d, [v(2), v(4), v(1)]);
++
++        let mut e = LocalVec::<&str>::from_elem("ok", 10);
++        e.truncate(13);
++        e.truncate(3);
++        assert_eq!(e, ["ok"; 3]);
++        let mut f = e.clone();
++        f.truncate(2);
++        assert_eq!(f, ["ok"; 2]);
++        assert_eq!(e, ["ok"; 3]);
++    }
++
++    #[test]
++    #[should_panic(expected = "index is out bounds (index: 4, len: 3)")]
++    fn insert_out_of_bounds_panics() {
++        LocalVec::<i32>::from([1, 2, 3]).insert(4, 0);
++    }
++
++    #[test]
++    #[should_panic(expected = "index is out bounds (index: 4, len: 3)")]
++    fn remove_out_of_bounds_panics() {
++        LocalVec::<i32>::from([1, 2, 3]).remove(4);
++    }
++
++    #[test]
++    fn into_iter_moves_when_unique_and_clones_when_shared() {
++        let x = Rc::new(());
++        let unique = LocalVec::<Rc<()>>::from([x.clone(), x.clone()]);
++        assert_eq!(Rc::strong_count(&x), 3);
++        let moved: Vec<Rc<()>> = unique.into_iter().collect();
++        assert_eq!(Rc::strong_count(&x), 3);
++        drop(moved);
++        assert_eq!(Rc::strong_count(&x), 1);
++
++        let shared = LocalVec::<Rc<()>>::from([x.clone(), x.clone()]);
++        let keep = shared.clone();
++        let cloned: Vec<Rc<()>> = shared.into_iter().collect();
++        assert_eq!(Rc::strong_count(&x), 5);
++        assert_eq!(keep.ref_count(), 1);
++        drop(cloned);
++        drop(keep);
++        assert_eq!(Rc::strong_count(&x), 1);
++
++        let first = LocalVec::<Box<i32>>::from([v(2), v(4), v(5)]);
++        let mut second = first.clone();
++        assert_eq!(first.clone().into_iter().count(), 3);
++        assert_eq!(second.clone().into_iter().rev().collect::<Vec<_>>(), [v(5), v(4), v(2)]);
++        second.clear();
++        assert_eq!(second.into_iter().collect::<Vec<_>>(), []);
++        let mut iter = first.into_iter();
++        assert_eq!(iter.len(), 3);
++        assert_eq!(iter.next(), Some(v(2)));
++        assert_eq!(iter.next_back(), Some(v(5)));
++        assert_eq!(iter.as_slice(), [v(4)]);
++        drop(iter);
++    }
++
++    #[test]
++    fn partially_consumed_unique_iterator_drops_the_rest_once() {
++        let x = Rc::new(());
++        let vec = LocalVec::<Rc<()>>::from([x.clone(), x.clone(), x.clone(), x.clone()]);
++        let mut iter = vec.into_iter();
++        let a = iter.next();
++        let b = iter.next_back();
++        drop(iter);
++        assert_eq!(Rc::strong_count(&x), 3);
++        drop((a, b));
++        assert_eq!(Rc::strong_count(&x), 1);
++    }
++
++    #[test]
++    fn zero_sized_elements() {
++        static COUNTER: AtomicUsize = AtomicUsize::new(0);
++
++        #[derive(Clone)]
++        struct Potato;
++        impl Drop for Potato {
++            fn drop(&mut self) {
++                COUNTER.fetch_add(1, SeqCst);
++            }
++        }
++
++        let mut vec = LocalVec::<Potato>::new();
++        for _ in 0..1000 {
++            vec.push(Potato);
++        }
++        assert_eq!(vec.len(), 1000);
++        drop(vec);
++
++        assert_eq!(COUNTER.load(SeqCst), 1000);
++    }
++
++    #[test]
++    fn huge_alignment() {
++        #[derive(Debug, PartialEq, Clone)]
++        #[repr(align(128))]
++        struct B(&'static str);
++        let mut vec: LocalVec<B> = "hello, world! what's going on?".split_whitespace().map(B).collect();
++
++        assert_eq!(vec.len(), 5);
++        assert_eq!(vec.capacity(), 8);
++        assert_eq!(vec.pop(), Some(B("on?")));
++        assert_eq!(vec.last(), Some(&B("going")));
++        assert_eq!(vec.remove(1), B("world!"));
++        assert_eq!(vec, [B("hello,"), B("what's"), B("going")]);
++        vec.push(B("where?"));
++        vec.insert(1, B("wonder!"));
++        assert_eq!(vec, [B("hello,"), B("wonder!"), B("what's"), B("going"), B("where?")]);
++        vec.retain(|b| b.0.starts_with('w'));
++        assert_eq!(vec, [B("wonder!"), B("what's"), B("where?")]);
++        vec.truncate(1);
++        assert_eq!(vec.last(), vec.first());
++    }
++
++    #[test]
++    #[should_panic(expected = "dropped the hot potato!")]
++    fn panic_in_element_drop_unwinds() {
++        #[derive(Clone)]
++        struct Potato;
++        impl Drop for Potato {
++            fn drop(&mut self) {
++                panic!("dropped the hot potato!");
++            }
++        }
++
++        drop(LocalVec::<Potato>::from([Potato]));
++    }
++
++    #[test]
++    #[should_panic(expected = "dropped the hot potato!")]
++    fn panic_in_element_drop_during_clear_unwinds() {
++        #[derive(Clone)]
++        struct Potato;
++        impl Drop for Potato {
++            fn drop(&mut self) {
++                panic!("dropped the hot potato!");
++            }
++        }
++
++        let mut vec = LocalVec::<Potato>::from([Potato]);
++        vec.clear();
++    }
++
++    #[test]
++    fn panic_in_one_element_drop_does_not_drop_twice() {
++        static DROPS: AtomicUsize = AtomicUsize::new(0);
++
++        #[derive(Clone)]
++        struct Once(bool);
++        impl Drop for Once {
++            fn drop(&mut self) {
++                DROPS.fetch_add(1, SeqCst);
++                if self.0 {
++                    panic!("first element");
++                }
++            }
++        }
++
++        let result = std::panic::catch_unwind(|| {
++            drop(LocalVec::<Once>::from([Once(true), Once(false), Once(false)]));
++        });
++        assert!(result.is_err());
++        assert_eq!(DROPS.load(SeqCst), 3);
++    }
++
++    #[test]
++    fn array_from_vector() {
++        let array = [String::from("foo"), String::from("bar")];
++        let a = LocalVec::<String>::from(array.clone());
++        let b = a.clone();
++        let c: [String; 2] = a.try_into().unwrap();
++        assert_eq!(b, c);
++        let d = b.clone();
++        assert_eq!(c, array);
++        assert_eq!(d, array);
++        drop(b);
++        drop(d);
++        assert_eq!(c, array);
++
++        assert_eq!(<[String; 0]>::try_from(LocalVec::<String>::new()).unwrap(), <[String; 0]>::default());
++    }
++
++    #[test]
++    fn hash_and_debug_match_the_slice() {
++        use std::hash::{DefaultHasher, Hash, Hasher};
++        let vec = LocalVec::<Box<i32>>::from([v(1), v(2), v(3)]);
++        let slice: &[Box<i32>] = &[v(1), v(2), v(3)];
++        let hash = |x: &dyn Fn(&mut DefaultHasher)| {
++            let mut h = DefaultHasher::new();
++            x(&mut h);
++            h.finish()
++        };
++        assert_eq!(hash(&|h| vec.hash(h)), hash(&|h| slice.hash(h)));
++        assert_eq!(format!("{vec:?}"), format!("{slice:?}"));
++        assert_eq!(format!("{vec:#?}"), format!("{slice:#?}"));
++    }
++
++    #[test]
++    fn immortal_header_is_only_read() {
++        let bytes = b"immortal bytes of some length";
++        let mut immortal = LocalVec::<u8, true>::immortal_from_slice(bytes);
++        assert_eq!(immortal.ref_count(), IMMORTAL_COUNT);
++        assert_eq!(immortal.capacity(), LocalVec::<u8, true>::from(&bytes[..]).capacity());
++        assert!(!immortal.is_unique());
++
++        let before = util_stats::pending_value_refs();
++        let a = immortal.clone();
++        let mut b = a.clone();
++        assert_eq!(immortal.ref_count(), IMMORTAL_COUNT);
++        b.make_mut()[0] = b'I';
++        assert_ne!(b.as_ptr(), immortal.as_ptr());
++        assert_eq!(b.ref_count(), 1);
++        let mut c = immortal.clone();
++        c.extend_from_byte_slice(b"!");
++        assert_eq!(&c[..bytes.len()], bytes);
++        drop((a, b, c));
++        let after = util_stats::pending_value_refs();
++        assert_eq!(after[0] - before[0], 3, "clones of an immortal header");
++        assert_eq!(after[1] - before[1], 3, "drops of an immortal header");
++        assert_eq!(after[2] - before[2], 2, "copies of a shared string");
++        assert_eq!(immortal.ref_count(), IMMORTAL_COUNT);
++        assert_eq!(immortal.as_slice(), bytes);
++
++        let mut ordinary = LocalVec::<u8, true>::from(&bytes[..]);
++        let keep = ordinary.clone();
++        let before = util_stats::pending_value_refs();
++        ordinary.truncate(3);
++        let after = util_stats::pending_value_refs();
++        assert_eq!(after[2] - before[2], 1, "a truncate of a shared string copies it");
++        assert_eq!(after[0], before[0]);
++        drop((ordinary, keep));
++
++        let mut values = LocalVec::<u8>::from(&bytes[..]);
++        let keep = values.clone();
++        let before = util_stats::pending_value_refs();
++        values.make_mut();
++        let after = util_stats::pending_value_refs();
++        assert_eq!(after, before, "vectors that cannot hold an immortal header are not counted");
++        drop((values, keep));
++
++        let empty = LocalVec::<u8, true>::immortal_from_slice(&[]);
++        assert_eq!(empty.ref_count(), 0);
++    }
++}
+diff --git a/tmp/loop/perf/value-refcounts-then-register-ops/untracked-AB/spur-core/src/simulator/core/local_str.rs b/spur-core/src/simulator/core/local_str.rs
+new file mode 100644
+index 0000000..190c07f
+--- /dev/null
++++ b/spur-core/src/simulator/core/local_str.rs
+@@ -0,0 +1,906 @@
++//! A clone-on-write string whose reference count is a plain integer, and the
++//! handle program literals are held by.
++//!
++//! Derived from the ecow crate, version 0.2.6, files src/string.rs and
++//! src/dynamic.rs. Copyright the ecow authors; licensed under the MIT license
++//! or the Apache License, Version 2.0, at the user's option.
++//!
++//! A string of at most `LIMIT` bytes is stored inline and has no count. A
++//! longer string lives in a `LocalVec` whose count is not atomic, so a string
++//! and all of its clones must stay on the thread that created them. The one
++//! exception is a program literal: its header is immortal, and every clone,
++//! drop and uniqueness check of an immortal header only reads it.
++
++use crate::simulator::core::local_vec::LocalVec;
++use std::borrow::Borrow;
++use std::cmp::Ordering;
++use std::collections::HashMap;
++use std::fmt::{self, Debug, Display, Formatter, Write};
++use std::hash::{Hash, Hasher};
++use std::mem::{self, ManuallyDrop};
++use std::ops::Deref;
++use std::ptr;
++use std::sync::{LazyLock, Mutex};
++
++/// Storage of a string too long to be inline. Its header may be immortal.
++type Spilled = LocalVec<u8, true>;
++
++/// A byte vector that holds up to `LIMIT` bytes inline and spills to a
++/// `Spilled` vector beyond that.
++struct DynamicVec(Repr);
++
++/// On 64-bit little endian no valid `Spilled` vector has the highest bit of
++/// the inline `tagged_len` set: that byte is the top byte of the vector's
++/// length, which never exceeds `isize::MAX`. On 32-bit the two fields do not
++/// overlap, and on big endian `LIMIT` is raised so that they do not.
++#[repr(C)]
++union Repr {
++    inline: InlineVec,
++    spilled: ManuallyDrop<Spilled>,
++}
++
++enum Variant<'a> {
++    Inline(&'a InlineVec),
++    Spilled(&'a Spilled),
++}
++
++enum VariantMut<'a> {
++    Inline(&'a mut InlineVec),
++    Spilled(&'a mut Spilled),
++}
++
++/// The most bytes stored inline: 15 on 64-bit little endian, raised where the
++/// inline length byte would otherwise overlap a spilled vector's length.
++const LIMIT: usize = {
++    let mut limit = 15;
++    if limit < mem::size_of::<Spilled>() - 1 {
++        limit = mem::size_of::<Spilled>() - 1;
++    }
++    if cfg!(target_endian = "big") {
++        limit += mem::size_of::<usize>();
++    }
++    limit
++};
++
++/// Set in `tagged_len` exactly when the string is inline.
++const LEN_TAG: u8 = 0b1000_0000;
++
++const LEN_MASK: u8 = 0b0111_1111;
++
++impl DynamicVec {
++    #[inline]
++    const fn new() -> Self {
++        Self::from_inline(InlineVec::new())
++    }
++
++    #[inline]
++    const fn from_inline(inline: InlineVec) -> Self {
++        Self(Repr { inline })
++    }
++
++    #[inline]
++    fn from_spilled(vec: Spilled) -> Self {
++        // `tagged_len` is written as 0 first, so the byte that marks a string
++        // inline is initialized and clear for a spilled one.
++        let mut repr = Repr {
++            inline: InlineVec {
++                buf: [0; LIMIT],
++                tagged_len: 0,
++            },
++        };
++        repr.spilled = ManuallyDrop::new(vec);
++        Self(repr)
++    }
++
++    #[inline]
++    fn from_slice(bytes: &[u8]) -> Self {
++        match InlineVec::from_slice(bytes) {
++            Ok(inline) => Self::from_inline(inline),
++            _ => Self::from_spilled(Spilled::from(bytes)),
++        }
++    }
++
++    #[inline]
++    fn with_capacity(capacity: usize) -> Self {
++        if capacity <= LIMIT {
++            Self::new()
++        } else {
++            Self::from_spilled(Spilled::with_capacity(capacity))
++        }
++    }
++
++    #[inline]
++    fn len(&self) -> usize {
++        match self.variant() {
++            Variant::Inline(inline) => inline.len(),
++            Variant::Spilled(spilled) => spilled.len(),
++        }
++    }
++
++    #[inline]
++    fn as_slice(&self) -> &[u8] {
++        match self.variant() {
++            Variant::Inline(inline) => inline.as_slice(),
++            Variant::Spilled(spilled) => spilled.as_slice(),
++        }
++    }
++
++    #[inline]
++    fn make_mut(&mut self) -> &mut [u8] {
++        match self.variant_mut() {
++            VariantMut::Inline(inline) => inline.as_mut_slice(),
++            VariantMut::Spilled(spilled) => spilled.make_mut(),
++        }
++    }
++
++    #[inline]
++    fn push(&mut self, byte: u8) {
++        match self.variant_mut() {
++            VariantMut::Inline(inline) => {
++                if inline.push(byte).is_err() {
++                    let mut spilled = Spilled::with_capacity(LIMIT * 2);
++                    spilled.extend_from_byte_slice(self.as_slice());
++                    spilled.push(byte);
++                    *self = Self::from_spilled(spilled);
++                }
++            }
++            VariantMut::Spilled(spilled) => {
++                spilled.push(byte);
++            }
++        }
++    }
++
++    #[inline]
++    fn extend_from_slice(&mut self, bytes: &[u8]) {
++        match self.variant_mut() {
++            VariantMut::Inline(inline) => {
++                if inline.extend_from_slice(bytes).is_err() {
++                    let needed = inline.len() + bytes.len();
++                    let mut spilled = Spilled::with_capacity(needed.next_power_of_two());
++                    spilled.extend_from_byte_slice(self.as_slice());
++                    spilled.extend_from_byte_slice(bytes);
++                    *self = Self::from_spilled(spilled);
++                }
++            }
++            VariantMut::Spilled(spilled) => {
++                spilled.extend_from_byte_slice(bytes);
++            }
++        }
++    }
++
++    #[inline]
++    fn clear(&mut self) {
++        match self.variant_mut() {
++            VariantMut::Inline(inline) => inline.clear(),
++            VariantMut::Spilled(spilled) => spilled.clear(),
++        }
++    }
++
++    #[inline]
++    fn truncate(&mut self, target: usize) {
++        match self.variant_mut() {
++            VariantMut::Inline(inline) => inline.truncate(target),
++            VariantMut::Spilled(spilled) => spilled.truncate(target),
++        }
++    }
++
++    /// True when `self.0.inline` is the initialized field, false when
++    /// `self.0.spilled` is.
++    #[inline]
++    fn is_inline(&self) -> bool {
++        // Safety: `tagged_len` is initialized for both fields; see `Repr`.
++        unsafe { self.0.inline.tagged_len & LEN_TAG != 0 }
++    }
++
++    #[inline]
++    fn variant(&self) -> Variant<'_> {
++        // Safety: the field read is the one `is_inline` reports initialized.
++        unsafe {
++            if self.is_inline() {
++                Variant::Inline(&self.0.inline)
++            } else {
++                Variant::Spilled(&self.0.spilled)
++            }
++        }
++    }
++
++    #[inline]
++    fn variant_mut(&mut self) -> VariantMut<'_> {
++        // Safety: the field read is the one `is_inline` reports initialized.
++        unsafe {
++            if self.is_inline() {
++                VariantMut::Inline(&mut self.0.inline)
++            } else {
++                VariantMut::Spilled(&mut self.0.spilled)
++            }
++        }
++    }
++
++    #[cfg(test)]
++    fn header_count(&self) -> Option<usize> {
++        match self.variant() {
++            Variant::Inline(_) => None,
++            Variant::Spilled(spilled) => Some(spilled.ref_count()),
++        }
++    }
++}
++
++impl Clone for DynamicVec {
++    #[inline]
++    fn clone(&self) -> Self {
++        match self.variant() {
++            Variant::Inline(inline) => Self::from_inline(*inline),
++            Variant::Spilled(spilled) => Self::from_spilled(spilled.clone()),
++        }
++    }
++}
++
++impl Drop for DynamicVec {
++    #[inline]
++    fn drop(&mut self) {
++        if let VariantMut::Spilled(spilled) = self.variant_mut() {
++            // Safety: the spilled field is initialized and dropped only here.
++            unsafe {
++                ptr::drop_in_place(spilled);
++            }
++        }
++    }
++}
++
++#[repr(C)]
++#[derive(Debug, Copy, Clone)]
++struct InlineVec {
++    buf: [u8; LIMIT],
++    /// Invariant: after masking off the tag, never exceeds `LIMIT`.
++    tagged_len: u8,
++}
++
++impl InlineVec {
++    #[inline]
++    const fn new() -> Self {
++        // Safety: 0 <= LIMIT.
++        unsafe { Self::from_buf([0; LIMIT], 0) }
++    }
++
++    #[inline]
++    const fn from_slice(bytes: &[u8]) -> Result<Self, ()> {
++        let len = bytes.len();
++        if len > LIMIT {
++            return Err(());
++        }
++
++        let mut buf = [0; LIMIT];
++        let mut i = 0;
++        while i < len {
++            buf[i] = bytes[i];
++            i += 1;
++        }
++
++        // Safety: `len <= LIMIT` was checked above.
++        unsafe { Ok(Self::from_buf(buf, len)) }
++    }
++
++    /// `len` must not exceed `LIMIT`.
++    #[inline]
++    const unsafe fn from_buf(buf: [u8; LIMIT], len: usize) -> Self {
++        debug_assert!(len <= LIMIT);
++        Self {
++            buf,
++            tagged_len: len as u8 | LEN_TAG,
++        }
++    }
++
++    #[inline]
++    fn len(&self) -> usize {
++        usize::from(self.tagged_len & LEN_MASK)
++    }
++
++    /// `len` must not exceed `LIMIT`.
++    #[inline]
++    unsafe fn set_len(&mut self, len: usize) {
++        debug_assert!(len <= LIMIT);
++        self.tagged_len = len as u8 | LEN_TAG;
++    }
++
++    #[inline]
++    fn as_slice(&self) -> &[u8] {
++        // Safety: `len <= LIMIT`.
++        unsafe { self.buf.get_unchecked(..self.len()) }
++    }
++
++    #[inline]
++    fn as_mut_slice(&mut self) -> &mut [u8] {
++        let len = self.len();
++        // Safety: `len <= LIMIT`.
++        unsafe { self.buf.get_unchecked_mut(..len) }
++    }
++
++    #[inline]
++    fn clear(&mut self) {
++        // Safety: 0 <= LIMIT.
++        unsafe {
++            self.set_len(0);
++        }
++    }
++
++    #[inline]
++    fn push(&mut self, byte: u8) -> Result<(), ()> {
++        let len = self.len();
++        if let Some(slot) = self.buf.get_mut(len) {
++            *slot = byte;
++            // Safety: `get_mut` succeeded, so `len < LIMIT`.
++            unsafe {
++                self.set_len(len + 1);
++            }
++            Ok(())
++        } else {
++            Err(())
++        }
++    }
++
++    #[inline]
++    fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<(), ()> {
++        let len = self.len();
++        let grown = len + bytes.len();
++        if let Some(segment) = self.buf.get_mut(len..grown) {
++            segment.copy_from_slice(bytes);
++            // Safety: `get_mut` succeeded, so `grown <= LIMIT`.
++            unsafe {
++                self.set_len(grown);
++            }
++            Ok(())
++        } else {
++            Err(())
++        }
++    }
++
++    #[inline]
++    fn truncate(&mut self, target: usize) {
++        if target < self.len() {
++            // Safety: `target` is below the current length, which is at most
++            // `LIMIT`.
++            unsafe {
++                self.set_len(target);
++            }
++        }
++    }
++}
++
++/// A string with inline storage for short text and clone-on-write heap
++/// storage beyond that. Two words wide on 64-bit little endian.
++#[derive(Clone)]
++pub struct LocalStr(DynamicVec);
++
++impl LocalStr {
++    /// An empty string.
++    #[inline]
++    pub const fn new() -> Self {
++        Self(DynamicVec::new())
++    }
++
++    /// An empty string with room for at least `capacity` bytes.
++    #[inline]
++    pub fn with_capacity(capacity: usize) -> Self {
++        Self(DynamicVec::with_capacity(capacity))
++    }
++
++    #[inline]
++    fn from_str(string: &str) -> Self {
++        Self(DynamicVec::from_slice(string.as_bytes()))
++    }
++
++    #[inline]
++    pub fn is_empty(&self) -> bool {
++        self.len() == 0
++    }
++
++    /// The length in bytes.
++    #[inline]
++    pub fn len(&self) -> usize {
++        self.0.len()
++    }
++
++    #[inline]
++    pub fn as_str(&self) -> &str {
++        // Safety: the bytes only ever come from string slices and from chars
++        // encoded as UTF-8, and are only ever cut at char boundaries.
++        unsafe { std::str::from_utf8_unchecked(self.0.as_slice()) }
++    }
++
++    /// The string as a mutable slice, copying it first when its storage is
++    /// shared.
++    #[inline]
++    pub fn make_mut(&mut self) -> &mut str {
++        // Safety: see `as_str`; a `&mut str` cannot break UTF-8 validity.
++        unsafe { std::str::from_utf8_unchecked_mut(self.0.make_mut()) }
++    }
++
++    /// Appends a character.
++    #[inline]
++    pub fn push(&mut self, c: char) {
++        if c.len_utf8() == 1 {
++            self.0.push(c as u8);
++        } else {
++            self.push_str(c.encode_utf8(&mut [0; 4]));
++        }
++    }
++
++    /// Appends a string slice.
++    pub fn push_str(&mut self, string: &str) {
++        self.0.extend_from_slice(string.as_bytes());
++    }
++
++    /// Removes and returns the last character.
++    #[inline]
++    pub fn pop(&mut self) -> Option<char> {
++        let slice = self.as_str();
++        let c = slice.chars().next_back()?;
++        self.0.truncate(slice.len() - c.len_utf8());
++        Some(c)
++    }
++
++    #[inline]
++    pub fn clear(&mut self) {
++        self.0.clear();
++    }
++
++    /// Shortens the string to `new_len` bytes. Panics if `new_len` is not a
++    /// char boundary.
++    #[inline]
++    pub fn truncate(&mut self, new_len: usize) {
++        if new_len <= self.len() {
++            assert!(self.is_char_boundary(new_len));
++            self.0.truncate(new_len);
++        }
++    }
++}
++
++impl Deref for LocalStr {
++    type Target = str;
++
++    #[inline]
++    fn deref(&self) -> &str {
++        self.as_str()
++    }
++}
++
++impl Default for LocalStr {
++    #[inline]
++    fn default() -> Self {
++        Self::new()
++    }
++}
++
++/// Formats exactly as the `str` does.
++impl Debug for LocalStr {
++    #[inline]
++    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
++        Debug::fmt(self.as_str(), f)
++    }
++}
++
++impl Display for LocalStr {
++    #[inline]
++    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
++        Display::fmt(self.as_str(), f)
++    }
++}
++
++impl Eq for LocalStr {}
++
++impl PartialEq for LocalStr {
++    #[inline]
++    fn eq(&self, other: &Self) -> bool {
++        self.as_str().eq(other.as_str())
++    }
++}
++
++impl PartialEq<str> for LocalStr {
++    #[inline]
++    fn eq(&self, other: &str) -> bool {
++        self.as_str().eq(other)
++    }
++}
++
++impl PartialEq<&str> for LocalStr {
++    #[inline]
++    fn eq(&self, other: &&str) -> bool {
++        self.as_str().eq(*other)
++    }
++}
++
++impl PartialEq<String> for LocalStr {
++    #[inline]
++    fn eq(&self, other: &String) -> bool {
++        self.as_str().eq(other)
++    }
++}
++
++impl PartialEq<SharedLiteral> for LocalStr {
++    #[inline]
++    fn eq(&self, other: &SharedLiteral) -> bool {
++        self.as_str().eq(other.as_str())
++    }
++}
++
++impl PartialEq<LocalStr> for str {
++    #[inline]
++    fn eq(&self, other: &LocalStr) -> bool {
++        self.eq(other.as_str())
++    }
++}
++
++impl PartialEq<LocalStr> for &str {
++    #[inline]
++    fn eq(&self, other: &LocalStr) -> bool {
++        (*self).eq(other.as_str())
++    }
++}
++
++/// Orders exactly as the `str` does.
++impl Ord for LocalStr {
++    #[inline]
++    fn cmp(&self, other: &Self) -> Ordering {
++        self.as_str().cmp(other.as_str())
++    }
++}
++
++impl PartialOrd for LocalStr {
++    #[inline]
++    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
++        Some(self.cmp(other))
++    }
++}
++
++/// Hashes exactly as the `str` does, so value signatures and map placement
++/// follow the text alone.
++impl Hash for LocalStr {
++    #[inline]
++    fn hash<H: Hasher>(&self, state: &mut H) {
++        self.as_str().hash(state);
++    }
++}
++
++impl Write for LocalStr {
++    #[inline]
++    fn write_str(&mut self, s: &str) -> fmt::Result {
++        self.push_str(s);
++        Ok(())
++    }
++
++    #[inline]
++    fn write_char(&mut self, c: char) -> fmt::Result {
++        self.push(c);
++        Ok(())
++    }
++}
++
++impl AsRef<str> for LocalStr {
++    #[inline]
++    fn as_ref(&self) -> &str {
++        self
++    }
++}
++
++impl Borrow<str> for LocalStr {
++    #[inline]
++    fn borrow(&self) -> &str {
++        self
++    }
++}
++
++impl From<&str> for LocalStr {
++    #[inline]
++    fn from(s: &str) -> Self {
++        Self::from_str(s)
++    }
++}
++
++impl From<String> for LocalStr {
++    #[inline]
++    fn from(s: String) -> Self {
++        Self::from_str(&s)
++    }
++}
++
++impl From<&String> for LocalStr {
++    #[inline]
++    fn from(s: &String) -> Self {
++        Self::from_str(s.as_str())
++    }
++}
++
++/// The text of a program literal, shared by every thread that runs the
++/// program.
++///
++/// Text longer than `LIMIT` bytes lives behind a header whose count is
++/// immortal and is never freed; shorter text is inline. Cloning the handle
++/// copies it without touching any count. A run turns a literal into its own
++/// string with `to_local`.
++pub struct SharedLiteral(ManuallyDrop<LocalStr>);
++
++/// Immortal literal handles by text, so interning the same text again, as a
++/// long-lived process that compiles repeatedly does, reuses one header.
++static LITERALS: LazyLock<Mutex<HashMap<Box<str>, SharedLiteral>>> =
++    LazyLock::new(|| Mutex::new(HashMap::new()));
++
++impl SharedLiteral {
++    /// The literal for `text`. Text longer than the inline limit gets an
++    /// immortal header, created on the first call for that text.
++    pub fn intern(text: &str) -> Self {
++        if text.len() <= LIMIT {
++            return Self(ManuallyDrop::new(LocalStr::from_str(text)));
++        }
++        let mut table = LITERALS.lock().unwrap_or_else(|p| p.into_inner());
++        if let Some(existing) = table.get(text) {
++            return existing.clone();
++        }
++        let spilled = Spilled::immortal_from_slice(text.as_bytes());
++        let literal = Self(ManuallyDrop::new(LocalStr(DynamicVec::from_spilled(spilled))));
++        table.insert(Box::from(text), literal.clone());
++        literal
++    }
++
++    #[inline]
++    pub fn as_str(&self) -> &str {
++        self.0.as_str()
++    }
++
++    /// A string of the literal's text for the calling thread. Shares the
++    /// immortal header when the text is not inline.
++    #[inline]
++    pub fn to_local(&self) -> LocalStr {
++        LocalStr::clone(&self.0)
++    }
++
++    #[cfg(test)]
++    pub(crate) fn header_count(&self) -> Option<usize> {
++        self.0.0.header_count()
++    }
++}
++
++// The header of a literal is marked immortal before any program that holds
++// it is shared, and is never written or freed afterwards: clone, drop and
++// uniqueness checks of an immortal header only read it. Nothing may hand
++// out a mutable reference to the inner string.
++unsafe impl Send for SharedLiteral {}
++unsafe impl Sync for SharedLiteral {}
++
++impl Clone for SharedLiteral {
++    #[inline]
++    fn clone(&self) -> Self {
++        // Safety: the inner string is inline or holds an immortal header,
++        // which a bitwise copy may share without a count, and the handle is
++        // never dropped.
++        Self(unsafe { ptr::read(&self.0) })
++    }
++}
++
++impl Deref for SharedLiteral {
++    type Target = str;
++
++    #[inline]
++    fn deref(&self) -> &str {
++        self.as_str()
++    }
++}
++
++/// Formats exactly as the `str` does.
++impl Debug for SharedLiteral {
++    #[inline]
++    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
++        Debug::fmt(self.as_str(), f)
++    }
++}
++
++impl Display for SharedLiteral {
++    #[inline]
++    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
++        Display::fmt(self.as_str(), f)
++    }
++}
++
++impl Eq for SharedLiteral {}
++
++impl PartialEq for SharedLiteral {
++    #[inline]
++    fn eq(&self, other: &Self) -> bool {
++        self.as_str().eq(other.as_str())
++    }
++}
++
++impl PartialEq<str> for SharedLiteral {
++    #[inline]
++    fn eq(&self, other: &str) -> bool {
++        self.as_str().eq(other)
++    }
++}
++
++impl Ord for SharedLiteral {
++    #[inline]
++    fn cmp(&self, other: &Self) -> Ordering {
++        self.as_str().cmp(other.as_str())
++    }
++}
++
++impl PartialOrd for SharedLiteral {
++    #[inline]
++    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
++        Some(self.cmp(other))
++    }
++}
++
++impl Hash for SharedLiteral {
++    #[inline]
++    fn hash<H: Hasher>(&self, state: &mut H) {
++        self.as_str().hash(state);
++    }
++}
++
++impl Borrow<str> for SharedLiteral {
++    #[inline]
++    fn borrow(&self) -> &str {
++        self
++    }
++}
++
++impl From<&str> for SharedLiteral {
++    #[inline]
++    fn from(text: &str) -> Self {
++        Self::intern(text)
++    }
++}
++
++/// Serializes as the plain string.
++impl serde::Serialize for SharedLiteral {
++    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
++    where
++        S: serde::Serializer,
++    {
++        self.as_str().serialize(serializer)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{LIMIT, LocalStr, SharedLiteral};
++    use crate::simulator::core::local_vec::IMMORTAL_COUNT;
++    use crate::simulator::util_stats;
++    use std::hash::{DefaultHasher, Hash, Hasher};
++
++    fn hash_of<T: Hash + ?Sized>(t: &T) -> u64 {
++        let mut h = DefaultHasher::new();
++        t.hash(&mut h);
++        h.finish()
++    }
++
++    #[test]
++    fn layout_and_inline_limit() {
++        assert_eq!(std::mem::size_of::<LocalStr>(), 16);
++        assert_eq!(LIMIT, 15);
++        assert_eq!(LocalStr::from("exactly15bytes!").0.header_count(), None);
++        assert_eq!(LocalStr::from("sixteen bytes!!!").0.header_count(), Some(1));
++    }
++
++    #[test]
++    fn observations_match_str() {
++        for text in ["", "short", "exactly15bytes!", "sixteen bytes!!!", "unicode \u{e9}\u{4e2d}\u{1f600} past the limit"] {
++            let s = LocalStr::from(text);
++            let lit = SharedLiteral::intern(text);
++            assert_eq!(s.as_str(), text);
++            assert_eq!(lit.as_str(), text);
++            assert_eq!(hash_of(&s), hash_of(text));
++            assert_eq!(hash_of(&lit), hash_of(text));
++            assert_eq!(format!("{s:?}"), format!("{text:?}"));
++            assert_eq!(format!("{lit:?}"), format!("{text:?}"));
++            assert_eq!(format!("{s}"), text);
++            assert!(s == lit);
++            assert!(lit == *text);
++            assert_eq!(serde_json::to_string(&lit).unwrap(), serde_json::to_string(text).unwrap());
++        }
++        let mut a = vec![LocalStr::from("b long enough to spill"), LocalStr::from("a"), LocalStr::from("ab")];
++        a.sort();
++        assert_eq!(a, [LocalStr::from("a"), LocalStr::from("ab"), LocalStr::from("b long enough to spill")]);
++    }
++
++    #[test]
++    fn push_pop_and_clear_across_the_inline_limit() {
++        let mut s = LocalStr::new();
++        for c in "a string that grows past the inline limit".chars() {
++            s.push(c);
++        }
++        assert_eq!(s, "a string that grows past the inline limit");
++        let t = s.clone();
++        assert_eq!(s.pop(), Some('t'));
++        assert_eq!(t, "a string that grows past the inline limit");
++        s.push_str(" \u{1f600}");
++        assert_eq!(s.pop(), Some('\u{1f600}'));
++        s.truncate(8);
++        assert_eq!(s, "a string");
++        s.clear();
++        assert!(s.is_empty());
++        let mut w = LocalStr::with_capacity(40);
++        write!(w, "{}-{}", 12, "x").unwrap();
++        assert_eq!(w, "12-x");
++        use std::fmt::Write;
++    }
++
++    #[test]
++    fn interning_reuses_one_immortal_header() {
++        let a = SharedLiteral::intern("an interned literal of some length");
++        let b = SharedLiteral::intern("an interned literal of some length");
++        assert_eq!(a.as_ptr(), b.as_ptr());
++        assert_eq!(a.header_count(), Some(IMMORTAL_COUNT));
++        let short = SharedLiteral::intern("short");
++        assert_eq!(short.header_count(), None);
++    }
++
++    #[test]
++    fn literal_strings_count_their_clones_drops_and_copies() {
++        let lit = SharedLiteral::intern("a literal long enough to have a header");
++        let before = util_stats::pending_value_refs();
++        let local = lit.to_local();
++        let again = local.clone();
++        assert_eq!(local.as_ptr(), lit.as_ptr());
++        let mut copied = again.clone();
++        copied.make_mut();
++        assert_ne!(copied.as_ptr(), lit.as_ptr());
++        let mut unique = LocalStr::from("a run string long enough to spill");
++        unique.push_str(" and more");
++        unique.make_mut();
++        drop((local, again, copied, unique));
++        let after = util_stats::pending_value_refs();
++        assert_eq!(after[0] - before[0], 3, "clones");
++        assert_eq!(after[1] - before[1], 3, "drops");
++        assert_eq!(after[2] - before[2], 1, "shared string copies");
++        assert_eq!(lit.header_count(), Some(IMMORTAL_COUNT));
++
++        let mut run = LocalStr::from("a run string long enough to spill");
++        let keep = run.clone();
++        let before = util_stats::pending_value_refs();
++        run.push_str("!");
++        let after = util_stats::pending_value_refs();
++        assert_eq!(after[2] - before[2], 1, "a copy of a shared run string counts");
++        assert_eq!(after[0], before[0]);
++        drop((run, keep));
++    }
++
++    #[test]
++    fn literal_headers_stay_immortal_under_concurrent_use() {
++        const THREADS: usize = 30;
++        const PER_THREAD: usize = 340_000;
++        let texts: Vec<String> = [16usize, 23, 31, 40, 48, 57, 64]
++            .iter()
++            .map(|&n| (0..n).map(|i| (b'a' + (i % 26) as u8) as char).collect())
++            .collect();
++        let literals: Vec<SharedLiteral> = texts.iter().map(|t| SharedLiteral::intern(t)).collect();
++        for lit in &literals {
++            assert_eq!(lit.header_count(), Some(IMMORTAL_COUNT));
++        }
++        std::thread::scope(|scope| {
++            for t in 0..THREADS {
++                let literals = &literals;
++                let texts = &texts;
++                scope.spawn(move || {
++                    for i in 0..PER_THREAD {
++                        let k = (t + i) % literals.len();
++                        let lit = &literals[k];
++                        let local = lit.to_local();
++                        let mut pushed = local.clone();
++                        pushed.push_str("!");
++                        let mut edited = lit.to_local();
++                        edited.make_mut().make_ascii_uppercase();
++                        assert_eq!(local.as_str(), texts[k]);
++                        assert_eq!(&pushed[..texts[k].len()], texts[k]);
++                        assert!(edited.eq_ignore_ascii_case(&texts[k]));
++                        drop((local, pushed, edited));
++                    }
++                });
++            }
++        });
++        for (lit, text) in literals.iter().zip(&texts) {
++            assert_eq!(lit.header_count(), Some(IMMORTAL_COUNT));
++            assert_eq!(lit.as_str(), text);
++        }
++    }
++}

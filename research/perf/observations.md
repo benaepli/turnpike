@@ -6876,3 +6876,53 @@ Registered before any round, stricter than the frozen band rather than looser:
   at three.
 - An interval entirely below 1.04, or downward separation, closes
   run-local-value-refcounts. Whether C is built is decided after the reading.
+
+### value-refcounts-ab: three rounds read
+
+Session research/perf/state/value-refcounts-ab.json, cand-ab-spur against
+9340a2e, cross-binary, cached baseline (9 rounds).
+- Runs per second 1.0300, 0.9852, 1.0127; mean 1.0091 [0.9544, 1.0671];
+  not separated; band [1.04, 1.07] reads "inside" only because the interval
+  straddles it. Verdict inconclusive.
+- Microseconds per run 1.0098 [0.9521, 1.0709]; steps per run 1.0165
+  [0.9633, 1.0726], within the baseline spread.
+- Counters every round: literal clones = drops exactly; per run 843.8, 872.8,
+  864.9, inside [200, 20,000]; shared_string_copies 0.
+- Spread check: only the AOS arm share outside after three rounds. The layout
+  control of identical source read the same family (end reasons and arm
+  shares) outside after one round and inside by six; with one-thread identity
+  exact on five sessions it is read under the throughput exemption.
+- Missing-counter blocker: the baseline binary has no value_refs block, as
+  expected.
+
+Under the rule registered before round 1: the mean 1.009 is below 1.03, so no
+rounds 4-6; no gain, so A + B does not merge; the interval is not entirely
+below 1.04, so the registered closing clause does not fire by itself. Taken
+with the one-thread cycles reads (0.969-0.982), the saving is about 1-3
+percent, a third of the band's lower edge. Patches kept at
+research/perf/patches/value-refcounts-ab.spur.patch (tracked diff plus the two
+forked files). Whether C is built is put to the user.
+
+### value-refcounts-then-register-ops: closed (user)
+
+Decision (interactive, user): close run-local-value-refcounts and the
+composite; register-ops-written-in-place stays in the pool unbuilt. The tree
+stays at spur 9340a2e; nothing merged; no ledger row.
+
+Digest, iteration 24: the user asked for structural changes toward 10 percent.
+Four lenses in parallel found that interpreter dispatch is small, prefix
+replay removal is worth about 2 points, the thread model is heat-bound at 30
+threads, and the largest removable-looking block was lock-prefixed reference
+counting (Value family 10.36 points of census samples on 9340a2e). Non-atomic
+counts removed that block almost entirely (0.105) with byte identity on five
+sessions, yet saved about 2.6 percent of one-thread cycles and read 1.009 on
+the wall. Lessons: a lock census counts samples landing after a lock-prefixed
+instruction, and that attribution overstates the instruction's own cost; on
+this host an uncontended locked count on a hot header costs far less in the
+running program than the isolated microbenchmark's 3 ns per op suggested, or
+the heat moves to the next instruction that reads the header. A census
+collapse is proof the mechanism ran, not a price. Before building on a census,
+price the instructions with a one-thread cycles read of a cheap prototype (for
+example ecow vendored with its atomics replaced), which would have answered
+this in minutes. The remaining stats-counter lock rows (2.09) are priced by
+the same caution.
