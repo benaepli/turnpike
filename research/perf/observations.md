@@ -8034,3 +8034,37 @@ with the kept frames commit A.
   schedule_runnable and exec_ops +1.99 x r, net -1.60 x r; H2's broad family
   nets -1.53 x r. The wall is expected in the lower half of both bands.
   Frozen one-thread gates proposed: H1 at most 0.955, H2 at most 0.935.
+
+### Judgment (tmp/loop/perf/it29-judgment.md)
+
+H2 record-moves-and-frames-held-once net 3 (cost 2, exec.rs), recommended;
+H1 only as its commit B. Unsafe: five blocks, not four; remove_record,
+deliver_to_channel and the Recv park are sound and need unsafe for their
+saving; push_waiting_reader reverts to safe Arc::new; push_record_into uses
+Vec::push unless the census shows a copy; the park clones the Lhs before its
+unsafe block so a panic cannot leak a record; each block states its invariant
+with refcount-observable tests. Neutrality holds on every path read;
+purgatory was never exercised (delay_probability 0.0 in every identity
+config and the campaign), so a purgatory VR session is owed; partitions are
+exercised by crash.json; FIFO links only by Mencius. Relocation: at 30
+threads 71 percent of the removed rows reappear raw in the functions that now
+hold the record (48 percent at one thread), so the chain-length form escapes
+iteration 23's first-read stall partly at one thread and hardly at 30. The
+log's r (1.0977 on both prototypes) is invalid here because the change moves
+schedule_runnable; on rows neither commit touches r is 1.018 (H1) and 0.999
+(H2). Expected wall: H1 alone 1.01-1.03; H2 1.02-1.06, separation from the
+floor possible but less likely than not. Evidence reproduces. Dedupe: H1
+absorbs delivered-record-not-copied (never built); the return conditions of
+record-bodies-in-a-recycled-slab and runnable-one-word-record-2 concern layout
+and do not bind a change that removes moves; their lesson is carried by the
+next-reader guards. False: four unsafe blocks; 30-40 cycles per copy; the two
+patches apply in sequence; partitions not exercised; log-then-queue order kept.
+
+Selection (autonomous): build H2 as commit A then commit B. Reason: 7.9 percent
+of one-thread cycles is the largest priced saving since print-chains, the
+judge recommends it, and upward separation is possible; a no-gain reading
+keeps both patches as the strongest composition piece in the pool. The unsafe
+blocks are covered by refcount-observable tests, six-session identity and the
+census gate. Merge basis as frozen; either commit's one-thread gate firing
+closes H2 before rounds. delivered-record-not-copied marked absorbed in the
+pool.

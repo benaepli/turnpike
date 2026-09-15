@@ -1103,7 +1103,7 @@ rounds of clock each:
 
 ## delivered-record-not-copied
 
-- category: redundant work | origin: proposer | status: proposed, not built (iteration 16) - cannot be graded as its own commit: no per-run counter can see a compiler-emitted copy and a profile line is not a grader primary; the exec.rs:855 copy already happens on a moved parameter, so inlining exec may only move it; judge net 1
+- category: redundant work | origin: proposer | status: proposed, not built (iteration 16) - cannot be graded as its own commit: no per-run counter can see a compiler-emitted copy and a profile line is not a grader primary; the exec.rs:855 copy already happens on a moved parameter, so inlining exec may only move it; judge net 1 | absorbed by record-moves-collapsed (iteration 29)
 
 ## aos-draw-ahead-pool
 
@@ -1864,3 +1864,55 @@ rounds of clock each:
 ## waiting-reader-without-a-box
 
 - category: allocation | origin: proposer | status: lead (iteration 28) - 1,465 boxes per VR run and 1.59 one-thread memmove points; returns with a one-thread ABBA of at least 1 percent and an answer to record-bodies-in-a-recycled-slab
+
+## record-moves-and-frames-held-once
+
+- category: data layout and representation | origin: proposer | status: admitted, building (iteration 29, autonomous)
+- mechanism: commit A is frames-and-arguments-held-once exactly as implemented
+  in iteration 28 (research/perf/patches/frames-and-node-env-held-once-A.spur.patch).
+  Commit B (record-moves-collapsed) on A: schedule_runnable picks a slot and
+  remove_record reads the record out once (ledger updates first) and calls
+  exec_ops directly with the same covers check and tally flush; sends are
+  written once into the queue slot after purgatory_hold_steps; the Recv park
+  clones the Lhs, then writes both fields into Arc::new_uninit;
+  deliver_to_channel stores a woken reader in place at the four wake sites and
+  moves it once into the local queue. Unsafe only where no safe primitive
+  moves without a copy; push_waiting_reader reverts to Arc::new and
+  push_record_into to Vec::push unless the census shows a copy.
+- evidence: census record-sized copies per VR run 40,608 to 10,908, memcpy
+  calls 81,897 to 52,191; one request's lifecycle about 26 moves to 7;
+  one-thread ABBA H1 0.9423 and 0.9447, H2 0.9213, control 1.0076. 30-thread
+  prototype profiles: 71 percent of the removed rows reappear raw in the
+  functions that now hold the record; on the rows neither commit touches r is
+  1.018 (H1) and 0.999 (H2), and the broad family nets -1.74 (H1) and -0.73 to
+  -1.09 (H2 with A's frame_buffer and recycle_frame rows).
+- verified by the judge: neutrality holds on delivery, selection, park and
+  wake, crash, partition (crash.json plans 1-2 per run), purgatory (never
+  exercised: delay_probability 0.0 everywhere), reservations, FIFO links
+  (Mencius only), timers and reset. False: four unsafe blocks (five); 30-40
+  cycles per copy (22.8-23.9 in the final design); both patches apply in
+  sequence (H1's exec.rs import hunk fails over A); partitions not exercised
+  (crash.json exercises them); log-then-queue kept at timer and ChannelSend
+  sites (queued first, unobservable).
+- primary: cross-binary runs per second, band [1.03, 1.11]; frame.calls
+  [1.010, 1.040] as the commit A check. Stated in advance: expected 1.02-1.06,
+  separation from the 0.05 floor possible but less likely than not; a reading
+  of 1.03-1.05 is no-gain, held with both patches kept.
+- gates before round 1: G1a stack one-thread cycles at most 0.935 and at least
+  3 x a fresh control's |1 - mean|; G1b B over A at most 0.960; G2 30-thread
+  guards (stack_guards.py, r over untouched rows, base 7.25, valid [0.95,
+  1.10]): memmove 5.40 r, chain family 23.80 r, memmove + chain 28.90 r,
+  next-reader walks 7.60 r, allocator 3.90 r, value 10.20 r, ceval 7.90 r,
+  broad 51.90 r; G3 identity at A and at A + B on VR, crash-heavy, Mencius,
+  SDPaxos, caps-engaged and purgatory VR with coverage counts above 0; G4
+  release tests; G5 census record-sized memcpy at most 12,000, memmove calls at
+  most 6,600, allocations at most 10,000 per VR run.
+- merge: G1a-G5 held, grader gain with zero blockers, per-round counters in
+  band, identity exact; either commit's gate firing closes H2 before rounds.
+- declarations: search-neutral, shared, no bit. Judge net 3 (gain 5, cost 2).
+- full record: tmp/loop/perf/it29-judgment.md.
+
+## record-moves-collapsed
+
+- category: data layout | origin: proposer | status: commit B of record-moves-and-frames-held-once only (iteration 29) - its 30-thread net is about 2 percent, so alone it cannot clear the floor
+- declarations: search-neutral, shared. Judge net 3 (gain 5, cost 2).
