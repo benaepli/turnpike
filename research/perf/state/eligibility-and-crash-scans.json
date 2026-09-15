@@ -1,0 +1,88 @@
+{
+ "name": "eligibility-and-crash-scans",
+ "createdAtIso": "2026-09-15T00:23:40.525Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.018,
+   "max": 1.038
+  },
+  "counter": null,
+  "argument": "Only how the scheduler counts eligible runnables and when it scans for pending crashes changes. When no reservation, FIFO link or strict timer gate exists, only a planned crash can be ineligible and it sits only in its own node's local queue, so each queue's eligible count is its length unless that node has a pending crash that is withheld or whose victim is down on a retargeting run, and only such a queue is filtered; the counts, and so every draw and its order, equal a filter of every queue. With no node holding a pending crash, the crash hold and defer loops, the crash-anchor probe and the crash census scan, which draw and record nothing on such steps, are skipped. No draw, value, row, container order or anything the search reads changes. One-thread identity against the baseline binary on VR (3,008 runs), Mencius (2,160 runs), a crash-heavy session (1,800 runs) and a caps-engaged VR session of 100,000 runs with crash holds engaged: every executions, logs and traces parquet file byte-identical, the runs file differing only in wall columns, every table identical, same stall_cap_runs.csv hashes, equal end reasons, steps, cap figures and crash-hold counts, runs_failed 0."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/eligibility-and-crash-scans/cand-spur-AB",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:eligibility-and-crash-scans"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "29ef5ad93da219f4559de9fba815a7917bba6032",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/29ef5ad93da2-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-15T00:27:52.129Z",
+   "seed": 1000,
+   "wallSec": 251,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-15T00:32:03.907Z",
+   "seed": 1001,
+   "wallSec": 251,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-15T00:36:15.669Z",
+   "seed": 1002,
+   "wallSec": 251,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-15T00:40:27.616Z",
+   "seed": 1003,
+   "wallSec": 251,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-15T00:44:39.929Z",
+   "seed": 1004,
+   "wallSec": 251,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-15T00:48:52.066Z",
+   "seed": 1005,
+   "wallSec": 251,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}

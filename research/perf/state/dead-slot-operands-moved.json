@@ -1,0 +1,67 @@
+{
+ "name": "dead-slot-operands-moved",
+ "createdAtIso": "2026-09-14T16:16:07.326Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "cross-binary",
+  "treatment": null,
+  "band": {
+   "min": 1.008,
+   "max": 1.025
+  },
+  "counter": null,
+  "argument": "Only how the compiled interpreter passes values changes: an operand whose local slot is dead after its operation, by a decode-time liveness pass over each function, and not read by a later position of the same operation, is moved out of its slot instead of cloned, and a local copied onto itself is skipped. Both apply only under NoHashing; eager signatures keep the clone and the write. Label paths and every function whose vertices or slots are not its own decode without moves. A value that is moved is never read again before its slot is written, checked by an independent read-after-move checker over the 26 compiling specs with a mutation test. No draw, value, row, container order or anything the search reads changes. One-thread identity against the baseline binary on VR (3,008 runs), Mencius (2,160 runs) and a caps-engaged VR session of 100,000 runs: every table identical both ways, same stall_cap_runs.csv hashes, equal end reasons and cap figures, runs_failed 0, every existing counter leaf identical; value_move.taken equals the sum of its leaves on every run."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/value-moves-and-string-appends/cand-spur-A",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:dead-slot-operands-moved"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "1e5a89f133ece31fc33c26812264114f2a2b76aa",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/1e5a89f133ec-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-14T16:20:17.366Z",
+   "seed": 1000,
+   "wallSec": 249,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-14T16:24:28.090Z",
+   "seed": 1001,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-14T16:28:39.127Z",
+   "seed": 1002,
+   "wallSec": 250,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}

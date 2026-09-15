@@ -1,0 +1,88 @@
+{
+ "name": "struct-values-as-shaped-slices",
+ "createdAtIso": "2026-09-14T18:15:26.997Z",
+ "note": "",
+ "declaration": {
+  "search": "neutral",
+  "sharing": "shared",
+  "primary": "counter",
+  "treatment": null,
+  "band": {
+   "min": 9,
+   "max": 16
+  },
+  "counter": "value_sig.leaf_hashes_deferred",
+  "argument": "Only how struct-shaped values are held changes: a map literal whose keys are distinct string literals, at most 15, each at its own slot of the map's root node, is stored as a slice of field values under an interned shape instead of a hash map, so building it hashes no key and allocates no map node, and a field read finds its position instead of hashing. Every observation of such a value - equality, ordering, signature under both hashing policies, hash, text, JSON and debug output, iteration, and any store with a key outside the shape - is that of the map the literal would have built, and a map rebuilt from the fields is node for node the same map under later inserts and removals. No draw, value, row, container order or anything the search reads changes. One-thread identity against the baseline binary on VR (3,008 runs), Mencius (2,160 runs), a crash-heavy session (1,800 runs) and a caps-engaged VR session of 100,000 runs: all four tables identical both ways, same stall_cap_runs.csv hashes, equal end reasons, steps and cap figures, runs_failed 0; baseline minus candidate value_sig.leaf_hashes_deferred equals value_struct.key_hashes_avoided minus fallback_key_hashes exactly on every run."
+ },
+ "cand": {
+  "bin": "/home/benaepli/Rust/turnpike/tmp/loop/perf/struct-slices-and-borrowed-records/cand-spur-A",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spec": "bin/spur/VR.spur",
+  "spurLabel": "perf-cand:struct-values-as-shaped-slices"
+ },
+ "base": {
+  "bin": "/home/benaepli/Rust/turnpike/spur/target/release/spur",
+  "template": "/home/benaepli/Rust/turnpike/scheduler_configs/loop/general_vr.json",
+  "spurDir": "/home/benaepli/Rust/turnpike/spur"
+ },
+ "identity": {
+  "spurTree": "1e5a89f133ece31fc33c26812264114f2a2b76aa",
+  "buildConfigSha": "b813e71199968d8fce3c4d675f69aa1df64224ddb7f2ca487ccaded74c1a8feb",
+  "campaignSha": "f9daa01b6ee57083ba63fadc82634ef86a5945c28dc08c37e238e269f102fe6f",
+  "specSha": "3d907a501193f431fe96cee8f0838f0910dfd116f965489a56d3abe08d75bac7",
+  "rayonThreads": 30,
+  "campaignWallSec": 120
+ },
+ "cacheFile": "/home/benaepli/Rust/turnpike/research/perf/baselines/1e5a89f133ec-30-f9daa01b-120-bb813e711.json",
+ "limits": {
+  "campaignWallSec": 120,
+  "minRounds": 3,
+  "maxRounds": 6,
+  "rayonThreads": 30
+ },
+ "rounds": [
+  {
+   "index": 0,
+   "atIso": "2026-09-14T18:19:37.691Z",
+   "seed": 1000,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 1,
+   "atIso": "2026-09-14T18:23:48.536Z",
+   "seed": 1001,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 2,
+   "atIso": "2026-09-14T18:27:59.706Z",
+   "seed": 1002,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 3,
+   "atIso": "2026-09-14T18:32:11.036Z",
+   "seed": 1003,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 4,
+   "atIso": "2026-09-14T18:36:22.264Z",
+   "seed": 1004,
+   "wallSec": 250,
+   "anomaly": null
+  },
+  {
+   "index": 5,
+   "atIso": "2026-09-14T18:40:33.943Z",
+   "seed": 1005,
+   "wallSec": 250,
+   "anomaly": null
+  }
+ ],
+ "finished": true
+}
