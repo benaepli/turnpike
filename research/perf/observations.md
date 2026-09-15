@@ -7771,3 +7771,47 @@ band, runs per second 1.1021 [1.0790, 1.1258] separated upward from the floor.
 Merged as spur 3b53d0a with the writer-blocking clause departed from
 (throughput-driven). Post-merge baseline 10,646.5 runs per second; ledger
 cumulative 5.255.
+
+## Iteration 28 - autonomous, allocation lens, profile 3b53d0a
+
+Lens: allocation and memory traffic. Focus directive from the direction
+review: sequence lifetimes (EcoVec<Value> drop, make_unique, grow and
+reserve, allocator) and memmove's remaining callers.
+
+### Proposals (tmp/loop/perf/it28-proposals.md)
+
+- Census with an LD_PRELOAD interposer keyed by call stack, VR 3,008 runs, one
+  thread, per run: 11,550 allocations, 11,573 frees, 81,897 memcpy calls (12.8
+  MB). Allocation sites: synchronous call frames 1,999; async-send frames
+  1,553; async argument vectors kept only for re-delivery 1,548; waiting-reader
+  boxes 1,465; struct literals 1,346; timer strings about 1,500; dispatch
+  payload boxes 457; node-env copy-on-write buffers (856 bytes) 323.
+  Record-sized copies (240-264 bytes) about 30,200 per run, about 9 per
+  delivered record (take_local and take_network, four scheduler.rs sites,
+  exec.rs:921, push and pop_waiting_reader, push_to_local, push_runnable).
+  One-thread attribution: memmove 11.8 (about 8.7 of it Record and Runnable
+  copies), EcoVec<Value> drop 7.4, allocator 5.2, make_unique 0.8 (all
+  node-env copy-on-write; entry_frame_copies is 0).
+- H1 frames-and-arguments-held-once (commit A): a per-run pool of emptied frame
+  buffers; a decode-time bit marks functions that never reach Recv, Pause or
+  SpinAwait, and async sends to them evaluate arguments into the frame and keep
+  no initial_args; Record::reset keeps such a record's frame. One-thread ABBA
+  0.9711 of base.
+- H2 node-env-detached-per-segment (commit B, re-opened): on 3b53d0a every
+  EcoVec<Value> copy-on-write is the node env (written_segments 324.5 per run
+  against 322.9 in the census, shared_at_write 0). 0.9808 over A.
+- H3 frames-and-node-env-held-once (A + B, recommended): 0.9509 of base; fresh
+  identical-source control 1.0042, every candidate pair below the lowest control
+  pair. label_execs, tree_evals, leaf operands, steps and channels created
+  identical; executions, logs, traces parquet and stall caps byte-identical on
+  VR (runs table not yet compared). 30-thread prototype profile
+  research/perf/profiles/3b53d0a-proto-frames-and-node-env-low-cutoff.md, r
+  1.0236: value family -3.36 x r, EcoVec<Value> drop -2.22, allocator -1.55,
+  frame build -0.97, make_unique -0.52; relocation run_async_op +0.63 and a new
+  Continuation::call row +0.50. Counter frame.calls [1.012, 1.045] (VR 1.0263)
+  covers only the frames reset no longer rebuilds; the mechanism's own counters
+  are new, so the grader would block on them as a primary.
+- Leads priced by census only: timer firings without heap strings 0.7-1.0
+  percent; dispatch payload as a range into the trace text 0.4; waiting reader
+  without its box about 1; collapsing the Record move chain inside
+  schedule_runnable, the one form of that attack not yet tried.
