@@ -6926,3 +6926,46 @@ price the instructions with a one-thread cycles read of a cheap prototype (for
 example ecow vendored with its atomics replaced), which would have answered
 this in minutes. The remaining stats-counter lock rows (2.09) are priced by
 the same caution.
+
+## Direction review before iteration 25 (autonomous)
+
+Called for by the run of closes (run-local-value-refcounts and its composite)
+and by the loop's restart. Preflight: spur-research-loop inactive, no grader
+or explorer process running, branch research/lite, spur 9340a2e, tracked tree
+clean; session outputs of iterations 22-24 (state files, the 9340a2e profiles)
+were untracked and are committed in 42291b5; research/lite untracked files
+(the search loop's) and docs/current-plans (the user's) are left alone.
+Baseline rebuilt (no-op), selftest zero failures. The tree has not moved, so
+research/perf/profiles/9340a2e.md and its 0.3-cutoff sibling stand.
+
+Largest costs on 9340a2e I can explain, of the 89.98 points of the spur
+command:
+- Interpreter family about 25 (ceval 9.29, exec_ops 9.78 over three rng
+  kinds, run_sync_ops 4.42, run_async_op 1.87). Iteration 24: dispatch is
+  small; the heat sits on loads of Values after out-of-line producers.
+- Value family about 13 (EcoVec<Value> drop 4.51, ValueKind drop glue 3.38,
+  ValueKind clone 3.90, make_unique 0.82, reserve and grow), plus allocator
+  about 4. Iteration 24 priced the lock-prefixed counts inside it at about
+  2.6 percent of one-thread cycles; the rest is real traversal, copies and
+  allocation.
+- memmove 7.29: Record and Runnable copies, a stalled first read that moves
+  to the next reader (iteration 23); two ownership changes relocated it.
+- Scheduler about 9 after the eligibility merge; replay-prefix removal
+  answered at 1.5-3.4 points; trace and history text about 5, attacked three
+  times; writers 9.7 on their own threads and not blocking.
+
+Verdict. The value unit itself is the one representation choice under three
+of these costs that no candidate has touched: Value is 40 bytes (values.rs
+size test), a 32-byte ValueKind sized by Variant(u32, EcoString,
+Option<Arc>) plus an 8-byte cached signature. Every env slot, operand, list
+element, record payload and queued argument carries that width, so it is
+paid in memmove, in the load stalls the register-ops judgment found, in
+clone and drop traversal and in cache footprint. Iteration 25 takes the data
+layout and representation lens, focus directive: the width and shape of the
+Value unit and what it forces on the interpreter, sequences and queued
+records - with iteration 24's lesson as a condition: a size claim is priced
+by a one-thread cycles read of a cheap prototype, not by profile shares or a
+census. Steering audit: the last merges came from the algorithmic (23),
+contention (22), redundant-work (21) and layout (20) lenses; the directive
+pulls back to a representation mechanism rather than one function. Pool
+pruning: nothing dropped; register-ops-written-in-place stays unbuilt.
