@@ -6541,3 +6541,44 @@ alone if A closes), rounds run as follows, fixed now:
 - the placebo referral on the stack profile, either direction, read by the
   user before any merge if outside [0.9, 1.1] x 1.87 x r.
 The loop pauses after this iteration's decision and log, at the user's request.
+
+### queue-eligibility-from-counters-2: commit A profile reading, G1 ruling and departure, registered before any round (autonomous)
+
+Profile research/perf/profiles/c302525-cand-eligibility-from-counters.md
+against c302525.md; r = (ceval + EcoVec<Value> drop + format_escaped_str) =
+15.54 / 14.23 = 1.092; placebo 1.84, 0.901 of 1.87 x r (inside [0.9, 1.1]).
+- G1 rows containing Iter<alloc::vec::Vec<...Runnable>: 1.88 to 1.47, at most
+  0.66 - FIRED. The row is present, so no low-cutoff bound changes it.
+- G2 scheduler family 14.68 to 9.75 raw, at most 14.07 - held; a fall of 5.75
+  x r against the required 1.8.
+- G3 placebo + audit_multiplier_authority + memmove 9.52 to 9.68, at most
+  11.05 - held.
+- G4 net 27.61 to 22.28, at most 28.40 - held; exec_plan 3.41 to 2.85.
+
+What the G1 row is. On c302525 the only matching row is
+<Map<Iter<Vec<Runnable>>, schedule_runnable::{closure#5}>>::fold, the filtered
+count over every queued element on every step. On commit A the only matching
+row is <Map<Enumerate<Iter<Vec<Runnable>>>, eligible_counts::{closure}>>::fold:
+the change's own per-node map, reading each local queue's length and filtering
+only a node with a pending crash that is withheld or whose victim is down on a
+retargeting run (walked on 0.51-0.98 of crash-eligible steps at one thread,
+inside its admitted band). The old closure has no row. G1's frozen pattern is
+symbol text and matches the replacement loop; its purpose - that the old count
+pass is gone - is what the cost guards read: the family fell more than three
+times the required amount and the net more than three times its bound.
+
+Ruling (autonomous, under the user's no-hard-vetoes direction and the loop's
+standing departure rule). The judgment gives G1 no departure path. A is not
+closed on it; a departure is registered now, before any round, with
+conditions stricter than the frozen text rather than looser:
+- G1's intent is read exactly: on the registered low-cutoff profile of commit
+  A, the old row <Map<Iter<Vec<Runnable>>, schedule_runnable::{closure#5}>>
+  ::fold (the pre-change count pass, any generic instance) reads at most 0.60
+  x r; otherwise A closes.
+- A merges only if runs per second separates upward (interval lower edge above
+  1.0) within six rounds, with every counter in band in every round and
+  identity exact; otherwise A closes.
+- Every other guard as read, H2's guards on its own profile, and the placebo
+  referral on the stack profile still apply.
+This replaces the registered three rounds with no extension: rounds run as one
+launch of six, read together.
