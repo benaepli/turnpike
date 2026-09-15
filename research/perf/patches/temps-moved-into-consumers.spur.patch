@@ -1,0 +1,867 @@
+diff --git a/spur-core/src/compiler/cfg/compiled.rs b/spur-core/src/compiler/cfg/compiled.rs
+index 40c54f6..ad5b488 100644
+--- a/spur-core/src/compiler/cfg/compiled.rs
++++ b/spur-core/src/compiler/cfg/compiled.rs
+@@ -193,6 +193,13 @@ pub enum Op {
+     /// itself, or a slot or literal stored where every path writes the slot
+     /// again before reading it. Moves to its successor like the store would.
+     StoreSkipped(u32),
++    /// `Return` of a local slot. A frame is dropped once its function
++    /// returns, so the value moves out of a frame nothing else holds.
++    ReturnTake(u32),
++    /// A local store whose subtree now sits in the operand of its only
++    /// successor, the one vertex that reads the stored slot. Moves to that
++    /// successor.
++    TempMoved(u32),
+ }
+ 
+ /// Which decode-time rewrites a build applies. Every rewrite keeps vertex
+@@ -231,28 +238,35 @@ impl CompiledProgram {
+     pub fn build_with(program: &Program, rewrites: Rewrites) -> Self {
+         let liveness = match rewrites {
+             Rewrites::Off => None,
+-            Rewrites::On => Some(super::frame_layout::local_liveness(&program.cfg.graph)),
++            Rewrites::On => Some(super::frame_layout::local_liveness(
++                &program.cfg.graph,
++                program.rpc.values().map(|f| f.entry),
++            )),
+         };
+         let mut builder = Builder {
+             program,
+             call_functions: Vec::new(),
+             callee_index: std::collections::HashMap::new(),
+         };
+-        let ops = program
++        let mut ops: Vec<Op> = program
+             .cfg
+             .graph
+             .iter()
+             .enumerate()
+-            .map(|(v, label)| match &liveness {
+-                Some(liveness) if store_is_unread(label, v, liveness) => {
++            .map(|(v, label)| match (&liveness, label) {
++                (Some(liveness), _) if store_is_unread(label, v, liveness) => {
+                     let Label::Instr(_, next) = label else {
+                         unreachable!("only a store is skipped")
+                     };
+                     Op::StoreSkipped(vertex(*next))
+                 }
++                (Some(_), Label::Return(Expr::Var(VarSlot::Local(slot, _)))) => Op::ReturnTake(*slot),
+                 _ => builder.op(label),
+             })
+             .collect();
++        if let Some(liveness) = &liveness {
++            fuse_consumed_temps(&mut ops, liveness);
++        }
+         CompiledProgram {
+             ops,
+             call_functions: builder.call_functions,
+@@ -309,6 +323,54 @@ fn store_is_unread(label: &Label, v: usize, liveness: &super::frame_layout::Loca
+     }
+ }
+ 
++/// Moves the subtree of a local store `t = e` into the next vertex `b` when
++/// `b` is entered only from the store and reads `t` as its whole condition,
++/// returned value or printed value, with `t` not live after `b`. The store
++/// becomes a jump, so `e` is evaluated at `b` against the same frame and node
++/// state it would have seen at the store: nothing runs in between, and the
++/// old value of `t` stays in place for `e` to read.
++fn fuse_consumed_temps(ops: &mut [Op], liveness: &super::frame_layout::LocalLiveness) {
++    for v in 0..ops.len() {
++        let (t, b) = match &ops[v] {
++            Op::AssignLocal {
++                slot,
++                next,
++                rhs: Opnd::Tree(_),
++            } => (*slot, *next as usize),
++            _ => continue,
++        };
++        if b == v || b >= ops.len() || liveness.preds(b) != 1 {
++            continue;
++        }
++        let consumes = match &ops[b] {
++            Op::CondLocal { slot, .. } => *slot == t && liveness.dead_after(b, t),
++            Op::ReturnTake(slot) | Op::Return(Opnd::Local(slot)) => *slot == t,
++            Op::Print {
++                value: Opnd::Local(slot),
++                ..
++            } => *slot == t && liveness.dead_after(b, t),
++            _ => false,
++        };
++        if !consumes {
++            continue;
++        }
++        let Op::AssignLocal { rhs, .. } = std::mem::replace(&mut ops[v], Op::TempMoved(b as u32))
++        else {
++            unreachable!("the store was matched above")
++        };
++        ops[b] = match std::mem::replace(&mut ops[b], Op::Goto(b as u32)) {
++            Op::CondLocal { then, els, .. } => Op::Cond {
++                cond: rhs,
++                then,
++                els,
++            },
++            Op::ReturnTake(_) | Op::Return(_) => Op::Return(rhs),
++            Op::Print { next, .. } => Op::Print { value: rhs, next },
++            _ => unreachable!("the consumer was matched above"),
++        };
++    }
++}
++
+ impl Builder<'_> {
+     fn callee(&mut self, name: &str) -> u32 {
+         let Some(id) = self.program.func_name_to_id.get(name) else {
+diff --git a/spur-core/src/compiler/cfg/compiled/check.rs b/spur-core/src/compiler/cfg/compiled/check.rs
+index a3f1efb..e4930b1 100644
+--- a/spur-core/src/compiler/cfg/compiled/check.rs
++++ b/spur-core/src/compiler/cfg/compiled/check.rs
+@@ -252,6 +252,40 @@ fn step(program: &Program, ops: &[Op], v: usize, failures: &mut Vec<String>) ->
+             }
+             vec![e]
+         }
++        Op::ReturnTake(slot) => {
++            reads.push(*slot);
++            vec![]
++        }
++        Op::TempMoved(b) => {
++            let mut e = edge(*b, None);
++            let next = match program.cfg.graph.get(v) {
++                Some(Label::Instr(_, next)) => Some(*next),
++                _ => None,
++            };
++            if next != Some(*b as usize) {
++                failures.push(format!("vertex {v}: moved temp jumps to {b}, not to its label's successor"));
++            }
++            match label_store(program, v) {
++                Some((
++                    _,
++                    Expr::Var(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Unit | Expr::Nil,
++                ))
++                | None => failures.push(format!("vertex {v}: moved temp on a label that is not a subtree store")),
++                Some((t, rhs)) => {
++                    e.differs.push(t);
++                    let consumed = match ops.get(*b as usize) {
++                        Some(Op::Cond { cond, .. }) => Some(cond),
++                        Some(Op::Return(value)) => Some(value),
++                        Some(Op::Print { value, .. }) => Some(value),
++                        _ => None,
++                    };
++                    if consumed != Some(&super::opnd(rhs)) {
++                        failures.push(format!("vertex {v}: vertex {b} does not evaluate the moved subtree"));
++                    }
++                }
++            }
++            vec![e]
++        }
+     };
+     Step {
+         reads,
+@@ -306,8 +340,44 @@ pub(crate) fn analyze(program: &Program, ops: &[Op], entries: &[usize]) -> Analy
+             work.push(e.target);
+         }
+     }
++    // A moved subtree is evaluated at its consumer against the frame the
++    // store would have seen, which is the consumer's frame only when the
++    // store is the consumer's one way in.
++    let mut preds = vec![0usize; n];
++    for s in &steps {
++        for e in &s.edges {
++            if e.target < n {
++                preds[e.target] += 1;
++            }
++        }
++    }
++    for &e in entries {
++        if e < n {
++            preds[e] += 1;
++        }
++    }
++    let mut moved_from: Vec<Option<usize>> = vec![None; n];
++    for (v, op) in ops.iter().enumerate() {
++        if let Op::TempMoved(b) = op {
++            let b = *b as usize;
++            if b >= n {
++                continue;
++            }
++            if preds[b] != 1 {
++                failures.push(format!(
++                    "vertex {v}: temp moved into vertex {b}, which has {} predecessors",
++                    preds[b]
++                ));
++            }
++            moved_from[b] = Some(v);
++        }
++    }
+     for (v, s) in steps.iter().enumerate() {
+         let Some(inn) = &differing_in[v] else { continue };
++        let inn = match moved_from[v] {
++            Some(store) => differing_in[store].as_ref().unwrap_or(inn),
++            None => inn,
++        };
+         for r in &s.reads {
+             if inn.contains(r) && !s.written_first.contains(r) {
+                 failures.push(format!("vertex {v}: reads slot {r}, whose value may differ"));
+diff --git a/spur-core/src/compiler/cfg/compiled/test.rs b/spur-core/src/compiler/cfg/compiled/test.rs
+index 2ed53f2..2c52343 100644
+--- a/spur-core/src/compiler/cfg/compiled/test.rs
++++ b/spur-core/src/compiler/cfg/compiled/test.rs
+@@ -1,8 +1,8 @@
+ use super::check::{accesses, analyze, entries};
+ use super::*;
+-use crate::compiler::cfg::Compiler;
++use crate::compiler::cfg::{Cfg, Compiler};
+ use crate::compiler::compile_with;
+-use std::collections::{BTreeSet, VecDeque};
++use std::collections::{BTreeSet, HashMap, VecDeque};
+ use std::path::{Path, PathBuf};
+ 
+ fn spec_files(dir: &Path, out: &mut Vec<PathBuf>) {
+@@ -37,7 +37,39 @@ fn on_big_stack(f: impl FnOnce() + Send + 'static) {
+ 
+ /// Whether `rewritten` may stand in for `plain` at one vertex.
+ fn rewrite_allowed(plain: &Op, rewritten: &Op) -> bool {
+-    plain == rewritten || matches!((plain, rewritten), (Op::AssignLocal { .. }, Op::StoreSkipped(_)))
++    plain == rewritten
++        || matches!(
++            (plain, rewritten),
++            (Op::AssignLocal { .. }, Op::StoreSkipped(_))
++                | (
++                    Op::AssignLocal {
++                        rhs: Opnd::Tree(_),
++                        ..
++                    },
++                    Op::TempMoved(_)
++                )
++                | (
++                    Op::Return(Opnd::Local(_)),
++                    Op::ReturnTake(_) | Op::Return(Opnd::Tree(_))
++                )
++                | (
++                    Op::CondLocal { .. },
++                    Op::Cond {
++                        cond: Opnd::Tree(_),
++                        ..
++                    }
++                )
++                | (
++                    Op::Print {
++                        value: Opnd::Local(_),
++                        ..
++                    },
++                    Op::Print {
++                        value: Opnd::Tree(_),
++                        ..
++                    }
++                )
++        )
+ }
+ 
+ #[test]
+@@ -48,7 +80,7 @@ fn no_rewritten_value_is_read_in_any_spec() {
+         files.sort();
+         assert!(!files.is_empty());
+         let mut failures = Vec::new();
+-        let (mut compiled, mut skipped_stores) = (0, 0);
++        let (mut compiled, mut skipped_stores, mut moved_temps, mut moved_returns) = (0, 0, 0, 0);
+         for file in &files {
+             let name = file.display().to_string();
+             let Some(program) = compile_spec(file) else {
+@@ -61,6 +93,8 @@ fn no_rewritten_value_is_read_in_any_spec() {
+             for (v, (p, r)) in plain.ops.iter().zip(&program.compiled.ops).enumerate() {
+                 assert!(rewrite_allowed(p, r), "{name} vertex {v}: {p:?} decoded as {r:?}");
+                 skipped_stores += usize::from(matches!(r, Op::StoreSkipped(_)));
++                moved_temps += usize::from(matches!(r, Op::TempMoved(_)));
++                moved_returns += usize::from(matches!(r, Op::ReturnTake(_)));
+             }
+             let analysis = analyze(&program, &program.compiled.ops, &entries(&program));
+             failures.extend(analysis.failures.iter().map(|f| format!("{name} {f}")));
+@@ -68,6 +102,8 @@ fn no_rewritten_value_is_read_in_any_spec() {
+         }
+         assert!(compiled > 0, "no spec compiled");
+         assert!(skipped_stores > 0, "no store was skipped in any spec");
++        assert!(moved_temps > 0, "no temp was moved in any spec");
++        assert!(moved_returns > 0, "no return moved its value in any spec");
+         assert!(failures.is_empty(), "rewritten values read:\n{}", failures.join("\n"));
+     });
+ }
+@@ -153,3 +189,120 @@ fn a_skipped_store_to_a_live_loop_variable_is_rejected() {
+         );
+     });
+ }
++
++fn local(idx: u32) -> VarSlot {
++    VarSlot::Local(idx, NameId(idx as usize))
++}
++
++/// A one-function program over `labels` entered at `entry`, decoded with
++/// every rewrite.
++fn program_with(labels: Vec<Label>, entry: usize, slots: u32) -> Program {
++    let info = FunctionInfo {
++        entry,
++        name: NameId(100),
++        param_count: 0,
++        local_slot_count: slots,
++        local_defaults: vec![],
++        is_sync: false,
++        debug_slot_names: vec![],
++    };
++    let mut program = Program {
++        cfg: Cfg { graph: labels },
++        rpc: HashMap::from([(NameId(100), info)]),
++        func_name_to_id: HashMap::from([("f".to_string(), NameId(100))]),
++        id_to_name: HashMap::new(),
++        next_name_id: 101,
++        vertex_to_span: HashMap::new(),
++        max_node_slots: 1,
++        roles: vec![],
++        type_ids: HashMap::new(),
++        compiled: Default::default(),
++    };
++    program.decode();
++    program
++}
++
++#[test]
++fn a_temp_moved_into_its_only_reader_is_accepted() {
++    let not = Expr::Not(Box::new(Expr::Var(local(1))));
++    let program = program_with(
++        vec![
++            Label::Return(Expr::Unit),
++            Label::Print(Expr::Var(local(0)), 0),
++            Label::Instr(Instr::Assign(Lhs::Var(local(0)), not.clone()), 1),
++        ],
++        2,
++        2,
++    );
++    assert_eq!(program.compiled.ops[2], Op::TempMoved(1));
++    assert_eq!(program.compiled.ops[1], Op::Print { value: opnd(&not), next: 0 });
++    assert!(analyze(&program, &program.compiled.ops, &entries(&program)).failures.is_empty());
++
++    let own = Expr::Not(Box::new(Expr::Var(local(0))));
++    let program = program_with(
++        vec![
++            Label::Return(Expr::Int(1)),
++            Label::Return(Expr::Int(0)),
++            Label::Cond(Expr::Var(local(0)), 0, 1),
++            Label::Instr(Instr::Assign(Lhs::Var(local(0)), own.clone()), 2),
++        ],
++        3,
++        1,
++    );
++    assert_eq!(program.compiled.ops[3], Op::TempMoved(2));
++    assert!(analyze(&program, &program.compiled.ops, &entries(&program)).failures.is_empty());
++}
++
++#[test]
++fn a_moved_temp_read_after_its_consumer_is_rejected() {
++    let not = Expr::Not(Box::new(Expr::Var(local(1))));
++    let program = program_with(
++        vec![
++            Label::Return(Expr::Var(local(0))),
++            Label::Print(Expr::Var(local(0)), 0),
++            Label::Cond(Expr::Var(local(0)), 1, 0),
++            Label::Instr(Instr::Assign(Lhs::Var(local(0)), not.clone()), 2),
++        ],
++        3,
++        2,
++    );
++    assert!(matches!(program.compiled.ops[3], Op::AssignLocal { .. }));
++    let entries = entries(&program);
++    assert!(analyze(&program, &program.compiled.ops, &entries).failures.is_empty());
++    let mut ops = program.compiled.ops.clone();
++    ops[3] = Op::TempMoved(2);
++    ops[2] = Op::Cond {
++        cond: opnd(&not),
++        then: 1,
++        els: 0,
++    };
++    let failures = analyze(&program, &ops, &entries).failures;
++    assert!(failures.iter().any(|f| f.contains("reads slot 0,")), "accepted: {failures:?}");
++}
++
++#[test]
++fn a_temp_moved_into_a_vertex_with_two_predecessors_is_rejected() {
++    let not = Expr::Not(Box::new(Expr::Var(local(1))));
++    let program = program_with(
++        vec![
++            Label::Return(Expr::Unit),
++            Label::Print(Expr::Var(local(0)), 0),
++            Label::Instr(Instr::Assign(Lhs::Var(local(0)), not.clone()), 1),
++            Label::Instr(Instr::Assign(Lhs::Var(local(0)), Expr::Bool(true)), 1),
++            Label::Cond(Expr::Var(local(1)), 2, 3),
++        ],
++        4,
++        2,
++    );
++    assert!(matches!(program.compiled.ops[2], Op::AssignLocal { .. }));
++    let entries = entries(&program);
++    assert!(analyze(&program, &program.compiled.ops, &entries).failures.is_empty());
++    let mut ops = program.compiled.ops.clone();
++    ops[2] = Op::TempMoved(1);
++    ops[1] = Op::Print {
++        value: opnd(&not),
++        next: 0,
++    };
++    let failures = analyze(&program, &ops, &entries).failures;
++    assert!(failures.iter().any(|f| f.contains("which has 2 predecessors")), "accepted: {failures:?}");
++}
+diff --git a/spur-core/src/compiler/cfg/frame_layout.rs b/spur-core/src/compiler/cfg/frame_layout.rs
+index 0cf0516..eac866a 100644
+--- a/spur-core/src/compiler/cfg/frame_layout.rs
++++ b/spur-core/src/compiler/cfg/frame_layout.rs
+@@ -448,9 +448,16 @@ pub(super) struct LocalLiveness {
+     /// Slots some path from a successor of the vertex reads before writing,
+     /// with no write of the vertex itself taken out.
+     live_out: Vec<u128>,
++    /// Edges into each vertex, with each function entry counted as one.
++    preds: Vec<u32>,
+ }
+ 
+ impl LocalLiveness {
++    /// How many ways execution enters vertex `v`.
++    pub(super) fn preds(&self, v: usize) -> u32 {
++        self.preds.get(v).copied().unwrap_or(0)
++    }
++
+     /// Whether no path after `v` reads `slot` before writing it. A slot at or
+     /// above 128 is never reported dead.
+     pub(super) fn dead_after(&self, v: usize, slot: u32) -> bool {
+@@ -462,9 +469,10 @@ impl LocalLiveness {
+     }
+ }
+ 
+-/// Computes liveness for every vertex of `graph`. A read of a slot at or
+-/// above 128 marks every slot live, and a write of one kills nothing.
+-pub(super) fn local_liveness(graph: &[Label]) -> LocalLiveness {
++/// Computes liveness and predecessor counts for every vertex of `graph`,
++/// whose function entries are `entries`. A read of a slot at or above 128
++/// marks every slot live, and a write of one kills nothing.
++pub(super) fn local_liveness(graph: &[Label], entries: impl Iterator<Item = Vertex>) -> LocalLiveness {
+     let m = graph.len();
+     let mut reads = vec![0u128; m];
+     let mut kill_all = vec![0u128; m];
+@@ -482,6 +490,12 @@ pub(super) fn local_liveness(graph: &[Label]) -> LocalLiveness {
+         });
+         succ.push(successors(&label));
+     }
++    let mut preds = vec![0u32; m];
++    for target in succ.iter().flat_map(|s| s.iter().flatten().copied()).chain(entries) {
++        if target < m {
++            preds[target] += 1;
++        }
++    }
+     let mut live_in = vec![0u128; m];
+     let mut live_out = vec![0u128; m];
+     let mut changed = true;
+@@ -505,7 +519,7 @@ pub(super) fn local_liveness(graph: &[Label]) -> LocalLiveness {
+             }
+         }
+     }
+-    LocalLiveness { live_out }
++    LocalLiveness { live_out, preds }
+ }
+ 
+ #[cfg(test)]
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index fce5ff9..3f4ad46 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -972,6 +972,30 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+             t.stores_skipped += 1;
+             Ok(Flow::Next(*next as usize))
+         }
++        Op::TempMoved(next) => {
++            t.temps_fused += 1;
++            Ok(Flow::Next(*next as usize))
++        }
++        Op::ReturnTake(slot) => {
++            t.leaf_operands_inline += 1;
++            t.returns_taken += 1;
++            // Every caller drops the frame on return. A frame another holder
++            // shares would be copied whole by the move, so it clones instead,
++            // as it does under an eager hash policy, whose frame signature
++            // would otherwise go stale.
++            let value = if !local_env.slots.is_unique() {
++                t.returns_cloned_shared += 1;
++                local_env.get(*slot).clone()
++            } else if H::EAGER {
++                local_env.get(*slot).clone()
++            } else {
++                std::mem::replace(
++                    &mut local_env.slots.make_mut()[*slot as usize],
++                    Value::<H>::unit(),
++                )
++            };
++            Ok(Flow::Return(value))
++        }
+         Op::Return(rhs) => Ok(Flow::Return(cvalue(local_env, node_env, rhs, names, t)?)),
+         Op::SyncCall(call) => {
+             let func_info = callee(program, call.callee, &call.name, t)?;
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index ac3c626..d0dc975 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -1,7 +1,7 @@
+ use super::*;
+ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::compiled::check;
+-use crate::compiler::cfg::compiled::{CompiledProgram, Rewrites};
++use crate::compiler::cfg::compiled::{CompiledProgram, Opnd, Rewrites};
+ use crate::compiler::cfg::{Cfg, Expr, Instr, Label, Lhs, Program, VarSlot};
+ use crate::simulator::core::partition::QueuedMessage;
+ use crate::simulator::core::state::{
+@@ -851,6 +851,9 @@ fn tally_since(before: InterpreterTally) -> InterpreterTally {
+         call_targets_indexed: a.call_targets_indexed - before.call_targets_indexed,
+         call_targets_fallback: a.call_targets_fallback - before.call_targets_fallback,
+         stores_skipped: a.stores_skipped - before.stores_skipped,
++        temps_fused: a.temps_fused - before.temps_fused,
++        returns_taken: a.returns_taken - before.returns_taken,
++        returns_cloned_shared: a.returns_cloned_shared - before.returns_cloned_shared,
+     }
+ }
+ 
+@@ -1035,7 +1038,9 @@ fn assert_rewrites_agree(program: &Program, start: usize, slots: usize) -> [Inte
+         assert_eq!(a.state, b.state);
+         assert_eq!(a.edges, b.edges);
+         assert_eq!(a.events[2], b.events[2]);
+-        assert_eq!(a.events[0] + a.events[1], b.events[0] + b.events[1]);
++        let (borrows_off, borrows_on) = (a.events[0] + a.events[1], b.events[0] + b.events[1]);
++        assert!(borrows_off >= borrows_on);
++        assert!(borrows_off - borrows_on <= b.tally.temps_fused);
+         let (x, y) = (a.tally, b.tally);
+         assert_eq!(x.label_execs, y.label_execs);
+         assert_eq!(x.legacy_labels, y.legacy_labels);
+@@ -1043,8 +1048,15 @@ fn assert_rewrites_agree(program: &Program, start: usize, slots: usize) -> [Inte
+         assert_eq!(x.legacy_evals, y.legacy_evals);
+         assert_eq!(x.call_targets_indexed, y.call_targets_indexed);
+         assert_eq!(x.call_targets_fallback, y.call_targets_fallback);
+-        assert_eq!(x.stores_skipped, 0);
+-        assert_eq!(x.leaf_operands_inline - y.leaf_operands_inline, y.stores_skipped);
++        assert_eq!(
++            [x.stores_skipped, x.temps_fused, x.returns_taken, x.returns_cloned_shared],
++            [0; 4]
++        );
++        assert_eq!(y.returns_cloned_shared, 0);
++        assert_eq!(
++            x.leaf_operands_inline - y.leaf_operands_inline,
++            y.stores_skipped + y.temps_fused
++        );
+         y
+     })
+ }
+@@ -1338,3 +1350,189 @@ fn unread_stores_are_skipped_and_everything_observable_matches() {
+     assert_eq!(plain.stores_skipped, 1);
+     assert_eq!(hashed.stores_skipped, 1);
+ }
++
++/// A condition, a printed value and a returned value evaluate the subtree of
++/// the temp they read, a callee's local returns by moving out of its frame,
++/// and every observable matches the unrewritten form.
++#[test]
++fn moved_temps_and_returns_match_everything_observable() {
++    let mut builder = TestProgramBuilder::new();
++    let k_ret = builder.add(Label::Return(Expr::Var(slot(1))));
++    let k_print = builder.add(Label::Print(Expr::Var(slot(0)), k_ret));
++    let k_entry = builder.add(Label::Instr(
++        Instr::Copy(Lhs::Var(slot(1)), Expr::Var(slot(0))),
++        k_print,
++    ));
++    let g_ret = builder.add(Label::Return(Expr::Var(slot(1))));
++    let g_entry = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(1)),
++            Expr::Plus(Box::new(Expr::Var(slot(0))), Box::new(Expr::Int(1))),
++        ),
++        g_ret,
++    ));
++
++    let ret = builder.add(Label::Return(Expr::Var(slot(0))));
++    let final_print = builder.add(Label::Print(Expr::Var(slot(5)), ret));
++    let final_store = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(5)),
++            Expr::Plus(Box::new(Expr::Var(slot(0))), Box::new(Expr::Int(100))),
++        ),
++        final_print,
++    ));
++    let head = builder.add(Label::Return(Expr::Unit));
++    let back = builder.add(Label::Continue(head));
++    let big_print = builder.add(Label::Print(Expr::Var(slot(0)), back));
++    let cond = builder.add(Label::Cond(Expr::Var(slot(3)), big_print, back));
++    let test = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(3)),
++            Expr::GreaterThan(Box::new(Expr::Var(slot(0))), Box::new(Expr::Int(5))),
++        ),
++        cond,
++    ));
++    let acc = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(0)),
++            Expr::Plus(Box::new(Expr::Var(slot(0))), Box::new(Expr::Var(slot(4)))),
++        ),
++        test,
++    ));
++    let call_g = builder.add(Label::Instr(
++        Instr::SyncCall(Lhs::Var(slot(4)), "g".to_string(), vec![Expr::Var(slot(3))]),
++        acc,
++    ));
++    let call_k = builder.add(Label::Instr(
++        Instr::SyncCall(Lhs::Var(slot(3)), "k".to_string(), vec![Expr::Var(slot(1))]),
++        call_g,
++    ));
++    builder.labels[head] = Label::ForLoopIn(
++        Lhs::Var(slot(1)),
++        Expr::List(vec![Expr::Int(1), Expr::Int(2), Expr::Int(3)]),
++        slot(2),
++        call_k,
++        final_store,
++    );
++    let iter_reset = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(slot(2)), Expr::Unit),
++        head,
++    ));
++    let init = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(slot(0)), Expr::Int(0)),
++        iter_reset,
++    ));
++    let mut program = builder.build_undecoded();
++    register(&mut program, "k", function(k_entry, 5, 1, 2, true));
++    register(&mut program, "g", function(g_entry, 6, 1, 2, true));
++    program.decode();
++
++    let on = CompiledProgram::build_with(&with_entry(program.clone(), init, 6), Rewrites::On);
++    for v in [test, g_entry, final_store] {
++        assert!(matches!(on.ops[v], Op::TempMoved(_)), "vertex {v}: {:?}", on.ops[v]);
++    }
++    assert!(matches!(on.ops[cond], Op::Cond { cond: Opnd::Tree(_), .. }));
++    assert!(matches!(on.ops[final_print], Op::Print { value: Opnd::Tree(_), .. }));
++    assert!(matches!(on.ops[g_ret], Op::Return(Opnd::Tree(_))));
++    for v in [k_ret, ret] {
++        assert!(matches!(on.ops[v], Op::ReturnTake(_)), "vertex {v}: {:?}", on.ops[v]);
++    }
++
++    for tally in assert_rewrites_agree(&program, init, 6) {
++        assert_eq!(tally.temps_fused, 7);
++        assert_eq!(tally.returns_taken, 4);
++    }
++}
++
++fn assert_failing_move_matches<H: HashPolicy>(
++    off: &Program,
++    on: &Program,
++    labels: &Program,
++    start: usize,
++    store: usize,
++    consumer: usize,
++    differing: &[Option<BTreeSet<u32>>],
++) {
++    let a = observe_rewrites::<H>(off, start, 2, differing);
++    let b = observe_rewrites::<H>(on, start, 2, differing);
++    let l = observe_rewrites::<H>(labels, start, 2, differing);
++    assert!(a.result.starts_with("error"), "{}", a.result);
++    for other in [&b, &l] {
++        assert_eq!(other.result, a.result);
++        assert_eq!(other.logs, a.logs);
++        assert_eq!(other.trace_text, a.trace_text);
++        assert_eq!(other.traces, a.traces);
++        assert_eq!(other.state, a.state);
++    }
++    assert_eq!(l.edges, a.edges);
++    let mut edges = a.edges.clone();
++    edges.push(((store, consumer), 1));
++    edges.sort_unstable();
++    assert_eq!(b.edges, edges);
++    assert_eq!(b.tally.label_execs, a.tally.label_execs + 1);
++    assert_eq!(b.tally.temps_fused, 1);
++    assert_eq!(b.tally.tree_evals, a.tally.tree_evals);
++}
++
++/// A moved subtree that fails raises the same error one vertex later, so the
++/// run fails alike: the result, logs, traces and state match the unrewritten
++/// form and the label loop, the moved store is the one extra vertex run, and
++/// its edge to the consumer is the one extra edge.
++#[test]
++fn a_failing_moved_subtree_fails_alike_one_vertex_later() {
++    let mut cases = Vec::new();
++
++    let mut builder = TestProgramBuilder::new();
++    let one = builder.add(Label::Return(Expr::Int(1)));
++    let zero = builder.add(Label::Return(Expr::Int(0)));
++    let cond = builder.add(Label::Cond(Expr::Var(slot(0)), one, zero));
++    let store = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(slot(0)), Expr::Unwrap(Box::new(Expr::Nil))),
++        cond,
++    ));
++    cases.push((builder.build_undecoded(), store, store, cond));
++
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(Expr::Unit));
++    let print = builder.add(Label::Print(Expr::Var(slot(0)), ret));
++    let store = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(0)),
++            Expr::Find(
++                Box::new(Expr::Map(vec![(Expr::Int(1), Expr::Int(2))])),
++                Box::new(Expr::Int(5)),
++            ),
++        ),
++        print,
++    ));
++    cases.push((builder.build_undecoded(), store, store, print));
++
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(Expr::Var(slot(0))));
++    let store = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(0)),
++            Expr::Plus(Box::new(Expr::Var(slot(1))), Box::new(Expr::Int(5))),
++        ),
++        ret,
++    ));
++    let init = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(slot(1)), Expr::Bool(true)),
++        store,
++    ));
++    cases.push((builder.build_undecoded(), init, store, ret));
++
++    for (program, start, store, consumer) in cases {
++        let program = with_entry(program, start, 2);
++        let mut off = program.clone();
++        off.compiled = CompiledProgram::build_with(&program, Rewrites::Off);
++        let mut on = program.clone();
++        on.compiled = CompiledProgram::build_with(&program, Rewrites::On);
++        assert_eq!(on.compiled.ops[store], Op::TempMoved(consumer as u32));
++        let analysis = check::analyze(&on, &on.compiled.ops, &check::entries(&on));
++        assert!(analysis.failures.is_empty(), "{:?}", analysis.failures);
++        let d = &analysis.differing_in;
++        assert_failing_move_matches::<NoHashing>(&off, &on, &program, start, store, consumer, d);
++        assert_failing_move_matches::<WithHashing>(&off, &on, &program, start, store, consumer, d);
++    }
++}
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 4079b53..5ccd32c 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -124,6 +124,9 @@ static PRINT_CONTENT_PRESIZED: AtomicU64 = AtomicU64::new(0);
+ static COMPILED_OPS_LABEL_EXECS: AtomicU64 = AtomicU64::new(0);
+ static COMPILED_OPS_LEGACY_LABELS: AtomicU64 = AtomicU64::new(0);
+ static COMPILED_OPS_STORES_SKIPPED: AtomicU64 = AtomicU64::new(0);
++static COMPILED_OPS_TEMPS_FUSED: AtomicU64 = AtomicU64::new(0);
++static COMPILED_OPS_RETURNS_TAKEN: AtomicU64 = AtomicU64::new(0);
++static COMPILED_OPS_RETURNS_CLONED_SHARED: AtomicU64 = AtomicU64::new(0);
+ static COMPILED_EXPR_LEAF_OPERANDS_INLINE: AtomicU64 = AtomicU64::new(0);
+ static COMPILED_EXPR_TREE_EVALS: AtomicU64 = AtomicU64::new(0);
+ static COMPILED_EXPR_LEGACY_EVALS: AtomicU64 = AtomicU64::new(0);
+@@ -943,6 +946,9 @@ pub fn set_enabled(on: bool) {
+             &COMPILED_OPS_LABEL_EXECS,
+             &COMPILED_OPS_LEGACY_LABELS,
+             &COMPILED_OPS_STORES_SKIPPED,
++            &COMPILED_OPS_TEMPS_FUSED,
++            &COMPILED_OPS_RETURNS_TAKEN,
++            &COMPILED_OPS_RETURNS_CLONED_SHARED,
+             &COMPILED_EXPR_LEAF_OPERANDS_INLINE,
+             &COMPILED_EXPR_TREE_EVALS,
+             &COMPILED_EXPR_LEGACY_EVALS,
+@@ -5904,12 +5910,18 @@ impl RunBufferStats {
+ /// Labels run by the decoded operation loop, and labels run one by one from
+ /// the graph because a program carried no decoded form. `stores_skipped`
+ /// counts executed vertices whose local store was decoded away because no
+-/// later read can see the value.
++/// later read can see the value, and `temps_fused` those whose store's
++/// subtree moved into the vertex that reads it. `returns_taken` counts
++/// returns of a local slot, and `returns_cloned_shared` those among them
++/// that found the frame shared and cloned the value.
+ #[derive(Serialize, Debug)]
+ pub struct CompiledOpsStats {
+     pub label_execs: u64,
+     pub legacy_labels: u64,
+     pub stores_skipped: u64,
++    pub temps_fused: u64,
++    pub returns_taken: u64,
++    pub returns_cloned_shared: u64,
+ }
+ 
+ impl CompiledOpsStats {
+@@ -5918,6 +5930,9 @@ impl CompiledOpsStats {
+             label_execs: COMPILED_OPS_LABEL_EXECS.load(Ordering::Relaxed),
+             legacy_labels: COMPILED_OPS_LEGACY_LABELS.load(Ordering::Relaxed),
+             stores_skipped: COMPILED_OPS_STORES_SKIPPED.load(Ordering::Relaxed),
++            temps_fused: COMPILED_OPS_TEMPS_FUSED.load(Ordering::Relaxed),
++            returns_taken: COMPILED_OPS_RETURNS_TAKEN.load(Ordering::Relaxed),
++            returns_cloned_shared: COMPILED_OPS_RETURNS_CLONED_SHARED.load(Ordering::Relaxed),
+         }
+     }
+ }
+@@ -6470,6 +6485,9 @@ pub struct InterpreterTally {
+     pub call_targets_indexed: u64,
+     pub call_targets_fallback: u64,
+     pub stores_skipped: u64,
++    pub temps_fused: u64,
++    pub returns_taken: u64,
++    pub returns_cloned_shared: u64,
+ }
+ 
+ impl InterpreterTally {
+@@ -6483,6 +6501,9 @@ impl InterpreterTally {
+             call_targets_indexed: 0,
+             call_targets_fallback: 0,
+             stores_skipped: 0,
++            temps_fused: 0,
++            returns_taken: 0,
++            returns_cloned_shared: 0,
+         }
+     }
+ 
+@@ -6496,6 +6517,9 @@ impl InterpreterTally {
+             call_targets_indexed: self.call_targets_indexed + o.call_targets_indexed,
+             call_targets_fallback: self.call_targets_fallback + o.call_targets_fallback,
+             stores_skipped: self.stores_skipped + o.stores_skipped,
++            temps_fused: self.temps_fused + o.temps_fused,
++            returns_taken: self.returns_taken + o.returns_taken,
++            returns_cloned_shared: self.returns_cloned_shared + o.returns_cloned_shared,
+         }
+     }
+ 
+@@ -6624,6 +6648,9 @@ pub fn flush_frame_stats() {
+         (interp.label_execs, &COMPILED_OPS_LABEL_EXECS),
+         (interp.legacy_labels, &COMPILED_OPS_LEGACY_LABELS),
+         (interp.stores_skipped, &COMPILED_OPS_STORES_SKIPPED),
++        (interp.temps_fused, &COMPILED_OPS_TEMPS_FUSED),
++        (interp.returns_taken, &COMPILED_OPS_RETURNS_TAKEN),
++        (interp.returns_cloned_shared, &COMPILED_OPS_RETURNS_CLONED_SHARED),
+         (interp.leaf_operands_inline, &COMPILED_EXPR_LEAF_OPERANDS_INLINE),
+         (interp.tree_evals, &COMPILED_EXPR_TREE_EVALS),
+         (interp.legacy_evals, &COMPILED_EXPR_LEGACY_EVALS),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index b90fa55..1b68830 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -1417,6 +1417,9 @@ fn compiled_ops(m: &mut Marks) -> CompiledOpsStats {
+         label_execs: m.int(),
+         legacy_labels: m.int(),
+         stores_skipped: m.int(),
++        temps_fused: m.int(),
++        returns_taken: m.int(),
++        returns_cloned_shared: m.int(),
+     }
+ }
+ 
+@@ -1425,11 +1428,17 @@ fn compiled_ops_leaves(prefix: &str, c: &CompiledOpsStats) -> Vec<(String, Value
+         label_execs,
+         legacy_labels,
+         stores_skipped,
++        temps_fused,
++        returns_taken,
++        returns_cloned_shared,
+     } = c;
+     vec![
+         leaf(prefix, "label_execs", *label_execs),
+         leaf(prefix, "legacy_labels", *legacy_labels),
+         leaf(prefix, "stores_skipped", *stores_skipped),
++        leaf(prefix, "temps_fused", *temps_fused),
++        leaf(prefix, "returns_taken", *returns_taken),
++        leaf(prefix, "returns_cloned_shared", *returns_cloned_shared),
+     ]
+ }
+ 
