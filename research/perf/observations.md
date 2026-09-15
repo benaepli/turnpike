@@ -7702,3 +7702,72 @@ research/perf/baselines/a4b8852dd52f-30-f9daa01b-120-bb813e711.json: mean
 b20ee37's own post-merge baseline of 10,015.2. Ledger row appended to
 research/lite/epoch-baseline.json: ratio 1.1021, cumulative 5.255. Post-merge
 profiles of 3b53d0a are being taken for the direction review.
+
+## Direction review after the print-chains merge (autonomous)
+
+Called for by the merge. Profiles research/perf/profiles/3b53d0a.md and
+3b53d0a-base-3b53d0a-low-cutoff.md (0.3 percent). Against
+b20ee37-base-b20ee37-low-cutoff.md, r = 11.87 / 11.03 = 1.0762, families
+(self, spur-command rows) raw and against base x r:
+- interpreter 25.72 to 24.97 (-2.71 x r): ceval 9.68 to 7.27, exec_ops 5.56
+  to 5.35, print_parts new at 0.86;
+- value 12.84 to 11.07 (-2.75 x r): drop_glue<ValueKind> 3.05 to 1.69,
+  EcoVec<u8>::reserve 0.80 to below the cutoff, Decimal::of_i64 0.58 to 0.40;
+- allocator 4.71 to 4.57 (-0.50 x r), memmove 7.69 to 8.06 (-0.22 x r),
+  trace text 3.16 to 3.20 (-0.20 x r);
+- scheduler 12.48 to 13.79 (+0.36 x r), exec_plan 2.94 to 3.35 (+0.19 x r),
+  rng and sampling 1.12 to 1.78 (+0.57 x r, Beta sample and
+  SchedulePolicy::sample crossing the cutoff in opposite directions);
+- writers self 7.57 to 8.45 (+0.30 x r), writer_loop inclusive 10.14 to 10.94.
+Nothing relocated beyond share inflation and cutoff crossings.
+
+Largest explainable costs on 3b53d0a: memmove 8.06 (now the largest single
+row), the interpreter family about 25 (ceval 7.27, exec_ops 8.2 over its
+instances, run_sync_ops 2.69), the scheduler family 13.8, the value family
+11.07 (EcoVec<Value> drop 4.51, clone 3.28, drop glue 1.69, make_unique 0.85)
+plus allocator 4.57, and the writers at 10.9 inclusive.
+
+Verdict. Iteration 28 takes the allocation and memory traffic lens (rotation
+after algorithmic), focus directive: sequence lifetimes - which lists, tuples,
+struct and payload sequences are built, copied on write and freed per step
+(EcoVec<Value> drop, make_unique, grow and reserve, malloc and free), and what
+memmove's remaining callers copy, together about 24 points. The two earlier
+attacks on the value family changed its representation (non-atomic counts,
+narrower Values) and closed on size; this directive asks which allocations
+need not exist at all. Conditions carried forward: a census before a
+mechanism; price the implementation-faithful form on a one-thread ABBA read
+with a fresh identical-source control; location guards from a 30-thread
+prototype profile; a construction-defined work counter as the primary, with
+the wall only able to block; about 3 percent of one-thread cycles as the
+useful size.
+
+Writer finding, recorded for a contention round: in print-chains' rounds the
+candidate's writers were busy 373-380 s per 120 s round (about 78 percent of
+four) with queue_full_sends 109-272 and blocked_ns 101-234 ms, at about 10,750
+runs per second; busy time per run is about 294 microseconds, so four writers
+saturate near 13,500-14,000 runs per second. Not binding yet (under 0.01
+percent of simulation time blocked), and a writer saving would not show in
+runs per second until it is; the direction review after the next merge
+re-reads it.
+
+Steering audit: the last three directives each named the largest explainable
+cost and asked for size first; two merged (8.3 percent cumulative on the wall
+over two merges), one closed on its own gate. Pool: register-ops-written-in-place
+must be re-priced over 3b53d0a before it can return; nothing dropped.
+
+Digest, iteration 27: algorithmic lens on the tree evaluator. A census found
+println string building dominating tree evaluations (string Plus 2,304,
+IntToString 1,507 per VR run, 1,123 prints, chains up to 14 vertices), and a
+one-thread annotation put ceval's time in loads stalled behind clones and
+string allocation. Leaf-call inlining priced 2 percent slower and was dropped.
+The judge verified every reader of printed text, fixed the prototype's holes
+(predecessors without function entries, StoreSkipped reuse breaking the
+checker, concatenation-order checks), re-centered the tree_evals band on the
+campaign mix and set r-robust guards. Built as one commit with identity exact
+on five sessions and the checker extended with four mutations; one-thread
+cycles 0.9401 against a fresh control at 1.0098, better than the prototype's
+0.9571. Six rounds: counter 1.2522 [1.2332, 1.2714], every per-round check in
+band, runs per second 1.1021 [1.0790, 1.1258] separated upward from the floor.
+Merged as spur 3b53d0a with the writer-blocking clause departed from
+(throughput-driven). Post-merge baseline 10,646.5 runs per second; ledger
+cumulative 5.255.
