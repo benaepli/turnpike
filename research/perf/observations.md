@@ -8255,3 +8255,43 @@ six sessions with partitions, purgatory and links covered; census 40,608 to
 less relocation than the prototype (broad -5.54 x r). Six rounds read runs per
 second 1.0228 [1.0100, 1.0357] with steps per run 1.0261: held at no-gain,
 patches kept. Tree unchanged at spur 3b53d0a.
+
+## Iteration 30 - autonomous, redundant-work lens, profile 3b53d0a
+
+Lens: redundant work per step. Focus directive from the direction review: the
+scheduler family, with an existing work counter both binaries emit as the
+primary.
+
+### Proposals (tmp/loop/perf/it30-proposals.md)
+
+- Census, VR identity session at one thread (3,389 steps per run):
+  stats_local.folded_increments 20.70 per step, 13.13 of them derivable per
+  run from counters the scheduler still writes; the eligible-counts map
+  rebuilds 8.01 local-queue sizes per step of which 0.90 change between steps;
+  all_queues_empty runs twice per step (16 node visits); the placebo walk and
+  audit scan visit 2.22 eligible elements each per selection, 50.7 percent of
+  the audit's visits on the network queue, which never holds a Recover; 1.60
+  tournament scores per step plus 0.563 single-candidate scores whose result is
+  discarded; route_by_terms returns None without drawing on every step. No
+  existing leaf counts scores, node visits, scan elements or calls;
+  folded_increments is the one leaf that falls by exactly the work removed.
+- One-thread ABBA against a fresh identical-source control (0.9957): H1 (commit
+  A) 0.9848 over base; H2 (commit B) 0.9805 over A; A + B implied 0.9656, not
+  measured directly. Identity on VR: every utilization leaf equal except
+  folded_increments, whose drop equals the new derived_increments exactly
+  (133,836,828); executions, logs, traces and stall caps byte-identical (runs
+  table not compared by rows).
+- 30-thread profile of A + B research/perf/profiles/3b53d0a-proto-counters-and-unread-scoring-low-cutoff.md:
+  r over untouched rows 1.0469 (1.007 without the Beta-sampling row, which
+  moved with its code untouched); scheduler family without the placebo -0.66 x
+  r; schedule_runnable +0.59 and exec_plan +0.44 relocate most of it; the
+  untouched placebo row reads 0.875 of base x r, outside [0.9, 1.1].
+- H1 per-step-probe-counters-derived-at-fold (re-proposes held
+  unweighted-steer-counters-derived-at-fold with new evidence): primary
+  stats_local.folded_increments per run [1.9, 4.0], per step [2.0, 3.8]; 1.5
+  percent. H2 unread-scoring-and-scans-skipped: no valid counter, cross-binary
+  runs per second [1.005, 1.03]; 2.0 percent over A. H3 = A + B: primary
+  covers A's work only; 3.4 percent implied.
+- Leads not proposed: local-queue sizes maintained at enqueue and dequeue (1-1.5
+  points), pending deliveries counted per destination (at most 0.4), inlining
+  timeline_steer_bias.
