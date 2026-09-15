@@ -6462,3 +6462,59 @@ The user asked the loop to pause at the end of this iteration. Iteration 23
 no iteration 24 is started. The guard reader tmp/loop/perf/guards23.py
 reproduces every frozen reference figure on c302525.md (r lines 14.23, fold
 rows 1.88, scheduler family 14.68, placebo + audit + memmove 9.52, net 27.61).
+
+### eligibility-and-crash-scans: implementer report, review and rulings (autonomous)
+
+Commits in the implementer's spur clone on c302525: A 6a5ac44
+(queue-eligibility-from-counters-2), B 04afaee
+(crash-scans-skipped-without-a-pending-crash); spur-A.patch and spur-AB.patch
+match them byte for byte. Release tests 536 at A, 537 at B, all passing;
+release builds show only the three coverage.rs warnings.
+
+Identity, one thread, both commits against c302525 (VR 3,008, crash-heavy
+1,800, Mencius 2,160, caps-engaged 100,000 in 2,000-run chunks): executions,
+logs and traces parquet files byte-identical; runs files differ only in wall
+columns and the table comparer finds every table identical; end reasons,
+steps, stall_cap hash, cap figures, text digests identical; runs_failed 0.
+Caps crash holds engaged and identical on baseline, A and B:
+crash_place.holds 23,640,317, victim_crashed_holds 44,559; every crash_anchor,
+crash_phase, victim_swap, recovery_weight_placebo and multiplier_authority
+block identical. Dump leaves: only the new counters, folded_increments higher
+by exactly their writes, and writer-timing leaves (int_dict tallies, text
+buffers, per-arm writer slices; the baseline binary run twice varies them too).
+
+Counters (VR / crash-heavy / caps): counted + walked = steer_authority.steps
+exact; general_steps 0; walked at most crash-eligible; walked / crash-eligible
+0.508 / 0.551 / 0.982 in [0.40, 1.00]; elements per walked step 1.83 / 1.92 /
+1.60 in [1, 6]; skipped + crash-eligible = steps exact; skipped / steps 0.997 /
+0.998 / 0.912, outside [0.80, 0.88]. Mencius uses FIFO links, so every step
+took the fallback path (general_steps and crash_scans_skipped equal all its
+9,493,431 steps; steer_authority.steps is 0 there, its steer audit off).
+
+Review:
+- A: eligible_counts answers local sizes as queue lengths when no reservation,
+  FIFO link or strict timer exists, walking a node's local queue only when its
+  ledger shows a pending crash and the crash is masked or its victim is down on
+  a retargeting run - the only way a Crash is ineligible, and crashes sit only
+  in their own node's local queue - so counts, draws and victim-hold tallies
+  equal the full walk; network and timer sizes are lengths (no crash there);
+  otherwise every queue is filtered as before. The per-step crashed-node Vec
+  and link map clone are borrows; the timer head lookup skips the test in the
+  fast path (timers are never crashes). One predicate struct serves the
+  scheduler and the tests (6,000 random states, fallback path included).
+- B: with no node holding a pending crash the hold loop, defer loop,
+  crash-anchor probe and census scan are skipped and the release trigger
+  still expires; the node count moves only where a node's count crosses 0
+  and 1 (push_runnable's crash arm, release_pending_crash from take_local and
+  crash_node), and the ledger exactness tests now assert it after every
+  transition.
+
+Rulings:
+- The skip ratio band [0.80, 0.88] is frozen for graded rounds, where a crash
+  is pending on about 17 percent of steps; these one-thread configs sit at
+  0.2-9 percent. It is read in every graded round, not on these runs.
+- Deviations accepted: the predicate struct (a returned closure kept state
+  borrowed), the first-timer lookup change (from the candidate text, verified
+  by the judge), one decrement helper.
+
+Profiles of A, A+B and the registered low-cutoff profile of A are recording.
