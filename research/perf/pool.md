@@ -1705,7 +1705,7 @@ rounds of clock each:
 
 ## stores-skipped-and-temps-moved
 
-- category: redundant work per step | origin: proposer | status: admitted, building (iteration 26, autonomous)
+- category: redundant work per step | origin: proposer | status: partly merged (iteration 26, autonomous) - commit A merged as stores-skipped-at-decode (spur b20ee37, superproject 359bdeb); commit B closed at G2 (B over A 0.9954 against at most 0.993)
 - mechanism: CompiledProgram::build_with(program, Rewrites) runs whole-graph
   local liveness over cfg.graph. Commit A (stores-skipped-at-decode): a local
   store whose right-hand side is its own slot, or a slot or literal into a
@@ -1747,12 +1747,12 @@ rounds of clock each:
 
 ## stores-skipped-at-decode
 
-- category: redundant work per step | origin: proposer | status: commit A of stores-skipped-and-temps-moved; graded alone only if B is reverted at G2
+- category: redundant work per step | origin: proposer | status: merged (iteration 26, autonomous) - spur b20ee37; counter 1.1796 [1.1442, 1.2160] over six rounds, runs per second 1.0310 [1.0009, 1.0620]; G1 stack 0.9532, G2 0.9562, G3 exact, G4 held at r 1.0822, G5 passed; equal-work band not applied (narrower than the baseline's own variation)
 - declarations: search-neutral, shared. Judge net 4 (gain 6, cost 2).
 
 ## temps-moved-into-consumers
 
-- category: redundant work per step | origin: proposer | status: commit B of stores-skipped-and-temps-moved
+- category: redundant work per step | origin: proposer | status: closed (iteration 26, autonomous) - G2 B over A 0.9954 against at most 0.993 (prototype priced 0.9862); patch research/perf/patches/temps-moved-into-consumers.spur.patch
 - declarations: search-neutral, shared. Judge net 3 (gain 5, cost 2).
 
 ## stores-skipped-over-value-in-three-words

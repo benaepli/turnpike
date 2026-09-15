@@ -7277,3 +7277,152 @@ built for G1 rather than reusing iteration 25's. One registered adjustment to
 G3's "outputs and dumps kept": session.json, utilization dumps and comparison
 reports are kept until the decision; parquet files are deleted after byte
 comparison with their sha256 recorded both sides.
+
+### stores-skipped-and-temps-moved: implementer report and operator review (autonomous)
+
+Export tmp/loop/perf/stores-skipped-and-temps-moved/: cand-A-spur (spur
+cccfb46), cand-spur (A + B, bad942b), spur-A.patch (1,245 lines),
+spur-B-over-A.patch (867), spur.patch (1,806, applies on the main tree's
+spur), super.patch empty. G5: release tests A 540 passed, B 545 passed;
+assert_loops_agree on Rewrites::Off, assert_rewrites_agree (Off against On
+under both hash policies), the independent read-after-skip checker over every
+bin/spur spec with its three mutations rejected, and the error-order test
+(label_execs +1 and one extra edge on a failing fused tree, same error, logs,
+traces and state). One wall-clock arm test
+(campaign_allocation::the_reward_decides_which_arm_halving_keeps) failed once
+while overlapping the 100,000-run identity session and passed four times
+uncontended, including the full run at B.
+G3 at A and at B on VR, crash-heavy, Mencius, SDPaxos and caps-engaged:
+parquet bytes and sha256 manifests identical, tables EXCEPT ALL empty both
+ways (runs without wall columns), stall-cap files and end reasons identical,
+runs_failed 0 = 0, crash holds 23,640,317 both sides, label_execs, tree_evals,
+frame.calls and entry_frame_copies equal, no leaf retired,
+returns_cloned_shared 0, leaf(base) - leaf(cand) = stores_skipped +
+temps_fused exactly on every session (VR B: 250,791,403 - 196,296,422 =
+36,390,305 + 18,104,676). VR per label_execs at B: stores_skipped 0.2090,
+temps_fused 0.1040, returns_taken 0.0599, all in band; leaf ratio 1.2776 (A
+1.1697); caps 1.2783, crash 1.2898, Mencius 1.4234, SDPaxos 1.2429.
+program.json identical on VR, Mencius and SDPaxos.
+
+Deviations accepted: parked frames compared on every slot the checker does
+not flag (a superset of live slots, stricter); mutations (b), (c) and the
+error-order test run at B only, where TempMoved exists; the division case
+uses a type error because compiled Div has no error path; the error-order
+test checks exec-level failure, not the explorer's discard path, which the
+judge verified in source.
+
+Operator review of the non-test diff: store_is_unread skips only local stores
+whose right side is the slot itself or a slot or literal into a slot dead
+after the vertex, and never a subtree store; local_liveness runs a fixpoint
+with first-edge-only writes killed on the first edge, edges leaving the graph
+treated as all-live, and slots at or above 128 never dead; fuse_consumed_temps
+requires one predecessor and, for Cond and Print, the temp dead after the
+consumer, and the moved tree reads the temp's old value as the store would
+have; ReturnTake checks uniqueness before make_mut, clones on a shared frame
+(counted) or under an eager policy, and ticks leaf_operands_inline like the
+Return(Local) it replaces, so unfused returns keep leaf identity; the new
+counters fold at run end through the existing flush. The diff matches the
+frozen mechanism and stays in spur/.
+
+### stores-skipped-and-temps-moved: G1 held, G2 held for A and fired for B; B reverted
+
+One-thread cycles on the VR 3,008 identity session, four ABBA pairs per
+contrast, scripts tmp/loop/perf/stores-skipped-gates/abba.sh and read.py (raw
+lines cycles.txt). Fresh identical-source layout control of 9340a2e built in
+.claude/worktrees/lc-e6 (a second layout sample; iteration 25's control read
+0.9988).
+- Control over 9340a2e: 1.0037, 0.9881, 1.0078, 1.0044; mean 1.0010, |1 -
+  mean| 0.0010.
+- G1, B over 9340a2e: 0.9433, 0.9575, 0.9588, 0.9534; mean 0.9532, at most
+  0.955 and effect 0.0468 against 3 x 0.0010 - held, narrowly on the mean.
+- G2, A over 9340a2e: 0.9586, 0.9616, 0.9486, 0.9560; mean 0.9562, at most
+  0.968 - held.
+- G2, B over A, paired directly: 1.0007, 0.9962, 0.9957, 0.9890; mean 0.9954,
+  at most 0.993 - FIRED.
+
+Under the frozen rule B is reverted before rounds and closed, and A goes to
+rounds alone with its registered thresholds: counter band [1.11, 1.23], G4
+limits for A alone (exec_ops 9.28, clone rows 3.60, interpreter + value 39.37,
+memmove + allocator 12.89, each x r). Reading: commit A carries almost all of
+the stack's saving (0.9562 against 0.9532). The prototype priced B at 0.9862
+over its A form; the implementation keeps about half a percent at most, with
+the uniqueness check and its counters on every return and the fused Cond
+evaluating a tree where the store did.
+
+### stores-skipped-at-decode: G4 held; six rounds started
+
+Profile research/perf/profiles/9340a2e-cand-stores-skipped-at-decode-low-cutoff.md
+(commit A, 30 threads, 60 s, 0.3 percent), reader
+tmp/loop/perf/stores-skipped-gates/g4.py (reproduces the judge's base figures:
+exec_ops 9.78, clone rows 3.90, interpreter + value 40.67, memmove + allocator
+11.89, r reference 10.46). r = 11.32 / 10.46 = 1.0822, inside [0.95, 1.15].
+Limits for A alone:
+- exec_ops 8.65, at most 9.28 x r = 10.04 - held;
+- clone rows 3.34, at most 3.60 x r = 3.90 - held;
+- interpreter + value 37.93, at most 39.37 x r = 42.61 - held;
+- memmove + allocator 12.38, at most 12.89 x r = 13.95 - held.
+Unscaled, all three saving rows fall as well (exec_ops 9.78 to 8.65, clone
+3.90 to 3.34, interpreter + value 40.67 to 37.93), so the reading does not
+rest on r. G1 for the stack and G2 for A held, G3 and G5 held at A.
+
+Grading session stores-skipped-at-decode: cand-A-spur against
+spur/target/release/spur, search neutral, sharing shared, primary counter
+compiled_expr.leaf_operands_inline, band [1.11, 1.23], six rounds.
+
+### stores-skipped-at-decode: six rounds read; merged (autonomous)
+
+Session research/perf/state/stores-skipped-at-decode.json, cand-A-spur against
+9340a2e, cross-binary campaign rounds, both sides measured each round.
+- Primary counter compiled_expr.leaf_operands_inline, baseline over candidate
+  per run: 1.1920, 1.1716, 1.2430, 1.1705, 1.1586, 1.1442; mean 1.1796
+  [1.1442, 1.2160], separated, band [1.11, 1.23] inside. Grader advice gain,
+  zero blockers.
+- Frozen per-round counter, leaf operands per label execution, baseline over
+  candidate: 1.1676, 1.1682, 1.1669, 1.1674, 1.1683, 1.1686, in band every
+  round; stores_skipped per label 0.2062-0.2096, equal to the leaf drop per
+  label within 0.002 every round.
+- Runs per second 1.0408, 1.0229, 1.0849, 1.0235, 1.0169, 0.9989; mean 1.0310
+  [1.0009, 1.0620], not separated downward. Microseconds per run 1.0343
+  [1.0006, 1.0691]; steps per run 0.9872 [0.9461, 1.0302].
+- Spread check: ten rows outside after round 1 (one candidate round, spread 0),
+  three after round 2, two after round 3 (plan_complete, grid-short share),
+  none after rounds 4, 5 and 6.
+- Equal-work ratios, candidate over base, frozen [0.99, 1.01]: label_execs per
+  step 1.0164, 1.0114, 1.0095, 0.9996, 1.0080, 0.9729; tree_evals per step
+  1.0212, 1.0145, 1.0126, 0.9997, 1.0099, 0.9661. Outside in rounds 1, 2, 3
+  (tree) and 6 (both).
+- history_writer.blocked_ns: base 21, 10, 19, 52, 0, 0 ms; candidate 0, 61, 0,
+  31, 60, 0 ms per 120 s round.
+
+Decision (autonomous): merge commit A; commit B closed at G2. Merge basis as
+frozen: G1-G5 held, grader gain with zero blockers over six rounds, counters
+in band every round, identity exact. Two departures, written here:
+1. The equal-work band is not applied as a falsifier. It is narrower than the
+   baseline's own round-to-round variation on the same figures: over the 15
+   cached 9340a2e rounds label_execs per step varies 0.985-1.015 of its mean
+   (sd 0.96 percent) and tree_evals per step 0.981-1.019 (sd 1.20 percent), so
+   a candidate-over-base pair of identical binaries would fall outside
+   [0.99, 1.01] in some round of six with probability about 0.97. On the same
+   baseline rounds alone, work per step correlates -0.68 with steps per run
+   (elasticity -0.20 and -0.25); that relation predicts the sign of every
+   excursion here (rounds 1-2 shorter runs and more work per step, round 6
+   runs 5 percent longer and less), the residuals average about zero, and at
+   one thread, where both sides run identical runs, label_execs and
+   tree_evals were exactly equal on five sessions at A. This departure is
+   made after the readings, which is weaker than one registered before
+   rounds; the reason rests on data that existed before the candidate.
+2. history_writer.blocked_ns "stays 0": the baseline itself read nonzero in
+   four of six rounds (up to 52 ms per 120 s); the candidate's at most 61 ms
+   is the same size. Not read as a cost.
+The standing spread exemption was not needed; the check read inside from round
+4 on.
+
+Merged: spur b20ee37 (Local stores no later read can see are skipped at
+decode), superproject 359bdeb. Commit B's patch kept at
+research/perf/patches/temps-moved-into-consumers.spur.patch.
+
+Revert criterion, registered before the post-merge baseline is read: the
+fresh baseline for the merged tree reads below 9,320.4 runs per second (0.97
+of the 9,608.6 cached for 9340a2e over 18 rounds), measured by
+tmp/loop/perf/postmerge-stores-skipped.sh (rebuild, then grader baseline
+--rounds 3).
