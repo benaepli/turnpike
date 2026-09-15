@@ -6582,3 +6582,18 @@ conditions stricter than the frozen text rather than looser:
   referral on the stack profile still apply.
 This replaces the registered three rounds with no extension: rounds run as one
 launch of six, read together.
+
+### crash-scans-skipped-without-a-pending-crash: commit B profile reading (autonomous)
+
+Profile research/perf/profiles/c302525-cand-eligibility-and-crash-scans.md.
+H2 against commit A's profile, r2 = 15.51 / 15.54 = 0.998:
+- G1 scheduler family 9.75 to 8.81, at most 9.23 (a fall of at least 0.5) -
+  held.
+- G2 exec_plan (all instances) 2.85 to 2.95, at most 3.04 - held.
+- G3 crash_hold_mask 0.39 to 0.28, at most 0.44 - held.
+The stack against c302525.md, r = 15.51 / 14.23 = 1.090:
+- G4 scheduler family + placebo + audit + memmove + exec_plan 27.61 to 21.55,
+  at most 27.70 - held; scheduler family 14.68 to 8.81 raw.
+- Placebo 1.94, 0.952 of 1.87 x r - inside [0.9, 1.1]; no referral.
+Every H2 guard holds. A's registered low-cutoff profile, read only for the old
+schedule_runnable::{closure#5} count pass, is the last reading before rounds.
