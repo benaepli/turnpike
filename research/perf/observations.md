@@ -8544,3 +8544,145 @@ merges, that patch must be re-priced over it.
 
 Selection (autonomous): build H1 as one commit on 3b53d0a. Merge basis as
 frozen. G1 and G2 are run by the operator; the implementer owes G3 and G4.
+
+### threaded-successors-past-no-op-vertices: implementer report and operator review (autonomous)
+
+Export tmp/loop/perf/threaded-successors-past-no-op-vertices/: cand-spur
+(sha256 1d4d4eeb, reproduced by a fresh rebuild), spur.patch (1,572 lines,
+applies on the main tree's spur), super.patch (gitlink marker only). G4:
+cargo test --release -p spur-core passes (lib 508), including
+check_threaded rules 1-6 on every compiling spec with check_unthreaded on
+each Off build, the eight mutations (a)-(h) each rejected, and T1-T7 (T1 runs
+every function of every spec under no, timeline and a transition-recording
+test feedback against Cfg, with results, errors, logs, traces, state and
+events equal and the label identity holding on recorded edges). G3 against
+the main-tree base on VR 3,008, crash-heavy 1,824 runs, Mencius, SDPaxos,
+purgatory VR (delayed_sends 585,112 both), feedback both, and caps-engaged
+100,000 (10,000-run chunks): parquet and stall-cap hashes identical, tables
+EXCEPT ALL empty both ways, end reasons and runs_failed equal, crash holds
+23,640,317 on caps; only label_execs, stores_skipped and stores_folded differ
+beyond writer timing, and on feedback both they are equal. Counter identity
+exact on every session with Gotos counted by separate tool builds (never the
+shipped binary): VR delta label 57,079,232 = 34,772,998 + 21,343,345 +
+962,889 - 0, base 174,153,281 to 117,074,049 (x1.4875); caps delta
+1,254,194,940.
+Deviations accepted: prev_pc in exec_ops set after the pc resolution (a
+recording loop never resolves, so its behaviour is unchanged; it lets a
+test-only strategy record the threaded loop's edges); rule 6 as a separate
+check_unthreaded; rule 5 checked on bypassed vertices as well; purgatory at
+delay_probability 0.2; the exec.rs import order kept as tested.
+
+Operator review of the non-test diff: working_vertex walks skipped stores,
+folded stores and gotos with a bound and returns the vertex itself on a
+cycle; thread_successors threads only successors the running loop follows
+(stores, conditionals, for-loops, trace ops, Async and SpinAwait's continue
+edge) and leaves SetTimer, Send, Recv, Pause and Return unchanged, so every
+stored successor keeps its vertex id; exec_ops resolves record.pc through
+working only after the note_delivery check has read the stored pc, and a
+recording loop keeps the plain ops without resolving; exec_sync_on_node
+resolves its start the same way; SyncCallOp.entry is the raw entry in the
+plain ops and threaded in threaded_ops, with an unresolved callee falling back
+to its plain entry, which still runs correctly on the threaded array (only
+unskipped; T6 covers it). The doc comment requiring a working start vertex is
+stronger than the code needs, which is harmless. The diff matches the frozen
+mechanism and stays in spur/.
+
+### threaded-successors-past-no-op-vertices: G1 session 1 failed its effect test; retake running
+
+Corrected G1, one-thread VR 3,008 session, four ABBA pairs per block, blocks
+in order c, m, w, c2; raw lines tmp/loop/perf/it32-gates/cycles-session1.txt.
+- c, control (fresh identical-source build) over worktree base: 0.9789,
+  0.9906, 0.9855, 0.9935; mean 0.9871.
+- m, candidate over main-tree base: 0.9752, 0.9765, 0.9711, 0.9750; mean
+  0.9745. Main-tree base cycles 3.7245e10, 3.7314e10, 3.7250e10, 3.7309e10,
+  inside 3.664-3.776e10.
+- w, candidate over worktree base: 0.9793, 0.9874, 0.9827, 0.9872; mean
+  0.9842.
+- c2, closing control over worktree base: 1.0061, 0.9950, 0.9958, 0.9989; mean
+  0.9990.
+Reading under the frozen G1 (control = block c): less favorable mean 0.9842,
+at most 0.985 held; effect 0.0158 against 3 x 0.0129 = 0.0387 failed; not every
+candidate pair below the lowest control pair (0.9789) failed; base levels in
+band. The two control blocks disagree (0.9871 opening, 0.9990 closing): the
+worktree base read 3.766e10 on its first control run and 3.69-3.73e10
+thereafter, so the failure is instability within the session rather than a
+stable offset between the two identical builds. The frozen rule allows one
+retake, which alone decides; launched with the same binaries and design, raw
+lines to tmp/loop/perf/it32-gates/cycles.txt.
+
+### threaded-successors-past-no-op-vertices: G1 retake failed; closed (autonomous)
+
+Retake, same binaries and design, raw lines tmp/loop/perf/it32-gates/cycles.txt:
+- c, control over worktree base: 0.9882, 0.9878, 0.9873, 0.9849; mean 0.9870.
+- m, candidate over main-tree base: 0.9819, 0.9794, 0.9755, 0.9821; mean
+  0.9797; base cycles 3.7168e10, 3.7145e10, 3.7217e10, 3.7153e10, in band.
+- w, candidate over worktree base: 0.9792, 0.9746, 0.9677, 0.9761; mean 0.9744.
+- c2, closing control: 0.9837, 0.9874, 0.9819, 0.9909; mean 0.9860.
+Frozen G1: less favorable mean 0.9797, at most 0.985 held; every candidate pair
+below the lowest control pair held; base levels held; effect 0.0203 against 3
+x 0.0130 = 0.0389 failed. Unlike session 1, both control blocks agree here:
+the fresh identical-source build is stably about 1.3 percent faster than the
+worktree base at one thread, so a saving of about 2 percent is inside the range
+an identical rebuild reaches by layout alone.
+
+Decision (autonomous): closed, refuted on G1 after its retake (the frozen
+falsifier names it). No departure: discounting the control after reading it
+would be post hoc, and this is the case the effect test exists for. G3 and G4
+had held (identity exact on seven sessions, counter identity exact, release
+tests and eight checker mutations). Patch kept at
+research/perf/patches/threaded-successors-past-no-op-vertices.spur.patch.
+Finding for the user's cases: two identical-source builds read stably 1.3
+percent apart at one thread in one session, so a one-thread cycles primary for
+identity-exact changes would itself need an effect well above that to be
+readable.
+
+## Direction review after iteration 32, and a pause (autonomous)
+
+Five iterations without a merge (28 closed, 29 held at no-gain, 30 and 31
+nothing admitted, 32 closed at G1). The tree has not moved since spur 3b53d0a
+(10,646.5 runs per second, ledger cumulative 5.255).
+
+What the five say together.
+- The largest explainable costs left (memmove, the value family, the
+  allocator, record moves) are paid in work no existing leaf counts. Their
+  savings reach the grader only through runs per second, which floors them at
+  0.05 and which the campaign's throughput-adaptive caps dilute: an
+  identity-exact change removing 8.5 percent of one-thread cycles read 1.0228.
+- The costs an existing counter does price turned out small once measured
+  faithfully: probe counters 1.5 percent, synchronous calls in the caller frame
+  1.4-2.5 percent, threaded successors about 2 percent. At 30 threads the first
+  two could not be told from a no-op, and the third was indistinguishable at
+  one thread from an identical rebuild's layout.
+- Every remaining direction the loop can steer toward under its current rules
+  meets one of those two walls. Further iterations would mostly re-establish
+  that, at several hours of compute each.
+
+Decision (autonomous): the loop pauses after this iteration and does not start
+iteration 33. This departs from running until stopped. The reason is that the
+choice that would change the expected value of further iterations belongs to
+the user, in the two cases recorded above ("savings with no existing counter
+cannot merge below the wall floor" and "runs per second under-reads savings
+the campaign turns into longer runs"), and the loop cannot make it by
+steering. Candidates that would return under a ruling, all identity-exact with
+patches kept:
+- record-moves-and-frames-held-once (8.5 percent one-thread, runs per second
+  1.0228);
+- frames-and-node-env-held-once commit A (2.7 percent);
+- threaded-successors-past-no-op-vertices (about 2 percent, label_execs
+  1.49x);
+- sync-calls-run-in-the-caller-frame (1.4-2.5 percent);
+- per-step-probe-counters-derived-at-fold (1.5 percent).
+
+Resuming needs one of: a ruling on either case; a new directive; or an
+instruction to continue under the current rules anyway. Loose ends are cleaned:
+no worktrees, no running jobs, all log files committed.
+
+Digest, iteration 32: redundant-work lens on executed no-op vertices. A census
+found a third of executed label vertices doing no work; threading successors
+past them at decode removed 32.8 percent of dispatch iterations with identity
+exact on seven sessions and an exact counter identity. The judge verified every
+stored pc, rewrote the gates (a corrected G1, a same-session 30-thread profile
+triple with a no-op discriminator), and admitted it at net 5. The
+implementation passed G3 and G4; G1 failed its effect test twice, the second
+time against a control stably 1.3 percent off its identical twin, and the
+candidate closed with its patch kept.

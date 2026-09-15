@@ -1,0 +1,1572 @@
+diff --git a/spur-core/src/compiler/cfg/compiled.rs b/spur-core/src/compiler/cfg/compiled.rs
+index 752c271..0fd03c9 100644
+--- a/spur-core/src/compiler/cfg/compiled.rs
++++ b/spur-core/src/compiler/cfg/compiled.rs
+@@ -96,6 +96,9 @@ pub const UNRESOLVED_CALLEE: u32 = u32::MAX;
+ pub struct SyncCallOp {
+     pub dest: Dest,
+     pub callee: u32,
++    /// The vertex the callee starts at, or `UNRESOLVED_CALLEE` when the
++    /// callee did not resolve.
++    pub entry: u32,
+     pub name: String,
+     pub args: Vec<Opnd>,
+     pub next: u32,
+@@ -239,6 +242,17 @@ pub enum Rewrites {
+ pub struct CompiledProgram {
+     /// One operation per vertex of `cfg.graph`, in vertex order.
+     pub ops: Vec<Op>,
++    /// `ops` with every successor that only the running loop follows moved
++    /// to its working vertex, and each synchronous call's entry likewise.
++    /// Successors a later segment starts from (a parked record's, a timer's
++    /// and a channel send's) keep their vertex. Only a loop that records no
++    /// transitions may run it, starting each segment and each synchronous
++    /// run at `working` of its start.
++    pub threaded_ops: Vec<Op>,
++    /// Per vertex, the first vertex from it along skipped stores, folded
++    /// stores and gotos that is none of those; the vertex itself when that
++    /// walk returns to a vertex it passed.
++    pub working: Vec<u32>,
+     /// Callees of the call labels, in first-seen vertex order, each equal to
+     /// the program's entry for that name.
+     pub call_functions: Vec<FunctionInfo>,
+@@ -285,8 +299,17 @@ impl CompiledProgram {
+         if let Some(liveness) = &liveness {
+             fold_print_chains(program, &mut ops, liveness);
+         }
++        let (threaded_ops, working) = match rewrites {
++            Rewrites::Off => (ops.clone(), (0..ops.len()).map(vertex).collect()),
++            Rewrites::On => (
++                thread_successors(&ops),
++                (0..ops.len()).map(|v| working_vertex(&ops, vertex(v))).collect(),
++            ),
++        };
+         CompiledProgram {
+             ops,
++            threaded_ops,
++            working,
+             call_functions: builder.call_functions,
+             server_role: program
+                 .roles
+@@ -341,6 +364,70 @@ fn store_is_unread(label: &Label, v: usize, liveness: &super::frame_layout::Loca
+     }
+ }
+ 
++/// The first vertex from `v` along skipped stores, folded stores and gotos
++/// that is none of those, or `v` when that walk returns to a vertex it
++/// passed. A successor outside `ops` ends the walk there.
++fn working_vertex(ops: &[Op], v: u32) -> u32 {
++    let mut cur = v;
++    for _ in 0..ops.len() {
++        match ops.get(cur as usize) {
++            Some(Op::StoreSkipped(n) | Op::StoreFolded(n) | Op::Goto(n)) => cur = *n,
++            _ => return cur,
++        }
++    }
++    v
++}
++
++/// `ops` with every successor that only the running loop follows, and each
++/// resolved synchronous call entry, moved to its working vertex. The
++/// successors of a set timer, a send, a receive and a pause are stored in a
++/// timer, a channel send or a parked record and read later as vertex ids, so
++/// they keep their vertex.
++fn thread_successors(ops: &[Op]) -> Vec<Op> {
++    let t = |v: &mut u32| *v = working_vertex(ops, *v);
++    ops.iter()
++        .map(|op| {
++            let mut op = op.clone();
++            match &mut op {
++                Op::AssignLocal { next, .. }
++                | Op::AssignNode { next, .. }
++                | Op::MakeChannel { next, .. }
++                | Op::MakeFifoLink { next, .. }
++                | Op::UniqueId { next, .. }
++                | Op::Print { next, .. }
++                | Op::PersistData { next, .. }
++                | Op::RetrieveData { next, .. }
++                | Op::PrintParts { next, .. }
++                | Op::SpinAwait { next, .. }
++                | Op::DiscardData(next)
++                | Op::Goto(next)
++                | Op::StoreSkipped(next)
++                | Op::StoreFolded(next) => t(next),
++                Op::CondLocal { then, els, .. } | Op::CondNode { then, els, .. } | Op::Cond { then, els, .. } => {
++                    t(then);
++                    t(els);
++                }
++                Op::SyncCall(call) => {
++                    t(&mut call.next);
++                    if call.entry != UNRESOLVED_CALLEE {
++                        t(&mut call.entry);
++                    }
++                }
++                Op::Async(call) => t(&mut call.next),
++                Op::ForLoopIn(fl) => {
++                    t(&mut fl.body);
++                    t(&mut fl.next);
++                }
++                Op::TraceDispatch(td) => t(&mut td.next),
++                Op::TraceEnter(te) => t(&mut te.next),
++                Op::TraceExit(tx) => t(&mut tx.next),
++                Op::SetTimer { .. } | Op::Send(_) | Op::Recv(_) | Op::Pause(_) | Op::Return(_) => {}
++            }
++            op
++        })
++        .collect()
++}
++
+ /// The local slot a store label writes.
+ fn local_store_slot(label: &Label) -> Option<u32> {
+     match label {
+@@ -591,13 +678,21 @@ impl Builder<'_> {
+                             rhs: opnd(rhs),
+                         },
+                     },
+-                    Instr::SyncCall(lhs, name, args) => Op::SyncCall(Box::new(SyncCallOp {
+-                        dest: dest(lhs),
+-                        callee: self.callee(name),
+-                        name: name.clone(),
+-                        args: args.iter().map(opnd).collect(),
+-                        next,
+-                    })),
++                    Instr::SyncCall(lhs, name, args) => {
++                        let callee = self.callee(name);
++                        let entry = match self.call_functions.get(callee as usize) {
++                            Some(info) => vertex(info.entry),
++                            None => UNRESOLVED_CALLEE,
++                        };
++                        Op::SyncCall(Box::new(SyncCallOp {
++                            dest: dest(lhs),
++                            callee,
++                            entry,
++                            name: name.clone(),
++                            args: args.iter().map(opnd).collect(),
++                            next,
++                        }))
++                    }
+                     Instr::Async(lhs, target, name, args) => Op::Async(Box::new(AsyncOp {
+                         dest: dest(lhs),
+                         target: opnd(target),
+diff --git a/spur-core/src/compiler/cfg/compiled/check.rs b/spur-core/src/compiler/cfg/compiled/check.rs
+index 942282d..af26c04 100644
+--- a/spur-core/src/compiler/cfg/compiled/check.rs
++++ b/spur-core/src/compiler/cfg/compiled/check.rs
+@@ -4,7 +4,7 @@
+ //! slot holds when every vertex executes as its label does. A read of such a
+ //! slot is a failure.
+ 
+-use super::{CExpr, Dest, Op, Opnd, PieceSource, PrintPart};
++use super::{CExpr, Dest, Op, Opnd, PieceSource, PrintPart, UNRESOLVED_CALLEE};
+ use crate::compiler::cfg::{Expr, Instr, Label, Lhs, Program, VarSlot};
+ use std::collections::{BTreeSet, HashMap};
+ 
+@@ -553,3 +553,364 @@ pub(crate) fn entries(program: &Program) -> Vec<usize> {
+     out.sort_unstable();
+     out
+ }
++
++/// The successor fields of `op` a running loop moves to without storing
++/// them anywhere, in a fixed order. A synchronous call's entry is not among
++/// them.
++fn followed(op: &Op) -> Vec<u32> {
++    match op {
++        Op::AssignLocal { next, .. }
++        | Op::AssignNode { next, .. }
++        | Op::MakeChannel { next, .. }
++        | Op::MakeFifoLink { next, .. }
++        | Op::UniqueId { next, .. }
++        | Op::Print { next, .. }
++        | Op::PersistData { next, .. }
++        | Op::RetrieveData { next, .. }
++        | Op::PrintParts { next, .. }
++        | Op::SpinAwait { next, .. }
++        | Op::DiscardData(next)
++        | Op::Goto(next)
++        | Op::StoreSkipped(next)
++        | Op::StoreFolded(next) => vec![*next],
++        Op::CondLocal { then, els, .. } | Op::CondNode { then, els, .. } | Op::Cond { then, els, .. } => {
++            vec![*then, *els]
++        }
++        Op::SyncCall(call) => vec![call.next],
++        Op::Async(call) => vec![call.next],
++        Op::ForLoopIn(fl) => vec![fl.body, fl.next],
++        Op::TraceDispatch(td) => vec![td.next],
++        Op::TraceEnter(te) => vec![te.next],
++        Op::TraceExit(tx) => vec![tx.next],
++        Op::SetTimer { .. } | Op::Send(_) | Op::Recv(_) | Op::Pause(_) | Op::Return(_) => vec![],
++    }
++}
++
++/// `op` with every followed successor, and a resolved call entry, set to
++/// zero.
++fn without_followed(op: &Op) -> Op {
++    let mut op = op.clone();
++    match &mut op {
++        Op::AssignLocal { next, .. }
++        | Op::AssignNode { next, .. }
++        | Op::MakeChannel { next, .. }
++        | Op::MakeFifoLink { next, .. }
++        | Op::UniqueId { next, .. }
++        | Op::Print { next, .. }
++        | Op::PersistData { next, .. }
++        | Op::RetrieveData { next, .. }
++        | Op::PrintParts { next, .. }
++        | Op::SpinAwait { next, .. }
++        | Op::DiscardData(next)
++        | Op::Goto(next)
++        | Op::StoreSkipped(next)
++        | Op::StoreFolded(next) => *next = 0,
++        Op::CondLocal { then, els, .. } | Op::CondNode { then, els, .. } | Op::Cond { then, els, .. } => {
++            *then = 0;
++            *els = 0;
++        }
++        Op::SyncCall(call) => {
++            call.next = 0;
++            if call.entry != UNRESOLVED_CALLEE {
++                call.entry = 0;
++            }
++        }
++        Op::Async(call) => call.next = 0,
++        Op::ForLoopIn(fl) => {
++            fl.body = 0;
++            fl.next = 0;
++        }
++        Op::TraceDispatch(td) => td.next = 0,
++        Op::TraceEnter(te) => te.next = 0,
++        Op::TraceExit(tx) => tx.next = 0,
++        Op::SetTimer { .. } | Op::Send(_) | Op::Recv(_) | Op::Pause(_) | Op::Return(_) => {}
++    }
++    op
++}
++
++/// The name of an operation whose successor a timer, a channel send or a
++/// parked record stores, or of a return.
++fn stored_kind(op: &Op) -> Option<&'static str> {
++    match op {
++        Op::SetTimer { .. } => Some("set timer"),
++        Op::Send(_) => Some("send"),
++        Op::Recv(_) => Some("receive"),
++        Op::Pause(_) => Some("pause"),
++        Op::Return(_) => Some("return"),
++        _ => None,
++    }
++}
++
++fn moves_only(op: &Op) -> bool {
++    matches!(op, Op::StoreSkipped(_) | Op::StoreFolded(_) | Op::Goto(_))
++}
++
++/// Where a loop running threaded operations lands when it moves to `t`: the
++/// first vertex along label successors from `t`, over vertices whose plain
++/// operation is a skipped store, a folded store or a goto, that is none of
++/// those; and the vertices passed, in order. `t` with none passed when that
++/// walk returns to a vertex it passed. Fails a passed vertex whose operation
++/// successor is not its label successor.
++fn landing(program: &Program, ops: &[Op], t: usize, failures: &mut Vec<String>) -> (usize, Vec<usize>) {
++    let mut passed = Vec::new();
++    let mut seen = BTreeSet::new();
++    let mut cur = t;
++    while cur < ops.len() && moves_only(&ops[cur]) {
++        if !seen.insert(cur) {
++            return (t, Vec::new());
++        }
++        let by_label = program.cfg.graph.get(cur).and_then(|l| super::super::frame_layout::successors(l)[0]);
++        let by_op = accesses(program, ops, cur).1.first().map(|(target, _)| *target);
++        let Some(next) = by_label else {
++            failures.push(format!("vertex {cur}: moves on from a label with no successor"));
++            return (cur, passed);
++        };
++        if by_op != Some(next) {
++            failures.push(format!("vertex {cur}: operation successor {by_op:?} is not label successor {next}"));
++        }
++        passed.push(cur);
++        cur = next;
++    }
++    (cur, passed)
++}
++
++fn carry(inn: &BTreeSet<u32>, written: &[u32], differs: &[u32]) -> BTreeSet<u32> {
++    let mut out = inn.clone();
++    for s in written {
++        out.remove(s);
++    }
++    out.extend(differs.iter().copied());
++    out
++}
++
++/// Checks `threaded` and `working` against `ops`, the decoded form of
++/// `program` they were derived from, by walking label successors rather than
++/// the derivation:
++/// every threaded operation equals its plain operation outside its followed
++/// successors; each followed successor and each resolved call entry lands
++/// where the plain operations would run the next vertex that does work, and
++/// stays put on a cycle of vertices that only move on; stored successors and
++/// returns are unchanged; `working` of each vertex is where a segment
++/// starting there does work; and the analysis of `analyze`, run over the
++/// threaded edges with each edge carrying the slots its passed vertices make
++/// differ and each function starting at its working vertex, fails no read
++/// and finds the differing slots of the plain analysis at every vertex.
++pub(crate) fn check_threaded(program: &Program, ops: &[Op], threaded: &[Op], working: &[u32]) -> Vec<String> {
++    let n = ops.len();
++    let mut failures = Vec::new();
++    if threaded.len() != n || working.len() != n {
++        failures.push(format!(
++            "threaded operations {} and working vertices {} for {n} operations",
++            threaded.len(),
++            working.len()
++        ));
++        return failures;
++    }
++    let mut walk = Vec::new();
++    for v in 0..n {
++        let (plain, thr) = (&ops[v], &threaded[v]);
++        if let Some(kind) = stored_kind(plain) {
++            if thr != plain {
++                failures.push(format!("vertex {v}: {kind} changed from {plain:?} to {thr:?}"));
++            }
++        } else if without_followed(plain) != without_followed(thr) {
++            failures.push(format!("vertex {v}: {thr:?} differs from {plain:?} outside its followed successors"));
++        }
++        let (pf, tf) = (followed(plain), followed(thr));
++        if pf.len() != tf.len() {
++            failures.push(format!("vertex {v}: {} followed successors threaded as {}", pf.len(), tf.len()));
++        } else {
++            for (i, (p, t)) in pf.iter().zip(&tf).enumerate() {
++                let (land, _) = landing(program, ops, *p as usize, &mut walk);
++                if *t as usize != land {
++                    failures.push(format!("vertex {v}: followed successor {i} moves to {t}, where {p} lands at {land}"));
++                }
++            }
++        }
++        let (land, _) = landing(program, ops, v, &mut walk);
++        if working[v] as usize != land {
++            failures.push(format!("vertex {v}: working vertex {}, where it lands at {land}", working[v]));
++        }
++        if let Op::SyncCall(call) = plain {
++            let resolved = program
++                .func_name_to_id
++                .get(&call.name)
++                .and_then(|id| program.rpc.get(id))
++                .map(|f| f.entry);
++            match (resolved, call.entry) {
++                (None, UNRESOLVED_CALLEE) => {}
++                (Some(e), entry) if entry as usize == e => {}
++                (resolved, entry) => failures.push(format!(
++                    "vertex {v}: call entry {entry} for callee {} starting at {resolved:?}",
++                    call.name
++                )),
++            }
++            if let Op::SyncCall(tcall) = thr {
++                if call.entry != UNRESOLVED_CALLEE {
++                    let (land, _) = landing(program, ops, call.entry as usize, &mut walk);
++                    if tcall.entry as usize != land {
++                        failures.push(format!(
++                            "vertex {v}: call entry moves to {}, where callee entry {} lands at {land}",
++                            tcall.entry, call.entry
++                        ));
++                    }
++                }
++            }
++        }
++    }
++    walk.sort();
++    walk.dedup();
++    failures.extend(walk);
++    failures.extend(threaded_analysis_failures(program, ops, threaded, working));
++    failures
++}
++
++/// The analysis of `analyze` over threaded edges, compared with the plain
++/// analysis. A vertex a threaded edge passes holds the slots differing where
++/// the plain operations would run it.
++fn threaded_analysis_failures(program: &Program, ops: &[Op], threaded: &[Op], working: &[u32]) -> Vec<String> {
++    let n = ops.len();
++    let entries = entries(program);
++    let mut failures = Vec::new();
++    let mut ignored = Vec::new();
++    let plain = analyze(program, ops, &entries);
++    let mut plain_steps: Vec<Step> = (0..n).map(|v| step(program, ops, v, &mut ignored)).collect();
++    let piece_reads = check_folded_prints(program, ops, &entries, &mut plain_steps, &mut ignored);
++    let steps: Vec<Step> = (0..n).map(|v| step(program, threaded, v, &mut ignored)).collect();
++    let mut hops: Vec<Vec<(usize, Vec<u32>, Vec<u32>, Vec<usize>)>> = Vec::with_capacity(n);
++    for v in 0..n {
++        let (p, t) = (&plain_steps[v], &steps[v]);
++        if p.edges.len() != t.edges.len() {
++            failures.push(format!("vertex {v}: {} threaded edges for {} plain edges", t.edges.len(), p.edges.len()));
++            hops.push(Vec::new());
++            continue;
++        }
++        let mut out = Vec::new();
++        for (pe, te) in p.edges.iter().zip(&t.edges) {
++            let mut passed = Vec::new();
++            if te.target != pe.target {
++                let (_, walked) = landing(program, ops, pe.target, &mut ignored);
++                passed = walked.into_iter().take_while(|u| *u != te.target).collect();
++            }
++            out.push((te.target, te.written.clone(), pe.differs.clone(), passed));
++        }
++        hops.push(out);
++    }
++    let mut differing_in: Vec<Option<BTreeSet<u32>>> = vec![None; n];
++    let mut passed_in: Vec<Option<BTreeSet<u32>>> = vec![None; n];
++    let mut work: Vec<usize> = Vec::new();
++    let pass = |passed_in: &mut Vec<Option<BTreeSet<u32>>>, out: BTreeSet<u32>, passed: &[usize]| {
++        let mut out = out;
++        for &u in passed {
++            let slot = passed_in[u].get_or_insert_with(BTreeSet::new);
++            slot.extend(out.iter().copied());
++            let e = &plain_steps[u].edges[0];
++            out = carry(&out, &e.written, &e.differs);
++        }
++        out
++    };
++    for &e in &entries {
++        if e >= n {
++            continue;
++        }
++        let (_, walked) = landing(program, ops, e, &mut ignored);
++        let start = working[e] as usize;
++        let passed: Vec<usize> = walked.into_iter().take_while(|u| *u != start).collect();
++        let out = pass(&mut passed_in, BTreeSet::new(), &passed);
++        if start >= n {
++            failures.push(format!("vertex {e}: working vertex {start} outside the graph"));
++            continue;
++        }
++        let merged = match &differing_in[start] {
++            None => out,
++            Some(old) if out.is_subset(old) => continue,
++            Some(old) => old.union(&out).copied().collect(),
++        };
++        differing_in[start] = Some(merged);
++        work.push(start);
++    }
++    while let Some(v) = work.pop() {
++        let Some(inn) = differing_in[v].clone() else { continue };
++        for (target, written, differs, passed) in &hops[v] {
++            let out = pass(&mut passed_in, carry(&inn, written, differs), passed);
++            if *target >= n {
++                failures.push(format!("vertex {v}: threaded successor {target} outside the graph"));
++                continue;
++            }
++            let merged = match &differing_in[*target] {
++                None => out,
++                Some(old) if out.is_subset(old) => continue,
++                Some(old) => old.union(&out).copied().collect(),
++            };
++            differing_in[*target] = Some(merged);
++            work.push(*target);
++        }
++    }
++    let mut stored_targets = BTreeSet::new();
++    for v in 0..n {
++        if differing_in[v].is_some() && matches!(threaded[v], Op::SetTimer { .. } | Op::Send(_) | Op::Recv(_) | Op::Pause(_)) {
++            stored_targets.extend(steps[v].edges.iter().map(|e| e.target));
++        }
++    }
++    for (v, s) in steps.iter().enumerate() {
++        let Some(inn) = &differing_in[v] else { continue };
++        for r in &s.reads {
++            if inn.contains(r) && !s.written_first.contains(r) {
++                failures.push(format!("vertex {v}: reads slot {r}, whose value may differ on threaded edges"));
++            }
++        }
++    }
++    let combined: Vec<Option<BTreeSet<u32>>> = (0..n)
++        .map(|v| match (&differing_in[v], &passed_in[v]) {
++            (None, None) => None,
++            (a, b) => Some(a.iter().chain(b.iter()).flatten().copied().collect()),
++        })
++        .collect();
++    for (head, p, slot) in piece_reads {
++        if combined[head].as_ref().is_some_and(|inn| inn.contains(&slot)) {
++            failures.push(format!(
++                "vertex {p}: folded print reads slot {slot}, whose value may differ at chain head {head} on threaded edges"
++            ));
++        }
++    }
++    for v in 0..n {
++        if combined[v] != plain.differing_in[v] {
++            failures.push(format!(
++                "vertex {v}: differing slots {:?} on threaded edges, {:?} on plain edges",
++                combined[v], plain.differing_in[v]
++            ));
++        }
++        let executed = differing_in[v].is_some();
++        if moves_only(&ops[v]) {
++            if executed && working[v] as usize != v && !stored_targets.contains(&v) {
++                failures.push(format!("vertex {v}: runs on threaded edges though no stored successor reaches it"));
++            }
++        } else if plain.differing_in[v].is_some() && !executed {
++            failures.push(format!("vertex {v}: runs on plain edges but not on threaded edges"));
++        }
++    }
++    failures
++}
++
++/// Checks that a build without rewrites threads nothing.
++pub(crate) fn check_unthreaded(ops: &[Op], threaded: &[Op], working: &[u32]) -> Vec<String> {
++    let mut failures = Vec::new();
++    if threaded.len() != ops.len() || working.len() != ops.len() {
++        failures.push(format!(
++            "threaded operations {} and working vertices {} for {} operations",
++            threaded.len(),
++            working.len(),
++            ops.len()
++        ));
++        return failures;
++    }
++    for v in 0..ops.len() {
++        if threaded[v] != ops[v] {
++            failures.push(format!("vertex {v}: threaded as {:?} without rewrites", threaded[v]));
++        }
++        if working[v] as usize != v {
++            failures.push(format!("vertex {v}: working vertex {} without rewrites", working[v]));
++        }
++    }
++    failures
++}
+diff --git a/spur-core/src/compiler/cfg/compiled/test.rs b/spur-core/src/compiler/cfg/compiled/test.rs
+index cc25d79..95a8f33 100644
+--- a/spur-core/src/compiler/cfg/compiled/test.rs
++++ b/spur-core/src/compiler/cfg/compiled/test.rs
+@@ -1,4 +1,4 @@
+-use super::check::{accesses, analyze, entries};
++use super::check::{accesses, analyze, check_threaded, check_unthreaded, entries};
+ use super::*;
+ use crate::compiler::cfg::Compiler;
+ use crate::compiler::compile_with;
+@@ -53,7 +53,7 @@ fn no_rewritten_value_is_read_in_any_spec() {
+         files.sort();
+         assert!(!files.is_empty());
+         let mut failures = Vec::new();
+-        let (mut compiled, mut skipped_stores, mut folded_prints) = (0, 0, 0);
++        let (mut compiled, mut skipped_stores, mut folded_prints, mut threaded_vertices) = (0, 0, 0, 0);
+         for file in &files {
+             let name = file.display().to_string();
+             let Some(program) = compile_spec(file) else {
+@@ -70,11 +70,18 @@ fn no_rewritten_value_is_read_in_any_spec() {
+             }
+             let analysis = analyze(&program, &program.compiled.ops, &entries(&program));
+             failures.extend(analysis.failures.iter().map(|f| format!("{name} {f}")));
++            let c = &program.compiled;
++            let threading = check_threaded(&program, &c.ops, &c.threaded_ops, &c.working);
++            failures.extend(threading.iter().map(|f| format!("{name} {f}")));
++            let unthreaded = check_unthreaded(&plain.ops, &plain.threaded_ops, &plain.working);
++            failures.extend(unthreaded.iter().map(|f| format!("{name} without rewrites {f}")));
++            threaded_vertices += c.ops.iter().zip(&c.threaded_ops).filter(|(p, t)| p != t).count();
+             eprintln!("{name}: {} vertices checked", program.compiled.ops.len());
+         }
+         assert!(compiled > 0, "no spec compiled");
+         assert!(skipped_stores > 0, "no store was skipped in any spec");
+         assert!(folded_prints > 0, "no print was folded in any spec");
++        assert!(threaded_vertices > 0, "no successor was threaded in any spec");
+         assert!(failures.is_empty(), "rewritten values read:\n{}", failures.join("\n"));
+     });
+ }
+@@ -160,3 +167,198 @@ fn a_skipped_store_to_a_live_loop_variable_is_rejected() {
+         );
+     });
+ }
++
++fn first_successor(program: &Program, ops: &[Op], v: usize) -> Option<usize> {
++    accesses(program, ops, v).1.first().map(|(t, _)| *t)
++}
++
++fn moves_only(op: &Op) -> bool {
++    matches!(op, Op::StoreSkipped(_) | Op::StoreFolded(_) | Op::Goto(_))
++}
++
++fn stored_next(op: &mut Op) -> Option<&mut u32> {
++    match op {
++        Op::Recv(recv) => Some(&mut recv.next),
++        Op::Pause(next) => Some(next),
++        Op::SetTimer { next, .. } => Some(next),
++        Op::Send(send) => Some(&mut send.next),
++        _ => None,
++    }
++}
++
++fn is_stored_kind(op: &Op, kind: &str) -> bool {
++    match kind {
++        "receive" => matches!(op, Op::Recv(_)),
++        "pause" => matches!(op, Op::Pause(_)),
++        "set timer" => matches!(op, Op::SetTimer { .. }),
++        _ => matches!(op, Op::Send(_)),
++    }
++}
++
++fn assert_rejected_at(program: &Program, ops: &[Op], threaded: &[Op], working: &[u32], v: usize, what: &str) {
++    let failures = check_threaded(program, ops, threaded, working);
++    let prefix = format!("vertex {v}:");
++    assert!(
++        failures.iter().any(|f| f.starts_with(&prefix)),
++        "{what} at vertex {v} was accepted: {failures:?}"
++    );
++}
++
++/// A vertex of `program` holding an operation of `kind`, preferring one whose
++/// stored successor only moves on.
++fn stored_vertex(program: &Program, kind: &str) -> Option<usize> {
++    let c = &program.compiled;
++    let candidates: Vec<usize> = (0..c.ops.len()).filter(|&v| is_stored_kind(&c.ops[v], kind)).collect();
++    let onto_chain = candidates.iter().copied().find(|&v| {
++        let mut op = c.ops[v].clone();
++        let next = *stored_next(&mut op).expect("a stored successor") as usize;
++        moves_only(&c.ops[next]) && c.working[next] as usize != next
++    });
++    onto_chain.or(candidates.first().copied())
++}
++
++/// Each way of threading wrongly is rejected at the vertex it breaks: a
++/// successor moved past its working vertex or left on a vertex that only
++/// moves on, a stored successor threaded, a working vertex or a call entry
++/// naming another working vertex, a field other than a successor changed,
++/// and a goto cycle whose threaded target leaves the cycle.
++#[test]
++fn the_threaded_checker_rejects_broken_threading() {
++    on_big_stack(|| {
++        let program = compile_spec(&spec_root().join("VR.spur")).expect("VR compiles");
++        let c = &program.compiled;
++        let (ops, threaded, working) = (&c.ops, &c.threaded_ops, &c.working);
++        let n = ops.len();
++        assert!(check_threaded(&program, ops, threaded, working).is_empty());
++
++        let bypassing = (0..n)
++            .find(|&v| match (&ops[v], &threaded[v]) {
++                (Op::AssignLocal { next: p, .. }, Op::AssignLocal { next: t, .. }) => {
++                    p != t && first_successor(&program, ops, *t as usize).is_some_and(|s| s != *t as usize)
++                }
++                _ => false,
++            })
++            .expect("VR threads an assignment past a vertex that only moves on");
++        let (Op::AssignLocal { next: plain_next, .. }, Op::AssignLocal { next: threaded_next, .. }) =
++            (&ops[bypassing], &threaded[bypassing])
++        else {
++            unreachable!("found as an assignment")
++        };
++        let (plain_next, threaded_next) = (*plain_next, *threaded_next);
++
++        let mut t = threaded.clone();
++        let past = first_successor(&program, ops, threaded_next as usize).expect("the working vertex moves on");
++        if let Op::AssignLocal { next, .. } = &mut t[bypassing] {
++            *next = past as u32;
++        }
++        assert_rejected_at(&program, ops, &t, working, bypassing, "(a) a successor moved past its working vertex");
++
++        let mut t = threaded.clone();
++        if let Op::AssignLocal { next, .. } = &mut t[bypassing] {
++            *next = plain_next;
++        }
++        assert_rejected_at(&program, ops, &t, working, bypassing, "(d) a successor left on a vertex that only moves on");
++
++        let mut files = Vec::new();
++        spec_files(&spec_root(), &mut files);
++        files.sort();
++        let mut others = files.iter().filter(|f| !f.ends_with("VR.spur")).filter_map(|f| compile_spec(f));
++        let mut paused = program.clone();
++        let chain_head = (0..n)
++            .find(|&v| moves_only(&ops[v]) && working[v] as usize != v)
++            .expect("VR has a vertex that only moves on");
++        paused.cfg.graph.push(Label::Pause(chain_head));
++        paused.compiled.ops.push(Op::Pause(chain_head as u32));
++        paused.compiled.threaded_ops.push(Op::Pause(chain_head as u32));
++        paused.compiled.working.push(n as u32);
++        let pc = &paused.compiled;
++        assert!(check_threaded(&paused, &pc.ops, &pc.threaded_ops, &pc.working).is_empty());
++        let mut pool = vec![program.clone(), paused];
++        for kind in ["receive", "pause", "set timer", "send"] {
++            let (p, v) = loop {
++                if let Some(hit) = pool.iter().find_map(|p| stored_vertex(p, kind).map(|v| (p, v))) {
++                    break hit;
++                }
++                pool.push(others.next().unwrap_or_else(|| panic!("no spec holds a {kind}")));
++            };
++            let pc = &p.compiled;
++            let mut t = pc.threaded_ops.clone();
++            let next = stored_next(&mut t[v]).expect("a stored successor");
++            let old = *next;
++            let moved = pc.working[old as usize];
++            *next = if moved != old { moved } else { (old + 1) % pc.ops.len() as u32 };
++            let failures = check_threaded(p, &pc.ops, &t, &pc.working);
++            assert!(
++                failures.iter().any(|f| f.starts_with(&format!("vertex {v}: {kind} changed"))),
++                "(b, c) a threaded {kind} successor at {v} was accepted: {failures:?}"
++            );
++        }
++
++        let v = (0..n).find(|&v| working[v] as usize != v).expect("VR has a vertex that only moves on");
++        let other = (0..n)
++            .find(|&w| !moves_only(&ops[w]) && w != working[v] as usize)
++            .expect("VR has another working vertex");
++        let mut w = working.clone();
++        w[v] = other as u32;
++        assert_rejected_at(&program, ops, threaded, &w, v, "(e) a working vertex naming another working vertex");
++
++        let calls: Vec<(usize, u32)> = (0..n)
++            .filter_map(|v| match &ops[v] {
++                Op::SyncCall(call) if call.entry != UNRESOLVED_CALLEE => Some((v, call.entry)),
++                _ => None,
++            })
++            .collect();
++        let (call_v, entry) = calls[0];
++        let other_entry = calls
++            .iter()
++            .map(|(_, e)| working[*e as usize])
++            .find(|w| *w != working[entry as usize])
++            .expect("VR calls two callees");
++        let mut t = threaded.clone();
++        if let Op::SyncCall(call) = &mut t[call_v] {
++            call.entry = other_entry;
++        }
++        assert_rejected_at(&program, ops, &t, working, call_v, "(f) a call entry naming another callee");
++
++        let mut t = threaded.clone();
++        if let Op::AssignLocal { slot, .. } = &mut t[bypassing] {
++            *slot += 1;
++        }
++        assert_rejected_at(&program, ops, &t, working, bypassing, "(g) a field other than a successor changed");
++
++        let mut cyclic = program.clone();
++        let (a, b) = (n, n + 1);
++        cyclic.cfg.graph.push(Label::Continue(b));
++        cyclic.cfg.graph.push(Label::Continue(a));
++        let mut cyclic_ops = ops.clone();
++        cyclic_ops.extend([Op::Goto(b as u32), Op::Goto(a as u32)]);
++        let mut t = threaded.clone();
++        t.extend([Op::Goto(b as u32), Op::Goto(a as u32)]);
++        let mut w = working.clone();
++        w.extend([a as u32, b as u32]);
++        assert!(check_threaded(&cyclic, &cyclic_ops, &t, &w).is_empty());
++        t[b] = Op::Goto(threaded_next);
++        assert_rejected_at(&cyclic, &cyclic_ops, &t, &w, b, "(h) a goto cycle threaded out of the cycle");
++    });
++}
++
++/// A build without rewrites runs its plain operations on every loop.
++#[test]
++fn nothing_is_threaded_without_rewrites() {
++    on_big_stack(|| {
++        let program = compile_spec(&spec_root().join("VR.spur")).expect("VR compiles");
++        let off = CompiledProgram::build_with(&program, Rewrites::Off);
++        assert_eq!(off.threaded_ops, off.ops);
++        assert!(off.working.iter().enumerate().all(|(v, w)| *w as usize == v));
++        assert!(check_unthreaded(&off.ops, &off.threaded_ops, &off.working).is_empty());
++        for (plain, rewritten) in off.ops.iter().zip(&program.compiled.ops) {
++            if let (Op::SyncCall(p), Op::SyncCall(r)) = (plain, rewritten) {
++                assert_eq!(p.entry, r.entry);
++            }
++        }
++        assert!(!check_unthreaded(&off.ops, &program.compiled.threaded_ops, &off.working).is_empty());
++        let mut working = off.working.clone();
++        working.swap(0, 1);
++        assert!(!check_unthreaded(&off.ops, &off.threaded_ops, &working).is_empty());
++    });
++}
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index 7f5b4bc..f7702fb 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -1,6 +1,6 @@
+ use crate::analysis::resolver::NameId;
+ use crate::compiler::cfg::compiled::{
+-    AsyncOp, Dest, ForLoopInOp, Op, PieceSource, PrintPart, TraceDispatchOp, TraceEnterOp,
++    UNRESOLVED_CALLEE, AsyncOp, Dest, ForLoopInOp, Op, PieceSource, PrintPart, TraceDispatchOp, TraceEnterOp,
+     TraceExitOp,
+ };
+ use crate::compiler::cfg::{Expr, FunctionInfo, Instr, Label, Program, VarSlot};
+@@ -169,6 +169,11 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+ ) -> Result<Value<H>, RuntimeError> {
+     let mut node_env = state.nodes[node_id.index].clone();
+     let result = if program.compiled.covers(program.cfg.graph.len()) {
++        let start_pc = if F::RECORDS_TRANSITIONS {
++            start_pc
++        } else {
++            program.compiled.working[start_pc] as usize
++        };
+         let mut tally = InterpreterTally::new();
+         let result = run_sync_ops::<H, L, F>(
+             state,
+@@ -1067,13 +1072,18 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+                 builder.push(cvalue(local_env, node_env, a, names, t)?);
+             }
+             let mut callee_local = builder.finish(func_info);
++            let entry = if call.entry == UNRESOLVED_CALLEE {
++                func_info.entry
++            } else {
++                call.entry as usize
++            };
+             let val = run_sync_ops::<H, L, F>(
+                 state,
+                 logger,
+                 program,
+                 &mut callee_local,
+                 node_env,
+-                func_info.entry,
++                entry,
+                 node_id,
+                 snapshot,
+                 feedback,
+@@ -1488,6 +1498,7 @@ fn run_trace_dispatch<H: HashPolicy, L: Logger>(
+ }
+ 
+ /// Runs a synchronous function from its decoded operations until it returns.
++/// Unless `F` records transitions, `start_pc` must be a working vertex.
+ fn run_sync_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+@@ -1504,7 +1515,11 @@ fn run_sync_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     rng: &mut impl StreamRng,
+     t: &mut InterpreterTally,
+ ) -> Result<Value<H>, RuntimeError> {
+-    let ops = &program.compiled.ops;
++    let ops = if F::RECORDS_TRANSITIONS {
++        &program.compiled.ops
++    } else {
++        &program.compiled.threaded_ops
++    };
+     let mut pc = start_pc;
+     let mut prev_pc = pc;
+     let mut pending_trace_id = None;
+@@ -1567,8 +1582,6 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     let mut local_env = record.env;
+     let mut node_env = state.nodes[record.node.index].clone();
+ 
+-    let mut prev_pc = record.pc;
+-
+     // `record.pc == record.entry_pc` is true only on the first exec entry of a
+     // delivery; Recv/Pause re-push with pc advanced past entry.
+     if F::CAPTURES_TIMELINE
+@@ -1578,7 +1591,15 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+         F::note_delivery(feedback, record.node, record.entry_pc);
+     }
+ 
+-    let ops = &program.compiled.ops;
++    // The stored pc is read above as the vertex id it was stored as, and a
++    // record parks again only at a stored successor or at a spin-await.
++    let ops = if F::RECORDS_TRANSITIONS {
++        &program.compiled.ops
++    } else {
++        record.pc = program.compiled.working[record.pc] as usize;
++        &program.compiled.threaded_ops
++    };
++    let mut prev_pc = record.pc;
+     let names = &program.id_to_name;
+     loop {
+         let current_pc = record.pc;
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index c8d4bec..051eb4e 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -8,8 +8,8 @@ use crate::simulator::core::state::{
+     Continuation, LogEntry, Logger, NodeId, Record, Runnable, SchedulePolicy, State, TraceEntry,
+ };
+ use crate::simulator::core::values::{Env, Value};
+-use crate::simulator::coverage::{LocalCoverage, VertexMap};
+-use crate::simulator::feedback::CfgFeedback;
++use crate::simulator::coverage::{GlobalCoverage, LocalCoverage, VertexMap};
++use crate::simulator::feedback::{CfgFeedback, FullFeedback, NoFeedback, TimelineFeedback};
+ use crate::simulator::hash_utils::{NoHashing, WithHashing};
+ use crate::simulator::util_stats::InterpreterTally;
+ use std::collections::BTreeSet;
+@@ -1748,3 +1748,667 @@ fn unread_stores_are_skipped_and_everything_observable_matches() {
+     assert_eq!(plain.stores_skipped, 1);
+     assert_eq!(hashed.stores_skipped, 1);
+ }
++
++/// Records the transitions of the loops that run threaded operations, which
++/// only strategies recording no transitions run.
++#[derive(Debug, Clone, Copy, Default)]
++struct ThreadedEdges;
++
++impl Feedback for ThreadedEdges {
++    type Local = LocalCoverage;
++    type Global = GlobalCoverage;
++    type Snapshot = VertexMap;
++
++    fn snapshot(global: &GlobalCoverage) -> VertexMap {
++        global.snapshot()
++    }
++    fn merge(global: &GlobalCoverage, local: &LocalCoverage) {
++        global.merge(local);
++    }
++    fn record_transition(local: &mut LocalCoverage, prev: usize, pc: usize, snap: &VertexMap) {
++        local.record_with_rarity(prev, pc, snap.novelty_score(pc));
++    }
++}
++
++/// Everything a sequence of executions left behind that a strategy must not
++/// change.
++#[derive(Debug, PartialEq)]
++struct Seen {
++    results: Vec<String>,
++    logs: Vec<String>,
++    trace_text: String,
++    traces: Vec<String>,
++    state: String,
++    events: [u64; 3],
++}
++
++/// A sequence of executions on one state under strategy `F`.
++struct Run<F: Feedback> {
++    state: State<WithHashing>,
++    logger: TestLogger,
++    snapshot: F::Snapshot,
++    local: F::Local,
++    results: Vec<String>,
++    events_before: [u64; 3],
++    tally_before: InterpreterTally,
++}
++
++impl<F: Feedback> Run<F> {
++    fn new(role: NameId, node_slots: usize) -> Self {
++        Self {
++            state: State::<WithHashing>::new(&[(role, 2)], node_slots),
++            logger: TestLogger::new(),
++            snapshot: F::snapshot(&F::Global::default()),
++            local: F::Local::default(),
++            results: Vec::new(),
++            events_before: util_stats::pending_evaluator_events(),
++            tally_before: util_stats::pending_interpreter_tally(),
++        }
++    }
++
++    fn record(&mut self, program: &Program, record: Record<WithHashing>) {
++        let result = exec::<WithHashing, TestLogger, F>(
++            &mut self.state,
++            &mut self.logger,
++            program,
++            record,
++            &self.snapshot,
++            &mut self.local,
++            &SchedulePolicy::Fixed,
++            &PurgatoryConfig::default(),
++            &mut SmallRng::seed_from_u64(0),
++        );
++        self.results.push(match result {
++            Ok(Some(op)) => format!("value {:?}", op.value),
++            Ok(None) => "yielded".to_string(),
++            Err(e) => format!("error {e} / {e:?}"),
++        });
++    }
++
++    fn sync(&mut self, program: &Program, mut env: Env<WithHashing>, node: NodeId, start: usize) {
++        let result = exec_sync_on_node::<WithHashing, TestLogger, F>(
++            &mut self.state,
++            &mut self.logger,
++            program,
++            &mut env,
++            node,
++            start,
++            &self.snapshot,
++            &mut self.local,
++            &SchedulePolicy::Fixed,
++            &PurgatoryConfig::default(),
++            &mut SmallRng::seed_from_u64(0),
++        );
++        self.results.push(match result {
++            Ok(v) => format!("value {v:?} frame {env:?}"),
++            Err(e) => format!("error {e} / {e:?} frame {env:?}"),
++        });
++    }
++
++    /// Takes the first record queued on any node.
++    fn pop_local(&mut self) -> Option<Record<WithHashing>> {
++        for q in &mut self.state.local_queues {
++            if let Some(i) = q.iter().position(|r| matches!(r, Runnable::Record(_))) {
++                if let Runnable::Record(record) = q.remove(i) {
++                    return Some(record);
++                }
++            }
++        }
++        None
++    }
++
++    fn finish(self) -> (Seen, InterpreterTally, F::Local) {
++        let events = util_stats::pending_evaluator_events();
++        let seen = Seen {
++            results: self.results,
++            logs: self
++                .logger
++                .entries
++                .iter()
++                .enumerate()
++                .map(|(i, e)| format!("{:?} {} {}", e.node, e.step, self.logger.content(i)))
++                .collect(),
++            trace_text: self.logger.trace_text.str_from(0).to_string(),
++            traces: self.logger.traces.iter().map(|t| format!("{t:?}")).collect(),
++            state: format!("{:?}", self.state),
++            events: [
++                events[0] - self.events_before[0],
++                events[1] - self.events_before[1],
++                events[2] - self.events_before[2],
++            ],
++        };
++        (seen, tally_since(self.tally_before), self.local)
++    }
++}
++
++/// Runs `script` on a fresh run under `F` and finishes it before any other
++/// run starts, so the thread's pending counts belong to this run alone.
++fn run_alone<F: Feedback>(script: impl FnOnce(&mut Run<F>)) -> (Seen, InterpreterTally, F::Local) {
++    let mut run = Run::<F>::new(NameId(0), 2);
++    script(&mut run);
++    run.finish()
++}
++
++fn goto_executions(ops: &[Op], coverage: &LocalCoverage) -> u64 {
++    coverage
++        .edges()
++        .iter()
++        .filter(|((from, _), _)| matches!(ops[*from], Op::Goto(_)))
++        .map(|(_, count)| *count)
++        .sum()
++}
++
++/// Requires a run of threaded operations to leave exactly what the run of
++/// plain operations left, with every interpreter count equal except that the
++/// label executions fall by the skipped stores, folded stores and gotos not
++/// executed. Returns the label executions saved.
++fn assert_threaded_agrees(
++    ops: &[Op],
++    plain: &(Seen, InterpreterTally, LocalCoverage),
++    threaded: &(Seen, InterpreterTally, LocalCoverage),
++    context: &str,
++) -> u64 {
++    let ((a, x, edges_x), (b, y, edges_y)) = (plain, threaded);
++    assert_eq!(a, b, "{context}");
++    assert_eq!(
++        [x.legacy_labels, x.leaf_operands_inline, x.tree_evals, x.legacy_evals],
++        [y.legacy_labels, y.leaf_operands_inline, y.tree_evals, y.legacy_evals],
++        "{context}"
++    );
++    assert_eq!(
++        [x.call_targets_indexed, x.call_targets_fallback, x.prints_fused, x.print_trees_folded],
++        [y.call_targets_indexed, y.call_targets_fallback, y.prints_fused, y.print_trees_folded],
++        "{context}"
++    );
++    let (gotos_plain, gotos_threaded) = (goto_executions(ops, edges_x), goto_executions(ops, edges_y));
++    assert!(x.label_execs >= y.label_execs, "{context}");
++    assert_eq!(
++        x.label_execs - y.label_execs,
++        (x.stores_skipped - y.stores_skipped) + (x.stores_folded - y.stores_folded) + gotos_plain - gotos_threaded,
++        "{context}: label executions {} -> {}, skipped {} -> {}, folded {} -> {}, gotos {gotos_plain} -> {gotos_threaded}",
++        x.label_execs,
++        y.label_execs,
++        x.stores_skipped,
++        y.stores_skipped,
++        x.stores_folded,
++        y.stores_folded
++    );
++    x.label_execs - y.label_execs
++}
++
++fn spec_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
++    for entry in std::fs::read_dir(dir).expect("the spec directory is readable") {
++        let path = entry.expect("a directory entry").path();
++        if path.is_dir() {
++            spec_files(&path, out);
++        } else if path.extension().is_some_and(|e| e == "spur") {
++            out.push(path);
++        }
++    }
++}
++
++fn on_big_stack(f: impl FnOnce() + Send + 'static) {
++    std::thread::Builder::new()
++        .stack_size(64 * 1024 * 1024)
++        .spawn(f)
++        .expect("the test thread starts")
++        .join()
++        .expect("the test thread finishes");
++}
++
++/// Segments of queued records run after a function's first segment.
++const FOLLOW_SEGMENTS: usize = 64;
++
++/// Runs function `f` of `program` with unit parameters on a server node,
++/// then the records its segments queue.
++fn run_function<F: Feedback>(program: &Program, f: &FunctionInfo) -> (Seen, InterpreterTally, F::Local) {
++    let role = program.compiled.server_role.unwrap_or(NameId(0));
++    let node = NodeId { role, index: 0 };
++    let mut run = Run::<F>::new(role, program.max_node_slots.max(1) as usize);
++    let mut builder = FrameBuilder::<WithHashing>::new(f);
++    for _ in 0..f.param_count {
++        builder.push(Value::unit());
++    }
++    let env = builder.finish(f);
++    if f.is_sync {
++        run.sync(program, env, node, f.entry);
++    } else {
++        let mut record = make_record_for::<WithHashing>(
++            f.entry,
++            0,
++            Continuation::ClientOp {
++                client_id: 0,
++                op_name: "test".to_string(),
++                unique_id: 0,
++            },
++        );
++        record.env = env;
++        record.node = node;
++        record.origin_node = node;
++        record.entry_func = f.name;
++        run.record(program, record);
++    }
++    for _ in 0..FOLLOW_SEGMENTS {
++        let Some(record) = run.pop_local() else { break };
++        run.record(program, record);
++    }
++    run.finish()
++}
++
++/// Every function of every spec runs alike under every strategy that records
++/// no transitions and under the strategies that do, the timeline strategies
++/// capture the same deliveries, and the label executions fall by exactly the
++/// vertices that only move on and were not executed.
++#[test]
++fn threaded_loops_agree_with_recording_loops_on_every_function_of_every_spec() {
++    on_big_stack(|| {
++        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/spur");
++        let mut files = Vec::new();
++        spec_files(&root, &mut files);
++        files.sort();
++        let (mut functions, mut saved) = (0, 0);
++        for file in &files {
++            let name = file.display().to_string();
++            let source = std::fs::read_to_string(file).expect("the spec is readable");
++            let Ok(program) =
++                crate::compiler::compile_with(&source, &name, crate::compiler::cfg::Compiler::new()).into_program()
++            else {
++                continue;
++            };
++            let mut infos: Vec<&FunctionInfo> = program.rpc.values().collect();
++            infos.sort_by_key(|f| f.entry);
++            for f in infos {
++                let context = format!("{name} function at {}", f.entry);
++                let ops = &program.compiled.ops;
++                let plain = run_function::<CfgFeedback>(&program, f);
++                let threaded = run_function::<ThreadedEdges>(&program, f);
++                saved += assert_threaded_agrees(ops, &plain, &threaded, &context);
++                let none = run_function::<NoFeedback>(&program, f);
++                assert_eq!((&none.0, none.1), (&threaded.0, threaded.1), "{context}: no feedback");
++                let timeline = run_function::<TimelineFeedback<false>>(&program, f);
++                assert_eq!((&timeline.0, timeline.1), (&threaded.0, threaded.1), "{context}: timeline");
++                let steered = run_function::<TimelineFeedback<true>>(&program, f);
++                assert_eq!((&steered.0, steered.1), (&threaded.0, threaded.1), "{context}: steered timeline");
++                let full = run_function::<FullFeedback<false>>(&program, f);
++                assert_eq!((&full.0, full.1), (&plain.0, plain.1), "{context}: full");
++                assert_eq!(
++                    TimelineFeedback::<false>::timeline_tuples(&timeline.2),
++                    FullFeedback::<false>::timeline_tuples(&full.2),
++                    "{context}: timeline tuples"
++                );
++                functions += 1;
++            }
++        }
++        assert!(functions > 0, "no function ran");
++        assert!(saved > 0, "no label execution was saved in any function");
++    });
++}
++
++fn record_at(pc: usize, slots: usize) -> Record<WithHashing> {
++    make_record_with_cont(
++        pc,
++        slots,
++        Continuation::ClientOp {
++            client_id: 0,
++            op_name: "test".to_string(),
++            unique_id: 0,
++        },
++    )
++}
++
++fn node_zero() -> NodeId {
++    NodeId {
++        role: NameId(0),
++        index: 0,
++    }
++}
++
++/// A store to `slot` of `value` that the store after `next` makes unread.
++fn dead_store(builder: &mut TestProgramBuilder, slot_idx: u32, next: usize) -> usize {
++    builder.add(Label::Instr(Instr::Assign(Lhs::Var(slot(slot_idx)), Expr::Int(-1)), next))
++}
++
++struct ParkProgram {
++    program: Program,
++    start: usize,
++    after_pause: usize,
++    after_pause_work: usize,
++    after_recv: usize,
++    after_recv_work: usize,
++    spin: usize,
++}
++
++/// A record that pauses, blocks on a receive and waits on a spin-await, each
++/// followed by a skipped store and a goto before the next store.
++fn park_program() -> ParkProgram {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(var(4)));
++    let print4 = builder.add(Label::Print(var(4), ret));
++    let e3 = builder.add(Label::Instr(Instr::Assign(Lhs::Var(slot(4)), var(1)), print4));
++    let e2 = builder.add(Label::Continue(e3));
++    let e1 = dead_store(&mut builder, 4, e2);
++    let spin = builder.add(Label::SpinAwait(Expr::Var(node_slot(0)), e1));
++    let print3 = builder.add(Label::Print(var(3), spin));
++    let d3 = builder.add(Label::Instr(Instr::Assign(Lhs::Var(slot(3)), Expr::Int(2)), print3));
++    let d2 = builder.add(Label::Continue(d3));
++    let d1 = dead_store(&mut builder, 3, d2);
++    let recv = builder.add(Label::Recv(Lhs::Var(slot(1)), var(0), d1));
++    let print2 = builder.add(Label::Print(var(2), recv));
++    let c3 = builder.add(Label::Instr(Instr::Assign(Lhs::Var(slot(2)), Expr::Int(8)), print2));
++    let c2 = builder.add(Label::Continue(c3));
++    let c1 = dead_store(&mut builder, 2, c2);
++    let pause = builder.add(Label::Pause(c1));
++    let make = builder.add(Label::MakeChannel(Lhs::Var(slot(0)), None, pause));
++    ParkProgram {
++        program: builder.build(),
++        start: make,
++        after_pause: c1,
++        after_pause_work: c3,
++        after_recv: d1,
++        after_recv_work: d3,
++        spin,
++    }
++}
++
++/// Runs the park program to completion, returning the pc each park stored.
++fn park_and_resume<F: Feedback>(program: &Program, start: usize) -> ((Seen, InterpreterTally, F::Local), Vec<usize>) {
++    let mut run = Run::<F>::new(NameId(0), 2);
++    let mut pcs = Vec::new();
++    run.state.nodes[0].set(0, Value::bool(false));
++    run.record(program, record_at(start, 5));
++    let paused = run.pop_local().expect("the pause queues the record");
++    pcs.push(paused.pc);
++    run.record(program, paused);
++    let cid = *run.state.channels.keys().next().expect("the record made a channel");
++    let (mut reader, lhs) = run
++        .state
++        .channels
++        .get_mut(&cid)
++        .expect("the channel exists")
++        .pop_waiting_reader()
++        .expect("the receive blocks");
++    pcs.push(reader.pc);
++    let mut node_env = run.state.nodes[0].clone();
++    crate::simulator::core::eval::store(&lhs, Value::int(5), &mut reader.env, &mut node_env).expect("the store");
++    run.state.nodes[0] = node_env;
++    run.record(program, reader);
++    let waiting = run.pop_local().expect("the spin-await queues the record");
++    pcs.push(waiting.pc);
++    run.state.nodes[0].set(0, Value::bool(true));
++    run.record(program, waiting);
++    (run.finish(), pcs)
++}
++
++/// Parking at a pause, a receive and a spin-await stores the vertex a plain
++/// loop stores, though what follows it only moves on, and the resumed
++/// segments leave everything alike.
++#[test]
++fn records_park_and_resume_alike_before_vertices_that_only_move_on() {
++    let p = with_entry_program(park_program());
++    let c = &p.program.compiled;
++    for v in [p.after_pause, p.after_recv] {
++        assert!(matches!(c.ops[v], Op::StoreSkipped(_)), "vertex {v}: {:?}", c.ops[v]);
++    }
++    assert_eq!(c.working[p.after_pause] as usize, p.after_pause_work);
++    assert_eq!(c.working[p.after_recv] as usize, p.after_recv_work);
++    assert!(check::check_threaded(&p.program, &c.ops, &c.threaded_ops, &c.working).is_empty());
++    let (plain, plain_pcs) = park_and_resume::<CfgFeedback>(&p.program, p.start);
++    let (threaded, threaded_pcs) = park_and_resume::<ThreadedEdges>(&p.program, p.start);
++    assert_eq!(plain_pcs, vec![p.after_pause, p.after_recv, p.spin]);
++    assert_eq!(threaded_pcs, plain_pcs);
++    assert!(plain.0.results.last().is_some_and(|r| r.contains("Int(5)")), "{:?}", plain.0.results);
++    assert_eq!(assert_threaded_agrees(&c.ops, &plain, &threaded, "park"), 6);
++    let (none, none_pcs) = park_and_resume::<NoFeedback>(&p.program, p.start);
++    assert_eq!((none.0, none.1, none_pcs), (threaded.0, threaded.1, threaded_pcs));
++
++    let mut off = p.program.clone();
++    off.compiled = CompiledProgram::build_with(&off, Rewrites::Off);
++    let (plain_off, _) = park_and_resume::<CfgFeedback>(&off, p.start);
++    let (none_off, _) = park_and_resume::<NoFeedback>(&off, p.start);
++    assert_eq!((none_off.0, none_off.1), (plain_off.0, plain_off.1));
++}
++
++/// `program` decoded with rewrites after adding a function entry at each
++/// start that has none, since execution may only start at an entry.
++fn decoded_with_entries(program: &Program, starts: &[usize], slots: usize) -> Program {
++    let mut on = program.clone();
++    for (i, &start) in starts.iter().enumerate() {
++        if !on.rpc.values().any(|f| f.entry == start) {
++            register(&mut on, &format!("__start{i}"), function(start, 950 + i, 0, slots as u32, false));
++        }
++    }
++    on.compiled = CompiledProgram::build_with(&on, Rewrites::On);
++    on
++}
++
++fn with_entry_program(mut p: ParkProgram) -> ParkProgram {
++    p.program = decoded_on(&p.program, p.start, 5);
++    p
++}
++
++/// A timer whose stored pc only moves on, waking a reader whose stored pc
++/// only moves on.
++fn timer_run<F: Feedback>(program: &Program, start: usize) -> ((Seen, InterpreterTally, F::Local), [String; 2]) {
++    let mut run = Run::<F>::new(NameId(0), 2);
++    run.record(program, record_at(start, 3));
++    let Some(Runnable::Timer(timer)) = run.state.timer_queue.pop() else {
++        panic!("the set timer queues a timer")
++    };
++    let (mut reader, lhs) = run
++        .state
++        .channels
++        .get_mut(&timer.channel)
++        .expect("the timer channel exists")
++        .pop_waiting_reader()
++        .expect("the receive blocks");
++    let mut node_env = run.state.nodes[0].clone();
++    crate::simulator::core::eval::store(&lhs, Value::unit(), &mut reader.env, &mut node_env).expect("the store");
++    run.state.nodes[0] = node_env;
++    reader.timer_entry = Some(reader.pc);
++    let key = util_stats::TimerKey::new(reader.pc, false, 0, 0);
++    let observed = [
++        format!("timer pc {} reader pc {}", timer.pc, reader.pc),
++        format!("timer entry {} key {key:?}", reader.timer_entry == Some(reader.pc)),
++    ];
++    run.state.push_to_local(0, Runnable::Record(reader));
++    let woken = run.pop_local().expect("the woken reader is queued");
++    run.record(program, woken);
++    (run.finish(), observed)
++}
++
++/// A timer and the reader it wakes keep vertices that only move on as their
++/// stored pcs, so the firing reads the same timer entry and timer key.
++#[test]
++fn a_timer_stored_at_a_vertex_that_only_moves_on_fires_alike() {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(var(2)));
++    let print = builder.add(Label::Print(var(2), ret));
++    let h3 = builder.add(Label::Instr(Instr::Assign(Lhs::Var(slot(2)), Expr::Int(3)), print));
++    let h2 = builder.add(Label::Continue(h3));
++    let h1 = dead_store(&mut builder, 2, h2);
++    let recv = builder.add(Label::Recv(Lhs::Var(slot(1)), var(0), h1));
++    let g1 = builder.add(Label::Continue(recv));
++    let set = builder.add(Label::SetTimer(Lhs::Var(slot(0)), g1, None));
++    let program = decoded_on(&builder.build(), set, 3);
++    let c = &program.compiled;
++    assert!(matches!(c.ops[g1], Op::Goto(_)));
++    assert_eq!(c.working[h1] as usize, h3);
++    let (plain, plain_seen) = timer_run::<CfgFeedback>(&program, set);
++    let (threaded, threaded_seen) = timer_run::<ThreadedEdges>(&program, set);
++    assert_eq!(plain_seen[0], format!("timer pc {g1} reader pc {h1}"));
++    assert_eq!(threaded_seen, plain_seen);
++    assert!(plain_seen[1].starts_with("timer entry true"));
++    assert_eq!(goto_executions(&c.ops, &threaded.2), 1);
++    assert_eq!(assert_threaded_agrees(&c.ops, &plain, &threaded, "timer"), 2);
++}
++
++/// A vertex that fails after vertices that only move on fails with the same
++/// error, output and state, from a record and from a synchronous run.
++#[test]
++fn a_failure_after_vertices_that_only_move_on_fails_alike() {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(var(0)));
++    let bad = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(0)),
++            Expr::Plus(Box::new(Expr::Bool(true)), Box::new(Expr::Int(5))),
++        ),
++        ret,
++    ));
++    let print = builder.add(Label::Print(var(1), bad));
++    let s3 = builder.add(Label::Instr(Instr::Assign(Lhs::Var(slot(1)), Expr::Int(2)), print));
++    let s2 = builder.add(Label::Continue(s3));
++    let s1 = dead_store(&mut builder, 1, s2);
++    let b2 = builder.add(Label::Continue(bad));
++    let b1 = dead_store(&mut builder, 1, b2);
++    let program = decoded_with_entries(&builder.build(), &[s1, b1], 2);
++    let c = &program.compiled;
++    assert!(check::check_threaded(&program, &c.ops, &c.threaded_ops, &c.working).is_empty());
++    for start in [s1, s2, b1, b2] {
++        let plain = run_alone::<CfgFeedback>(|r| r.record(&program, record_at(start, 2)));
++        let threaded = run_alone::<ThreadedEdges>(|r| r.record(&program, record_at(start, 2)));
++        assert!(plain.0.results[0].contains("TypeError"), "{:?}", plain.0.results);
++        assert_threaded_agrees(&c.ops, &plain, &threaded, &format!("record from {start}"));
++        let plain = run_alone::<CfgFeedback>(|r| r.sync(&program, Env::with_slots(2), node_zero(), start));
++        let threaded = run_alone::<ThreadedEdges>(|r| r.sync(&program, Env::with_slots(2), node_zero(), start));
++        assert!(plain.0.results[0].contains("TypeError"), "{:?}", plain.0.results);
++        assert_threaded_agrees(&c.ops, &plain, &threaded, &format!("sync run from {start}"));
++    }
++}
++
++/// The pcs a loop visits following successors of operations that only move
++/// on or assign a node slot.
++fn walk(ops: &[Op], start: usize, steps: usize) -> Vec<usize> {
++    let mut pcs = Vec::with_capacity(steps);
++    let mut pc = start;
++    for _ in 0..steps {
++        pcs.push(pc);
++        pc = match &ops[pc] {
++            Op::AssignNode { next, .. } | Op::Goto(next) | Op::StoreSkipped(next) | Op::StoreFolded(next) => {
++                *next as usize
++            }
++            other => panic!("vertex {pc}: {other:?} is not in the cycle program"),
++        };
++    }
++    pcs
++}
++
++/// A cycle of gotos, entered from a store and from a skipped store, keeps its
++/// vertices as working vertices, and a threaded loop visits the same pcs as
++/// a plain loop.
++#[test]
++fn a_cycle_of_gotos_spins_alike() {
++    let mut builder = TestProgramBuilder::new();
++    let a = builder.add(Label::Return(Expr::Unit));
++    let b = builder.add(Label::Continue(a));
++    builder.labels[a] = Label::Continue(b);
++    let x = builder.add(Label::Instr(Instr::Assign(Lhs::Var(node_slot(0)), Expr::Int(1)), a));
++    let y = builder.add(Label::Instr(Instr::Assign(Lhs::Var(slot(0)), Expr::Int(1)), b));
++    let program = decoded_with_entries(&builder.build(), &[x, y], 1);
++    let c = &program.compiled;
++    assert!(matches!(c.ops[y], Op::StoreSkipped(_)), "{:?}", c.ops[y]);
++    for v in [a, b, x, y] {
++        assert_eq!(c.working[v] as usize, v);
++    }
++    assert_eq!(c.threaded_ops[a], c.ops[a]);
++    assert_eq!(c.threaded_ops[b], c.ops[b]);
++    assert!(check::check_threaded(&program, &c.ops, &c.threaded_ops, &c.working).is_empty());
++    for start in [x, y, a, b] {
++        assert_eq!(
++            walk(&c.ops, start, 1000),
++            walk(&c.threaded_ops, c.working[start] as usize, 1000),
++            "from {start}"
++        );
++    }
++}
++
++/// A synchronous call starts its callee at the callee's entry on a loop that
++/// records transitions and at the entry's working vertex otherwise; a callee
++/// not resolved when the program was decoded starts at its entry on both.
++#[test]
++fn sync_calls_start_at_the_working_vertex_only_when_no_transition_is_recorded() {
++    let mut builder = TestProgramBuilder::new();
++    let f_ret = builder.add(Label::Return(var(1)));
++    let f_body = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(1)),
++            Expr::Plus(Box::new(var(0)), Box::new(Expr::Int(1))),
++        ),
++        f_ret,
++    ));
++    let f_goto = builder.add(Label::Continue(f_body));
++    let f_skip = dead_store(&mut builder, 1, f_goto);
++    let g_ret = builder.add(Label::Return(Expr::Int(7)));
++    let g_goto = builder.add(Label::Continue(g_ret));
++    let g_skip = dead_store(&mut builder, 0, g_goto);
++    let ret = builder.add(Label::Return(var(0)));
++    let call = builder.add(Label::Instr(
++        Instr::SyncCall(Lhs::Var(slot(0)), "f".to_string(), vec![Expr::Int(41)]),
++        ret,
++    ));
++    let missing = builder.add(Label::Instr(
++        Instr::SyncCall(Lhs::Var(slot(0)), "missing".to_string(), vec![]),
++        ret,
++    ));
++    let late = builder.add(Label::Instr(
++        Instr::SyncCall(Lhs::Var(slot(0)), "g".to_string(), vec![]),
++        ret,
++    ));
++    let mut program = builder.build_undecoded();
++    register(&mut program, "f", function(f_skip, 5, 1, 2, true));
++    register(&mut program, "caller", function(call, 6, 0, 1, false));
++    register(&mut program, "caller_missing", function(missing, 7, 0, 1, false));
++    register(&mut program, "caller_late", function(late, 8, 0, 1, false));
++    program.decode();
++    let c = &program.compiled;
++    assert!(check::check_threaded(&program, &c.ops, &c.threaded_ops, &c.working).is_empty());
++    let entry = |ops: &[Op], v: usize| match &ops[v] {
++        Op::SyncCall(call) => call.entry,
++        other => panic!("vertex {v}: {other:?} is not a call"),
++    };
++    assert_eq!(entry(&c.ops, call) as usize, f_skip);
++    assert_eq!(entry(&c.threaded_ops, call) as usize, f_body);
++    assert_eq!(c.working[f_skip] as usize, f_body);
++    for v in [missing, late] {
++        assert_eq!(entry(&c.ops, v), UNRESOLVED_CALLEE);
++        assert_eq!(entry(&c.threaded_ops, v), UNRESOLVED_CALLEE);
++    }
++    register(&mut program, "g", function(g_skip, 9, 0, 2, true));
++    let c = &program.compiled;
++    let edge_from = |local: &LocalCoverage, v: usize| local.edges().keys().any(|(from, _)| *from == v);
++
++    let runs = |start: usize| {
++        (
++            run_alone::<CfgFeedback>(|r| r.record(&program, record_at(start, 1))),
++            run_alone::<ThreadedEdges>(|r| r.record(&program, record_at(start, 1))),
++            run_alone::<NoFeedback>(|r| r.record(&program, record_at(start, 1))),
++        )
++    };
++
++    let (plain, threaded, none) = runs(call);
++    assert!(plain.0.results[0].contains("Int(42)"), "{:?}", plain.0.results);
++    assert!(edge_from(&plain.2, f_skip) && edge_from(&plain.2, f_goto));
++    assert!(!edge_from(&threaded.2, f_skip) && !edge_from(&threaded.2, f_goto));
++    assert_eq!(assert_threaded_agrees(&c.ops, &plain, &threaded, "call"), 2);
++    assert_eq!((none.0, none.1), (threaded.0, threaded.1));
++
++    let mut env = Env::<WithHashing>::with_slots(2);
++    env.set(0, Value::int(41));
++    let plain = run_alone::<CfgFeedback>(|r| r.sync(&program, env.clone(), node_zero(), f_skip));
++    let threaded = run_alone::<ThreadedEdges>(|r| r.sync(&program, env, node_zero(), f_skip));
++    assert!(edge_from(&plain.2, f_skip));
++    assert!(!edge_from(&threaded.2, f_skip));
++    assert_eq!(assert_threaded_agrees(&c.ops, &plain, &threaded, "sync run"), 2);
++
++    let (plain, threaded, _) = runs(missing);
++    assert!(plain.0.results[0].contains("function not found: missing"), "{:?}", plain.0.results);
++    assert_eq!(assert_threaded_agrees(&c.ops, &plain, &threaded, "missing callee"), 0);
++
++    let (plain, threaded, none) = runs(late);
++    assert!(plain.0.results[0].contains("Int(7)"), "{:?}", plain.0.results);
++    assert_eq!(plain.1.call_targets_fallback, 1);
++    assert!(edge_from(&threaded.2, g_skip), "{:?}", threaded.2.edges());
++    assert_eq!(threaded.1.stores_skipped, 1);
++    assert_eq!(assert_threaded_agrees(&c.ops, &plain, &threaded, "callee resolved by name"), 1);
++    assert_eq!((none.0, none.1), (threaded.0, threaded.1));
++}
+diff --git a/spur-core/src/simulator/feedback.rs b/spur-core/src/simulator/feedback.rs
+index 6a74bb9..3bb2c57 100644
+--- a/spur-core/src/simulator/feedback.rs
++++ b/spur-core/src/simulator/feedback.rs
+@@ -414,6 +414,11 @@ pub trait Feedback: 'static + Send + Sync + std::fmt::Debug {
+     /// for non-timeline strategies.
+     const CAPTURES_TIMELINE: bool = false;
+ 
++    /// Whether `record_transition` records anything. The loops of such a
++    /// strategy run the program's plain operations, so every vertex a label
++    /// execution passes through is a transition.
++    const RECORDS_TRANSITIONS: bool = false;
++
+     fn snapshot(global: &Self::Global) -> Self::Snapshot;
+     fn merge(global: &Self::Global, local: &Self::Local);
+ 
+@@ -496,6 +501,8 @@ impl Feedback for CfgFeedback {
+     type Global = GlobalCoverage;
+     type Snapshot = VertexMap;
+ 
++    const RECORDS_TRANSITIONS: bool = true;
++
+     fn snapshot(global: &GlobalCoverage) -> VertexMap {
+         global.snapshot()
+     }
+@@ -609,6 +616,7 @@ impl<const STEER: bool> Feedback for FullFeedback<STEER> {
+     type Snapshot = (VertexMap, TimelineSnap);
+ 
+     const CAPTURES_TIMELINE: bool = true;
++    const RECORDS_TRANSITIONS: bool = true;
+ 
+     fn snapshot(global: &Self::Global) -> Self::Snapshot {
+         (global.0.snapshot(), global.1.snapshot())

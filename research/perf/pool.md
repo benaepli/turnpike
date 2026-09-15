@@ -2003,7 +2003,7 @@ rounds of clock each:
 
 ## threaded-successors-past-no-op-vertices
 
-- category: redundant work per step | origin: proposer | status: admitted, building (iteration 32, autonomous)
+- category: redundant work per step | origin: proposer | status: closed (iteration 32, autonomous) - refuted on G1 after its retake: candidate 0.9744 over a worktree base and 0.9797 over the main-tree base, every pair below the lowest control pair, but effect 0.0203 against 3 x 0.0130 (control 0.9870, closing control 0.9860); session 1 also failed the effect test; G3 identity exact on seven sessions, G4 passed; patch research/perf/patches/threaded-successors-past-no-op-vertices.spur.patch
 - mechanism: at decode under Rewrites::On, threaded_ops moves every successor
   only the running loop follows to its first working vertex (a no-op cycle
   keeps its vertex); a working[] table and a threaded SyncCallOp.entry
