@@ -14,8 +14,6 @@ export interface RegressionCase {
   detail: string;
 }
 
-type Model = "kv" | "kv_rmw";
-
 function caseDir(name: string): string {
   return path.join(ROOT, "tmp", "loop", `regr-${name}`);
 }
@@ -47,7 +45,6 @@ async function exploreAndCheck(
   outputDir: string,
   spec: string,
   configPath: string,
-  model: Model,
 ): Promise<CaseRun> {
   const exploreRes = await explore({
     binary: ctx.binary,
@@ -62,7 +59,6 @@ async function exploreAndCheck(
 
   const porc = await porcupine({
     inputDir: outputDir,
-    model,
     timeoutMsPerRun: 10_000,
     timeoutMs: 180_000,
   });
@@ -115,12 +111,12 @@ export async function runRegression(
       const name = "vr-nofault-clean";
       const outputDir = caseDir(name);
       prepDir(outputDir);
-      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(ctx.policy.evaluation.spec), resolveRoot(reg.vrNoFaultConfig), "kv");
+      const r = await exploreAndCheck(ctx, outputDir, resolveRoot(ctx.policy.evaluation.spec), resolveRoot(reg.vrNoFaultConfig));
       if (r.porcupineFailure !== null) return { name, passed: false, detail: r.porcupineFailure };
       return {
         name,
         passed: r.violations === 0,
-        detail: `model=kv runs=${r.totalRuns} violations=${r.violations} unknown=${r.unknown} (expected violations == 0)`,
+        detail: `runs=${r.totalRuns} violations=${r.violations} unknown=${r.unknown} (expected violations == 0)`,
       };
     }),
   );

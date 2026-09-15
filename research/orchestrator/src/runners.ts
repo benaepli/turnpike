@@ -170,21 +170,34 @@ export interface ConfigOverrides {
   dropKeys?: string[];
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 /**
  * Read a JSON explorer-config template, apply overrides
  * (`num_runs_per_config`, `session_seed`, then `extra` spread on top), and
- * write the result to `outPath`.
+ * write the result to `outPath`. An `extra.params` object replaces the
+ * template's deploy parameters one parameter at a time, so an overlay that
+ * sets one parameter keeps the template's others.
  */
 export function materializeConfig(templatePath: string, outPath: string, overrides: ConfigOverrides): void {
   const raw: unknown = JSON.parse(fs.readFileSync(templatePath, "utf8"));
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+  if (!isPlainObject(raw)) {
     throw new Error(`config template ${templatePath} is not a JSON object`);
   }
-  const config: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  const config: Record<string, unknown> = { ...raw };
   for (const k of overrides.dropKeys ?? []) delete config[k];
   if (overrides.runsPerConfig !== undefined) config["num_runs_per_config"] = overrides.runsPerConfig;
   if (overrides.sessionSeed !== undefined) config["session_seed"] = overrides.sessionSeed;
-  if (overrides.extra !== undefined) Object.assign(config, overrides.extra);
+  if (overrides.extra !== undefined) {
+    const { params, ...rest } = overrides.extra;
+    Object.assign(config, rest);
+    if (params !== undefined) {
+      const base = config["params"];
+      config["params"] = isPlainObject(base) && isPlainObject(params) ? { ...base, ...params } : params;
+    }
+  }
   fs.writeFileSync(outPath, JSON.stringify(config, null, 2) + "\n");
 }
 
@@ -460,6 +473,7 @@ export function readSessionSibling(outputDir: string): SessionSummary | null {
       budgetSec: num("wall_budget_sec"),
       budgetHit: r["budget_hit"] === true,
       writerFlushMs: Math.round(num("writer_flush_ms")),
+      deploymentsBuilt: typeof r["deployments_built"] === "number" ? Math.round(r["deployments_built"]) : null,
     });
     if (parsed.success) return parsed.data;
   }
@@ -556,7 +570,8 @@ export async function grade(opts: GradeOpts): Promise<{ cmd: CmdResult; parsed: 
 
 export interface PorcupineOpts {
   inputDir: string;
-  model: "kv" | "kv_rmw";
+  // Absent, the checker takes the model from the corpus's deployments table.
+  model?: "kv" | "kv_rmw" | undefined;
   timeoutMsPerRun: number;
   timeoutMs: number;
 }
@@ -567,9 +582,12 @@ export interface PorcupineOpts {
  * found and `parsed` is legitimately null.
  */
 export async function porcupine(opts: PorcupineOpts): Promise<{ cmd: CmdResult; parsed: PorcupineJson | null }> {
+  const args = ["-input", opts.inputDir];
+  if (opts.model !== undefined) args.push("-model", opts.model);
+  args.push("-timeout", String(opts.timeoutMsPerRun));
   const cmd = await run(
     path.join(ROOT, "porcupine", "batch"),
-    ["-input", opts.inputDir, "-model", opts.model, "-timeout", String(opts.timeoutMsPerRun)],
+    args,
     { timeoutMs: opts.timeoutMs, cwd: ROOT },
   );
   return { cmd, parsed: parseJsonWith(PorcupineJson, cmd.stdout) };

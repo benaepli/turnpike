@@ -224,6 +224,11 @@ export const RunRow = z.object({
   // 1 placed crashes, 2 run-cap probe, 4 timer-context probe, 8 a crash hold
   // was actually drawn. Zero on a corpus written before the column.
   variant: z.number().default(0),
+  // Index into the deployments table; -1 for a run that failed before its
+  // deployment was chosen, absent on a corpus written before the column.
+  deployment_id: z.number().optional(),
+  // JSON object of the parameter tuple that selected the run.
+  params: z.string().optional(),
 });
 export type RunRow = z.infer<typeof RunRow>;
 
@@ -258,6 +263,9 @@ export const SessionSummary = z.object({
   budgetSec: z.number(),
   budgetHit: z.boolean(),
   writerFlushMs: z.number().int().default(0),
+  // Distinct deployments the session built from its parameter tuples; null
+  // or absent when session.json does not carry the count.
+  deploymentsBuilt: z.number().int().nullable().optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 

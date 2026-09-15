@@ -1,7 +1,15 @@
-role Node {
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+
+role Node(cluster: Cluster) {
     var kv_store: map<string, list<int>> = {};
 
-    fn Init(me: int, peers: list<Node>) {
+    fn Init() {
         kv_store = {};
     }
 
@@ -26,7 +34,22 @@ role Node {
     }
 }
 
-ClientInterface {
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) {
+        return nil;
+    }
+    cluster(p.n)
+}
+
+client KVClient(sys: Cluster) {
     async fn Read(dest: Node, key: string): list<int> {
         var val = <- dest->Read(key);
         return val;

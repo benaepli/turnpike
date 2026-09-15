@@ -1,5 +1,6 @@
 {
-  "num_servers": 3,
+  "deploy": "Main",
+  "params": { "n": 3 },
   "num_runs": 5,
   "max_iterations": 4000,
   "strict_timers": true,
@@ -9,19 +10,19 @@
     "p_timer": 0.0
   },
   "events": {
-    "t2_settle_init": { "allow_timer": [2, "leader"] },
-    "w1": { "write": [2, "x"] },
-    "t2_settle_w1": { "allow_timer": [2, "leader"] },
-    "crash_1": { "crash": 1 },
-    "recover_1": { "recover": 1 },
-    "t2_settle_adopt": { "allow_timer": [2, "leader"] },
-    "w2": { "write": [0, "x"] },
-    "r0": { "read": [0, "x"] },
-    "r2": { "read": [2, "x"] },
-    "r1": { "read": [1, "x"] },
-    "end_p2a_2_to_0": { "deliver": { "function": "Node.HandleP2a", "from": 2, "to": 0 } },
-    "end_dec_2_to_0": { "deliver": { "function": "Node.HandleDecision", "from": 2, "to": 0 } },
-    "end_p1b_2_to_1": { "deliver": { "function": "Node.HandleP1bResponse", "from": 2, "to": 1 } }
+    "t2_settle_init": { "allow_timer": { "node": "nodes[2]", "label": "leader" } },
+    "w1": { "write": { "dest": "nodes[2]", "key": "x" } },
+    "t2_settle_w1": { "allow_timer": { "node": "nodes[2]", "label": "leader" } },
+    "crash_1": { "crash": "nodes[1]" },
+    "recover_1": { "recover": "nodes[1]" },
+    "t2_settle_adopt": { "allow_timer": { "node": "nodes[2]", "label": "leader" } },
+    "w2": { "write": { "dest": "nodes[0]", "key": "x" } },
+    "r0": { "read": { "dest": "nodes[0]", "key": "x" } },
+    "r2": { "read": { "dest": "nodes[2]", "key": "x" } },
+    "r1": { "read": { "dest": "nodes[1]", "key": "x" } },
+    "end_p2a_2_to_0": { "deliver": { "function": "Node.HandleP2a", "from": "nodes[2]", "to": "nodes[0]" } },
+    "end_dec_2_to_0": { "deliver": { "function": "Node.HandleDecision", "from": "nodes[2]", "to": "nodes[0]" } },
+    "end_p1b_2_to_1": { "deliver": { "function": "Node.HandleP1bResponse", "from": "nodes[2]", "to": "nodes[1]" } }
   },
   "dependencies": [
     ["t2_settle_init", "w1"],

@@ -199,9 +199,17 @@ type PersistentState {
     applied_uids: map<string, map<int, bool>>;
 }
 
-role Node {
-    var self: int = 0;
-    var peers: list<Node> = [];
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+
+role Node(cluster: Cluster) {
+    var me: int = index_of(cluster.nodes, self)!;
+    var peers: list<Node> = cluster.nodes;
 
     var view: int = 0;
     var view_phase: ViewPhase = ViewPhase.Normal;
@@ -231,17 +239,14 @@ role Node {
     // Track if we heard from the sequencer recently
     var received_sequencer_message: bool = false;
 
-    async fn Init(me: int, all: list<Node>) {
-        self = me;
-        peers = all;
-
+    async fn Init() {
         for var i = 0; i < len(peers); i = i + 1 {
             c_instances = c_instances[peers[i]] := {};
             o_count_per_replica = o_count_per_replica[peers[i]] := 0;
             exec_c_next = exec_c_next[peers[i]] := 0;
         }
 
-        if peers[self] == sequencer() {
+        if peers[me] == sequencer() {
             sequencer_state = SequencerState{
                 o_counter:  0,
                 o_accept_acks: {},
@@ -249,16 +254,13 @@ role Node {
             };
         }
 
-        println("Node {self} initialized. Peer count: {len(peers)}");
+        println("Node {me} initialized. Peer count: {len(peers)}");
 
         monitor_execution();
         do_view_changes();
     }
 
-    async fn RecoverInit(me: int, all: list<Node>) {
-        self = me;
-        peers = all;
-
+    async fn RecoverInit() {
         for var i = 0; i < len(peers); i = i + 1 {
             c_instances = c_instances[peers[i]] := {};
             o_count_per_replica = o_count_per_replica[peers[i]] := 0;
@@ -278,7 +280,7 @@ role Node {
             applied_uids = saved!.applied_uids;
         }
 
-        if peers[self] == sequencer() {
+        if peers[me] == sequencer() {
             sequencer_state = SequencerState{
                 o_counter:  0,
                 o_accept_acks: {},
@@ -286,7 +288,7 @@ role Node {
             };
         }
 
-        println("Node {self} recovered. Peer count: {len(peers)}");
+        println("Node {me} recovered. Peer count: {len(peers)}");
 
         monitor_execution();
         do_view_changes();
@@ -342,26 +344,26 @@ role Node {
         var view = view;
         var ballot = Ballot{
             round: 0,
-            replica: peers[self],
+            replica: peers[me],
         };
 
-        println("Submit: Starting request for C-instance ({role_to_string(peers[self])}, {i}) at view {view}");
+        println("Submit: Starting request for C-instance ({role_to_string(peers[me])}, {i}) at view {view}");
 
-        c_instances = c_instances[peers[self]][i] := CInstanceState.Accepted(CAcceptedArgs{
+        c_instances = c_instances[peers[me]][i] := CInstanceState.Accepted(CAcceptedArgs{
             promised: ballot,
             accepted: ballot,
             value: cmd,
         });
-        var accepted_by = [peers[self]];
+        var accepted_by = [peers[me]];
         c_accepts = c_accepts[i] := accepted_by;
-        pending_client_responses = pending_client_responses[(peers[self], i)] := response_ch;
+        pending_client_responses = pending_client_responses[(peers[me], i)] := response_ch;
 
         save_state();
 
         // Now, we send a CAccept to all other replicas.
         var c_accept = CAccept{
             view: view,
-            replica: peers[self],
+            replica: peers[me],
             instance: i,
             ballot: ballot,
             command: cmd,
@@ -370,11 +372,11 @@ role Node {
 
         var responses: chan<CAck> = make();
         for peer in peers {
-            if peer != peers[self] {
+            if peer != peers[me] {
                send_c_accept(peer, c_accept, responses);
             }
         }
-        if peers[self] == sequencer() {
+        if peers[me] == sequencer() {
             handle_sequencer_accept(c_accept);
         }
 
@@ -391,7 +393,7 @@ role Node {
         // We handle committing here.
         var c_commit = CCommit{
             view: view,
-            replica: peers[self],
+            replica: peers[me],
             instance: i,
             ballot: ballot,
             command: cmd,
@@ -497,7 +499,7 @@ role Node {
             });
 
         // Now, we handle if we are the sequencer.
-        if peers[self] == sequencer() {
+        if peers[me] == sequencer() {
             handle_sequencer_accept(msg);
         }
 
@@ -506,7 +508,7 @@ role Node {
 
         CAck {
             view: view,
-            replica: peers[self],
+            replica: peers[me],
             instance: msg.instance,
             ballot: msg.ballot,
         }
@@ -544,7 +546,7 @@ role Node {
 
             var ballot = Ballot {
                 round: 0,
-                replica: peers[self],
+                replica: peers[me],
             }; 
 
             var accept_msg = OAccept{
@@ -598,7 +600,7 @@ role Node {
             view: view,
             instance: msg.instance,
             ballot: msg.ballot,
-            sender: peers[self],
+            sender: peers[me],
         });
 
         // Check if we have reached the majority threshold but not yet handled the o_ack.
@@ -810,12 +812,12 @@ role Node {
 
         var ballot = Ballot{
             round: this_round,
-            replica: peers[self],
+            replica: peers[me],
         };
         c_recovery_state = c_recovery_state[(target, instance)] := {};
         var msg = CPrepare{
             view: view,
-            replica: peers[self],
+            replica: peers[me],
             target: target,
             instance: instance,
             ballot: ballot
@@ -875,7 +877,7 @@ role Node {
 
             msg.replica->HandleCPromise(CPromise{
                 view: view,
-                replica: peers[self],
+                replica: peers[me],
                 target_node: msg.target,
                 instance: msg.instance,
                 ballot: msg.ballot,
@@ -947,7 +949,7 @@ role Node {
 
             var responses: chan<CAck> = make();
             for peer in peers {
-                if peer != peers[self] {
+                if peer != peers[me] {
                     send_c_accept(peer, accept_msg, responses);
                 }
             }
@@ -1010,7 +1012,7 @@ role Node {
                 view: view,
                 instance: instance,
                 ballot: get_o_ballot(instance),
-                assigned: peers[self],
+                assigned: peers[me],
             });
         }
     }
@@ -1019,10 +1021,10 @@ role Node {
         view = view + 1;
         view_phase = ViewPhase.Candidate;
 
-        println("Node {self} starting view change to view {view}");
+        println("Node {me} starting view change to view {view}");
         var msg = VRequest {
             new_view: view,
-            candidate: peers[self]
+            candidate: peers[me]
         };
 
         var vote_ch: chan<(Node, Vote)> = make();
@@ -1072,7 +1074,7 @@ role Node {
         for (idx, state) in o_instances {
             var reply = OPrepareReply {
                 instance: idx,
-                promised: Ballot{ round: 0, replica: peers[self] },
+                promised: Ballot{ round: 0, replica: peers[me] },
                 accepted: nil
             };
             match state {
@@ -1088,7 +1090,7 @@ role Node {
                 OInstanceState.Committed(assigned_node) => {
                     if assigned_node != nil {
                         reply = reply.accepted := (
-                             Ballot{ round: 2147483647, replica: peers[self] },
+                             Ballot{ round: 2147483647, replica: peers[me] },
                              assigned_node!
                         );
                     }
@@ -1164,7 +1166,7 @@ role Node {
             last_o_acked_by: {}
         };
 
-        var self_ballot = Ballot{ round: 0, replica: peers[self] };
+        var self_ballot = Ballot{ round: 0, replica: peers[me] };
         for (idx, assigned_node) in final_log {
              o_instances = o_instances[idx] := OInstanceState.Accepted(OAcceptedArgs{
                 promised: self_ballot,
@@ -1177,14 +1179,14 @@ role Node {
         
         var nv = NewView {
             view: view,
-            sequencer: peers[self],
+            sequencer: peers[me],
             reconstructed_assignments: final_log
         };
 
         var ack_ch: chan<NewViewAck> = make();
         
         for peer in peers {
-            if peer != peers[self] {
+            if peer != peers[me] {
                 send_new_view_and_wait(peer, nv, ack_ch);
             }
         }
@@ -1245,13 +1247,13 @@ role Node {
             });
         }
 
-        if peers[self] != msg.sequencer {
+        if peers[me] != msg.sequencer {
             sequencer_state = nil;
         }
 
         save_state();
         
-        NewViewAck { view: view, sender: peers[self] }
+        NewViewAck { view: view, sender: peers[me] }
     }
 
     async fn HandleNewViewCommit(msg: NewViewCommit) {
@@ -1273,7 +1275,22 @@ role Node {
     }
 }
 
-ClientInterface {
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) {
+        return nil;
+    }
+    cluster(p.n)
+}
+
+client KVClient(sys: Cluster) {
     async fn Write(dest: Node, key: string, uid: int) {
         for ;; {
             var resp: ClientWriteReply = <- dest->HandleClientWrite(ClientWrite{key: key, uid: uid});

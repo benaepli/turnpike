@@ -18,7 +18,6 @@
     "maxBuildSeconds": 600,
     "epochThroughputFloor": 0.9
   },
-  "porcupineModel": "kv",
   "violationPrior": null,
   "allowBigLoopBaselineRecord": true
 }

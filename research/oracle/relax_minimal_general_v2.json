@@ -1,125 +1,128 @@
 {
-  "num_servers": 3,
+  "deploy": "Main",
+  "params": {
+    "n": 3
+  },
   "num_runs": 5000,
   "max_iterations": 10000,
   "strict_timers": true,
   "events": {
     "w1": {
-      "write": [
-        0,
-        "key1"
-      ]
+      "write": {
+        "dest": "nodes[0]",
+        "key": "key1"
+      }
     },
     "allow_t1": {
-      "allow_timer": [
-        1,
-        "timeout"
-      ]
+      "allow_timer": {
+        "node": "nodes[1]",
+        "label": "timeout"
+      }
     },
     "crash_nl": {
-      "crash": 1
+      "crash": "nodes[1]"
     },
     "recover_nl": {
-      "recover": 1
+      "recover": "nodes[1]"
     },
     "deliver_svc_1_to_2": {
       "deliver": {
         "function": "Node.StartViewChange",
-        "from": 1,
-        "to": 2
+        "from": "nodes[1]",
+        "to": "nodes[2]"
       }
     },
     "crash_2": {
-      "crash": 2
+      "crash": "nodes[2]"
     },
     "recover_2": {
-      "recover": 2
+      "recover": "nodes[2]"
     },
     "deliver_svc_1_to_0": {
       "deliver": {
         "function": "Node.StartViewChange",
-        "from": 1,
-        "to": 0
+        "from": "nodes[1]",
+        "to": "nodes[0]"
       }
     },
     "deliver_svc_2_to_0": {
       "deliver": {
         "function": "Node.StartViewChange",
-        "from": 2,
-        "to": 0
+        "from": "nodes[2]",
+        "to": "nodes[0]"
       }
     },
     "w2": {
-      "write": [
-        0,
-        "key1"
-      ]
+      "write": {
+        "dest": "nodes[0]",
+        "key": "key1"
+      }
     },
     "r1": {
-      "read": [
-        0,
-        "key1"
-      ]
+      "read": {
+        "dest": "nodes[0]",
+        "key": "key1"
+      }
     },
     "r2": {
-      "read": [
-        1,
-        "key1"
-      ]
+      "read": {
+        "dest": "nodes[1]",
+        "key": "key1"
+      }
     },
     "r3": {
-      "read": [
-        2,
-        "key1"
-      ]
+      "read": {
+        "dest": "nodes[2]",
+        "key": "key1"
+      }
     },
     "deliver_rec_2_to_1": {
       "deliver": {
         "function": "Node.Recovery",
-        "from": 2,
-        "to": 1
+        "from": "nodes[2]",
+        "to": "nodes[1]"
       }
     },
     "deliver_svc_2_to_1": {
       "deliver": {
         "function": "Node.StartViewChange",
-        "from": 2,
-        "to": 1
+        "from": "nodes[2]",
+        "to": "nodes[1]"
       }
     },
     "deliver_dvc_2_to_1": {
       "deliver": {
         "function": "Node.DoViewChange",
-        "from": 2,
-        "to": 1
+        "from": "nodes[2]",
+        "to": "nodes[1]"
       }
     },
     "deliver_rr_1_to_2": {
       "deliver": {
         "function": "Node.RecoveryResponse",
-        "from": 1,
-        "to": 2
+        "from": "nodes[1]",
+        "to": "nodes[2]"
       }
     },
     "deliver_rr_0_to_2": {
       "deliver": {
         "function": "Node.RecoveryResponse",
-        "from": 0,
-        "to": 2
+        "from": "nodes[0]",
+        "to": "nodes[2]"
       }
     },
     "deliver_pok_2_to_0": {
       "deliver": {
         "function": "Node.PrepareOK",
-        "from": 2,
-        "to": 0
+        "from": "nodes[2]",
+        "to": "nodes[0]"
       }
     },
     "deliver_sv_1_to_0": {
       "deliver": {
         "function": "Node.StartView",
-        "from": 1,
-        "to": 0
+        "from": "nodes[1]",
+        "to": "nodes[0]"
       }
     }
   },

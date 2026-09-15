@@ -2,7 +2,10 @@ package reader
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -54,5 +57,51 @@ func TestWriteRunsProjectedRejectsUnknownColumn(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("nothing may be written before the column check, got %q", buf.String())
+	}
+}
+
+// TestReadRunsDeploymentColumns reads the deployment id and parameter tuple
+// from a runs table and projects them by name.
+func TestReadRunsDeploymentColumns(t *testing.T) {
+	dir := t.TempDir()
+	for _, sub := range []string{"executions", "runs"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	out := filepath.Join(dir, "runs", "part-0.parquet")
+	if _, err := db.Exec(`COPY (SELECT * FROM (VALUES
+		(1::BIGINT, 'grid', 0::INTEGER, '{"n":3}'),
+		(0::BIGINT, 'grid', -1::INTEGER, '{"n":5}')
+	) AS t(run_id, arm, deployment_id, params)) TO '` + out + `' (FORMAT parquet)`); err != nil {
+		t.Fatalf("write runs: %v", err)
+	}
+
+	rows, err := ReadRuns(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(rows))
+	}
+	if rows[0].RunID != 0 || rows[0].DeploymentID != -1 || rows[0].Params != `{"n":5}` {
+		t.Errorf("run 0: %+v", rows[0])
+	}
+	if rows[1].RunID != 1 || rows[1].DeploymentID != 0 || rows[1].Params != `{"n":3}` {
+		t.Errorf("run 1: %+v", rows[1])
+	}
+
+	var buf bytes.Buffer
+	if err := WriteRunsProjected(&buf, rows, []string{"run_id", "deployment_id", "params"}); err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"run_id":0,"deployment_id":-1,"params":"{\"n\":5}"},{"run_id":1,"deployment_id":0,"params":"{\"n\":3}"}]` + "\n"
+	if buf.String() != want {
+		t.Errorf("projection:\n got %s\nwant %s", buf.String(), want)
 	}
 }

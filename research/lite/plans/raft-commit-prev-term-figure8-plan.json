@@ -1,5 +1,8 @@
 {
-  "num_servers": 3,
+  "deploy": "Main",
+  "params": {
+    "n": 3
+  },
   "num_runs": 1,
   "max_iterations": 2000,
   "strict_timers": true,
@@ -10,180 +13,180 @@
   },
   "events": {
     "t0_elect1": {
-      "allow_timer": [
-        0,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[0]",
+        "label": "election"
+      }
     },
     "t0_hb1": {
-      "allow_timer": [
-        0,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[0]",
+        "label": "election"
+      }
     },
     "w1": {
-      "write": [
-        0,
-        "x"
-      ]
+      "write": {
+        "dest": "nodes[0]",
+        "key": "x"
+      }
     },
     "write_at_0": {
       "deliver": {
         "function": "Node.Write",
-        "to": 0
+        "to": "nodes[0]"
       }
     },
     "crash_0a": {
-      "crash": 0
+      "crash": "nodes[0]"
     },
     "t2_clear": {
-      "allow_timer": [
-        2,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[2]",
+        "label": "election"
+      }
     },
     "t2_elect2": {
-      "allow_timer": [
-        2,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[2]",
+        "label": "election"
+      }
     },
     "t2_hb2": {
-      "allow_timer": [
-        2,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[2]",
+        "label": "election"
+      }
     },
     "w2": {
-      "write": [
-        2,
-        "x"
-      ]
+      "write": {
+        "dest": "nodes[2]",
+        "key": "x"
+      }
     },
     "write_at_2": {
       "deliver": {
         "function": "Node.Write",
-        "to": 2
+        "to": "nodes[2]"
       }
     },
     "crash_2a": {
-      "crash": 2
+      "crash": "nodes[2]"
     },
     "recover_0": {
-      "recover": 0
+      "recover": "nodes[0]"
     },
     "release_ae_0_1": {
       "deliver": {
         "function": "Node.AppendEntries",
-        "from": 0,
-        "to": 1
+        "from": "nodes[0]",
+        "to": "nodes[1]"
       }
     },
     "t0_elect3": {
-      "allow_timer": [
-        0,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[0]",
+        "label": "election"
+      }
     },
     "t0_hb3_commit": {
-      "allow_timer": [
-        0,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[0]",
+        "label": "election"
+      }
     },
     "t0_hb3_settle": {
-      "allow_timer": [
-        0,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[0]",
+        "label": "election"
+      }
     },
     "crash_0b": {
-      "crash": 0
+      "crash": "nodes[0]"
     },
     "recover_2": {
-      "recover": 2
+      "recover": "nodes[2]"
     },
     "t2_elect4": {
-      "allow_timer": [
-        2,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[2]",
+        "label": "election"
+      }
     },
     "t2_hb4": {
-      "allow_timer": [
-        2,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[2]",
+        "label": "election"
+      }
     },
     "release_ae_2_1": {
       "deliver": {
         "function": "Node.AppendEntries",
-        "from": 2,
-        "to": 1
+        "from": "nodes[2]",
+        "to": "nodes[1]"
       }
     },
     "t2_hb4_settle": {
-      "allow_timer": [
-        2,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[2]",
+        "label": "election"
+      }
     },
     "r_a": {
-      "read": [
-        2,
-        "x"
-      ]
+      "read": {
+        "dest": "nodes[2]",
+        "key": "x"
+      }
     },
     "t1_clear": {
-      "allow_timer": [
-        1,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[1]",
+        "label": "election"
+      }
     },
     "t1_elect5": {
-      "allow_timer": [
-        1,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[1]",
+        "label": "election"
+      }
     },
     "t1_hb5": {
-      "allow_timer": [
-        1,
-        "election"
-      ]
+      "allow_timer": {
+        "node": "nodes[1]",
+        "label": "election"
+      }
     },
     "r_b": {
-      "read": [
-        1,
-        "x"
-      ]
+      "read": {
+        "dest": "nodes[1]",
+        "key": "x"
+      }
     },
     "end_rvr_2_0": {
       "deliver": {
         "function": "Node.RequestVoteReply",
-        "from": 2,
-        "to": 0
+        "from": "nodes[2]",
+        "to": "nodes[0]"
       }
     },
     "end_ae_0_2": {
       "deliver": {
         "function": "Node.AppendEntries",
-        "from": 0,
-        "to": 2
+        "from": "nodes[0]",
+        "to": "nodes[2]"
       }
     },
     "end_rvr_0_2": {
       "deliver": {
         "function": "Node.RequestVoteReply",
-        "from": 0,
-        "to": 2
+        "from": "nodes[0]",
+        "to": "nodes[2]"
       }
     },
     "end_ae_2_0": {
       "deliver": {
         "function": "Node.AppendEntries",
-        "from": 2,
-        "to": 0
+        "from": "nodes[2]",
+        "to": "nodes[0]"
       }
     }
   },

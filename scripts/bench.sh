@@ -81,7 +81,8 @@ trap 'rm -f "$CONFIG"' EXIT
 
 cat > "$CONFIG" <<EOF
 {
-    "num_servers": $(range_json "$S_MIN" "$S_MAX" "$S_STEP"),
+    "deploy": "Main",
+    "params": {"n": $(range_json "$S_MIN" "$S_MAX" "$S_STEP")},
     "num_write_ops": $(range_json "$W_MIN" "$W_MAX" "$W_STEP"),
     "num_read_ops": $(range_json "$R_MIN" "$R_MAX" "$R_STEP"),
     "num_crashes": $(range_json "$CR_MIN" "$CR_MAX" "$CR_STEP"),

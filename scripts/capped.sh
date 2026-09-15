@@ -3,7 +3,7 @@
 # instead of triggering a global OOM.
 #
 #   ./scripts/capped.sh ./traceanalyzer/main -input output
-#   SPUR_MEM_CAP=8G ./scripts/capped.sh ./porcupine/main -input output -model kv
+#   SPUR_MEM_CAP=8G ./scripts/capped.sh ./porcupine/main -input output
 set -euo pipefail
 
 CAP="${SPUR_MEM_CAP:-12G}"

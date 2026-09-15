@@ -38,6 +38,12 @@ type RunRow struct {
 	// 1 placed crashes, 2 run-cap probe, 4 timer-context probe, 8 a crash
 	// hold was actually drawn. Zero for a corpus written before the column.
 	Variant int32 `json:"variant"`
+	// Index into the deployments table; -1 when the run failed before a
+	// deployment was chosen.
+	DeploymentID int32 `json:"deployment_id"`
+	// JSON object of the parameter tuple that selected the run, kept as the
+	// text the table stores.
+	Params string `json:"params"`
 }
 
 // runsDir returns the runs table directory of a parquet corpus, or "" when
@@ -145,6 +151,10 @@ func ReadRuns(path string) ([]RunRow, error) {
 				r.MaxInertStreak = int32(asInt64(v))
 			case "variant":
 				r.Variant = int32(asInt64(v))
+			case "deployment_id":
+				r.DeploymentID = int32(asInt64(v))
+			case "params":
+				r.Params = asString(v)
 			}
 		}
 		out = append(out, r)

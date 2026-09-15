@@ -86,12 +86,20 @@ type ExecutedMsg {
     base_v: list<int>;
 };
 
-role Node {
-    var self: int = 0;
-    var replicas: list<Node> = [];
-    var n: int = 0;
-    var f_val: int = 0;
-    var e_val: int = 0;
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+
+role Node(cluster: Cluster) {
+    var me: int = index_of(cluster.nodes, self)!;
+    var replicas: list<Node> = cluster.nodes;
+    var n: int = len(cluster.nodes);
+    var f_val: int = (n - 1) / 2;
+    var e_val: int = (n - f_val + 1) / 2;
 
     // Per-key register state
     var values: map<string, list<int>> = {};
@@ -128,12 +136,7 @@ role Node {
     var t_sccs: list<list<int>> = [];
     var v_valid: map<int, bool> = {};
 
-    fn Init(me: int, peers: list<Node>) {
-        self = me;
-        replicas = peers;
-        n = len(peers);
-        f_val = (n - 1) / 2;
-        e_val = (n - f_val + 1) / 2;
+    fn Init() {
     }
 
     // ===== Helpers =====
@@ -227,10 +230,10 @@ role Node {
         read_ops = read_ops[op_id] := ReadOp{
             key: key, phase: 1, r1_replies: [], r2_count: 0, result_ch: result_ch,
         };
-        <- HandleRead1(self, op_id, key);
+        <- HandleRead1(me, op_id, key);
         for node in replicas {
-            if (node != replicas[self]) {
-                node->HandleRead1(self, op_id, key);
+            if (node != replicas[me]) {
+                node->HandleRead1(me, op_id, key);
             }
         }
         <- result_ch
@@ -275,10 +278,10 @@ role Node {
                 // Slow path: propagate max to a quorum
                 op = op with { phase: 2, r2_count: 0 };
                 read_ops = read_ops[op_id] := op;
-                <- HandleRead2(self, op_id, op.key, max_v, max_cs);
+                <- HandleRead2(me, op_id, op.key, max_v, max_cs);
                 for node in replicas {
-                    if (node != replicas[self]) {
-                        node->HandleRead2(self, op_id, op.key, max_v, max_cs);
+                    if (node != replicas[me]) {
+                        node->HandleRead2(me, op_id, op.key, max_v, max_cs);
                     }
                 }
             }
@@ -322,10 +325,10 @@ role Node {
         write_ops = write_ops[op_id] := WriteOp{
             key: key, uid: uid, phase: 1, w1_replies: [], w2_count: 0, done_ch: done_ch,
         };
-        <- HandleWrite1(self, op_id, key);
+        <- HandleWrite1(me, op_id, key);
         for node in replicas {
-            if (node != replicas[self]) {
-                node->HandleWrite1(self, op_id, key);
+            if (node != replicas[me]) {
+                node->HandleWrite1(me, op_id, key);
             }
         }
         <- done_ch;
@@ -351,16 +354,16 @@ role Node {
             for var i = 1; i < len(op.w1_replies); i = i + 1 {
                 max_cs = cs_max(max_cs, op.w1_replies[i]);
             }
-            var new_cs: Carstamp = Carstamp{ ts: max_cs.ts + 1, id: self, rmwc: 0 };
+            var new_cs: Carstamp = Carstamp{ ts: max_cs.ts + 1, id: me, rmwc: 0 };
             var new_v: list<int> = [op.uid];
 
             op = op with { phase: 2, w2_count: 0 };
             write_ops = write_ops[op_id] := op;
 
-            <- HandleWrite2(self, op_id, op.key, new_v, new_cs);
+            <- HandleWrite2(me, op_id, op.key, new_v, new_cs);
             for node in replicas {
-                if (node != replicas[self]) {
-                    node->HandleWrite2(self, op_id, op.key, new_v, new_cs);
+                if (node != replicas[me]) {
+                    node->HandleWrite2(me, op_id, op.key, new_v, new_cs);
                 }
             }
         }
@@ -399,18 +402,18 @@ role Node {
 
         instances = instances[inst_id] := Instance{
             key: key, uid: uid, deps: local_deps, seq: seq,
-            base: base, status: 0, coordinator: self,
+            base: base, status: 0, coordinator: me,
         };
         pa_replies = pa_replies[inst_id] := [];
         pa_quorum_met = pa_quorum_met[inst_id] := false;
 
         var msg: PreAcceptMsg = PreAcceptMsg{
-            sender: self, inst_id: inst_id, key: key, uid: uid,
+            sender: me, inst_id: inst_id, key: key, uid: uid,
             seq: seq, deps: local_deps, base: base,
         };
         <- HandlePreAccept(msg);
         for node in replicas {
-            if (node != replicas[self]) {
+            if (node != replicas[me]) {
                 node->HandlePreAccept(msg);
             }
         }
@@ -494,12 +497,12 @@ role Node {
                 acc_count = acc_count[msg.inst_id] := 0;
 
                 var accept_msg: AcceptMsg = AcceptMsg{
-                    sender: self, inst_id: msg.inst_id, key: inst.key, uid: inst.uid,
+                    sender: me, inst_id: msg.inst_id, key: inst.key, uid: inst.uid,
                     seq: max_seq, deps: merged_deps, base: max_base,
                 };
                 <- HandleAccept(accept_msg);
                 for node in replicas {
-                    if (node != replicas[self]) {
+                    if (node != replicas[me]) {
                         node->HandleAccept(accept_msg);
                     }
                 }
@@ -535,11 +538,11 @@ role Node {
 
     fn broadcastCommit(inst_id: int, inst: Instance) {
         var commit_msg: CommitMsg = CommitMsg{
-            sender: self, inst_id: inst_id, key: inst.key, uid: inst.uid,
+            sender: me, inst_id: inst_id, key: inst.key, uid: inst.uid,
             seq: inst.seq, deps: inst.deps, base: inst.base,
         };
         for node in replicas {
-            if (node != replicas[self]) {
+            if (node != replicas[me]) {
                 node->HandleCommit(commit_msg);
             }
         }
@@ -763,7 +766,22 @@ role Node {
     }
 }
 
-ClientInterface {
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) {
+        return nil;
+    }
+    cluster(p.n)
+}
+
+client KVClient(sys: Cluster) {
     async fn Write(dest: Node, key: string, uid: int) {
         var ch: chan<()> = dest->CoordinateWrite(key, uid);
         <- ch;

@@ -395,7 +395,7 @@ export async function runOneEvaluation(
     const utilStats = utilSubset(readUtilizationSibling(outputDir));
     const campaignReport = campaign ? readCampaignSibling(outputDir) : null;
     const exposureMs = session !== null && session.wallMs > 0 ? session.wallMs : exploreRes.wallMs;
-    const porc = await porcupine({ inputDir: outputDir, model: "kv", timeoutMsPerRun: 3_000, timeoutMs: 900_000 });
+    const porc = await porcupine({ inputDir: outputDir, timeoutMsPerRun: 3_000, timeoutMs: 900_000 });
     const gr = await grade({
       inputDir: outputDir,
       dagConfigs: ctx.policy.evaluation.oracleDags.map(resolveRoot),

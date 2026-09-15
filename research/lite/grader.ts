@@ -74,7 +74,6 @@ interface LiteConfig {
   branch: string;
   relevantFiles: string[];
   budgets: { chunkSec: number; maxChunks: number; minChunks: number; rayonThreads: number; maxBuildSeconds: number; epochThroughputFloor?: number };
-  porcupineModel: string;
   violationPrior: RatePrior | null;
   allowBigLoopBaselineRecord: boolean;
 }
@@ -1429,12 +1428,11 @@ async function cmdSelftest(): Promise<void> {
 
 
 // The retired bug panel's manifest still describes each known-bug spec:
-// workload overlay, fault declaration, porcupine model, calibrated rates.
+// workload overlay, fault declaration, calibrated rates.
 interface PanelMember {
   id: string;
   spec: string;
   role: string;
-  porcupineModel: string;
   overlay: Record<string, unknown>;
   faults: { numCrashes: unknown };
   maxIterations: number;
@@ -1679,7 +1677,7 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
     // A killed explore leaves a valid partial corpus; the measured wall is
     // the rate denominator either way.
     const porc = await porcupine({
-      inputDir: path.join(dir, "out"), model: m.porcupineModel === "kv_rmw" ? "kv_rmw" : "kv",
+      inputDir: path.join(dir, "out"),
       timeoutMsPerRun: 10_000, timeoutMs: 900_000,
     });
     const violatingIds = porc.parsed?.violating_run_ids ?? [];

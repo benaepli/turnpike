@@ -14,4 +14,4 @@ cd ..
 
 # 2. Run Porcupine on output/ (auto-detects DuckDB file or Parquet directory)
 echo "Running Porcupine on output/..."
-./porcupine/main -input output -type duckdb -model kv -output-dir output
+./porcupine/main -input output -type duckdb -output-dir output

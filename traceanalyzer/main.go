@@ -20,7 +20,7 @@ func main() {
 	inputPath := flag.String("input", "", "Path to DuckDB file or Parquet output directory (required)")
 	runID := flag.Int64("run", -1, "Run ID to analyze (-1 for all runs)")
 	format := flag.String("format", "table", "Output format: table or json")
-	dagConfig := flag.String("dag-config", "", "Path to plan_config.json for DAG-ordering metric (optional)")
+	dagConfig := flag.String("dag-config", "", "Path to the plan_resolved.json run-plan writes, or the run-plan output directory holding it, for the DAG-ordering metric (optional)")
 	dagSwaps := flag.Int("dag-swaps", 200, "Local-search swap budget per run for DAG matching")
 	grade := flag.Bool("grade", false, "Grade mode: L0/L1 SQL metrics + budgeted DAG prefix depth per -dag-config (comma-separated), skipping the standard metrics")
 	gradeMaxRuns := flag.Int("grade-max-runs", 2000, "Grade mode: deterministic sample cap per DAG config (0 = all runs)")
