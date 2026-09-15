@@ -6597,3 +6597,16 @@ The stack against c302525.md, r = 15.51 / 14.23 = 1.090:
 - Placebo 1.94, 0.952 of 1.87 x r - inside [0.9, 1.1]; no referral.
 Every H2 guard holds. A's registered low-cutoff profile, read only for the old
 schedule_runnable::{closure#5} count pass, is the last reading before rounds.
+
+### queue-eligibility-from-counters-2: departure condition on the old count pass held (autonomous)
+
+Low-cutoff profile research/perf/profiles/c302525-cand-eligibility-from-counters-low-cutoff.md
+(--percent-limit 0.05, commit A), read only for the registered row with r =
+1.092 from A's profile (reader tmp/loop/perf/old-count-pass.py, which reads
+1.88 old / 0 new on c302525.md and 0 old / 1.47 new on A's plain profile):
+- the old <Map<Iter<Vec<Runnable>>, schedule_runnable::{closure#5}>>::fold
+  count pass, any generic instance: 0.000, at most 0.655 - held;
+- the change's own eligible_counts per-node map: 1.45 (description).
+The first departure condition holds. Rounds start: six cross-binary rounds of
+the A+B binary against c302525, read together; A merges only on upward
+separation of runs per second with every counter in band in every round.
