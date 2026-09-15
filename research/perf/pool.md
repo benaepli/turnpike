@@ -1758,3 +1758,53 @@ rounds of clock each:
 ## stores-skipped-over-value-in-three-words
 
 - category: combined | origin: proposer | status: not admitted (iteration 26) - composition finding: stack over 9340a2e 0.9349 against 0.9413 alone; value-in-three-words adds about 0.7 percent over the stores change; neither kept value patch earns rider credit over it without a direct same-session pair
+
+## print-chains-written-into-the-log
+
+- category: algorithmic | origin: proposer | status: admitted, building (iteration 27, autonomous)
+- mechanism: at decode (Rewrites::On), a println chain - the maximal backward
+  run of AssignLocal and StoreSkipped vertices ending in Print(Local(t)), every
+  vertex after the first with one predecessor counting function entries - is
+  symbolically evaluated into literal, string-copy and decimal pieces when every
+  folded slot and t are dead after the Print, the chain holds a tree, and
+  evaluation order equals piece order. Folded stores become Op::StoreFolded
+  (compiled_ops.stores_folded); the Print becomes Op::PrintParts, which reads
+  each piece once, checks kinds in evaluation order with base's exact error
+  text, reserves the exact length and writes the log bytes directly
+  (compiled_ops.prints_fused, compiled_ops.print_trees_folded). Vertex ids,
+  transitions, label_execs, pcs, the IR and program.json unchanged.
+- evidence: census 23,801 tree evaluations per VR run, 1,123 prints, string
+  Plus 2,304, IntToString 1,507; one-thread ABBA x4 over b20ee37 0.9571
+  (controls 1.0061, 1.0085, one build reused); 30-thread prototype profile r
+  1.0544: ceval 9.68 to 7.33 (-2.35 raw), drop_glue<ValueKind> 3.05 to 1.65,
+  EcoVec<u8> + Decimal -0.99, interpreter + value -3.90 x r; untouched rows move
+  x1.04-1.16, so r does not flatter. Identity exact on VR; tree_evals ratio
+  1.2295 on the identity mix.
+- verified by the judge: only Logs and TestLogger implement Logger; log text
+  is read only by the logs parquet; bytes identical for every piece kind
+  (Decimal::of_i64 both paths, no escaping). Holes fixed in the rewrite:
+  predecessors over graph edges only; StoreSkipped reuse breaks check.rs;
+  concatenation-order checks differ from evaluation order in right-nested
+  chains; the right-operand TypeError names "string". False: handles_not_cloned
+  as a literal-clone observable (it counts borrowed reads).
+- primary: counter compiled_expr.tree_evals, baseline over candidate, band
+  [1.17, 1.31] (campaign-mix center 1.2405); every round tree_evals per
+  label_execs [1.20, 1.28] and mix-free (tree_evals + print_trees_folded) /
+  label_execs on the candidate [0.410, 0.420]; runs per second [1.01, 1.07]
+  blocks only.
+- gates before round 1: G1 one-thread cycles at most 0.966 and at least 3 x a
+  fresh control's |1 - mean|; G2 on the 30-thread 0.3-cutoff profile ceval
+  8.40 r, drop_glue<ValueKind> 2.40 r, EcoVec<u8> + Decimal 0.95 r, exec_ops
+  9.50 r, interpreter + value + memmove + allocator 48.90 r, memmove +
+  allocator 12.60 r (r over 11.03, retake outside [0.95, 1.15]); G3
+  five-session identity with runs_failed equal and tree_evals(base) -
+  tree_evals(cand) = print_trees_folded exact; G4 release tests, check.rs
+  extended with four mutations, failing-chain and byte test.
+- merge: G1-G4 held, grader gain with zero blockers, per-round checks in band,
+  identity exact.
+- declarations: search-neutral, shared, no bit. Judge net 4 (gain 6, cost 2).
+- full record: tmp/loop/perf/it27-judgment.md.
+
+## leaf-calls-on-a-stack-frame
+
+- category: algorithmic | origin: proposer | status: not admitted (iteration 27) - priced slower: 1.0201 over b20ee37, 1.0190 over a slice-signature build; the stack frame's setup and second dispatch loop cost more than the heap frame

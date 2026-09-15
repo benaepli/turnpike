@@ -7532,3 +7532,31 @@ evaluator (ceval 9.68), priced on the implementation-faithful form.
   StoreSkipped vertices about 1.3 percent, struct literals placed at decode
   0.3, interned field ids 0.4, borrowed string literals (1,505 atomic count
   pairs per run, a contention cost a one-thread read cannot price).
+
+### Judgment (tmp/loop/perf/it27-judgment.md)
+
+H2 print-chains-written-into-the-log net 4 (cost 2, new op arm in exec.rs),
+recommended; H1 not admitted (its own reading, 1.0201, refutes it); the
+substitution ceiling and the unpriced leads are not candidates. Every ABBA,
+counter and profile figure reproduces. r does not flatter this profile: rows
+H2 does not touch move by x1.04-1.16 and the saving rows fall unscaled
+(ceval -2.35, drop_glue<ValueKind> -1.40, EcoVec<u8> + Decimal -0.99,
+allocator -0.42). Readers: only Logs and TestLogger implement Logger, log text
+reaches only the logs parquet, print_content.presized is equal, and bytes are
+identical for every piece kind. Holes in the prototype, rewritten: predecessor
+counts omitted function entries; reusing StoreSkipped for folded tree stores
+breaks the merged checker, so folded stores get Op::StoreFolded; kind checks
+ran in concatenation order, which differs from evaluation order in
+right-nested chains, and the right-operand TypeError names "string"; failing
+chains show only in runs_failed and a stderr line, so a release test is owed.
+Primary compiled_expr.tree_evals band [1.17, 1.31] centered on the campaign
+mix (1.2405 from 21 baseline rounds of trees and prints per label), with a
+per-label band and a mix-free sum checked every round. The priced prototype is
+an upper bound on the implementation's hot-path cost (it reads string pieces
+twice and builds eight Decimals per print); G1 at most 0.966. False: the
+literal-clone observable (handles_not_cloned counts borrowed reads, not
+clones).
+
+Selection (autonomous): build H2 as one commit on b20ee37. Merge basis as
+frozen: G1-G4 held, grader gain with zero blockers, per-round checks in band,
+identity exact. A fresh identical-source layout control is built for G1.
