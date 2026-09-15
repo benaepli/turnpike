@@ -8468,3 +8468,49 @@ loop and the new helpers), wrote return conditions including a direct stack
 pricing with the kept frames commit A, refuted the proposer's claim that the
 main-tree base is a slow layout, and corrected the G1 design. Tree unchanged at
 spur 3b53d0a.
+
+## Iteration 32 - autonomous, redundant-work lens, profile 3b53d0a
+
+Lens: redundant work per step. Focus directive from the direction review:
+executed label vertices that do no work, primary compiled_ops.label_execs.
+
+### Proposals (tmp/loop/perf/it32-proposals.md)
+
+- Census, VR 3,008 runs at one thread: 57,896.7 executed vertices per run, of
+  which 19,513.5 (0.337) are no-ops (StoreSkipped 12,097.8, StoreFolded
+  7,095.5, Goto 320.1); removable by threading 18,975.8 dispatch iterations
+  (32.8 percent). No-op runs were entered after an op only the running loop
+  follows (10,886.2), at a synchronous callee's entry (4,512.6), at a segment
+  start (3,577.1), and after SetTimer, Send or Recv (537.7).
+- H1 threaded-successors-past-no-op-vertices (proto2, 248-line diff): decode
+  time builds threaded_ops with every loop-followed successor moved to its
+  first working vertex (a no-op cycle keeps its vertex), SyncCallOp.entry
+  threaded, and a working[] table for segment and top-level starts; stored
+  successors (SetTimer, Send, Recv, Pause) keep their ids; Rewrites::Off and
+  loops whose feedback records transitions (Cfg, Full) keep the plain ops;
+  exec_ops sets record.pc = working[pc] after the note_delivery check. No new op
+  or counter.
+- Identity on VR, crash-heavy, Mencius, SDPaxos, purgatory VR (151,429 delayed
+  sends), feedback "both" VR and caps-engaged 100,000 (all tables EXCEPT ALL
+  empty, including 86,370,102 traces rows): parquet and stall caps identical,
+  end reasons equal, runs_failed 0; only label_execs, stores_skipped and
+  stores_folded differ. label_execs ratios VR 1.4875, crash-heavy 1.4721,
+  Mencius 1.2788, SDPaxos 1.2311, purgatory 1.4925, caps 1.4889, feedback
+  "both" equal; on VR the fall equals the fall in skipped and folded stores
+  plus the base's Goto count exactly.
+- Corrected G1: s1 0.9736 over the main-tree base, 0.9888 over a worktree base,
+  control 1.0041, effect test failed (0.0112 against 0.0123); retake s3 0.9658
+  and 0.9798, control 0.9994, effect passed (0.0202 against 0.0019), two of
+  four main-tree base runs above the 1 percent absolute band. s2 (without
+  entry and start threading) 0.9836 and 0.9942.
+- 30-thread profile research/perf/profiles/3b53d0a-proto-threaded-successors-low-cutoff.md,
+  read by the operator (the proposer's rows.py divided by zero on this pair):
+  r over 24 untouched spur rows 1.0288 (ratios 0.898-1.237), over 11 writer
+  rows 1.0473; exec_ops 8.23 to 7.11 (-1.36 and -1.51 at the two r),
+  interpreter -1.97 unscaled (-2.69, -3.15), broad family -1.86 unscaled
+  (-3.26, -4.16), memmove +0.14 and -0.01, scheduler -0.14 and -0.39: the
+  saving shows at both r and unscaled, unlike iterations 30 and 31.
+- Primary compiled_ops.label_execs per run [1.38, 1.60], per steer_authority
+  step [1.45, 1.54]; neutral, shared, no bit. Leads not built: Send's running
+  successor threaded (537.7 per run); composition with the held
+  sync-calls-run-in-the-caller-frame.
