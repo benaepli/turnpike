@@ -1651,3 +1651,54 @@ rounds of clock each:
 
 - category: contention and parallelism | origin: proposer | status: not built (iteration 24) - net 0; grid-pool-worker-continues stands; buys utilization, not cycles, on a heat-bound host
 - declarations: search-neutral, shared. Judge net 0 (gain 2, cost 2).
+
+## value-in-three-words
+
+- category: data layout and representation | origin: proposer | status: admitted, building (iteration 25, autonomous)
+- mechanism: commit A (value-signature-storage-dropped): HashPolicy::Sig is
+  () under NoHashing, Value<NoHashing> 32 bytes, readers call Value::sig().
+  Commit B (wide-value-payloads-in-two-words): Struct as a u32 shape id,
+  Channel and FifoLink packed into two words (role and index checked below
+  2^32 at topology build, failures counted), Variant as (enum id, interned
+  name id, payload), names resolved for Ord, text, JSON, Debug and the
+  WithHashing signature; Value<NoHashing> 24 bytes.
+- evidence: one-thread cycles on VR 3,008, prototypes P1 0.985, P2 0.967 (Arc
+  variant form), identical-build control 1.006 with base always first; judge
+  concedes P2 to about 0.973 for run position. Replaces the cost of
+  value-without-dead-signature.
+- verified by the judge: sig is 0 on every NoHashing path and read only
+  through H::mix (0); Hash uses compute_sig_leaf_only, so map order is
+  unchanged; shape interning is compile-time only; WithHashing is test-only.
+  False: CLOCK_THREAD_CPUTIME_ID is a syscall here, not vDSO; counter bands
+  written in the wrong direction; program.json is ir::Program, not CExpr;
+  H2's 0.982 was a ratio of ratios (absolute 0.986); memmove did fall about
+  0.8 at P2.
+- primary: cross-binary runs per second, band [1.02, 1.05], inside the 0.05
+  floor; run_cpu.sim_thread_ns rejected as a counter primary (a cost clock,
+  not a mechanism count).
+- gates before round 1: G1 B over 9340a2e one-thread cycles, ABBA x4 with a
+  fresh layout control, at most 0.978 and at least 3 x the control's
+  |1 - mean|; G2 A at most 0.992, B over A at most 0.990; G3 five-session
+  identity at A and B plus program.json, topology_pack_failures 0; G4 on B's
+  0.3-cutoff profile clone family at most 3.3 x r, drop rows rise at most
+  0.4 x r.
+- counters (description): value_layout.value_bytes 24,
+  value_layout.topology_pack_failures 0, value_layout.variant_runtime_interns
+  0 on VR; label_execs and frame.slots_built per steer_authority.steps in
+  [0.99, 1.01].
+- declarations: search-neutral, shared, no bit. Judge net 4 (gain 6, cost 2).
+- full record: tmp/loop/perf/it25-judgment.md.
+
+## value-signature-storage-dropped
+
+- category: data layout | origin: proposer | status: commit A of value-in-three-words; a rider on its own, never its own session
+- declarations: search-neutral, shared. Judge net 4 (gain 4, cost 0).
+
+## wide-value-payloads-in-two-words
+
+- category: data layout | origin: proposer | status: commit B of value-in-three-words only
+- declarations: search-neutral, shared. Judge net 2 (gain 4, cost 2) - rewrites the Channel, FifoLink and Variant arms of history.rs JSON.
+
+## runtime-error-behind-one-pointer
+
+- category: data layout | origin: proposer | status: closed before build (iteration 25) - prototype read 1.016 cycles over the 24-byte Value, slower; Result<Value> handoff width is not a priced cost

@@ -6969,3 +6969,72 @@ census. Steering audit: the last merges came from the algorithmic (23),
 contention (22), redundant-work (21) and layout (20) lenses; the directive
 pulls back to a representation mechanism rather than one function. Pool
 pruning: nothing dropped; register-ops-written-in-place stays unbuilt.
+
+## Iteration 25 - autonomous, data layout lens, profile 9340a2e
+
+Lens: data layout and representation. Focus directive from the direction
+review: the width and shape of the Value unit.
+
+### Proposals (tmp/loop/perf/it25-proposals.md)
+
+One-thread cycles reads, three alternating pairs each, on the VR 3,008-run
+identity session, spur command only (writers and dot excluded); prototypes
+built in a throwaway worktree, now removed. Two identical builds read 1.006.
+- P1, stored signature dropped under NoHashing (always 0 on the explore
+  path), Value 40 to 32 bytes: 0.985 [0.980, 0.988].
+- P2, P1 plus the four wide variants packed (struct shape as a 4-byte id,
+  Channel and FifoLink in two words, Variant name and payload behind one
+  Arc), Value 24 bytes: 0.967 [0.959, 0.972]. VR, Mencius and SDPaxos
+  executions, logs, traces and stall-cap files byte-identical. One-thread
+  profile: clone row 4.85 to 3.53, memmove -0.5, exec_ops -0.5, drop rows
+  flat (header decrements, not per-byte work).
+- P3, P2 plus RuntimeError behind one pointer (Result<Value> 48 to 24): 1.016
+  over P2, slower; not proposed.
+
+Premise corrections: Record and Runnable (248 bytes) hold no Value inline,
+so memmove is not paid by Value width (9.19 to 8.67 at P2); RuntimeError is
+40 bytes, so Result<Value> stays 48 however narrow Value gets, which also
+weakens register-ops-written-in-place's handoff-width pricing.
+
+Hypotheses, all neutral, shared, no bit (width is a type-level property):
+H1 value-signature-storage-dropped [1.006, 1.020]; H2
+wide-value-payloads-in-two-words over H1 [1.006, 1.022], with interned
+variant name ids instead of the prototype's Arc; H3 value-in-three-words
+(H1 + H2) [1.02, 1.05], counter run_cpu.sim_thread_ns [0.955, 0.985], new.
+Every band is below the 0.05 floor. Crash-heavy and caps-engaged identity
+not yet run on any prototype.
+
+### Judgment (tmp/loop/perf/it25-judgment.md)
+
+H3 value-in-three-words net 4 (commit A = H1 net 4, commit B = H2 net 2,
+cost 2 for the history.rs JSON arms); runtime-error-behind-one-pointer
+recorded as a negative result. Verified: stored signatures are 0 on every
+NoHashing path and read only through H::mix; map hash bits and order come
+from compute_sig_leaf_only; shapes are interned at compile time only;
+WithHashing is test-only. The ratios reproduce from the comm sums (control
+1.0061, P1 0.9848, P2 0.9672), but every pair ran base first, so the control
+confounds build with run position; the judge concedes P2 to about 0.973.
+Rejected: run_cpu.sim_thread_ns as the counter primary - thread CPU time is a
+cost clock carrying the layout, heat and contention noise the 0.05 floor
+exists for, and no per-run count prices a width change. The primary is
+cross-binary runs per second, band [1.02, 1.05], declared inside the floor
+with an expected verdict of inconclusive or no-gain. Pre-round gates G1-G4
+carry the evidence: ABBA one-thread cycles with a fresh layout control (B at
+most 0.978 and at least 3 x the control's spread; A at most 0.992; B over A
+at most 0.990), five-session identity at both commits, 0.3-cutoff profile
+guards on the clone and drop families.
+
+### value-in-three-words: merge basis registered (autonomous)
+
+Selection: H3, the only admitted unit. Departure registered now, before any
+build or round: the grader's advice cannot read a band inside its floor, so
+value-in-three-words merges on G1, G2, G3 and G4 all held, identity exact on
+all five sessions at both commits, six cross-binary rounds with runs per
+second not separating downward (no grader regressed or refuted), equal-work
+ratios in [0.99, 1.01] every round and history_writer.blocked_ns 0. A failed
+G2 on B reverts B before rounds and leaves A as a pool rider, not a session.
+Reason: the change is identity-exact, so one-thread cycles on identical work
+measure its price on a sharper instrument than the wall, and the shared
+footprint part that instrument cannot see can only add to it; the wall is
+kept as the guard against a 30-thread cost the one-thread read misses. The
+same basis would not be applied to a change that is not byte-identical.
