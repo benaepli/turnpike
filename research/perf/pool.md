@@ -2000,3 +2000,58 @@ rounds of clock each:
   frame with a Node dest, and compiled/test.rs:65 rescoped.
 - declarations: search-neutral, shared. Judge net 3.
 - full record: tmp/loop/perf/it31-judgment.md.
+
+## threaded-successors-past-no-op-vertices
+
+- category: redundant work per step | origin: proposer | status: admitted, building (iteration 32, autonomous)
+- mechanism: at decode under Rewrites::On, threaded_ops moves every successor
+  only the running loop follows to its first working vertex (a no-op cycle
+  keeps its vertex); a working[] table and a threaded SyncCallOp.entry
+  (UNRESOLVED_CALLEE falls back to func_info.entry); SetTimer, Send, Recv,
+  Pause and Return successors unchanged; under Rewrites::Off the threaded
+  array is the plain array and working is the identity; loops whose feedback
+  records transitions (Cfg, Full) run the plain ops; exec_ops sets record.pc =
+  working[pc] after the note_delivery block and exec_sync_on_node resolves
+  start_pc the same way. Removes 18,975.8 of 57,896.7 dispatch iterations per
+  VR run.
+- evidence: census 0.337 of executed vertices are no-ops; identity exact on
+  seven sessions (VR, crash-heavy, Mencius, SDPaxos, purgatory VR, feedback
+  both, caps-engaged across 86,370,102 traces rows); one-thread pooled over
+  four sessions 2.1 percent over a worktree base (1.1-2.6) and 2.95 percent
+  over the main-tree base (2.6-3.4); 30 threads exec_ops 8.23 to 7.11,
+  interpreter -1.97 unscaled, broad -1.86 unscaled, no relocation.
+- verified by the judge: every stored pc comes from an unthreaded field or a
+  function entry and is read before resolution; transitions recorded only by
+  Cfg and Full; label_execs has no search reader; feedback kind fixed per run.
+  Counter identity exact in source only as delta label = delta skipped + delta
+  folded + Gotos(base) - Gotos(cand). rows.py keyed rows on the binary name.
+  False or misleading: only TimelineFeedback instances in the profile; the
+  stores_skipped per label range; label_execs per step variation; the work-per-step
+  elasticity; the Goto column as exact on every session.
+- primary: compiled_ops.label_execs, baseline over candidate, per run [1.36,
+  1.64], center 1.497; every round C1 label_execs per tree_evals [1.48, 1.52],
+  C2 per steer_authority.steps [1.43, 1.57], C3 candidate stores_folded per
+  label at most 0.001 and stores_skipped per label [0.005, 0.025], C4 candidate
+  leaf_operands_inline per tree_evals [3.0587, 3.1065] and frame.calls per
+  tree_evals [0.17618, 0.18384].
+- gates before round 1: G1 corrected one-thread session (candidate over the
+  main-tree base and over a worktree base, fresh control), less favorable mean
+  at most 0.985, effect at least 3 x the control's distance, every candidate
+  pair below the lowest control pair, main-tree base within 3.664-3.776e10, one
+  retake that decides; G2 30-thread profile triple in one session (base,
+  identical-source rebuild, implementation; binary name normalized in row
+  keys; spur-row r over at least 20 rows and writer-row r over at least 10,
+  retake if they differ by more than 0.08): G2a exec_ops at most 7.49 r, G2b
+  exec_ops + run_sync_ops at most 11.45 r, G2c interpreter at most 24.22 r, G2d
+  broad at most 49.28 r (regression only), G2e implementation minus rebuild,
+  each over its own r, at most -0.80 on exec_ops + run_sync_ops and at most
+  -0.70 on the interpreter family (a no-op fails it), rebuild within +-0.80 of
+  base; G3 identity on seven sessions with VR label_execs exactly 117,074,049
+  and residuals elsewhere non-negative and at most 0.012 of base label_execs;
+  G4 release tests (check_threaded rules 1-6, mutations a-h, spec-wide test,
+  T1-T7).
+- merge: G1-G4 held, grader gain with zero blockers and the primary inside its
+  band, C1-C4 inside every round, spread check inside, runs per second not
+  separating downward, identity exact. Rounds 3 to 6.
+- declarations: search-neutral, shared, no bit. Judge net 5 (gain 7, cost 2).
+- full record: tmp/loop/perf/it32-judgment.md.

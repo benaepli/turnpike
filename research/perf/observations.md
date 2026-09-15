@@ -8514,3 +8514,33 @@ executed label vertices that do no work, primary compiled_ops.label_execs.
   step [1.45, 1.54]; neutral, shared, no bit. Leads not built: Send's running
   successor threaded (537.7 per run); composition with the held
   sync-calls-run-in-the-caller-frame.
+
+### Judgment (tmp/loop/perf/it32-judgment.md)
+
+H1 threaded-successors-past-no-op-vertices admitted at net 5 (gain 7, cost 2),
+prediction rewritten. Soundness: every stored pc comes from an unthreaded field
+or a function entry and every reader of a stored pc runs before resolution; a
+record that parks writes an unchanged stored successor or the SpinAwait vertex,
+as base does; transitions are recorded only by Cfg and Full feedback, which run
+the plain ops; label_execs has no search reader; the feedback kind is fixed per
+run (general_vr sets timeline with no arm overlay); callee-entry threading and
+the no-op cycle rule are sound. Primary: label_execs is a valid count of
+dispatch iterations not done that proves the rewrite fired; the counter
+identity is exact in source only with a Gotos(cand) term. Price: s1-s3
+reproduce; the judge's two sessions pass the corrected G1 (J1 0.9746 over the
+worktree base, 0.9710 over the main tree, control 0.9998; J2 0.9739 and 0.9715,
+control 0.9971); pooled over s1, s3, J1 and J2 the saving is 2.1 percent over a
+worktree base and 2.95 percent over the main-tree base; session-to-session
+spread dominates within-session spread, so sessions are pooled rather than
+passed or failed one at a time. The absolute-level check moves to 3.72e10 +-1.5
+percent: four of the last 20 main-tree base runs sat above 3.737e10 in
+undisturbed sessions. 30 threads: rows.py failed because it keyed rows on the
+binary's file name; the operator's reading reproduces exactly; it differs in
+kind from iterations 30 and 31 (the removed symbol falls in every reading with
+no relocation), but with no same-session identical-source pair the rewrite
+makes that pair a pre-round gate (G2 triple, G2e). Value: worth building,
+gated. Composing with the held sync-calls patch changes nothing now; if H1
+merges, that patch must be re-priced over it.
+
+Selection (autonomous): build H1 as one commit on 3b53d0a. Merge basis as
+frozen. G1 and G2 are run by the operator; the implementer owes G3 and G4.
