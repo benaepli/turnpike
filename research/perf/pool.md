@@ -1702,3 +1702,59 @@ rounds of clock each:
 ## runtime-error-behind-one-pointer
 
 - category: data layout | origin: proposer | status: closed before build (iteration 25) - prototype read 1.016 cycles over the 24-byte Value, slower; Result<Value> handoff width is not a priced cost
+
+## stores-skipped-and-temps-moved
+
+- category: redundant work per step | origin: proposer | status: admitted, building (iteration 26, autonomous)
+- mechanism: CompiledProgram::build_with(program, Rewrites) runs whole-graph
+  local liveness over cfg.graph. Commit A (stores-skipped-at-decode): a local
+  store whose right-hand side is its own slot, or a slot or literal into a
+  slot not live afterwards, becomes Op::StoreSkipped(next). Commit B
+  (temps-moved-into-consumers): Return(Local) becomes ReturnTake (moves only
+  when not EAGER and the frame is unique, otherwise clones and counts
+  returns_cloned_shared); a temp read only by a single-predecessor next vertex
+  as its whole Cond, Return or Print operand, dead after it, becomes
+  Op::TempMoved and the consumer evaluates the tree. Vertex ids, transitions,
+  label_execs, the IR and program.json unchanged.
+- evidence: one-thread ABBA x4 on VR 3,008: control 0.9926; A-form 0.9565; full
+  0.9413; B over A 0.9862. 30-thread prototype profile, r 1.0918: interpreter
+  -3.53, value -3.06, clone rows -1.56 (unscaled interpreter -1.03). Identity
+  exact on five sessions per the proposer (only the VR stack dumps kept).
+- verified by the judge: no non-test reader sees a skipped store (trace
+  capture, logs, history, parked frames, timers, crash and reset, persist,
+  Debug, State::signature, coverage and timeline keys, node-env tokens);
+  liveness sound across loops and entries; a failing run is discarded before
+  reward, merge and row. Missed by the prototype: ReturnTake bypassed the
+  uniqueness check. False: 27,606 rewritten per run (21,584; consumers counted
+  twice); 9.3 percent independent composition (9.2). Control reused across
+  both proposer sessions.
+- primary: counter compiled_expr.leaf_operands_inline, baseline over
+  candidate, band [1.22, 1.34] (A alone [1.11, 1.23]); runs per second
+  description [1.04, 1.09], can only block.
+- gates before round 1: G1 B over 9340a2e one-thread cycles at most 0.955,
+  at least 3 x a fresh control's |1 - mean|; G2 A at most 0.968, B over A at
+  most 0.993; G3 five-session identity at A and B with the leaf identity
+  leaf(base) - leaf(cand) = stores_skipped + temps_fused exact, runs_failed
+  equal, returns_cloned_shared 0; G4 on B's 30-thread 0.3-cutoff profile
+  exec_ops at most 9.08 x r, clone rows 3.20 x r, interpreter + value 38.67 x
+  r, memmove + allocator 12.89 x r, r retaken outside [0.95, 1.15]; G5
+  release tests (loops agree with rewrites off, rewrites agree, independent
+  read-after-skip checker rejecting three mutations, error-order test).
+- merge: G1-G5 held, grader gain with zero blockers over six rounds,
+  per-round counters in band, identity exact.
+- declarations: search-neutral, shared, no bit. Judge net 5 (gain 7, cost 2).
+- full record: tmp/loop/perf/it26-judgment.md.
+
+## stores-skipped-at-decode
+
+- category: redundant work per step | origin: proposer | status: commit A of stores-skipped-and-temps-moved; graded alone only if B is reverted at G2
+- declarations: search-neutral, shared. Judge net 4 (gain 6, cost 2).
+
+## temps-moved-into-consumers
+
+- category: redundant work per step | origin: proposer | status: commit B of stores-skipped-and-temps-moved
+- declarations: search-neutral, shared. Judge net 3 (gain 5, cost 2).
+
+## stores-skipped-over-value-in-three-words
+
+- category: combined | origin: proposer | status: not admitted (iteration 26) - composition finding: stack over 9340a2e 0.9349 against 0.9413 alone; value-in-three-words adds about 0.7 percent over the stores change; neither kept value patch earns rider credit over it without a direct same-session pair

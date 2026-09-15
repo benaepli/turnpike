@@ -7247,3 +7247,33 @@ candidate [1.24, 1.32], wall [1.04, 1.09]); H4 H3 over value-in-three-words,
 not proposed. Owed before rounds: a read-after-skip checker with a mutation
 test; the loops-agree test compares Debug state under WithHashing and needs
 rescoping; an error in a moved temp is raised one vertex later.
+
+### Judgment (tmp/loop/perf/it26-judgment.md)
+
+H3 stores-skipped-and-temps-moved net 5 (A net 4, B net 3; cost 2 each, new
+op arms in exec.rs), recommended; H4 not admitted. Readers: no non-test reader
+of a skipped store (trace capture, logs, history, parked frames, timers, crash
+and reset, persist, Debug output, State::signature, coverage and timeline
+keys, node-env write tokens); liveness sound. Missed: the prototype's
+ReturnTake called make_mut directly, bypassing set_local's uniqueness check
+and entry_frame_copies; it must move only from a unique frame and count the
+shared case. Error order: a failing run leaves through exec_plan before
+reward, coverage merge and row, identically on both sides; the identity
+sessions exercise no failing runs, so a release test is owed. Primary:
+leaf_operands_inline is a count of work, valid as a counter primary on the
+0.01 floor, band [1.22, 1.34] widened for run mix; runs per second only
+blocks. Evidence: every ABBA mean and profile delta reproduces, but the family
+falls depend on r = 1.0918 (unscaled interpreter -1.03, memmove + allocator
++0.60), so the G4 guards are re-derived to pass the prototype at any r of at
+least 1.0 and a profile with r outside [0.95, 1.15] is retaken once. The
+proposer's layout control was a single build reused across both sessions.
+False: 27,606 rewrites per run (21,584; fused consumers counted twice); 9.3
+percent independent composition (9.2).
+
+Selection (autonomous): build H3 as commits A and B. Merge basis is the
+frozen one: G1-G5 held, grader gain with zero blockers over six rounds,
+counters in band, identity exact. A fresh identical-source layout control is
+built for G1 rather than reusing iteration 25's. One registered adjustment to
+G3's "outputs and dumps kept": session.json, utilization dumps and comparison
+reports are kept until the decision; parquet files are deleted after byte
+comparison with their sha256 recorded both sides.
