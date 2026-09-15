@@ -7204,3 +7204,46 @@ one-thread cycles 0.9564 for the stack against a 0.9988 layout control, A
 (3.82 against at most 3.33): at 30 threads the saving shows in interpreter and
 frame rows. Closed without rounds under the basis registered before the build;
 patches kept. Tree unchanged at spur 9340a2e.
+
+## Iteration 26 - autonomous, redundant-work lens, profile 9340a2e
+
+Lens: redundant work per step. Focus directive from the direction review: the
+interpreter family, size first, priced on a one-thread ABBA read with a layout
+control, location guards from a 30-thread prototype profile.
+
+### Proposals (tmp/loop/perf/it26-proposals.md)
+
+- One-thread attribution on base: AssignLocal's right-hand clone 1.40 points
+  and the replaced slot's drop 2.84; the stalled load at the join carries 35
+  percent of exec_ops' own cycles and 38 percent of run_sync_ops'.
+- Census of executed vertices on VR (57,897 per run): 9,694 Unit stores, 5,294
+  of them overwritten by the next vertex; 2,741 x = x self-copies left by slot
+  coloring; about 5,000 boolean temps tested once by the next CondLocal; 3,467
+  Return(Local) cloning a value whose frame is dropped next. The liveness that
+  colors slots already proves most of these stores dead.
+- Prototype, decoded once per program with vertex ids and pc transitions kept
+  (a skipped store is an executed Goto): self-copies and liveness-dead local
+  stores become Goto; Return(Local) moves out of the slot (clones under
+  EAGER); a temp read only by a single-predecessor next vertex as its whole
+  condition, return or print value moves into that vertex. 27,606 of 57,897
+  executed vertices rewritten per VR run.
+- Identity exact on VR, crash-heavy, Mencius, SDPaxos and caps-engaged (holds
+  23,640,317 both sides); label_execs, tree_evals and frame.calls identical;
+  leaf_operands_inline falls by exactly the removed stores plus moved temps.
+- One-thread ABBA x4 on VR 3,008: control 0.9926; PA (rules 1-2) 0.9565; PB
+  (rules 1-4) 0.9413; PB over PA 0.9862.
+- 30-thread profile of PB research/perf/profiles/9340a2e-proto-stores-skipped-low-cutoff.md,
+  r 1.0918: interpreter -3.53, value -3.06, every Clone row -1.56, exec_ops
+  -2.17, memmove + allocator -0.49.
+- Composition, second ABBA session (control 0.9960): value-in-three-words over
+  base 0.9643, stack over base 0.9349, stack over value-in-three-words 0.9731.
+  Independent savings would give about 9.3 percent; the stack gives 6.5. The
+  kept value patches are not worth their standalone prices over this change.
+
+Hypotheses: H1 stores-skipped-at-decode and H2 temps-moved-into-consumers as
+commits A and B of H3 stores-skipped-and-temps-moved (graded unit, neutral,
+shared, no bit, counter compiled_expr.leaf_operands_inline baseline over
+candidate [1.24, 1.32], wall [1.04, 1.09]); H4 H3 over value-in-three-words,
+not proposed. Owed before rounds: a read-after-skip checker with a mutation
+test; the loops-agree test compares Debug state under WithHashing and needs
+rescoping; an error in a moved temp is raised one vertex later.
