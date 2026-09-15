@@ -7852,3 +7852,148 @@ before grading. That is a round spent on measurement alone, which the loop
 does not buy; a mechanism that needs a new counter adds it in its own change.
 If H3 reads no-gain it is held with its patch kept, as stated at admission.
 Merge basis as frozen.
+
+### frames-and-node-env-held-once: implementer report and operator review (autonomous)
+
+Export tmp/loop/perf/frames-and-node-env-held-once/: cand-A-spur (spur
+9b0ae29), cand-spur (A + B, dac49cf), spur-A.patch, spur.patch (applies on the
+main tree's spur), spur-B-over-A.patch. G4: full release suite at A 549 passed
+and at B 552 passed, including the re-delivery test at all five reset sites
+(the kept frame equals build_frame slot by slot, in sig and writes, and a
+yielding record is rebuilt), never-yield bit tests (a receive in a branch or
+loop body yields; a sync callee that receives fails), pool tests (shared
+buffer not kept, cap 32, clone empty; pooled frames equal fresh frames for every
+function of every spec at every argument count under both hash policies), and
+detach tests (writeback on error, write token mid-segment, same-node wake into
+a node slot). G3 at A and at B on VR, crash-heavy, Mencius, SDPaxos and
+caps-engaged (10,000-run chunks): executions, logs, traces parquet and stall
+caps identical with equal sha256 manifests, runs tables EXCEPT ALL empty both
+ways, end reasons equal, runs_failed 0 = 0, crash holds 23,640,317 on caps;
+label_execs, tree_evals, leaf_operands_inline, stores_skipped, presized,
+call_targets.indexed, channels_created, steps and entry_frame_copies equal;
+frame.calls(base) - frame.calls(cand) = resets_kept_frame exactly on every
+session (VR 282,259; caps 3,770,943); slot leaves fall by exactly the kept
+frames; shared_at_write 0 on every session; args_held_in_frame / async_frames
+VR 0.644, crash-heavy 0.623, caps 0.639 (in [0.55, 0.75]); buffers_reused +
+buffers_allocated = call_targets.indexed on all five. Writer leaves that
+differ (int_dict, text buffers, gather and str_stats slices) are timing.
+program.json: base alone varies between compiles on VR; every candidate
+compile equals some base compile after parsing; the new bits are not
+serialized.
+Deviations accepted: run_record_ops writes the env back at each non-error exit
+before parking or calling the continuation in place rather than returning
+Parked or Returned, and exec_ops' wrapper puts it back on error (the
+disassembly shows base already makes one direct call to a standalone
+Continuation::call per exec_ops instance, so the prototype's inlining claim
+did not hold); FramePool's Debug is a constant; new statics on the session
+reset list; zero-capacity frame requests uncounted; the held-argument sizing
+reads call_functions without a tally before the counted lookup.
+
+Operator review of the non-test diff: the never-yield walk follows the
+function's own graph from its entry, does not enter callees, and treats a
+receive, pause, spin-await or out-of-graph successor as a yield; held
+arguments are used only when the argument count fits both the parameter and
+slot counts, evaluated in order into a pooled buffer before the counted
+callee lookup, as base orders them; Record::reset keeps the frame only under
+!EAGER with empty initial_args and a never-yield entry, and every production
+Record construction with empty initial_args (path.rs:249 client requests,
+scheduler.rs:2456 recovery, exec.rs:378 and 1283 async sends) builds its frame
+from those same arguments, while the other three empty-args constructions are
+test fixtures, so a kept frame equals the one reset would rebuild;
+recycle_frame keeps only unique non-empty buffers and clears them in place;
+take_node_env detaches into a placeholder carrying sig and writes, and every
+exit puts it back before the record is stored or the continuation runs. The
+diff matches the frozen mechanism and stays in spur/.
+
+### frames-and-node-env-held-once: G1a and G1b fired; closed before rounds (autonomous)
+
+One-thread cycles on the VR 3,008 identity session, four ABBA pairs per
+contrast, scripts tmp/loop/perf/it28-gates/abba.sh and read.py (raw lines
+cycles.txt). Fresh identical-source layout control of 3b53d0a built in
+.claude/worktrees/lc-e8.
+- Control over 3b53d0a: 0.9918, 1.0100, 1.0039, 1.0087; mean 1.0036, |1 -
+  mean| 0.0036.
+- G1a, A + B over 3b53d0a: 0.9650, 0.9642, 0.9703, 0.9673; mean 0.9667, at
+  most 0.960 - FIRED (every pair above the limit; effect 0.033 against 3 x
+  0.0036 held).
+- G1b, B over A, paired directly: 0.9941, 0.9933, 0.9992, 0.9869; mean 0.9933,
+  at most 0.990 - FIRED.
+Implied A over base about 0.9732 against its prototype's 0.9711: commit A kept
+its price; commit B's built detach kept about 0.7 percent against its
+prototype's 1.9. The judge had called the prototype's pessimistic-bias claim
+unsupported.
+
+Decision (autonomous): closed, refuted on G1a before any round; B refuted on
+G1b. No departure: the frozen falsifier names both thresholds, and the merge
+required runs per second separated upward from the 0.05 floor, which the
+judgment stated a 3-5 percent saving would not give. Patches kept:
+research/perf/patches/frames-and-node-env-held-once.spur.patch (A + B on
+3b53d0a), frames-and-node-env-held-once-A.spur.patch and
+frames-and-node-env-held-once-B-over-A.spur.patch. Commit A (about 2.7 percent
+of one-thread cycles, identity exact on five sessions) stays in the pool as a
+rider.
+
+### Case for the user: savings with no existing counter cannot merge below the wall floor
+
+Recorded for the user; the loop's rules are not changed here. Two iterations
+running (25 and 28) removed real, identity-exact cost (value width about 4.4
+percent at one thread; frames and argument sequences about 2.7) whose work no
+leaf both binaries emit can count. The grader refuses a counter primary one
+side lacks, so such a candidate is graded cross-binary and can merge only by
+separating from the 0.05 layout floor, which a saving under about 5-6 percent
+does not do. The judge of iteration 28 flagged one route - a counter-only
+commit landing the mechanism's counters in the baseline before grading - and
+the operator declined it, because it is a round spent on measurement alone,
+which the loop does not buy. The effect is that allocation and copy traffic
+savings of 2-5 percent are closed or held as riders however exact their
+identity, while interpreter savings of the same size merge on existing
+counters (leaf_operands_inline, tree_evals). Options for the user to weigh:
+admit counter-only commits for counters a hypothesis in the pool already
+names; a one-thread cycles primary for identity-exact changes; or keep the
+rule and steer toward savings that clear the floor on their own.
+
+## Direction review after frames-and-node-env-held-once closed (autonomous)
+
+The tree has not moved (spur 3b53d0a); research/perf/profiles/3b53d0a.md and
+its 0.3-cutoff sibling stand. Largest explainable costs: memmove 8.06 (the
+largest row; the iteration-28 census attributes about 8.7 of 11.8 one-thread
+memmove points to Record and Runnable copies, about 30,200 record-sized copies
+per VR run, about 9 per delivered record, at named sites: take_local and
+take_network, four scheduler.rs sites, exec.rs:921, push and
+pop_waiting_reader, push_to_local, push_runnable); the interpreter family
+about 25; the scheduler family 13.8; the value family 11.07 plus allocator
+4.57.
+
+Verdict. Iteration 29 takes the data layout and representation lens
+(rotation after allocation), focus directive: the Record move chain - how
+many times each record is moved between its creation and its execution, and
+which of those moves can be removed by keeping it in place (a queue that holds
+records where the scheduler reads them, a selection that returns a position
+rather than a moved record, a delivery that executes from the slot). Boxing
+and borrowing the record (iterations 15 and 20) relocated the stalled first
+read rather than removing it; the chain length is the one form not yet
+tried. Because such a saving has no existing counter both binaries emit, the
+directive asks for a size that can separate on the wall by itself - about 6
+percent of one-thread cycles - or an explicit composition with the kept
+frames-and-node-env-held-once commit A patch (about 2.7 percent, applies on
+3b53d0a) to reach it. Conditions carried forward: census first;
+implementation-faithful prototype priced on a one-thread ABBA with a fresh
+identical-source control; location guards from a 30-thread prototype
+profile. Steering audit: the allocation directive found real cost at the
+predicted places, but the part the instrument could grade was too small;
+steering toward the largest row with a size bar that fits the instrument
+answers that. Pool: frames-and-node-env-held-once closed with A kept as a
+rider; nothing dropped.
+
+Digest, iteration 28: allocation lens on sequence lifetimes. An LD_PRELOAD
+census counted 11,550 allocations and 81,897 copies per VR run, with about
+30,200 record-sized copies and every node-env copy-on-write at one site. The
+proposer built frames and argument sequences held once (a per-run frame pool,
+held arguments for callees that never park, frames kept at reset) and the node
+environment detached per segment, priced at 4.9 percent. The judge verified
+soundness by structure, found no existing leaf that could count the saving,
+and set a cross-binary primary with a merge only on upward separation from the
+floor. Built as two commits with identity exact on five sessions and every
+frame identity exact; one-thread cycles 0.9667 for the stack (at most 0.960)
+and 0.9933 for B over A (at most 0.990) - both gates fired, closed before
+rounds, patches kept, commit A a rider. Tree unchanged at spur 3b53d0a.

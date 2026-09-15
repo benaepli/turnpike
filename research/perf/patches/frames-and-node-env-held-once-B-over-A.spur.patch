@@ -1,0 +1,630 @@
+diff --git a/spur-core/src/simulator/core/exec.rs b/spur-core/src/simulator/core/exec.rs
+index e806a39..e6a7d30 100644
+--- a/spur-core/src/simulator/core/exec.rs
++++ b/spur-core/src/simulator/core/exec.rs
+@@ -167,7 +167,8 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+     purgatory_config: &PurgatoryConfig,
+     rng: &mut impl StreamRng,
+ ) -> Result<Value<H>, RuntimeError> {
+-    let mut node_env = state.nodes[node_id.index].clone();
++    let mut node_env = take_node_env(state, node_id.index);
++    let entry_writes = node_env.writes;
+     let result = if program.compiled.covers(program.cfg.graph.len()) {
+         let mut tally = InterpreterTally::new();
+         let result = run_sync_ops::<H, L, F>(
+@@ -205,7 +206,7 @@ pub fn exec_sync_on_node<H: HashPolicy, L: Logger, F: Feedback>(
+             rng,
+         )
+     };
+-    state.nodes[node_id.index] = node_env;
++    put_node_env(state, node_id.index, node_env, entry_writes);
+     result
+ }
+ 
+@@ -947,10 +948,51 @@ fn store_dest<H: HashPolicy>(
+ ) {
+     match dest {
+         Dest::Local(idx) => set_local(local_env, idx, val),
+-        Dest::Node(idx) => node_env.set(idx, val),
++        Dest::Node(idx) => set_node(node_env, idx, val),
+     }
+ }
+ 
++/// The environment of node `index` for one segment, which the segment puts
++/// back with `put_node_env`. Under an eager signature policy it is a copy
++/// and the state keeps its own. Otherwise it is moved out, and until it is
++/// put back the state holds an environment with no slots whose `sig` and
++/// `writes` are those the node had when the segment began, which is what a
++/// kept copy would answer.
++#[inline(always)]
++fn take_node_env<H: HashPolicy>(state: &mut State<H>, index: usize) -> Env<H> {
++    if H::EAGER {
++        state.nodes[index].clone()
++    } else {
++        state.nodes[index].detach()
++    }
++}
++
++/// Puts a segment's node environment back into the state. `entry_writes`
++/// is its write count when the segment took it.
++#[inline(always)]
++fn put_node_env<H: HashPolicy>(
++    state: &mut State<H>,
++    index: usize,
++    node_env: Env<H>,
++    entry_writes: u64,
++) {
++    if !H::EAGER {
++        util_stats::record_node_env_segment(node_env.writes != entry_writes);
++    }
++    state.nodes[index] = node_env;
++}
++
++/// Writes one slot of the node environment a segment holds. A moved-out
++/// environment is held by the segment alone, so a write that finds its slot
++/// buffer shared is counted.
++#[inline(always)]
++fn set_node<H: HashPolicy>(node_env: &mut Env<H>, slot: u32, val: Value<H>) {
++    if !H::EAGER && !node_env.slots.is_unique() {
++        util_stats::record_node_env_shared_at_write();
++    }
++    node_env.set(slot, val);
++}
++
+ /// The callee of a call whose name was not resolved when the program was
+ /// decoded, with the errors the name lookup gives.
+ fn resolve_by_name<'p>(
+@@ -1017,7 +1059,7 @@ fn run_common_op<H: HashPolicy, L: Logger, F: Feedback>(
+         }
+         Op::AssignNode { slot, next, rhs } => {
+             let v = cvalue(local_env, node_env, rhs, names, t)?;
+-            node_env.set(*slot, v);
++            set_node(node_env, *slot, v);
+             Ok(Flow::Next(*next as usize))
+         }
+         Op::CondLocal { slot, then, els } => {
+@@ -1583,10 +1625,55 @@ fn run_sync_ops<H: HashPolicy, L: Logger, F: Feedback>(
+ 
+ /// Runs a record from its decoded operations until it returns or yields.
+ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
++    state: &mut State<H>,
++    logger: &mut L,
++    program: &Program,
++    record: Record<H>,
++    snapshot: &F::Snapshot,
++    feedback: &mut F::Local,
++    policy: &SchedulePolicy,
++    purgatory_config: &PurgatoryConfig,
++    rng: &mut impl StreamRng,
++    t: &mut InterpreterTally,
++) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
++    let node_index = record.node.index;
++    let mut node_env = take_node_env(state, node_index);
++    let entry_writes = node_env.writes;
++    let result = run_record_ops::<H, L, F>(
++        state,
++        logger,
++        program,
++        record,
++        &mut node_env,
++        entry_writes,
++        snapshot,
++        feedback,
++        policy,
++        purgatory_config,
++        rng,
++        t,
++    );
++    // A moved-out environment goes back on an error too, since the state
++    // holds only a placeholder for it; a copy is dropped, leaving the state
++    // as the segment found it.
++    if !H::EAGER && result.is_err() {
++        put_node_env(state, node_index, node_env, entry_writes);
++    }
++    result
++}
++
++/// The operation loop of `exec_ops`, running against the node environment
++/// the caller took for the segment. Every exit that does not fail puts that
++/// environment back before the record is stored or its continuation runs;
++/// on a failure it is left to the caller.
++#[inline(always)]
++fn run_record_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     state: &mut State<H>,
+     logger: &mut L,
+     program: &Program,
+     mut record: Record<H>,
++    node_env: &mut Env<H>,
++    entry_writes: u64,
+     snapshot: &F::Snapshot,
+     feedback: &mut F::Local,
+     policy: &SchedulePolicy,
+@@ -1601,7 +1688,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+     // re-delivery of it formats its entry row from the parameters.
+     let mut pending_trace_payload = record.trace_payload.take();
+     let mut local_env = record.env;
+-    let mut node_env = state.nodes[record.node.index].clone();
++    let mut node_env: &mut Env<H> = node_env;
+ 
+     let mut prev_pc = record.pc;
+ 
+@@ -1684,7 +1771,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                     record.env = local_env;
+                     record.pc = recv.next as usize;
+                     chan.push_waiting_reader(record, recv.lhs.clone());
+-                    state.nodes[node_id.index] = node_env;
++                    put_node_env(state, node_id.index, std::mem::take(node_env), entry_writes);
+                     return Ok(None);
+                 }
+             }
+@@ -1693,7 +1780,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 record.env = local_env;
+                 record.pc = *next as usize;
+                 state.push_to_local(node_id.index, Runnable::Record(record));
+-                state.nodes[node_id.index] = node_env;
++                put_node_env(state, node_id.index, std::mem::take(node_env), entry_writes);
+                 return Ok(None);
+             }
+             Op::SpinAwait { cond, next } => {
+@@ -1703,7 +1790,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                     let node_id = record.node;
+                     record.env = local_env;
+                     state.push_to_local(node_id.index, Runnable::Record(record));
+-                    state.nodes[node_id.index] = node_env;
++                    put_node_env(state, node_id.index, std::mem::take(node_env), entry_writes);
+                     return Ok(None);
+                 }
+             }
+@@ -1728,7 +1815,7 @@ fn exec_ops<H: HashPolicy, L: Logger, F: Feedback>(
+                 Flow::Next(next) => record.pc = next,
+                 Flow::Return(val) => {
+                     let node_id = record.node;
+-                    state.nodes[node_id.index] = node_env;
++                    put_node_env(state, node_id.index, std::mem::take(node_env), entry_writes);
+                     if !H::EAGER {
+                         state.recycle_frame(local_env.slots);
+                     }
+diff --git a/spur-core/src/simulator/core/exec/test.rs b/spur-core/src/simulator/core/exec/test.rs
+index 4565270..e2a0f76 100644
+--- a/spur-core/src/simulator/core/exec/test.rs
++++ b/spur-core/src/simulator/core/exec/test.rs
+@@ -2000,3 +2000,200 @@ fn pooled_frames_equal_fresh_frames_in_every_spec() {
+         .join()
+         .expect("the test thread finishes");
+ }
++
++fn run_at<H: HashPolicy>(
++    program: &Program,
++    state: &mut State<H>,
++    start: usize,
++    slots: usize,
++) -> Result<Option<ClientOpResult<H>>, RuntimeError> {
++    let mut logger = TestLogger::new();
++    let mut coverage = LocalCoverage::new();
++    exec::<H, TestLogger, CfgFeedback>(
++        state,
++        &mut logger,
++        program,
++        make_record_for::<H>(start, slots, Continuation::Recover),
++        &VertexMap::new(),
++        &mut coverage,
++        &SchedulePolicy::Fixed,
++        &PurgatoryConfig::default(),
++        &mut SmallRng::seed_from_u64(0),
++    )
++}
++
++/// A segment that fails after writing a node slot puts a moved-out node
++/// environment back with its writes, whole, from a record and from a
++/// synchronous call alike; a copied one is dropped, leaving the state as the
++/// segment found it.
++#[test]
++fn a_failed_segment_puts_the_moved_out_environment_back() {
++    let mut builder = TestProgramBuilder::new();
++    let ret = builder.add(Label::Return(Expr::Unit));
++    let fail = builder.add(Label::Instr(
++        Instr::Assign(
++            Lhs::Var(slot(0)),
++            Expr::Plus(Box::new(Expr::Bool(true)), Box::new(Expr::Int(5))),
++        ),
++        ret,
++    ));
++    let write = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Int(5)),
++        fail,
++    ));
++    let program = builder.build();
++    let me = NodeId {
++        role: NameId(0),
++        index: 0,
++    };
++
++    let mut plain = State::<NoHashing>::new(&[(NameId(0), 1)], 2);
++    let before = plain.nodes[0].writes;
++    assert!(run_at(&program, &mut plain, write, 1).is_err());
++    assert_eq!(plain.nodes[0].slots.len(), 2);
++    assert_eq!(plain.nodes[0].get(0), &Value::node(me));
++    assert_eq!(plain.nodes[0].get(1), &Value::int(5));
++    assert_eq!(plain.nodes[0].writes, before + 1);
++
++    let mut sync_plain = State::<NoHashing>::new(&[(NameId(0), 1)], 2);
++    let mut env = Env::<NoHashing>::with_slots(1);
++    let mut coverage = LocalCoverage::new();
++    let failed = exec_sync_on_node::<NoHashing, TestLogger, CfgFeedback>(
++        &mut sync_plain,
++        &mut TestLogger::new(),
++        &program,
++        &mut env,
++        me,
++        write,
++        &VertexMap::new(),
++        &mut coverage,
++        &SchedulePolicy::Fixed,
++        &PurgatoryConfig::default(),
++        &mut SmallRng::seed_from_u64(0),
++    );
++    assert!(failed.is_err());
++    assert_eq!(sync_plain.nodes[0].slots.len(), 2);
++    assert_eq!(sync_plain.nodes[0].get(1), &Value::int(5));
++    assert_eq!(sync_plain.nodes[0].writes, before + 1);
++
++    let mut hashed = State::<WithHashing>::new(&[(NameId(0), 1)], 2);
++    let (writes, sig) = (hashed.nodes[0].writes, hashed.nodes[0].sig);
++    assert!(run_at(&program, &mut hashed, write, 1).is_err());
++    assert_eq!(hashed.nodes[0].get(1), &Value::unit());
++    assert_eq!((hashed.nodes[0].writes, hashed.nodes[0].sig), (writes, sig));
++}
++
++/// The receiver's token at send, the node's token before the segment and
++/// its token after it, for a segment that writes its node twice and then
++/// sends to its own node.
++fn token_read_mid_segment<H: HashPolicy>(program: &Program, start: usize) -> (u64, u64, u64) {
++    let me = NodeId {
++        role: NameId(0),
++        index: 0,
++    };
++    let mut state = State::<H>::new(&[(NameId(0), 1)], 2);
++    let before = state.node_state_token(me);
++    run_at(program, &mut state, start, 1).expect("the segment runs");
++    let at_send = state.local_queues[0]
++        .iter()
++        .find_map(|r| match r {
++            Runnable::Record(r) => Some(r.receiver_token_at_send),
++            _ => None,
++        })
++        .expect("the send is queued");
++    (at_send, before, state.node_state_token(me))
++}
++
++/// A send issued after its segment wrote the receiving node reads the token
++/// the node had when the segment began, on either hash policy, and the
++/// node's token has moved by the segment's writes once it ends.
++#[test]
++fn a_send_mid_segment_reads_the_token_the_segment_began_with() {
++    let mut builder = TestProgramBuilder::new();
++    let h_entry = builder.add(Label::Return(Expr::Unit));
++    let ret = builder.add(Label::Return(Expr::Unit));
++    let send = builder.add(Label::Instr(
++        Instr::Async(
++            Lhs::Var(slot(0)),
++            Expr::Var(node_slot(0)),
++            "h".to_string(),
++            vec![Expr::Int(1)],
++        ),
++        ret,
++    ));
++    let second = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Int(6)),
++        send,
++    ));
++    let first = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Int(5)),
++        second,
++    ));
++    let mut program = builder.build_undecoded();
++    register(&mut program, "h", function(h_entry, 6, 1, 1, false));
++    program.decode();
++
++    let plain = token_read_mid_segment::<NoHashing>(&program, first);
++    assert_eq!(plain.0, plain.1);
++    assert_eq!(plain.2, plain.1 + 2);
++    assert_eq!(plain, token_read_mid_segment::<WithHashing>(&program, first));
++}
++
++/// The node's slot kinds and write count, and each woken record's pc and
++/// slot kinds, after a reader of node slot 1 blocks and a segment of the
++/// same node writes slot 1 and then sends to the reader's channel.
++fn wake_into_node_slot<H: HashPolicy>(
++    program: &Program,
++    reader: usize,
++    sender: usize,
++) -> (Vec<String>, u64, Vec<(usize, Vec<String>)>) {
++    let mut state = State::<H>::new(&[(NameId(0), 1)], 3);
++    assert!(matches!(run_at(program, &mut state, reader, 1), Ok(None)), "the reader blocks");
++    let after_reader = state.nodes[0].writes;
++    run_at(program, &mut state, sender, 1).expect("the sender runs");
++    assert_eq!(state.nodes[0].writes, after_reader + 1);
++    let kinds = |env: &Env<H>| env.slots.iter().map(|v| format!("{:?}", v.kind)).collect::<Vec<_>>();
++    let woken = state.local_queues[0]
++        .iter()
++        .filter_map(|r| match r {
++            Runnable::Record(r) => Some((r.pc, kinds(&r.env))),
++            _ => None,
++        })
++        .collect();
++    (kinds(&state.nodes[0]), state.nodes[0].writes, woken)
++}
++
++/// A send that wakes a reader of its own node whose receive stores into a
++/// node slot leaves the node environment, its write count and the woken
++/// record the same whether the segment moved the environment out or copied
++/// it: the store lands on what the state holds during the segment, and the
++/// segment's own environment replaces that when it ends.
++#[test]
++fn a_same_node_wake_into_a_node_slot_matches_the_copied_path() {
++    let mut builder = TestProgramBuilder::new();
++    let reader_ret = builder.add(Label::Return(Expr::Unit));
++    let reader_recv = builder.add(Label::Recv(
++        Lhs::Var(node_slot(1)),
++        Expr::Var(node_slot(2)),
++        reader_ret,
++    ));
++    let reader = builder.add(Label::MakeChannel(Lhs::Var(node_slot(2)), None, reader_recv));
++    let sender_ret = builder.add(Label::Return(Expr::Unit));
++    let sender_after = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(slot(0)), Expr::Int(1)),
++        sender_ret,
++    ));
++    let sender_send = builder.add(Label::Send(Expr::Var(node_slot(2)), Expr::Int(42), sender_after));
++    let sender = builder.add(Label::Instr(
++        Instr::Assign(Lhs::Var(node_slot(1)), Expr::Int(3)),
++        sender_send,
++    ));
++    let program = builder.build();
++
++    let plain = wake_into_node_slot::<NoHashing>(&program, reader, sender);
++    assert_eq!(plain, wake_into_node_slot::<WithHashing>(&program, reader, sender));
++    assert_eq!(plain.0.len(), 3);
++    assert_eq!(plain.0[1], "Int(3)");
++    assert_eq!(plain.2.len(), 1);
++    assert_eq!(plain.2[0].0, reader_ret);
++}
+diff --git a/spur-core/src/simulator/core/values.rs b/spur-core/src/simulator/core/values.rs
+index 1a6d521..b3136a8 100644
+--- a/spur-core/src/simulator/core/values.rs
++++ b/spur-core/src/simulator/core/values.rs
+@@ -1047,6 +1047,20 @@ impl<H: HashPolicy> Env<H> {
+         }
+     }
+ 
++    /// Moves the slots out into the returned environment, which then holds
++    /// its slot buffer alone. This environment keeps no slots but the same
++    /// `sig` and `writes`, so those two read as they did before the move. No
++    /// slot of it may be read before an environment is put back in its place.
++    #[inline]
++    pub fn detach(&mut self) -> Env<H> {
++        Env {
++            slots: std::mem::take(&mut self.slots),
++            sig: self.sig,
++            writes: self.writes,
++            _marker: PhantomData,
++        }
++    }
++
+     #[inline(always)]
+     pub fn get(&self, slot: u32) -> &Value<H> {
+         &self.slots[slot as usize]
+diff --git a/spur-core/src/simulator/util_stats.rs b/spur-core/src/simulator/util_stats.rs
+index 908cf3d..860cd32 100644
+--- a/spur-core/src/simulator/util_stats.rs
++++ b/spur-core/src/simulator/util_stats.rs
+@@ -104,6 +104,9 @@ static FRAME_BUFFERS_RECYCLED: AtomicU64 = AtomicU64::new(0);
+ static FRAME_ARGS_HELD_IN_FRAME: AtomicU64 = AtomicU64::new(0);
+ static FRAME_RESETS_KEPT_FRAME: AtomicU64 = AtomicU64::new(0);
+ static FRAME_ASYNC_FRAMES: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_DETACHED: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_WRITTEN_SEGMENTS: AtomicU64 = AtomicU64::new(0);
++static NODE_ENV_SHARED_AT_WRITE: AtomicU64 = AtomicU64::new(0);
+ static VALUE_SIG_LEAF_HASHES_DEFERRED: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_LITERALS: AtomicU64 = AtomicU64::new(0);
+ static VALUE_STRUCT_LITERALS_IN_ORDER: AtomicU64 = AtomicU64::new(0);
+@@ -932,6 +935,9 @@ pub fn set_enabled(on: bool) {
+             &FRAME_ARGS_HELD_IN_FRAME,
+             &FRAME_RESETS_KEPT_FRAME,
+             &FRAME_ASYNC_FRAMES,
++            &NODE_ENV_DETACHED,
++            &NODE_ENV_WRITTEN_SEGMENTS,
++            &NODE_ENV_SHARED_AT_WRITE,
+             &VALUE_SIG_LEAF_HASHES_DEFERRED,
+             &VALUE_STRUCT_LITERALS,
+             &VALUE_STRUCT_LITERALS_IN_ORDER,
+@@ -5687,6 +5693,27 @@ impl VictimSwapStats {
+     }
+ }
+ 
++/// Node environments held by executed segments. `detached` counts segments
++/// that moved their node's environment out of the state, `written_segments`
++/// those of them that wrote a node slot, and `shared_at_write` node slot
++/// writes that found the moved-out slot buffer shared.
++#[derive(Serialize, Debug)]
++pub struct NodeEnvStats {
++    pub detached: u64,
++    pub written_segments: u64,
++    pub shared_at_write: u64,
++}
++
++impl NodeEnvStats {
++    fn read() -> Self {
++        Self {
++            detached: NODE_ENV_DETACHED.load(Ordering::Relaxed),
++            written_segments: NODE_ENV_WRITTEN_SEGMENTS.load(Ordering::Relaxed),
++            shared_at_write: NODE_ENV_SHARED_AT_WRITE.load(Ordering::Relaxed),
++        }
++    }
++}
++
+ /// Local call frames built by the interpreter. `calls` counts the frames,
+ /// `slots_built` sums their slot counts, and `entry_frame_copies` counts the
+ /// writes to a local frame that found it shared and therefore copied it.
+@@ -6381,6 +6408,9 @@ struct FrameTally {
+     args_held_in_frame: u64,
+     resets_kept_frame: u64,
+     async_frames: u64,
++    node_env_detached: u64,
++    node_env_written_segments: u64,
++    node_env_shared_at_write: u64,
+ }
+ 
+ impl FrameTally {
+@@ -6396,6 +6426,9 @@ impl FrameTally {
+             args_held_in_frame: 0,
+             resets_kept_frame: 0,
+             async_frames: 0,
++            node_env_detached: 0,
++            node_env_written_segments: 0,
++            node_env_shared_at_write: 0,
+         }
+     }
+ }
+@@ -6702,6 +6735,34 @@ pub fn record_async_frame(held: bool) {
+     });
+ }
+ 
++/// A segment put back the node environment it moved out of the state;
++/// `written` when it wrote a node slot meanwhile.
++#[inline]
++pub fn record_node_env_segment(written: bool) {
++    if !enabled() {
++        return;
++    }
++    FRAME_RUN.with(|f| {
++        let mut t = f.get();
++        t.node_env_detached += 1;
++        t.node_env_written_segments += u64::from(written);
++        f.set(t);
++    });
++}
++
++/// A node slot write found the moved-out slot buffer shared.
++#[inline]
++pub fn record_node_env_shared_at_write() {
++    if !enabled() {
++        return;
++    }
++    FRAME_RUN.with(|f| {
++        let mut t = f.get();
++        t.node_env_shared_at_write += 1;
++        f.set(t);
++    });
++}
++
+ /// A re-delivery kept the record's frame instead of rebuilding it.
+ #[inline]
+ pub fn record_reset_frame_kept() {
+@@ -6786,6 +6847,9 @@ pub fn flush_frame_stats() {
+         (t.args_held_in_frame, &FRAME_ARGS_HELD_IN_FRAME),
+         (t.resets_kept_frame, &FRAME_RESETS_KEPT_FRAME),
+         (t.async_frames, &FRAME_ASYNC_FRAMES),
++        (t.node_env_detached, &NODE_ENV_DETACHED),
++        (t.node_env_written_segments, &NODE_ENV_WRITTEN_SEGMENTS),
++        (t.node_env_shared_at_write, &NODE_ENV_SHARED_AT_WRITE),
+     ] {
+         if v != 0 {
+             total.fetch_add(v, Ordering::Relaxed);
+@@ -7951,6 +8015,7 @@ pub struct UtilizationSnapshot {
+     pub victim_swap: VictimSwapStats,
+     pub ghost_signal: GhostSignalStats,
+     pub frame: FrameStats,
++    pub node_env: NodeEnvStats,
+     pub frame_layout: FrameLayoutStats,
+     pub value_sig: ValueSigStats,
+     pub value_struct: ValueStructStats,
+@@ -8186,6 +8251,7 @@ pub fn snapshot() -> UtilizationSnapshot {
+         victim_swap: VictimSwapStats::read(),
+         ghost_signal: GhostSignalStats::read(),
+         frame: FrameStats::read(),
++        node_env: NodeEnvStats::read(),
+         frame_layout: FrameLayoutStats::read(),
+         value_sig: ValueSigStats::read(),
+         value_struct: ValueStructStats::read(),
+diff --git a/spur-core/tests/util_stats_export_completeness.rs b/spur-core/tests/util_stats_export_completeness.rs
+index 6bec475..66c886c 100644
+--- a/spur-core/tests/util_stats_export_completeness.rs
++++ b/spur-core/tests/util_stats_export_completeness.rs
+@@ -21,7 +21,7 @@ use spur_core::simulator::util_stats::{
+     ClientAnchorReleaseStats, ClientAnchorRushStats, ClientAnchorStats,
+     CrashCensusStats, CrashPhaseArmStats, CrashPhaseLandingStats, CrashPhaseMovedStats,
+     CrashPhaseStats, CrashPlaceStats, DeliveryEffect, DeliveryEffectStats, FreshFirstCensusStats,
+-    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, HistoryFormatStats, PrintContentStats, ProgramTextStats, RunBufferStats, ValueSigStats, ValueStructStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TextBufferStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDeliverStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, PlanReadyStats, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
++    CallTargetStats, ChannelTableStats, GridPoolStats, CompiledExprStats, CompiledOpsStats, EvalBorrowStats, FrameLayoutStats, FrameStats, NodeEnvStats, HistoryFormatStats, PrintContentStats, ProgramTextStats, RunBufferStats, ValueSigStats, ValueStructStats, HistoryWriterStats, RunSetupStats, StatsLocalStats, TextBufferStats, TimelineStats, TraceFormatStats, FreshFirstHalfStats, FreshFirstStats, GhostSignalStats, PairOrderCensusStats, PairOrderClassCounts, PairOrderHalfStats, PairOrderStats, PlanDeliverStats, PlanDepsDensitySplit, PlanDepsStats, PlanDepsTally, PlanReadyStats, ReplayStats, SchedStats, GhostReleaseCellStats, GhostReleaseCellsStats, GhostReleaseSingleCellStats, GhostReleaseSingleCellsStats, GhostReleaseSingleStats, GhostReleaseStats, RunCapStats, StallCapMarks, StallCapStats, StallReleaseCellStats, StallReleaseDependents, StallReleaseStats, SteerAuthorityStats, TerminationStats, TerminationTally,
+     TimerContextStats, UtilizationSnapshot, VictimSwapCensusStats, VictimSwapHalfStats,
+     VictimSwapStats,
+ };
+@@ -1315,6 +1315,27 @@ fn frame_leaves(prefix: &str, f: &FrameStats) -> Vec<(String, Value)> {
+     ]
+ }
+ 
++fn node_env(m: &mut Marks) -> NodeEnvStats {
++    NodeEnvStats {
++        detached: m.int(),
++        written_segments: m.int(),
++        shared_at_write: m.int(),
++    }
++}
++
++fn node_env_leaves(prefix: &str, n: &NodeEnvStats) -> Vec<(String, Value)> {
++    let NodeEnvStats {
++        detached,
++        written_segments,
++        shared_at_write,
++    } = n;
++    vec![
++        leaf(prefix, "detached", *detached),
++        leaf(prefix, "written_segments", *written_segments),
++        leaf(prefix, "shared_at_write", *shared_at_write),
++    ]
++}
++
+ fn frame_layout(m: &mut Marks) -> FrameLayoutStats {
+     FrameLayoutStats {
+         program_slots_before: m.int(),
+@@ -2464,6 +2485,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         victim_swap: _,
+         ghost_signal: _,
+         frame: _,
++        node_env: _,
+         frame_layout: _,
+         value_sig: _,
+         value_struct: _,
+@@ -2528,6 +2550,7 @@ fn block_names(s: &UtilizationSnapshot) -> Vec<&'static str> {
+         "victim_swap",
+         "ghost_signal",
+         "frame",
++        "node_env",
+         "frame_layout",
+         "value_sig",
+         "value_struct",
+@@ -2626,6 +2649,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     s.ghost_signal = ghost_signal(&mut m);
+     s.sched = sched(&mut m);
+     s.frame = frame(&mut m);
++    s.node_env = node_env(&mut m);
+     s.frame_layout = frame_layout(&mut m);
+     s.value_sig = value_sig(&mut m);
+     s.value_struct = value_struct(&mut m);
+@@ -2670,6 +2694,7 @@ fn marked_snapshot() -> (UtilizationSnapshot, Vec<(String, Value)>) {
+     expected.extend(ghost_signal_leaves("ghost_signal", &s.ghost_signal));
+     expected.extend(sched_leaves("sched", &s.sched));
+     expected.extend(frame_leaves("frame", &s.frame));
++    expected.extend(node_env_leaves("node_env", &s.node_env));
+     expected.extend(frame_layout_leaves("frame_layout", &s.frame_layout));
+     expected.extend(value_sig_leaves("value_sig", &s.value_sig));
+     expected.extend(value_struct_leaves("value_struct", &s.value_struct));
+@@ -2739,6 +2764,7 @@ fn every_counter_field_reaches_the_written_json() {
+         "ghost_signal",
+         "sched",
+         "frame",
++        "node_env",
+         "frame_layout",
+         "value_sig",
+         "value_struct",

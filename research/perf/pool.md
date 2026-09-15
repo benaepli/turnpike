@@ -1811,7 +1811,7 @@ rounds of clock each:
 
 ## frames-and-node-env-held-once
 
-- category: allocation and memory traffic | origin: proposer | status: admitted, building (iteration 28, autonomous)
+- category: allocation and memory traffic | origin: proposer | status: closed (iteration 28, autonomous) - refuted on G1a: one-thread cycles A + B 0.9667 against at most 0.960 (control 1.0036); G1b B over A 0.9933 against at most 0.990; G3 and G4 held at both commits; commit A (about 2.7 percent) kept as a rider; patches research/perf/patches/frames-and-node-env-held-once*.spur.patch
 - mechanism: commit A (frames-and-arguments-held-once): a decode-time
   never-yield bit per function entry; State::frame_pool of up to 32 cleared
   unique buffers (SyncCall frames recycled after the call, handler frames when
