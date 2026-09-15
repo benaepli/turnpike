@@ -8404,3 +8404,67 @@ calls, primary frame.calls, evaluation order and error text exact.
 - Priced and not proposed: straight-line chains run as one operation (1.0221
   alone, 1.0162 over inline, slower); arguments moved and specialized frames
   under 0.1 point.
+
+### Judgment (tmp/loop/perf/it31-judgment.md): nothing admitted
+
+H1 sync-calls-run-in-the-caller-frame held at net 3 (gain 5, cost 2): the
+counter is valid and the mechanism is exact in source, but the one-thread
+saving is 1.4-2.5 percent over three sessions (the judge re-read the priced
+binaries, recovered from perf's build-id cache, at 0.9752 over a worktree base
+and 0.9754 over the main-tree base, control 1.0068) and at 30 threads about 4.5
+of the 5.9 removed points reappear in exec_ops and the new helpers, the broad
+family's sign depending on which rows set r (+0.85 at spur-row r 0.974, -2.21
+at writer-row r 1.035). Return conditions and the corrections owed on return
+are in the pool. The chain fusion (1.0221, slower) and the trace-free leaf
+subset are not candidates.
+Layout finding: the proposer's claim that the main-tree binary is a slow
+layout is false. Every other read of those bytes sits at 3.67-3.73e10 cycles
+(iterations 28 and 29 and the judge's reads); only the proposer's base-spur
+copies read higher in its sessions 1-2; identical bytes at different paths read
+0.9977 and 1.0007, with no huge pages mapped, cause not found. No past gate
+decision rests on a wrong base: the separate-directory controls of iterations
+26-29 read worktree builds equal to or slower than the base. Corrections for
+future G1 gates, adopted by the operator: read the candidate over both the
+main-tree binary and a worktree build of the baseline, with a control, in one
+session; pass on an effect of at least 3 x the control's distance from 1 with
+every candidate pair below the lowest control pair; check that the main-tree
+base reads within 1 percent of its known absolute level (3.70e10 cycles on
+3b53d0a).
+
+Decision (autonomous): nothing built this iteration. Pool updated.
+
+## Direction review after iteration 31 (autonomous)
+
+Called for by four iterations without a merge (28 closed, 29 held, 30 and 31
+nothing admitted). The tree has not moved (spur 3b53d0a).
+
+Verdict. The counter-priced work the last two directives aimed at came out
+small (1.5 and 1.7 percent), with 30-thread signals that cannot be told from a
+no-op; the large costs wait on the user's two cases. One interpreter lead left
+is both large enough to try and counted by an existing leaf: after
+stores-skipped-at-decode and print-chains-written-into-the-log, a large share
+of executed label vertices do no work (StoreSkipped about 0.21 per label
+execution, StoreFolded about 0.12, plus TempMoved and plain Goto), yet each
+still costs a dispatch iteration of exec_ops. Threading jumps past them at
+decode removes those iterations, and compiled_ops.label_execs - emitted by
+both binaries - falls by exactly the vertices not executed. Iteration 32 takes
+the redundant-work lens on those vertices (departure from rotation, which
+gives allocation next: the allocation family has no counter). Conditions:
+resume, parked and timer pcs keep their semantics (a record resumed at a
+skipped vertex still reaches the same next vertex); loops whose feedback
+records transitions run the graph's own operations; traces and logs
+byte-identical; census first; implementation-faithful prototype on a
+one-thread ABBA read under the corrected G1; location guards from a 30-thread
+prototype profile with spur-row and writer-row r reported separately; about 3
+percent of one-thread cycles.
+
+Digest, iteration 31: algorithmic lens on synchronous calls. A census counted
+1,999 synchronous calls per VR run, every one eligible to run in the caller's
+frame. The proposer built decode-time copies of callee operations on the
+caller's frame with a clean pending-trace hand-off, exact on five identity
+sessions, priced at about 1.7 percent at one thread; chain fusion priced
+slower. The judge held it (the 30-thread saving relocated into the dispatch
+loop and the new helpers), wrote return conditions including a direct stack
+pricing with the kept frames commit A, refuted the proposer's claim that the
+main-tree base is a slow layout, and corrected the G1 design. Tree unchanged at
+spur 3b53d0a.

@@ -1956,3 +1956,47 @@ rounds of clock each:
 
 - category: combined | origin: proposer | status: not admitted (iteration 30) - a counter that prices commit A cannot be the primary for A + B while runs per second only blocks; the stack price 0.9656 was a product of two sessions (cross-session 0.968-0.969)
 - declarations: search-neutral, shared. Judge net 2.
+
+## sync-calls-run-in-the-caller-frame
+
+- category: algorithmic | origin: proposer | status: held (iteration 31) - judge net 3 (gain 5, cost 2), not built
+- mechanism: each eligible synchronous call decodes to Op::InlineCall with the
+  callee's operations copied after the graph (a callee never re-expanded
+  inside its own template, depth cap 6, 2,048 ops); the callee's slots sit on
+  the caller's frame and Op::InlineReturn stores the value and cuts the frame
+  back; a set-aside stack gives the callee a clean pending trace state; loops
+  whose feedback records transitions run the graph's own operations; SetTimer,
+  Send, Recv, Pause and SpinAwait refused in copies.
+- evidence: 1,999 synchronous calls per VR run (primary_of 1,189.6); identity
+  byte-exact on VR, crash-heavy, Mencius, SDPaxos and caps-engaged;
+  frame.calls and call_targets.indexed fall by exactly calls_inlined;
+  one-thread 1.4-2.5 percent over three sessions (judge re-read 0.9752 over a
+  worktree base, 0.9754 over the main-tree base, control 1.0068); 30-thread
+  prototype: about 4.5 of 5.9 removed points reappear in exec_ops and the new
+  helpers, broad family -0.44 unscaled, +0.85 at spur-row r (0.974) and -2.21 at
+  writer-row r (1.035).
+- verified by the judge: no flaw in exec.rs against the patch; pending trace
+  state exact in source (no identity session reaches it); feedback kind fixed
+  per config; no copy vertex leaks into anything recorded; SetTimer exclusion
+  complete. False: the main-tree binary is a slow layout (it reads
+  3.67-3.73e10 cycles everywhere except the proposer's base-spur copies);
+  apply_committed_entries calls itself (its 91 vertices hold no call); the
+  r-row spread description; binaries kept for re-reads.
+- returns if any one holds: the user adopts a one-thread cycles primary for
+  identity-exact changes; an implementation reads at most 0.970 at one thread
+  under the corrected G1 and shows the broad family falling at least 0.8
+  points at 30 threads at both spur-row and writer-row r beyond a same-session
+  identical-source pair's own move; or it rides in a unit worth at least 3
+  percent whose own counter prices most of it (price the stack directly with
+  frames-and-node-env-held-once commit A, which pools the frames H1 deletes).
+  Owed on return: G1 read over both the main-tree and a worktree base with a
+  control in one session, pass on effect at least 3 x the control's distance
+  with every candidate pair below the lowest control pair, main-tree base
+  within 1 percent of 3.70e10 cycles; G2 limits passing the prototype at r of
+  at least 0.95 with spur-row and writer-row r reported; G3 purgatory VR, a
+  feedback-both session, runs tables EXCEPT ALL, runs_failed equal; G4 tests
+  for a traced synchronous callee, a caller holding a pending trace, recursion
+  past the depth cap, failing callees, the frame-length fix-up and a shared
+  frame with a Node dest, and compiled/test.rs:65 rescoped.
+- declarations: search-neutral, shared. Judge net 3.
+- full record: tmp/loop/perf/it31-judgment.md.
