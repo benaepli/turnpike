@@ -9,7 +9,7 @@ type LogEntry {
     op: Command;
 };
 
-type ClientResponse {
+pub type ClientResponse {
     is_leader: bool;
     key: string?;
     value: list<int>;
@@ -22,7 +22,7 @@ type PersistentState {
     log: list<LogEntry>;
 };
 
-type Cluster {
+pub type Cluster {
     @quorum nodes: list<Node>;
 };
 
@@ -30,7 +30,7 @@ type ClusterParams {
     @scale n: int;
 };
 
-role Node(cluster: Cluster) {
+pub role Node(cluster: Cluster) {
     // Identity
     var me: int = index_of(cluster.nodes, self)!;
     var replicas: list<Node> = cluster.nodes;
@@ -536,13 +536,13 @@ role Node(cluster: Cluster) {
         ch
     }
 
-    async fn Write(key: string, uid: int): ClientResponse {
+    pub async fn Write(key: string, uid: int): ClientResponse {
         println("HandleClientWrite: key={key}, uid={int_to_string(uid)}");
         var cmd: Command = Command{ kind: 1, key: key, uid: uid };
         <- NewEntry(cmd)
     }
 
-    async fn Read(key: string): ClientResponse {
+    pub async fn Read(key: string): ClientResponse {
         println("HandleClientRead: key={key}");
         var cmd: Command = Command{ kind: 0, key: key, uid: nil };
         <- NewEntry(cmd)
@@ -575,7 +575,7 @@ role Node(cluster: Cluster) {
     }
 }
 
-fn cluster(n: int): Cluster {
+pub fn cluster(n: int): Cluster {
     var nodes: list<Node> = spawn<Node>(n);
     var c: Cluster = Cluster { nodes: nodes };
     provide_all(nodes, c);

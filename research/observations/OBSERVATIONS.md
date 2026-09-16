@@ -3098,7 +3098,10 @@ command identity from volatile replica state
 reply whose term is below its own at both reply handlers
 (`research/lite/findings/raft-stale-reply-counted.md`). Both are repaired.
 Raft's repair is the two guards `raft_clean.spur` already carried, so
-`bin/spur/Raft.spur` is now byte-identical to it. Paxos's is the identity
+`bin/spur/Raft.spur` is now byte-identical to it. (Since then `Raft.spur` has
+gained six `pub` markers, so that `bin/spur/sharded.spur` can import it; they
+add 24 bytes and leave the compiled program identical, so the two files now
+agree on every line that runs.) Paxos's is the identity
 repair `panel/paxos_host_fixed.spur` already carried: `next_req_id` persisted
 and restored instead of seeded from `slot_num`, `commands_eq` comparing `kind`
 then `uid` for a write and `req_id` for a read, and a decided write

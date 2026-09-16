@@ -105,7 +105,11 @@ output strings are unchanged.
   none of it
 - `bin/spur/spur.json` governs the sharded example only. A `.spur` path given to
   the CLI is always its own entry, so `spur check bin/spur/Raft.spur` still
-  compiles that one file
+  compiles that one file, as the root module, with short names
+- A module keeps its own `@deploy` and `client` when it is imported: the sharded
+  program carries `Sharded` and `Raft::Main` both, and a config picks one by
+  name. An unqualified `"deploy"` still matches when exactly one deploy has that
+  short name
 
 `spur.json`:
 
@@ -129,8 +133,8 @@ modules.
 ## Project Layout
 
 - `bin/spur/` — specification files (`.spur`); `bin/spur/CRAQ.spur` is not maintained and does not compile
-- `bin/spur/sharded.spur` + `bin/spur/raft.spur` + `bin/spur/spur.json` — the
-  multi-module example: a sharded store over several Raft clusters
+- `bin/spur/sharded.spur` + `bin/spur/spur.json` — the multi-module example: a
+  sharded store over several Raft clusters, importing `bin/spur/Raft.spur`
 - `scheduler_configs/` — explorer configuration JSONs
 - `spur/` — Rust workspace (compiler, simulator, CLI, LSP)
 - `spur/design/language.md` — full language grammar and reference

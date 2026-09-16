@@ -1,15 +1,19 @@
 // A sharded key-value store over several Raft clusters.
 //
-// The entry spec holds the deploy, the client and the routing tier, and nothing
-// anyone else needs. The protocol is `raft.spur`, imported by name and used
-// without renaming its roles or types.
+// The entry spec holds the deploy, the client and the routing tier. The
+// protocol is `Raft.spur` itself, imported by name and used without renaming
+// its roles or types -- the same file `spur check bin/spur/Raft.spur` compiles
+// on its own, where it is the root module and its names stay short.
+//
+// `Raft.spur` keeps its own `@deploy Main` and `KVClient`, which this program
+// carries alongside `Sharded` and `RouterClient`. A config picks one by name.
 
-use raft;
-use raft::Node as Replica;
+use Raft;
+use Raft::Node as Replica;
 use std::route;
 
 type ShardedKV {
-    shards: list<raft::Cluster>;
+    shards: list<Raft::Cluster>;
     routers: list<Router>;
     routes: map<string, int>;
 };
@@ -43,7 +47,7 @@ role Router(sys: ShardedKV) {
     async fn write_through(first: Replica, key: string, uid: int) {
         var target: Replica = first;
         for ;; {
-            var resp: raft::ClientResponse = <- target->Write(key, uid);
+            var resp: Raft::ClientResponse = <- target->Write(key, uid);
             if (resp.is_leader == true) {
                 return ();
             }
@@ -54,7 +58,7 @@ role Router(sys: ShardedKV) {
     async fn read_through(first: Replica, key: string): list<int> {
         var target: Replica = first;
         for ;; {
-            var resp: raft::ClientResponse = <- target->Read(key);
+            var resp: Raft::ClientResponse = <- target->Read(key);
             if (resp.is_leader == true) {
                 return resp.value;
             }
@@ -69,9 +73,9 @@ fn Sharded(p: ShardParams): ShardedKV? {
     if (p.shards < 1 or p.replicas < 1 or p.routers < 1) {
         return nil;
     }
-    var shards: list<raft::Cluster> = [];
+    var shards: list<Raft::Cluster> = [];
     for var i: int = 0; i < p.shards; i = i + 1 {
-        shards = append(shards, raft::cluster(p.replicas));
+        shards = append(shards, Raft::cluster(p.replicas));
     }
     var routers: list<Router> = spawn<Router>(p.routers);
     var sys: ShardedKV = ShardedKV {
