@@ -52,9 +52,10 @@ Present a design to the user for approval before writing any code. Include:
 1. **Message types** needed (structs/enums)
 2. **Node state variables** and their roles
 3. **Function mapping**: which pseudocode procedures map to which Spur functions, and whether each is sync or async
-4. **ClientInterface design**: how Read and Write will work (which node they contact, retry logic)
+4. **Client design**: how Read and Write will work (which node they contact, retry logic), and whether the protocol also needs `RMW`
 5. **What's in scope vs out of scope** based on the scope argument
-6. **Crash recovery strategy** (if in scope): what state to persist, how RecoverInit works
+6. **Deployment shape**: the types the deploy builds (a flat cluster, shards, routers), what each role receives as its parameter, and which explorer parameters the deploy takes
+7. **Crash recovery strategy** (if in scope): what state to persist, how RecoverInit works
 
 Wait for user approval before proceeding.
 
@@ -64,19 +65,52 @@ Wait for user approval before proceeding.
 
 Write the spec file to `bin/spur/<ProtocolName>.spur`. Follow this structure:
 
-1. **Type definitions** — message types, log entry types, response types
-2. **`role Node`** block:
-   - State variables with initial values
-   - `fn Init(me: int, peers: list<Node>)` — required, sync, sets up initial state
-   - `async fn RecoverInit(me: int, peers: list<Node>)` — if crash recovery is in scope
+1. **Type definitions** — message types, log entry types, response types, the deployment type the roles share, and the deploy parameter struct:
+
+```
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+```
+
+2. **`role Node(cluster: Cluster)`** block:
+   - Identity and peers as variable initializers: `var me: int = index_of(cluster.nodes, self)!;` and `var replicas: list<Node> = cluster.nodes;`. They run at startup and again on recovery, so neither needs to be rebuilt by hand.
+   - Remaining state variables with initial values
+   - `fn Init()` — no parameters; side effects only, such as spawning timeout monitors
+   - `async fn RecoverInit()` — no parameters; if crash recovery is in scope
    - Protocol handlers (async functions for message processing)
    - Timeout monitors if needed (`async fn monitor_timeouts()`)
-   - Node-local RPC handlers that the ClientInterface calls (e.g., `async fn Write(key, value)`, `async fn Read(key)`)
-3. **`ClientInterface`** block:
-   - `async fn Write(dest: Node, key: string, value: string)` — must retry until committed
-   - `async fn Read(dest: Node, key: string): string?` — must retry until read completes
-   - Both functions may handle redirects if appropriate
-   - Both must NOT return until the operation truly completes
+   - Node-local RPC handlers that the client calls (e.g., `async fn Write(key, uid)`, `async fn Read(key)`)
+3. **Deploy function** — a free builder plus the entry point:
+
+```
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) { return nil; }
+    cluster(p.n)
+}
+```
+
+   Every spawned handle must be provided exactly once. Return `nil` for a parameter tuple the protocol cannot run, and the explorer skips it. A deploy may not use `self`, RPCs, channels, timers or persistence.
+
+4. **`client KVClient(sys: Cluster)`** block:
+   - `async fn Write(dest: Node, key: string, uid: int)` — must retry until committed
+   - `async fn Read(dest: Node, key: string): list<int>` — must return the committed log of write uids for the key
+   - `async fn RMW(dest: Node, key: string, uid: int): list<int>` — optional; appends `uid` and returns the prior list. Declaring it selects the `kv_rmw` model, where `Write` is a blind overwrite.
+   - `dest` is optional per operation. Drop it when the client routes itself from `sys`.
+   - All may handle redirects if appropriate
+   - None may return until the operation truly completes
 
 ### If modifying an existing spec:
 
@@ -99,12 +133,13 @@ Write the spec file to `bin/spur/<ProtocolName>.spur`. Follow this structure:
 Before moving to testing:
 
 1. Verify every pseudocode procedure has a corresponding Spur function
-2. Verify ClientInterface `Read`/`Write` don't return prematurely
-3. Verify `Init` sets up all required state and spawns background tasks (timeout monitors, etc.)
+2. Verify the client's `Read`/`Write` don't return prematurely
+3. Verify variable initializers derive identity and peers from the role parameter, and that `Init` spawns the background tasks (timeout monitors, etc.)
 4. If crash recovery is in scope: verify `persist_data` is called for critical state before yield points
 5. Check all message type match arms are handled
-6. **Report implementation choices**: Explicitly list every point where the implementation had to make a choice not dictated by the pseudocode (e.g., "the paper doesn't specify whether to reset the vote counter on duplicate votes — I chose to ignore duplicates"). These are potential sources of bugs and may represent real underspecifications in the paper.
-7. **Report flagged ambiguities**: Present the list of ambiguities and underspecifications identified in Phase 1. These are candidates for protocol bugs that testing may expose.
+6. Run `spur deploy bin/spur/<ProtocolName>.spur --params '{...}'` and confirm the node count, paths and groups are what the design intended
+7. **Report implementation choices**: Explicitly list every point where the implementation had to make a choice not dictated by the pseudocode (e.g., "the paper doesn't specify whether to reset the vote counter on duplicate votes — I chose to ignore duplicates"). These are potential sources of bugs and may represent real underspecifications in the paper.
+8. **Report flagged ambiguities**: Present the list of ambiguities and underspecifications identified in Phase 1. These are candidates for protocol bugs that testing may expose.
 
 Present the complete spec to the user for final review.
 
@@ -123,5 +158,5 @@ Present the complete spec to the user for final review.
 - Simulator semantics are in `docs/simulator_semantics.md`
 - Debugging heuristics are in `docs/agent/debugging.md`
 - Existing specs in `bin/spur/` are the best style reference
-- ClientInterface MUST have Read and Write — Porcupine checks linearizability through these
+- The `client` block MUST have Read and Write, and a `@deploy` function must name it — Porcupine checks linearizability through these
 - New specs go in `bin/spur/`

@@ -5,10 +5,10 @@
 Common root causes:
 
 - **Stale reads**: Node returns a value from its local state without ensuring it has the latest committed data. Often happens when a non-primary handles reads without forwarding or checking commit status.
-- **Lost writes**: A write is acknowledged to the client but never gets replicated to a quorum, so it's lost on leader failure. Check that Write in ClientInterface only returns after commit.
+- **Lost writes**: A write is acknowledged to the client but never gets replicated to a quorum, so it's lost on leader failure. Check that the client's Write only returns after commit.
 - **Split-brain**: Two nodes both believe they are primary after a view change. Usually caused by incorrect view number comparison or quorum counting.
 - **Incorrect commit ordering**: Operations are applied to the state machine in different orders on different replicas. Check log indexing and commit advancement logic.
-- **Premature ClientInterface return**: `Read` or `Write` in ClientInterface returns before the operation is truly committed (e.g., returning on a redirect response instead of retrying).
+- **Premature client return**: `Read` or `Write` in the client block returns before the operation is truly committed (e.g., returning on a redirect response instead of retrying).
 
 ## Deadlock Patterns
 
@@ -27,7 +27,7 @@ These don't cause porcupine failures but result in runs that never complete:
 - **Missing match arms**: When matching on message types, forgetting to handle a variant can silently drop important messages.
 - **Incorrect log replay during recovery**: When rebuilding state from a recovered log, ensure operations are applied in order and the commit number is correctly restored.
 - **Buffered messages after view change**: Messages received during a view change may need to be re-processed after the new view is established. Dropping them can cause lost operations.
-- **ClientInterface Read returning uncommitted data**: Reading from log entries that haven't been committed to a quorum. The read should only return values from committed entries.
+- **Client Read returning uncommitted data**: Reading from log entries that haven't been committed to a quorum. The read should only return values from committed entries.
 
 ## Reading Debug Output
 
@@ -59,7 +59,7 @@ When diagnosing a violation, **always** classify the root cause before proposing
 **Implementation bug** — the Spur spec diverges from the pseudocode in a way that introduces a bug:
 - Wrong translation of pseudocode logic (off-by-one, wrong condition, missing case)
 - Missing Spur-specific patterns (persistence before yield points, proper channel handling)
-- ClientInterface returning prematurely (Read/Write contract violation)
+- The client returning prematurely (Read/Write contract violation)
 
 **Ambiguous** — the pseudocode is silent or unclear:
 - The paper doesn't specify what happens in a particular edge case

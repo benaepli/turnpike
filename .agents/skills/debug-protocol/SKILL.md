@@ -26,7 +26,7 @@ Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Print t
 
 2. **Verify files exist**: Check that the spec file (`$SPEC`) and config file (`$CONFIG`) exist. If not, stop and report.
 
-3. **Check ClientInterface contract**: Read the spec file and verify it has a `ClientInterface` block containing `Read` and `Write` functions. These are required for linearizability checking. If missing, stop and tell the user.
+3. **Check the client contract**: Read the spec file and verify it has a `client` block containing `Read` and `Write` functions, and a `@deploy` function naming that client. These are required for linearizability checking. If missing, stop and tell the user. Note the deploy's name and its parameter fields: the config sets them under `deploy` and `params`.
 
 4. **Read pseudocode reference** (if provided): Read the pseudocode file. Keep it as context for diagnosing protocol logic bugs. Cross-reference the spec against it when looking for errors.
 
@@ -65,10 +65,10 @@ Note any anomalies: runs with 0 completed operations, unusually short durations,
 ### Step 3: Run Porcupine
 
 ```bash
-./porcupine/main -input $OUTPUT_DIR -type duckdb -model kv -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
+./porcupine/main -input $OUTPUT_DIR -type duckdb -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
 ```
 
-If the spec declares `ClientInterface.RMW` and stores `list<(int?, int)>` in `kv_store`, swap `-model kv` for `-model kv_rmw`.
+The model is read from the simulator's `deployments` table and follows from the spec's client: `kv_rmw` when the client declares `RMW`, `kv` otherwise. Pass `-model` only to override it.
 
 Capture the exit code. The output is also saved to `$OUTPUT_DIR/porcupine_output.txt` for parsing.
 
@@ -156,5 +156,5 @@ Stop the loop when any of these are true:
 - Simulator semantics are in `docs/simulator_semantics.md`
 - Always use `-y` flag with explore to auto-confirm output dir deletion
 - Always use `timeout 300` to cap explorer runtime at 5 minutes
-- `ClientInterface` must have `Read` and `Write` — these are what Porcupine checks
-- Read/Write in ClientInterface must not return until the operation truly completes (retry loops on redirect are normal)
+- The spec's `client` block must have `Read` and `Write` — these are what Porcupine checks, recorded as `Client.Read` and `Client.Write`
+- The client's Read/Write must not return until the operation truly completes (retry loops on redirect are normal)

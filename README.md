@@ -49,12 +49,14 @@ cd ..
 **Check a trace:**
 
 ```bash
-./porcupine/main -model kv -input output/executions/ -output output -type duckdb > output.log
+./porcupine/main -input output -output-dir output -type duckdb > output.log
 ```
+
+The model follows from the spec's client and is read from the simulator's `deployments` table, so `-model` is only needed to override it.
 
 **Output:**
 
-- Generates an HTML visualization (`output/index.html`) showing the execution history and linearizability result
+- Generates one HTML visualization per run (`output/run_N.html`) showing the execution history and linearizability result, with nodes labelled by role and ordinal
 - Verification status is printed to the log
 
 ## Advanced Documentation

@@ -8,16 +8,22 @@ All nodes in the simulator have a lifecycle that handles startup and potential c
 
 ### Normal Initialization
 
-Each node is required to have an `Init` function.
+A node starts by running its role's variable initializers, then its `Init`
+function if the role declares one.
 
-- **Synchronous Execution:** The `Init` function is executed synchronously at node startup.
-- **Required:** Every node explicitly requires an `Init` block to specify its starting state.
+- **Variable initializers:** At startup they run for every node in index order,
+  before any `Init`. They may read `self` and the role parameter, so identity and
+  peer lists are derived there.
+- **No parameters:** `Init` takes no parameters and returns unit. It may be sync
+  or async.
+- **Optional:** A role without `Init` starts with just its variable initializers.
 
 ### Recovery Initialization
 
-Nodes can experience simulated crashes. When the simulator revives a node from a crashed state, it must run a recovery routine. In Spur, this is achieved by specifying an optional function, typically named `RecoverInit`.
+Nodes can experience simulated crashes. When the simulator revives a node from a crashed state, it runs the role's variable initializers again and then its `RecoverInit` function. `RecoverInit` takes no parameters and returns unit.
 
-- **Optional Implementation:** Unlike `Init`, `RecoverInit` is entirely optional.
+- **Optional Implementation:** `RecoverInit` is optional. Without it, recovery ends after the variable initializers.
+- **Role parameter:** The role parameter is supplied again from the deployment on every recovery. It is never persisted, so a node's context and derived identity survive a crash even though its in-memory state does not.
 - **Behavior After Recovery:** On recovery, the user's node starts receiving messages from other nodes in the network _immediately_ after the **first yield point** (the first blocking call or channel receive) of `RecoverInit`. Prior to that yield point, incoming messages will not be processed, ensuring the node can safely reinitialize critical state.
 
 ## Message Delivery During Crashes
@@ -42,28 +48,48 @@ Spur supports network partitions that block message delivery between groups of n
 
 ### Partition Types
 
-Four partition shapes are available:
+Four partition shapes are available. `halves`, `majorities_ring` and `bridge`
+apply to one **group** of the deployment: a `list<R>` value named by its path,
+such as `nodes` or `shards["east"].nodes`. They constrain a message only when
+both of its endpoints are members of that group. A message with an endpoint
+outside the group — a client, a router, a node of another shard — is delivered.
+Membership compares whole node identities, so a group's global indices need not
+be contiguous. Self-messages are always delivered.
 
-- **`isolate_one`** — One node is completely isolated from all others. No messages flow to or from the isolated node.
-- **`halves`** — Nodes are split into two explicit groups. Cross-group messages are blocked; intra-group messages flow normally.
-- **`majorities_ring`** — Each node can reach `floor(n/2)+1` nearest neighbors (including itself) arranged in a ring. No global quorum exists, which can expose bugs in majority-based protocols.
-- **`bridge`** — Two halves connected only through a single bridge node. The bridge can communicate with everyone; non-bridge nodes can only reach nodes in their own half.
+- **`isolate_one`** — One node is completely isolated from all others. No messages flow to or from the isolated node. This shape names a node, not a group.
+- **`halves`** — The group is split into two sides. Messages between members on opposite sides are blocked; members on the same side communicate normally.
+- **`majorities_ring`** — The group's members are laid out on a ring in group order. Two members are linked when their ring distance is at most `n / 4 + (n % 4) / 2` in integer arithmetic, the smallest symmetric radius that gives every member a direct majority counting itself. A valid ring has at least four distinct members; below that the rule links everyone, so it is not a fault at all and the event is rejected. The neighborhoods overlap and every supported size blocks some direct links, but the graph is not disconnected and protocols may still relay messages through members.
+- **`bridge`** — The group is split into two halves connected only through a single bridge member. The bridge reaches every member; other members reach only their own half.
+
+| Ring size | Radius | Members position 0 reaches | Blocked from 0 |
+| --- | --- | --- | --- |
+| 4 | 1 | 0, 1, 3 | 2 |
+| 5 | 1 | 0, 1, 4 | 2, 3 |
+| 6 | 2 | 0, 1, 2, 4, 5 | 3 |
+| 7 | 2 | 0, 1, 2, 5, 6 | 3, 4 |
+| 8 | 2 | 0, 1, 2, 6, 7 | 3, 4, 5 |
+
+A generated partition picks its group among the deployment's groups:
+`majorities_ring` among groups of at least four distinct members, `bridge` and
+`majorities_ring` preferring `@quorum` groups when eligible ones exist, `halves`
+among all non-empty groups, and `isolate_one` among all deployed nodes. A shape
+with no eligible group is redrawn.
 
 ### Message Buffering During Partitions
 
 Messages blocked by a partition are buffered in a **separate partition queue**, distinct from the crash queue:
 
-- When a partition is activated, existing runnable messages that cross the partition boundary are moved to the partition queue.
-- New messages created during the partition are checked at both creation time (for async RPCs) and dispatch time (for all message types). If the sender and receiver are on opposite sides of the partition, the message is buffered.
-- Messages to the _same_ side of the partition are delivered normally.
+- When a partition is activated, existing runnable messages that it blocks are moved to the partition queue.
+- New messages created during the partition are checked at both creation time (for async RPCs) and dispatch time (for all message types). If the partition blocks that sender and receiver, the message is buffered.
+- Messages the partition does not block are delivered normally.
 
 ### Crash–Partition Implementation and Interaction
 
 Crashes and partitions are orthogonal. When both are active, the **crash check takes priority** over the partition check:
 
 - A message to a crashed node always goes to the **crash queue**, even if a partition would also block it.
-- A message to an alive node on the other side of a partition goes to the **partition queue**.
-- A message to an alive node on the same side of the partition is delivered normally.
+- A message to an alive node that the partition blocks goes to the **partition queue**.
+- A message to an alive node that the partition allows is delivered normally.
 
 ### Healing
 
@@ -158,14 +184,14 @@ Labels give the plan system fine-grained control over timer ordering. When `stri
 {
   "strict_timers": true,
   "events": {
-    "w1": { "write": [0, "x", "1"] },
-    "allow_election": { "allow_timer": [2, "election"] }
+    "w1": { "write": { "dest": "nodes[0]", "key": "x" } },
+    "allow_election": { "allow_timer": { "node": "nodes[2]", "label": "election" } }
   },
   "dependencies": [["w1", "allow_election"]]
 }
 ```
 
-This means node 2's `"election"` timer can only fire after the write `w1` completes. Unlabeled timers are unaffected by `strict_timers` and may fire at any time.
+This means the `"election"` timer of `nodes[2]` can only fire after the write `w1` completes. Unlabeled timers are unaffected by `strict_timers` and may fire at any time.
 
 ### Timers and Crashes
 
