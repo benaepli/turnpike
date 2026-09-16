@@ -3088,3 +3088,57 @@ Policy suggestions: Fix or delete the steer subsystem before spending another hy
 ## 2026-08-30T17:28:31.051Z
 
 **zero-point-first-ablation-protocol** (needs_human): The rule's content was never tested; the harness rejected its FORM. Apply touched only research/observations/OBSERVATIONS.md and a new ZERO_POINT_FIRST.md — spurFiles empty, general_vr.json params 24 before / 24 after, lint clean — so the judge returned needs_human on the mechanical ground that a campaign would run the baseline binary against the baseline config and sample nothing. Confirms: a doc-only policy hypothesis is unfalsifiable on the current evaluation path, which measures only (spur binary x scheduler_configs) deltas; writing a rule into an observations file makes it advisory at propose time, exactly the state the hypothesis claimed to fix, at the cost of one iteration. Two disjoint follow-ups exist: (a) make the rule binding by editing a file the grader actually reads, or (b) stop meta-arguing and spend the iteration exercising the rule on a live knob. The counter dump supports (b): purgatory is the next scalar knob with clean firing counters — delayed_sends=232457, holds_up_receiver=232457, holds_down_receiver=0, passthrough_down_receiver=29236 — i.e. a large, strictly one-sided intervention whose knob-off point has never been measured, so 'weak effect' vs 'no effect' is currently unseparated there in the same way it was for post_fault_ops (pairs_seen=2160=edges_added, ops_invoked_after_last_recover=1709, null verdict after five evaluations). Secondary note: the observations doc still lands on disk, so the lesson is not lost even though the hypothesis is not adjudicable — future rule-only proposals should be folded into a config-bearing hypothesis rather than proposed standalone.
+
+## 2026-09-16T16:15:00.000Z (operator) - the two translation defects are out of the top-level specs, and both were worth a rate
+
+`Paxos.spur` and `Raft.spur` each carried a defect this log had already
+classified as a translation error rather than a paper finding: Paxos minted a
+command identity from volatile replica state
+(`research/lite/findings/paxos-host-crash-violation.md`), and Raft counted a
+reply whose term is below its own at both reply handlers
+(`research/lite/findings/raft-stale-reply-counted.md`). Both are repaired.
+Raft's repair is the two guards `raft_clean.spur` already carried, so
+`bin/spur/Raft.spur` is now byte-identical to it. Paxos's is the identity
+repair `panel/paxos_host_fixed.spur` already carried: `next_req_id` persisted
+and restored instead of seeded from `slot_num`, `commands_eq` comparing `kind`
+then `uid` for a write and `req_id` for a read, and a decided write
+acknowledged rather than proposed again.
+
+Measured before and after on the same binary, same seed, same grid, one arm
+each. Every grid exhausted well inside its wall, so the two sides of each pair
+carry the same run count by construction:
+
+| spec | workload | runs | violating runs |
+|---|---|---|---|
+| `Paxos.spur` before | 3 servers, 1-2 crashes | 480,000 | 1,608 |
+| `Paxos.spur` after | same | 480,000 | **0** |
+| `Raft.spur` before | 5 servers, 2-4 crashes | 1,440,000 | 800 |
+| `Raft.spur` after | same | 1,440,000 | **0** |
+
+**Raft's defect had never been given a rate.** It was recorded at 200 runs
+with 0 violations and argued from the protocol text alone. At 5 servers with
+2-4 crashes it is 5.6e-4: a quarter of Raft's measured detection ceiling
+(0.0021), and higher than the calibrated rate of every seeded Raft panel
+member, the highest of which is `raft-stale-vote` at 3.0e-4. A defect that
+reads as rare on a smoke test is not rare; that smoke test ran 200 runs at 3
+servers. The 5-server overlay came from `raft-recover-stale-append-reply`,
+whose reachability argument says a stale acknowledgement can only cause a
+wrong commit after a truncation that needs a voter outside the acked set,
+which 3 servers cannot supply.
+
+Worth a follow-up, not claimed here: that member seeds only the
+`AppendEntriesReply` guard's absence and calibrated 0 in 4,320,000 runs on
+this same overlay, while `Raft.spur`, which lacked both guards, violates at
+5.6e-4 on it. If both readings hold under one binary, the `RequestVoteReply`
+half is what fires at 5 servers and the two halves are not interchangeable.
+The calibration predates the topology migration, so the two numbers come from
+different explorers and the comparison is indicative only.
+
+The panel is untouched and every calibrated number in `PANEL_CALIBRATION.md`
+still stands. Its controls are pinned copies, not the top-level specs:
+`panel/raft_clean.spur` already was one, and the pre-repair Paxos host is now
+`panel/paxos_host.spur`, which the two unfixed paxos members name as their
+`cleanSpec`. Each member stays exactly one seeded defect from the file it is
+compared against, whatever the top-level specs do next. That pinning is the
+general rule this exposed: a member's control belongs next to the member, not
+in the corpus the loop is free to repair.

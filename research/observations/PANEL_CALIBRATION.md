@@ -83,13 +83,20 @@ resolves and a second arm would buy no comparison.
 ## Two rules the measurements forced
 
 **C1 is a separation rule, not a cleanliness rule.** The plan required a
-control with zero violations. No host satisfies it. `Paxos.spur` violates 2
-times in 20,736 runs, `Raft.spur` counts a reply from a superseded term at
-both reply handlers, and Mencius has no clean variant at all - only a partial
-repair. The rule is now `rate >= 20 x control rate`. At 20x the control
-contributes 5% of the member's count, so a true 50% collapse is measured as
-47.5%, well inside the gate's resolution. Both gate members clear it: 176x and
-66x.
+control with zero violations. No host on the panel satisfies it. The paxos
+control violates 2 times in 20,736 runs, `Raft.spur` counted a reply from a
+superseded term at both reply handlers, which is why the raft members are
+built on `panel/raft_clean.spur` instead, and Mencius has no clean variant at
+all - only a partial repair. The rule is now `rate >= 20 x control rate`. At
+20x the control contributes 5% of the member's count, so a true 50% collapse
+is measured as 47.5%, well inside the gate's resolution. Both gate members
+clear it: 176x and 66x.
+
+Both translation defects are repaired in the top-level specs. Every number
+here stands: the panel's controls are pinned copies, `panel/raft_clean.spur`
+and `panel/paxos_host.spur`, so each member stays exactly one seeded defect
+away from the file it is compared against, whatever `bin/spur/Raft.spur` and
+`bin/spur/Paxos.spur` do afterwards.
 
 **A host has a detection ceiling, and it is measured with a positive
 control.** A blatant injection of the same class bounds every subtler member

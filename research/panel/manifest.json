@@ -10,7 +10,7 @@
     {
       "id": "paxos-accept-stale-ballot",
       "spec": "bin/spur/panel/paxos_accept_stale_ballot.spur",
-      "cleanSpec": "bin/spur/Paxos.spur",
+      "cleanSpec": "bin/spur/panel/paxos_host.spur",
       "shape": "acceptor takes a pvalue from a ballot it already superseded, so one slot gets two commands",
       "faults": {
         "class": "F0",
@@ -69,7 +69,7 @@
         "eventsPerSec": 33.78496,
         "tauBestSec": 0.014
       },
-      "notes": "control violates at 4.8e-5; separation 345x. host ceiling is the strongest injection observed, not a measured bound.",
+      "notes": "control violates at 4.8e-5; separation 345x. host ceiling is the strongest injection observed, not a measured bound. Control is the pinned pre-repair host bin/spur/panel/paxos_host.spur: bin/spur/Paxos.spur carries the request-identity fix, so it is no longer one defect away from this member.",
       "wallSec": 10,
       "replicates": 3
     },
@@ -336,7 +336,7 @@
     {
       "id": "paxos-forget-promise",
       "spec": "bin/spur/panel/paxos_forget_promise.spur",
-      "cleanSpec": "bin/spur/Paxos.spur",
+      "cleanSpec": "bin/spur/panel/paxos_host.spur",
       "shape": "a recovered acceptor forgets its promised ballot and accepts a superseded round",
       "faults": {
         "class": "F2",
@@ -395,7 +395,7 @@
         "eventsPerSec": 0.85439,
         "tauBestSec": 1.435
       },
-      "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate.",
+      "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate. Control is the pinned pre-repair host bin/spur/panel/paxos_host.spur: bin/spur/Paxos.spur carries the request-identity fix, so it is no longer one defect away from this member.",
       "wallSec": 15,
       "replicates": 3
     }

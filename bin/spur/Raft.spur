@@ -387,6 +387,12 @@ role Node(cluster: Cluster) {
             return ();
         }
 
+        // A reply carrying an older term belongs to a superseded incarnation
+        // of this node and says nothing about the current one.
+        if (resp_term != current_term) {
+            return ();
+        }
+
         // Ignore if no longer leader
         if (state != 2) {
             return ();
@@ -463,6 +469,12 @@ role Node(cluster: Cluster) {
         // Rule: if term > currentTerm, step down
         if (resp_term > current_term) {
             step_down(resp_term);
+            return ();
+        }
+
+        // A reply carrying an older term belongs to a superseded incarnation
+        // of this node and says nothing about the current one.
+        if (resp_term != current_term) {
             return ();
         }
 

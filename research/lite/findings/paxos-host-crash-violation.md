@@ -9,6 +9,10 @@ concurrent writes, 1-2 crashes with recovery. Corpus:
 runs in 77,087. Porcupine per-run histories for all 303 are in
 `tmp/loop/lite/paxos-classify/html_all/`.
 
+The spec is repaired; the last section carries the change and its
+measurement. Every line reference below is to the spec before it, which is
+kept as `bin/spur/panel/paxos_host.spur`.
+
 ## Root cause
 
 PMMC identifies a command as `<kappa, cid, op>`, where `cid` is a
@@ -116,11 +120,32 @@ across the crash; it simply leaves the counter out and then seeds it from an
 unrelated value. The stale-vote, promise, and ballot logic that the panel
 members mutate is not involved.
 
-## Fix (not applied, `bin/spur/**` is protected)
+## Fix, applied to `bin/spur/Paxos.spur`
 
-Give commands an identity that survives the crash and the re-delivery:
-persist the request counter in `PersistentState` and restore it in
-`RecoverInit` instead of `slot_num`, and make `commands_eq` compare `kind`
-and `uid` as well. For the re-delivered write the `uid` is the stable key;
-a read needs the persisted counter. Either half alone removes only one of
-the two shapes.
+Commands now carry an identity that survives the crash and the re-delivery:
+
+- `next_req_id` is part of the persisted state struct and is restored from
+  it in `RecoverInit`, instead of being seeded from `slot_num`.
+- `commands_eq` compares `kind`, then `uid` for a write and `req_id` for a
+  read, so two different operations are never equal.
+- `resolve_pending` matches a decided command to a waiting client by
+  `req_id` or, for a write, by the `uid` recorded in `pending_writes`, and a
+  write that is already decided is acknowledged rather than proposed again.
+
+For a re-delivered write the `uid` is the stable key; a read needs the
+persisted counter. Either half alone removes only one of the two shapes.
+
+Measured on the same workload as above, seed 1000, one 480,000-run grid per
+arm on the same binary:
+
+| spec | runs | violating runs |
+| --- | --- | --- |
+| before the fix | 480,000 | 1,608 |
+| after the fix | 480,000 | 0 |
+
+The panel is unaffected: the two paxos members seeded from the unrepaired
+host keep it as their control, pinned at `bin/spur/panel/paxos_host.spur`,
+so each stays exactly one seeded defect away from what it is compared
+against. `bin/spur/panel/paxos_host_fixed.spur`, the repaired host the
+`paxos-fixed-*` members are built on, is the same protocol as the repaired
+`Paxos.spur`.
