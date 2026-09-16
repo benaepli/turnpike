@@ -86,11 +86,19 @@ type PersistentState {
     links: map<int, FifoLink<Node>>;
 };
 
-role Node {
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+
+role Node(cluster: Cluster) {
     // ── Identity ─────────────────────────────────────────────
-    var self: int = 0;
-    var replicas: list<Node> = [];
-    var n: int = 0;
+    var me: int = index_of(cluster.nodes, self)!;
+    var replicas: list<Node> = cluster.nodes;
+    var n: int = len(cluster.nodes);
 
     // ── Mencius server state ─────────────────────────────────
     var proposed: map<int, Command> = {};  // my suggested values (by slot)
@@ -143,27 +151,20 @@ role Node {
     // Init / Recover
     // ─────────────────────────────────────────────────────────
 
-    fn Init(me: int, peers: list<Node>) {
-        self = me;
-        replicas = peers;
-        n = len(peers);
-        my_index = self; // first slot owned by self (owner(i) = i % n)
+    fn Init() {
+        my_index = me; // first slot owned by self (owner(i) = i % n)
         for var q = 0; q < n; q = q + 1 {
             est_index = est_index[q] := q;
-            links = links[q] := fifo(peers[q]);
+            links = links[q] := fifo(replicas[q]);
         }
-        next_req_id = self; // unique across nodes: use stride of n
+        next_req_id = me; // unique across nodes: use stride of n
         persist(); // save fresh FIFO links so they survive a future crash
-        println("Node {self} initialized. n={n}");
+        println("Node {me} initialized. n={n}");
         monitor_suspicions();
     }
 
     @trace
-    async fn RecoverInit(me: int, peers: list<Node>) {
-        self = me;
-        replicas = peers;
-        n = len(peers);
-
+    async fn RecoverInit() {
         var saved: PersistentState? = retrieve_data<PersistentState>();
         if saved != nil {
             var s = saved!;
@@ -181,10 +182,10 @@ role Node {
             // ordered after any pre-crash in-flight messages.
             links = s.links;
         } else {
-            my_index = self;
+            my_index = me;
             links = {};
             for var q = 0; q < n; q = q + 1 {
-                links = links[q] := fifo(peers[q]);
+                links = links[q] := fifo(replicas[q]);
             }
         }
 
@@ -201,7 +202,7 @@ role Node {
         revoke_accept_count = {};
         pending_requests = {};
         applied_cmds = {};
-        next_req_id = self + n * 1000; // avoid colliding with pre-crash req_ids
+        next_req_id = me + n * 1000; // avoid colliding with pre-crash req_ids
 
         // Rebuild kv_store by applying all learned committed slots in order.
         kv_store = {};
@@ -214,7 +215,7 @@ role Node {
             }
         }
 
-        println("Node {self} recovered. expected={expected} my_index={my_index}");
+        println("Node {me} recovered. expected={expected} my_index={my_index}");
         // First yield point — messages start flowing after this.
         monitor_suspicions();
     }
@@ -332,10 +333,10 @@ role Node {
         learned_flags = learned_flags[i] := true;
         learned_value = learned_value[i] := value;
         if value == nil {
-            println("Node {self} LEARN slot {i} = no-op (expected={expected})");
+            println("Node {me} LEARN slot {i} = no-op (expected={expected})");
         } else {
             var vv = value!;
-            println("Node {self} LEARN slot {i} req=({vv.client_node},{vv.req_id}) uid={vv.uid ?? -1} kind={vv.kind} (expected={expected})");
+            println("Node {me} LEARN slot {i} req=({vv.client_node},{vv.req_id}) uid={vv.uid ?? -1} kind={vv.kind} (expected={expected})");
         }
         on_learned(i, value);
         check_commit();
@@ -343,7 +344,7 @@ role Node {
 
     fn on_learned(i: int, value: Command?) {
         // Rule 4: if I suggested v for slot i but no-op was chosen, re-submit v.
-        if owner_of(i) == self and exists(proposed, i) {
+        if owner_of(i) == me and exists(proposed, i) {
             var my_val = proposed[i];
             var lost = false;
             if value == nil {
@@ -393,17 +394,17 @@ role Node {
             result = kv_store[cmd.key];
         }
         if cmd.kind == 0 {
-            println("Node {self} COMMIT read key={cmd.key} result_len={len(result)} req=({cmd.client_node},{cmd.req_id})");
+            println("Node {me} COMMIT read key={cmd.key} result_len={len(result)} req=({cmd.client_node},{cmd.req_id})");
         }
 
-        if cmd.client_node == self and exists(pending_requests, cmd.req_id) {
+        if cmd.client_node == me and exists(pending_requests, cmd.req_id) {
             var ch = pending_requests[cmd.req_id];
             pending_requests = erase(pending_requests, cmd.req_id);
             resolve_ch(ch, ClientResponse{
                 success: true,
                 key: cmd.key,
                 value: result,
-                redirect: replicas[self],
+                redirect: replicas[me],
             });
         }
     }
@@ -440,7 +441,7 @@ role Node {
     // Triggered on the proposer side when acceptor q sends ACCEPT(0, v) for
     // slot i. Implies q has moved past all its own instances < i.
     fn on_accept_suggestion(i: int, q: int) {
-        if q == self { return (); }
+        if q == me { return (); }
         fill_q_skips(q, i);
     }
 
@@ -455,14 +456,14 @@ role Node {
         var skip_set: list<int> = [];
         var k = my_index;
         for ; k < i; {
-            if k % n == self and !is_learned(k) {
+            if k % n == me and !is_learned(k) {
                 learn_slot(k, nil);
                 skip_set = append(skip_set, k);
             }
             k = k + 1;
         }
         if i > my_index {
-            my_index = next_owned(i, self);
+            my_index = next_owned(i, me);
         }
 
         // Opt 1: do NOT send a separate SKIP to q (= owner(i)). The ACCEPT
@@ -490,7 +491,7 @@ role Node {
     // either flush (threshold α) or arm the τ-timer.
     fn defer_skips(q: int, skip_set: list<int>) {
         for var r = 0; r < n; r = r + 1 {
-            if r != self and r != q {
+            if r != me and r != q {
                 var pending: list<int> = [];
                 if exists(need_to_skip, r) { pending = need_to_skip[r]; }
                 for s in skip_set {
@@ -519,7 +520,7 @@ role Node {
         skip_timer_active = skip_timer_active[r] := false;
         if len(pending) == 0 { return (); }
         for s in pending {
-            links[r]->HandlePropose(self, s, Ballot{ round: 0, leader: self }, nil);
+            links[r]->HandlePropose(me, s, Ballot{ round: 0, leader: me }, nil);
         }
     }
 
@@ -541,7 +542,7 @@ role Node {
     fn on_client_request(cmd: Command) {
         var i = my_index;
         proposed = proposed[i] := cmd;
-        my_index = next_owned(i, self);
+        my_index = next_owned(i, me);
         persist();
 
         // Opt 2: the SUGGEST(i) we're about to broadcast piggybacks every
@@ -550,20 +551,20 @@ role Node {
         // are self-owned slots < i). Clear pending state and logically cancel
         // any τ-timers (the handler re-checks skip_timer_active[r]).
         for var r = 0; r < n; r = r + 1 {
-            if r != self {
+            if r != me {
                 need_to_skip = need_to_skip[r] := [];
                 skip_timer_active = skip_timer_active[r] := false;
             }
         }
 
-        broadcast_propose(i, Ballot{ round: 0, leader: self }, cmd);
+        broadcast_propose(i, Ballot{ round: 0, leader: me }, cmd);
     }
 
     async fn ClientWrite(key: string, uid: int): ClientResponse {
         println("ClientWrite: key={key} uid={int_to_string(uid)}");
         var req_id = next_req_id;
         next_req_id = next_req_id + n;
-        var cmd = Command{ client_node: self, req_id: req_id, kind: 1, key: key, uid: uid };
+        var cmd = Command{ client_node: me, req_id: req_id, kind: 1, key: key, uid: uid };
         var ch: chan<ClientResponse> = make();
         pending_requests = pending_requests[req_id] := ch;
         on_client_request(cmd);
@@ -574,7 +575,7 @@ role Node {
         println("ClientRead: key={key}");
         var req_id = next_req_id;
         next_req_id = next_req_id + n;
-        var cmd = Command{ client_node: self, req_id: req_id, kind: 0, key: key, uid: nil };
+        var cmd = Command{ client_node: me, req_id: req_id, kind: 0, key: key, uid: nil };
         var ch: chan<ClientResponse> = make();
         pending_requests = pending_requests[req_id] := ch;
         on_client_request(cmd);
@@ -587,13 +588,13 @@ role Node {
 
     fn broadcast_propose(slot: int, ballot: Ballot, value: Command?) {
         for var i = 0; i < n; i = i + 1 {
-            links[i]->HandlePropose(self, slot, ballot, value);
+            links[i]->HandlePropose(me, slot, ballot, value);
         }
     }
 
     fn broadcast_prepare(slot: int, ballot: Ballot) {
         for var i = 0; i < n; i = i + 1 {
-            links[i]->HandlePrepare(self, slot, ballot);
+            links[i]->HandlePrepare(me, slot, ballot);
         }
     }
 
@@ -628,7 +629,7 @@ role Node {
         var acc = get_accepted_ballot(slot);
         // prepared_ballot ≤ ballot AND accepted_ballot < ballot
         if ballot_gte(ballot, prep) and ballot_gt(ballot, acc) {
-            if ballot.round == 0 and owner_of(slot) != self {
+            if ballot.round == 0 and owner_of(slot) != me {
                 // SUGGEST (real command) from the owner, received by a
                 // non-owner — fill gaps on this replica per Rule 2. Safe
                 // under FIFO: every earlier message from the owner has
@@ -640,13 +641,13 @@ role Node {
             has_accepted = has_accepted[slot] := true;
             accepted_value = accepted_value[slot] := value;
             persist();
-            links[sender_id]->HandleAccept(self, slot, ballot, value);
+            links[sender_id]->HandleAccept(me, slot, ballot, value);
         } else {
             // NACK: if we rejected the owner's ballot-0 SUGGEST because a
             // revoker raised our prepared_ballot, tell the owner so it can
             // self-revoke and drive its value through a higher ballot.
             if ballot.round == 0 and owner_of(slot) == sender_id {
-                links[sender_id]->HandleNack(self, slot, prep);
+                links[sender_id]->HandleNack(me, slot, prep);
             }
             persist();
         }
@@ -670,8 +671,8 @@ role Node {
         var active: Ballot = Ballot{ round: -1, leader: -1 };
         var have_active = false;
 
-        if ballot.round == 0 and owner_of(slot) == self {
-            active = Ballot{ round: 0, leader: self };
+        if ballot.round == 0 and owner_of(slot) == me {
+            active = Ballot{ round: 0, leader: me };
             have_active = true;
         } else if exists(revoke_ballot, slot) and exists(revoke_phase, slot) and revoke_phase[slot] == 2 {
             active = revoke_ballot[slot];
@@ -712,7 +713,7 @@ role Node {
     @trace
     async fn HandleNack(sender_id: int, slot: int, nack_ballot: Ballot) {
         if is_learned(slot) { return (); }
-        if owner_of(slot) != self { return (); }
+        if owner_of(slot) != me { return (); }
         // Already revoking this slot? Don't start another.
         if exists(revoke_ballot, slot) { return (); }
 
@@ -752,7 +753,7 @@ role Node {
                     nil
                 },
             };
-            links[sender_id]->HandleAck(self, slot, ballot, info);
+            links[sender_id]->HandleAck(me, slot, ballot, info);
         } else {
             persist();
         }
@@ -803,7 +804,7 @@ role Node {
 
         var prior = get_prepared(slot);
         var new_round = prior.round + 1;
-        var b = Ballot{ round: new_round, leader: self };
+        var b = Ballot{ round: new_round, leader: me };
 
         revoke_ballot = revoke_ballot[slot] := b;
         revoke_phase = revoke_phase[slot] := 1;
@@ -813,7 +814,7 @@ role Node {
         revoke_best_value = revoke_best_value[slot] := nil;
         revoke_accept_count = revoke_accept_count[slot] := 0;
 
-        println("Revoke start: slot={slot} ballot=({new_round},{self})");
+        println("Revoke start: slot={slot} ballot=({new_round},{me})");
         broadcast_prepare(slot, b);
     }
 
@@ -852,7 +853,7 @@ role Node {
             // stuck. This is a coarse failure detector — the simulator decides
             // when this timer fires.
             for var q = 0; q < n; q = q + 1 {
-                if q != self {
+                if q != me {
                     on_suspect(q);
                 }
             }
@@ -860,7 +861,22 @@ role Node {
     }
 }
 
-ClientInterface {
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) {
+        return nil;
+    }
+    cluster(p.n)
+}
+
+client KVClient(sys: Cluster) {
     async fn Write(dest: Node, key: string, uid: int) {
         var target = dest;
         for ;; {

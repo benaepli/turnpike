@@ -21,12 +21,13 @@
         },
         "requiresRecovery": false
       },
-      "porcupineModel": "kv",
       "overlay": {
-        "num_servers": {
-          "min": 3,
-          "max": 3,
-          "step": 1
+        "params": {
+          "n": {
+            "min": 3,
+            "max": 3,
+            "step": 1
+          }
         },
         "num_write_ops": {
           "min": 3,
@@ -86,12 +87,13 @@
         },
         "requiresRecovery": false
       },
-      "porcupineModel": "kv",
       "overlay": {
-        "num_servers": {
-          "min": 3,
-          "max": 3,
-          "step": 1
+        "params": {
+          "n": {
+            "min": 3,
+            "max": 3,
+            "step": 1
+          }
         },
         "num_write_ops": {
           "min": 3,
@@ -147,12 +149,13 @@
         },
         "requiresRecovery": true
       },
-      "porcupineModel": "kv",
       "overlay": {
-        "num_servers": {
-          "min": 3,
-          "max": 5,
-          "step": 2
+        "params": {
+          "n": {
+            "min": 3,
+            "max": 5,
+            "step": 2
+          }
         },
         "num_write_ops": {
           "min": 3,
@@ -212,12 +215,13 @@
         },
         "requiresRecovery": true
       },
-      "porcupineModel": "kv",
       "overlay": {
-        "num_servers": {
-          "min": 3,
-          "max": 5,
-          "step": 2
+        "params": {
+          "n": {
+            "min": 3,
+            "max": 5,
+            "step": 2
+          }
         },
         "num_write_ops": {
           "min": 3,
@@ -277,12 +281,13 @@
         },
         "requiresRecovery": true
       },
-      "porcupineModel": "kv",
       "overlay": {
-        "num_servers": {
-          "min": 3,
-          "max": 5,
-          "step": 2
+        "params": {
+          "n": {
+            "min": 3,
+            "max": 5,
+            "step": 2
+          }
         },
         "num_write_ops": {
           "min": 3,
@@ -342,12 +347,13 @@
         },
         "requiresRecovery": true
       },
-      "porcupineModel": "kv",
       "overlay": {
-        "num_servers": {
-          "min": 3,
-          "max": 3,
-          "step": 1
+        "params": {
+          "n": {
+            "min": 3,
+            "max": 3,
+            "step": 1
+          }
         },
         "num_write_ops": {
           "min": 3,

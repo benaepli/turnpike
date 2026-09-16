@@ -110,9 +110,10 @@ type vnodeValue struct {
 	Index int `json:"index"`
 }
 
-// parseInvocationPayload extracts (targetNode, key) from a ClientInterface.Write/Read/Rmw
+// parseInvocationPayload extracts (targetNode, key) from a Client.Write/Read/RMW
 // invocation payload. Write has 3 args (dest, key, uid), Read has 2 (dest, key),
-// RMW has 3 (dest, key, uid). We only care about the first two.
+// RMW has 3 (dest, key, uid). We only care about the first two. A unit dest
+// marks an operation without a destination and reads as NoNode.
 func parseInvocationPayload(payload string) (target int, key string, err error) {
 	var tagged []taggedValue
 	if err = json.Unmarshal([]byte(payload), &tagged); err != nil {
@@ -122,12 +123,17 @@ func parseInvocationPayload(payload string) (target int, key string, err error) 
 		return 0, "", fmt.Errorf("expected >=2 payload elements, got %d", len(tagged))
 	}
 
-	if tagged[0].Type != "VNode" {
-		return 0, "", fmt.Errorf("payload[0] expected VNode, got %q", tagged[0].Type)
-	}
-	var n vnodeValue
-	if err = json.Unmarshal(tagged[0].Value, &n); err != nil {
-		return 0, "", fmt.Errorf("VNode value: %w", err)
+	switch tagged[0].Type {
+	case "VNode":
+		var n vnodeValue
+		if err = json.Unmarshal(tagged[0].Value, &n); err != nil {
+			return 0, "", fmt.Errorf("VNode value: %w", err)
+		}
+		target = n.Index
+	case "VUnit":
+		target = NoNode
+	default:
+		return 0, "", fmt.Errorf("payload[0] expected VNode or VUnit, got %q", tagged[0].Type)
 	}
 
 	if tagged[1].Type != "VString" {
@@ -137,7 +143,7 @@ func parseInvocationPayload(payload string) (target int, key string, err error) 
 		return 0, "", fmt.Errorf("VString value: %w", err)
 	}
 
-	return n.Index, key, nil
+	return target, key, nil
 }
 
 // parseNodePayload extracts a single VNode's index from a payload whose first
@@ -161,16 +167,16 @@ func parseNodePayload(payload string) (int, error) {
 	return n.Index, nil
 }
 
-// actionFor returns the executions.action string for a ClientInterface op kind.
-// Verified against spur/spur-core/src/simulator/path.rs:154-167 (op_name -> op_action).
+// actionFor returns the executions.action string for a client operation
+// kind. The string does not depend on the client's name.
 func actionFor(kind EventKind) string {
 	switch kind {
 	case KindWrite:
-		return "ClientInterface.Write"
+		return "Client.Write"
 	case KindRead:
-		return "ClientInterface.Read"
+		return "Client.Read"
 	case KindRmw:
-		return "ClientInterface.RMW"
+		return "Client.RMW"
 	default:
 		return ""
 	}

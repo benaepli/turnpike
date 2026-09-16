@@ -22,10 +22,18 @@ type PersistentState {
     log: list<LogEntry>;
 };
 
-role Node {
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+
+role Node(cluster: Cluster) {
     // Identity
-    var self: int = 0;
-    var replicas: list<Node> = [];
+    var me: int = index_of(cluster.nodes, self)!;
+    var replicas: list<Node> = cluster.nodes;
 
     // Persistent state (saved via persist_data)
     var current_term: int = 0;
@@ -54,22 +62,13 @@ role Node {
     var received_leader_message: bool = false;
     var known_leader: int = -1; // last known leader, -1 = unknown
 
-    fn Init(me: int, peers: list<Node>) {
-        self = me;
-        for var i = 0; i < len(peers); i = i + 1 {
-            replicas = append(replicas, peers[i]);
-        }
-        println("Node {self} initialized");
+    fn Init() {
+        println("Node {me} initialized");
         monitor_timeouts();
     }
 
     @trace
-    async fn RecoverInit(me: int, peers: list<Node>) {
-        self = me;
-        for var i = 0; i < len(peers); i = i + 1 {
-            replicas = append(replicas, peers[i]);
-        }
-
+    async fn RecoverInit() {
         // Restore persistent state
         var saved: PersistentState? = retrieve_data<PersistentState>();
         if (saved != nil) {
@@ -89,7 +88,7 @@ role Node {
         votes_received = 0;
         received_leader_message = false;
 
-        println("Node {self} recovered. term={current_term} log_len={len(log)}");
+        println("Node {me} recovered. term={current_term} log_len={len(log)}");
 
         // First yield point — after this, messages start being delivered
         monitor_timeouts();
@@ -164,7 +163,7 @@ role Node {
                     is_leader: true,
                     key: cmd.key,
                     value: result,
-                    leader: replicas[self]
+                    leader: replicas[me]
                 };
                 send_async(pending_requests[last_applied], resp);
                 pending_requests = erase(pending_requests, last_applied);
@@ -182,7 +181,7 @@ role Node {
             // Count replicas with matchIndex >= n (including self)
             var count: int = 1;
             for var i = 0; i < len(replicas); i = i + 1 {
-                if (i != self and exists(match_index, i) and match_index[i] >= n) {
+                if (i != me and exists(match_index, i) and match_index[i] >= n) {
                     count = count + 1;
                 }
             }
@@ -197,7 +196,7 @@ role Node {
 
     // Step down to follower if we see a higher term
     fn step_down(new_term: int) {
-        println("Node {self} stepping down. old_term={current_term} new_term={new_term}");
+        println("Node {me} stepping down. old_term={current_term} new_term={new_term}");
         current_term = new_term;
         voted_for = -1;
         state = 0;
@@ -210,7 +209,7 @@ role Node {
                 is_leader: false,
                 key: nil,
                 value: [],
-                leader: replicas[self]
+                leader: replicas[me]
             };
             send_async(ch, resp);
         }
@@ -218,17 +217,17 @@ role Node {
     }
 
     fn become_leader() {
-        println("Node {self} became leader for term {current_term}");
+        println("Node {me} became leader for term {current_term}");
         state = 2;
         votes_received = 0;
-        known_leader = self;
+        known_leader = me;
 
         // Initialize nextIndex and matchIndex (§5.3)
         next_index = {};
         match_index = {};
         var last_idx: int = last_log_index();
         for var i = 0; i < len(replicas); i = i + 1 {
-            if (i != self) {
+            if (i != me) {
                 next_index = next_index[i] := last_idx + 1;
                 match_index = match_index[i] := 0;
             }
@@ -236,7 +235,7 @@ role Node {
 
         // Send initial heartbeats to establish authority
         for var i = 0; i < len(replicas); i = i + 1 {
-            if (i != self) {
+            if (i != me) {
                 send_append_entries(i);
             }
         }
@@ -245,19 +244,19 @@ role Node {
     fn start_election() {
         state = 1;
         current_term = current_term + 1;
-        voted_for = self;
+        voted_for = me;
         votes_received = 1; // vote for self
         known_leader = -1;
         persist();
 
-        println("Node {self} starting election for term {current_term}");
+        println("Node {me} starting election for term {current_term}");
 
         var last_idx: int = last_log_index();
         var last_term: int = last_log_term();
 
         for var i = 0; i < len(replicas); i = i + 1 {
-            if (i != self) {
-                replicas[i]->RequestVote(current_term, self, last_idx, last_term);
+            if (i != me) {
+                replicas[i]->RequestVote(current_term, me, last_idx, last_term);
             }
         }
     }
@@ -275,7 +274,7 @@ role Node {
 
         replicas[peer_idx]->AppendEntries(
             current_term,
-            self,
+            me,
             prev_log_index,
             prev_log_term,
             entries,
@@ -302,7 +301,7 @@ role Node {
 
         // 1. Reply false if term < currentTerm
         if (leader_term < current_term) {
-            replicas[leader_id]->AppendEntriesReply(self, current_term, false, 0);
+            replicas[leader_id]->AppendEntriesReply(me, current_term, false, 0);
             return ();
         }
 
@@ -321,7 +320,7 @@ role Node {
         if (prev_log_index > 0) {
             if (prev_log_index > len(log)) {
                 persist();
-                replicas[leader_id]->AppendEntriesReply(self, current_term, false, 0);
+                replicas[leader_id]->AppendEntriesReply(me, current_term, false, 0);
                 return ();
             }
             if (log[prev_log_index - 1].term != prev_log_term) {
@@ -332,7 +331,7 @@ role Node {
                 }
                 log = new_log;
                 persist();
-                replicas[leader_id]->AppendEntriesReply(self, current_term, false, 0);
+                replicas[leader_id]->AppendEntriesReply(me, current_term, false, 0);
                 return ();
             }
         }
@@ -372,7 +371,7 @@ role Node {
         }
 
         var my_match: int = prev_log_index + len(entries);
-        replicas[leader_id]->AppendEntriesReply(self, current_term, true, my_match);
+        replicas[leader_id]->AppendEntriesReply(me, current_term, true, my_match);
     }
 
     // AppendEntries response callback (processed by leader)
@@ -451,7 +450,7 @@ role Node {
                 voted_for = candidate_id;
                 received_leader_message = true; // reset election timer on grant
                 persist();
-                println("Node {self} voted for {candidate_id} in term {current_term}");
+                println("Node {me} voted for {candidate_id} in term {current_term}");
                 replicas[candidate_id]->RequestVoteReply(current_term, true);
                 return ();
             }
@@ -492,7 +491,7 @@ role Node {
         if (state != 2) {
             var ch: chan<ClientResponse> = make();
             // Redirect to known leader; if unknown, round-robin to next node
-            var redirect_to: Node = replicas[(self + 1) % len(replicas)];
+            var redirect_to: Node = replicas[(me + 1) % len(replicas)];
             if (known_leader >= 0) {
                 redirect_to = replicas[known_leader];
             }
@@ -522,7 +521,7 @@ role Node {
         } else {
             // Replicate to all followers
             for var i = 0; i < len(replicas); i = i + 1 {
-                if (i != self) {
+                if (i != me) {
                     send_append_entries(i);
                 }
             }
@@ -550,7 +549,7 @@ role Node {
             if (state == 2) {
                 // Leader: send heartbeats to maintain authority
                 for var i = 0; i < len(replicas); i = i + 1 {
-                    if (i != self) {
+                    if (i != me) {
                         send_append_entries(i);
                     }
                 }
@@ -564,13 +563,28 @@ role Node {
             }
 
             // Election timeout — start new election
-            println("Node {self} election timeout at term {current_term}");
+            println("Node {me} election timeout at term {current_term}");
             start_election();
         }
     }
 }
 
-ClientInterface {
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) {
+        return nil;
+    }
+    cluster(p.n)
+}
+
+client KVClient(sys: Cluster) {
     async fn Write(dest: Node, key: string, uid: int) {
         var current_target: Node = dest;
         for ;; {

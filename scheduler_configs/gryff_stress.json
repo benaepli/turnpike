@@ -1,5 +1,6 @@
 {
-  "num_servers": { "min": 3, "max": 3, "step": 1 },
+  "deploy": "Main",
+  "params": { "n": { "min": 3, "max": 3, "step": 1 } },
   "num_write_ops": { "min": 2, "max": 2, "step": 1 },
   "num_read_ops": { "min": 2, "max": 2, "step": 1 },
   "num_rmw_ops": { "min": 2, "max": 2, "step": 1 },

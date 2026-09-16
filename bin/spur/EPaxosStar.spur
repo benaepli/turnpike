@@ -73,16 +73,24 @@ type Command {
 };
 
 
-role Node {
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+
+role Node(cluster: Cluster) {
     // The index of our own node in the replicas list.
-    var self: int = 0;
-    var replicas: list<Node> = [];
+    var me: int = index_of(cluster.nodes, self)!;
+    var replicas: list<Node> = cluster.nodes;
 
     // ID -> Command info.
     var commands: map<int, Command> = {};
 
-    var f: int = 0;
-    var e: int = 0;
+    var f: int = (len(cluster.nodes) - 1) / 2;
+    var e: int = (len(cluster.nodes) - f + 1) / 2;
 
     var executed: map<int, bool> = {};
 
@@ -103,17 +111,9 @@ role Node {
     var applied_uids: map<string, map<int, bool>> = {};
     var pending: map<int, chan<list<int>>> = {};
 
-    var node_count: int = 0;
+    var node_count: int = len(cluster.nodes);
 
-    async fn Init(me: int, all: list<Node>) {
-        self = me;
-        replicas = all;
-        node_count = len(replicas);
-
-        var n: int = len(replicas);
-        f = (n - 1) / 2;
-        e = (n - f + 1) / 2;
-        
+    async fn Init() {
         println("Initialized node. Node count: {node_count} F: {f} E: {e}");
     }
 
@@ -200,7 +200,7 @@ role Node {
         var localDeps: DependencySet = localConflicts(c);
         
         var request: PreAcceptRequest = PreAcceptRequest{
-            sender: replicas[self],
+            sender: replicas[me],
             id: id,
             payload: c,
             dependencies: localDeps,
@@ -212,7 +212,7 @@ role Node {
         // precondition check fails due to a race condition.
         <- PreAccept(request);
         for node in replicas {
-            if (node != replicas[self]) {
+            if (node != replicas[me]) {
                 node->PreAccept(request);
             }
         }
@@ -680,7 +680,7 @@ role Node {
     async fn CheckAndTriggerRecovery(id: int) {
         if exists(commands, id) and commands[id].phase != 3 {
             var leader: Node = leader_detector(id);
-            if (leader == replicas[self]) {
+            if (leader == replicas[me]) {
                 <-recover(id);
             } else {
                 leader->TryRecover(id); 
@@ -689,7 +689,7 @@ role Node {
     }
 
     async fn TryRecover(id: int) {
-        if (replicas[self] == leader_detector(id)) {
+        if (replicas[me] == leader_detector(id)) {
             recover(id);
         }
     }
@@ -704,10 +704,10 @@ role Node {
         }
         var new_ballot: int = current_bal + 1; 
 
-        <- Recover(new_ballot, id, replicas[self]);
+        <- Recover(new_ballot, id, replicas[me]);
         for node in replicas {
-            if (node != replicas[self]) {
-                node->Recover(new_ballot, id, replicas[self]);
+            if (node != replicas[me]) {
+                node->Recover(new_ballot, id, replicas[me]);
             }
         }
     }
@@ -745,7 +745,7 @@ role Node {
 
     async fn BroadcastCommit(b: int, id: int, c: Payload, D: DependencySet) {
         var req: CommitRequest = CommitRequest{
-            sender: replicas[self],
+            sender: replicas[me],
             ballot: b,
             id: id,
             payload: c,
@@ -753,7 +753,7 @@ role Node {
         };
         <- Commit(req);
         for node in replicas {
-            if (node != replicas[self]) {
+            if (node != replicas[me]) {
                 node->Commit(req);
             }
         }
@@ -761,7 +761,7 @@ role Node {
 
     async fn BroadcastAccept(b: int, id: int, c: Payload, D: DependencySet) {
         var req: AcceptRequest = AcceptRequest{
-            sender: replicas[self],
+            sender: replicas[me],
             ballot: b,
             id: id,
             payload: c,
@@ -769,7 +769,7 @@ role Node {
         };
         <- Accept(req);
         for node in replicas {
-            if (node != replicas[self]) {
+            if (node != replicas[me]) {
                 node->Accept(req);
             }
         }
@@ -814,7 +814,7 @@ role Node {
                 dependencies: cmd.dependencies,
                 initialDependencies: cmd.initialDependencies,
                 phase: cmd.phase,
-                sender: replicas[self],
+                sender: replicas[me],
             });
         }
     }
@@ -916,10 +916,10 @@ role Node {
     }
 
     async fn StartValidation(b: int, id: int, c: Payload, D: DependencySet) {
-        <- HandleValidate(b, id, c, D, replicas[self]);
+        <- HandleValidate(b, id, c, D, replicas[me]);
         for node in replicas {
-            if (node != replicas[self]) {
-                node->HandleValidate(b, id, c, D, replicas[self]);
+            if (node != replicas[me]) {
+                node->HandleValidate(b, id, c, D, replicas[me]);
             }
         }
     }
@@ -1027,7 +1027,7 @@ role Node {
         var cmd: Command = commands[id];
 
         var req: WaitingRequest = WaitingRequest{
-            sender: replicas[self],
+            sender: replicas[me],
             id: id,
             r_size: cmd.validatingQuorumSize,
         };
@@ -1085,7 +1085,22 @@ role Node {
     }
 }
 
-ClientInterface {
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) {
+        return nil;
+    }
+    cluster(p.n)
+}
+
+client KVClient(sys: Cluster) {
     async fn Read(dest: Node, key: string): list<int> {
         var promise: chan<list<int>> = dest->ClientRead(key);
         <-promise

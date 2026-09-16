@@ -39,10 +39,18 @@ type RecoveryResponseMsg {
     sender: Node;
 };
 
-role Node {
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+
+role Node(cluster: Cluster) {
     // Persistent state
-    var self: int = 0;
-    var replicas: list<Node> = [];
+    var me: int = index_of(cluster.nodes, self)!;
+    var replicas: list<Node> = cluster.nodes;
     var view_number: int = 0;
     var log: list<LogEntry> = [];
 
@@ -73,29 +81,21 @@ role Node {
     var recovery_response_senders: map<Node, bool> = {};
     
     @trace
-    async fn Init(me: int, peers: list<Node>) {
-        self = me;
-        for var i: int = 0; i < len(peers); i = i + 1 {
-            replicas = append(replicas, peers[i]);
-        }
-        println("Node {self} initialized. Peer count: {len(peers)}");
+    async fn Init() {
+        println("Node {me} initialized. Peer count: {len(replicas)}");
         monitor_timeouts();
     }
 
     @trace
-    async fn RecoverInit(me: int, peers: list<Node>) {
+    async fn RecoverInit() {
         status = 2;
-        self = me;
-        for var i: int = 0; i < len(peers); i = i + 1 {
-          replicas = append(replicas, peers[i]);
-        }
 
         // The nonce must be unique across incarnations of this replica, so it
         // is drawn from a counter that survives the crash, not from memory.
         var last_nonce: int? = retrieve_data<int>();
         recovery_nonce = (last_nonce ?? 0) + 1;
         persist_data(recovery_nonce);
-        println("Node {self} starting recovery with nonce {recovery_nonce}");
+        println("Node {me} starting recovery with nonce {recovery_nonce}");
 
         // Clear state from any previous recovery attempts
         recovery_responses = [];
@@ -104,8 +104,8 @@ role Node {
         var checkpoint_op: int = applied_op_count;
 
         for var i: int = 0; i < len(replicas); i = i + 1 {
-            if (i != self) {
-                replicas[i]->Recovery(replicas[self], recovery_nonce, checkpoint_op);
+            if (i != me) {
+                replicas[i]->Recovery(replicas[me], recovery_nonce, checkpoint_op);
             }
         }
         monitor_timeouts();
@@ -169,7 +169,7 @@ role Node {
                     is_primary: true,
                     key: cmd.key,
                     value: result,
-                    primary: replicas[self]
+                    primary: replicas[me]
                 };
                 send_async(pending_requests[op_n], resp);
                 pending_requests = erase(pending_requests, op_n);
@@ -202,7 +202,7 @@ role Node {
                 commit_number = msg.commit_number;
                 apply_committed_entries();
             }
-            primary_of(view_number)->PrepareOK(view_number, op_number, replicas[self]);
+            primary_of(view_number)->PrepareOK(view_number, op_number, replicas[me]);
 
             prepare_buffer = erase(prepare_buffer, next_op);
         }
@@ -212,7 +212,7 @@ role Node {
     async fn PrepareOK(other_view: int, other_op_number: int, other_replica_id: Node) {
         println("HandlePrepareOK: Received PrepareOK for op_number {other_op_number} at view {other_view}");
         var current_primary: Node = primary_of(view_number);
-        if (replicas[self] == current_primary and other_view == view_number and status == 0) {
+        if (replicas[me] == current_primary and other_view == view_number and status == 0) {
             if (!exists(prepare_ok_counts, other_op_number)) {
                 // Start at 1: the primary counts itself as having prepared the op.
                 prepare_ok_counts = prepare_ok_counts[other_op_number] := 1;
@@ -223,7 +223,7 @@ role Node {
                 commit_number = other_op_number;
                 apply_committed_entries();
                 for var i: int = 0; i < len(replicas); i = i + 1 {
-                    if (i != self) {
+                    if (i != me) {
                         <-replicas[i]->Commit(view_number, commit_number);
                     }
                 }
@@ -241,7 +241,7 @@ role Node {
     }
 
     fn enter_view_change(new_view: int) {
-        println("Node {self} entering view change to view {new_view}");
+        println("Node {me} entering view change to view {new_view}");
         status = 1;
         view_number = new_view;
 
@@ -259,7 +259,7 @@ role Node {
         pending_requests = {};
         
         start_view_change_senders = {};
-        start_view_change_senders = start_view_change_senders[replicas[self]] := true; 
+        start_view_change_senders = start_view_change_senders[replicas[me]] := true; 
         
         do_view_change_senders = {};
         do_view_change_messages = [];
@@ -269,7 +269,7 @@ role Node {
     }
 
     fn enter_normal_mode(v: int, new_log: list<LogEntry>, op_n: int, commit_n: int) {
-        println("Node {self} entering normal mode at view {v} with op_number {op_n} commit_number {commit_n}");
+        println("Node {me} entering normal mode at view {v} with op_number {op_n} commit_number {commit_n}");
         status = 0;
         view_number = v;
         log = new_log;
@@ -301,7 +301,7 @@ role Node {
 
     @trace
     async fn StartViewChange(new_view: int, replica_id: Node) {
-        println("HandleStartViewChange: Node {self} received StartViewChange for view {new_view}");
+        println("HandleStartViewChange: Node {me} received StartViewChange for view {new_view}");
         if (status == 2) {
             return ();
         }
@@ -309,8 +309,8 @@ role Node {
         if (new_view > view_number) {
             enter_view_change(new_view);
             for var i: int = 0; i < len(replicas); i = i + 1 {
-                if (i != self) {
-                    replicas[i]->StartViewChange(view_number, replicas[self]);
+                if (i != me) {
+                    replicas[i]->StartViewChange(view_number, replicas[me]);
                 }
             }
         }
@@ -326,8 +326,8 @@ role Node {
             if (len(start_view_change_senders) == quorum) {
                 var new_primary: Node = primary_of(view_number);
 
-                // Pass our own ID (replicas[self]) as the sender
-                new_primary->DoViewChange(view_number, log, normal_view, op_number, commit_number, replicas[self]);
+                // Pass our own ID (replicas[me]) as the sender
+                new_primary->DoViewChange(view_number, log, normal_view, op_number, commit_number, replicas[me]);
             }
         }
     }
@@ -336,7 +336,7 @@ role Node {
     async fn DoViewChange(new_view: int, sender_log: list<LogEntry>, sender_normal_view: int, sender_op_number: int, sender_commit_number: int, sender_id: Node) {
         var current_primary: Node = primary_of(new_view);
         
-        if (replicas[self] == current_primary and new_view == view_number and status == 1) {
+        if (replicas[me] == current_primary and new_view == view_number and status == 1) {
             
             if (exists(do_view_change_senders, sender_id)) {
                 return ();
@@ -392,9 +392,9 @@ role Node {
         if (new_view > view_number or (new_view == view_number and status == 1)) {
             enter_normal_mode(new_view, new_log, new_op_number, new_commit_number);
             var new_primary: Node = primary_of(view_number);
-            if (replicas[self] != new_primary) {
+            if (replicas[me] != new_primary) {
                 for var i = commit_number + 1; i <= op_number; i = i + 1 {
-                    new_primary->PrepareOK(view_number, i, replicas[self]);
+                    new_primary->PrepareOK(view_number, i, replicas[me]);
                 }
             }
         }
@@ -410,7 +410,7 @@ role Node {
 
         var current_primary: Node = primary_of(view_number);
 
-        if (replicas[self] == current_primary) {
+        if (replicas[me] == current_primary) {
             // This node is the primary. Send the full state.
 
             // Find the log suffix after the recovering node's last checkpoint
@@ -420,11 +420,11 @@ role Node {
             }
 
             // Send the response with the log and current numbers
-            replica_id->RecoveryResponse(view_number, nonce, log_suffix, op_number, commit_number, replicas[self]);
+            replica_id->RecoveryResponse(view_number, nonce, log_suffix, op_number, commit_number, replicas[me]);
 
         } else {
             // This node is a backup. Send a response with nil state.
-            replica_id->RecoveryResponse(view_number, nonce, nil, nil, nil, replicas[self]);
+            replica_id->RecoveryResponse(view_number, nonce, nil, nil, nil, replicas[me]);
         }
     }
 
@@ -514,7 +514,7 @@ role Node {
         }
         log = new_log;
 
-        println("Node {self} recovery complete. view={view_number} op_number={op_number} commit_number={commit_number}");
+        println("Node {me} recovery complete. view={view_number} op_number={op_number} commit_number={commit_number}");
         status = 0;
 
         recovery_responses = [];
@@ -524,9 +524,9 @@ role Node {
 
         // Send PrepareOK for non-committed ops to new primary
         var new_primary: Node = primary_of(view_number);
-        if (replicas[self] != new_primary) {
+        if (replicas[me] != new_primary) {
             for var i = commit_number + 1; i <= op_number; i = i + 1 {
-                new_primary->PrepareOK(view_number, i, replicas[self]);
+                new_primary->PrepareOK(view_number, i, replicas[me]);
             }
         }
     }
@@ -534,7 +534,7 @@ role Node {
     // Accepts a new command, logs it, and starts the replication process.
     fn NewEntry(cmd: Command): chan<ClientResponse> {
         var current_primary: Node = primary_of(view_number);
-        if (replicas[self] != current_primary) {
+        if (replicas[me] != current_primary) {
             // Not the primary. Return a failure/redirect response.
             var p_err: chan<ClientResponse> = make();
             var resp: ClientResponse = ClientResponse{
@@ -572,7 +572,7 @@ role Node {
             apply_committed_entries(); // This will resolve the promise
         } else {
              for var i = 0; i < len(replicas); i = i + 1 {
-                if (i != self) {
+                if (i != me) {
                     // Replicate the command
                     replicas[i]->Prepare(view_number, cmd, op_number, commit_number);
                 }
@@ -610,15 +610,15 @@ role Node {
             }
 
             var current_primary: Node = primary_of(view_number);
-            if (replicas[self] == current_primary) { 
+            if (replicas[me] == current_primary) { 
                 continue;
             }
 
-            println("monitor_timeouts: Node {self} timeout triggered at view {view_number}");
+            println("monitor_timeouts: Node {me} timeout triggered at view {view_number}");
             enter_view_change(view_number + 1);
             for var i = 0; i < len(replicas); i = i + 1 {
-                 if (i != self) {
-                    replicas[i]->StartViewChange(view_number, replicas[self]);
+                 if (i != me) {
+                    replicas[i]->StartViewChange(view_number, replicas[me]);
                  }
             }
         }
@@ -629,7 +629,22 @@ role Node {
     }
 }
 
-ClientInterface {
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) {
+        return nil;
+    }
+    cluster(p.n)
+}
+
+client KVClient(sys: Cluster) {
     var responses: list<(ClientResponse, string)> = [];
 
     // Sends a new write command to a specific replica, retrying on redirect.

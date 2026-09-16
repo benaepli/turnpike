@@ -58,7 +58,7 @@ PREPARE = 'Node.Prepare'
 PREPARE_OK = 'Node.PrepareOK'
 COMMIT = 'Node.Commit'
 INIT = 'Node.Init'
-WRITE = 'ClientInterface.Write'
+WRITE = 'Client.Write'
 
 # Set by the census command before workers fork.
 SAME_STEP_ONLY = False

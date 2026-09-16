@@ -14,17 +14,16 @@ cargo run --release --manifest-path spur/Cargo.toml --bin spur -- [SUBCOMMAND] [
 
 Runs the main execution explorer over a configuration space, compiling the spec internally.
 
-- `-c, --config [FILE]`: The JSON configuration file defining exploration parameters, including the scheduler policy, diversity rates, and bounded executions (e.g. number of nodes, crashes, etc.).
+- `-c, --config [FILE]`: The JSON configuration file defining exploration parameters, including the scheduler policy, diversity rates, the deploy and its parameter ranges, and bounded executions (crashes, partitions, client operations).
 - `-o, --output-dir [DIR]`: Directory to emit traces and graph visualizations.
 - `-e, --explorer [TYPE]`: The exploration strategy. Options:
   - `standard` (Default): Exhaustive or randomly sampled bounded execution.
   - `genetic`: Genetic algorithm-based exploration for finding edge cases.
-- `--log-backend [BACKEND]`: Determines the format for execution history persistence.
-  - `parquet` (Default): High-performance structured logging utilizing Apache Parquet.
-  - `duckdb`: SQLite-like backend using DuckDB.
-- `--set PATH=VALUE` (repeatable): Overrides one dotted config field before parsing (see `scheduler_configs/loop/README.md`).
+- `--deploy [NAME]`: The `@deploy` function to run, overriding the config's `deploy` key.
+- `--log-backend [BACKEND]`: The format for execution history persistence. `parquet` is the only backend: Apache Parquet files, one directory per table.
+- `--set PATH=VALUE` (repeatable): Overrides one dotted config field before parsing (see `scheduler_configs/loop/README.md`). Parameter ranges are objects, so `--set params.n.max=7` works; a `@choice` array is replaced whole, as in `--set 'params.mode=["plain"]'`.
 
-The standard explorer writes `session.json` inside and beside the output directory: `wall_ms` (active time on a monotonic clock from the first queued run to the last finished one), `runs_completed`, `runs_failed`, `runs_skipped`, `wall_budget_sec`, `budget_hit`, and `writer_flush_ms`.
+The standard explorer writes `session.json` inside and beside the output directory: `wall_ms` (active time on a monotonic clock from the first queued run to the last finished one), `runs_completed`, `runs_failed`, `runs_skipped`, `wall_budget_sec`, `budget_hit`, `writer_flush_ms`, and the deployment summary: `deploy` (the selected deploy's name), `deployments_built`, `deploy_rejections` (parameter tuples the deploy returned `nil` for), `tuples_aliased` (tuples that built a deployment equal to an earlier one) and `nodes_beyond_mask_width` (nodes past index 63 in the largest deployment, which the 64-bit crash-hold and retarget masks never select).
 
 #### `wall_budget_sec`
 
@@ -36,17 +35,28 @@ Executes a fixed, deterministic DAG schedule of events instead of exploring rand
 
 - `-p, --plan [FILE]`: The plan configuration JSON file.
 - `-o, --output-dir [DIR]`: Output directory for results.
+- `--deploy [NAME]`: The `@deploy` function to run, overriding the plan's `deploy` key.
 - `--log-backend [BACKEND]`: Same log backend options as `explore`.
 
-Plan configs support `partition` and `heal` events alongside `crash`, `recover`, and `allow_timer`. Partition events specify a partition type:
+A plan fixes one parameter tuple with `params` and names its nodes and groups by path into the deployment value. Plan configs support `partition` and `heal` events alongside `crash`, `recover`, `allow_timer` and `deliver`:
 
 ```json
 {
+  "deploy": "Main",
+  "params": { "n": 5 },
+  "num_runs": 50,
+  "max_iterations": 5000,
   "events": {
-    "p1": { "partition": { "type": "isolate_one", "node": 0 } },
+    "w1": { "write": { "dest": "nodes[1]", "key": "x" } },
+    "r1": { "read": { "dest": "nodes[0]", "key": "x" } },
+    "c1": { "crash": "nodes[1]" },
+    "v1": { "recover": "nodes[1]" },
+    "p1": { "partition": { "type": "isolate_one", "node": "nodes[0]" } },
+    "p2": { "partition": { "type": "halves", "group": "nodes", "side_a": [0, 1] } },
+    "p3": { "partition": { "type": "bridge", "group": "nodes", "bridge": 2 } },
+    "p4": { "partition": { "type": "majorities_ring", "group": "nodes" } },
     "h1": "heal",
-    "w1": { "write": [1, "x"] },
-    "r1": { "read": [0, "x"] }
+    "d1": { "deliver": { "function": "Node.AppendEntries", "from": "nodes[0]", "to": "nodes[1]" } }
   },
   "dependencies": [
     ["w1", "p1"],
@@ -56,7 +66,61 @@ Plan configs support `partition` and `heal` events alongside `crash`, `recover`,
 }
 ```
 
+- `dest` is omitted for a client operation that takes no destination, and required for one that takes one. Its role must match the operation's `dest` parameter.
+- `side_a` and `bridge` are positions in `group`, shorthand for `group[i]`.
+- `deliver.function` is the qualified handler name as recorded in traces, for example `Node.AppendEntries`.
+
 Available partition types: `isolate_one`, `halves`, `majorities_ring`, `bridge`. See [Simulator Semantics](simulator_semantics.md#network-partitions) for details.
+
+Every path is checked when the plan loads, first against the deploy's root type and then against the deployment the plan's tuple builds. A path that does not resolve, an empty partition group, a `majorities_ring` group with fewer than four distinct members, and a `side_a` or `bridge` position outside the group are all load errors, reported before any run.
+
+`run-plan` writes `plan_resolved.json` beside its output: the plan with every path replaced by the global node index it resolved to. `traceanalyzer -dag-config` reads that file.
+
+### `deploy`
+
+Evaluates one parameter tuple and prints the resulting deployment as JSON: the deploy name, hash, parameters, per-role counts, every node's index, role, ordinal and canonical path, and every group with its paths, members and quorum flag. This is the authoring loop for deploy functions.
+
+```bash
+cargo run --release --manifest-path spur/Cargo.toml --bin spur -- deploy SPEC.spur --deploy Main --params '{"n": 5}'
+```
+
+A tuple the deploy rejects prints `{"rejected": true}`.
+
+### `debug`
+
+`debug logs` and `debug traces` select a node either by global index with `--node-id N` or by path with `--node PATH`, resolved through the run's deployment. The two flags are mutually exclusive, and omitting both shows every node. `debug logs`, `debug traces` and `debug combined` label each node as `Role[ordinal] path`, for example `Node[2] nodes[2]`; client nodes are labelled `Client N`.
+
+## Deployment Configuration
+
+### `deploy`
+
+String, naming the `@deploy` function to run. It may be omitted when the program declares exactly one. `--deploy NAME` overrides it.
+
+### `params`
+
+One entry per field of the deploy's parameter struct, and no others.
+
+In an `explore` config, a `@scale` field takes a range object and a `@choice` field a non-empty array of values:
+
+```json
+"params": {
+  "n": { "min": 3, "max": 7, "step": 2 },
+  "mode": ["plain", "pre_vote"],
+  "cache_leaders": [false, true]
+}
+```
+
+`step` defaults to 1. Choice values are checked against the field type: numbers for `int`, booleans for `bool`, strings for `string`, and variant names as strings for enums. A field with no entry, an entry with no field, a wrong shape, `min > max`, `step < 1` and duplicate choice values are all load errors.
+
+In a `run-plan` config, `params` gives one fixed value per field instead:
+
+```json
+"params": { "n": 5 }
+```
+
+The explorer varies only these fields. Every tuple of the space is evaluated when the config loads, and the space may hold at most 4096 tuples. Each tuple's deployment is built once and shared by every run of that tuple; tuples that build structurally equal deployments are merged into one deployment, and tuples the deploy rejects are skipped. A deploy that rejects every tuple is a load error. Grid mode visits deployments small first, ordered by the positions of the `@scale` axes.
+
+The genetic, curriculum and continuous modes draw and mutate tuples instead: a `@scale` axis is drawn with weight `1 / (i + 1)` on position `i` so small values come first, a `@choice` axis uniformly, and a mutation moves a `@scale` axis one position or resamples a `@choice` axis. A draw that lands on a rejected tuple is retried, and a rejected mutation keeps the parent's tuple.
 
 ## Scheduler Configuration
 
@@ -174,13 +238,13 @@ The chain is global across keys and across the Write/RMW distinction — it is a
 
 ### `num_rmw_ops`
 
-Controls how many `ClientInterface.RMW` invocations the plan generator emits per run. Only applies to `explore` configs and is **opt-in** — defaults to `{min: 0, max: 0, step: 1}`, so existing configs and specs are unaffected. Set this to a positive value only when the spec under test declares `RMW(dest, key, uid): list<int>` in `ClientInterface` and stores `map<string, list<int>>` in `kv_store` under the `kv_rmw` Write/RMW semantics (Write overwrites, RMW appends).
+Controls how many `Client.RMW` invocations the plan generator emits per run. Only applies to `explore` configs and is **opt-in** — defaults to `{min: 0, max: 0, step: 1}`. Set this to a positive value only when the spec under test declares `RMW([dest,] key, uid): list<int>` in its `client` block and stores `map<string, list<int>>` in `kv_store` under the `kv_rmw` Write/RMW semantics (Write overwrites, RMW appends). A config with `num_rmw_ops > 0` against a client without `RMW` is rejected when the config loads.
 
 ```json
 "num_rmw_ops": { "min": 1, "max": 3, "step": 1 }
 ```
 
-RMW invocations share the [`max_concurrent_writes`](#max_concurrent_writes) budget with `Write` since both mutate per-key state. The corresponding Porcupine model is `-model kv_rmw`. Each RMW's return value is checked directly against the model's state, so RMW errors surface without needing a follow-up `Read` — though reads still add useful coverage.
+RMW invocations share the [`max_concurrent_writes`](#max_concurrent_writes) budget with `Write` since both mutate per-key state. The corresponding Porcupine model is `kv_rmw`. Each RMW's return value is checked directly against the model's state, so RMW errors surface without needing a follow-up `Read` — though reads still add useful coverage.
 
 ### `num_keys`
 
@@ -202,17 +266,21 @@ By utilizing the `HistoryWriter` trait, Spur can decouple execution logic from p
 
 Depending on the chosen backend, the simulator emits files encompassing several distinct data schemas generated per run:
 
-1. `executions`: Logs client operations and system events (`Invocation`, `Response`, `Crash`, `Recover`, `Partition`, `Heal`, `TimerFired`). Used heavily for linearizability checking; the checker skips `TimerFired`, whose payload is the node and the timer's label.
+1. `executions`: Logs client operations and system events (`Invocation`, `Response`, `Crash`, `Recover`, `Partition`, `Heal`, `TimerFired`). Client operations use the actions `Client.Write`, `Client.Read` and `Client.RMW`, whatever the client is named. An invocation payload is `[dest, key, uid]` for Write and RMW and `[dest, key]` for Read, where `dest` is the destination node or unit when the operation takes none. Used heavily for linearizability checking; the checker skips `TimerFired`, whose payload is the node and the timer's label.
 2. `logs`: Captures standard print statements and application-level debug output.
 3. `traces`: Structured trace events from the `@trace` annotations (see the tracing documentation).
-4. `runs`: One row per run: `arm` (the strategy that issued it; the explorer mode for a single-strategy session), `arm_index`, `config_index` (into the expanded grid, `-1` when not a grid point), `workload_seed`, `schedule_seed`, `steps_used`, `wall_us` (active time), `end_reason` (`plan_complete`, `iterations_exhausted`, `deadlock`, `learned_cap_reached`), `session_offset_ms` (active time from the session's start to the run's end), the timer columns (`timers_fired`, `timers_acted`, and their `inflight`/`idle` splits, plus `max_inert_streak`), and `variant` (a bitfield naming the session-global mechanisms that selected the run: `1` placed crashes, `2` run-cap probe, `4` timer-context probe, `8` a crash hold was actually drawn). A run that failed before producing a history has no row. `traceanalyzer -input DIR -runs` prints the table as JSON.
+4. `runs`: One row per run: `deployment_id` (into the `deployments` table, `-1` for a run that failed before its deployment was chosen), `params` (JSON of the tuple that selected the run, which may be an alias of the deployment's canonical tuple), `arm` (the strategy that issued it; the explorer mode for a single-strategy session), `arm_index`, `config_index` (into the expanded grid, `-1` when not a grid point), `workload_seed`, `schedule_seed`, `steps_used`, `wall_us` (active time), `end_reason` (`plan_complete`, `iterations_exhausted`, `deadlock`, `learned_cap_reached`), `session_offset_ms` (active time from the session's start to the run's end), the timer columns (`timers_fired`, `timers_acted`, and their `inflight`/`idle` splits, plus `max_inert_streak`), and `variant` (a bitfield naming the session-global mechanisms that selected the run: `1` placed crashes, `2` run-cap probe, `4` timer-context probe, `8` a crash hold was actually drawn). A run that failed before producing a history has no row. `traceanalyzer -input DIR -runs` prints the table as JSON.
+5. `deployments`: One row per distinct deployment the session built: `deployment_id`, `deploy`, `client`, `model` (`kv` or `kv_rmw`), `params` (the canonical tuple), `aliases` (a JSON array of the other tuples that selected it), `hash`, `node_count`, `roles` (role name to count) and `groups` (a JSON array of `{path, aliases, role, members, quorum}`).
+6. `deployment_nodes`: One row per deployed node: `deployment_id`, `node_index` (the global index that `logs.node_id`, `traces.node_id` and every payload node use), `role`, `ordinal` within the role, and `path`, which is null for a node the deployment root does not reach. Client nodes have indices at or above `node_count` and no row.
 
 ## Porcupine Integration
 
 Porcupine is the linearizability checker that integrates natively with the `executions` output of the Spur simulator.
 
-By running `porcupine/main` on the resulting SQLite/Parquet files, developers can ascertain if a generated schedule violated the guarantees of the protocol (e.g. key-value constraints). Porcupine also yields a useful HTML visualization that diagrams the execution interleavings of node invocations, facilitating debugging when a simulation trace violates linearizability.
+By running `porcupine/main` on the resulting Parquet files, developers can ascertain if a generated schedule violated the guarantees of the protocol (e.g. key-value constraints). Porcupine also yields a useful HTML visualization that diagrams the execution interleavings of node invocations, facilitating debugging when a simulation trace violates linearizability.
+
+`-model` is optional on a simulator output directory: Porcupine reads the model from the `deployments` table, which follows from the client the deploy names. Passing a different `-model` prints a warning and uses the flag. A CSV history carries no `deployments` table, so `-model` is required there.
 
 The `kv` model treats each key's value as an append-only log of write uids — `Write(dest, key, uid)` appends `uid` to that key's log, and `Read(dest, key)` must return the full committed log as a `list<int>`. Because the state space of ordered logs grows combinatorially with concurrent writes, large configurations should use [`max_concurrent_writes`](#max_concurrent_writes) to keep the check tractable.
 
-The `kv_rmw` model is the read-modify-write variant and exposes three operations on a `map<string, list<int>>` state. `Write(dest, key, uid)` is a **blind overwrite**: `state[key] = [uid]`, with no output check. `RMW(dest, key, uid)` appends `uid` to `state[key]` and must return the prior list — the model rejects an RMW whose return value disagrees with what the linearization implies (a pending RMW with no response skips this check). `Read(dest, key)` must return the current `state[key]`, exactly as in the `kv` model. Because RMW errors are caught from the RMW response itself, `num_rmw_ops > 0` no longer requires `num_read_ops > 0`, though reads still add coverage. The `kv` and `kv_rmw` models are not interchangeable: `Write` appends under `kv` and overwrites under `kv_rmw`, so a spec picks one set of semantics and the matching `-model` flag.
+The `kv_rmw` model is the read-modify-write variant and exposes three operations on a `map<string, list<int>>` state. `Write(dest, key, uid)` is a **blind overwrite**: `state[key] = [uid]`, with no output check. `RMW(dest, key, uid)` appends `uid` to `state[key]` and must return the prior list — the model rejects an RMW whose return value disagrees with what the linearization implies (a pending RMW with no response skips this check). `Read(dest, key)` must return the current `state[key]`, exactly as in the `kv` model. Because RMW errors are caught from the RMW response itself, `num_rmw_ops > 0` no longer requires `num_read_ops > 0`, though reads still add coverage. The `kv` and `kv_rmw` models are not interchangeable: `Write` appends under `kv` and overwrites under `kv_rmw`, so a spec picks one set of semantics by whether its client declares `RMW`.

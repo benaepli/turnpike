@@ -39,9 +39,17 @@ type PersistentState {
     next_req_id: int;
 };
 
-role Node {
-    var self: int = 0;
-    var replicas: list<Node> = [];
+type Cluster {
+    @quorum nodes: list<Node>;
+};
+
+type ClusterParams {
+    @scale n: int;
+};
+
+role Node(cluster: Cluster) {
+    var me: int = index_of(cluster.nodes, self)!;
+    var replicas: list<Node> = cluster.nodes;
 
     // ── Replica state ────────────────────────────────────────
     var slot_num: int = 1;
@@ -78,20 +86,15 @@ role Node {
     // Init / Recovery
     // ─────────────────────────────────────────────────────────
 
-    fn Init(me: int, peers: list<Node>) {
-        self = me;
-        replicas = peers;
-        leader_ballot = Ballot{ round: 0, leader: self };
-        println("Node {self} initialized");
+    fn Init() {
+        leader_ballot = Ballot{ round: 0, leader: me };
+        println("Node {me} initialized");
         run_scout(leader_ballot);
         monitor_timeouts();
     }
 
     @trace
-    async fn RecoverInit(me: int, peers: list<Node>) {
-        self = me;
-        replicas = peers;
-
+    async fn RecoverInit() {
         var saved: PersistentState? = retrieve_data<PersistentState>();
         if saved != nil {
             var s = saved!;
@@ -132,8 +135,8 @@ role Node {
         scout_done = true;
         heard_decision = false;
 
-        leader_ballot = Ballot{ round: acceptor_ballot.round + 1, leader: self };
-        println("Node {self} recovered");
+        leader_ballot = Ballot{ round: acceptor_ballot.round + 1, leader: me };
+        println("Node {me} recovered");
         run_scout(leader_ballot);
         monitor_timeouts();
     }
@@ -247,7 +250,7 @@ role Node {
     // Answer every pending request here that names this command; a write
     // executed again after a crash waits under a different request id.
     fn resolve_pending(cmd: Command, result: list<int>) {
-        if cmd.client_node != self { return (); }
+        if cmd.client_node != me { return (); }
         for (req_id, ch) in pending_requests {
             var matches = req_id == cmd.req_id;
             if !matches and cmd.kind == 1 and exists(pending_writes, req_id) {
@@ -255,7 +258,7 @@ role Node {
             }
             if matches {
                 resolve(ch, ClientResponse{
-                    success: true, key: cmd.key, value: result, leader: replicas[self]
+                    success: true, key: cmd.key, value: result, leader: replicas[me]
                 });
                 pending_requests = erase(pending_requests, req_id);
                 pending_writes = erase(pending_writes, req_id);
@@ -296,7 +299,7 @@ role Node {
         }
         persist_state();
         // Respond with: original ballot (for routing), current ballot, accepted pvalues
-        sender->HandleP1bResponse(replicas[self], ballot, acceptor_ballot, accepted);
+        sender->HandleP1bResponse(replicas[me], ballot, acceptor_ballot, accepted);
     }
 
     // Phase 2a: commander requests acceptance of a pvalue
@@ -308,7 +311,7 @@ role Node {
         }
         persist_state();
         // Respond with: slot, original ballot (for routing), current ballot
-        sender->HandleP2bResponse(replicas[self], pvalue.slot, pvalue.ballot, acceptor_ballot);
+        sender->HandleP2bResponse(replicas[me], pvalue.slot, pvalue.ballot, acceptor_ballot);
     }
 
     // ─────────────────────────────────────────────────────────
@@ -323,7 +326,7 @@ role Node {
         scout_done = false;
         println("RunScout: ballot=({ballot.round},{ballot.leader})");
         for node in replicas {
-            node->HandleP1a(replicas[self], ballot);
+            node->HandleP1a(replicas[me], ballot);
         }
     }
 
@@ -391,7 +394,7 @@ role Node {
         cmd_done = cmd_done[slot] := false;
         var pv = PValue{ ballot: leader_ballot, slot: slot, command: cmd };
         for node in replicas {
-            node->HandleP2a(replicas[self], pv);
+            node->HandleP2a(replicas[me], pv);
         }
     }
 
@@ -429,7 +432,7 @@ role Node {
         if ballot_gt(higher_ballot, leader_ballot) {
             println("Preempted: saw ballot=({higher_ballot.round},{higher_ballot.leader})");
             active = false;
-            leader_ballot = Ballot{ round: higher_ballot.round + 1, leader: self };
+            leader_ballot = Ballot{ round: higher_ballot.round + 1, leader: me };
             cmd_responses = {};
             cmd_done = {};
             // Don't immediately retry — wait for timeout to avoid livelock
@@ -456,9 +459,9 @@ role Node {
         var req_id = next_req_id;
         next_req_id = next_req_id + 1;
         persist_state();
-        var cmd = Command{ client_node: self, req_id: req_id, kind: 1, key: key, uid: uid };
+        var cmd = Command{ client_node: me, req_id: req_id, kind: 1, key: key, uid: uid };
         if command_decided(cmd) {
-            return ClientResponse{ success: true, key: key, value: [], leader: replicas[self] };
+            return ClientResponse{ success: true, key: key, value: [], leader: replicas[me] };
         }
         var ch: chan<ClientResponse> = make();
         pending_requests = pending_requests[req_id] := ch;
@@ -472,7 +475,7 @@ role Node {
         var req_id = next_req_id;
         next_req_id = next_req_id + 1;
         persist_state();
-        var cmd = Command{ client_node: self, req_id: req_id, kind: 0, key: key, uid: nil };
+        var cmd = Command{ client_node: me, req_id: req_id, kind: 0, key: key, uid: nil };
         var ch: chan<ClientResponse> = make();
         pending_requests = pending_requests[req_id] := ch;
         propose(cmd);
@@ -500,14 +503,29 @@ role Node {
             if !scout_done { continue; }
 
             // Timeout: bump ballot and try to become leader
-            println("Timeout: Node {self} starting new scout");
-            leader_ballot = Ballot{ round: leader_ballot.round + 1, leader: self };
+            println("Timeout: Node {me} starting new scout");
+            leader_ballot = Ballot{ round: leader_ballot.round + 1, leader: me };
             run_scout(leader_ballot);
         }
     }
 }
 
-ClientInterface {
+fn cluster(n: int): Cluster {
+    var nodes: list<Node> = spawn<Node>(n);
+    var c: Cluster = Cluster { nodes: nodes };
+    provide_all(nodes, c);
+    c
+}
+
+@deploy(client = KVClient)
+fn Main(p: ClusterParams): Cluster? {
+    if (p.n < 1) {
+        return nil;
+    }
+    cluster(p.n)
+}
+
+client KVClient(sys: Cluster) {
     async fn Write(dest: Node, key: string, uid: int) {
         var target = dest;
         for ;; {

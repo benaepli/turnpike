@@ -395,10 +395,22 @@ export async function runOneEvaluation(
     const utilStats = utilSubset(readUtilizationSibling(outputDir));
     const campaignReport = campaign ? readCampaignSibling(outputDir) : null;
     const exposureMs = session !== null && session.wallMs > 0 ? session.wallMs : exploreRes.wallMs;
-    const porc = await porcupine({ inputDir: outputDir, model: "kv", timeoutMsPerRun: 3_000, timeoutMs: 900_000 });
+    const porc = await porcupine({ inputDir: outputDir, timeoutMsPerRun: 3_000, timeoutMs: 900_000 });
+    // Oracle plans address nodes by path; grading matches plan events against
+    // run rows by global index, so each plan is resolved against its
+    // deployment first.
+    const dagConfigs: string[] = [];
+    for (const [i, dag] of ctx.policy.evaluation.oracleDags.map(resolveRoot).entries()) {
+      const resolvedDag = `${outputDir}.dag-${i}.json`;
+      const res = await run(ctx.binary, ["resolve-plan", "--plan", dag, "--output", resolvedDag, spec], { timeoutMs: 120_000, cwd: ROOT });
+      if (!res.ok) {
+        return { ...base, metrics: ZERO_METRICS, exploreWallMs: exploreRes.wallMs, suspendedMs: 0, ok: false, error: `resolve-plan ${dag}: ${res.stderr.slice(0, 200)}`, session, utilStats, timingAnomaly: null };
+      }
+      dagConfigs.push(resolvedDag);
+    }
     const gr = await grade({
       inputDir: outputDir,
-      dagConfigs: ctx.policy.evaluation.oracleDags.map(resolveRoot),
+      dagConfigs,
       maxRuns: opts.gradeMaxRuns,
       budgetMs: opts.gradeBudgetMs,
       timeoutMs: opts.gradeBudgetMs + 120_000,
@@ -459,6 +471,9 @@ export async function runOneEvaluation(
     fs.rmSync(`${outputDir}.session.json`, { force: true });
     fs.rmSync(`${outputDir}.utilization.json`, { force: true });
     fs.rmSync(`${outputDir}.campaign.json`, { force: true });
+    for (let i = 0; i < ctx.policy.evaluation.oracleDags.length; i++) {
+      fs.rmSync(`${outputDir}.dag-${i}.json`, { force: true });
+    }
     try { cleanupDir(outputDir); } catch { /* cleanup failure must not mask the result */ }
   }
 }

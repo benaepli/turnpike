@@ -87,11 +87,11 @@ func ComputeGrade(dbPath string, runID int64, batchSize int) (*GradeResult, erro
 		if err := db.QueryRow(fmt.Sprintf(`
 			WITH inv AS (
 				SELECT run_id, count(*) AS n FROM %[1]s
-				WHERE kind = 'Invocation' AND action LIKE 'ClientInterface.%%'
+				WHERE kind = 'Invocation' AND action LIKE 'Client.%%'
 				GROUP BY run_id
 			), resp AS (
 				SELECT run_id, count(*) AS n FROM %[1]s
-				WHERE kind = 'Response' AND action LIKE 'ClientInterface.%%'
+				WHERE kind = 'Response' AND action LIKE 'Client.%%'
 				GROUP BY run_id
 			)
 			SELECT

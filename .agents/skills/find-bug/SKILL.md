@@ -25,7 +25,7 @@ mkdir -p tmp && OUTPUT_DIR=$(mktemp -d tmp/spur_findbug_XXXXXX)
 
 Use `$OUTPUT_DIR` in place of `output` for all commands in this session. Also use `$OUTPUT_DIR` for temporary config/plan JSON files. Print the directory name so the user knows where results are.
 
-2. **Read the spec file** (`$SPEC`). Verify it exists and has a `ClientInterface` with `Read` and `Write`.
+2. **Read the spec file** (`$SPEC`). Verify it exists, has a `client` block with `Read` and `Write`, and has a `@deploy` function naming that client. Note the deploy's name and the fields of its parameter struct: configs set them under `deploy` and `params`. Run `spur deploy $SPEC --params '{...}'` to see the node paths a plan can name.
 
 3. **Read the bug description**. Extract:
    - **Symptom**: what goes wrong (stale read, lost write, deadlock, split-brain, minority partition accepts writes, etc.)
@@ -90,15 +90,16 @@ Create a `run-plan` JSON file at `$OUTPUT_DIR/find_bug_plan.json`. For timer-sen
 
 ```json
 {
-  "num_servers": 3,
+  "deploy": "Main",
+  "params": { "n": 3 },
   "num_runs": 1000,
   "max_iterations": 5000,
   "strict_timers": true,
   "events": {
-    "w1": { "write": [0, "x", "1"] },
-    "allow_election": { "allow_timer": [1, "election"] },
-    "r1": { "read": [1, "x"] },
-    "r2": { "read": [2, "x"] }
+    "w1": { "write": { "dest": "nodes[0]", "key": "x" } },
+    "allow_election": { "allow_timer": { "node": "nodes[1]", "label": "election" } },
+    "r1": { "read": { "dest": "nodes[1]", "key": "x" } },
+    "r2": { "read": { "dest": "nodes[2]", "key": "x" } }
   },
   "dependencies": [
     ["w1", "allow_election"],
@@ -112,13 +113,16 @@ For non-timer bugs, use the standard plan format (see `scheduler_configs/example
 
 ```json
 {
-    "num_servers": N,
+    "deploy": "Main",
+    "params": { "n": N },
     "num_runs": 1000,
     "max_iterations": 5000,
     "events": { ... },
     "dependencies": [ ... ]
 }
 ```
+
+Every node and group in a plan is named by a path into the deployment value, such as `nodes[2]`. `spur deploy` prints the paths of a tuple. Paths are checked when the plan loads, so a wrong path fails before any run.
 
 Key principles for plan construction:
 
@@ -130,7 +134,7 @@ Key principles for plan construction:
 **Labeled timer plan principles:**
 
 - Use `strict_timers: true` when the bug requires a specific timer to fire at a specific point in the sequence (e.g., "election timeout fires after write but before replication completes")
-- `allow_timer` events take `[node_index, "label"]` — the timer only fires on the specified node
+- `allow_timer` events take `{ "node": PATH, "label": "..." }` — the timer only fires on the named node
 - Don't use `strict_timers` when the bug is about general timer racing or unpredictable timing — random exploration handles that better
 - You can combine `allow_timer` with `crash`/`recover` events (e.g., allow an election timeout, then crash the new leader)
 - If `strict_timers` is true, unlabeled timers still fire freely — only labeled timers are gated
@@ -140,9 +144,9 @@ Key principles for plan construction:
 ```json
 {
   "events": {
-    "w1": { "write": [0, "x", "1"] },
+    "w1": { "write": { "dest": "nodes[0]", "key": "x" } },
     "deliver_prepare_0_to_1": {
-      "deliver": { "function": "Node.Prepare", "from": 0, "to": 1 }
+      "deliver": { "function": "Node.Prepare", "from": "nodes[0]", "to": "nodes[1]" }
     },
     ...
   },
@@ -153,7 +157,7 @@ Key principles for plan construction:
 ```
 
 **Deliver plan principles:**
-- A `deliver` event **reserves** a matching internal `Runnable` (by the original function name that created the Record, such as `"Node.Prepare"` or `"Node.PrepareOK"`) and optionally filters by `from` / `to` node indexes.
+- A `deliver` event **reserves** a matching internal `Runnable` (by the original function name that created the Record, such as `"Node.Prepare"` or `"Node.PrepareOK"`) and optionally filters by `from` / `to` node paths.
 - It prevents the scheduler from consuming the message early. Once dependencies are met, the reservation lifts.
 - Build heavily constrained plans first to reliably trigger the bug, then proceed to the Relaxation Experiment.
 
@@ -161,16 +165,17 @@ Key principles for plan construction:
 
 ```json
 {
-  "num_servers": 5,
+  "deploy": "Main",
+  "params": { "n": 5 },
   "num_runs": 1000,
   "max_iterations": 5000,
   "events": {
-    "w1": { "write": [0, "x", "1"] },
-    "p1": { "partition": { "type": "isolate_one", "node": 0 } },
-    "r1": { "read": [1, "x"] },
-    "r2": { "read": [2, "x"] },
+    "w1": { "write": { "dest": "nodes[0]", "key": "x" } },
+    "p1": { "partition": { "type": "isolate_one", "node": "nodes[0]" } },
+    "r1": { "read": { "dest": "nodes[1]", "key": "x" } },
+    "r2": { "read": { "dest": "nodes[2]", "key": "x" } },
     "h1": "heal",
-    "r3": { "read": [0, "x"] }
+    "r3": { "read": { "dest": "nodes[0]", "key": "x" } }
   },
   "dependencies": [
     ["w1", "p1"],
@@ -181,11 +186,12 @@ Key principles for plan construction:
 }
 ```
 
-Available partition types:
-- `{ "type": "isolate_one", "node": N }` — isolate one node from all others
-- `{ "type": "halves", "side_a": [0, 1] }` — split into two groups (nodes not in `side_a` form `side_b`)
-- `{ "type": "majorities_ring" }` — overlapping majorities in a ring, no global quorum
-- `{ "type": "bridge", "bridge": N }` — two halves connected only through one bridge node
+Available partition types. `halves`, `majorities_ring` and `bridge` apply to a group named by path, and constrain only messages whose two endpoints are both members of that group; anything else, including client traffic, is delivered. `side_a` and `bridge` are positions within the group.
+
+- `{ "type": "isolate_one", "node": "nodes[0]" }` — isolate one node from all others
+- `{ "type": "halves", "group": "nodes", "side_a": [0, 1] }` — split the group in two (members not in `side_a` form `side_b`)
+- `{ "type": "majorities_ring", "group": "nodes" }` — overlapping majorities on a ring of the group's members; each member reaches those within a ring distance of `n / 4 + (n % 4) / 2`. The group needs at least four distinct members, or the plan is rejected.
+- `{ "type": "bridge", "group": "nodes", "bridge": 2 }` — two halves connected only through one bridge member
 
 **Partition plan principles:**
 
@@ -193,7 +199,7 @@ Available partition types:
 - `partition` and `heal` are paired — always heal before the next partition (only one partition active at a time)
 - Combine with `crash`/`recover` for complex scenarios — crashes and partitions are orthogonal
 - Read from nodes on _both sides_ of the partition after heal to observe inconsistent state
-- `majorities_ring` is especially useful for exposing bugs in majority-quorum protocols
+- `majorities_ring` is especially useful for exposing bugs in majority-quorum protocols: it blocks direct links between members while leaving the group connected through relays
 
 ### Run the plan
 
@@ -209,10 +215,10 @@ Handle exit codes:
 ### Run Porcupine
 
 ```bash
-./porcupine/main -input $OUTPUT_DIR -type duckdb -model kv -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
+./porcupine/main -input $OUTPUT_DIR -type duckdb -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
 ```
 
-If the spec declares `ClientInterface.RMW` and stores `list<(int?, int)>` in `kv_store`, swap `-model kv` for `-model kv_rmw` (use this same substitution everywhere `-model kv` appears below).
+The model is read from the simulator's `deployments` table and follows from the spec's client: `kv_rmw` when the client declares `RMW`, `kv` otherwise. Pass `-model` only to override it.
 
 ### Analyze results
 
@@ -260,7 +266,8 @@ Craft a narrow exploration config at `$OUTPUT_DIR/find_bug_targeted.json`:
 
 ```json
 {
-    "num_servers": { "min": N, "max": N, "step": 1 },
+    "deploy": "Main",
+    "params": { "n": { "min": N, "max": N, "step": 1 } },
     "num_write_ops": { "min": 3, "max": 5, "step": 1 },
     "num_read_ops": { "min": 6, "max": 10, "step": 2 },
     "num_crashes": { "min": C, "max": C, "step": 1 },
@@ -273,9 +280,9 @@ Craft a narrow exploration config at `$OUTPUT_DIR/find_bug_targeted.json`:
 
 Tuning guidelines:
 
-- `num_servers`: match the bug's minimum topology (typically 3)
+- `params`: one entry per field of the deploy's parameter struct. A `@scale` field takes a range; size it to the bug's minimum topology (typically 3 replicas). A `@choice` field takes an array of values.
 - `num_crashes`: match trigger conditions (typically 1)
-- `num_partitions`: set to 1 if the bug involves network partitions (defaults to 0 if omitted). The partition type is randomly chosen from `isolate_one`, `halves`, `majorities_ring`, `bridge` for each generated plan.
+- `num_partitions`: set to 1 if the bug involves network partitions (defaults to 0 if omitted). The partition type is randomly chosen from `isolate_one`, `halves`, `majorities_ring`, `bridge` for each generated plan, and a group-shaped type picks a group of the deployment, preferring `@quorum` groups.
 - **Read ops should be at least 2x write ops** to ensure broken state is observed
 - `dependency_density`: higher (0.3-0.5) if bug needs ordered events, lower (0.0-0.1) if it needs concurrency
 
@@ -314,7 +321,7 @@ Check:
 2. Run Porcupine:
 
 ```bash
-./porcupine/main -input $OUTPUT_DIR -type duckdb -model kv -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
+./porcupine/main -input $OUTPUT_DIR -type duckdb -output-dir $OUTPUT_DIR 2>&1 | tee $OUTPUT_DIR/porcupine_output.txt
 ```
 
 3. **If Porcupine exit 2**: verify trace matches the described bug (same as Phase 1). If match → report success. If different bug → note it and continue.
@@ -407,5 +414,5 @@ Combine all evidence — simulator results from all phases and code analysis fro
 - Linearizability violations only manifest when a **Read observes broken state** — configs must have enough reads following writes on the same keys
 - When crafting plans, **causal dependencies** (write → crash → recover → read) are critical for reproducing ordering-sensitive bugs
 - A violation found by Porcupine may be a _different_ bug than the one being searched for — always verify against the description
-- `ClientInterface` must have `Read` and `Write` — these are what Porcupine checks
+- The spec's `client` block must have `Read` and `Write` — these are what Porcupine checks, recorded as `Client.Read` and `Client.Write`
 - **Re-run Porcupine after each explorer invocation.** Run IDs are not stable across explorer runs — changing the config or explorer mode (`standard` vs `genetic`) can produce different run numbering. Do not rely on Porcupine results from a previous explorer run.

@@ -80,13 +80,13 @@ func TestCollectTimerFiresReadsBothEncodings(t *testing.T) {
 		{RunID: 7, SeqNum: 3, ClientID: 1, Kind: "TimerFired", Action: "System.TimerFired/timeout", Payload: payload, Step: 10},
 		{RunID: 7, SeqNum: 4, ClientID: 2, Kind: "TimerFired", Action: "System.TimerFired/timeout", Payload: other, Step: 11},
 		{RunID: 7, SeqNum: 5, ClientID: 1, Kind: "TimerFired", Action: "System.TimerFired/other", Payload: payload, Step: 12},
-		{RunID: 7, SeqNum: 6, ClientID: 0, Kind: "Invocation", Action: "ClientInterface.Write", Payload: payload, Step: 13},
+		{RunID: 7, SeqNum: 6, ClientID: 0, Kind: "Invocation", Action: "Client.Write", Payload: payload, Step: 13},
 	}
 	legacy := []reader.ExecutionRow{
 		{RunID: 7, SeqNum: 3, ClientID: -1, Kind: "TimerFired", Action: "System.TimerFired", Payload: payload, Step: 10},
 		{RunID: 7, SeqNum: 4, ClientID: -1, Kind: "TimerFired", Action: "System.TimerFired", Payload: other, Step: 11},
 		{RunID: 7, SeqNum: 5, ClientID: -1, Kind: "TimerFired", Action: "System.TimerFired", Payload: `[{"type":"VNode","value":{"index":1}},{"type":"VString","value":"other"}]`, Step: 12},
-		{RunID: 7, SeqNum: 6, ClientID: 0, Kind: "Invocation", Action: "ClientInterface.Write", Payload: payload, Step: 13},
+		{RunID: 7, SeqNum: 6, ClientID: 0, Kind: "Invocation", Action: "Client.Write", Payload: payload, Step: 13},
 	}
 	spec := EventSpec{Kind: KindAllowTimer, Target: 1, TimerLabel: "timeout"}
 	gotColumn, _ := collectTimerFires(column, spec)

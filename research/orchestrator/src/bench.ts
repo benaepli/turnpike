@@ -8,7 +8,8 @@ import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 import type { Policy } from "./policy.js";
-import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, resolveRoot, ROOT } from "./runners.js";
+import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, readSessionSibling, resolveRoot, ROOT } from "./runners.js";
+import type { SessionSummary } from "./schemas.js";
 
 export interface BenchResult {
   candidateRps: number[];
@@ -30,11 +31,22 @@ function countRange(r: RangeJson | undefined): number {
   return Math.floor((r.max - r.min) / Math.max(step, 1)) + 1;
 }
 
+// Values on one deploy parameter axis: a range, a list of choices, or one
+// fixed value.
+function countAxis(v: unknown): number {
+  if (Array.isArray(v)) return Math.max(v.length, 1);
+  if (v && typeof v === "object" && "min" in (v as object)) return countRange(v as RangeJson);
+  return 1;
+}
+
 // Total runs an explore of this config performs: cartesian product of the
 // expanded ranges times runs-per-config (mirrors the Rust producer loop).
-export function totalRunsOf(config: Record<string, unknown>): number {
+// The deployment count comes from the session's own account when one is
+// given; without it the product of the parameter axes is an upper bound,
+// since rejected and aliased tuples add no deployment.
+export function totalRunsOf(config: Record<string, unknown>, session?: SessionSummary | null): number {
   const rangeFields = [
-    "num_servers", "num_write_ops", "num_read_ops", "num_keys",
+    "num_write_ops", "num_read_ops", "num_keys",
     "num_crashes", "num_partitions", "max_concurrent_writes", "num_rmw_ops",
   ];
   let combos = 1;
@@ -44,16 +56,25 @@ export function totalRunsOf(config: Record<string, unknown>): number {
   }
   const density = config["dependency_density"];
   if (Array.isArray(density)) combos *= Math.max(density.length, 1);
+  let deployments = 1;
+  const params = config["params"];
+  if (params && typeof params === "object" && !Array.isArray(params)) {
+    for (const v of Object.values(params as Record<string, unknown>)) deployments *= countAxis(v);
+  }
+  if (session !== undefined && session !== null && typeof session.deploymentsBuilt === "number") deployments = session.deploymentsBuilt;
+  combos *= deployments;
   const rpc = typeof config["num_runs_per_config"] === "number" ? (config["num_runs_per_config"] as number) : 1;
   return combos * rpc;
 }
 
 // Throughput is runs actually written divided by explore wall time; the
 // config's promised run count is not trusted because a binary that rejects
-// or misreads the config exits early with nothing.
+// or misreads the config exits early with nothing. `totalRuns` is the run
+// count the round expected, from the session's deployment count when the
+// explorer wrote one.
 async function oneRound(
-  policy: Policy, binary: string, side: string, round: number, configPath: string, expectedRuns: number,
-): Promise<{ rps: number; err: string | null }> {
+  policy: Policy, binary: string, side: string, round: number, configPath: string, config: Record<string, unknown>,
+): Promise<{ rps: number; err: string | null; totalRuns: number }> {
   const outputDir = path.join(ROOT, "tmp", "loop", `bench-${side}-${round}`);
   try {
     const r = await explore({
@@ -63,14 +84,16 @@ async function oneRound(
       wallSec: policy.perf.roundWallSec,
       rayonThreads: policy.evaluation.rayonThreads,
     });
-    if (r.timedOut) return { rps: 0, err: `${side} round ${round} hit the wall budget - bench config too big or binary too slow` };
-    if (!r.ok) return { rps: 0, err: `${side} round ${round} failed: ${r.stderr.slice(-500)}` };
-    const porc = await porcupine({ inputDir: outputDir, model: "kv", timeoutMsPerRun: 1_000, timeoutMs: 120_000 });
+    const upperBound = totalRunsOf(config);
+    if (r.timedOut) return { rps: 0, err: `${side} round ${round} hit the wall budget - bench config too big or binary too slow`, totalRuns: upperBound };
+    if (!r.ok) return { rps: 0, err: `${side} round ${round} failed: ${r.stderr.slice(-500)}`, totalRuns: upperBound };
+    const expectedRuns = totalRunsOf(config, readSessionSibling(outputDir));
+    const porc = await porcupine({ inputDir: outputDir, timeoutMsPerRun: 1_000, timeoutMs: 120_000 });
     const produced = porc.parsed?.total_runs ?? 0;
     if (produced < expectedRuns / 2) {
-      return { rps: 0, err: `${side} round ${round} produced ${produced} of ${expectedRuns} runs: ${r.stderr.slice(-300)}` };
+      return { rps: 0, err: `${side} round ${round} produced ${produced} of ${expectedRuns} runs: ${r.stderr.slice(-300)}`, totalRuns: expectedRuns };
     }
-    return { rps: produced / (r.wallMs / 1000), err: null };
+    return { rps: produced / (r.wallMs / 1000), err: null, totalRuns: expectedRuns };
   } finally {
     try { cleanupDir(outputDir); } catch { /* ignore */ }
   }
@@ -87,7 +110,8 @@ export async function runBench(policy: Policy, candidateBin: string, baselineBin
   const overrides = workload ? { runsPerConfig: workload.runsPerConfig, sessionSeed: 999, dropKeys: CAMPAIGN_ONLY_KEYS } : { dropKeys: CAMPAIGN_ONLY_KEYS };
   const configPath = path.join(ROOT, "tmp", "loop", "bench.config.json");
   materializeConfig(template, configPath, overrides);
-  const totalRuns = totalRunsOf(JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>);
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>;
+  let totalRuns = totalRunsOf(config);
 
   const cand: number[] = [];
   const base: number[] = [];
@@ -103,7 +127,8 @@ export async function runBench(policy: Policy, candidateBin: string, baselineBin
       ? [["base", baselineBin], ["cand", candidateBin]]
       : [["cand", candidateBin], ["base", baselineBin]];
     for (const [side, bin] of order) {
-      const r = await oneRound(policy, bin, side, i, configPath, totalRuns);
+      const r = await oneRound(policy, bin, side, i, configPath, config);
+      totalRuns = r.totalRuns;
       if (r.err) return fail(r.err);
       if (i >= policy.perf.warmupRounds) (side === "cand" ? cand : base).push(r.rps);
     }
