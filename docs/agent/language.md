@@ -6,7 +6,8 @@ Full grammar and reference: `spur/design/language.md`
 
 A Spur program consists of top-level definitions: `role` blocks, one `client`
 block, `type` definitions, standalone functions, and at least one `@deploy`
-function that builds the deployment.
+function that builds the deployment. A file may open with `use` declarations,
+which import from other modules (see "Modules" below).
 
 ```
 type Cluster {
@@ -92,6 +93,60 @@ The deploy parameter struct's fields carry exactly one tag each:
 
 `@quorum` on a `list<R>` field marks a group that generated `majorities_ring` and
 `bridge` partitions prefer. `@trace` on a role or client function is unchanged.
+
+## Modules
+
+A file is a module and the module tree is the directory tree. A one-file spec is
+a one-module program and needs nothing: no `spur.json`, no `pub`, no `use`.
+
+- The module path `s1::s2::...::sn` names `<root>/s1/s2/.../sn.spur`, where
+  `<root>` is the directory holding the crate's `spur.json`, or the entry spec's
+  own directory when there is none.
+- Only files a `use` reaches are loaded.
+- `::` separates module and item segments. `.` keeps every meaning it has.
+
+```
+use raft;                    // the module
+use raft::Node;              // an item
+use raft::Node as Replica;   // under another name
+pub use raft::Node;          // and re-export it
+use std::quorum;             // the standard library
+
+type ShardedKV {
+    shards: list<raft::Cluster>;   // an inline path needs `use raft;` here
+};
+```
+
+A `use` path is **crate-absolute**: its first segment is a dependency alias,
+`std`, or a top-level module of this crate. An inline path is
+**binding-relative**: its first segment is a module bound in this file, which is
+what a `use` installs. The entry spec's own items cannot be imported, so shared
+items live in a library module.
+
+**Visibility.** An item is `pub` or private; private means visible in the
+declaring module and its descendants. A role's functions carry the bit too, and
+an RPC call to a handler private to another module is a type error. Runtime
+lookups ignore it, so `Init`, `RecoverInit`, `Write`, `Read` and `RMW` are
+dispatched whatever the bit says.
+
+**Qualified names.** An item's display name is `<module path>::<name>`, and a
+compiled function is `raft::Node.AppendEntries` -- `::` for the module part, `.`
+between a role and its function. `traces.function_name` and a plan's
+`deliver.function` use that spelling. A one-module program's names are unchanged,
+so every config in this repository stays correct.
+
+**Crates.** A `spur.json` names `root`, `deps` (paths only) and `presets`. It
+never lists modules. A `.spur` path given to the CLI is always its own entry
+under an implicit manifest, even when a `spur.json` sits beside it.
+
+**Standard library.** `std` is compiled into the binary and bound in every
+module, so `std::quorum::f(n)` needs no `use`. It holds `std::quorum`,
+`std::lists`, `std::maps`, `std::route` and `std::retry`, all over primitives and
+collections of primitives -- `spawn<R>` takes a concrete role, so a cluster
+builder or a retry-to-leader loop belongs in the protocol's own module. `lists`
+and `maps` are plural because `list` and `map` are keywords and cannot be path
+segments. A free function cannot be `async`, so a retry loop that awaits an RPC
+lives on a role rather than beside it.
 
 ## Client Contract (Linearizability)
 

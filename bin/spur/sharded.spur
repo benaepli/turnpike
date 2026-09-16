@@ -1,0 +1,95 @@
+// A sharded key-value store over several Raft clusters.
+//
+// The entry spec holds the deploy, the client and the routing tier, and nothing
+// anyone else needs. The protocol is `raft.spur`, imported by name and used
+// without renaming its roles or types.
+
+use raft;
+use raft::Node as Replica;
+use std::route;
+
+type ShardedKV {
+    shards: list<raft::Cluster>;
+    routers: list<Router>;
+    routes: map<string, int>;
+};
+
+type ShardParams {
+    @scale shards: int;
+    @scale replicas: int;
+    @scale routers: int;
+    @choice route_keys: int;
+};
+
+role Router(sys: ShardedKV) {
+    var me: int = index_of(sys.routers, self)!;
+
+    @trace
+    pub async fn Write(key: string, uid: int) {
+        var s: int = route::shard_of(sys.routes, key);
+        <- write_through(sys.shards[s].nodes[0], key, uid);
+        ()
+    }
+
+    @trace
+    pub async fn Read(key: string): list<int> {
+        var s: int = route::shard_of(sys.routes, key);
+        <- read_through(sys.shards[s].nodes[0], key)
+    }
+
+    // The retry-to-leader loops. They belong to this tier rather than to
+    // `raft.spur`, because a free function cannot be `async` and a loop that
+    // awaits an RPC has to be.
+    async fn write_through(first: Replica, key: string, uid: int) {
+        var target: Replica = first;
+        for ;; {
+            var resp: raft::ClientResponse = <- target->Write(key, uid);
+            if (resp.is_leader == true) {
+                return ();
+            }
+            target = resp.leader;
+        }
+    }
+
+    async fn read_through(first: Replica, key: string): list<int> {
+        var target: Replica = first;
+        for ;; {
+            var resp: raft::ClientResponse = <- target->Read(key);
+            if (resp.is_leader == true) {
+                return resp.value;
+            }
+            target = resp.leader;
+        }
+        []
+    }
+}
+
+@deploy(client = RouterClient)
+fn Sharded(p: ShardParams): ShardedKV? {
+    if (p.shards < 1 or p.replicas < 1 or p.routers < 1) {
+        return nil;
+    }
+    var shards: list<raft::Cluster> = [];
+    for var i: int = 0; i < p.shards; i = i + 1 {
+        shards = append(shards, raft::cluster(p.replicas));
+    }
+    var routers: list<Router> = spawn<Router>(p.routers);
+    var sys: ShardedKV = ShardedKV {
+        shards: shards,
+        routers: routers,
+        routes: route::key_routes(p.shards, p.route_keys),
+    };
+    provide_all(routers, sys);
+    sys
+}
+
+client RouterClient(sys: ShardedKV) {
+    async fn Write(dest: Router, key: string, uid: int) {
+        <- dest->Write(key, uid);
+        ()
+    }
+
+    async fn Read(dest: Router, key: string): list<int> {
+        <- dest->Read(key)
+    }
+}

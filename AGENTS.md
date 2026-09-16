@@ -31,6 +31,11 @@ cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e sta
 - `-y` auto-confirms output directory deletion
 - `-e standard` for exhaustive/random exploration, `-e genetic` for genetic algorithm
 - `--deploy NAME` picks the `@deploy` function when the spec declares more than one
+- `--preset NAME` fills in `--config`, `--plan`, `--deploy`, `--set` and
+  `--output-dir` from the crate's `spur.json`, on `explore`, `run-plan` and
+  `resolve-plan`. It is the weakest override layer, so the environment and a
+  flag both win a conflict. The research harness passes explicit paths and never
+  uses a preset: the config a measurement ran under must not hide behind a name
 
 ### Inspect a deployment
 
@@ -76,9 +81,56 @@ cd porcupine && go build -o main ./cmd/porcupine && cd ..
 
 Pass `-model` only to override the recorded model, which prints a warning, or for a CSV history, which carries no `deployments` table.
 
+## Modules and crates
+
+A file is a module and the module tree is the directory tree. A one-file spec is
+a one-module program: no `spur.json`, no `pub` and no `use` are needed, and its
+output strings are unchanged.
+
+- The module path `s1::s2::...::sn` names `<root>/s1/.../sn.spur`, where
+  `<root>` is the directory holding the crate's `spur.json`, or the entry spec's
+  own directory when there is none. Only files a `use` reaches are loaded
+- `use raft;`, `use raft::Node as Replica;`, `pub use raft::Node;`. A `use` path
+  is crate-absolute; an inline path like `raft::Cluster` starts at a module
+  bound in that file, so it needs the `use`
+- An item is `pub` or private; private means visible in the declaring module and
+  its descendants. A role's functions carry the bit, and an RPC call to a
+  handler private to another module is a type error
+- A compiled function is `raft::Node.AppendEntries`: `::` for the module part,
+  `.` between a role and its function. That is the spelling `traces.function_name`
+  and a plan's `deliver.function` use
+- `std` is compiled into the binary and bound in every module, so
+  `std::quorum::f(n)` needs no `use`. `std::lists` and `std::maps` are plural
+  because `list` and `map` are keywords. A program that never writes `std` loads
+  none of it
+- `bin/spur/spur.json` governs the sharded example only. A `.spur` path given to
+  the CLI is always its own entry, so `spur check bin/spur/Raft.spur` still
+  compiles that one file
+
+`spur.json`:
+
+```json
+{
+  "name": "sharded",
+  "root": "sharded.spur",
+  "deps": { "paxos": { "path": "../paxos" } },
+  "presets": {
+    "debug": { "config": "../../scheduler_configs/sharded_debug.json",
+               "deploy": "Sharded", "set": ["num_runs_per_config=10"] }
+  }
+}
+```
+
+`name` defaults to the directory's name, `root` is required and must be an
+existing `.spur` file, `deps` is path-only, and a preset carries `config` or
+`plan` but never both. Unknown fields are rejected. The manifest never lists
+modules.
+
 ## Project Layout
 
 - `bin/spur/` — specification files (`.spur`); `bin/spur/CRAQ.spur` is not maintained and does not compile
+- `bin/spur/sharded.spur` + `bin/spur/raft.spur` + `bin/spur/spur.json` — the
+  multi-module example: a sharded store over several Raft clusters
 - `scheduler_configs/` — explorer configuration JSONs
 - `spur/` — Rust workspace (compiler, simulator, CLI, LSP)
 - `spur/design/language.md` — full language grammar and reference
