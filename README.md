@@ -34,6 +34,12 @@ RUST_LOG=info cargo run --release --manifest-path spur/Cargo.toml --bin spur -- 
 
 _(For a full list of simulator options, including configurable scheduling, log backends, and bounded execution, refer to [Simulator Options](docs/simulator_options.md).)_
 
+Finished runs are checked by default in a bounded Rust worker pool, and a
+violation stops exploration. Histories that cannot enter the pool are saved
+for offline checking. Use `--set linearizability.enabled=false` to opt out. See
+[Integrated Linearizability Checking](docs/linearizability.md) for capacity,
+backpressure, timeouts, and exit statuses.
+
 ### Step 2: Check Linearizability with Porcupine
 
 Porcupine can ingest the execution traces produced by the simulator to verify if the generated history is linearizable.
@@ -56,7 +62,7 @@ The model follows from the spec's client and is read from the simulator's `deplo
 
 **Output:**
 
-- Generates one HTML visualization per run (`output/run_N.html`) showing the execution history and linearizability result, with nodes labelled by role and ordinal
+- Generates HTML visualizations (`output/run_N.html`) showing the execution history and linearizability result, with nodes labelled by role and ordinal. Compatible passes from integrated checking are reused without generating HTML; `-recheck-all` checks and visualizes every run.
 - Verification status is printed to the log
 
 ## Advanced Documentation
@@ -66,4 +72,5 @@ For detailed information about the simulator's inner workings, refer to the foll
 - [Language Design](spur/design/language.md)
 - [Simulator Semantics](docs/simulator_semantics.md)
 - [Simulator Options](docs/simulator_options.md)
+- [Integrated Linearizability Checking](docs/linearizability.md)
 - [Tracing and Telemetry](docs/tracing.md)

@@ -4,7 +4,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { EvalContext } from "./evaluate.js";
-import { ROOT, cleanupDir, explore, porcupine, resolveRoot } from "./runners.js";
+import { ROOT, cleanupDir, explore, exploreFailure, porcupine, resolveRoot } from "./runners.js";
 import { runBench } from "./bench.js";
 import { RESEARCH_BRANCH, SUPER, showFile } from "./gitops.js";
 
@@ -54,6 +54,8 @@ async function exploreAndCheck(
     wallSec: ctx.policy.regression.wallSecPerCase,
     rayonThreads: ctx.policy.evaluation.rayonThreads,
   });
+  const executionError = exploreFailure(exploreRes);
+  if (executionError !== null) throw new Error(executionError);
   // A timed-out explore still leaves a valid partial corpus; anything the
   // explorer wrote before the deadline is checked below.
 

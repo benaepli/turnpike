@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 import type { Policy } from "./policy.js";
-import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, porcupine, readSessionSibling, resolveRoot, ROOT } from "./runners.js";
+import { CAMPAIGN_ONLY_KEYS, cleanupDir, explore, materializeConfig, measurementCheckingError, porcupine, readSessionSibling, resolveRoot, ROOT } from "./runners.js";
 import type { SessionSummary } from "./schemas.js";
 
 export interface BenchResult {
@@ -87,8 +87,11 @@ async function oneRound(
     const upperBound = totalRunsOf(config);
     if (r.timedOut) return { rps: 0, err: `${side} round ${round} hit the wall budget - bench config too big or binary too slow`, totalRuns: upperBound };
     if (!r.ok) return { rps: 0, err: `${side} round ${round} failed: ${r.stderr.slice(-500)}`, totalRuns: upperBound };
+    const checkingError = measurementCheckingError(outputDir);
+    if (checkingError !== null) return { rps: 0, err: `${side} round ${round}: ${checkingError}`, totalRuns: upperBound };
     const expectedRuns = totalRunsOf(config, readSessionSibling(outputDir));
     const porc = await porcupine({ inputDir: outputDir, timeoutMsPerRun: 1_000, timeoutMs: 120_000 });
+    if (porc.parsed === null) return { rps: 0, err: `${side} round ${round}: offline checker failed (exit ${String(porc.cmd.exitCode)})`, totalRuns: expectedRuns };
     const produced = porc.parsed?.total_runs ?? 0;
     if (produced < expectedRuns / 2) {
       return { rps: 0, err: `${side} round ${round} produced ${produced} of ${expectedRuns} runs: ${r.stderr.slice(-300)}`, totalRuns: expectedRuns };
@@ -109,7 +112,7 @@ export async function runBench(policy: Policy, candidateBin: string, baselineBin
   const template = workload?.templatePath ?? resolveRoot(policy.perf.benchConfig);
   const overrides = workload ? { runsPerConfig: workload.runsPerConfig, sessionSeed: 999, dropKeys: CAMPAIGN_ONLY_KEYS } : { dropKeys: CAMPAIGN_ONLY_KEYS };
   const configPath = path.join(ROOT, "tmp", "loop", "bench.config.json");
-  materializeConfig(template, configPath, overrides);
+  materializeConfig(template, configPath, { ...overrides, checkAllRuns: true });
   const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>;
   let totalRuns = totalRunsOf(config);
 
@@ -175,13 +178,15 @@ export async function collectProfile(policy: Policy, binary: string): Promise<Pr
   const perfData = path.join(ROOT, "tmp", "loop", "profile-snap.perf.data");
   const configPath = path.join(ROOT, "tmp", "loop", "bench.config.json");
   try {
-    materializeConfig(resolveRoot(policy.perf.benchConfig), configPath, {});
+    materializeConfig(resolveRoot(policy.perf.benchConfig), configPath, { checkAllRuns: true });
     const rec = await run("perf", [
       "record", "--call-graph", "dwarf,8192", "-F", "199", "-o", perfData, "--",
       binary, "explore", "-e", "standard", "--config", configPath, "-y", "--output-dir", outputDir,
       resolveRoot(policy.evaluation.spec),
     ], { timeoutMs: 180_000, cwd: ROOT, env: { ...process.env, RAYON_NUM_THREADS: String(policy.evaluation.rayonThreads), RUST_LOG: "warn" } });
     if (!rec.ok && !fs.existsSync(perfData)) return { ok: false, text: `(perf record failed: ${rec.stderr.slice(-400)})` };
+    const checkingError = measurementCheckingError(outputDir);
+    if (checkingError !== null) return { ok: false, text: checkingError };
     // --no-inline: with inline resolution perf keeps an addr2line child that
     // inherits the stdout pipe and never exits, so the report never reaches EOF.
     // -g none: a flat table; the callchains would take the whole line budget.

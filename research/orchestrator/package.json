@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test": "node --import tsx --test src/*.test.ts",
     "build": "tsc",
     "loop": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit"

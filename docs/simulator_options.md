@@ -25,6 +25,13 @@ Runs the main execution explorer over a configuration space, compiling the spec 
 
 The standard explorer writes `session.json` inside and beside the output directory: `wall_ms` (active time on a monotonic clock from the first queued run to the last finished one), `runs_completed`, `runs_failed`, `runs_skipped`, `wall_budget_sec`, `budget_hit`, `writer_flush_ms`, and the deployment summary: `deploy` (the selected deploy's name), `deployments_built`, `deploy_rejections` (parameter tuples the deploy returned `nil` for), `tuples_aliased` (tuples that built a deployment equal to an earlier one) and `nodes_beyond_mask_width` (nodes past index 63 in the largest deployment, which the 64-bit crash-hold and retarget masks never select).
 
+Linearizability checking is enabled by default in a separate bounded pool for
+all explorer modes and `run-plan`; `linearizability.enabled=false` opts out.
+Its configuration controls workers, queue count
+and bytes, per-history timeout, deferral or blocking on overflow, and stopping
+on violations. See [Integrated Linearizability Checking](linearizability.md)
+for defaults, persistence, offline reuse, and exit statuses.
+
 #### `wall_budget_sec`
 
 Active-time budget for the whole session, in seconds, measured on a monotonic clock that a machine suspend does not advance; `0` (the default) lets the grid alone end the session. Under a budget the grid is walked in rounds, one run of every configuration per round, so a cut leaves every configuration within one run of every other and the corpus keeps the grid's composition whatever the throughput. Runs already started finish. A budgeted session is not reproducible run for run; `num_runs_per_config` stays as an upper bound.

@@ -47,7 +47,7 @@ import {
   variantContrasts,
   type FinalGateInputs, type InternalPrimary, type MergeFigures, type RatePrior, type VariantContrast,
 } from "../orchestrator/src/decide.js";
-import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, porcupine, resolveRoot, runVariantTable, selfTestRunsTableScanner } from "../orchestrator/src/runners.js";
+import { CAMPAIGN_ONLY_KEYS, ROOT, cleanupDir, explore, exploreFailure, freeDiskGb, materializeConfig, porcupine, resolveRoot, runVariantTable, selfTestRunsTableScanner } from "../orchestrator/src/runners.js";
 import { selfTestPosteriors, selfTestStats } from "../orchestrator/src/stats.js";
 import { Evaluation, SeqState, type RunRow, type RunVariantRow, type VariantMetrics } from "../orchestrator/src/schemas.js";
 import { RECORDED_DECLARATIONS, recordedRuleVersionFor } from "./declarations.js";
@@ -1663,6 +1663,7 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
     // wall_budget_sec makes the explorer cut the grid and flush its DB
     // itself; the explore() deadline is only the guard behind it.
     materializeConfig(template, cfgPath, {
+      checkAllRuns: true,
       // The grid exhausts long before the wall on every member, so the run
       // count, not the wall, sets a member's events; rare members raise it.
       runsPerConfig: m.runsPerConfig ?? 4000,
@@ -1674,6 +1675,8 @@ async function cmdPanel(flags: Map<string, string>): Promise<void> {
       binary, configPath: cfgPath, spec: resolveRoot(m.spec),
       outputDir: path.join(dir, "out"), wallSec, rayonThreads: threads,
     });
+    const executionError = exploreFailure(ex);
+    if (executionError !== null) throw new Error(executionError);
     // A killed explore leaves a valid partial corpus; the measured wall is
     // the rate denominator either way.
     const porc = await porcupine({

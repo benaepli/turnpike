@@ -19,7 +19,7 @@
 //
 // Usage: node research/observations/surrogate_validation.mjs [--wall 120]
 //        [--vr-wall 600] [--seeds 3] [--out research/observations/SURROGATE_VALIDATION.md]
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,8 +71,9 @@ function spearman(xs, ys) {
   return dx > 0 && dy > 0 ? num / Math.sqrt(dx * dy) : null;
 }
 
-function runJson(cmd, argv) {
+function runJson(cmd, argv, acceptedCodes = [0]) {
   const r = spawnSync(cmd, argv, { cwd: ROOT, encoding: "utf8", maxBuffer: 512 * 1024 * 1024 });
+  if (!acceptedCodes.includes(r.status)) throw r.error ?? new Error(`${cmd} exited ${r.status}: ${r.stderr}`);
   return r.stdout ? JSON.parse(r.stdout) : null;
 }
 
@@ -82,12 +83,14 @@ function session(host, spec, extra, model, wall, seed, oracle) {
   rmSync(out, { recursive: true, force: true });
   const cfg = JSON.parse(readFileSync(template, "utf8"));
   Object.assign(cfg, extra, { session_seed: seed });
+  cfg.linearizability = { ...cfg.linearizability, enabled: true, stop_on_violation: false };
   cfg.campaign.allocation = { kind: "round_robin", min_slice_sec: Math.max(1, Math.min(20, wall / (2 * cfg.campaign.arms.length))) };
   const cfgPath = `${out}.config.json`;
   writeFileSync(cfgPath, JSON.stringify(cfg));
-  execFileSync(SPUR, ["explore", "-e", "campaign", "--config", cfgPath, "-y", "--output-dir", out, "--set", `campaign.wall_budget_sec=${wall}`, spec], { cwd: ROOT, stdio: ["ignore", "ignore", "ignore"], env: { ...process.env, RAYON_NUM_THREADS: String(policy.evaluation.rayonThreads ?? 30) } });
+  const execution = spawnSync(SPUR, ["explore", "-e", "campaign", "--config", cfgPath, "-y", "--output-dir", out, "--set", `campaign.wall_budget_sec=${wall}`, spec], { cwd: ROOT, stdio: ["ignore", "ignore", "ignore"], env: { ...process.env, RAYON_NUM_THREADS: String(policy.evaluation.rayonThreads ?? 30) } });
+  if (![0, 2, 4].includes(execution.status)) throw execution.error ?? new Error(`explorer exited ${execution.status}; output: ${out}`);
   const report = JSON.parse(readFileSync(join(out, "campaign.json"), "utf8"));
-  const porc = runJson(PORC, ["-input", out, "-model", model]) ?? { violating_run_ids: [] };
+  const porc = runJson(PORC, ["-input", out, "-model", model], [0, 2, 4]) ?? { violating_run_ids: [] };
   const rows = runJson(TA, ["-input", out, "-runs"]) ?? [];
   let depths = new Map();
   if (oracle) {

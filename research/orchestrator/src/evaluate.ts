@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CampaignJson, CampaignMetrics, Evaluation, FidelityName, LadderMetrics, PorcupineJson, RunEvalRow, RunRow, TraceGradeJson, UtilStats, VariantMetrics } from "./schemas.js";
 import type { Policy } from "./policy.js";
-import { ROOT, cleanupDir, explore, freeDiskGb, grade, materializeConfig, porcupine, readCampaignSibling, readSessionSibling, readUtilizationSibling, resolveRoot, run, runEvalTable, templateHasCampaign } from "./runners.js";
+import { ROOT, cleanupDir, explore, exploreFailure, freeDiskGb, grade, materializeConfig, porcupine, readCampaignSibling, readSessionSibling, readUtilizationSibling, resolveRoot, run, runEvalTable, templateHasCampaign } from "./runners.js";
 
 export interface EvalContext {
   policy: Policy;
@@ -384,6 +384,7 @@ export async function runOneEvaluation(
     }
     materializeConfig(template, configPath, {
       runsPerConfig: opts.runsPerConfig, sessionSeed: seed, extra,
+      checkAllRuns: true,
       dropKeys: campaign ? [] : ["campaign"],
     });
     console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: exploring (${campaign ? "campaign, " : ""}${opts.exploreBudgetSec !== undefined ? `budget ${opts.exploreBudgetSec}s, ` : ""}wall ${opts.exploreWallSec}s) -> ${outputDir}`);
@@ -445,18 +446,21 @@ export async function runOneEvaluation(
       ? (gr.parsed?.grade_dags ?? []).filter((d) => d.sampled || d.budget_exhausted)
       : [];
     const identity = checkRunIdentity(rows, violatingIds, gr.parsed?.runs_meta ?? null, porc.parsed?.total_runs ?? null);
-    const ok = porc.parsed !== null && !gradeDegenerate && truncatedDags.length === 0 && runsTableError === null && identity === null;
+    const executionError = exploreFailure(exploreRes);
+    const ok = executionError === null && porc.parsed !== null && !gradeDegenerate && truncatedDags.length === 0 && runsTableError === null && identity === null;
     const error = ok
       ? null
-      : porc.parsed === null
-        ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""}${porc.cmd.outputTooLarge ? ", output too large" : ""})`
-        : gradeDegenerate
-          ? `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""}${gr.cmd.outputTooLarge ? ", output too large" : ""})`
-          : truncatedDags.length > 0
-            ? `truncated grading: ${truncatedDags.map((d) => `${d.config_path} graded ${d.graded_runs} of ${d.available_runs}${d.budget_exhausted ? " (budget exhausted)" : ""}${d.sampled ? " (sampled)" : ""}`).join("; ")}`
-            : runsTableError !== null
-              ? `runs table: ${runsTableError}`
-              : identity;
+      : executionError !== null
+        ? executionError
+        : porc.parsed === null
+          ? `porcupine produced no parseable JSON (exit ${String(porc.cmd.exitCode)}${porc.cmd.timedOut ? ", timed out" : ""}${porc.cmd.outputTooLarge ? ", output too large" : ""})`
+          : gradeDegenerate
+            ? `degenerate grading: ${gr.parsed === null ? "grade output unparseable" : "zero graded runs"} (grade exit ${String(gr.cmd.exitCode)}${gr.cmd.timedOut ? ", timed out" : ""}${gr.cmd.outputTooLarge ? ", output too large" : ""})`
+            : truncatedDags.length > 0
+              ? `truncated grading: ${truncatedDags.map((d) => `${d.config_path} graded ${d.graded_runs} of ${d.available_runs}${d.budget_exhausted ? " (budget exhausted)" : ""}${d.sampled ? " (sampled)" : ""}`).join("; ")}`
+              : runsTableError !== null
+                ? `runs table: ${runsTableError}`
+                : identity;
     console.log(`[${new Date().toISOString()}] ${hypothesisId}/${fidelity} seed ${seed}: done ok=${String(ok)} runs=${metrics.runs} viol=${metrics.violations} explore=${Math.round(exploreRes.wallMs / 1000)}s exposure=${Math.round(exposureMs / 1000)}s${session?.budgetHit ? " (budget hit)" : ""}${(exploreRes.suspendedMs ?? 0) > 0 ? ` (suspended ${Math.round((exploreRes.suspendedMs ?? 0) / 1000)}s)` : ""} porc=${Math.round(metrics.porcupineWallMs / 1000)}s grade=${Math.round(metrics.gradeWallMs / 1000)}s`);
     if (!ok) {
       try {
@@ -534,4 +538,3 @@ export function selfTestRunIdentity(): string[] {
   if (checkRunIdentity([], [3], { present: false, runs: 0 }, 5) !== null) f.push("a corpus without a runs table cannot be checked and is not flagged");
   return f;
 }
-

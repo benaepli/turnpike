@@ -650,10 +650,10 @@ async function collectUtilization(policy: Policy): Promise<string> {
   try {
     const cfg = path.join(ROOT, "tmp/loop/audit-util-config.json");
     materializeConfig(path.join(ROOT, policy.evaluation.configTemplate), cfg, {
-      runsPerConfig: 20, sessionSeed: 4242, extra: { stats: true }, dropKeys: CAMPAIGN_ONLY_KEYS,
+      runsPerConfig: 20, sessionSeed: 4242, extra: { stats: true }, dropKeys: CAMPAIGN_ONLY_KEYS, checkAllRuns: true,
     });
     const r = await explore({ binary: SPUR_BIN, configPath: cfg, spec: path.join(ROOT, policy.evaluation.spec), outputDir: outDir, wallSec: 90, rayonThreads: policy.evaluation.rayonThreads });
-    void r;
+    if (!r.ok && !r.timedOut) return `(utilization exploration failed: exit ${String(r.exitCode)}; ${r.stderr.slice(-400)})`;
     const util = path.join(outDir, "utilization.json");
     return existsSync(util) ? readFileSync(util, "utf8") : "(no utilization.json produced)";
   } catch (e) {

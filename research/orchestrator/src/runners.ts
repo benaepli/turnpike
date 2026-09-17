@@ -164,6 +164,8 @@ export interface ConfigOverrides {
   runsPerConfig?: number;
   sessionSeed?: number;
   extra?: Record<string, unknown>;
+  // Measurements include checking and must finish their configured sample.
+  checkAllRuns?: boolean;
   // Top-level keys removed from the template: a runner that loads the
   // template under an explorer mode that does not claim a key must drop it,
   // since strict keys reject it.
@@ -198,7 +200,28 @@ export function materializeConfig(templatePath: string, outPath: string, overrid
       config["params"] = isPlainObject(base) && isPlainObject(params) ? { ...base, ...params } : params;
     }
   }
+  if (overrides.checkAllRuns) {
+    const checking = config["linearizability"];
+    config["linearizability"] = {
+      ...(isPlainObject(checking) ? checking : {}), enabled: true, stop_on_violation: false,
+    };
+  }
   fs.writeFileSync(outPath, JSON.stringify(config, null, 2) + "\n");
+}
+
+// A benchmark cannot compare checking against a binary that silently ignores it.
+export function measurementCheckingError(outputDir: string): string | null {
+  try {
+    const manifest: unknown = JSON.parse(fs.readFileSync(path.join(outputDir, "checking.json"), "utf8"));
+    const config = isPlainObject(manifest) ? manifest["config"] : null;
+    if (!isPlainObject(config) || config["enabled"] !== true || config["stop_on_violation"] !== false) {
+      return "measurement requires checking enabled with stop_on_violation=false";
+    }
+    if (!isPlainObject(manifest) || manifest["reusable"] !== true) return "checking output was not finalized successfully";
+    return null;
+  } catch (error) {
+    return `cannot read measurement checking metadata: ${String(error)}`;
+  }
 }
 
 /** Whether a template carries a campaign block, which only `-e campaign` loads. */
@@ -480,11 +503,19 @@ export function readSessionSibling(outputDir: string): SessionSummary | null {
   return null;
 }
 
-/**
- * Run the explorer. NOTE for callers: a timedOut result is NOT a failure -
- * the explorer writes parquet incrementally, so a timed-out output dir is a
- * valid partial corpus and should still be graded/checked.
- */
+export function isExploreResultCode(code: number | null): boolean {
+  return code === 0 || code === 2 || code === 4;
+}
+
+// A timeout can leave a partial corpus for offline checking. Other process
+// failures must not be hidden by successful checks of the surviving rows.
+export function exploreFailure(result: CmdResult): string | null {
+  if (result.ok || result.timedOut) return null;
+  return `explorer failed (exit ${String(result.exitCode)}): ${result.stderr.slice(-500)}`;
+}
+
+// ok means the explorer returned usable results: passed (0), violations (2),
+// or incomplete checking (4). The exit code retains the checking outcome.
 export function explore(opts: ExploreOpts): Promise<CmdResult> {
   // Output streams to <outputDir>.log so a running explore can be watched
   // with tail -f.
@@ -527,7 +558,7 @@ export function explore(opts: ExploreOpts): Promise<CmdResult> {
         tailText = full.slice(-8192);
       } catch { /* log unreadable - leave tail empty */ }
       resolve({
-        ok: code === 0 && !timedOut,
+        ok: isExploreResultCode(code) && !timedOut,
         exitCode: code,
         stdout: "",
         stderr: tailText,

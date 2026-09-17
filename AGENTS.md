@@ -30,6 +30,12 @@ cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e sta
 
 - `-y` auto-confirms output directory deletion
 - `-e standard` for exhaustive/random exploration, `-e genetic` for genetic algorithm
+- Linearizability checking is enabled by default in a separate bounded pool.
+  `--set linearizability.enabled=false` opts out; `--set linearizability.stop_on_violation=false`
+  keeps checking through the full sample. Throughput benchmarks keep checking enabled
+- `explore` and `run-plan` return 0 for passing histories, 2 for violations, 4 for
+  incomplete checking, and 1 for errors. Callers that complete checking offline must
+  handle 0, 2, and 4 without treating violations or deferred checks as execution errors
 - `--deploy NAME` picks the `@deploy` function when the spec declares more than one
 - `--preset NAME` fills in `--config`, `--plan`, `--deploy`, `--set` and
   `--output-dir` from the crate's `spur.json`, on `explore`, `run-plan` and

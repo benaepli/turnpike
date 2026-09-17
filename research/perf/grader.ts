@@ -35,7 +35,7 @@ import { execFileSync } from "node:child_process";
 
 import { loadPolicy, type Policy } from "../orchestrator/src/policy.js";
 import {
-  ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, readSessionSibling,
+  ROOT, cleanupDir, explore, freeDiskGb, materializeConfig, measurementCheckingError, readSessionSibling,
   readUtilizationSibling, resolveRoot, run, runsTable, templateHasCampaign,
 } from "../orchestrator/src/runners.js";
 import { SLOW_CHUNK_FACTOR } from "../orchestrator/src/sequential.js";
@@ -135,6 +135,7 @@ function buildConfigShaOf(spurDir: string): string {
 // content of the campaign template, the spec, the thread count and the wall
 // budget. A depth scale plays no part here, so there is no analyzer term.
 interface BaselineIdentity {
+  checking?: "enabled-continue-v1";
   spurTree: string;
   buildConfigSha: string;
   campaignSha: string;
@@ -145,6 +146,7 @@ interface BaselineIdentity {
 
 function identityFor(baseSpurDir: string, campaignTemplate: string, cfg: PerfConfig): BaselineIdentity {
   return {
+    checking: "enabled-continue-v1",
     spurTree: spurTreeOf(baseSpurDir),
     buildConfigSha: buildConfigShaOf(baseSpurDir),
     campaignSha: sha256(fs.readFileSync(campaignTemplate, "utf8")),
@@ -157,12 +159,12 @@ function identityFor(baseSpurDir: string, campaignTemplate: string, cfg: PerfCon
 function identityKey(id: BaselineIdentity): string {
   return [
     id.spurTree.slice(0, 12), id.buildConfigSha.slice(0, 8), id.campaignSha.slice(0, 8), id.specSha.slice(0, 8),
-    id.rayonThreads, id.campaignWallSec,
+    id.rayonThreads, id.campaignWallSec, id.checking ?? "legacy",
   ].join("|");
 }
 
 function cacheFileFor(id: BaselineIdentity): string {
-  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.campaignSha.slice(0, 8)}-${id.campaignWallSec}-b${id.buildConfigSha.slice(0, 8)}.json`);
+  return path.join(BASELINE_DIR, `${id.spurTree.slice(0, 12)}-${id.rayonThreads}-${id.campaignSha.slice(0, 8)}-${id.campaignWallSec}-b${id.buildConfigSha.slice(0, 8)}-${id.checking ?? "legacy"}.json`);
 }
 
 interface BaselineCache {
@@ -407,7 +409,7 @@ export function flatCounters(raw: Record<string, unknown> | null): Record<string
 function workloadConfig(template: string, outPath: string, seed: number, wallSec: number): void {
   const raw = JSON.parse(fs.readFileSync(template, "utf8")) as Record<string, unknown>;
   const campaign = { ...(raw["campaign"] as Record<string, unknown>), wall_budget_sec: wallSec };
-  materializeConfig(template, outPath, { sessionSeed: seed, extra: { campaign } });
+  materializeConfig(template, outPath, { sessionSeed: seed, extra: { campaign }, checkAllRuns: true });
 }
 
 async function measure(
@@ -426,6 +428,8 @@ async function measure(
       explorer: "campaign",
     });
     if (!r.ok && !r.timedOut) return { measurement: null, error: `${side} ${workload} round ${index} failed: ${r.stderr.slice(-400)}` };
+    const checkingError = measurementCheckingError(dir);
+    if (checkingError !== null) return { measurement: null, error: `${side} ${workload} round ${index}: ${checkingError}` };
     const session = readSessionSibling(dir);
     if (session === null) return { measurement: null, error: `${side} ${workload} round ${index} wrote no session summary` };
     const rows = await runsTable(dir);
@@ -966,6 +970,9 @@ async function cmdRound(flags: Map<string, string>): Promise<void> {
   const policy = policyFor();
   const state = loadState(need(flags, "name"));
   refuseIfLoopActive();
+  if (state.identity.checking !== "enabled-continue-v1") {
+    throw new Error("this performance session used a different checking policy; start a new session before adding rounds");
+  }
   diskGuard(policy);
   if (state.rounds.length >= cfg.budgets.maxRounds) {
     throw new Error(`session ${state.name} already holds ${state.rounds.length} rounds, at the cap of ${cfg.budgets.maxRounds}`);
@@ -1174,6 +1181,8 @@ async function recordProfile(cfg: PerfConfig, binary: string, wallSec: number, c
     if (!fs.existsSync(perfData)) {
       return failed(`perf record wrote no samples${rec.timedOut ? " before the cap" : ""}: ${rec.stderr.slice(-400)}`);
     }
+    const checkingError = measurementCheckingError(dir);
+    if (checkingError !== null) return failed(checkingError);
     const rep = await run("perf", [
       "report", "--stdio", "--percent-limit", String(percentLimit),
       "--no-children", "--no-inline", "-g", "none", "-i", perfData,
@@ -1452,6 +1461,8 @@ async function cmdSelftest(): Promise<void> {
   // quantity, and nothing else.
   const idA: BaselineIdentity = { spurTree: "aaaaaaaaaaaa", buildConfigSha: "bbbbbbbb", campaignSha: "cccccccc", specSha: "ssssssss", rayonThreads: 30, campaignWallSec: 120 };
   check(identityKey(idA) === identityKey({ ...idA }), "an identity is its own key");
+  check(identityKey(idA) !== identityKey({ ...idA, checking: "enabled-continue-v1" }), "checking changes the measurement identity");
+  check(cacheFileFor(idA) !== cacheFileFor({ ...idA, checking: "enabled-continue-v1" }), "checking measurements use a separate baseline cache");
   check(identityKey(idA) !== identityKey({ ...idA, rayonThreads: 29 }), "a different thread count is a different quantity");
   check(identityKey(idA) !== identityKey({ ...idA, specSha: "tttttttt" }), "a different spec is a different quantity");
   check(cacheFileFor(idA) !== cacheFileFor({ ...idA, campaignWallSec: 240 }), "a different campaign wall budget writes a different cache file");
