@@ -259,6 +259,11 @@ readings and past deadlines are all valid; a clock result, a deadline sum or
 a time advance outside the representable range is a runtime error rather than
 a wrap.
 
+A recorded execution can be taken again exactly: `record_replay` writes an
+artifact per run and `spur replay` executes its actions and observations
+rather than redrawing them. See
+[Simulator Options](simulator_options.md#record_replay).
+
 Lease validity, commit waits and recovery waits stay protocol code. The
 simulator never supplies a missing safety check and never revokes authority
 when a lease expires.

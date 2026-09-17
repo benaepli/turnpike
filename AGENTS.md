@@ -38,8 +38,13 @@ cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e sta
   and offered no time advances. A `clock` block in the config sets the rate
   bound `rho`, the truetime width `tt_width` and the rate mode;
   `faults.pause_fraction` reserves process pauses at checkpoints. A
-  clock-using run writes `run_clocks` and `clock_observations` beside the
-  usual tables, and every `executions` row carries `global_time`
+  clock-using run writes `run_clocks`, `clock_observations` and
+  `timer_events` beside the usual tables, and every `executions` row carries
+  `global_time`
+- `record_replay` writes one exact-replay artifact per run into
+  `<output>/replay/`; `spur replay -a <artifact> -o <dir> SPEC.spur` takes
+  that execution again, step for step, and refuses anything it cannot
+  reproduce exactly
 - `explore` and `run-plan` return 0 for passing histories, 2 for violations, 4 for
   incomplete checking, and 1 for errors. Callers that complete checking offline must
   handle 0, 2, and 4 without treating violations or deferred checks as execution errors

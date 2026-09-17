@@ -89,6 +89,32 @@ Every path is checked when the plan loads, first against the deploy's root type 
 
 `run-plan` writes `plan_resolved.json` beside its output: the plan with every path replaced by the global node index it resolved to. `traceanalyzer -dag-config` reads that file.
 
+### `replay`
+
+Takes one recorded execution again, step for step.
+
+```bash
+spur replay -a output/replay/run_12.json -o replayed -y SPEC.spur
+```
+
+- `-a, --artifact [FILE]`: the artifact an earlier `record_replay` session wrote.
+- `-o, --output-dir [DIR]`: where the replayed run's tables go.
+
+The artifact carries its own deploy, parameters and workload, so no config or
+plan file is needed. Replay refuses an artifact whose program digest,
+semantics version or artifact version does not match, installs the recorded
+clocks, and executes the recorded actions in order rather than redrawing
+them. It hands back each recorded observation after checking the node,
+incarnation, epoch, site, occurrence and global time it was taken at, that a
+monotonic reading agrees with the installed clock, and that an interval
+contains its own observation time within the configured width.
+
+Nothing that matters falls back to sampling. A missing, extra, reordered or
+invalid choice, an action that is not eligible where the record says it ran,
+and an action or observation left unused at the end are all errors. A replay
+stops where the recorded run stopped, so a capped or stalled execution
+reproduces as the one it was.
+
 ### `deploy`
 
 Evaluates one parameter tuple and prints the resulting deployment as JSON: the deploy name, hash, parameters, per-role counts, every node's index, role, ordinal and canonical path, and every group with its paths, members and quorum flag. This is the authoring loop for deploy functions.
@@ -274,6 +300,29 @@ selected in a later action to fire. See
 
 In `run-plan` the scheduler samples no advances: time moves only through
 `advance_time` events.
+
+### `record_replay`
+
+Writes one **exact-replay artifact** per run into `<output>/replay/run_N.json`.
+Off by default: it records every scheduling choice of every run.
+
+Each artifact carries the digest of the compiled program, the semantics
+version, the deploy and its parameters, the workload's events and
+dependencies outright, the settings the run's execution depends on, the
+clocks each node was given, every clock observation, every scheduler action
+in execution order, the message delays, the pause reservation, and the
+endpoint the run stopped at.
+
+It does **not** carry a random-draw tape. The crash-placement span and the
+step cap are learned across a session, so a tape replayed in a fresh process
+takes a different number of draws and every later value comes from the wrong
+place. The artifact carries the decisions instead, and replay executes them.
+What is left over - a queued item's priority, which only orders a selection
+the record already fixes - is drawn freshly and ignored.
+
+```json
+"record_replay": true
+```
 
 ### `faults.pause_fraction`
 
