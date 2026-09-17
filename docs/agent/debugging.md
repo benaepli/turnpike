@@ -10,6 +10,39 @@ Common root causes:
 - **Incorrect commit ordering**: Operations are applied to the state machine in different orders on different replicas. Check log indexing and commit advancement logic.
 - **Premature client return**: `Read` or `Write` in the client block returns before the operation is truly committed (e.g., returning on a redirect response instead of retrying).
 
+## Time-Dependent Violations
+
+A spec that reads a clock or arms a timed timer runs under virtual time, and
+the artifact says what it was: the `runs` row's `clock` column carries the
+rate bound, the truetime width and the sampler settings, `run_clocks` carries
+each node's rate and origin, and `clock_observations` carries every reading
+the run took. A finding depends on those assumptions, so name them when you
+report it.
+
+Common root causes:
+
+- **No drift margin in a lease**: the grantor's clock runs fast and the
+  holder's slow, so the holder still thinks the lease holds after the grantor
+  has given it away. Compare the two nodes' rates in `run_clocks`.
+- **Lease anchored at the wrong end**: a lease measured from acknowledgment
+  receipt rather than from send gives the holder longer than the grantor
+  granted. Delay alone is enough; no clock error is needed.
+- **A forgotten grant after recovery**: process failure keeps the monotonic
+  clock but loses volatile state, so a grantor that did not persist its
+  outstanding grant can issue a conflicting one.
+- **The wrong truetime endpoint**: `earliest` proves a timestamp has passed,
+  `latest` proves it has not. Reading the midpoint as an exact clock is the
+  classic error, and the provider places intervals asymmetrically on purpose
+  so it shows.
+- **A stale observation acted on late**: a check that succeeded before a
+  process pause is still the value the handler acts on afterwards. Look for a
+  `Pause` row on the node between the read in `clock_observations` and the
+  write that used it.
+
+Before classifying: the simulator never revokes authority when a lease
+expires and never inserts a recovery wait. If the protocol needed one and
+does not have it, that is the finding.
+
 ## Deadlock Patterns
 
 These don't cause porcupine failures but result in runs that never complete:

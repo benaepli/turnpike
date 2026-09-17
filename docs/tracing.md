@@ -21,7 +21,16 @@ When a function is traced, the simulator engine automatically captures a sequenc
 2. **`Enter`**: Recorded when the execution of the traced function officially begins. This event records the function's incoming parameters.
 3. **`Exit`**: Recorded when the traced function completes execution. This event captures the function's return value.
 
-Timer firings are not trace events; they are `executions` rows of kind `TimerFired` (payload: the node and the timer's label), so they can be ordered against crashes, recoveries and client operations at the same step.
+Timer firings are not trace events; they are `executions` rows of kind `TimerFired` (payload: the node and the timer's label), so they can be ordered against crashes, recoveries and client operations at the same step. Time advances and process pauses are recorded the same way, as rows of kind `ClockAdvance` (payload: the time before and after) and `Pause`/`Resume` (payload: the node, the pause id and the checkpoint ordinal).
+
+## Clock Tables
+
+A run whose program reads a clock or arms a timed timer writes two more tables:
+
+- **`run_clocks`**: one row per node, with the rate numerator and denominator, the origin and the clock epoch it was given. Client nodes are included.
+- **`clock_observations`**: one row per clock read, in order, with the node, its incarnation and epoch, the read's site and occurrence, the global time, the kind (`mono` or `truetime`), the value or the interval's two endpoints, and whether the read was an `after` timer's internal sample rather than one the specification wrote.
+
+Every `executions` row also carries `global_time`, the time at which it happened; it is zero throughout a run whose program reads no clock. Rows are ordered by `seq_num`, not by that column: several rows share a tick, and equal ticks never reorder a response before its invocation.
 
 ## Trace Payloads
 

@@ -193,10 +193,118 @@ Labels give the plan system fine-grained control over timer ordering. When `stri
 
 This means the `"election"` timer of `nodes[2]` can only fire after the write `w1` completes. Unlabeled timers are unaffected by `strict_timers` and may fire at any time.
 
+### Timed Timers
+
+`set_timer_after(duration [, label])` and `set_timer_at(deadline [, label])`
+add a clock constraint to the same timer. `set_timer_after` samples the
+node's monotonic clock and registers `reading + duration`; `set_timer_at`
+registers the deadline it is given. Both return `chan<()>`, and the plain
+`set_timer` is unchanged.
+
+A timed timer becomes **eligible** only when its owner's monotonic clock
+reaches its deadline. Eligibility, delivery and the resumption of the waiting
+task are three separate events: an eligible timer may be delivered much
+later, and there is no maximum lateness. A negative duration is a runtime
+error; a zero duration, and a deadline already at or behind the reading, are
+eligible immediately.
+
+Under `strict_timers` a labeled timed timer needs both its `allow_timer`
+permission and a reached deadline. A permission never advances time, and an
+advance never grants a permission.
+
 ### Timers and Crashes
 
-- When a node crashes, all of its pending timers are **dropped**.
+- When a node crashes, all of its pending timers are **dropped**, including
+  a timed timer already past its deadline.
 - If a timer fires while its node is crashed, it is silently discarded.
+
+## Virtual Time
+
+The simulator keeps a hidden, nondecreasing global time `T`, counted in
+abstract ticks. A tick is not an interpreter instruction, a scheduler step,
+or a unit of host time. Protocol code cannot read `T`.
+
+- `mono_now()` reads the executing node's monotonic clock,
+  `origin_i + floor(rate_i * T)`, with `rate_i` inside `[1 - rho, 1 + rho]`.
+  Origins and rates are drawn per node and recorded, and each reading is
+  recomputed from `T`, so fractional progress survives many small advances.
+  Readings never decrease but consecutive ones may be equal, and the clock
+  keeps running while the process is paused or crashed.
+- `tt_now()` returns a `std::time::Interval` that contains the global time at
+  which it was taken, with a full width at most the configured `tt_width`.
+  Its width and its placement around that time are both drawn, so the
+  midpoint is not an exact clock. The value is immutable: it does not advance
+  while it is stored, sent or persisted, and it need not contain the time at
+  which its holder acts on it.
+- `std::time::tt_after(t)` and `std::time::tt_before(t)` each take one fresh
+  observation and compare one endpoint strictly. A false result means the
+  observation does not establish the predicate, not that its opposite holds.
+
+A **time advance** is a scheduler action of its own. It runs no protocol
+code, fires no timer and costs one step whatever its size. It is offered
+beside ordinary work, and it is the only action left when every queue is
+empty, so a clock-only protocol and a durationless polling wait both make
+progress without any timed timer in the deployment. A run with an advance
+still available is never reported as deadlocked. In `run-plan` the scheduler
+samples no advances: time moves only through `advance_time` events.
+
+Process failure is a **process restart**, not a machine reboot: the
+monotonic clock continues in the same epoch across a crash, with its rate and
+origin unchanged, and persisted time values come back as the same integers.
+Nothing inserts a recovery wait, a deadline conversion or a lease grace
+period.
+
+Numbers are signed 64-bit, like Spur's `int`. Negative origins, negative
+readings and past deadlines are all valid; a clock result, a deadline sum or
+a time advance outside the representable range is a runtime error rather than
+a wrap.
+
+Lease validity, commit waits and recovery waits stay protocol code. The
+simulator never supplies a missing safety check and never revokes authority
+when a lease expires.
+
+## Process Checkpoints and the Placed Pause
+
+A clock read or a timed-timer registration written **directly in the body of
+an async function** is a *process checkpoint*. The same operation inside a
+synchronous helper is not: a helper runs to completion, atomic with its
+caller.
+
+With no reservation a checkpoint costs nothing: the read completes and
+execution continues inside the same scheduling step. With one, the process
+**pauses** after the read, holding the value it captured.
+
+A pause is an injected fault, in the same sense as a crash:
+
+- All protocol execution on that node freezes. Other nodes run, global time
+  and the clocks advance, and incoming messages queue.
+- Timers may become eligible and deliver their notifications, but no timer
+  consumer or other handler on the paused node runs.
+- A crash of the paused node is still selectable. It cancels the pause,
+  discards the saved frame and the notifications and waiting tasks that were
+  volatile, and settles any matching resume, so no old continuation resumes
+  after recovery.
+- A pause in `RecoverInit` does not release the initialization barrier: the
+  node's buffered handlers stay queued.
+- Resuming clears the slot and runs the interrupted segment until its next
+  ordinary scheduling boundary, reserved checkpoint or return, all in one
+  scheduler action. No other handler on the node can run in between,
+  whatever the queue policy prefers.
+
+`faults.pause_fraction` sets the share of runs that reserve one pause,
+addressed as the k-th checkpoint the run reaches; it is `0` by default. A
+plan arms its own with `pause { node [, checkpoint] }` and ends it with
+`resume { node }`; a planned pause offers no automatic resume, and
+`pause -> advance_time -> resume` orders an actual interval of time the
+process spent held.
+
+A successful lease check can therefore go stale before its caller acts. The
+simulator preserves the result across the pause and lets the protocol take
+its next action; it does not revalidate on the protocol's behalf.
+
+Code between checkpoints and ordinary scheduling boundaries is
+instantaneous. This first version does not model interruption between every
+pair of statements, and a finding carries that atomicity assumption.
 
 ## Persistence
 

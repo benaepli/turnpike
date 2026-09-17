@@ -321,7 +321,53 @@ var timeout_ch: chan<()> = set_timer();
 <- timeout_ch;    // blocks until simulator fires the timer
 ```
 
-No duration parameter — the simulator controls when timers fire to explore different orderings.
+`set_timer` has no duration — the simulator controls when it fires, to
+explore different orderings.
+
+Two constructors add a clock constraint. Both take the label as a trailing
+argument and return `chan<()>`:
+
+```
+<- set_timer_after(100, "lease");     // 100 ticks on this node's clock
+var deadline: int = mono_now() + 100;
+<- set_timer_at(deadline);            // at that monotonic reading
+```
+
+A timed timer is not delivered before its owner's clock reaches its deadline,
+and may be delivered much later. A negative duration is a runtime error; zero
+is eligible at once. `set_timer_after` samples and registers in one step;
+`set_timer_at` keeps an earlier reading, so a pause in between consumes part
+of the interval.
+
+## Clocks
+
+```
+var now: int = mono_now();        // this node's monotonic clock, in ticks
+var bounds = tt_now();            // std::time::Interval { earliest, latest }
+if (std::time::tt_after(t)) { }   // one fresh observation, strict compare
+if (std::time::tt_before(t)) { }
+```
+
+- `mono_now()` is this node's own tick domain. Clocks run at rates inside
+  `[1 - rho, 1 + rho]` with per-node origins, so a slow holder can still
+  think a lease holds after a fast grantor thinks it expired. A reading sent
+  to another node does not become a reading in its domain.
+- `tt_now()` bounds absolute time at the moment of the read, with a full
+  width at most `tt_width`. The value never advances afterwards; it need not
+  contain the time at which its holder acts on it. Do not read the midpoint
+  as an exact clock.
+- Both need a running node: they are rejected in a deploy function and in a
+  declaration initializer, through helper calls as well as directly.
+- Reads are effectful. Order and count are preserved, a repeated read is
+  never folded, and one `tt_now()` captures both endpoints together.
+- Global time is hidden. The scheduler advances it as an action of its own,
+  which runs no protocol code and fires no timer.
+
+A read or a timed registration written directly in an async body is a
+**process checkpoint**: with `faults.pause_fraction` set, the simulator may
+freeze the process there, holding the value it captured while other nodes run
+and time moves on. The same operation inside a synchronous helper is atomic
+with its caller and never pauses.
 
 ## Simulator Semantics
 
@@ -331,4 +377,6 @@ No duration parameter — the simulator controls when timers fire to explore dif
 - A node's role parameter is supplied again from the deployment on every recovery; it is never persisted
 - Messages to crashed nodes are buffered and re-delivered on recovery
 - Crashed nodes lose all in-memory state; only `persist_data` survives
-- Timers are dropped on crash
+- Timers are dropped on crash, including a timed timer already past its deadline
+- The monotonic clock survives a crash: process failure is a process restart, not a reboot, so the clock keeps its rate, origin and epoch
+- A crash cancels a paused process: its saved frame, its notifications and its resume are all discarded

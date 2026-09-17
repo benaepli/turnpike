@@ -33,6 +33,13 @@ cargo run --release --manifest-path spur/Cargo.toml --bin spur -- explore -e sta
 - Linearizability checking is enabled by default in a separate bounded pool.
   `--set linearizability.enabled=false` opts out; `--set linearizability.stop_on_violation=false`
   keeps checking through the full sample. Throughput benchmarks keep checking enabled
+- Virtual time is off unless the spec asks for it: a program that never calls
+  `mono_now`, `tt_now`, `set_timer_after` or `set_timer_at` is given no clocks
+  and offered no time advances. A `clock` block in the config sets the rate
+  bound `rho`, the truetime width `tt_width` and the rate mode;
+  `faults.pause_fraction` reserves process pauses at checkpoints. A
+  clock-using run writes `run_clocks` and `clock_observations` beside the
+  usual tables, and every `executions` row carries `global_time`
 - `explore` and `run-plan` return 0 for passing histories, 2 for violations, 4 for
   incomplete checking, and 1 for errors. Callers that complete checking offline must
   handle 0, 2, and 4 without treating violations or deferred checks as execution errors

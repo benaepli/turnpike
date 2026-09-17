@@ -92,13 +92,14 @@ type Options struct {
 }
 
 // timerRowFilter restricts the executions read to the rows the matcher can
-// use: every non-timer row, and only those timer firings an allow_timer
+// use: every row that is not a system row the matcher has no event for,
+// and only those timer firings an allow_timer
 // label of the plan names by node and label, read aggregated per run and
 // capped at the matcher's own candidate cap. Each predicate is a conjunction
 // over single columns so the reader can push it into the scan; `encoding`
 // is the corpus's timer encoding from reader.TimerEncoding.
 func timerRowFilter(cfg *PlanConfig, encoding string) []reader.RowClause {
-	clauses := []reader.RowClause{{Where: "kind <> 'TimerFired'"}}
+	clauses := []reader.RowClause{{Where: "kind NOT IN ('TimerFired', 'ClockAdvance')"}}
 	if encoding == "none" {
 		return clauses
 	}
