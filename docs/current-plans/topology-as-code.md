@@ -1046,8 +1046,7 @@ These are inputs of the running research loop. They must change in the same comm
 - `scripts/bench.sh:60-65`, `:84` write and count `num_servers`. Replace with `params`.
 - `scripts/porcupine.sh:17` and `scripts/capped.sh:6` hard-code `-model kv`. Drop the flag.
 
-**`research/orchestrator/src`**
-- `bench.ts:36-38` `totalRunsOf` multiplies the `num_servers` range. After this change the grid size depends on rejected and aliased tuples, so it should read the configuration count from `session.json`, or multiply parameter axis lengths as an upper bound. `bench.ts:68`: `model`.
+**`research/harness/src`**
 - `runners.ts`:
   - `:179-190` `materializeConfig` merges overlays at top level. Overlays carrying `params` must merge per parameter, not replace `params` whole.
   - `:559`, `:572`: `-model` becomes optional.

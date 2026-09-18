@@ -47,8 +47,8 @@ expectedGain and expectedCost.
   the saving is smaller than the floor the instrument owes, the compiler
   already does it, the work reappears elsewhere - then score.
 - Reject (score 0): a candidate whose gain comes from searching differently
-  rather than from work not done; out-of-bounds (harness, orchestrator,
-  grader, evaluation protocol, or the campaign arm block); a measurement,
+  rather than from work not done; out-of-bounds (harness, grader, evaluation
+  protocol, or the campaign arm block); a measurement,
   census or profiling task with no mechanism attached; already-answered.
 - Dedupe against the pool; two proposals removing the same cost cannot both
   score high.

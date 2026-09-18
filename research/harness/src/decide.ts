@@ -9,7 +9,6 @@
 // throughput at or above the floor. A sample that resolves nothing merges
 // nothing, because a merge spends a merge and moves the baseline the next
 // candidate is measured against.
-import type { BenchResult } from "./bench.js";
 import type { Evaluation, GateDecision, Hypothesis, HypothesisKind, Prediction, RateStratum, VariantMetrics } from "./schemas.js";
 import { aggregateDepthCounts, aggregateViolations, sumVariantCells } from "./evaluate.js";
 import { firingIsHarnessGap, firingPasses, type FiringResult } from "./firing.js";
@@ -1418,44 +1417,8 @@ export function finalGate(i: FinalGateInputs, chosen?: { verdict: MergeVerdict; 
   };
 }
 
-// Gate for perf-kind hypotheses: A/B bench superiority is the objective and
-// the regression suite is the semantic safety net.
-export interface PerfGateInputs {
-  hypothesis: Hypothesis;
-  bench: BenchResult;
-  regressionPassed: boolean;
-  lintFailures: string[];
-}
-
-export function perfGate(i: PerfGateInputs): GateDecision {
-  const reasons: string[] = [];
-  let verdict: GateDecision["verdict"];
-  if (i.lintFailures.length > 0) {
-    verdict = "closed";
-    reasons.push(`lint failures: ${i.lintFailures.join(", ")}`);
-  } else if (!i.bench.pass) {
-    verdict = "closed";
-    reasons.push(`bench: ${i.bench.detail}`);
-  } else if (!i.regressionPassed) {
-    verdict = "closed";
-    reasons.push("regression suite failed");
-  } else {
-    verdict = "auto_merge";
-    reasons.push(`bench: ${i.bench.detail}`);
-  }
-  return {
-    hypothesisId: i.hypothesis.id,
-    verdict,
-    reasons,
-    objectiveDeltas: { primary: i.bench.improvement, throughput: i.bench.improvement },
-    regressionPassed: i.regressionPassed,
-    lintPassed: i.lintFailures.length === 0,
-  };
-}
-
 /** The unmeasurable path. Its failure modes are a wrong argument order and a
- *  partially applied substitution, neither of which a typecheck can see, so
- *  two of these assertions read the source itself. */
+ *  partially applied substitution, neither of which a typecheck can see. */
 export function selfTestUnmeasured(): string[] {
   const f: string[] = [];
   const check = (c: boolean, m: string): void => { if (!c) f.push(m); };
@@ -1498,9 +1461,6 @@ export function selfTestUnmeasured(): string[] {
   const both = finalGate({ ...base, unmeasurable: ["u"], lintFailures: ["l"] });
   check(both.verdict === "closed" && (both.reasons[0] ?? "").startsWith("lint failures:"),
     `lint outranks unmeasurable, got ${both.verdict}`);
-  // The reason must not read as a harness failure to the judge; state.ts
-  // stamps that from the literal "no changes".
-  check(!u([], []).some((r) => /no changes/.test(r)), "the reason must not trip the harness-failure test");
   // A mechanism with no occasions is a sample about nothing: it closes, and
   // it closes before any rung is read. An uncollected dump is the harness
   // failing to look, so it blocks instead.
@@ -1605,18 +1565,6 @@ export function selfTestUnmeasured(): string[] {
   if ("figures" in clean) {
     check(finalGate(base).verdict === finalGate(base, ruleVerdict(clean.figures)).verdict,
       "no supplied verdict is the rule's verdict");
-  }
-
-  const loopSrc = path.join(ROOT, "research/orchestrator/src/loop.ts");
-  if (existsSync(loopSrc)) {
-    const t = readFileSync(loopSrc, "utf8");
-    const calls = (t.match(/unmeasurableReasons\(spurFiles, superFiles\)/g) ?? []).length;
-    check(calls === 1, `loop.ts must call unmeasurableReasons(spurFiles, superFiles) exactly once, found ${calls}`);
-    const guards = (t.match(/lintFailures\.length === 0/g) ?? []).length;
-    check(guards === 1, `loop.ts must test lintFailures.length === 0 only where sampled is defined, found ${guards}`);
-    // Not \b on the left: a comment already says "re-sampled".
-    const sampled = (t.match(/(?<![-\w])sampled\b/g) ?? []).length;
-    check(sampled === 4, `loop.ts must use sampled once per branch plus its definition (4), found ${sampled}`);
   }
   return f;
 }

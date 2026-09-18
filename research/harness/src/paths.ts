@@ -1,5 +1,5 @@
-// Repo paths, derived from this module's own location so the loop runs from
-// any checkout. This file lives at ROOT/research/orchestrator/{src,dist}/,
+// Repo paths, derived from this module's own location so the graders run from
+// any checkout. This file lives at ROOT/research/harness/{src,dist}/,
 // three levels below the root in both the tsx and the compiled case, and the
 // derivation does not depend on the working directory.
 import * as path from "node:path";

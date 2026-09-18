@@ -2,7 +2,7 @@
 
 The perf research loop's home. The loop itself is the
 `research-loop-perf` skill; the grader is `grader.ts`, run from
-`research/orchestrator` (`npx tsx ../perf/grader.ts <command>`), and its
+`research/harness` (`npx tsx ../perf/grader.ts <command>`), and its
 output fields are described in `docs/agent/perf-grader-status.md`.
 
 ## Files

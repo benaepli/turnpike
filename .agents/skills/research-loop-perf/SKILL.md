@@ -1,6 +1,6 @@
 ---
 name: research-loop-perf
-description: Run agent-driven research iterations against the explorer-throughput goal - profile, propose, judge, implement in an isolated worktree, grade with the round-based perf grader, then decide merge/close/human on branch research/lite. Interactive by default; `autonomous` runs iterations without pause and decides everything itself. Only while the autonomous loop (spur-research-loop) is stopped.
+description: Run agent-driven research iterations against the explorer-throughput goal - profile, propose, judge, implement in an isolated worktree, grade with the round-based perf grader, then decide merge/close/human on branch research/lite. Interactive by default; `autonomous` runs iterations without pause and decides everything itself.
 user-invocable: true
 ---
 
@@ -14,7 +14,7 @@ described in `docs/agent/perf-grader-status.md`; the loop's files and
 record formats in `research/perf/README.md`; subagent prompts in
 `prompts/` beside this file. Configuration is `research/perf/perf.json`
 and the goal is the file it names. Paths are relative to the project root;
-run grader commands from `research/orchestrator`. On hosts without
+run grader commands from `research/harness`. On hosts without
 subagents or worktrees, see `docs/agent/host-compatibility.md`.
 
 **This skill is not yours to edit, in any mode.** Neither this file nor
@@ -31,7 +31,7 @@ against your own bias. Rules turn into arguments about thresholds instead
 of thought about mechanisms. The written reason is the guard.
 
 Never edit: `porcupine/`, `research/oracle/`, `research/corpus/`,
-`traceanalyzer/`, `bin/spur/`, `research/orchestrator/`, `research/lite/`
+`traceanalyzer/`, `bin/spur/`, `research/harness/`, `research/lite/`
 (the search loop's own files), `research/state.sqlite` (never even open
 it), and any `scheduler_configs/` outside `scheduler_configs/loop/`.
 Never push.
@@ -57,17 +57,18 @@ user approves those. Write a short digest into
 `research/perf/observations.md` after every direction review so the user
 can catch up from the log alone.
 
-Hard stops in either mode: `spur-research-loop` is active; the search loop
-is measuring; the grader's selftest fails and the failure is not one you
+Hard stops in either mode: the search loop is measuring; the grader's
+selftest fails and the failure is not one you
 can fix without touching what you must not edit; the main tree is not on
 the branch `perf.json` names.
 
 ## Preflight (every launch)
 
-1. `systemctl --user is-active spur-research-loop` prints `inactive` or
-   `failed`. The loops share the CPU mask, `tmp/loop/`, and the working
-   tree. The search loop's grader must not be measuring either: two
-   measurements on one host measure each other.
+1. Nothing else is measuring on this host. The loops share the CPU,
+   `tmp/loop/` and the working tree, and two measurements on one host
+   measure each other; `tmp/loop/measuring.lock` names the holder while a
+   lite session or another perf round measures, and every measuring grader
+   command refuses while a live process holds it.
 2. Read `perf.json`, the goal file, and the tails of
    `research/perf/observations.md` and `research/perf/pool.md`.
 3. The main tree is on the configured branch with the `spur` gitlink at its
@@ -237,11 +238,11 @@ Main tree, on the loop branch, clean in both the superproject and `spur/`:
 
 ## Coexistence
 
-If `spur-research-loop` becomes active mid-session, stop measuring (do not
-call `round` again) and tell the user. The search loop's grader is the same
-kind of neighbour: the two loops share this host and cannot measure at the
-same time, so hold your rounds while it has chunks in flight, and expect it
-to hold for yours. Candidates live in implementer worktrees; never edit the
+The search loop is a neighbour on this host: the two loops cannot measure
+at the same time. A grader command that finds the measuring lock held
+refuses and names the holder; hold your rounds while it has chunks in
+flight, and expect it to hold for yours. Never delete a lock whose process
+is alive. Candidates live in implementer worktrees; never edit the
 subject in the main tree. Baseline caches under `research/perf/baselines/`
 are the expensive shared asset; never delete them casually. Log files are
 committed on the loop branch only.

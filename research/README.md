@@ -1,59 +1,44 @@
-# Research Loop — Operator Guide
+# Research
 
-Autonomous loop that improves the Spur explorer until the VR-Revisited bug
-(`oracle/bug.md`) surfaces under a general config. Design rules: `GOAL.md`.
-Plan/audit trail: `evaluations/`, `observations/`, `journal.jsonl`, `STATUS.md`.
+Two agent-driven loops improve the Spur explorer. Each is a skill: the agent
+running it proposes, judges, implements in an isolated worktree, drives a
+grader, and decides.
 
-## Commands (from `research/orchestrator/`)
+| Loop | Skill | Goal | Grader | Records |
+|---|---|---|---|---|
+| Search | `research-loop-lite` | `GOAL.md` - surface the VR-Revisited bug under a general config | `lite/grader.ts` | `lite/` |
+| Throughput | `research-loop-perf` | `PERF_GOAL.md` - explorer runs per second | `perf/grader.ts` | `perf/` |
 
-```bash
-npx tsx src/cli.ts selftest    # wiring check (fast)
-npx tsx src/cli.ts seed        # load research/seed_hypotheses.json into the pool
-npx tsx src/cli.ts baseline    # measure + record the baseline ladder (~1h)
-npx tsx src/cli.ts once        # one attended iteration
-npx tsx src/cli.ts regression  # run the regression suite
-../loop-start.sh               # start unattended (systemd-run --user)
-npx tsx src/selftest_sequential.ts 60 --assert     # operating characteristics of the stopping rule
-node ../observations/surrogate_validation.mjs      # which in-process rewards may steer an allocation
-```
+Both work on branch `research/lite` and never push.
 
-The evaluation is a campaign: `-e campaign` on the one template, whose
-`campaign` block names the arms; every chunk is a fixed active-time budget
-and rungs are counted per explore-second (`PARAMETERS.md`).
+## Shared pieces
 
-## Operator
+- `harness/` - the measurement library both graders import: the explore and
+  porcupine runners, the sequential rule, the merge figures and the
+  `VARIANT_BITS` roster (`harness/src/decide.ts`). Graders run from here so
+  its `node_modules` resolve:
 
-Relaunch the supervising session with `/research-loop-operator` (project
-skill in `.claude/skills/`). It re-establishes monitors, diagnoses failures,
-lands harness fixes at safe boundaries, and routes grader proposals to you.
+  ```bash
+  cd research/harness && npx tsx ../lite/grader.ts <command>
+  cd research/harness && npx tsx ../perf/grader.ts <command>
+  ```
 
-## Watching it
+- `harness/src/measuring.ts` - one measurement at a time per host. Every
+  grader command that measures holds `tmp/loop/measuring.lock` for the life
+  of its process and refuses while another live process holds it.
+- `policy.json` - the measurement knobs both graders load.
+- `STYLE.md` - the code style every implementer is held to.
+- `lite/epoch-baseline.json` - the throughput ledger both loops append merges to.
 
-- `research/STATUS.md` — ladder, pool, timings (re-rendered every iteration)
-- `research/observations/OBSERVATIONS.md` — lab notebook (agent-written)
-- `gh pr list --label auto-research` in this repo and in benaepli/spur
-- `systemctl --user status spur-research-loop`, logs in `research/logs/`
+## Ground truth and records
 
-## Stopping
+Never edited by an iteration: `oracle/` (the bug and its oracle DAGs),
+`corpus/` (grader calibration), `panel/` (protocol panel manifests).
 
-- Graceful: `touch research/STOP` (finishes the current iteration)
-- Hard: `systemctl --user stop spur-research-loop`
-
-## Safety model (short form)
-
-Typed code owns budgets/gates/git; agents only propose, implement inside a
-permission fence (no git, allowlisted bash, path fences), and interpret.
-Auto-merge requires: CI-cleared ladder improvement + regression suite +
-protected-path/ruler-subject/VR-name lints + opt-in change shape. Everything
-else opens a `needs-human` PR. Porcupine and `research/oracle|corpus` are
-ground truth and never agent-editable; `traceanalyzer` only via grader-kind
-hypotheses validated against `corpus/manifest.json`.
-
-## Known v1 limitations
-
-- Auto-revert of merged changes is manual (`git revert` + PR) — the loop does
-  not yet re-evaluate merged work post-hoc.
-- meta (policy) and grader hypotheses always route to needs-human.
-- Sessions are reproducible per seed (a spec map's iteration order used to
-  depend on a per-process hasher; it no longer does), but the gates still use
-  rate statistics: a seed change still changes what is explored.
+`observations/`, `evaluations/`, `PARAMETERS.md`, `POLICY.md`,
+`GRADER_REVIEWS.md`, `PR_REVIEWS.md`, `TRANSFER.md` and
+`seed_hypotheses.json` were written by an earlier autonomous loop, retired
+and kept at tag `archive/auto-vr-loop` (its branch) and `archive/pre-ablation`
+(the tree before its removal). The lite grader still reads
+`evaluations/000-baseline-<threads>.json` as a recorded baseline, and the
+lite skill reads the tail of `observations/OBSERVATIONS.md`.

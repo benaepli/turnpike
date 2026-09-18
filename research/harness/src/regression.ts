@@ -1,12 +1,10 @@
-// Regression suite for the research loop: known-bug detection must keep
-// working, known-clean specs must stay clean, and explorer throughput must
-// not silently collapse.
+// Regression suite: a known-clean spec must stay clean under the candidate
+// binary. Throughput is judged by the graders against their own paired
+// baselines, not here.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { EvalContext } from "./evaluate.js";
 import { ROOT, cleanupDir, explore, exploreFailure, porcupine, resolveRoot } from "./runners.js";
-import { runBench } from "./bench.js";
-import { RESEARCH_BRANCH, SUPER, showFile } from "./gitops.js";
 
 export interface RegressionCase {
   name: string;
@@ -23,12 +21,6 @@ function prepDir(dir: string): void {
   if (fs.existsSync(dir)) cleanupDir(dir);
   fs.mkdirSync(dir, { recursive: true });
 }
-
-// Runs per config for the throughput A/B's workload. It has to be small
-// enough that a round finishes inside policy.perf.roundWallSec on the slower
-// of the two binaries, and large enough that the rps estimate is not one
-// startup; the bench fails a round that produces under half of it.
-const THROUGHPUT_RUNS_PER_CONFIG = 100;
 
 interface CaseRun {
   totalRuns: number;
@@ -100,14 +92,11 @@ async function runCase(name: string, body: () => Promise<RegressionCase>): Promi
   }
 }
 
-export async function runRegression(
-  ctx: EvalContext,
-  baselineRunsPerSec: number | null,
-): Promise<{ passed: boolean; cases: RegressionCase[] }> {
+export async function runRegression(ctx: EvalContext): Promise<{ passed: boolean; cases: RegressionCase[] }> {
   const reg = ctx.policy.regression;
   const cases: RegressionCase[] = [];
 
-  // 1. VR without faults must be clean.
+  // VR without faults must be clean.
   cases.push(
     await runCase("vr-nofault-clean", async () => {
       const name = "vr-nofault-clean";
@@ -119,38 +108,6 @@ export async function runRegression(
         name,
         passed: r.violations === 0,
         detail: `runs=${r.totalRuns} violations=${r.violations} unknown=${r.unknown} (expected violations == 0)`,
-      };
-    }),
-  );
-
-  // 2. Throughput: one screen-fidelity-style run of the general VR template.
-  cases.push(
-    await runCase("throughput", async () => {
-      const name = "throughput";
-      if (baselineRunsPerSec === null) {
-        return { name, passed: true, detail: "no baseline yet" };
-      }
-      // Interleaved A/B against the preserved baseline binary on the
-      // baseline's evaluation grid: both sides are measured in the same
-      // window on the same workload, so this case answers only whether the
-      // binary got slower; a config change that lengthens runs is judged by
-      // the ladder, not here.
-      const baselineBin = path.join(ROOT, "tmp", "loop", "spur-baseline");
-      if (!fs.existsSync(baselineBin)) return { name, passed: true, detail: "no baseline binary snapshot; skipped" };
-      const baseTemplate = path.join(ROOT, "tmp", "loop", "regr-throughput.base.config.json");
-      fs.writeFileSync(baseTemplate, showFile(SUPER, RESEARCH_BRANCH, ctx.policy.evaluation.configTemplate));
-      const b = await runBench(ctx.policy, ctx.binary, baselineBin, {
-        templatePath: baseTemplate,
-        runsPerConfig: THROUGHPUT_RUNS_PER_CONFIG,
-        rounds: 2,
-      });
-      if (b.baseMean <= 0) return { name, passed: false, detail: `bench failed: ${b.detail}` };
-      const ratio = b.candMean / b.baseMean;
-      const floor = 1 - ctx.policy.regression.throughputTolerance;
-      return {
-        name,
-        passed: ratio >= floor,
-        detail: `candidate ${b.candMean.toFixed(1)} rps vs baseline ${b.baseMean.toFixed(1)} rps in the same window (ratio ${ratio.toFixed(3)}, floor ${floor.toFixed(2)}); rounds cand=${JSON.stringify(b.candidateRps)} base=${JSON.stringify(b.baselineRps)}`,
       };
     }),
   );

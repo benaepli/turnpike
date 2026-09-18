@@ -4,7 +4,7 @@
 // answers is which recorded decisions the rule makes differently and whether
 // the ones the change was for come out as claimed.
 //
-// Run: cd research/orchestrator && npx tsx ../lite/replay-lite.ts [--assert]
+// Run: cd research/harness && npx tsx ../lite/replay-lite.ts [--assert]
 //
 // The sessions predate the declaration flags, so the bit and band each would
 // have declared come from declarations.ts, which reads them off the written
@@ -22,9 +22,9 @@ import {
   CROSS_BINARY_NULL_FLOOR, EPOCH_THROUGHPUT_FLOOR, MERGE_Z, RULE_VERSION, RULE_VERSION_V1, compareToBaseline,
   figuresOf, internalAdvanceRungsFor, internalPrimary, mergeBlockers, objectiveCounts, primaryRungFor, ruleVerdict,
   type FinalGateInputs, type InternalPrimary, type MergeVerdict,
-} from "../orchestrator/src/decide.js";
-import { ROOT } from "../orchestrator/src/paths.js";
-import { Evaluation } from "../orchestrator/src/schemas.js";
+} from "../harness/src/decide.js";
+import { ROOT } from "../harness/src/paths.js";
+import { Evaluation } from "../harness/src/schemas.js";
 import { RECORDED_DECLARATIONS, declarationFor, recordedRuleVersionFor } from "./declarations.js";
 
 // The table the assertion is made against: what each recorded session would

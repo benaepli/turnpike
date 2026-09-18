@@ -1,10 +1,10 @@
 {
-  "extends": "../orchestrator/tsconfig.json",
+  "extends": "../harness/tsconfig.json",
   "compilerOptions": {
     "rootDir": "../..",
     "noEmit": true,
     "sourceMap": false,
-    "typeRoots": ["../orchestrator/node_modules/@types"]
+    "typeRoots": ["../harness/node_modules/@types"]
   },
-  "include": ["grader.ts", "replay-lite.ts", "declarations.ts", "../orchestrator/src/**/*.ts"]
+  "include": ["grader.ts", "replay-lite.ts", "declarations.ts", "../harness/src/**/*.ts"]
 }

@@ -22,7 +22,7 @@
   but never touch the `campaign` block of the campaign template.
 - If the hypothesis declares a treatment bit, draw it by run id in
   `spur/spur-core/src/simulator/run_variant.rs` and register its name in
-  `VARIANT_BITS` (`research/orchestrator/src/decide.ts`).
+  `VARIANT_BITS` (`research/harness/src/decide.ts`).
 - If the hypothesis declares a counter, add it in
   `spur-core/src/simulator/util_stats.rs` so it reaches the utilization dump
   under the dotted path the hypothesis names. For a saving declared shared

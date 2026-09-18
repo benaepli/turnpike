@@ -1,27 +1,6 @@
 {
-  "models": {
-    "propose": "claude-opus-5",
-    "judge": "claude-opus-5",
-    "implement": "claude-opus-5",
-    "reflect": "claude-opus-5",
-    "audit": "claude-opus-5"
-  },
-  "bandit": {
-    "explorationQuota": 0.3
-  },
   "budgets": {
-    "maxLineageDepth": 6,
-    "maxImplementTurns": 220,
-    "maxBuildSeconds": 600,
-    "minFreeDiskGb": 40,
-    "maxImplementMinutes": 20
-  },
-  "audit": {
-    "everyK": 5
-  },
-  "proposal": {
-    "lenses": 7,
-    "maxPoolSize": 60
+    "minFreeDiskGb": 40
   },
   "evaluation": {
     "spec": "bin/spur/VR.spur",
@@ -35,17 +14,6 @@
     "vrNoFaultConfig": "scheduler_configs/loop/regression_vr_nofault.json",
     "throughputTolerance": 0.2,
     "wallSecPerCase": 560
-  },
-  "perf": {
-    "benchConfig": "scheduler_configs/loop/bench.json",
-    "rounds": 4,
-    "warmupRounds": 1,
-    "minImprovement": 0.05,
-    "roundWallSec": 150
-  },
-  "rejudge": {
-    "everyK": 1,
-    "afterMerge": false
   },
   "sequential": {
     "exploreBudgetSec": 300,

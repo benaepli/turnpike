@@ -9,8 +9,7 @@
 // it costs. The per-run guards stay per run; their job is to catch runs
 // getting shallower, and throughput has its own floor.
 import type { Policy } from "./policy.js";
-import { runOneEvaluation, sumVariantCells, type EvalContext } from "./evaluate.js";
-import type { LoopState } from "./state.js";
+import { sumVariantCells } from "./evaluate.js";
 import { compareRatesPoisson, rateRatioSeparated, throughputCv, type RateComparison } from "./stats.js";
 import {
   ADVANCE_RUNGS, CROSS_BINARY_NULL_FLOOR, DEEP_GUARD_RUNGS, DEEP_RUNG_MARGIN, INTERNAL_Z,
@@ -19,16 +18,9 @@ import {
   objectiveCounts, primaryDelta, primaryRungRegressed, rateVarianceOf, ruleVerdict, rungCv, stratumFault,
   type FinalGateInputs, type MergeVerdict, type RatePrior,
 } from "./decide.js";
-import { askStopper, buildStopperPayload, nullBand, type StopperRecord, type StopperRung } from "./stopper.js";
+import { buildStopperPayload, nullBand, type StopperRung } from "./stopper.js";
 import { HARD_LIMITS } from "./policy.js";
 import { CampaignMetrics, Evaluation, RateStratum, SeqState, type VariantMetrics } from "./schemas.js";
-
-export function loadSeqState(state: LoopState, id: string): SeqState | null {
-  const raw = state.getMeta(`seq:${id}`);
-  if (!raw) return null;
-  const p = SeqState.safeParse(JSON.parse(raw));
-  return p.success ? p.data : null;
-}
 
 export interface PooledCounts {
   runs: number;
@@ -863,117 +855,4 @@ export function selfTestGateConsistency(live?: { base: PooledCounts; rule: SeqRu
   if (classifyChunkTiming(slowChunk, medianRpsRef, true) !== null) f.push("a slow chunk of a confirmed-slow candidate counts");
   if (classifyChunkTiming(chunk(3002, { rps: 1.6 }), medianRpsRef, false) !== null) f.push("a fast chunk is never an anomaly");
   return f;
-}
-
-export async function runSequential(opts: {
-  ctx: EvalContext;
-  hypothesisId: string;
-  // What the hypothesis claims its change will do, for the mid-run stopper.
-  prediction: string;
-  baseline: PooledCounts;
-  prior: SeqState | null;
-  baselineKey: string;
-  maxChunksTotal: number;
-  violationPrior?: RatePrior | null | undefined;
-  // The stopper's answer is handed over beside the decision it produced, so
-  // the chunk record carries the posteriors it was given: a model answer is
-  // not recomputable, and a rejection nobody can audit is a rejection nobody
-  // can check.
-  onChunk: (seq: SeqState, decision: SeqDecision, stopper: StopperRecord | null) => void;
-  onAnomaly?: (e: Evaluation, reason: string) => void;
-  stopRequested: () => boolean;
-}): Promise<SeqRunResult> {
-  const p = opts.ctx.policy.sequential;
-  const rule = seqRuleOf(opts.ctx.policy, opts.violationPrior ?? null);
-  const evals: Evaluation[] = [];
-  let seq: SeqState = opts.prior ?? initialSeqState(opts.hypothesisId, opts.baselineKey);
-  // Nothing the candidate can measure is comparable without a baseline
-  // stratum, so learn it before spending the first chunk rather than after.
-  if (opts.baseline.rateStratum === null) {
-    return { verdict: "error", reason: "the baseline chunks carry no per-arm accounting; re-run `cli baseline` under this mask", evals, seq };
-  }
-  const baselineMedian = medianRps(opts.baseline);
-  // A chunk that fails with zero usable runs is usually the environment (an
-  // I/O storm slowing the explore past its wall, a checker that could not
-  // read the corpus), not the candidate. Tolerate scattered failures by
-  // retrying with the next seed; only a consecutive streak (a broken
-  // candidate or a sustained outage) or a large total errors out.
-  let consecutiveFailures = 0;
-  let totalFailures = 0;
-  let lastWasSlow = false;
-  for (;;) {
-    if (opts.stopRequested()) return { verdict: "stopped", reason: "STOP requested", evals, seq };
-    const e = await runOneEvaluation(opts.ctx, opts.hypothesisId, "sequential", seq.nextSeed, {
-      runsPerConfig: p.maxRunsPerConfig, exploreWallSec: p.exploreBudgetSec, exploreBudgetSec: p.exploreBudgetSec,
-      gradeMaxRuns: 0, gradeBudgetMs: p.wallSecPerChunk * 1000,
-    });
-    seq = { ...seq, nextSeed: seq.nextSeed + 1 };
-    if (!e.ok) {
-      evals.push(e);
-      // Zero runs written means the explorer produced nothing at all - a wall
-      // timeout on a configuration that cannot complete a run. Further seeds
-      // re-pay the same wall to learn the same thing, so stop here.
-      if (e.metrics.runs === 0) {
-        return {
-          verdict: "error",
-          reason: `explorer completed zero runs (${e.error ?? "wall timeout"}); further seeds cannot inform`,
-          evals, seq,
-        };
-      }
-      consecutiveFailures++;
-      totalFailures++;
-      if (consecutiveFailures >= 3) return { verdict: "error", reason: `${consecutiveFailures} chunks failed in a row: ${e.error ?? "evaluation failed"}`, evals, seq };
-      if (totalFailures >= p.maxChunks) return { verdict: "error", reason: `${totalFailures} chunks failed: ${e.error ?? "evaluation failed"}`, evals, seq };
-      continue;
-    }
-    consecutiveFailures = 0;
-    const anomaly = classifyChunkTiming(e, baselineMedian, seq.slowConfirmed);
-    if (anomaly !== null) {
-      const slow = anomaly.startsWith("slow");
-      if (slow && lastWasSlow) {
-        // Two slow chunks in a row is the candidate, not the host: from here
-        // its chunks count and the throughput floor decides.
-        seq = { ...seq, slowConfirmed: true };
-      } else {
-        lastWasSlow = slow;
-        const excluded: Evaluation = { ...e, ok: false, error: `timing anomaly: ${anomaly}`, timingAnomaly: anomaly };
-        evals.push(excluded);
-        seq = { ...seq, anomalies: seq.anomalies + 1 };
-        opts.onAnomaly?.(excluded, anomaly);
-        continue;
-      }
-    } else {
-      lastWasSlow = false;
-    }
-    evals.push(e);
-    const c = pooledCountsOf([e]);
-    seq = {
-      ...seq, chunks: seq.chunks + 1, runs: seq.runs + c.runs, graded: seq.graded + c.graded,
-      exposureSec: seq.exposureSec + c.exposureSec, rpsChunks: [...seq.rpsChunks, ...c.rpsChunks],
-      depth4: seq.depth4 + c.depth4, depth5: seq.depth5 + c.depth5, depth6plus: seq.depth6plus + c.depth6plus,
-      depth7plus: seq.depth7plus + c.depth7plus, depth8plus: seq.depth8plus + c.depth8plus,
-      violations: seq.violations + c.violations, h2Count: seq.h2Count + c.h2Count,
-      rateStratum: addStratum(seq.rateStratum, chunkStratum(e)),
-      variants: sumVariantCells([seq.variants, c.variants]),
-    };
-    const active = { ...rule, maxChunks: Math.min(opts.maxChunksTotal, p.maxChunks * (seq.resumes + 1)) };
-    const pooled = pooledFromSeq(seq);
-    const ruled = decideSequential(pooled, opts.baseline, seq.chunks, active);
-    let decision = railVerdict(ruled, pooled, opts.baseline, seq.chunks, active);
-    let stopper: StopperRecord | null = null;
-    if (decision === null) {
-      stopper = await askStopper(opts.ctx.policy, {
-        hypothesisId: opts.hypothesisId, prediction: opts.prediction, ruled,
-        cand: pooled, base: opts.baseline, chunks: seq.chunks, rule: active,
-        canStillAdvance: canStillAdvance(pooled, opts.baseline, seq.chunks, active),
-        evalIds: evals.filter((e) => e.ok).map((e) => e.id),
-      });
-      decision = stopper.action === "stop"
-        ? classifyPooled(ruled, pooled, opts.baseline, seq.chunks, active)
-        : ruled;
-    }
-    seq = { ...seq, posteriors: storablePosteriors(decision.posteriors), lastVerdict: decision.verdict };
-    opts.onChunk(seq, decision, stopper);
-    if (decision.verdict !== "continue") return { verdict: decision.verdict, reason: decision.reason, evals, seq };
-  }
 }

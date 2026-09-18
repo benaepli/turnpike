@@ -2,7 +2,7 @@
 
 The lite research loop's home. The loop itself is the
 `research-loop-lite` skill; the grader is `grader.ts`, run from
-`research/orchestrator` (`npx tsx ../lite/grader.ts <command>`), and its
+`research/harness` (`npx tsx ../lite/grader.ts <command>`), and its
 output fields are described in `docs/agent/lite-grader-status.md`.
 
 ## Files

@@ -22,8 +22,8 @@ research/state.sqlite*
 research/logs/
 research/corpus/*/
 tmp/loop/
-research/orchestrator/node_modules/
-research/orchestrator/dist/
+research/harness/node_modules/
+research/harness/dist/
 research/journal.jsonl
 research/STATUS.md
 research/STOP

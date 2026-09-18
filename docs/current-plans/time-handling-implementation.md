@@ -25,7 +25,7 @@ wrong.
   `spur/spur-core/src/simulator/util_stats.rs`. A null result from an
   uncounted mechanism cannot be told apart from one that never ran.
 - A run-variant bit added to `spur/spur-core/src/simulator/run_variant.rs`
-  is named in `research/orchestrator/src/decide.ts` in the same commit; the
+  is named in `research/harness/src/decide.ts` in the same commit; the
   perf grader refuses an unnamed bit. Bits are sparse, so there is room.
 - `spur/` and `porcupine/` are submodules. Changes land there first; the
   superproject pointers move after.

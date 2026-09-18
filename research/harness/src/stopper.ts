@@ -1,19 +1,16 @@
-// The mid-run stopper. The sequential rule owns every terminal verdict; this
-// answers the one question the rule cannot price - whether the sample in hand
-// is worth its next chunk - and its answer can only end sampling, never merge
-// anything. Any failure leaves the rule's own verdict standing.
+// The stopper payload: a per-rung summary of the sample in hand, recorded
+// beside a chunk's posteriors. It informs a decision to buy another chunk and
+// never decides one; the sequential rule owns every terminal verdict.
 //
-// Every number the model reads is computed here. The null band above all: it
-// is each rung's own counting floor, sqrt(1/ec + 1/eb) over the candidate and
-// baseline event counts, so it follows the arm set and the chunk budget
-// instead of going stale as a constant would. A ratio inside it is the spread
-// two seeds of one unchanged binary produce.
+// The null band above all: it is each rung's own counting floor,
+// sqrt(1/ec + 1/eb) over the candidate and baseline event counts, so it
+// follows the arm set and the chunk budget instead of going stale as a
+// constant would. A ratio inside it is the spread two seeds of one unchanged
+// binary produce.
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
-import { askChunkStopper } from "./agents.js";
 import { PRIMARY_RUNG, REPORTED_RUNGS } from "./decide.js";
 import { ROOT } from "./paths.js";
-import type { Policy } from "./policy.js";
 import type { PooledCounts, SeqDecision, SeqRule } from "./sequential.js";
 
 // The rungs the payload reports. Every one the rule computes a posterior for.
@@ -55,17 +52,6 @@ export interface StopperPayload {
     archiveOnePerRuns: number | null;
     runs: Array<{ runId: number; arm: string; configIndex: number }>;
   };
-}
-
-/** What a stop cost and why, kept beside the chunk's posteriors so a stopped
- *  sample stays auditable even though a model answer is not recomputable. */
-export interface StopperRecord {
-  chunk: number;
-  action: "stop" | "continue";
-  reason: string;
-  error: string | null;
-  costUsd: number;
-  payload: StopperPayload;
 }
 
 /** The A/A spread two seeds of one unchanged binary produce at a rung, from
@@ -160,17 +146,4 @@ export function buildStopperPayload(i: StopperInputs): StopperPayload {
       runs: i.cand.violations > 0 ? violatingRuns(i.evalIds) : [],
     },
   };
-}
-
-/** Ask whether the next chunk is worth buying. The call is capped at one
- *  chunk's own explore budget, so the stopper can never cost more than the
- *  work it is deciding to defer, and every failure answers "continue", which
- *  is the rule's own verdict at this point. */
-export async function askStopper(policy: Policy, i: StopperInputs): Promise<StopperRecord> {
-  const payload = buildStopperPayload(i);
-  const r = await askChunkStopper(policy, i.rule.exploreBudgetSec * 1000, payload);
-  if (r.value === null) {
-    return { chunk: i.chunks, action: "continue", reason: "the stopper did not answer", error: r.error ?? "no answer", costUsd: r.costUsd, payload };
-  }
-  return { chunk: i.chunks, action: r.value.action, reason: r.value.reason, error: null, costUsd: r.costUsd, payload };
 }

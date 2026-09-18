@@ -9,7 +9,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { ROOT } from "../orchestrator/src/paths.js";
+import { ROOT } from "../harness/src/paths.js";
 
 const DECISIONS_PATH = path.join(ROOT, "research", "lite", "decisions.jsonl");
 
