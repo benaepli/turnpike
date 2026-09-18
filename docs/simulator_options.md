@@ -324,6 +324,14 @@ the record already fixes - is drawn freshly and ignored.
 "record_replay": true
 ```
 
+### Time metrics
+
+`traceanalyzer` reports a **Virtual Time** block for a corpus whose runs moved
+time or held a process: the runs that did, the time advances (total, per run
+and the largest single run), and the pauses (total, per run, the largest
+single run, how many resumed and how many a crash cancelled). A corpus whose
+specs read no clock reports nothing rather than a row of zeros.
+
 ### `faults.pause_fraction`
 
 Share of runs that reserve one **process pause**, addressed as the k-th

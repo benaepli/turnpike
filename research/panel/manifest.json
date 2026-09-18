@@ -398,6 +398,165 @@
       "notes": "the stale-incarnation shape on a host with a high ceiling: 4 in 19,992 against 3 on its own control, so a report from it is close to the host's background rate. Control is the pinned pre-repair host bin/spur/panel/paxos_host.spur: bin/spur/Paxos.spur carries the request-identity fix, so it is no longer one defect away from this member.",
       "wallSec": 15,
       "replicates": 3
+    },
+    {
+      "id": "raft-lease-read-recv-anchor",
+      "spec": "bin/spur/panel/raft_lease_read_recv_anchor.spur",
+      "cleanSpec": "bin/spur/panel/raft_lease_read_clean.spur",
+      "shape": "a leader anchors its read lease at the acknowledgment's arrival rather than the heartbeat's send, so the lease outlives the window it has to fit inside by the round trip",
+      "faults": {
+        "class": "F4",
+        "numCrashes": {
+          "min": 0,
+          "max": 1,
+          "step": 1
+        },
+        "requiresRecovery": false
+      },
+      "overlay": {
+        "params": {
+          "n": {
+            "min": 3,
+            "max": 3,
+            "step": 1
+          }
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 4,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "dependency_density": [
+          0.4
+        ],
+        "purgatory": {
+          "delay_probability": 0.2,
+          "delay_duration_range": [
+            5,
+            60
+          ]
+        },
+        "clock": {
+          "rho": 0.05,
+          "tt_width": 0,
+          "rates": "extremes"
+        }
+      },
+      "maxIterations": 3000,
+      "role": "report",
+      "expectedRate": 1e-05,
+      "calibration": {
+        "atIso": "2026-09-17T00:00:00Z",
+        "rateRuns": 115200,
+        "rateViolations": 0,
+        "dispersion": 1,
+        "cleanRuns": 43200,
+        "cleanViolations": 0,
+        "hostCeiling": 0.0,
+        "budgetRatio": 1,
+        "runsPerSec": 0,
+        "eventsPerSec": 0,
+        "tauBestSec": 0
+      },
+      "notes": "not observed in 115,200 runs across the overlays tried, and the control is clean over 43,200. The mechanisms all fire - lease reads are served in 53% of runs, and 19% of lease grants carry more than 100 ticks of excess over the send anchor - but a violation needs those to coincide with a second leader committing a write the stale leader has not seen, and the search has not put the two together. Uncalibrated: expectedRate is the panel's floor, not a measurement.",
+      "wallSec": 15,
+      "replicates": 3
+    },
+    {
+      "id": "raft-lease-cached-flag",
+      "spec": "bin/spur/panel/raft_lease_cached_flag.spur",
+      "cleanSpec": "bin/spur/panel/raft_lease_read_clean.spur",
+      "shape": "a leader caches its lease verdict at each heartbeat instead of checking per request, so a pause between reading the clock and storing the verdict carries a stale true into the state a later read consults",
+      "faults": {
+        "class": "F4",
+        "numCrashes": {
+          "min": 0,
+          "max": 1,
+          "step": 1
+        },
+        "requiresRecovery": false
+      },
+      "overlay": {
+        "params": {
+          "n": {
+            "min": 3,
+            "max": 3,
+            "step": 1
+          }
+        },
+        "num_write_ops": {
+          "min": 3,
+          "max": 4,
+          "step": 1
+        },
+        "num_read_ops": {
+          "min": 2,
+          "max": 3,
+          "step": 1
+        },
+        "num_keys": {
+          "min": 1,
+          "max": 1,
+          "step": 1
+        },
+        "max_concurrent_writes": {
+          "min": 1,
+          "max": 2,
+          "step": 1
+        },
+        "dependency_density": [
+          0.4
+        ],
+        "purgatory": {
+          "delay_probability": 0.2,
+          "delay_duration_range": [
+            5,
+            60
+          ]
+        },
+        "clock": {
+          "rho": 0.05,
+          "tt_width": 0,
+          "rates": "extremes"
+        },
+        "faults": {
+          "pause_fraction": 1.0
+        }
+      },
+      "maxIterations": 3000,
+      "role": "report",
+      "expectedRate": 1e-05,
+      "calibration": {
+        "atIso": "2026-09-17T00:00:00Z",
+        "rateRuns": 115200,
+        "rateViolations": 0,
+        "dispersion": 1,
+        "cleanRuns": 43200,
+        "cleanViolations": 0,
+        "hostCeiling": 0.0,
+        "budgetRatio": 1,
+        "runsPerSec": 0,
+        "eventsPerSec": 0,
+        "tauBestSec": 0
+      },
+      "notes": "an implementation-pattern mutant rather than a paper bug: the thesis says to check the lease, not to cache the check. Not observed in 19,200 runs. The pause fires on it - 4,111 pauses over 4,800 runs, 1,537 of them spanning a time advance - so the checkpoint and the stale store are exercised; the violation needs the same second-leader coincidence the receipt-anchor entry needs. Uncalibrated.",
+      "wallSec": 15,
+      "replicates": 3
     }
   ]
 }
