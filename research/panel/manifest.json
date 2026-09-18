@@ -473,7 +473,7 @@
         "eventsPerSec": 0,
         "tauBestSec": 0
       },
-      "notes": "not observed in 240,000 runs at this overlay, nor in 115,200 more across the others tried; the control is clean over the same 240,000. The mechanisms all fire - lease reads are served in 53% of runs, and 19% of lease grants carry more than 100 ticks of excess over the send anchor - but a violation needs those to coincide with a second leader committing a write the stale leader has not seen, and the search has not put the two together. Uncalibrated: expectedRate is the panel's floor, not a measurement.",
+      "notes": "Historical fixed-duration measurements; the named-duration domain has not been calibrated. Not observed in 240,000 runs at this overlay, nor in 115,200 more across the others tried; the control is clean over the same 240,000. The mechanisms all fire - lease reads are served in 53% of runs, and 19% of lease grants carry more than 100 ticks of excess over the send anchor - but a violation needs those to coincide with a second leader committing a write the stale leader has not seen, and the search has not put the two together. Uncalibrated: expectedRate is the panel's floor, not a measurement.",
       "wallSec": 15,
       "replicates": 3
     },
@@ -554,7 +554,7 @@
         "eventsPerSec": 0,
         "tauBestSec": 0
       },
-      "notes": "an implementation-pattern mutant rather than a paper bug: the thesis says to check the lease, not to cache the check. Not observed in 19,200 runs. The pause fires on it - 4,111 pauses over 4,800 runs, 1,537 of them spanning a time advance - so the checkpoint and the stale store are exercised; the violation needs the same second-leader coincidence the receipt-anchor entry needs. Uncalibrated.",
+      "notes": "Historical fixed-duration measurements; the named-duration domain has not been calibrated. An implementation-pattern mutant rather than a paper bug: the thesis says to check the lease, not to cache the check. Not observed in 19,200 runs. The pause fires on it - 4,111 pauses over 4,800 runs, 1,537 of them spanning a time advance - so the checkpoint and the stale store are exercised; the violation needs the same second-leader coincidence the receipt-anchor entry needs. Uncalibrated.",
       "wallSec": 15,
       "replicates": 3
     }

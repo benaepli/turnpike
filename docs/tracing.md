@@ -31,11 +31,22 @@ a second process needs to take that execution again. See
 [`spur replay`](simulator_options.md#replay) for how to use it. The artifact
 is evidence in its own right: it names the program it was taken from, the
 semantics version it was taken under, and the clock assumptions and workload
-the run ran with, so a finding can say what it depended on.
+the run ran with, so a finding can say what it depended on. Artifact format 2
+records idle scheduler attempts along with dispatches and time advances,
+preserving subsequent step numbers.
+
+Named duration assignments are recorded in the `clock` JSON column of `runs`,
+under `durations`: for example `{"durations":{"durations":{"election":8192,"heartbeat":2048}}}`.
+These integers are an execution witness in internal units; divide one by another
+to report the sampled ratios. The replay artifact's `clock.durations` carries
+the same assignment. Replay installs it directly and validates it against the
+recorded program's timing requirements, including the configured clock-rate
+bounds.
 
 ## Clock Tables
 
-A run whose program reads a clock or arms a timed timer writes two more tables:
+A run whose program declares a `timing` block, reads a clock, or arms a timed
+timer writes two more tables:
 
 - **`run_clocks`**: one row per node, with the rate numerator and denominator, the origin and the clock epoch it was given. Client nodes are included.
 - **`clock_observations`**: one row per clock read, in order, with the node, its incarnation and epoch, the read's site and occurrence, the global time, the kind (`mono` or `truetime`), the value or the interval's two endpoints, and whether the read was an `after` timer's internal sample rather than one the specification wrote.

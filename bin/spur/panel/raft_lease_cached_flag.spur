@@ -16,20 +16,19 @@
 // The manifest calls this an implementation-pattern mutant rather than a
 // paper bug: the thesis says to check the lease, not to cache the check.
 
-// Ticks a follower waits without hearing from a leader before standing for
-// election, on its own monotonic clock.
-fn election_ticks(): int { 100 }
-
-// Ticks between a leader's heartbeat rounds.
-fn heartbeat_ticks(): int { 30 }
-
-// How long a lease may run from the heartbeat that established it.
-fn lease_ticks(): int { 100 }
-
-// What the lease gives up to survive the rate band. Two clocks inside
-// `[1 - rho, 1 + rho]` can differ by about `2 * rho` over the window, so the
-// margin has to cover `2 * rho * lease_ticks()` and then some.
-fn drift_margin(): int { 20 }
+// This control domain keeps heartbeats below the election timeout and
+// shortens leases enough for every clock rate in the configured band.
+// These are explicit control assumptions, not inferred protocol guarantees.
+timing durations {
+    election;
+    heartbeat;
+    lease;
+    margin;
+    require lease == election;
+    require heartbeat < election;
+    require margin < lease;
+    require (lease - margin) * rate_max < election * rate_min;
+}
 
 type Command {
     kind: int; // 0: Read, 1: Write, 2: the no-op a new leader commits
@@ -522,7 +521,7 @@ role Node(cluster: Cluster) {
             if (lease_round_acks == quorum) {
                 has_lease = true;
                 lease_ok = true;
-                lease_expiry = lease_round_at + lease_ticks() - drift_margin();
+                lease_expiry = lease_round_at + durations().lease - durations().margin;
                 println("Node {me} lease to {lease_expiry} from round {round}");
             }
         }
@@ -686,7 +685,7 @@ role Node(cluster: Cluster) {
             if (state == 2) {
                 // Leader: a heartbeat round every heartbeat interval, which
                 // is what keeps the lease alive.
-                <- set_timer_after(heartbeat_ticks(), "heartbeat");
+                <- set_timer_after(durations().heartbeat, "heartbeat");
                 if (state == 2) {
                     // The checkpoint: the reading is taken here and stored
                     // in node state, where every read until the next
@@ -699,7 +698,7 @@ role Node(cluster: Cluster) {
 
             // Follower or candidate: an election timeout is a duration on
             // this node's own clock, which may run faster than the leader's.
-            <- set_timer_after(election_ticks(), "election");
+            <- set_timer_after(durations().election, "election");
             if (state == 2) {
                 continue;
             }

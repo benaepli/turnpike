@@ -81,7 +81,7 @@ A plan fixes one parameter tuple with `params` and names its nodes and groups by
 - `deliver.function` is the qualified handler name as recorded in traces, for example `Node.AppendEntries`.
 - `pause.node` arms a process pause on that node, at `checkpoint` (a positive occurrence within the node's current incarnation) or the next one it reaches. A planned pause offers no automatic resume: it completes when the checkpoint is actually interrupted, and ends only when its `resume` event executes, so `pause -> advance_time -> resume` orders an interval of time the process spent held. At most one armed or active pause per node; a crash cancels the pause and settles the matching resume.
 - `resume.node` names the node to resume, and must depend on its pause.
-- `advance_time.ticks` must be positive. It is the only way a plan moves global time: the scheduler samples no advances in `run-plan`. The event completes when the advance executes, so a later event can depend on time having passed. A timer permission never advances time, and an advance never grants a permission.
+- `advance_time` accepts either a positive `ticks` value or a named duration: `{"duration":"durations.election","numerator":1,"denominator":2}`. The numerator and denominator default to one and must be positive; the block and field are checked against the program. The ratio rounds up to an internal unit. It is the only way a plan moves global time: the scheduler samples no advances in `run-plan`. The event completes when the advance executes, so a later event can depend on time having passed. A timer permission never advances time, and an advance never grants a permission.
 
 Available partition types: `isolate_one`, `halves`, `majorities_ring`, `bridge`. See [Simulator Semantics](simulator_semantics.md#network-partitions) for details.
 
@@ -263,11 +263,25 @@ Configures probabilistic message delays for remote `ChannelSend` runnables. Disa
 
 See [Simulator Semantics](simulator_semantics.md#purgatory-message-delays) for details on crash and partition interactions.
 
+### Named-duration assignments
+
+A specification's `timing` blocks select their own feasible parameter domain.
+No configuration values or tick unit are required for them. The run's clock
+seed and each block's qualified name determine an assignment; `clock.rho`
+supplies the concrete `rate_min` and `rate_max` used by its requirements.
+Exact replay artifact format 2 records idle scheduling attempts as well as
+dispatches and advances, preserving subsequent step numbers.
+Assignments are stored in `runs.clock.durations` as objects keyed first by
+module-qualified block name, then field name. The exact replay artifact carries
+the same assignment and reinstalls it without invoking the sampler. Replay
+validates the fields and requirements and rejects a different timing declaration
+through the program digest.
+
 ### `clock`
 
 Configures virtual time: the clock assumptions each run is drawn under and the
 settings of the explorer's time-advance sampler. Both `explore` and `run-plan`
-accept it. A program that reads no clock and registers no timed timer is given
+accept it. A program with no timing blocks, clock reads, or timed timers is given
 no clocks at all and is offered no advances, so the block changes nothing for
 it.
 
@@ -288,7 +302,7 @@ it.
   advance rather than ordinary work, while both are possible. A heuristic, not
   a clock assumption; it is recorded with the run's search settings.
 - `advance_max_log2` (default `12`): the largest sampled advance is
-  `2^advance_max_log2` ticks.
+  `2^advance_max_log2` internal units for a program without named durations. With named durations, sampled advances scale with the largest assigned duration; pending timer deadlines and single-unit steps are still targeted.
 - `origin_spread` (default `64`): the largest magnitude of a drawn clock
   origin. Origins differ between nodes, so no two clocks share a zero.
 

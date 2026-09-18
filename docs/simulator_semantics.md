@@ -220,6 +220,40 @@ advance never grants a permission.
 
 ## Virtual Time
 
+A specification can declare [named durations](../spur/design/language.md#named-durations)
+and relationships without choosing numeric timeout values. Before any role
+initializer runs, each module-qualified timing block receives one positive
+assignment, shared by all nodes and preserved across process recovery. The
+assignment has a separate deterministic seed stream derived from the run's
+clock seed and block name. A program without timing blocks consumes no duration
+sampling draws.
+
+The sampler solves homogeneous linear requirements with exact rational
+arithmetic, samples a feasible rational witness, then clears denominators and
+adds an internal scale based on distance from strict constraint boundaries.
+The scale leaves at least 64 internal units of separation in duration space
+from each strict boundary, without changing any ratio. If this precision
+cannot fit the integer range, that witness fails as unrepresentable.
+It never rounds a witness onto a grid that invalidates
+a relationship. Equalities and strict inequalities remain exact. Contradictory
+requirements, finite projection limits, and an unrepresentable sampled witness
+are distinct run failures. The limits are 32 fields, 8192 projected inequalities,
+and 4096 bits per rational component. This solves only the parameter domain;
+protocol execution and scheduling remain concrete and incomplete exploration.
+No unmentioned safety condition is added by the sampler.
+
+Time advances prefer pending timer deadlines and include single internal-unit
+steps. Other sampled advances also track the magnitude of the assigned durations,
+so a large internal scale does not leave a clock-only wait effectively frozen.
+Plans can advance a named duration or a rational multiple of it. Fractions round
+up to a positive internal unit; no positive advance becomes a no-op.
+
+The domain relationships are scale invariant. Whole executions need not be:
+integer clock rounding, explicit numeric time arithmetic, and legacy `tt_width`
+and `origin_spread` settings use internal units. Named durations do not silently
+rescale those TrueTime assumptions. A domain accessor alone introduces no
+process checkpoint and does not observe elapsed time.
+
 The simulator keeps a hidden, nondecreasing global time `T`, counted in
 abstract ticks. A tick is not an interpreter instruction, a scheduler step,
 or a unit of host time. Protocol code cannot read `T`.

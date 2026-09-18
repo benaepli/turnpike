@@ -1,5 +1,59 @@
 # Spur Time Handling
 
+## Named duration parameters
+
+Implemented duration declarations remove numeric timeout choices from protocol
+specifications:
+
+```spur
+timing durations {
+    election;
+    heartbeat;
+    lease;
+    margin;
+    require heartbeat < election;
+    require lease == election;
+    require margin < lease;
+    require (lease - margin) * rate_max < election * rate_min;
+}
+```
+
+`durations().election` and the other record fields read one fixed per-run
+assignment, shared across nodes and preserved through recovery. They can be
+used in role initializers, synchronous helpers and async handlers, but not in
+deploy evaluation. The accessor is not a process checkpoint. Module identity
+and `pub` visibility follow ordinary record/function rules. These explicit
+requirements define the domain to explore; none is inferred as a safety rule.
+The lease panel uses them as control assumptions, not as a claim that a paper
+states those exact conditions.
+
+Requirements are homogeneous linear constraints with dimensionless integer
+coefficients and the configured rational `rate_min`/`rate_max`. Nonzero
+standalone duration constants and products of unknown durations are rejected.
+Spur solves this parameter domain with exact rational elimination, samples a
+feasible witness, and scales it into positive integer values without changing
+ratios. Strict-boundary slack determines the minimum internal precision.
+Contradictions, solver resource limits and unrepresentable sampled witnesses
+are reported distinctly as run errors.
+
+This is not symbolic execution of protocol time: clock reads, arithmetic and
+schedules remain concrete, and neither ratios nor schedules are exhaustively
+covered. Clock rounding and legacy numeric `tt_width`/`origin_spread` settings
+still use internal units. A future symbolic backend can reuse the declarations;
+a future uncertainty binding can express TrueTime width as a named duration.
+
+Plans can advance `{"duration":"durations.election","numerator":1,"denominator":2}`
+under `advance_time`, with fractions rounded up internally. Runs record their
+assignment in `runs.clock.durations`, and exact replay artifacts reinstall it
+without resampling. Replay identity covers timing requirements and validates
+the supplied assignment. Artifact format 2 also records idle scheduler attempts
+so subsequent execution step numbers remain exact.
+
+The language reference and simulator semantics are the maintained API details:
+[named durations](../../spur/design/language.md#named-durations),
+[virtual time](../simulator_semantics.md#virtual-time).
+
+
 ## Goal and scope
 
 Find time-dependent protocol bugs and underspecifications, especially lease
