@@ -31,9 +31,9 @@ against your own bias. Rules turn into arguments about thresholds instead
 of thought about mechanisms. The written reason is the guard.
 
 Never edit: `porcupine/`, `research/oracle/`, `research/corpus/`,
-`traceanalyzer/`, `bin/spur/`, `research/harness/`,
-`research/state.sqlite` (never even open it), and any `scheduler_configs/`
-outside `scheduler_configs/loop/`. Never push.
+`traceanalyzer/`, `bin/spur/`, `research/harness/` (except to add a
+treatment bit's entry to `VARIANT_BITS` in `research/harness/src/decide.ts`),
+and any `scheduler_configs/` outside `scheduler_configs/loop/`. Never push.
 
 ## Modes
 
@@ -95,8 +95,9 @@ is not on `research/lite`.
    `prompts/implementer.md`, the goal file, the hypothesis, and
    `research/STYLE.md` in full. Its deliverable is `tmp/loop/lite/<name>/`.
    Read `spur.patch` and `super.patch` yourself before grading: the diff
-   matches the hypothesis, stays in `spur/` and `scheduler_configs/loop/`,
-   leaves the `campaign` block alone, and draws the bit by run id.
+   matches the hypothesis, stays in `spur/` and `scheduler_configs/loop/`
+   apart from new `VARIANT_BITS` entries, leaves the `campaign` block
+   alone, and draws the bit by run id.
 4. **Grade** (below).
 5. **Decide** (below).
 6. **Log.** Append to `observations.md` and `decisions.jsonl`, update

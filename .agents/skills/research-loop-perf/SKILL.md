@@ -31,10 +31,10 @@ against your own bias. Rules turn into arguments about thresholds instead
 of thought about mechanisms. The written reason is the guard.
 
 Never edit: `porcupine/`, `research/oracle/`, `research/corpus/`,
-`traceanalyzer/`, `bin/spur/`, `research/harness/`, `research/lite/`
-(the search loop's own files), `research/state.sqlite` (never even open
-it), and any `scheduler_configs/` outside `scheduler_configs/loop/`.
-Never push.
+`traceanalyzer/`, `bin/spur/`, `research/harness/` (except to add a
+treatment bit's entry to `VARIANT_BITS` in `research/harness/src/decide.ts`),
+`research/lite/` (the search loop's own files), and any `scheduler_configs/`
+outside `scheduler_configs/loop/`. Never push.
 
 ## Modes
 
@@ -103,9 +103,9 @@ the branch `perf.json` names.
    `prompts/implementer.md`, the goal file, the hypothesis, and
    `research/STYLE.md` in full. Its deliverable is `tmp/loop/perf/<name>/`.
    Read `spur.patch` and `super.patch` yourself before grading: the diff
-   matches the hypothesis, stays in `spur/` and `scheduler_configs/loop/`,
-   leaves the `campaign` block alone, and where a treatment bit is declared,
-   draws it by run id.
+   matches the hypothesis, stays in `spur/` and `scheduler_configs/loop/`
+   apart from new `VARIANT_BITS` entries, leaves the `campaign` block
+   alone, and where a treatment bit is declared, draws it by run id.
 5. **Grade** (below).
 6. **Decide** (below).
 7. **Log.** Append to `observations.md` and `decisions.jsonl`, update
