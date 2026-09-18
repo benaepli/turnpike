@@ -151,7 +151,7 @@ modules.
 
 ## Project Layout
 
-- `bin/spur/` — specification files (`.spur`); `bin/spur/CRAQ.spur` is not maintained and does not compile
+- `bin/spur/` — specification files (`.spur`)
 - `bin/spur/sharded.spur` + `bin/spur/spur.json` — the multi-module example: a
   sharded store over several Raft clusters, importing `bin/spur/Raft.spur`
 - `scheduler_configs/` — explorer configuration JSONs
