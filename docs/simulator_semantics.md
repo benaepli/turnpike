@@ -240,7 +240,7 @@ There is no time-to-integer conversion. A fractional timer bound becomes
 eligible at its ceiling on the concrete clock lattice. Negative durations
 are rejected before rounding, and unrepresentable timer bounds fail.
 Typed operations remain distinct through both interpreters. This introduces
-no symbolic runtime or solver calls, and uses no refinement machinery.
+no symbolic runtime or solver calls.
 
 A specification can declare [named durations](../spur/design/language.md#named-durations)
 and relationships without choosing numeric timeout values. Before any role
