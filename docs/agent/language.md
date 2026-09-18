@@ -248,7 +248,9 @@ var ch2 = link->Handler(args2);   // guaranteed to be delivered after ch1
 
 ### Sync vs Async
 
-- **sync** (default): blocking, atomic, cannot use channel ops
+- **sync** (default): blocking, cannot use channel ops. Atomic against other
+  work on its node, but a clock read inside it is a checkpoint, so a pause can
+  hold it while other nodes and time move on
 - **async**: returns `chan<T>` immediately, caller must `<-` to get result
 - A **local** async call **runs in the caller**: the callee starts at once and
   the caller waits at the call site until the callee returns or reaches its
@@ -378,11 +380,12 @@ if (std::time::tt_before(t)) { }
 - Global time is hidden. The scheduler advances it as an action of its own,
   which runs no protocol code and fires no timer.
 
-A read or a timed registration written directly in an async body is a
-**process checkpoint**: with `faults.pause_fraction` set, the simulator may
-freeze the process there, holding the value it captured while other nodes run
-and time moves on. The same operation inside a synchronous helper is atomic
-with its caller and never pauses.
+A read or a timed registration is a **process checkpoint** wherever it is
+written: with `faults.pause_fraction` set, the simulator may freeze the
+process there, holding the value it captured while other nodes run and time
+moves on. A read inside a synchronous helper counts, and the pause parks the
+helper's caller with it. An untimed `set_timer()` is not a checkpoint,
+because it captures no reading.
 
 ## Simulator Semantics
 

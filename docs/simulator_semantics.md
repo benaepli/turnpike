@@ -326,10 +326,15 @@ when a lease expires.
 
 ## Process Checkpoints and the Placed Pause
 
-A clock read or a timed-timer registration written **directly in the body of
-an async function** is a *process checkpoint*. The same operation inside a
-synchronous helper is not: a helper runs to completion, atomic with its
-caller.
+A clock read or a timed-timer registration is a *process checkpoint*,
+wherever it is written: in an async body, inside a synchronous helper it
+calls, or inside a local async call running in its caller. An untimed
+`set_timer()` is not one, because it captures no reading.
+
+A pause inside a call freezes the calling process with it. The whole frame
+stack parks and the whole frame stack resumes, so a helper is still atomic
+against other work on its own node; what it is no longer atomic against is
+time and the other nodes, which keep moving while it is held.
 
 With no reservation a checkpoint costs nothing: the read completes and
 execution continues inside the same scheduling step. With one, the process
@@ -364,8 +369,10 @@ simulator preserves the result across the pause and lets the protocol take
 its next action; it does not revalidate on the protocol's behalf.
 
 Code between checkpoints and ordinary scheduling boundaries is
-instantaneous. This first version does not model interruption between every
-pair of statements, and a finding carries that atomicity assumption.
+instantaneous. The simulator does not model interruption between every pair
+of statements, and a finding carries that assumption: what it can hold is a
+process that read a clock and has not yet acted on the reading, at whatever
+call depth the read was written.
 
 ## Persistence
 
