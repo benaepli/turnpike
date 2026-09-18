@@ -252,14 +252,23 @@ Float, default `5.0`. Boosts the beam selection score of `Recover` events when t
 
 ### `purgatory`
 
-Configures probabilistic message delays for remote `ChannelSend` runnables. Disabled by default.
+Configures probabilistic message delays for the request half of a message: the record an async call creates and a channel send to another node. Disabled by default.
 
 ```json
-"purgatory": { "delay_probability": 0.15, "delay_duration_range": [5, 100] }
+"purgatory": {
+  "delay_probability": 0.15,
+  "delay_duration_range": [5, 100],
+  "hold_down_receivers": true,
+  "hold_local_sends": false
+}
 ```
 
-- `delay_probability` (default 0.0): probability that each remote `ChannelSend` is delayed. `0.0` disables purgatory entirely.
+- `delay_probability` (default 0.0): probability that each send is delayed. `0.0` disables purgatory entirely.
 - `delay_duration_range` (default `[5, 50]`): `[min_steps, max_steps]` for log-uniform delay sampling.
+- `hold_down_receivers` (default `true`): when false, a send selected for a hold into a node that is currently crashed is enqueued undelayed.
+- `hold_local_sends` (default `false`): when true, a send whose destination is the sending node itself, such as an async call a node makes on its own role, can be held like a network message. Off, such a send always goes straight to the node's local queue.
+
+Both toggles discard a hold after the selection roll and the duration draw, so the sends they do not name see the same random stream either way, and a replay artifact keeps one delay entry per send. The utilization statistics report the held and let-through counts under `purgatory`.
 
 See [Simulator Semantics](simulator_semantics.md#purgatory-message-delays) for details on crash and partition interactions.
 

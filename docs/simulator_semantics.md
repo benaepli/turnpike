@@ -132,12 +132,18 @@ Each simulation step proceeds in two phases:
 
 ## Purgatory (Message Delays)
 
-Purgatory is an optional mechanism that temporarily removes network messages from the scheduler's view, simulating variable message latency.
+Purgatory is an optional mechanism that temporarily removes messages from the scheduler's view, simulating variable message latency.
 
-- Only **remote `ChannelSend`** runnables can be delayed. Local sends, Records, Timers, and fault events are never delayed.
-- When a remote `ChannelSend` is created, it has a `delay_probability` chance of entering purgatory instead of the network queue.
+- A hold applies to the **request half** of a message: the `Record` an async call creates (an RPC, or a client operation's call into a node) and a `ChannelSend` to a channel owned by another node. The reply to an awaited call is written into the caller's channel directly and is never held. Timers and fault events are never held.
+- A send whose destination is the sending node itself, such as an async call a node makes on its own role, is a task on that node rather than a message on the network. It is never held unless `purgatory.hold_local_sends` is set.
+- A send selected for a hold into a node that is currently crashed is let through when `purgatory.hold_down_receivers` is false.
+- When a send is created, it has a `delay_probability` chance of entering purgatory instead of its queue. The selection roll and the duration draw happen for every send, including one the two toggles above let through, so switching a toggle changes only the sends it names and leaves every other send's draws in place. Exact replay records one delay entry per send.
 - The delay duration is sampled log-uniformly from `delay_duration_range` (measured in simulation steps). The item becomes eligible for release after `current_step + duration` steps.
-- At the start of each simulation step, eligible items are released from purgatory into the network queue. Normal crash and partition checks then apply at scheduling time.
+- At the start of each simulation step, eligible items are released from purgatory into their normal queue. Normal crash and partition checks then apply at scheduling time.
+
+### Crash Interaction
+
+A crash drops the held tasks the crashed node spawned on itself, with the rest of its volatile state. A held message from another node stays held: it is on the network, and meets the crash when it is scheduled, where it is buffered for redelivery on recovery like any other message to a crashed node.
 
 ### Partition Interaction
 
