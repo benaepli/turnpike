@@ -233,7 +233,7 @@ role Node(cluster: Cluster) {
 
         // Resolve pending client request if this command originated here
         if cmd.client_node == me and exists(pending_requests, cmd.req_id) {
-            spawn resolve(pending_requests[cmd.req_id], ClientResponse{
+            resolve(pending_requests[cmd.req_id], ClientResponse{
                 success: true, key: cmd.key, value: result, leader: replicas[me]
             });
             pending_requests = erase(pending_requests, cmd.req_id);

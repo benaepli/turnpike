@@ -123,8 +123,10 @@ When a new runnable is created, it is routed to its queue based on type:
 | `Record` (local: origin == node)   | Local queue of the node        |
 | `Record` (remote: origin != node)  | Network queue                  |
 
-A local `Record` is what `spawn f()` creates. A remote one is what an RPC
-creates.
+A local `Record` is what `spawn f()` creates at once, and what a plain local
+async call creates when its callee reaches its first yield point. A remote one
+is what an RPC creates. A callee that returns before any yield point creates
+none at all.
 
 ### Scheduling
 

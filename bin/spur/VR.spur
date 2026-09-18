@@ -171,7 +171,7 @@ role Node(cluster: Cluster) {
                     value: result,
                     primary: replicas[me]
                 };
-                spawn send_async(pending_requests[op_n], resp);
+                send_async(pending_requests[op_n], resp);
                 pending_requests = erase(pending_requests, op_n);
             }
 
@@ -254,7 +254,7 @@ role Node(cluster: Cluster) {
         };
 
         for (op_n, ch) in pending_requests {
-            spawn send_async(ch, resp);
+            send_async(ch, resp);
         }
         pending_requests = {};
         
@@ -292,7 +292,7 @@ role Node(cluster: Cluster) {
             primary: new_primary 
         };
         for (op_n, ch) in pending_requests {
-            spawn send_async(ch, resp);
+            send_async(ch, resp);
         }
         pending_requests = {}; 
         
@@ -543,7 +543,7 @@ role Node(cluster: Cluster) {
                 value: [],
                 primary: current_primary 
             };
-            spawn send_async(p_err, resp);
+            send_async(p_err, resp);
             return p_err;
         }
         if (status != 0) {
@@ -554,7 +554,7 @@ role Node(cluster: Cluster) {
                 value: [],
                 primary: current_primary 
             };
-            spawn send_async(p_err, resp);
+            send_async(p_err, resp);
             return p_err;
         }
 

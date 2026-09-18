@@ -256,7 +256,7 @@ role Node(cluster: Cluster) {
                 matches = pending_writes[req_id] == cmd.uid!;
             }
             if matches {
-                spawn resolve(ch, ClientResponse{
+                resolve(ch, ClientResponse{
                     success: true, key: cmd.key, value: result, leader: replicas[me]
                 });
                 pending_requests = erase(pending_requests, req_id);

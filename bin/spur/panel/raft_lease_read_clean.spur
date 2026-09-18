@@ -212,7 +212,7 @@ role Node(cluster: Cluster) {
                     value: result,
                     leader: replicas[me]
                 };
-                spawn send_async(pending_requests[last_applied], resp);
+                send_async(pending_requests[last_applied], resp);
                 pending_requests = erase(pending_requests, last_applied);
             }
         }
@@ -259,7 +259,7 @@ role Node(cluster: Cluster) {
                 value: [],
                 leader: replicas[me]
             };
-            spawn send_async(ch, resp);
+            send_async(ch, resp);
         }
         pending_requests = {};
     }
@@ -627,7 +627,7 @@ role Node(cluster: Cluster) {
                 value: [],
                 leader: redirect_to
             };
-            spawn send_async(ch, resp);
+            send_async(ch, resp);
             return ch;
         }
 

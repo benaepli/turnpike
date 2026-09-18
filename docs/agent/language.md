@@ -250,15 +250,22 @@ var ch2 = link->Handler(args2);   // guaranteed to be delivered after ch1
 
 - **sync** (default): blocking, atomic, cannot use channel ops
 - **async**: returns `chan<T>` immediately, caller must `<-` to get result
-- Calling an async function **spawns a new background task** (record). The task runs concurrently in the background while the caller continues, unless the caller awaits its channel. This is how you spawn background work like timeout monitors or replication handlers.
-- A local async call must say which of those it means. `spawn f(args)` starts
-  the task and does not wait for it; `<- f(args)` waits for it. Discarding a
-  local async call's channel is a compile-time error. A sync function may write
-  `spawn f()`; it still cannot `<-`.
+- A **local** async call **runs in the caller**: the callee starts at once and
+  the caller waits at the call site until the callee returns or reaches its
+  first yield point (a receive with nothing buffered, a timer, a yield). Only
+  then does the callee become a background task and the caller carry on.
+- `spawn f(args)` starts the task without running any of it, so the caller does
+  not wait even for the first yield point. Use it for work that must not run
+  before the caller finishes -- a timeout monitor armed in `Init`, say.
+- `<- f(args)` runs the callee in the caller and waits for its value.
+- A sync function may call an async one: the callee spills into a task at its
+  first yield point, so the synchronous caller never suspends. It still cannot
+  `<-`.
 - `spawn` applies only to a local async call. `spawn peer->H()` is an error
   because an RPC already starts a task, and `spawn sync_helper()` is an error
   because a synchronous call has no task. The deploy-only allocation
   `spawn<R>(k)` is a separate form.
+- A **remote** call (`peer->H()`) always starts a task; it is a message.
 
 ### Immutable Updates (`:=`)
 

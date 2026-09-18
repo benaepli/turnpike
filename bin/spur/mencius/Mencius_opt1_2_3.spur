@@ -394,7 +394,7 @@ role Node(cluster: Cluster) {
         if cmd.client_node == me and exists(pending_requests, cmd.req_id) {
             var ch = pending_requests[cmd.req_id];
             pending_requests = erase(pending_requests, cmd.req_id);
-            spawn resolve_ch(ch, ClientResponse{
+            resolve_ch(ch, ClientResponse{
                 success: true,
                 key: cmd.key,
                 value: result,

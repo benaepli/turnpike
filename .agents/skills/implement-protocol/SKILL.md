@@ -126,7 +126,7 @@ fn Main(p: ClusterParams): Cluster? {
 - Use `persist_data()` before yield points if crash recovery is in scope
 - Collections are immutable — use `:=` for updates
 - Sync functions are atomic and cannot use channel ops
-- Calling an async function spawns a background task. Write `spawn f(args)` for one you do not wait for and `<- f(args)` for one you do; discarding a local async call's channel is a compile-time error. `spawn` applies to a local async call only, never to an RPC or a sync call.
+- A local async call runs in the caller and becomes a background task only when it reaches its first yield point. Write `spawn f(args)` when the caller must not wait even for that -- a timeout monitor, say -- and `<- f(args)` when it wants the value. `spawn` applies to a local async call only, never to an RPC or a sync call.
 
 ## Phase 4: Review
 
