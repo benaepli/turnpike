@@ -33,7 +33,10 @@ is evidence in its own right: it names the program it was taken from, the
 semantics version it was taken under, and the clock assumptions and workload
 the run ran with, so a finding can say what it depended on. Artifact format 2
 records idle scheduler attempts along with dispatches and time advances,
-preserving subsequent step numbers.
+preserving subsequent step numbers. It also records the run's request-holding
+and fault-selection settings, the actual node each crash targets, and the step
+and pending operations of each early plan-dependency settlement. Replay uses
+these recorded decisions without consulting live learned termination limits.
 
 Named duration assignments are recorded in the `clock` JSON column of `runs`,
 under `durations`: for example `{"durations":{"durations":{"election":8192,"heartbeat":2048}}}`.
