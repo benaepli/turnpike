@@ -108,7 +108,7 @@ role Node(cluster: Cluster) {
 
     fn Init() {
         println("Node {me} initialized");
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     @trace
@@ -136,7 +136,7 @@ role Node(cluster: Cluster) {
         println("Node {me} recovered. term={current_term} log_len={len(log)}");
 
         // First yield point — after this, messages start being delivered
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     // Helper to send on a channel from a sync context
@@ -212,7 +212,7 @@ role Node(cluster: Cluster) {
                     value: result,
                     leader: replicas[me]
                 };
-                send_async(pending_requests[last_applied], resp);
+                spawn send_async(pending_requests[last_applied], resp);
                 pending_requests = erase(pending_requests, last_applied);
             }
         }
@@ -259,7 +259,7 @@ role Node(cluster: Cluster) {
                 value: [],
                 leader: replicas[me]
             };
-            send_async(ch, resp);
+            spawn send_async(ch, resp);
         }
         pending_requests = {};
     }
@@ -627,7 +627,7 @@ role Node(cluster: Cluster) {
                 value: [],
                 leader: redirect_to
             };
-            send_async(ch, resp);
+            spawn send_async(ch, resp);
             return ch;
         }
 

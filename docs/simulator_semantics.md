@@ -123,6 +123,9 @@ When a new runnable is created, it is routed to its queue based on type:
 | `Record` (local: origin == node)   | Local queue of the node        |
 | `Record` (remote: origin != node)  | Network queue                  |
 
+A local `Record` is what `spawn f()` creates. A remote one is what an RPC
+creates.
+
 ### Scheduling
 
 Each simulation step proceeds in two phases:

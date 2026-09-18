@@ -85,7 +85,7 @@ role Node(cluster: Cluster) {
         leader_ballot = Ballot{ round: 0, leader: me };
         println("Node {me} initialized");
         run_scout(leader_ballot);
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     @trace
@@ -131,7 +131,7 @@ role Node(cluster: Cluster) {
         leader_ballot = Ballot{ round: acceptor_ballot.round + 1, leader: me };
         println("Node {me} recovered");
         run_scout(leader_ballot);
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     // ─────────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ role Node(cluster: Cluster) {
 
         // Resolve pending client request if this command originated here
         if cmd.client_node == me and exists(pending_requests, cmd.req_id) {
-            resolve(pending_requests[cmd.req_id], ClientResponse{
+            spawn resolve(pending_requests[cmd.req_id], ClientResponse{
                 success: true, key: cmd.key, value: result, leader: replicas[me]
             });
             pending_requests = erase(pending_requests, cmd.req_id);

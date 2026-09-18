@@ -127,7 +127,7 @@ role Node(cluster: Cluster) {
         next_req_id = me;       // unique across nodes via stride n
         persist();
         println("Node {me} initialized. n={n}");
-        monitor_suspicions();
+        spawn monitor_suspicions();
     }
 
     @trace
@@ -173,7 +173,7 @@ role Node(cluster: Cluster) {
 
         println("Node {me} recovered. expected={expected} my_index={my_index}");
         // First yield point — messages start flowing after this.
-        monitor_suspicions();
+        spawn monitor_suspicions();
     }
 
     // ─────────────────────────────────────────────────────────
@@ -354,7 +354,7 @@ role Node(cluster: Cluster) {
         if cmd.client_node == me and exists(pending_requests, cmd.req_id) {
             var ch = pending_requests[cmd.req_id];
             pending_requests = erase(pending_requests, cmd.req_id);
-            resolve_ch(ch, ClientResponse{
+            spawn resolve_ch(ch, ClientResponse{
                 success: true,
                 key: cmd.key,
                 value: result,

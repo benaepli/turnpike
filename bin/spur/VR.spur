@@ -83,7 +83,7 @@ role Node(cluster: Cluster) {
     @trace
     async fn Init() {
         println("Node {me} initialized. Peer count: {len(replicas)}");
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     @trace
@@ -108,7 +108,7 @@ role Node(cluster: Cluster) {
                 replicas[i]->Recovery(replicas[me], recovery_nonce, checkpoint_op);
             }
         }
-        monitor_timeouts();
+        spawn monitor_timeouts();
     }
 
     // Async helper to resolve channels from functions
@@ -171,7 +171,7 @@ role Node(cluster: Cluster) {
                     value: result,
                     primary: replicas[me]
                 };
-                send_async(pending_requests[op_n], resp);
+                spawn send_async(pending_requests[op_n], resp);
                 pending_requests = erase(pending_requests, op_n);
             }
 
@@ -254,7 +254,7 @@ role Node(cluster: Cluster) {
         };
 
         for (op_n, ch) in pending_requests {
-            send_async(ch, resp);
+            spawn send_async(ch, resp);
         }
         pending_requests = {};
         
@@ -292,7 +292,7 @@ role Node(cluster: Cluster) {
             primary: new_primary 
         };
         for (op_n, ch) in pending_requests {
-            send_async(ch, resp);
+            spawn send_async(ch, resp);
         }
         pending_requests = {}; 
         
@@ -543,7 +543,7 @@ role Node(cluster: Cluster) {
                 value: [],
                 primary: current_primary 
             };
-            send_async(p_err, resp);
+            spawn send_async(p_err, resp);
             return p_err;
         }
         if (status != 0) {
@@ -554,7 +554,7 @@ role Node(cluster: Cluster) {
                 value: [],
                 primary: current_primary 
             };
-            send_async(p_err, resp);
+            spawn send_async(p_err, resp);
             return p_err;
         }
 

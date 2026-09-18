@@ -260,7 +260,7 @@ role Node(cluster: Cluster) {
         };
         commands = commands[request.id] := cmd;
 
-        startRecoveryTimer(request.id);
+        spawn startRecoveryTimer(request.id);
 
         request.sender->PreAcceptOK(
             PreAcceptOKRequest{
@@ -301,9 +301,9 @@ role Node(cluster: Cluster) {
         }
 
         if (isFastPath) {
-            BroadcastCommit(0, id, command.payload, allDependencies);
+            spawn BroadcastCommit(0, id, command.payload, allDependencies);
         } else {
-            BroadcastAccept(0, id, command.payload, allDependencies);
+            spawn BroadcastAccept(0, id, command.payload, allDependencies);
         }
     }
 
@@ -333,7 +333,7 @@ role Node(cluster: Cluster) {
             println("PreAcceptOK: ID {request.id} reached Slow Quorum. Starting optimistic wait.");
             cmd = cmd.optimisticWaitTriggered := true;
             commands = commands[request.id] := cmd;
-            startOptimisticWaitTimer(request.id); 
+            spawn startOptimisticWaitTimer(request.id); 
         }
     }
 
@@ -410,7 +410,7 @@ role Node(cluster: Cluster) {
 
         if (len(command.acceptResponses) >= slowQuorum()) {
             println("AcceptOK: ID {request.id} slow quorum met. Committing.");
-            BroadcastCommit(request.ballot, request.id, command.payload, command.dependencies);
+            spawn BroadcastCommit(request.ballot, request.id, command.payload, command.dependencies);
         }
     }
 
@@ -455,10 +455,10 @@ role Node(cluster: Cluster) {
                 }
 
                 if (is_invalidator) {
-                    BroadcastAccept(waiting_cmd.ballot, waiting_id, Payload{kind: 2, key: "", uid: nil}, {});
+                    spawn BroadcastAccept(waiting_cmd.ballot, waiting_id, Payload{kind: 2, key: "", uid: nil}, {});
                 } else {
                     println("Commit: resuming {waiting_id} after harmless commit of {request.id}");
-                    BroadcastAccept(waiting_cmd.ballot, waiting_id, waiting_cmd.payload, waiting_cmd.dependencies);
+                    spawn BroadcastAccept(waiting_cmd.ballot, waiting_id, waiting_cmd.payload, waiting_cmd.dependencies);
                 }
                 waiting_cmd = waiting_cmd with { isWaiting: false, waitingOn: {} };
                 commands = commands[waiting_id] := waiting_cmd;
@@ -634,7 +634,7 @@ role Node(cluster: Cluster) {
              }
         }
 
-        notify(id, result);
+        spawn notify(id, result);
     }
 
     async fn notify(id: int, result: list<int>) {
@@ -669,7 +669,7 @@ role Node(cluster: Cluster) {
     async fn startRecoveryTimer(id: int) {
         var timeout_ch: chan<()> = set_timer();
         <- timeout_ch;
-        CheckAndTriggerRecovery(id);
+        spawn CheckAndTriggerRecovery(id);
     }
 
     fn leader_detector(id: int): Node {
@@ -690,7 +690,7 @@ role Node(cluster: Cluster) {
 
     async fn TryRecover(id: int) {
         if (replicas[me] == leader_detector(id)) {
-            recover(id);
+            spawn recover(id);
         }
     }
 
@@ -834,19 +834,19 @@ role Node(cluster: Cluster) {
              
              if (request.phase == 3) {
                  println("RecoverOK: Late COMMITTED received for ID {request.id}. Finishing recovery.");
-                 BroadcastCommit(cmd.ballot, request.id, request.payload, request.dependencies);
+                 spawn BroadcastCommit(cmd.ballot, request.id, request.payload, request.dependencies);
                  return ();
              }
              
              else if (request.phase == 2) {
                  println("RecoverOK: Late ACCEPTED received for ID {request.id}. Finishing recovery.");
-                 BroadcastAccept(cmd.ballot, request.id, request.payload, request.dependencies);
+                 spawn BroadcastAccept(cmd.ballot, request.id, request.payload, request.dependencies);
                  return ();
              }
              
              else if (request.sender == initCoord) {
                  println("RecoverOK: Late message from InitCoord for ID {request.id}. Aborting to Nop.");
-                 BroadcastAccept(cmd.ballot, request.id, Payload{kind: 2, key: "", uid: nil}, {});
+                 spawn BroadcastAccept(cmd.ballot, request.id, Payload{kind: 2, key: "", uid: nil}, {});
                  return ();
              }
             return ();
@@ -876,10 +876,10 @@ role Node(cluster: Cluster) {
 
             if (anyInU(U, 3)) { 
                 var res: RecoverResponse = getOneInU(U, 3);
-                BroadcastCommit(b, id, res.payload, res.dependencies);
+                spawn BroadcastCommit(b, id, res.payload, res.dependencies);
             } else if (anyInU(U, 2)) {
                 var res: RecoverResponse = getOneInU(U, 2);
-                BroadcastAccept(b, id, res.payload, res.dependencies);
+                spawn BroadcastAccept(b, id, res.payload, res.dependencies);
             } else {
                 // Initial coordinator safety check (Figure 5, Line 58)
                 var initCoordInQuorum: bool = false;
@@ -894,7 +894,7 @@ role Node(cluster: Cluster) {
                 }
 
                 if (initCoordInQuorum) {
-                    BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
+                    spawn BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
                 } else {
                     // Check for potential Fast Path recovery
                     var R: list<RecoverResponse> = [];
@@ -906,9 +906,9 @@ role Node(cluster: Cluster) {
 
                     var currentRecoveryQuorumSize: int = len(cmd.recoverResponses);
                     if (len(R) >= (currentRecoveryQuorumSize - e)) { 
-                        StartValidation(b, id, R[0].payload, R[0].dependencies);
+                        spawn StartValidation(b, id, R[0].payload, R[0].dependencies);
                     } else {
-                        BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
+                        spawn BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
                     }
                 }
             }
@@ -1007,10 +1007,10 @@ role Node(cluster: Cluster) {
 
             if (has_strict_invalidator) {
                 // Case: Strict invalidator found -> Abort Recovery (Nop)
-                BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
+                spawn BroadcastAccept(b, id, Payload{kind: 2, key: "", uid: nil}, {});
             } else if (len(I_total) == 0) {
                 // Case: No invalidators -> Proceed with Recovery
-                BroadcastAccept(b, id, cmd.payload, cmd.dependencies);
+                spawn BroadcastAccept(b, id, cmd.payload, cmd.dependencies);
             } else {
                 // Case: Potential Invalidators -> Enter Waiting State
                 // We store the specific IDs we are waiting on to check later.
@@ -1050,7 +1050,7 @@ role Node(cluster: Cluster) {
                         println("HandleWaiting: Aborting {my_id} to break deadlock with {req.id}");
                         
                         // Abort our recovery (Propose Nop)
-                        BroadcastAccept(my_cmd.ballot, my_id, Payload{kind: 2, key: "", uid: nil}, {});
+                        spawn BroadcastAccept(my_cmd.ballot, my_id, Payload{kind: 2, key: "", uid: nil}, {});
                         
                         // Clear wait state
                         my_cmd = my_cmd with { isWaiting: false, waitingOn: {} };
@@ -1068,7 +1068,7 @@ role Node(cluster: Cluster) {
         pending = pending[id] := p;
 
         var payload: Payload = Payload{kind: 1, key: key, uid: uid};
-        Submit(payload, id);
+        spawn Submit(payload, id);
 
         return <-p;
     }
@@ -1079,7 +1079,7 @@ role Node(cluster: Cluster) {
         pending = pending[id] := p;
 
         var payload: Payload = Payload{kind: 0, key: key, uid: nil};
-        Submit(payload, id);
+        spawn Submit(payload, id);
 
         return <-p;
     }

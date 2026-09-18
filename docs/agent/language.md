@@ -250,7 +250,15 @@ var ch2 = link->Handler(args2);   // guaranteed to be delivered after ch1
 
 - **sync** (default): blocking, atomic, cannot use channel ops
 - **async**: returns `chan<T>` immediately, caller must `<-` to get result
-- Calling an async function **spawns a new background task** (record). If you don't await the returned channel, the task runs concurrently in the background while the caller continues. This is how you spawn background work like timeout monitors or replication handlers.
+- Calling an async function **spawns a new background task** (record). The task runs concurrently in the background while the caller continues, unless the caller awaits its channel. This is how you spawn background work like timeout monitors or replication handlers.
+- A local async call must say which of those it means. `spawn f(args)` starts
+  the task and does not wait for it; `<- f(args)` waits for it. Discarding a
+  local async call's channel is a compile-time error. A sync function may write
+  `spawn f()`; it still cannot `<-`.
+- `spawn` applies only to a local async call. `spawn peer->H()` is an error
+  because an RPC already starts a task, and `spawn sync_helper()` is an error
+  because a synchronous call has no task. The deploy-only allocation
+  `spawn<R>(k)` is a separate form.
 
 ### Immutable Updates (`:=`)
 
