@@ -462,10 +462,10 @@
       "expectedRate": 1e-05,
       "calibration": {
         "atIso": "2026-09-17T00:00:00Z",
-        "rateRuns": 115200,
+        "rateRuns": 240000,
         "rateViolations": 0,
         "dispersion": 1,
-        "cleanRuns": 43200,
+        "cleanRuns": 240000,
         "cleanViolations": 0,
         "hostCeiling": 0.0,
         "budgetRatio": 1,
@@ -473,7 +473,7 @@
         "eventsPerSec": 0,
         "tauBestSec": 0
       },
-      "notes": "not observed in 115,200 runs across the overlays tried, and the control is clean over 43,200. The mechanisms all fire - lease reads are served in 53% of runs, and 19% of lease grants carry more than 100 ticks of excess over the send anchor - but a violation needs those to coincide with a second leader committing a write the stale leader has not seen, and the search has not put the two together. Uncalibrated: expectedRate is the panel's floor, not a measurement.",
+      "notes": "not observed in 240,000 runs at this overlay, nor in 115,200 more across the others tried; the control is clean over the same 240,000. The mechanisms all fire - lease reads are served in 53% of runs, and 19% of lease grants carry more than 100 ticks of excess over the send anchor - but a violation needs those to coincide with a second leader committing a write the stale leader has not seen, and the search has not put the two together. Uncalibrated: expectedRate is the panel's floor, not a measurement.",
       "wallSec": 15,
       "replicates": 3
     },
@@ -543,10 +543,10 @@
       "expectedRate": 1e-05,
       "calibration": {
         "atIso": "2026-09-17T00:00:00Z",
-        "rateRuns": 115200,
+        "rateRuns": 19200,
         "rateViolations": 0,
         "dispersion": 1,
-        "cleanRuns": 43200,
+        "cleanRuns": 19200,
         "cleanViolations": 0,
         "hostCeiling": 0.0,
         "budgetRatio": 1,
