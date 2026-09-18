@@ -220,6 +220,17 @@ advance never grants a permission.
 
 ## Virtual Time
 
+The public API uses `Duration`, `MonoInstant`, and `Timestamp`, with
+[typed time algebra](../spur/design/language.md#time-values). Arithmetic is
+exact rational arithmetic. Monotonic instants retain their clock owner and
+epoch through messages and persistence; direct cross-clock comparisons and
+foreign timer deadlines are runtime errors. The epoch survives process recovery.
+There is no time-to-integer conversion. A fractional timer bound becomes
+eligible at its ceiling on the concrete clock lattice. Negative durations
+are rejected before rounding, and unrepresentable timer bounds fail.
+Typed operations remain distinct through both interpreters. This introduces
+no symbolic runtime or solver calls, and uses no refinement machinery.
+
 A specification can declare [named durations](../spur/design/language.md#named-durations)
 and relationships without choosing numeric timeout values. Before any role
 initializer runs, each module-qualified timing block receives one positive
@@ -249,7 +260,7 @@ Plans can advance a named duration or a rational multiple of it. Fractions round
 up to a positive internal unit; no positive advance becomes a no-op.
 
 The domain relationships are scale invariant. Whole executions need not be:
-integer clock rounding, explicit numeric time arithmetic, and legacy `tt_width`
+integer clock rounding and legacy `tt_width`
 and `origin_spread` settings use internal units. Named durations do not silently
 rescale those TrueTime assumptions. A domain accessor alone introduces no
 process checkpoint and does not observe elapsed time.

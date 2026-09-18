@@ -100,10 +100,10 @@ role Node(cluster: Cluster) {
     // so an acknowledgment is counted against the round it answers;
     // `lease_round_at` is the leader's reading when that round was SENT.
     var lease_round: int = 0;
-    var lease_round_at: int = 0;
+    var lease_round_at: MonoInstant? = nil;
     var lease_round_acks: int = 0;
     var has_lease: bool = false;
-    var lease_expiry: int = 0;
+    var lease_expiry: MonoInstant? = nil;
     // The cached verdict, refreshed once per heartbeat.
     var lease_ok: bool = false;
 
@@ -521,8 +521,8 @@ role Node(cluster: Cluster) {
             if (lease_round_acks == quorum) {
                 has_lease = true;
                 lease_ok = true;
-                lease_expiry = lease_round_at + durations().lease - durations().margin;
-                println("Node {me} lease to {lease_expiry} from round {round}");
+                lease_expiry = lease_round_at! + durations().lease - durations().margin;
+                println("Node {me} lease to {lease_expiry!} from round {round}");
             }
         }
 
@@ -690,7 +690,7 @@ role Node(cluster: Cluster) {
                     // The checkpoint: the reading is taken here and stored
                     // in node state, where every read until the next
                     // heartbeat will find it.
-                    lease_ok = mono_now() < lease_expiry;
+                    lease_ok = lease_expiry != nil and mono_now() < lease_expiry!;
                     broadcast_heartbeat();
                 }
                 continue;

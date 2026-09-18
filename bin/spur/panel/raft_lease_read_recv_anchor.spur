@@ -92,10 +92,10 @@ role Node(cluster: Cluster) {
     // so an acknowledgment is counted against the round it answers;
     // `lease_round_at` is the leader's reading when that round was SENT.
     var lease_round: int = 0;
-    var lease_round_at: int = 0;
+    var lease_round_at: MonoInstant? = nil;
     var lease_round_acks: int = 0;
     var has_lease: bool = false;
-    var lease_expiry: int = 0;
+    var lease_expiry: MonoInstant? = nil;
 
     // Timeout tracking
     var received_leader_message: bool = false;
@@ -314,7 +314,7 @@ role Node(cluster: Cluster) {
         if (state != 2 or !has_lease or commit_index < noop_index) {
             return nil;
         }
-        if (mono_now() >= lease_expiry) {
+        if (mono_now() >= lease_expiry!) {
             return nil;
         }
         var value: list<int> = [];
@@ -509,7 +509,7 @@ role Node(cluster: Cluster) {
             if (lease_round_acks == quorum) {
                 has_lease = true;
                 lease_expiry = mono_now() + durations().lease;
-                println("Node {me} lease to {lease_expiry} from round {round}");
+                println("Node {me} lease to {lease_expiry!} from round {round}");
             }
         }
 

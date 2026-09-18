@@ -67,3 +67,13 @@ Trace events capture rich contextual metadata beyond just function names:
 - **Trace IDs**: Every invocation of a traced function receives a unique identifier.
 - **Causal Operation IDs**: Traces are causally linked back to the original client invocation that triggered them, creating traceable request paths across the system.
 - **Schedulable Counts**: Traces capture the exact `schedulable_count` of the simulator's runnable queue at the time of the event. This metric is incredibly useful for quantifying the "greediness" of the scheduler and identifying bottlenecks.
+
+### Typed time payloads
+
+Time values in payload JSON use `{"type":"VTime","value":...}`. The value
+contains `kind` (`Duration`, `MonoInstant`, or `Timestamp`), exact decimal
+strings `numerator` and `denominator`, and `clock`. `clock` is null except for
+monotonic instants, where it holds the owner and epoch. Diagnostic text also
+identifies the kind. These magnitudes are concrete witnesses in internal units.
+Clock semantics version 2 identifies typed values and exact rational arithmetic;
+artifacts recorded with another clock semantics version are rejected.

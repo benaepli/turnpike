@@ -108,7 +108,7 @@ Labels remain optional string literals, as with `set_timer`.
 
 | Operation | Result | Meaning |
 | --- | --- | --- |
-| `mono_now()` | `int` | Sample this node's monotonic clock |
+| `mono_now()` | `MonoInstant` | Sample this node's monotonic clock |
 | `tt_now()` | `std::time::Interval` | Sample bounds on absolute time |
 | `set_timer_after(duration [, label])` | `chan<()>` | Register a timer for a local duration |
 | `set_timer_at(deadline [, label])` | `chan<()>` | Register a timer for a local monotonic deadline |
@@ -118,25 +118,25 @@ Labels remain optional string literals, as with `set_timer`.
 
 ```spur
 pub type Interval {
-    earliest: int;
-    latest: int;
+    earliest: Timestamp;
+    latest: Timestamp;
 };
 ```
 
-All numeric time values use abstract ticks. A tick is not an interpreter
-instruction, scheduler step, or unit of host execution time. Duration,
-monotonic deadline, and absolute timestamp values are ordinary `int`
-values. The initial type system does not distinguish their clock domains.
-There is no automatic conversion between domains or nodes.
+`Duration`, `MonoInstant`, and `Timestamp` are distinct nominal built-in types.
+The complete [time algebra](../../spur/design/language.md#time-values) defines
+allowed operations, contextual zero, exact rational division, and collection
+semantics. `set_timer_after` takes `Duration`; `set_timer_at` takes
+`MonoInstant`; TrueTime predicates take `Timestamp`. There are no integer
+conversions or cross-domain conversions. Use optional instants for unset state.
 
-Clock origins, returned readings, interval endpoints, and timer deadlines
-use signed 64-bit integers, like Spur's `int`. Negative clock values and
-deadlines are valid; only a negative duration is rejected. Global time is
-an integer in `[0, i64::MAX]`. Clock calculations use wider checked
-intermediates and checked conversions to `int`. An unrepresentable clock
-result, deadline sum, or time advance is a runtime error. This requirement
-applies to the clock service and timer constructors; ordinary arithmetic
-written in a spec retains the language's integer semantics.
+Arithmetic and stored values retain exact rational magnitudes. Monotonic
+instants also retain the owner and clock epoch; direct cross-clock comparisons,
+subtraction, and timer registration fail at runtime. Clock readings, sampled
+TrueTime endpoints, global time, and scheduler deadlines still use an integral
+signed 64-bit lattice internally. Fractional deadlines become eligible at their
+ceiling. A negative duration is rejected before rounding; unrepresentable
+timer bounds, clock results, and advances are errors.
 
 Clock reads and timed-timer constructors require an executing node or
 client. They are allowed in handlers, clients, `Init`, `RecoverInit`, and
@@ -205,8 +205,8 @@ Within one clock epoch:
 - Readings never decrease, but consecutive readings may be equal.
 - The clock advances during process pauses and process failures.
 - Different nodes need not share an origin.
-- A sent or persisted reading remains the same integer. It does not become
-  a timestamp in another node's clock domain.
+- A sent or persisted reading retains its value and clock identity. It does
+  not become a timestamp in another node's clock domain.
 
 Fixed offsets alone are insufficient for duration-based lease testing:
 they cancel when subtracting two readings from the same clock. Bounded
@@ -354,12 +354,12 @@ its timers as specified below.
 `set_timer_at` preserves a previously computed deadline:
 
 ```spur
-var deadline = mono_now() + 100;
+var deadline = mono_now() + durations().lease;
 var timer = set_timer_at(deadline);
 ```
 
 A pause after the read consumes some of the interval before registration.
-In contrast, `set_timer_after(100)` starts its duration at registration.
+In contrast, `set_timer_after(durations().lease)` starts its duration at registration.
 Computing a remaining duration from an earlier clock read must not receive
 an implicit correction for time spent paused before registration.
 
@@ -397,7 +397,7 @@ A wait is ordinary async code in the spec. The standard library cannot
 hold it, because a free function cannot be async:
 
 ```spur
-async fn wait_after(timestamp: int) {
+async fn wait_after(timestamp: Timestamp) {
     for ;; {
         var interval = tt_now();
         if (interval.earliest > timestamp) {
@@ -434,8 +434,9 @@ failure and restart, not machine reboot.
   origin unchanged.
 - TrueTime observations continue to refer to the same absolute timeline
   and must satisfy the configured interval contract.
-- Persisted time values remain unchanged integers. No recovery wait,
-  deadline conversion, or lease grace period is inserted automatically.
+- Persisted time values retain their exact magnitudes, types, and clock
+  identities. No recovery wait, deadline conversion, or lease grace period is
+  inserted automatically.
 
 This is sufficient to test a grantor that forgets an outstanding lease and
 grants a conflicting one after process recovery.
@@ -611,9 +612,16 @@ Clock state, timers, checkpoints, and exploration touch
   observations that falsely claim to bound actual time.
 - **Other absolute-clock contracts.** Fixed offsets, changing bounded
   error, and wall-clock jumps require explicit assumptions.
-- **Symbolic time.** Solve constraints across observations and branches
-  rather than selecting concrete values immediately. This is an
-  alternative exploration strategy, not a prerequisite for the API.
+- **Symbolic time.** Use the typed operations as the backend boundary. Keep
+  constraints linear. Collection keys require semantic equality and alias
+  handling, never hashes of symbolic expression syntax or silent concretization.
+  Stored booleans must retain the predicates over their original observations.
+  First pilot symbolic TrueTime endpoints against a concrete
+  selected timeline, then measure symbolic event times and bounded variable
+  drift. This is independent of the refinement checker. Solve constraints
+  across observations and branches rather than selecting concrete values
+  immediately. This is an alternative exploration strategy, not a prerequisite
+  for the API.
 - **Finer process interruption.** Add checkpoint locations only with a
   stated atomicity model and measured search and execution cost. This
   includes checkpoints inside synchronous helpers, which need both

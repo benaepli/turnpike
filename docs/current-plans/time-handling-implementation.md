@@ -56,8 +56,9 @@ test, `visualization/cfg.rs`, and `spur-liquid/src/lower.rs`, which marks
 both expressions disallowed the way it marks `set_timer`. The editor
 grammar `editors/code/syntaxes/spur.tmLanguage.json` gains the new names.
 
-Types: the monotonic read is `int`; the truetime read is
-`std::time::Interval`; a bound operand is `int`; the timer result stays
+Types: the monotonic read is `MonoInstant`; the truetime read is
+`std::time::Interval` with `Timestamp` endpoints. After bounds are `Duration`;
+at bounds are `MonoInstant`. The timer result stays
 `chan<()>`.
 
 ### Context checks
@@ -83,7 +84,7 @@ The loader (`spur-core/src/loader.rs`, `mentions_std`) loads the library
 only when a module writes `std::` in a path position. A program that calls
 the truetime read without naming the library still needs the record type,
 so the token check also counts the truetime read token as a mention. If
-that proves awkward the fallback is to type the read as `(int, int)` and
+that proves awkward the fallback is to type the read as `(Timestamp, Timestamp)` and
 drop the record; the contract would then change, so decide this first.
 
 The runtime builds the record with `Value::struct_of` in
@@ -142,7 +143,8 @@ Compare it with the current `T` before proposing a positive advance. The
 subtraction, product, ceiling division, and conversion are checked. A
 clock result or timer-constructor sum outside its domain is a runtime
 error. Ordinary Spur arithmetic remains unchanged, so a spec computing
-its own deadline must respect the language's integer limits.
+its own deadline uses exact rational time arithmetic. Registration checks the
+ceiling against the concrete clock range.
 
 Assign clocks before `Init`, `RecoverInit`, or any client code can read
 them. Include client nodes in the clock table, assigning an entry on
