@@ -1,0 +1,54 @@
+# The recorder with step markers and release signals (spur feature time-constraints).
+# Datasets re-recorded at session seed 1000 under research/symtime/configs.
+
+## Replay artifacts, session seed 1000, 160 runs each: parent build, feature off, feature on
+clean, cached flag, idioms, crossclock: byte-identical in all three
+
+## check and liveness, durations open
+== clean
+runs 2000 values rebuilt 741474, comparisons 3779, deadlines 90253 mismatches 0 operands of unknown origin 0 exit 0 
+runs 2000: time events 221904 in 183902 step unknowns (1.21 a step)
+time unknowns released 174979; outlived their last mention by 3.87 script steps on average; released before a later mention 0
+peak live time unknowns: by release median 6 p99 9 max 10; by last mention median 5 p99 6 max 6
+== recv_anchor
+runs 2000 values rebuilt 602814, comparisons 3786, deadlines 89390 mismatches 0 operands of unknown origin 0 exit 0 
+runs 2000: time events 252822 in 215083 step unknowns (1.18 a step)
+time unknowns released 203557; outlived their last mention by 5.64 script steps on average; released before a later mention 0
+peak live time unknowns: by release median 7 p99 11 max 11; by last mention median 5 p99 6 max 6
+== cached_flag
+runs 2000 values rebuilt 762845, comparisons 37499, deadlines 88325 mismatches 0 operands of unknown origin 0 exit 0 
+runs 2000: time events 251294 in 176304 step unknowns (1.43 a step)
+time unknowns released 166604; outlived their last mention by 5.04 script steps on average; released before a later mention 0
+peak live time unknowns: by release median 6 p99 10 max 13; by last mention median 5 p99 6 max 6
+== long
+runs 1512 values rebuilt 1831638, comparisons 6489, deadlines 261809 mismatches 0 operands of unknown origin 0 exit 0 
+runs 1512: time events 605322 in 539330 step unknowns (1.12 a step)
+time unknowns released 527751; outlived their last mention by 8.17 script steps on average; released before a later mention 0
+peak live time unknowns: by release median 9 p99 14 max 15; by last mention median 7 p99 8 max 8
+== forms
+runs 1008 values rebuilt 448473, comparisons 30964, deadlines 44580 mismatches 0 operands of unknown origin 0 exit 0 
+runs 1008: time events 146279 in 90830 step unknowns (1.61 a step)
+time unknowns released 83522; outlived their last mention by 4.67 script steps on average; released before a later mention 0
+peak live time unknowns: by release median 9 p99 14 max 15; by last mention median 6 p99 10 max 11
+== idioms
+runs 1008 values rebuilt 1152274, comparisons 110018, deadlines 44369 mismatches 0 operands of unknown origin 0 exit 0 
+runs 1008: time events 227731 in 172639 step unknowns (1.32 a step)
+time unknowns released 144176; outlived their last mention by 4.19 script steps on average; released before a later mention 0
+peak live time unknowns: by release median 14 p99 248 max 303; by last mention median 10 p99 17 max 19
+== crossclock
+runs 400 values rebuilt 1009742, comparisons 106167, deadlines 16644 mismatches 0 operands of unknown origin 0 exit 0 
+runs 400: time events 125138 in 67247 step unknowns (1.86 a step)
+time unknowns released 54294; outlived their last mention by 10.05 script steps on average; released before a later mention 0
+peak live time unknowns: by release median 21 p99 249 max 270; by last mention median 15 p99 29 max 33
+
+## Reads grouped by step: 411,364 marked steps, 301,597 reads (idioms, crossclock, part of the cached flag);
+## none outside a step or at another time than its step
+
+## Go/no-go L: float, draw-then-verify, cap 5x, durations open, step unknowns; solver time over the run's own
+clean        n2000  released 0.120 p99 0.19 max 0.3 | last mention 0.116 p99 0.18 max 0.3 | ratio 1.04
+recv_anchor  n2000  released 0.140 p99 0.23 max 0.4 | last mention 0.127 p99 0.20 max 0.3 | ratio 1.11
+cached_flag  n2000  released 0.165 p99 0.29 max 0.4 | last mention 0.166 p99 0.29 max 0.4 | ratio 0.99
+long         n1512  released 0.097 p99 0.14 max 0.6 | last mention 0.096 p99 0.14 max 0.6 | ratio 1.02
+forms        n1008  released 0.178 p99 0.30 max 0.4 | last mention 0.170 p99 0.28 max 0.4 | ratio 1.05
+idioms       n1008  released 0.486 p99 1.03 max 1.9 | last mention 0.454 p99 0.93 max 1.8 | ratio 1.07
+crossclock   n400   released 2.132 p99 5.66 max 7.6 | last mention 1.907 p99 5.53 max 7.5 | ratio 1.12

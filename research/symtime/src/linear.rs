@@ -24,6 +24,41 @@ pub struct Script {
     /// starts it at the time before it, followed at once by the row that
     /// orders it after that one.
     pub times: Vec<usize>,
+    /// How time unknowns die, and what that cost against their last mention.
+    pub liveness: Liveness,
+}
+
+/// Where each time unknown's `Dead` step goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Deaths {
+    /// Right after the last step that mentions it: what only a reader of
+    /// the whole run can know.
+    LastMention,
+    /// Where the record says the run stopped holding every value that
+    /// mentions it and every pending deadline that does, and a newer time
+    /// exists: what an online engine can know.
+    Dropped,
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct Liveness {
+    /// Time unknowns that died, and the steps each outlived its last
+    /// mention by, summed.
+    pub died: u64,
+    pub lag: u64,
+    /// Those the record released before a later step mentioned them; they
+    /// die after that step instead.
+    pub early: u64,
+}
+
+/// `LINEAR_LIVENESS=last` places deaths at last mention; otherwise a record
+/// that says what it dropped places them there.
+fn deaths_for(run: &Run) -> Deaths {
+    match std::env::var("LINEAR_LIVENESS").as_deref() {
+        Ok("last") => Deaths::LastMention,
+        _ if run.has_drops() => Deaths::Dropped,
+        _ => Deaths::LastMention,
+    }
 }
 
 struct Builder<'r> {
@@ -91,7 +126,7 @@ impl<'r> Builder<'r> {
             // Divided by the clock's rate: times stay bare, the rest is
             // scaled by the reciprocal rate.
             for (event, c) in &form.c {
-                add(&mut terms, self.times[*event], *c);
+                add(&mut terms, self.times[self.run.group_of(*event)], *c);
             }
             let symbolic_rate = self.level == Level::Rates && node.is_some();
             let scale = node.map_or(one(), |n| one() / self.run.rate_of(n));
@@ -114,7 +149,7 @@ impl<'r> Builder<'r> {
             }
             for (event, c) in &form.c {
                 let rate = self.run.clock_of(*event).map_or(one(), |n| self.run.rate_of(n));
-                add(&mut terms, self.times[*event], c * rate);
+                add(&mut terms, self.times[self.run.group_of(*event)], c * rate);
             }
             constant += form.k;
             for (field, c) in &form.d {
@@ -198,8 +233,26 @@ pub fn script_anchored(run: &Run, level: Level, rho: &Q, anchor: Anchor) -> Scri
             Row { terms: all.iter().map(|d| (*d, -one())).collect(), constant: one(), strict: false },
         ]));
     }
-    for (fresh, constraint) in run.stages() {
-        if fresh {
+    let deaths = deaths_for(run);
+    let dropped = if deaths == Deaths::Dropped { run.drop_deaths() } else { Vec::new() };
+    // The step index after which each dropped time dies.
+    let mut drop_at: BTreeMap<usize, usize> = BTreeMap::new();
+    // A stage's releases take effect after its own steps, so they are
+    // placed when the next stage begins, and after the last one.
+    let place = |stage: usize, times: &[usize], at: usize, drop_at: &mut BTreeMap<usize, usize>| {
+        for g in dropped.get(stage).map_or(&[][..], |v| &v[..]) {
+            if let Some(t) = times.get(*g) {
+                drop_at.insert(*t, at);
+            }
+        }
+    };
+    let stages = run.stages();
+    let count = stages.len();
+    for (stage, (opened, constraint)) in stages.into_iter().enumerate() {
+        if stage > 0 {
+            place(stage - 1, &b.times, b.steps.len().saturating_sub(1), &mut drop_at);
+        }
+        if opened.is_some() {
             let t = b.fresh_at(b.times.last().map(|p| (*p, one())));
             let floor = match b.times.last() {
                 None => Row { terms: vec![(t, one())], constant: Q::from_integer(0), strict: false },
@@ -220,6 +273,9 @@ pub fn script_anchored(run: &Run, level: Level, rho: &Q, anchor: Anchor) -> Scri
             }
             None => b.steps.push(Step::Require(taken)),
         }
+    }
+    if count > 0 {
+        place(count - 1, &b.times, b.steps.len().saturating_sub(1), &mut drop_at);
     }
     // Mark each unknown dead after the last step that mentions it.
     let mut last: BTreeMap<usize, usize> = BTreeMap::new();
@@ -246,8 +302,24 @@ pub fn script_anchored(run: &Run, level: Level, rho: &Q, anchor: Anchor) -> Scri
             Step::Dead(_) | Step::Glue { .. } | Step::Lasting(_) => {}
         }
     }
+    let mut liveness = Liveness::default();
+    let is_time: std::collections::BTreeSet<usize> = b.times.iter().copied().collect();
     let mut dying: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for (u, at) in last {
+        let at = if deaths == Deaths::Dropped && is_time.contains(&u) {
+            // A time the record never released lives to the end.
+            let Some(dropped) = drop_at.get(&u).copied() else { continue };
+            liveness.died += 1;
+            if dropped < at {
+                liveness.early += 1;
+                at
+            } else {
+                liveness.lag += b.steps[at + 1..=dropped].iter().filter(|s| !matches!(s, Step::Dead(_))).count() as u64;
+                dropped
+            }
+        } else {
+            at
+        };
         dying.entry(at).or_default().push(u);
     }
     let mut steps = Vec::with_capacity(b.steps.len() * 2);
@@ -258,5 +330,5 @@ pub fn script_anchored(run: &Run, level: Level, rho: &Q, anchor: Anchor) -> Scri
         }
     }
     let lasting = b.durations.values().copied().collect();
-    Script { unknowns: b.next, steps, unsupported: b.unsupported, lasting, times: b.times }
+    Script { unknowns: b.next, steps, unsupported: b.unsupported, lasting, times: b.times, liveness }
 }

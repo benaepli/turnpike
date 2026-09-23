@@ -102,7 +102,7 @@ impl<'c, 'r> Player<'c, 'r> {
             _ => (Some(()), unit.clone()),
         };
         for (event, c) in &form.c {
-            let time = self.times[*event].clone();
+            let time = self.times[self.run.group_of(*event)].clone();
             let rate = match (on_times, self.run.clock_of(*event)) {
                 (Some(()), Some(n)) => self.rate(n, false),
                 _ => unit.clone(),
@@ -156,7 +156,7 @@ pub fn play(ctx: &Context, solver: &Solver, run: &Run, level: Level, rho: &Q) ->
     }
     let mut outcome = Outcome { open: Vec::new(), sites: Vec::new(), consistent: true, undivided: 0 };
     for (fresh, constraint) in run.stages() {
-        if fresh {
+        if fresh.is_some() {
             let t = Real::new_const(ctx, format!("t{}", player.times.len()));
             let floor = player.times.last().cloned().unwrap_or_else(|| zero.clone());
             solver.assert(&t.ge(&floor));

@@ -10,6 +10,8 @@
 //! linear-threads  the same on several threads, timed
 //! slowest         the runs the engine is slowest on, beside the SMT solvers
 //! anchors         whether fixing the scale of open durations changes answers
+//! liveness        when time unknowns die by the record's drop signal, against
+//!                 their last mention, and how reads group into steps
 //! cycling         the runs in which a check cycles, the shortest written out
 //!                 as test fixtures with Z3's answers (`SYMTIME_DUMP_DIR`)
 
@@ -593,6 +595,47 @@ fn anchors_pass(runs: &[Run], args: &Args) {
     }
 }
 
+/// Liveness by the record's drop signal against last mention: how long a
+/// time unknown outlives its last mention, how many live at once, and how
+/// many time events share a step's unknown.
+fn liveness_pass(runs: &[Run], args: &Args) {
+    let level = level_of(args);
+    let (mut events, mut groups, mut died, mut lag, mut early) = (0u64, 0u64, 0u64, 0u64, 0u64);
+    let (mut peak_drop, mut peak_last) = (Vec::new(), Vec::new());
+    let peak = |script: &linear::Script| {
+        let times: std::collections::BTreeSet<usize> = script.times.iter().copied().collect();
+        let (mut live, mut most) = (0i64, 0i64);
+        for step in &script.steps {
+            match step {
+                linear::Step::Unknown(u, _) if times.contains(u) => live += 1,
+                linear::Step::Dead(u) if times.contains(u) => live -= 1,
+                _ => {}
+            }
+            most = most.max(live);
+        }
+        most as f64
+    };
+    for run in runs {
+        events += run.time_events() as u64;
+        groups += run.groups as u64;
+        let dropped = script_of(run, level);
+        died += dropped.liveness.died;
+        lag += dropped.liveness.lag;
+        early += dropped.liveness.early;
+        peak_drop.push(peak(&dropped));
+        std::env::set_var("LINEAR_LIVENESS", "last");
+        peak_last.push(peak(&script_of(run, level)));
+        std::env::remove_var("LINEAR_LIVENESS");
+    }
+    peak_drop.sort_by(f64::total_cmp);
+    peak_last.sort_by(f64::total_cmp);
+    println!("runs {}: time events {events} in {groups} step unknowns ({:.2} a step)", runs.len(), events as f64 / groups.max(1) as f64);
+    println!("time unknowns released {died}; outlived their last mention by {:.2} script steps on average; released before a later mention {early}", lag as f64 / died.max(1) as f64);
+    println!("peak live time unknowns: by release median {:.0} p99 {:.0} max {:.0}; by last mention median {:.0} p99 {:.0} max {:.0}",
+        percentile(&peak_drop, 0.5), percentile(&peak_drop, 0.99), percentile(&peak_drop, 1.0),
+        percentile(&peak_last, 0.5), percentile(&peak_last, 0.99), percentile(&peak_last, 1.0));
+}
+
 /// The runs in which the exact engine sees a check come back to a basis it
 /// has been at, which is when the cycle guard takes over. The shortest
 /// `--emit-count` of them are written to `SYMTIME_DUMP_DIR`, with Z3's
@@ -640,6 +683,7 @@ fn main() {
         "slowest" => slowest(&runs, &args),
         "anchors" => anchors_pass(&runs, &args),
         "cycling" => cycling_pass(&runs, &args),
+        "liveness" => liveness_pass(&runs, &args),
         other => panic!("unknown command {other}"),
     }
 }

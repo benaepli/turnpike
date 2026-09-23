@@ -3,6 +3,11 @@
 //!
 //! Time moves only at an advance, so every event between two advances shares
 //! one time. A "segment" is that stretch; segment 0 is time zero.
+//!
+//! A scheduler step that does anything with time is marked in the record,
+//! and every reading and fire in one step shares one time unknown: the
+//! step's "group". The record also says when the run stopped holding each
+//! time value, which is what an online engine can know of liveness.
 
 use num_rational::Ratio;
 use num_traits::{One, Zero};
@@ -88,12 +93,19 @@ enum Step {
     Fire { timer: usize, event: usize, segment: usize },
     Compare { op: String, a: usize, b: usize, result: bool, site: usize },
     Advance,
+    /// A value made, by id, and values the run stopped holding.
+    Made(usize),
+    Drop(Vec<usize>),
+    /// A timed timer registered, and one that ended without firing.
+    Registered(usize),
+    Cancelled(usize),
 }
 
-/// A time event: an observation or a timed fire. Each has one unknown time.
+/// A time event: an observation or a timed fire, in the group of its step.
 struct Event {
     node: usize,
     truetime: bool,
+    group: usize,
 }
 
 /// `sum(c[e] * reading(e)) + k`, where `reading(e)` is the clock reading at
@@ -183,6 +195,8 @@ impl Constraint {
 
 pub struct Run {
     pub id: i64,
+    /// Values of unknown origin. A zero duration is the language's one
+    /// duration literal and is a constant, not unknown.
     pub unknown: u64,
     clocks: Vec<Clock>,
     observations: Vec<Observation>,
@@ -193,6 +207,8 @@ pub struct Run {
     segments: usize,
     advances: Vec<i128>,
     pub durations: BTreeMap<String, Q>,
+    /// How many groups the run's time events fall into.
+    pub groups: usize,
 }
 
 #[derive(Default)]
@@ -227,7 +243,7 @@ impl Run {
             .collect();
         let mut run = Run {
             id: json["run"].as_i64().unwrap(),
-            unknown: json["unknown"].as_u64().unwrap(),
+            unknown: 0,
             clocks,
             observations: Vec::new(),
             values: Vec::new(),
@@ -237,10 +253,29 @@ impl Run {
             segments: 0,
             advances: Vec::new(),
             durations: BTreeMap::new(),
+            groups: 0,
         };
         let mut pending: Option<Timer> = None;
+        // Whether the next time event opens a group of its own.
+        let mut opens = true;
+        let mut stepped = false;
+        let group = |run: &mut Run, opens: &mut bool| {
+            if *opens {
+                run.groups += 1;
+                *opens = false;
+            }
+            run.groups - 1
+        };
         for e in json["events"].as_array().unwrap() {
             match e["e"].as_str().unwrap() {
+                "step" => {
+                    opens = true;
+                    stepped = true;
+                }
+                "drop" => {
+                    let ids = e["ids"].as_array().unwrap().iter().map(|i| i.as_u64().unwrap() as usize).collect();
+                    run.steps.push(Step::Drop(ids));
+                }
                 "adv" => {
                     run.segments += 1;
                     run.advances.push(int(e, "ticks"));
@@ -249,7 +284,9 @@ impl Run {
                 "obs" => {
                     let node = int(e, "node") as usize;
                     let truetime = e["truetime"].as_bool().unwrap();
-                    run.events.push(Event { node, truetime });
+                    assert!(stepped, "a record without step markers");
+                    let group = group(&mut run, &mut opens);
+                    run.events.push(Event { node, truetime, group });
                     run.observations.push(Observation {
                         node,
                         time: int(e, "time"),
@@ -278,13 +315,18 @@ impl Run {
                             Source::Duration(field)
                         }
                         _ if e["kind"] == "Duration" && recorded.is_zero() => Source::Fixed,
-                        _ => Source::Unknown,
+                        _ => {
+                            run.unknown += 1;
+                            Source::Unknown
+                        }
                     };
                     assert_eq!(int(e, "id") as usize, run.values.len());
+                    run.steps.push(Step::Made(run.values.len()));
                     run.values.push(Value { source, recorded });
                 }
                 "op" => {
                     assert_eq!(int(e, "id") as usize, run.values.len());
+                    run.steps.push(Step::Made(run.values.len()));
                     run.values.push(Value {
                         source: Source::Op {
                             op: e["op"].as_str().unwrap().to_string(),
@@ -321,12 +363,16 @@ impl Run {
                             let timer = pending.take().expect("a registration before its timer");
                             assert_eq!(timer.deadline, int(e, "deadline"));
                             run.timers.insert(id, timer);
+                            run.steps.push(Step::Registered(id));
                         }
                         "fired" => {
                             let node = int(e, "node") as usize;
-                            run.events.push(Event { node, truetime: false });
+                            assert!(stepped, "a record without step markers");
+                            let group = group(&mut run, &mut opens);
+                            run.events.push(Event { node, truetime: false, group });
                             run.steps.push(Step::Fire { timer: id, event: run.events.len() - 1, segment: run.segments });
                         }
+                        "cancelled" => run.steps.push(Step::Cancelled(id)),
                         _ => {}
                     }
                 }
@@ -336,12 +382,136 @@ impl Run {
         run
     }
 
-    /// Each step that creates an unknown or adds a constraint, in order.
-    pub fn stages(&self) -> Vec<(bool, Option<Constraint>)> {
+    /// Each record step in order: the group it opens, if it is the group's
+    /// first time event, and the constraint it adds, if any.
+    pub fn stages(&self) -> Vec<(Option<usize>, Option<Constraint>)> {
+        let mut seen = 0usize;
+        let mut event = 0usize;
         self.ordered()
             .into_iter()
-            .map(|(step, c)| (matches!(step, Step::Observation | Step::Fire { .. }), c))
+            .map(|(step, c)| {
+                let mut opened = None;
+                if matches!(step, Step::Observation | Step::Fire { .. }) {
+                    let g = self.events[event].group;
+                    event += 1;
+                    if g == seen {
+                        seen += 1;
+                        opened = Some(g);
+                    }
+                }
+                (opened, c)
+            })
             .collect()
+    }
+
+    /// Readings and timed fires.
+    pub fn time_events(&self) -> usize {
+        self.events.len()
+    }
+
+    /// Whether the record says when the run stopped holding values.
+    pub fn has_drops(&self) -> bool {
+        self.steps.iter().any(|s| matches!(s, Step::Drop(_)))
+    }
+
+    /// The group of time event `event`.
+    pub fn group_of(&self, event: usize) -> usize {
+        self.events[event].group
+    }
+
+    /// For each stage, the groups that die after it by what the record says
+    /// the run still holds: a group lives while a value the run holds or a
+    /// pending timer's deadline mentions it, and while it is the newest.
+    pub fn drop_deaths(&self) -> Vec<Vec<usize>> {
+        let linears = self.linears();
+        let groups_of = |l: &Linear| -> Vec<usize> {
+            let mut g: Vec<usize> = l.c.keys().map(|e| self.events[*e].group).collect();
+            g.sort_unstable();
+            g.dedup();
+            g
+        };
+        // How many holders each group has: live values and pending timers.
+        let mut holders = vec![0u32; self.groups];
+        let mut value_groups: Vec<Vec<usize>> = Vec::with_capacity(self.values.len());
+        let mut timer_groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        let mut newest: Option<usize> = None;
+        let mut dead = vec![false; self.groups];
+        let mut out = Vec::with_capacity(self.steps.len());
+        let mut event = 0usize;
+        for step in &self.steps {
+            let mut released: Vec<usize> = Vec::new();
+            match step {
+                Step::Made(id) => {
+                    debug_assert_eq!(*id, value_groups.len());
+                    let g = groups_of(&linears[*id]);
+                    for x in &g {
+                        holders[*x] += 1;
+                    }
+                    value_groups.push(g);
+                }
+                Step::Observation | Step::Fire { .. } => {
+                    let g = self.events[event].group;
+                    event += 1;
+                    if newest != Some(g) {
+                        if let Some(n) = newest {
+                            released.push(n);
+                        }
+                        newest = Some(g);
+                    }
+                }
+                Step::Registered(t) => {
+                    let timer = &self.timers[t];
+                    let mut g = timer.bound.map_or(Vec::new(), |b| groups_of(&linears[b]));
+                    if let Some(o) = timer.observation {
+                        g.push(self.events[self.observations[o].event].group);
+                    }
+                    g.sort_unstable();
+                    g.dedup();
+                    for x in &g {
+                        holders[*x] += 1;
+                    }
+                    timer_groups.insert(*t, g);
+                }
+                Step::Cancelled(t) => {
+                    if let Some(g) = timer_groups.remove(t) {
+                        for x in g {
+                            holders[x] -= 1;
+                            released.push(x);
+                        }
+                    }
+                }
+                Step::Drop(ids) => {
+                    for id in ids {
+                        if *id < value_groups.len() {
+                            for x in std::mem::take(&mut value_groups[*id]) {
+                                holders[x] -= 1;
+                                released.push(x);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if let Step::Fire { timer, .. } = step {
+                if let Some(g) = timer_groups.remove(timer) {
+                    for x in g {
+                        holders[x] -= 1;
+                        released.push(x);
+                    }
+                }
+            }
+            released.sort_unstable();
+            released.dedup();
+            let mut dying = Vec::new();
+            for g in released {
+                if holders[g] == 0 && newest != Some(g) && !dead[g] {
+                    dead[g] = true;
+                    dying.push(g);
+                }
+            }
+            out.push(dying);
+        }
+        out
     }
 
     /// The node an event's clock belongs to, or `None` for a truetime read.
