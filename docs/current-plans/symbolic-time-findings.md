@@ -1744,3 +1744,92 @@ branch of the `spur` submodule (feature `time-constraints`, two commits on
 7a72bef). The analyzer, configs, fixture, script and per-spec result files
 are on the superproject branch `research/symtime` under `research/symtime/`.
 Deleting both branches removes all of it.
+
+## Online reach (go/no-go R)
+
+Symbolic time in the simulator, measured on the three lease specs under the
+panel overlay (`research/symtime/configs/lease.json`, `lease_pause.json` for
+the cached flag). Explorer `standard`, 30 threads, linearizability on,
+`stop_on_violation` off. The arms alternated in 300 s chunks, concrete
+then symbolic, with session seeds 1000 and 1001. That gives each arm
+600 s of wall time per spec. The `trials: all` arm ran one 120 s chunk
+per spec and is read for open shares only. The symbolic arm is
+`time.mode = symbolic`, sampled durations, exact arithmetic, `trials:
+drawn`, `confirm: violations`: a symbolic violation counts only once a
+concrete replay of its witness is illegal too. Per-chunk summaries are in
+`research/symtime/results/reach/`, and the table is in
+`results/reach_sessions.txt`.
+
+| Spec | Concrete | Symbolic (drawn) | Per wall-hour |
+|---|---|---|---|
+| cached_flag | 54 in 16.7M runs (27.9k runs/s) | 51 in 8.9M (14.9k runs/s) | 324 against 306: 0.94x |
+| recv_anchor | 1 in 16.3M | 6 in 8.7M | 6 against 36: 6x |
+| clean | 0 in 16.0M | 2 in 8.9M (1 more in a 300 s re-run) | 0 against 12 |
+
+- **Per run**, symbolic finds the cached flag about 1.8 times as often
+  (1 in 175k against 1 in 310k). It runs at 0.53 of the concrete speed,
+  which cancels that per wall-hour. 600 s per arm bought about 50 events
+  an arm, so the 0.94 ratio is good to roughly plus or minus 30%. The
+  recv_anchor and clean counts are single figures.
+- **Every symbolic candidate was confirmed**: 51 + 13 + 6 + 1 + 2 replayed
+  illegal, with no unconfirmed candidate and no conceded run. The
+  unconfirmed share is 0%, and none was lost to a concession.
+- **The clean control is not clean.** The confirmed run
+  (`results/reach/clean_violation_witness.json`) replays concretely as
+  follows:
+  1. Node 1 holds a lease from its round-2 heartbeat, acknowledged by
+     node 2.
+  2. Node 0 has not heard a heartbeat, so its own election timeout fires.
+  3. Node 2 grants node 0 its vote a few steps after acknowledging node 1.
+  4. Node 0 commits a write.
+  5. Node 1 then answers a lease read without that write.
+
+  The spec's `RequestVote` grants any vote whose log is up to date. It
+  lacks the thesis's rule (section 4.2.3) that a server which heard from a
+  current leader within the minimum election timeout refuses votes. The
+  lease argument of section 6.4.1 silently needs that rule. This reads as
+  ambiguous in the thesis, since 6.4.1 does not say it depends on 4.2.3,
+  and as an omission in the spec. The recv_anchor violations were not
+  diagnosed; its vote handling is the same, so they may be this bug too.
+  32M concrete runs of clean found nothing.
+- **Open shares (trials: all)**: 0.40 on cached_flag, 0.84 on recv_anchor,
+  0.77 on clean. The offline range was 42% to 85%.
+- **What a flip finds**: flip-taking runs compared with runs that took
+  none, matched by grid configuration, 100,000 symbolic runs per spec
+  (session seed 2000). A run is new when its set of per-node handlers and
+  digit-masked log lines, or its ordered leadership and lease events, has
+  not been seen earlier in the session. Flip runs are new slightly less
+  often by branch set (matched difference -0.03 to -0.05). By event
+  timeline they are +0.07 on cached_flag and -0.03 to -0.04 on the other
+  two.
+- **Conjunctions**: joint (node, site, result) patterns over the first
+  30,000 runs of each sample, concrete from the recorder:
+  - Distinct patterns are the same in both arms: 55 against 54, 51
+    against 51, 47 against 48.
+  - Runs in which the lease held on two nodes at once:
+
+    | Spec | Concrete | Symbolic |
+    |---|---|---|
+    | cached_flag | 4.6% | 2.7% |
+    | recv_anchor | 6.1% | 2.9% |
+    | clean | 1.6% | 2.3% |
+
+- **Costs, symbolic drawn**:
+  - Solver share of run wall time: 1.0% on cached_flag, 0.3% on the
+    other two.
+  - Draws of the non-witnessed outcome, as a share of comparisons: 0.50.
+  - Taken: 0.20 on cached_flag, 0.39 on clean, 0.42 on recv_anchor.
+  - Refused: 0.30, 0.11 and 0.08.
+  - Runs with a taken flip: 31%, 63% and 67%.
+  - No widenings, no concessions, no barrier fallbacks, no implicit
+    decisions.
+  - Shadow releases: about 69 a run, 2.3 per timed fire.
+
+Verdict against the R thresholds:
+- **Go fails** because the clean control has confirmed violations. The
+  other Go conditions hold: recv_anchor falsifies at 6x (and falsified
+  concretely once), and the unconfirmed share is 0%.
+- **No-go does not apply**, since recv_anchor is above 1.5x.
+- The reading is therefore **the middle band**. The one entry that
+  blocks Go is a real bug that symbolic time found and concrete sampling
+  did not.

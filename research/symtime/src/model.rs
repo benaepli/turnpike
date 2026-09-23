@@ -740,6 +740,34 @@ impl Run {
         out
     }
 
+    /// The newest reading a value was made from, if any.
+    fn newest_observation(&self, value: usize) -> Option<usize> {
+        match &self.values[value].source {
+            Source::Observed { observation, .. } => Some(*observation),
+            Source::Op { a, b, .. } => {
+                let left = self.newest_observation(*a);
+                let right = b.and_then(|b| self.newest_observation(b));
+                left.max(right)
+            }
+            _ => None,
+        }
+    }
+
+    /// Each comparison as the node whose newest reading it compares, its
+    /// site, its operation and its result.
+    pub fn comparisons(&self) -> Vec<(Option<usize>, usize, String, bool)> {
+        self.steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Compare { op, a, b, result, site } => {
+                    let o = self.newest_observation(*a).max(self.newest_observation(*b));
+                    Some((o.map(|o| self.observations[o].node), *site, op.clone(), *result))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The rows a new timeline of this run has to meet, over one time per
     /// segment: the segments in order at least a tick apart, every
     /// comparison's recorded outcome, and every fire at or after its

@@ -15,6 +15,10 @@
 //! agree           an online engine log (`--tc` names its directory) against
 //!                 Z3, decision by decision
 //! cycling         the runs in which a check cycles, the shortest written out
+//! patterns        joint (node, site, result) patterns of the runs' time
+//!                 comparisons: how many distinct, how many runs had one
+//!                 site come out true, or false, on two nodes, and each
+//!                 site's operation
 //! witness         a whole-tick timeline for each run from its rows alone,
 //!                 re-evaluated with floor readings: does every outcome and
 //!                 fire survive
@@ -131,6 +135,31 @@ fn check(runs: &[Run]) {
     println!("values rebuilt {values}, comparisons {comparisons}, deadlines {deadlines}");
     println!("mismatches {bad}");
     println!("operands of unknown origin {unknown}");
+}
+
+fn patterns_pass(runs: &[Run]) {
+    let mut patterns: std::collections::BTreeSet<Vec<(Option<usize>, usize, bool)>> = Default::default();
+    let mut ops: BTreeMap<usize, String> = BTreeMap::new();
+    let (mut two_nodes, mut two_false) = (0u64, 0u64);
+    for run in runs {
+        let mut joint: std::collections::BTreeSet<(Option<usize>, usize, bool)> = Default::default();
+        for (node, site, op, result) in run.comparisons() {
+            ops.insert(site, op);
+            joint.insert((node, site, result));
+        }
+        let mut held: BTreeMap<(usize, bool), std::collections::BTreeSet<Option<usize>>> = BTreeMap::new();
+        for (node, site, result) in &joint {
+            held.entry((*site, *result)).or_default().insert(*node);
+        }
+        two_nodes += u64::from(held.iter().any(|((_, r), n)| *r && n.len() >= 2));
+        two_false += u64::from(held.iter().any(|((_, r), n)| !*r && n.len() >= 2));
+        patterns.insert(joint.into_iter().collect());
+    }
+    println!("runs {}", runs.len());
+    println!("distinct joint patterns {}", patterns.len());
+    println!("runs with one site true on two nodes {two_nodes}");
+    println!("runs with one site false on two nodes {two_false}");
+    println!("ops {}", serde_json::to_string(&ops).unwrap());
 }
 
 fn witness_pass(runs: &[Run]) {
@@ -739,6 +768,7 @@ fn main() {
         "cycling" => cycling_pass(&runs, &args),
         "liveness" => liveness_pass(&runs, &args),
         "witness" => witness_pass(&runs),
+        "patterns" => patterns_pass(&runs),
         other => panic!("unknown command {other}"),
     }
 }
