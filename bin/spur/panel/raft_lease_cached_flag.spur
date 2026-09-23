@@ -110,6 +110,10 @@ role Node(cluster: Cluster) {
     // Timeout tracking
     var received_leader_message: bool = false;
     var known_leader: int = -1; // last known leader, -1 = unknown
+    // When this node last took a valid AppendEntries, on its own clock, and
+    // in which term.
+    var leader_heard_at: MonoInstant? = nil;
+    var leader_heard_term: int = -1;
 
     fn Init() {
         println("Node {me} initialized");
@@ -417,6 +421,8 @@ role Node(cluster: Cluster) {
         // Valid AppendEntries from leader — reset election timer
         received_leader_message = true;
         known_leader = leader_id;
+        leader_heard_at = mono_now();
+        leader_heard_term = current_term;
 
         // If we're a candidate and see a leader with >= our term, become follower
         if (state == 1) {
@@ -550,6 +556,17 @@ role Node(cluster: Cluster) {
         candidate_last_log_term: int
     ) {
         println("RequestVote: from candidate {candidate_id} term={candidate_term}");
+
+        // A server that has heard from the leader of its current term within
+        // the minimum election timeout ignores the request (thesis section
+        // 4.2.3): it keeps its term and its vote. A lease rests on this: the
+        // followers that acknowledged it must not help elect a new leader
+        // before it runs out.
+        if (leader_heard_term == current_term and leader_heard_at != nil
+            and mono_now() < leader_heard_at! + durations().election) {
+            replicas[candidate_id]->RequestVoteReply(current_term, false);
+            return ();
+        }
 
         // Rule: if term > currentTerm, step down
         if (candidate_term > current_term) {
