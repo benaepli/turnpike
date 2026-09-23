@@ -12,9 +12,12 @@
 //! anchors         whether fixing the scale of open durations changes answers
 //! liveness        when time unknowns die by the record's drop signal, against
 //!                 their last mention, and how reads group into steps
+//! agree           an online engine log (`--tc` names its directory) against
+//!                 Z3, decision by decision
 //! cycling         the runs in which a check cycles, the shortest written out
 //!                 as test fixtures with Z3's answers (`SYMTIME_DUMP_DIR`)
 
+mod agree;
 mod drive;
 mod dump;
 mod general;
@@ -672,6 +675,11 @@ fn cycling_pass(runs: &[Run], args: &Args) {
 
 fn main() {
     let args = args();
+    if args.command == "agree" {
+        let tally = agree::agree(&args.tc, args.limit);
+        println!("{tally:?}");
+        return;
+    }
     let runs = load(&args);
     match args.command.as_str() {
         "check" => check(&runs),

@@ -1,0 +1,20 @@
+# Online engine logs against Z3 (symtime agree): symbolic sessions with
+# SPUR_ENGINE_LOG_DIR set, session_seed 1000, 200 runs per config, every
+# answered decision's other outcome asked of Z3 over the rows the run had
+# accepted by then.
+clean:       Agreement { runs: 3200, answered: 3215, open: 2468, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+recv_anchor: Agreement { runs: 3200, answered: 3173, open: 2672, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+cached_flag: Agreement { runs: 3200, answered: 67997, open: 25905, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+idioms:      Agreement { runs: 3200, answered: 368550, open: 191669, false_open: 0, false_closed: 0, undecided: 1, inconsistent_runs: 0, rejected_accepts: 0 }
+forms:       Agreement { runs: 3200, answered: 90848, open: 42345, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+# crossclock: Z3 is slow on its numbers; the 3600 s cap stopped it after
+crossclock:  Agreement { runs: 800, answered: 106421, open: 44948, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+
+# Before the engine fixes the same idioms session had 3009 false opens in
+# 12 runs: an assignment whose sums overflowed 64 bits was taken as a
+# witness, and its rows were then rejected.
+
+# Throughput, 1600-run sessions, linearizability off (a reading, not a gate)
+clean        concrete 16666.7 runs/s   symbolic 8888.9 runs/s
+recv_anchor  concrete 17204.3 runs/s   symbolic 8648.6 runs/s
+cached_flag  concrete 17021.3 runs/s   symbolic 8602.2 runs/s
