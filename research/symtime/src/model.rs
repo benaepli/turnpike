@@ -740,6 +740,86 @@ impl Run {
         out
     }
 
+    /// The rows a new timeline of this run has to meet, over one time per
+    /// segment: the segments in order at least a tick apart, every
+    /// comparison's recorded outcome, and every fire at or after its
+    /// deadline. Why not, for a run it cannot say that for.
+    pub fn witness_rows(&self) -> Result<(usize, Vec<spur_time::witness::Accepted>), &'static str> {
+        use spur_time::witness::{Accepted, Term};
+        let mut segment_of = vec![0usize; self.events.len()];
+        for o in &self.observations {
+            segment_of[o.event] = o.segment;
+        }
+        let linears = self.linears();
+        let mut fires: BTreeMap<usize, bool> = BTreeMap::new();
+        for step in &self.steps {
+            if let Step::Fire { event, segment, timer } = step {
+                segment_of[*event] = *segment;
+                let whole = self.timers.get(timer).and_then(|t| t.bound).is_none_or(|b| {
+                    let form = &linears[b];
+                    form.k.is_integer() && form.c.values().all(|c| c.is_integer()) && form.d.values().all(|c| c.is_integer())
+                });
+                fires.insert(*event, whole);
+            }
+        }
+        let unknowns = self.segments + 1;
+        let one = Q::one();
+        let mut rows = vec![Accepted { terms: vec![(0, one, Term::Raw)], constant: Q::zero(), strict: false, extra: Q::zero() }];
+        for s in 1..unknowns {
+            rows.push(Accepted { terms: vec![(s - 1, -one, Term::Raw), (s, one, Term::Raw)], constant: -one, strict: false, extra: Q::zero() });
+        }
+        let mut required: Vec<(Requirement, Q)> = Vec::new();
+        for (step, constraint) in self.ordered() {
+            let Some(constraint) = constraint else { continue };
+            // A deadline is rounded up before it is used, which can take up
+            // to a tick from the fire's row.
+            let extra = match step {
+                Step::Fire { event, .. } if !fires[event] => one,
+                _ => Q::zero(),
+            };
+            required.extend(constraint.taken.into_iter().map(|r| (r, extra)));
+        }
+        // `min` keeps the operand it chose: the right one only when it is
+        // strictly smaller.
+        for value in &self.values {
+            if let Source::Op { op, a, b: Some(b), .. } = &value.source {
+                if op == "Min" {
+                    let right = self.values[*b].recorded < self.values[*a].recorded;
+                    let (form, strict) = if right { (linears[*a].combine(&linears[*b], -1), true) } else { (linears[*b].combine(&linears[*a], -1), false) };
+                    required.push((Requirement { form, strict }, Q::zero()));
+                }
+            }
+        }
+        for (requirement, extra) in &required {
+            let extra = *extra;
+            {
+                let form = &requirement.form;
+                if form.tainted {
+                    return Err("unknown_origin");
+                }
+                let mut constant = form.k;
+                for (field, c) in &form.d {
+                    constant += c * self.durations.get(field).ok_or("unassigned_duration")?;
+                }
+                // Readings of different clocks in one segment floor apart,
+                // so each clock keeps a term of its own.
+                let mut terms: BTreeMap<(usize, Option<Q>), Q> = BTreeMap::new();
+                for (event, c) in &form.c {
+                    let rate = self.rate(*event);
+                    let floored = (!self.events[*event].truetime).then_some(rate);
+                    *terms.entry((segment_of[*event], floored)).or_insert_with(Q::zero) += c * rate;
+                }
+                let terms = terms
+                    .into_iter()
+                    .filter(|(_, c)| !c.is_zero())
+                    .map(|((s, f), c)| (s, c, f.map_or(Term::Raw, Term::Floored)))
+                    .collect();
+                rows.push(Accepted { terms, constant, strict: requirement.strict, extra });
+            }
+        }
+        Ok((unknowns, rows))
+    }
+
     /// The linear form of `requirement` over real event times: a constant,
     /// a difference of two times, or more.
     pub fn classify(&self, requirement: &Requirement) -> Shape {

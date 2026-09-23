@@ -1,0 +1,26 @@
+# Entry test: `symtime witness` on recorded concrete runs (phase 1
+# recorder datasets). A whole-tick timeline is solved from each run's rows
+# alone and the run re-evaluated with floor readings; a run counts when
+# every comparison outcome, min choice and timed fire survives.
+forms        1008 runs  replayed 1007  witness_infeasible 1   0.9990
+idioms       1008 runs  replayed 1005  witness_infeasible 3   0.9970
+crossclock    400 runs  replayed  400                          1.0000
+clean        2000 runs  replayed 2000                          1.0000
+recv_anchor  2000 runs  replayed 2000                          1.0000
+cached_flag  2000 runs  replayed 2000                          1.0000
+# (lease datasets measured with the all-margins solve; the others with the
+# final solve, rows as they are first and margins where rounding breaks.)
+
+# Exit: symbolic sessions with time.confirm = all, session_seed 1000,
+# linearizability on; every run's witness replayed by `spur replay` in a
+# child process, checking every time decision as the replay meets it.
+clean        320 checks  replayed 320                                              1.0000
+recv_anchor  320 checks  replayed 320                                              1.0000
+cached_flag  320 checks  replayed 320                                              1.0000
+forms        320 checks  replayed 320                                              1.0000
+idioms       960 checks  replayed 929  witness_overflow 14  witness_concession 13  witness_infeasible 4   0.9677
+crossclock   319 checks  replayed 272  witness_overflow 30  witness_concession 16  replay_diverged 1       0.8527
+# idioms falls short of the 0.99 exit criterion. Conceded runs: idioms 15
+# (none replayed past the concession), crossclock 46 (5 replayed, 24
+# witness_overflow, 16 conceded off a witness, 1 diverged). One crossclock
+# run of 320 fails with a clock overflow in its concrete continuation.

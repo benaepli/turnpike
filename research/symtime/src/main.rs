@@ -15,6 +15,9 @@
 //! agree           an online engine log (`--tc` names its directory) against
 //!                 Z3, decision by decision
 //! cycling         the runs in which a check cycles, the shortest written out
+//! witness         a whole-tick timeline for each run from its rows alone,
+//!                 re-evaluated with floor readings: does every outcome and
+//!                 fire survive
 //!                 as test fixtures with Z3's answers (`SYMTIME_DUMP_DIR`)
 
 mod agree;
@@ -128,6 +131,49 @@ fn check(runs: &[Run]) {
     println!("values rebuilt {values}, comparisons {comparisons}, deadlines {deadlines}");
     println!("mismatches {bad}");
     println!("operands of unknown origin {unknown}");
+}
+
+fn witness_pass(runs: &[Run]) {
+    let mut tally: BTreeMap<&'static str, u64> = BTreeMap::new();
+    let mut moved = 0u64;
+    let mut walls: Vec<f64> = Vec::new();
+    for run in runs {
+        let (unknowns, rows) = match run.witness_rows() {
+            Ok(r) => r,
+            Err(why) => {
+                *tally.entry(why).or_default() += 1;
+                continue;
+            }
+        };
+        let start = std::time::Instant::now();
+        let solved = spur_time::witness::witness(spur_time::Options::default(), unknowns, &rows);
+        walls.push(start.elapsed().as_secs_f64() * 1e3);
+        let outcome = match solved {
+            Err(failure) => failure.reason(),
+            Ok(times) => {
+                moved += u64::from(times != run.segment_times());
+                let report = run.evaluate_outcomes(&times);
+                if report.flipped > 0 {
+                    "replay_flipped"
+                } else if report.ineligible > 0 {
+                    "replay_ineligible"
+                } else {
+                    "replayed"
+                }
+            }
+        };
+        *tally.entry(outcome).or_default() += 1;
+    }
+    walls.sort_by(f64::total_cmp);
+    let unsupported: u64 = ["unknown_origin", "unassigned_duration"].iter().map(|k| tally.get(k).copied().unwrap_or(0)).sum();
+    let supported = runs.len() as u64 - unsupported;
+    let replayed = tally.get("replayed").copied().unwrap_or(0);
+    println!("runs {} supported {supported}", runs.len());
+    for (k, v) in &tally {
+        println!("  {k} {v}");
+    }
+    println!("replayed share {:.4}, timelines moved {moved}", replayed as f64 / supported.max(1) as f64);
+    println!("solve ms p50 {:.2} p99 {:.2} max {:.2}", percentile(&walls, 0.5), percentile(&walls, 0.99), walls.last().copied().unwrap_or(0.0));
 }
 
 fn classify(runs: &[Run]) {
@@ -692,6 +738,7 @@ fn main() {
         "anchors" => anchors_pass(&runs, &args),
         "cycling" => cycling_pass(&runs, &args),
         "liveness" => liveness_pass(&runs, &args),
+        "witness" => witness_pass(&runs),
         other => panic!("unknown command {other}"),
     }
 }
