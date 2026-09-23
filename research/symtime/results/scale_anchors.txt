@@ -1,0 +1,18 @@
+== clean
+3000 runs; rows over two or more unknowns with an absolute constant: 0 of 291164, in 0 runs
+  anchor Election: answers changed in 0 runs (0 outcomes closed, 0 opened); the record rejected in 0 runs
+  anchor Sum: answers changed in 0 runs (0 outcomes closed, 0 opened); the record rejected in 0 runs
+== recv_anchor
+3000 runs; rows over two or more unknowns with an absolute constant: 0 of 307550, in 0 runs
+  anchor Election: answers changed in 0 runs (0 outcomes closed, 0 opened); the record rejected in 0 runs
+  anchor Sum: answers changed in 0 runs (0 outcomes closed, 0 opened); the record rejected in 0 runs
+== cached_flag
+3000 runs; rows over two or more unknowns with an absolute constant: 0 of 321418, in 0 runs
+  anchor Election: answers changed in 0 runs (0 outcomes closed, 0 opened); the record rejected in 0 runs
+  anchor Sum: answers changed in 0 runs (0 outcomes closed, 0 opened); the record rejected in 0 runs
+== forms
+== forms (concrete tt_width 40)
+== forms: concrete tt_width 40, comparisons over three readings; answers from Z3
+1000 runs; rows over two or more unknowns with an absolute constant: 14770 of 220853, in 852 runs
+  anchor Election: answers changed in 58 runs (84 outcomes closed, 0 opened); the record rejected in 0 runs
+  anchor Sum: answers changed in 11 runs (12 outcomes closed, 0 opened); the record rejected in 0 runs

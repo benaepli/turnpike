@@ -1,0 +1,40 @@
+## clean / concrete: 500 runs, 60 s cap per backend
+simplex       differ from Z3 0 (0 comparisons) | rejected 0 | median 0.2841 p99 2.3953 max 8.4096
+microlp       differ from Z3 0 (0 comparisons) | rejected 0 | median 0.9483 p99 5.1151 max 32.9336
+highs         differ from Z3 0 (0 comparisons) | rejected 0 | median 3.3040 p99 18.2216 max 301.0351
+soplex        differ from Z3 0 (0 comparisons) | rejected 0 | median 1.1809 p99 5.2221 max 33.7557
+soplex-exact  differ from Z3 0 (0 comparisons) | rejected 0 | median 1.5263 p99 5.8965 max 34.8635
+clarabel      differ from Z3 13 (15 comparisons) | rejected 0 | median 0.5899 p99 1.9766 max 3.5246
+z3            differ from Z3 0 (0 comparisons) | rejected 0 | median 1.4138 p99 3.2511 max 6.9882
+yices         differ from Z3 0 (0 comparisons) | rejected 0 | median 0.2811 p99 0.5840 max 0.7325
+cvc5          differ from Z3 0 (0 comparisons) | rejected 0 | median 7.6846 p99 17.4904 max 38.5807
+## clean / durations: 500 runs, 60 s cap per backend
+simplex       differ from Z3 0 (0 comparisons) | rejected 0 | median 1.1257 p99 51.8761 max 150.7602
+microlp       differ from Z3 0 (0 comparisons) | rejected 0 | median 1.2703 p99 6.2643 max 42.5306
+highs         differ from Z3 0 (0 comparisons) | rejected 0 | median 4.0735 p99 25.1686 max 822.2418
+soplex        differ from Z3 0 (0 comparisons) | rejected 0 | median 1.5613 p99 8.7748 max 254.4611
+soplex-exact  differ from Z3 0 (0 comparisons) | rejected 0 | median 2.0028 p99 9.8400 max 256.5484
+clarabel      differ from Z3 0 (0 comparisons) | rejected 0 | median 0.5955 p99 1.3265 max 1.7069
+z3            differ from Z3 0 (0 comparisons) | rejected 0 | median 1.7995 p99 3.6493 max 11.2260
+yices         differ from Z3 0 (0 comparisons) | rejected 0 | median 0.3805 p99 0.7152 max 1.1039
+cvc5          differ from Z3 0 (0 comparisons) | rejected 0 | median 9.3277 p99 20.5739 max 81.1214
+## cached_flag / concrete: 500 runs, 60 s cap per backend
+simplex       differ from Z3 0 (0 comparisons) | rejected 0 | median 0.8082 p99 352.0387 max 1004.6366
+microlp       differ from Z3 0 (0 comparisons) | rejected 0 | median 1.3703 p99 54.4538 max 70.5392
+highs         differ from Z3 0 (0 comparisons) | rejected 0 | median 4.6722 p99 564.6596 max 633.8158
+soplex        differ from Z3 0 (0 comparisons) | rejected 0 | median 1.7237 p99 200.4074 max 324.9834
+soplex-exact  differ from Z3 0 (0 comparisons) | rejected 0 | median 2.1436 p99 203.0219 max 329.1727
+clarabel      differ from Z3 1 (4 comparisons) | rejected 6 | median 0.8646 p99 97.7850 max 148.1643
+z3            differ from Z3 0 (0 comparisons) | rejected 0 | median 1.8110 p99 15.3414 max 19.6285
+yices         differ from Z3 0 (0 comparisons) | rejected 0 | median 0.4304 p99 24.6760 max 35.8170
+cvc5          differ from Z3 0 (0 comparisons) | rejected 0 | median 10.0109 p99 210.8150 max 280.0989
+## cached_flag / durations: 500 runs, 60 s cap per backend
+simplex       over the 60 s cap
+microlp       differ from Z3 0 (0 comparisons) | rejected 0 | median 1.8030 p99 90.8650 max 139.9053
+highs         differ from Z3 0 (0 comparisons) | rejected 0 | median 5.8047 p99 825.1848 max 1614.1795
+soplex        differ from Z3 0 (0 comparisons) | rejected 0 | median 2.1684 p99 382.8778 max 592.0050
+soplex-exact  differ from Z3 0 (0 comparisons) | rejected 0 | median 2.6887 p99 385.7669 max 593.0328
+clarabel      differ from Z3 0 (0 comparisons) | rejected 0 | median 0.9855 p99 127.6357 max 198.8390
+z3            differ from Z3 0 (0 comparisons) | rejected 0 | median 2.4329 p99 32.5339 max 89.6597
+yices         differ from Z3 0 (0 comparisons) | rejected 0 | median 0.6210 p99 39.9864 max 79.3012
+cvc5          differ from Z3 0 (0 comparisons) | rejected 0 | median 13.0295 p99 372.3836 max 1858.8439

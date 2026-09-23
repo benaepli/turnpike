@@ -1,0 +1,98 @@
+# The simplex, step by step. Fixed samples: clean 2,000 runs, cached flag 500 runs, durations open.
+# Every line was checked against Z3 on every comparison.
+=== step 0: as first written: clean 296 runs/s on one thread (median 1.13x a run); cached flag over the cap
+=== step 1: 64-bit exact rationals
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.4031 p99 23.0054 max 93.0635 | pivots median 47 p99 266 max 955 | rows median 53 p99 1184 max 1488
+  threads  1:      881 runs/s  (open outcomes 2833)
+  threads 30:     9958 runs/s  (open outcomes 2833)
+cached_flag: over 120 s
+=== step 2: column index and suspect set
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.4355 p99 22.4954 max 90.4982 | pivots median 47 p99 266 max 955 | rows median 53 p99 1184 max 1488
+  threads  1:     1006 runs/s  (open outcomes 2833)
+  threads 30:    10542 runs/s  (open outcomes 2833)
+cached_flag: over 120 s
+=== step 3: divisions in 64 bits
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.3484 p99 16.5061 max 65.3994 | pivots median 47 p99 266 max 955 | rows median 53 p99 1184 max 1488
+  threads  1:     1318 runs/s  (open outcomes 2833)
+  threads 30:    13618 runs/s  (open outcomes 2833)
+cached_flag: over 120 s
+=== step 4: drop the defining rows of dead unbounded unknowns
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.2775 p99 9.9237 max 41.0379 | pivots median 47 p99 266 max 955 | rows median 34 p99 682 max 837
+  threads  1:     1876 runs/s  (open outcomes 2833)
+  threads 30:    19038 runs/s  (open outcomes 2833)
+cached_flag: over 120 s
+=== step 5: repairs wait for the next comparison: both samples over 120 s, reverted
+=== step 6: enter on the unknown in the fewest rows
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.0970 p99 0.4402 max 6.4648 | pivots median 30 p99 153 max 345 | rows median 41 p99 935 max 1165
+  threads  1:    11217 runs/s  (open outcomes 2833)
+  threads 30:    64220 runs/s  (open outcomes 2833)
+cached_flag: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.2010 p99 13.2925 max 112.5949 | pivots median 46 p99 1745 max 6280 | rows median 37 p99 921 max 1406
+  threads  1:      573 runs/s  (open outcomes 3163)
+  threads 30:     1483 runs/s  (open outcomes 3163)
+=== step 7: repair the newest violated row first: slower (clean 9,859, cached flag 446 runs/s), reverted
+=== step 8: one merge per row in a pivot, no allocation
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.1031 p99 0.4227 max 5.5822 | pivots median 30 p99 153 max 345 | rows median 41 p99 935 max 1165
+  threads  1:    11463 runs/s  (open outcomes 2833)
+  threads 30:    64974 runs/s  (open outcomes 2833)
+cached_flag: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.2096 p99 9.4078 max 78.0380 | pivots median 46 p99 1745 max 6280 | rows median 37 p99 921 max 1406
+  threads  1:      779 runs/s  (open outcomes 3163)
+  threads 30:     2045 runs/s  (open outcomes 3163)
+=== shortest violated row first: over 120 s on 1,000 cached-flag runs, reverted
+=== final: steps 1-4, 6 and 8
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.1009 p99 0.4240 max 5.6184 | pivots median 30 p99 153 max 345 | rows median 41 p99 935 max 1165
+  threads  1:    11439 runs/s  (open outcomes 2833)
+  threads 30:    63354 runs/s  (open outcomes 2833)
+cached_flag: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.2050 p99 9.2673 max 77.6675 | pivots median 46 p99 1745 max 6280 | rows median 37 p99 921 max 1406
+  threads  1:      781 runs/s  (open outcomes 3163)
+  threads 30:     2058 runs/s  (open outcomes 3163)
+
+# All 20,000 runs against Z3 (concrete | durations | rates), then the cached flag
+clean        concrete   comparisons 39032, other outcome open 27258|0, runs replayed over wide numbers 0, runs that overflowed those too 0, rows this level cannot write 0|differ from Z3 0 (0 comparisons)|median 0.0530 p99 0.1656 max 0.3370|
+clean        durations  comparisons 39032, other outcome open 28453|0, runs replayed over wide numbers 0, runs that overflowed those too 0, rows this level cannot write 0|differ from Z3 0 (0 comparisons)|median 0.1016 p99 0.4051 max 45.7598|
+clean        rates      comparisons 39032, other outcome open 27259|0, runs replayed over wide numbers 0, runs that overflowed those too 0, rows this level cannot write 0|differ from Z3 0 (0 comparisons)|median 0.0638 p99 0.2318 max 2.7390|
+recv_anchor  concrete   comparisons 38907, other outcome open 32956|0, runs replayed over wide numbers 0, runs that overflowed those too 0, rows this level cannot write 0|differ from Z3 0 (0 comparisons)|median 0.0531 p99 0.1594 max 0.5339|
+recv_anchor  durations  comparisons 38907, other outcome open 32986|0, runs replayed over wide numbers 0, runs that overflowed those too 0, rows this level cannot write 0|differ from Z3 0 (0 comparisons)|median 0.0812 p99 0.2635 max 18.3389|
+recv_anchor  rates      comparisons 38907, other outcome open 34304|0, runs replayed over wide numbers 0, runs that overflowed those too 0, rows this level cannot write 0|differ from Z3 0 (0 comparisons)|median 0.0622 p99 0.2144 max 19.5262|
+cached_flag  concrete   comparisons 48351, other outcome open 20761|0, runs replayed over wide numbers 0, runs that overflowed those too 0, rows this level cannot write 0|differ from Z3 0 (0 comparisons)|median 0.0823 p99 0.6706 max 9.2458|
+cached_flag  durations  
+cached_flag durations, 2,000 runs: differ from Z3 0 | median 0.2145 p99 36.06 max 1677.37
+
+# Larger cached-flag sample, 1,000 runs, durations open, runs/s by threads 1 2 4 8 16 30
+simplex 111 141 162 170 172 173   (slowest run 5.7 s: 4,940 pivots, 1,455 peak rows, 297 comparisons)
+z3      245 473 835 1307 1982 1947
+yices   305 576 978 1264 1113 847
+# clean, 2,000 runs
+simplex 11384 22125 41036 66884 76424 65517
+z3      680 1334 2540 4527 6890 6807
+yices   4647 4881 4103 2824 2220 1489
+
+# Long runs. The dozen slowest of 1,000 cached-flag runs, durations open, before this round:
+# the explorer takes 2.5-3.4 ms on each; Z3 50-260 ms; Yices 56-320 ms;
+# the simplex 77-220 ms on nine of them and 672 ms, 1.06 s and 5.72 s on three.
+# Those 12 runs were 95% of all simplex time.
+=== step 9: a dead unknown's row goes when it turns basic
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.0982 p99 0.3640 max 2.3884 | pivots median 30 p99 152 max 345 | rows median 37 p99 935 max 1154
+cached_flag: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.1838 p99 3.0531 max 10.6664 | pivots median 46 p99 1726 max 6138 | rows median 31 p99 510 max 871
+=== step 10: a dead unknown is pivoted in and dropped at once
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.1069 p99 0.3246 max 0.6801 | pivots median 46 p99 216 max 1325 | rows median 22 p99 336 max 408
+cached_flag: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.1805 p99 2.5388 max 11.8363 | pivots median 59 p99 1980 max 6081 | rows median 22 p99 505 max 685
+=== a sweep of finished columns that can only help: removes 45-100% of rows at the end of a run, none mid-run; removed
+=== final: steps 1-4, 6, 8, 9 and 10
+clean: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.1071 p99 0.3221 max 0.6832 | pivots median 46 p99 216 max 1325 | rows median 22 p99 336 max 408
+  threads  1:    10694 runs/s  (open outcomes 2833)
+  threads 30:    64269 runs/s  (open outcomes 2833)
+cached_flag: differ from Z3 0 (0 comparisons) | wide numbers 0 | median 0.1773 p99 2.5315 max 11.7273 | pivots median 59 p99 1980 max 6081 | rows median 22 p99 505 max 685
+  threads  1:     3002 runs/s  (open outcomes 3163)
+  threads 30:     8743 runs/s  (open outcomes 3163)
+
+# after this round, the six slowest of the same 1,000 runs (ms): run, simplex, z3, yices, the run itself
+4863  126.0  104.3  316.9  3.38
+4453   32.0  180.8   86.8  2.71
+19513  29.2  143.8   85.7  2.51
+4223   19.0  200.4   91.2  2.62
+4340   18.3  177.7   82.2  2.57
+9260   17.7   85.9   55.9  3.07
+# 1,000 cached-flag runs: 8.94 s of solver time before, 0.51 s after.
+# runs/s by threads 1 2 4 8 16 30: 1939 3565 5345 6295 6738 6316 (was 111 ... 173; z3 245 ... 1947)
+# validation against Z3, all zero differences: clean durations 20,000; recv_anchor rates 20,000;
+# cached_flag durations 3,000 (median 0.18 p99 5.6 max 36 of the run); cached_flag concrete 6,000 (0.10 / 1.0 / 1.4)

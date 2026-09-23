@@ -1,0 +1,57 @@
+# Pin policies for the budgeted simplex. Cached flag, durations open, 6,000 runs, one thread.
+# kept: of the outcomes the exact solver found open, the share this one also found open, while it could follow the record
+# of all: the same, counting every comparison after a run left the record as lost
+# holds / expired: kept, split by which outcome was the other one
+# left: runs where the record asked for an outcome this solver had closed
+# With SIMPLEX_DEBUG set, every open trial under every policy was checked against every constraint
+# accepted so far: 0 violations over 200 runs.
+
+6000 runs, budget 64 rows; fixing the scale changed the exact answers of 0 runs
+policy                     |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+no scale, no margin        |   76.22%   63.53%   67.15%  100.00% |      0   1.33% |  0.239   1.31    2.94 |    5138
+lower 0 upper 0            |   97.61%   78.68%   96.75%   99.98% |      0   1.12% |  0.171   1.17    1.52 |    6753
+lower 0 upper 1/256        |   98.16%   84.58%   97.40%   99.96% |      0   0.92% |  0.170   1.60    2.71 |    5849
+lower 0 upper 1/64         |   98.13%   84.54%   97.36%   99.96% |      0   0.93% |  0.171   1.62    2.73 |    5797
+lower 0 upper 1/16         |   98.06%   84.15%   97.27%   99.97% |      0   0.97% |  0.171   1.61    2.87 |    5829
+lower 1/256 upper 0        |   99.24%   68.76%   99.04%   99.64% |      0   2.13% |  0.171   1.34    5.64 |    5796
+lower 1/256 upper 1/256    |   99.27%   66.77%   99.11%   99.60% |      0   2.20% |  0.170   1.44   13.16 |    4977
+lower 1/256 upper 1/64     |   99.24%   68.41%   99.12%   99.46% |      0   2.10% |  0.172   1.43   47.87 |    4208
+lower 1/256 upper 1/16     |   99.25%   69.35%   99.20%   99.35% |      0   2.08% |  0.169   1.46   12.73 |    4555
+lower 1/64 upper 0         |   99.32%   69.01%   99.15%   99.67% |      0   2.08% |  0.170   1.28   14.17 |    5526
+lower 1/64 upper 1/256     |   99.30%   67.56%   99.17%   99.56% |      0   2.12% |  0.171   1.37   16.36 |    4832
+lower 1/64 upper 1/64      |   99.27%   69.83%   99.16%   99.47% |      0   2.03% |  0.170   1.43   19.23 |    4117
+lower 1/64 upper 1/16      |   99.25%   70.79%   99.25%   99.23% |      0   1.88% |  0.170   1.43   39.01 |    3655
+lower 1/16 upper 0         |   99.34%   69.32%   99.30%   99.40% |      0   1.97% |  0.170   1.41   23.02 |    4095
+lower 1/16 upper 1/256     |   99.49%   69.74%   99.39%   99.69% |      0   1.93% |  0.170   1.44   25.71 |    3690
+lower 1/16 upper 1/64      |   99.46%   69.36%   99.36%   99.67% |      0   1.95% |  0.170   1.45   22.46 |    4043
+lower 1/16 upper 1/16      |   99.46%   68.46%   99.38%   99.62% |      0   2.07% |  0.171   1.52   41.58 |    2993
+bandit, open-share reward  |   98.86%   73.10%   98.51%   99.58% |      0   1.78% |  0.171   1.50   19.06 |    4690
+    613 runs reached the budget; most pulled: lower 0 upper 1/256 x63, lower 1/64 upper 1/64 x59, lower 1/64 upper 1/16 x57
+bandit, novelty reward     |   98.97%   74.88%   98.68%   99.58% |      0   1.68% |  0.171   1.41   13.29 |    5186
+    613 runs reached the budget; most pulled: lower 1/256 upper 0 x51, lower 1/16 upper 1/16 x44, lower 1/16 upper 1/64 x43
+best fixed arm, counting whatever follows a run leaving the record as lost: lower 0 upper 1/256
+
+6000 runs, budget 32 rows; fixing the scale changed the exact answers of 0 runs
+policy                     |     kept   of all    holds  expired | gained    left | median    p99     max |  runs/s
+no scale, no margin        |   58.15%   42.99%   45.93%  100.00% |      0   4.97% |  0.241   1.17    2.79 |    5800
+lower 0 upper 0            |   95.11%   72.85%   93.53%   99.97% |      0   2.82% |  0.171   1.14    1.53 |    6908
+lower 0 upper 1/256        |   96.53%   80.66%   95.14%   99.97% |      0   1.65% |  0.172   1.59    2.68 |    5811
+lower 0 upper 1/64         |   96.50%   80.30%   95.12%   99.97% |      0   1.67% |  0.172   1.59    2.72 |    5793
+lower 0 upper 1/16         |   96.51%   80.76%   95.13%   99.94% |      0   1.58% |  0.172   1.58    2.69 |    5866
+lower 1/256 upper 0        |   95.62%   53.21%   95.05%   96.81% |      0   9.68% |  0.173   1.16   12.31 |    5291
+lower 1/256 upper 1/256    |   95.59%   52.20%   95.27%   96.26% |      0   9.75% |  0.174   1.22   13.24 |    4635
+lower 1/256 upper 1/64     |   94.76%   53.44%   94.06%   96.20% |      0   9.75% |  0.173   1.30   27.86 |    4010
+lower 1/256 upper 1/16     |   94.89%   53.05%   94.41%   95.92% |      0   9.40% |  0.176   1.38   14.18 |    3894
+lower 1/64 upper 0         |   95.84%   53.99%   95.42%   96.74% |      0   9.23% |  0.175   1.13   16.50 |    4934
+lower 1/64 upper 1/256     |   95.81%   54.19%   95.41%   96.64% |      0   9.37% |  0.173   1.18   19.56 |    4167
+lower 1/64 upper 1/64      |   95.87%   53.45%   95.52%   96.61% |      0   9.37% |  0.173   1.21   17.95 |    3828
+lower 1/64 upper 1/16      |   94.92%   52.75%   94.37%   96.08% |      0   9.63% |  0.174   1.26   29.53 |    3363
+lower 1/16 upper 0         |   96.59%   57.34%   96.32%   97.15% |      0   8.65% |  0.174   1.15   17.47 |    4470
+lower 1/16 upper 1/256     |   96.58%   57.38%   96.27%   97.24% |      0   8.62% |  0.174   1.22   19.98 |    4142
+lower 1/16 upper 1/64      |   96.56%   56.47%   96.29%   97.14% |      0   8.73% |  0.174   1.21   40.30 |    3462
+lower 1/16 upper 1/16      |   96.71%   59.02%   96.52%   97.10% |      0   8.45% |  0.173   1.30   39.06 |    2988
+bandit, open-share reward  |   95.86%   59.53%   95.19%   97.33% |      0   7.07% |  0.174   1.39   40.69 |    3981
+    1636 runs reached the budget; most pulled: lower 1/16 upper 1/256 x227, lower 0 upper 1/64 x186, lower 1/64 upper 1/64 x129
+bandit, novelty reward     |   95.30%   59.81%   94.14%   97.91% |      0   7.53% |  0.174   1.46   21.87 |    4087
+    1636 runs reached the budget; most pulled: lower 1/16 upper 1/64 x159, lower 1/256 upper 0 x134, lower 0 upper 1/16 x130
+best fixed arm, counting whatever follows a run leaving the record as lost: lower 0 upper 1/16
