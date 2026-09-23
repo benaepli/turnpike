@@ -1833,3 +1833,78 @@ Verdict against the R thresholds:
 - The reading is therefore **the middle band**. The one entry that
   blocks Go is a real bug that symbolic time found and concrete sampling
   did not.
+
+### After the vote rule
+
+The three lease specs now refuse a vote while the voter has heard from the
+leader of its current term within `durations().election` on its own
+clock (thesis section 4.2.3). Each mutant keeps its mutation. The reach
+protocol was run again unchanged: same configs, seeds 1000 and 1001, two
+300 s chunks per arm alternating, one 120 s `trials: all` chunk, 30
+threads. Summaries are in `research/symtime/results/reach_fixed/`, and
+the table is in `results/reach_sessions_fixed.txt`.
+
+The clean witness from before does not replay against the fixed spec.
+Replay refuses it before the first step, because the artifact names the
+old program's digest. The vote it depended on is one the rule refuses:
+node 2 had heard node 1 3.3M ticks earlier, against an election timeout
+of 6.3M.
+
+| Spec | Concrete | Symbolic (drawn) | Per wall-hour |
+|---|---|---|---|
+| cached_flag | 31 in 15.6M runs | 35 in 8.2M | 186 against 210: 1.13x |
+| recv_anchor | 0 in 15.7M | 3 in 8.1M | 0 against 18 |
+| clean | 0 in 15.3M | 0 in 8.2M | 0 against 0 |
+
+- Every symbolic candidate replayed illegal. The unconfirmed share is 0%,
+  and no run conceded. One concrete recv_anchor chunk left 209 histories
+  unchecked when its check queue deferred them at the end of the session.
+- Open shares: 0.45 on cached_flag, 0.75 on recv_anchor, 0.71 on clean.
+- Flip runs are now at least as new as matched runs that took no flip:
+  - by branch set, +0.10, +0.02 and +0.01;
+  - by event timeline, +0.15, +0.06 and +0.05.
+- Distinct joint patterns, 30,000 runs each, concrete against symbolic:
+  1533 against 1470, 1675 against 1534, 1599 against 1496. The vote check
+  is a second comparison site, so the two-node count now mixes that site
+  with the lease check and is not read.
+- Costs, symbolic drawn:
+  - Solver share 1.3% on cached_flag and 0.6% on the other two.
+  - Taken flips 0.23, 0.38 and 0.35 of comparisons; refusals 0.28, 0.12
+    and 0.15.
+  - No widenings, concessions or barrier fallbacks.
+  - About 69 shadow releases a run.
+
+Classification of the confirmed stale lease reads
+(`results/reach/votes_all.txt`: for each read, whether the vote that
+elected the superseding leader came within the voter's election timeout
+of hearing the stale leader):
+
+- **The clean control's read, and four of the six recv_anchor reads on
+  the unfixed specs.** Each needed a vote the section 4.2.3 rule refuses.
+  In recv-1000 run 1489819, for example, node 0 voted for node 1 in term 4
+  in the same tick it heard node 2, the term-3 leader. Node 1 then
+  committed, and node 2 served a lease read at step 114. This is
+  **ambiguous**: section 6.4.1 derives the lease from followers not timing
+  out, and never says that followers must also refuse votes, which the
+  spec as written did not do.
+- **The other two unfixed recv_anchor reads (runs 1005288 and 353531) and
+  all three reads on the fixed recv_anchor spec (2243085, 2919364,
+  1005288 again).** In each, the voter was past its own timeout, so the
+  vote was legitimate. In run 1005288 node 2 becomes leader for term 3 at
+  step 168. It takes its lease at step 171 from the moment node 0's
+  acknowledgement arrives, adds the full lease with no drift margin, and
+  its clock runs slow. Node 0's timeout runs from the heartbeat it last
+  received. Node 0 votes for node 1 at step 193, 760k ticks after it
+  last heard node 2, against a 688k timeout. Node 1 commits, and node 2
+  answers a lease read at step 206. This is the intended mutation, an
+  **implementation bug** by design: the lease is anchored at the
+  acknowledgement's arrival rather than the heartbeat's send, and its
+  margin is dropped.
+
+Verdict against the R thresholds, fixed specs: **Go**.
+- The clean control has no confirmed violation in either arm.
+- recv_anchor falsifies under symbolic time (3 confirmed in 8.1M runs)
+  and not concretely (0 in 15.7M).
+- The unconfirmed share is 0%.
+- cached_flag stays near parity per wall-hour (1.13x, about 30 events per
+  arm, so roughly plus or minus 35%). It is 2.2 times as likely per run.
