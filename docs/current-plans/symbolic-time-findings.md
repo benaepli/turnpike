@@ -1908,3 +1908,30 @@ Verdict against the R thresholds, fixed specs: **Go**.
 - The unconfirmed share is 0%.
 - cached_flag stays near parity per wall-hour (1.13x, about 30 events per
   arm, so roughly plus or minus 35%). It is 2.2 times as likely per run.
+
+### Recovery and the vote rule
+
+The time a node last heard its leader is volatile. A follower that
+acknowledged the leader, crashed and recovered could therefore vote at
+once. All three lease specs now set that reading to `mono_now()` in
+`RecoverInit`, with the restored term, so a recovered node waits out a
+full election timeout before it votes. The monotonic clock survives a
+crash, so nothing has to be persisted. Persisting the reading would only
+move the wait's start earlier, to the last heartbeat before the crash,
+which is shorter but asks for a durable write on every heartbeat.
+
+Checks, same overlay, 30 threads, 300 s chunks, seeds 1000 and 1001:
+
+- **Clean, concrete:** 0 confirmed in 15.4M runs. Seed 1001 left 15
+  histories unchecked when its check queue deferred them; run again with
+  the queue blocking, it checked all 7.69M and found none.
+- **Clean, symbolic:** 0 confirmed in 8.2M runs.
+- **Crashes occur:** in both arms half the runs take one (7.69M of 15.4M
+  concrete, 4.08M of 8.2M symbolic), the overlay's 0-to-1 crash range.
+- **recv_anchor, symbolic, 600 s:** 3 confirmed in 8.0M runs (runs
+  2243085, 2919364 and 1005288). In all three the voter was past its own
+  timeout (`results/reach_recovery/votes.txt`), so the anchor mutation is
+  still found.
+- **The phase 4 concrete recv_anchor chunk that deferred 209 histories:**
+  run again on the same spec with the queue blocking, it checked all 7.87M
+  and found no violation. The concrete count stays at 0.

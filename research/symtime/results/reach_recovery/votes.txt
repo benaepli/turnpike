@@ -1,0 +1,15 @@
+== summaries-crash-recv_anchor-drawn-1000 run_2243085
+election timeout 1835008
+lease read by node 0 at step 70 in its term 1, after node 2 became leader for term 2 at step 55
+  node 1 voted at step 54; last heard the reader at step 45, 2028165 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-crash-recv_anchor-drawn-1000 run_2919364
+election timeout 688128
+lease read by node 2 at step 160 in its term 3, after node 0 became leader for term 4 at step 146
+  node 1 voted at step 145; last heard the reader at step 143, 688128 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it
+== summaries-crash-recv_anchor-drawn-1001 run_1005288
+election timeout 688128
+lease read by node 2 at step 206 in its term 3, after node 1 became leader for term 4 at step 194
+  node 0 voted at step 193; last heard the reader at step 186, 760561 ticks earlier on its clock: past the timeout
+  verdict: the vote rule does not stop it

@@ -126,6 +126,13 @@ role Node(cluster: Cluster) {
             log = s.log;
         }
 
+        // A recovered node may have acknowledged a leader just before it
+        // crashed, and does not remember doing so; it treats the leader of
+        // its term as heard now, so it grants no vote for a full election
+        // timeout. The monotonic clock runs on through a crash.
+        leader_heard_at = mono_now();
+        leader_heard_term = current_term;
+
         // Volatile state resets on recovery
         state = 0;
         commit_index = 0;

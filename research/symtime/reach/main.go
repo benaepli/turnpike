@@ -49,6 +49,12 @@ func main() {
 	}
 	out["runs"] = n
 	out["run_wall_us"] = wall
+	var crashes, crashed int64
+	execs := fmt.Sprintf("read_parquet('%s/executions/*.parquet')", dir)
+	if db.QueryRow(fmt.Sprintf("SELECT count(*), count(DISTINCT run_id) FROM %s WHERE action = 'System.Crash'", execs)).Scan(&crashes, &crashed) == nil {
+		out["crashes"] = crashes
+		out["runs_with_crash"] = crashed
+	}
 	sums := map[string]float64{}
 	for _, c := range counters {
 		var v sql.NullFloat64
