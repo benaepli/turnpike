@@ -1,0 +1,18 @@
+xcap-cached_flag.csv           runs  2000  share 0.042  p99 0.10  worst 0.40  conceded {}  flips 50918 refused 11083 certified 0 caught 0 false_witness 0
+xcap-chains.csv                runs   400  share 0.115  p99 0.83  worst 1.12  conceded {'overflow': 4, 'cap': 30}  flips 50353 refused 31052 certified 0 caught 0 false_witness 0
+xcap-clean.csv                 runs  2000  share 0.021  p99 0.09  worst 0.16  conceded {}  flips 4229 refused 1099 certified 0 caught 0 false_witness 0
+xcap-crossclock.csv            runs   400  share 0.223  p99 1.86  worst 2.13  conceded {'cap': 63, 'overflow': 11}  flips 48747 refused 28528 certified 0 caught 0 false_witness 0
+xcap-forms.csv                 runs  1008  share 0.145  p99 0.31  worst 0.46  conceded {}  flips 31831 refused 17092 certified 0 caught 0 false_witness 0
+xcap-idioms.csv                runs  1008  share 0.116  p99 0.82  worst 1.13  conceded {'cap': 51, 'overflow': 6}  flips 114075 refused 54895 certified 0 caught 0 false_witness 0
+xcap-long.csv                  runs  1008  share 0.026  p99 0.05  worst 0.17  conceded {}  flips 13083 refused 5417 certified 0 caught 0 false_witness 0
+xcap-recv_anchor.csv           runs  2000  share 0.019  p99 0.06  worst 0.17  conceded {}  flips 4443 refused 1064 certified 0 caught 0 false_witness 0
+xcap-webs.csv                  runs   400  share 0.111  p99 0.58  worst 0.81  conceded {'cap': 19, 'overflow': 6}  flips 55476 refused 31458 certified 0 caught 0 false_witness 0
+fcap-cached_flag.csv           runs  2000  share 0.132  p99 0.20  worst 3.67  conceded {'limit': 17}  flips 49779 refused 10739 certified 39040 caught 8 false_witness 0
+fcap-chains.csv                runs   400  share 0.164  p99 0.84  worst 1.00  conceded {'limit': 15, 'cap': 22, 'overflow': 1}  flips 41361 refused 26102 certified 15259 caught 36 false_witness 46
+fcap-clean.csv                 runs  2000  share 0.093  p99 0.17  worst 23.83  conceded {'limit': 10}  flips 4238 refused 1095 certified 3143 caught 2 false_witness 1
+fcap-crossclock.csv            runs   400  share 0.240  p99 1.74  worst 4.40  conceded {'cap': 86, 'limit': 8}  flips 44715 refused 26174 certified 18541 caught 12 false_witness 4
+fcap-forms.csv                 runs  1008  share 0.296  p99 0.60  worst 0.73  conceded {}  flips 31344 refused 16829 certified 14515 caught 4 false_witness 0
+fcap-idioms.csv                runs  1008  share 0.124  p99 0.84  worst 2.51  conceded {'limit': 29, 'cap': 68, 'overflow': 3}  flips 97480 refused 47466 certified 50014 caught 43 false_witness 220
+fcap-long.csv                  runs  1008  share 0.078  p99 0.15  worst 0.56  conceded {'limit': 18}  flips 11782 refused 4814 certified 6968 caught 36 false_witness 7
+fcap-recv_anchor.csv           runs  2000  share 0.091  p99 0.15  worst 0.32  conceded {'limit': 1}  flips 4457 refused 1070 certified 3387 caught 5 false_witness 1
+fcap-webs.csv                  runs   400  share 0.171  p99 1.10  worst 1.18  conceded {'limit': 54, 'cap': 11, 'overflow': 3}  flips 40201 refused 23496 certified 16705 caught 9 false_witness 175

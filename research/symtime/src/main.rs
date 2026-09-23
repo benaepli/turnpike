@@ -271,7 +271,10 @@ fn rho() -> num_rational::Ratio<i128> {
 /// `SYMTIME_SCALE`: every value of every unknown multiplied by this, as a
 /// rational `n/d` or an integer.
 fn scale_of() -> Option<spur_time::Q> {
-    let text = std::env::var("SYMTIME_SCALE").ok()?;
+    rational_of(&std::env::var("SYMTIME_SCALE").ok()?)
+}
+
+fn rational_of(text: &str) -> Option<spur_time::Q> {
     Some(match text.split_once('/') {
         Some((n, d)) => spur_time::Q::new(n.parse().ok()?, d.parse().ok()?),
         None => spur_time::Q::from_integer(text.parse().ok()?),
@@ -288,10 +291,19 @@ fn script_of(run: &Run, level: general::Level) -> linear::Script {
 
 /// The engine's policy for a run. `SYMTIME_FLOAT_FLOOR` sets the magnitude
 /// below which float values are compared absolutely; one tick when unset.
+/// `SIMPLEX_SETTLE_ROUNDS` bounds the rounds one acceptance moves the
+/// durations in. `SYMTIME_UNIT` names the run's unit of time, a rational
+/// written `n/d`.
 fn policy_for(_run: &Run, backend: &str) -> Policy {
     let mut policy = Policy::from_env(backend);
     if let Some(floor) = std::env::var("SYMTIME_FLOAT_FLOOR").ok().and_then(|v| v.parse().ok()) {
         policy.opts.float_scale = floor;
+    }
+    if let Some(unit) = std::env::var("SYMTIME_UNIT").ok().and_then(|v| rational_of(&v)) {
+        policy.opts.unit = unit;
+    }
+    if let Some(rounds) = std::env::var("SIMPLEX_SETTLE_ROUNDS").ok().and_then(|v| v.parse().ok()) {
+        policy.opts.settle_rounds = rounds;
     }
     policy
 }

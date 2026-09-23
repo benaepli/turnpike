@@ -1,6 +1,8 @@
 // reach DIR: one explore session's reach readings as JSON on stdout.
 // reach novelty DIR: for a symbolic session with its traces and logs, how
 // often runs that took a flip are new, against runs that did not.
+// reach runs DIR: one CSV line per run with its steps, wall time and engine
+// cost, for the cap's calibration and solver shares.
 //
 // Runs and their wall time, check verdicts by reason, and for a symbolic
 // session the sums of every counter in each run's runs.clock.time report.
@@ -27,6 +29,10 @@ var counters = []string{
 func main() {
 	if os.Args[1] == "novelty" {
 		novelty(os.Args[2])
+		return
+	}
+	if os.Args[1] == "runs" {
+		runsCSV(os.Args[2])
 		return
 	}
 	dir := os.Args[1]

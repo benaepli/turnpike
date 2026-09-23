@@ -1,0 +1,13 @@
+# Float against the exact engine with every value multiplied by the scale
+# and the engine told the run's unit (SYMTIME_UNIT = the scale): constants
+# are taken in the unit and values given back in the run's own, so the float
+# tolerance follows the scale. `linear --against exact`, durations open.
+idioms 100 runs      x1e-6, x1, x1e6: 0 of 3115 closed answered open, 0 of 6660 open answered closed, 0 without an answer, at every scale
+forms 150 runs       x1e-6, x1, x1e6: 0 of 673 closed answered open, 0 of 3108 open answered closed, 0 without an answer, at every scale
+webs 60 runs         x1e-6, x1, x1e6: 3 of 3054 closed answered open, 0 of 7746 open answered closed, 152 without an answer, the same at every scale
+crossclock 20 runs   x1e-6, x1, x1e6: 0 of 1538 closed answered open, 0 of 3527 open answered closed, 0 without an answer, at every scale
+
+# Before the unit, with the absolute floor at the scaled tick, the same runs
+# gave 3 false opens and 648 unanswered on idioms at x1e-6, 19 and 4136 on
+# webs at x1e-6, and 17 false opens, 7 false closeds and 3863 unanswered on
+# crossclock at x1e6.

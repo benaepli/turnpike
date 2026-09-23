@@ -1,0 +1,20 @@
+== xcap
+  clean        share   0.065  offline 0.10  within  p99    0.39  worst     0.72  left to concrete   0.0%
+  recv_anchor  share   0.062  offline 0.11  within  p99    0.26  worst     0.66  left to concrete   0.0%
+  cached_flag  share   0.145  offline 0.14  within  p99    0.43  worst     1.84  left to concrete   0.0%
+  long         share   0.099  offline 0.10  within  p99    0.22  worst     0.83  left to concrete   0.0%
+  forms        share   0.449  offline 0.23  OVER    p99    0.95  worst     1.53  left to concrete   0.0%
+  idioms       share   1.950  offline 0.58  OVER    p99    5.07  worst     7.29  left to concrete   4.0%
+  webs         share   1.270  offline 0.89  within  p99    3.23  worst     4.25  left to concrete   3.6%
+  chains       share   1.906  offline 2.23  within  p99    6.13  worst     9.51  left to concrete   9.2%
+  crossclock   share   2.693  offline 2.18  within  p99   11.98  worst    12.47  left to concrete  23.8%
+== fcap
+  clean        share   0.331  offline 0.10  OVER    p99    0.76  worst   120.28  left to concrete   0.2%
+  recv_anchor  share   0.337  offline 0.11  OVER    p99    0.56  worst     2.28  left to concrete   0.0%
+  cached_flag  share   0.526  offline 0.14  OVER    p99    0.92  worst    16.16  left to concrete   1.0%
+  long         share   0.349  offline 0.10  OVER    p99    0.70  worst     2.84  left to concrete   5.6%
+  forms        share   1.068  offline 0.23  OVER    p99    2.19  worst     2.64  left to concrete   0.0%
+  idioms       share   2.341  offline 0.58  OVER    p99    5.56  worst    11.96  left to concrete  11.6%
+  webs         share   1.108  offline 0.89  within  p99    4.72  worst     9.82  left to concrete  21.0%
+  chains       share   1.758  offline 2.23  within  p99    6.04  worst     8.64  left to concrete  20.4%
+  crossclock   share   2.477  offline 2.18  within  p99   10.17  worst    47.55  left to concrete  32.6%
