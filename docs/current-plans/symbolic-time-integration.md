@@ -131,8 +131,20 @@ branch. It is ported, not rewritten.
 
 ### 3.2 Recommended online configuration
 
-Float arithmetic, draw-then-verify, and a per-run cap at 5 times the run's own
+Exact arithmetic, draw-then-verify, and a per-run cap at 5 times the run's own
 cost.
+
+**Decided in phase 5 (D2): exact online; float stays in the offline
+harness.** Online, a float answer the run acts on must be made sure of
+exactly, and the only way that held was an exact engine beside the float one
+accepting every row the run accepts. That exact engine alone costs about
+what exact arithmetic costs, so float plus its certificate cost more than
+exact on every dataset measured: with durations open and no cap, engine time
+over the run's own concrete time was 0.30 (certify every taken flip) and
+0.27 (accept drawn flips exactly) against 0.06 for exact on the clean spec,
+and 4.1 to 4.2 against 2.6 on idioms (`research/symtime/results/phase5`).
+The offline float figures below are kept as what they measured: float with
+no certificate.
 
 - **Draw-then-verify.** The chooser draws an outcome first. If the current
   assignment already witnesses it, it is accepted with no trial. If not, the
@@ -732,12 +744,11 @@ the lite loop with its own counter.
 
 - **D1.** The go/no-go R thresholds (3 times, 1.5 times, 10% unconfirmed),
   and what to do in the middle band.
-- **D2.** Float or exact online. Float + draw + cap is fastest on the heavy
-  shapes (0.58 to 2.23 of a run) with false opens about 0.05% and false
-  closeds about 2% on the worst fixtures; exact + draw has no errors and
-  costs 0.67 to 5.7. On the panel specs they cost the same. Sub-choices if
-  float: certify every taken flip, or do the accept of a drawn flip in the
-  exact tier.
+- **D2.** Decided: exact online (see 3.2). Float with either certificate
+  sub-choice (certify every taken flip, or accept drawn flips in the exact
+  tier) needs an exact engine accepting every row beside it, and measured
+  more costly than exact alone on every dataset. Float stays in the offline
+  harness.
 - **D3.** Whether the explorer needs the full open set before choosing.
   Draw-then-verify never gives it; a chooser that weighs outcomes by
   feasibility, or a reach report of both-open shares, needs `trials: "all"`

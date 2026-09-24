@@ -15,7 +15,7 @@ func runsCSV(dir string) {
 	if err != nil {
 		panic(err)
 	}
-	fields := []string{"ops", "solver_us", "pivots", "solver_work", "exact_pivots", "exact_work", "comparisons", "flips_drawn", "flips_refused", "certified", "certificate_failures", "false_witnesses", "cost_units", "run_units", "left_to_concrete"}
+	fields := []string{"ops", "solver_us", "pivots", "solver_work", "comparisons", "flips_drawn", "flips_refused", "false_witnesses", "cost_units", "run_units", "left_to_concrete"}
 	cols := []string{"run_id", "steps_used", "wall_us"}
 	for _, f := range fields {
 		cols = append(cols, fmt.Sprintf("coalesce(CAST(json_extract(clock, '$.time.%s') AS DOUBLE), 0)", f))

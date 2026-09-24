@@ -1,6 +1,6 @@
 """shares.py CSV...: per `reach runs` file, the solver share by wall time
 (engine time over the run's own), the worst run's, the runs that conceded
-by cause, and the certificate and refusal counts."""
+by cause, and the refusal counts."""
 import collections, csv, sys
 
 for path in sys.argv[1:]:
@@ -14,4 +14,4 @@ for path in sys.argv[1:]:
     total = lambda k: sum(float(r[k]) for r in rs)
     print(f"{path.rsplit('/', 1)[-1]:30} runs {len(rs):5}  share {share:.3f}  p99 {p99:.2f}  worst {worst:.2f}  "
           f"conceded {dict(conceded)}  flips {total('flips_drawn'):.0f} refused {total('flips_refused'):.0f} "
-          f"certified {total('certified'):.0f} caught {total('certificate_failures'):.0f} false_witness {total('false_witnesses'):.0f}")
+          f"false_witness {total('false_witnesses'):.0f}")

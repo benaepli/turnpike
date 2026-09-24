@@ -1,8 +1,7 @@
 """calibrate.py CSV...: fits the cap's units to wall time.
 
-Each CSV is `reach runs` output. The engines' time is fitted as a sum of
-rates over the main engine's pivots and merge work and the exact engine's
-pivots and merge work, and the run's own time, its wall time less the
+Each CSV is `reach runs` output. The engine's time is fitted as a sum of
+rates over its pivots and merge work, and the run's own time, its wall time less the
 engines', as a rate per interpreter instruction, all by least squares with
 no constant over every run of every file. Prints the rates in microseconds,
 and for each file the solver share by wall time against the share by the
@@ -10,7 +9,7 @@ fitted units, in total and at the worst run.
 """
 import csv, sys
 
-TERMS = ["pivots", "solver_work", "exact_pivots", "exact_work"]
+TERMS = ["pivots", "solver_work"]
 
 
 def load(path):
