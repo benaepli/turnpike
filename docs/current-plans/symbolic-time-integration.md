@@ -749,27 +749,31 @@ the lite loop with its own counter.
   tier) needs an exact engine accepting every row beside it, and measured
   more costly than exact alone on every dataset. Float stays in the offline
   harness.
-- **D3.** Whether the explorer needs the full open set before choosing.
-  Draw-then-verify never gives it; a chooser that weighs outcomes by
-  feasibility, or a reach report of both-open shares, needs `trials: "all"`
-  and its cost (the "exact" and "float" columns of the findings' policy
-  table rather than the "draw" ones).
+- **D3.** Open for the owner; built default `trials: "drawn"`. Whether the
+  explorer needs the full open set before choosing. Draw-then-verify never
+  gives it; a chooser that weighs outcomes by feasibility, or a reach report
+  of both-open shares, needs `trials: "all"` and its cost (the "exact" and
+  "float" columns of the findings' policy table rather than the "draw"
+  ones).
 - **D4.** The cap measure: deterministic work units with a calibrated
   exchange rate (recommended), or wall time with the concession step
   recorded so replay still reproduces it, giving up same-seed identical
   output.
-- **D5.** Accept one unknown per step (A3). It changes the offline numbers
-  slightly; phase 1 re-measures under it.
+- **D5.** Decided: as built, one unknown per step (A3). It changes the
+  offline numbers slightly; phase 1 re-measured under it.
 - **D6.** Whether a `run-plan` with a solver-found timeline is wanted.
 - **D7.** Refuse `open` when `tt_now` is used and `tt_width > 0`
   (recommended), or invest in a non-homogeneous integer witness.
-- **D8.** Under Symbolic: `overflow: block` plus a Go-checker warning
-  (recommended), or persist candidate inputs and add a `spur confirm`
-  command.
-- **D9.** The default `early_fire_weight`, and whether an early fire costs a
-  step as the concrete advance does.
-- **D10.** The default draw: uniform over outcomes, or weighted towards the
-  non-witnessed outcome (more flips, more refusals).
+- **D8.** Decided: under Symbolic, `overflow: block` plus a Go-checker
+  warning. The explorer blocks unless the config names an overflow policy,
+  and porcupine warns when an output's `runs.clock` carries a `time` object.
+  Persisting candidate inputs for a `spur confirm` command is not built.
+- **D9.** Open for the owner; built default `early_fire_weight: 0.25`, and
+  an early fire costs no step of its own. The default weight, and whether an
+  early fire should cost a step as the concrete advance does.
+- **D10.** Open for the owner; built default a uniform draw over outcomes.
+  Uniform, or weighted towards the non-witnessed outcome (more flips, more
+  refusals).
 
 ## 9. End-to-end verification
 
