@@ -239,8 +239,9 @@ foreign timer deadlines are runtime errors. The epoch survives process recovery.
 There is no time-to-integer conversion. A fractional timer bound becomes
 eligible at its ceiling on the concrete clock lattice. Negative durations
 are rejected before rounding, and unrepresentable timer bounds fail.
-Typed operations remain distinct through both interpreters. This introduces
-no symbolic runtime or solver calls.
+Typed operations remain distinct through both interpreters. In the default
+concrete mode no solver is involved; [symbolic time](#symbolic-time) is an
+explorer mode that leaves time open instead.
 
 A specification can declare [named durations](../spur/design/language.md#named-durations)
 and relationships without choosing numeric timeout values. Before any role
@@ -323,6 +324,54 @@ rather than redrawing them. See
 Lease validity, commit waits and recovery waits stay protocol code. The
 simulator never supplies a missing safety check and never revokes authority
 when a lease expires.
+
+## Symbolic Time
+
+With `"time": {"mode": "symbolic"}` (see
+[Simulator Options](simulator_options.md#time)) the explorer leaves global
+time open instead of drawing it. Each scheduler step that reads time gets an
+unknown at or after the previous step's, a monotonic reading is
+`origin_i + rate_i * t` with no floor, and a TrueTime read gives two unknowns
+`earliest <= t <= latest` at most `tt_width` apart. Protocol code sees the
+same types and operations as in concrete mode.
+
+- **Comparisons are decisions.** A comparison between times that are not both
+  numbers draws an outcome, and an exact linear solver checks that the rows
+  accepted so far still hold with it. An outcome that cannot hold is refused
+  and the outcome the present values already give is taken. Equality and
+  `min` are decisions with more than two outcomes. The outcome is kept, so a
+  later comparison cannot contradict it.
+- **Timed timers.** A timed timer whose deadline the present values put after
+  its owner's clock is withheld; with chance `early_fire_weight`, and always
+  when nothing else can run, the earliest is released and time is required
+  to have reached it. There are no sampled time advances: time moves as far
+  as the decisions taken need.
+- **Barriers.** Where a time is used structurally (a map key, `index_of`,
+  equality of values that contain a time, map iteration order) its unknowns
+  are fixed at their present values and it becomes a number.
+- **Durations.** Under `durations: "sampled"` a named duration is the number
+  its run sampled. Under `"open"` it is an unknown that starts there and is
+  held to its timing block's requirements; a run that reads TrueTime with
+  `tt_width > 0` is not scale free, so it keeps its sampled durations and its
+  `runs` row says so.
+- **Concession.** When the exact numbers outgrow 128 bits, a solver limit is
+  reached, or the solver's cost passes the configured cap, the run concedes:
+  it goes on concretely from a point meeting everything it accepted, a
+  whole-tick one where one can be found near the solver's own. A run with no
+  such point within the clocks' range ends there, with end reason
+  `time_conceded_without_point`.
+
+**Verdicts.** A symbolic history that is not linearizable is a candidate. Its
+witness, whole ticks at which every accepted row still holds with the clocks
+floored as a concrete run floors them, is written as a version-3 replay
+artifact and replayed concretely by `spur replay` in a child process, which
+checks every time decision as it meets it. The candidate is a violation,
+reason `confirmed_by_replay`, only when the replay reaches the recorded
+endpoint and its own history is illegal; otherwise it is unknown, reason
+`candidate_unconfirmed: <why>`, and the session exits 4. Deferred checks
+block rather than pass to the Go checker, which warns when an output holds
+symbolic runs. A symbolic replay artifact replayed with `spur replay` takes
+the same decisions again and reaches the same endpoint.
 
 ## Process Checkpoints and the Placed Pause
 

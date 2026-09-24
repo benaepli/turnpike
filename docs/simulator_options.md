@@ -324,6 +324,52 @@ selected in a later action to fire. See
 In `run-plan` the scheduler samples no advances: time moves only through
 `advance_time` events.
 
+### `time`
+
+Chooses how global time is explored. Absent, or `"mode": "concrete"`, keeps
+the sampled clocks described above; `"symbolic"` leaves time open and settles
+it by solver decisions (see
+[Simulator Semantics](simulator_semantics.md#symbolic-time)). `explore`
+accepts it with every explorer; `run-plan` refuses the symbolic mode.
+`--set time.mode=symbolic` works like any other override.
+
+```json
+"time": { "mode": "symbolic", "durations": "sampled", "confirm": "violations" }
+```
+
+- `mode` (default `"concrete"`): `"concrete"` or `"symbolic"`.
+- `durations` (default `"sampled"`): `"sampled"` reads each named duration
+  as the run sampled it; `"open"` makes them unknowns held to their timing
+  block. A run that reads TrueTime with `tt_width > 0` keeps its sampled
+  durations under `"open"`.
+- `start` (default `"sampled"`) and `start_salt` (default `0`): where open
+  durations start. `"fixed"` starts every run at one assignment; a nonzero
+  salt draws the start from a separate stream.
+- `arithmetic` (default `"exact"`): the only accepted value. Rationals start
+  in 64 bits and widen to 128; past that the run concedes.
+- `trials` (default `"drawn"`): `"drawn"` asks the solver about the drawn
+  outcome only; `"all"` also tries every outcome not drawn, to count which
+  were open. `"all"` is a measurement setting and costs more.
+- `early_fire_weight` (default `0.25`): the chance a withheld timed timer is
+  released at a step when other work exists.
+- `cap` (default `null`): a multiple. A run whose solver cost passes `cap`
+  times the run's own cost concedes and goes on concretely. Both costs are
+  counted in fixed work units, not wall time, so a capped run is the same on
+  any machine.
+- `confirm` (default `"violations"`): which runs have their witness replayed
+  concretely: `"violations"` the candidates only, `"all"` every run (a
+  measurement setting), `"none"` no run, which leaves every candidate
+  unconfirmed. Replays are written to `<output>/confirmed/run_N/` beside
+  their witness artifact `run_N.witness.json`.
+- `audit_share` (default `0.0`): the share of runs whose solver log is
+  written to `<output>/audit/`, for replaying their decisions offline.
+
+Under the symbolic mode `linearizability.overflow` defaults to `"block"`
+unless the config names it. Every `runs` row carries a `time` object in its
+`clock` column: the settings above, the decision counts (flips drawn, taken
+and refused), whether and at which step the run conceded, and the solver's
+cost. A concrete run's row has no `time` object.
+
 ### `record_replay`
 
 Writes one **exact-replay artifact** per run into `<output>/replay/run_N.json`.
