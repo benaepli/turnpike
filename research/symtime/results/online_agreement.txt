@@ -18,3 +18,14 @@ crossclock:  Agreement { runs: 800, answered: 106421, open: 44948, false_open: 0
 clean        concrete 16666.7 runs/s   symbolic 8888.9 runs/s
 recv_anchor  concrete 17204.3 runs/s   symbolic 8648.6 runs/s
 cached_flag  concrete 17021.3 runs/s   symbolic 8602.2 runs/s
+
+# With the horizon: the same sessions (session_seed 1000, 200 runs per
+# config), each log's horizon lines asserted in Z3 as well.
+clean:       Agreement { runs: 3200, answered: 7012, open: 5030, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+recv_anchor: Agreement { runs: 3200, answered: 7183, open: 5472, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+cached_flag: Agreement { runs: 3200, answered: 69060, open: 28378, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+forms:       Agreement { runs: 3200, answered: 89986, open: 41786, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+# idioms: stopped by the 3600 s cap after 2600 runs (Z3 is slower with the
+# horizon's large constant):
+idioms:      Agreement { runs: 2600, answered: 302153, open: 157119, false_open: 0, false_closed: 0, undecided: 0, inconsistent_runs: 0, rejected_accepts: 0 }
+# crossclock: Z3 did not finish 200 runs within the 3600 s cap.

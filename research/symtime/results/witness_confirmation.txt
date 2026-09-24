@@ -39,3 +39,24 @@ crossclock   320 checks  replayed 269  witness_overflow 22  witness_concession 1
 # 2 replayed, 21 witness_overflow, 12 conceded off a witness, 8 diverged,
 # 3 reading overflow, 1 negative. The accepted rows of these runs need times
 # far past any concrete run (findings, "Witness and concession").
+
+# With the horizon (H from the clocks' range, 4.50e18 = 2^61.96 on every
+# dataset), same protocol:
+clean        320 checks  replayed 320                                                    1.0000
+recv_anchor  320 checks  replayed 320                                                    1.0000
+cached_flag  320 checks  replayed 320                                                    1.0000
+forms        320 checks  replayed 320                                                    1.0000
+idioms       320 checks  replayed 316  witness_overflow 2  witness_concession 2          0.9875
+crossclock   320 checks  replayed 282  witness_overflow 27  witness_concession 10
+                                       replay_diverged 1                                 0.8812
+# Conceded runs replayed past the concession: idioms 1 of 4, crossclock 17 of
+# 39 (was 2 of 47); unconceded: idioms 315 of 316, crossclock 265 of 281.
+# No reading overflow and no negative value after a concession.
+#
+# Horizon sweep (a fixed H in place of the clocks' one), confirm: all:
+#   H        idioms replayed   crossclock replayed
+#   clocks   316               282
+#   2^45     311               259
+#   2^40     312               258
+# A tighter horizon adds witness overflows and infeasible witnesses: the
+# overflow is the size of the fractions, not of the times.
