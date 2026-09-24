@@ -2027,3 +2027,77 @@ overflows, its concessions without a point and its diverging
 continuations. A horizon on time, the online engine refusing flips that
 need times past about 2^40 ticks, would bound all of it; it changes which
 behaviours a symbolic run can reach and is left to the owner.
+
+### The horizon
+
+Every time and open duration is now bounded by `H`, the largest global
+time at which a concrete run still fits (plan 4.7). It comes from the clock
+configuration and is 4.50e18 (2^61.96) on every dataset measured, since all
+use `rho` 0.05.
+
+**Witness and concession** (`confirm: all`, 320 checks each):
+
+| Dataset | Replayed before | Replayed with the horizon |
+|---|---|---|
+| clean, recv_anchor, cached_flag, forms | 320 | 320 |
+| idioms | 316 | 316 (2 witness overflows, 2 concessions) |
+| crossclock | 269 | 282 |
+
+- Conceded crossclock runs now replay past the concession in 17 of 39
+  cases, up from 2 of 47. Unconceded crossclock runs replay in 265 of 281.
+- No run ends in a reading overflow or a negative value after a concession.
+- Idioms still misses the 0.99 target.
+
+**Why idioms still fails.** A fixed, tighter `H` makes things worse:
+
+| `H` | idioms replayed | crossclock replayed |
+|---|---|---|
+| 2^45 | 311 | 259 |
+| 2^40 | 312 | 258 |
+
+Witness overflows and infeasible witnesses both rise as `H` shrinks. The
+remaining overflow is therefore the size of the fractions a long chain of
+cross-clock rows builds in the witness solve (rates 19/20 and 21/20), not the
+size of the times. The horizon cannot remove it. It stays open as risk 15.
+
+**Z3 agreement.** Each log's horizon lines were asserted in Z3 too, so both
+sides judged the same system:
+
+| Dataset | Runs checked | Differences |
+|---|---|---|
+| clean, recv_anchor, cached_flag, forms | 3,200 each | 0 |
+| idioms | 2,600 (Z3 hit the 3,600 s cap) | 0 |
+| crossclock | under 200 (Z3 hit the cap) | none recorded |
+
+Z3 is slower here because of the horizon's large constant.
+
+**Reach.** Same protocol and seeds as phase 4. Results are in
+`results/reach_horizon/` and `results/reach_sessions_horizon.txt`.
+
+- **Refused flips are unchanged.** The share of drawn flips refused is:
+  - cached_flag: 0.272 with the horizon, 0.274 without;
+  - clean: 0.147, the same both ways;
+  - recv_anchor: 0.125 with, 0.124 without.
+
+  Horizon refusals are too few to show in these shares, so the horizon
+  loses nothing real on the lease specs.
+- **Confirmed violations:**
+
+  | Spec | Drawn arm | Open arm |
+  |---|---|---|
+  | cached_flag | 35 (was 35) | 36 (was 31) |
+  | clean | 0 | 0 |
+  | recv_anchor | 3, the same runs as before | 4 |
+
+  Every candidate replayed illegal, and no run conceded.
+- **recv_anchor's open-arm runs.** The four are 2243085, 1005288, 368105
+  and 976998. The last two are new, because the engine now takes different
+  paths through the same exact answers. All come from the anchor mutation.
+- **The cost.** The constant `H` does not fit the 64-bit tier's arithmetic,
+  so almost every symbolic run on the lease specs now widens once, about
+  0.6 widenings a run where there were none. As a result:
+  - solver share rises from 0.04-0.07 to 0.11-0.14;
+  - symbolic throughput drops 6% to 10%, to 10.5k-12.3k runs/s.
+
+  This is a cost of the horizon as specified, recorded as a reading. An `H`
+  that fits the narrow tier would avoid it, but it is not the clocks' range.
