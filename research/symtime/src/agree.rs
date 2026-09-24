@@ -88,15 +88,6 @@ fn run(ctx: &Context, solver: &Solver, lines: &[&str], tally: &mut Agreement) {
                 }
             }
             "r" => rows(rest).iter().for_each(|r| solver.assert(&formula(ctx, r, &mut unknowns))),
-            // The newest time is at most the horizon; every earlier one is
-            // below it too, so the bound is kept for good.
-            "h" => {
-                let mut parts = rest.split_whitespace();
-                let u: usize = parts.next().unwrap().parse().unwrap();
-                let h = rational(parts.next().unwrap());
-                let row = Row { terms: vec![(u, -Q::from_integer(1))], constant: h, strict: false };
-                solver.assert(&formula(ctx, &row, &mut unknowns));
-            }
             // Rows the engine found could not hold were withdrawn.
             "R" | "d" | "g" => {}
             "c" => {

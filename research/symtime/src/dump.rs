@@ -81,7 +81,7 @@ pub fn dump(script: &Script, answers: &[Option<bool>]) -> String {
                 }
                 let _ = writeln!(out, "{line}");
             }
-            Step::Lasting(_) | Step::Glue { .. } | Step::Horizon(..) => {}
+            Step::Lasting(_) | Step::Glue { .. } => {}
         }
     }
     let expected: String = answers.iter().map(|a| match a {

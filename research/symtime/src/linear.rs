@@ -299,7 +299,7 @@ pub fn script_anchored(run: &Run, level: Level, rho: &Q, anchor: Anchor) -> Scri
                 note(taken);
                 other.iter().for_each(|c| note(c));
             }
-            Step::Dead(_) | Step::Glue { .. } | Step::Lasting(_) | Step::Horizon(..) => {}
+            Step::Dead(_) | Step::Glue { .. } | Step::Lasting(_) => {}
         }
     }
     let mut liveness = Liveness::default();

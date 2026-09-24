@@ -53,9 +53,7 @@ fn rows(text: &str) -> Vec<Row> {
 
 /// Plays one run's log. False when it differs anywhere.
 fn run(lines: &[&str], tally: &mut Audit) -> bool {
-    // The horizon the run was given, which its engine applies to each time.
-    let horizon = lines.iter().find(|l| l.starts_with("h ")).map(|l| rational(l.split_whitespace().nth(2).unwrap()));
-    let mut e = Engine::new(Options { horizon, ..Options::default() }, 0, 1024);
+    let mut e = Engine::new(Options::default(), 0, 1024);
     let mut same = true;
     let mut timed = false;
     let mut i = 0;
@@ -68,7 +66,7 @@ fn run(lines: &[&str], tally: &mut Audit) -> bool {
         let first_time = op == "u" && parts.len() == 1 && !timed && lines.get(i + 1).is_some_and(|l| *l == format!("r 0 0 {}:1", parts[0]));
         if op == "u" && (parts.len() == 3 || first_time) {
             let mut j = i + 2;
-            while lines.get(j).is_some_and(|l| l.starts_with('g') || l.starts_with('h')) {
+            while lines.get(j).is_some_and(|l| l.starts_with('g')) {
                 j += 1;
             }
             let ends = parts.len() == 3 && lines.get(j).is_some_and(|l| *l == format!("d {}", parts[1]));
@@ -89,8 +87,7 @@ fn run(lines: &[&str], tally: &mut Audit) -> bool {
                 }
             }
             "d" => e.forget(parts[0].parse().unwrap()),
-            // Played by the engine itself as each time is made.
-            "g" | "h" => {}
+            "g" => {}
             "c" => {
                 let mut sections = rest.split('|');
                 let head: Vec<&str> = sections.next().unwrap().split_whitespace().collect();
