@@ -24,3 +24,18 @@ crossclock   319 checks  replayed 272  witness_overflow 30  witness_concession 1
 # (none replayed past the concession), crossclock 46 (5 replayed, 24
 # witness_overflow, 16 conceded off a witness, 1 diverged). One crossclock
 # run of 320 fails with a clock overflow in its concrete continuation.
+
+# Exit measured again after phase 5 (exact online), same protocol, 20 runs
+# per config (320 checks each). Overflows past the solve are now named by
+# what overflowed (witness_reading_overflow: a clock reading).
+clean        320 checks  replayed 320                                                              1.0000
+recv_anchor  320 checks  replayed 320                                                              1.0000
+cached_flag  320 checks  replayed 320                                                              1.0000
+forms        320 checks  replayed 320                                                              1.0000
+idioms       320 checks  replayed 316  witness_overflow 3  witness_concession 1                    0.9875
+crossclock   320 checks  replayed 269  witness_overflow 22  witness_concession 12  replay_diverged 8
+                                       witness_reading_overflow 8  witness_negative 1               0.8406
+# Conceded runs: idioms 1 (not replayed past the concession); crossclock 47:
+# 2 replayed, 21 witness_overflow, 12 conceded off a witness, 8 diverged,
+# 3 reading overflow, 1 negative. The accepted rows of these runs need times
+# far past any concrete run (findings, "Witness and concession").

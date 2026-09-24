@@ -1935,3 +1935,95 @@ Checks, same overlay, 30 threads, 300 s chunks, seeds 1000 and 1001:
 - **The phase 4 concrete recv_anchor chunk that deferred 209 histories:**
   run again on the same spec with the queue blocking, it checked all 7.87M
   and found no violation. The concrete count stays at 0.
+
+## Phase 5 and the witness
+
+### Where the cost gap on the fixtures comes from
+
+A reading only; the cost exit criterion is left to the perf loop.
+- Per comparison the online solver matches the offline harness, about 7 us:
+  the gap on idioms and forms is not the engine.
+- Symbolic runs make about twice the comparisons a run. A concrete run
+  spends about a third of its steps on advances and idling (idioms: 345
+  dispatches, 167 advances and 154 idle steps a run), while a symbolic run
+  samples no advances and fires timers freely.
+- On the timer-heavy fixtures 85% to 90% of symbolic wall time is outside
+  the solver.
+
+### The audit as a regression check
+
+Every run audited, each log played again through a fresh engine with the
+calls the simulator made (`symtime audit`): 320 runs on each of the six
+datasets, about 200,000 decisions and 83 withdrawn trials, 0 differences in
+any answer, taken flip, implied or rejected flag, or require. Runs with open
+durations are not covered: the log does not keep where an open duration
+started (`results/phase5/audit_regression.txt`).
+
+### Refusals by site
+
+Share of drawn flips refused: 0.28 clean, 0.23 recv_anchor, 0.57
+cached_flag, 0.53 forms, 0.48 idioms, 0.58 crossclock. Refused trials take
+0.01 of solver time on the two lease read specs, 0.07 on cached_flag and
+up to 0.19 on crossclock. A few sites almost never flip (forms site 6 refuses
+100%, idioms site 18 99%) and carry most of their dataset's refused-trial
+time; they are what phase 6's down-weighting is for
+(`results/phase5/refusals_by_site.txt`).
+
+### Starting point
+
+Open durations started at the sampled assignment, at another seed's sample,
+and at one fixed assignment; runs paired and compared while they take the
+same path. The witnessed outcome differs in 1.3%, 0.3% and 1.9% of
+decisions against another seed's start (clean, recv_anchor, cached_flag),
+and in 1.9%, 0.3% and 5.1% against the fixed start. The fixtures have no
+named durations (`results/phase5/starting_point.txt`).
+
+### Reach with open durations
+
+The phase 4 protocol again on the fixed lease specs, recovery fix included:
+seeds 1000 and 1001, 300 s chunks alternating concrete, drawn and open, one
+120 s `trials: all` chunk, 30 threads (`results/reach_p5/`,
+`results/reach_sessions_p5.txt`).
+
+| Spec | Concrete | Drawn | Open |
+|---|---|---|---|
+| cached_flag | 30 in 15.9M (180/h) | 35 in 7.8M (210/h) | 31 in 7.0M (186/h) |
+| recv_anchor | 0 in 15.7M | 3 in 7.7M | 3 in 7.1M |
+| clean | 0 in 15.5M | 0 in 7.8M | 0 in 7.1M |
+
+- Every candidate replayed illegal; no run conceded or widened.
+- The open arm finds the same three recv_anchor runs as the drawn arm
+  (2243085, 2919364, 1005288): open durations start where the run sampled
+  them, and these violations need no other assignment.
+- Open costs throughput: 11.7k to 11.9k runs/s against 12.9k to 13.1k,
+  solver share 0.05 to 0.07 against 0.04 to 0.05. On cached_flag it takes
+  far more flips (0.40 of comparisons against 0.23) and refuses fewer (0.10
+  against 0.27): moving the durations opens outcomes the sampled ones close.
+  That has not turned into more violations per wall-hour.
+
+### Witness and concession: why the exit falls short
+
+Under `confirm: all` idioms replays 316 of 320 (0.9875: 3 witness
+overflows, 1 concession off a witness) and crossclock 269 of 320; of
+crossclock's 47 conceded runs 2 replay past the concession. The lease specs
+and forms replay 320 of 320.
+
+Eliminating finished unknowns in the witness solve and working their values
+out again afterwards was built and checked (the values it gives meet every
+row) and taken out: the rows that stay are those of dead slacks with
+bounds, which forgetting cannot remove, so the tableau still peaks at 1,300
+to 2,800 rows, and the solve was about 6 times slower and lost a run.
+Leaving implied rows out, starting from the engine's own point, pivot-rule
+sweeps and a floating-point solve checked exactly (2 of 5 recovered) did
+not recover the failing runs either.
+
+The cause is in the rows. Cross-clock comparisons at the extreme rates
+(19/20, 21/20) compound, and the accepted rows need times far past any
+concrete run. On one 474-unknown idioms run the rows admit no point with
+every unknown below 2^45 ticks; witness values reach 3e16 and the online
+engine's own point is as large. Taking out the four-term two-clock rows
+alone removes the overflow. The same sizes explain crossclock's reading
+overflows, its concessions without a point and its diverging
+continuations. A horizon on time, the online engine refusing flips that
+need times past about 2^40 ticks, would bound all of it; it changes which
+behaviours a symbolic run can reach and is left to the owner.
