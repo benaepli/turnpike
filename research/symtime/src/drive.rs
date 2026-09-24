@@ -111,6 +111,8 @@ pub fn play(script: Script, policy: &Policy) -> Outcome {
                 engine.require(rows);
             }
             Step::Dead(unknown) => engine.forget(unknown),
+            // Recorded runs carry no horizon; the engine's options give it.
+            Step::Horizon(..) => {}
             Step::Decide { taken, other, site, outcome } => {
                 let ask = match policy.draw {
                     Some(q) if draws_witnessed(open.len(), site, q) => Ask::UnlessWitnessed,

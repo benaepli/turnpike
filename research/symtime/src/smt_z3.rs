@@ -28,6 +28,7 @@ pub fn play(ctx: &Context, solver: &Solver, script: &Script) -> Outcome {
     for step in &script.steps {
         match step {
             Step::Dead(_) | Step::Glue { .. } => {}
+            Step::Horizon(u, h) => solver.assert(&formula(ctx, &spur_time::Row { terms: vec![(*u, -spur_time::Q::from_integer(1))], constant: *h, strict: false }, &unknowns)),
             Step::Unknown(index, _) | Step::Lasting(index) => unknowns.push(Real::new_const(ctx, format!("x{index}"))),
             Step::Require(rows) => rows.iter().for_each(|r| solver.assert(&formula(ctx, r, &unknowns))),
             Step::Decide { taken, other, site, outcome: result } => {
