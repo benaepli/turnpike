@@ -14,6 +14,9 @@
 //!                 their last mention, and how reads group into steps
 //! agree           an online engine log (`--tc` names its directory) against
 //!                 Z3, decision by decision
+//! audit           a session's audit logs (`--tc` names `<output>/audit`)
+//!                 played again through a fresh engine, each decision
+//!                 compared with the one recorded
 //! cycling         the runs in which a check cycles, the shortest written out
 //! patterns        joint (node, site, result) patterns of the runs' time
 //!                 comparisons: how many distinct, how many runs had one
@@ -25,6 +28,7 @@
 //!                 as test fixtures with Z3's answers (`SYMTIME_DUMP_DIR`)
 
 mod agree;
+mod audit;
 mod drive;
 mod dump;
 mod general;
@@ -762,6 +766,11 @@ fn cycling_pass(runs: &[Run], args: &Args) {
 
 fn main() {
     let args = args();
+    if args.command == "audit" {
+        let tally = audit::audit(&args.tc, args.limit);
+        println!("{tally:?}");
+        return;
+    }
     if args.command == "agree" {
         let tally = agree::agree(&args.tc, args.limit);
         println!("{tally:?}");

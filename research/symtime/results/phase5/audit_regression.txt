@@ -1,0 +1,13 @@
+# Audit as a regression check: symbolic sessions with time.audit_share = 1,
+# time.confirm = none, session_seed 1000, 20 runs per config, durations
+# sampled; each run's audit log played again through a fresh engine by
+# `symtime audit`, every decision's answer, taken flip, implied and
+# rejected flag and every require compared with the one recorded.
+# (Runs with open durations are skipped: the log does not keep where an open
+# duration started.)
+clean        runs 320  decisions   1438  flips   721  trials  0  differing 0
+recv_anchor  runs 320  decisions   1500  flips   723  trials  0  differing 0
+cached_flag  runs 320  decisions  14383  flips  7210  trials  0  differing 0
+forms        runs 320  decisions  17809  flips  8944  trials  0  differing 0
+idioms       runs 320  decisions  72088  flips 35907  trials 10  differing 0
+crossclock   runs 320  decisions  98032  flips 48948  trials 73  differing 0
