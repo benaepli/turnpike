@@ -60,3 +60,10 @@ crossclock   320 checks  replayed 282  witness_overflow 27  witness_concession 1
 #   2^40     312               258
 # A tighter horizon adds witness overflows and infeasible witnesses: the
 # overflow is the size of the fractions, not of the times.
+
+# Horizon on the witness side only (the owner's decision), same protocol:
+idioms       320 checks  replayed 316  witness_overflow 3  witness_concession 1              0.9875
+crossclock   320 checks  replayed 273  witness_overflow 28  witness_concession 15
+                                       replay_diverged 4                                     0.8531
+# Conceded runs replayed: idioms 0 of 1, crossclock 6 of 47. No reading
+# overflow after a concession. The 99% gate is dropped; see the plan.

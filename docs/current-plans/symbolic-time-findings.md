@@ -2101,3 +2101,43 @@ Z3 is slower here because of the horizon's large constant.
 
   This is a cost of the horizon as specified, recorded as a reading. An `H`
   that fits the narrow tier would avoid it, but it is not the clocks' range.
+
+### The horizon, on the witness side only
+
+The owner took the horizon out of the online engine. `H` now bounds only the
+witness solve and the concession point. A witness that needs times past `H`
+fails with reason `witness_past_horizon`. The 99% witness gate was dropped,
+and the fraction growth on long cross-clock chains is accepted as a known
+limit (plan 5(h), risk 15).
+
+**Reach on the lease specs.** Drawn and open arms, seeds 1000 and 1001, two
+300 s chunks each (`results/reach_horizon_witness/`). The figures match the
+phase 5 run from before the horizon:
+
+- Throughput: 13.0k to 13.2k runs/s drawn and 11.8k to 12.0k open.
+- Solver share: 0.04 to 0.07. No run widens or concedes.
+- The same confirmed violations as before:
+
+| Spec | Drawn | Open |
+|---|---|---|
+| cached_flag | 35 | 31 |
+| recv_anchor | 3 (2243085, 2919364, 1005288) | 3 (2243085, 2919364, 1005288) |
+| clean | 0 | 0 |
+
+- Every candidate replayed illegal.
+
+**Phase 3 exit.** `confirm: all`, 320 checks each:
+
+| Dataset | Replayed | Failures |
+|---|---|---|
+| idioms | 316 (0.9875) | 3 witness overflows, 1 concession |
+| crossclock | 273 (0.853) | 28 witness overflows, 15 concessions, 4 divergences |
+
+- No run ends in a clock overflow after a concession.
+- Crossclock's conceded runs replay 6 of 47. Before the horizon it was 2 of
+  47, and with the horizon in the engine 17 of 39.
+- With the horizon in the engine, crossclock replayed 282. That count came
+  from the online engine refusing flips past `H`, which no longer happens.
+  Against the pre-horizon 269, the result is no worse.
+- The four divergences come from runs that conceded off a witness. None is a
+  wrong verdict.

@@ -412,24 +412,26 @@ a check; the cap is reached.
 4. If no point is found, the run ends with `end_reason =
    "time_conceded_without_point"`, counted.
 
-**The horizon.** Every time and every open duration is at most `H`, the
-largest global time at which a concrete run still fits: a reading
-`origin + rate * T` at the fastest rate of the band, plus a deadline's
-duration of at most `H`, plus the truetime width, inside a signed 64-bit
-reading, less 2^20 ticks for the witness's rounding
-(`clock::horizon`). The engine keeps it as one bound on the newest time,
-on a slack of its own that moves on as each time is made (the ordering
-rows keep the earlier times below it, and they stay free to be forgotten
-and glued), and as a bound on each open duration. A flip that needs a
-time past `H` is refused like any other outcome that cannot hold. The
-witness solve takes the same bound, and a continuation point past it is
-no point. On every dataset measured `H` is 4.50e18 (2^61.96); `rho` is
-0.05 throughout.
+**The horizon.** `H` is the largest global time at which a concrete run
+still fits. That means a reading `origin + rate * T` at the fastest rate of
+the band, plus a deadline's duration of at most `H`, plus the truetime width,
+must fit a signed 64-bit reading, with 2^20 ticks left over for the witness's
+rounding (`clock::horizon`). `H` bounds only two things:
 
-Offline a rational continuation point was found for almost every conceded
-run: none missing on overflow alone, and 2 to 4 of 400 crossclock runs
-without one under a cap of 2 to 5 times. Rounding it to integer ticks
-mid-run is unmeasured.
+- The witness solve. The newest time and every duration must be at most `H`.
+  A run whose rows are realised only past `H` fails with reason
+  `witness_past_horizon`, so its candidate stays unconfirmed.
+- The continuation point. A point with a live value past `H` counts as no
+  point.
+
+The online engine does not know `H`. A flip that could be realised only past
+`H` is still taken. This is sound, because the verdict is always the concrete
+replay's.
+
+With `H` inside the engine, every lease run widened past the 64-bit tier. The
+solver's share of run time roughly tripled, and throughput fell 6% to 10%.
+
+`H` is 4.50e18 (2^61.96) on every dataset measured.
 
 **The cap online.** Offline the cap compared solver time with the run's
 recorded wall time. Online it must compare solver cost so far with the run's
@@ -567,7 +569,7 @@ Hooks as in the experiment (`time.rs`, `exec.rs`, `state.rs`, `clock.rs`,
 | **(e) `run-plan` and `replay`** | `run-plan` rejects `time.mode = symbolic`: a plan with numeric `advance_time` is concrete from `T = 0`. `replay` takes version 2; a version-3 witness, replayed concretely (confirmation); and a symbolic run's own artifact, replayed symbolically (the determinism test). | Turning `advance_time` into a lower bound: changes the meaning of existing plans. |
 | **(f) Other explorers** | The engine lives below `run_single_simulation` and `run_single_plan`, so genetic, AOS, continuous and campaign inherit it. The chooser's stream is off the tape, so an AOS tape-mutated child redraws time decisions. `standard` is tested in full; the others get a smoke test that completes, is deterministic, and leaves Concrete unchanged. | Time decisions on the draw tape: mutation would flip decisions blindly and shift every later draw. |
 | **(g) Output tables** | As in 4.11. `traceanalyzer` must tolerate missing time tables when `runs.clock.time` is present. | Writing the current assignment as `global_time`: it moves as repairs happen, so the numbers would look right and be wrong. |
-| **(h) Beyond 128 bits** | Concession (4.7), with every time held under the clocks' horizon (4.7), so a concession never leaves a point a concrete clock cannot read. crossclock outgrows 128 bits in 7 of 400 runs with durations open; float gives nothing up there. The horizon does not stop the witness solve outgrowing 128 bits: that comes from the size of the fractions a chain of cross-clock rows builds, not from the size of the times, and a tighter horizon makes it worse (findings, "The horizon"). | A `BigRational` tier: owner decision against arbitrary precision; `Num` is `Copy` throughout. The offline "second play" that keeps the better of two runs: answers online are already acted on. |
+| **(h) Beyond 128 bits** | Concession (4.7). A continuation point or a witness past the clocks' horizon (4.7) is refused, so a concession never leaves a point a concrete clock cannot read. crossclock outgrows 128 bits in 7 of 400 runs with durations open; float gives nothing up there. The witness solve still outgrows 128 bits on long cross-clock chains, from the size of the fractions they build rather than the size of the times. A tighter horizon makes this worse (findings, "The horizon"). This is a known limit: such runs are reported `candidate_unconfirmed` with a named reason, never with a wrong verdict. | A `BigRational` tier: owner decision against arbitrary precision; `Num` is `Copy` throughout. The offline "second play" that keeps the better of two runs: answers online are already acted on. |
 
 ## 6. Phases
 
@@ -667,9 +669,14 @@ No `spur-core` change; between iterations.
 - **Entry test.** The harness `witness` pass on recorded concrete runs of
   `forms` and `idioms` replays at least 99% (risk 3; it needs no engine and
   can run during phase 1).
-- **Exit, with `confirm: all` in a test configuration.** At least 99% of
-  completed symbolic runs on the lease specs, `forms` and `idioms` yield a
-  witness that `spur replay` accepts to the recorded endpoint with every
+- **Exit, with `confirm: all` in a test configuration.** The 99% gate below
+  was dropped by the owner. It is recorded as a reading:
+  - the lease specs and `forms` replay 320 of 320;
+  - `idioms` replays 316 of 320 (0.9875);
+  - crossclock's conceded runs are a known limit (5(h)).
+
+  The original criterion: at least 99% of completed symbolic runs on the
+  lease specs, `forms` and `idioms` yield a witness that `spur replay` accepts to the recorded endpoint with every
   comparison matching, the rest reported by reason; conceded runs replay
   across their concession step; both interpreters give the same replay
   history; an equality-only case reports `candidate_unconfirmed`; a
@@ -753,8 +760,7 @@ the lite loop with its own counter.
 | 11 | Barrier or implicit decisions are common in real specs. | Counters on the whole `bin/spur` tree under Symbolic. | Phase 2 |
 | 12 | Child-process confirmation is too slow when candidates are common. | Measure; `stop_on_violation` bounds it; cap concurrent confirmations. | Phase 3 |
 | 13 | The evidence base is narrow: three specs, one idiom; the heavy shapes are synthetic. | Add `paxos_master_lease_forget` and the fixtures to every reading. | Phase 4 |
-| 14 | The horizon refuses a flip a real run needs. | Reach on the lease specs with it, refusal shares before and after. | Phase 5 |
-| 15 | The witness solve outgrows 128 bits on long cross-clock runs, so some runs, conceded ones most, never replay. | `confirm: all` on idioms and crossclock; the horizon sweep. Open. | Phase 5 |
+| 15 | The witness solve outgrows 128 bits on long cross-clock runs, so some runs, conceded ones most, never replay. | `confirm: all` on idioms and crossclock; the horizon sweep. Closed as accepted: every such run is `candidate_unconfirmed` with a named reason, never a wrong verdict. | Phase 5 |
 
 ## 8. Decisions for the owner
 
